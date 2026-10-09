@@ -117,8 +117,8 @@ export function ConnectorList(props: ConnectorListProps) {
                 <div key={r.slug} className="flex min-h-14 items-center gap-3 py-2" data-recommended={r.slug}>
                   <IntegrationLogo brand={tile?.brand} name={r.name} icon={connectorIcon(tile?.icon ?? 'Plug')} size="sm" />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{r.name}</div>
-                    <div className="truncate text-[13px] text-muted-foreground">{r.why}</div>
+                    <div className="line-clamp-2 text-sm font-medium sm:line-clamp-1">{r.name}</div>
+                    <div className="line-clamp-2 text-[13px] text-muted-foreground sm:line-clamp-1">{r.why}</div>
                   </div>
                   <button type="button" onClick={() => props.onConnectNew(r.slug)} aria-label={t('connect_named', { name: r.name })} className={PILL}>
                     {t('connect')}
@@ -192,12 +192,12 @@ function ConnectionItem(props: ConnectorListProps & { row: ConnectionRow; rows: 
         >
           <IntegrationLogo brand={tile.brand} name={tile.name} icon={connectorIcon(tile.icon)} size="sm" />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">
+            <span className="line-clamp-2 block text-sm font-medium sm:line-clamp-1">
               {tile.name}
               {instance && <span className="font-normal text-muted-foreground">{` · ${instance}`}</span>}
             </span>
             <StatusLine row={row} />
-            {meta && <span className="block truncate text-[13px] text-muted-foreground">{meta}</span>}
+            {meta && <span className="line-clamp-2 block text-[13px] text-muted-foreground sm:line-clamp-1">{meta}</span>}
           </span>
         </button>
         {props.isAdmin && fixLabel && (
@@ -419,8 +419,8 @@ function CatalogRow({ entry, attempt, timeZone, onConnect }: { entry: CatalogEnt
       <div className="flex items-center gap-3">
         <IntegrationLogo brand={tile.brand} name={tile.name} icon={connectorIcon(tile.icon)} size="sm" />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{tile.name}</div>
-          <div className="line-clamp-1 text-[13px] text-muted-foreground">{firstSentence(tile.description)}</div>
+          <div className="line-clamp-2 text-sm font-medium sm:line-clamp-1">{tile.name}</div>
+          <div className="line-clamp-2 text-[13px] text-muted-foreground sm:line-clamp-1">{firstSentence(tile.description)}</div>
         </div>
         {entry.unavailable
           ? <span className="shrink-0 text-xs text-muted-foreground" data-testid="unavailable">{t('unavailable')}</span>

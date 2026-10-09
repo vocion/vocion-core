@@ -6,7 +6,7 @@ import type { InboxFacets, InboxKind, InboxSort, InboxTab } from '@/services/Inb
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { ChipRow, FilterBar } from '@/components/patterns';
+import { ChipRow, CompactFilters, CompactSection, FilterBar } from '@/components/patterns';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { INBOX_KINDS } from '@/services/inbox/kinds';
@@ -22,6 +22,11 @@ const SORTS: readonly InboxSort[] = ['oldest', 'newest', 'value', 'confidence'];
  * re-renders on the server with the same view a person can bookmark or paste
  * into a chat. `?kind=proposal,ruling` · `?actionKind=hubspot.update` ·
  * `?agents=deal-desk` · `?q=` · `?sort=` · `?tab=`.
+ *
+ * On a phone all of it is ONE row of chips (`CompactFilters`): the scope
+ * ("This workspace ▾"), the lane ("Open 3 ▾"), a button that opens a bottom
+ * sheet with the search field, every filter and sort, and each filter that is
+ * on as a removable chip. Same URL writes; only the layout changes.
  * @param props
  * @param props.tab
  * @param props.q
@@ -163,9 +168,78 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
     });
   }
 
+  const tokenLabel = (value: string) => tokenOptions.find(o => o.value === value)?.label ?? value.slice(value.indexOf(':') + 1);
+  const sortSelect = (className: string) => (
+    <select
+      value={sort}
+      aria-label={t('sort')}
+      onChange={e => go({ sort: e.target.value === defaultSort ? null : e.target.value })}
+      className={className}
+    >
+      {SORTS.map(s => <option key={s} value={s}>{t(`sort_${s}`)}</option>)}
+    </select>
+  );
+
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
+      <CompactFilters
+        menus={[
+          {
+            key: 'scope',
+            label: t('scope_label'),
+            value: 'here',
+            options: [{ key: 'here', label: t('scope_here') }, { key: 'all', label: t('scope_all') }],
+            // Switching scope drops this scope's filters, as `InboxScope` does.
+            onChange: key => key === 'all' && router.replace(`${pathname}?scope=all`, { scroll: false }),
+          },
+          {
+            key: 'tab',
+            label: t('title'),
+            value: tab,
+            options: (['open', 'decided', 'snoozed'] as InboxTab[]).map(tb => ({ key: tb, label: t(`tab_${tb}`), count: tabs[tb] })),
+            onChange: key => go({ tab: key === 'open' ? null : key, sort: null }),
+          },
+        ]}
+        active={[
+          ...(q ? [{ key: '__q__', label: `“${q}”`, onRemove: () => go({ q: null }) }] : []),
+          ...selectedTokens.map(v => ({ key: v, label: tokenLabel(v), onRemove: () => onTokens(selectedTokens.filter(x => x !== v)) })),
+        ]}
+        sheet={{
+          count: selectedTokens.length + (q ? 1 : 0) + (sort === defaultSort ? 0 : 1),
+          footer: filtered && (
+            <button type="button" onClick={() => go({ kind: null, actionKind: null, agents: null, q: null })} className="text-sm text-muted-foreground underline-offset-2 hover:underline">
+              {t('clear')}
+            </button>
+          ),
+          children: (
+            <>
+              <FilterBar
+                label={t('search_label')}
+                placeholder={t('filter_placeholder')}
+                query={draft}
+                onQueryChange={onSearch}
+                options={tokenOptions}
+                selected={selectedTokens}
+                onSelectedChange={onTokens}
+                searching={t('filter_searching')}
+              />
+              <CompactSection label={t('filter_kind')}>
+                <ChipRow chips={kindChips} size="md" label={t('filter_kind')} />
+              </CompactSection>
+              {facetChips.length > 0 && (
+                <CompactSection label={t('filter_facets')}>
+                  <ChipRow chips={facetChips} size="sm" label={t('filter_facets')} />
+                </CompactSection>
+              )}
+              <CompactSection label={t('sort')}>
+                {sortSelect('h-10 w-full rounded-lg bg-surface-soft px-3 text-base text-foreground outline-none focus:ring-2 focus:ring-ring/30')}
+              </CompactSection>
+            </>
+          ),
+        }}
+      />
+
+      <div className="hidden flex-wrap items-center gap-3 sm:flex">
         <nav aria-label="Inbox tabs" className="flex h-9 items-stretch rounded-md border border-border p-0.5 text-sm">
           {(['open', 'decided', 'snoozed'] as InboxTab[]).map(tb => (
             <button
@@ -183,13 +257,7 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
 
         <label className="ml-auto flex h-9 items-center gap-2 text-xs text-muted-foreground">
           {t('sort')}
-          <select
-            value={sort}
-            onChange={e => go({ sort: e.target.value === defaultSort ? null : e.target.value })}
-            className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
-          >
-            {SORTS.map(s => <option key={s} value={s}>{t(`sort_${s}`)}</option>)}
-          </select>
+          {sortSelect('h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40')}
         </label>
       </div>
 
@@ -198,6 +266,7 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
           The chip rows are not gone — they are the advanced panel, which is
           where browsing a dimension you cannot name yet belongs. */}
       <FilterBar
+        className="hidden sm:flex"
         label={t('search_label')}
         placeholder={t('filter_placeholder')}
         query={draft}

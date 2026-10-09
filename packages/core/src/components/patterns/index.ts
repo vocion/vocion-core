@@ -10,6 +10,7 @@ export { CatalogCard, type CatalogCardAction, type CatalogCardProps, CatalogCard
 export { arrangeChips, type ChipLike, fitChips } from './chipFit';
 // List
 export { type Chip, ChipRow } from './ChipRow';
+export { type CompactActiveFilter, CompactFilters, type CompactMenu, CompactSection } from './CompactFilters';
 // Detail
 export {
   Accordion,
@@ -50,5 +51,7 @@ export { Related, relatedFacts } from './Related';
 export { RowMenu, type RowMenuItem } from './RowMenu';
 
 export { formatScore, scorePercent, type ScoreVerdict, scoreVerdict } from './scoreChip';
+
 export { ConversationSkeleton, ListSkeleton, ReportSkeleton } from './Skeletons';
 export { type BarAction, type BarField, StickyActionBar } from './StickyActionBar';
+export { type RowSwipe, type SwipeAction } from './SwipeRow';

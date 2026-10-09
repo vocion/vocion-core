@@ -34,8 +34,8 @@ export function RecommendationBatches({ batches, accept }: { batches: Recommenda
     return null;
   }
   return (
-    <section data-testid="inbox-batches" aria-label="Accept in one move" className="mb-4">
-      <p className="mb-1 px-2 text-[11px] text-muted-foreground/70">Same recommendation — accept in one move</p>
+    <section data-testid="inbox-batches" aria-label="Accept in one move" className="mb-3 sm:mb-4">
+      <p className="mb-1 hidden px-2 text-[11px] text-muted-foreground/70 sm:block">Same recommendation — accept in one move</p>
       <ListRows className="border-y border-border/70">
         {batches.map(batch => <BatchLine key={batch.key} batch={batch} accept={accept ?? defaultAccept} />)}
       </ListRows>

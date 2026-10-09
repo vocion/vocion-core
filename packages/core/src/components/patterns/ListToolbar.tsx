@@ -7,6 +7,7 @@ import { ArrowDown, ArrowUp, Search } from 'lucide-react';
 import { useId } from 'react';
 import { cn } from '@/utils/Helpers';
 import { ChipRow } from './ChipRow';
+import { CompactFilters, CompactSection } from './CompactFilters';
 import { flipDirection, toggleChip } from './listUrlState';
 
 /**
@@ -25,6 +26,12 @@ import { flipDirection, toggleChip } from './listUrlState';
  * The chips are ONE line, always: `ChipRow` measures and folds the rest into
  * a "+N more" menu (the shape Review queue set in #348). No list wraps chips to
  * a second row.
+ *
+ * On a phone the whole toolbar is ONE row of chips (`CompactFilters`): the
+ * lane as a menu chip ("Review 12 ▾"), a button that opens a bottom sheet with
+ * search, facets, sort and the category chips, and each filter that is on as
+ * a removable chip. Same props, same URL state — the layout is the only thing
+ * that changes (Chris, 2026-10-09: "Header too tall… Global fix.").
  */
 
 export type ToolbarTab = { key: string; label: string; count?: number };
@@ -123,10 +130,103 @@ export function ListToolbar(props: {
   const facets = props.facets ?? [];
   const hasRight = search || sort || direction || props.trailing || facets.length > 0;
 
+  const activeFacets = facets.filter(f => f.value);
+  const activeChips = chips ? chips.items.filter(c => chips.active.includes(c.key)) : [];
+  const hasSheet = Boolean(search || sort || direction || facets.length > 0 || chips);
+  const sheetCount = activeFacets.length + activeChips.length + (search?.value ? 1 : 0);
+
   return (
     <div data-pattern="list-toolbar" className={cn('flex flex-col', props.className)}>
+      <CompactFilters
+        className="pb-3"
+        menus={tabs
+          ? [{ key: 'tabs', label: tabs.label ?? 'Lanes', value: tabs.value, onChange: tabs.onChange, options: tabs.items }]
+          : []}
+        active={[
+          ...(search?.value ? [{ key: '__q__', label: `“${search.value}”`, onRemove: () => search.onChange('') }] : []),
+          ...activeFacets.map(f => ({
+            key: `facet:${f.name}`,
+            label: `${f.label}: ${f.options.find(o => o.key === f.value)?.label ?? f.value}`,
+            onRemove: () => f.onChange(''),
+          })),
+          ...activeChips.map(c => ({ key: `chip:${c.key}`, label: c.label, onRemove: () => chips!.onChange(toggleChip(chips!.active, c.key)) })),
+        ]}
+        sheet={hasSheet
+          ? {
+              count: sheetCount,
+              children: (
+                <>
+                  {search && (
+                    <label className="relative block">
+                      <span className="sr-only">{search.label ?? search.placeholder ?? 'Find'}</span>
+                      <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground/70" aria-hidden />
+                      <input
+                        type="search"
+                        value={search.value}
+                        onChange={e => search.onChange(e.target.value)}
+                        placeholder={search.placeholder}
+                        className="h-10 w-full rounded-lg bg-surface-soft pr-3 pl-9 text-base outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-ring/30"
+                      />
+                    </label>
+                  )}
+                  {facets.map(f => (
+                    <CompactSection key={f.name} label={f.label}>
+                      <select
+                        value={f.value}
+                        onChange={e => f.onChange(e.target.value)}
+                        aria-label={f.label}
+                        className="h-10 w-full rounded-lg bg-surface-soft px-3 text-base outline-none focus:ring-2 focus:ring-ring/30"
+                      >
+                        {f.options.map(o => (
+                          <option key={o.key || '__all__'} value={o.key}>
+                            {o.count === undefined ? o.label : `${o.label} · ${o.count}`}
+                          </option>
+                        ))}
+                      </select>
+                    </CompactSection>
+                  ))}
+                  {chips && (
+                    <CompactSection label={chips.label ?? 'Filter'}>
+                      <ChipRow chips={chipList(chips)} size="md" label={chips.label ?? 'Filter'} />
+                    </CompactSection>
+                  )}
+                  {(sort || direction) && (
+                    <CompactSection label={sort?.label ?? 'Sort'}>
+                      <div className="flex items-center gap-2">
+                        {sort && (
+                          <select
+                            value={sort.value}
+                            onChange={e => sort.onChange(e.target.value)}
+                            aria-label={sort.label ?? 'Sort'}
+                            className="h-10 min-w-0 flex-1 rounded-lg bg-surface-soft px-3 text-base outline-none focus:ring-2 focus:ring-ring/30"
+                          >
+                            {sort.options.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+                          </select>
+                        )}
+                        {direction && (
+                          <button
+                            type="button"
+                            onClick={() => direction.onChange(flipDirection(direction.value))}
+                            aria-label={direction.value === 'desc' ? 'Sort ascending' : 'Sort descending'}
+                            className="flex size-10 items-center justify-center rounded-lg bg-surface-soft text-muted-foreground"
+                          >
+                            {direction.value === 'desc' ? <ArrowDown className="size-4" /> : <ArrowUp className="size-4" />}
+                          </button>
+                        )}
+                      </div>
+                    </CompactSection>
+                  )}
+                </>
+              ),
+            }
+          : undefined}
+        // `trailing` (a count, a reset) stays on the desktop row only: drawn
+        // twice, it is two of the same thing in the DOM, and the lane chip
+        // already carries the count on a phone.
+      />
+
       {(tabs || hasRight) && (
-        <div className={cn('flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-rule', !tabs && 'pb-2')}>
+        <div className={cn('hidden flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-rule sm:flex', !tabs && 'pb-2')}>
           {tabs && (
             <div role="group" aria-label={tabs.label ?? 'Lanes'} className="flex items-end gap-5 overflow-x-auto">
               {tabs.items.map((t) => {
@@ -220,7 +320,7 @@ export function ListToolbar(props: {
           chips={chipList(chips)}
           size="md"
           label={chips.label ?? 'Filter'}
-          className="py-3"
+          className="hidden py-3 sm:flex"
         />
       )}
     </div>

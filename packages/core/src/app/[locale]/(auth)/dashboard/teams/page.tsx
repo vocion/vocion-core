@@ -3,6 +3,7 @@ import type { TeamAgent, TeamView, WorkspaceLeadView } from '@/services/TeamServ
 import { ArrowRight, TriangleAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';
+import { ListRow, ListRows, Subline } from '@/components/patterns';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
@@ -109,9 +110,9 @@ function TeamsScreen({ workspace, leadRole, teams, ungrouped }: {
           )
         : (
             <>
-              <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <ListRows className="mt-4 sm:mt-6">
                 {teams.map(team => <TeamCard key={team.slug} team={team} />)}
-              </div>
+              </ListRows>
             </>
           )}
 
@@ -138,7 +139,7 @@ function WorkspaceLeadBand({ workspace, role, teams }: { workspace: WorkspaceLea
   return (
     // Airy pass (B-034b §4): the hero loses its tint and coloured border — white,
     // a 48px orb avatar, one ink primary and one ghost; colour lives in the orb.
-    <div className="flex flex-col gap-4 rounded-xl border border-border/70 p-5 sm:flex-row sm:items-start">
+    <div className="flex flex-row items-start gap-3 rounded-xl border border-border/70 p-4 sm:gap-4 sm:p-5">
       <AgentDot name={lead.name} accent={lead.accent} size="lg" decorative />
 
       <div className="min-w-0 flex-1">
@@ -149,7 +150,7 @@ function WorkspaceLeadBand({ workspace, role, teams }: { workspace: WorkspaceLea
           </span>
         </div>
 
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 line-clamp-2 text-sm text-muted-foreground sm:line-clamp-none">
           {lead.description ?? t('workspace_lead_description')}
         </p>
 
@@ -198,10 +199,11 @@ function NoWorkspaceLeadCallout() {
 }
 
 /**
- * One team box — agents-page card anatomy (accent stripe, icon tile,
- * pills, footer meta) with the F1 additions: the lead row with its
- * "«Team» Team Lead" role label and the owner row with explicit vs
- * inherited provenance.
+ * One team, as one `ListRow` (docs/design/patterns.md § One list): the team's
+ * colour dot and name, then its lead with the "«Team» Team Lead" role, its
+ * specialists and its count, and the owner with explicit vs inherited
+ * provenance as the row's chip. A phone reads the whole chart in a screen
+ * rather than one card (Chris, 2026-10-09: "Global fix").
  * @param root0
  * @param root0.team - The resolved team view.
  */
@@ -211,78 +213,28 @@ function TeamCard({ team }: { team: TeamView }) {
   const specialists = team.members.filter(m => m.slug !== team.leadAgentSlug);
 
   return (
-    // Airy pass (B-034b §4): no coloured top bar, no shadow, no lift — a hairline
-    // and a soft hover; the team's colour is a 6px dot before its name.
-    <div className="group relative flex flex-col rounded-xl border border-border/70 p-5 transition-colors hover:bg-surface-hover">
-      <div className="flex items-baseline justify-between gap-2">
-        <Link href={`/dashboard/teams/${team.slug}`} className="flex min-w-0 items-center gap-2">
-          <span className="size-1.5 shrink-0 rounded-full" style={{ background: a.stripe }} aria-hidden />
-          <h3 className="truncate text-base leading-tight font-semibold">{team.name}</h3>
-        </Link>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          {t('agent_count', { count: team.members.length })}
-        </span>
-      </div>
-
-      <div className="mt-3">
-        <div className="mb-1 text-[12px] font-medium text-muted-foreground">{t('lead_label')}</div>
-        {team.lead
-          ? (
-              <Link href={`/dashboard/agents/${team.lead.slug}`} className="inline-flex items-center gap-2">
-                <AgentDot name={team.lead.name} accent={team.lead.accent} size="sm" decorative />
-                <span className="text-sm font-semibold hover:text-primary">{team.lead.name}</span>
-                <span className="text-[11px] text-muted-foreground">
-                  ·
-                  {' '}
-                  {t('team_lead_role', { team: team.name })}
-                </span>
-              </Link>
-            )
-          : (
-              <div className="rounded-lg border border-dashed border-border px-3 py-2">
-                <p className="text-xs text-[var(--brand-amber-deep)]">
-                  <TriangleAlert className="mr-1 inline size-3 align-[-1px]" aria-hidden />
-                  {t('no_lead_warning')}
-                </p>
-                <Link
-                  href={`/dashboard/teams/${team.slug}#under-the-hood`}
-                  className="mt-1 inline-block text-xs font-semibold text-[var(--brand-amber-deep)] underline underline-offset-2"
-                >
-                  {t('choose_lead')}
-                </Link>
-              </div>
-            )}
-      </div>
-
-      {specialists.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {specialists.map(s => (
-            <Link
-              key={s.slug}
-              href={`/dashboard/agents/${s.slug}`}
-              className="inline-flex items-center gap-1.5 rounded-full bg-surface-soft py-0.5 pr-2 pl-0.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-surface-hover"
-            >
-              <AgentDot name={s.name} accent={s.accent} size="xs" decorative />
-              {s.name}
-            </Link>
-          ))}
-        </div>
+    <ListRow
+      href={`/dashboard/teams/${team.slug}`}
+      title={(
+        <>
+          <span className="mr-2 inline-block size-1.5 rounded-full align-middle" style={{ background: a.stripe }} aria-hidden />
+          {team.name}
+        </>
       )}
-
-      <div className="mt-auto flex items-end justify-between gap-2 border-t border-border/60 pt-3">
-        <div>
-          <div className="mb-1 text-[12px] font-medium text-muted-foreground">{t('owner_label')}</div>
-          <OwnerChip accountable={team.accountable} />
-        </div>
-        <Link
-          href={`/dashboard/teams/${team.slug}`}
-          className="inline-flex shrink-0 items-center gap-1 text-[12px] font-medium text-muted-foreground transition-colors group-hover:text-foreground"
-        >
-          {t('view_team')}
-          <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
-        </Link>
-      </div>
-    </div>
+      subline={(
+        <Subline
+          separator="·"
+          segments={[
+            team.lead
+              ? `${team.lead.name}, ${t('team_lead_role', { team: team.name })}`
+              : <span className="text-[var(--brand-amber-deep)]">{t('no_lead_warning')}</span>,
+            specialists.length > 0 ? specialists.map(s => s.name).join(', ') : null,
+            t('agent_count', { count: team.members.length }),
+          ]}
+        />
+      )}
+      chip={<OwnerChip accountable={team.accountable} />}
+    />
   );
 }
 

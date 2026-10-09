@@ -59,8 +59,8 @@ export default async function EvalsPage(props: Props) {
         description="Checks that an agent still does its job, run on demand or on a schedule, with every run kept."
       />
 
-      <form action="/dashboard/evals" className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="relative">
+      <form action="/dashboard/evals" className="mb-4 flex items-center gap-2">
+        <div className="relative min-w-0 flex-1 sm:flex-none">
           <Search className="pointer-events-none absolute top-2.5 left-2.5 size-3.5 text-muted-foreground" aria-hidden />
           <input
             type="search"
@@ -68,10 +68,10 @@ export default async function EvalsPage(props: Props) {
             defaultValue={search}
             placeholder="Search name, slug or agent"
             aria-label="Search eval datasets"
-            className="h-9 w-72 max-w-full rounded-md border border-border bg-background pr-3 pl-8 text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            className="h-9 w-full rounded-md border border-border bg-background pr-3 pl-8 text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none sm:w-72"
           />
         </div>
-        <button type="submit" className="h-9 rounded-md border border-border px-3 text-sm hover:bg-muted/60">
+        <button type="submit" className="h-9 shrink-0 rounded-md border border-border px-3 text-sm hover:bg-muted/60">
           Search
         </button>
         {searching && (

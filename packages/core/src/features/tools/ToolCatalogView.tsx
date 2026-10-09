@@ -1,6 +1,6 @@
 import type { CatalogTool, OrgToolCatalog, RestActionEntry, ToolFamily } from '@/libs/tools/orgCatalog';
 import { Bot, Wrench } from 'lucide-react';
-import { IntegrationLogo } from '@/components/patterns';
+import { IntegrationLogo, ListRow, ListRows, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Link } from '@/libs/I18nNavigation';
 import { ReadinessBadge } from './ReadinessBadge';
@@ -29,9 +29,11 @@ function holders(agents: readonly string[]): string {
 }
 
 /**
- * One tool as a card — the one shape every family uses. A built-in carries
- * its provider/key readiness; a REST read carries its method and path;
- * everything shows its name, who holds it and what it does.
+ * One tool as one `ListRow` — the one shape every family uses, and every list
+ * in the app (docs/design/patterns.md § One list). A built-in carries its
+ * provider/key readiness as the chip; a REST read carries its method and path;
+ * everything shows its name, who holds it and what it does. On a phone the
+ * title and the facts wrap instead of filling a screen per card.
  * @param props
  * @param props.tool
  */
@@ -39,65 +41,31 @@ function ToolCard({ tool }: { tool: CatalogTool }) {
   const status = tool.status;
   const keySourceLabel = status ? KEY_SOURCE_LABELS[status.keySource] ?? '' : '';
   return (
-    <Link
+    <ListRow
       href={`/dashboard/tools/${tool.name}`}
-      className="block rounded-lg border border-border bg-background p-4 transition hover:border-primary/30 hover:bg-muted/40"
       data-testid={`tool-card-${tool.name}`}
-    >
-      <div className="mb-2 flex items-center gap-2">
-        <Wrench className="size-4 text-primary" />
-        <span className="text-sm font-medium">{tool.title}</span>
-        {status && (
-          <span className="ml-auto">
-            <ReadinessBadge ready={status.ready} keyStateUnknown={status.keySource === 'unknown'} />
-          </span>
-        )}
-      </div>
-      <div className="mb-2 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
-        <span className="font-mono">{tool.name}</span>
-        <span>
-          ·
-          {' '}
-          {holders(tool.agents)}
-        </span>
-        {keySourceLabel !== '' && (
-          <span>
-            ·
-            {' '}
-            {keySourceLabel}
-          </span>
-        )}
-      </div>
-      <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{tool.description || 'No description declared.'}</p>
-      {(status || tool.rest) && (
-        <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
-          {tool.rest && (
-            <span className="font-mono">
-              {tool.rest.method}
-              {' '}
-              {tool.rest.path}
-            </span>
-          )}
-          {status && (
-            <span className="inline-flex items-center gap-1">
-              provider:
-              <IntegrationLogo brand={tool.providerBrand} name={status.provider} size="xs" markOnly />
-              <span className="font-mono">{status.provider}</span>
-            </span>
-          )}
-          {status && !status.ready && status.missingEnv.length > 0 && (
-            <>
-              <span>·</span>
-              <span className="font-mono text-amber-600 dark:text-amber-400">
-                set
-                {' '}
-                {status.missingEnv.join(', ')}
-              </span>
-            </>
-          )}
-        </div>
+      icon={Wrench}
+      title={tool.title}
+      subline={(
+        <>
+          <Subline
+            separator="·"
+            segments={[
+              <span key="name" className="font-mono text-[12px]">{tool.name}</span>,
+              holders(tool.agents),
+              keySourceLabel || null,
+              tool.rest ? <span key="rest" className="font-mono text-[12px]">{`${tool.rest.method} ${tool.rest.path}`}</span> : null,
+              status ? <span key="provider" className="font-mono text-[12px]">{`provider: ${status.provider}`}</span> : null,
+              status && !status.ready && status.missingEnv.length > 0
+                ? <span key="env" className="font-mono text-[12px] text-amber-600 dark:text-amber-400">{`set ${status.missingEnv.join(', ')}`}</span>
+                : null,
+            ]}
+          />
+          <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground sm:line-clamp-1">{tool.description || 'No description declared.'}</span>
+        </>
       )}
-    </Link>
+      chip={status ? <ReadinessBadge ready={status.ready} keyStateUnknown={status.keySource === 'unknown'} /> : undefined}
+    />
   );
 }
 
@@ -200,12 +168,12 @@ function FamilySection({ family }: { family: ToolFamily }) {
           </span>
         )}
       </div>
-      <p className="mb-3 max-w-2xl text-xs text-muted-foreground">{family.description}</p>
+      <p className="mb-2 line-clamp-1 max-w-2xl text-xs text-muted-foreground sm:mb-3 sm:line-clamp-none">{family.description}</p>
       <FamilyNotice family={family} />
       {family.tools.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ListRows>
           {family.tools.map(tool => <ToolCard key={tool.name} tool={tool} />)}
-        </div>
+        </ListRows>
       )}
       {family.actions.length > 0 && <RestActions actions={family.actions} />}
     </section>
@@ -244,11 +212,18 @@ function WorkspaceSection({ family }: { family: ToolFamily }) {
   );
 }
 
+/**
+ * One count. On a phone the three read as one line of facts, not three boxes
+ * a fifth of the screen tall.
+ * @param props
+ * @param props.label
+ * @param props.value
+ */
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-border p-3 text-center">
-      <div className="text-xl font-bold">{value}</div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
+    <div className="flex items-baseline gap-1 sm:block sm:rounded-lg sm:border sm:border-border sm:p-3 sm:text-center">
+      <div className="text-sm font-semibold tabular-nums sm:text-xl sm:font-bold">{value}</div>
+      <div className="text-[12px] text-muted-foreground sm:text-[11px]">{label}</div>
     </div>
   );
 }
@@ -269,13 +244,13 @@ export function ToolCatalogView({ catalog }: { catalog: OrgToolCatalog }) {
   const needKey = catalog.statuses.filter(s => !s.ready && s.keySource !== 'unknown').length + families.filter(f => f.readiness && !f.readiness.ready && !f.readiness.keyStateUnknown).length;
   return (
     <>
-      <div className="mb-6 grid grid-cols-3 gap-3">
+      <div className="mb-4 flex flex-wrap gap-x-4 gap-y-1 sm:mb-6 sm:grid sm:grid-cols-3 sm:gap-3">
         <Stat label="Tools agents can reach" value={toolCount} />
         <Stat label="Ready" value={ready} />
         <Stat label="Need a key" value={needKey} />
       </div>
 
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-6 sm:gap-8">
         {families.map(family => <FamilySection key={family.id} family={family} />)}
         {workspace && <WorkspaceSection family={workspace} />}
         {catalog.agents.length === 0 && (

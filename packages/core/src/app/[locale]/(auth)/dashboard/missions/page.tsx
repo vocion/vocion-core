@@ -21,14 +21,14 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
         description="Goals a team owns, like ‘no lead goes cold’, checked on their own schedule."
       />
 
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <Link href="/dashboard/missions/new" className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:opacity-90">
+      <div className="mb-4 flex items-center gap-2 sm:mb-6 sm:gap-3">
+        <Link href="/dashboard/missions/new" className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition hover:opacity-90 sm:px-4">
           <Plus className="size-4" />
           Start a mission
         </Link>
-        <Link href="/dashboard/activity?kind=mission" className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-4 text-sm font-medium text-muted-foreground transition hover:text-foreground">
-          <Activity className="size-4" />
-          Recent mission activity
+        <Link href="/dashboard/activity?kind=mission" className="inline-flex h-9 min-w-0 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-muted-foreground transition hover:text-foreground sm:px-4">
+          <Activity className="size-4 shrink-0" />
+          <span className="truncate">Recent mission activity</span>
         </Link>
       </div>
 

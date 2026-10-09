@@ -71,11 +71,11 @@ export function ConversationListRow({ id, title, snippet, meta, time, surface }:
         : (
             <Link href={`/dashboard/chat/${id}`} className="flex min-w-0 flex-1 items-start gap-3 py-3 pl-4 text-sm">
               <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5">
+                <span className="flex items-start gap-1.5">
                   {SurfaceIcon && <SurfaceIcon className="size-3.5 shrink-0 text-muted-foreground" aria-label={surface} />}
-                  <span className="truncate font-medium text-foreground" data-testid="conversation-row-name">{name}</span>
+                  <span className="line-clamp-2 font-medium [overflow-wrap:anywhere] text-foreground sm:line-clamp-1" data-testid="conversation-row-name">{name}</span>
                 </span>
-                {snippet && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{snippet}</span>}
+                {snippet && <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground sm:line-clamp-1">{snippet}</span>}
                 <span className="mt-0.5 block text-xs text-muted-foreground">{meta}</span>
               </span>
               <span className="shrink-0 pt-0.5 text-xs text-muted-foreground tabular-nums">{time}</span>

@@ -49,7 +49,7 @@ import { cn } from '@/utils/Helpers';
  * bar isn't fixed to the bottom"*). The bar carries its own bottom padding
  * and the safe-area inset, so nothing is lost by dropping the gutter's.
  */
-const GUTTER = '@container min-w-0 flex-1 px-4 pt-6 pb-6 pr-[calc(1rem+var(--rail-inset,0px))] transition-[padding] duration-200 has-[[data-pattern=sticky-action-bar]]:pb-0 sm:px-6 sm:pr-[calc(1.5rem+var(--rail-inset,0px))] lg:px-10 lg:pt-8 lg:pb-8 lg:pr-[calc(2.5rem+var(--rail-inset,0px))]';
+const GUTTER = '@container min-w-0 flex-1 px-4 pt-4 pb-6 pr-[calc(1rem+var(--rail-inset,0px))] transition-[padding] duration-200 has-[[data-pattern=sticky-action-bar]]:pb-0 sm:px-6 sm:pt-6 sm:pr-[calc(1.5rem+var(--rail-inset,0px))] lg:px-10 lg:pt-8 lg:pb-8 lg:pr-[calc(2.5rem+var(--rail-inset,0px))]';
 
 export function PageWidth(props: { children: React.ReactNode }) {
   const pathname = usePathname() ?? '';

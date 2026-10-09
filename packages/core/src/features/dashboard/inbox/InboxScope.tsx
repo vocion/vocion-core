@@ -2,7 +2,7 @@
 
 import type { Chip } from '@/components/patterns';
 import { useTranslations } from 'next-intl';
-import { ChipRow } from '@/components/patterns';
+import { ChipRow, CompactFilters } from '@/components/patterns';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { mergeSearch } from './searchParams';
 
@@ -14,6 +14,10 @@ export type ScopeWorkspace = { id: string; name: string; count: number; kind: 's
  * across workspaces, one chip per workspace with its count (`?workspace=<id>`).
  * Writes the URL and nothing else, like `InboxControls`, so the view is a link
  * a person can paste. Switching scope drops the other scope's filters.
+ *
+ * On a phone, this workspace's scope chip lives in `InboxControls`' one row,
+ * so here it renders from `sm` up only; across workspaces this IS the row —
+ * the scope and the workspace as two menu chips.
  * @param props - What the scope shows.
  * @param props.scope - Which view is showing.
  * @param props.workspaces - Across workspaces: each one read, with its count.
@@ -43,8 +47,33 @@ export function InboxScope({ scope, workspaces = [], workspace, total = 0 }: { s
   ];
 
   return (
-    <div className="space-y-3">
-      <nav aria-label={t('scope_label')} className="flex h-9 w-fit items-stretch rounded-md border border-border p-0.5 text-sm">
+    <div className={scope === 'here' ? 'hidden space-y-3 sm:block' : 'space-y-3'}>
+      {scope === 'all' && (
+        <CompactFilters
+          menus={[
+            {
+              key: 'scope',
+              label: t('scope_label'),
+              value: 'all',
+              options: [{ key: 'here', label: t('scope_here') }, { key: 'all', label: t('scope_all') }],
+              onChange: key => key === 'here' && go({ scope: null }, false),
+            },
+            ...(workspaces.length > 1
+              ? [{
+                  key: 'workspace',
+                  label: t('filter_workspace'),
+                  value: workspace ?? '',
+                  options: [
+                    { key: '', label: t('all'), count: total },
+                    ...workspaces.map(w => ({ key: w.id, label: w.kind === 'personal' ? t('scope_personal') : w.name, count: w.count })),
+                  ],
+                  onChange: (key: string) => go({ workspace: key || null }, true),
+                }]
+              : []),
+          ]}
+        />
+      )}
+      <nav aria-label={t('scope_label')} className="hidden h-9 w-fit items-stretch rounded-md border border-border p-0.5 text-sm sm:flex">
         {(['here', 'all'] as const).map(s => (
           <button
             key={s}
@@ -58,7 +87,7 @@ export function InboxScope({ scope, workspaces = [], workspace, total = 0 }: { s
         ))}
       </nav>
       {scope === 'all' && workspaces.length > 1 && (
-        <div data-testid="inbox-workspace-filter">
+        <div data-testid="inbox-workspace-filter" className="hidden sm:block">
           <ChipRow chips={chips} size="md" label={t('filter_workspace')} />
         </div>
       )}
