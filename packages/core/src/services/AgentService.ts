@@ -845,6 +845,9 @@ export async function runAgentDeep(opts: {
   const modelOverride = opts.modelOverride ?? modelOverrideForPrefs(harness ?? {}, turnPrefs, { provider: resolveProvider('main'), defaults: chatModelOptionsFor(harness ?? {}), modelFor: resolvedModelIdFor });
   const ceilings = envelope ? new effortMod.EffortCeilings(envelope) : null;
   const turnMiddleware = envelope && ceilings ? [effortMod.createEffortMiddleware({ ceilings, consults: envelope.consults !== 'none' })] : [];
+  // Thinking returns for the likely synthesis: past the soft target, a ceiling
+  // or the evidence budget (`effort.ts`). Deep thinks on every call already.
+  const synthesisDue = ceilings ? (turn: { sources: number }) => ceilings.synthesisDue(turn) : undefined;
 
   // The graph and its tools are compiled for THIS turn, on this person's
   // context. Nothing here is shared with a turn running beside it — which is
@@ -863,7 +866,7 @@ export async function runAgentDeep(opts: {
       turnMessage: opts.message,
       timeZone: opts.timeZone,
     },
-    { modelOverride, handOff: handOffGuard, turnMiddleware },
+    { modelOverride, handOff: handOffGuard, turnMiddleware, ...(synthesisDue ? { synthesisDue } : {}) },
   );
   const boundCtx = compiled.ctx;
 
@@ -1378,7 +1381,7 @@ export async function runAgentDeep(opts: {
             turnMessage: opts.message,
             timeZone: opts.timeZone,
           },
-          { modelOverride: { ...(modelOverride ?? {}), model: fallback, provider }, handOff: handOffGuard, turnMiddleware },
+          { modelOverride: { ...(modelOverride ?? {}), model: fallback, provider }, handOff: handOffGuard, turnMiddleware, ...(synthesisDue ? { synthesisDue } : {}) },
         );
         graphMessages = null;
         await runGraph(input);

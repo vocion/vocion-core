@@ -51,13 +51,19 @@ export type EffortEnvelope = {
   ceilingSeconds: number;
   /** Spend after which the turn answers with what it has, in cents. */
   ceilingCents: number;
+  /**
+   * Sources the turn may gather before its next call counts as the synthesis
+   * (`synthesisDue`): past it, a Standard turn thinks again, because what it
+   * writes next is most likely the answer.
+   */
+  evidenceBudget: number;
 };
 
 /** The built-in envelopes. A workspace or agent may move the ceilings (`harness.turnCeilings`). */
 export const ENVELOPES: Record<EffortLevel, EffortEnvelope> = {
-  quick: { level: 'quick', strength: 'fast', thinking: 'off', consults: 'none', fanOut: 3, targetSeconds: 8, ceilingSeconds: 40, ceilingCents: 15 },
-  standard: { level: 'standard', strength: 'balanced', thinking: 'agent', consults: 'one', fanOut: 5, targetSeconds: 20, ceilingSeconds: 90, ceilingCents: 75 },
-  deep: { level: 'deep', strength: 'balanced', thinking: 'high', consults: 'parallel', fanOut: 8, targetSeconds: 150, ceilingSeconds: 600, ceilingCents: 500 },
+  quick: { level: 'quick', strength: 'fast', thinking: 'off', consults: 'none', fanOut: 3, targetSeconds: 8, ceilingSeconds: 40, ceilingCents: 15, evidenceBudget: 8 },
+  standard: { level: 'standard', strength: 'balanced', thinking: 'agent', consults: 'one', fanOut: 5, targetSeconds: 20, ceilingSeconds: 90, ceilingCents: 75, evidenceBudget: 12 },
+  deep: { level: 'deep', strength: 'balanced', thinking: 'high', consults: 'parallel', fanOut: 8, targetSeconds: 150, ceilingSeconds: 600, ceilingCents: 500, evidenceBudget: 40 },
 };
 
 /**
@@ -100,7 +106,7 @@ export const INFER_SYSTEM = [
   'You set how much effort an assistant spends answering one request from a person at work. Pick one level:',
   'quick — a lookup or a short factual answer from one place: what is on my calendar, what is the status of X, find an email address, a yes/no, a greeting.',
   'standard — gather from a few places and synthesise: what do I owe replies to, prepare me for this meeting, what changed on this deal, draft a reply.',
-  'deep — research or analysis across many sources or a long period, a plan, a document, a comparison: research everything on an account since July, audit the pipeline, write a proposal.',
+  'deep — research or analysis across many sources or a long period, a plan, a document, a comparison, or ranking, prioritising or weighing risk across many items: research everything on an account since July, audit the pipeline, write a proposal, rank every open thread by revenue risk and say what to tell each.',
   'When unsure between two, pick the lower one: the person can always ask to dig deeper.',
   'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>"}.',
 ].join(' ');
@@ -258,6 +264,31 @@ export class EffortCeilings {
     return this.hit;
   }
 
+  /**
+   * Whether the turn has gathered enough that its next call is most likely the
+   * synthesis: the soft time target has passed, a ceiling has been reached, or
+   * the turn holds more sources than its evidence budget. Latches: once due,
+   * every later call of the turn is.
+   *
+   * Deliberately no tool-round trigger: measured on a hard ranking question
+   * (#1305), thinking from the second round on doubled a Standard turn
+   * (~23 s → ~51 s) for about one quality point. Standard stays fast; a hard
+   * analytic ask is Deep's job, and Auto sends it there (`INFER_SYSTEM`).
+   * @param turn - What the turn has done so far.
+   * @param turn.sources - Sources found.
+   * @param now - The clock.
+   */
+  synthesisDue(turn: { sources: number }, now: number = Date.now()): boolean {
+    if (!this.due) {
+      this.due = now - this.startedAt >= this.envelope.targetSeconds * 1000
+        || turn.sources >= this.envelope.evidenceBudget
+        || this.reached(now) !== null;
+    }
+    return this.due;
+  }
+
+  private due = false;
+
   get spentCents(): number {
     return this.cents;
   }
@@ -399,12 +430,15 @@ export function readsToolResults(messages: ReadonlyArray<{ _getType?: () => stri
  * Runs the calls that read tool results on `stepModel` — the agent's model with
  * thinking off — and leaves the opening call alone.
  * @param stepModel - The agent's model, built with thinking off.
+ * @param synthesisDue
  */
-export function createLegworkThinkingMiddleware(stepModel: BaseChatModel) {
+export function createLegworkThinkingMiddleware(stepModel: BaseChatModel, synthesisDue?: () => boolean) {
   return createMiddleware({
     name: 'VocionLegworkThinking',
     wrapModelCall: async (request, handler) => {
-      if (!readsToolResults(request.messages as never)) {
+      // The opening call plans; a call once the turn has gathered enough is
+      // most likely the answer. Both keep the agent's thinking.
+      if (!readsToolResults(request.messages as never) || synthesisDue?.()) {
         return handler(request);
       }
       return handler({ ...request, model: stepModel as never });

@@ -52,3 +52,36 @@ describe('legwork routing', () => {
     expect(used).toEqual(['main', 'step']);
   });
 });
+
+describe('thinking returns for the synthesis', () => {
+  it('is due after its soft target, its evidence budget or a ceiling — never on tool rounds — and stays due', async () => {
+    const { EffortCeilings, envelopeFor } = await import('./effort');
+    const t0 = 1_000_000;
+    const standard = () => new EffortCeilings(envelopeFor('standard'), t0);
+
+    expect(standard().synthesisDue({ sources: 3 }, t0 + 5_000)).toBe(false);
+    expect(standard().synthesisDue({ sources: 12 }, t0 + 5_000)).toBe(true);
+    expect(standard().synthesisDue({ sources: 3 }, t0 + 21_000)).toBe(true);
+
+    const latched = standard();
+    latched.synthesisDue({ sources: 12 }, t0 + 5_000);
+
+    expect(latched.synthesisDue({ sources: 0 }, t0 + 5_000)).toBe(true);
+  });
+
+  it('keeps the agent\'s model on a call that reads tool results once the synthesis is due', async () => {
+    const used: string[] = [];
+    let due = false;
+    const wrap = createLegworkThinkingMiddleware({ id: 'step' } as never, () => due).wrapModelCall as unknown as (r: unknown, h: (r: { model: { id: string } }) => unknown) => Promise<unknown>;
+    const handler = (r: { model: { id: string } }) => {
+      used.push(r.model.id);
+      return {};
+    };
+    const reading = { model: { id: 'main' }, messages: [new HumanMessage('hi'), new AIMessage({ content: '', tool_calls: [{ id: 't1', name: 'x', args: {} }] }), new ToolMessage({ content: 'ok', tool_call_id: 't1' })] };
+    await wrap(reading, handler);
+    due = true;
+    await wrap(reading, handler);
+
+    expect(used).toEqual(['step', 'main']);
+  });
+});

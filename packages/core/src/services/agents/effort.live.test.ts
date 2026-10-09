@@ -81,10 +81,11 @@ describe.skipIf(!LIVE)('live: effort levels', () => {
       'What is on my calendar today?',
       'What sales emails do I need to answer',
       'Research everything we know about Kestrel Capital since July and write me a plan for the renewal.',
+      'Go through every open thread in my inbox and rank them by revenue risk. For each one, tell me exactly what to say and by when, and flag anything I should not reply to at all.',
     ].map(message => inferEffort({ orgId: ORG, message })));
     console.warn(`EFFORT_AUTO ${JSON.stringify(levels)}`);
 
-    expect(levels.map(l => l.level)).toEqual(['quick', 'standard', 'deep']);
+    expect(levels.map(l => l.level)).toEqual(['quick', 'standard', 'deep', 'deep']);
   }, 60_000);
 
   it('runs the sales-emails question inside its envelope and says what it took', async () => {
