@@ -3,6 +3,7 @@ import { PageTabs } from '@/features/dashboard/manage/PageTabs';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { NotificationSettings } from '@/features/notifications/NotificationSettings';
 import { NOTIFICATION_TABS } from '@/features/notifications/tabs';
+import { RhythmSettings } from '@/features/personal/RhythmSettings';
 
 /**
  * Notification settings — yours, in this workspace (backlog 048): each kind
@@ -21,7 +22,10 @@ export default async function NotificationSettingsPage(props: { params: Promise<
         description="Where you hear about the moments this workspace declares."
         tabs={<PageTabs tabs={NOTIFICATION_TABS} active="/dashboard/notifications/settings" />}
       />
-      <NotificationSettings />
+      <div className="space-y-10">
+        <RhythmSettings />
+        <NotificationSettings />
+      </div>
     </>
   );
 }

@@ -79,6 +79,9 @@ export const ARTIFACT_IMAGE_SWEEP_SCHEDULE_ID = 'artifact-image-sweep';
  */
 export const NEEDS_YOU_SWEEP_SCHEDULE_ID = 'needs-you-sweep';
 
+/** Every five minutes: each person's morning brief and evening wrap that are due (`services/personal/rhythm/schedule.ts`). */
+export const PERSONAL_RHYTHM_SWEEP_SCHEDULE_ID = 'personal-rhythm-sweep';
+
 /**
  * Run id for the one-time replay of an event automation whose run the
  * mission-run reaper just reaped — `automation-refire-<orgId>-<automationRunId>-<missionRunId>`.

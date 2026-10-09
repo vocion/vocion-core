@@ -22,6 +22,8 @@ export const JOB = {
   needsYouSweep: 'needs-you.sweep',
   missionRunResume: 'mission-run.resume',
   orgReview: 'org.review',
+  personalRhythmSweep: 'personal.rhythm-sweep',
+  personalRhythm: 'personal.rhythm',
 } as const;
 
 const twice = { attempts: 2, intervalSeconds: 10, backoff: 2 };
@@ -153,4 +155,19 @@ defineJob<{ orgId: string }>(JOB.orgReview, async (input) => {
   const result = await runOrgReview(input.orgId);
   console.warn(`[durable] ${orgReviewLine(result)}`);
   return result;
+}, { retry: twice });
+
+// A person's morning brief and evening wrap (docs/guides/morning-brief.md): the
+// sweep starts each due one under a once-only id, and the delivery composes
+// it and lands it in their Personal workspace.
+defineJob(JOB.personalRhythmSweep, async () => {
+  const { sweepRhythms } = await import('@/services/personal/rhythm/schedule');
+  const out = await sweepRhythms();
+  return { made: out.made, started: out.started.length, skipped: out.skipped };
+}, { retry: twice });
+
+defineJob<{ userId: string; accountId: string; kind: 'brief' | 'wrap'; day: string; timeZone: string }>(JOB.personalRhythm, async (input) => {
+  const { deliverRhythm } = await import('@/services/personal/rhythm/deliver');
+  const out = await deliverRhythm(input);
+  return out.delivered ? { delivered: true, conversationId: out.conversationId } : { delivered: false, reason: out.reason };
 }, { retry: twice });

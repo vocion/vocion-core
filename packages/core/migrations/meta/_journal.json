@@ -1289,6 +1289,13 @@
       "when": 1792300202000,
       "tag": "0202_personal_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1792300203000,
+      "tag": "0203_personal_rhythm",
+      "breakpoints": true
     }
   ]
 }

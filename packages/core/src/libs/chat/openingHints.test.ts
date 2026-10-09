@@ -97,6 +97,15 @@ describe('the opening hint (founder, 2026-10-09)', () => {
     expect(new Set(many.map(h => h.type)).size).toBe(many.length);
   });
 
+  it('a brief already written opens where it is, and leads over the tour', () => {
+    const [top] = openingHints(input({
+      next: { key: 'rhythm:41', label: 'Your morning brief is ready', prompt: '', href: '/dashboard/chat?conversation=41', reason: 'Written for you just now.', weight: 1.9 },
+      person: { isAdmin: false, sessions: 1, messagesSent: 0 },
+    }));
+
+    expect(top).toMatchObject({ key: 'next:rhythm:41', label: 'Your morning brief is ready →', action: { kind: 'open', href: '/dashboard/chat?conversation=41' } });
+  });
+
   it('offers a member only what they can do: "ask an admin", and only when it blocks them', () => {
     const member = { isAdmin: false, sessions: 8, messagesSent: 40 };
     const blocked = openingHints(input({ person: member, apps: [factory] }))[0]!;

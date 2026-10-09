@@ -52,3 +52,45 @@ export const setPolicyRoute = os
     await setPersonalConnectionsAllowed(accountId, input.allowed);
     return { allowed: input.allowed };
   });
+
+/**
+ * The person's morning brief and evening wrap times. `browserTimeZone` is the
+ * zone the page runs in: it becomes the person's zone the first time, when
+ * they have not chosen one, so 07:30 means their 07:30 without a setting.
+ */
+export const rhythmRoute = os
+  .input(z.object({ browserTimeZone: z.string().max(64).optional() }))
+  .handler(async ({ input }) => {
+    const { userId, accountId } = await guardAuth();
+    if (!accountId) {
+      throw ApiError.forbidden();
+    }
+    const { getRhythm, setRhythm } = await import('@/services/personal/rhythm/schedule');
+    const { isValidTimeZone } = await import('@/libs/time/zone');
+    const current = await getRhythm(userId, accountId);
+    if (!current.zoneChosen && isValidTimeZone(input.browserTimeZone)) {
+      return setRhythm(userId, accountId, { timeZone: input.browserTimeZone });
+    }
+    return current;
+  });
+
+export const setRhythmRoute = os
+  .input(z.object({
+    briefAt: z.string().max(5).optional(),
+    wrapAt: z.string().max(5).optional(),
+    briefOn: z.boolean().optional(),
+    wrapOn: z.boolean().optional(),
+    timeZone: z.string().max(64).optional(),
+  }))
+  .handler(async ({ input }) => {
+    const { userId, accountId } = await guardAuth();
+    if (!accountId) {
+      throw ApiError.forbidden();
+    }
+    const { rhythmChangeProblem, setRhythm } = await import('@/services/personal/rhythm/schedule');
+    const problem = rhythmChangeProblem(input);
+    if (problem) {
+      throw ApiError.badRequest(problem);
+    }
+    return setRhythm(userId, accountId, input);
+  });

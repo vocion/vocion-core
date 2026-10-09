@@ -229,7 +229,7 @@ export async function personalCredential(input: { orgId: string; userId: string;
   }
   const login = await servingLogin(own.projectId, connection);
   if (!login) {
-    return { ok: false, why: `${connection.label} is not connected. Connect it from Personal → Connectors (/dashboard/connectors).` };
+    return { ok: false, why: `${connection.label} is not connected. Connect it from [Personal → Connectors](/dashboard/connectors).` };
   }
   return { ok: true, tokenId: login.row.id, orgId: own.projectId, values: login.values };
 }

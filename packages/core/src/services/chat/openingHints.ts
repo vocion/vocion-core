@@ -12,19 +12,21 @@
  *   (`credentialStatusForOrg`).
  * - attention: what waits on this person elsewhere (`waitingElsewhere`, the
  *   dock's own read).
- * - next: the latest briefing, when there is one this week (the urgency chip).
+ * - next: the person's morning brief or evening wrap, delivered in the last
+ *   18 hours and not yet opened (`services/personal/rhythm`), else the
+ *   latest briefing, when there is one this week (the urgency chip).
  * - the person: conversations started and messages sent here, and their hint
  *   dismissals, from the adoption events (`user_activity_event`) — so no new
  *   table holds any of it.
  */
 
 import type { HintInput, HintType, OpeningHint } from '@/libs/chat/openingHints';
-import { and, count, desc, eq, gte, inArray } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, like, lte } from 'drizzle-orm';
 import { HINT_TYPES, openingHints } from '@/libs/chat/openingHints';
 import { connectSystemsHref } from '@/libs/connect/systemsLink';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { briefingSchema, projectSchema, userActivityEventSchema } from '@/models/Schema';
+import { briefingSchema, conversationSchema, projectSchema, userActivityEventSchema } from '@/models/Schema';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -49,7 +51,7 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
   const now = input.now ?? new Date();
   const since30 = new Date(now.getTime() - 30 * DAY);
 
-  const [project, setups, credentials, waiting, brief, activity, dismissals, started] = await Promise.all([
+  const [project, setups, credentials, waiting, brief, activity, dismissals, started, rhythm] = await Promise.all([
     db.select({ createdAt: projectSchema.createdAt }).from(projectSchema).where(eq(projectSchema.id, input.orgId)).limit(1).then(r => r[0] ?? null).catch(() => null),
     import('@/services/plugins/setupState').then(m => m.setupStateForOrg(input.orgId)).catch(() => []),
     import('@/services/SourceCredentialService').then(m => m.credentialStatusForOrg(input.orgId)).catch(() => null),
@@ -59,6 +61,14 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
     db.select({ metadata: userActivityEventSchema.metadata, at: userActivityEventSchema.createdAt }).from(userActivityEventSchema).where(and(eq(userActivityEventSchema.orgId, input.orgId), eq(userActivityEventSchema.userId, input.userId), eq(userActivityEventSchema.eventType, 'chat.hint_dismissed'), gte(userActivityEventSchema.createdAt, since30))).catch(() => []),
     // Setups this person started in a conversation and left (their objectives).
     import('@/services/objectives/ObjectiveService').then(m => m.startedSetups(input.orgId, input.userId)).catch(() => new Map<string, number>()),
+    // Their brief or wrap, written for them and still unopened: one message, no turn yet.
+    db.select({ id: conversationSchema.id, scopeRef: conversationSchema.scopeRef })
+      .from(conversationSchema)
+      .where(and(eq(conversationSchema.orgId, input.orgId), eq(conversationSchema.createdBy, input.userId), like(conversationSchema.scopeRef, 'personal-rhythm:%'), gte(conversationSchema.createdAt, new Date(now.getTime() - 18 * 60 * 60 * 1000)), lte(conversationSchema.messageCount, 1)))
+      .orderBy(desc(conversationSchema.createdAt))
+      .limit(1)
+      .then(r => r[0] ?? null)
+      .catch(() => null),
   ]);
 
   const countOf = (type: string) => Number(activity.find(a => a.type === type)?.n ?? 0);
@@ -88,9 +98,18 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
       ageHours: d.createdAt ? (now.getTime() - new Date(d.createdAt).getTime()) / (60 * 60 * 1000) : 0,
       blocksRun: d.kind === 'approval' || Boolean(d.deadline),
     })),
-    next: brief
-      ? { key: 'briefing', label: 'What needs my attention today?', prompt: `Walk me through the latest briefing ("${brief.title}") — the headline, what's at risk, and the moves that matter most today.`, reason: 'A new briefing came in this week.' }
-      : null,
+    next: rhythm
+      ? {
+          key: `rhythm:${rhythm.id}`,
+          label: rhythm.scopeRef?.startsWith('personal-rhythm:wrap') ? 'Your evening wrap is ready' : 'Your morning brief is ready',
+          prompt: '',
+          href: `/dashboard/chat?conversation=${rhythm.id}`,
+          reason: 'Written for you just now, from your calendar, mail and workspaces.',
+          weight: 1.9,
+        }
+      : brief
+        ? { key: 'briefing', label: 'What needs my attention today?', prompt: `Walk me through the latest briefing ("${brief.title}") — the headline, what's at risk, and the moves that matter most today.`, reason: 'A new briefing came in this week.' }
+        : null,
     dismissed: dismissals.flatMap((d) => {
       const meta = d.metadata as { key?: unknown; type?: unknown } | null;
       return typeof meta?.key === 'string' && HINT_TYPES.includes(meta.type as HintType) ? [{ key: meta.key, type: meta.type as HintType, at: d.at }] : [];
