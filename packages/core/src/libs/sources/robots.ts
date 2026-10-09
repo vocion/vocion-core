@@ -6,7 +6,9 @@
  *
  * The sync runner puts `politeness` on every real run's context. A context
  * without it, as in the connector's unit tests, fetches unpaced and never asks
- * for robots.txt.
+ * for robots.txt. `VOCION_CRAWL_ROBOTS=0` keeps the pacing and stops reading
+ * robots.txt, for an installation whose sources sit behind a platform-wide
+ * Disallow (see {@link crawlPoliteness}).
  */
 import type { SourceContext } from './types';
 
@@ -24,6 +26,23 @@ export const DEFAULT_CRAWL_POLITENESS: CrawlPoliteness = {
   minDelayMs: 1_000,
   maxDelayMs: 30_000,
 };
+
+/**
+ * The policy a real run uses: {@link DEFAULT_CRAWL_POLITENESS}, unless the
+ * process says otherwise.
+ *
+ * `VOCION_CRAWL_ROBOTS=0` (or `false`, `off`) stops reading robots.txt for
+ * every source. Hosted site builders and calendar services disallow their feed
+ * and API paths for every crawler (Squarespace's `?format=json`, a public
+ * Google Calendar's `.ics`), so an installation that reads those feeds gets
+ * nothing while it obeys. The gap between two requests to one site stays.
+ * Unset means obey.
+ */
+export function crawlPoliteness(): CrawlPoliteness {
+  const raw = (process.env.VOCION_CRAWL_ROBOTS ?? '').trim().toLowerCase();
+  const obey = raw !== '0' && raw !== 'false' && raw !== 'off';
+  return obey ? DEFAULT_CRAWL_POLITENESS : { ...DEFAULT_CRAWL_POLITENESS, robots: false };
+}
 
 const ROBOTS_TIMEOUT_MS = 10_000;
 /** RFC 9309 asks parsers to read at least the first 500 KiB. */

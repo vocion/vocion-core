@@ -5,7 +5,7 @@ import type { CrawlPoliteness } from './robots';
 import type { SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRobots, parseRobots, productToken } from './robots';
+import { crawlPoliteness, DEFAULT_CRAWL_POLITENESS, fetchRobots, parseRobots, productToken } from './robots';
 import { USER_AGENT, webConnector } from './web';
 
 type Progress = { kind: string; uri?: string; message?: string };
@@ -15,6 +15,7 @@ const TOKEN = productToken(USER_AGENT);
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 function page(title: string): Response {
@@ -148,6 +149,24 @@ describe('fetchRobots', () => {
   });
 });
 
+describe('crawlPoliteness', () => {
+  it('obeys robots.txt when the process says nothing', () => {
+    expect(crawlPoliteness()).toEqual(DEFAULT_CRAWL_POLITENESS);
+  });
+
+  it.each(['0', 'false', 'off', ' OFF '])('stops reading robots.txt for VOCION_CRAWL_ROBOTS=%j, and keeps the pacing', (value) => {
+    vi.stubEnv('VOCION_CRAWL_ROBOTS', value);
+
+    expect(crawlPoliteness()).toEqual({ ...DEFAULT_CRAWL_POLITENESS, robots: false });
+  });
+
+  it('keeps obeying for any other value', () => {
+    vi.stubEnv('VOCION_CRAWL_ROBOTS', '1');
+
+    expect(crawlPoliteness().robots).toBe(true);
+  });
+});
+
 describe('a polite run', () => {
   it('never asks for robots.txt when the run carries no policy', async () => {
     const fetchFn = stubFetch(url => (url.endsWith('/robots.txt') ? undefined : page('Show')));
@@ -168,6 +187,18 @@ describe('a polite run', () => {
     expect(fetched).not.toContain('https://venue.test/members/b');
     expect(docs).toHaveLength(2);
     expect(events).toContainEqual({ kind: 'skipped', uri: 'https://venue.test/members/b', message: 'disallowed by robots.txt' });
+  });
+
+  it('fetches what robots.txt disallows when the run is told not to read it', async () => {
+    const fetchFn = stubFetch(url => (url.endsWith('/robots.txt')
+      ? new Response('User-agent: *\nDisallow: /')
+      : page('Show')));
+    const { docs, events } = await run(['https://venue.test/events?format=json', 'https://venue.test/b'], { ...PROMPT, robots: false });
+    const fetched = fetchFn.mock.calls.map(c => String(c[0]));
+
+    expect(fetched).not.toContain('https://venue.test/robots.txt');
+    expect(docs).toHaveLength(2);
+    expect(events.filter(e => e.message?.includes('robots.txt'))).toHaveLength(0);
   });
 
   it('skips the site for the run when robots.txt answers a 5xx', async () => {
