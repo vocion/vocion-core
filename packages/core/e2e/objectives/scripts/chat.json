@@ -1,6 +1,32 @@
 {
   "turns": [
     {
+      "match": "The person, latest message: what is waiting on the renewals?",
+      "steps": [
+        {
+          "tool": "report_consent",
+          "args": {
+            "said": false,
+            "quote": null
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
+      "match": "The person, latest message: Draft the reply to Dana",
+      "steps": [
+        {
+          "tool": "report_consent",
+          "args": {
+            "said": false,
+            "quote": null
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
       "match": "The person, latest message: show me what you checked before the renewal",
       "steps": [
         {
@@ -160,6 +186,16 @@
       ],
       "pauseBeforeReplyMs": 9000,
       "reply": "Checked the setup; the Northwind renewal can go ahead once GitHub is connected."
+    },
+    {
+      "match": "what is waiting on the renewals?",
+      "steps": [],
+      "reply": "Dana at Contoso Supply has not replied to the renewal quote since Tuesday, and the Bellwater Hall date is still open.\n\n<suggest>\nDraft the reply to Dana\nShow who's waiting on me\nDig deeper\n</suggest>"
+    },
+    {
+      "match": "Draft the reply to Dana",
+      "steps": [],
+      "reply": "Here is a short reply to Dana: thanks for your patience, the renewal quote stands until Friday."
     }
   ]
 }

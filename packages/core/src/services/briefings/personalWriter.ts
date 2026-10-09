@@ -17,10 +17,10 @@ import type { PersonalFacts } from './personalFacts';
 import { z } from 'zod';
 import { formatDateTime, formatTime } from '@/libs/time/zone';
 
-/** At most this many suggested actions; the Decision card draws them, recommended first. */
+/** At most this many suggested actions; pills under the delivered brief draw them (`libs/chat/suggestions.ts`). */
 export const MAX_ACTIONS = 3;
 
-/** One suggested action, as the Decision card offers it. */
+/** One suggested action, as a pill offers it: its words are the person's next ask. */
 export type SuggestedAction = { label: string; why: string };
 
 const WriterSchema = z.object({

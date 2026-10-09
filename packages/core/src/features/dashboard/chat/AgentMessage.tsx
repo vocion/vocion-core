@@ -3,6 +3,7 @@
 import type { DashboardLinkKind } from './links';
 import type { Speaker } from './speakers';
 import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
+import type { Suggestion } from '@/libs/chat/suggestions';
 import type { FollowExclude, TurnToolStep } from '@/libs/chat/turnFollowups';
 import type { TurnRecord } from '@/libs/factory/liveStatus';
 import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
@@ -16,6 +17,7 @@ import { RecordMicrocard } from '@/features/dashboard/factory/WorkStatus';
 import { openPreview } from '@/features/preview/previewState';
 import { normalizeAnswerHtml, stripCardNotes } from '@/libs/chat/answerText';
 import { splitScratch } from '@/libs/chat/scratch';
+import { stripSuggestBlocks } from '@/libs/chat/suggestions';
 import { turnFollowups } from '@/libs/chat/turnFollowups';
 import { Link } from '@/libs/I18nNavigation';
 import { isFailure } from '@/services/chat/turnStatus';
@@ -28,6 +30,7 @@ import { classifyDashboardLink, previewRefFor } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { ScratchFold } from './ScratchFold';
 import { SelfUpdateChips } from './SelfUpdateChips';
+import { SuggestionPills } from './SuggestionPills';
 import { turnFailure } from './turnFailure';
 import { useElapsed } from './useElapsed';
 import { hasLiveDetail, LiveLine, WorkTimeline } from './WorkTimeline';
@@ -137,6 +140,8 @@ export type AgentMessageProps = {
   pageRecord?: FollowExclude | null;
   /** The newest turn in the thread — the only one that carries record microcards. */
   latest?: boolean;
+  /** Sends a follow-up pill's words as the person's next message. */
+  onSuggestion?: (s: Suggestion) => void;
   /** The records the thread is about (`useThreadRecords`), drawn under the newest turn beside what it did itself. */
   threadRecords?: TurnRecord[];
 };
@@ -275,7 +280,7 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   return null;
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onDigDeeper, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, opener, writer, onOpenArtifact, onBuildCard, conversationId, pageRecord, latest = false, threadRecords }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onDigDeeper, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, opener, writer, onOpenArtifact, onBuildCard, conversationId, pageRecord, latest = false, threadRecords, onSuggestion }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
@@ -551,7 +556,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                           },
                         }}
                       >
-                        {citeLinkify(normalizeAnswerHtml(stripCardNotes(piece.text)))}
+                        {citeLinkify(normalizeAnswerHtml(stripSuggestBlocks(stripCardNotes(piece.text))))}
                       </Markdown>
                     </div>
                   )))))}
@@ -653,6 +658,18 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           <div className="mt-2 flex justify-end">
             <ConfidenceIndicator level={message.confidence} />
           </div>
+        )}
+        {/* Up to three follow-ups, on the latest answer only: pills that send
+            the next message, never cards (`libs/chat/suggestions.ts`). They go
+            the moment the person sends anything, since this stops being the
+            latest message. */}
+        {latest && !streaming && onSuggestion && (
+          <SuggestionPills
+            items={message.suggestions}
+            // The line's own Dig deeper already offers it when a ceiling cut the work short.
+            canGoDeeper={Boolean(message.effort?.next && onDigDeeper && !message.effort.ceilingHit)}
+            onPick={s => (s.deeper && message.effort?.next && onDigDeeper ? onDigDeeper(message.effort.next) : onSuggestion(s))}
+          />
         )}
         {/* The thumb lives under the turn once the row is persisted (0094). */}
         {onFeedback && typeof message.id === 'number' && !streaming && (

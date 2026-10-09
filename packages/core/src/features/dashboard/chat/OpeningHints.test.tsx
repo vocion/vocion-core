@@ -5,8 +5,8 @@ import { page } from 'vitest/browser';
 import '@/styles/global.css';
 
 /**
- * The opening hint by the composer (founder, 2026-10-09): one quiet chip, two
- * at most; clicking starts the flow; × puts it away; "Why this?" on a long press.
+ * The opening hint by the composer (founder, 2026-10-09): one quiet pill, three
+ * at most, wrapping and never truncated; clicking starts the flow; × puts it away; "Why this?" on a long press.
  */
 
 const hintEvent = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
@@ -25,6 +25,25 @@ beforeEach(() => {
 });
 
 describe('OpeningHints', () => {
+  it('shows up to three pills, wrapping on a phone, never cut off, each a 44px target', async () => {
+    await page.viewport(390, 844);
+    const brief: OpeningHint = { key: 'briefing', type: 'next', label: 'What needs my attention today across Northwind and Kestrel? →', reason: 'A new briefing came in this week.', score: 95, action: { kind: 'send', prompt: 'Walk me through the latest briefing' } };
+    await render(<OpeningHints hints={[reconnect, tour, brief]} onSend={vi.fn()} />);
+
+    expect(page.getByTestId('opening-hint').elements()).toHaveLength(3);
+
+    for (const label of page.getByTestId('opening-hint-label').elements()) {
+      // Never clipped: the words take the lines they need.
+      expect(label.scrollHeight).toBeLessThanOrEqual(label.clientHeight + 1);
+      expect(label.getBoundingClientRect().right).toBeLessThanOrEqual(390);
+    }
+    for (const button of page.getByTestId('opening-hint').elements().map(el => el.querySelector('button')!)) {
+      expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
+
+    await page.viewport(1280, 800);
+  });
+
   it('shows the ranked chips, records that they were shown, and a click starts the flow', async () => {
     const onSend = vi.fn();
     await render(<OpeningHints hints={[reconnect, tour]} onSend={onSend} />);

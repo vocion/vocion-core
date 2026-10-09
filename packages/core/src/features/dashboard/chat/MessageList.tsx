@@ -67,6 +67,8 @@ export type MessageListProps = {
   onOpenArtifact?: (id: number) => void;
   /** Build it on a card a turn drew. */
   onBuildCard?: (card: import('./types').ChatMessageArtifact) => void;
+  /** Sends a follow-up pill under the latest answer as the next message. */
+  onSuggestion?: (s: import('@/libs/chat/suggestions').Suggestion) => void;
   /** The thread — stamped into a failed step's Copy details block. */
   conversationId?: number | null;
   /** The workspace's agents, so an attributed turn draws the specialist's `AgentDot`. */
@@ -79,7 +81,7 @@ const PIN_THRESHOLD = 48;
 /** No roster: the transcript draws no teammate avatars. */
 const NO_AGENTS: readonly AgentOption[] = [];
 
-export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onDigDeeper, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, onBuildCard, conversationId, pageRecord, agents }: MessageListProps) {
+export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onDigDeeper, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, onBuildCard, onSuggestion, conversationId, pageRecord, agents }: MessageListProps) {
   const speakers = useMemo(() => speakersOf(messages, { slug: ownAgentSlug, name: agentName }, agents), [messages, ownAgentSlug, agentName, agents]);
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -241,6 +243,7 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
                       conversationId={conversationId}
                       pageRecord={pageRecord}
                       latest={i === lastIdx}
+                      onSuggestion={onSuggestion}
                       threadRecords={i === lastIdx ? threadRecords : undefined}
                     />
                   )}

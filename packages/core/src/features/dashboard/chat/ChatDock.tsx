@@ -741,6 +741,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                   blocks={[...blocks, workBlock(session), decisionBlock(session)]}
                   onFeedback={session.handleFeedback}
                   onBuildCard={session.buildFromCard}
+                  onSuggestion={session.sendSuggestion}
                   autonomy={session.autonomy}
                   conversationId={session.conversationId}
                 />

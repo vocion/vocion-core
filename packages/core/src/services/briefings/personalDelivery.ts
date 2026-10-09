@@ -9,9 +9,9 @@
  *   - one short assistant message in their Personal chat, its own
  *     conversation titled for the day, that says the brief's lead line and
  *     links to the stored brief;
- *   - its suggested actions as one Decision on that conversation,
- *     recommended first (the brief says they are waiting; it never draws
- *     them a second time);
+ *   - its suggested actions as up to three pills under that message, each
+ *     sending its words as the person's next ask — a suggestion is never a
+ *     Decision card (founder, 2026-10-09: "doesn't trap them in cards");
  *   - for the morning brief, a push beyond the app where the person chose
  *     (`services/personal/push.ts`), linking to the stored brief.
  *
@@ -26,13 +26,15 @@
  * brief and no message; an Org over its daily brief cap gets none, and its
  * admins one quiet notice a day.
  *
- * Warm chat: the Decision is raised only after the message is written, so
- * the card never docks on an empty conversation (`emptyChat.mayDockCard`).
+ * The pills ride the message itself (a `suggestions` run,
+ * `libs/chat/suggestions.ts`), so the chat is never empty under them and a
+ * reload draws the same ones.
  */
 
 import type { BriefWriter } from './personalWriter';
 import type { RhythmKind } from '@/libs/personal/rhythm';
 import { and, eq } from 'drizzle-orm';
+import { MAX_SUGGESTIONS } from '@/libs/chat/suggestions';
 import { db } from '@/libs/DB';
 import { conversationSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
 import { appendMessage, createConversation } from '@/services/ConversationService';
@@ -54,7 +56,7 @@ export function deliveryScope(kind: RhythmKind, day: string): string {
 }
 
 export type DeliveredBrief
-  = | { delivered: true; conversationId: number; orgId: string; briefingId: number; decisionId: number | null; title: string }
+  = | { delivered: true; conversationId: number; orgId: string; briefingId: number; title: string }
     | { delivered: false; reason: string; conversationId?: number };
 
 /**
@@ -64,12 +66,12 @@ export type DeliveredBrief
  * @param input.lead - The brief's lead sentence.
  * @param input.title - The brief's title.
  * @param input.href - Where the stored brief lives.
- * @param input.actions - How many suggested actions wait in the card below.
+ * @param input.actions - How many suggested actions are offered below the message.
  */
 export function deliveryMessage(input: { lead: string; title: string; href: string; actions: number }): string {
   const out = [input.lead, '', `[Open ${input.title} →](${input.href})`];
   if (input.actions > 0) {
-    out.push('', input.actions === 1 ? 'One thing to do first is in the card below.' : `The ${input.actions} things I would do first are in the card below.`);
+    out.push('', input.actions === 1 ? 'One thing I would start on is below.' : `The ${input.actions} things I would start on are below.`);
   }
   return out.join('\n');
 }
@@ -116,24 +118,19 @@ export async function deliverPersonalBrief(input: { userId: string; accountId: s
   const [project] = await db.select({ lead: projectSchema.leadAgentSlug }).from(projectSchema).where(eq(projectSchema.id, personal.id)).limit(1);
   const agentSlug = project?.lead ?? personalAssistantSlug();
   const conversation = await createConversation({ orgId: personal.id, agentSlug, initialTitle: brief.title, titleSource: 'person', createdBy: input.userId, scopeRef: scope });
-  await appendMessage({ orgId: personal.id, conversationId: conversation.id, role: 'assistant', content: deliveryMessage({ lead: brief.lead, title: brief.title, href: published.href, actions: brief.actions.length }), status: 'complete', agentSlug });
-
-  let decisionId: number | null = null;
-  if (brief.actions.length > 0) {
-    const { raiseDecision } = await import('@/services/decisions/DecisionService');
-    const raised = await raiseDecision({
-      orgId: personal.id,
-      conversationId: conversation.id,
-      ownerUserId: input.userId,
-      agentSlug,
-      kind: 'ruling',
-      question: input.kind === 'brief' ? 'What should I start on?' : 'What should I set up for tomorrow?',
-      options: brief.actions.map((a, i) => ({ id: `act-${i + 1}`, label: a.label, description: a.why, ...(i === 0 ? { recommended: true } : {}) })),
-      allowOther: true,
-      sourceRef: `${scope}:actions`,
-    });
-    decisionId = raised.view.id;
-  }
+  const content = deliveryMessage({ lead: brief.lead, title: brief.title, href: published.href, actions: brief.actions.length });
+  // The things to start on are pills under the message, each a prompt the
+  // person sends with a tap — never a card to answer.
+  const suggestions = brief.actions.slice(0, MAX_SUGGESTIONS).map(a => ({ label: a.label, prompt: a.label, ...(a.why ? { why: a.why } : {}) }));
+  await appendMessage({
+    orgId: personal.id,
+    conversationId: conversation.id,
+    role: 'assistant',
+    content,
+    runs: [{ type: 'text', text: content }, ...(suggestions.length > 0 ? [{ type: 'suggestions' as const, items: suggestions }] : [])],
+    status: 'complete',
+    agentSlug,
+  });
 
   if (input.kind === 'brief') {
     // Beyond the app too, where the person chose (Slack DM, text, email), with a link straight to the brief.
@@ -152,5 +149,5 @@ export async function deliverPersonalBrief(input: { userId: string; accountId: s
     }, { now }).catch(() => null);
   }
 
-  return { delivered: true, conversationId: conversation.id, orgId: personal.id, briefingId: published.id, decisionId, title: brief.title };
+  return { delivered: true, conversationId: conversation.id, orgId: personal.id, briefingId: published.id, title: brief.title };
 }

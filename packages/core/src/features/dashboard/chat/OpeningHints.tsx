@@ -6,10 +6,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { PROMPT_PILL_CLASS } from './SuggestionPills';
 
 /**
  * The opening hint by the composer of an empty conversation: usually one
- * quiet chip, two at most, stacked (`libs/chat/openingHints.ts` ranks them).
+ * quiet pill, three at most, each clearing the ranker's bar, wrapping side by
+ * side (`libs/chat/openingHints.ts` ranks them; `SuggestionPills.tsx` is the
+ * one pill shape).
  * Clicking starts the flow in chat — it sends the ask, or opens setup or a
  * connection through the page they already live on. "Why this?" is the
  * reason, on hover or keyboard focus on a desktop and on a long press on a
@@ -58,9 +61,9 @@ export function OpeningHints({ hints, onSend }: { hints: readonly OpeningHint[];
   };
 
   return (
-    <div className="flex w-full min-w-0 flex-col items-center gap-1.5" data-testid="opening-hints">
+    <div className="flex w-full min-w-0 flex-wrap justify-center gap-1.5" data-testid="opening-hints">
       {shown.map((h, i) => (
-        <div key={h.key} className="flex w-full min-w-0 flex-col items-center">
+        <div key={h.key} className="flex max-w-full min-w-0 flex-col items-center">
           {/* Readable whole at 390px (founder, 2026-10-09: "Tough to tell what
               the hint chip said. Important parts were cut off"): the words wrap
               to two lines rather than cutting mid-word, and the × stands apart
@@ -85,10 +88,10 @@ export function OpeningHints({ hints, onSend }: { hints: readonly OpeningHint[];
                   onPointerLeave={() => press.current && clearTimeout(press.current)}
                   onContextMenu={e => e.preventDefault()}
                   aria-describedby={`hint-why-${i}`}
-                  className="inline-flex min-w-0 items-center gap-1.5 rounded-2xl border border-border/70 bg-background py-1.5 pr-2.5 pl-3 text-left transition-colors [-webkit-touch-callout:none] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none max-md:min-h-11"
+                  className={`${PROMPT_PILL_CLASS} [-webkit-touch-callout:none]`}
                 >
                   <span className="size-1.5 shrink-0 rounded-full bg-brand-amber" aria-hidden />
-                  <span className="line-clamp-2 min-w-0 leading-snug break-words" data-testid="opening-hint-label">{h.label.replace(/ →$/, '')}</span>
+                  <span className="min-w-0 break-words" data-testid="opening-hint-label">{h.label.replace(/ →$/, '')}</span>
                   <ArrowRight className="size-3.5 shrink-0" aria-hidden />
                 </button>
               </TooltipTrigger>

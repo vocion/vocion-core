@@ -44,11 +44,11 @@ one off, under **Notification settings → Your day**.
    A workspace where nothing moved is left out.
 4. **Your workspaces.** Each workspace's latest brief, by its headline, dated
    and linked. A workspace with no brief and nothing waiting is left out.
-5. **Up to three suggested actions.** They are raised as one Decision card
-   under the chat message, recommended first. The brief itself only says they
-   are waiting in Decisions and does not list them a second time. Choosing
-   one answers the Decision, which starts the assistant's turn on it.
-   "Something else" takes the person's own words.
+5. **Up to three suggested actions.** They are pills under the chat message
+   (`libs/chat/suggestions.ts`), never a Decision card: a suggestion asks for
+   no consent. The brief itself only says where they are and does not list
+   them a second time. Tapping one sends its words as the person's next
+   message, which starts the assistant's turn on it; anything else is typed.
 
 ## What the wrap says
 

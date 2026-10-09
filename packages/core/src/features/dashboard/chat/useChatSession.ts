@@ -202,6 +202,8 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
       .filter((r): r is Extract<AgentRun, { type: 'receipt' }> => r.type === 'receipt')
       .map(r => readDoneReceipt(r.receipt))
       .filter((r): r is DoneReceipt => r !== null);
+    // The follow-ups the turn ended with, drawn again after a reload.
+    const suggested = runsRaw.find((r): r is Extract<AgentRun, { type: 'suggestions' }> => r.type === 'suggestions');
     if (row.role === 'decision') {
       return {
         ...(typeof row.id === 'number' ? { id: row.id } : {}),
@@ -216,6 +218,7 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
       content: row.content ?? '',
       ...(decisionAnswer && row.role === 'user' ? { decisionAnswer } : {}),
       ...(receipts.length > 0 && row.role === 'assistant' ? { receipts } : {}),
+      ...(suggested && suggested.items.length > 0 && row.role === 'assistant' ? { suggestions: suggested.items } : {}),
       ...(row.role === 'assistant' && (rating || row.feedbackNote) ? { feedback: { rating, note: row.feedbackNote ?? null } } : {}),
       ...(runs ? { runs } : {}),
       ...(recommendations.length > 0 ? { recommendations } : {}),
@@ -888,6 +891,13 @@ export function useChatSession({
             return at === -1 ? prev : prev.map((m, i) => (i === at ? { ...m, decisionAnswer: { id: d.id, question: d.question, line, kind: d.answer!.kind, via: 'composer' } } : m));
           });
         }
+        return;
+      }
+      case 'suggestions': {
+        // The follow-ups the reply ended with: pills under it, never text.
+        flushDeltas();
+        const items = Array.isArray(evt.items) ? evt.items : [];
+        appendToLatestAgent(m => ({ ...m, suggestions: items }));
         return;
       }
       case 'receipt': {
@@ -2192,6 +2202,14 @@ export function useChatSession({
   }, []);
 
   /**
+   * A follow-up pill under the latest answer: its words go as the person's
+   * next message, a real turn (chips are prompts).
+   */
+  const sendSuggestion = useCallback((s: import('@/libs/chat/suggestions').Suggestion) => {
+    void sendMessage(s.prompt);
+  }, [sendMessage]);
+
+  /**
    * A thumb (and optional note) on one assistant turn. Optimistic: the
    * message shows the rating at once; the server write is best-effort and a
    * failure logs rather than reverting — a thumb is not worth a modal.
@@ -2320,6 +2338,7 @@ export function useChatSession({
     /** Name the open thread (sets its title source to `person`). */
     renameConversation,
     sendMessage,
+    sendSuggestion,
     handleStop,
     /** How the last turn ended — `stopped`/`error` hold the queue instead of flushing it. */
     turnOutcome,

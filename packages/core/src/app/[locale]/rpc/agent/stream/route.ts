@@ -501,6 +501,8 @@ export async function POST(request: Request): Promise<Response> {
             collector.onDecision({ id: event.decision.id, question: event.decision.question, state: event.decision.state });
           } else if (event.type === 'receipt') {
             collector.onReceipt(event.receipt);
+          } else if (event.type === 'suggestions') {
+            collector.onSuggestions(event.items);
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
