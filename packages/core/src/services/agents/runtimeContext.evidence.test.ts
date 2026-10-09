@@ -122,11 +122,11 @@ describe('the lookup memo', () => {
       return new ToolMessage({ content: `result ${runs}`, tool_call_id: r.toolCall.id, name: r.toolCall.name });
     };
     const wrap = createLookupMemoMiddleware(ev).wrapToolCall as unknown as (r: unknown, h: typeof handler) => Promise<{ content: string }>;
-    const owed = { name: 'mail_owed_replies', metadata: { turnMemo: true } };
+    const owed = { name: 'query_state', metadata: { turnMemo: true } };
 
-    const first = await wrap({ tool: owed, toolCall: { id: 'a', name: 'mail_owed_replies', args: { category: ['sales'] } } }, handler);
-    const second = await wrap({ tool: owed, toolCall: { id: 'b', name: 'mail_owed_replies', args: { category: ['sales'] } } }, handler);
-    const other = await wrap({ tool: owed, toolCall: { id: 'c', name: 'mail_owed_replies', args: { category: ['customer'] } } }, handler);
+    const first = await wrap({ tool: owed, toolCall: { id: 'a', name: 'query_state', args: { view: 'owed-replies' } } }, handler);
+    const second = await wrap({ tool: owed, toolCall: { id: 'b', name: 'query_state', args: { view: 'owed-replies' } } }, handler);
+    const other = await wrap({ tool: owed, toolCall: { id: 'c', name: 'query_state', args: { view: 'awaiting-their-reply' } } }, handler);
     await wrap({ tool: { name: 'propose_action' }, toolCall: { id: 'd', name: 'propose_action', args: {} } }, handler);
     await wrap({ tool: { name: 'propose_action' }, toolCall: { id: 'e', name: 'propose_action', args: {} } }, handler);
 
