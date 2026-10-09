@@ -203,6 +203,8 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
       .filter((r): r is DoneReceipt => r !== null);
     // The follow-ups the turn ended with, drawn again after a reload.
     const suggested = runsRaw.find((r): r is Extract<AgentRun, { type: 'suggestions' }> => r.type === 'suggestions');
+    // A brief read aloud rides its message: the player is drawn under it.
+    const audio = runsRaw.find((r): r is Extract<AgentRun, { type: 'audio' }> => r.type === 'audio' && r.ref?.type === 'briefing' && typeof r.ref.id === 'number');
     if (row.role === 'decision') {
       return {
         ...(typeof row.id === 'number' ? { id: row.id } : {}),
@@ -218,6 +220,7 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
       ...(decisionAnswer && row.role === 'user' ? { decisionAnswer } : {}),
       ...(receipts.length > 0 && row.role === 'assistant' ? { receipts } : {}),
       ...(suggested && suggested.items.length > 0 && row.role === 'assistant' ? { suggestions: suggested.items } : {}),
+      ...(audio && row.role === 'assistant' ? { listen: audio.ref } : {}),
       ...(row.role === 'assistant' && (rating || row.feedbackNote) ? { feedback: { rating, note: row.feedbackNote ?? null } } : {}),
       ...(runs ? { runs } : {}),
       ...(recommendations.length > 0 ? { recommendations } : {}),

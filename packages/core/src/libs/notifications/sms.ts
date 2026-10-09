@@ -34,25 +34,57 @@ export function smsNotificationText(message: NotificationMessage): string {
 }
 
 /**
- * Send one notification as a text.
+ * The most an MMS attachment may be. Carriers cap MMS well under Twilio's
+ * 5 MB — about 1 MB on the large US networks — so a brief's MP3 (64 kbps,
+ * about 480 KB a minute) fits up to about two minutes; past this the text
+ * carries the link only. `VOCION_MMS_MAX_BYTES` moves it.
+ */
+export const MMS_MAX_BYTES = 1_000_000;
+
+/**
+ * The MMS ceiling in force.
+ * @param env - The environment.
+ */
+export function mmsMaxBytes(env: Record<string, string | undefined> = process.env): number {
+  const n = Number(env.VOCION_MMS_MAX_BYTES);
+  return Number.isFinite(n) && n > 0 ? n : MMS_MAX_BYTES;
+}
+
+/**
+ * Send one notification as a text — with a file attached (an MMS) when
+ * `media` is given. A number or carrier that cannot take an MMS refuses it,
+ * and the text goes again as words and the link alone: the link is what the
+ * text is for.
  * @param target - From the workspace's number, to the person's.
  * @param target.from - The number Vocion texts from (E.164).
  * @param target.to - The person's number (E.164).
  * @param message - What to say.
  * @param send - The sender; Twilio by default (`sendSms`).
+ * @param media - A public URL Twilio fetches and attaches (an MP3 brief).
+ * @param media.url
  */
 export async function sendSmsNotification(
   target: { from: string; to: string },
   message: NotificationMessage,
-  send?: (from: string, to: string, body: string) => Promise<unknown>,
-): Promise<ChannelOutcome> {
+  send?: (from: string, to: string, body: string, mediaUrl?: string) => Promise<unknown>,
+  media?: { url: string },
+): Promise<ChannelOutcome & { media?: 'attached' | 'link_only' }> {
   if (!smsConfigured()) {
     return { status: 'not_configured', error: 'this server has no Twilio account (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)' };
   }
-  const deliver = send ?? (await import('@/libs/surfaces/sms')).sendSms;
+  const deliver = send ?? (async (from: string, to: string, body: string, mediaUrl?: string) => (await import('@/libs/surfaces/sms')).sendSms(from, to, body, fetch, mediaUrl));
+  const text = smsNotificationText(message);
+  if (media) {
+    try {
+      await deliver(target.from, target.to, text, media.url);
+      return { status: 'sent', media: 'attached' };
+    } catch {
+      // MMS not supported for this number or carrier: the words and the link alone.
+    }
+  }
   try {
-    await deliver(target.from, target.to, smsNotificationText(message));
-    return { status: 'sent' };
+    await deliver(target.from, target.to, text);
+    return { status: 'sent', ...(media ? { media: 'link_only' as const } : {}) };
   } catch (error) {
     // Twilio refusing is worth another go; a bad number is said by Twilio in words and retried
     // to the backoff's end, which is cheaper than guessing which of its errors are permanent.

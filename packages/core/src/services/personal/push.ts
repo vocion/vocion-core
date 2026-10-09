@@ -45,33 +45,89 @@ export type PushItem = {
   /** The workspace the path belongs to, for its `/w/<slug>` prefix. */
   workspaceSlug: string;
   accountSlug?: string;
+  /**
+   * A brief read aloud to carry with it (docs/guides/listen-to-your-brief.md),
+   * when it has one ready: Slack gets the MP3 as a file, a text gets it as an
+   * MMS, an email gets a Listen button.
+   */
+  audio?: { orgId: string; briefingId: number };
 };
+
+/** A brief's MP3, as each channel carries it. */
+export type PushAudio = {
+  bytes: Uint8Array;
+  filename: string;
+  title: string;
+  durationMs: number;
+  /** A public, signed, expiring URL of the MP3 (a text's attachment). */
+  clipUrl: string;
+};
+
+/** An email attaches the MP3 under this size (2 MB, about four minutes): iOS Mail plays it inline, offline. */
+export const EMAIL_AUDIO_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * A duration as a person reads it: `2:14`.
+ * @param ms - Milliseconds.
+ */
+function clock(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/**
+ * The email a push sends: title, body, Open — and, with a brief's audio, a
+ * "▶ Listen (2:14)" button to the brief's page, where the player is. Pure.
+ * @param m - The message.
+ * @param m.title - Title.
+ * @param m.body - Body.
+ * @param m.url - Where it opens.
+ * @param m.stopUrl - The one-tap stop.
+ * @param m.audio - The brief's audio, if any.
+ */
+export function pushEmail(m: { title: string; body: string; url: string; stopUrl: string; audio?: PushAudio }): { html: string; text: string; attachments?: Array<{ filename: string; content: Uint8Array; contentType: string }> } {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const listenUrl = m.audio ? `${m.url}${m.url.includes('?') ? '&' : '?'}listen=1` : null;
+  const listen = m.audio && listenUrl
+    ? `<p style="margin:0 0 14px"><a href="${esc(listenUrl)}" style="display:inline-block;background:#0b1020;color:#ffffff;text-decoration:none;font-weight:600;padding:10px 18px;border-radius:999px">▶ Listen (${clock(m.audio.durationMs)})</a></p>`
+    : '';
+  const html = `<div style="font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#0b1020;max-width:560px"><p style="font-weight:600;margin:0 0 6px">${esc(m.title)}</p><p style="color:#444;margin:0 0 14px">${esc(m.body)}</p>${listen}<p><a href="${esc(m.url)}" style="color:#0b1020;font-weight:600">Open in Vocion →</a></p><p style="color:#888;font-size:12px;margin-top:24px"><a href="${esc(m.stopUrl)}" style="color:#888">Stop these emails</a></p></div>`;
+  const text = `${m.title}\n\n${m.body}\n\n${listenUrl && m.audio ? `Listen (${clock(m.audio.durationMs)}): ${listenUrl}\n\n` : ''}Open: ${m.url}\n\nStop these emails: ${m.stopUrl}`;
+  const attach = m.audio && m.audio.bytes.byteLength <= EMAIL_AUDIO_MAX_BYTES;
+  return { html, text, ...(attach ? { attachments: [{ filename: m.audio!.filename, content: m.audio!.bytes, contentType: 'audio/mpeg' }] } : {}) };
+}
 
 export type PushOutcome
   = | { pushed: true; channels: Array<{ channel: PushChannel; status: string }> }
     | { pushed: false; reason: 'already' | 'mode' | 'quiet' | 'rate_limited' | 'no_channels' };
 
+/** What every channel is handed. */
+export type PushMessage = { title: string; body: string; url: string; stopUrl: string; audio?: PushAudio };
+
 /** The senders, a seam for tests. */
 export type PushSenders = {
-  slack: (to: { email: string }, message: { title: string; body: string; url: string; stopUrl: string }) => Promise<string>;
-  sms: (to: { userId: string; orgId: string }, message: { title: string; body: string; url: string; stopUrl: string }) => Promise<string>;
-  email: (to: { email: string; orgId: string }, message: { title: string; body: string; url: string; stopUrl: string }) => Promise<string>;
+  slack: (to: { email: string }, message: PushMessage) => Promise<string>;
+  sms: (to: { userId: string; orgId: string }, message: PushMessage) => Promise<string>;
+  email: (to: { email: string; orgId: string }, message: PushMessage) => Promise<string>;
 };
 
 const defaultSenders: PushSenders = {
   async slack(to, m) {
     const { sendSlack, slackToken } = await import('@/libs/notifications/slack');
-    const out = await sendSlack({ dmEmail: to.email }, { id: 0, kind: 'personal-push', title: m.title, body: `${m.body}\n\nStop these on Slack: ${m.stopUrl}`, url: m.url }, slackToken());
+    const listen = m.audio ? `\n\n▶ Listen below (${clock(m.audio.durationMs)})` : '';
+    const out = await sendSlack({ dmEmail: to.email }, { id: 0, kind: 'personal-push', title: m.title, body: `${m.body}${listen}\n\nStop these on Slack: ${m.stopUrl}`, url: m.url }, slackToken(), m.audio ? { file: { filename: m.audio.filename, title: m.audio.title, bytes: m.audio.bytes } } : {});
     return out.status;
   },
   async sms(to, m) {
     const { smsTargetFor } = await import('@/services/notifications/delivery');
-    const { sendSmsNotification } = await import('@/libs/notifications/sms');
+    const { mmsMaxBytes, sendSmsNotification } = await import('@/libs/notifications/sms');
     const target = await smsTargetFor(to.orgId, to.userId);
     if ('error' in target) {
       return 'failed';
     }
-    const out = await sendSmsNotification(target, { id: 0, kind: 'personal-push', title: m.title, body: `Stop texts: ${m.stopUrl}`, url: m.url });
+    const media = m.audio && m.audio.bytes.byteLength <= mmsMaxBytes() ? { url: m.audio.clipUrl } : undefined;
+    const listen = m.audio ? `Listen (${clock(m.audio.durationMs)}) at the link. ` : '';
+    const out = await sendSmsNotification(target, { id: 0, kind: 'personal-push', title: m.title, body: `${listen}Stop texts: ${m.stopUrl}`, url: m.url }, undefined, media);
     return out.status;
   },
   async email(to, m) {
@@ -79,13 +135,13 @@ const defaultSenders: PushSenders = {
     if (!mailEnabled()) {
       return 'not_configured';
     }
-    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const html = `<div style="font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#0b1020;max-width:560px"><p style="font-weight:600;margin:0 0 6px">${esc(m.title)}</p><p style="color:#444;margin:0 0 14px">${esc(m.body)}</p><p><a href="${esc(m.url)}" style="color:#0b1020;font-weight:600">Open in Vocion →</a></p><p style="color:#888;font-size:12px;margin-top:24px"><a href="${esc(m.stopUrl)}" style="color:#888">Stop these emails</a></p></div>`;
+    const { html, text, attachments } = pushEmail(m);
     const sent = await sendMail({
       to: to.email,
       subject: m.title,
-      text: `${m.title}\n\n${m.body}\n\nOpen: ${m.url}\n\nStop these emails: ${m.stopUrl}`,
+      text,
       html,
+      ...(attachments ? { attachments } : {}),
       tags: { kind: 'personal-push' },
       // One-click unsubscribe (RFC 8058): mail clients show their own "Unsubscribe".
       headers: { 'List-Unsubscribe': `<${m.stopUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
@@ -94,6 +150,24 @@ const defaultSenders: PushSenders = {
     return 'skipped' in sent && sent.skipped ? 'not_configured' : 'sent';
   },
 };
+
+/**
+ * A ready brief's MP3 and its signed public URL, or null when it has none.
+ * @param ref - Which brief.
+ * @param ref.orgId - Its workspace.
+ * @param ref.briefingId - The brief.
+ * @param base - The app's absolute URL.
+ * @param now - The clock.
+ */
+async function pushAudioOf(ref: { orgId: string; briefingId: number }, base: string, now: Date): Promise<PushAudio | null> {
+  const { readBriefAudio } = await import('@/services/briefings/audio/audio');
+  const file = await readBriefAudio(ref.orgId, ref.briefingId);
+  if (!file) {
+    return null;
+  }
+  const { CLIP_TTL_MS, clipPath } = await import('@/libs/briefings/listenLink');
+  return { ...file, clipUrl: `${base}${clipPath({ orgId: ref.orgId, briefingId: ref.briefingId, exp: now.getTime() + CLIP_TTL_MS })}` };
+}
 
 /**
  * When the person's quiet hours end, if they are inside them now.
@@ -152,10 +226,11 @@ export async function pushToPerson(item: PushItem, opts: { now?: Date; senders?:
   const base = appBaseUrl();
   const url = `${base}${path}`;
   const [user] = await db.select({ email: userSchema.email }).from(userSchema).where(eq(userSchema.id, item.userId)).limit(1);
+  const audio = item.audio ? await pushAudioOf(item.audio, base, now) : null;
   const out: Array<{ channel: PushChannel; status: string }> = [];
   for (const channel of channels) {
     const stopUrl = `${base}/api/personal/push/stop?t=${encodeURIComponent(stopToken({ userId: item.userId, accountId: item.accountId, channel }))}`;
-    const message = { title: item.title, body: item.body, url, stopUrl };
+    const message: PushMessage = { title: item.title, body: item.body, url, stopUrl, ...(audio ? { audio } : {}) };
     try {
       const status = channel === 'sms'
         ? await senders.sms({ userId: item.userId, orgId: home.id }, message)

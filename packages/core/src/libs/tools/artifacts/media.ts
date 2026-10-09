@@ -39,12 +39,16 @@ export const MEDIA_ROUTE_BASE = '/api/media';
 /** A few minutes of a 1440×900 browser is a few MB; this is the ceiling, said when hit. */
 export const DEFAULT_MEDIA_MAX_BYTES = 200 * 1024 * 1024;
 
-/** The video types kept, and the extension each is stored under. */
+/**
+ * The types kept, and the extension each is stored under: a recording's video,
+ * and a brief read aloud (`services/briefings/audio`), which is MP3.
+ */
 const KEPT_VIDEO: Record<string, string> = { 'video/webm': 'webm', 'video/mp4': 'mp4' };
-const EXT_TYPE: Record<string, string> = { webm: 'video/webm', mp4: 'video/mp4' };
+const KEPT: Record<string, string> = { ...KEPT_VIDEO, 'audio/mpeg': 'mp3' };
+const EXT_TYPE: Record<string, string> = { webm: 'video/webm', mp4: 'video/mp4', mp3: 'audio/mpeg' };
 
 const SAFE_SEGMENT = /^[\w-]{1,120}$/;
-const SAFE_FILE = /^[\w-]{1,160}\.(?:webm|mp4)$/;
+const SAFE_FILE = /^[\w-]{1,160}\.(?:webm|mp4|mp3)$/;
 
 export function mediaMaxBytes(): number {
   const n = Number(process.env.VOCION_MEDIA_MAX_BYTES);
@@ -67,6 +71,15 @@ export function mediaBucket(): { bucket: string; region: string | undefined } | 
 export function videoExt(contentType: string | null | undefined): string | null {
   const base = String(contentType ?? '').split(';')[0]!.trim().toLowerCase();
   return KEPT_VIDEO[base] ?? null;
+}
+
+/**
+ * The extension a kept file is stored under — a video, or MP3 audio — or null.
+ * @param contentType - The declared type.
+ */
+function keptExt(contentType: string | null | undefined): string | null {
+  const base = String(contentType ?? '').split(';')[0]!.trim().toLowerCase();
+  return KEPT[base] ?? null;
 }
 
 /**
@@ -154,9 +167,9 @@ export type MediaDeps = {
  * @param deps - Seams for tests.
  */
 export async function keepMedia(input: { orgId: string; recordId: string | number; name: string; data: Buffer; contentType: string }, deps: MediaDeps = {}): Promise<KeptMedia | MediaRefusal> {
-  const ext = videoExt(input.contentType);
+  const ext = keptExt(input.contentType);
   if (!ext) {
-    return { ok: false, reason: `${input.contentType || 'an untyped file'} is not kept: recordings are WebM or MP4 video.` };
+    return { ok: false, reason: `${input.contentType || 'an untyped file'} is not kept: recordings are WebM or MP4 video, or MP3 audio.` };
   }
   const recordId = String(input.recordId);
   if (!SAFE_SEGMENT.test(recordId)) {

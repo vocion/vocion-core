@@ -102,8 +102,9 @@ export function smsText(message: string | ChatMessage): string {
  * @param to - The person's number.
  * @param body - The words.
  * @param fetchImpl - Injectable for tests.
+ * @param mediaUrl - A public URL Twilio fetches and attaches, making it an MMS (an MP3 brief).
  */
-export async function sendSms(from: string, to: string, body: string, fetchImpl: typeof fetch = fetch): Promise<{ sid: string } | null> {
+export async function sendSms(from: string, to: string, body: string, fetchImpl: typeof fetch = fetch, mediaUrl?: string): Promise<{ sid: string } | null> {
   const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const token = process.env.TWILIO_AUTH_TOKEN?.trim();
   if (!sid || !token) {
@@ -112,7 +113,7 @@ export async function sendSms(from: string, to: string, body: string, fetchImpl:
   const res = await fetchImpl(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: 'POST',
     headers: { 'authorization': `Basic ${Buffer.from(`${sid}:${token}`).toString('base64')}`, 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ From: from, To: to, Body: body }).toString(),
+    body: new URLSearchParams({ From: from, To: to, Body: body, ...(mediaUrl ? { MediaUrl: mediaUrl } : {}) }).toString(),
   });
   const out = await res.json().catch(() => ({})) as { sid?: string; message?: string };
   if (!res.ok) {

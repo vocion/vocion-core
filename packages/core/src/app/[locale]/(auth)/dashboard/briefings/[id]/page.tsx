@@ -3,6 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { CommentLayerProvider } from '@/features/comments/CommentLayer';
 import { BriefingChatStarter } from '@/features/dashboard/BriefingChatStarter';
+import { BriefAudioPlayer } from '@/features/dashboard/briefings/BriefAudioPlayer';
 import { BriefingView } from '@/features/dashboard/briefings/BriefingView';
 import { BriefingSections } from '@/features/dashboard/BriefingSections';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -23,11 +24,17 @@ import { listInbox } from '@/services/InboxService';
  * The decision cards are re-read against the LIVE inbox at request time, so a
  * decision made between the brief being written and being read shows as made
  * rather than as still waiting.
+ *
+ * The brief can be heard: a compact player sits above it
+ * (docs/guides/listen-to-your-brief.md), and an email's Listen button opens
+ * this page with `?listen=1`, which puts focus on Play.
  * @param props
  * @param props.params
+ * @param props.searchParams
  */
-export default async function BriefingPage(props: { params: Promise<{ locale: string; id: string }> }) {
+export default async function BriefingPage(props: { params: Promise<{ locale: string; id: string }>; searchParams?: Promise<{ listen?: string }> }) {
   const { locale, id } = await props.params;
+  const listen = (await props.searchParams)?.listen === '1';
   setRequestLocale(locale);
   const { orgId } = await auth();
   if (!orgId) {
@@ -76,6 +83,7 @@ export default async function BriefingPage(props: { params: Promise<{ locale: st
       record={recordRef('briefing', brief.id, doc?.title ?? brief.title)}
     >
       <div className="min-w-0 flex-1">
+        <BriefAudioPlayer briefingId={brief.id} focusPlay={listen} className="mb-4" />
         {/* A typed brief is a Detail page and carries its own crumbs and H1;
             a pre-v2 markdown brief has no header of its own, so it gets one. */}
         {doc

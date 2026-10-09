@@ -13,6 +13,7 @@ import remarkGfm from 'remark-gfm';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { BriefAudioPlayer } from '@/features/dashboard/briefings/BriefAudioPlayer';
 import { RecordMicrocard } from '@/features/dashboard/factory/WorkStatus';
 import { openPreview } from '@/features/preview/previewState';
 import { normalizeAnswerHtml, stripCardNotes } from '@/libs/chat/answerText';
@@ -653,6 +654,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           <div data-testid="turn-ending-marker" className="mt-2 text-[12px] text-foreground/55">
             {endingMarker}
           </div>
+        )}
+        {message.listen && (
+          <BriefAudioPlayer briefingId={message.listen.id} className="mt-2" />
         )}
         {message.confidence && (
           <div className="mt-2 flex justify-end">

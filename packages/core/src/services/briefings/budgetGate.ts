@@ -34,8 +34,13 @@ import { accountMembershipSchema, agentBudgetSchema, projectSchema, tenantAccoun
 /** How recently a person must have been here to get a brief. */
 export const ACTIVE_WITHIN_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** The budget scope every brief charges (`featureScopeSlug('personal.brief')`). */
-const BRIEF_SCOPE = 'platform:personal.brief';
+/**
+ * The budget scopes every brief charges: the personal brief's model call
+ * (`featureScopeSlug('personal.brief')`) and any brief read aloud — its
+ * script and its voice (`platform:brief.audio`, `services/briefings/audio`).
+ * The Org's daily brief cap holds both.
+ */
+const BRIEF_SCOPES = ['platform:personal.brief', 'platform:brief.audio'];
 
 /**
  * The people of a set who are still in the Org, briefs on, and were here in
@@ -87,7 +92,7 @@ export async function briefSpendTodayCents(accountId: string, now: Date): Promis
     .innerJoin(projectSchema, eq(projectSchema.id, agentBudgetSchema.orgId))
     .where(and(
       eq(projectSchema.accountId, accountId),
-      eq(agentBudgetSchema.agentSlug, BRIEF_SCOPE),
+      inArray(agentBudgetSchema.agentSlug, BRIEF_SCOPES),
       eq(agentBudgetSchema.period, 'daily'),
       gte(agentBudgetSchema.periodStartedAt, dayStart),
     ));
@@ -104,12 +109,13 @@ export type BriefBudget = { ok: true } | { ok: false; why: string };
  * @param input.accountId - The Org.
  * @param input.personalOrgId - The Personal workspace it charges.
  * @param input.now - The clock.
+ * @param input.feature
  */
-export async function briefBudget(input: { accountId: string; personalOrgId: string; now: Date }): Promise<BriefBudget> {
+export async function briefBudget(input: { accountId: string; personalOrgId: string; now: Date; feature?: 'personal.brief' | 'brief.audio' }): Promise<BriefBudget> {
   const { preflightCheck } = await import('@/services/BudgetService');
-  const check = await preflightCheck({ orgId: input.personalOrgId, feature: 'personal.brief' });
+  const check = await preflightCheck({ orgId: input.personalOrgId, feature: input.feature ?? 'personal.brief' });
   if (!check.ok) {
-    return { ok: false, why: 'the Personal workspace is at its budget cap' };
+    return { ok: false, why: 'the workspace is at its budget cap' };
   }
   const cap = await dailyCapCents(input.accountId);
   if (cap !== null && await briefSpendTodayCents(input.accountId, input.now) >= cap) {
@@ -149,10 +155,10 @@ export async function noticeBriefsStopped(accountId: string, day: string, why: s
  * The Org's brief settings, as an admin sees them.
  * @param accountId
  */
-export async function orgBriefSettings(accountId: string): Promise<{ dailyBriefs: boolean; briefDailyCents: number | null; defaultCents: number | null }> {
-  const [row] = await db.select({ dailyBriefs: tenantAccountSchema.dailyBriefs, cap: tenantAccountSchema.briefDailyCents }).from(tenantAccountSchema).where(eq(tenantAccountSchema.id, accountId)).limit(1);
+export async function orgBriefSettings(accountId: string): Promise<{ dailyBriefs: boolean; briefDailyCents: number | null; defaultCents: number | null; briefAudio: boolean; briefVoiceId: string | null }> {
+  const [row] = await db.select({ dailyBriefs: tenantAccountSchema.dailyBriefs, cap: tenantAccountSchema.briefDailyCents, briefAudio: tenantAccountSchema.briefAudio, briefVoiceId: tenantAccountSchema.briefVoiceId }).from(tenantAccountSchema).where(eq(tenantAccountSchema.id, accountId)).limit(1);
   const fallback = Number.parseInt(process.env.VOCION_BRIEF_DAILY_CENTS ?? '', 10);
-  return { dailyBriefs: row?.dailyBriefs ?? true, briefDailyCents: row?.cap ?? null, defaultCents: Number.isFinite(fallback) ? fallback : null };
+  return { dailyBriefs: row?.dailyBriefs ?? true, briefDailyCents: row?.cap ?? null, defaultCents: Number.isFinite(fallback) ? fallback : null, briefAudio: row?.briefAudio ?? true, briefVoiceId: row?.briefVoiceId ?? null };
 }
 
 /**
@@ -161,9 +167,17 @@ export async function orgBriefSettings(accountId: string): Promise<{ dailyBriefs
  * @param change - What changed.
  * @param change.dailyBriefs - On or off.
  * @param change.briefDailyCents - The daily cap, or null for the default.
+ * @param change.briefAudio
+ * @param change.briefVoiceId
  */
-export async function setOrgBriefSettings(accountId: string, change: { dailyBriefs?: boolean; briefDailyCents?: number | null }): Promise<void> {
+export async function setOrgBriefSettings(accountId: string, change: { dailyBriefs?: boolean; briefDailyCents?: number | null; briefAudio?: boolean; briefVoiceId?: string | null }): Promise<void> {
   const set: Partial<typeof tenantAccountSchema.$inferInsert> = {};
+  if (change.briefAudio !== undefined) {
+    set.briefAudio = change.briefAudio;
+  }
+  if (change.briefVoiceId !== undefined) {
+    set.briefVoiceId = change.briefVoiceId;
+  }
   if (change.dailyBriefs !== undefined) {
     set.dailyBriefs = change.dailyBriefs;
   }

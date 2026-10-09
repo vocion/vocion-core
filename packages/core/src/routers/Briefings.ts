@@ -82,3 +82,23 @@ export const personalRoute = os
     const out = await publishPersonalBrief(userId, accountId, { timeZone: resolveTimeZone(input.timeZone) });
     return { id: out.id, href: out.href, replaced: out.replaced, title: out.brief.title, markdown: out.brief.markdown, waiting: { total: out.brief.waiting.total, yours: out.brief.waiting.yours }, workspaces: out.brief.workspaces, unavailable: out.brief.unavailable };
   });
+
+/**
+ * briefings.audio — the brief read aloud (`services/briefings/audio`): kept,
+ * on its way, off (and why), or failed (and why). The first ask makes it in
+ * the background; the player asks again until it is ready. The reader's own
+ * starting speed rides along.
+ */
+export const audioRoute = os
+  .input(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const { orgId, userId, accountId } = await guardAuth();
+    const { ensureBriefAudio } = await import('@/services/briefings/audio/audio');
+    let speed: 1 | 1.5 | 2 | undefined;
+    if (accountId) {
+      const { personalRhythmSchema } = await import('@/models/Schema');
+      const [r] = await db.select({ s: personalRhythmSchema.listenSpeed }).from(personalRhythmSchema).where(and(eq(personalRhythmSchema.userId, userId), eq(personalRhythmSchema.accountId, accountId))).limit(1);
+      speed = r?.s === 2 ? 2 : r?.s === 1.5 ? 1.5 : r ? 1 : undefined;
+    }
+    return ensureBriefAudio({ orgId, briefingId: input.id, ...(speed ? { speed } : {}) });
+  });

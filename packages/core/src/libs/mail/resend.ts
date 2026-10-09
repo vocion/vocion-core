@@ -7,6 +7,7 @@
  */
 
 import type { MailMessage } from './index';
+import { Buffer } from 'node:buffer';
 import { MailError } from './errors';
 
 export const RESEND_ENDPOINT = 'https://api.resend.com/emails';
@@ -42,6 +43,9 @@ export function buildResendBody(from: string, message: ResendRequest['message'])
   }
   if (message.headers && Object.keys(message.headers).length > 0) {
     body.headers = message.headers;
+  }
+  if (message.attachments && message.attachments.length > 0) {
+    body.attachments = message.attachments.map(a => ({ filename: a.filename, content: Buffer.from(a.content).toString('base64'), content_type: a.contentType }));
   }
   return body;
 }

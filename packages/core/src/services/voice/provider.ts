@@ -7,15 +7,25 @@
  *
  * Null when none is connected or its credential cannot be used: a caller that
  * would speak does nothing then.
+ *
+ * A voice is a team connector, so it lives in a team workspace, while a
+ * person's own brief lives in their Personal workspace.
+ * {@link voiceProviderForAccount} therefore looks in the asking workspace,
+ * then in the Org's other workspaces, then at the server's key
+ * (`ELEVENLABS_API_KEY`): one key anywhere in the Org speaks for it.
  */
 
 import type { VoiceConnector, VoiceProvider } from '@/libs/voice/provider';
+import process from 'node:process';
 import { VOICE_CONNECTORS } from '@/libs/voice/connectors';
 
 export type VoiceDeps = {
   connectors?: readonly VoiceConnector[];
   /** The decrypted credential for a connector slug, or null. */
   credentialFor?: (orgId: string, slug: string) => Promise<Record<string, unknown> | null>;
+  /** The Org's workspaces, oldest first (a seam for tests). */
+  workspacesOf?: (accountId: string) => Promise<string[]>;
+  env?: Record<string, string | undefined>;
 };
 
 /**
@@ -57,6 +67,51 @@ export async function voiceProvider(orgId: string, deps: VoiceDeps = {}): Promis
   for (const c of deps.connectors ?? VOICE_CONNECTORS) {
     const values = await credentialFor(orgId, c.slug).catch(() => null);
     const provider = values ? c.fromCredentials(values) : null;
+    if (provider) {
+      return provider;
+    }
+  }
+  return null;
+}
+
+/**
+ * The Org's workspaces, oldest first: where a team connector may live.
+ * @param accountId - The Org.
+ */
+async function orgWorkspaces(accountId: string): Promise<string[]> {
+  const { asc, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { projectSchema } = await import('@/models/Schema');
+  const rows = await db.select({ id: projectSchema.id }).from(projectSchema).where(eq(projectSchema.accountId, accountId)).orderBy(asc(projectSchema.createdAt)).limit(50);
+  return rows.map(r => r.id);
+}
+
+/**
+ * A voice for anything the Org speaks — a brief read aloud: the asking
+ * workspace's own, else the first of the Org's workspaces that connected one,
+ * else the server's key. Null when there is none anywhere; never throws.
+ * @param orgId - The asking workspace (a Personal workspace, for a person's brief).
+ * @param accountId - Its Org, or null to look only in the workspace and the server.
+ * @param deps - Seams for tests.
+ */
+export async function voiceProviderForAccount(orgId: string, accountId: string | null, deps: VoiceDeps = {}): Promise<VoiceProvider | null> {
+  const own = await voiceProvider(orgId, deps);
+  if (own) {
+    return own;
+  }
+  if (accountId) {
+    const others = await (deps.workspacesOf ?? orgWorkspaces)(accountId).catch(() => [] as string[]);
+    for (const id of others.filter(w => w !== orgId)) {
+      const found = await voiceProvider(id, deps);
+      if (found) {
+        return found;
+      }
+    }
+  }
+  const env = deps.env ?? process.env;
+  for (const c of deps.connectors ?? VOICE_CONNECTORS) {
+    const key = c.envKey ? env[c.envKey]?.trim() : '';
+    const provider = key ? c.fromCredentials({ apiKey: key }) : null;
     if (provider) {
       return provider;
     }
