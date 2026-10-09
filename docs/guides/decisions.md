@@ -229,6 +229,52 @@ proposal is now. No turn is written in the person's name.
   replying with a number or in words (the numbered-reply rendering is the last
   step of the rollout below).
 
+## Context mid-objective (step 3)
+
+Founder, 2026-10-09, on a phone, mid "setup my software factory": *"Does it
+give or should I have context mid objective?"* It did not. A walk said "3 of
+5", its summary "Connected 0 of 5" and the dock "1 of 4", and none of them said
+what the whole thing was, what was done, what came next, or how to stop and
+come back.
+
+**One quiet line, pinned above the dock while an objective runs.**
+
+```text
+● Setting up Software factory · 2 of 3                       Stop
+┌ PRODUCT MANAGER ASKS ───────────────────────────────────────┐
+│ Which repositories should the factory include?              │
+└─────────────────────────────────────────────────────────────┘
+[ Or reply directly…                                           ]
+```
+
+- **One line, never a card.** The Decision below stays the one thing asking.
+  The line sits in the composer's `pinned` slot, outside the phone's capped,
+  scrolling dock slot, so it never scrolls away. Its controls are 44px on a
+  phone.
+- **Tapping it lists the steps.** Each step shows as done ✓, the one you are on,
+  or next.
+- **Stop pauses it** ("Paused setting up … · Resume"). Nothing else changes:
+  done steps stay done and an open Decision stays open. Resume undoes Stop.
+- **When the last step is done** it says "<name> is set up" once, and can be
+  put away.
+- **It survives a reload, the drawer, another tab and another device.** The
+  conversation keeps only *which* objective and whether it was stopped
+  (`conversation.objective`, migration 0201). The steps and what is done are
+  read live from what the plugin declares (`setupStateForOrg`), so a step
+  done anywhere is done here.
+- **It starts when a turn reads the setup.** In a person's own conversation,
+  `describe_setup` starts the objective (the agent may name the plugin). With
+  two plugins unfinished and none named, nothing starts, so the line never
+  names the wrong one.
+- **The next visit offers to resume it.** The opening-hint ranker's setup
+  candidate (`libs/chat/openingHints.ts`) becomes "Resume setting up
+  <name> →", scored above a plain setup hint. It opens the conversation where
+  the objective stands (`?conversation=<id>`). The same dismissal hides it.
+
+Code: `libs/objectives/objective.ts` (pure), `services/objectives/ObjectiveService.ts`,
+`routers/Objectives.ts` (`objectives.current | stop | resume`),
+`chat/objectives/ObjectiveStrip.tsx`.
+
 ## Rollout
 
 One concept, landed in four steps, each its own pull request:

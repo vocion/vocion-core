@@ -249,6 +249,20 @@ export default defineConfig<ChromaticConfig>({
           },
         ]
       : []),
+    // Context mid-objective: the one line above the dock, its steps, Stop,
+    // and the next visit's resume hint. Needs the scripted model, so it is
+    // defined only when the server runs one. Run with: npm run e2e:objectives
+    ...(process.env.VOCION_LLM_PROVIDER === 'scripted' && process.env.VOCION_LLM_SCRIPT?.includes('e2e/objectives/')
+      ? [
+          {
+            name: 'objectives',
+            testDir: './e2e/objectives',
+            timeout: projectTimeout(240 * 1000, 120 * 1000),
+            retries: 0,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]
+      : []),
     // #1080 — connecting from the Connectors page and from chat. Needs the
     // scripted connect providers (so no login ever reaches a real vendor) and
     // the scripted model (for the chat case), so it is defined only when the

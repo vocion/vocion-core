@@ -97,12 +97,14 @@ export async function setupStateForOrg(orgId: string): Promise<PluginSetup[]> {
   return declaring.map((p) => {
     const steps: SetupStep[] = [
       ...p.manifest.setup.connectors.map((connector): SetupStep => {
-        const brand = getConnector(connector)?.brand;
+        const descriptor = getConnector(connector);
+        const brand = descriptor?.brand;
         return {
           key: `connector:${connector}`,
           kind: 'connector',
           slug: connector,
-          label: `Connect ${connector}`,
+          // "Connect GitHub", as the person reads it — never the slug.
+          label: `Connect ${descriptor?.name ?? connector}`,
           ...(brand ? { brand } : {}),
           done: connectorConnected(connector),
           sources: sourcesByConnector.get(connector) ?? [],

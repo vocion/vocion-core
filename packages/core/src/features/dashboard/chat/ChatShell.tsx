@@ -29,6 +29,7 @@ import { EmptyState } from './EmptyState';
 import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
+import { ConversationObjective } from './objectives/ObjectiveStrip';
 import { OpeningHints } from './OpeningHints';
 import { QuotedPassage } from './QuotedPassage';
 import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
@@ -251,6 +252,20 @@ function ChatShellInner({
     }
   }, [session.conversationId, session.isStreaming, latestDocs, latest?.id, openRef]);
   const onCommand = useChatCommands(startNewChat);
+  // An address that names a conversation AFTER the page booted (an opening
+  // hint's "Resume setting up … →", a link followed in place) opens it: the
+  // session read `resumeConversationId` once, at boot.
+  const namedRef = useRef(conversationId);
+  useEffect(() => {
+    if (conversationId === null || conversationId === namedRef.current || !session.booted) {
+      namedRef.current = conversationId;
+      return;
+    }
+    namedRef.current = conversationId;
+    if (conversationId !== session.conversationId) {
+      void sessionRef.current.handlePickConversation(conversationId);
+    }
+  }, [conversationId, session.booted, session.conversationId]);
 
   // An empty conversation names how many wait elsewhere, once, softly, in the
   // chip that opens Review (#1264, `emptyChat.ts`); once the person is in a
@@ -262,6 +277,11 @@ function ChatShellInner({
   const nudge = openingHints
     ? (openingHints.length > 0 ? <OpeningHints hints={openingHints} onSend={session.handlePickSuggestion} /> : null)
     : waitingCount > 0 ? <WaitingNudge count={waitingCount} /> : null;
+  // A lead-only workspace opens on its own setup chip — unless the person
+  // already started a setup and left it: then the ranker's "Resume setting up
+  // … →" takes that one place (`objectives/ObjectiveStrip`).
+  const resumeHint = openingHints?.find(h => h.resumes !== undefined) ?? null;
+  const leadHint = resumeHint ? <OpeningHints hints={[resumeHint]} onSend={session.handlePickSuggestion} /> : null;
   const firstName = usePersonFirstName();
   // YOUR TEAM IS HERE: the empty conversation's centre, and who the composer asks.
   const team = useMemo(() => teamOf(agents, defaultAgentSlug(agents)).members, [agents]);
@@ -426,7 +446,7 @@ function ChatShellInner({
                               never cards: an empty conversation starts warm
                               (`emptyChat.ts`, founder 2026-10-08). */}
                           {wantsLeadIntro(agents)
-                            ? <LeadIntro firstName={firstName} team={team} onPick={session.handlePickSuggestion} />
+                            ? <LeadIntro firstName={firstName} team={team} onPick={session.handlePickSuggestion} hint={leadHint} />
                             : (
                                 <EmptyState
                                   firstName={firstName}
@@ -458,6 +478,7 @@ function ChatShellInner({
                 )}
 
           <ChatComposer
+            pinned={<ConversationObjective session={session} />}
             above={(
               <>
                 {/* The Decision this thread waits on, docked first — the

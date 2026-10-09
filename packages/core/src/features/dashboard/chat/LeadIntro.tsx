@@ -42,6 +42,8 @@ export type LeadIntroProps = {
   onPick: (prompt: string) => void;
   /** Holds the chip while the session is still hydrating. */
   disabled?: boolean;
+  /** A setup the person started and left ("Resume setting up … →"): the one chip, in place of the setup chip. */
+  hint?: React.ReactNode;
 };
 
 /**
@@ -51,8 +53,9 @@ export type LeadIntroProps = {
  * @param props.team - The team at the centre (the lead).
  * @param props.onPick - Sends the setup ask.
  * @param props.disabled - Holds the chip while hydrating.
+ * @param props.hint - A setup to resume, in place of the setup chip.
  */
-export function LeadIntro({ firstName, team, onPick, disabled = false }: LeadIntroProps) {
+export function LeadIntro({ firstName, team, onPick, disabled = false, hint = null }: LeadIntroProps) {
   const t = useTranslations('Onboarding');
   // The lead says who it is by its role ("the Revenue lead"), with its given
   // name when the Org set one — never "workspace lead" (`leadName.ts`).
@@ -65,7 +68,7 @@ export function LeadIntro({ firstName, team, onPick, disabled = false }: LeadInt
       <EmptyState
         line={line}
         team={team}
-        nudge={(
+        nudge={hint ?? (
           <button
             type="button"
             onClick={() => onPick(t('starter_setup_prompt'))}

@@ -1,0 +1,56 @@
+{
+  "turns": [
+    {
+      "match": "The person, latest message: setup my software factory",
+      "steps": [
+        {
+          "tool": "report_consent",
+          "args": {
+            "said": false,
+            "quote": null
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
+      "match": "answered] which repositories should the factory include?",
+      "steps": [],
+      "reply": "Including the Northwind API."
+    },
+    {
+      "match": "setup my software factory",
+      "steps": [
+        {
+          "tool": "describe_setup",
+          "args": {
+            "plugin": "software-factory"
+          }
+        },
+        {
+          "tool": "file_ask",
+          "args": {
+            "title": "Which repositories should the factory include?",
+            "body": "GitHub grants two repositories. The factory builds only the ones you name.",
+            "kind": "ruling",
+            "options": [
+              {
+                "id": "api",
+                "label": "Northwind API",
+                "description": "Requests land as changes to northwind/api.",
+                "recommended": true
+              },
+              {
+                "id": "portal",
+                "label": "Northwind Portal",
+                "description": "Requests land as changes to the customer portal."
+              }
+            ],
+            "confidence": 0.9
+          }
+        }
+      ],
+      "reply": "One question first."
+    }
+  ]
+}

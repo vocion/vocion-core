@@ -49,7 +49,7 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
   const now = input.now ?? new Date();
   const since30 = new Date(now.getTime() - 30 * DAY);
 
-  const [project, setups, credentials, waiting, brief, activity, dismissals] = await Promise.all([
+  const [project, setups, credentials, waiting, brief, activity, dismissals, started] = await Promise.all([
     db.select({ createdAt: projectSchema.createdAt }).from(projectSchema).where(eq(projectSchema.id, input.orgId)).limit(1).then(r => r[0] ?? null).catch(() => null),
     import('@/services/plugins/setupState').then(m => m.setupStateForOrg(input.orgId)).catch(() => []),
     import('@/services/SourceCredentialService').then(m => m.credentialStatusForOrg(input.orgId)).catch(() => null),
@@ -57,6 +57,8 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
     db.select({ title: briefingSchema.title }).from(briefingSchema).where(and(eq(briefingSchema.orgId, input.orgId), gte(briefingSchema.createdAt, new Date(now.getTime() - 7 * DAY)))).orderBy(desc(briefingSchema.createdAt)).limit(1).then(r => r[0] ?? null).catch(() => null),
     db.select({ type: userActivityEventSchema.eventType, n: count() }).from(userActivityEventSchema).where(and(eq(userActivityEventSchema.orgId, input.orgId), eq(userActivityEventSchema.userId, input.userId), inArray(userActivityEventSchema.eventType, ['chat.conversation_created', 'chat.message_sent']))).groupBy(userActivityEventSchema.eventType).catch(() => []),
     db.select({ metadata: userActivityEventSchema.metadata, at: userActivityEventSchema.createdAt }).from(userActivityEventSchema).where(and(eq(userActivityEventSchema.orgId, input.orgId), eq(userActivityEventSchema.userId, input.userId), eq(userActivityEventSchema.eventType, 'chat.hint_dismissed'), gte(userActivityEventSchema.createdAt, since30))).catch(() => []),
+    // Setups this person started in a conversation and left (their objectives).
+    import('@/services/objectives/ObjectiveService').then(m => m.startedSetups(input.orgId, input.userId)).catch(() => new Map<string, number>()),
   ]);
 
   const countOf = (type: string) => Number(activity.find(a => a.type === type)?.n ?? 0);
@@ -70,6 +72,7 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
       steps: s.steps.map(step => ({ label: step.label, done: step.done, adminOnly: step.kind === 'connector' })),
       blocksAgents: s.steps.some(step => step.kind === 'connector' && !step.done),
       href: connectSystemsHref({ app: s.plugin }),
+      resume: started.has(s.plugin) ? { conversationId: started.get(s.plugin)! } : null,
     })),
     connectors: Object.entries(credentials?.byConnectorSlug ?? {})
       .filter(([, status]) => status.broken !== null || !status.connected)

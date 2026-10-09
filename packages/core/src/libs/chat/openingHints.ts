@@ -38,6 +38,8 @@ export type OpeningHint = {
   reason: string;
   score: number;
   action: HintAction;
+  /** The conversation it picks back up, when it resumes a setup the person started there. */
+  resumes?: number;
 };
 
 export type HintInput = {
@@ -65,6 +67,12 @@ export type HintInput = {
     blocksAgents: boolean;
     /** Where finishing it starts (the Decision / connect flow). */
     href: string;
+    /**
+     * The person already started setting it up in a conversation (its
+     * objective, `libs/objectives/objective.ts`): the hint resumes it there,
+     * "Resume setting up … →", rather than starting over.
+     */
+    resume?: { conversationId: number } | null;
   }>;
   /** Connections that are not working, or that an installed app needs. */
   connectors: Array<{
@@ -98,6 +106,9 @@ export const SECOND_HINT_SHARE = 0.85;
 /** How long a dismissed item stays hidden. */
 export const DISMISS_DAYS = 7;
 
+/** A setup the person already started, and left: picking it back up outranks starting one. */
+const RESUME_BOOST = 1.8;
+
 /** Each dismissal of a type in the last 30 days multiplies that type's weight by this. */
 const DISMISS_TYPE_DECAY = 0.8;
 
@@ -128,23 +139,36 @@ function setupCandidate(input: HintInput): OpeningHint | null {
     if (app.blocksAgents) {
       score *= 1.4;
     }
-    const hint: OpeningHint = canFinish
+    // Started in a conversation and left: open it where it stands, its line
+    // above the dock ("Setting up … · 2 of 3"), never a fresh start.
+    const resume = app.resume ?? null;
+    const hint: OpeningHint = resume
       ? {
           key: `setup:${app.slug}`,
           type: 'setup',
-          label: `${app.name} is installed — ${left.length} ${plural(left.length, 'step', 'steps')} left: ${next.label} →`,
-          reason: app.blocksAgents ? `Its agents can't run until ${next.label.toLowerCase()} is done.` : `${app.name} is not finished yet; ${next.label.toLowerCase()} is next.`,
-          score,
-          action: { kind: 'open', href: app.href },
+          label: `Resume setting up ${app.name} →`,
+          reason: `${left.length} ${plural(left.length, 'step', 'steps')} left; next: ${next.label}.`,
+          score: score * RESUME_BOOST,
+          action: { kind: 'open', href: `/dashboard/chat?conversation=${resume.conversationId}` },
+          resumes: resume.conversationId,
         }
-      : {
-          key: `setup:${app.slug}`,
-          type: 'setup',
-          label: `Ask an admin to finish ${app.name} →`,
-          reason: `Its agents can't run until an admin finishes setup.`,
-          score: score * 0.6,
-          action: { kind: 'send', prompt: `Ask an admin to finish setting up ${app.name}: ${left.map(s => s.label).join(', ')}.` },
-        };
+      : canFinish
+        ? {
+            key: `setup:${app.slug}`,
+            type: 'setup',
+            label: `${app.name} is installed — ${left.length} ${plural(left.length, 'step', 'steps')} left: ${next.label} →`,
+            reason: app.blocksAgents ? `Its agents can't run until ${next.label.toLowerCase()} is done.` : `${app.name} is not finished yet; ${next.label.toLowerCase()} is next.`,
+            score,
+            action: { kind: 'open', href: app.href },
+          }
+        : {
+            key: `setup:${app.slug}`,
+            type: 'setup',
+            label: `Ask an admin to finish ${app.name} →`,
+            reason: `Its agents can't run until an admin finishes setup.`,
+            score: score * 0.6,
+            action: { kind: 'send', prompt: `Ask an admin to finish setting up ${app.name}: ${left.map(s => s.label).join(', ')}.` },
+          };
     if (!best || hint.score > best.score) {
       best = hint;
     }

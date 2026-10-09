@@ -128,6 +128,13 @@ export type ChatComposerProps = {
    */
   above?: React.ReactNode;
   /**
+   * One quiet line held above everything stacked over the box, outside its
+   * phone cap so it never scrolls away: what the conversation is in the
+   * middle of ("Setting up Software Factory · 2 of 3 · Stop",
+   * `objectives/ObjectiveStrip`).
+   */
+  pinned?: React.ReactNode;
+  /**
    * The surface's per-conversation controls, hosted in the bar beside (+):
    * model strength and thinking (`ModelControl`), and — once it moves out of
    * the header — autonomy. One cluster, every surface.
@@ -256,6 +263,7 @@ export function ChatComposer({
   copy,
   attachable = [],
   above,
+  pinned,
   controls,
   attachments = [],
   uploading = false,
@@ -581,6 +589,7 @@ export function ChatComposer({
         {/* The surface's own stack — same column, same left edge as the box.
             Capped on a phone so the conversation above always keeps the
             screen (`emptyChat.ts`): what is taller scrolls inside it. */}
+        {pinned}
         {above && <div className={PINNED_MAX_CLASS} data-testid="composer-above">{above}</div>}
         {menuMode && (
           <ComposerMenuPanel mode={menuMode} sections={sections} cursor={cursor} onPick={pickItem} onHover={setCursor} />

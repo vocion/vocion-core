@@ -35,6 +35,7 @@ import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
 import { ConversationDecisions } from '@/features/dashboard/chat/decisions/DecisionDock';
 import { MessageList } from '@/features/dashboard/chat/MessageList';
 import { ModelControl } from '@/features/dashboard/chat/ModelControl';
+import { ConversationObjective } from '@/features/dashboard/chat/objectives/ObjectiveStrip';
 import { QuotedPassage } from '@/features/dashboard/chat/QuotedPassage';
 import { useComposerTags } from '@/features/dashboard/chat/tagSearch';
 import { mergeArtifactEvent } from '@/features/dashboard/chat/traceReducer';
@@ -279,6 +280,7 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
                   )}
               {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}
               <ChatComposer
+                pinned={<ConversationObjective session={session} />}
                 above={<ConversationDecisions session={session} />}
                 onCommand={onCommand}
                 controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}

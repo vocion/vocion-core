@@ -37,6 +37,7 @@ import { EmptyState } from './EmptyState';
 import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
+import { ConversationObjective } from './objectives/ObjectiveStrip';
 import { RailColumn } from './RailColumn';
 import {
   clampRailWidth,
@@ -760,6 +761,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             the chips share the composer's column and its left edge rather
             than each carrying its own padding guess (CEO, 2026-09-16). */}
         <ChatComposer
+          pinned={<ConversationObjective session={session} />}
           above={(
             <>
               <ConversationDecisions session={session} />
