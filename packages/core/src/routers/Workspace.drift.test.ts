@@ -32,6 +32,8 @@ const { invalidateCurrentContextShaCache } = await import('@/libs/workspace/curr
 
 const REVENUE = 'proj_drift_revenue';
 const FACTORY = 'proj_drift_factory';
+const PERSONAL = 'proj_drift_personal';
+const MADE_IN_APP = 'proj_drift_in_app';
 const dirs: string[] = [];
 let prevPath: string | undefined;
 let prevMap: string | undefined;
@@ -73,6 +75,8 @@ beforeAll(async () => {
   await db.insert(projectSchema).values([
     { id: REVENUE, accountId: 'acct-drift', slug: 'metacto-revenue', name: 'Metacto Revenue' },
     { id: FACTORY, accountId: 'acct-drift', slug: 'squatch-factory', name: 'Squatch', enabledPlugins: ['software-factory'] },
+    { id: PERSONAL, accountId: 'acct-drift', slug: 'avery-personal', name: 'Personal', kind: 'personal' },
+    { id: MADE_IN_APP, accountId: 'acct-drift', slug: 'made-in-app', name: 'Made in the app' },
   ]);
 });
 
@@ -152,6 +156,23 @@ describe('driftStatus', () => {
 
     expect(s).toMatchObject({ own: false, drifted: false, projectId: FACTORY });
     expect(s.owner).toMatchObject({ id: REVENUE, slug: 'metacto-revenue', name: 'Metacto Revenue' });
+  });
+
+  it('a personal workspace is never told the host mounts another project, even with a version on record', async () => {
+    const dir = mount(REVENUE);
+    await applied(REVENUE, { sourcePath: dir });
+    await applied(PERSONAL, { sourcePath: '/srv/personal/workspace', sha: 'personal00001' });
+    signedInAs(PERSONAL);
+
+    expect(await call(driftStatus)).toEqual({ available: false });
+  });
+
+  it('a workspace git never applied — made in the app — is not "showing content applied from git"', async () => {
+    const dir = mount(REVENUE);
+    await applied(REVENUE, { sourcePath: dir });
+    signedInAs(MADE_IN_APP);
+
+    expect(await call(driftStatus)).toEqual({ available: false });
   });
 
   it('a project applied by a pipeline, or from a read-only folder, is deploy-managed', async () => {

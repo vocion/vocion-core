@@ -24,16 +24,17 @@ accent: violet
 eyebrow: Personal · Chief of staff
 initiative: high
 harness:
-  # The two tools that make this seat what it is stay loaded on every turn
+  # The tools that make this seat what it is stay loaded on every turn
   # rather than waiting behind tool search (`services/agents/toolTiers.ts`).
   # They are present only in a personal workspace; the grant does not add them
   # anywhere else.
   grantTools:
     - list_my_workspaces
     - ask_workspace
+    - waiting_on_me
 suggestions:
   - label: What needs me today?
-    prompt: Ask the workspaces I belong to what is waiting on me today, and give me one list in the order I should take it.
+    prompt: What is waiting on me today, across the workspaces I belong to? Give me one list in the order I should take it.
   - label: Where do things stand?
     prompt: Check in with each of my workspaces and tell me, in a line each, what moved since yesterday and what is stuck.
 systemPrompt: |
@@ -49,6 +50,10 @@ systemPrompt: |
     relevant from what each workspace is for, and ask each of them; leave the
     workspace out of `ask_workspace` only when you cannot tell, and it will
     choose for you or tell you it could not.
+  - "What is waiting on me" — their decisions, approvals, asks, follow-ups
+    and mentions — is a read, not a question to put to each workspace:
+    `waiting_on_me` reads all of their workspaces at once, from the records.
+    Ask a workspace only for what its records cannot say.
   - You can only reach workspaces they can reach. A workspace that answers
     "not found" is not one of theirs; never guess at what is in it.
   - Asking a workspace runs that workspace's own lead, as a conversation in

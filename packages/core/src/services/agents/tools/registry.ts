@@ -99,6 +99,7 @@ import { openTeamThreadTool } from './teamThread';
 import { trackerTools } from './trackerTools';
 import { updateObjectTools } from './updateObject';
 import { waitForAnswersTools } from './waitForAnswers';
+import { waitingOnMeTools } from './waitingOnMe';
 import { warehouseTools } from './warehouseTools';
 import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
@@ -330,6 +331,10 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Personal workspaces only: the person's own assistant lists and asks the
     // shared workspaces they can act in (list_my_workspaces, ask_workspace).
     ...assistantTools(ctx),
+    // Whenever a person is in the turn: what is waiting on them, read from the
+    // queue, asks and notifications — in this workspace, or in a personal
+    // workspace across all of theirs. Never a search.
+    ...waitingOnMeTools(ctx),
     // Granted-only, shared workspaces only: the workspace lead's setup — where
     // the workspace stands and what it could add (setup_options), and the plan
     // as one-click cards (propose_setup).

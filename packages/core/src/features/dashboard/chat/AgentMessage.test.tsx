@@ -126,8 +126,9 @@ describe('a tool error is inspectable (2026-09-16)', () => {
     const step = page.getByTestId('failed-step');
 
     await expect.element(step).toBeVisible();
-    // The message a person reads carries neither the tenant id nor the slug.
-    await expect.element(page.getByText(/not found in org \[id\]/)).toBeVisible();
+    // The message a person reads carries neither the tenant id nor the slug:
+    // this failure is the empty-workspace state, which has its own sentence.
+    await expect.element(step.getByText(/has no agents yet/)).toBeVisible();
     expect((await step.element()).textContent).not.toContain('proj-2df61364');
     expect((await step.element()).textContent).not.toContain('__search__');
   });
@@ -368,7 +369,7 @@ describe('a tool failure says what failed', () => {
 
     await userEvent.click(page.getByTestId('tool-error-badge'));
 
-    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('returned no message');
+    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('failed without giving a reason');
   });
 
   it('shows no badge when nothing failed', async () => {

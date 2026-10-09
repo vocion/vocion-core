@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { failureReport, isEmptyWorkspaceFailure, readerFailure, redactInternalIds } from './redact';
+import { CODE_FAULT_SENTENCE, failureHeadline, failureOneLiner, failureReport, isEmptyWorkspaceFailure, NO_REASON_SENTENCE, readerFailure, redactInternalIds } from './redact';
 
 /**
  * The rule: a user-facing error never shows an internal identifier, and the
@@ -102,5 +102,60 @@ describe('configuration identifiers', () => {
     expect(reader).not.toContain('proj-2df61364');
     expect(reader).not.toContain('__search__');
     expect(reader).toContain('write failed');
+  });
+});
+
+describe('failureOneLiner', () => {
+  // The message the calendar read produced on 2026-10-08, paths kept in shape.
+  const stack = [
+    'TypeError: t is not a function',
+    '    at u (/app/packages/core/.next/server/chunks/_140buep._.js:1:44704)',
+    '    at x (/app/packages/core/.next/server/chunks/_1qcdv3p._.js:9:11699)',
+  ].join('\n');
+
+  it('never shows a stack trace or a minified name; a code fault reads as one sentence', () => {
+    const line = failureOneLiner(stack);
+
+    expect(line).toBe(CODE_FAULT_SENTENCE);
+    expect(line).not.toMatch(/\bat u\b|\.js:\d|is not a function/);
+  });
+
+  it('turns a wrapped code fault into the same sentence', () => {
+    expect(failureOneLiner('Agent "executive-assistant" did not finish the turn: t is not a function')).toBe(CODE_FAULT_SENTENCE);
+  });
+
+  it('keeps a readable reason, first line only, without code locations', () => {
+    const raw = 'Calendar read failed (403) at /app/dist/chunk.js:1:20\n    at fetch (node:internal/deps/undici:1:1)';
+
+    expect(failureOneLiner(raw)).toBe('Calendar read failed (403)');
+  });
+
+  it('strips the Error: prefix and redacts our ids', () => {
+    expect(failureOneLiner('Error: source missing in org proj-2df61364-8d21-4f0b')).toBe('source missing in org [id]');
+  });
+
+  it('says there was no reason rather than showing nothing', () => {
+    expect(failureOneLiner('')).toBe(NO_REASON_SENTENCE);
+    expect(failureOneLiner(undefined)).toBe(NO_REASON_SENTENCE);
+  });
+
+  it('caps the line', () => {
+    expect(failureOneLiner('x'.repeat(400)).length).toBeLessThanOrEqual(160);
+  });
+});
+
+describe('failureHeadline', () => {
+  it('says failed once when the step label already does — never "failed failed"', () => {
+    expect(failureHeadline('Checked calendar for tomorrow\'s events — failed')).toBe('Checked calendar for tomorrow\'s events — failed');
+    expect(failureHeadline('Executive could not answer')).toBe('Executive could not answer');
+  });
+
+  it('adds failed to a bare tool name', () => {
+    expect(failureHeadline('web_search')).toBe('web_search failed');
+  });
+
+  it('treats a generic name as no name', () => {
+    expect(failureHeadline('Error')).toBe('This turn failed');
+    expect(failureHeadline('')).toBe('This turn failed');
   });
 });

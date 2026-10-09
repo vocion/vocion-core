@@ -43,6 +43,7 @@ import { randomUUID } from 'node:crypto';
 import { tool } from '@langchain/core/tools';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { CODE_FAULT_SENTENCE, failureOneLiner } from '@/libs/chat/redact';
 import { db } from '@/libs/DB';
 import { userSchema } from '@/models/Schema';
 import { describeWorkspaces, readWorkspaceRoute, routePrompt, WORKSPACE_ROUTE_BAR } from '@/services/chat/workspaceRoute';
@@ -248,14 +249,17 @@ export function askWorkspaceTool(ctx: RuntimeContext) {
             : []),
         ].join('\n');
       } catch (error) {
-        const reason = error instanceof WorkspaceTurnError
+        const raw = error instanceof WorkspaceTurnError
           ? error.message
           : 'the workspace could not run the turn';
-        if (!(error instanceof WorkspaceTurnError)) {
-          console.warn('ask_workspace: the asked workspace\'s turn failed', { workspace: target.id }, error);
-        }
-        ctx.emit(row('error', { result: reason.slice(0, 160) }));
-        return `${target.name} could not answer: ${reason}. Tell the person, plainly, and offer to ask again or to ask another workspace.`;
+        console.warn('ask_workspace: the asked workspace\'s turn failed', { workspace: target.id }, error);
+        // The person reads one line; the raw reason (a stack, a minified name)
+        // rides in resultDetail for Copy details and in the log, never in the
+        // answer — 2026-10-08 the model pasted "t is not a function" verbatim.
+        const reason = failureOneLiner(raw);
+        ctx.emit(row('error', { result: reason, resultDetail: raw }));
+        const said = reason === CODE_FAULT_SENTENCE ? 'a fault on our side stopped its turn.' : reason;
+        return `${target.name} could not answer: ${said} Tell the person that in one plain sentence — never quote an error message or code — then answer from the other workspaces and offer to ask ${target.name} again.`;
       }
     },
     {
