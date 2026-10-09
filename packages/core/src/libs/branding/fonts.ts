@@ -4,11 +4,10 @@
  *
  * A brand guide can name any font (documents load what they like from a
  * stylesheet), but the app itself never fetches a font at runtime from a
- * third party: each face here is either a self-hosted WOFF2 that `next/font`
- * downloads at build time and serves from `/_next/static/media`
- * (`app/[locale]/layout.tsx` declares them, unpreloaded, so a face nobody picked
- * costs a few lines of CSS and no download), or the operating system's own
- * stack. A name not on the list is kept in the guide for documents and the
+ * third party: each face here is either a self-hosted WOFF2 committed under
+ * `public/fonts` and declared in `styles/fonts.css` (unpreloaded, so a face
+ * nobody picked costs a few lines of CSS and no download), or the operating
+ * system's own stack. A name not on the list is kept in the guide for documents and the
  * app draws headings in its own face.
  *
  * Pure data, shared by the server (the brand's CSS) and the Brand settings
@@ -20,9 +19,9 @@ export type HeadingFont = {
   id: string;
   /** The family name as a brand guide writes it, and as the picker shows it. */
   family: string;
-  /** The CSS `font-family` value. A self-hosted face reads its `next/font` variable. */
+  /** The CSS `font-family` value. A self-hosted face reads its `--font-*` variable (`styles/fonts.css`). */
   stack: string;
-  /** Self-hosted (`next/font`, built in) or the device's own. */
+  /** Self-hosted (`public/fonts`, built in) or the device's own. */
   source: 'self-hosted' | 'system';
 };
 
