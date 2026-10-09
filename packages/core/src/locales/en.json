@@ -75,7 +75,8 @@
     "app_elsewhere": "in another workspace",
     "pick_workspace": "Pick a workspace",
     "app_not_in_workspace": "{app} is not in this workspace. Pick a workspace that has it above, or add it from the marketplace.",
-    "brand": "Brand"
+    "brand": "Brand",
+    "lead_mark_home": "{brand} home"
   },
   "Dashboard": {
     "meta_title": "Vocion Dashboard",

@@ -94,8 +94,9 @@ export type WorkspaceSwitcherProps = {
   /** The app this picker belongs to: the chip wears its tint (front doors, `libs/tints.ts`). */
   tint?: Tint;
   /**
-   * The Org's own mark, when it has a brand: the chip's avatar, the one logo
-   * in the sidebar (founder, 2026-10-08). Without one, the workspace's initial.
+   * The Org's own logo, when it has a brand — its square mark, else its
+   * wordmark: the chip's avatar on every install, Cloud included (one brand
+   * per region, `libs/branding/chrome.ts`). Without one, the workspace's initial.
    */
   logo?: { light: string; dark?: string } | null;
 };
@@ -426,7 +427,11 @@ export function WorkspaceSwitcherLive(props: {
       targetPath={props.targetPath}
       side="bottom"
       tint={props.tint}
-      logo={brand?.mark.light ? { light: brand.mark.light, dark: brand.mark.dark } : null}
+      logo={brand?.mark.light
+        ? { light: brand.mark.light, dark: brand.mark.dark }
+        : brand?.logo.light
+          ? { light: brand.logo.light, dark: brand.logo.dark }
+          : null}
     />
   );
 }

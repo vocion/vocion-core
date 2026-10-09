@@ -18,6 +18,30 @@ An Org with no brand keeps Vocion's look: the plain Vocion wordmark (never the t
 There are three ways to give an Org its brand: the setup chat, Brand
 settings, and a `brand.yaml` the server already has.
 
+## One brand per region
+
+The chrome has three places a brand can sit, and each shows at most one
+(`libs/branding/chrome.ts`). The chat body (the empty state and the thread)
+shows none.
+
+| Region | Vocion leads (Vocion Cloud) | The Org leads (a branded single-Org install) |
+|---|---|---|
+| **Top bar**, next to the sidebar toggle (~20px, goes home) | Vocion's mark | The Org's mark |
+| **Switcher chip** | The Org's logo (its mark, else its wordmark); the letter avatar when it has none | Same |
+| **Drawer footer**, under the person | A small Vocion wordmark | "Powered by Vocion" (none when white-labelled) |
+| **Tab title and favicon** | Vocion's | "Northwind · Vocion" and the Org's mark |
+
+The Org's accent stays on the primary buttons and the lead's ring on both.
+
+Which brand leads is an install setting, `VOCION_LEAD_BRAND`:
+
+- `auto` (the default) — Vocion on a multi-Org server, the Org on a
+  single-Org one. Self-hosted installs therefore behave like a client's own
+  install.
+- `vocion` or `org` — forces one.
+
+An Org with no brand never leads; Vocion does.
+
 ## Make it yours: from the chat
 
 Ask the workspace's lead, in your own words: *"Brand this workspace from

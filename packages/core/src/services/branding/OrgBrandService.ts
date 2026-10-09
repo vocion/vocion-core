@@ -22,6 +22,7 @@
  *   into the media store, as an SVG rebuilt from an allowlist or a PNG.
  */
 
+import type { BrandChrome } from '@/libs/branding/chrome';
 import type { BrandCheck, OrgBrandView } from '@/libs/branding/orgBrand';
 import type { BrandLoadIssue, BrandLogoKey, BrandManifest, LoadedBrand } from '@/libs/workspace/brand';
 import { Buffer } from 'node:buffer';
@@ -29,6 +30,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, resolve } from 'node:path';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { cache } from 'react';
+import { brandChrome, leadBrandSetting } from '@/libs/branding/chrome';
 import { brandView, checkOrgBrand } from '@/libs/branding/orgBrand';
 import { db } from '@/libs/DB';
 import { extensionWhiteLabel } from '@/libs/extensions';
@@ -320,6 +322,16 @@ export const accountIdForRequest = cache(async (): Promise<string | null> => {
 export const brandViewForRequest = cache(async (): Promise<OrgBrandView | null> => {
   const accountId = await accountIdForRequest();
   return accountId ? brandViewForAccount(accountId).catch(() => null) : null;
+});
+
+/**
+ * Which brand each region of the chrome shows for this request
+ * (`libs/branding/chrome.ts`): the install's lead brand in the top bar and
+ * the tab, the other quietly in the drawer footer.
+ */
+export const brandChromeForRequest = cache(async (): Promise<BrandChrome> => {
+  const brand = await brandViewForRequest();
+  return brandChrome({ setting: leadBrandSetting(process.env.VOCION_LEAD_BRAND), orgsMode: orgsMode(), orgBranded: brand !== null, poweredBy: brand?.poweredBy ?? !extensionWhiteLabel() });
 });
 
 /**

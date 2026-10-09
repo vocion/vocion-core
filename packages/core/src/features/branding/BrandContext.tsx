@@ -1,5 +1,6 @@
 'use client';
 
+import type { BrandChrome } from '@/libs/branding/chrome';
 import type { OrgBrandView } from '@/libs/branding/orgBrand';
 import { createContext, use } from 'react';
 
@@ -15,4 +16,17 @@ export const OrgBrandProvider = OrgBrandContext.Provider;
 /** The Org's brand, or null for Vocion's own look. */
 export function useOrgBrand(): OrgBrandView | null {
   return use(OrgBrandContext);
+}
+
+/** Vocion leads with its wordmark in the footer: the chrome of an install nobody configured. */
+const DEFAULT_CHROME: BrandChrome = { lead: 'vocion', footer: 'vocion-wordmark' };
+
+const BrandChromeContext = createContext<BrandChrome>(DEFAULT_CHROME);
+
+/** Which brand each region shows (`libs/branding/chrome.ts`), read once per request by the signed-in layout. */
+export const BrandChromeProvider = BrandChromeContext.Provider;
+
+/** Which brand each region of the chrome shows. */
+export function useBrandChrome(): BrandChrome {
+  return use(BrandChromeContext);
 }
