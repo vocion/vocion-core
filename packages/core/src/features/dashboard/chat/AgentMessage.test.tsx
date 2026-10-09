@@ -767,3 +767,50 @@ describe('AgentMessage and the card pass\'s refusals (2026-09-29)', () => {
     expect(document.body.textContent).not.toContain('not a card');
   });
 });
+
+describe('AgentMessage effort line', () => {
+  it('says the level and how long it took, and Dig deeper re-asks one level up', async () => {
+    const onDigDeeper = vi.fn();
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        onDigDeeper={onDigDeeper}
+        message={{
+          role: 'assistant',
+          content: 'Two sales threads owe a reply.',
+          runs: [{ type: 'text', text: 'Two sales threads owe a reply.' }],
+          effort: { level: 'standard', chosenBy: 'auto', reason: 'gather and synthesise', elapsedMs: 6_200, ceilingHit: null, next: 'deep' },
+        }}
+      />,
+    );
+
+    const line = page.getByTestId('turn-effort');
+
+    await expect.element(line).toHaveTextContent('Standard · 6s');
+
+    await userEvent.click(line);
+
+    expect(onDigDeeper).toHaveBeenCalledWith('deep');
+    await expect.element(page.getByTestId('dig-deeper')).not.toBeInTheDocument();
+  });
+
+  it('offers Dig deeper outright when a ceiling ended the work', async () => {
+    const onDigDeeper = vi.fn();
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        onDigDeeper={onDigDeeper}
+        message={{
+          role: 'assistant',
+          content: 'Here is what I found so far.',
+          runs: [{ type: 'text', text: 'Here is what I found so far.' }],
+          effort: { level: 'quick', chosenBy: 'person', elapsedMs: 41_000, ceilingHit: 'time', next: 'standard' },
+        }}
+      />,
+    );
+
+    await userEvent.click(page.getByTestId('dig-deeper'));
+
+    expect(onDigDeeper).toHaveBeenCalledWith('standard');
+  });
+});

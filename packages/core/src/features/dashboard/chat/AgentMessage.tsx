@@ -39,6 +39,29 @@ const LEVEL_WORDS = {
   thinking: { off: 'off', low: 'light', medium: 'standard', high: 'deep' },
 } as const;
 
+/** The effort levels as the turn's line names them (`services/agents/effort.ts`). */
+const EFFORT_WORDS = { quick: 'Quick', standard: 'Standard', deep: 'Deep' } as const;
+
+/**
+ * A turn's duration the way the line reads it: `6s`, `2m 10s`.
+ * @param ms - Milliseconds.
+ */
+export function turnDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  return total < 60 ? `${total}s` : `${Math.floor(total / 60)}m ${total % 60}s`;
+}
+
+/**
+ * Why the turn ran at its level, for the line's tooltip — Auto's choice is
+ * visible and correctable, never hidden.
+ * @param effort - The turn's effort.
+ */
+function effortWhy(effort: NonNullable<ChatMessage['effort']>): string {
+  const chosen = effort.chosenBy === 'person' ? 'Chosen by you' : effort.chosenBy === 'agent' ? 'This agent\'s default' : `Chosen automatically${effort.reason ? `: ${effort.reason}` : ''}`;
+  const ceiling = effort.ceilingHit === 'time' ? ' · reached its time limit and answered with what it had' : effort.ceilingHit === 'cost' ? ' · reached its spend limit and answered with what it had' : '';
+  return `${chosen}${ceiling}`;
+}
+
 const LINK_ICON: Record<DashboardLinkKind, typeof Bot> = {
   'agent': Bot,
   'team': Users,
@@ -83,6 +106,8 @@ export type AgentMessageProps = {
   onCitationClick?: (n: number, messageId?: number) => void;
   /** Optional handler when the "Sources · N" pill is clicked. Opens the SourcesPanel. */
   onShowSources?: (messageId?: number) => void;
+  /** Re-asks this turn's question at a higher effort level (Dig deeper). Absent = no control. */
+  onDigDeeper?: (level: 'quick' | 'standard' | 'deep') => void;
   /** True while this message is still streaming — the work timeline stays expanded + live. */
   streaming?: boolean;
   /** Live status line while streaming (rendered inside the work timeline). */
@@ -250,7 +275,7 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   return null;
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, opener, writer, onOpenArtifact, onBuildCard, conversationId, pageRecord, latest = false, threadRecords }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onDigDeeper, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, opener, writer, onOpenArtifact, onBuildCard, conversationId, pageRecord, latest = false, threadRecords }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
@@ -359,7 +384,42 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               {sourceCount}
             </button>
           )}
-          {message.model && (
+          {message.effort && (
+            // The level the turn ran at and how long it took — "Standard · 6s"
+            // — with why in the tooltip (Auto's pick is never hidden). Tapping
+            // it asks the same question again one level up.
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  data-testid="turn-effort"
+                  disabled={!message.effort.next || !onDigDeeper}
+                  onClick={() => message.effort?.next && onDigDeeper?.(message.effort.next)}
+                  aria-label={`Ran at ${EFFORT_WORDS[message.effort.level]}${message.effort.next && onDigDeeper ? `; dig deeper at ${EFFORT_WORDS[message.effort.next]}` : ''}`}
+                  className="-mx-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] tracking-normal text-muted-foreground/70 normal-case tabular-nums transition enabled:hover:bg-surface-hover enabled:hover:text-foreground"
+                >
+                  <Gauge className="size-2.5" aria-hidden />
+                  {`${EFFORT_WORDS[message.effort.level]}${message.effort.elapsedMs !== undefined ? ` · ${turnDuration(message.effort.elapsedMs)}` : ''}`}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" collisionPadding={8}>
+                {`${effortWhy(message.effort)}${message.effort.next && onDigDeeper ? ` — tap to run again at ${EFFORT_WORDS[message.effort.next]}` : ''}`}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {message.effort?.ceilingHit && message.effort.next && onDigDeeper && (
+            // A ceiling ended the work early: the way on is one tap.
+            <button
+              type="button"
+              data-testid="dig-deeper"
+              onClick={() => message.effort?.next && onDigDeeper(message.effort.next)}
+              className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] tracking-normal text-foreground normal-case transition hover:bg-surface-hover"
+            >
+              Dig deeper
+              <ArrowUpRight className="size-3" aria-hidden />
+            </button>
+          )}
+          {!message.effort && message.model && (
             // Which level answered — one quiet icon (Chris, 2026-09-18: "the
             // icon is enough … at most put it in a tooltip"). The words live in
             // the tooltip; never a vendor or a model id.

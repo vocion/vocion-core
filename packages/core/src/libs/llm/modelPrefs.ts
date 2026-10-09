@@ -23,9 +23,31 @@ export type ModelStrength = (typeof MODEL_STRENGTHS)[number];
 export const THINKING_EFFORTS = ['off', 'low', 'medium', 'high'] as const;
 export type ThinkingEffort = (typeof THINKING_EFFORTS)[number];
 
-export type ModelPrefs = { strength: ModelStrength; effort: ThinkingEffort };
+/**
+ * How hard ONE turn works (`services/agents/effort.ts`): Quick, Standard or
+ * Deep, or Auto — read from the request. One choice that sets the model, the
+ * thinking, whether teammates are consulted and how long the turn aims for.
+ */
+export const EFFORT_LEVELS = ['quick', 'standard', 'deep'] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+export const EFFORT_CHOICES = ['auto', ...EFFORT_LEVELS] as const;
+export type EffortChoice = (typeof EFFORT_CHOICES)[number];
 
-export const DEFAULT_MODEL_PREFS: ModelPrefs = { strength: 'balanced', effort: 'off' };
+/**
+ * Read a stored or sent choice, defaulting anything odd to `auto`.
+ * @param raw - Whatever a request, a row or YAML said.
+ */
+export function readEffortChoice(raw: unknown): EffortChoice {
+  return EFFORT_CHOICES.includes(raw as EffortChoice) ? raw as EffortChoice : 'auto';
+}
+
+/**
+ * `strength` and `effort` are the thread's older, finer setting and still
+ * honoured; `level` is the one the gauge sets now, per message.
+ */
+export type ModelPrefs = { strength: ModelStrength; effort: ThinkingEffort; level: EffortChoice };
+
+export const DEFAULT_MODEL_PREFS: ModelPrefs = { strength: 'balanced', effort: 'off', level: 'auto' };
 
 /** The vendor's small and large models. `balanced` is deliberately absent: it means "the agent's own". */
 const STRENGTH_MODELS: Record<Exclude<PrefsProvider, 'scripted'>, { fast: string; deep: string }> = {
@@ -62,7 +84,7 @@ export function thinkingBudgetFor(effort: ThinkingEffort): number | null {
  * Whether the prefs ask for anything beyond the agent's own defaults.
  * @param prefs
  */
-export function isDefaultModelPrefs(prefs: ModelPrefs): boolean {
+export function isDefaultModelPrefs(prefs: Pick<ModelPrefs, 'strength' | 'effort'>): boolean {
   return prefs.strength === 'balanced' && prefs.effort === 'off';
 }
 
@@ -77,6 +99,7 @@ export function readModelPrefs(raw: unknown): ModelPrefs {
   return {
     strength: MODEL_STRENGTHS.includes(s as ModelStrength) ? (s as ModelStrength) : 'balanced',
     effort: THINKING_EFFORTS.includes(e as ThinkingEffort) ? (e as ThinkingEffort) : 'off',
+    level: readEffortChoice(r.level ?? r.effortLevel ?? r.effort_level),
   };
 }
 

@@ -368,7 +368,14 @@ export type AgentEvent
      * from the answer's words.
      */
     | { type: 'turn_records'; records: import('@/libs/factory/liveStatus').TurnRecord[] }
-    | { type: 'run_meta'; model: string; provider: string; strength: 'fast' | 'balanced' | 'deep'; thinking: 'off' | 'low' | 'medium' | 'high' }
+    | { type: 'run_meta'; model: string; provider: string; strength: 'fast' | 'balanced' | 'deep'; thinking: 'off' | 'low' | 'medium' | 'high'; effort?: { level: 'quick' | 'standard' | 'deep'; chosenBy: 'person' | 'agent' | 'auto'; reason?: string } }
+    /**
+     * What the turn's effort level bought (`services/agents/effort.ts`), sent
+     * when the answer is done: the turn's line reads "Standard · 6s", and when
+     * a ceiling was reached — or the person wants more — "Dig deeper" re-asks
+     * at `next`.
+     */
+    | { type: 'effort_result'; level: 'quick' | 'standard' | 'deep'; chosenBy: 'person' | 'agent' | 'auto'; reason?: string; elapsedMs: number; modelCalls: number; toolCalls: number; cents: number; ceilingHit: 'time' | 'cost' | null; next: 'quick' | 'standard' | 'deep' | null }
     /**
      * The workspace chose the agent for this turn because nobody named one
      * (`services/agents/router.ts`). First frame of such a turn: the client

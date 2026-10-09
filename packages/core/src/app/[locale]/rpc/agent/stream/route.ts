@@ -233,7 +233,9 @@ export async function POST(request: Request): Promise<Response> {
       autonomy = readAutonomy((existing as { autonomy?: unknown }).autonomy);
     }
     if (existing && ((existing as { modelStrength?: unknown }).modelStrength || (existing as { thinkingEffort?: unknown }).thinkingEffort)) {
-      modelPrefs = readModelPrefs(existing);
+      // The thread keeps its strength and thinking; the effort level is the
+      // gauge's, sent with this message.
+      modelPrefs = { ...readModelPrefs(existing), level: modelPrefs.level };
     }
     if (existing && pageContext && !existing.contextJson) {
       await setConversationContextIfEmpty({ orgId, id: existing.id, context: pageContext });

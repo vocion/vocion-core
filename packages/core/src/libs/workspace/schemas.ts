@@ -226,6 +226,17 @@ export const WorkspaceManifestSchema = z.object({
       dailyCents: z.number().int().min(0).nullable(),
     }).optional(),
     /**
+     * The workspace's default turn effort and ceilings for agents whose own
+     * `harness` says nothing (`services/agents/effort.ts`). Applied onto each
+     * such agent at apply time.
+     */
+    turnEffort: z.enum(['auto', 'quick', 'standard', 'deep']).optional(),
+    turnCeilings: z.object({
+      quick: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
+      standard: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
+      deep: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
+    }).optional(),
+    /**
      * The proposal budget every agent in this workspace is held to when its
      * own YAML sets no `proposals:` — how many undecided items it may hold in
      * Review at once when acting on its own schedule, and how many new ideas
@@ -1110,6 +1121,23 @@ export const AgentManifestSchema = z.object({
      * review that opens a build's screenshots ran past eight and was stopped.
      */
     turnDeadlineMinutes: z.number().int().min(1).max(30).optional(),
+    /**
+     * How hard a turn works when the person leaves the gauge on Auto: quick,
+     * standard, deep, or auto (read from the request by a small model). Unset
+     * takes the workspace's `defaults.turnEffort`, then auto. See
+     * `services/agents/effort.ts` for what each level sets.
+     */
+    turnEffort: z.enum(['auto', 'quick', 'standard', 'deep']).optional(),
+    /**
+     * Move a level's two hard ceilings — wall clock (seconds) and spend
+     * (cents) — past which the turn answers with what it has. Unset takes
+     * `defaults.turnCeilings`, then the built-in envelopes.
+     */
+    turnCeilings: z.object({
+      quick: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
+      standard: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
+      deep: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
+    }).optional(),
     excludeTools: z.array(z.string()).default([]),
     /**
      * Granted-only tools this agent receives. Some built-ins (the discovery

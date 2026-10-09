@@ -163,6 +163,8 @@ Agents run on **LangChain.js + `deepagents@1.10`**. The runtime gives you subage
 
 Opt in by setting `VOCION_AGENT_RUNTIME=deepagents` and pointing the chat at `/rpc/agent/stream`. Default model: `claude-sonnet-4-6` (main) + `claude-haiku-4-5-20251001` (classifier). Override per-role via `VOCION_LLM_MODEL_MAIN` etc.
 
+**Effort levels (`services/agents/effort.ts`).** A person's chat turn runs at Quick, Standard or Deep: the composer's gauge (per message), else the agent's `harness.turnEffort` (or the workspace's `defaults.turnEffort`, applied onto agents at apply), else Auto, where the classifier reads the request. A level sets an envelope, never a step count: the lead's model and thinking, whether teammates may be consulted, a soft time target the agent is told, and two hard ceilings (wall clock, spend; `harness.turnCeilings` moves them). Rounds, depth and parallelism are the agent's call inside it. At a ceiling the next model call goes out with tools off and the turn answers with what it has; the turn's line reads "Standard · 6s" and offers Dig deeper, which re-asks one level up. The choice and what it bought land on the Langfuse trace (`metadata.effort`) and the `effort_result` event. Missions, automations and evals are unaffected.
+
 ## BYOA agent runtime (`harness.runsOn: agentcore-container`)
 
 > Conceptual explanation for humans — the loop vs the model vs the AWS account, what AgentCore actually is, and when `agentcore` is the right choice — lives in `docs/agent-execution.md`. Keep the two in sync when this section changes.

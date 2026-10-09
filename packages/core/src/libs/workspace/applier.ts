@@ -735,7 +735,13 @@ async function upsertObjectType(orgId: string, ot: LoadedObjectType, mode: Apply
 async function upsertAgent(
   orgId: string,
   agent: LoadedAgent,
-  defaults: { model?: string; temperature?: string; agentProposals?: { openMax?: number; weeklyMax?: number } },
+  defaults: {
+    model?: string;
+    temperature?: string;
+    agentProposals?: { openMax?: number; weeklyMax?: number };
+    turnEffort?: 'auto' | 'quick' | 'standard' | 'deep';
+    turnCeilings?: Partial<Record<'quick' | 'standard' | 'deep', { seconds?: number; cents?: number }>>;
+  },
   mode: ApplyMode,
   teams: LoadedTeam[] = [],
   warnings: ApplyResult['warnings'] = [],
@@ -761,7 +767,12 @@ async function upsertAgent(
       ? { ...agent.approvalPolicy, proposals: { ...(defaults.agentProposals ?? {}), ...(agent.proposals ?? {}) } }
       : agent.approvalPolicy,
     searchConfig: agent.searchConfig,
-    harnessConfig: agent.harness,
+    // The workspace's effort default reaches an agent that set none of its own.
+    harnessConfig: {
+      ...agent.harness,
+      ...(agent.harness?.turnEffort === undefined && defaults.turnEffort ? { turnEffort: defaults.turnEffort } : {}),
+      ...(agent.harness?.turnCeilings === undefined && defaults.turnCeilings ? { turnCeilings: defaults.turnCeilings } : {}),
+    },
     fewShotExamples: agent.fewShotExamples,
     subagents: agent.resolvedSubagents,
     playbookSlugs: agent.playbooks,

@@ -17,9 +17,11 @@ describe('model preferences', () => {
   });
 
   it('reads prefs off a request or a row and defaults nonsense', () => {
-    expect(readModelPrefs({ model_strength: 'deep', thinking_effort: 'high' })).toEqual({ strength: 'deep', effort: 'high' });
-    expect(readModelPrefs({ modelStrength: 'fast', thinkingEffort: null })).toEqual({ strength: 'fast', effort: 'off' });
-    expect(readModelPrefs({ strength: 'huge' })).toEqual({ strength: 'balanced', effort: 'off' });
+    expect(readModelPrefs({ model_strength: 'deep', thinking_effort: 'high' })).toEqual({ strength: 'deep', effort: 'high', level: 'auto' });
+    expect(readModelPrefs({ modelStrength: 'fast', thinkingEffort: null })).toEqual({ strength: 'fast', effort: 'off', level: 'auto' });
+    expect(readModelPrefs({ strength: 'huge' })).toEqual({ strength: 'balanced', effort: 'off', level: 'auto' });
+    expect(readModelPrefs({ effort_level: 'deep' }).level).toBe('deep');
+    expect(readModelPrefs({ effort_level: 'enormous' }).level).toBe('auto');
     expect(isDefaultModelPrefs(readModelPrefs(null))).toBe(true);
   });
 

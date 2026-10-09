@@ -477,6 +477,7 @@ function ChatShellInner({
                     streaming={session.isStreaming}
                     activity={session.activity}
                     onShowSources={openSources}
+                    onDigDeeper={session.digDeeper}
                     onCitationClick={(_n, messageId) => openSources(messageId)}
                     onFeedback={session.handleFeedback}
                     onBuildCard={session.buildFromCard}

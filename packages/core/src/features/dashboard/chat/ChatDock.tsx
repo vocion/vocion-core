@@ -735,6 +735,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                   // 2026-09-29: "clicking source … doesn't do anything").
                   pageRecord={pageRecord}
                   onShowSources={openSources}
+                  onDigDeeper={session.digDeeper}
                   onCitationClick={(_n, messageId) => openSources(messageId)}
                   // The Decision this thread waits on, as its latest item.
                   blocks={[...blocks, workBlock(session), decisionBlock(session)]}

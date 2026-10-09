@@ -29,6 +29,7 @@
 
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { SubAgent } from 'deepagents';
+import type { AgentMiddleware } from 'langchain';
 import type { HandOffGuard } from './handOff';
 import type { FilingType } from './tools/fileRecord';
 import type { RuntimeContext } from './types';
@@ -584,12 +585,21 @@ function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: 
  * @param opts - Per-request overrides.
  * @param opts.modelOverride - Run this one request on a named model instead of the agent's own.
  * @param opts.handOff - The turn's hand-off guard: the graph ends on its own before a model call that would follow a card a person acts on (`handOff.ts`).
+ * @param opts.turnMiddleware
  */
 export async function compileAgentForRequest(
   orgId: string,
   agentSlug: string,
   request: AgentRequest,
-  opts: { modelOverride?: ModelOverride; handOff?: HandOffGuard } = {},
+  opts: {
+    modelOverride?: ModelOverride;
+    handOff?: HandOffGuard;
+    /**
+     * Middleware every model call of THIS turn runs through, the lead's and
+     * each teammate's: the effort envelope's (`effort.ts`).
+     */
+    turnMiddleware?: AgentMiddleware[];
+  } = {},
 ): Promise<CompiledAgentGraph> {
   // An overridden model is never cached: the cache is keyed on the agent, and
   // a blueprint holding the candidate model would answer the next ordinary
@@ -619,7 +629,8 @@ export async function compileAgentForRequest(
   // Specialists answer with the SAME tool surface as the lead, on this
   // request's context — a delegate must not read more than the person who
   // asked.
-  const subagents: SubAgent[] = blueprint.subagentSpecs.map(spec => ({ ...spec, tools: tools as SubAgent['tools'] }));
+  const turnMiddleware = opts.turnMiddleware ?? [];
+  const subagents: SubAgent[] = blueprint.subagentSpecs.map(spec => ({ ...spec, tools: tools as SubAgent['tools'], ...(turnMiddleware.length > 0 ? { middleware: turnMiddleware } : {}) }));
 
   const graph = createDeepAgent({
     model: blueprint.model,
@@ -646,7 +657,7 @@ export async function compileAgentForRequest(
     // Approved learnings are injected into every model call's system message
     // (structural, not discoverable — see memoryDigest.ts). Safe to mount
     // unconditionally: it declares no required state fields.
-    middleware: [createMemoryDigestMiddleware(), ...(opts.handOff ? [createHandOffMiddleware(opts.handOff)] : [])],
+    middleware: [createMemoryDigestMiddleware(), ...(opts.handOff ? [createHandOffMiddleware(opts.handOff)] : []), ...turnMiddleware],
     // `skills` mounts deepagents's SKILL.md auto-loader (string source PATHS).
     ...(blueprint.hasMounts ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
