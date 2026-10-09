@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 60
     services:
       registry:
-        image: registry:2
+        image: public.ecr.aws/docker/library/registry:2
         ports: ['5000:5000']
     env:
       REPOSITORY: localhost:5000/vocion-app
