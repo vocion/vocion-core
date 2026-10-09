@@ -1,10 +1,17 @@
 # Morning brief and evening wrap
 
-Every person's own assistant writes them two messages a day, in their Personal
-workspace, at their own local times:
+Every person gets their own brief twice a day, at their own local times:
 
-- a **morning brief** at about 07:30;
-- an **evening wrap** at about 17:30.
+- a **morning brief** ("Your day") at about 07:30;
+- an **evening wrap** ("Your wrap") at about 17:30.
+
+Both are **briefings**: one noun, one composer, one budget. Each is stored in
+the person's Personal workspace and listed with its history on that
+workspace's **Briefings** page, beside the "your day" they can ask for at any
+time. Asking for it and the schedule produce the same brief. There is one per
+person, kind and local day, so asking at 07:00 and the schedule at 07:30 give
+one row, refreshed, not two. The schedule also posts one short message in
+Personal chat that says the brief's lead line and links to it.
 
 Nobody has to switch them on: every Personal workspace gets them, at those
 times, the day it exists. Each person can change the times, or turn either
@@ -35,9 +42,13 @@ one off, under **Notification settings → Your day**.
    - briefs that were published.
 
    A workspace where nothing moved is left out.
-4. **Up to three suggested actions**, as one Decision card under the message,
-   recommended first. Choosing one answers the Decision, which starts the
-   assistant's turn on it. "Something else" takes the person's own words.
+4. **Your workspaces.** Each workspace's latest brief, by its headline, dated
+   and linked. A workspace with no brief and nothing waiting is left out.
+5. **Up to three suggested actions.** They are raised as one Decision card
+   under the chat message, recommended first. The brief itself only says they
+   are waiting in Decisions and does not list them a second time. Choosing
+   one answers the Decision, which starts the assistant's turn on it.
+   "Something else" takes the person's own words.
 
 ## What the wrap says
 
@@ -55,7 +66,8 @@ Facts are rendered in code, and a small model writes only the words code
 cannot:
 
 - **In code:** every meeting, decision, link and date comes from a record or
-  a live read (`services/personal/rhythm/facts.ts`, `compose.ts`).
+  a live read (`services/briefings/personalFacts.ts`), rendered by the one
+  composer (`services/briefings/personal.ts`).
 - **From the model:** the classifier writes the context line under each
   meeting and the suggested actions, answering through a typed tool call. Its
   input is only the gathered facts. The call is charged to the person's
@@ -63,12 +75,16 @@ cannot:
 
 If the model cannot answer, the brief still goes out. Each meeting's first
 piece of evidence becomes its context line, and the oldest decisions become
-the actions.
+the actions. The same applies when the brief budget says no to a brief the
+person asked for: it is composed from the facts alone, with no model call.
 
 ## Limits
 
 Briefs are on by default, and each one costs a model call. These limits keep
-that spend to the people who want it (`services/personal/rhythm/guard.ts`):
+that spend to the people who want it. They are the money half of the brief
+budget (`services/briefings/budgetGate.ts`). The attention half,
+`services/briefings/budget.ts`, stays free of the database because the
+Briefings page imports it in the browser.
 
 - **The Org's switch.** **Daily briefs for your Org**, under Notification
   settings → Your day, is admin-only and on by default
@@ -101,35 +117,47 @@ nothing.
 
 ## Where it arrives
 
-Each delivery is its own conversation in the person's Personal workspace,
-titled for its day ("Morning brief · Fri, Oct 9, 2026"), holding one assistant
-message.
+The brief is a briefing in the person's Personal workspace, titled for its day
+("Your day — Fri, Oct 9, 2026"), with the edition `brief:2026-10-09`. It is on
+the Briefings page with the rest of its history.
+
+The schedule also tells the person in chat. Each delivery is its own
+conversation in Personal, titled like the brief, holding one short assistant
+message: the brief's lead line and a link to the stored brief.
 
 - **The Decision card follows the message.** It is raised only after the
   message is written, so it never docks on an empty chat (the warm-chat rule,
   `emptyChat.mayDockCard`).
 - **The opening hint points to it.** Until the person opens it, the opening
   hint in Personal says **"Your morning brief is ready →"** (or "Your evening
-  wrap is ready →") and opens that conversation. That is the hint ranker's
-  `next` candidate, given an `href`.
+  wrap is ready →") and opens the stored brief. That is the hint ranker's
+  `next` candidate, given an `href`. "Opened" means the delivery conversation
+  has had a turn, or the person dismissed the hint.
 
 ## Push
 
-The morning brief can also push to a Slack DM, a text or an email, with a link straight to it, along with urgent items. See [Push to you](push-to-you.md).
+The morning brief can also push to a Slack DM, a text or an email, with a link straight to the stored brief, along with urgent items. See [Push to you](push-to-you.md).
 
 ## When it goes out
 
 - **The sweep.** `personal.rhythm-sweep` runs every five minutes on the durable
   executor, as a deployment schedule
-  (`services/personal/rhythm/schedule.ts`). On each run it does three things:
+  (`services/personal/rhythm/schedule.ts`). It is only the scheduler: the
+  delivery it starts publishes through the briefings composer. On each run it
+  does three things:
   1. It gives every Personal workspace a `personal_rhythm` row if it has none.
   2. It starts each due delivery as a `personal.rhythm` job. The job's id names
      the person, the kind and their local day, and the same id never runs
      twice.
   3. It moves the row's next time to the following day.
 - **Once a day.** A delivery also finds its own day's conversation by its
-  scope (`personal-rhythm:<kind>:<day>`) before writing anything. A delivery
-  started twice therefore lands once.
+  scope (`personal-rhythm:<kind>:<day>`) before writing anything, and the
+  brief is upserted by its edition (`briefing.edition`, `<kind>:<day>`). A
+  delivery started twice therefore lands once, and a person who asked for
+  their day first still has one brief for it.
+- **No other path.** Nothing else writes a personal brief. Workspace YAML
+  schedules and `gen-team-brief` publish workspace and team briefs, and the
+  deployment schedules have no other brief job.
 - **Late ones are skipped.** A delivery more than two hours late, because the
   server was down, is skipped rather than sent. A morning brief at two in the
   afternoon is not one.
@@ -140,6 +168,9 @@ The morning brief can also push to a Slack DM, a text or an email, with a link s
 
 Migration `0203_personal_rhythm` adds the `personal_rhythm` table: one row per
 person per Org, holding their times, switches, zone, next and last deliveries.
+It also adds the Org's switch and cap (`tenant_account.daily_briefs`,
+`brief_daily_cents`). Migration `0205_briefing_edition` adds
+`briefing.edition`, the once-only key of a personal brief.
 
 ## Pieces
 
@@ -147,11 +178,14 @@ person per Org, holding their times, switches, zone, next and last deliveries.
 |---|---|
 | Clock arithmetic | `libs/personal/rhythm.ts` |
 | Sweep, settings | `services/personal/rhythm/schedule.ts` |
-| Facts | `services/personal/rhythm/facts.ts` |
-| Words | `services/personal/rhythm/compose.ts` |
-| Delivery | `services/personal/rhythm/deliver.ts` |
+| Composer, store (one per person, kind and day) | `services/briefings/personal.ts` |
+| Facts | `services/briefings/personalFacts.ts` |
+| The model call | `services/briefings/personalWriter.ts` |
+| Budget | `services/briefings/budgetGate.ts` (money), `services/briefings/budget.ts` (attention) |
+| Delivery (chat message, Decision, push) | `services/briefings/personalDelivery.ts` |
+| Ask for it now | `briefings.personal` (`routers/Briefings.ts`) |
 | Jobs | `personal.rhythm-sweep`, `personal.rhythm` (`services/background/catalog.ts`) |
 | RPC | `personal.rhythm`, `personal.setRhythm` (`routers/Personal.ts`) |
 | Settings | `features/personal/RhythmSettings.tsx`, on Notification settings |
 | Opening hint | `services/chat/openingHints.ts` (`next` with `href`) |
-| Tests | `libs/personal/rhythm.test.ts`, `services/personal/rhythm/rhythm.test.ts` |
+| Tests | `libs/personal/rhythm.test.ts`, `services/briefings/personal.test.ts`, `services/briefings/personalDelivery.test.ts` |

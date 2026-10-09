@@ -17,3 +17,10 @@ export function briefingHref(id: number): string {
 
 /** Every brief, searchable and filterable. */
 export const BRIEFING_ARCHIVE_HREF = '/dashboard/briefings/archive';
+
+/**
+ * Every scheduled personal brief's delivery conversation has a scope starting
+ * with this (`personal-rhythm:<kind>:<day>`); the brief it delivers has the
+ * edition `<kind>:<day>` (`personalDelivery.ts`, `chat/openingHints.ts`).
+ */
+export const DELIVERY_SCOPE_PREFIX = 'personal-rhythm:';

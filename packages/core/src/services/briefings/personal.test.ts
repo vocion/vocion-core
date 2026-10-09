@@ -2,7 +2,7 @@
  * "Your day", against PGlite: each reachable workspace's latest brief by its
  * headline, the cross-workspace queue with the person's own rows first, one
  * account at a time, kept as a brief in the person's own workspace and
- * replaced rather than duplicated when asked for twice.
+ * refreshed rather than duplicated when asked for twice in a day.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -101,12 +101,12 @@ describe('composePersonalBrief', () => {
 
 describe('publishPersonalBrief', () => {
   it('keeps the brief in the person\'s own workspace, replaces it when asked again, and never quotes itself', async () => {
-    const first = await publishPersonalBrief(RILEY, NORTHWIND, { now: at(7, 8), timeZone: 'UTC' });
+    const first = await publishPersonalBrief(RILEY, NORTHWIND, { now: at(7, 8), timeZone: 'UTC', writer: null });
 
     expect(first).toMatchObject({ orgId: personal, replaced: false });
     expect(first.href).toBe(`/w/${(await ensurePersonalProject(RILEY, NORTHWIND)).slug}/dashboard/briefings/${first.id}`);
 
-    const again = await publishPersonalBrief(RILEY, NORTHWIND, { now: at(7, 8), timeZone: 'UTC' });
+    const again = await publishPersonalBrief(RILEY, NORTHWIND, { now: at(7, 8), timeZone: 'UTC', writer: null });
 
     expect(again).toMatchObject({ id: first.id, replaced: true });
 
@@ -114,6 +114,16 @@ describe('publishPersonalBrief', () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0]!.content).toBe(again.brief.markdown);
+    // One edition per person, kind and local day: asking later the same day refreshes it too.
+    expect(rows[0]!.edition).toBe('brief:2026-10-07');
+
+    const later = await publishPersonalBrief(RILEY, NORTHWIND, { now: at(7, 16), timeZone: 'UTC', writer: null });
+
+    expect(later).toMatchObject({ id: first.id, replaced: true });
+
+    const tomorrow = await publishPersonalBrief(RILEY, NORTHWIND, { now: at(8, 8), timeZone: 'UTC', writer: null });
+
+    expect(tomorrow.id).not.toBe(first.id);
     // The personal workspace's own line has no brief: its "your day" is not its headline.
     expect(again.brief.workspaces.find(w => w.workspace.id === personal)!.briefing).toBeNull();
   });

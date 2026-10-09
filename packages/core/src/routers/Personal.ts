@@ -108,7 +108,7 @@ export const orgBriefsRoute = os.handler(async () => {
   if (!accountId) {
     throw ApiError.forbidden();
   }
-  const { orgBriefSettings } = await import('@/services/personal/rhythm/guard');
+  const { orgBriefSettings } = await import('@/services/briefings/budgetGate');
   return { ...(await orgBriefSettings(accountId)), canChange: has({ role: ORG_ROLE.ADMIN }) };
 });
 
@@ -119,7 +119,7 @@ export const setOrgBriefsRoute = os
     if (!accountId || !has({ role: ORG_ROLE.ADMIN })) {
       throw ApiError.forbidden();
     }
-    const { orgBriefSettings, setOrgBriefSettings } = await import('@/services/personal/rhythm/guard');
+    const { orgBriefSettings, setOrgBriefSettings } = await import('@/services/briefings/budgetGate');
     await setOrgBriefSettings(accountId, input);
     return { ...(await orgBriefSettings(accountId)), canChange: true };
   });

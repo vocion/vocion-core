@@ -10,7 +10,10 @@
  * on the way out, so a hand-written or model-written document cannot spend
  * more of a person's attention than the product allows.
  *
- * Pure — no database, no React, no clock.
+ * Pure — no database, no React, no clock. What a brief may spend on the
+ * model (the Org switch, the seven-day activity rule, the Org's daily cap) is
+ * the other half of the same budget, in `budgetGate.ts`, kept apart only so
+ * the browser can import this file.
  */
 
 import type { BriefingChange, BriefingDecision, BriefingHistoryEntry, BriefingMetric, BriefingV2, CriticalPathItem } from './document';

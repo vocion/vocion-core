@@ -1,5 +1,9 @@
 /**
  * When each person's brief and wrap go out (docs/guides/morning-brief.md).
+ * This is only the scheduler: what a brief says, where it is kept and what it
+ * may spend belong to the briefings module (`services/briefings/personal.ts`,
+ * `personalDelivery.ts`, `budgetGate.ts`), the same code the Briefings page's
+ * own "your day" button runs.
  *
  * One deployment-wide sweep every five minutes (`personal.rhythm-sweep`, on
  * the durable executor) does three things:
@@ -16,7 +20,7 @@
  * A delivery more than two hours late (the server was down) is skipped, not
  * sent: a morning brief at two in the afternoon is not one. So is one for a
  * person who has not been here in seven days, or whose Org turned daily
- * briefs off (`guard.ts`): their next time still moves on, so nothing piles up.
+ * briefs off (`services/briefings/budgetGate.ts`): their next time still moves on, so nothing piles up.
  */
 
 import type { RhythmKind } from '@/libs/personal/rhythm';
@@ -119,8 +123,8 @@ export async function sweepRhythms(now: Date = new Date(), start: StartDelivery 
     .where(or(lte(personalRhythmSchema.nextBriefAt, now), lte(personalRhythmSchema.nextWrapAt, now)))
     .limit(500);
   const result: SweepResult = { made, started: [], skipped: 0, inactive: 0 };
-  // Only people still in an Org with briefs on, who were here this week (`guard.ts`).
-  const { eligibleForBriefs } = await import('./guard');
+  // Only people still in an Org with briefs on, who were here this week (`services/briefings/budgetGate.ts`).
+  const { eligibleForBriefs } = await import('@/services/briefings/budgetGate');
   const eligible = await eligibleForBriefs(due, now);
   for (const row of due) {
     const wanted = eligible.has(`${row.userId}:${row.accountId}`);

@@ -79,6 +79,6 @@ Migration `0204_personal_push` adds these columns to `personal_rhythm`:
 | What is urgent | `services/personal/urgent.ts` (sweep and broken connections) |
 | Broken or passing | `libs/personal/broken.ts` |
 | Stop links | `libs/personal/stopLink.ts`, `app/api/personal/push/stop/route.ts` |
-| Brief push | `services/personal/rhythm/deliver.ts` |
+| Brief push | `services/briefings/personalDelivery.ts` |
 | Settings | `features/personal/RhythmSettings.tsx` (Push to you) |
 | Tests | `services/personal/push.test.ts` |
