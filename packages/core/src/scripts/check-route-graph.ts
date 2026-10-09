@@ -51,8 +51,15 @@ export const FORBIDDEN_REACH: ReadonlyArray<{ from: string; to: string }> = [
  * Raise it deliberately, with a reason, never to make a red check green:
  * first look for the edge that put a large graph under a widely imported
  * module.
+ *
+ * Raised to 196,000 on 2026-10-09: main had reached 195,057 by steady
+ * feature growth with no single heavy edge (189,177 at #1280, 194,499 at
+ * #1292, +372 at #1293, +186 at #1294), and the follow-up pills add two
+ * small leaf modules every chat route reaches (`libs/chat/suggestions.ts`,
+ * `SuggestionPills.tsx`), +192. Still well under 214,945, where the deploy
+ * runner stopped building.
  */
-export const REACH_BUDGET = 195_000;
+export const REACH_BUDGET = 196_000;
 
 /** File names Next treats as a route entry under `app/`. */
 const ENTRY_FILE = /^(?:page|route|layout|template|default|loading|error|not-found)\.tsx?$/;
