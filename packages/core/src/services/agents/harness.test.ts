@@ -163,7 +163,8 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
     // from the org's credentials only once.
     expect(again.agentRow).toBe(first.agentRow);
     expect(graphOptions(1).model).toBe(graphOptions(0).model);
-    expect(vi.mocked(buildChatModelForOrg)).toHaveBeenCalledTimes(1);
+    // (The agent's own model; the teammates' fast model is built beside it, once too.)
+    expect(vi.mocked(buildChatModelForOrg).mock.calls.filter(c => c[0] === 'main')).toHaveLength(1);
 
     // The graph and the context its tools close over are NOT shared: a second
     // turn must not be able to see or overwrite the first turn's identity.
@@ -179,7 +180,7 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
     await compileAgentForRequest(ORG, DIRECTOR, { emit: () => {} }, { modelOverride: { model: 'claude-candidate-x', provider: 'anthropic' } });
     await compile(DIRECTOR);
 
-    const calls = vi.mocked(buildChatModelForOrg).mock.calls;
+    const calls = vi.mocked(buildChatModelForOrg).mock.calls.filter(c => c[0] === 'main');
 
     expect(calls).toHaveLength(2);
     expect(calls[0]![2]).toMatchObject({ model: 'claude-candidate-x', provider: 'anthropic' });

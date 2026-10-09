@@ -1138,6 +1138,18 @@ export const AgentManifestSchema = z.object({
       standard: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
       deep: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
     }).optional(),
+    /**
+     * Where this agent's teammates do their legwork when it consults them:
+     * `fast` (the default) runs them on the classifier model, `main` on this
+     * agent's own. See `services/agents/effort.ts`.
+     */
+    legworkModel: z.enum(['fast', 'main']).optional(),
+    /**
+     * Whether the calls that read tool results think: `off` (the default) keeps
+     * extended thinking for the turn's opening call, `agent` thinks on every
+     * call as before. See `services/agents/effort.ts`.
+     */
+    legworkThinking: z.enum(['off', 'agent']).optional(),
     excludeTools: z.array(z.string()).default([]),
     /**
      * Granted-only tools this agent receives. Some built-ins (the discovery
