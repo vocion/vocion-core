@@ -1310,6 +1310,13 @@
       "when": 1792300205000,
       "tag": "0205_briefing_edition",
       "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1792300206000,
+      "tag": "0206_state_views",
+      "breakpoints": true
     }
   ]
 }

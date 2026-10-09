@@ -85,7 +85,11 @@ export async function hotToolNames(orgId: string, agentSlug: string): Promise<st
  */
 export function deferColdTools<T extends StructuredToolInterface>(tools: T[], keep: ReadonlySet<string>, search: T): T[] {
   for (const t of tools) {
-    if (!keep.has(t.name)) {
+    // A tool may say it is the platform's way to a whole class of question
+    // and must never wait behind a search (`metadata.alwaysLoaded`): a new
+    // one has no history to earn its place yet, and found only by search it
+    // loses to the phrase hunt it exists to replace.
+    if (!keep.has(t.name) && (t as { metadata?: Record<string, unknown> }).metadata?.alwaysLoaded !== true) {
       const withExtras = t as T & { extras?: Record<string, unknown> };
       withExtras.extras = { ...withExtras.extras, defer_loading: true };
     }

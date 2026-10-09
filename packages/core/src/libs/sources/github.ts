@@ -101,6 +101,9 @@ export function pullRequestDoc(repo: string, pr: GithubPullRequest): IngestDoc {
       branch: pr.head.ref,
       baseBranch: pr.base.ref,
       author: pr.user?.login ?? '',
+      // Review state for "pull requests awaiting my review" (`libs/retrieval/facets.ts`).
+      requestedReviewers: (pr.requested_reviewers ?? []).map(r => r.login ?? '').filter(Boolean),
+      draft: pr.draft ?? false,
       mergeSha: pr.merge_commit_sha ?? undefined,
       mergedAt: pr.merged_at ?? undefined,
       closedAt: pr.closed_at ?? undefined,

@@ -239,6 +239,16 @@ export function renderPersonalBrief(p: PersonalBriefParts): string {
       out.push(`- Follow-up you owe: [${u.title}](${u.href}) — ${u.workspace.name}`);
     }
   }
+  // The person's saved views for the brief, each a short list with its count.
+  for (const v of (f?.waiting.views ?? []).filter(x => x.total > 0)) {
+    out.push('', `### ${v.name} (${v.total})`, '');
+    for (const r of v.rows.slice(0, 5)) {
+      out.push(`- ${r.link ? `[${r.title}](${r.link})` : r.title}${r.at ? ` — ${formatDate(r.at, tz)}` : ''}`);
+    }
+    if (v.total > v.rows.length) {
+      out.push(`- and ${v.total - Math.min(v.rows.length, 5)} more`);
+    }
+  }
 
   // Morning: what the team did since the person last looked.
   if (f && kind === 'brief' && f.team.length > 0) {

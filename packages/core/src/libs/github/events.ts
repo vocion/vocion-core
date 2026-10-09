@@ -155,6 +155,8 @@ export type GithubPullRequest = {
   html_url: string;
   draft?: boolean;
   user?: { login?: string } | null;
+  /** Whose review is still requested; GitHub drops a reviewer from it once they review. */
+  requested_reviewers?: Array<{ login?: string }> | null;
   head: { ref: string; sha: string };
   base: { ref: string };
   created_at: string;

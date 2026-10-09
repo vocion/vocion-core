@@ -62,6 +62,17 @@ export function factsForWriter(f: PersonalFacts): string {
   for (const u of f.waiting.followUps.slice(0, 3)) {
     out.push(`- follow-up owed: ${u.title}`);
   }
+  // Saved views the person reads every day (`services/state/views.ts`):
+  // the email replies they owe, and any view they put in their brief.
+  for (const v of f.waiting.views ?? []) {
+    if (v.total === 0) {
+      continue;
+    }
+    out.push('', `${v.name.toUpperCase()} (${v.total}):`);
+    for (const r of v.rows.slice(0, 5)) {
+      out.push(`- ${r.title}${typeof r.facets.ask === 'string' && r.facets.ask ? ` — ${r.facets.ask}` : ''}`);
+    }
+  }
   if (f.team.length > 0) {
     out.push('', 'THE TEAM SINCE THEY LAST LOOKED:');
     for (const t of f.team) {

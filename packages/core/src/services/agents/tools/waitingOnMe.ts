@@ -29,18 +29,20 @@
  */
 import type { RuntimeContext } from '../types';
 import type { CrossWorkspaceInbox, CrossWorkspaceItem, WorkspaceQueue } from '@/services/inbox/acrossWorkspaces';
-import type { OwedReply } from '@/services/mail/owedReplies';
+import type { StateRow } from '@/services/state/queryState';
 import { tool } from '@langchain/core/tools';
 import { and, desc, eq, gte, inArray, isNull, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
+import { handlesOf } from '@/libs/retrieval/facets';
 import { DEFAULT_TIME_ZONE, formatDate } from '@/libs/time/zone';
 import { askSchema, notificationSchema, userSchema } from '@/models/Schema';
 import { listInboxForUser } from '@/services/inbox/acrossWorkspaces';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { needsYouItems } from '@/services/InboxService';
-import { readOwedReplies } from '@/services/mail/owedReplies';
+import { runStateQuery } from '@/services/state/queryState';
+import { briefViews, viewBySlug } from '@/services/state/views';
 import { actAs } from '@/services/workspace/actAs';
 
 /** How far back an answered-"other" ask still counts as a follow-up owed. */
@@ -53,10 +55,14 @@ type Place = Pick<WorkspaceQueue, 'id' | 'slug' | 'name' | 'accountSlug'>;
 
 export type FollowUp = { id: number; title: string; note: string | null; at: Date; workspace: Place; href: string };
 export type Mention = { id: number; title: string; body: string | null; at: Date; workspace: Place; href: string | null };
-export type OwedMail = OwedReply & { workspace: Place };
+/** One saved view's read, as a section of "what is waiting on me" (`services/state/views.ts`). */
+export type ViewSection = { slug: string; name: string; description: string; rows: Array<StateRow & { workspace: Place }>; total: number };
 
-/** Owed email replies named in the read; the full list is `mail_owed_replies`. */
-export const OWED_MAIL_TOP = 10;
+/** Rows named per view section; the full list is `query_state` with the view. */
+export const VIEW_TOP = 10;
+
+/** The view every person's read carries: the email replies they owe. */
+export const OWED_REPLIES_VIEW = 'owed-replies';
 
 export type WaitingOnMe = {
   scope: 'workspace' | 'all';
@@ -65,10 +71,12 @@ export type WaitingOnMe = {
   totalOpen: number;
   followUps: FollowUp[];
   mentions: Mention[];
-  /** Email threads in the person's own mailbox where the other side is waiting on them (thread state, filed at sync). */
-  owedMail: OwedMail[];
-  /** All such threads, before the cap. */
-  owedMailTotal: number;
+  /**
+   * Saved views read for the person: the email replies they owe (the core
+   * `owed-replies` view, their own mailbox only), then every view they put in
+   * their brief.
+   */
+  views: ViewSection[];
   unavailable: Array<{ workspace: { name: string }; reason: string }>;
 };
 
@@ -101,7 +109,7 @@ export async function readWaitingOnMe(input: { userId: string; accountId: string
   const totalOpen = across ? inbox.total : (inbox.workspaces.find(w => w.id === orgId)?.count ?? decisions.length);
 
   if (ids.length === 0) {
-    return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps: [], mentions: [], owedMail: [], owedMailTotal: 0, unavailable: inbox.unavailable };
+    return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps: [], mentions: [], views: [], unavailable: inbox.unavailable };
   }
 
   const since = new Date(now.getTime() - FOLLOW_UP_WINDOW_DAYS * 86_400_000);
@@ -124,7 +132,7 @@ export async function readWaitingOnMe(input: { userId: string; accountId: string
       .where(and(inArray(notificationSchema.orgId, ids), eq(notificationSchema.userId, userId), isNull(notificationSchema.readAt)))
       .orderBy(desc(notificationSchema.createdAt))
       .limit(WAITING_TOP),
-    readOwedMail(userId, places, now),
+    readViews(userId, places, inbox.workspaces.find(w => w.id === orgId)?.accountId ?? accountId, now),
   ]);
 
   const followUps: FollowUp[] = askRows.map((r) => {
@@ -135,28 +143,44 @@ export async function readWaitingOnMe(input: { userId: string; accountId: string
     const w = byId.get(r.orgId)!;
     return { id: r.id, title: r.title, body: r.body, at: r.createdAt, workspace: w, href: r.link };
   });
-  return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps, mentions, owedMail: owed.items, owedMailTotal: owed.total, unavailable: inbox.unavailable };
+  return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps, mentions, views: owed, unavailable: inbox.unavailable };
 }
 
 /**
- * Replies owed from the person's OWN mailbox in each place: a shared
+ * The views read for the person, in every place in reach: the core
+ * `owed-replies` view (its filter is the person's own mailbox — a shared
  * workspace's mail source may be someone else's inbox, and their owed replies
- * are not this person's. Never throws; mail is one section of the read.
+ * are not this person's), then the views they marked for their brief. Never
+ * throws; views are one section of the read.
  * @param userId - The person.
  * @param places - The workspaces in reach.
+ * @param accountId - Their Org.
  * @param now - The clock.
  */
-async function readOwedMail(userId: string, places: Place[], now: Date): Promise<{ items: OwedMail[]; total: number }> {
+async function readViews(userId: string, places: Place[], accountId: string, now: Date): Promise<ViewSection[]> {
   try {
-    const [person] = await db.select({ email: userSchema.email }).from(userSchema).where(eq(userSchema.id, userId)).limit(1);
-    if (!person?.email) {
-      return { items: [], total: 0 };
+    const [person] = await db.select({ email: userSchema.email, name: userSchema.name }).from(userSchema).where(eq(userSchema.id, userId)).limit(1);
+    const me = person ? handlesOf(person) : [];
+    const owed = places.length > 0 ? await viewBySlug(OWED_REPLIES_VIEW, { orgId: places[0]!.id, accountId, userId }) : undefined;
+    const own = await briefViews(userId, places.map(p => p.id));
+    const wanted = [...(owed ? [{ view: owed, orgIds: places.map(p => p.id) }] : []), ...own.filter(v => v.slug !== OWED_REPLIES_VIEW).map(v => ({ view: v, orgIds: [v.orgId] }))];
+    const sections: ViewSection[] = [];
+    for (const { view, orgIds } of wanted) {
+      const reads = await Promise.all(orgIds.map(async (id) => {
+        const p = places.find(x => x.id === id)!;
+        return { p, read: await runStateQuery({ ...view.query, limit: VIEW_TOP }, { orgIds: [id], userId, me, now }) };
+      }));
+      sections.push({
+        slug: view.slug,
+        name: view.name,
+        description: view.description,
+        rows: reads.flatMap(({ p, read }) => read.rows.map(r => ({ ...r, workspace: p }))).slice(0, VIEW_TOP),
+        total: reads.reduce((n, r) => n + r.read.total, 0),
+      });
     }
-    const reads = await Promise.all(places.map(async p => ({ p, read: await readOwedReplies({ orgId: p.id, mailbox: person.email.toLowerCase(), limit: OWED_MAIL_TOP, now }) })));
-    const items = reads.flatMap(({ p, read }) => read.items.map(i => ({ ...i, workspace: p })));
-    return { items: items.slice(0, OWED_MAIL_TOP), total: reads.reduce((n, r) => n + r.read.total, 0) };
+    return sections;
   } catch {
-    return { items: [], total: 0 };
+    return [];
   }
 }
 
@@ -193,12 +217,17 @@ export function renderWaitingOnMe(w: WaitingOnMe, tz: string = DEFAULT_TIME_ZONE
     out.push(`- ${m.href ? `[${m.title}](${m.href})` : m.title}${where(m.workspace.name)} · ${formatDate(m.at, tz)}${m.body ? ` · ${m.body.replace(/\s+/g, ' ').slice(0, 140)}` : ''}`);
   }
 
-  out.push('', w.owedMail.length > 0 ? `EMAIL REPLIES YOU OWE (${w.owedMailTotal}) — the other side wrote last and is waiting on you, longest-waiting first:` : 'EMAIL REPLIES YOU OWE: none.');
-  for (const m of w.owedMail) {
-    out.push(`- ${m.uri ? `[${m.subject}](${m.uri})` : m.subject} — ${m.counterpart}${where(m.workspace.name)}${m.lastInboundAt ? ` · they wrote ${formatDate(m.lastInboundAt, tz)}` : ''}${m.ask ? ` · ${m.ask}` : ''}`);
-  }
-  if (w.owedMailTotal > w.owedMail.length) {
-    out.push(`- and ${w.owedMailTotal - w.owedMail.length} more: mail_owed_replies lists them all`);
+  for (const v of w.views) {
+    const label = v.slug === OWED_REPLIES_VIEW ? 'EMAIL REPLIES YOU OWE' : v.name.toUpperCase();
+    out.push('', v.rows.length > 0 ? `${label} (${v.total}) — ${v.description}` : `${label}: none.`);
+    for (const r of v.rows) {
+      const who = typeof r.facets.counterpart === 'string' ? ` — ${r.facets.counterpart}` : '';
+      const ask = typeof r.facets.ask === 'string' && r.facets.ask ? ` · ${r.facets.ask}` : '';
+      out.push(`- ${r.link ? `[${r.title}](${r.link})` : r.title}${who}${where(r.workspace.name)}${r.at ? ` · ${formatDate(r.at, tz)}` : ''}${ask}`);
+    }
+    if (v.total > v.rows.length) {
+      out.push(`- and ${v.total - v.rows.length} more: query_state with view "${v.slug}" lists them all`);
+    }
   }
 
   if (others.length > 0) {

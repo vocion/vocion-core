@@ -51,6 +51,7 @@ import { trackerCommentAction } from './tracker-comment';
 import { trackerCreateIssueAction } from './tracker-create-issue';
 import { trackerTransitionIssueAction } from './tracker-transition-issue';
 import { trackerUpdateIssueAction } from './tracker-update-issue';
+import { viewSaveAction } from './view-save';
 import { wikiWritePageAction } from './wiki-write-page';
 import { workspaceWriteOperatingIntentAction } from './workspace-operating-intent';
 import { workspaceWriteMissionAction, workspaceWritePlaybookAction } from './workspace-source';
@@ -130,6 +131,7 @@ registerAction(objectsUpdateMetaAction);
 registerAction(objectsRenameAction);
 // A person keeps their own mobile number from chat, so a text from it is theirs (`me-set-phone.ts`).
 registerAction(meSetPhoneAction);
+registerAction(viewSaveAction);
 // Start the build: approve the plan, queue the engineer on the task contract.
 registerAction(factoryDispatchAction);
 registerAction(factoryApprovePlanAction);

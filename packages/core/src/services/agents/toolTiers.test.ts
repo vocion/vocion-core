@@ -29,6 +29,15 @@ describe('which tools a turn carries in full', () => {
     expect(params.tools.find(t => t.name === 'generate_image')).toMatchObject({ defer_loading: true });
     expect(params.tools.find(t => t.name === TOOL_SEARCH.name)).toEqual(TOOL_SEARCH);
   });
+
+  it('never defers a tool that says it must always be loaded, whatever its history', () => {
+    const search = tool(async () => '', { name: TOOL_SEARCH.name, description: 'search', schema: z.object({}), extras: { providerToolDefinition: TOOL_SEARCH } }) as unknown as ReturnType<typeof make>;
+    const always = tool(async () => '', { name: 'query_state', description: 'state', schema: z.object({}), metadata: { alwaysLoaded: true } }) as unknown as ReturnType<typeof make>;
+    const tools = deferColdTools([make('lookup_objects'), always], new Set(['lookup_objects']), search);
+    const params = new ChatAnthropic({ apiKey: 'sk-ant-test', model: 'claude-sonnet-4-6' }).invocationParams({ tools } as never) as unknown as { tools: Array<Record<string, unknown>> };
+
+    expect(params.tools.find(t => t.name === 'query_state')).not.toHaveProperty('defer_loading');
+  });
 });
 
 describe('a search step goes back to the model whole', () => {

@@ -86,6 +86,15 @@ async function memberChannels(baseUrl: string, headers: Record<string, string>, 
   return out;
 }
 
+/**
+ * The member ids a message mentions, from Slack's markup (`<@U123>` or
+ * `<@U123|name>`). Structure, not meaning.
+ * @param text - The message text as Slack stores it.
+ */
+export function slackMentions(text: string): string[] {
+  return [...new Set([...text.matchAll(/<@([A-Z0-9]+)(?:\|[^>]*)?>/g)].map(m => m[1]!))];
+}
+
 export const slackConnector: SourceConnector<typeof slackConfigSchema> = {
   slug: 'slack',
   name: 'Slack',
@@ -128,7 +137,8 @@ export const slackConnector: SourceConnector<typeof slackConfigSchema> = {
             title: ch.name ? `#${ch.name} · ${m.ts}` : `Message ${m.ts}`,
             content: m.text ?? '',
             lastModifiedAt: new Date(Number(m.ts) * 1000),
-            metadata: { kind: 'slack-message', channel: ch.id, channelName: ch.name, user: m.user },
+            // Mentions read from Slack's own markup (`<@U123>`), for "mentions of me" (`libs/retrieval/facets.ts`).
+            metadata: { kind: 'slack-message', channel: ch.id, channelName: ch.name, user: m.user, mentions: slackMentions(m.text ?? '') },
           };
         }
         cursor = body.response_metadata?.next_cursor || undefined;

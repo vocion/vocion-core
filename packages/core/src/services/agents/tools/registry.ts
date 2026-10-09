@@ -83,6 +83,7 @@ import { personalizationTools } from './personalization';
 import { posthogCountTools } from './posthogCounts';
 import { productAccessTools } from './productAccess';
 import { proposeActionTool } from './proposeAction';
+import { queryStateTool } from './queryState';
 import { readObjectTools } from './readObject';
 import { recommendActionTool } from './recommendAction';
 import { recordLiveCheckTools } from './recordLiveCheck';
@@ -336,6 +337,7 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // queue, asks and notifications — in this workspace, or in a personal
     // workspace across all of theirs. Never a search.
     ...waitingOnMeTools(ctx),
+    queryStateTool(ctx),
     // Personal workspaces only: the person's OWN mail, calendar, files, Slack
     // DMs and GitHub, read live with their own login (`personalCredential`),
     // never a workspace's source. Drafts mail, never sends.

@@ -67,12 +67,12 @@ describe('labels', () => {
   it('files facets a filter can match', () => {
     const f = threadFacts('t6', [msg({ id: 'm1', from: 'Jamie Smith <jamie@contoso.example>', date: new Date('2026-10-04T00:00:00Z') })], OWNER)!;
     const doc = threadStateDoc(f, { state: 'needs_my_reply', category: 'sales', ask: 'Pricing', labelledBy: 'm' }, { connector: 'gmail' });
-    const facets = (doc.metadata as { facets: Record<string, string> }).facets;
+    const meta = doc.metadata as Record<string, unknown>;
 
     expect(doc.externalId).toBe('gmail-thread-state:t6');
-    expect(facetsMatch(facets, { reply_state: 'needs_my_reply', category: ['sales', 'customer'], counterpart: 'CONTOSO', last_inbound_at: { since: '2026-10-01T00:00:00Z' } })).toBe(true);
-    expect(facetsMatch(facets, { last_inbound_at: { since: '2026-10-05T00:00:00Z' } })).toBe(false);
-    expect(facetsMatch(facets, { category: 'vendor' })).toBe(false);
+    expect(facetsMatch(meta, { reply_state: 'needs_my_reply', category: ['sales', 'customer'], counterpart: 'CONTOSO', last_inbound_at: { since: '2026-10-01T00:00:00Z' } })).toBe(true);
+    expect(facetsMatch(meta, { last_inbound_at: { since: '2026-10-05T00:00:00Z' } })).toBe(false);
+    expect(facetsMatch(meta, { category: 'vendor' })).toBe(false);
   });
 });
 

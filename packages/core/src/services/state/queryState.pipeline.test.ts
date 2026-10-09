@@ -33,7 +33,7 @@ vi.mock('@/services/mail/threadLabeller', async (importOriginal) => {
     labelThreads: (opts: Parameters<typeof actual.labelThreads>[0]) => actual.labelThreads({
       ...opts,
       model: async (_system, user) => {
-        const { FIXTURE_VERDICTS } = await import('./testing/fixtureInbox');
+        const { FIXTURE_VERDICTS } = await import('@/services/mail/testing/fixtureInbox');
         const subject = /^Subject: (.*)$/m.exec(user)?.[1] ?? '';
         modelCalls.push(subject);
         return { text: JSON.stringify(FIXTURE_VERDICTS[subject] ?? { state: 'fyi', category: 'other', ask: '' }), model: 'claude-haiku-4-5-20251001' };
@@ -45,14 +45,30 @@ vi.mock('@/services/mail/threadLabeller', async (importOriginal) => {
 const { db } = await import('@/libs/DB');
 const { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } = await import('@/models/Schema');
 const { runSync } = await import('@/services/SourceSyncService');
-const { readOwedReplies } = await import('./owedReplies');
-const { mailOwedRepliesTool } = await import('@/services/agents/tools/mailOwedReplies');
+const { runStateQuery } = await import('./queryState');
+const { queryStateTool } = await import('@/services/agents/tools/queryState');
 const { search } = await import('@/services/RetrievalService');
-const { FIXTURE_OWNER: OWNER, fixtureThreads, gmailApiStub } = await import('./testing/fixtureInbox');
+const { handlesOf } = await import('@/libs/retrieval/facets');
+const { userSchema } = await import('@/models/Schema');
+const { FIXTURE_OWNER: OWNER, fixtureThreads, gmailApiStub } = await import('@/services/mail/testing/fixtureInbox');
 
 const ORG = 'org-owed-pipeline';
 
 const threads = fixtureThreads(Date.now());
+const OWNER_ID = 'usr-owed-owner';
+
+/**
+ * Thread ids in a reply state, the way the owed-replies view reads them.
+ * @param filter - Facets beyond the state and the mailbox.
+ * @param state - The reply state.
+ */
+async function threadsIn(filter: Record<string, unknown> = {}, state = 'needs_my_reply'): Promise<string[]> {
+  const read = await runStateQuery(
+    { sets: ['mail.thread'], filter: { reply_state: state, mailbox: '$me', ...filter } as never, sort: { facet: 'last_inbound_at', dir: 'asc' } },
+    { orgIds: [ORG], me: handlesOf({ email: OWNER }) },
+  );
+  return read.rows.map(r => String(r.key).replace('gmail-thread-state:', ''));
+}
 
 let sourceId: number;
 const realFetch = globalThis.fetch;
@@ -60,7 +76,7 @@ const realFetch = globalThis.fetch;
 function ctx(): RuntimeContext {
   return {
     orgId: ORG,
-    userId: 'usr-owed-owner',
+    userId: OWNER_ID,
     agentSlug: 'revenue-lead',
     connectorSources: ['gmail'],
     objectTypeSlugs: [],
@@ -74,6 +90,7 @@ function ctx(): RuntimeContext {
 
 beforeAll(async () => {
   globalThis.fetch = vi.fn(async (input: string | URL | Request) => gmailApiStub(threads, typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)) as typeof fetch;
+  await db.insert(userSchema).values({ id: OWNER_ID, email: OWNER, name: 'Owner' });
   const [row] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'gmail', kind: 'plugin', configJson: { _connector: 'gmail' } }).returning({ id: knowledgeSourceSchema.id });
   sourceId = row!.id;
   await runSync({ orgId: ORG, sourceId });
@@ -85,6 +102,7 @@ afterAll(async () => {
   await db.delete(knowledgeDocumentSchema);
   await db.delete(sourceSyncCheckpointSchema);
   await db.delete(knowledgeSourceSchema);
+  await db.delete(userSchema);
 });
 
 describe('what sales emails do I need to answer', () => {
@@ -108,12 +126,9 @@ describe('what sales emails do I need to answer', () => {
   });
 
   it('answers in one call with exactly the owed sales threads', async () => {
-    const read = await readOwedReplies({ orgId: ORG, category: ['sales'] });
+    expect(await threadsIn({ category: 'sales' })).toEqual(['t-acme', 't-contoso']);
 
-    expect(read.items.map(i => i.threadId)).toEqual(['t-acme', 't-contoso']);
-    expect(read.items[1]).toMatchObject({ counterpart: 'Jamie Smith <jamie@contoso.example>', ask: 'Wants pricing for 40 seats before Friday', from: 'index' });
-
-    const out = await mailOwedRepliesTool(ctx()).invoke({ category: ['sales'] });
+    const out = await queryStateTool(ctx()).invoke({ sets: ['mail.thread'], filter: { reply_state: 'needs_my_reply', category: 'sales', mailbox: '$me' } });
 
     expect(out).toContain('Pricing for the managed service');
     expect(out).toContain('Agents for your field team');
@@ -122,10 +137,20 @@ describe('what sales emails do I need to answer', () => {
     expect(out).toContain('From the synced index');
   });
 
-  it('without a category, every owed thread and nothing else', async () => {
-    const read = await readOwedReplies({ orgId: ORG });
+  it('the owed-replies view: every owed thread in my own mailbox, and nothing else', async () => {
+    expect((await threadsIn()).sort()).toEqual(['t-acme', 't-contoso', 't-northwind']);
 
-    expect(read.items.map(i => i.threadId).sort()).toEqual(['t-acme', 't-contoso', 't-northwind']);
+    const out = await queryStateTool(ctx()).invoke({ view: 'owed-replies' });
+
+    expect(out).toContain('Email replies I owe');
+    expect(out).toContain('Invoice question');
+    expect(out).toContain('Wants pricing for 40 seats before Friday');
+    expect(out).not.toContain('Triple your pipeline');
+
+    // Someone else's mailbox owes them nothing of mine.
+    const other = await runStateQuery({ sets: ['mail.thread'], filter: { reply_state: 'needs_my_reply', mailbox: '$me' } }, { orgIds: [ORG], me: handlesOf({ email: 'someone@northwind.example' }) });
+
+    expect(other.rows).toEqual([]);
   });
 
   it('a facet-filtered search ranks only the matching threads', async () => {
@@ -147,13 +172,9 @@ describe('what sales emails do I need to answer', () => {
     const before = modelCalls.length;
     threads[0]!.messages.push({ id: 'm12', from: OWNER, to: 'jamie@contoso.example', subject: 'Re: Pricing for the managed service', snippet: 'Pricing attached.', at: Date.now() });
     await runSync({ orgId: ORG, sourceId, incremental: true });
-    const read = await readOwedReplies({ orgId: ORG, category: ['sales'] });
 
-    expect(read.items.map(i => i.threadId)).toEqual(['t-acme']);
-
-    const waiting = await readOwedReplies({ orgId: ORG, states: ['waiting_on_them'] });
-
-    expect(waiting.items.map(i => i.threadId).sort()).toEqual(['t-contoso', 't-meridian']);
+    expect(await threadsIn({ category: 'sales' })).toEqual(['t-acme']);
+    expect((await threadsIn({}, 'waiting_on_them')).sort()).toEqual(['t-contoso', 't-meridian']);
     expect(modelCalls.length).toBe(before);
   });
 });

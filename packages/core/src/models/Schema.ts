@@ -5386,3 +5386,65 @@ export const durableWaitSchema = pgTable(
     index('durable_wait_org_idx').on(table.orgId),
   ],
 );
+
+/**
+ * A SAVED VIEW — a named, described state query (`services/state/views.ts`):
+ * "owed replies", "stale deals", "PRs awaiting my review". Data, not code: a
+ * view is a stored `query_state` query plus who it belongs to.
+ *
+ * `scope` says whose it is: `core` (shipped with the product, seeded from
+ * `libs/state/coreViews.json`, no org), `org` (one Org's, `account_id`),
+ * `workspace` (one workspace's, `org_id`), or `person` (one person's in one
+ * workspace, `org_id` + `user_id`). A person's view with a core view's slug is
+ * their copy of it and wins for them.
+ */
+export const stateViewSchema = pgTable(
+  'state_view',
+  {
+    id: serial('id').primaryKey(),
+    scope: text('scope').$type<'core' | 'org' | 'workspace' | 'person'>().notNull(),
+    accountId: text('account_id'),
+    orgId: text('org_id'),
+    userId: text('user_id').references(() => userSchema.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    /** The stored query (`StateQuery`): sets, filter, sort, limit, params. */
+    query: jsonb('query').$type<Record<string, unknown>>().notNull(),
+    /** Read in the person's brief and their "what is waiting on me". */
+    inBrief: boolean('in_brief').default(false).notNull(),
+    /** Who made it: `core`, `agent`, or the person's id. */
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('state_view_scope_owner_slug_uq').on(table.scope, table.accountId, table.orgId, table.userId, table.slug),
+    index('state_view_org_user_idx').on(table.orgId, table.userId),
+  ],
+);
+
+/**
+ * One state query a person ran (`query_state`), by the SHAPE of what was
+ * asked — the sets and the filter's facets and values, not the words. Three of
+ * the same shape in two weeks, with no view of theirs for it, is the cheap
+ * signal that the assistant should offer to save it as their view
+ * (`services/state/learnViews.ts`). Kept short: rows older than 30 days are
+ * dropped as new ones land.
+ */
+export const stateQueryLogSchema = pgTable(
+  'state_query_log',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    shape: text('shape').notNull(),
+    query: jsonb('query').$type<Record<string, unknown>>().notNull(),
+    /** The view it ran, when it ran one. */
+    viewSlug: text('view_slug'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('state_query_log_user_shape_idx').on(table.userId, table.orgId, table.shape, table.createdAt),
+  ],
+);
