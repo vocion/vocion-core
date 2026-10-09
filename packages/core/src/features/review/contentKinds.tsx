@@ -20,7 +20,7 @@ import { RichEmailBody } from './RichEmailBody';
  * chrome came out with the boxed card it belonged to.
  */
 
-export type ContentEdit = { subject?: string; body?: string };
+export type ContentEdit = { subject?: string; body?: string; to?: string; cc?: string };
 
 export type ContentRenderProps = {
   /** True for a moment after a conversation rewrite landed on this item. */

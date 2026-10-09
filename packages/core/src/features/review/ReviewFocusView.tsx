@@ -137,6 +137,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
     approve: t('shortcut_approve'),
     decline: t('shortcut_decline'),
     snooze: t('shortcut_snooze'),
+    edit: t('shortcut_edit'),
   };
   if (!p.loaded) {
     return <div className="flex justify-center py-16"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
@@ -315,7 +316,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
             <StickyActionBar
               labels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
               primary={{
-                'label': desc.isEmail ? (current.input.draft === true ? `${verb('approve').label} → draft` : `${verb('approve').label} & send`) : verb('approve').label,
+                'label': desc.isEmail ? (current.input.draft === true ? 'Create draft in Gmail' : 'Send') : verb('approve').label,
                 'onClick': () => p.onDecide('approve'),
                 'disabled': held,
                 'busy': p.busy,

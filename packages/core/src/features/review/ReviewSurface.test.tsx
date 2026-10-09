@@ -497,11 +497,13 @@ describe('one flat template, every object type', () => {
     await expect.element(page.getByTestId('primary-held')).toHaveTextContent(reason);
   });
 
-  it('keeps a failed run decidable, with its error and a Retry primary', async () => {
+  it('keeps a failed run decidable, with its error and its own verb to press again', async () => {
     await render(<ReviewSurface run={enrollment(3, { status: 'failed', error: 'HubSpot rejected the enrollment.' })} crumbs={CRUMBS} />);
 
     await expect.element(page.getByTestId('execution-failed-banner')).toHaveTextContent('HubSpot rejected the enrollment.');
-    await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Retry Confirm');
+    await expect.element(page.getByTestId('execution-failed-banner')).toHaveTextContent('then press Confirm again');
+    await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Confirm');
+    expect(page.getByTestId('decide-approve').element().textContent).not.toMatch(/Retry/);
     expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
   });
 

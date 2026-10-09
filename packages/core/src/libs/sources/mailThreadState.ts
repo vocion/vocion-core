@@ -243,6 +243,9 @@ export function threadStateDoc(facts: ThreadFacts, label: ThreadLabel, opts: { c
       threadId: facts.threadId,
       subject: facts.subject,
       from: who,
+      // The last few messages as data, so a reply draft can show what it
+      // answers without re-reading the thread (`recentMessagesOf`).
+      recent: facts.recent.map(m => ({ from: m.from, at: m.date.toISOString(), snippet: m.snippet })),
       facets: {
         reply_state: label.state,
         category: label.category,
@@ -296,4 +299,34 @@ export function priorFromMetadata(metadata: Record<string, unknown> | null | und
       labelledBy: typeof f.labelled_by === 'string' ? f.labelled_by : 'rule',
     },
   };
+}
+
+/** One message of a thread as a reply draft shows it: who, when, and the opening words. */
+export type RecentMessage = { from: string; at: string; snippet: string };
+
+const RECENT_LINE = /^(.+?) \((\d{4}-\d{2}-\d{2}T[\d:.]+Z)\): (.*)$/;
+
+/**
+ * A thread-state document's last messages, oldest first: from its metadata
+ * when it was filed with them, else read back off the lines its text was
+ * written with (`threadStateDoc`), so a thread synced before the metadata
+ * carried them still shows. Pure.
+ * @param metadata - The document's metadata.
+ * @param content - The document's text.
+ */
+export function recentMessagesOf(metadata: Record<string, unknown> | null | undefined, content?: string | null): RecentMessage[] {
+  const stored = metadata?.recent;
+  if (Array.isArray(stored)) {
+    return stored
+      .filter((m): m is RecentMessage => !!m && typeof m === 'object' && typeof (m as RecentMessage).from === 'string' && typeof (m as RecentMessage).at === 'string')
+      .map(m => ({ from: m.from, at: m.at, snippet: typeof m.snippet === 'string' ? m.snippet : '' }));
+  }
+  const out: RecentMessage[] = [];
+  for (const line of (content ?? '').split('\n')) {
+    const m = RECENT_LINE.exec(line.trim());
+    if (m) {
+      out.push({ from: m[1]!, at: m[2]!, snippet: m[3]! });
+    }
+  }
+  return out;
 }

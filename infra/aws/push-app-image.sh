@@ -113,10 +113,13 @@ fi
 # docker-container builder can. Host networking lets it reach a registry on
 # localhost, as the tests use. Two pushes starting together on one runner can
 # both find no builder; the one whose create loses uses the other's.
+# BuildKit comes from AWS's public mirror, because anonymous Docker Hub pulls
+# from shared CI and build hosts hit its rate limit.
+buildkit_image="${BUILDKIT_IMAGE:-public.ecr.aws/vend/moby/buildkit:buildx-stable-1}"
 if ! docker buildx inspect "${builder}" >/dev/null 2>&1; then
   log "creating the ${builder} buildx builder"
   if ! docker buildx create --name "${builder}" --driver docker-container \
-    --driver-opt network=host >/dev/null \
+    --driver-opt network=host --driver-opt "image=${buildkit_image}" >/dev/null \
     && ! docker buildx inspect "${builder}" >/dev/null 2>&1; then
     log "ERROR: could not create the ${builder} buildx builder; see the output above."
     exit 1

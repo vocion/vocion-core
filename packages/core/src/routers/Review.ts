@@ -350,7 +350,7 @@ export const actionStatusRoute = os
     if (!row) {
       throw ApiError.notFound(`no action ${input.id}`);
     }
-    const { getAction } = await import('@/libs/actions/registry');
+    const { runIsUndoable } = await import('@/libs/actions/undoable');
     // The record the run made (a filed request), so the card that filed it
     // links to it the moment it exists (Chris, 2026-09-28).
     const { refOf } = await import('@/services/chat/autoPropose');
@@ -386,7 +386,7 @@ export const actionStatusRoute = os
       decidedAt: row.decidedAt?.toISOString() ?? null,
       // Done for you: the ladder released it, and the kind can be put back.
       approvedByAgent: row.approvedByAgent === true,
-      undoable: row.status === 'done' && getAction(row.actionId)?.undo !== undefined,
+      undoable: row.status === 'done' && runIsUndoable(row.actionId, row.result as Record<string, unknown> | null),
       reason: (row.proposal as { autoApprovedReason?: string } | null)?.autoApprovedReason ?? null,
       // The in-flight regeneration stamp, so the card can hold itself
       // disabled on server truth rather than on the click that started it.
@@ -487,6 +487,9 @@ export const decideActionRoute = os
       id: z.string().min(1),
       subject: z.string().optional(),
       body: z.string().optional(),
+      /** An outbound message's recipients, comma-separated, when its card lets them be edited. */
+      to: z.string().max(2000).optional(),
+      cc: z.string().max(2000).optional(),
     })).optional(),
   }))
   .handler(async ({ input }) => {

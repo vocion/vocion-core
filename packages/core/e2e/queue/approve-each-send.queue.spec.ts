@@ -98,7 +98,7 @@ test.beforeAll(() => {
   createBootstrapAdmin();
 });
 
-test('a four-send sequence is walked send by send, and only Enroll reaches HubSpot', async ({ page }) => {
+test('a four-send sequence is walked send by send, and only Queue in HubSpot reaches HubSpot', async ({ page }) => {
   const { runId } = JSON.parse(seed(['--email', ADMIN.email])) as { runId: number };
 
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -206,7 +206,7 @@ test('a four-send sequence is walked send by send, and only Enroll reaches HubSp
   // The button becomes Enroll only here — which is a harder guarantee than
   // the disabled primary it replaced: it cannot be pressed early because,
   // until the last check lands, it is not Enroll.
-  await expect(page.getByTestId('decide-approve')).toHaveText(/^Enroll/);
+  await expect(page.getByTestId('decide-approve')).toHaveText(/^Queue in HubSpot/);
   await expect(page.getByTestId('primary-held')).toHaveCount(0);
 
   await page.screenshot({ path: 'vitest-test-results/walk-1440-complete.png', fullPage: false });

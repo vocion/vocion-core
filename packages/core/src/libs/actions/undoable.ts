@@ -12,11 +12,34 @@
 import { getAction } from './registry';
 
 /**
- * Whether a done run of this kind can be put back: its action defines `undo`.
+ * Whether a done run of this kind can be put back: its action defines `undo`,
+ * and — for a kind that says only some inputs can be — this one can.
  * @param actionId - A registered action id (current or former).
+ * @param input - The run's input, for a kind that answers per input.
  */
-export function actionIsUndoable(actionId: string): boolean {
-  return typeof getAction(actionId)?.undo === 'function';
+export function actionIsUndoable(actionId: string, input?: Record<string, unknown> | null): boolean {
+  const action = getAction(actionId);
+  if (typeof action?.undo !== 'function') {
+    return false;
+  }
+  // A kind whose undo covers some inputs only (a Gmail draft, not a send)
+  // promises it only for an input it can see.
+  return action.undoableFor ? Boolean(input) && action.undoableFor(input as never) : true;
+}
+
+/**
+ * Whether THIS done run can be put back: its kind defines `undo`, and the
+ * kind does not say this particular result is beyond it (a Gmail draft can be
+ * deleted; a sent email cannot be unsent).
+ * @param actionId - A registered action id (current or former).
+ * @param result - What the run's execution returned.
+ */
+export function runIsUndoable(actionId: string, result: Record<string, unknown> | null | undefined): boolean {
+  const action = getAction(actionId);
+  if (typeof action?.undo !== 'function') {
+    return false;
+  }
+  return action.canUndo ? action.canUndo(result ?? {}) : true;
 }
 
 /**

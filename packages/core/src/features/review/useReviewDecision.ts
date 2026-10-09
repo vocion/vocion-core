@@ -34,7 +34,8 @@ export type ReviewOutcome = ReviewDecision | 'snooze' | 'regenerate';
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
 export function useReviewDecision(run: ReviewCardRun, opts: {
-  onDecided?: (outcome: ReviewOutcome) => void;
+  /** `result` is what the execution returned, on an approve that ran here — the receipt's link. */
+  onDecided?: (outcome: ReviewOutcome, result?: Record<string, unknown> | null) => void;
   onRegenerated?: () => void;
   /** Edits from another surface, merged under the page's own (the page's win per id). */
   extraContentEdits?: () => ReviewContentEdit[];
@@ -195,7 +196,7 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
         return;
       }
       setExecError(null);
-      onDecided?.(decision);
+      onDecided?.(decision, (outcome.execution as { result?: Record<string, unknown> | null } | null | undefined)?.result ?? null);
     } finally {
       setBusy(false);
     }

@@ -145,11 +145,26 @@ describe('google connect provider — a person\'s own login', () => {
     expect(scope('google-calendar')).toBe('https://www.googleapis.com/auth/calendar.events.readonly openid email');
     expect(scope('drive')).toBe('https://www.googleapis.com/auth/drive.readonly openid email');
 
-    // A workspace's Gmail stays read-only: drafts are only ever a person's own.
+    // A workspace's Gmail is read-only by default; a reconnect asks for drafts (below).
     env.GOOGLE_OAUTH_CLIENT_ID = 'connectors';
     env.GOOGLE_OAUTH_CLIENT_SECRET = 'x';
 
     expect(new URL(googleProvider.authorizeUrl({ state: 's', redirectUri: CALLBACK, connector: 'gmail' })).searchParams.get('scope')).toBe('https://www.googleapis.com/auth/gmail.readonly openid email');
+  });
+
+  it('a reconnect that asks for compose adds drafts, once, and only for Gmail', () => {
+    env.GOOGLE_OAUTH_CLIENT_ID = 'connectors';
+    env.GOOGLE_OAUTH_CLIENT_SECRET = 'x';
+    env.GOOGLE_PERSONAL_CLIENT_ID = 'personal';
+    env.GOOGLE_PERSONAL_CLIENT_SECRET = 'y';
+    const scope = (connector: string, audience?: 'personal') => new URL(googleProvider.authorizeUrl({ state: 's', redirectUri: CALLBACK, connector, access: 'compose', ...(audience ? { audience } : {}) })).searchParams.get('scope');
+
+    // The workspace flow asks for what the failed draft needed.
+    expect(scope('gmail')).toBe('https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose openid email');
+    // The personal flow already asks for it, and asks once.
+    expect(scope('gmail', 'personal')).toBe('https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose openid email');
+    // A name a connector does not declare asks for nothing extra.
+    expect(scope('drive')).toBe('https://www.googleapis.com/auth/drive.readonly openid email');
   });
 
   it('a Calendar login made with the broader calendar.readonly still serves, personal and workspace', () => {
