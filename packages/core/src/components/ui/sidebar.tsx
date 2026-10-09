@@ -5,6 +5,7 @@ import type { SidebarContextProps } from './useSidebar';
 import { Slot } from '@radix-ui/react-slot';
 import { cva } from 'class-variance-authority';
 import { PanelLeftIcon } from 'lucide-react';
+import { usePathname, useSearchParams } from 'next/navigation';
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/utils/Helpers';
+import { clickClosesDrawer } from './drawerClose';
 import { useIsMobile } from './useMobile';
 import { SidebarContext, useSidebar } from './useSidebar';
 
@@ -23,6 +25,27 @@ const SIDEBAR_WIDTH_MOBILE = '18rem';
 // Icon rail (B-034b §3): 56px — room for a 16px icon with air on each side.
 const SIDEBAR_WIDTH_ICON = '3.5rem';
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b';
+
+/**
+ * Closes the phone's drawer when the route changes, however the navigation
+ * started (`drawerClose.ts`, rule 1). Its own component so the query read sits
+ * under a Suspense boundary and never holds the shell back.
+ * @param props - Props.
+ * @param props.onNavigate - Close the drawer.
+ */
+function DrawerFollowsRoute({ onNavigate }: { onNavigate: () => void }) {
+  const pathname = usePathname();
+  const search = useSearchParams()?.toString() ?? '';
+  const where = `${pathname ?? ''}?${search}`;
+  const last = React.useRef(where);
+  React.useEffect(() => {
+    if (where !== last.current) {
+      last.current = where;
+      onNavigate();
+    }
+  }, [where, onNavigate]);
+  return null;
+}
 
 function SidebarProvider({
   defaultOpen = true,
@@ -58,6 +81,8 @@ function SidebarProvider({
     },
     [setOpenProp, open],
   );
+
+  const closeMobile = React.useCallback(() => setOpenMobile(false), []);
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
@@ -100,6 +125,9 @@ function SidebarProvider({
   return (
     <SidebarContext value={contextValue}>
       <TooltipProvider delayDuration={0}>
+        <React.Suspense fallback={null}>
+          <DrawerFollowsRoute onNavigate={closeMobile} />
+        </React.Suspense>
         <div
           data-slot="sidebar-wrapper"
           style={
@@ -166,6 +194,14 @@ function Sidebar({
           }
           side={side}
           tabIndex={-1}
+          // A link (or a marked control) activated anywhere in the drawer —
+          // including a popover portaled out of it — closes it
+          // (`drawerClose.ts`, rule 2). Never one link at a time.
+          onClick={(e) => {
+            if (clickClosesDrawer(e)) {
+              setOpenMobile(false);
+            }
+          }}
           // The drawer itself takes focus when it opens, not its first
           // control: on a phone that was a rail button, and its tooltip
           // covered the switcher (2026-10-08). Tab moves on from here.

@@ -4,6 +4,7 @@ import * as SheetPrimitive from '@radix-ui/react-dialog';
 import { XIcon } from 'lucide-react';
 import * as React from 'react';
 import { cn } from '@/utils/Helpers';
+import { ModalLayerContext } from './modalLayer';
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
@@ -134,7 +135,7 @@ function SheetContent({
         )}
         {...props}
       >
-        {children}
+        <ModalLayerContext value>{children}</ModalLayerContext>
         {/* `closeClassName` lets a sheet whose first row is its own header put
             this on that row's baseline. Without it the close is pinned to the
             sheet's top corner, and a sheet that opens with a grabber above a

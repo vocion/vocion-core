@@ -1,11 +1,19 @@
 'use client';
 
-import type * as React from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
+import * as React from 'react';
 import { cn } from '@/utils/Helpers';
+import { ModalLayerContext } from './modalLayer';
 
-function Popover({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />;
+/**
+ * A popover. Inside a sheet or a dialog it is modal unless told otherwise, so
+ * its content scrolls by touch over that layer's scroll lock (`modalLayer.ts`).
+ * @param props - Radix Popover root props.
+ * @param props.modal - Whether it locks the page; defaults to "inside a modal layer".
+ */
+function Popover({ modal, ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
+  const inModalLayer = React.use(ModalLayerContext);
+  return <PopoverPrimitive.Root data-slot="popover" modal={modal ?? inModalLayer} {...props} />;
 }
 
 function PopoverTrigger({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {

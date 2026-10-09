@@ -342,6 +342,15 @@ export default defineConfig<ChromaticConfig>({
       timeout: projectTimeout(180 * 1000, 90 * 1000),
       use: { ...devices['Desktop Chrome'] },
     },
+    // The sidebar drawer on a phone: the workspace picker scrolls by touch,
+    // and every way out of the drawer closes it (components/ui/drawerClose.ts).
+    // Self-seeding. Run with: npx playwright test --project=phone-drawer
+    {
+      name: 'phone-drawer',
+      testDir: './e2e/phone-drawer',
+      timeout: projectTimeout(240 * 1000, 120 * 1000),
+      use: { ...devices['iPhone 14'], browserName: 'chromium' as const },
+    },
     {
       name: 'credentials',
       testDir: './e2e/credentials',

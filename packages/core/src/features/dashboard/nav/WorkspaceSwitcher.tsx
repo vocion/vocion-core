@@ -9,6 +9,7 @@ import { ArrowLeftRight, ArrowRight, Check, Search, Settings2 } from 'lucide-rea
 import { useSession } from 'next-auth/react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useId, useMemo, useState } from 'react';
+import { DRAWER_CLOSE_ATTR } from '@/components/ui/drawerClose';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
@@ -117,6 +118,10 @@ export function SwitcherRow(props: { name: string; sub?: string | null; accentKe
   return (
     <button
       type="button"
+      // Picking another workspace leaves this page, drawer and all
+      // (`components/ui/drawerClose.ts`); re-picking the current one only
+      // closes the list.
+      {...{ [DRAWER_CLOSE_ATTR]: props.selected ? 'false' : '' }}
       role="option"
       aria-selected={props.selected}
       aria-disabled={props.disabled || undefined}
