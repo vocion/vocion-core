@@ -259,6 +259,21 @@ export default defineConfig<ChromaticConfig>({
           },
         ]
       : []),
+    // List intake: badges and notes dropped into chat become records, and
+    // what could not be settled is one Decision. Needs the scripted model,
+    // so it is defined only when the server runs one with this spec's script.
+    // Run with: npm run e2e:list-intake
+    ...(process.env.VOCION_LLM_PROVIDER === 'scripted' && process.env.VOCION_LLM_SCRIPT?.includes('e2e/list-intake/')
+      ? [
+          {
+            name: 'list-intake',
+            testDir: './e2e/list-intake',
+            timeout: projectTimeout(240 * 1000, 120 * 1000),
+            retries: 0,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]
+      : []),
     // Context mid-objective: the one line above the dock, its steps, Stop,
     // and the next visit's resume hint. Needs the scripted model, so it is
     // defined only when the server runs one. Run with: npm run e2e:objectives

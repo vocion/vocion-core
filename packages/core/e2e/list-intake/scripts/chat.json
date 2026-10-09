@@ -1,0 +1,45 @@
+{
+  "turns": [
+    {
+      "match": "File: badge-jamie-smith.png",
+      "reply": "{\"readable\": true, \"records\": [{\"confidence\": 0.95, \"fields\": [{\"name\": \"name\", \"value\": \"Jamie Smith\", \"confidence\": 0.98, \"page\": 1}, {\"name\": \"company\", \"value\": \"Contoso Supply\", \"confidence\": 0.97, \"page\": 1}, {\"name\": \"title\", \"value\": \"Head of Operations\", \"confidence\": 0.92, \"page\": 1}, {\"name\": \"email\", \"value\": \"jamie.smith@contoso.example\", \"confidence\": 0.9, \"page\": 1}]}]}"
+    },
+    {
+      "match": "File: badge-dana-reyes.png",
+      "reply": "{\"readable\": true, \"records\": [{\"confidence\": 0.94, \"fields\": [{\"name\": \"name\", \"value\": \"Dana Reyes\", \"confidence\": 0.98}, {\"name\": \"company\", \"value\": \"Kestrel Capital\", \"confidence\": 0.96}, {\"name\": \"title\", \"value\": \"Partner\", \"confidence\": 0.9}, {\"name\": \"email\", \"value\": \"dana@kestrel.example\", \"confidence\": 0.91}]}]}"
+    },
+    {
+      "match": "File: badge-rowan-pike.png",
+      "reply": "{\"readable\": true, \"records\": [{\"confidence\": 0.93, \"fields\": [{\"name\": \"name\", \"value\": \"Rowan Pike\", \"confidence\": 0.97}, {\"name\": \"company\", \"value\": \"Tideline Gaming Marketing\", \"confidence\": 0.95}, {\"name\": \"title\", \"value\": \"Growth Lead\", \"confidence\": 0.9}, {\"name\": \"email\", \"value\": \"rowan@tideline.example\", \"confidence\": 0.9}]}]}"
+    },
+    {
+      "match": "File: badge-blurred.png",
+      "reply": "{\"readable\": false, \"reason\": \"the badge is too blurred to read\", \"records\": []}"
+    },
+    {
+      "match": "File: booth-notes.txt",
+      "reply": "{\"readable\": true, \"records\": [{\"confidence\": 0.9, \"fields\": [{\"name\": \"name\", \"value\": \"Jamie Smith\", \"confidence\": 0.9, \"row\": 1}, {\"name\": \"company\", \"value\": \"Contoso Supply\", \"confidence\": 0.9, \"row\": 1}, {\"name\": \"interest\", \"value\": \"pricing for 40 seats\", \"confidence\": 0.85, \"row\": 1, \"quote\": \"wants pricing for 40 seats\"}]}, {\"confidence\": 0.4, \"note\": \"card lost; only an initial\", \"fields\": [{\"name\": \"name\", \"value\": \"R. Okafor\", \"confidence\": 0.5, \"row\": 2}, {\"name\": \"company\", \"value\": \"Harbor & Finch\", \"confidence\": 0.8, \"row\": 2}]}]}"
+    },
+    {
+      "match": "answered]",
+      "reply": "Merged Dana and Rowan into what was on file and added R. Okafor. Every lead from Northwind Expo 2026 is in."
+    },
+    {
+      "match": "badges from northwind expo 2026",
+      "steps": [
+        {
+          "tool": "extract_records",
+          "say": "Reading the five files into leads.",
+          "args": {
+            "object_type": "lead",
+            "room": "Northwind Expo 2026 — badges",
+            "set": { "event": "Northwind Expo 2026", "met_by": "Alex" },
+            "hint": "badges scanned at our booth, and my booth notes"
+          }
+        }
+      ],
+      "reply": ""
+    }
+  ],
+  "fallback": "This scripted model has no line for that message."
+}

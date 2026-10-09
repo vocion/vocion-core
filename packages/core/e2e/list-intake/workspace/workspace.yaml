@@ -1,0 +1,9 @@
+version: 1
+# Placeholder — apply auto-targets the one project on a fresh database.
+orgId: proj_list_intake
+name: Metacto — Revenue (list intake e2e)
+description: >-
+  The smallest workspace the list-intake spec needs: one agent to talk to and
+  a Lead type to read badges into. Every person and company is fictional.
+lead: revenue-lead
+goal: Every person met at an event is a record, researched and followed up.

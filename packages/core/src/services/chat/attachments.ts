@@ -280,7 +280,9 @@ export function historyMarker(attachments: ReadonlyArray<{ title: string; id?: n
 }
 
 /**
- * The bytes of an upload, by its stored (content-addressed) filename; null when it is gone.
+ * An upload's bytes, by its stored (content-addressed) filename; null when it
+ * is gone or the name is not one of ours. Exported for list intake, which
+ * reads a dropped image after the turn that carried it.
  * @param filename - `spec.filename` of a `file` artifact.
  */
 export async function readStoredFile(filename: string): Promise<Buffer | null> {

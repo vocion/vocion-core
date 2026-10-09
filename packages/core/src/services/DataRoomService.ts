@@ -244,7 +244,9 @@ export type RoomDeliverablesSplit = {
  * @param deliverables - `meta.deliverables`, newest first.
  */
 export function roomDeliverables(artifacts: readonly ArtifactRow[], deliverables: readonly RoomDeliverable[] = []): RoomDeliverablesSplit {
-  const docs = artifacts.filter(a => a.kind === 'document' || a.kind === 'file');
+  // A file filed as one of the room's SOURCES (a dropped badge, `services/intake`)
+  // is listed under Sources; it is evidence the room holds, not a document it made.
+  const docs = artifacts.filter(a => (a.kind === 'document' || a.kind === 'file') && !a.recordRole?.startsWith('source:'));
   const byArtifact = new Map<number, RoomDeliverable>();
   for (const d of deliverables) {
     // Newest first, so the first line naming an artifact is the current one;
