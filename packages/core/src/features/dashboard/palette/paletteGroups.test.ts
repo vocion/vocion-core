@@ -107,3 +107,19 @@ describe('buildPaletteGroups', () => {
     expect(paletteFilter('anything', '   ')).toBe(1);
   });
 });
+
+describe('Pin this', () => {
+  const commands = (pinHere: Parameters<typeof buildPaletteGroups>[0]['pinHere']) =>
+    buildPaletteGroups({ query: '', routes: DASHBOARD_ROUTES, isAdmin: false, pinHere }).find(g => g.heading === 'Commands')!.rows;
+
+  it('offers "Pin this" on a page about one thing, and "Unpin this" once it is pinned, both on ⌘⇧P', () => {
+    const labels = { pinLabel: 'Pin this to sidebar', unpinLabel: 'Unpin this from sidebar' };
+
+    expect(commands({ pinned: false, ...labels }).find(r => r.action === 'pin-this')).toMatchObject({ label: 'Pin this to sidebar', shortcut: '⌘⇧P' });
+    expect(commands({ pinned: true, ...labels }).find(r => r.action === 'pin-this')?.label).toBe('Unpin this from sidebar');
+  });
+
+  it('offers nothing to pin on a page about nothing in particular', () => {
+    expect(commands(null).some(r => r.action === 'pin-this')).toBe(false);
+  });
+});

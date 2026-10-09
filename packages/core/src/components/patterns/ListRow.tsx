@@ -1,9 +1,12 @@
 import type { LucideIcon } from 'lucide-react';
 import type { MouseEvent, ReactNode } from 'react';
 import type { RowSwipe } from './SwipeRow';
+import type { PinTarget } from '@/libs/pins/pinTarget';
 import { ChevronRight } from 'lucide-react';
+import { PinMenuItem } from '@/features/pins/PinControls';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
+import { RowMenu } from './RowMenu';
 import { SwipeMenu, SwipeRow } from './SwipeRow';
 
 /**
@@ -241,6 +244,14 @@ export type ListRowProps = {
    * client caller (the verbs are functions). See `SwipeRow`.
    */
   'swipe'?: RowSwipe;
+  /**
+   * The thing this row IS, when a person can keep it in their sidebar: a
+   * ⋯ on the row with "Pin to sidebar" / "Unpin" (`features/pins`). Shown on
+   * hover or focus from `sm` up, so a list never wears a pin icon per row; on
+   * a phone it joins the swipe ⋯ when there is one. `href` defaults to the
+   * row's own.
+   */
+  'pin'?: { target: PinTarget; title: string; href?: string };
   /** Trailing chevron for navigational rows. Default: on when `href` is set. */
   'chevron'?: boolean;
   'className'?: string;
@@ -305,12 +316,21 @@ export function ListRow(props: ListRowProps) {
   // Columns then chip then actions, whichever side of the link boundary they
   // fall on: a list reads down its columns, and the boundary must not reorder
   // them. So a row with `columnsAside` carries its chip out here too.
+  const pinItem = props.pin && <PinMenuItem target={props.pin.target} title={props.pin.title} href={props.pin.href ?? props.href ?? ''} />;
   const tail = (
     <>
       {props.columnsAside}
       {props.columnsAside && chip}
       {actions}
-      {props.swipe && <SwipeMenu />}
+      {pinItem && (
+        <span
+          data-slot="row-pin"
+          className={cn('shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100 has-data-[state=open]:opacity-100', props.swipe && 'hidden sm:inline-flex')}
+        >
+          <RowMenu items={[]} extra={pinItem} label={`More: ${props.pin!.title}`} />
+        </span>
+      )}
+      {props.swipe && <SwipeMenu extra={pinItem} />}
       {chevron && <ChevronRight className="size-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5" aria-hidden />}
     </>
   );
@@ -331,7 +351,7 @@ function renderRow(
   // hydration fails on it. The link covers the record (icon, title, inert
   // columns, chip); everything that clicks through to somewhere else sits
   // beside it.
-  if (props.href && (props.actions || props.columnsAside || props.swipe)) {
+  if (props.href && (props.actions || props.columnsAside || props.swipe || props.pin)) {
     return (
       <div data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
         <Link href={props.href} onClick={intercept} aria-current={props.selected ? 'true' : undefined} aria-label={typeof props.title === 'string' ? props.title : undefined} className="flex min-w-0 flex-1 items-center gap-3 outline-none">

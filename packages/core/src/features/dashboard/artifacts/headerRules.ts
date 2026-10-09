@@ -103,6 +103,8 @@ export type ArtifactActionId
     | 'export'
   /** Copy link / share audience. */
     | 'share'
+  /** Pin to sidebar / Unpin (`features/pins`). */
+    | 'pin'
   /** Open the conversation this came out of, with the artifact beside it. */
     | 'chat'
   /** The PDF the renderer printed. */
@@ -168,6 +170,7 @@ export function actionsFor(surface: ArtifactSurface, input: ActionInput): Artifa
     ...(isDocument ? (['open'] as const) : []),
     'export',
     'share',
+    'pin',
     ...(surface === 'pane' && input.closable ? (['close'] as const) : []),
   ];
 }

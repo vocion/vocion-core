@@ -1,5 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { MAX_PINS } from '@/libs/pins/pinTarget';
 import { userNavPrefSchema } from '@/models/Schema';
 
 /**
@@ -11,7 +12,6 @@ import { userNavPrefSchema } from '@/models/Schema';
 export type NavPrefs = { pins: string[]; dismissed: string[] };
 
 const EMPTY: NavPrefs = { pins: [], dismissed: [] };
-const MAX_PINS = 40;
 
 export async function getNavPrefs(input: { orgId: string; userId: string }): Promise<NavPrefs> {
   const [row] = await db

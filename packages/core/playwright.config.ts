@@ -369,6 +369,15 @@ export default defineConfig<ChromaticConfig>({
       timeout: projectTimeout(180 * 1000, 90 * 1000),
       use: { ...devices['iPhone 14'], browserName: 'chromium' as const },
     },
+    // Pin to sidebar: pin from headers and ⌘⇧P, reorder, unpin, a deleted
+    // target leaving quietly, per-workspace pins, and the phone drawer.
+    // Self-seeding. Run with: npx playwright test --project=pins
+    {
+      name: 'pins',
+      testDir: './e2e/pins',
+      timeout: projectTimeout(240 * 1000, 120 * 1000),
+      use: { ...devices['Desktop Chrome'], browserName: 'chromium' as const },
+    },
     {
       name: 'credentials',
       testDir: './e2e/credentials',

@@ -8,9 +8,15 @@ import type { LucideIcon } from 'lucide-react';
 export type PinnableItem = {
   title: string;
   url: string;
+  /**
+   * What the pins list stores for this row, when it is not the url: a pinned
+   * object's key (`pin:conversation:41`, `libs/pins/pinTarget.ts`). The url
+   * is where it opens; this is what it is.
+   */
+  pinKey?: string;
   icon: LucideIcon;
   /** Where the item came from — decides which group it sits in when unpinned. */
-  origin: 'work' | 'page' | 'manage';
+  origin: 'work' | 'page' | 'manage' | 'object';
   /** `false` for a row that is the surface itself (Chat, Review): no pin affordance. */
   pinnable?: false;
   badge?: number;
@@ -22,12 +28,22 @@ export type PinnableItem = {
 };
 
 /**
+ * The string a row is pinned under: its object key, else its url.
+ * @param item
+ * @param item.url
+ * @param item.pinKey
+ */
+export function keyOf(item: { url: string; pinKey?: string }): string {
+  return item.pinKey ?? item.url;
+}
+
+/**
  * Pinned items in pin order; pins whose item no longer exists are dropped.
  * @param items
  * @param pins
  */
-export function applyPins<T extends { url: string }>(items: T[], pins: string[]): T[] {
-  const byUrl = new Map(items.map(i => [i.url, i]));
+export function applyPins<T extends { url: string; pinKey?: string }>(items: T[], pins: string[]): T[] {
+  const byUrl = new Map(items.map(i => [keyOf(i), i]));
   const out: T[] = [];
   for (const url of pins) {
     const item = byUrl.get(url);
@@ -43,9 +59,9 @@ export function applyPins<T extends { url: string }>(items: T[], pins: string[])
  * @param items
  * @param pins
  */
-export function withoutPins<T extends { url: string }>(items: T[], pins: string[]): T[] {
+export function withoutPins<T extends { url: string; pinKey?: string }>(items: T[], pins: string[]): T[] {
   const set = new Set(pins);
-  return items.filter(i => !set.has(i.url));
+  return items.filter(i => !set.has(keyOf(i)));
 }
 
 /**

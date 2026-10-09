@@ -80,6 +80,7 @@ import { pageContextTool } from './pageContext';
 import { peopleTools } from './peopleTools';
 import { personalConnectionTools } from './personalConnections';
 import { personalizationTools } from './personalization';
+import { pinToSidebarTool } from './pinToSidebar';
 import { posthogCountTools } from './posthogCounts';
 import { productAccessTools } from './productAccess';
 import { proposeActionTool } from './proposeAction';
@@ -283,6 +284,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     decideAskTool(ctx),
     recommendActionTool(ctx),
     pageContextTool(ctx),
+    // "Pin this page": the person's own sidebar, on their word, with Undo
+    // (`nav.pin`). Whenever a person is in the turn.
+    ...(ctx.userId ? [pinToSidebarTool(ctx)] : []),
     // Every interaction should teach the system something (design principle 11):
     // feedback said anywhere becomes a proposed rule and a recommendation.
     fileFeedbackTool(ctx),

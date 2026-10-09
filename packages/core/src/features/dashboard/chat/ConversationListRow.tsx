@@ -3,8 +3,10 @@
 import { Mail, Pencil, Plug, Slack, Sparkles } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
+import { RowMenu } from '@/components/patterns/RowMenu';
 import { InlineTitle } from '@/components/ui/inline-title';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { PinMenuItem } from '@/features/pins/PinControls';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
@@ -88,13 +90,17 @@ export function ConversationListRow({ id, title, snippet, meta, time, surface }:
             onClick={() => setEditing(true)}
             aria-label={`${t('rename_conversation')}: ${name}`}
             data-testid="conversation-row-rename"
-            className="mt-2 mr-2 flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-60 transition group-hover/row:opacity-100 hover:bg-background hover:text-foreground hover:opacity-100 focus-visible:opacity-100"
+            className="mt-2 flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-60 transition group-hover/row:opacity-100 hover:bg-background hover:text-foreground hover:opacity-100 focus-visible:opacity-100"
           >
             <Pencil className="size-3.5" aria-hidden />
           </button>
         </TooltipTrigger>
         <TooltipContent side="left" collisionPadding={8}>{t('rename_conversation')}</TooltipContent>
       </Tooltip>
+      {/* The row's ⋯: "Pin to sidebar" / "Unpin" (the list row's own menu, `RowMenu`). */}
+      <span className="mt-2 mr-2 shrink-0 opacity-60 transition group-hover/row:opacity-100 focus-within:opacity-100 has-data-[state=open]:opacity-100">
+        <RowMenu items={[]} label={`More: ${name}`} extra={<PinMenuItem target={{ kind: 'conversation', id: String(id) }} title={name} href={`/dashboard/chat/${id}`} />} />
+      </span>
     </div>
   );
 }

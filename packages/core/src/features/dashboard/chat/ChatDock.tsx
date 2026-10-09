@@ -688,6 +688,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
               }}
           compact={narrow}
           fullPageHref={session.conversationId !== null ? `/dashboard/chat/${session.conversationId}` : '/dashboard/chat'}
+          pin={session.conversationId !== null && session.conversationTitle ? { id: session.conversationId, title: session.conversationTitle } : null}
         />
         {/* The sheet carries its own close control in this corner; a second
             one underneath it was two buttons in one 32px square. */}

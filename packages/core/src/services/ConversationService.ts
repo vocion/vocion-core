@@ -165,7 +165,7 @@ export async function setConversationContextIfEmpty(opts: { orgId: string; id: n
  * in the same query, so a refused conversation is simply not found.
  * @param viewerId - The person reading.
  */
-function visibleToViewer(viewerId: string) {
+export function visibleToViewer(viewerId: string) {
   return sql`not exists (
     select 1 from "project" p
      where p."id" = ${conversationSchema.orgId}

@@ -22,7 +22,7 @@ export type PaletteRow = {
   /** Navigation target, when the row is a link. */
   url?: string;
   /** Named action, when the row runs something instead. */
-  action?: 'ask' | 'new-conversation' | 'all-conversations' | 'open-rail' | 'toggle-sidebar' | 'toggle-theme' | 'docs' | 'sign-out';
+  action?: 'ask' | 'new-conversation' | 'all-conversations' | 'open-rail' | 'toggle-sidebar' | 'toggle-theme' | 'docs' | 'sign-out' | 'pin-this';
   shortcut?: string;
 };
 
@@ -52,6 +52,12 @@ export function buildPaletteGroups(input: {
   /** The record or run a typed code names — FE-294 — when the query is one. */
   codeHit?: PaletteCodeHit | null;
   themeIsDark?: boolean;
+  /**
+   * The page is about one thing a person can pin (a chat, a doc, a room, a
+   * record…): "Pin this to sidebar", or "Unpin this" once it is. Null or
+   * absent, no row — the palette never offers to pin a page about nothing.
+   */
+  pinHere?: { pinned: boolean; pinLabel: string; unpinLabel: string } | null;
 }): PaletteGroup[] {
   const q = input.query.trim();
   const groups: PaletteGroup[] = [];
@@ -119,10 +125,12 @@ export function buildPaletteGroups(input: {
     });
   }
 
+  const pin = input.pinHere;
   groups.push({
     heading: 'Commands',
     rows: [
       ...(q ? [] : [{ value: 'ask vocion agent', label: 'Ask Vocion', kind: 'action', action: 'ask', shortcut: '⌘J' } satisfies PaletteRow]),
+      ...(pin ? [{ value: pin.pinned ? 'unpin this sidebar favorite remove' : 'pin this sidebar favorite favourite keep', label: pin.pinned ? pin.unpinLabel : pin.pinLabel, kind: 'action', action: 'pin-this', shortcut: '⌘⇧P' } satisfies PaletteRow] : []),
       { value: 'new conversation chat clear', label: 'New chat', kind: 'action', action: 'new-conversation', shortcut: chatHotkeyLabel('new-chat') },
       { value: 'all conversations history threads list chats', label: 'All conversations', kind: 'action', action: 'all-conversations', url: '/dashboard/conversations', shortcut: chatHotkeyLabel('all-conversations') },
       { value: 'open the rail conversation', label: 'Open the rail', kind: 'action', action: 'open-rail', shortcut: '⌘J' },

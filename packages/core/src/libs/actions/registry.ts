@@ -30,6 +30,7 @@ import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { meSetPhoneAction } from './me-set-phone';
 import { membersInviteAction } from './members-invite';
 import { missionUpdateNotesAction } from './mission-update-notes';
+import { navPinAction } from './nav-pin';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
 import { objectsRenameAction } from './objects-rename';
 import { objectsUpdateMetaAction } from './objects-update-meta';
@@ -132,6 +133,8 @@ registerAction(objectsRenameAction);
 // A person keeps their own mobile number from chat, so a text from it is theirs (`me-set-phone.ts`).
 registerAction(meSetPhoneAction);
 registerAction(viewSaveAction);
+// A person's own sidebar: pin or unpin one thing on their word, with Undo (`nav-pin.ts`).
+registerAction(navPinAction);
 // Start the build: approve the plan, queue the engineer on the task contract.
 registerAction(factoryDispatchAction);
 registerAction(factoryApprovePlanAction);

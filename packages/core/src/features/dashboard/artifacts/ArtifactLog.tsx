@@ -31,13 +31,14 @@ import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { usePreviewList } from '@/features/preview/usePreviewList';
 import { useRouter } from '@/libs/I18nNavigation';
 
+import { parsePinKey, pinTargetFromPath } from '@/libs/pins/pinTarget';
 import { cn } from '@/utils/Helpers';
 import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL, authorLabel, relativeTime } from './kinds';
 
 export type ArtifactLogProps = {
   artifacts: ArtifactListItem[];
   folders: Array<{ folder: string; count: number }>;
-  /** Nav pin urls, so pinned artifacts float to the top. */
+  /** The person's pins, so pinned artifacts float to the top. */
   pins?: string[];
   selfId?: string | null;
 };
@@ -59,7 +60,11 @@ export function ArtifactLog({ artifacts, folders, pins = [], selfId }: ArtifactL
   const [kinds, setKinds] = useState<Set<string>>(() => new Set());
   const [folder, setFolder] = useState<string | null>(null);
 
-  const pinned = useMemo(() => new Set(pins.filter(p => p.includes('/dashboard/artifacts/')).map(p => Number(p.split('/dashboard/artifacts/')[1]?.split(/[?#]/)[0]))), [pins]);
+  // Pinned to the sidebar (`pin:artifact:<id>`), or by an older nav pin of its page.
+  const pinned = useMemo(() => new Set(pins.map((p) => {
+    const target = parsePinKey(p) ?? pinTargetFromPath(p);
+    return target?.kind === 'artifact' ? Number(target.id) : Number.NaN;
+  }).filter(Number.isFinite)), [pins]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -169,6 +174,7 @@ export function ArtifactLog({ artifacts, folders, pins = [], selfId }: ArtifactL
                     onSelect={() => preview.select(i)}
                     selected={preview.selected === i}
                     icon={Icon}
+                    pin={{ target: { kind: 'artifact', id: String(a.id) }, title: a.title, href: `/dashboard/artifacts/${a.id}` }}
                     title={(
                       <span className="flex items-center gap-2">
                         {pinned.has(a.id) && <span className="rounded bg-muted px-1 text-[10px] text-muted-foreground">Pinned</span>}

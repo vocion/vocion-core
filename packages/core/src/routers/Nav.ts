@@ -1,16 +1,59 @@
-import { os } from '@orpc/server';
+import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
+import { MAX_PINS, PIN_KINDS } from '@/libs/pins/pinTarget';
 import { dismissNavPrompt, getNavPrefs, setNavPins } from '@/services/NavPrefService';
 import { guardAuth } from './AuthGuards';
 
-/** Per-user sidebar prefs — pins (ordered) and dismissed shell prompts. */
+/**
+ * Per-user sidebar prefs — pins (ordered) and dismissed shell prompts — with
+ * every object pin read live (`objects`): title and link as this person sees
+ * them now, deleted or unreachable ones left out (`services/pins/PinService.ts`).
+ */
 export const getPrefs = os.handler(async () => {
   const { orgId, userId } = await guardAuth();
-  return getNavPrefs({ orgId, userId });
+  const prefs = await getNavPrefs({ orgId, userId });
+  const { resolvePins } = await import('@/services/pins/PinService');
+  return { ...prefs, objects: await resolvePins({ orgId, userId }, prefs.pins) };
 });
 
+const target = z.object({ kind: z.enum(PIN_KINDS), id: z.string().min(1).max(200) });
+
+/**
+ * Pin one thing to this person's sidebar in this workspace: by target, or by
+ * the path of the page they are on (⌘⇧P, the palette's "Pin this").
+ */
+export const pin = os
+  .input(z.union([z.object({ target }), z.object({ path: z.string().min(1).max(500) })]))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { PinError, pinObject, resolvePins, targetForPath } = await import('@/services/pins/PinService');
+    const chosen = 'target' in input ? input.target : await targetForPath(orgId, input.path);
+    if (!chosen) {
+      throw new ORPCError('BAD_REQUEST', { message: 'There is nothing on this page to pin.' });
+    }
+    try {
+      const res = await pinObject({ orgId, userId }, chosen);
+      return { ...res, objects: await resolvePins({ orgId, userId }, res.pins) };
+    } catch (error) {
+      if (error instanceof PinError) {
+        throw new ORPCError('BAD_REQUEST', { message: error.message });
+      }
+      throw error;
+    }
+  });
+
+/** Unpin by the stored key (`pinKey`). */
+export const unpin = os
+  .input(z.object({ key: z.string().min(1).max(300) }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { resolvePins, unpinKey } = await import('@/services/pins/PinService');
+    const res = await unpinKey({ orgId, userId }, input.key);
+    return { ...res, objects: await resolvePins({ orgId, userId }, res.pins) };
+  });
+
 export const setPins = os
-  .input(z.object({ pins: z.array(z.string().min(1).max(300)).max(40) }))
+  .input(z.object({ pins: z.array(z.string().min(1).max(300)).max(MAX_PINS) }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
     return setNavPins({ orgId, userId, pins: input.pins });

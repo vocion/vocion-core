@@ -15,6 +15,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { VersionChip } from '@/features/dashboard/versions/VersionChip';
 import { VersionWatch } from '@/features/dashboard/versions/VersionWatch';
 import { VisionEngineControl } from '@/features/dashboard/VisionEngineControl';
+import { PinButton } from '@/features/pins/PinControls';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { appImageUrl } from '@/libs/aws/s3';
 import { Link } from '@/libs/I18nNavigation';
@@ -137,6 +138,7 @@ export default async function ObjectDetailPage(props: {
       </div>
 
       <TitleBar
+        actions={<PinButton target={{ kind: 'record', id: String(obj.id) }} title={obj.title} href={`/dashboard/objects/${obj.id}`} />}
         title={(
           <div className="min-w-0">
             <div className="break-words">{obj.title}</div>

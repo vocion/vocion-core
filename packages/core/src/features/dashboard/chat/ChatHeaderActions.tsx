@@ -23,18 +23,21 @@ import { HistoryPopover } from './HistoryPopover';
  * @param props.history - The conversations dropdown's data, or null when the surface has no history (a scoped rail).
  * @param props.fullPageHref - The rail's thread on the full chat page (Chris, 2026-09-29: "I don't have a sidebar button to open chat in a full page"); absent on the full page itself.
  * @param props.compact - Fold the conversations control into the ⋯ menu (the rail's phone sheet); undefined = decided by viewport width. New chat never folds.
+ * @param props.pin - The open thread: the ⋯ menu then shows at every width, with "Pin to sidebar" first.
  */
-export function ChatHeaderActions({ onNewChat, onCopy, history, compact, fullPageHref }: {
+export function ChatHeaderActions({ onNewChat, onCopy, history, compact, fullPageHref, pin }: {
   onNewChat: () => void;
   fullPageHref?: string | null;
   /** Build the thread as plain text, on demand. Null on a surface with nothing to copy. */
   onCopy?: (() => string) | null;
   history: { recent: HistoryHit[]; currentId: number | null; onPick: (id: number) => void; search: (q: string) => Promise<HistoryHit[]> } | null;
   compact?: boolean;
+  pin?: { id: number; title: string } | null;
 }) {
   const t = useTranslations('Chat');
   const icons = compact === true ? 'hidden' : compact === false ? 'flex items-center gap-1' : 'hidden items-center gap-1 sm:flex';
-  const menu = compact === true ? 'flex' : compact === false ? 'hidden' : 'flex sm:hidden';
+  // An open thread can be pinned, so its ⋯ is there at every width.
+  const menu = pin || compact === true ? 'flex' : compact === false ? 'hidden' : 'flex sm:hidden';
   return (
     <div className="flex items-center gap-1" data-testid="chat-header-actions">
       {/* New chat is the most common first move when the sheet opens on a new
@@ -81,7 +84,7 @@ export function ChatHeaderActions({ onNewChat, onCopy, history, compact, fullPag
       </span>
       {/* The ⋯ menu carries what is left: Copy conversation, All conversations. */}
       <span className={menu}>
-        <ChatMenu onCopy={onCopy} />
+        <ChatMenu onCopy={onCopy} pin={pin} />
       </span>
     </div>
   );
