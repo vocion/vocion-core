@@ -48,6 +48,8 @@ export type MessageListProps = {
   activity?: string | null;
   /** Opens the Sources drawer when a message's "Sources · N" pill is clicked. */
   onShowSources?: (messageId?: number) => void;
+  /** Re-asks a turn's question one effort level up (Dig deeper), by the turn's index. */
+  onDigDeeper?: (index: number, level: 'quick' | 'standard' | 'deep') => void;
   /** Opens the Sources drawer focused on citation `[n]` when an inline marker is tapped. */
   onCitationClick?: (n: number, messageId?: number) => void;
   /**
@@ -77,7 +79,7 @@ const PIN_THRESHOLD = 48;
 /** No roster: the transcript draws no teammate avatars. */
 const NO_AGENTS: readonly AgentOption[] = [];
 
-export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, onBuildCard, conversationId, pageRecord, agents }: MessageListProps) {
+export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onDigDeeper, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, onBuildCard, conversationId, pageRecord, agents }: MessageListProps) {
   const speakers = useMemo(() => speakersOf(messages, { slug: ownAgentSlug, name: agentName }, agents), [messages, ownAgentSlug, agentName, agents]);
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -230,6 +232,7 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
                       streaming={streaming && i === lastIdx}
                       activity={i === lastIdx ? activity : undefined}
                       onShowSources={onShowSources}
+                      onDigDeeper={onDigDeeper && !streaming ? level => onDigDeeper(i, level) : undefined}
                       onCitationClick={onCitationClick}
                       onFeedback={onFeedback}
                       autonomy={autonomy}

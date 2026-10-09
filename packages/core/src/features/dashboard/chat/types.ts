@@ -175,6 +175,16 @@ export type RecommendedAction = {
 /** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */
 export type ConversationAutonomy = 'ask' | 'act-within-bounds';
 
+/** The level a turn ran at, how it was chosen and what it took — the turn's line (`effort_result` event). */
+export type TurnEffort = {
+  level: 'quick' | 'standard' | 'deep';
+  chosenBy: 'person' | 'agent' | 'auto';
+  reason?: string;
+  elapsedMs?: number;
+  ceilingHit?: 'time' | 'cost' | null;
+  next?: 'quick' | 'standard' | 'deep' | null;
+};
+
 /** Which model answered a turn and how hard it thought — the turn's footer (`run_meta` event). */
 export type TurnModel = { model: string; provider: string; strength: 'fast' | 'balanced' | 'deep'; thinking: 'off' | 'low' | 'medium' | 'high' };
 
@@ -246,6 +256,8 @@ export type ChatMessage = {
   id?: number;
   /** Which model answered this turn (assistant rows, live only — not persisted). */
   model?: TurnModel;
+  /** The effort level the turn ran at and what it took (`effort_result`; live only). */
+  effort?: TurnEffort;
   role: 'user' | 'assistant';
   content: string;
   /** The person's thumb on this turn (assistant rows only), as stored. */

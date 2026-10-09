@@ -1039,6 +1039,10 @@ export const agentSchema = pgTable(
        * rate for a cache nothing ever reads back. See `libs/llm/promptCache.ts`.
        */
       promptCache?: boolean;
+      /** How hard a turn works when the person leaves the gauge on Auto (`services/agents/effort.ts`); `auto` reads it from the request. */
+      turnEffort?: 'auto' | 'quick' | 'standard' | 'deep';
+      /** Per-level ceilings, moving the built-in wall-clock and spend ceilings (`effort.ts` ENVELOPES). */
+      turnCeilings?: Partial<Record<'quick' | 'standard' | 'deep', { seconds?: number; cents?: number }>>;
     }>().default({}).notNull(),
     /**
      * agentcore provider only: ARN of the provisioned AgentCore harness.

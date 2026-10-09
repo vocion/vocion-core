@@ -716,6 +716,18 @@ export async function runAgentDeep(opts: {
   if (replayed) {
     return replayed;
   }
+  // HOW HARD THIS TURN WORKS (`agents/effort.ts`). Auto reads the request with
+  // a small model; started here so it runs beside the reads below rather than
+  // in front of the turn. Unused when the person or the agent chose a level.
+  const turnStartedAt = Date.now();
+  const effortMod = await import('./agents/effort');
+  // A person's turn only: a mission, an automation or an eval keeps working
+  // the way it always has, with no envelope and no ceilings it did not ask for.
+  const effortApplies = !!opts.userId && !opts.missionRunId && !opts.missionSlug;
+  const personEffort = personEffortChoice(opts.modelPrefs);
+  const autoEffort = effortApplies && personEffort === 'auto'
+    ? effortMod.inferEffort({ orgId: opts.orgId, message: opts.message, previous: [...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'assistant')?.content })
+    : null;
   // Phase 7 — pre-flight budget check. Refuse the run if the agent
   // is over its hard cap; otherwise proceed.
   const budgetCheck = await preflightCheck({ orgId: opts.orgId, agentSlug: opts.agentSlug });
@@ -796,7 +808,23 @@ export async function runAgentDeep(opts: {
   // this file and must never statically load the LLM module.
   const { chatModelOptionsFor, chatModelOptionsWithOverride } = await import('./agents/harness');
   const { resolvedModelId, resolvedModelIdFor, resolveProvider } = await import('@/libs/llm/langchain');
-  const modelOverride = opts.modelOverride ?? modelOverrideForPrefs(harness ?? {}, opts.modelPrefs, { provider: resolveProvider('main'), defaults: chatModelOptionsFor(harness ?? {}), modelFor: resolvedModelIdFor });
+  const effortDecision = effortApplies
+    ? await effortMod.decideEffort({
+        person: personEffort,
+        agent: harness?.turnEffort,
+        auto: () => autoEffort ?? effortMod.inferEffort({ orgId: opts.orgId, message: opts.message }),
+      })
+    : null;
+  const envelope = effortDecision ? effortMod.envelopeFor(effortDecision.level, harness?.turnCeilings) : null;
+  // The thread's older, finer setting (strength + thinking) still wins when a
+  // person set it; otherwise the level's envelope chooses the model and thinking.
+  const legacyPrefs = opts.modelPrefs && (opts.modelPrefs.strength !== 'balanced' || opts.modelPrefs.effort !== 'off') ? opts.modelPrefs : undefined;
+  const turnPrefs = legacyPrefs ?? (envelope
+    ? { strength: envelope.strength, effort: envelope.thinking === 'agent' ? 'off' as const : envelope.thinking, level: envelope.level }
+    : { strength: 'balanced' as const, effort: 'off' as const, level: 'auto' as const });
+  const modelOverride = opts.modelOverride ?? modelOverrideForPrefs(harness ?? {}, turnPrefs, { provider: resolveProvider('main'), defaults: chatModelOptionsFor(harness ?? {}), modelFor: resolvedModelIdFor });
+  const ceilings = envelope ? new effortMod.EffortCeilings(envelope) : null;
+  const turnMiddleware = envelope && ceilings ? [effortMod.createEffortMiddleware({ ceilings, consults: envelope.consults !== 'none' })] : [];
 
   // The graph and its tools are compiled for THIS turn, on this person's
   // context. Nothing here is shared with a turn running beside it — which is
@@ -815,7 +843,7 @@ export async function runAgentDeep(opts: {
       turnMessage: opts.message,
       timeZone: opts.timeZone,
     },
-    { modelOverride, handOff: handOffGuard },
+    { modelOverride, handOff: handOffGuard, turnMiddleware },
   );
   const boundCtx = compiled.ctx;
 
@@ -867,6 +895,7 @@ export async function runAgentDeep(opts: {
     metadata: { agentId: compiled.agentRow.id, runtime: 'deepagents' },
     onTurnEnd: async (turn) => {
       addTurnToRunUsage(usage, turn);
+      ceilings?.spentSoFar(usage.microCents);
       try {
         await chargeUsage({
           orgId: opts.orgId,
@@ -900,7 +929,7 @@ export async function runAgentDeep(opts: {
     const chosen = chatModelOptionsWithOverride(harness ?? {}, modelOverride);
     const provider = chosen.provider ?? resolveProvider('main');
     // The abstract levels are what the person sees; the concrete id is a detail they can expand.
-    emit({ type: 'run_meta', model: chosen.model ?? resolvedModelId('main'), provider, strength: opts.modelPrefs?.strength ?? 'balanced', thinking: opts.modelPrefs?.effort ?? 'off' });
+    emit({ type: 'run_meta', model: chosen.model ?? resolvedModelId('main'), provider, strength: turnPrefs.strength, thinking: turnPrefs.effort, ...(effortDecision ? { effort: { level: effortDecision.level, chosenBy: effortDecision.chosenBy, ...(effortDecision.reason ? { reason: effortDecision.reason } : {}) } } : {}) });
   }
 
   const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
@@ -938,7 +967,10 @@ export async function runAgentDeep(opts: {
   // NOW rides on the turn, not in the (cached) system prompt — see the CLOCK
   // note in `harness.ts`. The person's zone, UTC beside it, the day named.
   const clock = clockLine(new Date(), boundCtx.timeZone ?? DEFAULT_TIME_ZONE);
-  const userContent = await composeUserContent(`${clock}\n\n${opts.message}`, opts.attachments ?? []);
+  // The envelope rides on the message like the clock, so the cached prompt
+  // prefix is the same at every level.
+  const effortLine = envelope && effortDecision ? `\n${effortMod.effortNote(envelope, effortDecision, { canConsult: true })}` : '';
+  const userContent = await composeUserContent(`${clock}${effortLine}\n\n${opts.message}`, opts.attachments ?? []);
   const input = {
     messages: [
       ...history,
@@ -1308,7 +1340,7 @@ export async function runAgentDeep(opts: {
         refusalRetried = true;
         refused = false;
         console.warn('agent turn: the model declined; once more on the main model', { orgId: opts.orgId, agentSlug: opts.agentSlug, from: chosen.model, to: fallback });
-        emit({ type: 'run_meta', model: fallback, provider, strength: opts.modelPrefs?.strength ?? 'balanced', thinking: opts.modelPrefs?.effort ?? 'off' });
+        emit({ type: 'run_meta', model: fallback, provider, strength: turnPrefs.strength, thinking: turnPrefs.effort, ...(effortDecision ? { effort: { level: effortDecision.level, chosenBy: effortDecision.chosenBy } } : {}) });
         compiled = await compileAgentForRequest(
           opts.orgId,
           opts.agentSlug,
@@ -1323,7 +1355,7 @@ export async function runAgentDeep(opts: {
             turnMessage: opts.message,
             timeZone: opts.timeZone,
           },
-          { modelOverride: { ...(modelOverride ?? {}), model: fallback, provider }, handOff: handOffGuard },
+          { modelOverride: { ...(modelOverride ?? {}), model: fallback, provider }, handOff: handOffGuard, turnMiddleware },
         );
         graphMessages = null;
         await runGraph(input);
@@ -1393,7 +1425,7 @@ export async function runAgentDeep(opts: {
           // A ModelOverride names its model; without one the provider lookup
           // trims undefined and the turn dies (MCP turn, 2026-09-25 04:26Z,
           // finding 25). The retry keeps the model the turn already chose.
-          { modelOverride: { ...(modelOverride ?? {}), model: modelOverride?.model ?? chatModelOptionsFor(harness ?? {}).model ?? resolvedModelId('main'), ...((modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider) ? { provider: modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider } : {}), thinking: 'off' }, handOff: handOffGuard },
+          { modelOverride: { ...(modelOverride ?? {}), model: modelOverride?.model ?? chatModelOptionsFor(harness ?? {}).model ?? resolvedModelId('main'), ...((modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider) ? { provider: modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider } : {}), thinking: 'off' }, handOff: handOffGuard, turnMiddleware },
         );
         await runGraph({
           ...input,
@@ -1626,7 +1658,23 @@ export async function runAgentDeep(opts: {
     emit({ type: 'turn_records', records: turnRecords });
   }
 
-  trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length }, metadata: { usage: runUsageSummary(usage) } });
+  // What the level bought: logged on the trace to tune the envelopes, and
+  // sent so the turn's line can say "Standard · 6s" and offer to dig deeper.
+  const effortResult = effortDecision && ceilings && {
+    level: effortDecision.level,
+    chosenBy: effortDecision.chosenBy,
+    ...(effortDecision.reason ? { reason: effortDecision.reason } : {}),
+    elapsedMs: Date.now() - turnStartedAt,
+    modelCalls: usage.turns,
+    toolCalls: toolCallLog.length,
+    cents: Math.round(ceilings.spentCents * 100) / 100,
+    ceilingHit: ceilings.reached(),
+    next: effortMod.nextLevel(effortDecision.level),
+  };
+  trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length }, metadata: { usage: runUsageSummary(usage), ...(effortResult ? { effort: effortResult } : {}) } });
+  if (effortResult) {
+    emit({ type: 'effort_result', ...effortResult });
+  }
 
   // The turn is over the moment the answer is: say so BEFORE telemetry.
   //
@@ -1821,6 +1869,28 @@ export function addTurnToRunUsage(usage: RunUsage, turn: LangfuseTurnUsage): voi
  * @param env.defaults.model
  * @param env.modelFor
  */
+/**
+ * The effort level the person asked for this message: the gauge's level, or —
+ * for a thread that still carries the older strength/thinking setting — the
+ * level that setting amounts to. `auto` when they said nothing.
+ * @param prefs - The turn's model preferences.
+ */
+export function personEffortChoice(prefs: import('@/libs/llm/modelPrefs').ModelPrefs | undefined): import('@/libs/llm/modelPrefs').EffortChoice {
+  if (!prefs) {
+    return 'auto';
+  }
+  if (prefs.level && prefs.level !== 'auto') {
+    return prefs.level;
+  }
+  if (prefs.strength === 'fast') {
+    return 'quick';
+  }
+  if (prefs.strength === 'deep' || prefs.effort === 'medium' || prefs.effort === 'high') {
+    return 'deep';
+  }
+  return prefs.effort === 'low' ? 'standard' : 'auto';
+}
+
 function modelOverrideForPrefs(
   harness: import('./agents/harness').HarnessModelConfig,
   prefs: import('@/libs/llm/modelPrefs').ModelPrefs | undefined,

@@ -1,13 +1,13 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, DecisionAnswerReceipt, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
+import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, DecisionAnswerReceipt, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnEffort, TurnModel } from './types';
 import type { VersionWritten } from '@/features/dashboard/versions/versionEvents';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import type { DoneReceipt } from '@/libs/decisions/receipt';
 import type { TurnRecord } from '@/libs/factory/liveStatus';
-import type { ModelPrefs } from '@/libs/llm/modelPrefs';
+import type { EffortLevel, ModelPrefs } from '@/libs/llm/modelPrefs';
 import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import type { TurnStatus } from '@/services/chat/turnStatus';
@@ -474,6 +474,8 @@ export function useChatSession({
   const [modelPrefs, setModelPrefsState] = useState<ModelPrefs>(DEFAULT_MODEL_PREFS);
   const modelPrefsRef = useRef(modelPrefs);
   modelPrefsRef.current = modelPrefs;
+  // A level for the next message only — set by Dig deeper, cleared once sent.
+  const effortOnceRef = useRef<EffortLevel | null>(null);
   // The roster, readable from effects and event handlers without re-running
   // them: it names the agent a persisted or streamed turn was spoken by.
   const rosterRef = useRef(agents);
@@ -661,8 +663,14 @@ export function useChatSession({
       }
       case 'run_meta': {
         // Which model answers this turn — the footer's fact, never a guess.
-        const meta = evt as unknown as TurnModel & { type: 'run_meta' };
-        appendToLatestAgent(m => ({ ...m, model: { model: meta.model, provider: meta.provider, strength: meta.strength ?? 'balanced', thinking: meta.thinking ?? 'off' } }));
+        const meta = evt as unknown as TurnModel & { type: 'run_meta'; effort?: TurnEffort };
+        appendToLatestAgent(m => ({ ...m, model: { model: meta.model, provider: meta.provider, strength: meta.strength ?? 'balanced', thinking: meta.thinking ?? 'off' }, ...(meta.effort ? { effort: meta.effort } : {}) }));
+        return;
+      }
+      case 'effort_result': {
+        // What the level bought — the turn's line ("Standard · 6s") and its Dig deeper.
+        const r = evt as unknown as TurnEffort & { type: 'effort_result' };
+        appendToLatestAgent(m => ({ ...m, effort: { level: r.level, chosenBy: r.chosenBy, reason: r.reason, elapsedMs: r.elapsedMs, ceilingHit: r.ceilingHit ?? null, next: r.next ?? null } }));
         return;
       }
       case 'thinking':
@@ -1601,6 +1609,9 @@ export function useChatSession({
           // How strong a model, how much it thinks (`libs/llm/modelPrefs.ts`).
           model_strength: modelPrefsRef.current.strength,
           thinking_effort: modelPrefsRef.current.effort,
+          // How hard THIS message's turn works (`services/agents/effort.ts`):
+          // a one-off from Dig deeper, else the gauge.
+          effort_level: effortOnceRef.current ?? modelPrefsRef.current.level,
           conversation_history: messages
             .slice(-6)
             .filter(m => m.content.trim().length > 0)
@@ -1862,6 +1873,23 @@ export function useChatSession({
     handleStop();
     await sendMessage(text);
   }, [handleStop, sendMessage]);
+
+  /**
+   * Dig deeper: ask the same question again, one level up (`effort_result`'s
+   * `next`). The level holds for that one message; the gauge is left alone.
+   * @param assistantIndex - The turn being dug into, by its place in `messages`.
+   * @param level - The level to run at.
+   */
+  const digDeeper = useCallback((assistantIndex: number, level: EffortLevel) => {
+    const asked = messages.slice(0, assistantIndex).reverse().find(m => m.role === 'user')?.content.trim();
+    if (!asked || streamingRef.current) {
+      return;
+    }
+    effortOnceRef.current = level;
+    void sendMessage(asked).finally(() => {
+      effortOnceRef.current = null;
+    });
+  }, [messages, sendMessage]);
 
   const handlePickSuggestion = useCallback((prompt: string) => {
     setComposerValue(prompt);
@@ -2324,6 +2352,8 @@ export function useChatSession({
     /** How strong a model answers this thread and how much it thinks (`libs/llm/modelPrefs.ts`). */
     modelPrefs,
     setModelPrefs,
+    /** Re-ask a turn's question one effort level up (Dig deeper). */
+    digDeeper,
     /** Thumb + note on an assistant turn, by persisted message id. */
     handleFeedback,
     /** Records the next message is about (`@` tags). */

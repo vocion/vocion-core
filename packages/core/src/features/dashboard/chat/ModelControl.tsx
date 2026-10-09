@@ -1,22 +1,23 @@
 'use client';
 
-import type { ModelPrefs, ModelStrength, ThinkingEffort } from '@/libs/llm/modelPrefs';
-import { Brain, Check, Gauge } from 'lucide-react';
+import type { EffortChoice, ModelPrefs } from '@/libs/llm/modelPrefs';
+import { Check, Gauge } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { isDefaultModelPrefs, MODEL_STRENGTHS, THINKING_EFFORTS } from '@/libs/llm/modelPrefs';
+import { EFFORT_CHOICES, isDefaultModelPrefs } from '@/libs/llm/modelPrefs';
 import { cn } from '@/utils/Helpers';
 import { COMPOSER_CONTROL } from './composerBar';
 
 /**
- * Model strength and thinking effort for THIS conversation — a compact control
- * in the composer bar beside (+), on every surface (Chris, 2026-09-18: "why
- * don't I have tools when chatting to control reasoning level or model
- * strength?"). Persisted per thread like autonomy; the words are the person's
- * (fast / balanced / deep, off / low / medium / high), never a model id — the
- * turn's footer says which model actually answered.
+ * How hard the next answer works — Auto, Quick, Standard or Deep — a compact
+ * control in the composer bar beside (+), on every surface. One choice, not a
+ * model and a thinking dial (founder, 2026-10-09: "so I can see quick or
+ * deep"): the level sets the model, the thinking, whether teammates are asked
+ * and how long the turn aims for (`services/agents/effort.ts`). Auto reads the
+ * question and picks; the turn's line says which level it ran at. The words
+ * are the person's, never a model id.
  * @param props
  * @param props.value
  * @param props.onChange
@@ -24,8 +25,10 @@ import { COMPOSER_CONTROL } from './composerBar';
 export function ModelControl({ value, onChange }: { value: ModelPrefs; onChange: (next: ModelPrefs) => void }) {
   const t = useTranslations('Chat');
   const [open, setOpen] = useState(false);
-  const raised = !isDefaultModelPrefs(value);
-  const summary = `${t(`model_${value.strength}`)} · ${t(`thinking_${value.effort}`)}`;
+  const raised = value.level !== 'auto' || !isDefaultModelPrefs(value);
+  const summary = `${t('effort_label')} · ${t(`effort_${value.level}`)}`;
+  // Picking a level supersedes a thread's older strength/thinking setting.
+  const pick = (level: EffortChoice) => onChange({ strength: 'balanced', effort: 'off', level });
 
   const row = (label: string, hint: string, selected: boolean, onPick: () => void) => (
     <button
@@ -74,17 +77,10 @@ export function ModelControl({ value, onChange }: { value: ModelPrefs; onChange:
         >
           <div className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
             <Gauge className="size-3" aria-hidden />
-            {t('model_strength')}
+            {t('effort_label')}
           </div>
-          <div role="radiogroup" aria-label={t('model_strength')}>
-            {MODEL_STRENGTHS.map((s: ModelStrength) => row(t(`model_${s}`), t(`model_${s}_hint`), s === value.strength, () => onChange({ ...value, strength: s })))}
-          </div>
-          <div className="mt-1 flex items-center gap-1.5 border-t border-border/60 px-2.5 pt-2 pb-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-            <Brain className="size-3" aria-hidden />
-            {t('thinking_effort')}
-          </div>
-          <div role="radiogroup" aria-label={t('thinking_effort')}>
-            {THINKING_EFFORTS.map((e: ThinkingEffort) => row(t(`thinking_${e}`), t(`thinking_${e}_hint`), e === value.effort, () => onChange({ ...value, effort: e })))}
+          <div role="radiogroup" aria-label={t('effort_label')}>
+            {EFFORT_CHOICES.map((e: EffortChoice) => row(t(`effort_${e}`), t(`effort_${e}_hint`), e === value.level && (e !== 'auto' || isDefaultModelPrefs(value)), () => pick(e)))}
           </div>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
