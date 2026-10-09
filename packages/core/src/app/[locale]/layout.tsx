@@ -103,7 +103,7 @@ export default async function RootLayout(props: {
         <ThemeProvider
           attribute="class"
           defaultTheme="light"
-          enableSystem={false}
+          enableSystem
           disableTransitionOnChange
         >
           <NextIntlClientProvider>

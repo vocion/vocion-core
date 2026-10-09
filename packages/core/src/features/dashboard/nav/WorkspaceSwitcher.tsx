@@ -40,9 +40,10 @@ import { accountLine, countHiddenEmpty, crossAccountSlug, filterProjects, groupB
  * that Org's group header (`nav.workspacePicker.org`), inside this picker.
  * It used to draw a second switcher above this one, and the founder's phone
  * showed "Noco · Org ⇄ Switch" over "Noco ⇄ Switch" (2026-10-08). A
- * single-Org install (the default) never names an Org. The header's avatar
- * menu opens this same popover via {@link OPEN_WORKSPACE_SWITCHER}. Collapsed
- * to the icon rail, the avatar alone is the button. Arrow keys move through
+ * single-Org install (the default) never names an Org. This is the one place
+ * to switch: the avatar menu carries no switcher row (2026-10-08), though a
+ * surface outside the sidebar can still open this popover via
+ * {@link OPEN_WORKSPACE_SWITCHER}. Collapsed to the icon rail, the avatar alone is the button. Arrow keys move through
  * the list, from the search box too.
  *
  * It is also every app's workspace picker — one switcher, not one per app
@@ -53,7 +54,7 @@ import { accountLine, countHiddenEmpty, crossAccountSlug, filterProjects, groupB
 
 export const OPEN_WORKSPACE_SWITCHER = 'vocion:open-workspace-switcher';
 
-/** Ask the sidebar's switcher to open (used by the header avatar menu). */
+/** Ask the sidebar's switcher to open from anywhere else on the page. */
 export function openWorkspaceSwitcher(): void {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event(OPEN_WORKSPACE_SWITCHER));
