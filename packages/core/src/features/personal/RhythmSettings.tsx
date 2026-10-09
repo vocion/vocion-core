@@ -9,6 +9,10 @@ import { client } from '@/libs/Orpc';
 
 type Rhythm = Awaited<ReturnType<typeof client.personal.rhythm>>;
 type OrgBriefs = Awaited<ReturnType<typeof client.personal.orgBriefs>>;
+type Voices = Awaited<ReturnType<typeof client.personal.voices>>;
+
+/** The speeds a brief starts at. */
+const SPEEDS = [1, 1.5, 2] as const;
 
 /** The channels a push can take beyond the app, in the order they are offered. */
 const PUSH = [
@@ -39,6 +43,8 @@ export function RhythmSettings() {
   const [rhythm, setRhythm] = useState<Rhythm | null>(null);
   const [org, setOrg] = useState<OrgBriefs | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [voices, setVoices] = useState<Voices | null>(null);
+  const [feedUrl, setFeedUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -62,6 +68,38 @@ export function RhythmSettings() {
       setError(null);
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : 'That could not be saved.');
+    }
+  };
+
+  const voiceConnected = Boolean(rhythm?.listen.voice);
+  useEffect(() => {
+    if (!voiceConnected) {
+      return;
+    }
+    let alive = true;
+    client.personal.voices().then(v => alive && setVoices(v)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [voiceConnected]);
+
+  const makeFeed = async () => {
+    try {
+      const made = await client.personal.createFeed();
+      setFeedUrl(made.url);
+      setRhythm(r => (r ? { ...r, listen: { ...r.listen, feed: { createdAt: made.createdAt, lastFetchedAt: null } } } : r));
+    } catch {
+      setError('The podcast link could not be made.');
+    }
+  };
+
+  const stopFeed = async () => {
+    try {
+      await client.personal.revokeFeed();
+      setFeedUrl(null);
+      setRhythm(r => (r ? { ...r, listen: { ...r.listen, feed: null } } : r));
+    } catch {
+      setError('The podcast link could not be stopped.');
     }
   };
 
@@ -154,6 +192,65 @@ export function RhythmSettings() {
         </ListRows>
       </div>
 
+      <div className="mt-8" data-testid="listen">
+        <h3 className="text-sm font-medium">Listen to my briefs</h3>
+        <p className="mt-0.5 mb-3 text-xs text-muted-foreground">Each brief and wrap, told to you out loud in a minute or two: in the app, in Slack, as a text you can play, and in your podcast app.</p>
+        <ListRows>
+          <ListRow
+            data-testid="listen-on"
+            title="Read my briefs aloud"
+            subline={<Subline separator="·" segments={[rhythm.listen.voice ? ((rhythm.listenOn ?? true) ? `On · ${rhythm.listen.voice.label}` : 'Off') : 'No voice is connected for your Org yet: an admin adds ElevenLabs under Team connectors.']} />}
+            actionsAlways
+            actions={<Switch on={Boolean(rhythm.listen.voice) && (rhythm.listenOn ?? true)} label="Read my briefs aloud" disabled={!rhythm.listen.voice} onChange={on => void save({ listenOn: on })} />}
+          />
+          {rhythm.listen.voice && (rhythm.listenOn ?? true) && (
+            <>
+              <ListRow
+                data-testid="listen-voice"
+                title="Voice"
+                subline={<Subline separator="·" segments={[rhythm.voiceId ? 'Your choice' : org?.briefVoiceId ? 'Your Org\'s voice' : `${rhythm.listen.voice.defaultVoice.name}, the default`]} />}
+                actionsAlways
+                actions={(
+                  <select
+                    aria-label="Voice"
+                    className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                    value={rhythm.voiceId ?? ''}
+                    onChange={e => void save({ voiceId: e.target.value || null })}
+                  >
+                    <option value="">{org?.briefVoiceId ? 'The Org\'s voice' : `${rhythm.listen.voice.defaultVoice.name} (default)`}</option>
+                    {(voices?.voices ?? []).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                )}
+              />
+              <ListRow
+                data-testid="listen-speed"
+                title="Start at"
+                subline={<Subline separator="·" segments={['The player\'s speed when a brief opens; change it any time while listening']} />}
+                actionsAlways
+                actions={(
+                  <select aria-label="Listening speed" className="h-8 rounded-md border border-input bg-background px-2 text-sm" value={String(rhythm.listenSpeed)} onChange={e => void save({ listenSpeed: Number(e.target.value) as 1 | 1.5 | 2 })}>
+                    {SPEEDS.map(x => <option key={x} value={String(x)}>{`${x}×`}</option>)}
+                  </select>
+                )}
+              />
+              <ListRow
+                data-testid="listen-podcast"
+                title="Private podcast"
+                subline={<Subline separator="·" segments={[feedUrl ? 'Copy this link into Apple Podcasts (Library → Follow a Show by URL) or Overcast. It is shown once; keep it to yourself.' : rhythm.listen.feed ? `On since ${new Date(rhythm.listen.feed.createdAt).toLocaleDateString()}` : 'Your briefs in your podcast app, for the car']} />}
+                actionsAlways
+                actions={(
+                  <span className="flex items-center gap-2">
+                    {feedUrl && <Input readOnly aria-label="Podcast link" className="h-8 w-56" value={feedUrl} onFocus={e => e.currentTarget.select()} />}
+                    <button type="button" className="text-xs font-medium underline-offset-2 hover:underline" onClick={() => void makeFeed()}>{rhythm.listen.feed ? 'New link' : 'Make a link'}</button>
+                    {rhythm.listen.feed && <button type="button" className="text-xs text-muted-foreground underline-offset-2 hover:underline" onClick={() => void stopFeed()}>Stop</button>}
+                  </span>
+                )}
+              />
+            </>
+          )}
+        </ListRows>
+      </div>
+
       {org?.canChange && (
         <div className="mt-4 flex items-start justify-between gap-4 border-t border-border/60 pt-4" data-testid="org-briefs">
           <div className="space-y-0.5">
@@ -179,6 +276,29 @@ export function RhythmSettings() {
             </p>
           </div>
           <Switch on={org.dailyBriefs} label="Daily briefs for your Org" onChange={on => void saveOrg({ dailyBriefs: on })} />
+        </div>
+      )}
+
+      {org?.canChange && rhythm.listen.voice && (
+        <div className="mt-4 flex items-start justify-between gap-4 border-t border-border/60 pt-4" data-testid="org-brief-audio">
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium">Workspace briefs read aloud</p>
+            <p className="text-xs text-muted-foreground">
+              Team briefs get a player too, in the Org's voice
+              {' '}
+              <select
+                aria-label="The Org's voice"
+                className="ml-1 h-7 rounded-md border border-input bg-background px-1 text-xs"
+                value={org.briefVoiceId ?? ''}
+                onChange={e => void saveOrg({ briefVoiceId: e.target.value || null })}
+              >
+                <option value="">{`${rhythm.listen.voice.defaultVoice.name} (default)`}</option>
+                {(voices?.voices ?? []).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+              . The daily brief budget above covers the audio.
+            </p>
+          </div>
+          <Switch on={org.briefAudio} label="Workspace briefs read aloud" onChange={on => void saveOrg({ briefAudio: on })} />
         </div>
       )}
       {error && <p role="status" className="mt-3 text-sm text-brand-fail">{error}</p>}

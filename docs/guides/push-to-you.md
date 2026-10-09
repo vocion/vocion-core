@@ -9,6 +9,10 @@ Slack DM, a text or an email. Each message:
 Everything still lands in the app as a notification in your Personal
 workspace, whatever you choose here.
 
+When your brief can be heard, the push carries it: the MP3 as a file in the
+Slack DM, as an MMS attachment in a text, and as a **▶ Listen** button (with
+the MP3 attached) in an email. See [Listen to your brief](listen-to-your-brief.md).
+
 ## What you choose
 
 These settings sit under **Notification settings → Your day → Push to you**.

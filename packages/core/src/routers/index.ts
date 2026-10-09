@@ -37,7 +37,7 @@ import {
 import { pause as pauseAutomationRoute, resume as resumeAutomationRoute } from './Automations';
 import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
 import { get as getBrandRoute, restore as restoreBrandRoute, save as saveBrandRoute, uploadLogo as uploadBrandLogoRoute } from './Branding';
-import { latestRoute as briefingsLatestRoute, personalRoute as briefingsPersonalRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
+import { audioRoute as briefingsAudioRoute, latestRoute as briefingsLatestRoute, personalRoute as briefingsPersonalRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
   addLink,
@@ -127,7 +127,7 @@ import {
 } from './Missions';
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, gettingStarted as navGettingStarted, setPins as setNavPins } from './Nav';
 import { currentRoute as currentObjectiveRoute, resumeRoute as resumeObjectiveRoute, stopRoute as stopObjectiveRoute } from './Objectives';
-import { connectionsRoute as personalConnectionsRoute, disconnectRoute as personalDisconnectRoute, orgBriefsRoute as personalOrgBriefsRoute, rhythmRoute as personalRhythmRoute, setOrgBriefsRoute as personalSetOrgBriefsRoute, setPolicyRoute as personalSetPolicyRoute, setRhythmRoute as personalSetRhythmRoute } from './Personal';
+import { connectionsRoute as personalConnectionsRoute, createFeedRoute as personalCreateFeedRoute, disconnectRoute as personalDisconnectRoute, orgBriefsRoute as personalOrgBriefsRoute, revokeFeedRoute as personalRevokeFeedRoute, rhythmRoute as personalRhythmRoute, setOrgBriefsRoute as personalSetOrgBriefsRoute, setPolicyRoute as personalSetPolicyRoute, setRhythmRoute as personalSetRhythmRoute, voicesRoute as personalVoicesRoute } from './Personal';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { addApp as addAppRoute, list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
@@ -250,6 +250,9 @@ export const router = {
     setRhythm: personalSetRhythmRoute,
     orgBriefs: personalOrgBriefsRoute,
     setOrgBriefs: personalSetOrgBriefsRoute,
+    voices: personalVoicesRoute,
+    createFeed: personalCreateFeedRoute,
+    revokeFeed: personalRevokeFeedRoute,
   },
   profile: {
     get: getProfileRoute,
@@ -438,6 +441,7 @@ export const router = {
     regenerate: briefingsRegenerateRoute,
     latest: briefingsLatestRoute,
     personal: briefingsPersonalRoute,
+    audio: briefingsAudioRoute,
   },
   inbox: {
     mine: inboxMineRoute,

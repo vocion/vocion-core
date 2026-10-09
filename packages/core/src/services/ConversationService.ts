@@ -63,7 +63,9 @@ export type ConversationRun
     /** Something done inside the trust bar, said once, with Undo only where the kind has one. */
     | { type: 'receipt'; receipt: import('@/libs/decisions/receipt').DoneReceipt }
     /** Up to three follow-ups under the answer (`libs/chat/suggestions.ts`): pills that send the next message. */
-    | { type: 'suggestions'; items: import('@/libs/chat/suggestions').Suggestion[] };
+    | { type: 'suggestions'; items: import('@/libs/chat/suggestions').Suggestion[] }
+    /** A brief read aloud, played under the message (docs/guides/listen-to-your-brief.md). */
+    | { type: 'audio'; ref: { type: 'briefing'; id: number } };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
 export type ConversationTraceNode = {

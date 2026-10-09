@@ -1,6 +1,6 @@
 import type { ChannelOutcome, NotificationMessage } from './outcome';
 import process from 'node:process';
-import { SLACK_API_BASE, slackApi } from '@/libs/surfaces/slack';
+import { SLACK_API_BASE, slackApi, uploadSlackImages } from '@/libs/surfaces/slack';
 
 /**
  * SLACK (backlog 048) — through the Slack surface's own install
@@ -57,11 +57,19 @@ function outcomeOf(error: string, what: string): ChannelOutcome {
  * @param target - A DM to this email, or a channel id.
  * @param message - What to say.
  * @param token - The bot token, or null.
- * @param opts - Seams for tests.
+ * @param opts - Seams for tests, and a file to send with it.
  * @param opts.fetchImpl
  * @param opts.baseUrl
+ * @param opts.file - Uploaded into the same conversation after the message
+ *   (`files.getUploadURLExternal` + `files.completeUploadExternal`, Slack's
+ *   `files.uploadV2`), so Slack shows it natively — an MP3 gets Slack's own
+ *   audio player. Needs `files:write`; without it the message still went, and
+ *   its link still opens the item.
+ * @param opts.file.filename
+ * @param opts.file.title
+ * @param opts.file.bytes
  */
-export async function sendSlack(target: { dmEmail: string } | { channelId: string }, message: NotificationMessage, token: string | null, opts: { fetchImpl?: typeof fetch; baseUrl?: string } = {}): Promise<ChannelOutcome> {
+export async function sendSlack(target: { dmEmail: string } | { channelId: string }, message: NotificationMessage, token: string | null, opts: { fetchImpl?: typeof fetch; baseUrl?: string; file?: { filename: string; title: string; bytes: Uint8Array } } = {}): Promise<ChannelOutcome & { fileError?: string }> {
   if (!token) {
     return { status: 'not_configured', error: 'Slack is not configured on this server (SLACK_BOT_TOKEN)' };
   }
@@ -80,8 +88,18 @@ export async function sendSlack(target: { dmEmail: string } | { channelId: strin
     } else {
       channel = target.channelId;
     }
-    const posted = await slackApi('chat.postMessage', { channel, text: slackText(message), unfurl_links: false }, token, baseUrl, fetchImpl);
-    return posted.ok ? { status: 'sent' } : outcomeOf(posted.error, 'could not post');
+    const posted = await slackApi<{ channel?: string }>('chat.postMessage', { channel, text: slackText(message), unfurl_links: false }, token, baseUrl, fetchImpl);
+    if (!posted.ok) {
+      return outcomeOf(posted.error, 'could not post');
+    }
+    if (opts.file) {
+      // A DM posts to the person's id; the upload needs the conversation it opened.
+      const uploaded = await uploadSlackImages({ channelId: posted.body.channel ?? channel, files: [opts.file] }, token, baseUrl, fetchImpl);
+      if (!uploaded.ok) {
+        return { status: 'sent', fileError: uploaded.error };
+      }
+    }
+    return { status: 'sent' };
   } catch (err) {
     return { status: 'retry', error: `could not reach Slack: ${(err as Error).message}` };
   }

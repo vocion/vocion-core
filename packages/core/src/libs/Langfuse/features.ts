@@ -13,6 +13,12 @@
 export const FEATURES = {
   /** A person's morning brief and evening wrap: the meeting lines and suggested actions (`services/briefings/personalWriter.ts`). */
   PERSONAL_BRIEF: 'personal.brief',
+  /**
+   * A brief read aloud: the spoken script's model call and the voice's
+   * characters (`services/briefings/audio`). Counted in the Org's daily brief
+   * cap with `personal.brief` (`services/briefings/budgetGate.ts`).
+   */
+  BRIEF_AUDIO: 'brief.audio',
   /** Chat-time agent runs via `runAgentDeep` (LangChain + deepagents). */
   AGENT_CHAT: 'agent.chat',
   /** Legacy OpenAI-loop agent runs via `runAgent`. */

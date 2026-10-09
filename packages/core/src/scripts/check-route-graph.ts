@@ -50,6 +50,10 @@ export const FORBIDDEN_REACH: ReadonlyArray<{ from: string; to: string }> = [
   { from: 'services/SourceCredentialService.ts', to: 'services/EventService.ts' },
   // Sign-in-free: turns one push channel off (services/personal/pushSettings.ts).
   { from: 'app/api/personal/push/stop/route.ts', to: 'services/EventService.ts' },
+  // Sign-in-free: the private podcast feed and a text's MP3 (services/briefings/audio/podcast.ts).
+  { from: 'app/api/listen/[...path]/route.ts', to: 'services/EventService.ts' },
+  // A brief's MP3 to its reader: the session, one row, the media store.
+  { from: 'app/api/briefings/[id]/audio/route.ts', to: 'services/EventService.ts' },
 ];
 
 /** File names Next treats as a route entry under `app/`. */

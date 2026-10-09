@@ -123,6 +123,19 @@ export const PRICING: Readonly<Record<string, Readonly<PricingTier>>> = {
   // row before that path ships.
   'gpt-image-1': { inputCentsPerMillion: 500, outputCentsPerMillion: 4000 },
 
+  // ElevenLabs text to speech bills per CHARACTER, so a row here prices a
+  // character as one input "token": `services/briefings/audio/audio.ts`
+  // charges a spoken brief with `inputTokens = characters`. 20,000 cents per
+  // million characters is $0.20 per 1,000, an ESTIMATE between the Creator
+  // plan's included rate ($22 for 100,000 credits) and Pro's ($99 for
+  // 500,000), read off elevenlabs.io/pricing 2026-10-09; Multilingual v2 and
+  // v3 spend one credit a character, Flash and Turbo half. The usage lands on
+  // the Org's own ElevenLabs plan; this row is what Vocion's budget counts.
+  'elevenlabs/eleven_multilingual_v2': { inputCentsPerMillion: 20_000, outputCentsPerMillion: 0 },
+  'elevenlabs/eleven_v3': { inputCentsPerMillion: 20_000, outputCentsPerMillion: 0 },
+  'elevenlabs/eleven_flash_v2_5': { inputCentsPerMillion: 10_000, outputCentsPerMillion: 0 },
+  'elevenlabs/eleven_turbo_v2_5': { inputCentsPerMillion: 10_000, outputCentsPerMillion: 0 },
+
   // Deliberately NOT priced: `amazon.titan-embed-text-v1`, the Bedrock
   // embedding default. AWS publishes Titan embedding pricing behind a
   // region-and-model picker we could not read a single figure off on

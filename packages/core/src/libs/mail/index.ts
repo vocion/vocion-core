@@ -55,6 +55,8 @@ export type MailMessage = {
    * mail goes out exactly as written.
    */
   brand?: { orgId?: string | null; accountId?: string | null } | 'install';
+  /** Files attached to the mail (a brief's MP3). Keep them small: every byte rides in every copy. */
+  attachments?: Array<{ filename: string; content: Uint8Array; contentType: string }>;
 };
 
 export type SendMailResult

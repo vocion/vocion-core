@@ -26,6 +26,11 @@
  * brief and no message; an Org over its daily brief cap gets none, and its
  * admins one quiet notice a day.
  *
+ * Read aloud (docs/guides/listen-to-your-brief.md): when the person listens
+ * and a voice is connected, the message carries the player (an `audio` run),
+ * and the audio is made now — not on first view — when it is about to leave
+ * the app: a push channel for the morning brief, or a private podcast feed.
+ *
  * The pills ride the message itself (a `suggestions` run,
  * `libs/chat/suggestions.ts`), so the chat is never empty under them and a
  * reload draws the same ones.
@@ -77,6 +82,24 @@ export function deliveryMessage(input: { lead: string; title: string; href: stri
 }
 
 /**
+ * Whether this delivery's audio leaves the app at once: the morning brief
+ * pushed to a channel, or any brief for someone with a private podcast feed.
+ * Otherwise it is made on first view.
+ * @param userId - The person.
+ * @param accountId - Their Org.
+ * @param kind - Brief or wrap.
+ */
+async function audioLeavesTheApp(userId: string, accountId: string, kind: RhythmKind): Promise<boolean> {
+  const { pushSettingsOf } = await import('@/services/personal/pushSettings');
+  const settings = await pushSettingsOf(userId, accountId);
+  if (kind === 'brief' && settings && settings.channels.length > 0 && settings.mode !== 'urgent') {
+    return true;
+  }
+  const { podcastFeedOf } = await import('./audio/podcast');
+  return (await podcastFeedOf(userId, accountId)) !== null;
+}
+
+/**
  * Compose, store and deliver one scheduled brief or wrap.
  * @param input - Whose, which, for which day.
  * @param input.userId - The person.
@@ -122,12 +145,22 @@ export async function deliverPersonalBrief(input: { userId: string; accountId: s
   // The things to start on are pills under the message, each a prompt the
   // person sends with a tap — never a card to answer.
   const suggestions = brief.actions.slice(0, MAX_SUGGESTIONS).map(a => ({ label: a.label, prompt: a.label, ...(a.why ? { why: a.why } : {}) }));
+  // Read aloud: the player rides the message; the audio is made now only when it leaves the app.
+  const { audioPlan, ensureBriefAudio } = await import('./audio/audio');
+  const plan = await audioPlan(personal.id, published.id).catch(() => ({ on: false as const, reason: '' }));
+  if (plan.on && await audioLeavesTheApp(input.userId, input.accountId, input.kind)) {
+    await ensureBriefAudio({ orgId: personal.id, briefingId: published.id, wait: true });
+  }
   await appendMessage({
     orgId: personal.id,
     conversationId: conversation.id,
     role: 'assistant',
     content,
-    runs: [{ type: 'text', text: content }, ...(suggestions.length > 0 ? [{ type: 'suggestions' as const, items: suggestions }] : [])],
+    runs: [
+      { type: 'text', text: content },
+      ...(plan.on ? [{ type: 'audio' as const, ref: { type: 'briefing' as const, id: published.id } }] : []),
+      ...(suggestions.length > 0 ? [{ type: 'suggestions' as const, items: suggestions }] : []),
+    ],
     status: 'complete',
     agentSlug,
   });
@@ -146,6 +179,7 @@ export async function deliverPersonalBrief(input: { userId: string; accountId: s
       path: briefingHref(published.id),
       workspaceSlug: personal.slug,
       ...(org ? { accountSlug: org.slug } : {}),
+      ...(plan.on ? { audio: { orgId: personal.id, briefingId: published.id } } : {}),
     }, { now }).catch(() => null);
   }
 

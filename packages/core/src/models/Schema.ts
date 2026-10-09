@@ -1,5 +1,6 @@
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
+import type { BriefAudio } from '@/services/briefings/audio/types';
 import type { BriefingV2 } from '@/services/briefings/document';
 import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
@@ -278,6 +279,15 @@ export const tenantAccountSchema = pgTable(
      * default means no cap beyond each workspace's own budget.
      */
     briefDailyCents: integer('brief_daily_cents'),
+    /**
+     * Briefs read aloud (0207, docs/guides/listen-to-your-brief.md): whether
+     * this Org's WORKSPACE briefs get a spoken version. Personal briefs follow
+     * each person's own "Listen to my briefs". Nothing is spoken without a
+     * voice connected somewhere in the Org (or the server's key).
+     */
+    briefAudio: boolean('brief_audio').default(true).notNull(),
+    /** The Org's voice for briefs read aloud; null = the provider's default. A person's own choice wins for theirs. */
+    briefVoiceId: text('brief_voice_id'),
     /**
      * The Org's brand (migration 0199) — the same guide a workspace's
      * brand.yaml is (`libs/workspace/brand.ts`), with its logos kept in the
@@ -1924,6 +1934,7 @@ export const conversationMessageSchema = pgTable('conversation_message', {
     | { type: 'decision_answer'; id: number; question: string; answer: { kind: 'option'; optionIds: string[] } | { kind: 'free_text'; text: string } | { kind: 'skip' }; line: string; via?: string }
     | { type: 'receipt'; receipt: { runId: number; actionId: string; label: string; undoable: boolean; href?: string; status?: 'done' | 'undone' } }
     | { type: 'suggestions'; items: Array<{ label: string; prompt: string; deeper?: true }> }
+    | { type: 'audio'; ref: { type: 'briefing'; id: number } }
   >>(),
   /**
    * Cited/pulled source documents for this assistant turn — so inline `[n]`
@@ -3636,6 +3647,14 @@ export const briefingSchema = pgTable(
      * when published again. NULL on every workspace brief.
      */
     edition: text('edition'),
+    /**
+     * The brief read aloud (0207, `services/briefings/audio`): the spoken
+     * script, the MP3 in the media store, its duration and what it cost — or
+     * that it is being made, or why it could not be. Keyed by a hash of what
+     * was spoken from, so a personal brief refreshed in place is spoken again
+     * on its next view. NULL until first asked for.
+     */
+    audio: jsonb('audio').$type<BriefAudio>(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
@@ -5358,12 +5377,44 @@ export const personalRhythmSchema = pgTable(
     quietEnd: text('quiet_end'),
     /** Urgent items older than this have been pushed (or were waiting before push was on). */
     urgentSeenAt: timestamp('urgent_seen_at', { mode: 'date' }),
+    /**
+     * "Listen to my briefs" (0207, docs/guides/listen-to-your-brief.md). Null
+     * = the default: on whenever a voice is connected in the Org.
+     */
+    listenOn: boolean('listen_on'),
+    /** The person's voice for their briefs; null = the Org's, else the provider's default. */
+    voiceId: text('voice_id'),
+    /** The player's starting speed: 1, 1.5 or 2. */
+    listenSpeed: real('listen_speed').default(1).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
   },
   table => [
     primaryKey({ columns: [table.userId, table.accountId] }),
     index('personal_rhythm_next_brief_idx').on(table.nextBriefAt),
     index('personal_rhythm_next_wrap_idx').on(table.nextWrapAt),
+  ],
+);
+
+/**
+ * A person's private podcast feed of their briefs read aloud (0207,
+ * docs/guides/listen-to-your-brief.md): one secret URL that Apple Podcasts or
+ * Overcast subscribes to. Only the token's SHA-256 is kept; revoking stamps
+ * `revoked_at` and the URL stops at once. One live feed per person and Org.
+ */
+export const podcastFeedSchema = pgTable(
+  'podcast_feed',
+  {
+    id: serial('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    accountId: text('account_id').notNull().references(() => tenantAccountSchema.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    lastFetchedAt: timestamp('last_fetched_at', { mode: 'date' }),
+    revokedAt: timestamp('revoked_at', { mode: 'date' }),
+  },
+  table => [
+    uniqueIndex('podcast_feed_token_uq').on(table.tokenHash),
+    index('podcast_feed_user_idx').on(table.userId, table.accountId),
   ],
 );
 

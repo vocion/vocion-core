@@ -69,11 +69,12 @@ export const rhythmRoute = os
     const { isValidTimeZone } = await import('@/libs/time/zone');
     const current = await getRhythm(userId, accountId);
     const { pushChannelsAvailable } = await import('@/services/personal/push');
-    const available = await pushChannelsAvailable(userId);
+    const { listenAvailability } = await import('@/services/briefings/audio/settings');
+    const [available, listen] = await Promise.all([pushChannelsAvailable(userId), listenAvailability(userId, accountId)]);
     if (!current.zoneChosen && isValidTimeZone(input.browserTimeZone)) {
-      return { ...(await setRhythm(userId, accountId, { timeZone: input.browserTimeZone })), available };
+      return { ...(await setRhythm(userId, accountId, { timeZone: input.browserTimeZone })), available, listen };
     }
-    return { ...current, available };
+    return { ...current, available, listen };
   });
 
 export const setRhythmRoute = os
@@ -87,6 +88,9 @@ export const setRhythmRoute = os
     pushMode: z.enum(['brief_and_urgent', 'urgent']).optional(),
     quietStart: z.string().max(5).nullable().optional(),
     quietEnd: z.string().max(5).nullable().optional(),
+    listenOn: z.boolean().nullable().optional(),
+    voiceId: z.string().max(64).nullable().optional(),
+    listenSpeed: z.union([z.literal(1), z.literal(1.5), z.literal(2)]).optional(),
   }))
   .handler(async ({ input }) => {
     const { userId, accountId } = await guardAuth();
@@ -99,7 +103,10 @@ export const setRhythmRoute = os
       throw ApiError.badRequest(problem);
     }
     const { pushChannelsAvailable } = await import('@/services/personal/push');
-    return { ...(await setRhythm(userId, accountId, input)), available: await pushChannelsAvailable(userId) };
+    const { listenAvailability } = await import('@/services/briefings/audio/settings');
+    const saved = await setRhythm(userId, accountId, input);
+    const [available, listen] = await Promise.all([pushChannelsAvailable(userId), listenAvailability(userId, accountId)]);
+    return { ...saved, available, listen };
   });
 
 /** The Org's daily-brief switch and daily cap, and whether this person may change them. */
@@ -113,7 +120,7 @@ export const orgBriefsRoute = os.handler(async () => {
 });
 
 export const setOrgBriefsRoute = os
-  .input(z.object({ dailyBriefs: z.boolean().optional(), briefDailyCents: z.number().int().min(0).max(1_000_000).nullable().optional() }))
+  .input(z.object({ dailyBriefs: z.boolean().optional(), briefDailyCents: z.number().int().min(0).max(1_000_000).nullable().optional(), briefAudio: z.boolean().optional(), briefVoiceId: z.string().regex(/^[\w-]{1,64}$/).nullable().optional() }))
   .handler(async ({ input }) => {
     const { accountId, has } = await guardAuth();
     if (!accountId || !has({ role: ORG_ROLE.ADMIN })) {
@@ -123,3 +130,39 @@ export const setOrgBriefsRoute = os
     await setOrgBriefSettings(accountId, input);
     return { ...(await orgBriefSettings(accountId)), canChange: true };
   });
+
+/** The voices the Org's account can speak with, for the voice choice under Your day. */
+export const voicesRoute = os.handler(async () => {
+  const { userId, accountId } = await guardAuth();
+  if (!accountId) {
+    throw ApiError.forbidden();
+  }
+  const { voicesFor } = await import('@/services/briefings/audio/settings');
+  return voicesFor(userId, accountId);
+});
+
+/**
+ * Make the person's private podcast feed (revoking any old one) and return
+ * its URL — the only time it is shown.
+ */
+export const createFeedRoute = os.handler(async () => {
+  const { userId, accountId } = await guardAuth();
+  if (!accountId) {
+    throw ApiError.forbidden();
+  }
+  const { createPodcastFeed, feedPath } = await import('@/services/briefings/audio/podcast');
+  const { appBaseUrl } = await import('@/libs/links');
+  const { token, createdAt } = await createPodcastFeed(userId, accountId);
+  return { url: `${appBaseUrl()}${feedPath(token)}`, createdAt };
+});
+
+/** Stop the person's private podcast feed. */
+export const revokeFeedRoute = os.handler(async () => {
+  const { userId, accountId } = await guardAuth();
+  if (!accountId) {
+    throw ApiError.forbidden();
+  }
+  const { revokePodcastFeed } = await import('@/services/briefings/audio/podcast');
+  await revokePodcastFeed(userId, accountId);
+  return { revoked: true };
+});

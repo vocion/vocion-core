@@ -45,6 +45,8 @@ function voice(over: Partial<VoiceProvider> = {}): VoiceProvider {
   return {
     connector: 'voice-fixture',
     label: 'Fixture Voice',
+    defaultVoice: { id: 'v1', name: 'Northwind' },
+    scriptModel: 'fixture-model',
     listVoices: async () => ({ ok: true, voices: [{ id: 'v1', name: 'Northwind' }] }),
     speak: vi.fn(async () => ({ ok: true as const, audio: tone, contentType: 'audio/mpeg' as const })),
     ...over,

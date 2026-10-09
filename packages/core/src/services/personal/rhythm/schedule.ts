@@ -47,6 +47,12 @@ export type RhythmSettings = {
   pushMode: 'brief_and_urgent' | 'urgent';
   quietStart: string | null;
   quietEnd: string | null;
+  /** "Listen to my briefs" (docs/guides/listen-to-your-brief.md): null = the default, on when a voice is connected. */
+  listenOn: boolean | null;
+  /** The person's voice for their briefs; null = the Org's. */
+  voiceId: string | null;
+  /** The player's starting speed. */
+  listenSpeed: 1 | 1.5 | 2;
 };
 
 type Row = typeof personalRhythmSchema.$inferSelect;
@@ -176,11 +182,11 @@ export async function getRhythm(userId: string, accountId: string, now: Date = n
     [row] = await db.select().from(personalRhythmSchema).where(and(eq(personalRhythmSchema.userId, userId), eq(personalRhythmSchema.accountId, accountId))).limit(1);
   }
   const r = row!;
-  return { briefAt: r.briefAt, wrapAt: r.wrapAt, briefOn: r.briefOn, wrapOn: r.wrapOn, timeZone: zoneOf(r), zoneChosen: Boolean(r.timeZone), nextBriefAt: r.nextBriefAt, nextWrapAt: r.nextWrapAt, pushChannels: r.pushChannels.filter((c): c is 'slack' | 'sms' | 'email' => c === 'slack' || c === 'sms' || c === 'email'), pushMode: r.pushMode, quietStart: r.quietStart, quietEnd: r.quietEnd };
+  return { briefAt: r.briefAt, wrapAt: r.wrapAt, briefOn: r.briefOn, wrapOn: r.wrapOn, timeZone: zoneOf(r), zoneChosen: Boolean(r.timeZone), nextBriefAt: r.nextBriefAt, nextWrapAt: r.nextWrapAt, pushChannels: r.pushChannels.filter((c): c is 'slack' | 'sms' | 'email' => c === 'slack' || c === 'sms' || c === 'email'), pushMode: r.pushMode, quietStart: r.quietStart, quietEnd: r.quietEnd, listenOn: r.listenOn, voiceId: r.voiceId, listenSpeed: r.listenSpeed === 2 ? 2 : r.listenSpeed === 1.5 ? 1.5 : 1 };
 }
 
 /** A change to a rhythm. Every field optional; invalid ones are refused. */
-export type RhythmChange = Partial<Pick<RhythmSettings, 'briefAt' | 'wrapAt' | 'briefOn' | 'wrapOn' | 'timeZone' | 'pushChannels' | 'pushMode' | 'quietStart' | 'quietEnd'>>;
+export type RhythmChange = Partial<Pick<RhythmSettings, 'briefAt' | 'wrapAt' | 'briefOn' | 'wrapOn' | 'timeZone' | 'pushChannels' | 'pushMode' | 'quietStart' | 'quietEnd' | 'listenOn' | 'voiceId' | 'listenSpeed'>>;
 
 /**
  * Why a change cannot be saved, or null when it can.
@@ -198,6 +204,12 @@ export function rhythmChangeProblem(change: RhythmChange): string | null {
   }
   if (change.pushChannels !== undefined && change.pushChannels.some(c => !['slack', 'sms', 'email'].includes(c))) {
     return 'Push goes to Slack, text or email.';
+  }
+  if (change.listenSpeed !== undefined && ![1, 1.5, 2].includes(change.listenSpeed)) {
+    return 'Listening speed is 1×, 1.5× or 2×.';
+  }
+  if (change.voiceId !== undefined && change.voiceId !== null && !/^[\w-]{1,64}$/.test(change.voiceId)) {
+    return 'That is not a voice.';
   }
   for (const [label, v] of [['start', change.quietStart], ['end', change.quietEnd]] as const) {
     if (v !== undefined && v !== null && !isWallClock(v)) {
@@ -232,6 +244,9 @@ export async function setRhythm(userId: string, accountId: string, change: Rhyth
     ...(change.pushMode !== undefined ? { pushMode: change.pushMode } : {}),
     ...(change.quietStart !== undefined ? { quietStart: change.quietStart } : {}),
     ...(change.quietEnd !== undefined ? { quietEnd: change.quietEnd } : {}),
+    ...(change.listenOn !== undefined ? { listenOn: change.listenOn } : {}),
+    ...(change.voiceId !== undefined ? { voiceId: change.voiceId } : {}),
+    ...(change.listenSpeed !== undefined ? { listenSpeed: change.listenSpeed } : {}),
   };
   await db.update(personalRhythmSchema)
     .set({ ...merged, ...push, timeZone, ...nextTimes(merged, timeZone ?? current.timeZone, now), updatedAt: sql`now()` })

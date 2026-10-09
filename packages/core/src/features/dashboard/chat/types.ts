@@ -56,7 +56,9 @@ export type AgentRun
     /** Something done inside the trust bar, said once, with Undo only where the kind has one. */
     | { type: 'receipt'; receipt: import('@/libs/decisions/receipt').DoneReceipt }
     /** Up to three follow-ups under the answer (`libs/chat/suggestions.ts`): pills that send the next message. */
-    | { type: 'suggestions'; items: import('@/libs/chat/suggestions').Suggestion[] };
+    | { type: 'suggestions'; items: import('@/libs/chat/suggestions').Suggestion[] }
+    /** A brief read aloud, played under the message (`features/briefings/BriefAudioPlayer.tsx`). */
+    | { type: 'audio'; ref: { type: 'briefing'; id: number } };
 
 /**
  * A person's answer to a Decision, as the transcript draws it: a quiet line
@@ -296,6 +298,8 @@ export type ChatMessage = {
   receipts?: import('@/libs/decisions/receipt').DoneReceipt[];
   /** Up to three follow-ups the agent wrote under this answer (`libs/chat/suggestions.ts`): pills, shown on the latest answer only. */
   suggestions?: import('@/libs/chat/suggestions').Suggestion[];
+  /** A brief read aloud with this message: the player is drawn under it (docs/guides/listen-to-your-brief.md). */
+  listen?: { type: 'briefing'; id: number };
   documents?: IndexedDocument[];
   citationCount?: number;
   thinkingSteps?: ThinkingStep[];
