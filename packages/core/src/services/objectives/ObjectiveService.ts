@@ -12,10 +12,10 @@
  * and the conversation's id; the resumable one is also the person's own.
  */
 
-import type { ConversationObjective, ObjectiveView } from '@/libs/objectives/objective';
+import type { ConversationObjective, LaterExtra, ObjectiveView } from '@/libs/objectives/objective';
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { objectiveView, readObjective, setupObjectiveFor } from '@/libs/objectives/objective';
+import { objectiveView, readObjective, setupObjectiveFor, withLater } from '@/libs/objectives/objective';
 import { conversationSchema } from '@/models/Schema';
 import { setupStateForOrg } from '@/services/plugins/setupState';
 
@@ -133,4 +133,55 @@ export async function startedSetups(orgId: string, userId: string): Promise<Map<
     }
   }
   return out;
+}
+
+/**
+ * What a running setup objective needs, for an agent about to offer steps in
+ * its conversation: the plugin, its name, and the connectors its setup
+ * declares as required. Null when the conversation is not setting anything
+ * up (or the objective is stopped or done) — then nothing is scoped.
+ * @param orgId - The workspace.
+ * @param conversationId - The conversation.
+ */
+export async function setupScopeOf(orgId: string, conversationId: number): Promise<{ plugin: string; name: string; connectors: string[] } | null> {
+  const [row] = await db
+    .select({ objective: conversationSchema.objective })
+    .from(conversationSchema)
+    .where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId)))
+    .limit(1);
+  const objective = readObjective(row?.objective);
+  if (!objective || objective.state !== 'running') {
+    return null;
+  }
+  const setup = (await setupStateForOrg(orgId)).find(s => s.plugin === objective.plugin);
+  if (!setup || setup.complete) {
+    return null;
+  }
+  return { plugin: setup.plugin, name: setup.name, connectors: setup.steps.filter(s => s.kind === 'connector').map(s => s.slug) };
+}
+
+/**
+ * Keep optional extras an agent offered mid-setup for after it: listed under
+ * the objective's steps as "Later", never docked as steps of it.
+ * @param orgId - The workspace.
+ * @param conversationId - The conversation.
+ * @param extras - What the setup does not need.
+ */
+export async function keepForLater(orgId: string, conversationId: number, extras: LaterExtra[]): Promise<void> {
+  if (extras.length === 0) {
+    return;
+  }
+  const [row] = await db
+    .select({ objective: conversationSchema.objective })
+    .from(conversationSchema)
+    .where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId)))
+    .limit(1);
+  const objective = readObjective(row?.objective);
+  if (!objective) {
+    return;
+  }
+  const next = withLater(objective, extras);
+  if (next !== objective) {
+    await db.update(conversationSchema).set({ objective: next }).where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId)));
+  }
 }

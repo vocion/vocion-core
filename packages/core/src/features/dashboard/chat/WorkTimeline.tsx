@@ -27,6 +27,7 @@ import { useEffect, useState } from 'react';
 import { AgentDot, AgentDots } from '@/components/ui/agent-dot';
 import { failureOneLiner, failureReport } from '@/libs/chat/redact';
 import { stepHeadline } from '@/libs/chat/stepHeadline';
+import { fallbackStepLabels } from '@/libs/chat/stepLabels';
 import { useChatAgents } from './ChatAgents';
 import { sourceLabels } from './helpers';
 import { speakerOf } from './speakers';
@@ -147,7 +148,12 @@ export function describeToolCall(name: string, input: Record<string, unknown>, l
     case 'web_search':
       return { label: live ? 'Searching the web…' : 'Searched the web', detail: String(input.query ?? '').slice(0, 90) || undefined };
     default:
-      return { label: `${live ? 'Running' : 'Ran'} ${name.replace(/[-_]/g, ' ')}${live ? '…' : ''}` };
+    // Never the tool's own name back ("Ran offer connection"): what it did
+    // for the person, or the plain act (`libs/chat/stepLabels.ts`).
+    {
+      const labels = fallbackStepLabels(name, undefined, input);
+      return { label: live ? labels.running : labels.done };
+    }
   }
 }
 

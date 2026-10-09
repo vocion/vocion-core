@@ -28,7 +28,7 @@ import type { TraceActor, TraceCitation, TraceNodeEvent, TraceNodeKind } from '.
 import type { StepLabelHints, StepLabels } from '@/libs/chat/stepLabels';
 
 /** The subset of a raw LangChain v2 stream event we consume. */
-import { fallbackStepLabels, proposalStepLabels, restSourceOfTool, stepLabelFor } from '@/libs/chat/stepLabels';
+import { fallbackStepLabels, personFacingStepLabels, proposalStepLabels, restSourceOfTool, stepLabelFor } from '@/libs/chat/stepLabels';
 
 export type RawStreamEvent = {
   event?: string;
@@ -677,9 +677,12 @@ export class TraceEmitter {
         // source's tool says which system was asked, a `rest.request`
         // proposal says which endpoint on which source. Kept for `done` and
         // withheld from the model half, which could only lose the source.
+        // A step that asks the person something or sets something up says
+        // what it did for them, from its arguments ("Asked you to connect
+        // Jira"), and is withheld from the model half too.
         const hinted = tool === 'propose_action'
           ? proposalStepLabels(args, this.hints)
-          : restSourceOfTool(tool, this.hints) ? fallbackStepLabels(tool, this.hints) : null;
+          : personFacingStepLabels(tool, args, this.hints) ?? (restSourceOfTool(tool, this.hints) ? fallbackStepLabels(tool, this.hints) : null);
         if (hinted) {
           this.nodeLabels.set(id, hinted);
           this.hintLabelled.add(id);

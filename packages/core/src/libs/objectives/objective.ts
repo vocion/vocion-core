@@ -31,7 +31,16 @@ export type ConversationObjective = {
   startedAt: string;
   /** When the person stopped it, or resumed it. */
   changedAt?: string;
+  /**
+   * Optional extras an agent offered while setting it up that the plugin's
+   * setup does not need (turning on Wiki, a Red team, another system): kept
+   * here as "Later", never docked as steps (founder, 2026-10-09).
+   */
+  later?: LaterExtra[];
 };
+
+/** One optional extra, kept for after the objective. */
+export type LaterExtra = { key: string; label: string };
 
 /** One step, as the setup state names it. */
 export type ObjectiveStep = { key: string; label: string; done: boolean };
@@ -50,6 +59,8 @@ export type ObjectiveView = {
   total: number;
   /** The step the person is on (0-based): the first not done; `total` when all are. */
   current: number;
+  /** Optional extras for after it, never steps of it. */
+  later: LaterExtra[];
 };
 
 /**
@@ -65,7 +76,8 @@ export function readObjective(value: unknown): ConversationObjective | null {
   if (o.kind !== 'setup' || typeof o.plugin !== 'string' || !o.plugin || (o.state !== 'running' && o.state !== 'stopped') || typeof o.startedAt !== 'string') {
     return null;
   }
-  return { kind: 'setup', plugin: o.plugin, state: o.state, startedAt: o.startedAt, ...(typeof o.changedAt === 'string' ? { changedAt: o.changedAt } : {}) };
+  const later = Array.isArray(o.later) ? o.later.filter((x): x is LaterExtra => !!x && typeof x.key === 'string' && typeof x.label === 'string').slice(0, 12) : [];
+  return { kind: 'setup', plugin: o.plugin, state: o.state, startedAt: o.startedAt, ...(typeof o.changedAt === 'string' ? { changedAt: o.changedAt } : {}), ...(later.length > 0 ? { later } : {}) };
 }
 
 /**
@@ -94,6 +106,7 @@ export function objectiveView(conversationId: number, objective: ConversationObj
     done,
     total: steps.length,
     current: first === -1 ? steps.length : first,
+    later: objective.later ?? [],
   };
 }
 
@@ -108,6 +121,17 @@ export function progressLine(view: ObjectiveView): string {
   }
   const where = `${Math.min(view.current + 1, view.total)} of ${view.total}`;
   return view.state === 'stopped' ? `Paused setting up ${view.name} · ${where}` : `Setting up ${view.name} · ${where}`;
+}
+
+/**
+ * Keep optional extras for later, once each, newest last.
+ * @param objective - The objective.
+ * @param extras - What the agent offered that the setup does not need.
+ */
+export function withLater(objective: ConversationObjective, extras: LaterExtra[]): ConversationObjective {
+  const have = new Set((objective.later ?? []).map(x => x.key));
+  const added = extras.filter(x => !have.has(x.key) && (have.add(x.key), true));
+  return added.length === 0 ? objective : { ...objective, later: [...(objective.later ?? []), ...added].slice(-12) };
 }
 
 /**

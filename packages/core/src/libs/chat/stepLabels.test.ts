@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fallbackStepLabels, isSafeStepLabels, normalizeStepLabels, proposalStepLabels, restProposalWords, restSourceOfTool, stepLabelFor, stepProgressLabel } from './stepLabels';
+import { echoesToolName, fallbackStepLabels, isSafeStepLabels, normalizeStepLabels, personFacingStepLabels, proposalStepLabels, restProposalWords, restSourceOfTool, stepLabelFor, stepProgressLabel } from './stepLabels';
 
 describe('fallbackStepLabels', () => {
   it('names the act, not the mechanism, for the tools a person sees most', () => {
@@ -10,7 +10,8 @@ describe('fallbackStepLabels', () => {
   it('humanises an unknown tool from its verb and object, vendor first', () => {
     expect(fallbackStepLabels('hubspot_get_contact')).toEqual({ running: 'Reading the HubSpot contact…', done: 'Read the HubSpot contact' });
     expect(fallbackStepLabels('apollo_search_people')).toEqual({ running: 'Searching the Apollo people…', done: 'Searched the Apollo people' });
-    expect(fallbackStepLabels('frobnicate_widgets')).toEqual({ running: 'Running the frobnicate widgets…', done: 'Ran the frobnicate widgets' });
+    // No verb it knows: the plain act, never the tool's own words back.
+    expect(fallbackStepLabels('frobnicate_widgets')).toEqual({ running: 'Working on it…', done: 'Worked on it' });
   });
 
   it('picks the tense from the status, and says failed plainly', () => {
@@ -78,7 +79,7 @@ describe('a REST source\'s tools name the source, then the act', () => {
     expect(restSourceOfTool('apix_list_users', hints)).toBeUndefined();
     expect(fallbackStepLabels('hubspot_get_contact', hints).done).toBe('Read the HubSpot contact');
     // Without hints the prefix is just a word, as it always was.
-    expect(fallbackStepLabels('delivery_list_projects')).toEqual({ running: 'Running the delivery list projects…', done: 'Ran the delivery list projects' });
+    expect(fallbackStepLabels('delivery_list_projects')).toEqual({ running: 'Working on it…', done: 'Worked on it' });
   });
 
   it('reads a rest.request proposal as "Proposed <action> on <source>", by display name when known, else the slug', () => {
@@ -95,5 +96,36 @@ describe('a REST source\'s tools name the source, then the act', () => {
     expect(proposalStepLabels({ action_id: 'rest.request' }, hints)).toBeNull();
     expect(proposalStepLabels(undefined, hints)).toBeNull();
     expect(restProposalWords('nope')).toBeNull();
+  });
+});
+
+/**
+ * Founder, 2026-10-09: "Ran the offer connection", "Set up options, described
+ * the setup and proposed the setup". A step that asks the person something or
+ * sets something up says what it did for them.
+ */
+describe('what a step did for the person', () => {
+  const hints = { connectorName: (slug: string) => ({ jira: 'Jira', github: 'GitHub' })[slug] ?? slug };
+
+  it('says who was asked to connect what, from the call', () => {
+    expect(personFacingStepLabels('offer_connection', { connector: 'jira' }, hints)).toEqual({ running: 'Asking you to connect Jira…', done: 'Asked you to connect Jira' });
+    expect(personFacingStepLabels('connect_system', { named: ['github', 'jira'] }, hints)!.done).toBe('Asked you to connect GitHub and Jira');
+    expect(personFacingStepLabels('connect_system', {}, hints)!.done).toBe('Asked you to connect your systems');
+    expect(fallbackStepLabels('offer_connection', hints, { connector: 'github' }).done).toBe('Asked you to connect GitHub');
+  });
+
+  it('says the setup and the asks as outcomes', () => {
+    expect(personFacingStepLabels('describe_setup', {})!.done).toBe('Checked what setup is left');
+    expect(personFacingStepLabels('propose_setup', {})!.done).toBe('Put the next setup step in front of you');
+    expect(personFacingStepLabels('file_ask', {})!.done).toBe('Asked you a question');
+    expect(personFacingStepLabels('search_knowledge', {})).toBeNull();
+  });
+
+  it('refuses a model label that says the tool\'s name back', () => {
+    expect(echoesToolName('Ran the offer connection', 'offer_connection')).toBe(true);
+    expect(echoesToolName('Used offer_connection', 'offer_connection')).toBe(true);
+    expect(echoesToolName('Asked you to connect Jira', 'offer_connection')).toBe(false);
+    expect(isSafeStepLabels({ running: 'Running offer connection…', done: 'Ran offer connection' }, 'offer_connection')).toBe(false);
+    expect(isSafeStepLabels({ running: 'Asking you to connect Jira…', done: 'Asked you to connect Jira' }, 'offer_connection')).toBe(true);
   });
 });

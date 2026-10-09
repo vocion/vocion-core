@@ -21,6 +21,7 @@ import { FEATURES } from '@/libs/Langfuse/features';
 import { modelForStrength } from '@/libs/llm/modelPrefs';
 import { tokenCostMicroCents } from '@/libs/pricing';
 import { toolPrefixFor } from '@/libs/rest/spec';
+import { getConnector } from '@/libs/sources/registry';
 import { newerTurnIn } from '@/libs/streams/buffer';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { versionLinksDelta } from '@/libs/versions/versionRef';
@@ -956,7 +957,11 @@ export async function runAgentDeep(opts: {
   const tracer = new TraceEmitter({
     leadName: compiled.agentRow.name ?? compiled.agentRow.slug ?? 'Assistant',
     // The REST sources this agent holds, so a step names the system it asked.
-    labelHints: { restSources: (compiled.ctx.restSources ?? []).map(s => ({ slug: s.slug, prefix: toolPrefixFor(s.slug, s.config), name: s.name })) },
+    labelHints: {
+      restSources: (compiled.ctx.restSources ?? []).map(s => ({ slug: s.slug, prefix: toolPrefixFor(s.slug, s.config), name: s.name })),
+      // "Asked you to connect GitHub", never the slug.
+      connectorName: slug => getConnector(slug)?.name ?? slug,
+    },
   });
   const PLUMBING = new Set(['write_todos', 'ls', 'glob', 'grep', 'read_file', 'edit_file', 'write_file']);
 

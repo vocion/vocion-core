@@ -15,8 +15,9 @@ import {
   PROPOSAL_DEFAULTS,
   RE_ESCALATE_MS,
   riskTierOf,
+  waitsForPerson,
 } from '@/libs/needsYou/deadlines';
-import { actionRunSchema, askSchema, decisionDeadlineSchema, reviewAssignmentSchema } from '@/models/Schema';
+import { actionRunSchema, askSchema, conversationSchema, decisionDeadlineSchema, reviewAssignmentSchema } from '@/models/Schema';
 import { DEFAULT_RUNG, RISK_TIERS, rungIndex } from '@/services/autonomy/rungs';
 import { decisionOwner, newOwnerCache } from '@/services/needsYou/owner';
 
@@ -151,11 +152,19 @@ export async function openClocks(opts: { orgId?: string; now?: Date } = {}): Pro
     eq(decisionDeadlineSchema.subjectKind, 'ask'),
     eq(decisionDeadlineSchema.subjectId, askSchema.id),
   );
+  // A setup step, and a question asked mid-objective, wait for their person
+  // with no clock unless the asker set a close date (`waitsForPerson`).
   const asks = await db
     .select({ ask: askSchema })
     .from(askSchema)
     .leftJoin(decisionDeadlineSchema, askJoin)
-    .where(and(opts.orgId ? eq(askSchema.orgId, opts.orgId) : undefined, eq(askSchema.status, 'open'), isNull(decisionDeadlineSchema.id)))
+    .leftJoin(conversationSchema, and(eq(conversationSchema.orgId, askSchema.orgId), eq(conversationSchema.id, askSchema.conversationId)))
+    .where(and(
+      opts.orgId ? eq(askSchema.orgId, opts.orgId) : undefined,
+      eq(askSchema.status, 'open'),
+      isNull(decisionDeadlineSchema.id),
+      sql`NOT (${askSchema.dueAt} IS NULL AND (${askSchema.kind} = 'setup' OR ${conversationSchema.objective} IS NOT NULL))`,
+    ))
     .orderBy(asc(askSchema.id))
     .limit(SWEEP_LIMIT);
   const runJoin = and(
@@ -282,7 +291,9 @@ async function factsFor(row: DecisionClock, subject: Subject): Promise<DefaultFa
     }
     return judgeAction(subject.run.actionId, subject.run.input ?? {}, 'low');
   }
-  const option = (subject.ask.options ?? []).find(o => o.id === row.defaultOption);
+  // A clock opened before setup steps waited for their person never applies
+  // a default to one now: it is held, and the person decides.
+  const option = waitsForPerson(subject.ask) ? undefined : (subject.ask.options ?? []).find(o => o.id === row.defaultOption);
   const askTier = riskTierOf(subject.ask.risk);
   if (!option) {
     return { ...base, defaultOption: null, inert: false, neverAuto: false, heldForPerson: null, rung: DEFAULT_RUNG, riskTier: askTier, reversible: false };

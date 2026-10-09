@@ -165,6 +165,23 @@ export function defaultVerdict(f: DefaultFacts): DefaultVerdict {
   };
 }
 
+/**
+ * Whether a decision waits for its person with no clock at all — no deadline,
+ * no default that applies itself: a step of setting something up, and any
+ * question asked in a conversation in the middle of an objective
+ * (founder, 2026-10-09: "Default in 23h: Connect GitHub" on a setup step).
+ * A setup step is the person's to take when they are ready; the opening hint
+ * offers "Resume setting up …" when they come back. A clock still runs where
+ * a policy set one explicitly (the asker's `dueAt`).
+ * @param ask - The decision.
+ * @param ask.kind - Its kind.
+ * @param ask.dueAt - The close date its asker set, if any.
+ * @param inObjective - It was asked in a conversation in the middle of an objective.
+ */
+export function waitsForPerson(ask: { kind: string; dueAt?: Date | null }, inObjective = false): boolean {
+  return !ask.dueAt && (ask.kind === 'setup' || inObjective);
+}
+
 /** A proposal's suggested decision as the default a person reads. Snooze is not a default. */
 export const PROPOSAL_DEFAULTS: Readonly<Record<'approve' | 'reject', string>> = { approve: 'Approve', reject: 'Decline' };
 

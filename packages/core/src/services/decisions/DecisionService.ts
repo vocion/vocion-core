@@ -28,7 +28,8 @@ import type { Ask } from '@/services/AskService';
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { ALLOW_ONCE_ID, ALWAYS_ALLOW_ID, answerProblem, decisionViewOf } from '@/libs/decisions/decision';
-import { askSchema } from '@/models/Schema';
+import { waitsForPerson } from '@/libs/needsYou/deadlines';
+import { askSchema, conversationSchema } from '@/models/Schema';
 
 /** Errors a caller maps onto its own surface — the code names the situation. */
 export class DecisionError extends Error {
@@ -118,10 +119,13 @@ async function deadlines(orgId: string): Promise<Map<string, NonNullable<Decisio
  * Ask rows as Decisions, each with its clock.
  * @param rows - The asks.
  * @param clocks - The running clocks.
+ * @param inObjective
  */
-function askViews(rows: Ask[], clocks: Awaited<ReturnType<typeof deadlines>>): DecisionView[] {
+function askViews(rows: Ask[], clocks: Awaited<ReturnType<typeof deadlines>>, inObjective = false): DecisionView[] {
   return rows.map((r) => {
-    const clock = clocks.get(`ask:${r.id}`);
+    // A setup step (or a question mid-objective) waits for its person: no
+    // "Default in 23h" under it, even from a clock opened before that rule.
+    const clock = waitsForPerson(r, inObjective) ? undefined : clocks.get(`ask:${r.id}`);
     return decisionViewOf(r, clock ? { deadline: { at: clock.at, defaultLabel: clock.defaultLabel }, clockHeld: clock.held } : {});
   });
 }
@@ -170,7 +174,7 @@ function oldestFirst(views: DecisionView[]): DecisionView[] {
  */
 export async function openDecisions(orgId: string, conversationId: number, viewerId: string | null = null): Promise<DecisionView[]> {
   const { pendingProposalsIn, proposalDecisionView } = await import('./proposals');
-  const [rows, runs, clocks] = await Promise.all([
+  const [rows, runs, clocks, conversation] = await Promise.all([
     db
       .select()
       .from(askSchema)
@@ -179,12 +183,13 @@ export async function openDecisions(orgId: string, conversationId: number, viewe
       .limit(20),
     pendingProposalsIn(orgId, conversationId),
     deadlines(orgId),
+    db.select({ objective: conversationSchema.objective }).from(conversationSchema).where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId))).limit(1).then(r => r[0] ?? null).catch(() => null),
   ]);
   const proposals = await Promise.all(runs.map(async (run) => {
     const clock = clocks.get(`proposal:${run.id}`);
     return proposalDecisionView(run, clock ? { deadline: { at: clock.at, defaultLabel: clock.defaultLabel } } : {});
   }));
-  const asks = askViews(rows, clocks);
+  const asks = askViews(rows, clocks, conversation?.objective != null);
   return oldestFirst(await forViewer(orgId, viewerId, rows.map((r, i) => [r, asks[i]!]), runs.map((r, i) => [r, proposals[i]!])));
 }
 

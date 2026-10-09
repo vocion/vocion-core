@@ -102,7 +102,7 @@ async function defaultModel(orgId: string): Promise<LabelModel> {
  * @param opts.model - Test seam.
  */
 export async function labelStep(opts: { orgId: string; tool: string; args?: Record<string, unknown>; model?: LabelModel }): Promise<StepLabels> {
-  const fallback = fallbackStepLabels(opts.tool);
+  const fallback = fallbackStepLabels(opts.tool, undefined, opts.args);
   if (process.env.VOCION_STEP_LABELS === 'off') {
     return fallback;
   }
@@ -119,7 +119,7 @@ export async function labelStep(opts: { orgId: string; tool: string; args?: Reco
       new Promise<string>((_, reject) => setTimeout(() => reject(new Error('step label timed out')), TIMEOUT_MS)),
     ]);
     const parsed = parseLabelsReply(reply);
-    if (isSafeStepLabels(parsed)) {
+    if (isSafeStepLabels(parsed, opts.tool)) {
       return remember(key, normalizeStepLabels(parsed));
     }
     return remember(key, fallback);

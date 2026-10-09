@@ -36,7 +36,7 @@ const actions = vi.hoisted(() => ({
 vi.mock('@/services/ActionService', () => actions);
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, askSchema, decisionDeadlineSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema, agentSchema } = await import('@/models/Schema');
+const { actionRunSchema, askSchema, conversationSchema, decisionDeadlineSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema, agentSchema } = await import('@/models/Schema');
 const { and, eq } = await import('drizzle-orm');
 const svc = await import('./DecisionClockService');
 const { DEFAULT_DECIDER } = await import('@/libs/needsYou/deadlines');
@@ -136,6 +136,48 @@ describe('opening clocks', () => {
     expect(await svc.getDecisionClock(OTHER, 'ask', theirs.id)).toBeNull();
     expect((await svc.runningClocks(OTHER)).size).toBe(0);
     expect((await svc.runningClocks(ORG)).size).toBe(1);
+  });
+});
+
+/**
+ * Founder, 2026-10-09: "Default in 23h: Connect GitHub" on a setup step. A
+ * setup step, and a question asked mid-objective, wait for their person: no
+ * clock, no default that applies itself — unless the asker set a close date.
+ */
+describe('a setup step waits for its person', () => {
+  it('opens no clock on a setup step, nor on a question in a conversation mid-objective', async () => {
+    const setup = await fileAsk(ORG, { title: 'Connect GitHub', kind: 'setup' });
+    const [conv] = await db.insert(conversationSchema).values({ orgId: ORG, projectId: ORG, agentSlug: 'lead', title: 'setup my software factory', objective: { kind: 'setup', plugin: 'software-factory', state: 'running', startedAt: T0.toISOString() } }).returning({ id: conversationSchema.id });
+    const midObjective = await fileAsk(ORG, { title: 'Which repositories should the factory include?', conversationId: conv!.id });
+    const plain = await fileAsk(ORG);
+
+    await svc.openClocks({ now: T0 });
+
+    expect(await svc.getDecisionClock(ORG, 'ask', setup.id)).toBeNull();
+    expect(await svc.getDecisionClock(ORG, 'ask', midObjective.id)).toBeNull();
+    expect(await clockOf('ask', plain.id)).toMatchObject({ defaultOption: 'renew' });
+
+    await db.delete(conversationSchema);
+  });
+
+  it('keeps a clock where a policy set one explicitly', async () => {
+    const due = await fileAsk(ORG, { title: 'Connect GitHub before the audit', kind: 'setup', dueAt: new Date(T0.getTime() + 48 * H) });
+
+    await svc.openClocks({ now: T0 });
+
+    expect(await clockOf('ask', due.id)).toMatchObject({ status: 'open' });
+  });
+
+  it('never applies a default to a setup step whose clock was opened before this rule', async () => {
+    const setup = await fileAsk(ORG, { title: 'Connect GitHub', kind: 'setup' });
+    await db.insert(decisionDeadlineSchema).values({ orgId: ORG, subjectKind: 'ask', subjectId: setup.id, deadlineAt: new Date(T0.getTime() + H), escalateAt: T0, nextAt: T0, defaultOption: 'renew', defaultLabel: 'Approve', escalations: 1, createdAt: T0, updatedAt: T0 });
+
+    await svc.sweepDecisionClocks({ now: new Date(T0.getTime() + 2 * H) });
+
+    const [row] = await db.select().from(askSchema).where(eq(askSchema.id, setup.id));
+
+    expect(row!.status).toBe('open');
+    expect((await clockOf('ask', setup.id)).status).toBe('held');
   });
 });
 
