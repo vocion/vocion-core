@@ -61,7 +61,10 @@ export const setPolicyRoute = os
 export const rhythmRoute = os
   .input(z.object({ browserTimeZone: z.string().max(64).optional() }))
   .handler(async ({ input }) => {
-    const { userId, accountId } = await guardAuth();
+    const { userId, accountId: sessionAccount } = await guardAuth();
+    // A person's rhythm is theirs, kept on their home Org with their one Personal.
+    const { homeAccountFor } = await import('@/services/workspace/personalProject');
+    const accountId = (await homeAccountFor(userId)) ?? sessionAccount;
     if (!accountId) {
       throw ApiError.forbidden();
     }
@@ -93,7 +96,10 @@ export const setRhythmRoute = os
     listenSpeed: z.union([z.literal(1), z.literal(1.5), z.literal(2)]).optional(),
   }))
   .handler(async ({ input }) => {
-    const { userId, accountId } = await guardAuth();
+    const { userId, accountId: sessionAccount } = await guardAuth();
+    // A person's rhythm is theirs, kept on their home Org with their one Personal.
+    const { homeAccountFor } = await import('@/services/workspace/personalProject');
+    const accountId = (await homeAccountFor(userId)) ?? sessionAccount;
     if (!accountId) {
       throw ApiError.forbidden();
     }
@@ -166,3 +172,30 @@ export const revokeFeedRoute = os.handler(async () => {
   await revokePodcastFeed(userId, accountId);
   return { revoked: true };
 });
+
+/**
+ * The Org's "Include in members' Personal" setting (`services/personal/reach.ts`):
+ * whether its items reach its members' one Personal with their content, or as
+ * counts with links. Meaningful only where there are several Orgs to read
+ * across, so `applies` is false on a single-Org install and nothing is shown.
+ */
+export const orgReachRoute = os.handler(async () => {
+  const { accountId, has } = await guardAuth();
+  if (!accountId) {
+    throw ApiError.forbidden();
+  }
+  const [{ includeInPersonal }, { orgsMode }] = await Promise.all([import('@/services/personal/reach'), import('@/services/OrgPolicy')]);
+  return { include: await includeInPersonal(accountId), canChange: has({ role: ORG_ROLE.ADMIN }), applies: orgsMode() === 'multi' };
+});
+
+export const setOrgReachRoute = os
+  .input(z.object({ include: z.boolean() }))
+  .handler(async ({ input }) => {
+    const { accountId, has } = await guardAuth();
+    if (!accountId || !has({ role: ORG_ROLE.ADMIN })) {
+      throw ApiError.forbidden();
+    }
+    const { setIncludeInPersonal } = await import('@/services/personal/reach');
+    await setIncludeInPersonal(accountId, input.include);
+    return { include: input.include };
+  });

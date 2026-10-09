@@ -43,7 +43,7 @@ function rowLine(r: StateRow, n: number, now: Date, tz: string): string {
     .filter(k => r.facets[k] !== undefined && r.facets[k] !== null && r.facets[k] !== '')
     .map(k => `${k} ${String(r.facets[k]).slice(0, 140)}`);
   return [
-    `[${n}] **${r.title}**${r.live ? ' · LIVE' : ''}`,
+    `[${n}] **${r.title}**${r.where ? ` — ${r.where}` : ''}${r.live ? ' · LIVE' : ''}`,
     `   ${[r.noun, r.at ? dateStamp(r.at.toISOString(), now, tz) : '', ...facts].filter(Boolean).join(' · ')}`,
   ].join('\n');
 }
@@ -57,7 +57,8 @@ function rowLine(r: StateRow, n: number, now: Date, tz: string): string {
  * @param opts.now - The clock.
  * @param opts.tz - The person's zone.
  */
-export function renderStateRead(read: StateRead & { live?: { checked: number; error?: string } }, opts: { view?: StateView; base: number; now: Date; tz: string }): string {
+export function renderStateRead(read: StateRead & { live?: { checked: number; error?: string }; withheld?: Array<{ accountName: string; workspace: string; count: number; link: string }> }, opts: { view?: StateView; base: number; now: Date; tz: string }): string {
+  const elsewhere = withheldLines(read.withheld);
   const head: string[] = [];
   if (opts.view) {
     head.push(`${opts.view.name} — ${opts.view.description}`);
@@ -75,14 +76,31 @@ export function renderStateRead(read: StateRead & { live?: { checked: number; er
   }
   head.push('This is the complete list for the query: do not search for more with other phrases.');
   if (read.rows.length === 0) {
-    return [...head, '', 'Nothing matches.'].join('\n');
+    return [...head, '', 'Nothing matches.', ...elsewhere].join('\n');
   }
   return [
     ...head,
     '',
     `${read.rows.length}${read.total > read.rows.length ? ` of ${read.total}` : ''}:`,
     ...read.rows.map((r, i) => rowLine(r, opts.base + i + 1, opts.now, opts.tz)),
+    ...elsewhere,
   ].join('\n');
+}
+
+/**
+ * Orgs that keep their items out of Personal: a count and a door each, never
+ * what the items are (`services/personal/reach.ts`).
+ * @param withheld - The counts.
+ */
+export function withheldLines(withheld: ReadonlyArray<{ accountName: string; workspace: string; count: number; link: string }> | undefined): string[] {
+  if (!withheld || withheld.length === 0) {
+    return [];
+  }
+  return [
+    '',
+    'ALSO MATCHING IN ORGS THAT KEEP THEIR ITEMS OUT OF PERSONAL — counts only; say the number and give the link, never guess what they are:',
+    ...withheld.map(w => `- ${w.accountName} › ${w.workspace}: ${w.count} [open there](${w.link})`),
+  ];
 }
 
 /** Vocion's own record kinds (`services/state/state.ts` RECORD_SETS), named here so the tool's import graph stays small. */
@@ -138,7 +156,11 @@ export function queryStateTool(ctx: RuntimeContext) {
       }
       const [person] = ctx.userId ? await db.select({ email: userSchema.email, name: userSchema.name }).from(userSchema).where(eq(userSchema.id, ctx.userId)).limit(1) : [];
       const stateCtx = { orgIds: [ctx.orgId], allowedSourceSlugs: ctx.allowedSourceSlugs, userId: ctx.userId, me: person ? handlesOf(person) : [], now: new Date() };
-      let read: StateRead & { live?: { checked: number; error?: string } } = await runStateQuery(query, stateCtx);
+      // From a Personal, the read spans the person's Orgs, in place (`services/personal/acrossOrgs.ts`).
+      const across = ctx.workspaceKind === 'personal' && ctx.userId
+        ? await import('@/services/personal/acrossOrgs').then(m => m.personalStateRead(query, { ...stateCtx, userId: ctx.userId! }, runStateQuery))
+        : null;
+      let read: StateRead & { live?: { checked: number; error?: string }; withheld?: Array<{ accountName: string; workspace: string; count: number; link: string }> } = across ?? await runStateQuery(query, stateCtx);
       if (args.live) {
         read = await withLiveGap(read, query, stateCtx);
       }

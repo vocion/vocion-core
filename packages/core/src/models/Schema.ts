@@ -268,6 +268,14 @@ export const tenantAccountSchema = pgTable(
      */
     personalConnections: boolean('personal_connections').default(true).notNull(),
     /**
+     * Whether this Org's items reach its members' one Personal (0208,
+     * `services/personal/reach.ts`). On by default. Off, for a client Org whose
+     * contract forbids aggregation: Personal shows that Org's items only as
+     * counts with links into the Org, never their content. Only matters on a
+     * multi-Org deployment; a single-Org install's Personal is in the Org.
+     */
+    includeInPersonal: boolean('include_in_personal').default(true).notNull(),
+    /**
      * Daily briefs (0203, docs/guides/morning-brief.md): whether this Org's
      * people get a morning brief and an evening wrap at all. On by default;
      * each person's own times and switches sit under it.

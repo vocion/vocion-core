@@ -64,7 +64,7 @@ export const latestRoute = os
 
 /**
  * briefings.personal — "your day": the person's own brief across the
- * workspaces they reach in this account, composed now and kept in their
+ * workspaces they reach in every Org their Personal reads, composed now and kept in their
  * personal workspace (`services/briefings/personal.ts`). It is the same brief
  * the morning schedule delivers: asking again the same day refreshes that
  * day's edition rather than adding a second one, and the model is called only
@@ -79,7 +79,10 @@ export const personalRoute = os
     }
     const { publishPersonalBrief } = await import('@/services/briefings/personal');
     const { resolveTimeZone } = await import('@/libs/time/zone');
-    const out = await publishPersonalBrief(userId, accountId, { timeZone: resolveTimeZone(input.timeZone) });
+    // One brief per person, on their home Org (where their one Personal is and
+    // whose brief budget pays for it), whichever Org they asked from.
+    const { homeAccountFor } = await import('@/services/workspace/personalProject');
+    const out = await publishPersonalBrief(userId, (await homeAccountFor(userId)) ?? accountId, { timeZone: resolveTimeZone(input.timeZone) });
     return { id: out.id, href: out.href, replaced: out.replaced, title: out.brief.title, markdown: out.brief.markdown, waiting: { total: out.brief.waiting.total, yours: out.brief.waiting.yours }, workspaces: out.brief.workspaces, unavailable: out.brief.unavailable };
   });
 

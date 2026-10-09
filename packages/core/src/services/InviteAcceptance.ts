@@ -104,9 +104,9 @@ async function isMemberOf(userId: string, accountId: string): Promise<boolean> {
 /**
  * The first workspace this person can open in one Org, as a URL that
  * names the Org with `?org=` so a slug shared with one of their other
- * Orgs resolves there. Only a workspace ON that account: with access
- * enforced, a new member may hold nothing there yet, and naming this account
- * on a workspace from another one would 404.
+ * Orgs resolves there. With access enforced, a new member may hold nothing
+ * there yet: then their one Personal, named on its own Org (naming this Org
+ * on a workspace from another would 404).
  * @param userId - The person.
  * @param accountId - The account to open.
  * @param accountSlug - Its slug, for `?org=`.
@@ -114,9 +114,18 @@ async function isMemberOf(userId: string, accountId: string): Promise<boolean> {
  */
 async function openPathOnAccount(userId: string, accountId: string, accountSlug: string): Promise<string | null> {
   const landing = await activeWorkspaceForUser(userId, null, accountId);
-  return landing?.accountId === accountId
-    ? workspaceUrl(landing.slug, '/dashboard', { accountSlug })
-    : null;
+  if (landing?.accountId === accountId) {
+    return workspaceUrl(landing.slug, '/dashboard', { accountSlug });
+  }
+  // Nothing there yet: their one Personal, which reads this Org too
+  // (`services/personal/reach.ts`), named on the Org it lives on.
+  const { findPersonalProject } = await import('@/services/workspace/personalProject');
+  const personal = await findPersonalProject(userId);
+  if (!personal) {
+    return null;
+  }
+  const [home] = await db.select({ slug: tenantAccountSchema.slug }).from(tenantAccountSchema).where(eq(tenantAccountSchema.id, personal.accountId)).limit(1);
+  return workspaceUrl(personal.slug, '/dashboard', home ? { accountSlug: home.slug } : {});
 }
 
 /**

@@ -460,7 +460,11 @@
     "invite_emailed": "E-mail envoyé à {email}. Le lien fonctionne aussi :",
     "invite_not_emailed": "E-mail non envoyé à {email} :",
     "invite_not_emailed_reason": "{reason}. Copiez le lien et partagez-le.",
-    "invite_link_label": "Lien d’invitation"
+    "invite_link_label": "Lien d’invitation",
+    "personal_reach_title": "Inclure dans l’espace personnel des membres",
+    "personal_reach_on": "Les membres voient les éléments en attente, briefs et vues de cette Org dans leur espace personnel, étiquetés avec cette Org, lus avec leurs propres accès.",
+    "personal_reach_off": "L’espace personnel des membres n’affiche que le nombre d’éléments en attente ici, avec un lien. Désactivez-le lorsqu’un contrat interdit d’agréger le travail de cette Org ailleurs.",
+    "personal_reach_failed": "Impossible d’enregistrer. Réessayez."
   },
   "SignIn": {
     "title": "Bon retour",

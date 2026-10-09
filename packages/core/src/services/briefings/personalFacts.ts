@@ -27,7 +27,9 @@ import { askSchema, briefingSchema, missionRunSchema, userSchema } from '@/model
 import { readWaitingOnMe } from '@/services/agents/tools/waitingOnMe';
 import { briefingHref } from '@/services/briefings/links';
 import { listInboxForUser } from '@/services/inbox/acrossWorkspaces';
+import { placeLabel } from '@/services/personal/acrossOrgs';
 import { personalCredential } from '@/services/personal/connections';
+import { personalReach } from '@/services/personal/reach';
 
 /** One piece of evidence about a meeting, with where it came from. */
 export type MeetingEvidence = { from: 'mail' | 'workspace'; text: string; where: string; href?: string | null };
@@ -225,8 +227,12 @@ async function readTeam(userId: string, workspaces: Array<{ id: string; name: st
  */
 export async function gatherPersonalFacts(input: { kind: RhythmKind; userId: string; accountId: string; personalOrgId: string; timeZone: string; since: Date; now: Date; read?: (orgId: string) => Promise<InboxItem[]> }): Promise<PersonalFacts> {
   const { kind, userId, accountId, personalOrgId, timeZone: tz, now } = input;
-  const inbox = await listInboxForUser(userId, { accountId, ...(input.read ? { read: input.read } : {}) });
-  const shared = inbox.workspaces.filter(w => w.kind !== 'personal').map(w => ({ id: w.id, name: w.name, slug: w.slug, accountSlug: w.accountSlug }));
+  // Every Org the person's one Personal reaches, in place (`services/personal/reach.ts`):
+  // content from Orgs that include themselves, counts only from the rest.
+  const inbox = await listInboxForUser(userId, { reach: await personalReach(userId), ...(input.read ? { read: input.read } : {}) });
+  // Every item says where it lives; with several Orgs, which Org too.
+  const multiOrg = new Set(inbox.workspaces.map(w => w.accountId)).size > 1;
+  const shared = inbox.workspaces.filter(w => w.kind !== 'personal').map(w => ({ id: w.id, name: placeLabel(w, multiOrg), slug: w.slug, accountSlug: w.accountSlug }));
   const today = dayKey(now, tz);
   const window = kind === 'brief'
     ? { from: startOfDay(today, tz), to: startOfDay(dayPlus(today, 1), tz) }

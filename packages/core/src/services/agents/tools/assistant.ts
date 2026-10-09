@@ -86,24 +86,48 @@ async function personName(userId: string): Promise<string> {
 /**
  * One line per workspace, as the model reads it.
  * @param w - The workspace.
+ * @param all
  */
-function workspaceLine(w: ActingWorkspace): string {
+function workspaceLine(w: ActingWorkspace, all: readonly ActingWorkspace[] = [w]): string {
   const lead = w.lead ? ` — answered by ${w.lead.name}${w.lead.description ? ` (${w.lead.description.replace(/\s+/g, ' ').slice(0, 120)})` : ''}` : '';
   const about = w.description ? ` — ${w.description.replace(/\s+/g, ' ').slice(0, 200)}` : '';
-  return `- ${w.name} (workspace: ${w.slug})${about}${lead}`;
+  // A slug is unique only inside an Org: two Orgs' "support" are named by id.
+  const ref = all.filter(x => x.slug === w.slug).length > 1 ? w.id : w.slug;
+  const orgs = new Set(all.map(x => x.org.id)).size;
+  return `- ${w.name}${orgs > 1 && w.org.name ? ` · ${w.org.name}` : ''} (workspace: ${ref})${about}${lead}`;
+}
+
+/**
+ * When a named workspace is in an Org that keeps its items out of Personal:
+ * the sentence to say, with the door into it. Null otherwise.
+ * @param userId - The person.
+ * @param ref - The workspace as named.
+ */
+async function keptOut(userId: string, ref: string): Promise<string | null> {
+  const wanted = ref.trim().toLowerCase();
+  if (!wanted) {
+    return null;
+  }
+  const { reachedWorkspaces } = await import('@/services/personal/acrossOrgs');
+  const w = (await reachedWorkspaces(userId)).find(x => x.mode === 'counts' && (x.id.toLowerCase() === wanted || x.slug.toLowerCase() === wanted || x.name.trim().toLowerCase() === wanted));
+  if (!w) {
+    return null;
+  }
+  const { workspaceUrl } = await import('@/libs/links');
+  return `${w.accountName} keeps its work out of members' Personal, so it cannot be asked from here. Tell the person to ask in ${w.name} itself: ${workspaceUrl(w.slug, '/dashboard/chat', { accountSlug: w.accountSlug, absolute: true })}`;
 }
 
 export function listMyWorkspacesTool(ctx: RuntimeContext) {
   return tool(
     async () => {
       const who = await owner(ctx);
-      const list = who ? await listActingWorkspaces(who.userId, who.accountId) : [];
+      const list = who ? await listActingWorkspaces(who.userId) : [];
       if (list.length === 0) {
-        return 'There is no shared workspace in this Org that you can ask yet.';
+        return 'There is no shared workspace you can ask from here yet.';
       }
       return [
         `The shared workspaces you can ask (${list.length}). Ask one with ask_workspace, naming it by its workspace slug:`,
-        ...list.map(workspaceLine),
+        ...list.map(w => workspaceLine(w, list)),
       ].join('\n');
     },
     {
@@ -170,28 +194,28 @@ export function askWorkspaceTool(ctx: RuntimeContext) {
 
       let target: ActingWorkspace;
       if (ref) {
-        const found = await resolveActingWorkspace(who.userId, who.accountId, ref);
+        const found = await resolveActingWorkspace(who.userId, null, ref);
         if (!found) {
-          return notFound(ref);
+          return (await keptOut(who.userId, ref)) ?? notFound(ref);
         }
         target = found.workspace;
       } else {
-        const list = await listActingWorkspaces(who.userId, who.accountId);
+        const list = await listActingWorkspaces(who.userId);
         if (list.length === 0) {
-          return 'There is no shared workspace in this Org that you can ask yet.';
+          return 'There is no shared workspace you can ask from here yet.';
         }
         const choice = await pickWorkspace(ctx, list, message);
         if ('unsure' in choice) {
           return [
             `Could not tell which workspace this is for: ${choice.unsure}. Ask the person, or ask the ones it could be for, naming each:`,
-            ...list.map(workspaceLine),
+            ...list.map(w => workspaceLine(w, list)),
           ].join('\n');
         }
         target = choice.picked;
       }
       // Every ask, not only the lookup: a grant removed a second ago is gone.
       const identity = await actAs(who.userId, target.id);
-      if (!identity || identity.accountId !== who.accountId) {
+      if (!identity || identity.accountId !== target.org.id) {
         return notFound(ref || target.slug);
       }
 

@@ -135,12 +135,29 @@ export async function listProjectsForUser(userId: string): Promise<ProjectSummar
     .from(projectSchema)
     .innerJoin(accountMembershipSchema, membershipInProjectAccount(userId))
     .where(visibleWorkspace(userId));
+  const listed = await onePersonal(userId, all);
   if (!enforcementEnabled()) {
-    return all.map(readable);
+    return listed.map(readable);
   }
   // The switcher shows what a person holds, not what the account owns.
   const reachable = new Set(await accessibleProjectIds(userId));
-  return all.filter(p => reachable.has(p.id)).map(readable);
+  return listed.filter(p => reachable.has(p.id)).map(readable);
+}
+
+/**
+ * One Personal per person (`workspace/personalProject.ts`): on a database from
+ * before that, where they still have one per Org until `mergePersonalProjects`
+ * folds them, only the one that stays is listed.
+ * @param userId - The person.
+ * @param projects - What they can open.
+ */
+async function onePersonal<T extends { id: string; kind: 'shared' | 'personal' }>(userId: string, projects: T[]): Promise<T[]> {
+  if (projects.filter(p => p.kind === 'personal').length <= 1) {
+    return projects;
+  }
+  const { findPersonalProject } = await import('@/services/workspace/personalProject');
+  const keep = await findPersonalProject(userId);
+  return projects.filter(p => p.kind !== 'personal' || p.id === keep?.id);
 }
 
 /**

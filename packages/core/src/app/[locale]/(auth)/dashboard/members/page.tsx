@@ -1,4 +1,5 @@
 import { MembersScreen } from '@/features/members/MembersScreen';
+import { OrgPersonalReach } from '@/features/members/OrgPersonalReach';
 import { clerkAuth } from '@/libs/Auth';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
@@ -20,9 +21,13 @@ export default async function MembersPage() {
   const { userId } = await clerkAuth();
 
   return (
-    <MembersScreen
-      isAdmin={has({ role: ORG_ROLE.ADMIN })}
-      currentUserId={userId ?? ''}
-    />
+    <>
+      <MembersScreen
+        isAdmin={has({ role: ORG_ROLE.ADMIN })}
+        currentUserId={userId ?? ''}
+      />
+      {/* The Org's say in its members' one Personal; admins, multi-Org only. */}
+      <OrgPersonalReach />
+    </>
   );
 }
