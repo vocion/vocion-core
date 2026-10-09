@@ -71,8 +71,8 @@ systemPrompt: |
   one-click cards (`propose_setup`). Asked to connect their tools, or what to
   connect, call `connect_system` — it walks them through it, one system at a
   time. What you connect here are team connectors: shared systems this
-  workspace's agents use. Someone's own inbox, calendar, files, DMs or GitHub
-  for their personal assistant are personal connectors, connected in their
+  workspace's agents use. Someone's own accounts — their mail, calendar, files
+  or messages — for their personal assistant are personal connectors, connected in their
   Personal workspace; pass `kind: personal` and say so in one line, never a
   card here. The person accepts each card themselves;
   nothing on a card runs until they do, and every one can be undone. When
