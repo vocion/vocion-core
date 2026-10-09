@@ -49,7 +49,8 @@ jobs:
         # build-local lives in the @vocion/core workspace, not the repo root.
         # In CI it skips Next's own type-check (next.config.ts): `static`
         # already type-checks core once and fails the pull request there.
-        run: npm run build-local --workspace @vocion/core
+        # Timed, for the memory budget below.
+        run: /usr/bin/time -v -o "$RUNNER_TEMP/build-time.txt" npm run build-local --workspace @vocion/core
         env:
           NEXT_PUBLIC_SENTRY_DISABLED: 'true' # Only upload Sentry source maps in deployment
           NEXT_PUBLIC_APP_URL: http://localhost:3008
@@ -59,6 +60,25 @@ jobs:
           # PGlite on 5432 and migrates against it, which is what this URL points at.
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_build
           AUTH_SECRET: ci-only-secret-not-used-by-the-build
+
+      # The build's peak memory, measured, with a budget. A module count read
+      # from source does not track it (src/scripts/check-route-graph.ts): the
+      # deploy runners that build the image have a fixed ceiling, and v5.25.0
+      # crossed Metacto's (7.9 GB) with one route. Raise the budget
+      # deliberately, with a reason, after looking for what grew.
+      - name: Build memory
+        env:
+          BUILD_PEAK_RSS_BUDGET_MB: '99999'
+        run: |
+          set -euo pipefail
+          peak_mb=$(( $(awk -F': ' '/Maximum resident set size/{print $2}' "$RUNNER_TEMP/build-time.txt") / 1024 ))
+          wall=$(awk -F': ' '/Elapsed \(wall clock\)/{print $2}' "$RUNNER_TEMP/build-time.txt")
+          echo "next build: peak RSS ${peak_mb} MB (budget ${BUILD_PEAK_RSS_BUDGET_MB} MB), ${wall}"
+          echo "### Build memory: ${peak_mb} MB peak RSS (budget ${BUILD_PEAK_RSS_BUDGET_MB} MB), ${wall}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${peak_mb}" -gt "${BUILD_PEAK_RSS_BUDGET_MB}" ]; then
+            echo "::error::The production build peaked at ${peak_mb} MB, over the budget of ${BUILD_PEAK_RSS_BUDGET_MB} MB. Find what grew (a light route that now reaches the server, a new dependency in many routes) before raising BUILD_PEAK_RSS_BUDGET_MB."
+            exit 1
+          fi
 
       # The E2E shards restore this, keyed by the same node version and
       # commit. scripts/wait-for-build-output.sh watches for this step by its
@@ -144,10 +164,11 @@ jobs:
         run: npm run check:migrations
 
       # The production build compiles everything a route reaches into that
-      # route, so one edge from a widely imported module to the event bus put
-      # the whole server into almost every route: v5.15.1 timed out on the
+      # route, so one edge from a widely imported module (or a light route)
+      # to the event bus puts the whole server there: v5.15.1 timed out on the
       # deploy runner and was killed for memory on a 32 GB box. A few seconds,
-      # no build (src/scripts/check-route-graph.ts).
+      # no build (src/scripts/check-route-graph.ts). The build's memory itself
+      # is budgeted in the build job.
       - name: Route module graph (build size)
         run: npm run check:route-graph
 

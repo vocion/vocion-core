@@ -21,13 +21,14 @@
 
 import type { PushChannel } from '@/libs/personal/stopLink';
 import process from 'node:process';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { appBaseUrl } from '@/libs/links';
 import { logger } from '@/libs/Logger';
 import { stopToken } from '@/libs/personal/stopLink';
 import { resolveTimeZone } from '@/libs/time/zone';
-import { personalRhythmSchema, userSchema } from '@/models/Schema';
+import { userSchema } from '@/models/Schema';
+import { pushSettingsOf } from '@/services/personal/pushSettings';
 
 /** What one push says. */
 export type PushItem = {
@@ -95,20 +96,6 @@ const defaultSenders: PushSenders = {
 };
 
 /**
- * The person's push settings, or null when they have no rhythm row yet.
- * @param userId - The person.
- * @param accountId - Their Org.
- */
-async function settingsOf(userId: string, accountId: string) {
-  const [row] = await db
-    .select({ channels: personalRhythmSchema.pushChannels, mode: personalRhythmSchema.pushMode, quietStart: personalRhythmSchema.quietStart, quietEnd: personalRhythmSchema.quietEnd, timeZone: personalRhythmSchema.timeZone })
-    .from(personalRhythmSchema)
-    .where(and(eq(personalRhythmSchema.userId, userId), eq(personalRhythmSchema.accountId, accountId)))
-    .limit(1);
-  return row ?? null;
-}
-
-/**
  * When the person's quiet hours end, if they are inside them now.
  * @param s - Their settings.
  * @param s.quietStart - Start, `HH:MM`.
@@ -135,7 +122,7 @@ export async function quietNow(s: { quietStart: string | null; quietEnd: string 
 export async function pushToPerson(item: PushItem, opts: { now?: Date; senders?: PushSenders } = {}): Promise<PushOutcome> {
   const now = opts.now ?? new Date();
   const senders = opts.senders ?? defaultSenders;
-  const settings = await settingsOf(item.userId, item.accountId);
+  const settings = await pushSettingsOf(item.userId, item.accountId);
   const channels = (settings?.channels ?? []).filter((c): c is PushChannel => c === 'slack' || c === 'sms' || c === 'email');
   if (item.kind === 'brief' && settings?.mode === 'urgent') {
     return { pushed: false, reason: 'mode' };
@@ -182,22 +169,6 @@ export async function pushToPerson(item: PushItem, opts: { now?: Date; senders?:
     }
   }
   return { pushed: true, channels: out };
-}
-
-/**
- * Turn one channel off for one person: what the one-tap stop link does.
- * @param userId - The person.
- * @param accountId - Their Org.
- * @param channel - The channel.
- */
-export async function stopChannel(userId: string, accountId: string, channel: PushChannel): Promise<void> {
-  const settings = await settingsOf(userId, accountId);
-  if (!settings) {
-    return;
-  }
-  await db.update(personalRhythmSchema)
-    .set({ pushChannels: settings.channels.filter(c => c !== channel) })
-    .where(and(eq(personalRhythmSchema.userId, userId), eq(personalRhythmSchema.accountId, accountId)));
 }
 
 /**
