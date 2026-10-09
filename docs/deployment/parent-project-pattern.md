@@ -22,7 +22,7 @@ with `vocion-core` pinned inside it as a submodule.
 ```
 <client>-vocion/
 ├── vocion-core/          the framework, pinned. Never edited here.
-├── infra/terraform/      the client's AWS stack
+├── infra/terraform/      the client's AWS stack: a call to core's modules/vocion-stack
 ├── infra/aws/            what runs on the box: Caddyfile, compose, bootstrap
 ├── workspace/<slug>/     agents and sources, as reviewable YAML
 ├── scripts/deploy.sh     one entrypoint
@@ -627,8 +627,11 @@ Three defaults that are wrong for any client outside `us-east-1`, and one that i
 
 **One more, on secrets.** Both parent projects create the Secrets Manager entry
 out-of-band and reference it from Terraform as a data source, so API keys never
-enter state or `tfvars`. This repo's own `infra/terraform` *creates* the secret
-instead. Copy the parent form, not this one.
+enter state or `tfvars`. This repo's legacy root `infra/terraform` *creates* the
+secret with its value instead; don't copy that. `modules/vocion-stack` keeps the
+parents' guarantee another way: it manages each secret's name and never its
+value (no `aws_secretsmanager_secret_version` anywhere), and the box reads the
+value on every deploy.
 
 ---
 
@@ -720,41 +723,65 @@ naming any of those index builds that is missing or `INVALID`:
 
 ---
 
-## Known problem: three copies of the same stack
+## The shared stack: `modules/vocion-stack`
 
-`infra/terraform` here isn't a library. It's a fourth deployment that happens to
-live in the framework repo — which is exactly why every parent project copies
-it.
+Every parent project used to copy `infra/terraform` and edit it. Measured at
+`v2.21.0` against the Larkfield copy, `main.tf` was **295 lines, 92 differing,
+and 29 of those differences were just resource names and tags**: three copies
+of one stack, drifting.
 
-Measured at `v2.21.0` against the Larkfield copy: `main.tf` is **295 lines, 92
-differing, and 29 of those differences are just resource names and tags.**
-
-The fix, when someone has room:
-
-```
-infra/terraform/
-├── modules/vocion-stack/     everything shared
-└── environments/vocion-ai/   this repo's deployment, reduced to a module call
-```
-
-Parent projects then keep only an overlay:
+The stack is now a module in this repo:
+[`infra/terraform/modules/vocion-stack`](../../infra/terraform/modules/vocion-stack/README.md).
+A parent project's `infra/terraform` shrinks to a provider, a backend, a
+hosted zone and one call:
 
 ```hcl
 module "vocion" {
   source = "../../vocion-core/infra/terraform/modules/vocion-stack"
 
-  project_name   = "<client>-vocion"
-  apex_domain    = var.apex_domain
-  instance_type  = var.instance_type
-  data_volume_gb = var.data_volume_gb
-  secret_name    = "<client>-vocion/production"
+  name_prefix     = "<client>-vocion-${var.environment}"
+  azs             = ["us-east-1a", "us-east-1b"]
+  hostname        = var.hostname
+  route53_zone_id = aws_route53_zone.app.zone_id
+  core_ref        = "v5.0.0"
+  instance_type   = var.instance_type
 }
 ```
 
-No Terraform registry needed — **the submodule pin already versions it**, so a
+No Terraform registry needed: **the submodule pin already versions it**, so a
 client's infrastructure and application move together on one SHA.
 
-Sequence: extract the module here, prove it with `environments/vocion-ai`
-against a real deployment, cut a release, then let parent projects bump their
-pin and swap `.tf` files for a module call. Extraction means `terraform state
-mv` against a live box, so give it its own change and its own rollback plan.
+What the module brings that the copies did not:
+
+- **Every name from `name_prefix`.** The day-one rule in
+  [multiple environments](./multiple-environments.md) is built in.
+- **The Cloud profile by default**: an ALB with an ACM certificate and a WAF in
+  front of the box, SSM Session Manager instead of SSH, RDS with pgvector and
+  a CMK, a KMS credential vault, AWS Backup into a locked vault. Each piece is a
+  variable (`alb_enabled`, `waf_enabled`, `ssh_enabled`, `kms_vault_enabled`,
+  `backup_enabled`, `runners_enabled`); `alb_enabled = false` is the classic
+  single box with Caddy terminating TLS.
+- **A box that deploys itself to a pinned release.** `core_ref` is a tag or a
+  full sha, never a branch. User-data installs `vocion-deploy`, which reads the
+  env from Secrets Manager plus the module's SSM parameter on every run,
+  migrates RDS with core's `apply-migrations.sh` before the swap, and checks
+  that the new container serves the commit it built. Moving to a new release is
+  `sudo vocion-deploy <tag>` from an SSM session. The contract is in the
+  module's README.
+
+Moving an existing parent onto the module is a state migration against a live
+box, so give it its own change and its own rollback plan:
+
+1. Add the module call beside the existing resources with the same
+   `name_prefix`-derived names the live resources already carry, or accept a
+   rename where nothing serves traffic.
+2. `tofu state mv` each live resource to its address inside the module
+   (`aws_vpc.main` → `module.vocion.aws_vpc.main`, and so on), or use `moved`
+   blocks in the parent.
+3. `tofu plan` until it shows no replacement of the instance, the database or
+   the bucket. Anything the module manages differently (an unencrypted root
+   volume, a hand-made Elastic IP) stays in the parent until it is retired
+   deliberately.
+
+The legacy root at `infra/terraform/*.tf` stays as it is until a deployment
+that uses it moves; new installations start from the module.

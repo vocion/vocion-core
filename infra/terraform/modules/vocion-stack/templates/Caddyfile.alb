@@ -1,0 +1,41 @@
+# vocion-stack: Caddy behind the ALB.
+#
+# The ALB terminates TLS (ACM) and is the only client the box's security
+# group lets reach port 80, so this serves plain HTTP on :80 for any Host the
+# ALB forwards (the ALB forwards only the installation's hostname; its health
+# check arrives addressed to the box's IP). X-Forwarded-* headers are trusted
+# from inside the VPC only (VOCION_TRUSTED_PROXIES, set by the module).
+
+{
+	auto_https off
+	servers {
+		trusted_proxies static {$VOCION_TRUSTED_PROXIES}
+	}
+}
+
+:80 {
+	encode gzip zstd
+
+	# Streaming endpoints: no buffering, or SSE arrives all at once at the end.
+	@sse path /*/rpc/agent/stream*
+	handle @sse {
+		reverse_proxy app:3000 {
+			header_up X-Forwarded-Proto https
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy app:3000 {
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		-Server
+	}
+}

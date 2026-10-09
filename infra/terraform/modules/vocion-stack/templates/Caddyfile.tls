@@ -1,0 +1,29 @@
+# vocion-stack: Caddy terminating TLS itself (alb_enabled = false).
+#
+# Let's Encrypt for VOCION_HOSTNAME, provisioned on the first request after
+# DNS resolves to this box. The hostname only: no www alias, and no Langfuse
+# site (the module never self-hosts Langfuse).
+
+{$VOCION_HOSTNAME} {
+	encode gzip zstd
+
+	# Streaming endpoints: no buffering, or SSE arrives all at once at the end.
+	@sse path /*/rpc/agent/stream*
+	handle @sse {
+		reverse_proxy app:3000 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy app:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		-Server
+	}
+}

@@ -6,6 +6,57 @@ Companion to [the parent-project pattern](./parent-project-pattern.md).
 
 ---
 
+## With `modules/vocion-stack`
+
+**An environment is one call to
+[`modules/vocion-stack`](../../infra/terraform/modules/vocion-stack/README.md).**
+The module derives every name (IAM roles, security groups, secrets, the RDS
+identifier, the media bucket, the SSM parameter) from `name_prefix`, so the
+day-one rule below is already done for you. Two shapes, depending on where the
+environments live:
+
+- **One AWS account per environment** (recommended: a broken dev apply cannot
+  touch production, and each account's bill is the environment's bill). One
+  small root per environment, each with its own backend and provider, calling
+  the module at the same pin:
+
+  ```
+  infra/terraform/
+  ├── production/main.tf   provider → prod account; module "vocion" { name_prefix = "<project>-prod", ... }
+  └── dev/main.tf          provider → dev account;  module "vocion" { name_prefix = "<project>-dev",  ... }
+  ```
+
+- **One account, several environments.** One root and OpenTofu workspaces, as
+  described below, with `name_prefix = "<project>-${terraform.workspace}"`.
+
+Either way, the difference between environments is a handful of inputs. A
+production and dev pair on the Cloud profile:
+
+| Input | production | dev |
+|---|---|---|
+| `name_prefix` | `<project>-prod` | `<project>-dev` |
+| `hostname` | `app.example.com` | `dev.app.example.com` |
+| `route53_zone_id` | the `app.example.com` zone | the `dev.app.example.com` zone |
+| `instance_type` | `r6i.xlarge` | `r6i.large` |
+| `db_instance_class` | `db.m7g.large` | `db.t4g.medium` |
+| `db_multi_az` | `true` | `false` |
+| `db_backup_retention_days` | `14` | `7` |
+
+`core_ref` is the same in both until a release is promoted: dev moves first
+(`sudo vocion-deploy <tag>` on its box), production follows.
+
+**DNS across accounts.** The module writes records only into a zone in its own
+account. With one account per environment, each environment's hostname gets its
+own zone in its own account, and the parent zone delegates to it with a single
+NS record: `dev.app.example.com` lives in the dev account and is delegated from
+the `app.example.com` zone in production. One record, made once, in the parent
+zone's account.
+
+The rest of this page predates the module and describes the single-root,
+workspace-per-environment shape. Its rules still hold for that shape.
+
+---
+
 ## The idea
 
 **Environments are OpenTofu workspaces, not copied directories.**
@@ -139,6 +190,9 @@ no `.tf` file at all.**
 ## Two failures that stay silent
 
 **The database password must match what Postgres was initialised with.**
+(Compose Postgres only. On `modules/vocion-stack` the database is RDS and
+`DATABASE_URL` is built from the `<name_prefix>/rds-app` secret on every
+deploy, so the two cannot disagree.)
 
 Core's compose creates the container with `POSTGRES_PASSWORD=postgres`. A
 different password in your environment secret doesn't change the database — the
