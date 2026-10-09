@@ -4,13 +4,11 @@ import type { ReactNode } from 'react';
 import type { TeamMember } from './emptyChat';
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
-import { useOrgBrand } from '@/features/branding/BrandContext';
-import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 import { greetingFor, isReturning, LAST_SEEN_KEY } from './emptyChat';
 import { TeamCluster } from './TeamCluster';
 
 /**
- * Empty state: a mark and one warm line, and nothing else.
+ * Empty state: the team and one warm line, and nothing else.
  *
  * "Chat should always start with a much warmer intro with very little on the
  * chat screen. Not jump right to big asks. Maybe a soft nudge or chip. If
@@ -18,8 +16,8 @@ import { TeamCluster } from './TeamCluster';
  * reference: one small mark centred, one short personal line in a serif
  * face, the composer at the bottom, whitespace everywhere else.
  *
- * So: the workspace's team at the centre (`TeamCluster`; the Org's mark only
- * when there is no agent to show), and one or two short lines in Vocion's own
+ * So: the workspace's team at the centre (`TeamCluster`; nothing when there is
+ * no agent — the chat body never shows a brand logo), and one or two short lines in Vocion's own
  * display face, varied by the time and by a return ("Welcome back, Sam." /
  * "Northwind's team is on it."). No heading naming the workspace, no starter chips,
  * no cards, no lists. The one thing that may join it is a soft nudge the
@@ -27,10 +25,8 @@ import { TeamCluster } from './TeamCluster';
  * bottom by the composer rather than in the centre (`emptyChat.ts`).
  *
  * The same on a phone and a desktop. The pane scrolls on its own if a very
- * short screen cannot hold it, and there the mark steps aside.
+ * short screen cannot hold it.
  */
-
-const DEFAULT_MARK = process.env.NEXT_PUBLIC_BRAND_MARK || VOCION_PRIMARY_MARK;
 
 export type EmptyStateProps = {
   /** The person's first name, for the line. Null or omitted greets without a name. */
@@ -43,7 +39,7 @@ export type EmptyStateProps = {
   returning?: boolean;
   /** The one line, when the surface has its own (a new workspace's lead saying hello). Default: the time-and-return greeting. */
   line?: string;
-  /** The workspace's agents, lead first: the centre of the screen. Empty or omitted, the Org's mark stands in. */
+  /** The workspace's agents, lead first: the centre of the screen. Empty or omitted, the greeting stands alone. */
   team?: readonly TeamMember[];
   /** A second short line under the greeting ("Northwind's team is on it."). */
   secondLine?: string | null;
@@ -66,7 +62,7 @@ function readReturning(): boolean {
 }
 
 /**
- * The mark and the line.
+ * The team and the line.
  * @param props - See {@link EmptyStateProps}.
  * @param props.firstName - The person's first name.
  * @param props.nudge - The one soft nudge, when something waits.
@@ -78,7 +74,6 @@ function readReturning(): boolean {
  */
 export function EmptyState({ firstName, nudge, hour, returning, line: ownLine, team = [], secondLine }: EmptyStateProps) {
   const t = useTranslations('Chat');
-  const brand = useOrgBrand();
   // Read once, before this visit is written, so a return reads as one.
   const [cameBack] = useState(() => returning ?? readReturning());
   useEffect(() => {
@@ -89,24 +84,13 @@ export function EmptyState({ firstName, nudge, hour, returning, line: ownLine, t
     }
   }, []);
   const line = ownLine ?? greetingFor({ hour: hour ?? new Date().getHours(), returning: cameBack, firstName }, (key, values) => t(key, values));
-  const markLight = brand?.mark.light ?? DEFAULT_MARK;
-  const markDark = brand?.mark.light ? brand.mark.dark : undefined;
 
   return (
     <div data-testid="chat-empty-state" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 sm:px-6">
       <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-        {team.length > 0
-          ? <TeamCluster members={team} />
-          : (
-              <>
-                {/* eslint-disable-next-line next/no-img-element */}
-                <img src={markLight} alt="" aria-hidden data-testid="chat-empty-mark" className={`size-9 select-none [@media(max-height:480px)]:hidden ${markDark ? 'dark:hidden' : ''}`} draggable={false} />
-                {markDark && (
-                // eslint-disable-next-line next/no-img-element
-                  <img src={markDark} alt="" aria-hidden className="hidden size-9 select-none dark:block [@media(max-height:480px)]:hidden" draggable={false} />
-                )}
-              </>
-            )}
+        {/* The team, when there is one; never a brand logo — the chat body
+            shows no brand (one brand per region, `libs/branding/chrome.ts`). */}
+        {team.length > 0 && <TeamCluster members={team} />}
         {/* The time and the return are the person's clock and browser, which the server does not know. */}
         <h2
           className="mt-5 max-w-md text-[1.6rem] leading-tight font-normal tracking-tight text-balance text-foreground sm:text-[1.85rem]"

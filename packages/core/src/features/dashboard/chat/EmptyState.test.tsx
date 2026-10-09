@@ -58,11 +58,12 @@ describe('EmptyState, your team is here (founder, 2026-10-09)', () => {
 });
 
 describe('EmptyState', () => {
-  it('says good evening by first name, under the mark when there is no team, and nothing else', async () => {
+  it('says good evening by first name, with no brand logo when there is no team, and nothing else', async () => {
     await renderIt(<EmptyState firstName="Sam" hour={20} returning={false} />);
 
     await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent(/^Good evening, Sam\.$/);
-    await expect.element(page.getByTestId('chat-empty-mark')).toBeVisible();
+    expect(page.getByTestId('chat-empty-mark').elements()).toHaveLength(0);
+    expect(page.getByRole('img').elements()).toHaveLength(0);
     expect(page.getByRole('button').elements()).toHaveLength(0);
     expect(page.getByRole('link').elements()).toHaveLength(0);
   });
