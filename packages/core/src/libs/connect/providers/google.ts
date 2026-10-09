@@ -11,11 +11,12 @@
  * Google Ads is not served: it also needs a developer token a login cannot give.
  */
 
-import type { ConnectProvider } from '../provider';
+import type { ConnectAudience, ConnectProvider } from '../provider';
 import type { LoginClient } from '../serverClients';
 import { logger } from '@/libs/Logger';
+import { PERSONAL_GOOGLE_SCOPES } from '@/libs/personal/connections';
 import { grantExpiresAt } from '../loginGrant';
-import { serverLoginClient } from '../serverClients';
+import { personalLoginClient, serverLoginClient } from '../serverClients';
 import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -49,9 +50,21 @@ const CONNECTOR_NAMES: Record<string, string> = {
  * The Google app a login or refresh runs on: the one the caller chose
  * (`libs/connect/loginClient.ts`), else this server's env app, else null.
  * @param chosen - The app the caller resolved, if it did.
+ * @param audience
  */
-function googleClient(chosen?: LoginClient): LoginClient | null {
-  return chosen ?? serverLoginClient('google');
+function googleClient(chosen?: LoginClient, audience?: ConnectAudience): LoginClient | null {
+  return chosen ?? (audience === 'personal' ? personalLoginClient('google') : serverLoginClient('google'));
+}
+
+/**
+ * The vendor scopes a login for this connector needs: a person's own login
+ * reads the personal set (`libs/personal/connections.ts`, which adds Gmail
+ * drafts), a workspace's the read-only set above.
+ * @param connector - The connector slug.
+ * @param audience - Whose login it is.
+ */
+function vendorScopesFor(connector: string, audience?: ConnectAudience): readonly string[] | undefined {
+  return audience === 'personal' ? PERSONAL_GOOGLE_SCOPES[connector] : GOOGLE_LOGIN_SCOPES[connector];
 }
 
 /**
@@ -95,12 +108,14 @@ export const googleProvider: ConnectProvider = {
   requiredEnv: ['GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET'],
   configured: () => googleClient() !== null,
 
-  authorizeUrl({ state, redirectUri, connector, client: chosen }) {
-    const client = googleClient(chosen);
+  personal: { configured: () => personalLoginClient('google') !== null },
+
+  authorizeUrl({ state, redirectUri, connector, client: chosen, audience }) {
+    const client = googleClient(chosen, audience);
     if (!client) {
       throw new Error('Google OAuth is not configured — set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET.');
     }
-    const vendorScopes = GOOGLE_LOGIN_SCOPES[connector];
+    const vendorScopes = vendorScopesFor(connector, audience);
     if (!vendorScopes) {
       throw new Error(`Google login does not serve the "${connector}" connector.`);
     }
@@ -117,7 +132,7 @@ export const googleProvider: ConnectProvider = {
     return url.toString();
   },
 
-  async exchange({ query, redirectUri, client: chosen }) {
+  async exchange({ query, redirectUri, client: chosen, audience }) {
     if (query.error) {
       return { ok: false, reason: SAFE_ERROR_CODE.test(query.error) ? query.error : 'login_refused' };
     }
@@ -125,7 +140,7 @@ export const googleProvider: ConnectProvider = {
     if (!code) {
       return { ok: false, reason: 'missing_code' };
     }
-    const client = googleClient(chosen);
+    const client = googleClient(chosen, audience);
     if (!client) {
       return { ok: false, reason: 'not_configured' };
     }
@@ -182,8 +197,8 @@ export const googleProvider: ConnectProvider = {
     return { account: credentials.email };
   },
 
-  missingAccessFor: (credentials, connectorSlug) => {
-    const required = GOOGLE_LOGIN_SCOPES[connectorSlug];
+  missingAccessFor: (credentials, connectorSlug, audience) => {
+    const required = vendorScopesFor(connectorSlug, audience);
     if (!required || typeof credentials.scope !== 'string') {
       return null;
     }

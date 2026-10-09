@@ -78,6 +78,7 @@ import { updateMissionNotesTool } from './missionNotes';
 import { offerConnectionTool } from './offerConnection';
 import { pageContextTool } from './pageContext';
 import { peopleTools } from './peopleTools';
+import { personalConnectionTools } from './personalConnections';
 import { personalizationTools } from './personalization';
 import { posthogCountTools } from './posthogCounts';
 import { productAccessTools } from './productAccess';
@@ -335,6 +336,10 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // queue, asks and notifications — in this workspace, or in a personal
     // workspace across all of theirs. Never a search.
     ...waitingOnMeTools(ctx),
+    // Personal workspaces only: the person's OWN mail, calendar, files, Slack
+    // DMs and GitHub, read live with their own login (`personalCredential`),
+    // never a workspace's source. Drafts mail, never sends.
+    ...personalConnectionTools(ctx),
     // Granted-only, shared workspaces only: the workspace lead's setup — where
     // the workspace stands and what it could add (setup_options), and the plan
     // as one-click cards (propose_setup).

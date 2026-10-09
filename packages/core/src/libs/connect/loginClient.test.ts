@@ -10,7 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const serverApps: Partial<Record<string, LoginClient>> = {};
-vi.mock('./serverClients', () => ({ serverLoginClient: (provider: string) => serverApps[provider] ?? null }));
+vi.mock('./serverClients', () => ({
+  serverLoginClient: (provider: string) => serverApps[provider] ?? null,
+  serverLoginClients: (provider: string) => (serverApps[provider] ? [serverApps[provider]] : []),
+}));
 
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema, sourceDekSchema } = await import('@/models/Schema');

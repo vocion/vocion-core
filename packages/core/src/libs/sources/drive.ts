@@ -27,7 +27,7 @@ type DriveList = { files?: DriveFile[]; nextPageToken?: string };
  * The text export target for a Google-native mime type, or null to skip export.
  * @param mimeType
  */
-function exportMimeFor(mimeType: string): string | null {
+export function exportMimeFor(mimeType: string): string | null {
   switch (mimeType) {
     case 'application/vnd.google-apps.document':
     case 'application/vnd.google-apps.presentation':

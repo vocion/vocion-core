@@ -24,6 +24,15 @@ export type GrantSummary = {
 /** Every vendor a person can log in to. The id is the URL segment of the start and callback routes. */
 export type ConnectProviderId = 'slack' | 'atlassian' | 'github' | 'google' | 'hubspot' | 'notion' | 'zoom' | 'posthog' | 'apollo' | 'quickbooks' | 'xero' | 'gusto' | 'linkedin';
 
+/**
+ * Whose login it is. `workspace` (the default) is an admin connecting a
+ * system for a shared workspace; `personal` is a person connecting their OWN
+ * account for their own assistant (`libs/personal/connections.ts`), which may
+ * ask the vendor for different access (a Slack user token, Gmail drafts) and
+ * run on a different app (`personalLoginClient`).
+ */
+export type ConnectAudience = 'workspace' | 'personal';
+
 /** Where a person is sent, and what comes back, for one vendor. */
 export type ConnectProvider = {
   /** Provider id: the URL segment and the connector slug(s) it serves. */
@@ -52,7 +61,7 @@ export type ConnectProvider = {
    * the server's); a provider that takes a client ID and secret falls back to
    * the server's env app when it is left out. Never logs any of them.
    */
-  authorizeUrl: (input: { state: string; redirectUri: string; connector: string; codeChallenge?: string; client?: LoginClient }) => string;
+  authorizeUrl: (input: { state: string; redirectUri: string; connector: string; codeChallenge?: string; client?: LoginClient; audience?: ConnectAudience }) => string;
   /**
    * Turn the callback's query into the credential bag to store, or a refusal.
    * `query` is every query param of the callback request. Vendors differ:
@@ -60,7 +69,7 @@ export type ConnectProvider = {
    * Sentry carries `code` + `installationId`. `codeVerifier` is set when `pkce` is.
    * `client` is the same app `authorizeUrl` sent the person to.
    */
-  exchange: (input: { query: Record<string, string>; redirectUri: string; codeVerifier?: string; client?: LoginClient }) => Promise<
+  exchange: (input: { query: Record<string, string>; redirectUri: string; codeVerifier?: string; client?: LoginClient; audience?: ConnectAudience }) => Promise<
     | { ok: true; credentials: RawCredentials; displayName: string }
     | { ok: false; reason: string }
   >;
@@ -77,5 +86,13 @@ export type ConnectProvider = {
    * the stored login is refused with that sentence, rather than syncing into a
    * "missing scope" error. Absent: every stored login serves every connector.
    */
-  missingAccessFor?: (credentials: RawCredentials, connectorSlug: string) => string | null;
+  missingAccessFor?: (credentials: RawCredentials, connectorSlug: string, audience?: ConnectAudience) => string | null;
+  /**
+   * Whether this provider can make a person's OWN login (`audience:
+   * 'personal'`). Absent: it cannot, and the personal gate refuses it.
+   */
+  personal?: {
+    /** Whether the server has an app for it (`personalLoginClient`). Never throws. */
+    configured: () => boolean;
+  };
 };

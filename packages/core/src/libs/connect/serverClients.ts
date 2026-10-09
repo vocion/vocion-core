@@ -65,3 +65,72 @@ export function serverLoginClient(provider: ConnectProviderId): LoginClient | nu
   const { clientId, clientSecret } = serverClientPair(provider);
   return clientId && clientSecret ? { clientId, clientSecret, owner: 'server' } : null;
 }
+
+/**
+ * The env pairs a person's OWN connection may run on, in the order to try
+ * them (docs/guides/personal-connections.md). A dedicated personal app comes
+ * first, so an install can put personal mail on an Internal-type Google app
+ * while shared sources use another; then the sign-in app (Google), then the
+ * workspace connectors' app. A provider with no personal connection has none.
+ * @param provider - The connect provider.
+ */
+function personalClientPairs(provider: ConnectProviderId): Array<{ clientId?: string; clientSecret?: string }> {
+  switch (provider) {
+    case 'google':
+      return [
+        { clientId: Env.GOOGLE_PERSONAL_CLIENT_ID, clientSecret: Env.GOOGLE_PERSONAL_CLIENT_SECRET },
+        { clientId: Env.AUTH_GOOGLE_ID, clientSecret: Env.AUTH_GOOGLE_SECRET },
+        serverClientPair('google'),
+      ];
+    case 'slack':
+      return [
+        { clientId: Env.SLACK_PERSONAL_CLIENT_ID, clientSecret: Env.SLACK_PERSONAL_CLIENT_SECRET },
+        serverClientPair('slack'),
+      ];
+    case 'github':
+      return [
+        { clientId: Env.GITHUB_PERSONAL_CLIENT_ID, clientSecret: Env.GITHUB_PERSONAL_CLIENT_SECRET },
+        { clientId: Env.GITHUB_APP_CLIENT_ID, clientSecret: Env.GITHUB_APP_CLIENT_SECRET },
+      ];
+    default:
+      return [];
+  }
+}
+
+/** The env vars that set up the first-choice personal app, for "needs …" sentences. */
+export const PERSONAL_CLIENT_ENV: Partial<Record<ConnectProviderId, readonly string[]>> = {
+  google: ['GOOGLE_PERSONAL_CLIENT_ID', 'GOOGLE_PERSONAL_CLIENT_SECRET'],
+  slack: ['SLACK_PERSONAL_CLIENT_ID', 'SLACK_PERSONAL_CLIENT_SECRET'],
+  github: ['GITHUB_PERSONAL_CLIENT_ID', 'GITHUB_PERSONAL_CLIENT_SECRET'],
+};
+
+/**
+ * The app a person's own connection runs on: the first complete pair of
+ * {@link personalClientPairs}, or null when the server has none.
+ * @param provider - The connect provider.
+ */
+export function personalLoginClient(provider: ConnectProviderId): LoginClient | null {
+  for (const { clientId, clientSecret } of personalClientPairs(provider)) {
+    if (clientId && clientSecret) {
+      return { clientId, clientSecret, owner: 'server' };
+    }
+  }
+  return null;
+}
+
+/**
+ * Every app this server's env holds for a provider — the connectors' app and
+ * each personal one — without duplicates. A refresh looks the login's
+ * recorded client up among these, since a refresh token works only with the
+ * app that issued it (`loginClientForGrant`).
+ * @param provider - The connect provider.
+ */
+export function serverLoginClients(provider: ConnectProviderId): LoginClient[] {
+  const out: LoginClient[] = [];
+  for (const { clientId, clientSecret } of [serverClientPair(provider), ...personalClientPairs(provider)]) {
+    if (clientId && clientSecret && !out.some(c => c.clientId === clientId)) {
+      out.push({ clientId, clientSecret, owner: 'server' });
+    }
+  }
+  return out;
+}

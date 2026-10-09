@@ -6,6 +6,12 @@
  * afterwards. The state it carries is signed and bound to this org, this
  * connector or source and this person; the callback trusts nothing else. Same gate as pasting a key: admins only.
  *
+ * In a person's OWN personal workspace the gate is different, and so is the
+ * login (docs/guides/personal-connections.md): any member may connect their
+ * own account for a connector the personal list names, while their Org
+ * allows it (`personalConnectGate`), on the personal app
+ * (`personalLoginClient`) with the personal access (`audience: 'personal'`).
+ *
  * Fails closed on configuration: no AUTH_SECRET means no state can be signed,
  * and no NEXT_PUBLIC_APP_URL means no redirect_uri can be named honestly.
  */
@@ -18,11 +24,13 @@ import { loginClientForNewLogin } from '@/libs/connect/loginClient';
 import { providerFor, providerForConnector } from '@/libs/connect/registry';
 import { safeReturnPath } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
+import { PERSONAL_CLIENT_ENV, personalLoginClient } from '@/libs/connect/serverClients';
 import { findSourceBySlug } from '@/libs/connect/sources';
 import { pkceChallengeFor, pkceVerifierFor, signState } from '@/libs/connect/state';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
 import { loginAppPlatformFor } from '@/libs/platforms/registry';
+import { ownPersonalWorkspace, personalConnectGate } from '@/services/personal/connections';
 import { withArticle } from '@/utils/withArticle';
 
 type StartTarget
@@ -72,18 +80,81 @@ function cardFromQuery(params: URLSearchParams): { conversationId?: number; card
   return { conversationId: Number(conversation), cardId: card };
 }
 
+/**
+ * Where the connect is sent back to, or a response naming what the server is
+ * missing: the configured origin, and the secret that signs the state.
+ */
+function originOrRefusal(): { origin: string } | { refusal: NextResponse } {
+  const origin = connectOrigin();
+  const missing = [
+    ...(Env.AUTH_SECRET ? [] : ['AUTH_SECRET']),
+    ...(origin ? [] : ['NEXT_PUBLIC_APP_URL']),
+  ];
+  if (missing.length > 0 || !origin) {
+    return { refusal: NextResponse.json({ error: `Connecting at a vendor needs ${missing.join(', ')} on the server.` }, { status: 500 }) };
+  }
+  return { origin };
+}
+
+/**
+ * Start a person's OWN login, from their personal workspace: the personal
+ * gate, the personal app and the personal access. Never touches a source.
+ * @param req - The start request.
+ * @param input - Who, where, and with which vendor.
+ * @param input.orgId - The person's personal workspace.
+ * @param input.userId - The person.
+ * @param input.provider - The vendor.
+ */
+async function startPersonal(req: NextRequest, input: { orgId: string; userId: string; provider: ConnectProvider }): Promise<NextResponse> {
+  const { orgId, userId, provider } = input;
+  const connectorSlug = req.nextUrl.searchParams.get('connector')?.trim() ?? '';
+  if (!connectorSlug || providerForConnector(connectorSlug)?.id !== provider.id) {
+    return NextResponse.json({ error: `${connectorSlug || 'That'} is not a ${provider.label} connection` }, { status: 400 });
+  }
+  const gate = await personalConnectGate({ orgId, userId, connectorSlug });
+  if (!gate.ok) {
+    return NextResponse.json({ error: gate.error }, { status: gate.status });
+  }
+  if (!provider.personal?.configured()) {
+    const env = PERSONAL_CLIENT_ENV[provider.id] ?? provider.requiredEnv;
+    return NextResponse.json({ error: `Connecting your own ${provider.label} needs ${env.join(', ')} on the server.` }, { status: 400 });
+  }
+  const where = originOrRefusal();
+  if ('refusal' in where) {
+    return where.refusal;
+  }
+  const client = personalLoginClient(provider.id);
+  const returnTo = safeReturnPath(req.nextUrl.searchParams.get('returnTo'));
+  const state = signState({
+    provider: provider.id,
+    orgId,
+    userId,
+    connectorSlug,
+    ...(returnTo ? { returnTo } : {}),
+    ...cardFromQuery(req.nextUrl.searchParams),
+    ...(client ? { loginClientId: client.clientId } : {}),
+  });
+  const codeChallenge = provider.pkce ? pkceChallengeFor(pkceVerifierFor(state)) : undefined;
+  return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(where.origin, provider.id), connector: connectorSlug, audience: 'personal', ...(codeChallenge ? { codeChallenge } : {}), ...(client ? { client } : {}) }), 302);
+}
+
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
   const { orgId, userId, role } = await auth();
   if (!orgId || !userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if (role !== 'admin') {
+  // A person's own personal workspace connects their own accounts; anywhere else, admins connect the workspace's.
+  const personal = (await ownPersonalWorkspace(orgId, userId)) !== null;
+  if (!personal && role !== 'admin') {
     return NextResponse.json({ error: 'Only admins can connect a source' }, { status: 403 });
   }
   const { provider: providerId } = await ctx.params;
   const provider = providerFor(providerId);
   if (!provider) {
     return NextResponse.json({ error: 'Unknown provider' }, { status: 404 });
+  }
+  if (personal) {
+    return startPersonal(req, { orgId, userId, provider });
   }
   const target = await resolveTarget(orgId, provider, req.nextUrl.searchParams);
   if (!target.ok) {
@@ -107,17 +178,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
       { status: 400 },
     );
   }
-  const origin = connectOrigin();
-  const missing = [
-    ...(Env.AUTH_SECRET ? [] : ['AUTH_SECRET']),
-    ...(origin ? [] : ['NEXT_PUBLIC_APP_URL']),
-  ];
-  if (missing.length > 0 || !origin) {
-    return NextResponse.json(
-      { error: `Connecting at a vendor needs ${missing.join(', ')} on the server.` },
-      { status: 500 },
-    );
+  const where = originOrRefusal();
+  if ('refusal' in where) {
+    return where.refusal;
   }
+  const { origin } = where;
   const returnTo = safeReturnPath(req.nextUrl.searchParams.get('returnTo'));
   const card = cardFromQuery(req.nextUrl.searchParams);
   const state = signState({

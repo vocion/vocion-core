@@ -158,7 +158,7 @@ export function renderCalendar(events: CalEvent[], now: Date, windowLabel: strin
  * @param now
  * @param tz
  */
-function dayWindow(day: string | undefined, now: Date, tz: string): { timeMin: string; timeMax: string; label: string } {
+export function dayWindow(day: string | undefined, now: Date, tz: string): { timeMin: string; timeMax: string; label: string } {
   const key = day ?? dayKey(now, tz);
   const start = startOfDay(key, tz);
   // The next local midnight, so a DST day is still one whole day.

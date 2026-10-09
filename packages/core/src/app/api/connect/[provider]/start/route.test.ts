@@ -9,6 +9,14 @@ vi.mock('@/libs/Env', () => ({ Env: env }));
 // The workspace's own login app, when a test saves one; none by default.
 vi.mock('@/libs/connect/loginClient', () => ({ loginClientForNewLogin: vi.fn(async () => null) }));
 
+// Whose workspace this is, and whether the personal gate lets the login through.
+vi.mock('@/services/personal/connections', () => ({ ownPersonalWorkspace: vi.fn(async () => null), personalConnectGate: vi.fn() }));
+const personalApp = { value: true };
+vi.mock('@/libs/connect/serverClients', () => ({
+  PERSONAL_CLIENT_ENV: { slack: ['SLACK_PERSONAL_CLIENT_ID', 'SLACK_PERSONAL_CLIENT_SECRET'] },
+  personalLoginClient: () => (personalApp.value ? { clientId: 'personal_slack', clientSecret: 's', owner: 'server' } : null),
+}));
+
 const configured = { value: true };
 vi.mock('@/libs/connect/registry', () => {
   const slack = {
@@ -17,8 +25,9 @@ vi.mock('@/libs/connect/registry', () => {
     label: 'Slack',
     requiredEnv: ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET'],
     configured: () => configured.value,
-    authorizeUrl: ({ state, redirectUri, client }: { state: string; redirectUri: string; client?: { clientId: string } }) =>
-      `https://slack.com/oauth/v2/authorize?state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}${client ? `&client_id=${client.clientId}` : ''}`,
+    personal: { configured: () => personalApp.value },
+    authorizeUrl: ({ state, redirectUri, client, audience }: { state: string; redirectUri: string; client?: { clientId: string }; audience?: string }) =>
+      `https://slack.com/oauth/v2/authorize?state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}${client ? `&client_id=${client.clientId}` : ''}${audience ? `&audience=${audience}` : ''}`,
     exchange: vi.fn(),
   };
   return {
@@ -31,6 +40,7 @@ const { clerkAuth } = await import('@/libs/Auth');
 const { findSourceBySlug } = await import('@/libs/connect/sources');
 const { signState } = await import('@/libs/connect/state');
 const { loginClientForNewLogin } = await import('@/libs/connect/loginClient');
+const { ownPersonalWorkspace, personalConnectGate } = await import('@/services/personal/connections');
 const { GET } = await import('./route');
 
 const admin = {
@@ -56,6 +66,7 @@ function context(provider = 'slack') {
 beforeEach(() => {
   vi.clearAllMocks();
   configured.value = true;
+  personalApp.value = true;
   env.AUTH_SECRET = 'secret';
   env.NEXT_PUBLIC_APP_URL = 'https://agents.example';
   vi.mocked(clerkAuth).mockResolvedValue(admin);
@@ -194,5 +205,65 @@ describe('GET /api/connect/[provider]/start', () => {
     await GET(request('?connector=slack&conversation=7&card=a%20b%2F..'), context());
 
     expect(signState).toHaveBeenLastCalledWith({ provider: 'slack', orgId: 'org_1', userId: 'user_1', connectorSlug: 'slack' });
+  });
+});
+
+describe('GET /api/connect/[provider]/start, in a person\'s own Personal workspace', () => {
+  const member = { ...admin, role: 'member' as const };
+  const own = { projectId: 'org_1', accountId: 'acct_1' };
+
+  beforeEach(() => {
+    vi.mocked(clerkAuth).mockResolvedValue(member);
+    vi.mocked(ownPersonalWorkspace).mockResolvedValue(own);
+    vi.mocked(personalConnectGate).mockResolvedValue({ ok: true, accountId: 'acct_1', connection: { connector: 'slack', provider: 'slack', label: 'Slack DMs', unlocks: '', tools: [] } });
+  });
+
+  it('lets a member connect their own account: no admin needed, on the personal app, asking for the personal access', async () => {
+    const res = await GET(request('?connector=slack'), context());
+
+    expect(res.status).toBe(302);
+
+    const location = new URL(res.headers.get('location')!);
+
+    expect(location.searchParams.get('client_id')).toBe('personal_slack');
+    expect(location.searchParams.get('audience')).toBe('personal');
+    expect(signState).toHaveBeenCalledWith({ provider: 'slack', orgId: 'org_1', userId: 'user_1', connectorSlug: 'slack', loginClientId: 'personal_slack' });
+    // A personal login never looks up or makes a source, and never runs on a workspace login app.
+    expect(findSourceBySlug).not.toHaveBeenCalled();
+    expect(loginClientForNewLogin).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the Org turned personal connections off, with the gate\'s sentence', async () => {
+    vi.mocked(personalConnectGate).mockResolvedValue({ ok: false, status: 403, reason: 'personal_off', error: 'Your Org has turned off personal connections.' });
+
+    const res = await GET(request('?connector=slack'), context());
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({ error: 'Your Org has turned off personal connections.' });
+    expect(signState).not.toHaveBeenCalled();
+  });
+
+  it('names the personal app\'s env vars when the server has none for this vendor', async () => {
+    personalApp.value = false;
+
+    const res = await GET(request('?connector=slack'), context());
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: 'Connecting your own Slack needs SLACK_PERSONAL_CLIENT_ID, SLACK_PERSONAL_CLIENT_SECRET on the server.' });
+  });
+
+  it('starts from a connection, never a source', async () => {
+    const res = await GET(request('?source=slack'), context());
+
+    expect(res.status).toBe(400);
+    expect(signState).not.toHaveBeenCalled();
+  });
+
+  it('outside a Personal workspace a member is still refused', async () => {
+    vi.mocked(ownPersonalWorkspace).mockResolvedValue(null);
+
+    const res = await GET(request('?connector=slack'), context());
+
+    expect(res.status).toBe(403);
   });
 });

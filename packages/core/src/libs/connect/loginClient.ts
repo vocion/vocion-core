@@ -21,7 +21,7 @@ import { logger } from '@/libs/Logger';
 import { loginAppPlatformFor } from '@/libs/platforms/registry';
 import { resolvePlatformCredential } from '@/services/ApiTokenService';
 import { withArticle } from '@/utils/withArticle';
-import { serverLoginClient } from './serverClients';
+import { serverLoginClient, serverLoginClients } from './serverClients';
 import { TokenRequestError } from './tokenRequest';
 
 /** The key a stored grant records its app's client ID under. */
@@ -108,8 +108,11 @@ export async function loginClientForGrant(input: { orgId: string; provider: Conn
   if (workspace?.clientId === recorded) {
     return workspace;
   }
-  if (server?.clientId === recorded) {
-    return server;
+  // The connectors' app, or one a person's own connection ran on
+  // (`personalLoginClient`): whichever issued this login.
+  const issuer = serverLoginClients(input.provider).find(client => client.clientId === recorded);
+  if (issuer) {
+    return issuer;
   }
   throw new TokenRequestError(input.vendor, 'login_app_changed', null);
 }

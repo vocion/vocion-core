@@ -8,9 +8,10 @@
  * already reads, so the connector is unchanged by how the token arrived.
  */
 
-import type { ConnectProvider } from '../provider';
+import type { ConnectAudience, ConnectProvider } from '../provider';
 import type { LoginClient } from '../serverClients';
-import { serverLoginClient } from '../serverClients';
+import { PERSONAL_SLACK_USER_SCOPES } from '@/libs/personal/connections';
+import { personalLoginClient, serverLoginClient } from '../serverClients';
 
 const AUTHORIZE_URL = 'https://slack.com/oauth/v2/authorize';
 const ACCESS_URL = 'https://slack.com/api/oauth.v2.access';
@@ -27,15 +28,45 @@ type AccessResponse = {
   bot_user_id?: string;
   app_id?: string;
   team?: { id?: string; name?: string };
+  /** The person who approved, and their USER token when user scopes were asked for. */
+  authed_user?: { id?: string; access_token?: string; scope?: string; token_type?: string };
 };
 
 /**
  * The Slack app a login runs on: the one the caller chose
  * (`libs/connect/loginClient.ts`), else this server's env app, else null.
  * @param chosen - The app the caller resolved, if it did.
+ * @param audience
  */
-function slackApp(chosen?: LoginClient): LoginClient | null {
-  return chosen ?? serverLoginClient('slack');
+function slackApp(chosen?: LoginClient, audience?: ConnectAudience): LoginClient | null {
+  return chosen ?? (audience === 'personal' ? personalLoginClient('slack') : serverLoginClient('slack'));
+}
+
+/**
+ * A person's OWN Slack login: their user token, not a bot's. Slack returns it
+ * under `authed_user` when the authorize URL asked for `user_scope`. Stored
+ * under `token` like the bot's, with `kind: 'user'` so nothing mistakes it
+ * for a workspace install.
+ * @param data - Slack's `oauth.v2.access` answer.
+ */
+function personalGrant(data: AccessResponse): { ok: true; credentials: Record<string, unknown>; displayName: string } | { ok: false; reason: string } {
+  const token = data.authed_user?.access_token;
+  if (!data.ok || !token) {
+    return { ok: false, reason: data.error ?? 'no_token' };
+  }
+  const teamName = data.team?.name ?? data.team?.id ?? 'workspace';
+  return {
+    ok: true,
+    credentials: {
+      token,
+      kind: 'user',
+      userId: data.authed_user?.id ?? null,
+      teamId: data.team?.id ?? null,
+      teamName: data.team?.name ?? null,
+      scope: data.authed_user?.scope ?? null,
+    },
+    displayName: `Slack — ${teamName}`,
+  };
 }
 
 export const slackProvider: ConnectProvider = {
@@ -44,19 +75,25 @@ export const slackProvider: ConnectProvider = {
   label: 'Slack',
   requiredEnv: ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET'],
   configured: () => slackApp() !== null,
-  authorizeUrl: ({ state, redirectUri, client: chosen }) => {
-    const app = slackApp(chosen);
+  personal: { configured: () => personalLoginClient('slack') !== null },
+  authorizeUrl: ({ state, redirectUri, client: chosen, audience }) => {
+    const app = slackApp(chosen, audience);
     if (!app) {
       throw new Error('Slack login is not set up: set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET, or save a Slack login app on the Developers page.');
     }
     const url = new URL(AUTHORIZE_URL);
     url.searchParams.set('client_id', app.clientId);
-    url.searchParams.set('scope', SLACK_SOURCE_SCOPES.join(','));
+    if (audience === 'personal') {
+      // The person's own token: user scopes only, no bot.
+      url.searchParams.set('user_scope', PERSONAL_SLACK_USER_SCOPES.join(','));
+    } else {
+      url.searchParams.set('scope', SLACK_SOURCE_SCOPES.join(','));
+    }
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('state', state);
     return url.toString();
   },
-  exchange: async ({ query, redirectUri, client: chosen }) => {
+  exchange: async ({ query, redirectUri, client: chosen, audience }) => {
     if (query.error) {
       // Slack's own refusal, e.g. `access_denied` when the person cancels.
       return { ok: false, reason: query.error };
@@ -65,7 +102,7 @@ export const slackProvider: ConnectProvider = {
     if (!code) {
       return { ok: false, reason: 'missing_code' };
     }
-    const app = slackApp(chosen);
+    const app = slackApp(chosen, audience);
     if (!app) {
       return { ok: false, reason: 'not_configured' };
     }
@@ -85,6 +122,9 @@ export const slackProvider: ConnectProvider = {
       data = await res.json() as AccessResponse;
     } catch {
       return { ok: false, reason: 'slack_unreachable' };
+    }
+    if (audience === 'personal') {
+      return personalGrant(data);
     }
     if (!data.ok || !data.access_token) {
       return { ok: false, reason: data.error ?? 'no_token' };
@@ -108,6 +148,6 @@ export const slackProvider: ConnectProvider = {
     if (!teamName || typeof credentials.token !== 'string') {
       return null;
     }
-    return { account: `${teamName} (Slack workspace)` };
+    return { account: credentials.kind === 'user' ? `You in ${teamName} (Slack)` : `${teamName} (Slack workspace)` };
   },
 };

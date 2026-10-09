@@ -89,6 +89,7 @@ function scriptedProvider(real: ConnectProvider, script: ConnectScript): Connect
   return {
     ...real,
     configured: () => true,
+    ...(real.personal ? { personal: { configured: () => true } } : {}),
     authorizeUrl: ({ state, redirectUri }) => `${redirectUri}?state=${encodeURIComponent(state)}&code=scripted`,
     exchange: async () => (part.outcome === 'ok'
       ? { ok: true, credentials: { ...part.credentials }, displayName: part.displayName }
