@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstNameOf, mayDockCard, partOfDay, startersToShow, waitingNudgeCount } from './emptyChat';
+import { firstNameOf, greetingFor, isReturning, mayDockCard, partOfDay, waitingNudgeCount } from './emptyChat';
 
 /**
  * How a conversation starts, as one rule every surface reads (founder,
@@ -18,9 +18,21 @@ describe('how a conversation starts', () => {
     expect(waitingNudgeCount({ waiting: 0, dismissed: false })).toBeNull();
   });
 
-  it('offers at most three starters', () => {
-    expect(startersToShow(['a', 'b', 'c', 'd', 'e'])).toEqual(['a', 'b', 'c']);
-    expect(startersToShow(['a'])).toEqual(['a']);
+  it('says one line, varied by the time and by a return', () => {
+    const t = (key: string, values?: Record<string, string>) => `${key}${values ? ` ${JSON.stringify(values)}` : ''}`;
+
+    expect(greetingFor({ hour: 20, returning: false, firstName: 'Sam' }, t)).toBe('greeting_named {"part":"evening","name":"Sam"}');
+    expect(greetingFor({ hour: 9, returning: false }, t)).toBe('greeting {"part":"morning"}');
+    expect(greetingFor({ hour: 9, returning: true, firstName: 'Sam' }, t)).toBe('welcome_back_named {"name":"Sam"}');
+    expect(greetingFor({ hour: 9, returning: true, firstName: null }, t)).toBe('welcome_back');
+  });
+
+  it('counts as a return only after a while away', () => {
+    const now = Date.now();
+
+    expect(isReturning(null, now)).toBe(false);
+    expect(isReturning(now - 60_000, now)).toBe(false);
+    expect(isReturning(now - 7 * 60 * 60 * 1000, now)).toBe(true);
   });
 
   it('greets by the person\'s clock and first name, never an email address', () => {

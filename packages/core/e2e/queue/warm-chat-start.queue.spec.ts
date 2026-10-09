@@ -9,8 +9,9 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
  * "Waiting on you · Suggested actions 3 of 3" carousel, one big card whose
  * title was its own rationale cut short, a "72%" badge, Approve / Reject, and
  * "Decide in review →". It filled the screen; he could not scroll to the
- * conversation. Now an empty chat is a greeting, a few quiet starters and one
- * soft chip saying how many wait, which opens Review, where the cards live.
+ * conversation. Now an empty chat is a mark, one warm line and one soft chip
+ * by the composer saying how many wait, which opens Review, where the cards
+ * live.
  *
  * Self-seeding like the rest of the `queue` project: its own admin, its own
  * object type, three proposals over the same `/api/v1/reviews/propose` an
@@ -88,8 +89,8 @@ test('a new chat on a phone is a warm hello and one soft chip, never the cards',
 
   await page.goto('/dashboard/chat?new=1');
 
-  // A greeting, by first name.
-  await expect(page.getByTestId('chat-greeting')).toContainText('Sam. What can I help with?');
+  // One warm line, by first name; no heading, no starters.
+  await expect(page.getByTestId('chat-greeting')).toHaveText(/^(Good (morning|afternoon|evening)|Welcome back), Sam\.$/);
 
   // What waits is one soft chip, with a count; never a card, a carousel or a confidence badge.
   const nudge = page.getByTestId('waiting-nudge');
@@ -100,6 +101,8 @@ test('a new chat on a phone is a warm hello and one soft chip, never the cards',
   await expect(page.getByText('Suggested actions')).toHaveCount(0);
   await expect(page.getByText('72%')).toHaveCount(0);
   await expect(page.getByText(/operating intent/)).toHaveCount(0);
+  // No starter chips: the chip's own dismiss is the only button in the empty pane.
+  await expect(page.getByTestId('chat-empty-state').getByRole('button')).toHaveCount(1);
 
   // The conversation pane scrolls, the box you type in is on the screen, and nothing is sideways.
   const layout = await page.evaluate(() => {

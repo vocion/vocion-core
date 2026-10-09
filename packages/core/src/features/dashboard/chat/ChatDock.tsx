@@ -742,12 +742,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                   ? <LeadIntro leadName={defaultAgentName(agents)} workspace={session.workspaceName} onPick={session.handlePickSuggestion} disabled={!session.booted} />
                   : (
                       <EmptyState
-                        speaker={session.workspaceName}
                         firstName={firstName}
-                        suggestions={session.emptyChips}
-                        suggestionsLoading={session.emptyChipsLoading}
-                        onPick={session.handlePickSuggestion}
-                        disabled={!session.booted}
                       />
                     )
               )

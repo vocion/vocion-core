@@ -475,11 +475,7 @@ function ChatShellInner({
                             ? <LeadIntro leadName={defaultAgentName(agents)} workspace={session.workspaceName} onPick={session.handlePickSuggestion} nudge={nudge} />
                             : (
                                 <EmptyState
-                                  speaker={session.workspaceName}
                                   firstName={firstName}
-                                  suggestions={session.emptyChips}
-                                  suggestionsLoading={session.emptyChipsLoading}
-                                  onPick={session.handlePickSuggestion}
                                   nudge={nudge}
                                 />
                               )}

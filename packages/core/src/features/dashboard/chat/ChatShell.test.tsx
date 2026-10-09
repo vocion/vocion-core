@@ -85,13 +85,14 @@ beforeEach(() => {
 });
 
 describe('ChatShell', () => {
-  it('names the workspace on the empty state once boot settles, never the agent (§9.10)', async () => {
-    // The surface has one identity and it is the workspace: the greeting is
-    // the workspace saying hello, and the lead agent that actually answers is not
-    // named anywhere on the page. This test used to assert the opposite.
+  it('opens on one warm line once boot settles: no "Ask <workspace>" heading, never the agent (§9.10)', async () => {
+    // The surface has one identity and it is the workspace, which says hello
+    // without naming itself or the lead agent that actually answers (founder,
+    // 2026-10-08: no "ASK NOCO" heading).
     await render(wrap(<ChatShell agents={AGENTS} greeting={{ workspace: 'GTM Workspace' }} />));
 
-    await expect.element(page.getByText('GTM Workspace').first()).toBeInTheDocument();
+    await expect.element(page.getByTestId('chat-greeting')).toBeInTheDocument();
+    expect(page.getByText(/Ask GTM Workspace/).elements()).toHaveLength(0);
     expect(page.getByText('GTM Orchestrator').elements()).toHaveLength(0);
   });
 
@@ -119,7 +120,7 @@ describe('ChatShell', () => {
     };
     await render(wrap(<ChatShell agents={AGENTS} greeting={{ workspace: 'GTM Workspace' }} pendingDecisions={waiting} />));
 
-    await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent(/What can I help with\?/);
+    await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent(/^(Good (morning|afternoon|evening)|Welcome back)\.$/);
 
     const nudge = page.getByTestId('waiting-nudge');
 
@@ -167,20 +168,20 @@ describe('ChatShell', () => {
     });
     vi.mocked(client.chatWidget.getState).mockReturnValue(getStatePromise as never);
 
-    await render(wrap(<ChatShell agents={AGENTS} suggestions={[{ label: 'Try this', prompt: 'Do the thing' }]} />));
+    await render(wrap(<ChatShell agents={AGENTS} />));
 
     // Boot is still in flight — the skeleton stands in for the transcript, so
-    // there are no suggestion chips to click yet, and Send is not armed, so a
+    // there is no greeting yet, and Send is not armed, so a
     // message can't be sent (and then silently discarded when the restored
     // transcript lands). The BOX itself never locks (2026-09-15): people type
     // their thought while the app catches up.
     await expect.element(page.getByPlaceholder('Ask anything…')).not.toBeDisabled();
     await expect.element(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
-    expect(page.getByRole('button', { name: 'Try this' }).elements()).toHaveLength(0);
+    expect(page.getByTestId('chat-greeting').elements()).toHaveLength(0);
 
     resolveGetState(null);
 
-    await expect.element(page.getByRole('button', { name: 'Try this' })).not.toBeDisabled();
+    await expect.element(page.getByTestId('chat-greeting')).toBeInTheDocument();
   });
 
   it('keeps the workspace crumb for a new chat, and names the page by its thread once there is one', async () => {

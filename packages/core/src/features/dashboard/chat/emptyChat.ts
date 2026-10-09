@@ -8,10 +8,12 @@
  * Maybe a soft nudge or chip. If that."
  *
  * So an empty conversation (a new chat, a workspace's first open, the chat
- * after an Org or workspace switch) is a greeting from the workspace's lead
- * and two or three quiet starters. Whatever waits on the person (asks,
- * approvals, suggested actions) is never a card there: it is at most ONE
- * soft, dismissible chip that says how many and opens Review. A docked card
+ * after an Org or workspace switch) is the Org's mark and ONE warm, personal
+ * line ("Good evening, Sam.", "Welcome back, Sam."), the composer at the
+ * bottom and whitespace between: no heading, no starter chips. Whatever
+ * waits on the person (asks, approvals, suggested actions) is never a card
+ * there: it is at most ONE soft, dismissible chip by the composer that says
+ * how many and opens Review. A docked card
  * (a Decision, an approval) appears on an empty conversation only when the
  * person started the flow it belongs to: a link that named it, a starter
  * they picked.
@@ -19,9 +21,6 @@
  * Pure, so every surface (the full-page chat, the rail, the docked Decision)
  * asks the same question and gets the same answer.
  */
-
-/** How many starters an empty conversation offers: a nudge, not a menu. */
-export const MAX_STARTERS = 3;
 
 /**
  * The tallest anything pinned above the composer may be on a phone: a quarter
@@ -79,10 +78,39 @@ export function firstNameOf(name: string | null | undefined): string | null {
   return first && !first.includes('@') ? first : null;
 }
 
+/** Browser-storage key: when this person last opened an empty conversation here. */
+export const LAST_SEEN_KEY = 'vocion:chat-last-seen';
+
+/** Away this long, and the line says "Welcome back". */
+const RETURN_AFTER_MS = 6 * 60 * 60 * 1000;
+
 /**
- * The starters an empty conversation shows, capped.
- * @param starters - Every starter the surface could offer, best first.
+ * Whether the person is coming back after a while, rather than here for the
+ * first time or a moment ago.
+ * @param lastSeen - When they last opened an empty conversation (ms), or null when never.
+ * @param now - Now (ms).
  */
-export function startersToShow<T>(starters: readonly T[]): T[] {
-  return starters.slice(0, MAX_STARTERS);
+export function isReturning(lastSeen: number | null, now: number): boolean {
+  return lastSeen !== null && now - lastSeen >= RETURN_AFTER_MS;
+}
+
+type Translate = (key: 'greeting' | 'greeting_named' | 'welcome_back' | 'welcome_back_named', values?: Record<string, string>) => string;
+
+/**
+ * The one line an empty conversation says: "Welcome back, Sam." to someone
+ * coming back after a while, else "Good evening, Sam." by their clock.
+ * Without a name, the same line without one.
+ * @param input - What the line knows.
+ * @param input.hour - 0–23, local time.
+ * @param input.returning - Coming back after a while.
+ * @param input.firstName - The person's first name, or null.
+ * @param t - The surface's translator (`Chat` messages).
+ */
+export function greetingFor(input: { hour: number; returning: boolean; firstName?: string | null }, t: Translate): string {
+  const name = input.firstName ?? null;
+  if (input.returning) {
+    return name ? t('welcome_back_named', { name }) : t('welcome_back');
+  }
+  const part = partOfDay(input.hour);
+  return name ? t('greeting_named', { part, name }) : t('greeting', { part });
 }
