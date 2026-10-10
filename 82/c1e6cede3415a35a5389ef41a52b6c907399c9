@@ -1,0 +1,28 @@
+packages/core/src/services/plugins/setupState.test.ts
+  s_752d9fb8a2ad2d::t_c470dccea7a44a 83-90,92-95,97-117
+  s_752d9fb8a2ad2d::t_2e411f932950e2 82
+  s_752d9fb8a2ad2d::t_9b6c46ce4f1f31 91,96
+packages/core/src/services/agents/tools/describeSetup.ts
+  s_752d9fb8a2ad2d::t_a73fecbe4f3710 31-32,34
+  s_752d9fb8a2ad2d::t_2e411f932950e2 33
+  s_752d9fb8a2ad2d::t_12efc90b635f1e 27-28
+packages/core/src/services/plugins/setupState.ts
+  s_752d9fb8a2ad2d::t_a73fecbe4f3710 19-21,28-29,41-45,47-49,110-114,117-119,121,125,127-129,143-145
+  s_752d9fb8a2ad2d::t_197fc16a02a89a 146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "82c1e6cede3415a35a5389ef41a52b6c907399c9",
+  "prompts": {},
+  "sessions": {
+    "s_752d9fb8a2ad2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7a2d495-d3c1-4b63-9ad0-bbbf7b970558",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
