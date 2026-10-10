@@ -1,0 +1,14 @@
+slug: month-end-close
+name: Month-end close
+description: Wakes the Controller on the second of each month to run the close.
+status: active
+setting: monthEndClose
+agent: controller
+when:
+  schedule: '0 16 2 * *'
+do:
+  checkMission: close-the-month
+  prompt: >-
+    Close last month. Run the close calendar, hand each task to the teammate
+    who owns it, and propose the accruals its methods call for. Report the
+    close status: done, blocked and on whom, and whether the due day holds.

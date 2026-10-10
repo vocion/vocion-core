@@ -1,0 +1,14 @@
+name: Finance
+description: >-
+  Keeps the books coded, closes the month on time with numbers that tie, and
+  turns the ledger into the reports the business and its board steer on.
+goal: The books close every month on schedule, every change approved by a person, and the board hears the numbers without anyone rebuilding them.
+lead: controller
+measures:
+  - key: ledger_changes
+    label: Ledger changes approved
+    dimension: velocity
+    target: 20
+    unit: changes
+    window: 30d
+    source: {kind: observed, actions: [finance.recategorize_expense, finance.post_journal_entry]}

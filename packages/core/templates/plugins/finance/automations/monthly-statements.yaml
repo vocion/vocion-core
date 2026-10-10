@@ -1,0 +1,13 @@
+slug: monthly-statements
+name: Monthly statements
+description: Drafts last month's P&L and balance sheet to each monthly recipient after the close.
+status: active
+setting: monthlyStatements
+agent: financial-analyst
+when:
+  schedule: '0 17 7 * *'
+do:
+  checkMission: statements-delivered
+  prompt: >-
+    Draft last month's statements to each monthly report recipient on file.
+    If last month's close is not signed off, say so and stop.

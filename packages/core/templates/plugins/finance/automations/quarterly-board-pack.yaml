@@ -1,0 +1,14 @@
+slug: quarterly-board-pack
+name: Quarterly board pack
+description: Drafts the board pack and the tax accountant's statements after each quarter closes.
+status: active
+setting: quarterlyBoardPack
+agent: financial-analyst
+when:
+  schedule: '0 17 10 1,4,7,10 *'
+do:
+  checkMission: statements-delivered
+  prompt: >-
+    Draft last quarter's board pack, then draft the quarter's statements to
+    each quarterly report recipient on file. If the quarter's last close is
+    not signed off, say so and stop.

@@ -1,0 +1,17 @@
+slug: books-coded
+name: Every expense is in the right account
+description: >-
+  The Bookkeeper's standing responsibility for coding.
+goal: >-
+  Every card and bank expense sits in the account the rules say, or waits in
+  Review with a proposal and its reason; no vendor is coded twice two ways.
+agent: bookkeeper
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Each week's expenses are read within one working day of the week ending
+  - Every miscoded line has one proposal with the rule or research behind it
+  - Every correction a person makes becomes a proposed account rule
+desiredArtifacts:
+  - The week's recategorization proposals
+schedule: '0 16 * * 1'

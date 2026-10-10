@@ -1,0 +1,44 @@
+slug: account_rule
+label: Account rule
+description: >-
+  Where a kind of spend or income is coded: a vendor, a pattern or a category,
+  and the account it belongs in. The Bookkeeper codes every expense against
+  these and proposes a change only where a line disagrees with one. A rule is
+  added during onboarding and every time a person corrects a coding.
+icon: tags
+code: RULE
+schema:
+  type: object
+  x-agent-file:
+    dedupOn: [match]
+  properties:
+    match:
+      x-display: {label: When, group: Rule}
+      type: string
+      description: What the rule recognizes, in words a person reads, e.g. "Anthropic, OpenAI or any AI model provider" or "Apple charges under $300".
+    vendors:
+      x-display: {label: Vendors, group: Rule}
+      type: array
+      description: Vendor names exactly as they appear on statements (APPLE.COM/BILL, APPL), when the rule is about named vendors.
+      items: {type: string}
+    accountId:
+      x-display: {label: Account id, format: mono, group: Account}
+      type: string
+      description: The account's id in the ledger, read from it, never typed from memory.
+    accountName:
+      x-display: {label: Account, group: Account}
+      type: string
+      description: The account's number and name as the ledger shows it, e.g. "6120 AI services".
+    rationale:
+      x-display: {label: Why, role: prose}
+      type: string
+      description: Why this account, e.g. "AI spend is tracked on its own; Loom has AI features but is a service".
+    excludes:
+      x-display: {label: Not this rule, group: Rule}
+      type: array
+      description: Look-alikes that do NOT belong here, so the next coding does not drift.
+      items: {type: string}
+    source:
+      x-display: {label: Learned from, group: Provenance}
+      type: string
+      enum: [onboarding, correction, review]

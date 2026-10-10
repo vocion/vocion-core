@@ -17,6 +17,8 @@ import { resolveGoogleAccessToken } from './googleAuth';
 const driveConfigSchema = z.object({
   /** Drive query (e.g. `"<folderId>" in parents`). Defaults to non-trashed files. */
   query: z.string().default('trashed = false'),
+  /** Also list files on shared drives the identity can open, not only My Drive and files shared with it. */
+  allDrives: z.boolean().default(false),
   baseUrl: z.string().url().default('https://www.googleapis.com/drive/v3'),
 });
 
@@ -64,6 +66,7 @@ export const driveConnector: SourceConnector<typeof driveConfigSchema> = {
         q,
         fields: 'nextPageToken,files(id,name,mimeType,modifiedTime)',
         pageSize: '100',
+        ...(cfg.allDrives ? { supportsAllDrives: 'true', includeItemsFromAllDrives: 'true', corpora: 'allDrives' } : {}),
       });
       if (pageToken) {
         params.set('pageToken', pageToken);
@@ -79,6 +82,9 @@ export const driveConnector: SourceConnector<typeof driveConfigSchema> = {
         const exportMime = exportMimeFor(file.mimeType);
         if (exportMime) {
           const ep = new URLSearchParams({ mimeType: exportMime });
+          if (cfg.allDrives) {
+            ep.set('supportsAllDrives', 'true');
+          }
           const exportRes = await fetch(`${cfg.baseUrl}/files/${file.id}/export?${ep.toString()}`, { headers });
           if (exportRes.ok) {
             content = await exportRes.text();
@@ -86,7 +92,7 @@ export const driveConnector: SourceConnector<typeof driveConfigSchema> = {
             ctx.onProgress?.({ kind: 'error', uri: file.id, message: `export ${file.id}: ${exportRes.status}` });
           }
         } else if (file.mimeType.startsWith('text/')) {
-          const dlRes = await fetch(`${cfg.baseUrl}/files/${file.id}?alt=media`, { headers });
+          const dlRes = await fetch(`${cfg.baseUrl}/files/${file.id}?alt=media${cfg.allDrives ? '&supportsAllDrives=true' : ''}`, { headers });
           if (dlRes.ok) {
             content = await dlRes.text();
           }

@@ -1,0 +1,11 @@
+# Finance: the books kept, the month closed and the board told. Installed in a
+# workspace when the finance plugin is on there.
+id: finance
+name: Finance
+icon: calculator
+tint: sky
+order: 5
+description: The books coded, the month closed and the board told, with every change approved by you.
+plugins: [finance]
+entry: /dashboard/p/account-rules
+nav: [Finance]

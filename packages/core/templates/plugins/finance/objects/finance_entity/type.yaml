@@ -1,0 +1,59 @@
+slug: finance_entity
+label: Legal entity
+description: >-
+  One legal entity whose books the finance team keeps: what it is, how it is
+  taxed, who owns it, and the facts every entry depends on. Filed by the
+  Controller during onboarding from what an admin says and what the ledger
+  shows; read by every finance agent before it proposes a change.
+icon: landmark
+code: ENT
+schema:
+  type: object
+  x-agent-file:
+    dedupOn: [name]
+  properties:
+    name:
+      x-display: {label: Entity, group: Identity}
+      type: string
+      description: The legal name, as it appears on returns.
+    entityType:
+      x-display: {label: Type, group: Identity}
+      type: string
+      description: 'LLC, S corporation, C corporation, partnership, sole proprietorship, or the local equivalent.'
+    taxTreatment:
+      x-display: {label: Tax treatment, role: prose}
+      type: string
+      description: How it is taxed in the owner's words, e.g. "single-member LLC disregarded into the S corp parent; taxes flow through to the shareholders".
+    parent:
+      x-display: {label: Owned by, group: Identity}
+      type: string
+      description: The entity that owns it, by name, when it has one.
+    fiscalYearStart:
+      x-display: {label: Fiscal year starts, group: Calendar}
+      type: string
+      description: Month the fiscal year starts, e.g. "January". Never assumed.
+    currency:
+      x-display: {label: Currency, group: Calendar}
+      type: string
+      description: Three-letter code of the books, read from the ledger.
+    accountingBasis:
+      x-display: {label: Basis, group: Calendar}
+      type: string
+      enum: [accrual, cash]
+    ledgerSource:
+      x-display: {label: Ledger source, format: mono, group: Systems}
+      type: string
+      description: The workspace source slug that holds this entity's books.
+    providers:
+      x-display: {label: Providers, role: prose, format: steps}
+      type: array
+      description: The outside providers the books depend on (payroll, banks, cards, tax accountant), each with what it does.
+      items:
+        type: object
+        properties:
+          name: {type: string}
+          role: {type: string, description: 'payroll, bank, card, tax accountant, benefits, insurance…'}
+    notes:
+      x-display: {label: Standing facts, role: prose}
+      type: string
+      description: Anything an accountant joining tomorrow must know, one fact per line, e.g. "workers' comp is withheld by payroll and remitted by us from a liability account".

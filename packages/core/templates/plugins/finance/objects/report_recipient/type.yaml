@@ -1,0 +1,32 @@
+slug: report_recipient
+label: Report recipient
+description: >-
+  Someone outside the finance team who receives statements on a schedule: a
+  board member monthly, the tax accountant quarterly. The send automations
+  draft one email per recipient for approval and do nothing while there are
+  none.
+icon: mail
+code: RCPT
+schema:
+  type: object
+  x-agent-file:
+    dedupOn: [email, cadence]
+  properties:
+    name:
+      x-display: {label: Name}
+      type: string
+    email:
+      x-display: {label: Email, format: mono}
+      type: string
+    role:
+      x-display: {label: Role}
+      type: string
+      description: board member, investor, tax accountant, lender…
+    cadence:
+      x-display: {label: Cadence, format: badge}
+      type: string
+      enum: [monthly, quarterly, annual]
+    reports:
+      x-display: {label: Reports}
+      type: array
+      items: {type: string, enum: [profit_and_loss, balance_sheet, board_pack]}

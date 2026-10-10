@@ -1,0 +1,14 @@
+slug: weekly-expense-coding
+name: Weekly expense coding
+description: Wakes the Bookkeeper every Monday to code last week's expenses.
+status: active
+setting: weeklyExpenseCoding
+agent: bookkeeper
+when:
+  schedule: '0 16 * * 1'
+do:
+  checkMission: books-coded
+  prompt: >-
+    Code last week's card and bank expenses against the account rules and
+    propose a recategorization for each miscoded line. Stop at last week;
+    report the counts.

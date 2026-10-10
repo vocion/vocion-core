@@ -1,0 +1,19 @@
+slug: statements-delivered
+name: The board hears the numbers without anyone rebuilding them
+description: >-
+  The Financial Analyst's standing responsibility for statements and the
+  board pack.
+goal: >-
+  After each close, every report recipient on file has a draft of their
+  statements waiting for approval; after each quarter, a board pack in the
+  shape of the last one is drafted with every figure tied to the ledger.
+agent: financial-analyst
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - One gmail.send draft per due recipient, with the closed period's statements attached
+  - The board pack follows the last pack's sections and carries forward the last meeting's decisions
+  - Nothing in a draft is a figure the ledger or a filed document does not support
+desiredArtifacts:
+  - Statement drafts for each due recipient
+  - The quarterly board pack document

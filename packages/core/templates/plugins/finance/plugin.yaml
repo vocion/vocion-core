@@ -1,0 +1,59 @@
+# The finance plugin: a finance team that keeps a company's books, closes the
+# month and reports on it, proposing every change to the ledger for a person
+# to approve.
+#
+# Core ships the MECHANISM (the finance family's reads and reports, the
+# `finance.recategorize_expense` and `finance.post_journal_entry` actions with
+# Undo, `gmail.send`, documents); this plugin ships the MEANING: five roles,
+# the skills each one owns, the records onboarding files, the close mission
+# and its cadence. Vendor-neutral: the agents name the ledger by family, so the
+# same plugin runs on QuickBooks, NetSuite or Xero. A workspace turns it on
+# with `plugins: [finance]`, adds its own sources and evals, and overrides any
+# file by slug.
+slug: finance
+name: Finance
+version: 1.0.0
+description: A finance team that codes expenses, books payroll, closes the month and reports to the board, proposing every change to the books for your approval.
+nav: {section: Finance, order: 0}
+recommend:
+  when:
+    - a person asks about expenses, the P&L, the balance sheet, payroll costs or project profitability
+    - month-end close is done by hand from a checklist
+    - someone recodes the same vendor's charges every month
+    - a board or investor update is rebuilt from scratch each quarter
+  connectors: [quickbooks, netsuite, xero, rippling, gusto, gmail, drive]
+
+# Onboarding. Done when the ledger is connected and the Controller has filed
+# the entity structure and at least one account rule. Until then the chat
+# offers "Set up Finance" and the scheduled work waits.
+setup:
+  connectors: [finance]
+  records: [finance_entity, account_rule]
+
+settings:
+  monthEndClose:
+    type: boolean
+    default: true
+    label: Run the month-end close
+    description: On the second business day of each month the Controller runs the close calendar and proposes the accruals.
+  weeklyExpenseCoding:
+    type: boolean
+    default: true
+    label: Code expenses every week
+    description: Every Monday the Bookkeeper codes the week's card and bank expenses against the account rules and proposes recategorizations.
+  monthlyStatements:
+    type: boolean
+    default: false
+    label: Send monthly statements
+    description: After the close the Financial Analyst drafts the P&L and balance sheet to each monthly report recipient, for your approval.
+  quarterlyBoardPack:
+    type: boolean
+    default: false
+    label: Prepare the quarterly board pack
+    description: After the quarter closes the Financial Analyst drafts the board pack and the tax accountant's statements.
+
+starters:
+  - label: Set up Finance
+    prompt: Set up Finance for this workspace.
+  - label: What did we spend on AI last month?
+  - label: Which projects are below their margin target?
