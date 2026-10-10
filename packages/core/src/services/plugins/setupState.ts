@@ -16,13 +16,17 @@
  * Two kinds of step, both declared by the plugin:
  *   connectors — a connector slug a person must connect; done when a live
  *                credential exists for that connector in this org, whether a
- *                vendor login, an app installation or a pasted key;
+ *                vendor login, an app installation or a pasted key. A family
+ *                name (`finance`, `people`) is a step any of its connectors
+ *                does, so a plugin never has to name a vendor;
  *   records    — an object type the plugin ships that must hold at least one
  *                active record; done when it does.
  * Nothing here decides what the steps mean for the plugin. A plugin that
  * declares no `setup:` has no setup state and never appears.
  */
 
+import type { ConnectorFamily } from '@/libs/connectors/families';
+import { FAMILY_KINDS, FAMILY_LABEL } from '@/libs/connectors/families';
 import { getConnector } from '@/libs/sources/registry';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { countActiveRecordsByType } from '@/services/objects/recordCounts';
@@ -34,8 +38,15 @@ export type SetupStep = {
   /** `connector:<slug>` or `records:<type slug>` — stable across runs. */
   key: string;
   kind: 'connector' | 'records';
-  /** The connector slug or the object type slug. */
+  /**
+   * The connector slug or the object type slug. For a family step, the
+   * connector that did it, else the one the workspace declares a source
+   * for, else the family name.
+   */
   slug: string;
+  /** For a family step: the family, and every connector that would do it. */
+  family?: string;
+  options?: string[];
   /** A short label a card or a sentence can carry. */
   label: string;
   /** For a connector: its brand (`libs/brands/catalog.ts`), for the checklist's tile. */
@@ -96,18 +107,26 @@ export async function setupStateForOrg(orgId: string): Promise<PluginSetup[]> {
 
   return declaring.map((p) => {
     const steps: SetupStep[] = [
-      ...p.manifest.setup.connectors.map((connector): SetupStep => {
+      ...p.manifest.setup.connectors.map((declared): SetupStep => {
+        const options = isFamily(declared) ? [...FAMILY_KINDS[declared]] : null;
+        const connector = options
+          ? (options.find(connectorConnected) ?? options.find(o => sourcesByConnector.has(o)) ?? declared)
+          : declared;
         const descriptor = getConnector(connector);
         const brand = descriptor?.brand;
+        const sources = options && connector === declared
+          ? options.flatMap(o => sourcesByConnector.get(o) ?? [])
+          : sourcesByConnector.get(connector) ?? [];
         return {
-          key: `connector:${connector}`,
+          key: `connector:${declared}`,
           kind: 'connector',
           slug: connector,
           // "Connect GitHub", as the person reads it — never the slug.
-          label: `Connect ${descriptor?.name ?? connector}`,
+          label: descriptor ? `Connect ${descriptor.name}` : options ? `Connect your ${FAMILY_LABEL[declared as ConnectorFamily]}` : `Connect ${connector}`,
           ...(brand ? { brand } : {}),
-          done: connectorConnected(connector),
-          sources: sourcesByConnector.get(connector) ?? [],
+          ...(options ? { family: declared, options } : {}),
+          done: options ? options.some(connectorConnected) : connectorConnected(connector),
+          sources,
         };
       }),
       ...p.manifest.setup.records.map((type): SetupStep => ({
@@ -120,4 +139,8 @@ export async function setupStateForOrg(orgId: string): Promise<PluginSetup[]> {
     ];
     return { plugin: p.manifest.slug, name: p.manifest.name, complete: steps.every(s => s.done), steps };
   });
+}
+
+function isFamily(slug: string): slug is ConnectorFamily {
+  return Object.hasOwn(FAMILY_KINDS, slug);
 }

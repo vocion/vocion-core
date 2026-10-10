@@ -79,4 +79,40 @@ describe('setupStateForOrg', () => {
 
     expect(await setupStateForOrg('org-1')).toEqual([]);
   });
+
+  describe('a family step', () => {
+    const finance = { manifest: { slug: 'finance', name: 'Finance', setup: { connectors: ['finance'], records: [] } } };
+
+    beforeEach(() => {
+      state.enabled = ['finance'];
+      state.plugins = [finance];
+    });
+
+    it('names the finance system, not a vendor, while the workspace declares no source of the family', async () => {
+      state.sources = [];
+
+      const [out] = await setupStateForOrg('org-1');
+
+      expect(out!.steps[0]).toMatchObject({ key: 'connector:finance', slug: 'finance', family: 'finance', label: 'Connect your finance system', done: false, sources: [] });
+      expect(out!.steps[0]!.options).toContain('quickbooks');
+    });
+
+    it('points at the vendor the workspace declares a source for', async () => {
+      state.sources = [{ id: 7, slug: 'quickbooks', kind: 'quickbooks', config: {} }];
+
+      const [out] = await setupStateForOrg('org-1');
+
+      expect(out!.steps[0]).toMatchObject({ slug: 'quickbooks', label: 'Connect QuickBooks Online', done: false, sources: ['quickbooks'] });
+    });
+
+    it('is done by any connector of the family', async () => {
+      state.sources = [{ id: 7, slug: 'quickbooks', kind: 'quickbooks', config: {} }];
+      state.credentials = { byConnectorSlug: { netsuite: { connected: true } }, bySourceId: {} };
+
+      const [out] = await setupStateForOrg('org-1');
+
+      expect(out!.steps[0]).toMatchObject({ slug: 'netsuite', done: true });
+      expect(out!.complete).toBe(true);
+    });
+  });
 });

@@ -24,9 +24,14 @@ export const DESCRIBE_SETUP_TOOL = 'describe_setup';
  * @param step - The step.
  * @param step.slug - Connector slug.
  * @param step.sources - Source slugs of that connector in this workspace.
+ * @param step.family - For a family step, the family; the slug equals it until one connector is chosen.
+ * @param step.options - For a family step, every connector that would do it.
  * @param conversationId - The current conversation, when the turn has one.
  */
-export function connectorStepHref(step: { slug: string; sources?: string[] }, conversationId?: number | null): { href: string; how: string } {
+export function connectorStepHref(step: { slug: string; sources?: string[]; family?: string; options?: string[] }, conversationId?: number | null): { href: string; how: string } {
+  if (step.family && step.slug === step.family) {
+    return { href: `/dashboard/connectors?returnTo=${encodeURIComponent(conversationId ? `/dashboard/chat?conversation=${conversationId}` : '/dashboard/chat')}`, how: `any one of ${step.options?.join(', ')} does it; ask which the company uses, then offer that one with offer_connection` };
+  }
   const href = connectHref(step.slug, conversationId ?? undefined);
   if (!step.sources || step.sources.length === 0) {
     return { href, how: 'the workspace declares no source of this kind yet; connecting it on the Connectors page creates one (a workspace admin)' };
