@@ -106,10 +106,14 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
   'tracker.transition_issue': 'low',
   'tracker.update_issue': 'low',
   'tracker.attach_file': 'low',
-  // The finance family's one write: a draft invoice sits in the books where
+  // The finance family's writes. A draft invoice sits in the books where
   // finance people see it but reaches no customer and moves no money, and
-  // Undo deletes it.
+  // Undo deletes it. A recoded expense line and a journal entry move no money
+  // either, but they change the figures an accountant closes on: medium for
+  // the one line, high for an entry that can touch any account.
   'finance.draft_invoice': 'medium',
+  'finance.recategorize_expense': 'medium',
+  'finance.post_journal_entry': 'high',
   // The code host's own writes (the repo family). A comment, a re-run and a
   // cancelled run change no code and come back with Undo; a review, a pull
   // request, a started pipeline and a revert reach the repository's engineers

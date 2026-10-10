@@ -95,11 +95,12 @@ describe('sample data, with no login', () => {
 
     const byType = (type: string) => docs.filter(doc => doc.metadata?.objectType === type);
 
-    expect(byType('account')).toHaveLength(8);
+    expect(byType('account')).toHaveLength(11);
     expect(byType('invoice')).toHaveLength(5);
     expect(byType('bill')).toHaveLength(3);
     expect(byType('payment')).toHaveLength(2);
     expect(byType('bill-payment')).toHaveLength(2);
+    expect(byType('purchase')).toHaveLength(4);
     expect(byType('journal-entry')).toHaveLength(2);
 
     for (const doc of docs) {
@@ -154,16 +155,36 @@ describe('sample data, with no login', () => {
     expect(find('quickbooks:sample:journal-entry:501').metadata).toMatchObject({ total: 750 });
   });
 
+  it('writes a card charge with the account each line is coded to, and never "overdue"', async () => {
+    const { docs } = await sync({ config: { sample: true } });
+    const google = docs.find(doc => doc.externalId === 'quickbooks:sample:purchase:604')!;
+
+    expect(google.title).toBe('Sample · Card charge · Google · 2026-10-01');
+    expect(google.content).toBe([
+      'QuickBooks · Larkfield Systems (sample company) · sample data, not real books',
+      'Card charge to Google on 2026-10-01',
+      'Amount USD 588.00, paid from Company Card',
+      'Coded to:',
+      '- Software and Subscriptions: Google Workspace Business Standard, 12 users, October: USD 168.00',
+      '- Marketing: Google Ads, September: USD 420.00',
+    ].join('\n'));
+    expect(google.metadata).toMatchObject({ objectType: 'purchase', vendor: 'Google', total: 588, txnDate: '2026-10-01', paymentType: 'CreditCard', account: 'Company Card', accounts: ['Software and Subscriptions', 'Marketing'] });
+    expect(docs.filter(doc => doc.metadata?.objectType === 'purchase').every(doc => !/overdue/i.test(doc.content))).toBe(true);
+  });
+
   it('reads only what changed since the watermark', async () => {
     const { docs } = await sync({ config: { sample: true }, since: new Date('2026-09-30T18:00:00-07:00') });
 
     expect(docs.map(doc => doc.externalId).sort()).toEqual([
       'quickbooks:sample:account:35',
+      'quickbooks:sample:account:41',
       'quickbooks:sample:account:64',
+      'quickbooks:sample:account:66',
       'quickbooks:sample:account:84',
       'quickbooks:sample:invoice:134',
       'quickbooks:sample:journal-entry:501',
       'quickbooks:sample:journal-entry:502',
+      'quickbooks:sample:purchase:604',
     ]);
   });
 });
@@ -178,7 +199,7 @@ describe('a connected company', () => {
     const calls = stubQuickbooks({ Invoice: [{ Id: '9', DocNumber: '77', CustomerRef: { name: 'Acme Retail' }, TotalAmt: 100, Balance: 100, CurrencyRef: { value: 'USD' } }] });
     const { docs } = await sync({ config: {}, credentials: LOGIN });
 
-    expect(calls.map(call => /FROM (\w+)/.exec(call.query ?? '')?.[1])).toEqual(['Account', 'Invoice', 'Bill', 'Payment', 'BillPayment', 'JournalEntry']);
+    expect(calls.map(call => /FROM (\w+)/.exec(call.query ?? '')?.[1])).toEqual(['Account', 'Invoice', 'Bill', 'Payment', 'BillPayment', 'Purchase', 'JournalEntry']);
 
     const first = new URL(calls[0]!.url);
 

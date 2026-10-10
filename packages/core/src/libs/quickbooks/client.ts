@@ -1,5 +1,7 @@
 /**
- * Reading a QuickBooks Online company: the query endpoint, paged, read-only.
+ * Reading a QuickBooks Online company: the query endpoint, paged, read-only;
+ * and the one way anything is written back (`quickbooksWrite`), used only by
+ * approved finance actions.
  *
  * One reader shape, two backings. `liveQuickbooksReader` calls Intuit with a
  * login's access token; `sampleQuickbooksReader` (`sampleCompany.ts`) answers
@@ -33,7 +35,7 @@ export const QUICKBOOKS_PAGE_SIZE = 1000;
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /** The QuickBooks entities the connector reads, by their API names. */
-export type QuickbooksEntity = 'Account' | 'Invoice' | 'Bill' | 'Payment' | 'BillPayment' | 'JournalEntry';
+export type QuickbooksEntity = 'Account' | 'Invoice' | 'Bill' | 'Payment' | 'BillPayment' | 'Purchase' | 'JournalEntry';
 
 /** A row as the API returns it. Read defensively: every field may be missing. */
 export type QuickbooksRow = Record<string, unknown>;
@@ -122,6 +124,94 @@ function queryFailure(entity: QuickbooksEntity, status: number, body: unknown): 
     return new QuickbooksQueryError(`QuickBooks failed on its side reading ${entity} records (${status}). Try again later.${said}`, status, false);
   }
   return new QuickbooksQueryError(`QuickBooks rejected the ${entity} query (${status}).${said}`, status, false);
+}
+
+/**
+ * One write to a company: a create, a sparse update or a delete of one
+ * entity, as `POST /v3/company/<realm>/<entity>`. Never retried: a write
+ * QuickBooks may have taken is not sent twice. A failure carries Intuit's own
+ * reason (a stale SyncToken, a closed period) and no token.
+ * @param input - The write.
+ * @param input.base - The API host for the company's environment.
+ * @param input.realmId - The company id.
+ * @param input.accessToken - The login's current access token.
+ * @param input.entity - The entity, by its API name.
+ * @param input.body - The entity's JSON.
+ * @param input.operation - `delete` to delete; a create or an update otherwise.
+ * @param input.fetch - The network; the global one when left out.
+ * @returns The entity as QuickBooks answered it.
+ */
+export async function quickbooksWrite(input: {
+  base: string;
+  realmId: string;
+  accessToken: string;
+  entity: QuickbooksEntity;
+  body: QuickbooksRow;
+  operation?: 'delete';
+  fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+}): Promise<QuickbooksRow> {
+  const params = new URLSearchParams({ minorversion: QUICKBOOKS_MINOR_VERSION, ...(input.operation ? { operation: input.operation } : {}) });
+  const url = `${input.base.replace(/\/+$/, '')}/v3/company/${encodeURIComponent(input.realmId)}/${input.entity.toLowerCase()}?${params.toString()}`;
+  const doFetch = input.fetch ?? ((u: string, init?: RequestInit) => fetch(u, init));
+  let response: Response;
+  try {
+    response = await doFetch(url, {
+      method: 'POST',
+      headers: { 'accept': 'application/json', 'content-type': 'application/json', 'authorization': `Bearer ${input.accessToken}` },
+      body: JSON.stringify(input.body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch {
+    throw new QuickbooksQueryError(`QuickBooks could not be reached to write the ${input.entity}. Check QuickBooks before trying again: the change may or may not have been made.`, null, false);
+  }
+  let body: unknown = null;
+  try {
+    body = JSON.parse(await response.text());
+  } catch {
+    // Not JSON: the status says what happened.
+  }
+  if (!response.ok) {
+    throw writeFailure(input.entity, response.status, body);
+  }
+  const row = (body as Record<string, unknown> | null)?.[input.entity];
+  return row && typeof row === 'object' ? row as QuickbooksRow : {};
+}
+
+/**
+ * The error for a refused write, worded for the fix.
+ * @param entity - What was being written.
+ * @param status - The HTTP status.
+ * @param body - The parsed body, if it parsed.
+ */
+function writeFailure(entity: QuickbooksEntity, status: number, body: unknown): QuickbooksQueryError {
+  const detail = faultDetail(body);
+  const said = detail ? ` QuickBooks said: ${detail}` : '';
+  if (status === 401) {
+    return new QuickbooksQueryError(`QuickBooks refused the login (401). An admin needs to log in with QuickBooks again on the Connectors page.${said}`, status, true);
+  }
+  if (status === 403) {
+    return new QuickbooksQueryError(`QuickBooks would not let this login change ${entity} records (403): the QuickBooks user who logged in may lack that access.${said}`, status, false);
+  }
+  if (status === 429) {
+    return new QuickbooksQueryError(`QuickBooks is rate-limiting this company (429); nothing was written. Try again in a minute.${said}`, status, true);
+  }
+  if (status >= 500) {
+    return new QuickbooksQueryError(`QuickBooks failed on its side writing the ${entity} (${status}). Check QuickBooks before trying again.${said}`, status, false);
+  }
+  return new QuickbooksQueryError(`QuickBooks refused the ${entity} change (${status}); nothing was written.${said}`, status, false);
+}
+
+/**
+ * Intuit's message and its detail out of a fault body: on a write the detail
+ * is the useful half ("Stale Object Error : You and … were working on this").
+ * @param body - The parsed error body.
+ */
+function faultDetail(body: unknown): string | null {
+  const message = faultMessage(body);
+  const outer = body as { Fault?: { Error?: unknown } } | null;
+  const first = Array.isArray(outer?.Fault?.Error) ? outer.Fault.Error[0] as Record<string, unknown> | undefined : undefined;
+  const detail = typeof first?.Detail === 'string' && first.Detail.trim() ? first.Detail.trim().slice(0, 300) : null;
+  return detail && detail !== message ? detail : message;
 }
 
 /**
