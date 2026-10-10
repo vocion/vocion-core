@@ -100,6 +100,9 @@ added = json.loads(extra) if extra.strip() else {}
 if not isinstance(added, dict) or not all(isinstance(v, str) for v in added.values()):
     sys.exit("EXTRA_ENV_JSON must be a JSON object whose values are all strings")
 env.update(added)
+# AgentCore authenticates the outer invocation with SigV4. Keep the runtime in
+# that mode even when callers provide additional environment overrides.
+env["VOCION_AGENT_RUNTIME_AUTH_MODE"] = "agentcore"
 print(json.dumps(env))
 PYENV
 )
