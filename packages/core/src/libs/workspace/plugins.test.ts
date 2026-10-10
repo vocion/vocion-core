@@ -73,7 +73,18 @@ describe('the shipped catalogue', () => {
   });
 
   it('refuses an unknown slug and names the catalogue', () => {
-    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: company, data-rooms, growth-loop, production-watch, proposals, red-team, software-factory, wiki/);
+    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: company, data-rooms, finance, growth-loop, production-watch, proposals, red-team, software-factory, wiki/);
+  });
+
+  it('counts what the finance plugin ships: five roles, the jobs each owns as skills, and setup by family', () => {
+    const finance = loadPlugin('finance');
+    const contents = pluginContents(finance);
+
+    expect(contents.agents).toEqual(['account-manager', 'bookkeeper', 'controller', 'financial-analyst', 'payroll-accountant']);
+    expect(contents.skills).toEqual(['accrual-schedule', 'ap-run', 'ar-aging', 'board-pack', 'categorize-expense', 'contractor-reconciliation', 'controls-test', 'decompose-variance', 'finance-onboarding', 'journal-entry', 'payroll-entries', 'period-close', 'project-profitability', 'reconcile', 'statement-distribution', 'statements']);
+    expect(contents.objectTypes).toEqual(['account_rule', 'close_calendar', 'finance_entity', 'profitability_target', 'report_recipient']);
+    // A family, never a vendor: QuickBooks, NetSuite and Xero all complete it.
+    expect(finance.manifest.setup).toEqual({ connectors: ['finance'], records: ['finance_entity', 'account_rule'] });
   });
 
   it('counts what the growth loop ships', () => {

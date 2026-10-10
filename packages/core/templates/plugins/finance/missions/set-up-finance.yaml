@@ -1,0 +1,20 @@
+slug: set-up-finance
+name: Finance is set up
+description: >-
+  The Controller's standing responsibility until setup is complete: the books
+  connected, the legal entities and account rules on file.
+goal: >-
+  Every setup step the plugin declares is done by the shortest path: the
+  person connects the finance system from the card in front of them, and the
+  entities and account rules are filed from what they say and what the ledger
+  shows. Nothing is asked twice and nothing is filed that nobody said.
+agent: controller
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - A person who taps "Set up Finance" sees one question or one connect card at a time, never a step that is already done
+  - Each legal entity on file carries its tax treatment and fiscal year in the owner's words
+  - Each account rule names an account read from the ledger, never one typed from memory
+  - Once setup is complete the Controller says in two lines what the team now does on its own
+desiredArtifacts:
+  - The legal entity and account rule records a person confirmed

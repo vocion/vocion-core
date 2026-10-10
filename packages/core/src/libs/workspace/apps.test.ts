@@ -9,10 +9,10 @@ import { AppManifestSchema } from './schemas';
 // a broken app.yaml fails here and not in the sidebar.
 
 describe('the shipped apps', () => {
-  it('ships Workforce as the one core app, the three prebuilt apps, and the Assistants slot', () => {
-    expect(listAppIds()).toEqual(['assistants', 'company', 'gtm', 'software-factory', 'workforce']);
+  it('ships Workforce as the one core app, the four prebuilt apps, and the Assistants slot', () => {
+    expect(listAppIds()).toEqual(['assistants', 'company', 'finance', 'gtm', 'software-factory', 'workforce']);
     expect(listApps().filter(a => a.core).map(a => a.id)).toEqual(['workforce']);
-    expect(listApps().map(a => a.id)).toEqual(['workforce', 'assistants', 'software-factory', 'gtm', 'company']);
+    expect(listApps().map(a => a.id)).toEqual(['workforce', 'assistants', 'software-factory', 'gtm', 'company', 'finance']);
   });
 
   it('starts the Company app on its templates, behind its own plugin', () => {
@@ -21,6 +21,14 @@ describe('the shipped apps', () => {
     expect(company.plugins).toEqual(['company']);
     expect(company.entry).toBe('/dashboard/apps/company');
     expect(company.nav).toEqual(['Company']);
+  });
+
+  it('opens the Finance app on its account rules, behind the finance plugin', () => {
+    const finance = loadApp('finance');
+
+    expect(finance.plugins).toEqual(['finance']);
+    expect(finance.entry).toBe('/dashboard/p/account-rules');
+    expect(finance.nav).toEqual(['Finance']);
   });
 
   it('keeps the Assistants slot hidden until it has plugins of its own', () => {
@@ -57,7 +65,7 @@ describe('the shipped apps', () => {
   });
 
   it('refuses an unknown id and names the catalogue', () => {
-    expect(() => loadApp('nope')).toThrow(/unknown app "nope" — this core ships: assistants, company, gtm, software-factory, workforce/);
+    expect(() => loadApp('nope')).toThrow(/unknown app "nope" — this core ships: assistants, company, finance, gtm, software-factory, workforce/);
   });
 });
 

@@ -1,0 +1,20 @@
+slug: close-the-month
+name: The month closes on time and ties
+description: >-
+  The Controller's standing responsibility for the monthly close.
+goal: >-
+  Each month closes by the due day on the close calendar: expenses coded,
+  payroll booked, accruals proposed by the authored methods, the balance sheet
+  reconciled, and every change approved by a person before the close is
+  signed off.
+agent: controller
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - The close status names what is done, what is blocked and on whom, against the close calendar, dated
+  - Every accrual is proposed as a balanced journal entry with its method and figures cited
+  - A close date at risk is reported the day it becomes at risk
+desiredArtifacts:
+  - A dated close status for the month
+  - The month's accrual entries, proposed for approval
+schedule: '0 16 2 * *'

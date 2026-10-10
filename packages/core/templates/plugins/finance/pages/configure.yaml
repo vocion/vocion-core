@@ -1,0 +1,23 @@
+# Configure. The finance team's seats, skills, automations, trust rules, what
+# it learned and its measures, with where setup stands beside them. Drawn by
+# core (`archetype: configure`), the same page every plugin ships.
+slug: configure
+title: Configure
+description: 'What drives the finance team: its seats, skills, rules and automations, and what it learned from use.'
+icon: settings
+nav: {section: Finance, order: 9, secondary: true}
+archetype: configure
+pluginPanel: false
+configure:
+  tabs:
+    - {kind: seats}
+    - {kind: skills}
+    - {kind: automations}
+    - {kind: trust}
+    - {kind: learned}
+    - {kind: measures}
+  aside:
+    - {kind: setup}
+    - {kind: health}
+    - {kind: attention}
+    - {kind: changes}

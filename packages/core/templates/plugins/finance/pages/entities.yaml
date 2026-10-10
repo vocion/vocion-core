@@ -1,0 +1,24 @@
+# Legal entities. The structure every entry depends on.
+slug: entities
+title: Entities
+description: The legal entities whose books the finance team keeps, and how each is taxed.
+icon: landmark
+nav: {section: Finance, order: 2}
+archetype: list
+pluginPanel: false
+source: {kind: objects, objectType: finance_entity}
+filters: [{field: status, op: neq, value: rejected}]
+sort: {field: meta.name, dir: asc}
+layout: block
+primary:
+  field: name
+  subtitle: [type, tax]
+fields:
+  - {key: name, label: Entity, from: meta.name}
+  - {key: type, label: Type, from: meta.entityType}
+  - {key: tax, label: Tax treatment, from: meta.taxTreatment}
+  - {key: parent, label: Owned by, from: meta.parent}
+rowLink: /dashboard/objects/{id}
+rowsTitle: Entities
+empty:
+  text: No entities on file. Ask the Controller to set up Finance.

@@ -1,0 +1,26 @@
+# Account rules. Where each kind of spend is coded, and why: the list the
+# Bookkeeper codes against and a person corrects.
+slug: account-rules
+title: Account rules
+description: Where each vendor and kind of spend is coded, and why.
+icon: tags
+nav: {section: Finance, order: 1}
+archetype: list
+pluginPanel: false
+source: {kind: objects, objectType: account_rule}
+filters: [{field: status, op: neq, value: rejected}]
+sort: {field: meta.accountName, dir: asc}
+groupBy: meta.accountName
+layout: block
+primary:
+  field: match
+  subtitle: [account, rationale]
+fields:
+  - {key: match, label: When, from: meta.match}
+  - {key: account, label: Account, from: meta.accountName, format: mono}
+  - {key: rationale, label: Why, from: meta.rationale}
+  - {key: source, label: Learned from, from: meta.source, format: badge, tones: {onboarding: muted, correction: warn, review: ok}}
+rowLink: /dashboard/objects/{id}
+rowsTitle: Account rules
+empty:
+  text: No account rules yet. Ask the Controller to set up Finance.

@@ -1,0 +1,27 @@
+slug: profitability_target
+label: Profitability target
+description: >-
+  The margin a kind of project is held to, so the Account Manager judges a
+  time-and-materials project and a milestone project each against its own
+  line.
+icon: target
+code: TGT
+schema:
+  type: object
+  x-agent-file:
+    dedupOn: [contractType]
+  properties:
+    contractType:
+      x-display: {label: Contract type, format: badge}
+      type: string
+      description: The contract type in the company's own words, e.g. "time and materials", "milestone", "retainer".
+    targetMarginPercent:
+      x-display: {label: Target margin %}
+      type: number
+    watchMarginPercent:
+      x-display: {label: Watch below %}
+      type: number
+      description: Below this a project is watched; below the target it is flagged.
+    notes:
+      x-display: {label: Notes, role: prose}
+      type: string

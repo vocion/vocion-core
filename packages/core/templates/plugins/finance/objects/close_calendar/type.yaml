@@ -1,0 +1,48 @@
+slug: close_calendar
+label: Close calendar
+description: >-
+  How this entity closes a month: the day the close is due, the tasks in
+  order, and the methods the accruals follow (estimated tax, bonus pool,
+  revenue spread). The Controller runs the close against it and never against
+  an assumed method.
+icon: calendar-check
+code: CLOSE
+schema:
+  type: object
+  x-agent-file:
+    dedupOn: [entity]
+  properties:
+    entity:
+      x-display: {label: Entity, format: link, to: finance_entity}
+      type: string
+      description: The legal entity's name.
+    closeBusinessDay:
+      x-display: {label: Close due, group: Calendar}
+      type: integer
+      description: Business day of the following month the close is due, e.g. 5.
+    tasks:
+      x-display: {label: Tasks, role: prose, format: steps}
+      type: array
+      description: The close tasks in dependency order, each with its owner role.
+      items:
+        type: object
+        properties:
+          task: {type: string}
+          owner: {type: string, enum: [controller, bookkeeper, payroll-accountant, financial-analyst, account-manager, person]}
+          dependsOn: {type: string}
+    estimatedTax:
+      x-display: {label: Estimated tax, role: prose}
+      type: string
+      description: The method, in the owner's words, e.g. "accrue 30% of month-to-date net income to 2310 Estimated tax payable; quarterly payments clear it".
+    bonusPool:
+      x-display: {label: Bonus pool, role: prose}
+      type: string
+      description: The method, e.g. "accrue 10% of net income above the monthly target to 2320 Bonus accrual".
+    revenueRecognition:
+      x-display: {label: Revenue spread, role: prose}
+      type: string
+      description: How milestone or prepaid revenue is spread across the months worked.
+    materiality:
+      x-display: {label: Materiality, group: Calendar}
+      type: number
+      description: Amount below which a difference is noted, not chased.
