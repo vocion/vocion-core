@@ -1,0 +1,19 @@
+packages/core/templates/plugins/finance/plugin.yaml
+  s_752d9fb8a2ad2d::t_181efa6752f333 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5946b6e3168b400e85090b0266b9021213b85af9",
+  "prompts": {},
+  "sessions": {
+    "s_752d9fb8a2ad2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7a2d495-d3c1-4b63-9ad0-bbbf7b970558",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
