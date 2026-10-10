@@ -1,0 +1,35 @@
+packages/core/src/services/people/payRun.ts
+  s_752d9fb8a2ad2d::t_fa768870f53937 1-100
+packages/core/src/services/agents/tools/peopleTools.ts
+  s_752d9fb8a2ad2d::t_869cc53d1589b5 82,114
+packages/core/src/services/people/people.test.ts
+  s_752d9fb8a2ad2d::t_38b107092e4d61 7-9,15,62-79,103,106-109,123,133-147
+packages/core/src/services/people/providers/fixtures.ts
+  s_752d9fb8a2ad2d::t_4b604bce7babb8 46-68,71-73,120-194
+packages/core/src/services/people/providers/gusto.test.ts
+  s_752d9fb8a2ad2d::t_3d392e6a68aa2a 43-46,51-65
+packages/core/src/services/people/providers/gusto.ts
+  s_752d9fb8a2ad2d::t_0d1091b9abeedd 13-16,22-24,31,65-68,70-71,73-114,126,209,236
+packages/core/src/services/people/providers/rippling.test.ts
+  s_752d9fb8a2ad2d::t_5de5b8bd6d6375 7,11,43-85
+packages/core/src/services/people/providers/rippling.ts
+  s_752d9fb8a2ad2d::t_d45141f4ff5edd 5-14,21-31,35-36,41,43-47,117-202,215-244,315-323,344-345
+packages/core/src/services/people/types.ts
+  s_752d9fb8a2ad2d::t_cde77636d0c84b 17-19,22,62-65,108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ec6366fc1c50b5a21ad635c7c8cce53a9cc15644",
+  "prompts": {},
+  "sessions": {
+    "s_752d9fb8a2ad2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7a2d495-d3c1-4b63-9ad0-bbbf7b970558",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
