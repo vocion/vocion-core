@@ -1,0 +1,109 @@
+packages/core/templates/plugins/finance/skills/ar-aging/SKILL.md
+  s_752d9fb8a2ad2d::t_7d825ff14e777d 1-23
+packages/core/templates/plugins/finance/pages/entities.yaml
+  s_752d9fb8a2ad2d::t_65c7e9a3509f98 1-24
+packages/core/templates/plugins/finance/agents/controller.yaml
+  s_752d9fb8a2ad2d::t_2279e76df38049 1-54
+packages/core/templates/plugins/finance/skills/contractor-reconciliation/SKILL.md
+  s_752d9fb8a2ad2d::t_be4e6d78e18fde 1-30
+packages/core/templates/plugins/finance/skills/reconcile/SKILL.md
+  s_752d9fb8a2ad2d::t_7d825ff14e777d 1-25
+packages/core/templates/plugins/finance/teams/finance.yaml
+  s_752d9fb8a2ad2d::t_2285f98355928d 1-7,10-13
+  s_752d9fb8a2ad2d::t_bb54955372e485 8-9,14
+packages/core/templates/plugins/finance/README.md
+  s_752d9fb8a2ad2d::t_65c7e9a3509f98 1-35
+packages/core/templates/plugins/finance/objects/finance_entity/type.yaml
+  s_752d9fb8a2ad2d::t_6a381e9c21d84a 1-59
+packages/core/templates/plugins/finance/skills/project-profitability/SKILL.md
+  s_752d9fb8a2ad2d::t_be4e6d78e18fde 1-41
+packages/core/src/libs/workspace/plugins.test.ts
+  s_752d9fb8a2ad2d::t_7404131cec87d8 76-87
+packages/core/src/libs/workspace/apps.test.ts
+  s_752d9fb8a2ad2d::t_7404131cec87d8 12-13,15,26-33,68
+packages/core/templates/plugins/finance/objects/account_rule/type.yaml
+  s_752d9fb8a2ad2d::t_6a381e9c21d84a 1-44
+packages/core/templates/plugins/finance/missions/close-the-month.yaml
+  s_752d9fb8a2ad2d::t_f6309b26442a58 1-20
+packages/core/templates/plugins/finance/skills/statements/SKILL.md
+  s_752d9fb8a2ad2d::t_7d825ff14e777d 1-23
+packages/core/templates/plugins/finance/objects/profitability_target/type.yaml
+  s_752d9fb8a2ad2d::t_6a381e9c21d84a 1-27
+packages/core/templates/plugins/finance/agents/account-manager.yaml
+  s_752d9fb8a2ad2d::t_2279e76df38049 1-39
+packages/core/templates/plugins/finance/automations/month-end-close.yaml
+  s_752d9fb8a2ad2d::t_f6309b26442a58 1-14
+packages/core/templates/plugins/finance/pages/configure.yaml
+  s_752d9fb8a2ad2d::t_65c7e9a3509f98 1-5,7-23
+  s_752d9fb8a2ad2d::t_1e80ba189c9e05 6
+packages/core/templates/plugins/finance/agents/payroll-accountant.yaml
+  s_752d9fb8a2ad2d::t_2279e76df38049 1-45
+packages/core/templates/plugins/finance/trust.yaml
+  s_752d9fb8a2ad2d::t_2285f98355928d 1-4
+packages/core/templates/plugins/finance/skills/finance-onboarding/SKILL.md
+  s_752d9fb8a2ad2d::t_be4e6d78e18fde 1-58
+packages/core/templates/plugins/finance/automations/monthly-statements.yaml
+  s_752d9fb8a2ad2d::t_f6309b26442a58 1-13
+packages/core/templates/apps/finance/app.yaml
+  s_752d9fb8a2ad2d::t_be6659b45a4a92 7
+  s_752d9fb8a2ad2d::t_65c7e9a3509f98 1-6,8-11
+packages/core/templates/plugins/finance/automations/quarterly-board-pack.yaml
+  s_752d9fb8a2ad2d::t_f6309b26442a58 1-14
+packages/core/templates/plugins/finance/skills/journal-entry/SKILL.md
+  s_752d9fb8a2ad2d::t_7d825ff14e777d 1-24
+packages/core/templates/plugins/finance/pages/account-rules.yaml
+  s_752d9fb8a2ad2d::t_65c7e9a3509f98 1-26
+packages/core/templates/plugins/finance/objects/close_calendar/type.yaml
+  s_752d9fb8a2ad2d::t_6a381e9c21d84a 1-48
+packages/core/templates/plugins/finance/agents/bookkeeper.yaml
+  s_752d9fb8a2ad2d::t_2279e76df38049 1-48
+packages/core/templates/plugins/finance/skills/decompose-variance/SKILL.md
+  s_752d9fb8a2ad2d::t_7d825ff14e777d 1-24
+packages/core/templates/plugins/finance/automations/weekly-expense-coding.yaml
+  s_752d9fb8a2ad2d::t_f6309b26442a58 1-14
+packages/core/templates/plugins/finance/missions/statements-delivered.yaml
+  s_752d9fb8a2ad2d::t_f6309b26442a58 1-19
+packages/core/templates/plugins/finance/missions/set-up-finance.yaml
+  s_752d9fb8a2ad2d::t_f6309b26442a58 1-20
+packages/core/templates/plugins/finance/skills/board-pack/SKILL.md
+  s_752d9fb8a2ad2d::t_be4e6d78e18fde 1-41
+packages/core/templates/plugins/finance/objects/report_recipient/type.yaml
+  s_752d9fb8a2ad2d::t_6a381e9c21d84a 1-32
+packages/core/templates/plugins/finance/skills/statement-distribution/SKILL.md
+  s_752d9fb8a2ad2d::t_be4e6d78e18fde 1-25
+packages/core/templates/plugins/finance/plugin.yaml
+  s_752d9fb8a2ad2d::t_2285f98355928d 1-29,31-59
+  s_752d9fb8a2ad2d::t_9c7a046d383f4b 30
+packages/core/templates/plugins/finance/skills/categorize-expense/SKILL.md
+  s_752d9fb8a2ad2d::t_be4e6d78e18fde 1-46
+packages/core/templates/plugins/finance/agents/financial-analyst.yaml
+  s_752d9fb8a2ad2d::t_2279e76df38049 1-48
+packages/core/templates/plugins/finance/skills/payroll-entries/SKILL.md
+  s_752d9fb8a2ad2d::t_be4e6d78e18fde 1-44
+packages/core/templates/plugins/finance/missions/books-coded.yaml
+  s_752d9fb8a2ad2d::t_f6309b26442a58 1-17
+packages/core/templates/plugins/finance/skills/accrual-schedule/SKILL.md
+  s_752d9fb8a2ad2d::t_89e8600cd8fa9a 1-23
+packages/core/templates/plugins/finance/skills/ap-run/SKILL.md
+  s_752d9fb8a2ad2d::t_a788cdb034de71 1-24
+packages/core/templates/plugins/finance/skills/controls-test/SKILL.md
+  s_752d9fb8a2ad2d::t_c1bb6ac0d7cc4d 1-22
+packages/core/templates/plugins/finance/skills/period-close/SKILL.md
+  s_752d9fb8a2ad2d::t_5a9f2c256cdaa3 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3be5543a8efdcfc9fd26fc6487048731996742bc",
+  "prompts": {},
+  "sessions": {
+    "s_752d9fb8a2ad2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7a2d495-d3c1-4b63-9ad0-bbbf7b970558",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
