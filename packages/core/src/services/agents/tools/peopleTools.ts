@@ -79,7 +79,7 @@ function listTool(ctx: RuntimeContext): StructuredToolInterface {
     },
     {
       name: PEOPLE_LIST_TOOL,
-      description: 'List records from the connected HR system (whichever this workspace connected), read live: workers (name, title, department, manager, work email, employment type, work location, start and end dates, status), departments, time off (who, when, what kind, status) or pay runs (period, pay date, status and company-wide totals). Personal details — government ids, birth dates, home addresses, personal contacts, bank details — and any one person\'s pay are never returned. Use it for headcount, who is in a team, who is out, and what payroll cost.',
+      description: 'List records from the connected HR system (whichever this workspace connected), read live: workers (name, title, department, manager, work email, employment type, work location, start and end dates, status), departments, time off (who, when, what kind, status) or pay runs (period, pay date, status, company-wide totals and, where the vendor breaks them down, a summary by category: gross wages, employee taxes, employer taxes, employee deductions, employer contributions, reimbursements, net pay). Personal details (government ids, birth dates, home addresses, personal contacts, bank details) and any one person\'s pay are never returned. Use it for headcount, who is in a team, who is out, and what payroll cost.',
       schema: z.object({
         kind: z.enum(PEOPLE_RECORD_KINDS).describe('Which records.'),
         query: z.string().max(200).optional().describe('A name or work email to look for.'),
@@ -111,7 +111,7 @@ function getTool(ctx: RuntimeContext): StructuredToolInterface {
     },
     {
       name: PEOPLE_GET_TOOL,
-      description: 'One record from the connected HR system, read live: a worker, a department, a time-off request or a pay run (with its company-wide totals). Work information only. Take the id from people_list.',
+      description: 'One record from the connected HR system, read live: a worker, a department, a time-off request or a pay run (with its company-wide totals by category, each with its lines by the vendor\'s own tax, deduction and earning names summed across all employees, and whether the categories reconcile to net pay). Use a pay run to book payroll. Work information only. Take the id from people_list.',
       schema: z.object({
         kind: z.enum(PEOPLE_RECORD_KINDS).describe('What the record is.'),
         id: z.string().min(1).max(200).describe('The record\'s id, from people_list.'),

@@ -3,7 +3,7 @@
 **TL;DR.** Two connector families, named for what they are rather than who
 sells them. An agent given a **finance** source reads customers, invoices,
 bills, payments and spend with `finance_list` / `finance_get`; one given an
-**HR** source reads workers, departments, time off and pay-run totals with
+**HR** source reads workers, departments, time off and pay-run totals by category with
 `people_list` / `people_get`. Everything is read live with the workspace's own
 credential, nothing moves money, and personal data never reaches an agent.
 
@@ -77,7 +77,14 @@ never writes "overdue" into text. Stripe, Ramp and BILL are read live only.
   birth, home addresses, personal emails and phones, bank accounts and any one
   person's pay have no field to land in, and `people.test.ts` feeds every
   provider a vendor answer that carries them and checks none comes out.
-  Pay runs come back as company-wide totals only.
+  Pay runs come back as company-wide totals by category; any one person's
+  pay has no field to land in. A provider sums every employee's earnings,
+  taxes and deductions itself (`services/people/payRun.ts`) and returns only
+  the sums: gross wages, employee taxes withheld, employer taxes, employee
+  deductions, employer contributions, reimbursements and net pay, each with
+  lines by the vendor's own names on `people_get`, and a `reconciliation`
+  saying whether they add up to net pay within a cent. Rippling and Gusto
+  break pay runs down; Workday reads no pay runs.
 - **Ask for least access at the vendor too.** Each connector's credential help
   says which read scopes to grant (Rippling: untick personal fields; Workday:
   put only work fields in the report), so the data is not even sent.

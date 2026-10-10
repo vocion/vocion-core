@@ -4,13 +4,15 @@
  * 1. Personal data never comes out. Each provider is fed a recorded vendor
  *    answer that also carries a government id, a birth date, a home address,
  *    a personal email and phone, bank details, individual pay and a private
- *    note — and nothing any list or get returns contains one of them.
+ *    note, and nothing any list or get returns contains one of them. A pay
+ *    run's categories are sums across everyone: no one person's earnings,
+ *    taxes or deductions come out as a number.
  * 2. Each org spends its own credential, resolved per call, in sequence.
  */
 import type { PeopleProvider } from './types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeFetch } from './providers/fakeFetch';
-import { GUSTO_EMPLOYEE, GUSTO_PAYROLL, GUSTO_TIME_OFF, PERSONAL_VALUES, RIPPLING_DEPARTMENT, RIPPLING_EMPLOYEE, RIPPLING_LEAVE, WORKDAY_TIME_OFF, WORKDAY_WORKER } from './providers/fixtures';
+import { GUSTO_EMPLOYEE, GUSTO_PAYROLL, GUSTO_PER_PERSON_AMOUNTS, GUSTO_TIME_OFF, PERSONAL_VALUES, RIPPLING_DEPARTMENT, RIPPLING_EMPLOYEE, RIPPLING_LEAVE, RIPPLING_PAY_RECORDS, RIPPLING_PAY_RUN, RIPPLING_PER_PERSON_AMOUNTS, WORKDAY_TIME_OFF, WORKDAY_WORKER } from './providers/fixtures';
 
 type Row = { id: number; slug: string; kind: string; config: Record<string, unknown>; apiTokenId: string | null };
 
@@ -57,6 +59,24 @@ function expectNoPersonalData(text: string): void {
   }
 }
 
+/**
+ * No one person's figure appears as a number, alone: `210` may not come out,
+ * though `210.7` (a sum) may.
+ * @param text - Everything the provider returned.
+ * @param amounts - Each person's own figures.
+ */
+function expectNoPerPersonAmount(text: string, amounts: readonly string[]): void {
+  for (const amount of amounts) {
+    expect(text, amount).not.toMatch(new RegExp(`(?<![\\d.])${amount.replace('.', '\\.')}(?!\\.?\\d)`));
+  }
+}
+
+const RIPPLING_PAY_ROUTES = {
+  'GET /payroll-runs/': { results: [RIPPLING_PAY_RUN], next_link: null },
+  [`GET /payroll-runs/${RIPPLING_PAY_RUN.id}/`]: RIPPLING_PAY_RUN,
+  [`GET /payroll-runs/${RIPPLING_PAY_RUN.id}/worker-payroll-records/`]: { results: RIPPLING_PAY_RECORDS, next_link: null },
+};
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -80,8 +100,13 @@ describe('personal data never leaves a people provider', () => {
     const text = await everything(p, { worker: GUSTO_EMPLOYEE.uuid, pay_run: GUSTO_PAYROLL.payroll_uuid });
 
     expect(text).toContain('Jordan Ellis');
+    expect(text).toContain('"category":"employee_deductions"');
 
     expectNoPersonalData(text);
+    expectNoPerPersonAmount(text, GUSTO_PER_PERSON_AMOUNTS);
+
+    expect(text).not.toContain('Riley Chen');
+    expect(text).not.toContain('e1a2b3c4-0000-4000-8000-000000000002');
   });
 
   it('rippling', async () => {
@@ -95,6 +120,7 @@ describe('personal data never leaves a people provider', () => {
         [`GET /platform/api/employees/${RIPPLING_EMPLOYEE.id}`]: RIPPLING_EMPLOYEE,
         'GET /platform/api/departments': [RIPPLING_DEPARTMENT],
         'GET /platform/api/leave_requests': [RIPPLING_LEAVE],
+        ...RIPPLING_PAY_ROUTES,
       }),
     });
     const text = await everything(p, { worker: RIPPLING_EMPLOYEE.id });
@@ -102,6 +128,21 @@ describe('personal data never leaves a people provider', () => {
     expect(text).toContain('Sam Okafor');
 
     expectNoPersonalData(text);
+  });
+
+  it('rippling pay runs: only company-wide sums, never a worker or their pay', async () => {
+    const p = ripplingPeopleProvider({ orgId: 'o', source: { id: 1, slug: 'rippling', config: {} }, credentials: { apiKey: 'rippling_fixture_token_0001' }, persistence: never, fetch: fakeFetch(RIPPLING_PAY_ROUTES) });
+    const text = JSON.stringify([await p.list('pay_run', { limit: 10 }), await p.get('pay_run', RIPPLING_PAY_RUN.id)]);
+
+    expect(text).toContain('9999.46');
+
+    expectNoPersonalData(text);
+    expectNoPerPersonAmount(text, RIPPLING_PER_PERSON_AMOUNTS);
+    for (const r of RIPPLING_PAY_RECORDS) {
+      expect(text).not.toContain(r.worker_id);
+      expect(text).not.toContain(r.worker_name);
+      expect(text).not.toContain(r.id);
+    }
   });
 
   it('workday', async () => {

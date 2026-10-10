@@ -10,19 +10,25 @@
  * Work information only. Gusto's employee answer carries a date of birth, a
  * personal email, a phone and pay rates; none of them is copied out — every
  * record is built from `blankPeopleRecord` and the fields named below. A pay
- * run is its company-wide totals; `employee_compensations` is never read.
+ * run is its company-wide totals by category: the categories are Gusto's own
+ * company totals, and on `get` each category's lines are the names in
+ * `employee_compensations` summed across everyone here (`payRunTally`), so
+ * no one person's pay leaves this file.
  *
  * Gusto API facts this file depends on: Bearer auth with
  * `X-Gusto-API-Version`; lists page by `page` and `per`; employees take
  * `terminated` and `search_term`; payrolls take `processing_statuses`,
  * `start_date`, `end_date` and `include=totals`, with totals as decimal
- * strings in USD; time off requests live under the company.
+ * strings in USD (`check_amount` is net pay plus reimbursements); one payroll
+ * also takes `include=taxes,benefits,deductions`, itemising each employee
+ * compensation; time off requests live under the company.
  */
 
 import type { PeopleListQuery, PeoplePage, PeopleProvider, PeopleProviderInput, PeopleRecord, PeopleRecordKind } from '../types';
 import { isLoginGrant, usableLoginGrant } from '@/libs/connect/loginGrant';
 import { GUSTO_API_BASE, GUSTO_API_VERSION, refreshGustoGrant } from '@/libs/connect/providers/gusto';
 import { vendorJson } from '@/libs/connectors/vendorHttp';
+import { payRunTally } from '../payRun';
 import { blankPeopleRecord } from '../types';
 import { isoDay, num, pageInMemory, str } from './shared';
 
@@ -56,11 +62,56 @@ export function gustoWorker(e: Json): PeopleRecord {
 }
 
 /**
- * A Gusto payroll as a pay run: its period, check date, status and the
- * company's totals. Per-employee pay is never read.
+ * A Gusto payroll's company totals as categories. With `lines`, each
+ * category also carries the tax, benefit, deduction and earning names from
+ * the employee compensations, summed across all employees; the per-employee
+ * figures go no further than the tally.
  * @param p - The payroll.
+ * @param opts - What to include.
+ * @param opts.lines - Whether each category carries its lines.
  */
-export function gustoPayRun(p: Json): PeopleRecord {
+export function gustoPayRunAmounts(p: Json, opts: { lines: boolean }): Pick<PeopleRecord, 'categories' | 'reconciliation'> {
+  const totals = (p.totals ?? null) as Json | null;
+  if (!totals) {
+    return { categories: null, reconciliation: null };
+  }
+  const tally = payRunTally();
+  const sum = (...values: unknown[]) => (values.some(v => num(v) !== null) ? values.reduce<number>((s, v) => s + (num(v) ?? 0), 0) : null);
+  tally.total('gross_wages', num(totals.gross_pay));
+  tally.total('employee_taxes', num(totals.employee_taxes));
+  tally.total('employer_taxes', num(totals.employer_taxes));
+  tally.total('employee_deductions', sum(totals.employee_benefits_deductions, totals.other_deductions));
+  tally.total('employer_contributions', num(totals.benefits));
+  tally.total('reimbursements', num(totals.reimbursements));
+  tally.total('net_pay', num(totals.check_amount) ?? sum(totals.net_pay, totals.reimbursements));
+  const list = (v: unknown) => (Array.isArray(v) ? (v as Json[]) : []);
+  for (const c of opts.lines ? list(p.employee_compensations) : []) {
+    for (const e of [...list(c.fixed_compensations), ...list(c.hourly_compensations)]) {
+      const label = str(e.name) ?? 'Earnings';
+      tally.add(/reimburs/i.test(label) ? 'reimbursements' : 'gross_wages', label, num(e.amount));
+    }
+    for (const t of list(c.taxes)) {
+      tally.add(t.employer === true ? 'employer_taxes' : 'employee_taxes', str(t.name) ?? 'Tax', num(t.amount));
+    }
+    for (const b of list(c.benefits)) {
+      tally.add('employee_deductions', str(b.name) ?? 'Benefit', num(b.employee_deduction));
+      tally.add('employer_contributions', str(b.name) ?? 'Benefit', num(b.company_contribution));
+    }
+    for (const d of list(c.deductions)) {
+      tally.add('employee_deductions', str(d.name) ?? 'Deduction', num(d.amount));
+    }
+  }
+  return tally.result(opts);
+}
+
+/**
+ * A Gusto payroll as a pay run: its period, check date, status, the
+ * company's totals and its categories.
+ * @param p - The payroll.
+ * @param opts - What to include.
+ * @param opts.lines - Whether each category carries its lines.
+ */
+export function gustoPayRun(p: Json, opts: { lines: boolean } = { lines: false }): PeopleRecord {
   const period = (p.pay_period ?? {}) as Json;
   const totals = (p.totals ?? null) as Json | null;
   const check = isoDay(p.check_date);
@@ -72,6 +123,7 @@ export function gustoPayRun(p: Json): PeopleRecord {
     endDate: isoDay(period.end_date),
     payDate: check,
     totals: totals ? { gross: num(totals.gross_pay), net: num(totals.net_pay), employerTaxes: num(totals.employer_taxes), currency: 'USD' } : null,
+    ...gustoPayRunAmounts(p, opts),
   };
 }
 
@@ -154,7 +206,7 @@ export async function gustoPeopleProvider(input: PeopleProviderInput): Promise<P
           params.set('end_date', q.until.slice(0, 10));
         }
         const rows = await call<Json[]>(`/v1/companies/${company}/payrolls?${params.toString()}`, 'payrolls');
-        const records = (Array.isArray(rows) ? rows : []).map(gustoPayRun).sort((a, b) => (b.payDate ?? '').localeCompare(a.payDate ?? ''));
+        const records = (Array.isArray(rows) ? rows : []).map(p => gustoPayRun(p)).sort((a, b) => (b.payDate ?? '').localeCompare(a.payDate ?? ''));
         return pageInMemory(records, { ...q, status: undefined, since: undefined, until: undefined });
       }
       case 'time_off': {
@@ -181,7 +233,7 @@ export async function gustoPeopleProvider(input: PeopleProviderInput): Promise<P
       case 'department':
         return gustoDepartment(await call<Json>(`/v1/departments/${ref}`, 'that department'));
       case 'pay_run':
-        return gustoPayRun(await call<Json>(`/v1/companies/${company}/payrolls/${ref}?include=totals`, 'that payroll'));
+        return gustoPayRun(await call<Json>(`/v1/companies/${company}/payrolls/${ref}?include=totals,taxes,benefits,deductions`, 'that payroll'), { lines: true });
       case 'time_off':
         return gustoTimeOff(await call<Json>(`/v1/companies/${company}/time_off_requests/${ref}`, 'that time off request'));
       default:
