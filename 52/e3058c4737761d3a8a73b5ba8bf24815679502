@@ -1,0 +1,31 @@
+packages/core/src/libs/quickbooks/client.ts
+  s_752d9fb8a2ad2d::t_cc879ffc4fcffe 2-4,38,129-216
+packages/core/src/libs/quickbooks/sampleCompany.ts
+  s_752d9fb8a2ad2d::t_9f6bd76e4b375c 29-42,63,65,70,76,266-327,361,390-527
+packages/core/src/libs/sources/quickbooks.test.ts
+  s_752d9fb8a2ad2d::t_44cd30196fee7f 98,103,158-174,180,182,187,202
+packages/core/src/libs/sources/quickbooks.ts
+  s_752d9fb8a2ad2d::t_fca3b126c03f33 4,43,52,63,295-338,393-395,453
+packages/core/src/services/finance/providers/quickbooks.test.ts
+  s_752d9fb8a2ad2d::t_6da16c98d1601b 3-5,12,34,84-296
+packages/core/src/services/finance/providers/quickbooks.ts
+  s_752d9fb8a2ad2d::t_b54697b85a16ff 9-15,20-24,27,32-34,38-42,51,67-95,136,160-173,212,264-393,429,455-469,515-616
+packages/core/src/services/finance/types.ts
+  s_752d9fb8a2ad2d::t_e67a4e0dff51e1 12-16,38,43-47,123-207,223-231,250-276
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "52e3058c4737761d3a8a73b5ba8bf24815679502",
+  "prompts": {},
+  "sessions": {
+    "s_752d9fb8a2ad2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7a2d495-d3c1-4b63-9ad0-bbbf7b970558",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
