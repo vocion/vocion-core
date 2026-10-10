@@ -162,12 +162,14 @@ describe('the right column', () => {
     await expect.element(divider).toHaveAttribute('aria-valuenow', '20');
   });
 
-  it('shows one pane at a time on a small screen, with a way back', async () => {
+  it('opens the preview in a drawer over the chat on a small screen, with a way back', async () => {
     render(<Column chat={CHAT} narrow />);
     openPreview(REF, null);
 
     await expect.element(page.getByTestId('preview-panel')).toBeVisible();
-    expect(page.getByTestId('chat-pane').elements()).toHaveLength(0);
+    // The chat stays underneath (a phone walk, 2026-10-10: previews took the screen).
+    expect(page.getByTestId('chat-pane').elements()).toHaveLength(1);
+    expect(page.getByTestId('preview-drawer').elements()).toHaveLength(1);
     expect(page.getByTestId('rail-divider').elements()).toHaveLength(0);
     await expect.element(page.getByTestId('preview-close')).toHaveAttribute('aria-label', 'Back to chat');
   });

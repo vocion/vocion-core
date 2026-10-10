@@ -6,7 +6,7 @@
  */
 
 export type DashboardLinkKind
-  = 'agent' | 'team' | 'mission' | 'mission-run' | 'ask' | 'briefing' | 'object' | 'room' | 'review' | 'learning'
+  = 'agent' | 'team' | 'mission' | 'mission-run' | 'ask' | 'briefing' | 'object' | 'room' | 'goal' | 'review' | 'learning'
     | 'eval' | 'connector' | 'workflow' | 'team-report' | 'chat' | 'page';
 
 export type DashboardLink = {
@@ -28,6 +28,7 @@ const RULES: Array<[RegExp, DashboardLinkKind]> = [
   [/^\/dashboard\/briefings(?:\/([^/?#]+))?/, 'briefing'],
   [/^\/dashboard\/objects\/(?!type(?:\/|$))([^/?#]+)/, 'object'],
   [/^\/dashboard\/rooms\/(\d+)/, 'room'],
+  [/^\/dashboard\/goals\/(\d+)/, 'goal'],
   [/^\/dashboard\/review/, 'review'],
   [/^\/dashboard\/learnings\/([^/?#]+)/, 'learning'],
   [/^\/dashboard\/evals\/([^/?#]+)/, 'eval'],
@@ -76,12 +77,16 @@ export function classifyDashboardLink(href: string | undefined, origin?: string)
  * resolver; everything else navigates as before.
  * @param link - A classified dashboard link.
  */
-export function previewRefFor(link: DashboardLink): { type: 'object' | 'record_history'; id: string } | null {
+export function previewRefFor(link: DashboardLink): { type: 'object' | 'record_history' | 'goal'; id: string } | null {
   // A version in a record's history (`libs/versions/versionRef.ts`): the
   // "Changed …" line peeks the history at that version beside the chat.
   const history = /[?&]preview=record_history(?::|%3A)([\d@%]+)(?:&|#|$)/i.exec(link.href);
   if (history) {
     return { type: 'record_history', id: decodeURIComponent(history[1]!) };
+  }
+  // A goal peeks too: on a phone its page took the whole screen (2026-10-10).
+  if (link.kind === 'goal' && link.id) {
+    return { type: 'goal', id: link.id };
   }
   return link.kind === 'room' && link.id ? { type: 'object', id: link.id } : null;
 }

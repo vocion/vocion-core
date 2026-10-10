@@ -200,6 +200,24 @@ async function runProposalInner(
       const decision = await consentDecision(ctx.orgId, action_id, action_input as Record<string, unknown>, rationale.slice(0, 200));
       return (await personSaidToDecide(ctx, decision)).said;
     })().catch(() => false));
+  // A RUNNING GOAL ASKS ONLY FOR WHAT WAS ASKED (`services/objectives/goalGuard.ts`):
+  // no outreach the person did not tell it to do, and a denied action is
+  // dropped, never re-asked revised, until they type new direction.
+  if (ctx.conversationId && !factoryStep && !isAgentsOwnSchedule(ctx)) {
+    const { goalProposalRefusal } = await import('@/services/objectives/goalGuard');
+    const { getAction } = await import('@/libs/actions/registry');
+    const goalRefusal = await goalProposalRefusal({
+      orgId: ctx.orgId,
+      conversationId: ctx.conversationId,
+      actionId: action_id,
+      grant: getAction(action_id)?.grant,
+      actionInput: (action_input ?? {}) as Record<string, unknown>,
+      personAsked: asPerson,
+    }).catch(() => null);
+    if (goalRefusal) {
+      return goalRefusal;
+    }
+  }
   try {
     const res = await proposeAction({
       orgId: ctx.orgId,

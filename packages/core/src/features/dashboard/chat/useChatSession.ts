@@ -30,6 +30,7 @@ import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { shrinkImage, uploadAttachments } from './attachmentUpload';
 import { DEFAULT_AUTONOMY } from './autonomyOptions';
+import { opensPreviewOnItsOwn } from './autoOpen';
 import { isIntentTag } from './composerTags';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
@@ -302,6 +303,8 @@ export type ChatSessionEventApi = {
   flushDeltas: () => void;
   /** Set the live activity line ("Rendering table…"); null clears it. */
   setActivity: (text: string | null) => void;
+  /** The turn under way carried an upload: nothing it makes opens by itself (`autoOpen.ts`). */
+  fromUpload: boolean;
 };
 
 /**
@@ -532,6 +535,8 @@ export function useChatSession({
    * changes, so both readers agree.
    */
   const streamingRef = useRef(false);
+  // The turn under way carried an upload: what it makes shows as a chip and opens on a tap (`autoOpen.ts`).
+  const turnFromUploadRef = useRef(false);
   // True while waiting for a reply with no stream to attach to (`waitForReply`); Stop ends it.
   const waitingRef = useRef(false);
   /**
@@ -645,7 +650,7 @@ export function useChatSession({
   const handleEvent = useCallback((evt: { type: string; [k: string]: unknown }) => {
     // Extension seam first (R2/R3): a claimed event skips the built-in cases.
     // Strict `=== true`: an extension that only observes returns undefined.
-    if (onEventRef.current?.(evt, { appendToLatestAgent, flushDeltas, setActivity }) === true) {
+    if (onEventRef.current?.(evt, { appendToLatestAgent, flushDeltas, setActivity, fromUpload: turnFromUploadRef.current }) === true) {
       return;
     }
     switch (evt.type) {
@@ -855,7 +860,9 @@ export function useChatSession({
         // (Chris, 2026-09-18: "maybe preview should open automatically").
         flushDeltas();
         const made = (evt as unknown as { record: { type: RecordRef['type']; id: string } }).record;
-        openPreview({ type: made.type, id: made.id }, null);
+        if (opensPreviewOnItsOwn({ fromUpload: turnFromUploadRef.current })) {
+          openPreview({ type: made.type, id: made.id }, null);
+        }
         return;
       }
       case 'version_written': {
@@ -968,7 +975,10 @@ export function useChatSession({
         //
         // The newest artifact of the turn wins, so a turn that renders three
         // leaves the last one open rather than fighting over the panel.
-        openPreview({ type: 'artifact', id: String(chip.id) }, null);
+        // Never after an upload: the chip above is the way in (`autoOpen.ts`).
+        if (opensPreviewOnItsOwn({ fromUpload: turnFromUploadRef.current })) {
+          openPreview({ type: 'artifact', id: String(chip.id) }, null);
+        }
         return;
       }
 
@@ -1525,6 +1535,7 @@ export function useChatSession({
       ? `${typed}\n\n--- pasted ---\n${pastedText}`.trim()
       : typed;
     const sent = decision ? [] : attachments;
+    turnFromUploadRef.current = sent.length > 0;
     // Fresh turn — reset the per-turn trace accumulator and the anchor clock.
     pendingTraceRef.current = new Map();
     traceDirtyRef.current = false;

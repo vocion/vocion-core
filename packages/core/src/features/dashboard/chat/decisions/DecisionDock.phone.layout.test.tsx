@@ -2,7 +2,7 @@ import type { DecisionView } from '@/libs/decisions/decision';
 import { NextIntlClientProvider } from 'next-intl';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import en from '@/locales/en.json';
 import '@/styles/global.css';
 
@@ -34,6 +34,7 @@ vi.mock('@/features/preview/previewState', () => ({ openPreview: vi.fn() }));
 vi.mock('@/libs/Orpc', () => ({ client: { connectSystems: { plan: vi.fn(async () => ({ candidates: [], connected: [], question: null, scope: null, refused: null })) } } }));
 
 const { decisionBlock } = await import('./DecisionDock');
+const { DOCK_PHONE_MAX_HEIGHT_VH } = await import('./DecisionCard');
 const { ChatComposer } = await import('../ChatComposer');
 
 const review: DecisionView = {
@@ -109,16 +110,6 @@ function Phone({ s, height = 844 }: { s: Session; height?: number }) {
   );
 }
 
-/**
- * Whether an element is drawn inside the thread's visible window.
- * @param el - The element.
- */
-async function inView(el: HTMLElement): Promise<boolean> {
-  const thread = (await page.getByTestId('thread').element() as HTMLElement).getBoundingClientRect();
-  const r = el.getBoundingClientRect();
-  return r.top >= thread.top - 1 && r.bottom <= thread.bottom + 1;
-}
-
 beforeEach(() => {
   sessionStorage.clear();
 });
@@ -155,48 +146,62 @@ describe('what waits elsewhere, mid-conversation', () => {
 });
 
 /**
- * Founder, 2026-10-09: "the card was unreadable because the inner scroll
- * content window was so tiny … I'd expect all options on that card to be
- * visible. But that's ok because its interaction with chat scroll is
- * natural." The Decision is the latest item in the thread, full height.
+ * A phone walk, 2026-10-10: the docked card covered the whole screen and hid
+ * the agent's turns after every Skip. On a phone it is at most 40% of the
+ * screen now, the why and the payload fold behind "Details", and the choices
+ * and Submit stay on the card. The thread above it stays in view.
  */
 describe('a Decision in the thread', () => {
   for (const [label, w, h] of [['a phone', 390, 844], ['a phone with the keyboard up', 390, 508], ['a phone on its side', 844, 390]] as const) {
-    it(`is full height, nothing inside it scrolls, and the thread brings it into view on ${label}`, async () => {
+    it(`is at most 40% of the screen, with Submit on it, on ${label}`, async () => {
       await page.viewport(w, h);
       await render(<Phone s={session({ openDecisions: [connectGitHub] })} height={h} />);
 
       const card = await page.getByTestId('decision-card').element() as HTMLElement;
-      const thread = await page.getByTestId('thread').element() as HTMLElement;
+      const box = card.getBoundingClientRect();
 
-      // Every option, its consequence and the buttons are drawn — no box clips them.
-      for (let el = card as HTMLElement | null; el && el !== thread; el = el.parentElement) {
-        expect(['auto', 'scroll']).not.toContain(getComputedStyle(el).overflowY);
-      }
+      expect(box.height).toBeLessThanOrEqual(h * DOCK_PHONE_MAX_HEIGHT_VH / 100 + 1);
 
-      expect(card.scrollHeight).toBeLessThanOrEqual(card.clientHeight + 1);
-      await expect.element(page.getByText('Opens the sign-in, then brings you back here.')).toBeInTheDocument();
-      await expect.element(page.getByText('Come back to it at the end')).toBeInTheDocument();
+      // The buttons are pinned to the card, never scrolled out of it.
+      const foot = (await page.getByTestId('decision-foot').element() as HTMLElement).getBoundingClientRect();
 
-      // It arrived in view: its question is on screen, under the conversation.
-      await new Promise(r => setTimeout(r, 600));
-
-      expect(thread.scrollTop).toBeGreaterThan(0);
-      expect(await inView(await page.getByTestId('decision-eyebrow').element() as HTMLElement) || await inView(await page.getByTestId('decision-submit').element() as HTMLElement)).toBe(true);
-
-      // The thread scrolls naturally to the rest of it, Submit included.
-      thread.scrollTop = thread.scrollHeight;
-      await new Promise(r => requestAnimationFrame(() => r(null)));
-
-      expect(await inView(await page.getByTestId('decision-submit').element() as HTMLElement)).toBe(true);
-
-      // The box to type in stays below it, on the screen.
-      const composer = (await page.getByRole('textbox').last().element() as HTMLElement).getBoundingClientRect();
-
-      expect(composer.bottom).toBeLessThanOrEqual(h + 1);
-      expect(composer.top).toBeGreaterThanOrEqual(thread.getBoundingClientRect().bottom - 1);
+      expect(foot.bottom).toBeLessThanOrEqual(box.bottom + 1);
+      expect(foot.top).toBeGreaterThanOrEqual(box.top - 1);
+      await expect.element(page.getByTestId('decision-submit')).toBeVisible();
+      await expect.element(page.getByTestId('decision-option-connect:github')).toBeInTheDocument();
     });
   }
+
+  it('folds the why behind Details on a phone, and a tap opens it', async () => {
+    await page.viewport(390, 844);
+    await render(<Phone s={session({ openDecisions: [connectGitHub] })} />);
+
+    await expect.element(page.getByTestId('decision-why')).not.toBeVisible();
+
+    await page.getByTestId('decision-details-toggle').click();
+
+    await expect.element(page.getByText(/The factory reads pull requests/)).toBeVisible();
+  });
+
+  it('leaves the conversation above it in view', async () => {
+    await page.viewport(390, 844);
+    await render(<Phone s={session({ openDecisions: [connectGitHub] })} />);
+
+    const thread = (await page.getByTestId('thread').element() as HTMLElement).getBoundingClientRect();
+    const card = (await page.getByTestId('decision-card').element() as HTMLElement).getBoundingClientRect();
+
+    expect(thread.height - card.height).toBeGreaterThan(thread.height * 0.4);
+  });
+
+  it('keeps 1/2/3 picking on a phone', async () => {
+    await page.viewport(390, 844);
+    await render(<Phone s={session({ openDecisions: [connectGitHub] })} />);
+
+    (await page.getByTestId('decision-options').element() as HTMLElement).focus();
+    await userEvent.keyboard('3');
+
+    await expect.element(page.getByTestId('decision-option-later')).toHaveAttribute('aria-selected', 'true');
+  });
 
   it('gives every control a thumb\'s 44px on a phone', async () => {
     await page.viewport(390, 844);

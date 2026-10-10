@@ -633,7 +633,11 @@ export async function goalsTurnNote(input: { orgId: string; userId: string; pers
     const where = r.lastTotal !== null ? `${r.lastDone ?? 0} of ${r.lastTotal}` : r.measure.kind === 'milestones' ? `${r.measure.milestones.filter(m => m.done).length} of ${r.measure.milestones.length} milestones` : 'not measured yet';
     return `- GOAL-${r.id} ${r.title} · ${where} · ${horizonLabel(r.horizon)}${input.personal ? ` · ${r.workspace}` : ''}`;
   });
-  return [`THE PERSON'S ACTIVE GOALS${input.personal ? '' : ' HERE'} (context, not a task list — bring one up only when this turn bears on it; goal_progress reads one live):`, ...lines].join('\n');
+  return [
+    `THE PERSON'S ACTIVE GOALS${input.personal ? '' : ' HERE'} (context, not a task list — bring one up only when this turn bears on it; goal_progress reads one live):`,
+    ...lines,
+    'Working a goal: do what it asks and stop. A goal that imports or stages data is done when the data is in — end with one line, "N items in the data room — open it?" — and draft or send nothing unless the person asks. A denied action is dropped: never ask it again, reworded, unless they give new direction.',
+  ].join('\n');
 }
 
 /** A goal as Personal lists it: with where it lives. */
