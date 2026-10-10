@@ -75,6 +75,7 @@ const LINK_ICON: Record<DashboardLinkKind, typeof Bot> = {
   'briefing': Newspaper,
   'object': LayoutDashboard,
   'room': FolderOpen,
+  'goal': Target,
   'review': ClipboardCheck,
   'learning': FileText,
   'eval': ClipboardCheck,

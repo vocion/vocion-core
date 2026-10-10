@@ -162,12 +162,14 @@ describe('the transcript on a phone', () => {
 
       expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
 
-      // ONE pane, and it is the artifact: the transcript is not on screen
-      // beside it, and the pane fits the column rather than setting it.
+      // The chat stays underneath; the artifact opens in a drawer over its
+      // lower part (a phone walk, 2026-10-10: it used to take the screen),
+      // and the pane fits the column rather than setting it.
       const conversation = document.querySelector('[data-conversation-column]')!;
       const pane = document.querySelector('[data-artifact-pane]')!;
 
-      expect(getComputedStyle(conversation).display).toBe('none');
+      expect(getComputedStyle(conversation).display).not.toBe('none');
+      expect(page.getByTestId('preview-drawer').elements()).toHaveLength(1);
       expect(Math.round(pane.getBoundingClientRect().width)).toBeLessThanOrEqual(clientWidth);
     });
 
@@ -188,9 +190,13 @@ describe('the transcript on a phone', () => {
       const paneH = Math.round(pane.getBoundingClientRect().height);
       const frameH = Math.round(frame.getBoundingClientRect().height);
 
-      expect(paneH).toBeGreaterThanOrEqual(Math.round(h * 0.8));
-      expect(frameH).toBeGreaterThanOrEqual(400);
-      expect(frameH).toBeGreaterThanOrEqual(Math.round(h * 0.55));
+      // In the drawer: most of the screen, the conversation's top still above it.
+      const conversationTop = Math.round(document.querySelector('[data-conversation-column]')!.getBoundingClientRect().top);
+      const paneTop = Math.round(pane.getBoundingClientRect().top);
+
+      expect(paneH).toBeGreaterThanOrEqual(Math.round(h * 0.6));
+      expect(frameH).toBeGreaterThanOrEqual(Math.round(h * 0.35));
+      expect(paneTop).toBeGreaterThan(conversationTop);
     });
 
     it(`does not scroll the page sideways at ${w}×${h} with the artifact closed`, async () => {

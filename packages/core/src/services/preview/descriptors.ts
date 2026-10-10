@@ -801,3 +801,38 @@ registerPreview('feature_section', {
     return { ref, sourceLabel: 'Feature', title: drawer.title, subtitle: drawer.subtitle, facts: drawer.facts, ...(drawer.href ? { href: drawer.href } : {}), ...(drawer.timeline ? { timeline: drawer.timeline } : {}), ...body(drawer.body, LOG_LIMIT) };
   },
 });
+
+/**
+ * A goal — `goal:<id>`. Its page took the whole screen on a phone (a phone
+ * walk, 2026-10-10); it peeks here instead, the chat still beside or under
+ * it, and links out to the page. Only the goal's owner reads it, as on its
+ * page. Read without writing a measurement back: a peek changes nothing.
+ */
+registerPreview('goal', {
+  sourceLabel: 'Goal',
+  href: ref => `/dashboard/goals/${ref.id}`,
+  resolve: async (ref, ctx) => {
+    const id = Number.parseInt(ref.id, 10);
+    if (!Number.isSafeInteger(id)) {
+      return null;
+    }
+    const [{ getGoal, measureGoal }, { horizonLabel }] = await Promise.all([import('@/services/objectives/GoalService'), import('@/libs/objectives/goal')]);
+    const goal = await getGoal(ctx.orgId, id);
+    if (!goal || !ctx.userId || goal.ownerUserId !== ctx.userId) {
+      return null;
+    }
+    const { progress } = await measureGoal(goal, { persist: false });
+    const steps = goal.measure.kind === 'milestones' ? goal.measure.milestones.map(m => `- [${m.done ? 'x' : ' '}] ${m.label}`).join('\n') : '';
+    return {
+      ref,
+      title: goal.title,
+      sourceLabel: 'Goal',
+      facts: facts(
+        { label: 'Progress', value: progress.label },
+        { label: 'Horizon', value: horizonLabel(goal.horizon) },
+        { label: 'Status', value: goal.status },
+      ),
+      ...body(steps),
+    };
+  },
+});

@@ -56,6 +56,7 @@
 import type { ReactNode } from 'react';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { SplitDivider } from '@/components/ui/split-divider';
+import { PreviewDrawer } from '@/features/dashboard/chat/RailColumn';
 import { READING_WIDTH_CLASS } from '@/features/navigation/pageWidth';
 import { cn } from '@/utils/Helpers';
 import {
@@ -135,15 +136,14 @@ export function ConversationSplit(props: ConversationSplitProps) {
       // both edges (the owner's screenshot, 2026-09-19). `minmax(0, 1fr)`
       // gives the column the container's width and makes the panes shrink into
       // it, which is what `min-w-0` on each of them below allows.
-      className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-(--conversation-split) lg:gap-2"
+      className="relative grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-(--conversation-split) lg:gap-2"
       style={{ '--conversation-split': `minmax(0, ${split}fr) ${DIVIDER_WIDTH}px minmax(0, ${1 - split}fr)` } as React.CSSProperties}
     >
-      {/* `hidden lg:flex`: below `lg` the pane is the column's ONLY row, so it
-          gets the whole height — which is the difference between reading the
-          document and reading its title. `hidden` also takes the transcript
-          out of the accessibility tree, so a screen reader is on one pane too,
-          and the way back is the pane's own back control. */}
-      <div className="hidden min-h-0 min-w-0 flex-col lg:flex" data-conversation-column>{props.conversation}</div>
+      {/* Below `lg` the conversation stays: the pane opens in a drawer over
+          its lower part, the chat still underneath (a phone walk, 2026-10-10:
+          an artifact or an uploaded file took the whole screen). The pane's
+          back control closes the drawer. */}
+      <div className="flex min-h-0 min-w-0 flex-col" data-conversation-column>{props.conversation}</div>
       {/* Stacked panes have no split to drag, so below `lg` the divider is not
           in the page at all — `hidden` keeps it out of the accessibility tree
           too, rather than offering a control that moves nothing. */}
@@ -163,7 +163,7 @@ export function ConversationSplit(props: ConversationSplitProps) {
           setStored(null);
         }}
       />
-      {props.pane}
+      <PreviewDrawer className="lg:contents">{props.pane}</PreviewDrawer>
     </div>
   );
 }

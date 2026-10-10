@@ -26,6 +26,13 @@ describe('classifyDashboardLink', () => {
     expect(previewRefFor(classifyDashboardLink('/dashboard/agents/lead')!)).toBeNull();
   });
 
+  it('peeks a goal beside the chat instead of navigating to its page', () => {
+    const goal = classifyDashboardLink('/dashboard/goals/9');
+
+    expect(goal).toEqual({ href: '/dashboard/goals/9', kind: 'goal', id: '9' });
+    expect(previewRefFor(goal!)).toEqual({ type: 'goal', id: '9' });
+  });
+
   it('peeks a record\'s history at the version the "Changed …" line names (backlog 035)', () => {
     const link = classifyDashboardLink('/dashboard/objects/214?preview=record_history%3A214%405');
 

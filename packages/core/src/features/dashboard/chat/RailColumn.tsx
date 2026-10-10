@@ -58,6 +58,28 @@ export type RailColumnProps = {
 };
 
 /**
+ * THE PREVIEW ON A PHONE: a drawer over the lower part of the chat, which
+ * stays underneath and in view above it. The same drawer for every preview —
+ * a goal, an artifact, a data room, an uploaded file. Exported for the
+ * conversation's own artifact pane, which opens the same way.
+ * @param props - The drawer.
+ * @param props.children - The preview.
+ * @param props.className - Extra classes (the conversation's pane applies it only below `lg`).
+ */
+export function PreviewDrawer({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      role="region"
+      aria-label="Preview"
+      data-testid="preview-drawer"
+      className={cn('absolute inset-x-0 bottom-0 z-20 flex h-[70%] min-h-0 flex-col overflow-hidden rounded-t-2xl border-t border-border bg-background shadow-(--shadow-pop)', className)}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
  * Whether this component instance is the one that should draw the column.
  * @param priority
  */
@@ -91,9 +113,12 @@ export function RailColumn(props: RailColumnProps) {
   const hasChat = props.chat !== null;
   const hasPreview = previewRef !== null;
   const open = hasChat || hasPreview;
-  // A small screen shows one pane: the preview REPLACES the sheet's content
-  // and its close control becomes "back", rather than halving a phone.
+  // A small screen keeps the chat: the preview opens in a drawer over its
+  // lower part, the conversation still there underneath (a phone walk,
+  // 2026-10-10: every goal, artifact, data room and upload took the whole
+  // screen). Its close control is "back", which closes the drawer.
   const stacked = hasChat && hasPreview && !props.narrow;
+  const drawer = hasChat && hasPreview && Boolean(props.narrow);
 
   // The column never covers the record it is about: the shell's page gutter
   // pads by exactly this much while it stands beside the page.
@@ -123,61 +148,68 @@ export function RailColumn(props: RailColumnProps) {
   );
 
   const content = (
-    <div ref={column} data-testid="rail-column" className="flex min-h-0 flex-1 flex-col">
-      {stacked
+    <div ref={column} data-testid="rail-column" className="relative flex min-h-0 flex-1 flex-col">
+      {drawer
         ? (
             <>
-              {/* The split is flex-grow, not a percentage height: a pane sized
+              <div className="flex min-h-0 flex-1 flex-col">{props.chat}</div>
+              <PreviewDrawer>{preview}</PreviewDrawer>
+            </>
+          )
+        : stacked
+          ? (
+              <>
+                {/* The split is flex-grow, not a percentage height: a pane sized
                   as a fraction of an auto-height parent collapses to nothing,
                   and grow states the same intent without depending on the
                   parent having resolved its own height first. */}
-              <div className="flex min-h-0 flex-col overflow-hidden" style={{ flexGrow: split, flexBasis: 0 }}>
-                {preview}
-              </div>
-              {/* THE divider — the same component the conversation surface
+                <div className="flex min-h-0 flex-col overflow-hidden" style={{ flexGrow: split, flexBasis: 0 }}>
+                  {preview}
+                </div>
+                {/* THE divider — the same component the conversation surface
                   uses on its own split, turned ninety degrees. */}
-              <SplitDivider
-                layout="rows"
-                containerRef={column}
-                value={split}
-                clamp={clampRailSplit}
-                label="Resize the preview"
-                testId="rail-divider"
-                onChange={setSplit}
-                onCommit={writeStoredRailSplit}
-                onReset={() => {
-                  setSplit(RAIL_SPLIT_DEFAULT);
-                  writeStoredRailSplit(RAIL_SPLIT_DEFAULT);
-                }}
-              />
-              <div className="flex min-h-0 flex-col" style={{ flexGrow: 1 - split, flexBasis: 0 }}>{props.chat}</div>
-            </>
-          )
-        : hasPreview
-          ? (
-              <>
-                {preview}
-                {/* The preview holds the column on its own, so the rail's edge
+                <SplitDivider
+                  layout="rows"
+                  containerRef={column}
+                  value={split}
+                  clamp={clampRailSplit}
+                  label="Resize the preview"
+                  testId="rail-divider"
+                  onChange={setSplit}
+                  onCommit={writeStoredRailSplit}
+                  onReset={() => {
+                    setSplit(RAIL_SPLIT_DEFAULT);
+                    writeStoredRailSplit(RAIL_SPLIT_DEFAULT);
+                  }}
+                />
+                <div className="flex min-h-0 flex-col" style={{ flexGrow: 1 - split, flexBasis: 0 }}>{props.chat}</div>
+              </>
+            )
+          : hasPreview
+            ? (
+                <>
+                  {preview}
+                  {/* The preview holds the column on its own, so the rail's edge
                     tab is not on screen to open chat with. Without this the
                     only way back to the conversation is ⌘J, which is a
                     shortcut, not an affordance — and asking about what you are
                     reading is the reason the preview exists. Only where a dock
                     is actually mounted: on a page with no rail there is
                     nothing to open. */}
-                {props.priority === 'dock' && !props.narrow && (
-                  <button
-                    type="button"
-                    onClick={openChatPane}
-                    data-testid="rail-open-chat"
-                    className="flex h-10 shrink-0 items-center justify-center gap-2 border-t border-border text-[13px] text-muted-foreground transition hover:bg-surface-soft hover:text-foreground"
-                  >
-                    <MessageSquare className="size-3.5" aria-hidden />
-                    Ask about this
-                  </button>
-                )}
-              </>
-            )
-          : <div className="flex min-h-0 flex-1 flex-col">{props.chat}</div>}
+                  {props.priority === 'dock' && !props.narrow && (
+                    <button
+                      type="button"
+                      onClick={openChatPane}
+                      data-testid="rail-open-chat"
+                      className="flex h-10 shrink-0 items-center justify-center gap-2 border-t border-border text-[13px] text-muted-foreground transition hover:bg-surface-soft hover:text-foreground"
+                    >
+                      <MessageSquare className="size-3.5" aria-hidden />
+                      Ask about this
+                    </button>
+                  )}
+                </>
+              )
+            : <div className="flex min-h-0 flex-1 flex-col">{props.chat}</div>}
     </div>
   );
 

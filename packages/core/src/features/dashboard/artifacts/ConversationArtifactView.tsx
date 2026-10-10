@@ -30,6 +30,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { useViewportBelow } from '@/components/ui/useMobile';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from '@/features/dashboard/chat/agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from '@/features/dashboard/chat/autonomyOptions';
+import { opensPreviewOnItsOwn } from '@/features/dashboard/chat/autoOpen';
 import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
 import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
 import { decisionBlock } from '@/features/dashboard/chat/decisions/DecisionDock';
@@ -119,7 +120,8 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
       if (merged.conversationId !== null && merged.conversationId !== props.conversationId) {
         return undefined;
       }
-      dispatch({ type: 'upsert', artifact: merged, focus: !merged.pending });
+      // After an upload the pane does not open by itself: the chip is the way in (`autoOpen.ts`).
+      dispatch({ type: 'upsert', artifact: merged, focus: !merged.pending && opensPreviewOnItsOwn({ fromUpload: api.fromUpload }) });
       api.setActivity(merged.pending ? `Writing ${merged.title}…` : `Updated ${merged.title}`);
       if (!merged.pending) {
         // The transcript chip is set by the shared reducer in `useChatSession`
