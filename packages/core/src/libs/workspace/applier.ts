@@ -9,6 +9,7 @@ import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSource
 import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, notificationRuleSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { AGENT_DEFAULT_SCOPE_SLUG, setCentsLimits } from '@/services/BudgetService';
 import { deriveRole } from './hierarchy';
+import { boundConnectorSources } from './requiredSources';
 import { effectiveTeamSlug } from './teams';
 import { seededLeadSurvives, WORKSPACE_LEAD_SLUG } from './workspaceLead';
 
@@ -203,7 +204,8 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 
   for (const agent of loaded.agents) {
     try {
-      const outcome = await upsertAgent(orgId, agent, defaults, mode, loaded.teams, warnings);
+      const bound = { ...agent, connectorSources: boundConnectorSources(agent, loaded.sources) };
+      const outcome = await upsertAgent(orgId, bound, defaults, mode, loaded.teams, warnings);
       bump(counts.agents, outcome);
       if (!dryRun) {
         await reconcileManagedHarness(orgId, agent, errors);
