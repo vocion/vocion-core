@@ -25,7 +25,7 @@ beforeEach(() => {
 describe('the finance tools', () => {
   it('are present only for an agent with a finance source, narrowed by the person\'s source ACL', () => {
     expect(financeTools(ctx(['jira'], { jira: 'jira' }))).toEqual([]);
-    expect(financeTools(ctx(['billing'], { billing: 'stripe' })).map(t => t.name)).toEqual(['finance_list', 'finance_get']);
+    expect(financeTools(ctx(['billing'], { billing: 'stripe' })).map(t => t.name)).toEqual(['finance_list', 'finance_get', 'finance_report']);
     expect(financeTools(ctx(['billing'], { billing: 'stripe' }, ['jira']))).toEqual([]);
   });
 
@@ -58,5 +58,32 @@ describe('the finance tools', () => {
     get.mockRejectedValueOnce(new Error('Stripe refused the credential (401).'));
 
     expect(JSON.parse(await getTool!.invoke({ kind: 'invoice', id: 'in_x' }) as string)).toEqual({ ok: false, error: 'Stripe refused the credential (401).' });
+  });
+
+  it('report a statement, leading with its counts, and say so in words where the vendor runs none', async () => {
+    const report = vi.fn().mockResolvedValue({
+      kind: 'profit_and_loss',
+      title: 'Profit and Loss',
+      period: { start: '2026-09-01', end: '2026-09-30' },
+      basis: 'accrual',
+      currency: 'USD',
+      columns: ['Total'],
+      rows: [
+        { label: 'Income', rows: [{ label: 'Services Revenue', amounts: [44600] }], total: { label: 'Total Income', amounts: [44600] } },
+        { label: 'Expenses', rows: [{ label: 'Marketing', amounts: [5639] }, { label: 'Rent and Facilities', amounts: [7000] }], total: { label: 'Total Expenses', amounts: [12639] } },
+        { label: 'Net Income', amounts: [31961] },
+      ],
+      totals: [{ label: 'Total Income', amounts: [44600] }, { label: 'Total Expenses', amounts: [12639] }, { label: 'Net Income', amounts: [31961] }],
+    });
+    resolve.mockResolvedValueOnce({ kind: 'quickbooks', vendor: 'QuickBooks', sourceSlug: 'books', kinds: [], list, get, report });
+    const [, , reportTool] = financeTools(ctx(['books'], { books: 'quickbooks' }));
+    const out = JSON.parse(await reportTool!.invoke({ kind: 'profit_and_loss', start: '2026-09-01', end: '2026-09-30' }) as string);
+
+    expect(report).toHaveBeenCalledWith('profit_and_loss', { start: '2026-09-01', end: '2026-09-30', summarizeBy: undefined, basis: undefined });
+    expect(Object.keys(out).slice(0, 4)).toEqual(['ok', 'sections', 'lines', 'columns']);
+    expect(out).toMatchObject({ ok: true, sections: 2, lines: 3, columns: 1, vendor: 'QuickBooks', report: { totals: [{ label: 'Total Income' }, { label: 'Total Expenses' }, { label: 'Net Income' }] } });
+
+    expect(JSON.parse(await reportTool!.invoke({ kind: 'balance_sheet', end: '2026-09-30' }) as string)).toEqual({ ok: false, error: 'Stripe runs no statements here. Sum finance_list records instead (invoices and bills for income and costs, accounts for balances).' });
+    expect(JSON.parse(await reportTool!.invoke({ kind: 'balance_sheet', end: 'end of Q3' }) as string)).toEqual({ ok: false, error: 'end is an ISO date, e.g. 2026-09-30.' });
   });
 });
