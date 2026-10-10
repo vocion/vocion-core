@@ -20,6 +20,8 @@ import { factoryCheckLiveAgainAction } from './factory-check-live';
 import { factoryDispatchAction } from './factory-dispatch';
 import { factoryReadAttemptAction, factoryReadReleaseLiveAction, factoryStopRequestAction } from './factory-flow-steps';
 import { financeDraftInvoiceAction } from './finance-draft-invoice';
+import { financePostJournalEntryAction } from './finance-post-journal-entry';
+import { financeRecategorizeExpenseAction } from './finance-recategorize-expense';
 import { githubDispatchWorkflowAction } from './github-dispatch';
 import { githubOpenPullAction } from './github-pull';
 import { githubRerunFailedJobsAction } from './github-rerun';
@@ -175,8 +177,13 @@ registerAction(trackerTransitionIssueAction);
 registerAction(trackerUpdateIssueAction);
 registerAction(trackerCommentAction);
 registerAction(trackerAttachFileAction);
-// The finance family's one write: a draft invoice, never sent, deleted by Undo.
+// The finance family's writes, none of which moves money: a draft invoice,
+// never sent, deleted by Undo; an expense line recoded to another account,
+// moved back by Undo; a balanced journal entry, deleted by Undo. The last two
+// change the books, so an agent's proposal always waits for a person.
 registerAction(financeDraftInvoiceAction);
+registerAction(financeRecategorizeExpenseAction);
+registerAction(financePostJournalEntryAction);
 // An agent puts a question in front of a person, and takes it back when the
 // thing it asked about went away. Both reversible and internal: the ask is
 // the outcome, nothing executes on the answer.
