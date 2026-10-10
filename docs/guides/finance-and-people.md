@@ -5,11 +5,14 @@ sells them. An agent given a **finance** source reads customers, invoices,
 bills, payments and spend with `finance_list` / `finance_get`; one given an
 **HR** source reads workers, departments, time off and pay-run totals with
 `people_list` / `people_get`. Everything is read live with the workspace's own
-credential, nothing moves money, and personal data never reaches an agent.
+credential, nothing moves money, and personal data never reaches an agent. Where
+the books allow it, an agent can propose a change to them (an expense line moved
+to another account, a journal entry); a person approves each one and Undo
+reverses it.
 
 | Family | Vendors | Tools | Writes |
 |---|---|---|---|
-| `finance` | [Stripe](stripe.md), [QuickBooks](quickbooks.md), [Xero](xero.md), [NetSuite](netsuite.md), [Ramp](ramp.md), [BILL](bill.md) | `finance_list`, `finance_get` | `finance.draft_invoice` (Stripe), Undo deletes the draft |
+| `finance` | [Stripe](stripe.md), [QuickBooks](quickbooks.md), [Xero](xero.md), [NetSuite](netsuite.md), [Ramp](ramp.md), [BILL](bill.md) | `finance_list`, `finance_get`, `finance_report` | `finance.draft_invoice` (Stripe), Undo deletes the draft; `finance.recategorize_expense` (QuickBooks), Undo moves the line back; `finance.post_journal_entry` (QuickBooks), Undo deletes the entry |
 | `people` | [Gusto](gusto.md), [Rippling](rippling.md), [Workday](workday.md) | `people_list`, `people_get` | none |
 
 ## Turning one on from chat
@@ -61,7 +64,19 @@ A finance record is one shape from every vendor: `kind`, `id`, `number`,
 `amount`, `currency`, `balance` (still owed), `date`, `dueDate`, `url` (into
 the vendor, when it has a stable link), and on `finance_get` the `lines`.
 Amounts are in major units. A filter a vendor cannot apply is returned as
-`ignored`, so the agent knows the list is wider than it asked.
+`ignored`, so the agent knows the list is wider than it asked. A line carries
+its `id` and, when it is coded to an account, `accountId` and `accountName`.
+
+## Statements
+
+`finance_report` runs a profit and loss over a period or a balance sheet as of
+a date, by total or split by month, class or customer, in one shape from every
+vendor that runs statements (`FinanceProvider.report`): a title, the period,
+the basis, the columns, nested sections of account lines with an amount per
+column and a total, and the bottom lines (Net Income, Total Assets). Its
+payload leads with how many sections, lines and columns it holds. QuickBooks
+runs them today; on any other vendor the tool answers `ok: false` with a
+sentence that says so and suggests summing `finance_list` records instead.
 
 Xero, NetSuite and QuickBooks also **sync** invoices, bills and payments into
 search (incremental on the vendor's last-modified time, a daily full pass to
@@ -84,9 +99,15 @@ never writes "overdue" into text. Stripe, Ramp and BILL are read live only.
 - **Finance records** carry business contacts (a customer's name and billing
   email) when an agent asks; card numbers and bank details are not returned by
   these APIs to read-only credentials, and nothing here asks for them.
-- **No writes to HR systems, and no money moves.** The only write in either
-  family is a Stripe draft invoice, which is never sent or charged and which
-  Undo deletes.
+- **No writes to HR systems, and no money moves.** The finance family's three
+  writes are a Stripe draft invoice, never sent or charged; a QuickBooks expense
+  line moved to another account; and a balanced QuickBooks journal entry. The
+  last two change the books (which account an expense counts against, what a
+  period's figures say) but pay, charge and send nothing. Each is an approval
+  action with Undo, and the two that change the books always wait for a person
+  (`approvalRequired`). A vendor that cannot do one refuses it in the precheck
+  with a sentence, and the QuickBooks sample company refuses both: sample books
+  are read-only.
 
 ## Where it lives
 
@@ -96,5 +117,5 @@ never writes "overdue" into text. Stripe, Ramp and BILL are read live only.
 | Finance shape, resolution, sync | `packages/core/src/services/finance/` |
 | People shape and resolution | `packages/core/src/services/people/` |
 | Tools | `services/agents/tools/financeTools.ts`, `peopleTools.ts` |
-| Action | `libs/actions/finance-draft-invoice.ts` |
+| Actions | `libs/actions/finance-draft-invoice.ts`, `finance-recategorize-expense.ts`, `finance-post-journal-entry.ts` |
 | HTTP and Test connection helpers | `libs/connectors/vendorHttp.ts`, `inspectByListing.ts` |
