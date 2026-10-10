@@ -147,6 +147,16 @@ function leavesConversation(href: string): boolean {
 /** 44px on a phone — a thumb's target (Apple HIG); the desktop keeps its density. */
 const TAP = 'max-md:min-h-11';
 
+/**
+ * THE DOCKED CARD ON A PHONE IS AT MOST 40% OF THE SCREEN (a phone walk,
+ * 2026-10-10: the card covered the whole viewport and hid the agent's turns
+ * after every Skip). The thread above it stays readable; the why and the
+ * exact payload fold behind "Details"; the choices scroll inside the card if
+ * they must, and Skip and Submit never leave it. The desktop is unchanged.
+ */
+export const DOCK_PHONE_MAX_HEIGHT_VH = 40;
+const DOCK_PHONE_CLASS = 'max-md:flex max-md:max-h-[40vh] max-md:flex-col [@media(max-height:500px)]:flex [@media(max-height:500px)]:max-h-[40vh] [@media(max-height:500px)]:flex-col';
+
 export function DecisionCard({
   decision,
   agentName,
@@ -185,6 +195,8 @@ export function DecisionCard({
   const [selected, setSelected] = useState<string[]>(() => initialSelection(decision));
   const [active, setActive] = useState(() => Math.max(0, options.findIndex(o => o.recommended)));
   const [other, setOther] = useState('');
+  // On a phone the why and the payload wait behind a tap (`DOCK_PHONE_MAX_HEIGHT_VH`).
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // A new Decision starts fresh: its own recommendation, nothing typed.
   const [seen, setSeen] = useState(resetKey);
   if (seen !== resetKey) {
@@ -192,6 +204,7 @@ export function DecisionCard({
     setSelected(initialSelection(decision));
     setActive(Math.max(0, options.findIndex(o => o.recommended)));
     setOther('');
+    setDetailsOpen(false);
   }
   const locked = busy || disabled;
   const hasOptions = options.length > 0;
@@ -394,6 +407,10 @@ export function DecisionCard({
     [asker, title, hasOptions, options],
   );
 
+  // What folds behind "Details" on a phone: the why and the exact payload, on a docked card.
+  const detailsId = `${uid}-d`;
+  const foldsDetails = variant === 'dock' && !hasForm && Boolean(decision.body || bodyNode || decision.preview || lookOption?.look);
+
   const headActions = (
     <>
       {artifactRef && (
@@ -464,129 +481,147 @@ export function DecisionCard({
       aria-modal={variant === 'dock' ? false : undefined}
       aria-labelledby={questionId}
       aria-describedby={decision.body || bodyNode ? bodyId : undefined}
-      className={variant === 'dock' ? 'mb-2 px-4 pt-3 pb-3 shadow-sm' : 'px-4 py-3'}
+      className={variant === 'dock' ? `mb-2 px-4 pt-3 pb-3 shadow-sm ${DOCK_PHONE_CLASS}` : 'px-4 py-3'}
       data-testid="decision-card"
       data-decision-id={decision.id}
       data-variant={variant}
       ref={rootRef}
     >
       <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
-      {/* In the thread, full height: the question, every option with its
+      {/* On a phone, everything above the buttons scrolls inside the card's
+          40vh; Skip and Submit stay pinned under it. */}
+      <div className="max-md:min-h-0 max-md:flex-1 max-md:overflow-y-auto [@media(max-height:500px)]:min-h-0 [@media(max-height:500px)]:flex-1 [@media(max-height:500px)]:overflow-y-auto" data-testid="decision-scroll">
+        {/* In the thread, full height: the question, every option with its
           consequence, and the buttons, all in view as the thread scrolls. */}
-      <div className="flex items-start gap-2" data-testid="decision-head">
-        {/* The asking agent's own avatar, the same dot as the team. */}
-        {agentName && <AgentDot name={agentName} accent={agentAccent} size="md" decorative className="mt-0.5" />}
-        <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-medium text-muted-foreground" data-testid="decision-eyebrow">
-            {asker}
-            {queue && (
-              <span data-testid="decision-queue">
-                {' · '}
-                {queue}
-              </span>
-            )}
-          </p>
-          <h3 id={questionId} className="mt-1 text-[15px] leading-snug font-medium text-foreground">{title}</h3>
+        <div className="flex items-start gap-2" data-testid="decision-head">
+          {/* The asking agent's own avatar, the same dot as the team. */}
+          {agentName && <AgentDot name={agentName} accent={agentAccent} size="md" decorative className="mt-0.5" />}
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] font-medium text-muted-foreground" data-testid="decision-eyebrow">
+              {asker}
+              {queue && (
+                <span data-testid="decision-queue">
+                  {' · '}
+                  {queue}
+                </span>
+              )}
+            </p>
+            <h3 id={questionId} className="mt-1 text-[15px] leading-snug font-medium text-foreground">{title}</h3>
+          </div>
+          {headActions}
         </div>
-        {headActions}
-      </div>
-      <div className="min-w-0">
-        {bodyNode
-          ? <div id={bodyId} className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{bodyNode}</div>
-          : decision.body && <p id={bodyId} className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-muted-foreground">{decision.body}</p>}
-        {lookOption?.look && <DecisionLook look={lookOption.look} />}
-        {decision.preview && (
-          <pre
-            className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90"
-            data-testid="decision-preview"
-            aria-label="What it will do, exactly"
+        {foldsDetails && (
+          <button
+            type="button"
+            onClick={() => setDetailsOpen(open => !open)}
+            aria-expanded={detailsOpen}
+            aria-controls={detailsId}
+            data-testid="decision-details-toggle"
+            className={`mt-1 inline-flex items-center gap-1 text-[12.5px] text-muted-foreground hover:text-foreground md:hidden ${TAP}`}
           >
-            {decision.preview}
-          </pre>
+            {detailsOpen ? 'Hide details' : 'Details'}
+            {detailsOpen ? <ChevronUp className="size-3.5" aria-hidden /> : <ChevronDown className="size-3.5" aria-hidden />}
+          </button>
         )}
-        {decision.deadline && <p className="mt-1 text-[12px] text-muted-foreground" data-testid="decision-deadline">{deadlineLine(decision.deadline)}</p>}
-      </div>
+        <div id={detailsId} className={`min-w-0 ${foldsDetails && !detailsOpen ? 'max-md:hidden' : ''}`} data-testid="decision-why">
+          {bodyNode
+            ? <div id={bodyId} className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{bodyNode}</div>
+            : decision.body && <p id={bodyId} className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-muted-foreground">{decision.body}</p>}
+          {lookOption?.look && <DecisionLook look={lookOption.look} />}
+          {decision.preview && (
+            <pre
+              className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90"
+              data-testid="decision-preview"
+              aria-label="What it will do, exactly"
+            >
+              {decision.preview}
+            </pre>
+          )}
+          {decision.deadline && <p className="mt-1 text-[12px] text-muted-foreground" data-testid="decision-deadline">{deadlineLine(decision.deadline)}</p>}
+        </div>
 
-      {hasForm && (
+        {hasForm && (
         // The inputs inside own their keys; this only adds Enter-to-submit and Esc.
         // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-        <div ref={formRef} onKeyDown={onFormKey} className="mt-3" data-testid="decision-form">
-          {children}
-        </div>
-      )}
+          <div ref={formRef} onKeyDown={onFormKey} className="mt-3" data-testid="decision-form">
+            {children}
+          </div>
+        )}
 
-      {hasOptions && (
-        <div
-          ref={listRef}
-          role="listbox"
-          tabIndex={locked ? -1 : 0}
-          aria-labelledby={questionId}
-          aria-multiselectable={multiple || undefined}
-          aria-activedescendant={optionId(active)}
-          aria-disabled={locked || undefined}
-          onKeyDown={onListKey}
-          data-testid="decision-options"
-          className="-mx-2 mt-3 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        >
-          {options.map((o, i) => {
-            const isSelected = selected.includes(o.id);
-            return (
+        {hasOptions && (
+          <div
+            ref={listRef}
+            role="listbox"
+            tabIndex={locked ? -1 : 0}
+            aria-labelledby={questionId}
+            aria-multiselectable={multiple || undefined}
+            aria-activedescendant={optionId(active)}
+            aria-disabled={locked || undefined}
+            onKeyDown={onListKey}
+            data-testid="decision-options"
+            className="-mx-2 mt-3 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            {options.map((o, i) => {
+              const isSelected = selected.includes(o.id);
+              return (
               // The listbox owns the keys (the aria-activedescendant pattern):
               // an option is highlighted, never focused, so it takes no key handler.
               // eslint-disable-next-line jsx-a11y/click-events-have-key-events
-              <div
-                key={o.id}
-                id={optionId(i)}
-                role="option"
-                tabIndex={-1}
-                aria-selected={isSelected}
-                data-active={i === active || undefined}
-                data-testid={`decision-option-${o.id}`}
-                onClick={() => {
-                  if (!locked) {
-                    pick(i);
-                    listRef.current?.focus();
-                  }
-                }}
-                onDoubleClick={() => !locked && onAnswer({ kind: 'option', optionIds: [o.id] })}
-                className={`flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 transition ${TAP} ${isSelected ? 'bg-surface-soft' : 'hover:bg-surface-hover'} ${i === active ? 'ring-1 ring-border' : ''} ${locked ? 'cursor-default opacity-60' : ''}`}
-              >
-                <kbd className={`mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded border font-sans text-[11px] font-medium ${isSelected ? 'border-transparent bg-action text-action-foreground' : 'border-border text-muted-foreground'}`}>{i + 1}</kbd>
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-[14px] font-medium text-foreground">{o.label}</span>
-                    {o.recommended && <span className="text-[11px] font-medium text-[var(--brand-pass)]">Recommended</span>}
-                    {o.href && leavesConversation(o.href) && <span className="text-[11px] text-muted-foreground" data-testid="decision-option-opens">Opens ↗</span>}
+                <div
+                  key={o.id}
+                  id={optionId(i)}
+                  role="option"
+                  tabIndex={-1}
+                  aria-selected={isSelected}
+                  data-active={i === active || undefined}
+                  data-testid={`decision-option-${o.id}`}
+                  onClick={() => {
+                    if (!locked) {
+                      pick(i);
+                      listRef.current?.focus();
+                    }
+                  }}
+                  onDoubleClick={() => !locked && onAnswer({ kind: 'option', optionIds: [o.id] })}
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 transition ${TAP} ${isSelected ? 'bg-surface-soft' : 'hover:bg-surface-hover'} ${i === active ? 'ring-1 ring-border' : ''} ${locked ? 'cursor-default opacity-60' : ''}`}
+                >
+                  <kbd className={`mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded border font-sans text-[11px] font-medium ${isSelected ? 'border-transparent bg-action text-action-foreground' : 'border-border text-muted-foreground'}`}>{i + 1}</kbd>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="text-[14px] font-medium text-foreground">{o.label}</span>
+                      {o.recommended && <span className="text-[11px] font-medium text-[var(--brand-pass)]">Recommended</span>}
+                      {o.href && leavesConversation(o.href) && <span className="text-[11px] text-muted-foreground" data-testid="decision-option-opens">Opens ↗</span>}
+                    </span>
+                    {o.consequence && <span className="mt-0.5 block text-[12.5px] leading-snug text-muted-foreground">{o.consequence}</span>}
                   </span>
-                  {o.consequence && <span className="mt-0.5 block text-[12.5px] leading-snug text-muted-foreground">{o.consequence}</span>}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
-      {allowOther && (
-        <div className={`${hasOptions ? 'mt-1' : 'mt-3'} flex items-center gap-3 px-0 py-1`}>
-          {hasOptions && <kbd className="inline-flex size-5 shrink-0 items-center justify-center rounded border border-border font-sans text-[11px] font-medium text-muted-foreground">{options.length + 1}</kbd>}
-          <input
-            ref={otherRef}
-            type="text"
-            value={other}
-            onChange={e => setOther(e.target.value)}
-            onKeyDown={onOtherKey}
-            disabled={locked}
-            aria-label="Something else — answer in your own words"
-            placeholder={decision.kind === 'signoff' ? 'Revise — say what to change…' : hasOptions ? 'Something else…' : 'Your answer…'}
-            data-testid="decision-other"
-            className={`min-w-0 flex-1 border-0 border-b border-border bg-transparent px-0 py-1 text-[14px] outline-none placeholder:text-muted-foreground/70 focus:border-foreground/40 ${TAP}`}
-          />
-        </div>
-      )}
+        {allowOther && (
+          <div className={`${hasOptions ? 'mt-1' : 'mt-3'} flex items-center gap-3 px-0 py-1`}>
+            {hasOptions && <kbd className="inline-flex size-5 shrink-0 items-center justify-center rounded border border-border font-sans text-[11px] font-medium text-muted-foreground">{options.length + 1}</kbd>}
+            <input
+              ref={otherRef}
+              type="text"
+              value={other}
+              onChange={e => setOther(e.target.value)}
+              onKeyDown={onOtherKey}
+              disabled={locked}
+              aria-label="Something else — answer in your own words"
+              placeholder={decision.kind === 'signoff' ? 'Revise — say what to change…' : hasOptions ? 'Something else…' : 'Your answer…'}
+              data-testid="decision-other"
+              className={`min-w-0 flex-1 border-0 border-b border-border bg-transparent px-0 py-1 text-[14px] outline-none placeholder:text-muted-foreground/70 focus:border-foreground/40 ${TAP}`}
+            />
+          </div>
+        )}
+
+      </div>
 
       {error && <p role="alert" className="mt-2 text-[12px] text-[var(--brand-fail)]">{error}</p>}
 
-      <div className="mt-3 flex items-center gap-2 border-t border-border pt-2.5" data-testid="decision-foot">
+      <div className="mt-3 flex shrink-0 items-center gap-2 border-t border-border pt-2.5" data-testid="decision-foot">
         <p className="hidden min-w-0 flex-1 truncate text-[11px] text-muted-foreground sm:block" data-testid="decision-key-hints" aria-hidden>
           {hasOptions && (
             <>

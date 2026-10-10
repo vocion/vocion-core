@@ -61,9 +61,14 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
   const queue = [...decisions, ...waiting.filter(d => !here.has(decisionKey(d)))];
   const current = queue[0];
   const [collapsedFor, setCollapsedFor] = useState<string | null>(null);
+  // SEVERAL ASKS ARE ONE ROW (a phone walk, 2026-10-10: eight approvals
+  // stacked up in one goal). "8 asks · Review" until the person opens them;
+  // then one card at a time, "1 of 8", as before.
+  const [reviewing, setReviewing] = useState(false);
   if (!current && !notice) {
     return null;
   }
+  const compact = current !== undefined && queue.length > 1 && !reviewing && answeringId === null;
   return (
     <div data-testid="decision-dock">
       {notice && (
@@ -79,7 +84,19 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
           )}
         </div>
       )}
-      {current && (
+      {current && compact && (
+        <button
+          type="button"
+          onClick={() => setReviewing(true)}
+          data-testid="decision-asks-row"
+          className="mb-2 flex w-full items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-left text-[13px] transition hover:bg-surface-hover max-md:min-h-11"
+        >
+          <span className="shrink-0 font-medium text-foreground">{asksLine(queue.length)}</span>
+          <span className="min-w-0 truncate text-muted-foreground">{agentName?.(current.agentSlug) ?? ''}</span>
+          <span className="ml-auto shrink-0 font-medium text-foreground">Review</span>
+        </button>
+      )}
+      {current && !compact && (
         <DecisionCard
           decision={current}
           agentName={agentName?.(current.agentSlug) ?? null}
@@ -97,6 +114,15 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
       )}
     </div>
   );
+}
+
+/**
+ * The one row several open asks fold into: "3 asks · Review" reads as the
+ * count, and the row's own button says Review.
+ * @param count - How many wait.
+ */
+export function asksLine(count: number): string {
+  return `${count} ${count === 1 ? 'ask' : 'asks'} ·`;
 }
 
 /** The parts of a chat session the dock reads. */

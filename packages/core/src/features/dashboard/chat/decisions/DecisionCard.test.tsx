@@ -187,9 +187,24 @@ describe('the docked Decision card', () => {
 });
 
 describe('the dock', () => {
-  it('shows one card at a time with "1 of 3", and folds to "3 decisions waiting"', async () => {
+  it('folds several asks into one row, "N asks · Review", never N cards', async () => {
+    const asks = Array.from({ length: 8 }, (_, i) => ({ ...repo, id: 100 + i, question: `Draft the note to contact ${i + 1}?` }));
+    await render(<DecisionDock decisions={asks} onAnswer={vi.fn()} agentName={() => 'Product manager'} />);
+
+    await expect.element(page.getByTestId('decision-asks-row')).toHaveTextContent(/8 asks ·.*Review/);
+    expect(page.getByTestId('decision-card').elements()).toHaveLength(0);
+
+    await page.getByTestId('decision-asks-row').click();
+
+    expect(page.getByTestId('decision-card').elements()).toHaveLength(1);
+    await expect.element(page.getByTestId('decision-queue')).toHaveTextContent('1 of 8');
+  });
+
+  it('shows one card at a time with "1 of 3" once opened, and folds to "3 decisions waiting"', async () => {
     const onAnswer = vi.fn();
     await render(<DecisionDock decisions={[repo, { ...repo, id: 42, question: 'Ship it behind a flag?' }, { ...repo, id: 43, question: 'Rename the board?' }]} onAnswer={onAnswer} agentName={() => 'Product manager'} />);
+
+    await page.getByTestId('decision-asks-row').click();
 
     await expect.element(page.getByTestId('decision-queue')).toHaveTextContent('1 of 3');
     expect(page.getByTestId('decision-card').elements()).toHaveLength(1);
@@ -254,6 +269,8 @@ describe('phase two: every kind of Decision on the one card', () => {
   it('in a conversation under way, what waits elsewhere queues behind its own, says where it waits, and the dock says once what an answer did', async () => {
     const elsewhere = { ...repo, id: 9, question: 'Archive the Q3 board?', conversationId: null };
     await render(<DecisionDock decisions={[repo]} waiting={[repo, elsewhere]} onAnswer={vi.fn()} agentName={() => 'Product manager'} notice={{ line: 'Chose No · Rename the board?', receipt: { runId: 5, actionId: 'objects.rename', label: 'Renamed the board', undoable: true } }} />);
+
+    await page.getByTestId('decision-asks-row').click();
 
     await expect.element(page.getByRole('dialog', { name: repo.question })).toBeInTheDocument();
     await expect.element(page.getByTestId('decision-queue')).toHaveTextContent('1 of 2');
