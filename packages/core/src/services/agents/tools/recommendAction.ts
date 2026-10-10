@@ -191,6 +191,15 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
       }
       // A MERGE CARD NOBODY PRESSES (backlog 044): a class whose trust rule
       // merges it on its own once QA approves has no card to show.
+      // A running goal asks only for what was asked (`services/objectives/goalGuard.ts`):
+      // no outreach nobody asked for, and a denied action is not re-asked revised.
+      if (action_id && ctx.conversationId) {
+        const { goalProposalRefusal } = await import('@/services/objectives/goalGuard');
+        const refusal = await goalProposalRefusal({ orgId: ctx.orgId, conversationId: ctx.conversationId, actionId: action_id, grant: getAction(action_id)?.grant, actionInput: action_input ?? {}, personAsked: false }).catch(() => null);
+        if (refusal) {
+          return JSON.stringify({ ok: false, error: refusal });
+        }
+      }
       if (action_id === MERGE_ACTION_ID && typeof action_input?.riskClass === 'string') {
         const moot = await mergeCardRunsItself(ctx, action_input.riskClass);
         if (moot) {
