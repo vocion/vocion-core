@@ -1,0 +1,23 @@
+docs/guides/agent-tools.md
+  s_752d9fb8a2ad2d::t_0fc28a1cec1cf9 48-49
+docs/guides/finance-and-people.md
+  s_752d9fb8a2ad2d::t_63ce79eb6c7196 8-11,15,67-79,102-110,120
+docs/guides/quickbooks.md
+  s_752d9fb8a2ad2d::t_30c2226cbd9999 5-12,25,34-36,56-59,96-110,157-170,173-201,205-208,219-221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c8180a9eb0e6830f45921a0e57a9fd5d3e5bb132",
+  "prompts": {},
+  "sessions": {
+    "s_752d9fb8a2ad2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7a2d495-d3c1-4b63-9ad0-bbbf7b970558",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
