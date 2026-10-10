@@ -17,4 +17,3 @@ successCriteria:
 desiredArtifacts:
   - A dated close status for the month
   - The month's accrual entries, proposed for approval
-schedule: '0 16 2 * *'
