@@ -2,27 +2,49 @@
  * RIPPLING — HR, as a provider of the people family (`../types.ts`).
  *
  * Read live with the workspace's Rippling API token: employees,
- * departments and leave requests. The token's own field grants decide what
- * Rippling sends; whatever it sends, only the work fields named below are
- * copied out — a social security number, date of birth, home address,
- * personal email or phone, compensation or bank account the token was
- * granted never reaches an agent.
+ * departments, leave requests and pay runs. The token's own field grants
+ * decide what Rippling sends; whatever it sends, only the work fields named
+ * below are copied out: a social security number, date of birth, home
+ * address, personal email or phone, compensation or bank account the token
+ * was granted never reaches an agent.
+ *
+ * A pay run comes back as company-wide totals by category. Rippling answers
+ * one payroll record per worker; those are summed here (`payRunTally`) and
+ * only the sums leave this file, so no worker's id, earnings, taxes or
+ * deductions reach an agent.
  *
  * Rippling Platform API facts this file depends on: Bearer auth on
  * `https://api.rippling.com/platform/api`; `/employees` (active) and
  * `/employees/include_terminated` page by `limit` (≤100) and `offset`;
  * an employee names its department and manager by id; `/departments` and
  * `/leave_requests` (filters `startDate`, `endDate`, `status`) are unpaged.
+ *
+ * Rippling REST API facts the pay runs depend on, taken from its published
+ * reference and not yet checked against a live payroll company: the same
+ * Bearer token on `https://rest.ripplingapis.com`; `/payroll-runs/` and
+ * `/payroll-runs/{id}/` give a run's state, type, check date and pay period;
+ * `/payroll-runs/{id}/worker-payroll-records/` gives one record per worker
+ * with `gross_pay`, `net_pay`, `currency`, a `summary` of taxes, deductions
+ * and contributions, and `earnings`, `taxes` (`paid_by` EMPLOYEE or
+ * EMPLOYER), `deductions` (`employee_amount`, `employer_amount`) and
+ * `garnishments` arrays; amounts are decimal strings; lists page by
+ * `next_link`.
  */
 
 import type { PeopleListQuery, PeoplePage, PeopleProvider, PeopleProviderInput, PeopleRecord, PeopleRecordKind } from '../types';
-import { vendorJson } from '@/libs/connectors/vendorHttp';
+import { sameHost, vendorJson } from '@/libs/connectors/vendorHttp';
+import { payRunTally } from '../payRun';
 import { blankPeopleRecord } from '../types';
 import { isoDay, matches, num, pageInMemory, str } from './shared';
 
 const API = 'https://api.rippling.com/platform/api';
+const REST_API = 'https://rest.ripplingapis.com';
 const VENDOR = 'Rippling';
-const KINDS: readonly PeopleRecordKind[] = ['worker', 'department', 'time_off'];
+const KINDS: readonly PeopleRecordKind[] = ['worker', 'department', 'time_off', 'pay_run'];
+/** Pay runs summed per list page: each one reads every worker's record. */
+const RUN_PAGE = 10;
+/** The most pages read from one Rippling list, of runs or of a run's worker records. */
+const MAX_PAGES = 100;
 /** The most employees read while filtering by text or status in memory. */
 const SCAN_LIMIT = 2000;
 const PAGE = 100;
@@ -93,6 +115,92 @@ export function ripplingDepartment(d: Json, departments: ReadonlyMap<string, str
 }
 
 /**
+ * A Rippling payroll run as a pay run: its period, check date, state and
+ * type. The amounts come from `ripplingPayRunAmounts`.
+ * @param r - The payroll run.
+ */
+export function ripplingPayRun(r: Json): PeopleRecord {
+  const period = (r.pay_period ?? {}) as Json;
+  const check = isoDay(r.check_date);
+  return {
+    ...blankPeopleRecord('pay_run', String(r.id ?? ''), str(r.title) ?? `Pay run ${check ?? isoDay(period.end_date) ?? ''}`.trim()),
+    status: str(r.run_state)?.toLowerCase() ?? null,
+    type: str(r.run_type)?.toLowerCase().replaceAll('_', '-') ?? null,
+    startDate: isoDay(period.start_date),
+    endDate: isoDay(period.end_date),
+    payDate: check,
+  };
+}
+
+/**
+ * Every worker's payroll record in one run, summed into company-wide
+ * categories. Only the sums are returned: no worker id, name or amount.
+ * A record's itemised earnings, taxes and deductions are used when it has
+ * them, else its `gross_pay` and `summary`.
+ * @param rows - The run's worker payroll records.
+ * @param opts - What to include.
+ * @param opts.lines - Whether each category carries its lines.
+ */
+export function ripplingPayRunAmounts(rows: Json[], opts: { lines: boolean }): Pick<PeopleRecord, 'totals' | 'categories' | 'reconciliation'> {
+  const currencies = new Set(rows.map(w => str(w.currency)).filter(Boolean));
+  if (currencies.size > 1) {
+    // Sums across currencies would book nothing true.
+    return { totals: null, categories: null, reconciliation: null };
+  }
+  const tally = payRunTally();
+  const list = (v: unknown) => (Array.isArray(v) ? (v as Json[]) : []);
+  for (const w of rows) {
+    const summary = (w.summary ?? {}) as Json;
+    const earnings = list(w.earnings);
+    if (earnings.length > 0) {
+      for (const e of earnings) {
+        const label = str(e.display_name) ?? str(e.earning_code) ?? 'Earnings';
+        const reimbursement = /reimburs/i.test(`${str(e.earning_category) ?? ''} ${str(e.earning_code) ?? ''}`);
+        tally.add(reimbursement ? 'reimbursements' : 'gross_wages', label, num(e.amount));
+      }
+    } else {
+      tally.add('gross_wages', 'Gross pay', num(w.gross_pay));
+    }
+    const taxes = list(w.taxes);
+    if (taxes.length > 0) {
+      for (const t of taxes) {
+        tally.add(str(t.paid_by)?.toUpperCase() === 'EMPLOYER' ? 'employer_taxes' : 'employee_taxes', str(t.display_name) ?? str(t.tax_code) ?? 'Tax', num(t.amount));
+      }
+    } else {
+      tally.add('employee_taxes', 'Employee taxes', num(summary.employee_taxes));
+      tally.add('employer_taxes', 'Employer taxes', num(summary.employer_taxes));
+    }
+    const deductions = list(w.deductions);
+    if (deductions.length > 0) {
+      for (const d of deductions) {
+        const label = str(d.display_name) ?? str(d.deduction_code) ?? 'Deduction';
+        tally.add('employee_deductions', label, num(d.employee_amount));
+        tally.add('employer_contributions', label, num(d.employer_amount));
+      }
+    } else {
+      tally.add('employee_deductions', 'Employee deductions', num(summary.employee_deductions));
+      tally.add('employer_contributions', 'Employer contributions', num(summary.employer_contributions));
+    }
+    const garnishments = list(w.garnishments);
+    if (garnishments.length > 0) {
+      for (const g of garnishments) {
+        tally.add('employee_deductions', `Garnishment${str(g.garnishment_code) ? ` · ${str(g.garnishment_code)}` : ''}`, num(g.amount));
+      }
+    } else {
+      tally.add('employee_deductions', 'Garnishments', num(summary.total_garnishments));
+    }
+    tally.add('net_pay', 'Net pay', num(w.net_pay));
+  }
+  const { categories, reconciliation } = tally.result(opts);
+  const amount = (c: string) => categories.find(x => x.category === c)!.amount;
+  return {
+    totals: { gross: amount('gross_wages'), net: amount('net_pay'), employerTaxes: amount('employer_taxes'), currency: [...currencies][0] ?? null },
+    categories,
+    reconciliation,
+  };
+}
+
+/**
  * The provider, over one workspace's Rippling token. Built per call.
  * @param input - The source and its credential.
  */
@@ -103,6 +211,36 @@ export function ripplingPeopleProvider(input: PeopleProviderInput): PeopleProvid
   }
   const headers = { accept: 'application/json', authorization: `Bearer ${token}` };
   const call = <T>(path: string, what: string) => vendorJson<T>({ vendor: VENDOR, what, url: `${API}${path}`, fetch: input.fetch, init: { headers } });
+
+  /**
+   * Every page of a REST list, following `next_link` only on Rippling's own
+   * host. Too many pages is an error, never a partial sum.
+   * @param path - The list's path on the REST API.
+   * @param what - What it lists, for an error.
+   */
+  async function restAll(path: string, what: string): Promise<Json[]> {
+    const rows: Json[] = [];
+    let url: string | null = `${REST_API}${path}`;
+    for (let page = 0; url; page += 1) {
+      if (page === MAX_PAGES) {
+        throw new Error(`${VENDOR} sent more than ${MAX_PAGES} pages of ${what}; nothing was summed.`);
+      }
+      const body: Json[] | { results?: Json[]; next_link?: unknown } = await vendorJson({ vendor: VENDOR, what, url, fetch: input.fetch, init: { headers } });
+      if (Array.isArray(body)) {
+        rows.push(...body);
+        break;
+      }
+      rows.push(...(body?.results ?? []));
+      const next = str(body?.next_link);
+      url = next && sameHost(next, REST_API) ? next : null;
+    }
+    return rows;
+  }
+
+  async function payRunWithAmounts(record: PeopleRecord, lines: boolean): Promise<PeopleRecord> {
+    const rows = await restAll(`/payroll-runs/${encodeURIComponent(record.id)}/worker-payroll-records/`, 'payroll records');
+    return { ...record, ...ripplingPayRunAmounts(rows, { lines }) };
+  }
 
   async function departmentRows(): Promise<Json[]> {
     const rows = await call<Json[] | { results?: Json[] }>('/departments', 'departments');
@@ -174,6 +312,15 @@ export function ripplingPeopleProvider(input: PeopleProviderInput): PeopleProvid
         const list = Array.isArray(rows) ? rows : (rows?.results ?? []);
         return pageInMemory(list.map(ripplingTimeOff), { ...q, since: undefined, until: undefined });
       }
+      case 'pay_run': {
+        const runs = (await restAll('/payroll-runs/', 'payroll runs')).map(ripplingPayRun).sort((a, b) => (b.payDate ?? '').localeCompare(a.payDate ?? ''));
+        const page = pageInMemory(runs, { ...q, limit: Math.min(q.limit, RUN_PAGE) });
+        const records: PeopleRecord[] = [];
+        for (const run of page.records) {
+          records.push(await payRunWithAmounts(run, false));
+        }
+        return { ...page, records };
+      }
       default:
         throw new Error(`${VENDOR} holds no ${String(kind).replace('_', ' ')} records here. It holds: ${KINDS.join(', ')}.`);
     }
@@ -194,6 +341,8 @@ export function ripplingPeopleProvider(input: PeopleProviderInput): PeopleProvid
       }
       case 'time_off':
         return ripplingTimeOff(await call<Json>(`/leave_requests/${ref}`, 'that leave request'));
+      case 'pay_run':
+        return payRunWithAmounts(ripplingPayRun(await vendorJson<Json>({ vendor: VENDOR, what: 'that payroll run', url: `${REST_API}/payroll-runs/${ref}/`, fetch: input.fetch, init: { headers } })), true);
       default:
         throw new Error(`${VENDOR} holds no ${String(kind).replace('_', ' ')} records here. It holds: ${KINDS.join(', ')}.`);
     }

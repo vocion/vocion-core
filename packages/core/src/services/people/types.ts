@@ -14,9 +14,12 @@
  * person's pay are never copied out of the vendor's answer — there is no
  * field to put them in, and `people.test.ts` feeds every provider a vendor
  * answer that carries them and checks none comes out. A pay run is its
- * totals only. Read-only: nothing is ever written to an HR system.
+ * company-wide totals by category (`payRun.ts`), summed inside the provider;
+ * any one person's pay has no field to land in. Read-only: nothing is ever
+ * written to an HR system.
  */
 
+import type { PayRunCategory, PayRunReconciliation } from './payRun';
 import type { GrantPersistence } from '@/libs/connect/loginGrant';
 import type { FetchLike } from '@/libs/connectors/vendorHttp';
 
@@ -56,6 +59,10 @@ export type PeopleRecord = {
   payDate: string | null;
   /** Totals for the whole pay run, in major units of `currency` — never one person's pay. */
   totals: { gross: number | null; net: number | null; employerTaxes: number | null; currency: string | null } | null;
+  /** The pay run by category, company-wide (pay run); lines only on `people_get`. Null when the vendor does not break it down. */
+  categories: PayRunCategory[] | null;
+  /** Whether the categories add up to net pay, within a cent (pay run). */
+  reconciliation: PayRunReconciliation | null;
   /** Hours or days off (time off). */
   amount: number | null;
   url: string | null;
@@ -98,5 +105,5 @@ export type PeopleProviderInput = {
  * @param name - Its name.
  */
 export function blankPeopleRecord(kind: PeopleRecordKind, id: string, name: string): PeopleRecord {
-  return { kind, id, name, status: null, title: null, department: null, manager: null, workEmail: null, type: null, location: null, startDate: null, endDate: null, payDate: null, totals: null, amount: null, url: null };
+  return { kind, id, name, status: null, title: null, department: null, manager: null, workEmail: null, type: null, location: null, startDate: null, endDate: null, payDate: null, totals: null, categories: null, reconciliation: null, amount: null, url: null };
 }

@@ -40,9 +40,27 @@ describe('gusto people provider', () => {
     const p = await provider({ [`GET /v1/companies/${COMPANY}/payrolls`]: [GUSTO_PAYROLL] }, seen);
     const page = await p.list('pay_run', { limit: 10, since: '2026-09-01' });
 
-    expect(page.records[0]).toMatchObject({ kind: 'pay_run', name: 'Pay run 2026-09-30', status: 'processed', startDate: '2026-09-16', endDate: '2026-09-30', payDate: '2026-09-30', totals: { gross: 84250, net: 61200.4, employerTaxes: 6445.13, currency: 'USD' } });
+    expect(page.records[0]).toMatchObject({ kind: 'pay_run', name: 'Pay run 2026-09-30', status: 'processed', startDate: '2026-09-16', endDate: '2026-09-30', payDate: '2026-09-30', totals: { gross: 84250, net: 68900, employerTaxes: 6445.13, currency: 'USD' } });
+    expect(page.records[0]!.categories!.map(c => [c.category, c.amount])).toEqual([['gross_wages', 84250], ['employee_taxes', 12800], ['employer_taxes', 6445.13], ['employee_deductions', 2550], ['employer_contributions', 7300], ['reimbursements', 300.4], ['net_pay', 69200.4]]);
+    expect(page.records[0]!.categories!.some(c => 'lines' in c)).toBe(false);
+    expect(page.records[0]!.reconciliation).toEqual({ reconciles: true, difference: 0 });
     expect(new URL(seen[0]!.url).searchParams.get('include')).toBe('totals');
     expect(new URL(seen[0]!.url).searchParams.get('start_date')).toBe('2026-09-01');
+  });
+
+  it('gets a pay run with each category\'s lines summed across employees', async () => {
+    const seen: SeenCall[] = [];
+    const p = await provider({ [`GET /v1/companies/${COMPANY}/payrolls/${GUSTO_PAYROLL.payroll_uuid}`]: GUSTO_PAYROLL }, seen);
+    const run = await p.get('pay_run', GUSTO_PAYROLL.payroll_uuid);
+    const lines = Object.fromEntries(run.categories!.map(c => [c.category, c.lines]));
+
+    expect(lines.employee_taxes).toEqual([{ label: 'Federal Income Tax', amount: 2192.2 }]);
+    expect(lines.employer_taxes).toEqual([{ label: 'Social Security', amount: 757.31 }]);
+    expect(lines.employee_deductions).toEqual([{ label: 'Garnishment', amount: 255 }, { label: 'Medical', amount: 210.7 }]);
+    expect(lines.employer_contributions).toEqual([{ label: 'Medical', amount: 800 }]);
+    expect(lines.gross_wages).toEqual([{ label: 'Bonus', amount: 2080.9 }]);
+    expect(run.categories!.find(c => c.category === 'employee_taxes')!.amount).toBe(12800);
+    expect(new URL(seen[0]!.url).searchParams.get('include')).toBe('totals,taxes,benefits,deductions');
   });
 
   it('reads time off as who, which days, what kind and how many hours', async () => {
