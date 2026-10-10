@@ -1,7 +1,7 @@
 /**
  * QuickBooks Online connector — a company's books as searchable documents,
  * read-only: the chart of accounts, invoices, bills, payments received, bill
- * payments made, and journal entries. One document per record, its text the
+ * payments made, card and bank expenses, and journal entries. One document per record, its text the
  * record as a bookkeeper would read it (who, when, what, how much, what is
  * still owed), its numbers on metadata so they can be summed and filtered.
  *
@@ -40,7 +40,7 @@ const quickbooksConfigSchema = z.object({
 });
 
 /** The entities read, in the order a sync reads them. */
-const ENTITIES: readonly QuickbooksEntity[] = ['Account', 'Invoice', 'Bill', 'Payment', 'BillPayment', 'JournalEntry'];
+const ENTITIES: readonly QuickbooksEntity[] = ['Account', 'Invoice', 'Bill', 'Payment', 'BillPayment', 'Purchase', 'JournalEntry'];
 
 /** Each entity's document type, as it appears in ids and metadata. */
 const OBJECT_TYPE: Record<QuickbooksEntity, string> = {
@@ -49,6 +49,7 @@ const OBJECT_TYPE: Record<QuickbooksEntity, string> = {
   Bill: 'bill',
   Payment: 'payment',
   BillPayment: 'bill-payment',
+  Purchase: 'purchase',
   JournalEntry: 'journal-entry',
 };
 
@@ -59,6 +60,7 @@ const APP_PATH: Record<QuickbooksEntity, (id: string) => string> = {
   Bill: id => `/app/bill?txnId=${encodeURIComponent(id)}`,
   Payment: id => `/app/recvpayment?txnId=${encodeURIComponent(id)}`,
   BillPayment: id => `/app/billpayment?txnId=${encodeURIComponent(id)}`,
+  Purchase: id => `/app/expense?txnId=${encodeURIComponent(id)}`,
   JournalEntry: id => `/app/journal?txnId=${encodeURIComponent(id)}`,
 };
 
@@ -290,6 +292,50 @@ function mapPayment(entity: 'Payment' | 'BillPayment', row: QuickbooksRow, docNu
   };
 }
 
+/** How a purchase was paid, as a bookkeeper says it. */
+const PAID_BY: Record<string, string> = { CreditCard: 'Card charge', Check: 'Check', Cash: 'Bank expense' };
+
+/**
+ * A card or bank expense (QuickBooks' `Purchase`): who was paid, when, from
+ * which account, and the account each line is coded to.
+ * @param row - The Purchase row.
+ */
+function mapPurchase(row: QuickbooksRow): Mapped {
+  const party = refName(row.EntityRef);
+  const date = text(row.TxnDate);
+  const currency = refValue(row.CurrencyRef);
+  const total = num(row.TotalAmt);
+  const paymentType = text(row.PaymentType);
+  const paidFrom = refName(row.AccountRef);
+  const label = row.Credit === true ? 'Card refund' : PAID_BY[paymentType ?? ''] ?? 'Expense';
+  const number = text(row.DocNumber);
+  const coded = lines(row).map((line) => {
+    const detail = (line.AccountBasedExpenseLineDetail ?? line.ItemBasedExpenseLineDetail ?? {}) as Record<string, unknown>;
+    return refName(detail.AccountRef) ?? refName(detail.ItemRef);
+  }).filter((name): name is string => Boolean(name));
+  const itemLines = lines(row).map(line => itemLine(line, currency)).filter((line): line is string => line !== null);
+  return {
+    title: `${label}${party ? ` · ${party}` : ''}${date ? ` · ${date}` : ''}`,
+    body: [
+      `${label}${row.Credit === true ? ' from' : ' to'} ${party ?? 'an unnamed payee'} on ${date ?? 'an unknown date'}${number ? `, number ${number}` : ''}`,
+      `Amount ${money(total, currency)}${paidFrom ? `, ${row.Credit === true ? 'credited to' : 'paid from'} ${paidFrom}` : ''}`,
+      itemLines.length > 0 ? `Coded to:\n${itemLines.join('\n')}` : '',
+      text(row.PrivateNote) ? `Note: ${text(row.PrivateNote)}` : '',
+    ],
+    metadata: {
+      docNumber: number,
+      txnDate: date,
+      vendor: party,
+      vendorId: refValue(row.EntityRef),
+      total,
+      currency,
+      paymentType,
+      account: paidFrom,
+      accounts: [...new Set(coded)],
+    },
+  };
+}
+
 /**
  * A journal entry: its debits and credits, account by account.
  * @param row - The JournalEntry row.
@@ -344,7 +390,9 @@ export function quickbooksDoc(input: { entity: QuickbooksEntity; row: Quickbooks
       ? mapInvoiceOrBill(entity, row)
       : entity === 'Payment' || entity === 'BillPayment'
         ? mapPayment(entity, row, input.docNumbers ?? new Map())
-        : mapJournalEntry(row);
+        : entity === 'Purchase'
+          ? mapPurchase(row)
+          : mapJournalEntry(row);
   const objectType = OBJECT_TYPE[entity];
   const header = reader.sample
     ? `QuickBooks · ${input.company} · sample data, not real books`
@@ -402,7 +450,7 @@ export const quickbooksConnector: SourceConnector<typeof quickbooksConfigSchema>
   slug: 'quickbooks',
   name: 'QuickBooks Online',
   brand: 'quickbooks',
-  description: 'Read a QuickBooks Online company — accounts, invoices, bills, payments and journal entries — read-only, incremental by last update. Turn on sample data to try it without a login.',
+  description: 'Read a QuickBooks Online company (accounts, invoices, bills, payments, card and bank expenses, and journal entries), read-only, incremental by last update. Turn on sample data to try it without a login.',
   icon: 'Landmark',
   category: 'finance-people',
   authKind: 'oauth',

@@ -9,9 +9,11 @@
  * every provider fills in (`providers/*.ts`). The source a workspace
  * connected decides which vendor answers; an agent never names one.
  *
- * Read-only by default. The one write is a draft invoice that is never sent
- * or charged (`finance.draft_invoice`), on a provider that can delete the
- * draft again, so Undo is real.
+ * Read-only by default. The writes are approval actions with a real Undo: a
+ * draft invoice that is never sent or charged (`finance.draft_invoice`), an
+ * expense line moved to another account (`finance.recategorize_expense`) and
+ * a balanced journal entry (`finance.post_journal_entry`). The last two change
+ * the books; none of them moves money.
  */
 
 import type { GrantPersistence } from '@/libs/connect/loginGrant';
@@ -33,11 +35,16 @@ export const FINANCE_RECORD_KINDS = [
 
 export type FinanceRecordKind = typeof FINANCE_RECORD_KINDS[number];
 
-/** One line of an invoice or a bill. Amounts are in major units (dollars, not cents). */
+/** One line of an invoice, a bill or an expense. Amounts are in major units (dollars, not cents). */
 export type FinanceLine = {
   description: string;
   quantity: number | null;
   amount: number | null;
+  /** The vendor's id for the line, when it has one: what a recategorization names. */
+  id?: string;
+  /** The account the line is coded to, on a line coded to an account. */
+  accountId?: string;
+  accountName?: string;
 };
 
 /**
@@ -113,6 +120,91 @@ export type DraftInvoiceInput = {
 
 export type DraftInvoice = { id: string; number: string | null; url: string | null; total: number; currency: string };
 
+/** The statements a provider can run. */
+export const FINANCE_REPORT_KINDS = ['profit_and_loss', 'balance_sheet'] as const;
+
+export type FinanceReportKind = typeof FINANCE_REPORT_KINDS[number];
+
+/** How a statement splits its columns: one total, or one column per month, class or customer. */
+export const FINANCE_REPORT_SUMMARIES = ['total', 'month', 'class', 'customer'] as const;
+
+export type FinanceReportQuery = {
+  /** The first day of the period (ISO). A balance sheet ignores it. */
+  start?: string;
+  /** The last day of the period, or the balance sheet's date (ISO). */
+  end: string;
+  summarizeBy?: typeof FINANCE_REPORT_SUMMARIES[number];
+  basis?: 'accrual' | 'cash';
+};
+
+/**
+ * One row of a statement: an account line with its amounts, or a section
+ * (Income, Current Assets) with its rows and its total. `amounts` lines up
+ * with the report's `columns`; null is a blank cell.
+ */
+export type FinanceReportRow = {
+  label: string;
+  /** The account's id, on an account line. */
+  accountId?: string;
+  amounts?: Array<number | null>;
+  rows?: FinanceReportRow[];
+  /** A section's total, labelled as the vendor labels it (Total Income). */
+  total?: { label: string; amounts: Array<number | null> };
+};
+
+/** A statement, the same shape from every vendor. Amounts are in major units of `currency`. */
+export type FinanceReport = {
+  kind: FinanceReportKind;
+  title: string;
+  period: { start: string | null; end: string };
+  basis: 'accrual' | 'cash' | null;
+  currency: string | null;
+  /** The amount columns, left to right (Total; or Jan 2026, Feb 2026, Total). */
+  columns: string[];
+  rows: FinanceReportRow[];
+  /** The bottom lines (Net Income, Total Assets), each with its amounts. */
+  totals: Array<{ label: string; amounts: Array<number | null> }>;
+  /** What the provider could not do as asked, in words. */
+  notes?: string[];
+};
+
+/** Move one expense line to another account. */
+export type RecategorizeExpenseInput = {
+  expenseId: string;
+  lineId: string;
+  toAccountId: string;
+  toAccountName?: string;
+  /** Refuse unless the line is on this account now: how Undo leaves a later change alone. */
+  expectFromAccountId?: string;
+};
+
+export type RecategorizedExpense = {
+  expenseId: string;
+  lineId: string;
+  amount: number | null;
+  party: string | null;
+  from: { id: string; name: string | null };
+  to: { id: string; name: string | null };
+  url: string | null;
+};
+
+/** A journal entry to post. Each line is a debit or a credit, never both; debits equal credits. */
+export type JournalEntryInput = {
+  date: string;
+  memo: string;
+  lines: Array<{
+    accountId: string;
+    accountName?: string;
+    debit?: number;
+    credit?: number;
+    description?: string;
+    className?: string;
+    customerId?: string;
+  }>;
+};
+
+export type PostedJournalEntry = { id: string; number: string | null; url: string | null; total: number; currency: string | null };
+
 export type FinanceProvider = {
   /** The connector kind behind it (`stripe`). */
   kind: string;
@@ -128,6 +220,15 @@ export type FinanceProvider = {
   draftInvoice?: (input: DraftInvoiceInput) => Promise<DraftInvoice>;
   /** Deletes a draft the provider created; refuses one that is no longer a draft. */
   discardDraftInvoice?: (id: string) => Promise<void>;
+  /** Present only on a vendor that runs its own statements. */
+  report?: (kind: FinanceReportKind, query: FinanceReportQuery) => Promise<FinanceReport>;
+  /** Present only on a vendor whose expense lines can be moved to another account. */
+  recategorizeExpense?: (input: RecategorizeExpenseInput) => Promise<RecategorizedExpense>;
+  /** Present only on a vendor that takes journal entries and can delete one again. */
+  postJournalEntry?: (input: JournalEntryInput) => Promise<PostedJournalEntry>;
+  deleteJournalEntry?: (id: string) => Promise<void>;
+  /** Why this connection writes nothing (the sample company), said by a write that refuses. */
+  readOnlyReason?: string;
 };
 
 /**
@@ -145,6 +246,33 @@ export type FinanceProviderInput = {
 /** How many records a list returns when the caller does not say, and the most it may ask for. */
 export const FINANCE_DEFAULT_LIMIT = 25;
 export const FINANCE_MAX_LIMIT = 100;
+
+/**
+ * What is wrong with a journal entry, or null when it may be posted: every
+ * line a debit or a credit above zero and never both, and debits equal to
+ * credits to the cent.
+ * @param lines - The entry's lines.
+ */
+export function journalEntryProblem(lines: JournalEntryInput['lines']): string | null {
+  if (lines.length < 2) {
+    return 'A journal entry needs at least two lines.';
+  }
+  let debits = 0;
+  let credits = 0;
+  for (const [i, line] of lines.entries()) {
+    const debit = line.debit ?? 0;
+    const credit = line.credit ?? 0;
+    if ((debit > 0) === (credit > 0) || debit < 0 || credit < 0) {
+      return `Line ${i + 1} needs exactly one of a debit or a credit above zero.`;
+    }
+    debits += Math.round(debit * 100);
+    credits += Math.round(credit * 100);
+  }
+  if (debits !== credits) {
+    return `Debits (${(debits / 100).toFixed(2)}) and credits (${(credits / 100).toFixed(2)}) differ by ${(Math.abs(debits - credits) / 100).toFixed(2)}; a journal entry posts only when they are equal.`;
+  }
+  return null;
+}
 
 /**
  * A kind the provider does not hold, as a sentence that says which it does.

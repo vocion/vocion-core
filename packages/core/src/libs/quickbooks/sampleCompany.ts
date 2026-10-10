@@ -26,6 +26,20 @@ function meta(created: string, updated: string = created): QuickbooksRow {
 
 const USD = { value: 'USD', name: 'United States Dollar' };
 
+const ACCOUNTS: QuickbooksRow[] = [
+  { Id: '35', Name: 'Operating Checking', AcctNum: '1010', AccountType: 'Bank', AccountSubType: 'Checking', Classification: 'Asset', CurrentBalance: 184_250.4, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-10-01T16:20:00-07:00') },
+  { Id: '84', Name: 'Accounts Receivable (A/R)', AcctNum: '1200', AccountType: 'Accounts Receivable', AccountSubType: 'AccountsReceivable', Classification: 'Asset', CurrentBalance: 42_100, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-10-01T16:20:00-07:00') },
+  { Id: '41', Name: 'Company Card', AcctNum: '2100', AccountType: 'Credit Card', AccountSubType: 'CreditCard', Classification: 'Liability', CurrentBalance: 2_787, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-10-01T16:20:00-07:00') },
+  { Id: '33', Name: 'Accounts Payable (A/P)', AcctNum: '2000', AccountType: 'Accounts Payable', AccountSubType: 'AccountsPayable', Classification: 'Liability', CurrentBalance: 9_840, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-30T11:05:00-07:00') },
+  { Id: '79', Name: 'Services Revenue', AcctNum: '4000', AccountType: 'Income', AccountSubType: 'ServiceFeeIncome', Classification: 'Revenue', CurrentBalance: 412_600, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-30T11:05:00-07:00') },
+  { Id: '58', Name: 'Rent and Facilities', AcctNum: '6100', AccountType: 'Expense', AccountSubType: 'RentOrLeaseOfBuildings', Classification: 'Expense', CurrentBalance: 63_000, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-28T10:00:00-07:00') },
+  { Id: '60', Name: 'Events and Venues', AcctNum: '6200', AccountType: 'Expense', AccountSubType: 'Entertainment', Classification: 'Expense', CurrentBalance: 14_500, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-20T15:30:00-07:00') },
+  { Id: '62', Name: 'Marketing', AcctNum: '6300', AccountType: 'Expense', AccountSubType: 'AdvertisingPromotional', Classification: 'Expense', CurrentBalance: 22_340, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-30T11:05:00-07:00') },
+  { Id: '66', Name: 'Software and Subscriptions', AcctNum: '6400', AccountType: 'Expense', AccountSubType: 'OtherMiscellaneousServiceCost', Classification: 'Expense', CurrentBalance: 9_612, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-10-01T16:20:00-07:00') },
+  { Id: '68', Name: 'Office Supplies and Equipment', AcctNum: '6500', AccountType: 'Expense', AccountSubType: 'OfficeGeneralAdministrativeExpenses', Classification: 'Expense', CurrentBalance: 3_180, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-12T12:00:00-07:00') },
+  { Id: '64', Name: 'Depreciation', AcctNum: '6900', AccountType: 'Expense', AccountSubType: 'Depreciation', Classification: 'Expense', CurrentBalance: 6_750, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-30T18:00:00-07:00') },
+];
+
 /**
  * A sales line on an invoice.
  * @param id - The line id.
@@ -46,19 +60,20 @@ function salesLine(id: string, item: string, description: string, qty: number, u
 }
 
 /**
- * An expense line on a bill.
+ * An expense line on a bill or a purchase, coded to one of the accounts below.
  * @param id - The line id.
- * @param account - The expense account.
+ * @param account - The expense account's name.
  * @param description - The line's description.
  * @param amount - How much.
  */
 function expenseLine(id: string, account: string, description: string, amount: number): QuickbooksRow {
+  const coded = ACCOUNTS.find(row => row.Name === account);
   return {
     Id: id,
     Description: description,
     Amount: amount,
     DetailType: 'AccountBasedExpenseLineDetail',
-    AccountBasedExpenseLineDetail: { AccountRef: { value: id, name: account } },
+    AccountBasedExpenseLineDetail: { AccountRef: { value: String(coded?.Id ?? id), name: account }, BillableStatus: 'NotBillable' },
   };
 }
 
@@ -79,17 +94,6 @@ function journalLine(id: string, posting: 'Debit' | 'Credit', account: string, a
     JournalEntryLineDetail: { PostingType: posting, AccountRef: { value: id, name: account } },
   };
 }
-
-const ACCOUNTS: QuickbooksRow[] = [
-  { Id: '35', Name: 'Operating Checking', AcctNum: '1010', AccountType: 'Bank', AccountSubType: 'Checking', Classification: 'Asset', CurrentBalance: 184_250.4, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-10-01T16:20:00-07:00') },
-  { Id: '84', Name: 'Accounts Receivable (A/R)', AcctNum: '1200', AccountType: 'Accounts Receivable', AccountSubType: 'AccountsReceivable', Classification: 'Asset', CurrentBalance: 42_100, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-10-01T16:20:00-07:00') },
-  { Id: '33', Name: 'Accounts Payable (A/P)', AcctNum: '2000', AccountType: 'Accounts Payable', AccountSubType: 'AccountsPayable', Classification: 'Liability', CurrentBalance: 9_840, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-30T11:05:00-07:00') },
-  { Id: '79', Name: 'Services Revenue', AcctNum: '4000', AccountType: 'Income', AccountSubType: 'ServiceFeeIncome', Classification: 'Revenue', CurrentBalance: 412_600, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-30T11:05:00-07:00') },
-  { Id: '58', Name: 'Rent and Facilities', AcctNum: '6100', AccountType: 'Expense', AccountSubType: 'RentOrLeaseOfBuildings', Classification: 'Expense', CurrentBalance: 63_000, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-28T10:00:00-07:00') },
-  { Id: '60', Name: 'Events and Venues', AcctNum: '6200', AccountType: 'Expense', AccountSubType: 'Entertainment', Classification: 'Expense', CurrentBalance: 14_500, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-20T15:30:00-07:00') },
-  { Id: '62', Name: 'Marketing', AcctNum: '6300', AccountType: 'Expense', AccountSubType: 'AdvertisingPromotional', Classification: 'Expense', CurrentBalance: 22_340, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-30T11:05:00-07:00') },
-  { Id: '64', Name: 'Depreciation', AcctNum: '6900', AccountType: 'Expense', AccountSubType: 'Depreciation', Classification: 'Expense', CurrentBalance: 6_750, CurrencyRef: USD, Active: true, MetaData: meta('2026-01-02T09:00:00-07:00', '2026-09-30T18:00:00-07:00') },
-];
 
 const INVOICES: QuickbooksRow[] = [
   {
@@ -259,6 +263,68 @@ const BILL_PAYMENTS: QuickbooksRow[] = [
   },
 ];
 
+const CARD = { value: '41', name: 'Company Card' };
+
+/**
+ * Card charges, as QuickBooks holds them: `Purchase` rows paid from the
+ * company card. The Apple laptop is coded to Marketing, a mistake left in on
+ * purpose, so a recategorization has something to find.
+ */
+const PURCHASES: QuickbooksRow[] = [
+  {
+    Id: '601',
+    TxnDate: '2026-09-03',
+    PaymentType: 'CreditCard',
+    AccountRef: CARD,
+    EntityRef: { value: '31', name: 'Anthropic', type: 'Vendor' },
+    CurrencyRef: USD,
+    TotalAmt: 750,
+    Credit: false,
+    Line: [expenseLine('1', 'Software and Subscriptions', 'Claude Team plan, September, 25 seats', 750)],
+    MetaData: meta('2026-09-04T09:10:00-07:00'),
+  },
+  {
+    Id: '602',
+    TxnDate: '2026-09-08',
+    PaymentType: 'CreditCard',
+    AccountRef: CARD,
+    EntityRef: { value: '32', name: 'Loom', type: 'Vendor' },
+    CurrencyRef: USD,
+    TotalAmt: 150,
+    Credit: false,
+    Line: [expenseLine('1', 'Software and Subscriptions', 'Loom Business, 10 seats, September', 150)],
+    MetaData: meta('2026-09-09T09:10:00-07:00'),
+  },
+  {
+    Id: '603',
+    TxnDate: '2026-09-12',
+    PaymentType: 'CreditCard',
+    AccountRef: CARD,
+    EntityRef: { value: '33', name: 'Apple', type: 'Vendor' },
+    CurrencyRef: USD,
+    TotalAmt: 1_299,
+    Credit: false,
+    Line: [expenseLine('1', 'Marketing', 'MacBook Air for the operations coordinator', 1_299)],
+    PrivateNote: 'Receipt in the shared drive.',
+    MetaData: meta('2026-09-12T12:00:00-07:00'),
+  },
+  {
+    Id: '604',
+    TxnDate: '2026-10-01',
+    PaymentType: 'CreditCard',
+    AccountRef: CARD,
+    EntityRef: { value: '34', name: 'Google', type: 'Vendor' },
+    CurrencyRef: USD,
+    TotalAmt: 588,
+    Credit: false,
+    Line: [
+      expenseLine('1', 'Software and Subscriptions', 'Google Workspace Business Standard, 12 users, October', 168),
+      expenseLine('2', 'Marketing', 'Google Ads, September', 420),
+    ],
+    MetaData: meta('2026-10-01T16:20:00-07:00'),
+  },
+];
+
 const JOURNAL_ENTRIES: QuickbooksRow[] = [
   {
     Id: '501',
@@ -292,6 +358,7 @@ const ROWS: Record<QuickbooksEntity, QuickbooksRow[]> = {
   Bill: BILLS,
   Payment: PAYMENTS,
   BillPayment: BILL_PAYMENTS,
+  Purchase: PURCHASES,
   JournalEntry: JOURNAL_ENTRIES,
 };
 
@@ -318,5 +385,143 @@ export function sampleQuickbooksReader(): QuickbooksReader {
       const rows = ROWS[entity].filter(row => since === null || lastUpdated(row) >= since);
       return rows.slice(page.start - 1, page.start - 1 + page.max).map(row => structuredClone(row));
     },
+  };
+}
+
+/** The date the sample's account balances stand at. */
+export const SAMPLE_BALANCES_AS_OF = '2026-10-01';
+
+type Cell = { value: string; id?: string };
+type ReportRow = { type: 'Section' | 'Data'; group?: string; Header?: { ColData: Cell[] }; Rows?: { Row: ReportRow[] }; Summary?: { ColData: Cell[] }; ColData?: Cell[] };
+
+/**
+ * An amount as a report cell: two decimals, blank for nothing.
+ * @param amount - The figure.
+ */
+function cell(amount: number | null): Cell {
+  return { value: amount === null ? '' : amount.toFixed(2) };
+}
+
+/**
+ * The months a period spans, as `YYYY-MM`.
+ * @param start - The first day.
+ * @param end - The last day.
+ */
+function monthsBetween(start: string, end: string): string[] {
+  const out: string[] = [];
+  let [y, m] = start.slice(0, 7).split('-').map(Number) as [number, number];
+  const last = end.slice(0, 7);
+  for (let guard = 0; guard < 120; guard += 1) {
+    const key = `${y}-${String(m).padStart(2, '0')}`;
+    out.push(key);
+    if (key >= last) {
+      break;
+    }
+    m = m === 12 ? 1 : m + 1;
+    y = m === 1 ? y + 1 : y;
+  }
+  return out;
+}
+
+/**
+ * Every amount the sample's transactions post to an income or expense
+ * account, signed so income and expense each read as positive: invoice lines
+ * to Services Revenue, bill and card lines to their expense accounts, and
+ * journal lines to whichever income or expense account they name.
+ */
+function profitAndLossPostings(): Array<{ account: string; date: string; amount: number }> {
+  const classification = (name: string) => ACCOUNTS.find(row => row.Name === name)?.Classification;
+  const out: Array<{ account: string; date: string; amount: number }> = [];
+  for (const invoice of INVOICES) {
+    for (const line of invoice.Line as QuickbooksRow[]) {
+      out.push({ account: 'Services Revenue', date: String(invoice.TxnDate), amount: Number(line.Amount) });
+    }
+  }
+  for (const row of [...BILLS, ...PURCHASES]) {
+    for (const line of row.Line as QuickbooksRow[]) {
+      const account = ((line.AccountBasedExpenseLineDetail as { AccountRef?: { name?: string } } | undefined)?.AccountRef?.name) ?? '';
+      out.push({ account, date: String(row.TxnDate), amount: Number(line.Amount) });
+    }
+  }
+  for (const entry of JOURNAL_ENTRIES) {
+    for (const line of entry.Line as QuickbooksRow[]) {
+      const detail = line.JournalEntryLineDetail as { PostingType: string; AccountRef: { name: string } };
+      const kind = classification(detail.AccountRef.name);
+      if (kind === 'Revenue' || kind === 'Expense') {
+        const debit = detail.PostingType === 'Debit';
+        const amount = Number(line.Amount) * ((kind === 'Expense') === debit ? 1 : -1);
+        out.push({ account: detail.AccountRef.name, date: String(entry.TxnDate), amount });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * A statement over the sample company, in the JSON shape Intuit's reports
+ * API answers with, so it reads through the same mapping a live report does.
+ * The profit and loss is summed from the sample's own invoices, bills, card
+ * charges and journal entries in the period, by total or by month. The
+ * balance sheet is the accounts' balances on `SAMPLE_BALANCES_AS_OF`, with
+ * equity as assets less liabilities.
+ * @param report - The report, by its API name.
+ * @param params - The query parameters the live API takes.
+ */
+export function sampleQuickbooksReport(report: 'ProfitAndLoss' | 'BalanceSheet', params: Record<string, string>): QuickbooksRow {
+  const end = params.end_date ?? SAMPLE_BALANCES_AS_OF;
+  const start = params.start_date ?? `${end.slice(0, 4)}-01-01`;
+  const byMonth = report === 'ProfitAndLoss' && params.summarize_column_by === 'Month';
+  const months = byMonth ? monthsBetween(start, end) : [];
+  const columns = [{ ColTitle: '', ColType: 'Account' }, ...months.map(month => ({ ColTitle: month, ColType: 'Money' })), { ColTitle: 'Total', ColType: 'Money' }];
+  const header = { ReportName: report, StartPeriod: report === 'BalanceSheet' ? null : start, EndPeriod: report === 'BalanceSheet' ? SAMPLE_BALANCES_AS_OF : end, ReportBasis: 'Accrual', Currency: 'USD', SummarizeColumnsBy: byMonth ? 'Month' : 'Total' };
+  const accountId = (name: string) => String(ACCOUNTS.find(row => row.Name === name)?.Id ?? '');
+  const sumRow = (label: string, figures: number[]): Cell[] => [{ value: label }, ...figures.map(cell)];
+
+  if (report === 'BalanceSheet') {
+    const of = (classification: string) => ACCOUNTS.filter(row => row.Classification === classification);
+    const total = (rows: QuickbooksRow[]) => rows.reduce((sum, row) => sum + Number(row.CurrentBalance), 0);
+    const data = (rows: QuickbooksRow[]): ReportRow[] => rows.map(row => ({ type: 'Data', ColData: [{ value: String(row.Name), id: String(row.Id) }, cell(Number(row.CurrentBalance))] }));
+    const assets = total(of('Asset'));
+    const liabilities = total(of('Liability'));
+    return {
+      Header: header,
+      Columns: { Column: [columns[0], columns.at(-1)] },
+      Rows: { Row: [
+        { type: 'Section', group: 'TotalAssets', Header: { ColData: [{ value: 'Assets' }, { value: '' }] }, Rows: { Row: data(of('Asset')) }, Summary: { ColData: sumRow('Total Assets', [assets]) } },
+        { type: 'Section', group: 'TotalLiabilitiesAndEquity', Header: { ColData: [{ value: 'Liabilities and Equity' }, { value: '' }] }, Rows: { Row: [
+          { type: 'Section', group: 'Liabilities', Header: { ColData: [{ value: 'Liabilities' }, { value: '' }] }, Rows: { Row: data(of('Liability')) }, Summary: { ColData: sumRow('Total Liabilities', [liabilities]) } },
+          { type: 'Section', group: 'Equity', Header: { ColData: [{ value: 'Equity' }, { value: '' }] }, Rows: { Row: [{ type: 'Data', ColData: [{ value: 'Retained Earnings and Net Income' }, cell(assets - liabilities)] }] }, Summary: { ColData: sumRow('Total Equity', [assets - liabilities]) } },
+        ] }, Summary: { ColData: sumRow('Total Liabilities and Equity', [assets]) } },
+      ] },
+    };
+  }
+
+  const postings = profitAndLossPostings().filter(p => p.date >= start && p.date <= end);
+  const figures = (match: (p: { account: string; date: string }) => boolean): number[] => {
+    const inPeriod = postings.filter(match);
+    const sum = (rows: typeof inPeriod) => Math.round(rows.reduce((total, p) => total + p.amount, 0) * 100) / 100;
+    return [...months.map(month => sum(inPeriod.filter(p => p.date.startsWith(month)))), sum(inPeriod)];
+  };
+  const section = (group: string, label: string, classification: string): { row: ReportRow; totals: number[] } => {
+    const names = ACCOUNTS.filter(row => row.Classification === classification).map(row => String(row.Name)).filter(name => postings.some(p => p.account === name));
+    const totals = figures(p => names.includes(p.account));
+    return {
+      row: { type: 'Section', group, Header: { ColData: [{ value: label }, ...columns.slice(1).map(() => ({ value: '' }))] }, Rows: { Row: names.map(name => ({ type: 'Data', ColData: [{ value: name, id: accountId(name) }, ...figures(p => p.account === name).map(cell)] })) }, Summary: { ColData: sumRow(`Total ${label}`, totals) } },
+      totals,
+    };
+  };
+  const income = section('Income', 'Income', 'Revenue');
+  const expenses = section('Expenses', 'Expenses', 'Expense');
+  const net = income.totals.map((figure, i) => Math.round((figure - expenses.totals[i]!) * 100) / 100);
+  return {
+    Header: header,
+    Columns: { Column: columns },
+    Rows: { Row: [
+      income.row,
+      { type: 'Section', group: 'GrossProfit', Summary: { ColData: sumRow('Gross Profit', income.totals) } },
+      expenses.row,
+      { type: 'Section', group: 'NetOperatingIncome', Summary: { ColData: sumRow('Net Operating Income', net) } },
+      { type: 'Section', group: 'NetIncome', Summary: { ColData: sumRow('Net Income', net) } },
+    ] },
   };
 }
