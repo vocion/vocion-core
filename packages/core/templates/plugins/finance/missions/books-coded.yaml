@@ -14,4 +14,3 @@ successCriteria:
   - Every correction a person makes becomes a proposed account rule
 desiredArtifacts:
   - The week's recategorization proposals
-schedule: '0 16 * * 1'
