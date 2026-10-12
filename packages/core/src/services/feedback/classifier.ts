@@ -17,6 +17,19 @@ import { buildChatModel } from '@/libs/llm';
 import { usageMetadataOf } from '@/libs/llm/usage';
 import { chargeModelCall } from '@/services/budget/chargeModelCall';
 
+/**
+ * How much of a comment and its quoted target the classifier reads.
+ *
+ * Sized for structured feedback, not just a one-line comment. A review queue's
+ * note lists every field the person corrected, each clipped by the caller, and
+ * then their own words; a 1,000-character cut dropped those words, which are
+ * the part that becomes a rule, whenever a few fields had changed. 10,000
+ * characters is roughly 2,500 tokens on the classifier role, still small,
+ * and still a ceiling on a runaway paste.
+ */
+const COMMENT_MAX_CHARS = 10_000;
+const QUOTE_MAX_CHARS = 1_500;
+
 const ClassificationZ = z.object({
   bucket: z.enum(['edit', 'rule', 'both', 'ignore']),
   edit_summary: z.string().optional(),
@@ -103,8 +116,8 @@ export async function classifyComment(opts: {
   const system = opts.steps && opts.steps.length > 0 ? SYSTEM + stepChoiceSection(opts.steps) : SYSTEM;
   const user = [
     `Artifact: ${opts.artifactTitle ?? '(unknown)'}`,
-    opts.quotedText ? `Quoted target: """${opts.quotedText.slice(0, 500)}"""` : '',
-    `Comment: """${opts.text.slice(0, 1000)}"""`,
+    opts.quotedText ? `Quoted target: """${opts.quotedText.slice(0, QUOTE_MAX_CHARS)}"""` : '',
+    `Comment: """${opts.text.slice(0, COMMENT_MAX_CHARS)}"""`,
   ].filter(Boolean).join('\n\n');
 
   const trace = traceFor({
