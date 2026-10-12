@@ -208,6 +208,27 @@ describe('recordActionDecisionLearning (via ReviewService.decide)', () => {
     expect(await queuedJobs()).toHaveLength(0);
   });
 
+  it('trains the agent an app named when it proposed over the API as its own token', async () => {
+    const [row] = await db
+      .insert(actionRunSchema)
+      .values({
+        orgId: ORG,
+        actionId: 'test.decision-learning-write',
+        input: { objectType: 'event-candidate', fields: { title: 'Lakeport Night Market' } },
+        proposal: { agentSlug: AGENT },
+        status: 'pending',
+        invokedBy: 'token:panel-sync',
+      })
+      .returning({ id: actionRunSchema.id });
+
+    await decide({ kind: 'action', id: row!.id }, 'reject', ORG, { reason: 'a weekly series, not a new event', reviewedBy: REVIEWER });
+
+    const jobs = await queuedJobs();
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.payload).toMatchObject({ agentSlug: AGENT, targetSlug: STEP, polarityHint: 'correct' });
+  });
+
   it('a blank reason falls through to the note and still targets the agent step', async () => {
     const runId = await pendingAction();
 
@@ -221,5 +242,122 @@ describe('recordActionDecisionLearning (via ReviewService.decide)', () => {
 
     expect(jobs).toHaveLength(1);
     expect(jobs[0]?.payload).toMatchObject({ text: 'the price was the door fee, not the ticket', targetSlug: STEP, polarityHint: 'correct' });
+  });
+});
+
+describe('field corrections on approve (via ReviewService.decide)', () => {
+  const PROPOSED = { title: 'Harbor Jazz Brunch', categories: ['Live Music', 'Jazz Brunch'], price: '$10' };
+
+  /** A pending event proposal with these fields and the agent's reason for it. */
+  async function pendingProposal(): Promise<number> {
+    const [row] = await db
+      .insert(actionRunSchema)
+      .values({
+        orgId: ORG,
+        actionId: 'test.decision-learning-write',
+        input: { objectType: 'event-candidate', fields: PROPOSED },
+        proposal: { rationale: 'Listed on the venue calendar.' },
+        status: 'pending',
+        invokedBy: `agent:${AGENT}`,
+      })
+      .returning({ id: actionRunSchema.id });
+    return row!.id;
+  }
+
+  /**
+   * The proposal as the reviewer approved it.
+   * @param fields - Fields to change on top of what was proposed.
+   */
+  function approved(fields: Record<string, unknown>): Record<string, unknown> {
+    return { objectType: 'event-candidate', fields: { ...PROPOSED, ...fields } };
+  }
+
+  it('queues what the reviewer corrected even when they typed nothing, read before the edit replaces it', async () => {
+    const runId = await pendingProposal();
+
+    await decide({ kind: 'action', id: runId }, 'approve', ORG, {
+      reviewedBy: REVIEWER,
+      editedInput: approved({ categories: ['Live Music', 'Food & Drink'] }),
+    });
+
+    const jobs = await queuedJobs();
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({ externalId: `action_run:${runId}:edit` });
+    expect(jobs[0]?.payload).toEqual({
+      text: '',
+      targetSlug: STEP,
+      agentSlug: AGENT,
+      sourceRunId: runId,
+      submittedBy: REVIEWER,
+      polarityHint: 'correct',
+      edits: [{ field: 'categories', before: ['Live Music', 'Jazz Brunch'], after: ['Live Music', 'Food & Drink'] }],
+      quotedText: expect.any(String),
+      artifactTitle: 'Harbor Jazz Brunch',
+    });
+
+    // The record as the agent proposed it, which the edit reader reads the
+    // correction against. Postgres keeps its own key order, so lines, not text.
+    const quoted = String((jobs[0]?.payload as { quotedText: string }).quotedText).split('\n');
+
+    expect(quoted).toEqual(expect.arrayContaining([
+      'title: "Harbor Jazz Brunch"',
+      'categories: "Live Music, Jazz Brunch"',
+      'price: "$10"',
+    ]));
+    expect(quoted.at(-1)).toBe('agent rationale: Listed on the venue calendar.');
+  });
+
+  it('sends the note and the corrections as one job', async () => {
+    const runId = await pendingProposal();
+
+    await decide({ kind: 'action', id: runId }, 'approve', ORG, {
+      note: 'Pier Hall brunches are food events.',
+      reviewedBy: REVIEWER,
+      editedInput: approved({ categories: ['Food & Drink'] }),
+    });
+
+    const jobs = await queuedJobs();
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.payload).toMatchObject({
+      text: 'Pier Hall brunches are food events.',
+      edits: [{ field: 'categories', before: ['Live Music', 'Jazz Brunch'], after: ['Food & Drink'] }],
+    });
+  });
+
+  it('queues nothing when the edited payload changed nothing a reviewer would call a correction', async () => {
+    const runId = await pendingProposal();
+
+    await decide({ kind: 'action', id: runId }, 'approve', ORG, {
+      reviewedBy: REVIEWER,
+      editedInput: approved({ categories: ['Jazz Brunch', 'Live Music'], title: ' Harbor Jazz Brunch ' }),
+    });
+
+    expect(await queuedJobs()).toHaveLength(0);
+  });
+
+  it('does not read a payload that dropped the record wrapper as a correction to every key', async () => {
+    const runId = await pendingProposal();
+
+    // Same fields, sent flat: nothing the reviewer changed.
+    await decide({ kind: 'action', id: runId }, 'approve', ORG, {
+      reviewedBy: REVIEWER,
+      editedInput: { objectType: 'event-candidate', ...PROPOSED },
+    });
+
+    expect(await queuedJobs()).toHaveLength(0);
+  });
+
+  it('queues no corrections from a caller that opted out of training', async () => {
+    const runId = await pendingProposal();
+
+    await decide({ kind: 'action', id: runId }, 'approve', ORG, {
+      reviewedBy: 'sync:listings-panel',
+      editedInput: approved({ price: 'Free' }),
+      learn: false,
+    });
+
+    expect(await queuedJobs()).toHaveLength(0);
   });
 });

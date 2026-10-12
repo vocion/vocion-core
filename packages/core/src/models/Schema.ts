@@ -2926,6 +2926,19 @@ export const feedbackJobSchema = pgTable('feedback_job', {
     editSummary?: string;
     ruleText?: string;
     targetSlug?: string;
+    /**
+     * What the reviewer's field corrections taught, one entry per field that
+     * taught something, and what became of each: a new candidate, a repeat
+     * of a rule on file, skipped, or failed to record.
+     */
+    editLearnings?: Array<{
+      field: string;
+      ruleText: string;
+      outcome?: 'created' | 'duplicate' | 'skipped' | 'failed';
+      candidateId?: number;
+    }>;
+    /** Why the corrections could not be read, on a job whose note was classified anyway. */
+    editLearningError?: string;
   }>(),
   attempts: integer('attempts').default(0).notNull(),
   error: text('error'),

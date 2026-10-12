@@ -238,7 +238,7 @@ docker compose --profile worker up -d
 
 Opt-in via the env flag. Drains `feedback_job` rows and classifies each via Haiku, then writes the classification back.
 
-Jobs arrive from Drive comment webhooks, `POST /api/v1/feedback`, and **the review queue**: rejecting, editing or rewriting an agent-proposed action queues the reviewer's reason, and approving with a note queues that too (`source: 'review'`). A bare click queues nothing — it is counted in the adoption metrics, but there is no text to learn a rule from. Workflow and mission run feedback queues its note the same way.
+Jobs arrive from Drive comment webhooks, `POST /api/v1/feedback`, and **the review queue**: rejecting, editing or rewriting an agent-proposed action queues the reviewer's reason, and approving with a note queues that too (`source: 'review'`). A bare click queues nothing — it is counted in the adoption metrics, but there is no text to learn a rule from. The one exception is an approve that corrected fields: the corrections queue as `payload.edits` even with no note, and `services/feedback/editLearning.ts` asks Haiku which of them show a pattern worth a candidate (most do not). Apps with their own review screen send the same `edits` list to `POST /api/v1/feedback`. Workflow and mission run feedback queues its note the same way.
 
 A classification that proposes rule text goes to `services/feedback/ruleRecorder.ts`, which decides between two outcomes:
 

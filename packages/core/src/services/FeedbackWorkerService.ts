@@ -5,7 +5,9 @@
  * webhooks (Drive comments, Slack reactions, etc.) and manual UI
  * feedback. At-least-once delivery via Postgres `FOR UPDATE
  * SKIP LOCKED`. Each job is classified via the Haiku classifier;
- * the resulting bucket is stored back on the row.
+ * the resulting bucket is stored back on the row. A job carrying field
+ * corrections (`payload.edits`) also has those read for learnings
+ * (`feedback/editLearning.ts`), note or no note.
  *
  * The worker DOES NOT auto-commit learnings. When a classification proposes
  * rule text, it records a **learning candidate** — a suggestion sitting in a
@@ -19,13 +21,18 @@
  */
 
 import type { Classification } from './feedback/classifier';
+import type { EditLearning, FieldEdit } from './feedback/editLearning';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { feedbackJobSchema, memoryNamespaceSchema } from '@/models/Schema';
 import { classifyComment } from './feedback/classifier';
+import { describeFieldEdit, proposeEditLearnings, readFieldEdits } from './feedback/editLearning';
 
 export type FeedbackPayload = {
-  /** Free-form text the user wrote. */
+  /**
+   * Free-form text the user wrote. May be empty when `edits` carries the
+   * feedback: a reviewer who corrected fields and typed nothing.
+   */
   text: string;
   /** Optional text the user was reacting to. */
   quotedText?: string;
@@ -48,6 +55,12 @@ export type FeedbackPayload = {
    * still has the final say — this is the prior, not the answer.
    */
   polarityHint?: 'correct' | 'reinforce';
+  /**
+   * Fields the reviewer corrected before approving, each with the value the
+   * agent proposed and the value approved. Read by `feedback/editLearning`
+   * for learnings the reviewer showed rather than wrote.
+   */
+  edits?: FieldEdit[];
 };
 
 /* ------------------------------------------------------------------ */
@@ -175,13 +188,52 @@ export async function runOnce(): Promise<boolean> {
       .where(eq(memoryNamespaceSchema.orgId, row.org_id))
       .orderBy(memoryNamespaceSchema.id);
 
-    const classification = await classifyComment({
-      text: payload.text ?? '',
-      quotedText: payload.quotedText,
-      artifactTitle: payload.artifactTitle,
-      orgId: row.org_id,
-      steps,
-    });
+    // Held to the route's shape here too, because not every job came through
+    // the route. A list the worker cannot read fails the job where a client
+    // watching it can see why.
+    const readEdits = readFieldEdits(payload.edits);
+    if ('error' in readEdits) {
+      throw new Error(readEdits.error);
+    }
+    const edits = readEdits.edits;
+    const note = (payload.text ?? '').trim();
+
+    // Corrections with no note have no words to classify, and the comment
+    // classifier would spend a call to answer "ignore".
+    const classification: Classification = note
+      ? await classifyComment({
+          text: note,
+          quotedText: payload.quotedText,
+          artifactTitle: payload.artifactTitle,
+          orgId: row.org_id,
+          steps,
+        })
+      : { bucket: 'ignore' };
+
+    // After the note, so a correction the note already turned into a rule is
+    // not proposed a second time.
+    let editLearnings: EditLearning[] = [];
+    let editLearningError: string | undefined;
+    try {
+      editLearnings = await proposeEditLearnings({
+        edits,
+        note,
+        noteRule: classification.rule_text,
+        quotedText: payload.quotedText,
+        artifactTitle: payload.artifactTitle,
+        orgId: row.org_id,
+      });
+    } catch (error) {
+      // With no note the corrections were the whole job: fail it, where a
+      // client watching the job sees why. With a note, the note's own rule
+      // must not be lost to the edit read, so the failure rides on the
+      // classification instead.
+      if (!note) {
+        throw error;
+      }
+      editLearningError = (error as Error).message ?? 'edit learning failed';
+      console.error(`[FeedbackWorkerService] could not read the corrections on job ${row.id}; classifying its note anyway`, error);
+    }
 
     await db.execute(sql`
       UPDATE feedback_job
@@ -192,11 +244,32 @@ export async function runOnce(): Promise<boolean> {
             ruleText: classification.rule_text,
             polarity: classification.polarity ?? payload.polarityHint,
             targetSlug: payload.targetSlug ?? classification.target_step,
+            ...(edits.length > 0
+              ? { editLearnings: editLearnings.map(learning => ({ field: learning.field, ruleText: learning.ruleText })) }
+              : {}),
+            ...(editLearningError ? { editLearningError: editLearningError.slice(0, 1000) } : {}),
           })}::jsonb
       WHERE id = ${row.id}
     `);
 
     await recordLearningCandidate(row.id, row.org_id, classification, payload);
+    const recorded = await recordEditLearnings({
+      feedbackJobId: row.id,
+      orgId: row.org_id,
+      learnings: editLearnings,
+      edits,
+      payload,
+      stepName: payload.targetSlug ?? classification.target_step,
+    });
+    if (recorded.length > 0) {
+      // What became of each learning, so a report can count the candidates a
+      // job made rather than the learnings it read.
+      await db.execute(sql`
+        UPDATE feedback_job
+        SET classification = jsonb_set(classification, '{editLearnings}', ${JSON.stringify(recorded)}::jsonb)
+        WHERE id = ${row.id}
+      `);
+    }
     return true;
   } catch (err) {
     const msg = (err as Error).message ?? 'classifier failed';
@@ -266,6 +339,82 @@ async function recordLearningCandidate(
     console.error(`[FeedbackWorkerService] could not record a learning candidate for job ${feedbackJobId}`, error);
   }
 }
+
+/**
+ * File each learning the reviewer's corrections taught as a pending candidate.
+ *
+ * The same contract as {@link recordLearningCandidate}: a correction is
+ * evidence, never an adopted rule, and a failure is logged rather than failing
+ * a job whose model calls already ran. Each candidate keeps the correction it
+ * came from as its evidence, with the note when there was one, so the person
+ * deciding sees what was changed and not only the rule read out of it.
+ * @param opts - The job, its learnings and where they go.
+ * @param opts.feedbackJobId - The job the corrections arrived on.
+ * @param opts.orgId - Org that owns it.
+ * @param opts.learnings - What `proposeEditLearnings` read out of the corrections.
+ * @param opts.edits - The corrections themselves, for evidence.
+ * @param opts.payload - The queued job's payload, for attribution.
+ * @param opts.stepName - The learning step the caller or the note's classification named.
+ */
+async function recordEditLearnings(opts: {
+  feedbackJobId: number;
+  orgId: string;
+  learnings: EditLearning[];
+  edits: FieldEdit[];
+  payload: FeedbackPayload;
+  stepName?: string;
+}): Promise<RecordedEditLearning[]> {
+  if (opts.learnings.length === 0) {
+    return [];
+  }
+  const { recordProposedRule } = await import('@/services/feedback/ruleRecorder');
+  const note = opts.payload.text?.trim();
+  const recorded: RecordedEditLearning[] = [];
+  // One at a time on purpose: the duplicate check compares each learning
+  // against the candidates on file, including one this loop just created.
+  for (const learning of opts.learnings) {
+    const edit = opts.edits.find(candidate => candidate.field === learning.field);
+    // A preference is one person's taste, so it lands on the person who made
+    // the correction, the same scope the note's classifier would give it.
+    const scope = learning.memoryType === 'preference' && opts.payload.submittedBy
+      ? { scopeKind: 'user' as const, scopeRef: opts.payload.submittedBy }
+      : {};
+    try {
+      const result = await recordProposedRule({
+        orgId: opts.orgId,
+        ruleText: learning.ruleText,
+        // An edit says the agent got it wrong; there is no reinforcing one.
+        polarity: 'correct',
+        stepName: opts.stepName,
+        memoryType: learning.memoryType,
+        ...scope,
+        note: [edit ? describeFieldEdit(edit) : null, note || null].filter(Boolean).join(' '),
+        agentSlug: opts.payload.agentSlug,
+        sourceFeedbackJobId: opts.feedbackJobId,
+        sourceRunId: opts.payload.sourceRunId,
+        submittedBy: opts.payload.submittedBy,
+      });
+      recorded.push({
+        field: learning.field,
+        ruleText: learning.ruleText,
+        outcome: result.outcome,
+        ...(result.outcome === 'created' ? { candidateId: result.candidateId } : {}),
+      });
+    } catch (error) {
+      recorded.push({ field: learning.field, ruleText: learning.ruleText, outcome: 'failed' });
+      console.error(`[FeedbackWorkerService] could not record the learning from the ${learning.field} correction on job ${opts.feedbackJobId}`, error);
+    }
+  }
+  return recorded;
+}
+
+/** One learning read from a correction, and what became of it. */
+type RecordedEditLearning = {
+  field: string;
+  ruleText: string;
+  outcome: 'created' | 'duplicate' | 'skipped' | 'failed';
+  candidateId?: number;
+};
 
 /* ------------------------------------------------------------------ */
 /* Loop                                                                */

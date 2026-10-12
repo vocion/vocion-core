@@ -15,6 +15,7 @@ import type { PgColumn } from 'drizzle-orm/pg-core';
 import type { LabelVerdict } from '@/libs/actions/labelVerdict';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { AlignmentScore } from '@/services/alignment/AlignmentService';
+import type { FieldEdit } from '@/services/feedback/editLearning';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { policyKeyForRun } from '@/libs/actions/policyKey';
 import { nextRevisionVersion, revisionsFor } from '@/libs/actions/revisions';
@@ -26,6 +27,7 @@ import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSche
 import { completeAction, executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
 import { recordActionAlignment, scoreFor } from '@/services/alignment/AlignmentService';
 import { chargeModelCall } from '@/services/budget/chargeModelCall';
+import { describeProposedRecord, fieldEdits, MAX_FIELD_EDITS } from '@/services/feedback/editLearning';
 import { gateCardFields } from '@/services/gates/actionGate';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
@@ -1045,6 +1047,7 @@ export async function decide(
       }
       let execution: DecideResult['execution'];
       let labels: Record<string, LabelVerdict> | undefined;
+      let corrections: DecisionCorrections | undefined;
       if (action === 'approve') {
         // BEFORE the write, and only here: `updateActionInput` replaces
         // `input` wholesale and `onProposed` rewrites the object's metadata
@@ -1072,6 +1075,12 @@ export async function decide(
         // persist the edited payload FIRST (re-validated in ActionService),
         // so executeAction — which re-reads the row — sends what they see.
         if (opts?.editedInput) {
+          // What the reviewer corrected, read while the proposal still
+          // exists, for the learning queued below. An opted-out caller trains
+          // nothing, so it is not read for one.
+          if (opts.learn !== false) {
+            corrections = await readCorrections(item.id, orgId, opts.editedInput);
+          }
           // Same "last moment both versions exist" window as labelVerdicts,
           // and the reason this has to live here: `updateActionInput` replaces
           // `input` wholesale, so after the next line the words the agent
@@ -1116,6 +1125,7 @@ export async function decide(
         text: opts?.reason?.trim() || opts?.note,
         reviewedBy,
         learn: opts?.learn,
+        corrections,
       }).catch((error) => {
         console.warn(`[ReviewService] could not queue the decision on action run ${item.id} for learning`, error);
       });
@@ -1175,6 +1185,85 @@ function trackDecision(
 function fieldsOf(input: unknown): Record<string, unknown> {
   const fields = (input as { fields?: unknown } | null | undefined)?.fields;
   return fields && typeof fields === 'object' ? fields as Record<string, unknown> : {};
+}
+
+/**
+ * Whether a payload is a record (its values under `fields`) rather than a
+ * flat payload like an email's `to`, `subject` and `body`.
+ * @param input - An action payload.
+ */
+function isRecordShaped(input: unknown): boolean {
+  const fields = (input as { fields?: unknown } | null | undefined)?.fields;
+  return !!fields && typeof fields === 'object' && !Array.isArray(fields);
+}
+
+/**
+ * The values a payload is made of, read in the shape the PROPOSAL had: a
+ * record's `fields`, or a flat payload whole. Both sides are read the same
+ * way, so an edited payload that drops or adds the `fields` wrapper is not
+ * mistaken for a correction to every top-level key.
+ * @param input - An action payload, stored or edited.
+ * @param recordShaped - Whether the proposal was a record.
+ */
+function editableValuesOf(input: unknown, recordShaped: boolean): Record<string, unknown> {
+  if (recordShaped) {
+    return fieldsOf(input);
+  }
+  return input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {};
+}
+
+/** What a reviewer corrected on a proposal, with the context a model needs to read it. */
+type DecisionCorrections = { edits: FieldEdit[]; quotedText: string; artifactTitle?: string };
+
+/**
+ * What the reviewer corrected on an agent's proposal, for edit learning.
+ *
+ * Read in the same window as {@link labelVerdicts} and for the same reason:
+ * after `updateActionInput` replaces `input`, the values the agent proposed are
+ * gone. Nothing when nothing changed. Never throws, since a decision must not
+ * fail on the evidence it leaves behind, but logs, because a failure here is
+ * learning lost.
+ * @param runId - The action run being approved.
+ * @param orgId - Org that owns it.
+ * @param editedInput - What the reviewer approved.
+ */
+async function readCorrections(
+  runId: number,
+  orgId: string,
+  editedInput: Record<string, unknown>,
+): Promise<DecisionCorrections | undefined> {
+  try {
+    const [run] = await db
+      .select({ input: actionRunSchema.input, proposal: actionRunSchema.proposal })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+      .limit(1);
+    if (!run) {
+      return undefined;
+    }
+    const recordShaped = isRecordShaped(run.input);
+    const proposed = editableValuesOf(run.input, recordShaped);
+    // Bounded to what the feedback route accepts, so the worker never refuses
+    // a job this queued.
+    const edits = fieldEdits(proposed, editableValuesOf(editedInput, recordShaped)).slice(0, MAX_FIELD_EDITS);
+    if (edits.length === 0) {
+      return undefined;
+    }
+    const title = [proposed.title, proposed.name, proposed.subject]
+      .find(value => typeof value === 'string' && value.trim() !== '') as string | undefined;
+    return {
+      edits,
+      quotedText: describeProposedRecord(proposed, run.proposal?.rationale),
+      ...(title ? { artifactTitle: title.trim() } : {}),
+    };
+  } catch (error) {
+    logger.warn('could not read the reviewer\'s corrections for edit learning', {
+      orgId,
+      runId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
 }
 
 /**
@@ -1705,6 +1794,11 @@ async function resolveLearningStepForAgent(orgId: string, agentSlug: string): Pr
  * the reviewer disagreed but not what to do differently, and asking a model to
  * invent the reason produces rules nobody stated), and the proposal has to be
  * an agent's own, a human-proposed action trains nobody.
+ *
+ * One exception to the first gate: an approve that CORRECTED fields queues
+ * those corrections even with no text. An edit is a correction the reviewer
+ * actually made, not a reason a model invents; the worker asks a model only
+ * whether it generalises (`feedback/editLearning.ts`), and most do not.
  * @param opts
  * @param opts.runId - The action run being decided.
  * @param opts.orgId - The workspace the run belongs to.
@@ -1712,6 +1806,7 @@ async function resolveLearningStepForAgent(orgId: string, agentSlug: string): Pr
  * @param opts.text - What the reviewer wrote: the decision reason, or their note for the agent.
  * @param opts.reviewedBy - Who decided, so the resulting rule can name its evidence.
  * @param opts.learn - `false` from an automated caller that must not train anything.
+ * @param opts.corrections - The fields the reviewer corrected before approving, when they did.
  */
 async function recordActionDecisionLearning(opts: {
   runId: number;
@@ -1720,6 +1815,7 @@ async function recordActionDecisionLearning(opts: {
   text?: string;
   reviewedBy: string;
   learn?: boolean;
+  corrections?: DecisionCorrections;
 }): Promise<void> {
   const note = opts.text?.trim();
   const polarity = SIGNAL_POLARITY[opts.signal];
@@ -1731,10 +1827,15 @@ async function recordActionDecisionLearning(opts: {
     .from(actionRunSchema)
     .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)))
     .limit(1);
-  if (!run || !run.invokedBy?.startsWith('agent:')) {
-    return; // only agent proposals train agents
+  // Only agent proposals train agents. An agent running inside Vocion is the
+  // invoker; an app proposing over `POST /api/v1/reviews/propose` invokes as
+  // its token and names the agent on the proposal, which is the same reading
+  // `recordVoiceEditDiff` takes.
+  const agentSlug = run?.proposal?.agentSlug
+    ?? (run?.invokedBy?.startsWith('agent:') ? run.invokedBy.slice('agent:'.length) : undefined);
+  if (!run || !agentSlug) {
+    return;
   }
-  const agentSlug = run.invokedBy.slice('agent:'.length);
 
   // Every judged decision leaves an EPISODE — raw, TTL'd material the
   // consolidation job mines (a confident-but-rejected proposal is exactly
@@ -1758,7 +1859,8 @@ async function recordActionDecisionLearning(opts: {
     console.error(`[ReviewService] could not record an episode for action run ${opts.runId}`, error);
   });
 
-  if (!note || !polarity) {
+  const corrections = opts.corrections;
+  if (!polarity || (!note && !corrections)) {
     return;
   }
   // Resolved here rather than left to the worker: without a target the
@@ -1774,12 +1876,15 @@ async function recordActionDecisionLearning(opts: {
     // classifier calls the duplicate judge then has to reconcile.
     externalId: `action_run:${opts.runId}:${opts.signal}`,
     payload: {
-      text: note,
+      text: note ?? '',
       targetSlug,
       agentSlug,
       sourceRunId: opts.runId,
       submittedBy: opts.reviewedBy,
       polarityHint: polarity,
+      ...(corrections
+        ? { edits: corrections.edits, quotedText: corrections.quotedText, artifactTitle: corrections.artifactTitle }
+        : {}),
     },
   });
 }
