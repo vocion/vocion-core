@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { readFieldEdits } from '@/services/feedback/editLearning';
 import { enqueue, listJobs } from '@/services/FeedbackWorkerService';
 import { authApi, isErrorResponse, jsonError, readJsonBody, readPagination } from '../_shared';
 
@@ -41,11 +42,20 @@ export async function GET(req: Request) {
  *
  * Submit a reviewer's written feedback. Body:
  *
- *   { source?, externalId?, payload: { text, quotedText?, artifactTitle?, targetSlug? } }
+ *   { source?, externalId?, payload: { text, quotedText?, artifactTitle?, targetSlug?, edits? } }
  *
  * The job is queued; the background worker classifies it, and a classification
  * that proposes a rule becomes a pending learning candidate. Nothing changes
  * how an agent behaves until someone approves that candidate.
+ *
+ * `edits` is the fields a reviewer corrected before approving, as
+ * `[{ field, before, after }]` (at most 50), when your own screen is where
+ * the review happens. The worker asks a model which corrections show a
+ * pattern the agent should learn, skipping any the note already explains, and
+ * each one that does becomes a pending candidate like any other. With `edits`
+ * present `text` may be empty: the corrections are the feedback. Send
+ * `quotedText` with the record as the agent proposed it, so a correction can
+ * be read against what the agent was looking at.
  *
  * `externalId` makes the call idempotent — posting the same one twice returns
  * the same job instead of queueing a duplicate. Supply the id of whatever the
@@ -71,9 +81,20 @@ export async function POST(req: Request) {
     return jsonError('VALIDATION_FAILED', `source must be one of ${ACCEPTED_SOURCES.join('|')}`, 400);
   }
 
-  const payload = body.payload as { text?: unknown } | undefined;
-  if (!payload || typeof payload !== 'object' || typeof payload.text !== 'string' || !payload.text.trim()) {
+  const payload = body.payload as { text?: unknown; edits?: unknown } | undefined;
+  if (!payload || typeof payload !== 'object') {
     return jsonError('VALIDATION_FAILED', 'payload.text is required', 400);
+  }
+  const edits = readFieldEdits(payload.edits);
+  if ('error' in edits) {
+    return jsonError('VALIDATION_FAILED', edits.error, 400);
+  }
+  const hasText = typeof payload.text === 'string' && payload.text.trim() !== '';
+  if (!hasText && edits.edits.length === 0) {
+    return jsonError('VALIDATION_FAILED', 'payload.text is required unless payload.edits carries a correction', 400);
+  }
+  if (payload.text !== undefined && typeof payload.text !== 'string') {
+    return jsonError('VALIDATION_FAILED', 'payload.text must be a string', 400);
   }
 
   const externalId = typeof body.externalId === 'string' && body.externalId.trim()
@@ -86,7 +107,11 @@ export async function POST(req: Request) {
     orgId: caller.orgId,
     source: source as AcceptedSource,
     externalId,
-    payload: payload as Parameters<typeof enqueue>[0]['payload'],
+    payload: {
+      ...payload,
+      text: hasText ? payload.text as string : '',
+      ...(edits.edits.length > 0 ? { edits: edits.edits } : {}),
+    } as Parameters<typeof enqueue>[0]['payload'],
   });
   return NextResponse.json(job);
 }

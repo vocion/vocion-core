@@ -33,6 +33,8 @@ export const FEATURES = {
   FEEDBACK_CLASSIFY: 'feedback.classify',
   /** Haiku-based duplicate check between a proposed rule and existing ones. */
   FEEDBACK_DEDUPE: 'feedback.dedupe',
+  /** Haiku-based read of a reviewer's field corrections for learnings (`services/feedback/editLearning.ts`). */
+  FEEDBACK_EDIT_LEARNING: 'feedback.edit-learning',
   /** Whether a record just filed repeats one on file (`services/objects/duplicateCheck.ts`). */
   RECORD_DUPLICATE: 'record.duplicate',
   /** Which record a person's words name, read when a record is filed (`services/objects/referenceRead.ts`). */

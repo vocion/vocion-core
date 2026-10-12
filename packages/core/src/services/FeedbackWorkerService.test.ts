@@ -12,8 +12,15 @@ vi.mock('@/services/feedback/classifier', () => ({
   classifyComment: (...args: unknown[]) => classifyComment(...args),
 }));
 
+// Only the model call is replaced; reading and describing the corrections stay real.
+const proposeEditLearnings = vi.fn();
+vi.mock('@/services/feedback/editLearning', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/services/feedback/editLearning')>()),
+  proposeEditLearnings: (...args: unknown[]) => proposeEditLearnings(...args),
+}));
+
 const { db } = await import('@/libs/DB');
-const { feedbackJobSchema, learningCandidateSchema, memoryNamespaceSchema, memorySchema } = await import('@/models/Schema');
+const { feedbackJobSchema, learningCandidateSchema, learningFeedbackOccurrenceSchema, memoryNamespaceSchema, memorySchema } = await import('@/models/Schema');
 const { enqueue, listJobs, runOnce } = await import('@/services/FeedbackWorkerService');
 
 const ORG = 'org_feedback';
@@ -21,6 +28,8 @@ const OTHER_ORG = 'org_not_yours';
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  proposeEditLearnings.mockResolvedValue([]);
+  await db.delete(learningFeedbackOccurrenceSchema);
   await db.delete(learningCandidateSchema);
   await db.delete(memorySchema);
   await db.delete(memoryNamespaceSchema);
@@ -28,6 +37,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(learningFeedbackOccurrenceSchema);
   await db.delete(learningCandidateSchema);
   await db.delete(memorySchema);
   await db.delete(memoryNamespaceSchema);
@@ -248,5 +258,185 @@ describe('runOnce — typed, scoped candidates (Phase 2)', () => {
     const [candidate] = await db.select().from(learningCandidateSchema);
 
     expect(candidate).toMatchObject({ memoryType: 'procedure', scopeKind: null, scopeRef: null });
+  });
+});
+
+describe('runOnce with field corrections', () => {
+  const CATEGORY_EDIT = { field: 'categories', before: ['Live Music', 'Jazz Brunch'], after: ['Live Music', 'Food & Drink'] };
+  const BRUNCH_RULE = 'File brunch listings at Pier Hall under Food & Drink.';
+
+  it('learns from corrections a reviewer made without typing a word, and spends no call on the empty comment', async () => {
+    proposeEditLearnings.mockResolvedValue([{ field: 'categories', ruleText: BRUNCH_RULE, memoryType: 'knowledge' }]);
+    await enqueue({
+      orgId: ORG,
+      source: 'api',
+      externalId: 'review-7',
+      payload: {
+        text: '',
+        edits: [CATEGORY_EDIT],
+        quotedText: 'title: "Harbor Jazz Brunch"',
+        artifactTitle: 'Harbor Jazz Brunch',
+        targetSlug: 'event-extraction',
+        agentSlug: 'listings-agent',
+        sourceRunId: 7,
+        submittedBy: 'reviewer@example.com',
+      },
+    });
+
+    await runOnce();
+
+    expect(classifyComment).not.toHaveBeenCalled();
+    expect(proposeEditLearnings).toHaveBeenCalledWith(expect.objectContaining({
+      edits: [CATEGORY_EDIT],
+      note: '',
+      quotedText: 'title: "Harbor Jazz Brunch"',
+      orgId: ORG,
+    }));
+
+    const [job] = await db.select().from(feedbackJobSchema);
+
+    expect(job!.status).toBe('classified');
+    // What became of the learning is on the job, so a report can count candidates made.
+    expect(job!.classification).toMatchObject({
+      bucket: 'ignore',
+      editLearnings: [{ field: 'categories', ruleText: BRUNCH_RULE, outcome: 'created', candidateId: expect.any(Number) }],
+    });
+
+    const [candidate] = await db.select().from(learningCandidateSchema);
+
+    expect(candidate).toMatchObject({
+      status: 'pending',
+      stepName: 'event-extraction',
+      ruleText: BRUNCH_RULE,
+      polarity: 'correct',
+      memoryType: 'knowledge',
+      sourceRunId: 7,
+    });
+
+    // The person deciding sees the correction the rule came from.
+    const [occurrence] = await db.select().from(learningFeedbackOccurrenceSchema);
+
+    expect(occurrence!.note).toBe('Corrected categories: "Live Music, Jazz Brunch" became "Live Music, Food & Drink".');
+    expect(occurrence!.submittedBy).toBe('reviewer@example.com');
+  });
+
+  it('tells the edit reader what rule the note already became, so it is not filed twice', async () => {
+    classifyComment.mockResolvedValue({ bucket: 'rule', rule_text: BRUNCH_RULE });
+    await enqueue({
+      orgId: ORG,
+      source: 'api',
+      externalId: 'review-8',
+      payload: { text: 'Pier Hall brunches are food events.', edits: [CATEGORY_EDIT], targetSlug: 'event-extraction' },
+    });
+
+    await runOnce();
+
+    expect(proposeEditLearnings).toHaveBeenCalledWith(expect.objectContaining({
+      note: 'Pier Hall brunches are food events.',
+      noteRule: BRUNCH_RULE,
+    }));
+    expect(await db.select().from(learningCandidateSchema)).toHaveLength(1);
+  });
+
+  it('keeps the note with the correction as evidence when there was one', async () => {
+    classifyComment.mockResolvedValue({ bucket: 'ignore' });
+    proposeEditLearnings.mockResolvedValue([{ field: 'categories', ruleText: BRUNCH_RULE }]);
+    await enqueue({
+      orgId: ORG,
+      source: 'api',
+      externalId: 'review-9',
+      payload: { text: 'Fixed the category.', edits: [CATEGORY_EDIT], targetSlug: 'event-extraction' },
+    });
+
+    await runOnce();
+
+    const [occurrence] = await db.select().from(learningFeedbackOccurrenceSchema);
+
+    expect(occurrence!.note).toBe('Corrected categories: "Live Music, Jazz Brunch" became "Live Music, Food & Drink". Fixed the category.');
+  });
+
+  it('records nothing when the corrections teach nothing, and says so on the job', async () => {
+    await enqueue({
+      orgId: ORG,
+      source: 'api',
+      externalId: 'review-10',
+      payload: { text: '', edits: [{ field: 'price', before: '$10', after: '$12' }], targetSlug: 'event-extraction' },
+    });
+
+    await runOnce();
+
+    const [job] = await db.select().from(feedbackJobSchema);
+
+    expect(job!.classification).toMatchObject({ editLearnings: [] });
+    expect(await db.select().from(learningCandidateSchema)).toHaveLength(0);
+  });
+
+  it('fails a job whose corrections cannot be read, instead of dropping them quietly', async () => {
+    await enqueue({
+      orgId: ORG,
+      source: 'review',
+      externalId: 'review-11',
+      payload: { text: '', edits: 'categories changed' as unknown as [], targetSlug: 'event-extraction' },
+    });
+
+    await runOnce();
+
+    const [job] = await db.select().from(feedbackJobSchema);
+
+    expect(job!.status).toBe('failed');
+    expect(job!.error).toContain('payload.edits must be an array');
+    expect(proposeEditLearnings).not.toHaveBeenCalled();
+  });
+
+  it('still records the note\'s rule when reading the corrections fails, and says so on the job', async () => {
+    classifyComment.mockResolvedValue({ bucket: 'rule', rule_text: BRUNCH_RULE });
+    proposeEditLearnings.mockRejectedValue(new Error('model unavailable'));
+    await enqueue({
+      orgId: ORG,
+      source: 'api',
+      externalId: 'review-12',
+      payload: { text: 'Pier Hall brunches are food events.', edits: [CATEGORY_EDIT], targetSlug: 'event-extraction' },
+    });
+
+    await runOnce();
+
+    const [job] = await db.select().from(feedbackJobSchema);
+
+    expect(job!.status).toBe('classified');
+    expect(job!.classification).toMatchObject({ editLearningError: 'model unavailable' });
+    expect((await db.select().from(learningCandidateSchema)).map(candidate => candidate.ruleText)).toEqual([BRUNCH_RULE]);
+  });
+
+  it('fails a corrections-only job when reading the corrections fails, since they were all it carried', async () => {
+    proposeEditLearnings.mockRejectedValue(new Error('model unavailable'));
+    await enqueue({
+      orgId: ORG,
+      source: 'api',
+      externalId: 'review-13',
+      payload: { text: '', edits: [CATEGORY_EDIT], targetSlug: 'event-extraction' },
+    });
+
+    await runOnce();
+
+    const [job] = await db.select().from(feedbackJobSchema);
+
+    expect(job!.status).toBe('failed');
+    expect(job!.error).toContain('model unavailable');
+  });
+
+  it('files a preference read from a correction under the person who made it', async () => {
+    proposeEditLearnings.mockResolvedValue([{ field: 'categories', ruleText: BRUNCH_RULE, memoryType: 'preference' }]);
+    await enqueue({
+      orgId: ORG,
+      source: 'api',
+      externalId: 'review-14',
+      payload: { text: '', edits: [CATEGORY_EDIT], targetSlug: 'event-extraction', submittedBy: 'user_jamie' },
+    });
+
+    await runOnce();
+
+    const [candidate] = await db.select().from(learningCandidateSchema);
+
+    expect(candidate).toMatchObject({ memoryType: 'preference', scopeKind: 'user', scopeRef: 'user_jamie' });
   });
 });
