@@ -35,8 +35,13 @@ vi.mock('@/libs/Logger', () => ({
   logger: { warn: (...args: unknown[]) => warnMock(...args), info: () => {}, error: () => {} },
 }));
 
-const { describeFieldEdit, describeProposedRecord, fieldEdits, MAX_FIELD_EDITS, proposeEditLearnings, readFieldEdits }
+const { changedExcerpts, describeFieldEdit, describeProposedRecord, fieldEdits, MAX_FIELD_EDITS, proposeEditLearnings, readFieldEdits }
   = await import('@/services/feedback/editLearning');
+
+/** About 3,000 characters a reviewer left alone, ahead of the sentence they fixed. */
+const LONG_OPENING = 'Doors open early for the brunch set at Pier Hall. '.repeat(60);
+const LONG_BEFORE = `${LONG_OPENING}Tickets are $15 at the door.`;
+const LONG_AFTER = `${LONG_OPENING}Tickets are free with a brunch order.`;
 
 /** The user message the last model call was sent. */
 function sentUserMessage(): string {
@@ -90,11 +95,20 @@ describe('fieldEdits', () => {
     expect(fieldEdits({ title: 'Harbor Jazz', price: '$10' }, { title: 'Harbor Jazz' })).toEqual([]);
   });
 
-  it('keeps only as much of a long value as the model reads', () => {
-    const [edit] = fieldEdits({ body: 'Short draft.' }, { body: `  ${'w'.repeat(2_000)}  ` });
+  it('keeps the part of a long text the reviewer changed, not its unchanged opening', () => {
+    const [edit] = fieldEdits({ description: LONG_BEFORE }, { description: LONG_AFTER });
 
-    expect(String(edit!.after)).toHaveLength(500);
-    expect(edit!.before).toBe('Short draft.');
+    expect(String(edit!.before)).toContain('Tickets are $15 at the door.');
+    expect(String(edit!.after)).toContain('Tickets are free with a brunch order.');
+    expect(String(edit!.after).length).toBeLessThanOrEqual(2_000);
+  });
+
+  it('keeps the opening of a long text filled in where there was none, up to what the model reads', () => {
+    const [edit] = fieldEdits({ body: null }, { body: `  ${'w'.repeat(3_000)}  ` });
+
+    expect(String(edit!.after)).toHaveLength(2_000);
+    expect(String(edit!.after).startsWith('www')).toBe(true);
+    expect(edit!.before).toBeNull();
   });
 
   it('reports a list the reviewer emptied, and a value they filled in', () => {
@@ -126,8 +140,25 @@ describe('readFieldEdits', () => {
       .toEqual({ error: expect.stringContaining('repeats the field "price"') });
   });
 
-  it('refuses a corrections list too large to be a review', () => {
-    expect(readFieldEdits([{ field: 'description', before: '', after: 'x'.repeat(70_000) }]))
+  it('accepts a long text from an outside app, cut to the part around the change', () => {
+    const before = `${'Doors open early. '.repeat(4_000)}Tickets are $15.`;
+    const after = `${'Doors open early. '.repeat(4_000)}Tickets are free.`;
+
+    const read = readFieldEdits([{ field: 'description', before, after }]);
+
+    expect(read).not.toHaveProperty('error');
+
+    const [edit] = (read as { edits: Array<{ before: unknown; after: unknown }> }).edits;
+
+    expect(String(edit!.before).endsWith('Tickets are $15.')).toBe(true);
+    expect(String(edit!.after).endsWith('Tickets are free.')).toBe(true);
+    expect(String(edit!.after).length).toBeLessThanOrEqual(2_000);
+  });
+
+  it('still refuses a list too large to be one correction, even after cutting text', () => {
+    const tags = Array.from({ length: 300 }, (_, index) => `${index}-${'t'.repeat(1_000)}`);
+
+    expect(readFieldEdits([{ field: 'tags', before: [], after: tags }]))
       .toEqual({ error: expect.stringContaining('larger than') });
   });
 
@@ -138,7 +169,48 @@ describe('readFieldEdits', () => {
   });
 });
 
+describe('changedExcerpts', () => {
+  it('returns texts that fit whole', () => {
+    expect(changedExcerpts('Tickets are $15.', 'Tickets are free.')).toEqual(['Tickets are $15.', 'Tickets are free.']);
+  });
+
+  it('cuts both long texts from the same point just ahead of the first difference', () => {
+    const [before, after] = changedExcerpts(LONG_BEFORE, LONG_AFTER);
+    const lead = 'Doors open early for the brunch set at Pier Hall. ';
+
+    // The cut is marked, and both sides start at the same unchanged context.
+    expect(before.startsWith('...')).toBe(true);
+    expect(after.slice(0, 120)).toBe(before.slice(0, 120));
+    expect(before).toContain(lead.slice(10));
+    expect(before.endsWith('Tickets are $15 at the door.')).toBe(true);
+    expect(after.endsWith('Tickets are free with a brunch order.')).toBe(true);
+  });
+
+  it('shows text appended to a long value, with the end it was added to', () => {
+    const [before, after] = changedExcerpts(LONG_OPENING.trim(), `${LONG_OPENING}Brunch from 11.`);
+
+    expect(after.endsWith('Brunch from 11.')).toBe(true);
+    expect(before.endsWith('at Pier Hall.')).toBe(true);
+  });
+
+  it('marks a cut at the end when the change comes early in a long text', () => {
+    const [before, after] = changedExcerpts(`Brunch set. ${LONG_OPENING}`, `Jazz brunch set. ${LONG_OPENING}`);
+
+    expect(before.startsWith('Brunch set.')).toBe(true);
+    expect(after.startsWith('Jazz brunch set.')).toBe(true);
+    expect(after.endsWith('...')).toBe(true);
+    expect(after).toHaveLength(2_000);
+  });
+});
+
 describe('describeFieldEdit', () => {
+  it('quotes the part of a long text that changed', () => {
+    const evidence = describeFieldEdit({ field: 'description', before: LONG_BEFORE, after: LONG_AFTER });
+
+    expect(evidence).toContain('Tickets are $15 at the door.');
+    expect(evidence).toContain('Tickets are free with a brunch order.');
+  });
+
   it('reads a list as its items and an empty side as empty', () => {
     expect(describeFieldEdit({ field: 'categories', before: ['Kids'], after: [] })).toBe('Corrected categories: "Kids" became empty.');
     expect(describeFieldEdit(CATEGORY_EDIT)).toBe('Corrected categories: "Live Music, Jazz Brunch" became "Live Music, Food & Drink".');
@@ -175,6 +247,18 @@ describe('proposeEditLearnings', () => {
     expect(sent).toContain('Reviewer\'s note: """Pier Hall brunches are food events."""');
     expect(sent).toContain('Rule already proposed from the note: """File brunch events at Pier Hall under Food & Drink."""');
     expect(sent).toContain('source: https://pierhall.example/events');
+  });
+
+  it('shows the model the sentence a reviewer fixed late in a long description', async () => {
+    modelReplies({ learnings: [] });
+
+    await proposeEditLearnings({ edits: [{ field: 'description', before: LONG_BEFORE, after: LONG_AFTER }] });
+
+    const sent = sentUserMessage();
+
+    expect(sent).toContain('before: "...');
+    expect(sent).toContain('Tickets are $15 at the door."');
+    expect(sent).toContain('Tickets are free with a brunch order."');
   });
 
   it('says there was no note when the reviewer typed nothing', async () => {

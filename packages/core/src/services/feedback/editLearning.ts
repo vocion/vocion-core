@@ -57,10 +57,12 @@ export const MAX_FIELD_EDITS = 50;
 /** Longest field name accepted. Field names are keys, not prose. */
 const FIELD_NAME_MAX_CHARS = 200;
 /**
- * Largest corrections list accepted, serialized. The payload is stored as it
- * arrives, and a list this size is already far more than the model reads.
+ * Largest corrections list accepted once its text is cut to the part that
+ * changed. Text alone stays under this by construction (50 fields, two sides
+ * of {@link VALUE_MAX_CHARS}); what it catches is a list or a structure
+ * nobody would call one correction.
  */
-const MAX_EDITS_BYTES = 64_000;
+const MAX_EDITS_BYTES = 256_000;
 /**
  * Most learnings one decision may propose. Each one costs a duplicate check
  * against the step's rules, in a worker that drains one job at a time, so a
@@ -68,8 +70,15 @@ const MAX_EDITS_BYTES = 64_000;
  * caps its phrases per decision).
  */
 const MAX_LEARNINGS_PER_DECISION = 5;
-/** How much of each side of a correction the model reads, and so how much is kept. */
-const VALUE_MAX_CHARS = 500;
+/**
+ * How much of each side of a correction the model reads, and so how much is
+ * kept. Long text is cut around where the two sides first differ, not from
+ * the start, so a fix in the last paragraph of a description is what the
+ * model sees ({@link changedExcerpts}).
+ */
+const VALUE_MAX_CHARS = 2_000;
+/** How much unchanged text an excerpt keeps ahead of the first difference, so the change reads in its sentence. */
+const CONTEXT_BEFORE_CHANGE_CHARS = 200;
 /** How much of the proposed record the model reads for context. */
 const QUOTE_MAX_CHARS = 1_500;
 /** How much of the reviewer's note the model reads. */
@@ -110,6 +119,9 @@ At most one learning per field. Return {"learnings": []} when nothing generalise
  * calls it again on what it claimed from the queue, so a job written by some
  * other path is held to the same shape. A missing `before` or `after` reads as
  * empty, which is what JSON leaves behind when a value was `undefined`.
+ *
+ * Long text is not refused: each side is cut to the part around the change
+ * ({@link keptPair}), which is all the model reads and all that is stored.
  * @param value - Whatever arrived as `payload.edits`.
  * @returns The corrections, or the reason they were refused.
  */
@@ -122,9 +134,6 @@ export function readFieldEdits(value: unknown): { edits: FieldEdit[] } | { error
   }
   if (value.length > MAX_FIELD_EDITS) {
     return { error: `payload.edits carries ${value.length} corrections; the most accepted is ${MAX_FIELD_EDITS}` };
-  }
-  if (JSON.stringify(value).length > MAX_EDITS_BYTES) {
-    return { error: `payload.edits is larger than ${MAX_EDITS_BYTES} characters; send each value as the reviewer saw it, not whole documents` };
   }
   const edits: FieldEdit[] = [];
   const seen = new Set<string>();
@@ -143,7 +152,11 @@ export function readFieldEdits(value: unknown): { edits: FieldEdit[] } | { error
     }
     seen.add(field.trim());
     const entry = item as { before?: unknown; after?: unknown };
-    edits.push({ field: field.trim(), before: entry.before ?? null, after: entry.after ?? null });
+    const [before, after] = keptPair(entry.before, entry.after);
+    edits.push({ field: field.trim(), before, after });
+  }
+  if (JSON.stringify(edits).length > MAX_EDITS_BYTES) {
+    return { error: `payload.edits is larger than ${MAX_EDITS_BYTES} characters even with long text cut to the change; send each value as the reviewer saw it, not whole documents` };
   }
   return { edits };
 }
@@ -158,9 +171,9 @@ export function readFieldEdits(value: unknown): { edits: FieldEdit[] } | { error
  * list of plain values compares as a set, so a reordered list of tags is not a
  * correction anyone made.
  *
- * Text is kept to what the model reads ({@link VALUE_MAX_CHARS} a side): the
- * edit is evidence, not a copy of the record, and a rewritten email body would
- * otherwise be stored twice over on the job.
+ * Text is kept to what the model reads, the part around the change
+ * ({@link keptPair}): the edit is evidence, not a copy of the record, and a
+ * rewritten email body would otherwise be stored twice over on the job.
  * @param before - The fields the agent proposed.
  * @param after - The fields the reviewer approved.
  */
@@ -171,14 +184,77 @@ export function fieldEdits(before: Record<string, unknown>, after: Record<string
     if (comparableValue(previous) === comparableValue(next)) {
       continue;
     }
-    edits.push({ field, before: keptValue(previous), after: keptValue(next) });
+    const [keptBefore, keptAfter] = keptPair(previous, next);
+    edits.push({ field, before: keptBefore, after: keptAfter });
   }
   return edits;
 }
 
 /**
- * A value as a correction keeps it: text trimmed and clipped, a list item by
- * item, anything else as it was.
+ * Both sides of a correction as it is kept. Two pieces of text are cut
+ * together, around where they first differ ({@link changedExcerpts}); any
+ * other value is kept on its own ({@link keptValue}).
+ * @param before - The value the agent proposed.
+ * @param after - The value the reviewer approved.
+ */
+function keptPair(before: unknown, after: unknown): [unknown, unknown] {
+  if (typeof before === 'string' && typeof after === 'string') {
+    return changedExcerpts(before.trim(), after.trim());
+  }
+  return [keptValue(before), keptValue(after)];
+}
+
+/**
+ * The part of two long texts a reader needs to see what changed.
+ *
+ * Texts that both fit are returned whole. Otherwise both are cut from the same
+ * point, {@link CONTEXT_BEFORE_CHANGE_CHARS} ahead of the first character that
+ * differs, to at most {@link VALUE_MAX_CHARS} each, with "..." marking a cut.
+ * Cutting from the start instead would show the model two identical openings
+ * whenever the fix came late, and it would learn nothing from it.
+ * @param before - The text the agent proposed.
+ * @param after - The text the reviewer approved.
+ */
+export function changedExcerpts(before: string, after: string): [string, string] {
+  if (before.length <= VALUE_MAX_CHARS && after.length <= VALUE_MAX_CHARS) {
+    return [before, after];
+  }
+  const start = Math.max(0, sharedPrefixLength(before, after) - CONTEXT_BEFORE_CHANGE_CHARS);
+  return [excerptFrom(before, start), excerptFrom(after, start)];
+}
+
+/**
+ * How many leading characters two texts share.
+ * @param a - One text.
+ * @param b - The other.
+ */
+function sharedPrefixLength(a: string, b: string): number {
+  const limit = Math.min(a.length, b.length);
+  let index = 0;
+  while (index < limit && a[index] === b[index]) {
+    index += 1;
+  }
+  return index;
+}
+
+/**
+ * At most {@link VALUE_MAX_CHARS} of `text` from `start`, with "..." where it
+ * was cut at either end.
+ * @param text - The whole text.
+ * @param start - Where the excerpt begins.
+ */
+function excerptFrom(text: string, start: number): string {
+  const lead = start > 0 ? '...' : '';
+  const room = VALUE_MAX_CHARS - lead.length;
+  if (text.length - start <= room) {
+    return lead + text.slice(start);
+  }
+  return `${lead}${text.slice(start, start + room - 3)}...`;
+}
+
+/**
+ * A value as a correction keeps it on its own: text trimmed and clipped from
+ * the start, a list item by item, anything else as it was.
  * @param value - A field value.
  */
 function keptValue(value: unknown): unknown {
@@ -261,7 +337,18 @@ export function readableValue(value: unknown): string {
  * @param edit - The corrected field.
  */
 export function describeFieldEdit(edit: FieldEdit): string {
-  return `Corrected ${edit.field}: ${readableValue(edit.before)} became ${readableValue(edit.after)}.`;
+  const [before, after] = readablePair(edit);
+  return `Corrected ${edit.field}: ${before} became ${after}.`;
+}
+
+/**
+ * Both sides of a correction the way a person reads them, long text cut to
+ * the part around the change.
+ * @param edit - The corrected field.
+ */
+function readablePair(edit: FieldEdit): [string, string] {
+  const [before, after] = keptPair(edit.before, edit.after);
+  return [readableValue(before), readableValue(after)];
 }
 
 /**
@@ -291,7 +378,7 @@ function clip(text: string, max: number): string {
  */
 function editLearningPrompt(opts: Parameters<typeof proposeEditLearnings>[0]): string {
   const corrections = opts.edits
-    .map((edit, index) => `${index + 1}. ${edit.field}\n   before: ${readableValue(edit.before)}\n   after: ${readableValue(edit.after)}`)
+    .map((edit, index) => `${index + 1}. ${edit.field}\n${correctionLines(edit)}`)
     .join('\n');
   return [
     `Record: ${opts.artifactTitle ?? '(untitled)'}`,
@@ -300,6 +387,15 @@ function editLearningPrompt(opts: Parameters<typeof proposeEditLearnings>[0]): s
     opts.noteRule?.trim() ? `Rule already proposed from the note: """${clip(opts.noteRule.trim(), NOTE_MAX_CHARS)}"""` : '',
     `Corrected fields:\n${corrections}`,
   ].filter(Boolean).join('\n\n');
+}
+
+/**
+ * A correction's two sides as the prompt lists them.
+ * @param edit - The corrected field.
+ */
+function correctionLines(edit: FieldEdit): string {
+  const [before, after] = readablePair(edit);
+  return `   before: ${before}\n   after: ${after}`;
 }
 
 /**

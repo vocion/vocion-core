@@ -107,6 +107,24 @@ describe('POST /api/v1/feedback', () => {
     expect(await db.select().from(feedbackJobSchema)).toHaveLength(0);
   });
 
+  it('stores a long text correction cut to the part around the change, not the whole document', async () => {
+    const opening = 'Doors open early for the brunch set. '.repeat(2_000);
+
+    const res = await POST(post({
+      externalId: 'review:44',
+      payload: { text: '', edits: [{ field: 'description', before: `${opening}Tickets $15.`, after: `${opening}Tickets free.` }] },
+    }));
+
+    expect(res.status).toBe(200);
+
+    const [job] = await db.select().from(feedbackJobSchema);
+    const [edit] = (job!.payload as { edits: Array<{ before: string; after: string }> }).edits;
+
+    expect(edit!.before.endsWith('Tickets $15.')).toBe(true);
+    expect(edit!.after.endsWith('Tickets free.')).toBe(true);
+    expect(edit!.after.length).toBeLessThanOrEqual(2_000);
+  });
+
   it('refuses a note that is not text, even alongside corrections', async () => {
     expect(await refusal({ payload: { text: 42, edits: [CATEGORY_EDIT] } })).toEqual({
       status: 400,
