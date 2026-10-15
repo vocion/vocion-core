@@ -1,7 +1,7 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { callMcpTool, listMcpTools, mcpCredentialsOf, withMcp } from '@/libs/outboundMcp/client';
+import { callMcpTool, listMcpTools, mcpCredentialsOf, validateMcpInput, withMcp } from '@/libs/outboundMcp/client';
 import { loadMcpSources } from '@/libs/outboundMcp/sources';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 
@@ -41,13 +41,26 @@ export function mcpTools(ctx: RuntimeContext) {
         throw new Error('Only explicitly declared reads may execute here; propose writes through mcp.call.');
       }
       const credentials = mcpCredentialsOf(await getCredentialsForSource(ctx.orgId, sourceSlug));
-      return JSON.stringify(await withMcp(credentials, async (client) => {
-        const remote = (await listMcpTools(client)).find(remote => remote.name === name);
-        if (!remote || remote.annotations?.readOnlyHint !== true) {
-          throw new Error('Provider has not classified this tool as read-only.');
-        }
-        return callMcpTool(client, remote, input);
-      }));
+      try {
+        return JSON.stringify(await withMcp(credentials, async (client) => {
+          const remote = (await listMcpTools(client)).find(remote => remote.name === name);
+          if (!remote || remote.annotations?.readOnlyHint !== true) {
+            return { isError: true, error: 'Provider has not classified this tool as read-only. No tool was called.' };
+          }
+          try {
+            validateMcpInput(remote, input);
+          } catch {
+            // Keep schema mistakes in the tool result so the model can correct
+            // its arguments instead of aborting the entire chat graph.
+            return { isError: true, error: 'Arguments do not match the tool schema. Correct them using inputSchema; no tool was called.', inputSchema: remote.inputSchema };
+          }
+          return callMcpTool(client, remote, input);
+        }));
+      } catch {
+        // Transport/provider exceptions can contain credentials and raw bodies.
+        // A read failure is recoverable and must not imply an uncertain write.
+        return JSON.stringify({ isError: true, error: 'MCP read failed. No write tool was invoked. Retry the read or report that the source is unavailable.' });
+      }
     }, { name: 'mcp_read', description: 'Execute an explicitly declared read-only MCP tool. Writes are unavailable here.', schema: z.object({ sourceSlug: z.string(), name: z.string(), input: z.record(z.string(), z.unknown()) }) }),
   ];
 }
