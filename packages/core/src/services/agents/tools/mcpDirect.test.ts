@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 vi.mock('@/libs/outboundMcp/sources', async importOriginal => ({ ...await importOriginal<typeof import('@/libs/outboundMcp/sources')>(), loadMcpSources: async () => [{ slug: 'finance', config: { readTools: ['read'], writeTools: ['write'] } }] }));
 vi.mock('@/services/SourceCredentialService', () => ({ getCredentialsForSource: async () => ({ baseUrl: 'https://example.com/mcp', token: 'test' }) }));
-const remote = vi.hoisted(() => ({ readOnly: true, calls: 0, sessions: 0, fail: false, transportFail: false }));
+const remote = vi.hoisted(() => ({ readOnly: true, calls: 0, sessions: 0, fail: false, transportFail: false, result: { ok: true } as Record<string, unknown> }));
 vi.mock('@/libs/outboundMcp/client', async importOriginal => ({
   ...await importOriginal<typeof import('@/libs/outboundMcp/client')>(),
   mcpCredentialsOf: (x: unknown) => x,
@@ -22,7 +22,7 @@ vi.mock('@/libs/outboundMcp/client', async importOriginal => ({
     if (remote.fail) {
       throw new Error('secret-provider-token');
     }
-    return { ok: true };
+    return remote.result;
   },
 }));
 const { mcpTools } = await import('./mcpDirect');
@@ -33,7 +33,20 @@ function context(allowed = ['finance']): RuntimeContext {
 }
 
 describe('MCP source scope', () => {
-  beforeEach(() => Object.assign(remote, { readOnly: true, calls: 0, sessions: 0, fail: false, transportFail: false }));
+  beforeEach(() => Object.assign(remote, { readOnly: true, calls: 0, sessions: 0, fail: false, transportFail: false, result: { ok: true } }));
+
+  it('formats structured results once, preserving other content and metadata', async () => {
+    const structuredContent = { records: Array.from({ length: 25 }, (_, id) => ({ id, description: 'Expense record' })) };
+    const otherContent = [{ type: 'text', text: 'Provider note' }, { type: 'image', mimeType: 'image/png', data: 'image-data' }];
+    remote.result = { structuredContent, content: [{ type: 'text', text: JSON.stringify(structuredContent) }, ...otherContent], isError: false };
+    const read = mcpTools(context()).find(t => t.name === 'mcp_read')!;
+    const result = await read.invoke({ sourceSlug: 'finance', name: 'read', input: {} }) as string;
+
+    expect(JSON.parse(result)).toEqual({ structuredContent, content: otherContent, isError: false });
+    expect(result.split('\n').length).toBeGreaterThan(100);
+    expect(Math.max(...result.split('\n').map(line => line.length))).toBeLessThan(100);
+    expect(result.match(/Expense record/g)).toHaveLength(25);
+  });
 
   it('exposes no tools when the user ACL excludes the assigned source', () => {
     expect(mcpTools(context([]))).toEqual([]);
