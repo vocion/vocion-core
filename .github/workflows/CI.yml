@@ -365,7 +365,9 @@ jobs:
     # network, so it reaches the database by the service name, `postgres`.
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16
+        # Use the official upstream image; the public ECR mirror repeatedly
+        # exhausted its data quota before E2E tests could start.
+        image: postgres:16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
