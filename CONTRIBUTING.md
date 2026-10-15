@@ -101,6 +101,12 @@ E2E suite. Copying your primary checkout's `.env.local` works too — but read i
 first: it points at whatever database that checkout uses, and migrating from a
 worktree will migrate that one.
 
+The E2E suite brings its own database: locally, Playwright boots an in-memory
+PGlite on 5432. If Docker Postgres already holds 5432, run
+`PLAYWRIGHT_PGLITE_PORT=5499 npx playwright test` from `packages/core` instead,
+with no DATABASE_URL exported — PGlite moves to that port, and the app and the
+seed scripts the specs spawn follow it.
+
 ### A stale `tsconfig.tsbuildinfo` invents type errors
 
 `packages/core/tsconfig.json` sets `"incremental": true`, so `check:types`

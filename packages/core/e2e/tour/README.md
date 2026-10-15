@@ -20,6 +20,10 @@ the fresh-DB state shot 1 needs.
 #    stray pglite-server) and :3008.
 lsof -ti :5432,:3008          # should print nothing; otherwise stop what holds them
 # (umbrella repo: `docker compose down` keeps the pgdata volume)
+# Or leave Postgres running and put PGlite on another port instead: run step 4
+# as `PLAYWRIGHT_PGLITE_PORT=5499 npx playwright test --project=tour`, and skip
+# the DATABASE_URL export in step 2 (the config sets it, and refuses to run if
+# an exported one points elsewhere).
 
 # 2. Env — next dev validates these at boot. If packages/core/.env.local
 #    already exists (bootstrap-generated) its DATABASE_URL must point at

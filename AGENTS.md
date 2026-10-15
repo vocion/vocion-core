@@ -190,6 +190,7 @@ npm run lint:fix         # eslint . --fix
 npm run check:types      # tsc --noEmit in @vocion/core; strict mode
 npm test                 # vitest run
 npm run test:e2e         # playwright; needs the app and services running
+PLAYWRIGHT_PGLITE_PORT=5499 npm run test:e2e  # same, with its own PGlite when Postgres holds 5432
 npm run check:deps       # knip — unused dependencies and exports
 npm run check:i18n       # translation completeness for src/locales
 npm run check:integrity  # scripts/check-config-integrity.mjs
