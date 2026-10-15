@@ -1,5 +1,12 @@
 # Vocion on AWS — OpenTofu
 
+> **New installations start from [`modules/vocion-stack`](./modules/vocion-stack/README.md)**:
+> the same stack as a module, every name from `name_prefix`, with an ALB, WAF,
+> RDS, a KMS credential vault, AWS Backup and SSM-only access behind variables,
+> and a box that deploys itself to a pinned core release. The root described
+> below is the original single-box deployment, kept until it moves onto the
+> module ([parent-project pattern](../../docs/deployment/parent-project-pattern.md#the-shared-stack-modulesvocion-stack)).
+
 One `tofu apply` provisions every AWS resource needed to serve
 `https://vocion.ai` from a single EC2 instance:
 

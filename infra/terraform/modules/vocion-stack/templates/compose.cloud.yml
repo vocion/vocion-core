@@ -1,0 +1,28 @@
+# vocion-stack overlay, applied last over core's compose files by
+# vocion-deploy:
+#
+#   docker-compose.yml + infra/docker-compose.platform.yml
+#     + infra/aws/docker-compose.prod.yml + infra/docker-compose.langfuse.prod.yml
+#     + /etc/vocion/compose.cloud.yml
+#
+# It adds only what this module's install needs on top of core's:
+#   - the RDS CA bundle, read-only, where DATABASE_URL's sslrootcert points;
+#   - a host directory for VOCION_ARTIFACTS_DIR, so artifacts outlive the container;
+#   - Caddy's config for this mode (behind the ALB, or terminating TLS).
+# Compose merges volumes by their path in the container, so the Caddyfile
+# entry replaces core's rather than adding a second one.
+
+services:
+  app:
+    volumes:
+      - /opt/vocion-certs:/etc/vocion/certs:ro
+      - /opt/vocion-data/artifacts:/var/lib/vocion/artifacts
+
+  worker:
+    volumes:
+      - /opt/vocion-certs:/etc/vocion/certs:ro
+      - /opt/vocion-data/artifacts:/var/lib/vocion/artifacts
+
+  caddy:
+    volumes:
+      - /etc/vocion/Caddyfile:/etc/caddy/Caddyfile:ro
