@@ -228,7 +228,7 @@ function responsesObject(operation: RouteOperation): Record<string, unknown> {
         [response.contentType]: {
           schema: isError
             ? { $ref: '#/components/schemas/Error' }
-            : bodySchemaFor(response.contentType),
+            : bodySchemaFor(response.contentType, response.bodySchema),
         },
       };
     }
@@ -240,13 +240,19 @@ function responsesObject(operation: RouteOperation): Record<string, unknown> {
 /**
  * The schema to publish for a successful body of a given media type.
  *
- * Only JSON has a shape worth stating here; a stream or a file is described by
- * its media type and nothing more, because a `type: object` over `text/event-stream`
- * would be a claim the endpoint never makes.
+ * Only JSON has a shape worth stating here: the one read from the handler's
+ * types when there is one, a bare object when there is not. A stream or a
+ * file is described by its media type and nothing more, because a
+ * `type: object` over `text/event-stream` would be a claim the endpoint never
+ * makes.
  * @param contentType - The media type the response carries.
+ * @param bodySchema - The shape read from the handler's types; null when unknown.
  */
-function bodySchemaFor(contentType: string): Record<string, unknown> {
-  return contentType === 'application/json' ? { type: 'object' } : { type: 'string' };
+function bodySchemaFor(contentType: string, bodySchema: Record<string, unknown> | null): Record<string, unknown> {
+  if (contentType !== 'application/json') {
+    return { type: 'string' };
+  }
+  return bodySchema ?? { type: 'object' };
 }
 
 /**

@@ -1,6 +1,6 @@
 # The API reference — generated from the handlers
 
-**Status:** shipped (#396).
+**Status:** shipped (#396). Answer shapes added in #1196.
 
 ## Why it is generated
 
@@ -18,6 +18,7 @@ So the document is read out of the code. Nothing here is a list to maintain.
 | summary, description | each handler's own doc comment |
 | query parameters | every `searchParams.get('…')` the handler makes, described by the doc comment's `Query parameters:` bullets, plus `readPagination`. A name the handler guards with `if (!name)` publishes as required |
 | response media type | `NextResponse.json` (JSON), `NextResponse.redirect` (no body) and the `content-type` header on a `new Response(…)` |
+| success answer shapes | the TypeScript type of each body passed to `NextResponse.json`, written as the JSON `JSON.stringify` makes of it (see [Answer shapes](#answer-shapes)) |
 | request body | whether the handler calls `readJsonBody`, and the field names it reads. A handler that checks `content-length` or defaults the body with `?? {}` publishes an optional body |
 | statuses and error codes | the handler's `jsonError(...)` calls, and the shared helpers it uses |
 | required capability | the string passed to `requireCapability` |
@@ -26,7 +27,9 @@ So the document is read out of the code. Nothing here is a list to maintain.
 
 | Path | What it is |
 |---|---|
-| `packages/core/src/libs/openapi/parseRouteModule.ts` | Reads one route file. Pure — takes source text, returns operations. |
+| `packages/core/src/libs/openapi/parseRouteModule.ts` | Reads one route file: its source text, plus the type checker when answer shapes are wanted. Returns operations. |
+| `packages/core/src/libs/openapi/routeProgram.ts` | One TypeScript program over every route file, with the package's `tsconfig.json`. |
+| `packages/core/src/libs/openapi/responseSchema.ts` | Turns the type of a `NextResponse.json` body into a JSON schema. |
 | `packages/core/src/libs/openapi/buildDocument.ts` | Assembles the OpenAPI 3.0.3 document. |
 | `packages/core/src/scripts/generate-openapi.ts` | Walks `src/app/api/v1`, writes the document. |
 | `packages/core/src/libs/openapi/openapi.generated.json` | The committed document. |
@@ -47,7 +50,7 @@ links back to Developers.
 
 Swagger UI renders in the browser only (`ssr: false`); it reads `window` as it
 mounts, and fetches the document from `/api/v1/openapi` with the reader's own
-cookie rather than being handed it — the document is around 200 KB, and passing
+cookie rather than being handed it — the document is around 700 KB, and passing
 it into a client component would ship every byte twice.
 
 **"Try it out" is limited to GET.** The document's server is `/`, so an Execute
@@ -77,7 +80,12 @@ npm run openapi:generate
 
 `src/scripts/generate-openapi.test.ts` regenerates it during the unit suite and
 fails when the committed copy has fallen behind, so a new endpoint cannot ship
-undocumented. Add a route, run the command, commit the JSON with it.
+undocumented. Add a route, run the command, commit the JSON with it. Changing
+what a route answers changes the document too, so regenerate after that as well.
+
+Generating builds a TypeScript program over every route file, which takes about
+5 seconds and 1.4 GB of memory at peak (measured with `/usr/bin/time -l` on
+an Apple M5 Pro, 113 operations).
 
 ## Documenting an endpoint well
 
@@ -116,11 +124,41 @@ the error itself. No reading of the handler can predict those, so the document
 says so on the endpoint — "can answer with statuses beyond the ones listed" —
 rather than publishing a list that looks complete and is not.
 
-## What it does not do yet
+## Answer shapes
 
-Response bodies are described as "a JSON object", with the fields named in the
-endpoint's prose. Nothing in the code states a response shape a generator could
-read — there are no schemas on these routes — so publishing field-by-field
-response schemas would mean writing them by hand, which is the thing this design
-set out to avoid. If we want them, the honest route is to declare the shapes in
-the handlers (Zod, or an exported type) and read those.
+Each success status publishes the shape of what the handler passes
+`NextResponse.json` at that status, read from its TypeScript type. Nobody
+writes these by hand: the type is already in the code, so it cannot drift from
+what the route sends.
+
+The shape is the JSON a client receives, not the object in memory:
+
+- **Dates** are `date-time` strings. Anything else with a `toJSON` method is
+  described by what that method returns.
+- **Missing and null.** An optional property, or one that can be `undefined`, is
+  not `required`. A value that can be `null` is `nullable`.
+- **Fixed values.** String, number and boolean literals become an `enum`, so
+  `{ ok: true }` publishes `ok` as always `true`.
+- **Functions** are left out, as `JSON.stringify` leaves them out.
+- **`any` and `unknown`** become `{}`, which allows any value.
+- **Several bodies at one status** become `oneOf`, each distinct shape once.
+
+Enum values and `oneOf` members are sorted, so the document does not change
+when TypeScript happens to number its types differently.
+
+Where a shape cannot be published honestly, the status says "a JSON object"
+instead of guessing:
+
+- **An untyped body.** One body at a status typed `any` leaves the whole status
+  without a shape, since publishing only the typed ones would claim they are all
+  there is.
+- **Data from a `.json` file.** Its type is whatever the file holds today.
+  `GET /api/v1/openapi` answers with this very document, so describing it would
+  describe the last version and change it on every run.
+- **A type too big to be deliberate.** A body that takes more than 5,000 steps
+  to describe is given up on. Every real route takes under 400.
+- **A body built outside the handler**, in a module-level helper that calls
+  `NextResponse.json` itself. Only calls inside the handler are read.
+
+A type that contains itself (a folder holding folders) is described down to its
+second appearance, which is published as a plain object.

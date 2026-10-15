@@ -6,7 +6,8 @@
  * worse than nothing — a client integrates against a contract the server never
  * agreed to. So this reads the handlers instead: their locations give the
  * paths, their exports give the methods, their doc comments give the prose and
- * the query parameters, and their `jsonError` calls give the failures.
+ * the query parameters, their `jsonError` calls give the failures, and the
+ * types of what they pass `NextResponse.json` give the answers' shapes.
  *
  * The result is written to `src/libs/openapi/openapi.generated.json` and
  * committed, because the app serves it in production where `src/` is not on
@@ -16,6 +17,7 @@
  * Run: npm run openapi:generate --workspace @vocion/core
  */
 
+import type ts from 'typescript';
 import type { OpenApiDocument } from '../libs/openapi/types';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
@@ -23,6 +25,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { buildOpenApiDocument } from '../libs/openapi/buildDocument';
 import { parseRouteModule, routeFileToApiPath } from '../libs/openapi/parseRouteModule';
+import { createRouteProgram } from '../libs/openapi/routeProgram';
 import { fromRepoRoot } from '../libs/repo-root';
 
 /** Where the documented endpoints live. */
@@ -58,6 +61,10 @@ export function listRouteFiles(directory: string): string[] {
 
 /**
  * Read every route file and build the document.
+ *
+ * One TypeScript program covers every route, so the type checker can say
+ * what each one answers. Building it is most of the run's time, a few
+ * seconds, and it happens once.
  * @param directory - Where the route files live.
  * @param version - The version to publish in `info.version`.
  */
@@ -65,10 +72,27 @@ export function generateOpenApiDocument(
   directory: string = V1_ROUTES_DIRECTORY,
   version: string = readPackageVersion(),
 ): OpenApiDocument {
-  const operations = listRouteFiles(directory).flatMap(routeFile =>
-    parseRouteModule(readFileSync(join(directory, routeFile), 'utf-8'), routeFileToApiPath(routeFile)),
-  );
+  const routeFiles = listRouteFiles(directory);
+  const program = createRouteProgram(routeFiles.map(routeFile => join(directory, routeFile)));
+  const checker = program.getTypeChecker();
+  const operations = routeFiles.flatMap(routeFile => parseRoute(directory, routeFile, program, checker));
   return buildOpenApiDocument(operations, version);
+}
+
+/**
+ * Read one route file's operations, with the program's view of its types.
+ * @param directory - Where the route files live.
+ * @param routeFile - The route file, relative to `directory`.
+ * @param program - The program over every route file.
+ * @param checker - That program's type checker.
+ */
+function parseRoute(directory: string, routeFile: string, program: ts.Program, checker: ts.TypeChecker) {
+  const path = join(directory, routeFile);
+  const sourceFile = program.getSourceFile(path);
+  if (!sourceFile) {
+    throw new Error(`The route program did not load ${path}.`);
+  }
+  return parseRouteModule(readFileSync(path, 'utf-8'), routeFileToApiPath(routeFile), { checker, sourceFile });
 }
 
 /** The version this package publishes, so the spec and the app agree. */

@@ -1,7 +1,9 @@
+import type { PublishedSchema } from './support/schemaMismatches';
 import { execFileSync } from 'node:child_process';
 import process from 'node:process';
 import { expect, test } from '@playwright/test';
 import { tolerateExistingUser } from '../../tests/TestUtils';
+import { schemaMismatches } from './support/schemaMismatches';
 
 /**
  * #396 — the published API description, end to end.
@@ -10,8 +12,9 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
  * stop at "the endpoint returns JSON". It reads the document from the running
  * app, then calls endpoints the document describes and checks the app answers
  * the way the document said it would: the same auth, the same status, the same
- * error envelope. A generated spec that had drifted from the code would fail
- * here rather than in a client's integration.
+ * error envelope, and a success body of the shape the document publishes
+ * (#1196). A generated spec that had drifted from the code would fail here
+ * rather than in a client's integration.
  *
  * Uses Playwright's `request` fixture for the API, and one browser check that
  * the reference page is behind the login like the rest of the dashboard.
@@ -98,6 +101,10 @@ test.describe('GET /api/v1/openapi', () => {
 
     expect(paths.length).toBeGreaterThan(5);
 
+    // How many success bodies were held to a published shape, so a sweep that
+    // quietly checked none (every call refused, say) cannot pass.
+    let shapesChecked = 0;
+
     // Every one of them, not a sample: the endpoints this would have skipped
     // are exactly the ones nobody checks by hand either.
     for (const path of paths) {
@@ -134,7 +141,18 @@ test.describe('GET /api/v1/openapi', () => {
         Object.keys(operation.responses),
         `${path} documents the status it answered with`,
       ).toContain(String(status));
+
+      // The shape is read from the handler's types, and a type can lie (an
+      // `as` cast, a column the query never selects), so check the real body.
+      const published = operation.responses[String(status)]?.content?.['application/json']?.schema as PublishedSchema | undefined;
+      if (status < 300 && published) {
+        expect(schemaMismatches(await authenticated.json(), published), `${path} answers the shape the document publishes`).toEqual([]);
+
+        shapesChecked++;
+      }
     }
+
+    expect(shapesChecked, 'success bodies checked against their published shape').toBeGreaterThan(5);
   });
 });
 
