@@ -750,7 +750,17 @@ export async function runAgentDeep(opts: {
     : null;
   // Phase 7 — pre-flight budget check. Refuse the run if the agent
   // is over its hard cap; otherwise proceed.
-  const budgetCheck = await preflightCheck({ orgId: opts.orgId, agentSlug: opts.agentSlug });
+  // The budget, the history's live card state and the agent's row are three
+  // independent reads: one round trip, not three in a row (2026-10-09: a
+  // measured Metacto turn spent ~7s before its graph started).
+  const [budgetCheck, conversationHistory, [agentRow]] = await Promise.all([
+    preflightCheck({ orgId: opts.orgId, agentSlug: opts.agentSlug }),
+    withLiveCardState(opts.orgId, opts.conversationHistory),
+    db
+      .select({ harnessConfig: agentSchema.harnessConfig, systemPrompt: agentSchema.systemPrompt })
+      .from(agentSchema)
+      .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.slug, opts.agentSlug))),
+  ]);
   if (!budgetCheck.ok) {
     // Names the row that refused, not the agent that asked: since #279 the
     // check also covers the workspace-wide cap, and "raise the cap on this
@@ -784,11 +794,6 @@ export async function runAgentDeep(opts: {
   // Each card a past turn put up replays as what its proposal is NOW — run,
   // failed, still waiting — not as the turn stored it (conversation 360: two
   // cards that had started the build replayed as undecided duplicates).
-  const conversationHistory = await withLiveCardState(opts.orgId, opts.conversationHistory);
-  const [agentRow] = await db
-    .select({ harnessConfig: agentSchema.harnessConfig, systemPrompt: agentSchema.systemPrompt })
-    .from(agentSchema)
-    .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.slug, opts.agentSlug)));
   const harness = agentRow?.harnessConfig;
   // A model override pins the turn to the in-process loop, whatever the agent's
   // harness says — see the option's doc comment.
@@ -828,6 +833,10 @@ export async function runAgentDeep(opts: {
   // this file and must never statically load the LLM module.
   const { chatModelOptionsFor, chatModelOptionsWithOverride } = await import('./agents/harness');
   const { resolvedModelId, resolvedModelIdFor, resolveProvider } = await import('@/libs/llm/langchain');
+  // The turn's mounted files (playbooks, memory, wiki) do not depend on the
+  // effort level or the compiled graph: read them while those are decided.
+  const initialFilesRead = buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
+  initialFilesRead.catch(() => {});
   const effortDecision = effortApplies
     ? await effortMod.decideEffort({
         person: personEffort,
@@ -955,7 +964,7 @@ export async function runAgentDeep(opts: {
     emit({ type: 'run_meta', model: chosen.model ?? resolvedModelId('main'), provider, strength: turnPrefs.strength, thinking: turnPrefs.effort, ...(effortDecision ? { effort: { level: effortDecision.level, chosenBy: effortDecision.chosenBy, ...(effortDecision.reason ? { reason: effortDecision.reason } : {}) } } : {}) });
   }
 
-  const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
+  const initialFiles = await initialFilesRead;
 
   // Silent signal for the adoption surfaces; the chat consumer's event switch
   // has no case for it, so the transcript is untouched.
