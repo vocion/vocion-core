@@ -1,16 +1,25 @@
 import type { RuntimeContext } from '../types';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 vi.mock('@/libs/outboundMcp/sources', async importOriginal => ({ ...await importOriginal<typeof import('@/libs/outboundMcp/sources')>(), loadMcpSources: async () => [{ slug: 'finance', config: { readTools: ['read'], writeTools: ['write'] } }] }));
 vi.mock('@/services/SourceCredentialService', () => ({ getCredentialsForSource: async () => ({ baseUrl: 'https://example.com/mcp', token: 'test' }) }));
-const remote = vi.hoisted(() => ({ readOnly: true, calls: 0 }));
-vi.mock('@/libs/outboundMcp/client', () => ({
+const remote = vi.hoisted(() => ({ readOnly: true, calls: 0, fail: false, transportFail: false }));
+vi.mock('@/libs/outboundMcp/client', async importOriginal => ({
+  ...await importOriginal<typeof import('@/libs/outboundMcp/client')>(),
   mcpCredentialsOf: (x: unknown) => x,
-  withMcp: async (_x: unknown, fn: (x: unknown) => unknown) => fn({}),
-  listMcpTools: async () => [{ name: 'read', annotations: { readOnlyHint: remote.readOnly } }],
+  withMcp: async (_x: unknown, fn: (x: unknown) => unknown) => {
+    if (remote.transportFail) {
+      throw new Error('secret-transport-token');
+    }
+    return fn({});
+  },
+  listMcpTools: async () => [{ name: 'read', annotations: { readOnlyHint: remote.readOnly }, inputSchema: { type: 'object', properties: { start: { type: 'integer', minimum: 1 } }, additionalProperties: false } }],
   callMcpTool: async () => {
     remote.calls++;
+    if (remote.fail) {
+      throw new Error('secret-provider-token');
+    }
     return { ok: true };
   },
 }));
@@ -21,6 +30,8 @@ function context(allowed = ['finance']): RuntimeContext {
 }
 
 describe('MCP source scope', () => {
+  beforeEach(() => Object.assign(remote, { readOnly: true, calls: 0, fail: false, transportFail: false }));
+
   it('exposes no tools when the user ACL excludes the assigned source', () => {
     expect(mcpTools(context([]))).toEqual([]);
   });
@@ -36,7 +47,7 @@ describe('MCP source scope', () => {
     remote.readOnly = false;
     const read = mcpTools(context()).find(t => t.name === 'mcp_read')!;
 
-    await expect(read.invoke({ sourceSlug: 'finance', name: 'read', input: {} })).rejects.toThrow('read-only');
+    expect(JSON.parse(await read.invoke({ sourceSlug: 'finance', name: 'read', input: {} }) as string)).toMatchObject({ isError: true, error: expect.stringContaining('read-only') });
     expect(remote.calls).toBe(0);
   });
 
@@ -44,5 +55,29 @@ describe('MCP source scope', () => {
     const result = await runProposal(context([]), { actionId: 'mcp.call', input: { sourceSlug: 'finance' }, confidence: 1, rationale: 'test', suggestedDecision: 'approve', suggestedDecisionReason: 'test' }, { tool: 'propose_action' });
 
     expect(result).toContain('outside');
+  });
+
+  it('returns the schema for invalid arguments and allows a corrected next call', async () => {
+    const read = mcpTools(context()).find(t => t.name === 'mcp_read')!;
+    const invalid = JSON.parse(await read.invoke({ sourceSlug: 'finance', name: 'read', input: { start_position: 26 } }) as string);
+
+    expect(invalid).toMatchObject({ isError: true, inputSchema: { properties: { start: { type: 'integer' } } } });
+    expect(remote.calls).toBe(0);
+
+    const corrected = JSON.parse(await read.invoke({ sourceSlug: 'finance', name: 'read', input: { start: 26 } }) as string);
+
+    expect(corrected.ok).toBe(true);
+    expect(remote.calls).toBe(1);
+  });
+
+  it.each(['fail', 'transportFail'] as const)('returns a sanitized read error without aborting on %s', async (failure) => {
+    remote[failure] = true;
+    const read = mcpTools(context()).find(t => t.name === 'mcp_read')!;
+    const result = await read.invoke({ sourceSlug: 'finance', name: 'read', input: {} }) as string;
+
+    expect(JSON.parse(result).isError).toBe(true);
+    expect(result).toContain('No write tool was invoked');
+    expect(result).not.toContain('secret-');
+    expect(result).not.toContain('may have succeeded');
   });
 });
