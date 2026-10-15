@@ -1,3 +1,31 @@
+# A release is the commit CI passed on a push to a release line, and nothing else.
+#
+# This runs when CI completes. Until 5.1 it released whatever it found: a workflow_run checks out
+# the default branch's current HEAD, and semantic-release (env-ci) reads the branch from
+# GITHUB_REF, which on this event always names the default branch. So a tag could land on a commit
+# whose own CI was still running, a failed CI run still released, and a green run on `next` or a
+# maintenance line released `main`. Now:
+#
+#   - only a CI run that concluded `success` on a `push` releases; a pull request's CI never does;
+#   - the job checks out that run's head_sha and tells semantic-release that run's head_branch;
+#   - it releases only while that commit is exactly the branch's tip, read from the remote just
+#     before semantic-release runs. semantic-release's own check (isBranchUpToDate) runs only when
+#     a dry-run push of HEAD fails, so it stops a commit BEHIND the tip but lets one AHEAD of it
+#     through (the branch force-pushed back while CI ran). When the line has moved on, the run
+#     says so and stops, so a tag never lands on a commit CI has not passed;
+#   - one release per line at a time (a newer one waiting replaces an older one waiting). That is
+#     the next CI to finish, not always the newest commit's, so a tip can wait for the line's next
+#     green push: late, never wrong. docs/deployment/release-lines.md has the case.
+#
+# What a run released is the tags on its commit that were not there before semantic-release ran,
+# so a commit that already carried a tag (a new N.x line cut from a release, a re-run) reports
+# nothing new, and an rc and a final on one commit are never confused.
+#
+# After a release, `runner-image` gives it its runner image: ghcr.io/<owner>/vocion-runner:vX.Y.Z,
+# the same image as the sha- tag with the release's runner source (scripts/tag-runner-image.sh), or
+# a build of the release's runner here when no published image is it. A release's runner tag never
+# moves once it exists. Run this workflow by hand with a release tag to give one made before that
+# existed its image. See docs/deployment/release-lines.md.
 name: Release
 
 on:
@@ -9,36 +37,223 @@ on:
       - main
       - next
       - '[0-9]+.x'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: A release tag (v5.0.0) to give its runner image tag. Releases nothing.
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   release:
-    strategy:
-      matrix:
-        node-version: [22.x]
+    if: >-
+      github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
 
-    name: Create a new release
+    name: Release the commit CI passed
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: release-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
 
     permissions:
       contents: write # to be able to publish a GitHub release
       issues: write # to be able to comment on released issues
       pull-requests: write # to be able to comment on released pull requests
 
+    outputs:
+      tag: ${{ steps.released.outputs.tag }}
+
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      RELEASE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Set up Node.js environment
         uses: ./.github/actions/setup-project
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 22.x
 
       - name: Verify the integrity of provenance attestations and registry signatures for installed dependencies
         run: npm audit signatures
 
       - name: Release
-        run: npx semantic-release
+        id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          case "${RELEASE_BRANCH}" in
+            main | next | [0-9]*.x) ;;
+            *) echo "::error::${RELEASE_BRANCH} is not a release line"; exit 1 ;;
+          esac
+          [ "$(git rev-parse HEAD)" = "${RELEASE_SHA}" ] \
+            || { echo "::error::checked out $(git rev-parse HEAD), not the commit CI passed (${RELEASE_SHA})"; exit 1; }
+          # Only the line's tip is released. Ask the remote, ahead or behind alike.
+          tip=$(git ls-remote --exit-code origin "refs/heads/${RELEASE_BRANCH}" | cut -f1) \
+            || { echo "::error::could not read the tip of ${RELEASE_BRANCH} from origin"; exit 1; }
+          if [ "${tip}" != "${RELEASE_SHA}" ]; then
+            {
+              echo "### Release"
+              echo "- nothing released: \`${RELEASE_BRANCH}\` is at ${tip:0:12}, not ${RELEASE_SHA:0:12}. Only a line's tip is released, by its own green CI."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # The tags already on this commit, so the next step can tell what this run added.
+          git fetch -q --force --tags origin
+          git tag --points-at HEAD --list 'v*' | sort > "${RUNNER_TEMP}/release-tags-before"
+          # env-ci takes the branch from GITHUB_REF and the commit from GITHUB_SHA. On a
+          # workflow_run both name the default branch's head, so hand it the run's own.
+          GITHUB_REF="refs/heads/${RELEASE_BRANCH}" GITHUB_SHA="${RELEASE_SHA}" npx semantic-release
+
+      # Runs even when semantic-release failed: it pushes the tag before it publishes the GitHub
+      # release and comments on issues, so a failure there still leaves a release to report and
+      # a runner image to tag.
+      - name: Say what was released
+        id: released
+        if: always() && steps.release.outcome != 'skipped'
+        env:
+          OUTCOME: ${{ steps.release.outcome }}
+        run: |
+          before="${RUNNER_TEMP}/release-tags-before"
+          # No snapshot: the release step stopped before semantic-release and said why.
+          [ -f "${before}" ] || exit 0
+          tag=""
+          for t in $(comm -13 "${before}" <(git tag --points-at "${RELEASE_SHA}" --list 'v*' | sort)); do
+            # A tag semantic-release made but never pushed is not a release.
+            git ls-remote --exit-code --tags origin "refs/tags/${t}" > /dev/null || continue
+            if [ -z "${tag}" ]; then
+              tag="${t}"
+            else
+              echo "::warning::${t} also appeared on ${RELEASE_SHA} while this ran; only ${tag} is tagged here, so run Release by hand with ${t}"
+            fi
+          done
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Release"
+            if [ -n "${tag}" ]; then
+              echo "- \`${tag}\` is ${RELEASE_SHA} on \`${RELEASE_BRANCH}\`"
+              [ "${OUTCOME}" = "success" ] \
+                || echo "- semantic-release failed after pushing the tag (see the Release step); the release stands and its runner image is still tagged"
+            elif [ "${OUTCOME}" = "success" ]; then
+              echo "- nothing released from ${RELEASE_SHA} on \`${RELEASE_BRANCH}\`: no releasable commits since its last release"
+            else
+              echo "- nothing released: semantic-release failed before it tagged ${RELEASE_SHA} (see the Release step)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  runner-image:
+    needs: release
+    if: >-
+      !cancelled()
+      && (github.event_name == 'workflow_dispatch' || needs.release.outputs.tag != '')
+
+    name: Tag the release's runner image
+    runs-on: ubuntu-latest
+    # Seconds when it only names an image. It can wait out the release's own runner build, or
+    # build the release's runner itself (about ten minutes each).
+    timeout-minutes: 75
+    # One job per release at a time, so two runs never both find its tag missing.
+    concurrency:
+      group: runner-release-tag-${{ needs.release.outputs.tag || inputs.release }}
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+      packages: write # to tag, or build and push, the release's runner image
+      actions: read # to read Runner image runs
+
+    env:
+      TAG: ${{ needs.release.outputs.tag || inputs.release }}
+      IMAGE: ghcr.io/${{ github.repository_owner }}/vocion-runner
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Point vX.Y.Z at the release's runner image
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: bash scripts/tag-runner-image.sh
+
+      # No published image is the release's runner, so build it here: the release's own
+      # packages/runner, with this file's build definition, which mirrors runner-image.yml's push
+      # build (platforms, WORKER_VERSION, the boot check). Never runner-image.yml dispatched on the
+      # tag: that runs the tag's own copy of the workflow, which before 5.1 could push `:main`
+      # (the 4.x alias that never moves) and never left an existing vX.Y.Z alone.
+      - name: Check out the release
+        if: steps.tag.outputs.result == 'build'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.tag.outputs.commit }}
+          path: release
+          persist-credentials: false
+
+      - uses: docker/setup-qemu-action@v3
+        if: steps.tag.outputs.result == 'build'
+
+      - name: Build the release's runner for amd64 and load it
+        if: steps.tag.outputs.result == 'build'
+        uses: docker/build-push-action@v6
+        with:
+          context: release/packages/runner
+          file: release/packages/runner/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: vocion-runner:release
+          build-args: WORKER_VERSION=${{ steps.tag.outputs.commit }}
+          cache-from: type=gha,scope=runner
+
+      - name: The image starts, has nothing to do, and exits 0
+        if: steps.tag.outputs.result == 'build'
+        env:
+          COMMIT: ${{ steps.tag.outputs.commit }}
+        run: |
+          out=$(docker run --rm -e RUNNER_TARGET=ci vocion-runner:release)
+          echo "$out"
+          echo "$out" | head -1 | jq -e --arg v "${COMMIT}" '.phase == "boot" and .worker_version == $v and (.worker | startswith("ci-"))'
+          echo "$out" | jq -e -s 'map(select(.phase == "exit")) | length == 1'
+
+      - name: Build for amd64 and arm64 and push, tagged by the commit and the release
+        if: steps.tag.outputs.result == 'build'
+        uses: docker/build-push-action@v6
+        with:
+          context: release/packages/runner
+          file: release/packages/runner/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ steps.tag.outputs.commit }}
+            ${{ env.IMAGE }}:${{ env.TAG }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.tag.outputs.commit }}
+          build-args: WORKER_VERSION=${{ steps.tag.outputs.commit }}
+          cache-from: type=gha,scope=runner
+
+      - name: Say what was built
+        if: steps.tag.outputs.result == 'build'
+        env:
+          COMMIT: ${{ steps.tag.outputs.commit }}
+        run: |
+          echo "- built and pushed \`${IMAGE}:sha-${COMMIT}\` and \`${IMAGE}:${TAG}\`, linux/amd64 and linux/arm64" >> "$GITHUB_STEP_SUMMARY"

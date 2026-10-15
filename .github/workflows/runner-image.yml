@@ -12,6 +12,15 @@
 #                  `main` is a 4.x alias and never moves to a newer major, because an install we
 #                  cannot see may still pull it: only the branch named in MAIN_ALIAS_BRANCH (4.x)
 #                  moves it. See docs/deployment/release-lines.md.
+#   a release       the Release workflow tags vX.Y.Z onto the newest published image with the
+#                  release's runner source (scripts/tag-runner-image.sh), so a deployment pins
+#                  the runner by release name, and builds the release's runner itself when no
+#                  published image is it. It never dispatches this workflow on a tag.
+#   workflow_dispatch on a release tag (vX.Y.Z), by hand
+#                  builds that commit and pushes sha-<commit>, plus vX.Y.Z only if that tag does
+#                  not exist yet: a release's runner tag never moves. This runs the TAG's copy of
+#                  this file, so on a release from before 5.1 it can push `main` or replace
+#                  vX.Y.Z. Run the Release workflow by hand with the release instead.
 name: Runner image
 on:
   pull_request:
@@ -94,14 +103,31 @@ jobs:
         if: github.event_name != 'pull_request'
         id: tags
         run: |
+          # A release, built by hand: its own name, unless it has one already, which never moves.
+          release_tag=""
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            if docker buildx imagetools inspect "${IMAGE}:${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+              echo "::warning::${IMAGE}:${GITHUB_REF_NAME} already exists and a release's runner tag never moves; this build is only sha-${GITHUB_SHA}"
+            else
+              release_tag="${IMAGE}:${GITHUB_REF_NAME}"
+            fi
+          fi
           {
             echo "list<<EOF"
             echo "${IMAGE}:sha-${GITHUB_SHA}"
-            if [ "${GITHUB_REF_NAME}" = "${MAIN_ALIAS_BRANCH}" ]; then echo "${IMAGE}:main"; fi
-            if [ "${GITHUB_REF_NAME}" = "main" ]; then echo "${IMAGE}:${MAIN_LINE_TAG}"; else echo "${IMAGE}:${GITHUB_REF_NAME}"; fi
+            case "${GITHUB_REF}" in
+              refs/tags/v*) if [ -n "${release_tag}" ]; then echo "${release_tag}"; fi ;;
+              refs/heads/main) echo "${IMAGE}:${MAIN_LINE_TAG}" ;;
+              *)
+                if [ "${GITHUB_REF_NAME}" = "${MAIN_ALIAS_BRANCH}" ]; then echo "${IMAGE}:main"; fi
+                echo "${IMAGE}:${GITHUB_REF_NAME}"
+                ;;
+            esac
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # release.yml's runner-image job repeats this build (and the boot check above) for a
+      # release no published image is the runner of. Change the two together.
       - name: Build for amd64 and arm64 and push, tagged by the commit and the line
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
