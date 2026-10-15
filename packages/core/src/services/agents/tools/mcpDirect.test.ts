@@ -1,14 +1,16 @@
+import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 vi.mock('@/libs/outboundMcp/sources', async importOriginal => ({ ...await importOriginal<typeof import('@/libs/outboundMcp/sources')>(), loadMcpSources: async () => [{ slug: 'finance', config: { readTools: ['read'], writeTools: ['write'] } }] }));
 vi.mock('@/services/SourceCredentialService', () => ({ getCredentialsForSource: async () => ({ baseUrl: 'https://example.com/mcp', token: 'test' }) }));
-const remote = vi.hoisted(() => ({ readOnly: true, calls: 0, fail: false, transportFail: false }));
+const remote = vi.hoisted(() => ({ readOnly: true, calls: 0, sessions: 0, fail: false, transportFail: false }));
 vi.mock('@/libs/outboundMcp/client', async importOriginal => ({
   ...await importOriginal<typeof import('@/libs/outboundMcp/client')>(),
   mcpCredentialsOf: (x: unknown) => x,
   withMcp: async (_x: unknown, fn: (x: unknown) => unknown) => {
+    remote.sessions++;
     if (remote.transportFail) {
       throw new Error('secret-transport-token');
     }
@@ -24,22 +26,33 @@ vi.mock('@/libs/outboundMcp/client', async importOriginal => ({
   },
 }));
 const { mcpTools } = await import('./mcpDirect');
+const { deferColdTools } = await import('../toolTiers');
 const { runProposal } = await import('./proposeAction');
 function context(allowed = ['finance']): RuntimeContext {
   return { orgId: 'org', connectorSources: ['finance'], sourceKinds: { finance: 'mcp' }, allowedSourceSlugs: allowed } as unknown as RuntimeContext;
 }
 
 describe('MCP source scope', () => {
-  beforeEach(() => Object.assign(remote, { readOnly: true, calls: 0, fail: false, transportFail: false }));
+  beforeEach(() => Object.assign(remote, { readOnly: true, calls: 0, sessions: 0, fail: false, transportFail: false }));
 
   it('exposes no tools when the user ACL excludes the assigned source', () => {
     expect(mcpTools(context([]))).toEqual([]);
   });
 
+  it('keeps discovery and reads visible even before either has usage history', () => {
+    const tools = mcpTools(context());
+    deferColdTools(tools, new Set(), tools[0]!);
+
+    for (const tool of tools) {
+      expect(tool.extras?.defer_loading).not.toBe(true);
+    }
+  });
+
   it('refuses a write through the read tool', async () => {
     const read = mcpTools(context()).find(t => t.name === 'mcp_read')!;
 
-    await expect(read.invoke({ sourceSlug: 'finance', name: 'write', input: {} })).rejects.toThrow('Only explicitly declared reads');
+    expect(JSON.parse(await read.invoke({ sourceSlug: 'finance', name: 'write', input: {} }) as string)).toMatchObject({ isError: true, availableReadTools: ['read'] });
+    expect(remote.sessions).toBe(0);
     expect(remote.calls).toBe(0);
   });
 
@@ -79,5 +92,36 @@ describe('MCP source scope', () => {
     expect(result).toContain('No write tool was invoked');
     expect(result).not.toContain('secret-');
     expect(result).not.toContain('may have succeeded');
+  });
+
+  it('returns permitted names for an unknown tool and can execute a corrected read', async () => {
+    const read = mcpTools(context()).find(t => t.name === 'mcp_read')!;
+    const invalid = JSON.parse(await read.invoke({ sourceSlug: 'finance', name: 'mcp_list_tools', input: {} }) as string);
+
+    expect(invalid).toMatchObject({ isError: true, availableReadTools: ['read'] });
+    expect(remote.sessions).toBe(0);
+    expect(remote.calls).toBe(0);
+    expect(JSON.parse(await read.invoke({ sourceSlug: 'finance', name: 'read', input: {} }) as string).ok).toBe(true);
+    expect(remote.calls).toBe(1);
+  });
+
+  it.each(['mcp_read', 'mcp_list_tools'])('denies an out-of-scope source without aborting %s or opening a session', async (name) => {
+    const selected: StructuredToolInterface = mcpTools(context()).find(t => t.name === name)!;
+    const result = await selected.invoke({ sourceSlug: 'unassigned', name: 'read', input: {} }) as string;
+
+    expect(JSON.parse(result).isError).toBe(true);
+    expect(result).not.toContain('availableReadTools');
+    expect(remote.sessions).toBe(0);
+    expect(remote.calls).toBe(0);
+  });
+
+  it('sanitizes discovery errors without aborting chat', async () => {
+    remote.transportFail = true;
+    const discovery = mcpTools(context()).find(t => t.name === 'mcp_list_tools')!;
+    const result = await discovery.invoke({ sourceSlug: 'finance' }) as string;
+
+    expect(JSON.parse(result).isError).toBe(true);
+    expect(result).not.toContain('secret-');
+    expect(remote.calls).toBe(0);
   });
 });
