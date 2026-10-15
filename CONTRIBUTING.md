@@ -82,22 +82,19 @@ cp packages/core/.env.example packages/core/.env.local   # nor is .env.local
 `packages/core/.env.local` is gitignored (`.env*.local` in `.gitignore`), so a
 new worktree has no environment at all. `packages/core/src/libs/Env.ts`
 validates on import and `DATABASE_URL` is required there, so **it has to be set
-before anything runs** — `npm test`, `npm run dev` and the build all fail during
-module load, before a single test executes, and the failure names the env schema
-rather than the worktree. `AUTH_SECRET` is optional to the schema but required
-by Auth.js as soon as a request hits it, so set both and stop thinking about it.
+before the app runs** — `npm run dev` and the build fail during module load, and
+the failure names the env schema rather than the worktree. `AUTH_SECRET` is
+optional to the schema but required by Auth.js as soon as a request hits it, so
+set both and stop thinking about it.
 
-For unit tests the values only have to be present and well-formed; nothing dials
-them. `.github/workflows/CI.yml` uses exactly this, and copying it into a
-worktree's `.env.local` is enough to run `npm test`:
-
-```
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/vocion_test
-AUTH_SECRET=<openssl rand -base64 32>
-```
+`npm test` needs neither, and never reads `.env.local`: the Vitest config gives
+every test the same fixed placeholders CI uses, so a personal setting can't make
+a test pass or fail on one laptop only. The live tests (`DURABLE_PG_URL`,
+`LIVE_PG_URL`, `VOCION_ROUTER_LIVE_KEY`) therefore run only when the variable is
+exported in the shell for that run; kept in `.env.local`, they show as skipped.
 
 A real database is only needed for `npm run dev`, `npm run db:migrate` and the
-E2E suite. Copying your primary checkout's `.env.local` works too — but read it
+E2E suite. Copying your primary checkout's `.env.local` works — but read it
 first: it points at whatever database that checkout uses, and migrating from a
 worktree will migrate that one.
 
