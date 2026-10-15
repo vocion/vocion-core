@@ -6,6 +6,32 @@ import { loadMcpSources } from '@/libs/outboundMcp/sources';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 
 /**
+ * Keep structured reads line-addressable when large results spill to a file.
+ * @param result
+ */
+function readableResult(result: Record<string, unknown>) {
+  const structured = result.structuredContent;
+  if (structured === undefined || !Array.isArray(result.content)) {
+    return result;
+  }
+  return {
+    ...result,
+    // MCP servers commonly include the same JSON twice. The escaped text copy
+    // becomes one enormous line and prevents useful line-based file reads.
+    content: result.content.filter((block) => {
+      if (block.type !== 'text' || typeof block.text !== 'string') {
+        return true;
+      }
+      try {
+        return JSON.stringify(JSON.parse(block.text)) !== JSON.stringify(structured);
+      } catch {
+        return true;
+      }
+    }),
+  };
+}
+
+/**
  * Both the agent assignment and requesting user's source ACL must permit access.
  * @param ctx - The agent and requesting user scope.
  */
@@ -62,8 +88,8 @@ export function mcpTools(ctx: RuntimeContext) {
             // its arguments instead of aborting the entire chat graph.
             return { isError: true, error: 'Arguments do not match the tool schema. Correct them using inputSchema; no tool was called.', inputSchema: remote.inputSchema };
           }
-          return callMcpTool(client, remote, input);
-        }));
+          return readableResult(await callMcpTool(client, remote, input));
+        }), null, 2);
       } catch {
         // Transport/provider exceptions can contain credentials and raw bodies.
         // A read failure is recoverable and must not imply an uncertain write.
