@@ -549,6 +549,10 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
   // A REST source's endpoints (`tools`, `actions`) are declared in the
   // workspace manifest, not typed into a form — the form asks only for the
   // two scalars. The credential (base URL + bearer token) is taken by Connect.
+  'mcp': [
+    { key: 'readTools', label: 'Read tools', type: 'stringArray', help: 'Exact tool names allowed for live reads. Provider must also declare readOnlyHint.' },
+    { key: 'writeTools', label: 'Write tools', type: 'stringArray', help: 'Exact tool names available through human Review. Leave empty to disable writes.' },
+  ],
   'rest': [
     {
       key: 'toolPrefix',

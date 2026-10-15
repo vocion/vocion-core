@@ -76,6 +76,7 @@ import {
 import { liveBrowserTools } from './liveBrowser';
 import { lookupObjectsTool } from './lookupObjects';
 import { lookupPersonTools } from './lookupPerson';
+import { mcpTools } from './mcpDirect';
 import { updateMissionNotesTool } from './missionNotes';
 import { offerConnectionTool } from './offerConnection';
 import { pageContextTool } from './pageContext';
@@ -330,6 +331,7 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Source-gated — the live reads every `rest` source in scope declares,
     // plus its action catalog. Empty without one (`ctx.restSources`).
     ...restTools(ctx),
+    ...mcpTools(ctx),
     // Source-gated — the PostHog daily mirror, summed. Empty without a posthog source.
     ...posthogCountTools(ctx),
     // Source-gated read-through caches (zoom / gmail sources in scope).

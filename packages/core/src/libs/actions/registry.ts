@@ -30,6 +30,7 @@ import { gmailSendAction } from './gmail-send';
 import { goalCreateAction } from './goal-create';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
+import { mcpCallAction } from './mcp';
 import { meSetPhoneAction } from './me-set-phone';
 import { membersInviteAction } from './members-invite';
 import { missionUpdateNotesAction } from './mission-update-notes';
@@ -118,6 +119,7 @@ registerAction(hubspotUpdateAction);
 // A write to any `rest` source through an endpoint it declares — external,
 // not reversible, keyed per endpoint on the ladder (`rest.request.<source>.<action>`).
 registerAction(restRequestAction);
+registerAction(mcpCallAction);
 // A message to a Slack channel the workspace bound — external, Undo deletes
 // the post, the words editable on the card (`libs/actions/slack-post-message.ts`).
 registerAction(slackPostMessageAction);

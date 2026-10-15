@@ -428,7 +428,8 @@ describe('connector platforms', () => {
     // and each source names the one it uses.
     const rest = getPlatform('rest');
 
-    expect(rest.label).toBe('REST API (bearer token)');
+    expect(rest.label).toBe('REST or MCP API (bearer token)');
+    expect(platformForConnectorSlug('mcp')?.id).toBe('rest');
     expect(rest.credentialsPerOrg).toBe('many');
     expect(rest.fields.map(field => field.name)).toEqual(['baseUrl', 'token']);
     expect(visibleFields(rest).map(field => field.name)).toEqual(['baseUrl']);
