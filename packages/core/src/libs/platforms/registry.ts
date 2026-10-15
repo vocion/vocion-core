@@ -944,7 +944,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   },
   {
     id: 'rest',
-    label: 'REST API (bearer token)',
+    label: 'REST or MCP API (bearer token)',
     keySource: 'supplied',
     // `many`, like `strapi`, and for the same reason: the credential is a token
     // plus the base URL it was issued for, so it names one API and a workspace
@@ -958,7 +958,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // is no other header scheme, on purpose — one shape, and the first API to
     // need another can add a `headerName` field beside these two.
     credentialsPerOrg: 'many',
-    connectorSlugs: ['rest'],
+    connectorSlugs: ['rest', 'mcp'],
     howToConnect: {
       paste: {
         credential: 'Bearer token',

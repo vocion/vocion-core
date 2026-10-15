@@ -127,6 +127,13 @@ async function runProposalInner(
   // — a plan, a card): every other action a model might call from the same
   // turn is still stamped `agent:<slug>`, so `factory.approve_plan`'s guard
   // against an agent proposing its own approval (#845) is unaffected.
+  if (action_id === 'mcp.call') {
+    const source = action_input.sourceSlug;
+    if (typeof source !== 'string' || !ctx.connectorSources.includes(source)
+      || (ctx.allowedSourceSlugs && !ctx.allowedSourceSlugs.includes(source))) {
+      return 'This MCP source is outside the agent or requesting user source scope.';
+    }
+  }
   const factoryStep = isFactoryStep(ctx) && action_id === IDEA_ACTION_ID;
   // THE PROPOSAL BUDGET. An agent on its own schedule may hold only so
   // many undecided items in Review; past that it withdraws one of its

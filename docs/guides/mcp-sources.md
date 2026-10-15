@@ -1,0 +1,33 @@
+# Remote MCP sources
+
+Connect a remote Streamable HTTP MCP server as a source. The source is read live and ingests no documents. Reads require an explicit local allowlist and the provider's `readOnlyHint: true`; writes are available only through a human Review decision.
+
+```yaml
+slug: accounting-sandbox
+name: Accounting sandbox
+kind: mcp
+config:
+  readTools: [get_account, get_write_receipt]
+  writeTools: [post_journal]
+```
+
+Connect a **REST or MCP API (bearer token)** credential to the source, using the complete HTTPS MCP endpoint as `baseUrl`. The existing credential platform supports multiple independent endpoint/token pairs per workspace. Credentials remain in the vault, never in YAML. Redirects and private network endpoints are refused.
+
+Assign the source slug to the agent's `connectorSources`. `mcp_list_tools` discovers declared schemas; `mcp_read` calls reads. Both intersect the agent's assignment with the requesting user's source ACL. Discovery never executes a provider tool.
+
+Submit a write with `propose_action` using action id `mcp.call` and input:
+
+```json
+{
+  "sourceSlug": "accounting-sandbox",
+  "tool": "post_journal",
+  "input": { "idempotency_key": "journal-review-2026-001" },
+  "summary": "Post the reviewed journal"
+}
+```
+
+The `input` object must contain every argument required by the discovered provider schema. The review card displays those exact arguments. Even a high-autonomy agent cannot bypass Review; provider errors record a failed action. Tool availability and the source's write allowlist are checked again at execution.
+
+Core does not invent a provider's confirmation protocol, deduplication or read-back verification. Enable writes only once that contract is established. For financial writes, use a service that provides durable idempotency and verified receipts; freeze the idempotency key and expected record version in the proposal. Following a timeout, inspect the provider's receipt before retrying. A generic MCP success alone does not prove a business outcome.
+
+Native connector actions continue to use their native providers; adding an MCP source does not redirect them.

@@ -42,7 +42,7 @@ function sampleValueFor(field: ConfigField): ConfigFieldValue {
     case 'boolean':
       return true;
     case 'stringArray':
-      return ['sample-entry'];
+      return [field.key === 'readTools' ? 'sample_read' : field.key === 'writeTools' ? 'sample_write' : 'sample-entry'];
     case 'select':
       return field.options?.[0]?.value ?? '';
     case 'text':
