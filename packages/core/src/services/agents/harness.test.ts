@@ -34,9 +34,13 @@ vi.mock('deepagents', () => ({
 
 const { createDeepAgent } = await import('deepagents');
 const { db } = await import('@/libs/DB');
-const { agentSchema, projectSchema, teamSchema, tenantAccountSchema } = await import('@/models/Schema');
+const { agentSchema, knowledgeSourceSchema, projectSchema, teamSchema, tenantAccountSchema } = await import('@/models/Schema');
 const { buildChatModelForOrg } = await import('@/libs/llm');
-const { compileAgentForRequest, initiativePromptNote, resetAgentRuntimeCache } = await import('@/services/agents/harness');
+const { buildAgentDefinition, compileAgentForRequest, initiativePromptNote, resetAgentRuntimeCache } = await import('@/services/agents/harness');
+
+const { buildDomainTools } = await import('./tools/registry');
+const { mcpTools } = await import('./tools/mcpDirect');
+const { runtimeContextFromScope } = await import('./runtimeContext');
 
 const mockCreate = vi.mocked(createDeepAgent);
 
@@ -67,6 +71,7 @@ beforeEach(async () => {
   resetAgentRuntimeCache();
   mockCreate.mockClear();
   vi.mocked(buildChatModelForOrg).mockClear();
+  await db.delete(knowledgeSourceSchema);
   await db.delete(teamSchema);
   await db.delete(agentSchema);
   await db.delete(projectSchema);
@@ -95,6 +100,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   resetAgentRuntimeCache();
+  await db.delete(knowledgeSourceSchema);
   await db.delete(teamSchema);
   await db.delete(agentSchema);
   await db.delete(projectSchema);
@@ -252,5 +258,28 @@ describe('buildGraph org scoping', () => {
     expect(compiled.agentRow.orgId).toBe(ORG);
     expect(compiled.agentRow.harnessConfig).toEqual({ grantTools: ['classify_call'] });
     expect(graphOptions(mockCreate.mock.calls.length - 1).systemPrompt).toContain('CURRENT org agent');
+  });
+});
+
+describe('MCP sources in the actual chat definition', () => {
+  it('retains connector kinds for chat and the remote runtime while enforcing source ACLs', async () => {
+    await db.insert(knowledgeSourceSchema).values({
+      orgId: ORG,
+      slug: 'ledger',
+      kind: 'plugin',
+      configJson: { _connector: 'mcp', readTools: ['quickbooks_list'], writeTools: [] },
+    });
+    await db.update(agentSchema).set({ connectorSources: ['ledger'] }).where(eq(agentSchema.slug, DIRECTOR));
+    const definition = await buildAgentDefinition(ORG, DIRECTOR);
+    const runtimeContext = runtimeContextFromScope(ORG, definition.agentRow, definition, { allowedSourceSlugs: ['ledger'] });
+
+    expect(mcpTools(runtimeContext).map(tool => tool.name)).toEqual(['mcp_list_tools', 'mcp_read']);
+    expect(mcpTools(runtimeContextFromScope(ORG, definition.agentRow, definition, { allowedSourceSlugs: [] }))).toEqual([]);
+
+    vi.mocked(buildDomainTools).mockClear();
+    await compile(DIRECTOR);
+    const chatContext = vi.mocked(buildDomainTools).mock.calls[0]![0];
+
+    expect(mcpTools(chatContext).map(tool => tool.name)).toEqual(['mcp_list_tools', 'mcp_read']);
   });
 });

@@ -256,6 +256,8 @@ type AgentBlueprint = {
   filingTypes?: FilingType[];
   /** The agent's `rest` sources with their declared endpoints (`tools/restDirect.ts`). */
   restSources?: RestSourceSpec[];
+  /** Connector kinds retained for source-gated tools in every chat runtime. */
+  sourceKinds?: Record<string, string>;
   /** The tools this agent keeps loaded; the rest are found by tool search (`toolTiers.ts`). Null defers nothing. */
   hotTools?: string[] | null;
   /** This agent's model with thinking off, for calls that read tool results (`effort.ts`). Absent when it would be the same model. */
@@ -331,7 +333,7 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   // tool (`file_<slug>`), references resolved to this workspace's record
   // slugs; and the REST sources it holds with the endpoints each declares.
   // An apply resets the blueprint cache, so a toggle reaches the next turn.
-  const { enabledPlugins, defaultTimeZone, filingTypes, restSources, workspaceKind } = await agentScope(orgId, row);
+  const { enabledPlugins, defaultTimeZone, filingTypes, restSources, sourceKinds, workspaceKind } = await agentScope(orgId, row);
   // The workspace's stated operating intent, once per blueprint, from the
   // column the applier writes. `null` is "nobody has told this factory
   // anything", which the note says out loud rather than treating as permission.
@@ -497,7 +499,7 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
     });
   }
 
-  return { agentRow: row, systemPrompt, subagentSpecs, defaultTimeZone, enabledPlugins, filingTypes, restSources, workspaceKind };
+  return { agentRow: row, systemPrompt, subagentSpecs, defaultTimeZone, enabledPlugins, filingTypes, restSources, sourceKinds, workspaceKind };
 }
 
 async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
