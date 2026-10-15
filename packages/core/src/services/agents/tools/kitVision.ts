@@ -270,22 +270,119 @@ function expectedQty(region: string | undefined, expected: string | undefined): 
 }
 
 type Findings = z.infer<typeof VerdictSchema>['findings'];
+type Finding = Findings[number];
 
 /**
- * Crop-before-count: for each finding the model could not count at full
- * frame, cut the region out of the 4K photo (with padding), upscale it and
- * ask Claude Vision to count just that box. Returns updated findings plus
- * the crops written to S3 (derived/…) for the UI to show.
- * @param opts
- * @param opts.ctx
- * @param opts.client
- * @param opts.bucket
- * @param opts.region
- * @param opts.key
- * @param opts.bytes
- * @param opts.findings
+ * At most this many regions are cropped and re-counted for one image.
+ *
+ * Each crop is one paid vision call, and how many regions qualify is decided
+ * by the photo itself: a blurry or crowded sheet flags more of them, so one
+ * `vision_compare_reference` call could fan out into any number of model
+ * calls (vocion-core#280). A region past the cap keeps its full-frame
+ * finding (`count` or `unreadable`) and holds the kit for a person (see
+ * `mergeZoomIntoVerdict`), so the cap can cost a correction but never turn a
+ * hold into a pass.
  */
-async function zoomAndCount(opts: {
+export const MAX_ZOOM_CROPS = 8;
+
+/** Blocking findings are zoomed first; a finding with no severity goes last. */
+const SEVERITY_RANK: Record<string, number> = { blocking: 0, minor: 1, info: 2 };
+
+/**
+ * Order two zoom candidates: the more severe first, then the one the model
+ * was least sure of, then the order the model listed them in.
+ * @param a - One candidate.
+ * @param a.f - Its finding.
+ * @param a.i - Its index in the findings.
+ * @param b - The other candidate.
+ * @param b.f - Its finding.
+ * @param b.i - Its index in the findings.
+ */
+function compareZoomPriority(a: { f: Finding; i: number }, b: { f: Finding; i: number }): number {
+  const severity = (SEVERITY_RANK[a.f.severity] ?? 3) - (SEVERITY_RANK[b.f.severity] ?? 3);
+  if (severity !== 0) {
+    return severity;
+  }
+  const confidence = (a.f.confidence ?? 1) - (b.f.confidence ?? 1);
+  return confidence !== 0 ? confidence : a.i - b.i;
+}
+
+/**
+ * The findings worth a zoomed re-count — those the full-frame pass could not
+ * count and that say where to look — capped at `max`, most important first.
+ * @param findings - The full-frame pass's findings.
+ * @param max - The most regions to crop.
+ * @returns The regions to crop, each with its index in `findings`, and how many qualified but were left out.
+ */
+export function selectZoomTargets(findings: Findings, max: number = MAX_ZOOM_CROPS): { targets: Array<{ f: Finding; i: number }>; skipped: number } {
+  const candidates = findings
+    .map((f, i) => ({ f, i }))
+    .filter(({ f }) => f.box && f.box.length === 4 && (f.issue === 'unreadable' || f.issue === 'count'));
+  candidates.sort(compareZoomPriority);
+  return { targets: candidates.slice(0, max), skipped: Math.max(0, candidates.length - max) };
+}
+
+type Verdict = z.infer<typeof VerdictSchema>;
+type Region = Verdict['regions'][number];
+
+/** What a zoom pass reports: the updated findings and how many regions it zoomed, corrected and left out. */
+type ZoomResult = { findings: Findings; zoomed: number; corrected: number; skipped: number };
+
+/**
+ * A region of the overlay, updated from the zoomed finding for the same label, if any.
+ * @param region - The region as the full-frame pass drew it.
+ * @param findings - The findings after the zoom pass.
+ */
+function regionWithZoom(region: Region, findings: Findings): Region {
+  const zoomed = findings.find(f => f.region === region.region);
+  return zoomed
+    ? { ...region, issue: zoomed.issue, observed: zoomed.observed ?? region.observed, confidence: zoomed.confidence ?? region.confidence, box: zoomed.box ?? region.box }
+    : region;
+}
+
+/**
+ * Fold a zoom pass back into the verdict: the corrected findings and regions,
+ * the pass/hold call they now support, the confidence, and a sentence on
+ * what was zoomed.
+ *
+ * A region left out by the {@link MAX_ZOOM_CROPS} cap keeps its full-frame
+ * finding and holds the kit, whatever severity the full-frame pass gave it,
+ * since nobody counted it; the explanation says how many
+ * there were and that a person should count them; and the confidence bump
+ * for a fully corrected sheet is only given when nothing was left out
+ * (vocion-core#280).
+ * @param verdict - The full-frame verdict.
+ * @param zoom - What the zoom pass found; only called when it zoomed at least one region.
+ * @returns The verdict to record.
+ */
+export function mergeZoomIntoVerdict(verdict: Verdict, zoom: ZoomResult): Verdict {
+  const remaining = zoom.findings.filter(f => f.issue !== 'ok');
+  const blocking = remaining.some(f => f.severity === 'blocking' || f.issue === 'missing' || f.issue === 'wrong_part' || f.issue === 'count' || f.issue === 'orientation');
+  // A region the cap left out was never counted by anyone, so it holds the
+  // kit even when the full-frame pass called it a minor `unreadable` and
+  // said pass: that box could be the short one.
+  const newVerdict: 'pass' | 'hold' = blocking || zoom.skipped > 0 ? 'hold' : remaining.length ? verdict.verdict : 'pass';
+  // Only a sheet whose every uncounted box was zoomed and matched earns the bump.
+  const bumped = zoom.corrected === zoom.zoomed && zoom.skipped === 0 && newVerdict === 'pass' ? Math.min(0.95, Math.max(verdict.confidence, 0.85)) : verdict.confidence;
+  const didNotMatch = zoom.zoomed - zoom.corrected;
+  const leftOut = zoom.skipped
+    ? ` ${zoom.skipped} more could not be counted and were not zoomed (limit ${MAX_ZOOM_CROPS} per photo); a person should count them.`
+    : '';
+  return {
+    ...verdict,
+    findings: zoom.findings,
+    regions: verdict.regions.map(r => regionWithZoom(r, zoom.findings)),
+    verdict: newVerdict,
+    confidence: bumped,
+    explanation: `${verdict.explanation} Zoomed into ${zoom.zoomed} fastener box${zoom.zoomed === 1 ? '' : 'es'} to count: ${zoom.corrected} matched the printed quantity${didNotMatch ? `, ${didNotMatch} did not` : ''}.${leftOut}`,
+  };
+}
+
+/** How many zoomed re-counts run at once, so one photo never opens all its model calls together. */
+const ZOOM_CONCURRENCY = 4;
+
+/** What `zoomAndCount` works from. */
+type ZoomOpts = {
   ctx: RuntimeContext;
   client: Anthropic;
   bucket: string;
@@ -293,57 +390,73 @@ async function zoomAndCount(opts: {
   key: string;
   bytes: Uint8Array;
   findings: Findings;
-}): Promise<{ findings: Findings; zoomed: number; corrected: number }> {
-  const targets = opts.findings
-    .map((f, i) => ({ f, i }))
-    .filter(({ f }) => f.box && f.box.length === 4 && (f.issue === 'unreadable' || f.issue === 'count'));
-  if (!targets.length) {
-    return { findings: opts.findings, zoomed: 0, corrected: 0 };
+};
+
+/** The candidate photo decoded once to raw pixels, so each crop cuts from memory instead of decoding the 4K file again. */
+type DecodedPhoto = { data: Buffer; width: number; height: number; channels: 1 | 2 | 3 | 4 };
+
+/** One region's zoomed re-count: the finding that replaces the full-frame one, and whether it matched. */
+type ZoomCount = { index: number; finding: Finding; matched: boolean };
+
+/**
+ * Crop one region out of the photo (with padding), upscale it, store the
+ * crop, and ask Claude Vision to count just that box.
+ * @param opts - The zoom pass's inputs.
+ * @param photo - The candidate photo, decoded.
+ * @param target - The finding to re-count and its index in the findings.
+ * @param target.f - The finding.
+ * @param target.i - Its index in the findings.
+ * @returns The re-counted finding, or null when the region was too small to crop or the model gave no count.
+ */
+async function zoomOneRegion(opts: ZoomOpts, photo: DecodedPhoto, target: { f: Finding; i: number }): Promise<ZoomCount | null> {
+  const { f, i } = target;
+  const W = photo.width;
+  const H = photo.height;
+  const [bx, by, bw, bh] = f.box as [number, number, number, number];
+  const pad = 0.25;
+  const left = Math.max(0, Math.round((bx - bw * pad) * W));
+  const top = Math.max(0, Math.round((by - bh * pad) * H));
+  const width = Math.min(W - left, Math.round(bw * (1 + 2 * pad) * W));
+  const height = Math.min(H - top, Math.round(bh * (1 + 2 * pad) * H));
+  if (width < 16 || height < 16) {
+    return null;
   }
-  const meta = await sharp(Buffer.from(opts.bytes)).metadata();
-  const W = meta.width ?? 3840;
-  const H = meta.height ?? 2160;
-  progress(opts.ctx, 'vision_compare_reference', { phase: 'zoom', count: targets.length, regions: targets.map(t => t.f.region) });
-  const out = [...opts.findings];
-  let corrected = 0;
-  for (const { f, i } of targets) {
-    const [bx, by, bw, bh] = f.box as [number, number, number, number];
-    const pad = 0.25;
-    const left = Math.max(0, Math.round((bx - bw * pad) * W));
-    const top = Math.max(0, Math.round((by - bh * pad) * H));
-    const width = Math.min(W - left, Math.round(bw * (1 + 2 * pad) * W));
-    const height = Math.min(H - top, Math.round(bh * (1 + 2 * pad) * H));
-    if (width < 16 || height < 16) {
-      continue;
-    }
-    const scale = Math.max(1, Math.min(4, 1200 / Math.max(width, height)));
-    // Crop → upscale (Lanczos) → light sharpen: the same thing a person does by zooming in.
-    const crop = await sharp(Buffer.from(opts.bytes)).extract({ left, top, width, height }).resize({ width: Math.round(width * scale), kernel: 'lanczos3' }).sharpen({ sigma: 1.0 }).jpeg({ quality: 92 }).toBuffer();
-    const cropKey = `derived/${opts.key.replace(/\.[^.]+$/, '')}/crop-${i + 1}.jpg`;
-    try {
-      await putObject({ bucket: opts.bucket, key: cropKey, body: crop, contentType: 'image/jpeg', region: opts.region, metadata: { source_key: opts.key, region: (f.region ?? '').slice(0, 200) } });
-    } catch { /* crop storage is best-effort */ }
-    const expected = expectedQty(f.region, f.expected);
-    const res = await opts.client.messages.create({
-      model: VISION_MODEL,
-      max_tokens: 200,
-      temperature: 0,
-      system: ZOOM_SYSTEM,
-      messages: [{ role: 'user', content: [
-        { type: 'text', text: `Region label as printed: ${f.region ?? 'unknown'}. Expected quantity: ${expected ?? 'unknown'}. Count the parts in this crop.` },
-        toImageBlock(crop, 'image/jpeg'),
-      ] }],
-    });
-    const text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
-    let parsed: { count?: number; confidence?: number; notes?: string } = {};
-    try {
-      parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)) as typeof parsed;
-    } catch { /* leave finding as-is */ }
-    if (typeof parsed.count !== 'number') {
-      continue;
-    }
-    const matches = expected !== null && parsed.count === expected;
-    out[i] = {
+  const scale = Math.max(1, Math.min(4, 1200 / Math.max(width, height)));
+  // Crop → upscale (Lanczos) → light sharpen: the same thing a person does by zooming in.
+  const crop = await sharp(photo.data, { raw: { width: W, height: H, channels: photo.channels } })
+    .extract({ left, top, width, height })
+    .resize({ width: Math.round(width * scale), kernel: 'lanczos3' })
+    .sharpen({ sigma: 1.0 })
+    .jpeg({ quality: 92 })
+    .toBuffer();
+  const cropKey = `derived/${opts.key.replace(/\.[^.]+$/, '')}/crop-${i + 1}.jpg`;
+  try {
+    await putObject({ bucket: opts.bucket, key: cropKey, body: crop, contentType: 'image/jpeg', region: opts.region, metadata: { source_key: opts.key, region: (f.region ?? '').slice(0, 200) } });
+  } catch { /* crop storage is best-effort */ }
+  const expected = expectedQty(f.region, f.expected);
+  const res = await opts.client.messages.create({
+    model: VISION_MODEL,
+    max_tokens: 200,
+    temperature: 0,
+    system: ZOOM_SYSTEM,
+    messages: [{ role: 'user', content: [
+      { type: 'text', text: `Region label as printed: ${f.region ?? 'unknown'}. Expected quantity: ${expected ?? 'unknown'}. Count the parts in this crop.` },
+      toImageBlock(crop, 'image/jpeg'),
+    ] }],
+  });
+  const text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
+  let parsed: { count?: number; confidence?: number; notes?: string } = {};
+  try {
+    parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)) as typeof parsed;
+  } catch { /* leave finding as-is */ }
+  if (typeof parsed.count !== 'number') {
+    return null;
+  }
+  const matches = expected !== null && parsed.count === expected;
+  return {
+    index: i,
+    matched: matches,
+    finding: {
       ...f,
       issue: expected === null ? 'count' : matches ? 'ok' : 'count',
       observed: `${parsed.count} counted in a ${scale.toFixed(1)}× crop${expected !== null ? ` (expected ${expected})` : ''}${parsed.notes ? ` — ${parsed.notes}` : ''}`,
@@ -352,12 +465,43 @@ async function zoomAndCount(opts: {
       crop_key: cropKey,
       crop_url: appImageUrl(opts.bucket, cropKey),
       zoom: { count: parsed.count, expected, scale: Number(scale.toFixed(2)), matches },
-    };
-    if (matches) {
-      corrected += 1;
+    },
+  };
+}
+
+/**
+ * Crop-before-count: for each finding the model could not count at full
+ * frame, cut the region out of the 4K photo (with padding), upscale it and
+ * ask Claude Vision to count just that box. Returns updated findings plus
+ * the crops written to S3 (derived/…) for the UI to show.
+ *
+ * The photo is decoded once and every crop cuts from those pixels; the
+ * re-counts run {@link ZOOM_CONCURRENCY} at a time rather than one after
+ * another (vocion-core#280).
+ * @param opts - The zoom pass's inputs.
+ * @returns The updated findings and how many regions were zoomed, corrected and left out.
+ */
+export async function zoomAndCount(opts: ZoomOpts): Promise<ZoomResult> {
+  const { targets, skipped } = selectZoomTargets(opts.findings);
+  if (!targets.length) {
+    return { findings: opts.findings, zoomed: 0, corrected: 0, skipped: 0 };
+  }
+  const decoded = await sharp(Buffer.from(opts.bytes)).raw().toBuffer({ resolveWithObject: true });
+  const photo: DecodedPhoto = { data: decoded.data, width: decoded.info.width, height: decoded.info.height, channels: decoded.info.channels };
+  progress(opts.ctx, 'vision_compare_reference', { phase: 'zoom', count: targets.length, skipped, regions: targets.map(t => t.f.region) });
+  const out = [...opts.findings];
+  let corrected = 0;
+  for (let start = 0; start < targets.length; start += ZOOM_CONCURRENCY) {
+    const batch = targets.slice(start, start + ZOOM_CONCURRENCY);
+    const counts = await Promise.all(batch.map(target => zoomOneRegion(opts, photo, target)));
+    for (const count of counts) {
+      if (count) {
+        out[count.index] = count.finding;
+        corrected += count.matched ? 1 : 0;
+      }
     }
   }
-  return { findings: out, zoomed: targets.length, corrected };
+  return { findings: out, zoomed: targets.length, corrected, skipped };
 }
 
 /**
@@ -473,22 +617,8 @@ export function kitVisionTools(ctx: RuntimeContext) {
         // could not count, count them, and let the result change the verdict.
         const zoom = await zoomAndCount({ ctx, client, bucket, region, key, bytes: cand!.bytes, findings: verdict.findings });
         if (zoom.zoomed > 0) {
-          const remaining = zoom.findings.filter(f => f.issue !== 'ok');
-          const blocking = remaining.some(f => f.severity === 'blocking' || f.issue === 'missing' || f.issue === 'wrong_part' || f.issue === 'count' || f.issue === 'orientation');
-          const newVerdict: 'pass' | 'hold' = blocking ? 'hold' : remaining.length ? verdict.verdict : 'pass';
-          const bumped = zoom.corrected === zoom.zoomed && newVerdict === 'pass' ? Math.min(0.95, Math.max(verdict.confidence, 0.85)) : verdict.confidence;
-          verdict = {
-            ...verdict,
-            findings: zoom.findings,
-            regions: verdict.regions.map((r) => {
-              const z = zoom.findings.find(f => f.region === r.region);
-              return z ? { ...r, issue: z.issue, observed: z.observed ?? r.observed, confidence: z.confidence ?? r.confidence, box: z.box ?? r.box } : r;
-            }),
-            verdict: newVerdict,
-            confidence: bumped,
-            explanation: `${verdict.explanation} Zoomed into ${zoom.zoomed} fastener box${zoom.zoomed === 1 ? '' : 'es'} to count: ${zoom.corrected} matched the printed quantity${zoom.zoomed - zoom.corrected ? `, ${zoom.zoomed - zoom.corrected} did not` : ''}.`,
-          };
-          progress(ctx, 'vision_compare_reference', { phase: 'zoomed', zoomed: zoom.zoomed, corrected: zoom.corrected, verdict: verdict.verdict, confidence: verdict.confidence });
+          verdict = mergeZoomIntoVerdict(verdict, zoom);
+          progress(ctx, 'vision_compare_reference', { phase: 'zoomed', zoomed: zoom.zoomed, corrected: zoom.corrected, skipped: zoom.skipped, verdict: verdict.verdict, confidence: verdict.confidence });
         }
         const pathMeta = src ? metadataFromKey(src.cfg, key) : {};
         const record = await upsertInspection(ctx, {

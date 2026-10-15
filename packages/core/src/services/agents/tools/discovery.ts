@@ -218,13 +218,20 @@ export function readDiscoveryTranscriptTool(ctx: RuntimeContext) {
         });
       }
       try {
-        const { readMatchedTranscript } = await import('@/services/DiscoveryDetectionService');
+        const { fitTranscriptToBudget, readMatchedTranscript } = await import('@/services/DiscoveryDetectionService');
         const transcript = await readMatchedTranscript(ctx.orgId, candidate.meetingExternalId);
+        // Capped like the classifier's copy (vocion-core#280). Without it a
+        // two-hour call got past the classifier trimmed and then landed whole
+        // in the follow-up agent's context on this tool's first call.
+        const fitted = fitTranscriptToBudget(transcript);
         return JSON.stringify({
           candidateId: candidate.id,
           meetingExternalId: candidate.meetingExternalId,
           title: candidate.title,
-          transcript,
+          transcript: fitted.text,
+          ...(fitted.omittedChars > 0
+            ? { omittedChars: fitted.omittedChars, note: `This call is long: ${fitted.omittedChars} characters from the middle were left out. The start and the end are complete.` }
+            : {}),
         }, null, 2);
       } catch (err) {
         if (err instanceof ContentGateError) {

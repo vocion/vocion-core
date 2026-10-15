@@ -521,6 +521,42 @@ function textOf(content: unknown): string {
 }
 
 /**
+ * The most transcript, in characters, one classification call is sent.
+ *
+ * `readMatchedTranscript` joins every chunk of the meeting, so a two-hour call
+ * went to the model whole: one very expensive call, decided by how long people
+ * talked, and big enough to run past the call's 30-second timeout or the
+ * model's context and fail after being paid for (vocion-core#280). About
+ * 15,000 tokens of English at roughly four characters a token.
+ */
+export const CLASSIFIER_TRANSCRIPT_CHAR_BUDGET = 60_000;
+
+/**
+ * Cut a transcript down to the budget, keeping its start and its end.
+ *
+ * Both ends carry the signal: what the prospect came for is usually said
+ * early, and next steps — the proposal-readiness evidence — near the close.
+ * The middle is replaced by a line that says how much was left out, so the
+ * model knows the transcript is not whole.
+ * @param transcript - The whole joined transcript.
+ * @param budget - The most characters to keep.
+ * @returns The text to classify, and how many characters were left out (0 when it fit).
+ */
+export function fitTranscriptToBudget(transcript: string, budget: number = CLASSIFIER_TRANSCRIPT_CHAR_BUDGET): { text: string; omittedChars: number } {
+  if (transcript.length <= budget) {
+    return { text: transcript, omittedChars: 0 };
+  }
+  const half = Math.floor(budget / 2);
+  const omittedChars = transcript.length - half * 2;
+  const text = [
+    transcript.slice(0, half),
+    `\n[… ${omittedChars.toLocaleString('en-US')} characters from the middle of the call left out to keep this within the classifier's budget …]\n`,
+    transcript.slice(transcript.length - half),
+  ].join('');
+  return { text, omittedChars };
+}
+
+/**
  * Read is done by the caller via the gate; this only scores the text.
  *
  * `meta.orgId` is what puts this call on the workspace's ledger. A transcript
@@ -535,7 +571,8 @@ function textOf(content: unknown): string {
  */
 export async function classifyTranscript(transcript: string, meta: { title?: string | null; orgId?: string }): Promise<Classification> {
   const model = buildChatModel('classifier', { temperature: 0, streaming: false });
-  const user = `Meeting title: ${meta.title ?? '(untitled)'}\n\nTranscript:\n${transcript}`;
+  const fitted = fitTranscriptToBudget(transcript);
+  const user = `Meeting title: ${meta.title ?? '(untitled)'}\n\nTranscript:\n${fitted.text}`;
   let raw = '';
   try {
     const res = await model.invoke(
@@ -585,6 +622,11 @@ export async function classifyTranscript(transcript: string, meta: { title?: str
   // An unmatched reason falls back to insufficient-evidence AND says so. The
   // set is closed precisely so a code is never invented to fit an answer.
   const reason = normaliseReasonCode(parsed.reason_code);
+  // Said where the reviewer reads the model's reasoning (Evidence), so a
+  // verdict on a shortened transcript is never mistaken for one on the whole call.
+  const truncationNote = fitted.omittedChars > 0
+    ? `Classified from the start and end of a long transcript; ${fitted.omittedChars.toLocaleString('en-US')} characters from the middle were left out.\n\n`
+    : '';
   return {
     confidenceSemantics: 'stated-class',
     classification: parsed.classification,
@@ -594,7 +636,7 @@ export async function classifyTranscript(transcript: string, meta: { title?: str
     reasonCode: reason.code,
     reasonCodeFallback: reason.fallback,
     reasonSummary: parsed.reason_summary.trim(),
-    reasoning: parsed.reasoning,
+    reasoning: `${truncationNote}${parsed.reasoning}`,
     model: resolvedModelId('classifier'),
   };
 }
