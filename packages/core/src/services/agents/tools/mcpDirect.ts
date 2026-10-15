@@ -27,21 +27,29 @@ export function mcpTools(ctx: RuntimeContext) {
   }
   return [
     tool(async ({ sourceSlug }) => {
-      const source = await sourceFor(sourceSlug);
-      const credentials = mcpCredentialsOf(await getCredentialsForSource(ctx.orgId, sourceSlug));
-      return JSON.stringify(await withMcp(credentials, async client => ({
-        sourceSlug,
-        tools: (await listMcpTools(client)).filter(remote => source.config.readTools.includes(remote.name) || source.config.writeTools.includes(remote.name)),
-        writes: 'Propose declared writes with propose_action, action_id=mcp.call. Approval executes the exact submitted arguments.',
-      })));
-    }, { name: 'mcp_list_tools', description: 'Discover declared MCP tools and their input schemas for an assigned source.', schema: z.object({ sourceSlug: z.string() }) }),
-    tool(async ({ sourceSlug, name, input }) => {
-      const source = await sourceFor(sourceSlug);
-      if (!source.config.readTools.includes(name)) {
-        throw new Error('Only explicitly declared reads may execute here; propose writes through mcp.call.');
-      }
-      const credentials = mcpCredentialsOf(await getCredentialsForSource(ctx.orgId, sourceSlug));
       try {
+        const source = await sourceFor(sourceSlug);
+        const credentials = mcpCredentialsOf(await getCredentialsForSource(ctx.orgId, sourceSlug));
+        return JSON.stringify(await withMcp(credentials, async client => ({
+          sourceSlug,
+          tools: (await listMcpTools(client)).filter(remote => source.config.readTools.includes(remote.name) || source.config.writeTools.includes(remote.name)),
+          writes: 'Propose declared writes with propose_action, action_id=mcp.call. Approval executes the exact submitted arguments.',
+        })));
+      } catch {
+        return JSON.stringify({ isError: true, error: 'MCP discovery failed. Use an assigned, permitted source with a connected credential; no provider tool was called.' });
+      }
+    }, { name: 'mcp_list_tools', description: 'Discover declared MCP tools and their input schemas for an assigned source.', metadata: { alwaysLoaded: true }, schema: z.object({ sourceSlug: z.string() }) }),
+    tool(async ({ sourceSlug, name, input }) => {
+      try {
+        const source = await sourceFor(sourceSlug);
+        if (!source.config.readTools.includes(name)) {
+          return JSON.stringify({
+            isError: true,
+            error: 'Only explicitly declared reads may execute here. Choose an availableReadTools name and discover its schema with mcp_list_tools; propose declared writes through mcp.call. No tool was called.',
+            availableReadTools: source.config.readTools,
+          });
+        }
+        const credentials = mcpCredentialsOf(await getCredentialsForSource(ctx.orgId, sourceSlug));
         return JSON.stringify(await withMcp(credentials, async (client) => {
           const remote = (await listMcpTools(client)).find(remote => remote.name === name);
           if (!remote || remote.annotations?.readOnlyHint !== true) {
@@ -59,8 +67,8 @@ export function mcpTools(ctx: RuntimeContext) {
       } catch {
         // Transport/provider exceptions can contain credentials and raw bodies.
         // A read failure is recoverable and must not imply an uncertain write.
-        return JSON.stringify({ isError: true, error: 'MCP read failed. No write tool was invoked. Retry the read or report that the source is unavailable.' });
+        return JSON.stringify({ isError: true, error: 'MCP read failed. No write tool was invoked. Check that the source is assigned, permitted and connected; retry a valid read or report that it is unavailable.' });
       }
-    }, { name: 'mcp_read', description: 'Execute an explicitly declared read-only MCP tool. Writes are unavailable here.', schema: z.object({ sourceSlug: z.string(), name: z.string(), input: z.record(z.string(), z.unknown()) }) }),
+    }, { name: 'mcp_read', description: 'Execute an explicitly declared read-only MCP tool. Writes are unavailable here.', metadata: { alwaysLoaded: true }, schema: z.object({ sourceSlug: z.string(), name: z.string(), input: z.record(z.string(), z.unknown()) }) }),
   ];
 }
