@@ -17,7 +17,8 @@ const svc = await import('@/services/autonomy/AutonomyService');
 const { track } = await import('@/services/adoption/track');
 
 const ORG = 'org_autonomy_test';
-const NOW = new Date('2026-09-15T12:00:00Z');
+// Keep seeded evidence inside the rolling eligibility window on every CI date.
+const NOW = new Date();
 
 async function wipe() {
   await db.delete(decisionAlignmentSchema);

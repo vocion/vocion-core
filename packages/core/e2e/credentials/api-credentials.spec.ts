@@ -175,7 +175,7 @@ test.describe('the platform selector decides which controls exist', () => {
       'Slate',
       'ElevenLabs',
       'Strapi',
-      'REST API (bearer token)',
+      'REST or MCP API (bearer token)',
       // The finance and people families. QuickBooks and Gusto log in and
       // have nothing to paste, so the selector leaves them out.
       'Stripe',
