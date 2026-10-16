@@ -11,6 +11,7 @@
  */
 import type { AgentEvent } from '@/services/agents/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as answerBackstop from '@/services/agents/answerBackstop';
 
 vi.mock('@/libs/DB');
 
@@ -101,6 +102,25 @@ const QUESTIONS = [
 ];
 
 describe('a question is answered, and nothing is written (CHAT-423)', () => {
+  it.each(['task', 'read_file'])('answers after a final %s result instead of ending on progress narration', async (tool) => {
+    const compose = vi.spyOn(answerBackstop, 'composeAnswerWithModel').mockResolvedValue('I found two expenses worth reviewing; neither is a confirmed error.');
+    try {
+      passes([
+        say('I read the purchases and chart of accounts. '.repeat(8)),
+        toolEnd(tool, 'Two purchases need review; vendor descriptions are missing.'),
+      ]);
+
+      const { result, events } = await run('Find potentially miscategorized expenses.');
+
+      expect(compose).toHaveBeenCalledOnce();
+      expect(result.response).toContain('I found two expenses worth reviewing');
+      expect(events.some(e => e.type === 'response_delta' && e.delta.includes('I found two expenses'))).toBe(true);
+      expect(compose.mock.calls[0]?.[0].human).toContain('Two purchases need review');
+    } finally {
+      compose.mockRestore();
+    }
+  });
+
   it('runs each of the five questions in one pass, refuses every write at the seam, and answers', async () => {
     for (const question of QUESTIONS) {
       const tried: Array<{ refused: boolean; code: string | null }> = [];
