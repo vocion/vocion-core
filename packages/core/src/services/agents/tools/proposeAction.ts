@@ -16,7 +16,9 @@
 import type { RuntimeContext } from '../types';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
+import { actionConnectionGuidance } from '@/libs/actions/availability';
 import { explainProposeActionMiss, normalizeProposeActionArgs, proposeActionArgsSchema } from '@/libs/actions/proposeActionArgs';
+import { getAction } from '@/libs/actions/registry';
 import { isSelfUpdate } from '@/libs/actions/selfUpdate';
 import { parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { nounCode } from '@/libs/codes';
@@ -134,6 +136,11 @@ async function runProposalInner(
       return 'This MCP source is outside the agent or requesting user source scope.';
     }
   }
+  const requestedAction = getAction(action_id);
+  const connectionGuidance = requestedAction && actionConnectionGuidance(requestedAction, ctx);
+  if (connectionGuidance) {
+    return connectionGuidance;
+  }
   const factoryStep = isFactoryStep(ctx) && action_id === IDEA_ACTION_ID;
   // THE PROPOSAL BUDGET. An agent on its own schedule may hold only so
   // many undecided items in Review; past that it withdraws one of its
@@ -198,7 +205,7 @@ async function runProposalInner(
   // this action (`saidToDecide`), it is proposed as the person: it runs, with
   // undo, and puts no card in front of them. Anything the agent decides on
   // its own still rides the trust ladder, as a card.
-  const asPerson = Boolean(ctx.userId) && !ctx.missionRunId && !factoryStep && !isAgentsOwnSchedule(ctx)
+  const asPerson = !requestedAction?.requiresReviewDecision && Boolean(ctx.userId) && !ctx.missionRunId && !factoryStep && !isAgentsOwnSchedule(ctx)
     && (await (async () => {
       const { personSaidToDecide } = await import('../owedDecision');
       // The action, its target and its effect (`consentDecision`), so consent
@@ -324,6 +331,10 @@ async function runProposalInner(
         return withAdvice(`Proposed ${action_id} → ${nounCode('action', res.runId)} is waiting on the person's approval, as a decision docked above their composer (confidence ${confidence}). Do NOT claim the change was made, and do not tell them to open the review queue: the decision is in front of them, and their answer comes back to you. Say in one line what it is.`);
       }
       return withAdvice(`Proposed ${action_id} → ${nounCode('action', res.runId)} is PENDING human approval in the review queue (confidence ${confidence}). Do NOT claim the change was made — say it has been queued for approval.`);
+    }
+    if (res.status !== 'done') {
+      const error = 'error' in res && typeof res.error === 'string' ? ` Error: ${res.error}` : '';
+      return `${action_id} is ${res.status.toUpperCase()} (${nounCode('action', res.runId)}). Do not claim success or that the requested change occurred.${error}`;
     }
     // A DONE THAT MADE A RECORD SAYS WHICH, WITH ITS LINK. Conversation
     // 349 (2026-09-28): a request filed within bounds came back as a run

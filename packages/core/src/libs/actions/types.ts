@@ -356,6 +356,8 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   aliases?: readonly string[];
   name: string;
   description: string;
+  /** Native connector kinds this action can execute against; MCP uses its own declared actions. */
+  sourceKinds?: readonly string[];
   /** Validates the action input at propose-time. */
   inputSchema: S;
   /** authz action grant required to run it, e.g. `send_email`. */
@@ -370,6 +372,8 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * reading a vendor's data at once.
    */
   approvalRequired?: boolean;
+  /** Chat intent cannot substitute for an explicit human Review decision. */
+  requiresReviewDecision?: boolean;
   /**
    * This kind changes what the SYSTEM knows about how to work — a rule it
    * adopts from a correction, a standing preference it files — rather than

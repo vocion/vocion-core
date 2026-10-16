@@ -481,7 +481,7 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   // tools point at it. An agent that holds neither tool carries none of it.
   const heldTools = new Set(row.harnessConfig?.excludeTools ?? []);
   const { actionCatalog } = await import('@/libs/actions/registry');
-  const ACTIONS = heldTools.has('recommend_action') && heldTools.has('propose_action') ? '' : actionCatalog();
+  const ACTIONS = heldTools.has('recommend_action') && heldTools.has('propose_action') ? '' : actionCatalog({ connectorSources: row.connectorSources ?? [], sourceKinds });
   systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE, ACTIONS].filter(Boolean).join('\n\n');
 
   // deepagents auto-injects a built-in `general-purpose` subagent whose prompt

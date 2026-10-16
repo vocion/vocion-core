@@ -1,7 +1,8 @@
 import type { Action } from './types';
 import { z } from 'zod';
-import { callMcpTool, listMcpTools, mcpCredentialsOf, withMcp } from '@/libs/outboundMcp/client';
+import { callMcpTool, listMcpTools, mcpCredentialsOf, validateMcpInput, withMcp } from '@/libs/outboundMcp/client';
 import { loadMcpSources } from '@/libs/outboundMcp/sources';
+import { getCredentialsForSource } from '@/services/SourceCredentialService';
 
 const inputSchema = z.object({
   sourceSlug: z.string().min(1),
@@ -18,11 +19,27 @@ export const mcpCallAction: Action<typeof inputSchema> = {
   grant: 'mcp_call',
   external: true,
   approvalRequired: true,
+  requiresReviewDecision: true,
   sourceSlugFor: input => input.sourceSlug,
   policyKeyFor: input => `mcp.call.${input.sourceSlug}.${input.tool}`,
   async precheck(ctx, input) {
     const [source] = await loadMcpSources(ctx.orgId, [input.sourceSlug]);
-    return source?.config.writeTools.includes(input.tool) ? undefined : 'This MCP write is not declared for this workspace source.';
+    if (!source?.config.writeTools.includes(input.tool)) {
+      return 'This MCP write is not declared for this workspace source.';
+    }
+    const credentials = await getCredentialsForSource(ctx.orgId, input.sourceSlug);
+    return withMcp(mcpCredentialsOf(credentials), async (client) => {
+      const remote = (await listMcpTools(client)).find(tool => tool.name === input.tool);
+      if (!remote) {
+        return 'This declared MCP write is not available on the provider. Discover the current tools before proposing it.';
+      }
+      try {
+        validateMcpInput(remote, input.input);
+        return undefined;
+      } catch {
+        return `Invalid arguments for ${input.tool}; nothing was proposed or changed. Correct them using this input schema: ${JSON.stringify(remote.inputSchema)}`;
+      }
+    });
   },
   async reviewCard(_ctx, input) {
     return {

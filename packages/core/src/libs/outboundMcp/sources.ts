@@ -4,6 +4,8 @@ import { db } from '@/libs/DB';
 import { knowledgeSourceSchema } from '@/models/Schema';
 
 export const mcpConfigSchema = z.object({
+  // Declared by a workspace adapter; onboarding only, never a native-tool grant.
+  providesFamilies: z.array(z.string().min(1)).default([]),
   readTools: z.array(z.string().min(1)).default([]),
   writeTools: z.array(z.string().min(1)).default([]),
 }).refine(config => !config.readTools.some(name => config.writeTools.includes(name)), 'A tool cannot be both read and write');
