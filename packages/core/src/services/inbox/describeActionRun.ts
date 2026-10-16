@@ -362,6 +362,11 @@ function describeFallback(run: ActionRunLike): ActionDescription {
 }
 
 const DESCRIBERS: Record<string, (run: ActionRunLike, opts?: DescribeOptions) => ActionDescription> = {
+  'mcp.call': run => ({
+    ...describeFallback(run),
+    title: str(rec(run.input).summary) ?? str(rec(run.input).tool)?.replaceAll('_', ' ') ?? 'Execute connected action',
+    actionKind: 'Connected action',
+  }),
   'hubspot.update': describeHubspotUpdate,
   'personalization.enroll': describeEnroll,
   'gmail.send': describeGmailSend,

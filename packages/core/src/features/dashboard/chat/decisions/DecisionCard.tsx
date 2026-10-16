@@ -529,13 +529,16 @@ export function DecisionCard({
             : decision.body && <p id={bodyId} className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-muted-foreground">{decision.body}</p>}
           {lookOption?.look && <DecisionLook look={lookOption.look} />}
           {decision.preview && (
-            <pre
-              className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90"
-              data-testid="decision-preview"
-              aria-label="What it will do, exactly"
-            >
-              {decision.preview}
-            </pre>
+            decision.preview.trimStart().startsWith('{')
+              ? (
+                  <details key={resetKey} className="mt-2" data-testid="decision-technical-details">
+                    <summary className="cursor-pointer text-[12.5px] text-muted-foreground">Technical details</summary>
+                    <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 font-mono text-[12px] whitespace-pre-wrap" data-testid="decision-preview">
+                      {decision.preview}
+                    </pre>
+                  </details>
+                )
+              : <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 text-[13px] whitespace-pre-wrap" data-testid="decision-preview" aria-label="What it will do, exactly">{decision.preview}</pre>
           )}
           {decision.deadline && <p className="mt-1 text-[12px] text-muted-foreground" data-testid="decision-deadline">{deadlineLine(decision.deadline)}</p>}
         </div>

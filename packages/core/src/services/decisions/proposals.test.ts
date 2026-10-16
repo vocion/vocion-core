@@ -134,3 +134,21 @@ it('passes the execution error back with the approval effect', async () => {
 
   expect(out.effect).toMatchObject({ status: 'failed', error: 'MCP tool reported failure', undoable: false });
 });
+
+describe('connected action approval context', () => {
+  it('names the change and preserves the exact successful arguments for a later reversal', async () => {
+    const input = { sourceSlug: 'ledger', tool: 'recategorize', input: { expense_id: '42', expected_account_id: '64', to_account_id: '41', expected_sync_token: '2' }, summary: 'Move Northwind $80 on Oct 2 from Payroll to Benefits' };
+    const run = await pending({ actionId: 'mcp.call', input });
+    const view = await proposalDecisionView(run);
+
+    expect(view.question).toBe(input.summary);
+
+    const out = await answerProposal({ orgId: ORG, id: run.id, conversationId: 392, answer: { kind: 'option', optionIds: ['approve'] }, by: DANA });
+
+    expect(out.effect?.executedInput).toEqual(input);
+
+    const { decisionForModel } = await import('@/libs/decisions/decision');
+
+    expect(decisionForModel(view, out.answer, out.effect)).toContain('"expected_account_id":"64"');
+  });
+});

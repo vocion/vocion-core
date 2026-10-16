@@ -160,6 +160,10 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(JSON.stringify({ error: first.message }), { status: first.status });
   }
   const answered = first.kind === 'answered' ? first : null;
+  // Advance a reviewed batch without another model turn between its cards.
+  const remainingProposals = answered?.answered.effect?.status === 'done' && visibleConversation
+    ? await import('@/services/decisions/proposals').then(async m => Promise.all((await m.pendingProposalsIn(orgId, visibleConversation.id)).map(run => m.proposalDecisionView(run))))
+    : [];
   const { answeredIntent } = await import('@/services/agents/turnJudge');
   const { answerLine, decisionForModel } = await import('@/libs/decisions/decision');
   // The record of what they chose, as the asking agent reads it.
@@ -583,7 +587,13 @@ export async function POST(request: Request): Promise<Response> {
         for (const event of early.splice(0)) {
           sendEvent(event);
         }
-        await (headStart ?? runTurn(agentSlug));
+        if (remainingProposals.length > 0) {
+          for (const decision of remainingProposals) {
+            writeEvent({ type: 'decision', decision });
+          }
+        } else {
+          await (headStart ?? runTurn(agentSlug));
+        }
       } catch (err) {
         const m = (err as Error).message ?? 'agent error';
         // The turn died here. Whatever text the collector holds is a fragment,

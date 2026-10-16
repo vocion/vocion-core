@@ -369,3 +369,13 @@ describe('the asking agent on the card (founder, 2026-10-09)', () => {
     expect(document.querySelector('[data-testid="decision-card"] [data-slot="agent-dot"]')?.textContent).toBe('D');
   });
 });
+
+it('keeps raw payloads collapsed until technical details are requested', async () => {
+  await renderCard({ ...approval, preview: '{"tool":"recategorize","input":{"expense_id":"42"}}' }, { agentName: 'Bookkeeper' });
+
+  await expect.element(page.getByTestId('decision-preview')).not.toBeVisible();
+
+  await page.getByText('Technical details', { exact: true }).click();
+
+  await expect.element(page.getByTestId('decision-preview')).toBeVisible();
+});

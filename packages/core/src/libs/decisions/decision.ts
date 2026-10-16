@@ -409,7 +409,7 @@ export function answerLine(view: Pick<DecisionView, 'options'>, answer: Decision
  * @param answer - The answer.
  * @param effect - The actual execution outcome, when the decision ran an action.
  */
-export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'options' | 'subject' | 'body' | 'refs'>, answer: DecisionAnswer, effect?: { runId: number; status: string; error?: string | null } | null): string {
+export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'options' | 'subject' | 'body' | 'refs'>, answer: DecisionAnswer, effect?: { runId: number; status: string; error?: string | null; executedInput?: Record<string, unknown> } | null): string {
   const lines = [`[${view.subject === 'proposal' ? 'proposal' : 'decision'} #${view.id} answered] ${view.question}`];
   if (view.body?.trim()) {
     lines.push(`Asked with: ${view.body.trim()}`);
@@ -430,6 +430,9 @@ export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'o
   }
   if (effect) {
     lines.push(`Execution result for ACT-${effect.runId}: ${effect.status}.${effect.error ? ` Error: ${effect.error}` : ''}`);
+    if (effect.executedInput) {
+      lines.push(`Executed arguments (historical, not current state): ${JSON.stringify(effect.executedInput)}`);
+    }
     lines.push(effect.status === 'done'
       ? 'The approved action already executed. Report its result; do not submit or propose it again.'
       : effect.status === 'failed'

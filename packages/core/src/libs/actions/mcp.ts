@@ -43,7 +43,7 @@ export const mcpCallAction: Action<typeof inputSchema> = {
   },
   async reviewCard(_ctx, input) {
     return {
-      title: `${input.tool} on ${input.sourceSlug}`,
+      title: input.summary,
       system: input.sourceSlug,
       headline: input.summary,
       fields: [{ label: 'Source', value: input.sourceSlug }, { label: 'Tool', value: input.tool }],
