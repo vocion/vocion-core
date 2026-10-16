@@ -204,3 +204,20 @@ describe('an approval, asked as a permission prompt', () => {
     expect(decisionViewOf({ ...repo, contextMd: 'not an approval' }).preview).toBeUndefined();
   });
 });
+
+it('passes failed execution to the continuation instead of telling it to act again', () => {
+  const text = decisionForModel({ id: 7, subject: 'proposal', question: 'Correct expense', options: [{ id: 'approve', label: 'Allow once', consequence: 'Runs it as you.' }] }, { kind: 'option', optionIds: ['approve'] }, { runId: 7, status: 'failed', error: 'MCP tool reported failure' });
+
+  expect(text).toContain('Execution result for ACT-7: failed');
+  expect(text).toContain('not pending or processing');
+  expect(text).toContain('MCP tool reported failure');
+  expect(text).not.toContain('Act on it now');
+  expect(text).not.toContain('Runs it as you.');
+});
+
+it('does not execute a completed approved action again', () => {
+  const text = decisionForModel({ id: 7, subject: 'proposal', question: 'Correct expense', options: [] }, { kind: 'option', optionIds: ['approve'] }, { runId: 7, status: 'done' });
+
+  expect(text).toContain('already executed');
+  expect(text).toContain('do not submit or propose it again');
+});

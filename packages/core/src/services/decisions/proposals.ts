@@ -86,7 +86,7 @@ export async function proposalDecisionView(run: RunRow, extra: { deadline?: Deci
     { id: DENY_ID, label: 'Deny', consequence: 'Nothing runs; the agent revises from your no.', ...(suggested === 'reject' ? { recommended: true } : {}) },
   ];
   const decided = run.status !== 'pending';
-  const approved = ['done', 'approved', 'executing', 'awaiting_execution'].includes(run.status);
+  const approved = ['done', 'approved', 'executing', 'awaiting_execution', 'failed'].includes(run.status);
   return {
     id: run.id,
     subject: 'proposal',
@@ -185,9 +185,10 @@ export async function answerProposal(opts: { orgId: string; id: number; conversa
     const verb = opts.answer.optionIds[0] === ALLOW_ONCE_ID ? 'approve' : 'reject';
     const result = await decide(item, verb, opts.orgId, { reviewedBy: opts.by });
     if (verb === 'approve') {
-      const status = (result as { execution?: { status?: string } } | null)?.execution?.status ?? 'approved';
+      const execution = (result as { execution?: { status?: string; error?: string | null } } | null)?.execution;
+      const status = execution?.status ?? 'approved';
       const { actionIsUndoable, actionLabel } = await import('@/libs/actions/undoable');
-      effect = { runId: opts.id, actionId: run.actionId, status, undoable: status === 'done' && actionIsUndoable(run.actionId, run.input as Record<string, unknown> | null), label: asked.question || actionLabel(run.actionId) };
+      effect = { runId: opts.id, actionId: run.actionId, status, error: execution?.error ?? null, undoable: status === 'done' && actionIsUndoable(run.actionId, run.input as Record<string, unknown> | null), label: asked.question || actionLabel(run.actionId) };
     }
   }
   const after = (await proposalById(opts.orgId, opts.id)) ?? run;

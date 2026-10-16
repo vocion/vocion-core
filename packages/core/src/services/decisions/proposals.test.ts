@@ -119,3 +119,18 @@ describe('what waits on a person elsewhere', () => {
     await expect(answerElsewhere({ orgId: ORG, subject: 'ask', id: here.id, answer: { kind: 'skip' }, by: DANA })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });
+
+it('keeps an approved execution failure distinct from a human rejection', async () => {
+  const run = await pending({ status: 'failed', decidedBy: DANA });
+  const view = await proposalDecisionView(run);
+
+  expect(view.answer?.optionIds).toEqual(['approve']);
+});
+
+it('passes the execution error back with the approval effect', async () => {
+  const run = await pending();
+  decide.mockResolvedValueOnce({ execution: { status: 'failed', error: 'MCP tool reported failure' } } as never);
+  const out = await answerProposal({ orgId: ORG, id: run.id, conversationId: 392, answer: { kind: 'option', optionIds: ['approve'] }, by: DANA });
+
+  expect(out.effect).toMatchObject({ status: 'failed', error: 'MCP tool reported failure', undoable: false });
+});

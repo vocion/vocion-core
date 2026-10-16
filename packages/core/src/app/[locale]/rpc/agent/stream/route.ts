@@ -163,7 +163,7 @@ export async function POST(request: Request): Promise<Response> {
   const { answeredIntent } = await import('@/services/agents/turnJudge');
   const { answerLine, decisionForModel } = await import('@/libs/decisions/decision');
   // The record of what they chose, as the asking agent reads it.
-  const answerText = answered ? decisionForModel(answered.answered.asked, answered.answered.answer) : null;
+  const answerText = answered ? decisionForModel(answered.answered.asked, answered.answered.answer, answered.answered.effect) : null;
   const answerRun = answered
     ? { type: 'decision_answer' as const, id: answered.answered.asked.id, question: answered.answered.asked.question, answer: answered.answered.answer, line: answerLine(answered.answered.asked, answered.answered.answer), via: answered.source }
     : null;
