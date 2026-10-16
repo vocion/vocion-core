@@ -80,7 +80,7 @@ export async function proposalDecisionView(run: RunRow, extra: { deadline?: Deci
   const proposal = (run.proposal ?? {}) as { suggestedDecision?: unknown; suggestedDecisionReason?: unknown };
   const suggested = proposal.suggestedDecision;
   const changes = described.changes.map(c => `${c.field} → ${c.to}`).join('; ');
-  const undo = actionIsUndoable(run.actionId, run.input as Record<string, unknown> | null) ? 'with Undo' : 'it cannot be undone';
+  const undo = actionIsUndoable(run.actionId, run.input as Record<string, unknown> | null) ? 'with Undo' : 'no automatic undo';
   const options: DecisionOption[] = [
     { id: ALLOW_ONCE_ID, label: 'Allow once', consequence: `Runs it as you, this once — ${undo}.`, ...(suggested !== 'reject' ? { recommended: true } : {}) },
     { id: DENY_ID, label: 'Deny', consequence: 'Nothing runs; the agent revises from your no.', ...(suggested === 'reject' ? { recommended: true } : {}) },
@@ -188,7 +188,7 @@ export async function answerProposal(opts: { orgId: string; id: number; conversa
       const execution = (result as { execution?: { status?: string; error?: string | null } } | null)?.execution;
       const status = execution?.status ?? 'approved';
       const { actionIsUndoable, actionLabel } = await import('@/libs/actions/undoable');
-      effect = { runId: opts.id, actionId: run.actionId, status, error: execution?.error ?? null, undoable: status === 'done' && actionIsUndoable(run.actionId, run.input as Record<string, unknown> | null), label: asked.question || actionLabel(run.actionId) };
+      effect = { runId: opts.id, actionId: run.actionId, status, error: execution?.error ?? null, undoable: status === 'done' && actionIsUndoable(run.actionId, run.input as Record<string, unknown> | null), label: asked.question || actionLabel(run.actionId), ...(run.actionId === 'mcp.call' && status === 'done' ? { executedInput: run.input as Record<string, unknown> } : {}) };
     }
   }
   const after = (await proposalById(opts.orgId, opts.id)) ?? run;

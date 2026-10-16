@@ -10,6 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+vi.mock('@/services/ReviewService', () => ({ decide: vi.fn(), snooze: vi.fn() }));
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/services/AgentService', () => ({
   listAgents: vi.fn(async () => [
@@ -32,7 +33,7 @@ const decisionRead = vi.fn();
 vi.mock('@/services/agents/turnJudge', async orig => ({ ...(await orig<object>()), readDecisionAnswer: (...a: unknown[]) => decisionRead(...a) }));
 
 const { db } = await import('@/libs/DB');
-const { askSchema, conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
+const { actionRunSchema, askSchema, conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
 const { clerkAuth } = await import('@/libs/Auth');
 const { runAgentDeep } = await import('@/services/AgentService');
 const { createConversation, listMessages } = await import('@/services/ConversationService');
@@ -202,4 +203,29 @@ describe('a turn that ends at a Decision', () => {
     expect(assistant?.status).toBe('complete');
     expect(assistant?.runsJson).toContainEqual({ type: 'decision', id: 77, question: 'Which repo?', state: 'open' });
   });
+});
+
+it('advances two approvals without a model turn between them and keeps the executed receipt', async () => {
+  const { decide } = await import('@/services/ReviewService');
+  const { eq } = await import('drizzle-orm');
+  const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+  const input = { sourceSlug: 'ledger', tool: 'recategorize', input: { expense_id: '42', expected_account_id: '64', to_account_id: '41' }, summary: 'Move Northwind $80 from Payroll to Benefits' };
+  const runs = await db.insert(actionRunSchema).values([1, 2].map(i => ({ orgId: ORG, actionId: 'mcp.call', input, status: 'pending', invokedBy: 'agent:revenue-lead', proposal: { origin: { conversationId: conv.id }, rationale: `Correction ${i}` } }))).returning();
+  vi.mocked(decide).mockImplementation(async (item) => {
+    await db.update(actionRunSchema).set({ status: 'done' }).where(eq(actionRunSchema.id, Number(item.id)));
+    return { execution: { status: 'done' } } as Awaited<ReturnType<typeof decide>>;
+  });
+  const first = await turn({ conversation_id: conv.id, decision_answer: { subject: 'proposal', id: runs[0]!.id, option_ids: ['approve'] } });
+
+  expect(runAgentDeep).not.toHaveBeenCalled();
+  expect(first.events).toContainEqual(expect.objectContaining({ type: 'receipt', receipt: expect.objectContaining({ runId: runs[0]!.id, label: input.summary }) }));
+  expect(first.events).toContainEqual(expect.objectContaining({ type: 'decision', decision: expect.objectContaining({ id: runs[1]!.id, state: 'open' }) }));
+
+  await turn({ conversation_id: conv.id, decision_answer: { subject: 'proposal', id: runs[1]!.id, option_ids: ['approve'] } });
+
+  expect(runAgentDeep).toHaveBeenCalledTimes(1);
+
+  const rows = await listMessages({ orgId: ORG, conversationId: conv.id });
+
+  expect(rows.some(r => r.content.includes('"expected_account_id":"64"'))).toBe(true);
 });

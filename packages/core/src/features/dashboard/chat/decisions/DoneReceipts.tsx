@@ -39,19 +39,19 @@ export function DoneReceipts({ receipts }: { receipts: DoneReceipt[] }) {
     }
   };
   return (
-    <ul className="mt-3 space-y-1" data-testid="done-receipts">
+    <ul className="mt-3 space-y-2" data-testid="done-receipts">
       {receipts.map((r) => {
         const state = r.status === 'undone' ? 'undone' : undo[r.runId];
         return (
-          <li key={r.runId} className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground" data-testid={`done-receipt-${r.runId}`} data-undoable={r.undoable}>
+          <li key={r.runId} className="flex flex-wrap items-start gap-2 rounded-xl border border-border bg-surface-soft px-4 py-3 text-[13px] text-muted-foreground" data-testid={`done-receipt-${r.runId}`} data-undoable={r.undoable}>
             {state === 'undone'
               ? <RotateCcw className="size-3.5 shrink-0" aria-hidden />
               : <Check className="size-3.5 shrink-0 text-[var(--brand-pass)]" aria-hidden />}
-            <span className="shrink-0 font-medium text-foreground/85">{state === 'undone' ? 'Undone' : 'Done'}</span>
+            <span className="shrink-0 font-medium text-foreground/85">{state === 'undone' ? 'Undone' : 'Completed'}</span>
             <span aria-hidden>·</span>
             {r.href
-              ? <Link href={r.href} className="min-w-0 truncate hover:text-foreground hover:underline">{r.label}</Link>
-              : <span className="min-w-0 truncate">{r.label}</span>}
+              ? <Link href={r.href} className="min-w-0 flex-1 break-words hover:text-foreground hover:underline">{r.label}</Link>
+              : <span className="min-w-0 flex-1 break-words">{r.label}</span>}
             {r.undoable && state !== 'undone' && (
               <button
                 type="button"
