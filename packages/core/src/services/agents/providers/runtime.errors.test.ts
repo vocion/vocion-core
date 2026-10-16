@@ -98,6 +98,7 @@ async function seedAgent(orgId: string): Promise<void> {
 const savedEnv = { ...process.env };
 
 beforeEach(async () => {
+  process.env.VOCION_AGENT_RUNTIME_SECRET = 'runtime-test-secret';
   await db.delete(agentSchema);
   mintBedrockSessionForRuntime.mockReset().mockResolvedValue(null);
   chargeUsage.mockReset().mockResolvedValue(undefined);

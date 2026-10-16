@@ -59,6 +59,7 @@ import { buildToolCatalog } from '../tools/registry';
 const STARTS_MORE_WORK: ReadonlySet<AgentEvent['type']> = new Set(['thinking', 'answering', 'response_delta', 'thinking_delta', 'tool_start', 'subagent_start']);
 
 const RUNTIME_URL = (): string => process.env.VOCION_AGENT_RUNTIME_URL ?? 'http://localhost:8080';
+const RUNTIME_SECRET = (): string | undefined => process.env.VOCION_AGENT_RUNTIME_SECRET;
 const TOOL_ENDPOINT = (): string =>
   process.env.VOCION_TOOL_ENDPOINT_URL
   ?? `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/api/internal/agent-tools`;
@@ -108,6 +109,11 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>;
 }> {
   const emit = opts.onEvent ?? (() => {});
+  const runtimeArn = process.env.VOCION_AGENT_RUNTIME_ARN;
+  const runtimeSecret = runtimeArn ? undefined : RUNTIME_SECRET();
+  if (!runtimeArn && !runtimeSecret) {
+    throw new Error('VOCION_AGENT_RUNTIME_SECRET must be set when invoking the runtime over HTTP');
+  }
 
   const [row] = await db
     .select()
@@ -381,7 +387,6 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   // typed error event first, mirroring loop.ts's own catch, then rethrow
   // so the caller's promise still rejects exactly as before.
   try {
-    const runtimeArn = process.env.VOCION_AGENT_RUNTIME_ARN;
     if (runtimeArn) {
       // Deployed transport: InvokeAgentRuntime (SigV4) against AgentCore.
       const { BedrockAgentCoreClient, InvokeAgentRuntimeCommand } = await import('@aws-sdk/client-bedrock-agentcore');
@@ -410,7 +415,10 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
       // Local transport: plain HTTP to the artifact.
       const res = await fetch(`${RUNTIME_URL()}/invocations`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'authorization': `Bearer ${runtimeSecret}`,
+        },
         body: JSON.stringify(payload),
         signal: budgetGuard.signal,
       });

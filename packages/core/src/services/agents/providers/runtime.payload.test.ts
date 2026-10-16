@@ -33,12 +33,22 @@ const { agentSchema } = await import('@/models/Schema');
 const { runAgentOnRuntime } = await import('./runtime');
 
 const ORG = 'org_runtime_payload';
+const originalRuntimeSecret = process.env.VOCION_AGENT_RUNTIME_SECRET;
+const originalRuntimeArn = process.env.VOCION_AGENT_RUNTIME_ARN;
 const SESSION = {
   accessKeyId: 'ASIADDDDDDDDDDDDDDDD',
   secretAccessKey: 'session-secret',
   sessionToken: 'session-token',
   expiresAt: '2026-09-04T18:00:00.000Z',
 };
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
 
 /** Captures the body of the single POST the provider makes. */
 function captureInvocation(): { payload: () => Record<string, unknown> } {
@@ -58,6 +68,8 @@ function captureInvocation(): { payload: () => Record<string, unknown> } {
 }
 
 beforeEach(async () => {
+  process.env.VOCION_AGENT_RUNTIME_SECRET = 'runtime-test-secret';
+  delete process.env.VOCION_AGENT_RUNTIME_ARN;
   await db.delete(agentSchema);
   await db.insert(agentSchema).values({
     orgId: ORG,
@@ -71,6 +83,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await db.delete(agentSchema);
+  restoreEnv('VOCION_AGENT_RUNTIME_SECRET', originalRuntimeSecret);
+  restoreEnv('VOCION_AGENT_RUNTIME_ARN', originalRuntimeArn);
   vi.unstubAllGlobals();
 });
 
@@ -83,6 +97,23 @@ describe('runAgentOnRuntime payload', () => {
 
     expect(mintBedrockSessionForRuntime).toHaveBeenCalledWith(ORG);
     expect(captured.payload().aws).toEqual(SESSION);
+  });
+
+  it('authenticates local runtime calls with the configured bearer secret', async () => {
+    mintBedrockSessionForRuntime.mockResolvedValue(null);
+    captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' });
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: {
+          'content-type': 'application/json',
+          'authorization': 'Bearer runtime-test-secret',
+        },
+      }),
+    );
   });
 
   it('omits the field entirely when the org stored no key', async () => {
@@ -102,6 +133,16 @@ describe('runAgentOnRuntime payload', () => {
     await expect(runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' }))
       .rejects
       .toThrow(/GetSessionToken/);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('fails before making an unauthenticated local runtime request', async () => {
+    delete process.env.VOCION_AGENT_RUNTIME_SECRET;
+    captureInvocation();
+
+    await expect(runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' }))
+      .rejects
+      .toThrow(/VOCION_AGENT_RUNTIME_SECRET/);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
