@@ -4,10 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 const transport = vi.hoisted(() => ({ calls: 0, fail: false }));
-vi.mock('@/libs/outboundMcp/client', () => ({
+vi.mock('@/libs/outboundMcp/client', async importOriginal => ({
+  ...await importOriginal<typeof import('@/libs/outboundMcp/client')>(),
   mcpCredentialsOf: () => ({ baseUrl: 'https://example.com/mcp', token: 'test' }),
   withMcp: async (_credentials: unknown, work: (client: unknown) => Promise<unknown>) => work({}),
-  listMcpTools: async () => [{ name: 'post_journal', inputSchema: { type: 'object' } }],
+  listMcpTools: async () => [{ name: 'post_journal', inputSchema: { type: 'object', properties: { amount: { type: 'string' } }, required: ['amount'] } }],
   callMcpTool: async () => {
     transport.calls++;
     if (transport.fail) {
@@ -47,6 +48,12 @@ describe('MCP writes through Review', () => {
     const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, proposed.runId));
 
     expect(row).toMatchObject({ decidedBy: 'test-human-reviewer', status: 'done', result: { result: { structuredContent: { verified: true } } } });
+  });
+
+  it('rejects malformed arguments before any review row or provider write exists', async () => {
+    await expect(proposeAction({ orgId: ORG, actionId: 'mcp.call', input: { ...input, input: {} }, principal })).rejects.toThrow('input schema');
+    expect(await db.select().from(actionRunSchema)).toEqual([]);
+    expect(transport.calls).toBe(0);
   });
 
   it('rejects without calling the provider', async () => {
