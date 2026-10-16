@@ -356,6 +356,8 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   aliases?: readonly string[];
   name: string;
   description: string;
+  /** Native connector kinds this action can execute against; MCP uses its own declared actions. */
+  sourceKinds?: readonly string[];
   /** Validates the action input at propose-time. */
   inputSchema: S;
   /** authz action grant required to run it, e.g. `send_email`. */

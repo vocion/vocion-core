@@ -1,4 +1,3 @@
-import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 /**
  * THE CARD PASS — the cards a finished answer owes, in seconds.
  *
@@ -38,11 +37,13 @@ import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
  * a build card that can only fail.
  */
 
+import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { AgentEvent, RuntimeContext } from './types';
 import type { Action } from '@/libs/actions/types';
 import type { ModelRole } from '@/libs/llm';
+import { actionConnectionGuidance, actionInSourceScope } from '@/libs/actions/availability';
 import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
 import { repairActionInput } from '@/libs/actions/repairInput';
 import { appBaseUrl } from '@/libs/links';
@@ -646,12 +647,19 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
     listModel: () => buildChatModelForOrg('classifier', opts.orgId, { temperature: 0, streaming: false, maxTokens: 600 }),
     cardModel: () => buildChatModelForOrg('extractor', opts.orgId, { temperature: 0, streaming: false, maxTokens: 2_000 }),
     tool: actionIds => recommendActionTool(ctx, { actionIds }),
-    actionCatalog: () => registry.listActions().map(a => `${a.id} — ${a.description.split(/(?<=\.)\s/)[0]!.slice(0, 160)}`).join('\n'),
-    hasAction: id => !!id && registry.getAction(id) !== undefined,
+    actionCatalog: () => registry.listActions().filter(a => actionInSourceScope(a, ctx)).map(a => `${a.id} — ${a.description.split(/(?<=\.)\s/)[0]!.slice(0, 160)}`).join('\n'),
+    hasAction: (id) => {
+      const action = id ? registry.getAction(id) : undefined;
+      return !!action && actionInSourceScope(action, ctx);
+    },
     precheck: async (actionId, input) => {
       const action = registry.getAction(actionId);
       if (!action) {
         return `no registered action "${actionId}"`;
+      }
+      const guidance = actionConnectionGuidance(action, ctx);
+      if (guidance) {
+        return guidance;
       }
       // What the model may not write (`internalInput`: a dispatch's trigger,
       // retry and replan fields) is dropped before the check, exactly as the

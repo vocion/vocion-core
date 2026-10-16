@@ -16,7 +16,9 @@
 import type { RuntimeContext } from '../types';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
+import { actionConnectionGuidance } from '@/libs/actions/availability';
 import { explainProposeActionMiss, normalizeProposeActionArgs, proposeActionArgsSchema } from '@/libs/actions/proposeActionArgs';
+import { getAction } from '@/libs/actions/registry';
 import { isSelfUpdate } from '@/libs/actions/selfUpdate';
 import { parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { nounCode } from '@/libs/codes';
@@ -133,6 +135,11 @@ async function runProposalInner(
       || (ctx.allowedSourceSlugs && !ctx.allowedSourceSlugs.includes(source))) {
       return 'This MCP source is outside the agent or requesting user source scope.';
     }
+  }
+  const requestedAction = getAction(action_id);
+  const connectionGuidance = requestedAction && actionConnectionGuidance(requestedAction, ctx);
+  if (connectionGuidance) {
+    return connectionGuidance;
   }
   const factoryStep = isFactoryStep(ctx) && action_id === IDEA_ACTION_ID;
   // THE PROPOSAL BUDGET. An agent on its own schedule may hold only so

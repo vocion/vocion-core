@@ -38,6 +38,7 @@ export const financeRecategorizeExpenseAction: Action<typeof recategorizeInput> 
   id: RECATEGORIZE_EXPENSE_ACTION_ID,
   name: 'Recategorize an expense',
   description: 'Move one line of a card or bank expense to another account in the connected books. Changes the books, moves no money. Undo moves it back.',
+  sourceKinds: ['quickbooks'],
   inputSchema: recategorizeInput,
   grant: 'recategorize_expense',
   external: true,

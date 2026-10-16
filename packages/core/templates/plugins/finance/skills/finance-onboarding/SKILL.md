@@ -7,7 +7,7 @@ description: >-
   rules, then the close calendar, report recipients and profitability targets.
   Read when a person taps "Set up Finance", asks to set up or connect the
   books, or when the finance team has nothing to read.
-version: 1
+version: 2
 ---
 
 # Setting up Finance
@@ -21,6 +21,20 @@ books, and the facts an accountant joining tomorrow would be told.
 Call `describe_setup`. It names each step and whether it is done. Do not
 list a done step and do not invent one. Read what is already on file
 (`lookup_objects` for each finance type) so nothing is asked twice.
+
+A native finance-family setup check may not recognize a workspace's MCP
+adapter. Before claiming the books are disconnected, inspect `describe_sources`
+and discover the assigned MCP's read and write tools with `mcp_list_tools`.
+A successful ledger read through MCP counts as connected. Missing account
+rules or entity setup does not block that read. A malformed call or an action
+for a different connector is not evidence of an expired login.
+
+If no connected source provides the requested capability, explain that
+specific gap, use `list_capabilities` to find the appropriate connector and
+show its `offer_connection` setup card. If the existing provider actually
+reports an authentication failure, use `where_to` for its reconnect link.
+Do not send someone through a new native connection when their MCP already
+supplies the capability, and never request keys or passwords in chat.
 
 ## The order
 

@@ -40,6 +40,7 @@ export const financeDraftInvoiceAction: Action<typeof draftInvoiceInput> = {
   id: DRAFT_INVOICE_ACTION_ID,
   name: 'Draft an invoice',
   description: 'Prepare an invoice in the connected finance system as a draft — never finalized, sent or charged; a person sends it from the vendor\'s app. Undo deletes the draft.',
+  sourceKinds: ['stripe'],
   inputSchema: draftInvoiceInput,
   grant: 'draft_invoice',
   external: true,

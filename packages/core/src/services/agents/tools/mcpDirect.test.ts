@@ -83,6 +83,24 @@ describe('MCP source scope', () => {
     expect(result).toContain('outside');
   });
 
+  it('routes a mistaken native proposal back to MCP before creating a Review row', async () => {
+    const result = await runProposal(context(), { actionId: 'finance.recategorize_expense', input: { expenseId: '6271' }, confidence: 1, rationale: 'User correction', suggestedDecision: 'approve', suggestedDecisionReason: 'User correction' }, { tool: 'propose_action' });
+
+    expect(result).toContain('mcp_list_tools');
+    expect(result).toContain('propose mcp.call');
+    expect(remote.calls).toBe(0);
+  });
+
+  it('omits disconnected native actions and their schemas from the catalog', async () => {
+    const { actionCatalog } = await import('@/libs/actions/registry');
+    const catalog = actionCatalog(context());
+
+    expect(catalog).toContain('mcp.call');
+    expect(catalog).not.toContain('finance.recategorize_expense');
+    expect(catalog).not.toContain('finance.post_journal_entry');
+    expect(catalog).not.toContain('finance.draft_invoice');
+  });
+
   it('returns the schema for invalid arguments and allows a corrected next call', async () => {
     const read = mcpTools(context()).find(t => t.name === 'mcp_read')!;
     const invalid = JSON.parse(await read.invoke({ sourceSlug: 'finance', name: 'read', input: { start_position: 26 } }) as string);

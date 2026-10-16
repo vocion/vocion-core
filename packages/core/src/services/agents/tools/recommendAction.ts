@@ -13,6 +13,7 @@ import type { RuntimeContext } from '../types';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { actionInSourceScope } from '@/libs/actions/availability';
 import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { actionInputHints, getAction, listActions } from '@/libs/actions/registry';
@@ -100,12 +101,12 @@ async function filingCardRefusal(ctx: RuntimeContext, input: Record<string, unkn
  */
 export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: readonly string[] } = {}) {
   const described = opts.actionIds?.length ? opts.actionIds.map(id => getAction(id)).filter((a): a is NonNullable<typeof a> => !!a) : [];
-  const shown = described.length > 0 ? described : listActions();
+  const shown = (described.length > 0 ? described : listActions()).filter(action => actionInSourceScope(action, ctx));
   const available = shown.map(a => `${a.id} — ${a.description}`).join('\n');
   // The field names, with * on the required ones — read off the schemas, so
   // a card is not refused for `object_type` where the action says `objectType`
   // (finding 20, 2026-09-25: every refused card was a guessed field name).
-  const inputs = actionInputHints(described.length > 0 ? described.map(a => a.id) : undefined);
+  const inputs = actionInputHints(shown.map(a => a.id));
 
   return tool(
     async (input) => {

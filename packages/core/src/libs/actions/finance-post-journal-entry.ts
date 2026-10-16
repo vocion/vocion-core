@@ -55,6 +55,7 @@ export const financePostJournalEntryAction: Action<typeof journalEntryInput> = {
   id: POST_JOURNAL_ENTRY_ACTION_ID,
   name: 'Post a journal entry',
   description: 'Post a balanced journal entry (debits equal credits) to the connected books. Changes the books, moves no money. Undo deletes the entry.',
+  sourceKinds: ['quickbooks'],
   inputSchema: journalEntryInput,
   grant: 'post_journal_entry',
   external: true,

@@ -4,6 +4,7 @@
  * dashboard/MCP surfaces list them for a "what can this teammate do" view.
  */
 
+import type { ActionSourceScope } from './availability';
 import type { Action } from './types';
 import { adsSetStatusAction } from './ads-set-status';
 import { agentRevisePromptAction } from './agent-revise-prompt';
@@ -11,6 +12,7 @@ import { appInstallAction } from './app-install';
 import { appTemplateInstallAction } from './app-template-install';
 import { askFileAction } from './ask-file';
 import { askWithdrawAction } from './ask-withdraw';
+import { actionInSourceScope } from './availability';
 import { chatAddReactionAction } from './chat-add-reaction';
 import { chatReplyInThreadAction } from './chat-reply-in-thread';
 import { discoveryReviewProposalAction } from './discovery-review';
@@ -107,10 +109,13 @@ export function listActions(): Action[] {
  * Every registered action with its input fields, stated once in an agent's
  * instructions for recommend_action and propose_action to name from
  * (`services/agents/harness.ts`).
+ * @param scope - Assigned source kinds, optionally narrowed to the requesting person.
  */
-export function actionCatalog(): string {
-  const lines = listActions().map(a => `${a.id} — ${a.description}`).join('\n');
-  return `ACTIONS (the ids recommend_action and propose_action take):\n${lines}\n\nEach action's input fields, exactly as named (* = required) — action_input must use these names and nothing else:\n${actionInputHints(undefined)}`;
+export function actionCatalog(scope?: ActionSourceScope): string {
+  const shown = listActions().filter(action => !scope || actionInSourceScope(action, scope));
+  const connectionNote = scope ? '\nIf the needed action is absent, inspect assigned sources with describe_sources and discover declared MCP capabilities with mcp_list_tools before concluding nothing is connected. Use a supported MCP tool through mcp.call for reviewed writes. When no suitable connection exists, use list_capabilities and offer_connection to present setup for the requested capability. For an actual authentication failure, use where_to to link the reconnect step. A wrong interface or schema is not an authentication failure. Never request credentials in chat.\n' : '';
+  const lines = shown.map(a => `${a.id} — ${a.description}`).join('\n');
+  return `ACTIONS (the ids recommend_action and propose_action take):${connectionNote}\n${lines}\n\nEach action's input fields, exactly as named (* = required) — action_input must use these names and nothing else:\n${actionInputHints(shown.map(action => action.id))}`;
 }
 
 // Built-ins.
