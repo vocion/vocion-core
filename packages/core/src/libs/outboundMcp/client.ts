@@ -4,6 +4,8 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import Ajv from 'ajv';
 import { resolvesPublicly } from '@/libs/net/publicUrl';
 
+class McpToolFailure extends Error {}
+
 export type McpCredentials = { baseUrl: string; token: string };
 
 /**
@@ -37,7 +39,10 @@ export async function withMcp<T>(credentials: McpCredentials, work: (client: Cli
   try {
     await client.connect(transport, { timeout: 30_000 });
     return await work(client);
-  } catch {
+  } catch (error) {
+    if (error instanceof McpToolFailure) {
+      throw error;
+    }
     // SDK transport exceptions can contain response bodies; do not send secrets to the ledger.
     throw new Error('MCP request failed. A submitted write may have succeeded; inspect provider state before retrying.');
   } finally {
@@ -85,7 +90,7 @@ export async function callMcpTool(client: Client, remote: Tool, input: Record<st
   validateMcpInput(remote, input);
   const result = await client.callTool({ name: remote.name, arguments: input }, undefined, { timeout: 60_000 });
   if (result.isError) {
-    throw new Error('MCP tool reported failure; inspect the provider before retrying a write.');
+    throw new McpToolFailure('MCP tool reported failure. This execution is not pending. Inspect the provider write receipt and current record before proposing a recovery; do not reuse an idempotency key with different arguments.');
   }
   return result;
 }

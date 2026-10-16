@@ -284,7 +284,7 @@ export type AnsweredDecision = {
   view: DecisionView;
   answer: DecisionAnswer;
   /** The action the chosen option started, when it started one. */
-  effect: { runId: number; actionId: string; status: string; undoable: boolean; label: string } | null;
+  effect: { runId: number; actionId: string; status: string; undoable: boolean; label: string; error?: string | null } | null;
 };
 
 /**

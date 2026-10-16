@@ -407,8 +407,9 @@ export function answerLine(view: Pick<DecisionView, 'options'>, answer: Decision
  * to the question it asked, by id.
  * @param view - The Decision, as it was asked.
  * @param answer - The answer.
+ * @param effect - The actual execution outcome, when the decision ran an action.
  */
-export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'options' | 'subject' | 'body' | 'refs'>, answer: DecisionAnswer): string {
+export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'options' | 'subject' | 'body' | 'refs'>, answer: DecisionAnswer, effect?: { runId: number; status: string; error?: string | null } | null): string {
   const lines = [`[${view.subject === 'proposal' ? 'proposal' : 'decision'} #${view.id} answered] ${view.question}`];
   if (view.body?.trim()) {
     lines.push(`Asked with: ${view.body.trim()}`);
@@ -423,11 +424,20 @@ export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'o
   } else {
     for (const id of answer.optionIds) {
       const o = view.options.find(x => x.id === id);
-      const did = o?.hasEffect ? 'its action ran as theirs' : o?.consequence ?? '';
+      const did = effect ? '' : o?.hasEffect ? 'its action ran as theirs' : o?.consequence ?? '';
       lines.push(`Chosen: ${o?.label ?? id} (option ${id})${did ? ` — ${did}` : ''}`);
     }
   }
-  lines.push('This is their answer to the question you asked. Act on it now; do not ask it again.');
+  if (effect) {
+    lines.push(`Execution result for ACT-${effect.runId}: ${effect.status}.${effect.error ? ` Error: ${effect.error}` : ''}`);
+    lines.push(effect.status === 'done'
+      ? 'The approved action already executed. Report its result; do not submit or propose it again.'
+      : effect.status === 'failed'
+        ? 'The approved execution FAILED. It is not pending or processing. Report the failure; inspect the provider receipt and state before proposing a recovery. Never repeat a write through a read tool or assume another attempt is authorized.'
+        : 'Report this exact execution state. Do not claim completion or submit the action again.');
+  } else {
+    lines.push('This is their answer to the question you asked. Act on it now; do not ask it again.');
+  }
   return lines.join('\n');
 }
 
