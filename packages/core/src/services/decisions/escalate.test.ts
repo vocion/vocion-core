@@ -53,7 +53,7 @@ describe('outside trust: an approval', () => {
     const d = decisionOf(await escalate({ type: 'card', card: { id: 'card_1', kind: 'action', title: 'Send renewal', actions: [{ label: 'Approve', actionId: 'gmail.send', input: {}, style: 'primary' }], source: {}, runId: run!.id, state: 'filed' } }, turn));
 
     expect(d).toMatchObject({ id: run!.id, subject: 'proposal', kind: 'approval', state: 'open', conversationId: 392 });
-    expect(d!.options.find(o => o.id === 'approve')!.consequence).toContain('it cannot be undone');
+    expect(d!.options.find(o => o.id === 'approve')!.consequence).toContain('no automatic undo');
     expect(await db.select().from(askSchema)).toHaveLength(0);
   });
 
