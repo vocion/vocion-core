@@ -97,6 +97,27 @@ describe('setupStateForOrg', () => {
       expect(out!.steps[0]!.options).toContain('quickbooks');
     });
 
+    it('accepts a credentialed MCP adapter that explicitly supplies the family', async () => {
+      state.sources = [{ id: 7, slug: 'ledger-mcp', kind: 'web', config: { _connector: 'mcp', providesFamilies: ['finance'], readTools: ['list'] } }];
+      state.credentials.bySourceId[7] = { connected: true };
+      const [out] = await setupStateForOrg('org-1');
+
+      expect(out!.steps[0]).toMatchObject({ done: true, slug: 'ledger-mcp', sources: ['ledger-mcp'], family: 'finance' });
+    });
+
+    it.each([
+      { config: { providesFamilies: ['finance'], readTools: ['list'] }, connected: false },
+      { config: { readTools: ['list'] }, connected: true },
+      { config: { providesFamilies: ['finance'], readTools: [] }, connected: true },
+      { config: { providesFamilies: ['people'], readTools: ['list'] }, connected: true },
+    ])('does not claim missing or unrelated MCP capabilities are connected: %j', async ({ config, connected }) => {
+      state.sources = [{ id: 7, slug: 'ledger-mcp', kind: 'mcp', config }];
+      state.credentials.bySourceId[7] = { connected };
+      const [out] = await setupStateForOrg('org-1');
+
+      expect(out!.steps[0]!.done).toBe(false);
+    });
+
     it('points at the vendor the workspace declares a source for', async () => {
       state.sources = [{ id: 7, slug: 'quickbooks', kind: 'quickbooks', config: {} }];
 

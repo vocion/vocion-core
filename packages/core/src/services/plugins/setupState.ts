@@ -109,12 +109,33 @@ export async function setupStateForOrg(orgId: string): Promise<PluginSetup[]> {
     const steps: SetupStep[] = [
       ...p.manifest.setup.connectors.map((declared): SetupStep => {
         const options = isFamily(declared) ? [...FAMILY_KINDS[declared]] : null;
+        // A workspace can declare that its MCP adapter supplies a family.
+        // This satisfies onboarding only; it never grants native provider tools.
+        const adapter = options
+          ? sources.find(s => (s.config?._connector ?? s.kind) === 'mcp'
+            && s.enabled !== 'false'
+            && Array.isArray(s.config?.providesFamilies) && s.config.providesFamilies.includes(declared)
+            && Array.isArray(s.config?.readTools) && s.config.readTools.length > 0
+            && credentials.bySourceId[s.id]?.connected)
+          : undefined;
+        if (adapter) {
+          return {
+            key: `connector:${declared}`,
+            kind: 'connector',
+            slug: adapter.slug,
+            family: declared,
+            options: [...options!, adapter.slug],
+            label: `Connect your ${FAMILY_LABEL[declared as ConnectorFamily]}`,
+            done: true,
+            sources: [adapter.slug],
+          };
+        }
         const connector = options
           ? (options.find(connectorConnected) ?? options.find(o => sourcesByConnector.has(o)) ?? declared)
           : declared;
         const descriptor = getConnector(connector);
         const brand = descriptor?.brand;
-        const sources = options && connector === declared
+        const matchingSources = options && connector === declared
           ? options.flatMap(o => sourcesByConnector.get(o) ?? [])
           : sourcesByConnector.get(connector) ?? [];
         return {
@@ -126,7 +147,7 @@ export async function setupStateForOrg(orgId: string): Promise<PluginSetup[]> {
           ...(brand ? { brand } : {}),
           ...(options ? { family: declared, options } : {}),
           done: options ? options.some(connectorConnected) : connectorConnected(connector),
-          sources,
+          sources: matchingSources,
         };
       }),
       ...p.manifest.setup.records.map((type): SetupStep => ({

@@ -44,7 +44,8 @@ export const NEVER_AUTO_GRANTS: ReadonlySet<string> = new Set(['send_email']);
  * @param action - The registered action's id and grant.
  * @param action.id
  * @param action.grant
+ * @param action.requiresReviewDecision
  */
-export function isNeverAuto(action: { id: string; grant?: string }): boolean {
-  return NEVER_AUTO_ACTION_IDS.has(action.id) || (action.grant !== undefined && NEVER_AUTO_GRANTS.has(action.grant));
+export function isNeverAuto(action: { id: string; grant?: string; requiresReviewDecision?: boolean }): boolean {
+  return action.requiresReviewDecision === true || NEVER_AUTO_ACTION_IDS.has(action.id) || (action.grant !== undefined && NEVER_AUTO_GRANTS.has(action.grant));
 }

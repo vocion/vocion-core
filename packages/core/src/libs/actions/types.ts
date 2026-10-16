@@ -372,6 +372,8 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * reading a vendor's data at once.
    */
   approvalRequired?: boolean;
+  /** Chat intent cannot substitute for an explicit human Review decision. */
+  requiresReviewDecision?: boolean;
   /**
    * This kind changes what the SYSTEM knows about how to work — a rule it
    * adopts from a correction, a standing preference it files — rather than
