@@ -1316,6 +1316,15 @@ export async function runAgentDeep(opts: {
             const outputStr = outputFull.slice(0, 2000);
             emit({ type: 'tool_end', tool, input, output: outputStr });
             toolCallLog.push({ tool, input, output: outputFull });
+          } else if (isLead) {
+            // Delegations and filesystem reads stay out of UI breadcrumbs,
+            // but their results are evidence for the final-answer pass too.
+            toolCallLog.push({ tool, input: parseJsonArgs(ev.data?.input), output: outputFull });
+          }
+          if (isLead) {
+            // Only the lead can answer the person. A specialist finishing (or
+            // a final read_file) leaves an answer owed, however long the lead's
+            // preceding progress narration was.
             answeredSinceTool = false;
             beforeLastTool = finalText;
           }
