@@ -281,3 +281,39 @@ export const WaitingElsewhereDark: StoryObj<typeof Waiting> = { render: () => <W
 /** "Make it yours": the drafted brand on the app's own chrome, then Use this brand or Adjust. */
 export const MakeItYours: Story = { args: { decision: brand, total: 5 } };
 export const MakeItYoursDark: Story = { args: { decision: brand, total: 5, dark: true } };
+
+/** Two independent connected writes, with exact payloads available on demand. */
+function ConnectedWrites() {
+  const initial = [
+    { id: 901, date: 'Oct 2', amount: '$820.94' },
+    { id: 902, date: 'Sep 2', amount: '$845.48' },
+  ].map(item => ({
+    ...proposal,
+    id: item.id,
+    question: `Move Northwind Benefits ${item.amount} on ${item.date} from Payroll Deductions Payable to Salaries - Benefits`,
+    body: 'Updates the expense category in the production ledger. No payment is sent.',
+    preview: JSON.stringify({ sourceSlug: 'ledger', tool: 'recategorize_expense', input: { expense_id: String(item.id), expected_account_id: '64', to_account_id: '41' } }, null, 2),
+    options: proposal.options.filter(option => option.id !== 'always').map(option => option.id === 'approve' ? { ...option, consequence: 'Runs this change once, after your approval.' } : option),
+    href: undefined,
+  }));
+  const [queue, setQueue] = useState(initial);
+  const [done, setDone] = useState<typeof initial>([]);
+  return (
+    <div className="w-full max-w-[760px] bg-background p-6 text-foreground">
+      <p className="mb-4 text-sm text-muted-foreground">Interactive fixture — no external writes</p>
+      <DoneReceipts receipts={done.map(item => ({ runId: item.id, actionId: 'mcp.call', label: item.question, undoable: false }))} />
+      <DecisionDock
+        decisions={queue}
+        agentName={() => 'Bookkeeper'}
+        onAnswer={(decision, answer) => {
+          if (answer.kind === 'option' && answer.optionIds.includes('approve')) {
+            setDone(items => [...items, initial.find(item => item.id === decision.id)!]);
+          }
+          setQueue(items => items.filter(item => item.id !== decision.id));
+        }}
+      />
+    </div>
+  );
+}
+
+export const ConnectedWriteQueue: StoryObj<typeof ConnectedWrites> = { render: () => <ConnectedWrites /> };
