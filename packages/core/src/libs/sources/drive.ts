@@ -132,7 +132,10 @@ async function* syncCatalog(ctx: SourceContext, cfg: z.infer<typeof driveConfigS
   const catalog = cfg.catalog!;
   const all: AssetRow[] = [];
   const skipped: Array<{ title: string; why: string }> = [];
-  const shared = cfg.allDrives ? '&supportsAllDrives=true' : '';
+  // A catalog is named by file id, and a file on a shared drive answers 404
+  // to a request that does not say it supports shared drives, whatever
+  // `allDrives` says about the listing.
+  const shared = '&supportsAllDrives=true';
   for (const file of catalog.files) {
     const meta = await fetch(`${cfg.baseUrl}/files/${file.fileId}?fields=id,name,mimeType${shared}`, { headers });
     if (!meta.ok) {
