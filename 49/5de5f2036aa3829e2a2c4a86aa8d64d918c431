@@ -1,0 +1,26 @@
+packages/core/src/libs/cards/firstParty/chart.test.ts
+  s_d4db2387ca9e79::t_c410c48cb35776 2-18
+packages/core/src/features/dashboard/metrics/MetricsView.tsx
+  s_d4db2387ca9e79::t_c410c48cb35776 30,35,59-60,108-114,118-119,129
+packages/core/src/libs/cards/specs.ts
+  s_d4db2387ca9e79::t_c410c48cb35776 101-104
+packages/core/src/libs/cards/firstParty/chart.tsx
+  s_d4db2387ca9e79::t_c410c48cb35776 50-66,137-138,168-177
+  s_d4db2387ca9e79::t_e0a3e1e5e26bd1 178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "495de5f2036aa3829e2a2c4a86aa8d64d918c431",
+  "prompts": {},
+  "sessions": {
+    "s_d4db2387ca9e79": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fecebda6-4f8c-4ef2-8b8b-9bd139c143c7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
