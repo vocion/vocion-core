@@ -16,6 +16,7 @@ import {
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { requestAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { ReviewSurface } from '@/features/review/ReviewSurface';
+import { RichEmailBody } from '@/features/review/RichEmailBody';
 import { readerFailure } from '@/libs/chat/redact';
 import { dimensionState, researchState, SIGNAL_STATE_LABEL } from '@/services/personalization/confidence';
 import { resolveSequenceState } from '@/services/personalization/sequenceState';
@@ -338,7 +339,7 @@ export const LeadView = (props: {
                     id: String(send.step),
                     label: send.day !== undefined ? `Day ${send.day}` : `Send ${send.step}`,
                     title: send.subject,
-                    children: <p className="text-sm leading-relaxed whitespace-pre-line text-foreground/80">{send.body}</p>,
+                    children: <div className="text-sm leading-relaxed text-foreground/80"><RichEmailBody value={send.body} label={`Send ${send.step} body`} /></div>,
                   }))}
                 />
               )

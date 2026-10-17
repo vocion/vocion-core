@@ -30,7 +30,7 @@
  */
 
 import sanitize from 'sanitize-html';
-import { EMAIL_TAGS, isHtmlBody, textToParagraphs } from './emailBodyShape';
+import { EMAIL_TAGS, isHtmlBody, linkifyHtml, textToParagraphs } from './emailBodyShape';
 
 // Re-exported so callers have one import for "what is an email body";
 // `emailBodyText` lives in the shape module because the voice rules read it
@@ -65,4 +65,120 @@ export function emailBodyHtml(body: string): string {
     return textToParagraphs(body);
   }
   return sanitize(body, SANITIZE_OPTIONS).trim();
+}
+
+/** HubSpot's own paragraph: what its composer writes and its views render the same everywhere. */
+const HS_P = '<p style="margin:0;">';
+/** HubSpot's own blank line between paragraphs. */
+const HS_SPACER = '<p style="margin:0;"><br></p>';
+
+/**
+ * The body as the HTML a HubSpot sequence token should hold.
+ *
+ * `emailBodyHtml` is semantic HTML: bare `<p>` that leans on default
+ * margins. HubSpot's own templates write every paragraph as
+ * `<p style="margin:0;">` with an explicit `<br>` paragraph between them, and
+ * its views and several clients zero paragraph margins, so a body that
+ * leaned on them arrived as one block. Reps saw exactly that (2026-10-16:
+ * `<p>Dawn,<br><br>A mid-size...<br></p>`, greetings glued to the first line
+ * by a single `<br>`). This writes HubSpot's shape:
+ *
+ * - every line break inside a paragraph becomes a paragraph of its own;
+ * - empty paragraphs (an editor's blank line, a trailing `<br>`) are dropped,
+ *   because the spacer already carries the gap;
+ * - a list item's inner `<p>` (the editor's shape) is unwrapped;
+ * - bare URLs become links, so they are clickable and tracked;
+ * - `rewriteHref`, when given, rewrites every link (UTMs, at Enroll).
+ * @param body - The stored body, text or HTML.
+ * @param opts
+ * @param opts.rewriteHref - Maps each link's href; the identity when absent.
+ */
+export function hubspotEmailHtml(body: string, opts: { rewriteHref?: (href: string) => string } = {}): string {
+  const html = linkifyHtml(emailBodyHtml(body));
+  const blocks: string[] = [];
+  for (const block of topLevelBlocks(html)) {
+    if (block.kind === 'list') {
+      // The editor wraps each item's text in a <p>; an email list item is the text itself.
+      const items = block.html
+        .replaceAll(/<li>\s*<p>/gi, '<li>')
+        .replaceAll(/<\/p>\s*<\/li>/gi, '</li>')
+        .replaceAll(/<\/p>\s*<p>/gi, '<br>')
+        .replaceAll(/<\/p>\s*(?=<(?:ul|ol)\b)/gi, '')
+        .replaceAll(/<\/?p>/gi, '')
+        .replaceAll(/<li>\s*(?:<br\s*\/?>\s*)*<\/li>/gi, '');
+      if (/<li>/i.test(items)) {
+        blocks.push(items.replaceAll(/<(ul|ol)>/gi, '<$1 style="margin:0;">'));
+      }
+      continue;
+    }
+    for (const part of block.html.split(/(?:<br\s*\/?>\s*)+/i)) {
+      if (!isBlank(part)) {
+        blocks.push(`${HS_P}${part.trim()}</p>`);
+      }
+    }
+  }
+  const out = blocks.join(HS_SPACER);
+  const rewrite = opts.rewriteHref;
+  return rewrite ? out.replaceAll(/<a href="([^"]*)">/g, (_, href: string) => `<a href="${rewrite(decodeAmp(href)).replaceAll('&', '&amp;')}">`) : out;
+}
+
+/**
+ * @param s
+ */
+function decodeAmp(s: string): string {
+  return s.replaceAll('&amp;', '&');
+}
+
+/**
+ * Whether a fragment carries no words: tags, `&nbsp;` and whitespace only.
+ * @param fragment
+ */
+function isBlank(fragment: string): boolean {
+  return fragment.replaceAll(/<[^>]+>/g, '').replaceAll('&nbsp;', ' ').trim() === '';
+}
+
+/**
+ * Sanitized email HTML split into its top-level blocks: each paragraph's
+ * inner HTML, each list whole, and loose inline runs as paragraphs.
+ * @param html - Output of `emailBodyHtml`: only the EMAIL_TAGS, no attributes but href.
+ */
+function topLevelBlocks(html: string): Array<{ kind: 'p' | 'list'; html: string }> {
+  const blocks: Array<{ kind: 'p' | 'list'; html: string }> = [];
+  const tag = /<(\/?)(p|ul|ol)\b[^>]*>/gi;
+  let depth = 0;
+  let open: { name: string; start: number; inner: number } | null = null;
+  let loose = 0;
+  for (const m of html.matchAll(tag)) {
+    const [whole, closing, rawName] = m;
+    const name = rawName!.toLowerCase();
+    const at = m.index!;
+    if (!closing) {
+      if (depth === 0) {
+        const run = html.slice(loose, at);
+        if (!isBlank(run)) {
+          blocks.push({ kind: 'p', html: run });
+        }
+        open = { name, start: at, inner: at + whole.length };
+      }
+      depth += name === 'p' && depth > 0 ? 0 : 1;
+      continue;
+    }
+    if (name === 'p' && open?.name !== 'p') {
+      continue;
+    }
+    depth = Math.max(0, depth - 1);
+    if (depth === 0 && open) {
+      const end = at + whole.length;
+      blocks.push(open.name === 'p'
+        ? { kind: 'p', html: html.slice(open.inner, at) }
+        : { kind: 'list', html: html.slice(open.start, end) });
+      open = null;
+      loose = end;
+    }
+  }
+  const tail = html.slice(loose);
+  if (!isBlank(tail)) {
+    blocks.push({ kind: 'p', html: tail });
+  }
+  return blocks;
 }

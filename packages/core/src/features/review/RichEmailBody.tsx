@@ -169,8 +169,9 @@ export function RichEmailBody({ value, onChange, disabled, label }: {
     editorProps: {
       attributes: {
         'aria-label': label,
-        'role': 'textbox',
-        'aria-multiline': 'true',
+        // A field when the caller can take edits, otherwise copy to read: a
+        // read-only body announced as a textbox is a field nobody can type in.
+        ...(onChange ? { 'role': 'textbox', 'aria-multiline': 'true' } : { role: 'group' }),
         'class': 'min-h-24 outline-none [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_a]:underline [&_a]:decoration-border [&_a]:underline-offset-2',
       },
     },

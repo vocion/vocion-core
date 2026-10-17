@@ -356,8 +356,8 @@ export function saveDraftSequenceTool(ctx: RuntimeContext) {
         sends: z.array(z.object({
           day: z.number().int().min(0).optional().describe('The send\'s day offset in the recommended sequence\'s cadence (Day 0, Day 4, …), when the sequence defines one.'),
           subject: z.string().min(1).describe('Subject line, in the founder voice.'),
-          body: z.string().min(1).describe('The personalized send body. This is what the reviewer reads and edits.'),
-        })).min(1).max(10).describe('The numbered sends IN ORDER — one entry per send of the recommended sequence, personalized for this lead. Steps are numbered by position server-side.'),
+          body: z.string().min(1).describe('The personalized send body: plain prose, what the reviewer reads and edits. Each line is its own paragraph: put the greeting on its own line. No markdown headings; a list is lines starting "- ". A link is a url from find_assets, written bare and exactly as returned.'),
+        })).min(1).max(10).describe('The numbered sends IN ORDER — one entry per EMAIL of the recommended sequence (its `emailStepCount` from hubspot_list_sequences), personalized for this lead. A Personalized Nurture rung with a different count is refused: a missing send would go out as an empty email. Steps are numbered by position server-side.'),
         recommended_sequence: z.object({
           id: z.string().min(1).describe('The sequence id, exactly as hubspot_list_sequences returned it. Never invent one.'),
           name: z.string().min(1).describe('The sequence name, as returned.'),
@@ -401,12 +401,15 @@ export function hubspotListSequencesTool(ctx: RuntimeContext) {
       if (!resolved.ok) {
         return JSON.stringify(resolved, null, 2);
       }
-      const { listSequences, resolveHubspotUserId } = await import('@/libs/hubspot/sequences');
+      const { listSequencesWithEmailCounts, resolveHubspotUserId } = await import('@/libs/hubspot/sequences');
       const user = await resolveHubspotUserId(resolved.client, args.user_email);
       if (!user.ok) {
         return JSON.stringify(user, null, 2);
       }
-      const sequences = await listSequences(resolved.client, user.data.userId);
+      // Each Personalized Nurture rung carries its email count: the number
+      // of sends a draft for it must have.
+      const { DEFAULT_NURTURE_SLOTS, isNurtureSequence } = await import('@/libs/hubspot/nurtureSlots');
+      const sequences = await listSequencesWithEmailCounts(resolved.client, user.data.userId, name => isNurtureSequence(name, DEFAULT_NURTURE_SLOTS));
       if (!sequences.ok) {
         return JSON.stringify(sequences, null, 2);
       }
@@ -421,9 +424,56 @@ export function hubspotListSequencesTool(ctx: RuntimeContext) {
     },
     {
       name: 'hubspot_list_sequences',
-      description: 'Reads HubSpot LIVE: the sender\'s EXISTING sequence library — the only sequences a draft may recommend. Returns the count first, then {id, name, stepCount} per sequence, plus the `userId` that save_draft_sequence and the enrollment need (pass it through as hubspot_user_id). Recommending an id this tool did not return will be refused at save time. If the token lacks the sequences scope, the error names the scope; report that rather than guessing.',
+      description: 'Reads HubSpot LIVE: the sender\'s EXISTING sequence library — the only sequences a draft may recommend. Returns the count first, then {id, name, stepCount, emailStepCount} per sequence (emailStepCount on the Personalized Nurture rungs: the number of sends a draft for that rung must carry), plus the `userId` that save_draft_sequence and the enrollment need (pass it through as hubspot_user_id). Recommending an id this tool did not return will be refused at save time. If the token lacks the sequences scope, the error names the scope; report that rather than guessing.',
       schema: z.object({
         user_email: z.string().min(1).describe('The sender whose sequence library to read, e.g. the founder\'s email. Sequences are per-user in HubSpot.'),
+      }),
+    },
+  );
+}
+
+export function findAssetsTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const { catalogAssets, rankAssets } = await import('@/services/personalization/assetCatalog');
+      const all = await catalogAssets(ctx.orgId);
+      const ranked = rankAssets(all, {
+        industry: args.industry,
+        funnelStage: args.funnel_stage,
+        type: args.type,
+        persona: args.persona,
+        topic: args.topic,
+        text: args.text,
+      }).slice(0, args.limit ?? 8);
+      return JSON.stringify({
+        count: ranked.length,
+        catalogSize: all.length,
+        source: 'asset_catalog',
+        assets: ranked.map(a => ({
+          title: a.title,
+          type: a.type,
+          funnelStage: a.funnelStage,
+          industry: a.industry,
+          persona: a.persona,
+          buyerQuestion: a.buyerQuestion,
+          purpose: a.purpose,
+          url: a.url,
+          matched: a.match,
+        })),
+        ...(all.length === 0 ? { note: 'The asset catalog is empty: no link can be offered from it. Draft the sends without a link.' } : {}),
+      }, null, 2);
+    },
+    {
+      name: 'find_assets',
+      description: 'Reads the asset catalog: the case studies, blueprints, eBooks, tools and pages an outreach email may link. Returns the count first, then the best matches with their url, ranked: the lead\'s industry first, then assets for all industries. A send may link ONLY a url this tool returned, written exactly as returned; any other link is refused when the draft is saved. Never add UTM parameters yourself: the platform tags links at Enroll.',
+      schema: z.object({
+        industry: z.string().optional().describe('The lead\'s industry in plain words, e.g. "construction", "managed services", "marketing agency".'),
+        funnel_stage: z.enum(['TOFU', 'MOFU', 'BOFU']).optional().describe('TOFU: a first read (eBooks, industry pages). MOFU: something to use or proof (tools, case studies, scorecards). BOFU: what working with us looks like (blueprints, solution pages).'),
+        type: z.string().optional().describe('Narrow to one kind: "Case Study", "Blueprint", "Ebook", "Tool", "Industry Page", "Whitepaper", "Website Page", "Blog", "Podcast".'),
+        persona: z.string().optional().describe('The lead\'s role, e.g. "COO", "CTO", "Agency Owner".'),
+        topic: z.string().optional().describe('A theme to prefer, e.g. "compliance", "service desk".'),
+        text: z.string().optional().describe('Words from the brief to match against titles, purposes and buyer questions.'),
+        limit: z.number().int().min(1).max(20).optional(),
       }),
     },
   );
@@ -450,6 +500,7 @@ export function personalizationTools(ctx: RuntimeContext) {
     saveDraftSequenceTool(ctx),
     recordDraftFailureTool(ctx),
     hubspotListSequencesTool(ctx),
+    findAssetsTool(ctx),
   ];
   return all.filter(t => grants.has(t.name));
 }

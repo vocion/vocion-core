@@ -118,6 +118,10 @@ export function createHubspotClient(opts: { token: string; baseUrl?: string }): 
     if (!res.ok) {
       return shapeFailure(res);
     }
+    // A batch archive answers 204 with no body.
+    if (res.status === 204) {
+      return { ok: true, data: undefined as T };
+    }
     return { ok: true, data: (await res.json()) as T };
   }
 

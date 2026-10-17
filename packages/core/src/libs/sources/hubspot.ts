@@ -30,6 +30,7 @@ import { isLoginGrant, usableLoginGrant } from '@/libs/connect/loginGrant';
 import { refreshHubspotGrant } from '@/libs/connect/providers/hubspot';
 import { createHubspotClient, hubspotNumeric, tokenFromCredentials } from '@/libs/hubspot/client';
 import { DEFAULT_NURTURE_SLOTS, nurtureSlotsSchema } from '@/libs/hubspot/nurtureSlots';
+import { senderConfigSchema } from '@/libs/hubspot/senderInboxes';
 
 const OBJECT_TYPES = ['contacts', 'deals', 'companies'] as const;
 
@@ -113,6 +114,11 @@ const hubspotConfigSchema = z.object({
    * Absent, Enroll uses the sender the card carries.
    */
   defaultSender: z.string().email().optional(),
+  /**
+   * The sender as a user plus the inboxes Enroll may send from, warm-up
+   * ramps included. Wins over `defaultSender`. See `libs/hubspot/senderInboxes.ts`.
+   */
+  sender: senderConfigSchema.optional(),
 });
 
 type HubSpotRecord = {

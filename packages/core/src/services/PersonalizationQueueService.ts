@@ -29,7 +29,7 @@
 import type { CrmRecord } from '@/services/CrmRecordsService';
 import { and, asc, count, desc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { leadBriefSchema } from '@/models/Schema';
+import { knowledgeSourceSchema, leadBriefSchema } from '@/models/Schema';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 import { queryCrmRecords } from '@/services/CrmRecordsService';
 
@@ -1321,7 +1321,7 @@ export type SaveDraftSequenceOptions = {
 
 export type SaveDraftSequenceResult = {
   saved: boolean;
-  reason?: 'not_on_queue' | 'not_briefed' | 'unknown_sequence';
+  reason?: 'not_on_queue' | 'not_briefed' | 'unknown_sequence' | 'send_count_mismatch';
   contactRef: string;
   message?: string;
   sendCount?: number;
@@ -1364,6 +1364,24 @@ export async function saveDraftSequence(orgId: string, opts: SaveDraftSequenceOp
         };
       }
       sequenceVerified = res.ok;
+      if (res.ok) {
+        const { readNurtureSlotsConfig, rungSendCountProblem } = await import('@/libs/hubspot/nurtureSlots');
+        const [contacts] = await db
+          .select({ configJson: knowledgeSourceSchema.configJson })
+          .from(knowledgeSourceSchema)
+          .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, 'hubspot-contacts')))
+          .limit(1);
+        const slotsCfg = readNurtureSlotsConfig((contacts?.configJson as { nurtureSlots?: unknown } | null)?.nurtureSlots);
+        const problem = rungSendCountProblem(res.data, opts.sends.length, slotsCfg);
+        if (problem) {
+          return {
+            saved: false,
+            reason: 'send_count_mismatch',
+            contactRef: opts.contactRef,
+            message: `NOTHING WAS SAVED. ${problem}. Draft exactly that many sends, or recommend the rung whose email count matches the draft.`,
+          };
+        }
+      }
     }
   }
 

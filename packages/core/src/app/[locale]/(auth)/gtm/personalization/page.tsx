@@ -6,11 +6,13 @@ import { BulkActionsButton } from '@/features/personalization/BulkActionsButton'
 import { PersonalizationQueue } from '@/features/personalization/PersonalizationQueue';
 import { QueueResetControl } from '@/features/personalization/QueueResetControl';
 import { loadQueueBriefRows } from '@/features/personalization/queueRows';
+import { SendingInboxes } from '@/features/personalization/SendingInboxes';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
+import { senderConfigOf } from '@/libs/hubspot/senderInboxes';
 import { askInChatHref } from '@/libs/links';
-import { leadBriefSchema } from '@/models/Schema';
+import { knowledgeSourceSchema, leadBriefSchema } from '@/models/Schema';
 import { QUEUED_STATUS } from '@/services/PersonalizationQueueService';
 import { ORG_ROLE } from '@/types/Auth';
 
@@ -60,6 +62,24 @@ export default async function PersonalizationPage(props: {
     ));
   const waitingCount = waiting?.n ?? 0;
 
+  // The sending inboxes and where each stands today, when the workspace
+  // configures more than its sender's own inbox.
+  const [contacts] = await db
+    .select({ configJson: knowledgeSourceSchema.configJson })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, 'hubspot-contacts')))
+    .limit(1);
+  const senderCfg = (() => {
+    try {
+      return senderConfigOf(contacts?.configJson as { sender?: unknown; defaultSender?: unknown } | undefined);
+    } catch {
+      return null;
+    }
+  })();
+  const inboxes = senderCfg && senderCfg.inboxes.length > 1
+    ? await (await import('@/services/personalization/senderLedger')).inboxStatuses(orgId, senderCfg)
+    : null;
+
   // TEMPORARY (phase 2): the reset escape hatch. Absent unless the flag is set.
   const canReset = Boolean(Env.VOCION_ALLOW_QUEUE_RESET) && has({ role: ORG_ROLE.ADMIN });
 
@@ -74,6 +94,7 @@ export default async function PersonalizationPage(props: {
         </div>
       )}
     >
+      {inboxes && <SendingInboxes {...inboxes} />}
       {briefs.length === 0
         ? (
             <ListEmpty

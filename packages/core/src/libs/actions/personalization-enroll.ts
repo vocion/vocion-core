@@ -84,6 +84,31 @@ async function contactsSourceConfig(orgId: string): Promise<{ portalId?: string 
 }
 
 /**
+ * One card row per link in the sends: "Send 2 links" → the asset's title and
+ * type, linked; a link the catalog does not hold says so.
+ * @param orgId
+ * @param sends
+ */
+async function linkedAssetFields(orgId: string, sends: Array<{ step: number; body: string }>): Promise<Array<{ label: string; value: string; href?: string }>> {
+  const urls = sends.flatMap(s => [...s.body.replaceAll('&amp;', '&').matchAll(/https?:\/\/[^\s<>"']*[^\s<>"'.,;:!?)\]]/g)].map(m => ({ step: s.step, url: m[0] })));
+  if (urls.length === 0) {
+    return [];
+  }
+  const { catalogAssets } = await import('@/services/personalization/assetCatalog');
+  const { normalizeAssetUrl } = await import('@/libs/sources/assetCatalog');
+  const assets = await catalogAssets(orgId).catch(() => []);
+  const byUrl = new Map(assets.flatMap(a => [a.url, ...(a.aliases ?? [])].map(u => [normalizeAssetUrl(u), a] as const)));
+  return urls.map(({ step, url }) => {
+    const asset = byUrl.get(normalizeAssetUrl(url));
+    return {
+      label: `Send ${step} links`,
+      value: asset ? `${asset.title} (${asset.type})` : `${url} (not in the asset catalog)`,
+      href: url,
+    };
+  });
+}
+
+/**
  * What the scoped regenerate turn must answer with: either the full new draft
  * (every send, edited or not, plus the recommendation) or a routing to the
  * research fallback. Writes stay impossible structurally — the turn returns
@@ -306,10 +331,11 @@ async function regenerateSequenceCopy(opts: {
     const { hubspotClientForOrg } = await import('@/services/agents/tools/hubspotDirect');
     const resolved = await hubspotClientForOrg(ctx.orgId);
     if (resolved.ok) {
-      const { listSequences, resolveHubspotUserId } = await import('@/libs/hubspot/sequences');
+      const { listSequencesWithEmailCounts, resolveHubspotUserId } = await import('@/libs/hubspot/sequences');
+      const { DEFAULT_NURTURE_SLOTS, isNurtureSequence } = await import('@/libs/hubspot/nurtureSlots');
       const user = await resolveHubspotUserId(resolved.client, input.senderEmail);
       if (user.ok) {
-        const sequences = await listSequences(resolved.client, user.data.userId);
+        const sequences = await listSequencesWithEmailCounts(resolved.client, user.data.userId, name => isNurtureSequence(name, DEFAULT_NURTURE_SLOTS));
         if (sequences.ok) {
           libraryBlock = JSON.stringify({ userEmail: input.senderEmail, userId: user.data.userId, sequences: sequences.data }, null, 2);
         }
@@ -365,8 +391,8 @@ async function regenerateSequenceCopy(opts: {
       { title: 'Sender\'s sequence library (HubSpot live)', body: libraryBlock },
     ],
     outputSchema: regenerateTurnOutputFor(voiceRules),
-    outputInstruction: 'Fields: needsResearch (boolean); reason (string; why research is needed, or the recommendation\'s reason); sends (the FULL ordered list, each {subject, body, day?}, required unless needsResearch); recommendedSequence ({id, name, reason?}, ids exactly as the library returned them, required unless needsResearch); senderEmail and hubspotUserId (echo the current ones unless the library read changed them). Any "is banned" message names a phrase the sender will not have in a send: remove it and say the thing plainly, do not paraphrase it back in.',
-    toolAllowlist: ['get_lead_brief', 'hubspot_list_sequences'],
+    outputInstruction: 'Fields: needsResearch (boolean); reason (string; why research is needed, or the recommendation\'s reason); sends (the FULL ordered list, each {subject, body, day?}, required unless needsResearch); recommendedSequence ({id, name, reason?}, ids exactly as the library returned them, required unless needsResearch; a Personalized Nurture rung needs exactly its emailStepCount sends); senderEmail and hubspotUserId (echo the current ones unless the library read changed them). Any "is banned" message names a phrase the sender will not have in a send: remove it and say the thing plainly, do not paraphrase it back in.',
+    toolAllowlist: ['get_lead_brief', 'hubspot_list_sequences', 'find_assets'],
     // One corrective retry, then fail. A model that repeats a banned phrase
     // after being told the phrase and the reason will not find it on the
     // fourth attempt, and a loud failure is the whole point: a draft carrying
@@ -528,6 +554,18 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     // removes nothing. A brand-new card has no pending run, so every send is
     // new and every send is judged: nothing with a dash gets IN through here.
     const unchanged = await unchangedSends(ctx.orgId, input);
+    // Links are the asset catalog's or nothing: a send an agent wrote may
+    // link only a URL the catalog holds, so a made-up or mistyped page never
+    // reaches a reviewer. Carried sends are judged the same way voice is.
+    const { linksOutsideCatalog } = await import('@/services/personalization/assetCatalog');
+    const outside = await linksOutsideCatalog(ctx.orgId, input.sends.filter((_, i) => !unchanged.has(i)).map(s => s.body));
+    if (outside.length > 0) {
+      return [
+        `NOTHING WAS SAVED. ${outside.length} link(s) in the drafted sends are not in the asset catalog:`,
+        ...outside.map(u => `- ${u}`),
+        'Link only a url find_assets returned, written exactly as returned, or leave the link out.',
+      ].join('\n');
+    }
     const { ok, report, count } = lintSends(input.sends.map((s, i) => ({ ...s, step: s.step ?? i + 1 })).filter((_, i) => !unchanged.has(i)), rules);
     if (ok) {
       return;
@@ -602,15 +640,28 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     if (utmContent) {
       provenance.push({ label: 'Lead magnet', value: utmContent });
     }
-    // Who the emails go out as. The workspace's configured sender wins over
-    // whatever the card carries, and the card says so when they differ.
-    const effectiveSender = sourceCfg.defaultSender ?? input.senderEmail;
-    provenance.push({
-      label: 'Sender',
-      value: sourceCfg.defaultSender && sourceCfg.defaultSender.toLowerCase() !== input.senderEmail.toLowerCase()
-        ? `${sourceCfg.defaultSender} (the card named ${input.senderEmail})`
-        : effectiveSender,
-    });
+    // Who the emails go out as, and from which inbox if it were enrolled
+    // now: the platform picks the inbox at Enroll (warm-up ramps first), so
+    // the card shows today's pick and its standing against the day's budget.
+    const { senderConfigOf } = await import('@/libs/hubspot/senderInboxes');
+    const senderCfg = senderConfigOf(sourceCfg);
+    let effectiveSender = input.senderEmail;
+    if (senderCfg) {
+      const { pickInboxNow } = await import('@/services/personalization/senderLedger');
+      const pick = await pickInboxNow(ctx.orgId, senderCfg, input.contactRef).catch(() => null);
+      if (pick?.ok) {
+        effectiveSender = pick.inbox.email;
+        const standing = pick.capToday === null
+          ? null
+          : `${pick.week ? `warm-up week ${pick.week} · ` : ''}${pick.usedToday} of ${pick.capToday} sent today`;
+        provenance.push({ label: 'Sends from', value: standing ? `${pick.inbox.email} (${standing})` : pick.inbox.email });
+      } else {
+        effectiveSender = senderCfg.user;
+        provenance.push({ label: 'Sends from', value: pick ? pick.message : `${senderCfg.user}'s inboxes` });
+      }
+    } else {
+      provenance.push({ label: 'Sender', value: input.senderEmail });
+    }
     if (lead?.mqlAt) {
       provenance.push({ label: 'Became MQL', value: DATE_FORMAT.format(lead.mqlAt) });
     } else if (lead?.arrivedAt) {
@@ -654,9 +705,14 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       })),
       // A ladder rung says so on the card: Enroll puts these sends on the
       // contact's nurture slots, which is what the sequence will send.
-      fields: isNurtureSequence(input.sequenceName, readNurtureSlotsConfig(sourceCfg.nurtureSlots))
-        ? [{ label: 'On Enroll', value: `${sends.length} ${sends.length === 1 ? 'send is' : 'sends are'} written to the contact's nurture slots, then the contact is enrolled` }]
-        : [],
+      fields: [
+        ...(isNurtureSequence(input.sequenceName, readNurtureSlotsConfig(sourceCfg.nurtureSlots))
+          ? [{ label: 'On Enroll', value: `${sends.length} ${sends.length === 1 ? 'send is' : 'sends are'} written to the contact's nurture slots, then the contact is enrolled` }]
+          : []),
+        // What each send links, named from the asset catalog, so the
+        // reviewer sees the asset without reading the URL.
+        ...(await linkedAssetFields(ctx.orgId, sends)),
+      ],
       // The lead's own page — the card and the research land on one URL.
       links: [{ label: 'View Research', href: hubspotId ? `/gtm/lead/${hubspotId}` : '/gtm/personalization' }],
       verbs: { approve: 'Queue in HubSpot', reject: 'Decline' },
@@ -785,23 +841,53 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       client = resolved.client;
     }
 
-    // The sender is workspace config when the workspace names one. The card
-    // still carries a sender (the library the draft read), but a redraft can
-    // read another user's library, and on 2026-09-25 that enrolled contacts
-    // as the founder with his inbox sending and his name on every task. A
-    // configured sender the portal cannot resolve stops the enrollment
-    // rather than falling back to the card's.
+    // The sender is workspace config when the workspace names one: a user
+    // plus the inboxes Enroll may send from. The inbox is picked here, from
+    // today's counts on the server clock (warm-up ramps fill first, a lead
+    // keeps the inbox it heard from before), and the enrollment runs as the
+    // HubSpot user the inbox is connected under. A redraft can read another
+    // user's library, and on 2026-09-25 that enrolled contacts as the founder,
+    // so the card's sender never decides. A configured user the portal cannot
+    // resolve stops the enrollment rather than falling back to the card's.
     const sourceCfg = await contactsSourceConfig(ctx.orgId);
+    const { senderConfigOf } = await import('@/libs/hubspot/senderInboxes');
+    const senderCfg = senderConfigOf(sourceCfg);
     let senderEmail = input.senderEmail;
     let hubspotUserId = input.hubspotUserId;
-    if (sourceCfg.defaultSender && sourceCfg.defaultSender.toLowerCase() !== input.senderEmail.toLowerCase()) {
-      const { resolveHubspotUserId } = await import('@/libs/hubspot/sequences');
-      const user = await resolveHubspotUserId(client, sourceCfg.defaultSender);
-      if (!user.ok) {
-        throw new Error(`Not enrolled: the workspace's sender ${sourceCfg.defaultSender} could not be resolved on the portal (${user.message}), and the card's sender ${input.senderEmail} is not used in its place`);
+    let inboxPick: { reason: string; usedToday: number; capToday: number | null; week: number | null } | null = null;
+    let relay: { senderUser: string; senderOwnerId: string; relayUserId: string; relayOwnerId: string; ownerBefore: string | null } | null = null;
+    if (senderCfg) {
+      const { pickInboxNow } = await import('@/services/personalization/senderLedger');
+      const pick = await pickInboxNow(ctx.orgId, senderCfg, input.contactRef);
+      if (!pick.ok) {
+        throw new Error(`Not enrolled: ${pick.message}`);
       }
-      senderEmail = sourceCfg.defaultSender;
+      const { resolveHubspotUserId } = await import('@/libs/hubspot/sequences');
+      const user = await resolveHubspotUserId(client, pick.hubspotUser);
+      if (!user.ok) {
+        throw new Error(`Not enrolled: ${pick.hubspotUser}, the HubSpot user ${pick.inbox.email} sends as, could not be resolved on the portal (${user.message}), and the card's sender ${input.senderEmail} is not used in its place`);
+      }
+      senderEmail = pick.inbox.email;
       hubspotUserId = user.data.userId;
+      inboxPick = { reason: pick.reason, usedToday: pick.usedToday, capToday: pick.capToday, week: pick.week };
+      if (pick.hubspotUser.toLowerCase() !== senderCfg.user.toLowerCase()) {
+        // The inbox is connected under someone else's user. HubSpot makes that
+        // user the owner of the sequence's tasks and of an unowned contact;
+        // the result records who should own them so the contacts sync can
+        // hand them back (`relayOwnership.ts`).
+        const owner = await resolveHubspotUserId(client, senderCfg.user);
+        if (!owner.ok) {
+          throw new Error(`Not enrolled: the sender ${senderCfg.user} could not be resolved on the portal (${owner.message})`);
+        }
+        const before = await client.get<{ properties?: { hubspot_owner_id?: string | null } }>(`/crm/v3/objects/contacts/${hubspotId}`, { properties: 'hubspot_owner_id' });
+        relay = {
+          senderUser: senderCfg.user,
+          senderOwnerId: owner.data.ownerId,
+          relayUserId: user.data.userId,
+          relayOwnerId: user.data.ownerId,
+          ownerBefore: before.ok ? before.data.properties?.hubspot_owner_id || null : null,
+        };
+      }
     }
 
     // HubSpot allows ONE active sequence per contact, and the portal's own
@@ -834,7 +920,22 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     const slotsCfg = readNurtureSlotsConfig(sourceCfg.nurtureSlots);
     let slotsWritten = 0;
     if (isNurtureSequence(input.sequenceName, slotsCfg)) {
-      const properties = nurtureSlotProperties(input.sends, slotsCfg);
+      // Each email in the rung sends one slot; a draft short of the rung's
+      // email count sends an empty email (2026-10-16), so the count is checked
+      // against the live sequence before anything is written.
+      const { getSequence } = await import('@/libs/hubspot/sequences');
+      const { rungSendCountProblem } = await import('@/libs/hubspot/nurtureSlots');
+      const rung = await getSequence(client, input.sequenceId, hubspotUserId ?? '');
+      if (!rung.ok) {
+        throw new Error(`Not enrolled: "${input.sequenceName}" could not be read to check its email count (${rung.message})`);
+      }
+      const countProblem = rungSendCountProblem(rung.data, input.sends.length, slotsCfg);
+      if (countProblem) {
+        throw new Error(`Not enrolled: ${countProblem}. Regenerate the draft for this rung, or recommend the rung that matches it.`);
+      }
+      const { linkRewriterFor } = await import('@/services/personalization/assetCatalog');
+      const rewriteHref = await linkRewriterFor(ctx.orgId);
+      const properties = nurtureSlotProperties(input.sends, slotsCfg, new Date(), { rewriteHref });
       // The portal may not have a property for every slot yet (a fifth rung
       // email, a new portal). Provision what is missing before the write, so
       // raising `maxSlots` in the workspace is the whole platform-side change.
@@ -902,6 +1003,10 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       sequenceName: input.sequenceName,
       contactRef: input.contactRef,
       senderEmail,
+      // Why that inbox, and where it stood today before this enrollment.
+      inbox: inboxPick,
+      // Set when the inbox runs as another HubSpot user: who should own what HubSpot assigns them.
+      relay,
       // The sender the card carried, when the workspace's own won over it.
       cardSenderEmail: senderEmail.toLowerCase() === input.senderEmail.toLowerCase() ? null : input.senderEmail,
       sendCount: input.sends.length,

@@ -20,6 +20,8 @@ export type HubspotSequence = {
   id: string;
   name: string;
   stepCount?: number;
+  /** How many of the steps send an email; known only when the read carried the steps. */
+  emailStepCount?: number;
   enrolledCount?: number;
 };
 
@@ -33,7 +35,7 @@ export type SequenceEnrollment = {
 type RawSequence = {
   id?: string | number;
   name?: string;
-  steps?: unknown[];
+  steps?: Array<{ actionType?: string }>;
   numSteps?: number;
   enrolledCount?: number;
 };
@@ -43,6 +45,7 @@ function toSequence(raw: RawSequence): HubspotSequence {
     id: String(raw.id ?? ''),
     name: raw.name ?? `sequence ${raw.id ?? ''}`,
     stepCount: Array.isArray(raw.steps) ? raw.steps.length : raw.numSteps,
+    ...(Array.isArray(raw.steps) ? { emailStepCount: raw.steps.filter(st => st?.actionType === 'EMAIL').length } : {}),
     enrolledCount: raw.enrolledCount,
   };
 }
@@ -62,8 +65,9 @@ export async function resolveHubspotUserId(
   if (!res.ok) {
     return res;
   }
-  const owner = (res.data.results ?? []).find(o => o.email?.toLowerCase() === email.toLowerCase())
-    ?? res.data.results?.[0];
+  // An exact match or nothing: the first owner the search happens to return
+  // is somebody else, and enrolling as them sends from their inbox.
+  const owner = (res.data.results ?? []).find(o => o.email?.toLowerCase() === email.toLowerCase());
   if (!owner?.userId) {
     return { ok: false, error: 'hubspot_error', status: 404, message: `No HubSpot user found for ${email} — the sender must be a user of this portal.` };
   }
@@ -105,6 +109,35 @@ export async function getSequence(
     return res;
   }
   return { ok: true, data: toSequence(res.data) };
+}
+
+/**
+ * The library with each Personalized Nurture rung's email count filled in,
+ * read one sequence at a time because the listing carries no steps. A draft
+ * for a rung must carry exactly that many sends.
+ * @param client
+ * @param userId
+ * @param isRung - Whether a sequence is a ladder rung (by name).
+ */
+export async function listSequencesWithEmailCounts(
+  client: HubspotClient,
+  userId: string,
+  isRung: (name: string) => boolean,
+): Promise<HubspotResult<HubspotSequence[]>> {
+  const listed = await listSequences(client, userId);
+  if (!listed.ok) {
+    return listed;
+  }
+  for (const seq of listed.data) {
+    if (isRung(seq.name) && !/^archived/i.test(seq.name)) {
+      const full = await getSequence(client, seq.id, userId);
+      if (full.ok) {
+        seq.stepCount = full.data.stepCount;
+        seq.emailStepCount = full.data.emailStepCount;
+      }
+    }
+  }
+  return listed;
 }
 
 /**
@@ -178,6 +211,21 @@ export async function enrollContact(
 }
 
 /**
+ * The note body cut to HubSpot's limit on a section boundary (`<hr>`), never
+ * mid-tag: a slice through a tag renders the rest of the note as markup.
+ * @param body - Sections joined by `<hr>`.
+ * @param limit - Characters.
+ */
+export function noteBodyWithin(body: string, limit: number): string {
+  if (body.length <= limit) {
+    return body;
+  }
+  const marker = '<hr><p>(The remaining sends did not fit in one note.)</p>';
+  const cut = body.lastIndexOf('<hr>', limit - marker.length);
+  return cut > 0 ? `${body.slice(0, cut)}${marker}` : body.slice(0, limit).replace(/<[^>]*$/, '');
+}
+
+/**
  * Stage the approved personalized sends on the contact as a timeline note.
  * The sequences API cannot carry per-enrollment copy, so the reviewed sends
  * travel to the sender this way — in HubSpot, on the record they belong to.
@@ -192,7 +240,7 @@ export async function stageSendsAsNote(
 ): Promise<HubspotResult<{ noteId: string | null }>> {
   const res = await client.post<{ id?: string | number }>('/crm/v3/objects/notes', {
     properties: {
-      hs_note_body: body.slice(0, 65_000),
+      hs_note_body: noteBodyWithin(body, 65_000),
       hs_timestamp: new Date().toISOString(),
     },
     associations: [{
