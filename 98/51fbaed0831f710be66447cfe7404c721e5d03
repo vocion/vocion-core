@@ -1,0 +1,36 @@
+packages/core/src/services/metrics/periods.test.ts
+  s_d4db2387ca9e79::t_2693623d3ea549 2,42-59
+packages/core/src/services/metrics/periods.ts
+  s_d4db2387ca9e79::t_2693623d3ea549 2-4,10-11,13,15,18,22,34,38,53-91
+packages/core/src/app/[locale]/(auth)/dashboard/p/[slug]/page.tsx
+  s_d4db2387ca9e79::t_653726b3f4c968 575-576,578,580-582,586
+packages/core/src/services/metrics/periodMetrics.test.ts
+  s_d4db2387ca9e79::t_2693623d3ea549 1-80
+packages/core/templates/plugins/finance/pages/finance-metrics.yaml
+  s_d4db2387ca9e79::t_ebc1a6bfa12935 1-2,5
+packages/core/src/libs/workspace/pageFields.ts
+  s_d4db2387ca9e79::t_653726b3f4c968 461-463,467
+packages/core/src/features/dashboard/metrics/MetricsView.tsx
+  s_d4db2387ca9e79::t_89e95f8c462067 1-2,4-5,9,12-17,37,40,47-48,51-53,64,68,77,83,88-89,91,93-94,106-125,127-136,138,148-154,163,168-169
+packages/core/src/services/team-report/provenance.ts
+  s_d4db2387ca9e79::t_873f0765622392 187-188
+  s_d4db2387ca9e79::t_d1bd444c57a6aa 53-58,81,90,108,117,132,140,158,167,184-186
+packages/core/src/services/metrics/periodMetrics.ts
+  s_d4db2387ca9e79::t_2693623d3ea549 1-107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9851fbaed0831f710be66447cfe7404c721e5d03",
+  "prompts": {},
+  "sessions": {
+    "s_d4db2387ca9e79": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fecebda6-4f8c-4ef2-8b8b-9bd139c143c7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
