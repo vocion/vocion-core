@@ -1,0 +1,112 @@
+packages/core/src/libs/sources/drive.ts
+  s_d4db2387ca9e79::t_99d755d2864542 26-27,64-66,121-132,134-158,169-173,178-198
+  s_d4db2387ca9e79::t_2a24f71dfbdfb4 15
+  s_d4db2387ca9e79::t_41e60101ac6543 12,17,133,159-168,174-177
+packages/core/src/services/PersonalizationQueueService.ts
+  s_d4db2387ca9e79::t_a711979f51879e 1324,1367-1384
+  s_d4db2387ca9e79::t_dc4d69b4f43fc1 32
+packages/core/src/features/personalization/SendingInboxes.tsx
+  s_d4db2387ca9e79::t_857fb2515a3054 1-56
+packages/core/src/libs/sources/assetCatalog.test.ts
+  s_d4db2387ca9e79::t_ecae19c4302ddb 1-78
+packages/core/src/features/review/RichEmailBody.tsx
+  s_d4db2387ca9e79::t_8192cb52876fac 172-174
+packages/core/src/libs/hubspot/sequences.ts
+  s_d4db2387ca9e79::t_0f21c89934473d 214-227,243
+  s_d4db2387ca9e79::t_3dbf42aa7b824c 23-24,38,48,68-70
+  s_d4db2387ca9e79::t_e27d7a56835248 115-142
+  s_d4db2387ca9e79::t_d658e2098c7094 114,213
+packages/core/src/features/personalization/GuidedReviewPanel.tsx
+  s_d4db2387ca9e79::t_f4ce0628978d60 6,127,149
+packages/core/src/services/personalization/assetCatalog.ts
+  s_d4db2387ca9e79::t_0a4a1ec8df9b7d 1-61,63-184
+  s_d4db2387ca9e79::t_7331d3c672f4ff 62
+packages/core/src/libs/sources/assetCatalog.ts
+  s_d4db2387ca9e79::t_2a24f71dfbdfb4 163
+  s_d4db2387ca9e79::t_b91aae65073dfe 1-162,164-254
+packages/core/src/services/SourceSyncService.ts
+  s_d4db2387ca9e79::t_4a9e732057f1e9 1339
+  s_d4db2387ca9e79::t_edcca9dbac9d36 1336-1338
+packages/core/src/libs/writing/emailBodyShape.ts
+  s_d4db2387ca9e79::t_bcdaaec9e2ea55 46-56,60-110,113-130
+  s_d4db2387ca9e79::t_9f55c86b1db53c 111-112
+packages/core/src/libs/hubspot/senderInboxes.ts
+  s_d4db2387ca9e79::t_a62fcfbbb00118 102-103
+  s_d4db2387ca9e79::t_3e1872278655aa 1-6,8-13,17-101,104-152,155-222
+  s_d4db2387ca9e79::t_9f55c86b1db53c 153-154
+  s_d4db2387ca9e79::t_791ff691b726cd 7,14-16
+packages/core/src/libs/actions/personalization-enroll.ts
+  s_d4db2387ca9e79::t_edcca9dbac9d36 858,887
+  s_d4db2387ca9e79::t_86b3d826cddaf6 87-110,643-664,708-715
+  s_d4db2387ca9e79::t_e27d7a56835248 334-335,338,394-395
+  s_d4db2387ca9e79::t_08c2dbc80661bd 557-568
+  s_d4db2387ca9e79::t_7085039e140393 844-851,853-854,857,859-864,866,868,870,872-886,888-890,923-938,1006-1009
+  s_d4db2387ca9e79::t_30b1193e6213f8 86
+packages/core/src/libs/hubspot/nurtureSlots.test.ts
+  s_d4db2387ca9e79::t_22b0ee13e871e0 2-5,23,25,27-30,35-36,38,42-49,67,75-93,132-133
+packages/core/src/scripts/prove-sequence-format-e2e.ts
+  s_d4db2387ca9e79::t_dd9de6866e54e2 190-195,198-201
+  s_d4db2387ca9e79::t_7857f72d893c0f 1-189,196-197,202-211
+packages/core/src/services/personalization/relayOwnership.ts
+  s_d4db2387ca9e79::t_7ee48925f94fc8 1-164
+packages/core/src/scripts/rewrite-nurture-slots.ts
+  s_d4db2387ca9e79::t_45f82ecff65510 22-27,29-37,93-101
+  s_d4db2387ca9e79::t_656f19d2f8b8f7 1-21,38-44,48-59,68-69,71-77,79-92,102-110,112-131
+  s_d4db2387ca9e79::t_01a47adb139e7c 45-47,60-67,70,78,111
+  s_d4db2387ca9e79::t_3a89a0310d4154 28
+packages/core/src/libs/actions/personalization-enroll.test.ts
+  s_d4db2387ca9e79::t_2ba199069caef1 402,918,921-922,924-1059,1115,1120
+  s_d4db2387ca9e79::t_abd2ba9acccfe2 37,877-917
+  s_d4db2387ca9e79::t_bb468091276bfd 919-920,923
+packages/core/src/features/review/RichEmailBody.test.tsx
+  s_d4db2387ca9e79::t_8192cb52876fac 92-94
+packages/core/src/app/[locale]/(auth)/gtm/personalization/page.tsx
+  s_d4db2387ca9e79::t_9f55c86b1db53c 9
+  s_d4db2387ca9e79::t_434f7ebb960c13 13,15,65-82,97
+packages/core/src/features/personalization/LeadDetail.tsx
+  s_d4db2387ca9e79::t_f4ce0628978d60 19,342
+packages/core/src/libs/writing/emailBody.ts
+  s_d4db2387ca9e79::t_67d6fb4d971416 33,69-100,102,108-109,111-184
+  s_d4db2387ca9e79::t_7227273c49a974 101,103-107,110
+packages/core/src/services/personalization/senderLedger.ts
+  s_d4db2387ca9e79::t_431c7b14fb3033 1-120
+packages/core/src/libs/writing/emailBody.test.ts
+  s_d4db2387ca9e79::t_22b0ee13e871e0 10,28-44,138-164
+  s_d4db2387ca9e79::t_6e105a77c75231 165
+packages/core/src/libs/hubspot/client.ts
+  s_d4db2387ca9e79::t_6b3c2b74a3036d 121-124
+packages/core/src/libs/sources/hubspot.ts
+  s_d4db2387ca9e79::t_0e6b637e7a1b64 117-121
+  s_d4db2387ca9e79::t_9f55c86b1db53c 33
+packages/core/src/libs/hubspot/nurtureSlots.ts
+  s_d4db2387ca9e79::t_487a4c0bc2a3bc 18,29-30,96,105-107,109-114,161,163,177
+  s_d4db2387ca9e79::t_9f55c86b1db53c 88-89
+  s_d4db2387ca9e79::t_a711979f51879e 57-81
+  s_d4db2387ca9e79::t_3cf488bbaacb40 56
+packages/core/src/services/personalization/relayOwnership.test.ts
+  s_d4db2387ca9e79::t_5752cfc7dfb8d7 1-41
+packages/core/src/libs/sources/drive.test.ts
+  s_d4db2387ca9e79::t_9e7c87e91d3386 44-60,62-108
+  s_d4db2387ca9e79::t_5aab8b6421c062 61
+packages/core/src/services/agents/tools/personalization.ts
+  s_d4db2387ca9e79::t_6a5832e6188a37 359-360,427,435-481,503
+  s_d4db2387ca9e79::t_e27d7a56835248 404,409-412
+packages/core/src/libs/hubspot/senderInboxes.test.ts
+  s_d4db2387ca9e79::t_406ae6763c491f 1-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8aaccb9066ac49db116032db0b3197862bb52717",
+  "prompts": {},
+  "sessions": {
+    "s_d4db2387ca9e79": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fecebda6-4f8c-4ef2-8b8b-9bd139c143c7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
