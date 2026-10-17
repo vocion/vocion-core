@@ -75,7 +75,7 @@ function sourceOf(d: TeamDraft): MeasureSource {
     case 'verified-hubspot': {
       const stages = list(d.stages);
       const filter = d.object === 'deals' ? { dealStages: stages.length ? stages : undefined } : d.object === 'contacts' ? { lifecycleStages: stages.length ? stages : undefined } : { industries: stages.length ? stages : undefined };
-      return { kind: 'verified', connector: 'hubspot', query: { object: d.object, filter, aggregate: d.aggregate } };
+      return { kind: 'verified', connector: 'hubspot', query: { object: d.object, filter, aggregate: d.aggregate, dateField: 'createdAt' } };
     }
     case 'verified-web-analytics': {
       const text = (s: string) => (s.trim() === '' ? undefined : s.trim());

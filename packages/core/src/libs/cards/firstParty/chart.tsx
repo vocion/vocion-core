@@ -32,7 +32,7 @@ const VIZ_VARS = [
 
 const seriesColor = (i: number) => `var(--viz-${i + 1})`;
 
-function niceTicks(max: number, count = 4): number[] {
+export function niceTicks(max: number, count = 4): number[] {
   if (max <= 0) {
     return [0];
   }
@@ -40,7 +40,8 @@ function niceTicks(max: number, count = 4): number[] {
   const mag = 10 ** Math.floor(Math.log10(raw));
   const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) ?? raw;
   const ticks: number[] = [];
-  for (let v = 0; v <= max + step * 0.001; v += step) {
+  // The top tick is the first at or above the max, so no mark rises past the axis.
+  for (let v = 0; ticks.length === 0 || ticks[ticks.length - 1]! < max - step * 0.001; v += step) {
     ticks.push(Math.round(v * 1e6) / 1e6);
   }
   return ticks;

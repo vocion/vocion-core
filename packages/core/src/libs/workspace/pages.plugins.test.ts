@@ -40,6 +40,17 @@ function workspace(manifestBody: string, files: Record<string, string> = {}): st
 }
 
 describe('plugin pages', () => {
+  it('the finance plugin ships its Metrics page: what its agents changed in the books, by week', () => {
+    workspace('plugins: [finance]\n');
+    const { pages, issues } = readWorkspacePages();
+    const metrics = pages.find(p => p.slug === 'finance-metrics');
+
+    expect(issues).toEqual([]);
+    expect(metrics?.origin).toBe('plugin:finance');
+    expect(metrics?.archetype).toBe('metrics');
+    expect(metrics?.metrics?.items.map(i => i.key)).toEqual(['expenses_recoded', 'journal_entries', 'invoices_drafted', 'changes_approved']);
+  });
+
   it('an enabled plugin\'s pages appear with their origin and prose', () => {
     workspace('plugins: [wiki]\n');
     const { pages, issues } = readWorkspacePages();

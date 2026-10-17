@@ -614,6 +614,9 @@ const CountsKey = z.string().regex(/^[\w-]+$/, 'counts key must be a plain key, 
 export const VERIFIED_CONNECTORS = ['hubspot', 'web-analytics'] as const;
 export type VerifiedConnector = typeof VERIFIED_CONNECTORS[number];
 
+/** Dates a HubSpot measure's window may read; mirrors `CRM_DATE_FIELDS`. */
+export const HUBSPOT_DATE_FIELDS = ['createdAt', 'mqlEnteredAt', 'sqlEnteredAt', 'opportunityEnteredAt', 'customerEnteredAt', 'closeDate'] as const;
+
 /**
  * `verified` through HubSpot — read from the synced mirror
  * (`CrmRecordsService`), so the reading carries the mirror's own freshness.
@@ -633,7 +636,16 @@ export const HubspotVerifiedSourceSchema = z.object({
       ownerIds: z.array(z.string().min(1)).optional(),
     }).default({}),
     aggregate: z.string().regex(/^(count|sum\(amount\))$/, 'aggregate must be count or sum(amount)').default('count'),
-  }),
+    /**
+     * The date the window is judged by. `createdAt` counts records created in
+     * it; `mqlEnteredAt` and the other entry dates count contacts that
+     * REACHED the stage in it; `closeDate` counts deals that closed in it.
+     */
+    dateField: z.enum(HUBSPOT_DATE_FIELDS).default('createdAt'),
+  }).refine(
+    q => q.dateField === 'createdAt' || (q.dateField === 'closeDate' ? q.object === 'deals' : q.object === 'contacts'),
+    { message: 'dateField: lifecycle entry dates are for contacts, closeDate is for deals', path: ['dateField'] },
+  ),
 });
 
 /** What a web-analytics measure can count. */

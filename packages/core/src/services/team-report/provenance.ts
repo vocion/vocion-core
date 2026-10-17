@@ -195,7 +195,8 @@ async function countDecidedAsks(orgId: string, scope: MeasureScope, kinds: strin
 
 /**
  * A verified reading from the HubSpot mirror. Count or sum(amount) of the
- * matching records CREATED in range, with the mirror's freshness attached.
+ * matching records whose `dateField` (created, by default) falls in range,
+ * with the mirror's freshness attached.
  * @param orgId - Tenant.
  * @param source - The declared HubSpot source.
  * @param range - The window.
@@ -208,6 +209,8 @@ async function readVerifiedHubspot(orgId: string, source: Extract<TeamMeasureSou
     ...q.filter,
     createdAfter: range.since.toISOString(),
     createdBefore: range.until.toISOString(),
+    dateField: q.dateField,
+    countOnly: true,
     limit: 1,
   });
   if (result.sources.length === 0) {
@@ -384,7 +387,19 @@ async function readVerified(orgId: string, source: Extract<TeamMeasureSource, { 
  * @param now - The clock.
  */
 export async function readRaw(orgId: string, measure: TeamMeasure, scope: MeasureScope, range: Range, now: Date): Promise<RawReading> {
-  const s = measure.source;
+  return readSourceRaw(orgId, measure.source, scope, range, now);
+}
+
+/**
+ * Read one measure SOURCE over one range — what {@link readRaw} reads, for a
+ * figure that has a source but no team contract (a Metrics page's weeks).
+ * @param orgId - Tenant.
+ * @param s - The declared source.
+ * @param scope - Whose agents' actions and runs count.
+ * @param range - The window.
+ * @param now - The clock.
+ */
+export async function readSourceRaw(orgId: string, s: TeamMeasureSource, scope: MeasureScope, range: Range, now: Date): Promise<RawReading> {
   try {
     switch (s.kind) {
       // This switch and `readVerified`'s are exhaustive over

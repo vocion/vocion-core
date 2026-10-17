@@ -1,0 +1,29 @@
+# What the finance team moved, week by week: the changes it made to the books
+# and how many of them a person signed off.
+slug: finance-metrics
+title: Metrics
+description: What the finance agents changed in the books each week, and how much of it a person approved.
+icon: chart-column
+nav: {section: Finance, order: 1}
+archetype: metrics
+pluginPanel: false
+metrics:
+  weeks: 12
+  items:
+    - key: expenses_recoded
+      label: Expenses recoded
+      description: Expense lines moved to the right account, applied to the ledger.
+      source: {kind: observed, actions: [finance.recategorize_expense]}
+    - key: journal_entries
+      label: Journal entries posted
+      description: Accruals, payroll and adjusting entries posted to the ledger.
+      source: {kind: observed, actions: [finance.post_journal_entry]}
+    - key: invoices_drafted
+      label: Invoices drafted
+      description: Customer invoices drafted in the ledger, ready to send.
+      source: {kind: observed, actions: [finance.draft_invoice]}
+    - key: changes_approved
+      label: Changes a person approved
+      group: work
+      description: Proposed ledger changes approved or edited by a person.
+      source: {kind: human-confirmed, actions: [finance.recategorize_expense, finance.post_journal_entry, finance.draft_invoice]}

@@ -1228,7 +1228,7 @@ export type TeamKpi = {
  * authored, read by `services/team-report/provenance.ts`.
  */
 export type TeamMeasureSource
-  = | { kind: 'verified'; connector: 'hubspot'; query: { object: 'deals' | 'contacts' | 'companies'; filter: { dealStages?: string[]; pipelines?: string[]; dealStatus?: 'open' | 'closed'; lifecycleStages?: string[]; industries?: string[]; ownerIds?: string[] }; aggregate: string } }
+  = | { kind: 'verified'; connector: 'hubspot'; query: { object: 'deals' | 'contacts' | 'companies'; filter: { dealStages?: string[]; pipelines?: string[]; dealStatus?: 'open' | 'closed'; lifecycleStages?: string[]; industries?: string[]; ownerIds?: string[] }; aggregate: string; dateField?: 'createdAt' | 'mqlEnteredAt' | 'sqlEnteredAt' | 'opportunityEnteredAt' | 'customerEnteredAt' | 'closeDate' } }
     | { kind: 'verified'; connector: 'web-analytics'; query: { metric: 'sessions' | 'users' | 'conversions' | 'signups'; filter: { pathPrefix?: string; channel?: string; event?: string } } }
     | { kind: 'observed'; actions?: string[]; counts?: string; rows?: 'workspace-members' | 'artifacts' | 'data-rooms' | 'data-room-sources'; where?: { kind?: string; folder?: string; playbook?: string; verified?: boolean } }
     | { kind: 'human-confirmed'; actions?: string[]; askKinds?: string[] }
