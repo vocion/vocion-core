@@ -1,6 +1,5 @@
 import type { MetricSummary, WeeklyMetric } from '@/services/metrics/weeklyMetrics';
 import type { Week } from '@/services/metrics/weeks';
-import { ProvenanceChip } from '@/features/dashboard/team-report/ProvenanceChip';
 import { ChartCardView } from '@/libs/cards/firstParty/chart';
 import { summarize } from '@/services/metrics/weeklyMetrics';
 
@@ -28,22 +27,12 @@ function Fact({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MetricCard({ f, now }: { f: WeeklyMetric; now: Date }) {
+function MetricCard({ f }: { f: WeeklyMetric }) {
   const s: MetricSummary = summarize(f.points);
   const fmt = (v: number | null) => figure(v, f.metric.format);
-  const chip = {
-    provenance: f.provenance,
-    sourceLabel: f.sourceLabel,
-    freshness: f.freshness ?? { asOf: null, ageMs: null, stale: false, note: null },
-    unavailableKind: f.unavailable?.kind ?? null,
-    unavailableReason: f.unavailable?.reason ?? null,
-  };
   return (
     <section className="min-w-0 border-t border-border/70 pt-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold">{f.metric.label}</h3>
-        <ProvenanceChip reading={chip} now={now} />
-      </div>
+      <h3 className="text-sm font-semibold">{f.metric.label}</h3>
       {f.metric.description && <p className="mt-0.5 text-[13px] text-muted-foreground">{f.metric.description}</p>}
       <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2">
         <div>
@@ -67,6 +56,8 @@ function MetricCard({ f, now }: { f: WeeklyMetric; now: Date }) {
                   x: f.points.map(p => (p.week.partial ? `${p.week.label} (to date)` : p.week.label)),
                   series: [{ name: f.metric.label, values: f.points.map(p => p.value) }],
                   unit: f.metric.format === 'money' ? '$' : undefined,
+                  trend: true,
+                  partialLast: f.points.at(-1)?.week.partial,
                 }}
               />
             </div>
@@ -114,11 +105,18 @@ function WeekTable({ weeks, figures }: { weeks: Week[]; figures: WeeklyMetric[] 
  * @param props.now - The clock the current week was cut at.
  */
 export function MetricsView({ weeks, figures, timezone, now }: { weeks: Week[]; figures: WeeklyMetric[]; timezone: string; now: Date }) {
-  const asOf = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: timezone, timeZoneName: 'short' }).format(now);
+  const stamp = (d: Date) => new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: timezone, timeZoneName: 'short' }).format(d);
+  // The oldest sync behind any HubSpot figure: the whole page is only as current as that.
+  const synced = figures
+    .filter(f => f.provenance === 'verified' && f.unavailable === null)
+    .map(f => f.freshness?.asOf)
+    .filter((d): d is Date => d instanceof Date)
+    .sort((a, b) => a.getTime() - b.getTime())[0];
   return (
     <div>
       <p className="mb-6 text-[13px] text-muted-foreground">
-        {`Weeks run Monday to Sunday. This week is counted through ${asOf}.`}
+        {`Weeks run Monday to Sunday. This week is counted through ${stamp(now)}.`}
+        {synced && ` HubSpot figures are from the copy synced ${stamp(synced)}.`}
       </p>
       {GROUPS.map((g) => {
         const inGroup = figures.filter(f => f.metric.group === g.key);
@@ -128,7 +126,7 @@ export function MetricsView({ weeks, figures, timezone, now }: { weeks: Week[]; 
               <div key={g.key} className="mb-10">
                 <h2 className="mb-2 text-base font-semibold">{g.heading}</h2>
                 <div className="grid gap-x-10 gap-y-6 lg:grid-cols-2">
-                  {inGroup.map(f => <MetricCard key={f.metric.key} f={f} now={now} />)}
+                  {inGroup.map(f => <MetricCard key={f.metric.key} f={f} />)}
                 </div>
               </div>
             );
