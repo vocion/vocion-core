@@ -98,6 +98,10 @@ export const chartSpecSchema = z.object({
   unit: z.string().optional(),
   /** Stack bars/areas instead of grouping. */
   stacked: z.boolean().optional(),
+  /** A quiet least-squares line through the first series, for which way it is heading. */
+  trend: z.boolean().optional(),
+  /** The last x is a period still in progress: drawn lighter, and left out of the trend. */
+  partialLast: z.boolean().optional(),
 }).superRefine((spec, ctx) => {
   for (const [i, s] of spec.series.entries()) {
     if (s.values.length !== spec.x.length) {

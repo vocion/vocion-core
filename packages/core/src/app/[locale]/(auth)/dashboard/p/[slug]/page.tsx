@@ -572,6 +572,22 @@ export default async function WorkspacePage(props: {
     return <ConfigurePage orgId={orgId} manifest={manifest} searchParams={searchParams} now={await currentTime()} />;
   }
 
+  // WHAT MOVED, by week or by month: each figure a measure source read for
+  // every period, outcomes above the activity that produced them.
+  if (manifest.archetype === 'metrics' && manifest.metrics) {
+    const { readPeriodMetrics } = await import('@/services/metrics/periodMetrics');
+    const { MetricsView } = await import('@/features/dashboard/metrics/MetricsView');
+    const unit = searchParams.by === 'month' ? 'month' : 'week';
+    const [timezone, now] = await Promise.all([workspaceTimeZone(orgId), currentTime()]);
+    const { periods, figures } = await readPeriodMetrics(orgId, manifest.metrics, unit, timezone, new Date(now));
+    return (
+      <>
+        <TitleBar title={manifest.title} description={manifest.description} />
+        <MetricsView slug={manifest.slug} unit={unit} periods={periods} figures={figures} timezone={timezone} now={new Date(now)} />
+      </>
+    );
+  }
+
   const content = readWorkspacePageContent(manifest);
   const methodology = readWorkspacePageMethodology(manifest);
   const now = await currentTime();

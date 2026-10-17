@@ -25,7 +25,7 @@ const ICON: Record<ProvenanceKind, typeof ShieldCheck> = {
  * @param props.reading - The reading the chip is about.
  * @param props.now - The clock, for the sync age.
  */
-export function ProvenanceChip({ reading, now = new Date() }: { reading: MeasureReading; now?: Date }) {
+export function ProvenanceChip({ reading, now = new Date() }: { reading: Pick<MeasureReading, 'provenance' | 'sourceLabel' | 'freshness' | 'unavailableKind' | 'unavailableReason'>; now?: Date }) {
   const kind = reading.provenance;
   if (reading.unavailableKind !== null) {
     const Gap = reading.unavailableKind === 'unconfigured' ? PlugZap : TriangleAlert;

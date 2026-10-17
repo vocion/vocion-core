@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseTopic } from '@/libs/live/topics';
 import { recordName } from './recordName';
+import { MeasureSourceSchema } from './schemas';
 
 /**
  * Workspace pages, the part that runs anywhere — the page manifest schema,
@@ -436,6 +437,38 @@ const SeriesSchema = z.object({
   format: z.enum(['number', 'money']).default('number'),
 });
 
+/**
+ * One figure on a `metrics` page: what moved in the business, week by week.
+ * `source` is a team measure's source (verified, observed, human-confirmed,
+ * agent-reported), so a figure says where its number came from exactly as
+ * the team report does, and a source that cannot be read shows as a state,
+ * never a zero.
+ */
+const MetricSchema = z.object({
+  key: SlugSchema,
+  label: z.string().min(1).max(60),
+  /** One line under the label: what counts. */
+  description: z.string().max(200).optional(),
+  /** `outcome` is what the business got; `work` is what the agents did to get it. */
+  group: z.enum(['outcome', 'work']).default('outcome'),
+  format: z.enum(['number', 'money']).default('number'),
+  source: MeasureSourceSchema,
+});
+export type PageMetric = z.infer<typeof MetricSchema>;
+
+/**
+ * A `metrics` page's figures: each read for every one of the last `weeks`
+ * weeks (Monday to Sunday in the workspace's zone) or `months` calendar
+ * months, the current one to date last. Activity counts whoever did it,
+ * agent or person.
+ */
+const MetricsSchema = z.object({
+  weeks: z.number().int().min(4).max(26).default(12),
+  months: z.number().int().min(3).max(24).default(12),
+  items: z.array(MetricSchema).min(1).max(12),
+}).refine(m => new Set(m.items.map(i => i.key)).size === m.items.length, { message: 'two metrics share a key', path: ['items'] });
+export type PageMetrics = z.infer<typeof MetricsSchema>;
+
 const WidgetSchema = z.object({
   /** Name exported from the workspace's pages/components/registry.tsx. */
   component: z.string(),
@@ -672,7 +705,7 @@ export const PageManifestSchema = z.object({
    * redirects to `href`. It exists so a plugin can seat a core surface (the
    * team report) beside its own pages without duplicating it.
    */
-  archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report', 'wiki', 'configure']),
+  archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report', 'wiki', 'configure', 'metrics']),
   /**
    * Whether this page carries its plugin's "How <plugin> is doing" panel.
    * On by default; a plugin with many pages keeps it on one of them (the
@@ -685,6 +718,10 @@ export const PageManifestSchema = z.object({
   // ---- configure config ----
   /** The `configure` archetype's tabs and sidebar — see {@link ConfigureBlocksSchema}. Omitted, every block in its default order. */
   configure: ConfigureBlocksSchema.optional(),
+
+  // ---- metrics config ----
+  /** Required by `metrics` — see {@link MetricsSchema}. */
+  metrics: MetricsSchema.optional(),
 
   // ---- report config ----
   /** Required by `report` — see {@link ReportSchema}. */
@@ -959,6 +996,7 @@ export const PageManifestSchema = z.object({
 })
   .refine(m => m.archetype !== 'link' || m.href !== undefined, { message: 'a link page needs href — the route it opens', path: ['href'] })
   .refine(m => m.configure === undefined || m.archetype === 'configure', { message: 'configure declares the blocks of a configure page', path: ['configure'] })
+  .refine(m => (m.archetype === 'metrics') === (m.metrics !== undefined), { message: 'a metrics page needs metrics.items, and only a metrics page declares them', path: ['metrics'] })
   .refine(m => m.archetype !== 'report' || m.report !== undefined, { message: 'a report page needs report.subject — the record whose story it tells', path: ['report'] })
   // A wiki is a folder of markdown pages read as pages: the source names the folder, nothing else is declared.
   .refine(m => m.archetype !== 'wiki' || (m.source !== undefined && m.source.kind === 'artifacts' && typeof m.source.folder === 'string'), { message: 'a wiki page needs source: {kind: artifacts, folder: <name>} — the folder its pages live in', path: ['source'] })

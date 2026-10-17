@@ -50,8 +50,12 @@ export type RawReading = {
   unavailableKind: MeasureUnavailableKind | null;
 };
 
-/** Which team a measure is read for — its agents, and its slug for asks filed against the team itself. */
-export type MeasureScope = { teamSlug: string; agentSlugs: string[] };
+/**
+ * Which team a measure is read for — its agents, and its slug for asks filed
+ * against the team itself. `anyone` counts every actor's actions, runs and
+ * decisions, agent or person: a Metrics page's raw activity.
+ */
+export type MeasureScope = { teamSlug: string; agentSlugs: string[]; anyone?: boolean };
 
 const live = (now: Date): Freshness => ({ asOf: now, ageMs: 0, stale: false, note: null });
 
@@ -74,7 +78,7 @@ function unavailable(kind: MeasureUnavailableKind, reason: string, sourceLabel: 
  * @param range
  */
 async function sumCounts(orgId: string, scope: MeasureScope, key: string, range: Range): Promise<number> {
-  if (scope.agentSlugs.length === 0) {
+  if (!scope.anyone && scope.agentSlugs.length === 0) {
     return 0;
   }
   const [row] = await db.select({
@@ -83,7 +87,7 @@ async function sumCounts(orgId: string, scope: MeasureScope, key: string, range:
     .from(workerRunSchema)
     .where(and(
       eq(workerRunSchema.orgId, orgId),
-      inArray(workerRunSchema.agentSlug, scope.agentSlugs),
+      scope.anyone ? undefined : inArray(workerRunSchema.agentSlug, scope.agentSlugs),
       gte(workerRunSchema.createdAt, range.since),
       lt(workerRunSchema.createdAt, range.until),
       sql`${workerRunSchema.counts} ? ${key}`,
@@ -101,7 +105,7 @@ async function sumCounts(orgId: string, scope: MeasureScope, key: string, range:
  * @param range
  */
 async function countExecutedActions(orgId: string, scope: MeasureScope, actions: string[], range: Range): Promise<number> {
-  if (scope.agentSlugs.length === 0) {
+  if (!scope.anyone && scope.agentSlugs.length === 0) {
     return 0;
   }
   const [row] = await db.select({ n: sql<number>`count(*)::int` })
@@ -110,7 +114,7 @@ async function countExecutedActions(orgId: string, scope: MeasureScope, actions:
       eq(actionRunSchema.orgId, orgId),
       eq(actionRunSchema.status, 'done'),
       inArray(actionRunSchema.actionId, actions),
-      sql`${actionAgentSlug} in (${sql.join(scope.agentSlugs.map(s => sql`${s}`), sql`, `)})`,
+      scope.anyone ? undefined : sql`${actionAgentSlug} in (${sql.join(scope.agentSlugs.map(s => sql`${s}`), sql`, `)})`,
       gte(actionRunSchema.executedAt, range.since),
       lt(actionRunSchema.executedAt, range.until),
     ));
@@ -125,7 +129,7 @@ async function countExecutedActions(orgId: string, scope: MeasureScope, actions:
  * @param range
  */
 async function countCompletedRunsWith(orgId: string, scope: MeasureScope, key: string, range: Range): Promise<number> {
-  if (scope.agentSlugs.length === 0) {
+  if (!scope.anyone && scope.agentSlugs.length === 0) {
     return 0;
   }
   const [row] = await db.select({ n: sql<number>`count(*)::int` })
@@ -133,7 +137,7 @@ async function countCompletedRunsWith(orgId: string, scope: MeasureScope, key: s
     .where(and(
       eq(workerRunSchema.orgId, orgId),
       eq(workerRunSchema.status, 'completed'),
-      inArray(workerRunSchema.agentSlug, scope.agentSlugs),
+      scope.anyone ? undefined : inArray(workerRunSchema.agentSlug, scope.agentSlugs),
       gte(workerRunSchema.completedAt, range.since),
       lt(workerRunSchema.completedAt, range.until),
       sql`${workerRunSchema.counts} ? ${key}`,
@@ -151,7 +155,7 @@ async function countCompletedRunsWith(orgId: string, scope: MeasureScope, key: s
  * @param range
  */
 async function countApprovedActions(orgId: string, scope: MeasureScope, actions: string[], range: Range): Promise<number> {
-  if (scope.agentSlugs.length === 0) {
+  if (!scope.anyone && scope.agentSlugs.length === 0) {
     return 0;
   }
   const [row] = await db.select({ n: sql<number>`count(distinct ${decisionAlignmentSchema.subjectId})::int` })
@@ -160,7 +164,7 @@ async function countApprovedActions(orgId: string, scope: MeasureScope, actions:
       eq(decisionAlignmentSchema.orgId, orgId),
       eq(decisionAlignmentSchema.subjectKind, 'action'),
       inArray(decisionAlignmentSchema.subjectKey, actions),
-      inArray(decisionAlignmentSchema.agentSlug, scope.agentSlugs),
+      scope.anyone ? undefined : inArray(decisionAlignmentSchema.agentSlug, scope.agentSlugs),
       inArray(decisionAlignmentSchema.decision, ['approved', 'edited']),
       gte(decisionAlignmentSchema.decidedAt, range.since),
       lt(decisionAlignmentSchema.decidedAt, range.until),
@@ -177,9 +181,11 @@ async function countApprovedActions(orgId: string, scope: MeasureScope, actions:
  * @param range
  */
 async function countDecidedAsks(orgId: string, scope: MeasureScope, kinds: string[], range: Range): Promise<number> {
-  const who = scope.agentSlugs.length > 0
-    ? sql`(${askSchema.teamSlug} = ${scope.teamSlug} or ${askSchema.agentSlug} in (${sql.join(scope.agentSlugs.map(s => sql`${s}`), sql`, `)}))`
-    : eq(askSchema.teamSlug, scope.teamSlug);
+  const who = scope.anyone
+    ? undefined
+    : scope.agentSlugs.length > 0
+      ? sql`(${askSchema.teamSlug} = ${scope.teamSlug} or ${askSchema.agentSlug} in (${sql.join(scope.agentSlugs.map(s => sql`${s}`), sql`, `)}))`
+      : eq(askSchema.teamSlug, scope.teamSlug);
   const [row] = await db.select({ n: sql<number>`count(*)::int` })
     .from(askSchema)
     .where(and(
@@ -195,7 +201,8 @@ async function countDecidedAsks(orgId: string, scope: MeasureScope, kinds: strin
 
 /**
  * A verified reading from the HubSpot mirror. Count or sum(amount) of the
- * matching records CREATED in range, with the mirror's freshness attached.
+ * matching records whose `dateField` (created, by default) falls in range,
+ * with the mirror's freshness attached.
  * @param orgId - Tenant.
  * @param source - The declared HubSpot source.
  * @param range - The window.
@@ -208,6 +215,8 @@ async function readVerifiedHubspot(orgId: string, source: Extract<TeamMeasureSou
     ...q.filter,
     createdAfter: range.since.toISOString(),
     createdBefore: range.until.toISOString(),
+    dateField: q.dateField,
+    countOnly: true,
     limit: 1,
   });
   if (result.sources.length === 0) {
@@ -384,7 +393,19 @@ async function readVerified(orgId: string, source: Extract<TeamMeasureSource, { 
  * @param now - The clock.
  */
 export async function readRaw(orgId: string, measure: TeamMeasure, scope: MeasureScope, range: Range, now: Date): Promise<RawReading> {
-  const s = measure.source;
+  return readSourceRaw(orgId, measure.source, scope, range, now);
+}
+
+/**
+ * Read one measure SOURCE over one range — what {@link readRaw} reads, for a
+ * figure that has a source but no team contract (a Metrics page's weeks).
+ * @param orgId - Tenant.
+ * @param s - The declared source.
+ * @param scope - Whose agents' actions and runs count.
+ * @param range - The window.
+ * @param now - The clock.
+ */
+export async function readSourceRaw(orgId: string, s: TeamMeasureSource, scope: MeasureScope, range: Range, now: Date): Promise<RawReading> {
   try {
     switch (s.kind) {
       // This switch and `readVerified`'s are exhaustive over

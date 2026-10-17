@@ -32,7 +32,7 @@ const VIZ_VARS = [
 
 const seriesColor = (i: number) => `var(--viz-${i + 1})`;
 
-function niceTicks(max: number, count = 4): number[] {
+export function niceTicks(max: number, count = 4): number[] {
   if (max <= 0) {
     return [0];
   }
@@ -40,10 +40,28 @@ function niceTicks(max: number, count = 4): number[] {
   const mag = 10 ** Math.floor(Math.log10(raw));
   const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) ?? raw;
   const ticks: number[] = [];
-  for (let v = 0; v <= max + step * 0.001; v += step) {
+  // The top tick is the first at or above the max, so no mark rises past the axis.
+  for (let v = 0; ticks.length === 0 || ticks[ticks.length - 1]! < max - step * 0.001; v += step) {
     ticks.push(Math.round(v * 1e6) / 1e6);
   }
   return ticks;
+}
+
+/**
+ * The least-squares line through the values that are present, as its value
+ * at every x. Null with fewer than two points to fit.
+ * @param values - One per x; nulls are skipped.
+ */
+export function trendLine(values: Array<number | null>): number[] | null {
+  const pts = values.flatMap((v, i) => (v === null ? [] : [[i, v] as const]));
+  if (pts.length < 2) {
+    return null;
+  }
+  const mx = pts.reduce((a, [x]) => a + x, 0) / pts.length;
+  const my = pts.reduce((a, [, v]) => a + v, 0) / pts.length;
+  const sxx = pts.reduce((a, [x]) => a + (x - mx) ** 2, 0);
+  const slope = pts.reduce((a, [x, v]) => a + (x - mx) * (v - my), 0) / sxx;
+  return values.map((_, i) => my + slope * (i - mx));
 }
 
 function fmt(v: number, unit?: string): string {
@@ -116,7 +134,8 @@ export function ChartCardView({ data, surface }: { data: ChartSpec; surface: str
           return data.series.map((s, si) => {
             const v = Math.max(0, s.values[i] ?? 0);
             const x0 = xCenter(i) - groupW / 2 + si * (bw + gap);
-            return <rect key={s.name} x={x0} y={y(v)} width={bw} height={Math.max(0, y(0) - y(v))} rx={4} fill={seriesColor(si)}><title>{`${data.x[i]} · ${s.name}: ${fmt(v, data.unit)}`}</title></rect>;
+            const partial = data.partialLast && i === n - 1;
+            return <rect key={s.name} x={x0} y={y(v)} width={bw} height={Math.max(0, y(0) - y(v))} rx={4} fill={seriesColor(si)} fillOpacity={partial ? 0.45 : 1}><title>{`${data.x[i]} · ${s.name}: ${fmt(v, data.unit)}`}</title></rect>;
           });
         })}
         {data.type !== 'bar' && (() => {
@@ -145,6 +164,17 @@ export function ChartCardView({ data, surface }: { data: ChartSpec; surface: str
               </g>
             );
           });
+        })()}
+        {/* trend: one quiet dashed line, under the eye rather than over the data */}
+        {data.trend && (() => {
+          const first = data.series[0]!.values;
+          const fitted = trendLine(data.partialLast ? first.slice(0, -1) : first);
+          if (!fitted) {
+            return null;
+          }
+          const at = data.type === 'bar' ? xCenter : xLine;
+          const last = fitted.length - 1;
+          return <line x1={at(0)} y1={y(fitted[0]!)} x2={at(last)} y2={y(fitted[last]!)} className="stroke-foreground/45" strokeWidth={1.5} strokeDasharray="4 4" strokeLinecap="round" />;
         })()}
         {/* baseline */}
         <line x1={pad.left} x2={w - pad.right} y1={y(0)} y2={y(0)} className="stroke-foreground/30" strokeWidth={1} />

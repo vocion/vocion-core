@@ -37,6 +37,18 @@ const ROW_KEYS: Record<CrmObjectType, string[]> = {
   companies: ['domain', 'industry', 'employees', 'ownerId', 'createdAt'],
 };
 
+/**
+ * The dates a window may be judged by, per object type. `createdAt` is the
+ * default; the lifecycle entry dates say when a contact REACHED a stage, and
+ * `closeDate` when a deal closed (or is expected to).
+ */
+export const CRM_DATE_FIELDS = {
+  contacts: ['createdAt', 'mqlEnteredAt', 'sqlEnteredAt', 'opportunityEnteredAt', 'customerEnteredAt'],
+  deals: ['createdAt', 'closeDate'],
+  companies: ['createdAt'],
+} as const satisfies Record<CrmObjectType, readonly string[]>;
+export type CrmDateField = (typeof CRM_DATE_FIELDS)[CrmObjectType][number];
+
 /** Free-text `query` searches these, plus the document title. */
 const QUERY_KEYS = ['primaryEmail', 'emailDomain', 'domain', 'name', 'company', 'hubspotId'];
 
@@ -69,6 +81,11 @@ export type CrmFilter = {
   createdAfter?: string;
   /** ISO date (or datetime); records created strictly before it. */
   createdBefore?: string;
+  /**
+   * Which date the created-after/before window reads; `createdAt` when unset.
+   * One of {@link CRM_DATE_FIELDS} for the object type, else the query throws.
+   */
+  dateField?: CrmDateField;
   /** Case-insensitive substring over title, email, domain, company, HubSpot id. */
   query?: string;
   /**
@@ -87,6 +104,12 @@ export type CrmQueryOptions = CrmFilter & {
    * whose slug appears here are read. Unset = the agent's full scope.
    */
   allowedSourceSlugs?: string[];
+  /**
+   * The count, amount and freshness only: no facets beyond the ones a value
+   * filter needs checking against, no record page, no field probe. For a
+   * caller that reads many windows (a Metrics page's weeks).
+   */
+  countOnly?: boolean;
 };
 
 export type CrmRecord = {
@@ -461,11 +484,18 @@ export async function queryCrmRecords(
   const createdAfter = opts.createdWithinDays
     ? new Date(Date.now() - opts.createdWithinDays * 86_400_000).toISOString()
     : opts.createdAfter;
+  const dateKey = opts.dateField ?? 'createdAt';
+  if (!(CRM_DATE_FIELDS[objectType] as readonly string[]).includes(dateKey)) {
+    throw new TypeError(`${objectType} have no ${dateKey} date; use one of ${CRM_DATE_FIELDS[objectType].join(', ')}`);
+  }
+  // The scope without its date window: a filter value is judged real against
+  // every record, so a quiet week is a zero rather than an "unknown stage".
+  const undatedConds = [...conds];
   if (createdAfter) {
-    conds.push(sql`${meta('createdAt')} >= ${isoBound(createdAfter, 'createdAfter')}`);
+    conds.push(sql`${meta(dateKey)} >= ${isoBound(createdAfter, 'createdAfter')}`);
   }
   if (opts.createdBefore) {
-    conds.push(sql`${meta('createdAt')} < ${isoBound(opts.createdBefore, 'createdBefore')}`);
+    conds.push(sql`${meta(dateKey)} < ${isoBound(opts.createdBefore, 'createdBefore')}`);
   }
 
   const q = opts.query?.trim();
@@ -499,7 +529,8 @@ export async function queryCrmRecords(
   const facets: Record<string, Record<string, number>> = {};
   const facetAmounts: Record<string, Record<string, number>> = {};
   const unknownFilterValues: CrmQueryResult['unknownFilterValues'] = {};
-  for (const key of FACET_KEYS[objectType]) {
+  const facetKeys = opts.countOnly ? FACET_KEYS[objectType].filter(k => valueFilters.some(f => f.key === k)) : FACET_KEYS[objectType];
+  for (const key of facetKeys) {
     // The amount sum rides along on the same GROUP BY, so "value by stage" is
     // one query rather than a page-through-everything-and-add-it-up loop.
     const rows = await db
@@ -533,7 +564,11 @@ export async function queryCrmRecords(
     // real value instead of reporting an empty result as the answer.
     const filter = valueFilters.find(f => f.key === key);
     if (filter) {
-      const present = new Set(Object.keys(dist).map(v => v.toLowerCase()));
+      const windowed = Boolean(createdAfter || opts.createdBefore);
+      const known = windowed
+        ? (await db.selectDistinct({ value: sql<string | null>`${meta(key)}` }).from(knowledgeDocumentSchema).where(and(...undatedConds))).map(r => r.value).filter((v): v is string => !!v)
+        : Object.keys(dist);
+      const present = new Set(known.map(v => v.toLowerCase()));
       const notFound = filter.requested.filter(v => !present.has(v.trim().toLowerCase()));
       if (notFound.length > 0) {
         unknownFilterValues[key] = { requested: filter.requested, notFound };
@@ -560,18 +595,20 @@ export async function queryCrmRecords(
     }
   }
 
-  const rows = await db
-    .select({
-      externalId: knowledgeDocumentSchema.externalId,
-      title: knowledgeDocumentSchema.title,
-      metadata: knowledgeDocumentSchema.metadata,
-      lastModifiedAt: knowledgeDocumentSchema.lastModifiedAt,
-    })
-    .from(knowledgeDocumentSchema)
-    .where(where)
-    .orderBy(sql`coalesce(${knowledgeDocumentSchema.lastModifiedAt}, ${knowledgeDocumentSchema.ingestedAt}) DESC`)
-    .limit(limit)
-    .offset(offset);
+  const rows = opts.countOnly
+    ? []
+    : await db
+        .select({
+          externalId: knowledgeDocumentSchema.externalId,
+          title: knowledgeDocumentSchema.title,
+          metadata: knowledgeDocumentSchema.metadata,
+          lastModifiedAt: knowledgeDocumentSchema.lastModifiedAt,
+        })
+        .from(knowledgeDocumentSchema)
+        .where(where)
+        .orderBy(sql`coalesce(${knowledgeDocumentSchema.lastModifiedAt}, ${knowledgeDocumentSchema.ingestedAt}) DESC`)
+        .limit(limit)
+        .offset(offset);
 
   const records: CrmRecord[] = rows.map((r) => {
     const m = (r.metadata ?? {}) as Record<string, unknown>;
@@ -593,7 +630,7 @@ export async function queryCrmRecords(
   // honest "not synced" instead of a made-up number.
   // One query, one aggregate per key — not a query per key.
   const unavailableFields: string[] = [];
-  if (total > 0) {
+  if (total > 0 && !opts.countOnly) {
     const probeKeys = ROW_KEYS[objectType];
     const [row] = await db
       .select(
