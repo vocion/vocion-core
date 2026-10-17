@@ -3,6 +3,7 @@
 import type { useGuidedReview } from './GuidedReview';
 import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import { useState } from 'react';
+import { RichEmailBody } from '@/features/review/RichEmailBody';
 import { GuidedCard, GuidedList } from './GuidedReview';
 
 /**
@@ -123,7 +124,7 @@ export function GuidedReviewPanel({ run, guided, pendingComments = 0 }: GuidedRe
             </button>
           )}
         >
-          <p className="mt-1.5 whitespace-pre-line text-foreground/85">{guided.bodyOf(current)}</p>
+          <div className="mt-1.5 text-foreground/85"><RichEmailBody value={guided.bodyOf(current)} label={`Send ${current.position} body`} /></div>
           {(() => {
             const revs = state.revisions[current.id];
             return revs && revs.length > 0 ? <RevisionDetail revision={revs[revs.length - 1]!} /> : null;
@@ -145,7 +146,7 @@ export function GuidedReviewPanel({ run, guided, pendingComments = 0 }: GuidedRe
             title={send.subject}
             actions={<button type="button" className={primary} onClick={() => guided.reread(id)}>Looks good</button>}
           >
-            <p className="mt-1.5 whitespace-pre-line text-foreground/85">{guided.bodyOf(send)}</p>
+            <div className="mt-1.5 text-foreground/85"><RichEmailBody value={guided.bodyOf(send)} label={`Send ${send.position} body`} /></div>
             {(() => {
               const revs = state.revisions[send.id];
               return revs && revs.length > 0 ? <RevisionDetail revision={revs[revs.length - 1]!} /> : null;

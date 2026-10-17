@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ensureNurtureSlotProperties, isNurtureSequence, nurtureSlotProperties, readNurtureSlotsConfig } from './nurtureSlots';
+import { ensureNurtureSlotProperties, isNurtureSequence, nurtureSlotProperties, readNurtureSlotsConfig, rungSendCountProblem } from './nurtureSlots';
+
+const P = (inner: string) => `<p style="margin:0;">${inner}</p>`;
+const GAP = '<p style="margin:0;"><br></p>';
 
 describe('nurture slots', () => {
   it('recognises a ladder rung by its name prefix, case-insensitively', () => {
@@ -17,20 +20,31 @@ describe('nurture slots', () => {
 
     expect(props).toEqual({
       pn_email_1_subject: 'A',
-      pn_email_1_body: '<p>a</p>',
+      pn_email_1_body: P('a'),
       pn_email_2_subject: 'B',
-      pn_email_2_body: '<p>b</p>',
+      pn_email_2_body: P('b'),
       pn_email_3_subject: 'C',
-      pn_email_3_body: '<p>c</p>',
+      pn_email_3_body: P('c'),
+      // The slot past the draft is cleared, so an earlier enrollment's copy cannot send.
+      pn_email_4_subject: '',
+      pn_email_4_body: '',
       pn_generated_at: String(Date.UTC(2026, 8, 10)),
     });
   });
 
-  it('writes the body as email HTML — paragraphs survive the sequence template', () => {
-    const props = nurtureSlotProperties([{ subject: 'A', body: 'Musa,\n\nFirst.\nSecond line.\n\nBest,' }]);
+  it('writes the body in HubSpot\'s own paragraph shape: every line a paragraph, a spacer between', () => {
+    const props = nurtureSlotProperties([{ subject: 'A', body: 'Musa,\nFirst.\n\nSecond line.' }]);
 
-    expect(props.pn_email_1_body).toBe('<p>Musa,</p><p>First.<br>Second line.</p><p>Best,</p>');
+    expect(props.pn_email_1_body).toBe([P('Musa,'), P('First.'), P('Second line.')].join(GAP));
     expect(props.pn_email_1_subject).toBe('A');
+  });
+
+  it('rewrites links when Enroll hands it a rewriter', () => {
+    const props = nurtureSlotProperties([{ subject: 'A', body: 'See https://northwind.example/guide' }], undefined, new Date(), {
+      rewriteHref: href => `${href}?utm_source=email`,
+    });
+
+    expect(props.pn_email_1_body).toBe(P('See <a href="https://northwind.example/guide?utm_source=email">https://northwind.example/guide</a>'));
   });
 
   it('refuses more sends than slots rather than dropping copy', () => {
@@ -50,7 +64,7 @@ describe('nurture slots', () => {
       { subject: 'Your platform hires', body: '<p>Rowan, saw the <strong>hires</strong>.</p><ul><li>One</li><li>Two</li></ul>' },
     ]);
 
-    expect(props.pn_email_1_body).toBe('<p>Rowan, saw the <strong>hires</strong>.</p><ul><li>One</li><li>Two</li></ul>');
+    expect(props.pn_email_1_body).toBe(`${P('Rowan, saw the <strong>hires</strong>.')}${GAP}<ul style="margin:0;"><li>One</li><li>Two</li></ul>`);
   });
 
   it('never lets markup a body should not carry reach the contact', () => {
@@ -58,7 +72,25 @@ describe('nurture slots', () => {
       { subject: 'A', body: '<p>Hi</p><script>fetch("//evil.test")</script><img src="x" onerror="go()">' },
     ]);
 
-    expect(props.pn_email_1_body).toBe('<p>Hi</p>');
+    expect(props.pn_email_1_body).toBe(P('Hi'));
+  });
+});
+
+describe('a rung needs one send per email', () => {
+  const rung = { name: 'Personalized Nurture · 2 Gentle v2', emailStepCount: 5 };
+
+  it('refuses a draft short of the rung\'s emails, the case that sent an empty email', () => {
+    expect(rungSendCountProblem(rung, 4)).toMatch(/sends 5 emails and the draft has 4/);
+  });
+
+  it('refuses a draft with more sends than the rung sends', () => {
+    expect(rungSendCountProblem(rung, 6)).toMatch(/exactly 5 sends/);
+  });
+
+  it('passes a matching draft, a non-rung sequence, and a read that carried no steps', () => {
+    expect(rungSendCountProblem(rung, 5)).toBeNull();
+    expect(rungSendCountProblem({ name: 'Inbound follow-up', emailStepCount: 3 }, 1)).toBeNull();
+    expect(rungSendCountProblem({ name: rung.name }, 2)).toBeNull();
   });
 });
 
@@ -97,7 +129,8 @@ describe('ensureNurtureSlotProperties', () => {
 
     expect(posts).toHaveLength(2);
     expect(posts[0]!.body).toMatchObject({ name: 'pn_email_5_subject', type: 'string', fieldType: 'text', groupName: 'contactinformation' });
-    expect(posts[1]!.body).toMatchObject({ name: 'pn_email_5_body', type: 'string', fieldType: 'textarea' });
+    // Rich text: a multi-line text property drops the paragraphs when the token renders.
+    expect(posts[1]!.body).toMatchObject({ name: 'pn_email_5_body', type: 'string', fieldType: 'html' });
   });
 
   it('is two reads per slot and no writes when everything exists', async () => {

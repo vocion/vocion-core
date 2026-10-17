@@ -7,7 +7,7 @@
  * arrives over RPC is trusted enough to render.
  */
 import { describe, expect, it } from 'vitest';
-import { emailBodyHtml, emailBodyText, isHtmlBody, textToParagraphs } from './emailBody';
+import { emailBodyHtml, emailBodyText, hubspotEmailHtml, isHtmlBody, textToParagraphs } from './emailBody';
 
 describe('which shape a body is', () => {
   it('reads an agent\'s prose as text', () => {
@@ -25,8 +25,23 @@ describe('which shape a body is', () => {
 });
 
 describe('what HubSpot receives', () => {
-  it('wraps prose into paragraphs, breaking single newlines', () => {
-    expect(emailBodyHtml('One.\nStill one.\n\nTwo.')).toBe('<p>One.<br>Still one.</p><p>Two.</p>');
+  it('makes every line of prose its own paragraph, so a greeting never runs into the first sentence', () => {
+    expect(emailBodyHtml('Rowan,\nWorth a look?\n\nTwo.')).toBe('<p>Rowan,</p><p>Worth a look?</p><p>Two.</p>');
+  });
+
+  it('reads Windows line endings the same way', () => {
+    expect(emailBodyHtml('One.\r\n\r\nTwo.')).toBe('<p>One.</p><p>Two.</p>');
+  });
+
+  it('renders the markdown a model still writes instead of sending it literally', () => {
+    expect(emailBodyHtml('Two things:\n- **Triage** first\n- then *dispatch*'))
+      .toBe('<p>Two things:</p><ul><li><strong>Triage</strong> first</li><li>then <em>dispatch</em></li></ul>');
+    expect(emailBodyHtml('1. one\n2. two\n2026 was busy.')).toBe('<ol><li>one</li><li>two</li></ol><p>2026 was busy.</p>');
+  });
+
+  it('turns bare URLs and markdown links into links, keeping trailing punctuation outside', () => {
+    expect(emailBodyHtml('See [the guide](https://northwind.example/g) or https://northwind.example/h.'))
+      .toBe('<p>See <a href="https://northwind.example/g">the guide</a> or <a href="https://northwind.example/h">https://northwind.example/h</a>.</p>');
   });
 
   it('passes a reviewer\'s formatting through', () => {
@@ -118,5 +133,33 @@ describe('the gate the text view exists for', () => {
     expect(plain.ok).toBe(false);
     expect(formatted.ok).toBe(false);
     expect(formatted.report).toContain('game changer');
+  });
+});
+
+describe('what a HubSpot sequence token holds', () => {
+  const P = (inner: string) => `<p style="margin:0;">${inner}</p>`;
+  const GAP = '<p style="margin:0;"><br></p>';
+
+  it('splits an editor paragraph at its line breaks and drops the trailing one', () => {
+    expect(hubspotEmailHtml('<p>Rowan,<br><br>A mid-size agency ran it.<br></p><p>Second.</p>'))
+      .toBe([P('Rowan,'), P('A mid-size agency ran it.'), P('Second.')].join(GAP));
+  });
+
+  it('drops an editor\'s empty paragraph, since the spacer already carries the gap', () => {
+    expect(hubspotEmailHtml('<p>One.</p><p></p><p>Two.</p>')).toBe([P('One.'), P('Two.')].join(GAP));
+  });
+
+  it('unwraps the editor\'s paragraph inside a list item, nested lists included', () => {
+    expect(hubspotEmailHtml('<ul><li><p>a</p><ul><li><p>b</p></li></ul></li></ul>'))
+      .toBe('<ul style="margin:0;"><li>a<ul style="margin:0;"><li>b</li></ul></li></ul>');
+  });
+
+  it('links a bare URL a reviewer typed into the editor', () => {
+    expect(hubspotEmailHtml('<p>At https://northwind.example/a.</p>'))
+      .toBe(P('At <a href="https://northwind.example/a">https://northwind.example/a</a>.'));
+  });
+
+  it('is empty for a body with no words', () => {
+    expect(hubspotEmailHtml('<p></p><p><br></p>')).toBe('');
   });
 });

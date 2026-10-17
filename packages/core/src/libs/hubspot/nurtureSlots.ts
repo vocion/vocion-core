@@ -15,7 +15,7 @@
 
 import type { HubspotClient, HubspotResult } from './client';
 import { z } from 'zod';
-import { emailBodyHtml } from '@/libs/writing/emailBody';
+import { hubspotEmailHtml } from '@/libs/writing/emailBody';
 
 export const nurtureSlotsSchema = z.object({
   /** A sequence whose name starts with this is a ladder rung and needs its slots filled. */
@@ -26,6 +26,8 @@ export const nurtureSlotsSchema = z.object({
   generatedAtProperty: z.string().min(1).default('pn_generated_at'),
   /** How many slot pairs the portal has. A draft with more sends than slots is refused, never truncated. */
   maxSlots: z.number().int().positive().max(20).default(4),
+  /** The property group a slot the platform creates lands in. */
+  propertyGroup: z.string().min(1).default('contactinformation'),
 });
 export type NurtureSlotsConfig = z.infer<typeof nurtureSlotsSchema>;
 
@@ -52,17 +54,46 @@ export function isNurtureSequence(sequenceName: string, cfg: NurtureSlotsConfig 
 }
 
 /**
+ * Why a draft cannot go into this rung, or null when it can.
+ *
+ * A rung sends one slot per email step, so a draft with fewer sends than the
+ * rung has emails leaves a step with an empty slot, and HubSpot sends it
+ * empty: "Personalized Nurture · 2 Gentle v2" (five emails) went out with a
+ * four-send draft and its fifth email reached a prospect with no body on
+ * 2026-10-16. More sends than emails is refused too: copy a reviewer
+ * approves would never be sent.
+ * @param sequence - The rung as the library read it, steps included.
+ * @param sequence.name
+ * @param sequence.emailStepCount - Undefined when the read did not carry steps; the check passes.
+ * @param sendCount - How many sends the draft carries.
+ * @param cfg
+ */
+export function rungSendCountProblem(
+  sequence: { name: string; emailStepCount?: number },
+  sendCount: number,
+  cfg: NurtureSlotsConfig = DEFAULT_NURTURE_SLOTS,
+): string | null {
+  if (!isNurtureSequence(sequence.name, cfg) || sequence.emailStepCount === undefined || sequence.emailStepCount === sendCount) {
+    return null;
+  }
+  return `"${sequence.name}" sends ${sequence.emailStepCount} emails and the draft has ${sendCount} send(s). Each email in the rung sends one slot, so the draft needs exactly ${sequence.emailStepCount} sends`;
+}
+
+/**
  * The property map that puts the approved sends into the slots, in order:
  * send 1 into slot 1, and so on, plus the generated-at stamp.
  * @param sends - The approved sends, subject and body, in position order.
  * @param cfg
  * @param now - The stamp; midnight UTC of this day is what is written.
+ * @param opts
+ * @param opts.rewriteHref
  * @throws When there are more sends than slots: the ladder would silently drop copy.
  */
 export function nurtureSlotProperties(
   sends: Array<{ subject: string; body: string }>,
   cfg: NurtureSlotsConfig = DEFAULT_NURTURE_SLOTS,
   now: Date = new Date(),
+  opts: { rewriteHref?: (href: string) => string } = {},
 ): Record<string, string> {
   if (sends.length > cfg.maxSlots) {
     throw new Error(`${sends.length} sends but the ladder has ${cfg.maxSlots} slots; the draft has to match the rung`);
@@ -71,11 +102,16 @@ export function nurtureSlotProperties(
   sends.forEach((s, i) => {
     const n = String(i + 1);
     props[cfg.subjectProperty.replaceAll('{n}', n)] = s.subject;
-    // The template renders the body token as HTML. A body a reviewer
-    // formatted arrives as HTML and is sanitized; one an agent drafted is
-    // prose and becomes paragraphs, where a bare \n would otherwise collapse.
-    props[cfg.bodyProperty.replaceAll('{n}', n)] = emailBodyHtml(s.body);
+    // HubSpot's own paragraph shape, whatever the body arrived as: prose
+    // from an agent or HTML from the editor (see `hubspotEmailHtml`).
+    props[cfg.bodyProperty.replaceAll('{n}', n)] = hubspotEmailHtml(s.body, opts);
   });
+  // Slots past this draft are cleared: a contact enrolled before keeps the
+  // old copy otherwise, and a rung that reached that slot would send it.
+  for (let n = sends.length + 1; n <= cfg.maxSlots; n += 1) {
+    props[cfg.subjectProperty.replaceAll('{n}', String(n))] = '';
+    props[cfg.bodyProperty.replaceAll('{n}', String(n))] = '';
+  }
   const midnightUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   props[cfg.generatedAtProperty] = String(midnightUtc);
   return props;
@@ -122,9 +158,9 @@ export async function ensureNurtureSlotProperties(
 ): Promise<HubspotResult<{ created: string[] }>> {
   const created: string[] = [];
   for (let n = 1; n <= Math.min(slotsNeeded, cfg.maxSlots); n += 1) {
-    const wanted: Array<{ name: string; label: string; fieldType: 'text' | 'textarea' }> = [
+    const wanted: Array<{ name: string; label: string; fieldType: 'text' | 'html' }> = [
       { name: cfg.subjectProperty.replaceAll('{n}', String(n)), label: `Vocion nurture · email ${n} subject`, fieldType: 'text' },
-      { name: cfg.bodyProperty.replaceAll('{n}', String(n)), label: `Vocion nurture · email ${n} body`, fieldType: 'textarea' },
+      { name: cfg.bodyProperty.replaceAll('{n}', String(n)), label: `Vocion nurture · email ${n} body`, fieldType: 'html' },
     ];
     for (const prop of wanted) {
       const existing = await client.get<{ name?: string }>(`/crm/v3/properties/contacts/${prop.name}`);
@@ -138,7 +174,7 @@ export async function ensureNurtureSlotProperties(
         name: prop.name,
         label: prop.label,
         description: `Written by the Vocion platform at Enroll with the approved personalized send ${n}; the Personalized Nurture sequence templates render it.`,
-        groupName: 'contactinformation',
+        groupName: cfg.propertyGroup,
         type: 'string',
         fieldType: prop.fieldType,
       });

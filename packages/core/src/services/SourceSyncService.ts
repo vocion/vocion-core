@@ -1333,6 +1333,10 @@ export async function runSync(opts: {
     if (connectorSlug === 'hubspot' && ((config.objectType as string | undefined) ?? 'contacts') === 'contacts') {
       const { watchForHandoffTriggers } = await import('@/services/HandoffTriggerService');
       await watchForHandoffTriggers(opts.orgId, log);
+      // Enrollments sent through an inbox connected under another HubSpot
+      // user leave that user owning the sequence's tasks; hand them back.
+      const { handBackRelayedOwnership } = await import('@/services/personalization/relayOwnership');
+      await handBackRelayedOwnership(opts.orgId).catch((error: unknown) => log('error', 'contacts synced but the relay ownership hand-back failed', { orgId: opts.orgId, error: error instanceof Error ? error.message : String(error) }));
     }
     // The data rooms grow from what just landed: a recording or thread that
     // clearly belongs to a room is filed with its score (undoable on the

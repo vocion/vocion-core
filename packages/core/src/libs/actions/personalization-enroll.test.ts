@@ -34,7 +34,7 @@ vi.mock('@/libs/hubspot/unenrollBridge', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, eventLogSchema, knowledgeSourceSchema, leadBriefSchema, trustRuleSchema } = await import('@/models/Schema');
+const { actionRunSchema, eventLogSchema, knowledgeDocumentSchema, knowledgeSourceSchema, leadBriefSchema, trustRuleSchema } = await import('@/models/Schema');
 const { executeAction, proposeAction, rejectAction } = await import('@/services/ActionService');
 const { regenerateSkillFor } = await import('./regenerateSkill');
 const { readSequenceEnrollmentState, requestUnenroll } = await import('@/libs/hubspot/unenrollBridge');
@@ -399,7 +399,7 @@ describe('Enroll into a Personalized Nurture rung', () => {
 
     const props = calls[patchIdx]!.body.properties as Record<string, string>;
 
-    expect(props).toMatchObject({ pn_email_1_subject: 'Subject 1', pn_email_1_body: '<p>Body 1</p>', pn_email_4_subject: 'Subject 4', pn_email_4_body: '<p>Body 4</p>' });
+    expect(props).toMatchObject({ pn_email_1_subject: 'Subject 1', pn_email_1_body: '<p style="margin:0;">Body 1</p>', pn_email_4_subject: 'Subject 4', pn_email_4_body: '<p style="margin:0;">Body 4</p>' });
     expect(props.pn_generated_at).toMatch(/^\d{13}$/);
   });
 
@@ -874,6 +874,189 @@ describe('personalization.enroll voice gate', () => {
   });
 });
 
+describe('a drafted send links only the asset catalog', () => {
+  async function catalog() {
+    const [src] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'drive', kind: 'plugin', configJson: { _connector: 'drive' } }).returning({ id: knowledgeSourceSchema.id });
+    await db.insert(knowledgeDocumentSchema).values({
+      orgId: ORG,
+      sourceId: src!.id,
+      externalId: 'asset:roi',
+      contentHash: 'h',
+      title: 'ROI Calculator',
+      metadata: { kind: 'asset', title: 'ROI Calculator', type: 'Tool', url: 'https://short.example/roi', aliases: ['https://northwind.example/tools/roi'], origin: 'config' },
+    });
+  }
+
+  afterEach(async () => {
+    await db.delete(knowledgeDocumentSchema);
+    await db.delete(knowledgeSourceSchema);
+  });
+
+  it('refuses a send that links a page the catalog does not hold, naming the link', async () => {
+    await seedLead();
+    await catalog();
+
+    await expect(proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: enrollInput({ sends: [{ step: 1, subject: 'A tool', body: 'Dana,\nTry https://northwind.example/tools/made-up' }] }),
+    })).rejects.toThrow(/not in the asset catalog:\n- https:\/\/northwind\.example\/tools\/made-up/);
+  });
+
+  it('accepts a catalog link, written as its short link or where it lands', async () => {
+    await seedLead();
+    await catalog();
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: enrollInput({ sends: [
+        { step: 1, subject: 'A tool', body: 'Dana,\nTry https://short.example/roi' },
+        { step: 2, subject: 'Again', body: 'Dana,\nOr https://www.northwind.example/tools/roi/' },
+      ] }),
+    });
+
+    expect(proposed.status).toBe('pending');
+  });
+});
+
+describe('Enroll picks the sending inbox, warm-up ramps first', () => {
+  // A rep whose own inbox is established, plus a warm-up inbox on a second
+  // domain that is connected under a colleague's HubSpot user.
+  const OWNERS: Record<string, { id: string; userId: string; email: string }> = {
+    'rep@northwind.example': { id: '501', userId: '501', email: 'rep@northwind.example' },
+    'ops@northwind.example': { id: '502', userId: '502', email: 'ops@northwind.example' },
+  };
+  const TODAY = new Date().toISOString().slice(0, 10);
+
+  async function configure(perDay = [1, 2]) {
+    await db.insert(knowledgeSourceSchema).values({
+      orgId: ORG,
+      slug: 'hubspot-contacts',
+      kind: 'plugin',
+      configJson: {
+        _connector: 'hubspot',
+        sender: {
+          user: 'rep@northwind.example',
+          timezone: 'UTC',
+          inboxes: [
+            { email: 'rep@northwind.example' },
+            { email: 'rep@northwind-mail.example', hubspotUser: 'ops@northwind.example', warmup: { start: TODAY, perDay } },
+          ],
+        },
+      },
+    });
+  }
+
+  function hubspot(calls: Array<{ method: string; url: string; body: Record<string, unknown> }>, opts: { contactOwner?: string; emailSteps?: number } = {}) {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      const u = String(url);
+      calls.push({ method: init?.method ?? 'GET', url: u, body: init?.body ? JSON.parse(init.body) : {} });
+      if (u.includes('/crm/v3/owners')) {
+        const email = new URL(u).searchParams.get('email') ?? '';
+        return res({ results: OWNERS[email] ? [OWNERS[email]] : [] });
+      }
+      if (u.includes('/crm/v3/objects/contacts/9412?')) {
+        return res({ properties: { hubspot_owner_id: opts.contactOwner ?? null } });
+      }
+      if (/\/automation\/sequences\/2026-03\/seq-/.test(u) && (init?.method ?? 'GET') === 'GET') {
+        return res({ id: 'seq-pn3', name: 'Personalized Nurture · 3 Steady', steps: Array.from({ length: opts.emailSteps ?? 2 }, () => ({ actionType: 'EMAIL' })) });
+      }
+      return res({ id: u.includes('/enrollments') ? 'enr-w' : 'note-w' });
+    }));
+  }
+
+  async function enrollOnce(contactRef = CONTACT) {
+    const proposed = await proposeAction({ orgId: ORG, actionId: 'personalization.enroll', principal: agent(), input: enrollInput({ contactRef }) });
+    return executeAction(proposed.runId!, ORG, { reviewedBy: 'user_rep' });
+  }
+
+  afterEach(async () => {
+    await db.delete(knowledgeSourceSchema);
+  });
+
+  it('sends from the warm-up inbox while it has room, as the user it is connected under, and records who owns what', async () => {
+    await seedLead();
+    await configure();
+    const calls: Array<{ method: string; url: string; body: Record<string, unknown> }> = [];
+    hubspot(calls);
+
+    const executed = await enrollOnce();
+
+    expect(executed.status).toBe('done');
+    expect(executed.result).toMatchObject({
+      senderEmail: 'rep@northwind-mail.example',
+      inbox: { reason: 'warmup', usedToday: 0, capToday: 1, week: 1 },
+      relay: { senderUser: 'rep@northwind.example', senderOwnerId: '501', relayUserId: '502', relayOwnerId: '502', ownerBefore: null },
+    });
+
+    const enroll = calls.find(c => c.url.includes('/enrollments'));
+
+    expect(enroll?.url).toContain('userId=502');
+    expect(enroll?.body).toMatchObject({ senderEmail: 'rep@northwind-mail.example' });
+  });
+
+  it('moves to the established inbox once the warm-up inbox has used today\'s budget', async () => {
+    await seedLead();
+    await configure([1]);
+    const calls: Array<{ method: string; url: string; body: Record<string, unknown> }> = [];
+    hubspot(calls);
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'personalization.enroll', status: 'done', input: { contactRef: 'contacts:1' }, result: { senderEmail: 'rep@northwind-mail.example' }, executedAt: new Date() });
+
+    const executed = await enrollOnce();
+
+    expect(executed.result).toMatchObject({ senderEmail: 'rep@northwind.example', inbox: { reason: 'established' }, relay: null });
+    expect(calls.find(c => c.url.includes('/enrollments'))?.url).toContain('userId=501');
+  });
+
+  it('refuses when every inbox has used its budget, and enrolls nothing', async () => {
+    await seedLead();
+    await db.insert(knowledgeSourceSchema).values({
+      orgId: ORG,
+      slug: 'hubspot-contacts',
+      kind: 'plugin',
+      configJson: { _connector: 'hubspot', sender: { user: 'rep@northwind.example', timezone: 'UTC', inboxes: [{ email: 'rep@northwind.example', dailyCap: 1 }] } },
+    });
+    const calls: Array<{ method: string; url: string; body: Record<string, unknown> }> = [];
+    hubspot(calls);
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'personalization.enroll', status: 'done', input: { contactRef: 'contacts:1' }, result: { senderEmail: 'rep@northwind.example' }, executedAt: new Date() });
+
+    const executed = await enrollOnce();
+
+    expect(executed.status).toBe('failed');
+    expect(String(executed.error)).toContain('Today\'s sending budget is used: rep@northwind.example 1 of 1');
+    expect(calls.some(c => c.url.includes('/enrollments'))).toBe(false);
+  });
+
+  it('a contact enrolled before keeps the inbox it heard from', async () => {
+    await seedLead();
+    await configure([5]);
+    const calls: Array<{ method: string; url: string; body: Record<string, unknown> }> = [];
+    hubspot(calls);
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'personalization.enroll', status: 'done', input: { contactRef: CONTACT }, result: { senderEmail: 'rep@northwind.example' }, executedAt: new Date(Date.now() - 30 * 86_400_000) });
+
+    const executed = await enrollOnce();
+
+    expect(executed.result).toMatchObject({ senderEmail: 'rep@northwind.example', inbox: { reason: 'continuity' } });
+  });
+
+  it('refuses a rung whose email count the draft does not match, before writing a slot', async () => {
+    await seedLead();
+    await configure();
+    const calls: Array<{ method: string; url: string; body: Record<string, unknown> }> = [];
+    hubspot(calls, { emailSteps: 3 });
+    const proposed = await proposeAction({ orgId: ORG, actionId: 'personalization.enroll', principal: agent(), input: enrollInput({ sequenceId: 'seq-pn3', sequenceName: 'Personalized Nurture · 3 Steady' }) });
+
+    const executed = await executeAction(proposed.runId!, ORG, { reviewedBy: 'user_rep' });
+
+    expect(executed.status).toBe('failed');
+    expect(String(executed.error)).toContain('sends 3 emails and the draft has 2');
+    expect(calls.some(c => c.method === 'PATCH')).toBe(false);
+    expect(calls.some(c => c.url.includes('/enrollments'))).toBe(false);
+  });
+});
+
 describe('the sender is workspace config, not a model output', () => {
   const OWNERS = { results: [{ id: '159535048', userId: '159535048', email: 'andrew@metacto.com' }] };
 
@@ -929,12 +1112,12 @@ describe('the sender is workspace config, not a model output', () => {
     expect(calls.some(u => u.includes('/enrollments'))).toBe(false);
   });
 
-  it('the card shows the sender the emails go out as, and names the card\'s own when it differs', async () => {
+  it('the card shows the inbox the emails go out from, whatever sender the card carries', async () => {
     await seedLead();
     await nameTheSender('andrew@metacto.com');
     const card = await personalizationEnrollAction.reviewCard!({ orgId: ORG }, enrollInput({ senderEmail: 'chris@metacto.com' }) as never);
 
-    expect(card.provenance).toContainEqual({ label: 'Sender', value: 'andrew@metacto.com (the card named chris@metacto.com)' });
+    expect(card.provenance).toContainEqual({ label: 'Sends from', value: 'andrew@metacto.com' });
   });
 
   it('with no configured sender the card\'s sender still enrolls, as before', async () => {

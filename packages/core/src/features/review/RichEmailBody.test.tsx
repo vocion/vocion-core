@@ -89,6 +89,9 @@ describe('read-only', () => {
     expect(page.getByTestId('rich-toolbar').elements()).toHaveLength(0);
     expect(document.querySelector('[contenteditable="true"]')).toBeNull();
     await expect.element(page.getByText('Already decided.')).toBeVisible();
+    // Copy to read, not a field: nothing on the page offers a textbox to type in.
+    expect(page.getByRole('textbox').elements()).toHaveLength(0);
+    await expect.element(page.getByRole('group', { name: 'Day 0 body' })).toBeVisible();
   });
 
   it('names the field for a screen reader, since there is no visible label', async () => {
