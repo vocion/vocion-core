@@ -105,4 +105,17 @@ describe('an asset catalog on the drive source', () => {
     expect(events.filter(e => e.kind === 'skipped').map(e => e.message)).toEqual([expect.stringMatching(/Crews Case Study.*gated, and only a file link/)]);
     expect(checked).toHaveLength(4);
   });
+
+  it('reads a catalog file on a shared drive even when the listing is My Drive only', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url);
+      return url.includes('/files?') ? new Response(JSON.stringify({ files: [] })) : new Response('nope', { status: 404 });
+    }));
+    for await (const _doc of driveConnector.sync({ config: { catalog: { files: [{ fileId: 'shared1' }], checkLinks: false } }, credentials: {}, orgId: 'org-1', onProgress: () => {} } as never)) {
+      // drain
+    }
+
+    expect(urls.find(u => u.includes('/files/shared1?'))).toContain('supportsAllDrives=true');
+  });
 });
