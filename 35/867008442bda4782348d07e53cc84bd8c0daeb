@@ -1,0 +1,69 @@
+packages/core/templates/plugins/finance/pages/finance-metrics.yaml
+  s_d4db2387ca9e79::t_36a71c488ec43a 1-29
+packages/core/src/libs/workspace/schemas.ts
+  s_d4db2387ca9e79::t_3e18a3f66b03af 617-619,639-648
+packages/core/src/models/Schema.ts
+  s_d4db2387ca9e79::t_6807e2cee218e0 1231
+packages/core/src/services/team-report/index.ts
+  s_d4db2387ca9e79::t_a661c89c95b76b 13
+packages/core/src/features/dashboard/team-report/ProvenanceChip.tsx
+  s_d4db2387ca9e79::t_b2ebb6addb2d5d 28
+packages/core/src/services/metrics/weeks.ts
+  s_d4db2387ca9e79::t_ace71c5d63ed8f 1-50
+packages/core/src/libs/cards/firstParty/chart.tsx
+  s_d4db2387ca9e79::t_41bfc6181f8e0f 35
+  s_d4db2387ca9e79::t_1432c091094821 43-44
+packages/core/src/services/team-report/provenance.ts
+  s_d4db2387ca9e79::t_3e18a3f66b03af 198-199,212
+  s_d4db2387ca9e79::t_9afdc46a975312 390-402
+  s_d4db2387ca9e79::t_89f5b45ccc7777 213
+packages/core/src/libs/workspace/pageFields.ts
+  s_d4db2387ca9e79::t_edc7d55545b352 4
+  s_d4db2387ca9e79::t_688f6f925e2356 440-471,708,722-725,999
+packages/core/src/features/dashboard/team-report/ConfigureWorkforce.tsx
+  s_d4db2387ca9e79::t_23d930e5da5e67 78
+packages/core/src/services/metrics/weeklyMetrics.test.ts
+  s_d4db2387ca9e79::t_665f8ea6291108 1-79
+packages/core/src/services/metrics/weeks.test.ts
+  s_d4db2387ca9e79::t_66578e167088ad 1-26,28-29,33-41
+  s_d4db2387ca9e79::t_f52f7b12f9e9c0 27,30-32
+packages/core/src/app/[locale]/(auth)/dashboard/p/[slug]/page.tsx
+  s_d4db2387ca9e79::t_8cea03b2138f9f 510-527,593-606
+  s_d4db2387ca9e79::t_81847cf67dfcc9 607
+packages/core/src/libs/workspace/pages.plugins.test.ts
+  s_d4db2387ca9e79::t_aec1dcc56c86d3 43-53
+packages/core/src/libs/sources/hubspot.ts
+  s_d4db2387ca9e79::t_2115225f7053a1 71-75
+  s_d4db2387ca9e79::t_c92002b059c654 234-236
+packages/core/src/services/metrics/weeklyMetrics.ts
+  s_d4db2387ca9e79::t_c5c28697ccfee4 1-62,66-104
+  s_d4db2387ca9e79::t_89f5b45ccc7777 63-65
+packages/core/src/services/CrmRecordsService.ts
+  s_d4db2387ca9e79::t_d4f8c58bb3a600 567
+  s_d4db2387ca9e79::t_edc7d55545b352 598-611
+  s_d4db2387ca9e79::t_d90c2dd38e9e24 491-493,568-571
+  s_d4db2387ca9e79::t_6b19aa61d2ca6d 40-51,84-88,487-490,495,498
+  s_d4db2387ca9e79::t_89f5b45ccc7777 107-112,532-533,633
+packages/core/src/features/dashboard/metrics/MetricsView.tsx
+  s_d4db2387ca9e79::t_2d4d7c26fb4a15 1,3-63,65-140
+  s_d4db2387ca9e79::t_edc7d55545b352 2
+  s_d4db2387ca9e79::t_989c356f6cdbc0 64
+packages/core/src/libs/cards/firstParty/chart.test.ts
+  s_d4db2387ca9e79::t_41bfc6181f8e0f 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "35867008442bda4782348d07e53cc84bd8c0daeb",
+  "prompts": {},
+  "sessions": {
+    "s_d4db2387ca9e79": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fecebda6-4f8c-4ef2-8b8b-9bd139c143c7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
