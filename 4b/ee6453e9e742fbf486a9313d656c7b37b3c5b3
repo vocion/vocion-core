@@ -1,0 +1,21 @@
+packages/core/src/libs/sources/drive.test.ts
+  s_d4db2387ca9e79::t_a4877bf0ff1389 108-120
+packages/core/src/libs/sources/drive.ts
+  s_d4db2387ca9e79::t_c9be12d8b2c214 135-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4bee6453e9e742fbf486a9313d656c7b37b3c5b3",
+  "prompts": {},
+  "sessions": {
+    "s_d4db2387ca9e79": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fecebda6-4f8c-4ef2-8b8b-9bd139c143c7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
