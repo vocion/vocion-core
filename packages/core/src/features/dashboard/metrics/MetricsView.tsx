@@ -1,8 +1,8 @@
 import type { MetricSummary, PeriodMetric } from '@/services/metrics/periodMetrics';
 import type { Period, PeriodUnit } from '@/services/metrics/periods';
 import { ChartCardView } from '@/libs/cards/firstParty/chart';
-import { Link } from '@/libs/I18nNavigation';
 import { summarize } from '@/services/metrics/periodMetrics';
+import { MetricsFrame } from './MetricsFrame';
 
 const GROUPS = [
   { key: 'outcome', heading: 'What moved in the business' },
@@ -103,26 +103,6 @@ function PeriodTable({ periods, figures, unit }: { periods: Period[]; figures: P
   );
 }
 
-function UnitToggle({ slug, unit }: { slug: string; unit: PeriodUnit }) {
-  const choices: Array<{ value: PeriodUnit; label: string }> = [{ value: 'week', label: 'By week' }, { value: 'month', label: 'By month' }];
-  return (
-    <div className="flex gap-1 rounded-full border border-border p-0.5 text-xs" role="group" aria-label="Group by">
-      {choices.map(c => (
-        <Link
-          key={c.value}
-          href={c.value === 'week' ? `/dashboard/p/${slug}` : `/dashboard/p/${slug}?by=month`}
-          aria-current={c.value === unit ? 'true' : undefined}
-          className={c.value === unit
-            ? 'rounded-full bg-foreground px-3 py-1 font-medium text-background'
-            : 'rounded-full px-3 py-1 text-muted-foreground hover:text-foreground'}
-        >
-          {c.label}
-        </Link>
-      ))}
-    </div>
-  );
-}
-
 /**
  * A plugin's Metrics page: what moved in the business and the activity behind
  * it, by week or by month. Outcomes first, then the activity, then every
@@ -143,15 +123,9 @@ export function MetricsView({ slug, unit, periods, figures, timezone, now }: { s
     .map(f => f.freshness?.asOf)
     .filter((d): d is Date => d instanceof Date)
     .sort((a, b) => a.getTime() - b.getTime())[0];
+  const note = `${WORDS[unit].note} ${stamp(now)}.${synced ? ` HubSpot figures are from the copy synced ${stamp(synced)}.` : ''}`;
   return (
-    <div>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 text-[13px] text-muted-foreground">
-          {`${WORDS[unit].note} ${stamp(now)}.`}
-          {synced && ` HubSpot figures are from the copy synced ${stamp(synced)}.`}
-        </p>
-        <UnitToggle slug={slug} unit={unit} />
-      </div>
+    <MetricsFrame slug={slug} unit={unit} note={note}>
       {GROUPS.map((g) => {
         const inGroup = figures.filter(f => f.metric.group === g.key);
         return inGroup.length === 0
@@ -167,6 +141,6 @@ export function MetricsView({ slug, unit, periods, figures, timezone, now }: { s
       })}
       <h2 className="text-base font-semibold">{WORDS[unit].table}</h2>
       <PeriodTable periods={periods} figures={figures} unit={unit} />
-    </div>
+    </MetricsFrame>
   );
 }
