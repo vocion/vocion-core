@@ -507,24 +507,6 @@ function WindowPicker({ slug, window, chosen }: { slug: string; window: PageWind
   );
 }
 
-/**
- * Whose actions and runs a metrics page counts: the agents it names, else
- * its plugin's own agents, else every agent in the workspace.
- * @param orgId
- * @param manifest
- */
-async function metricsAgents(orgId: string, manifest: PageManifest & { origin?: string }): Promise<string[]> {
-  if (manifest.metrics?.agents) {
-    return manifest.metrics.agents;
-  }
-  if (manifest.origin?.startsWith('plugin:')) {
-    const { loadPlugin, pluginContents } = await import('@/libs/workspace/plugins');
-    return pluginContents(loadPlugin(manifest.origin.slice('plugin:'.length))).agents;
-  }
-  const rows = await db.select({ slug: agentSchema.slug }).from(agentSchema).where(eq(agentSchema.orgId, orgId));
-  return rows.map(r => r.slug);
-}
-
 export default async function WorkspacePage(props: {
   params: Promise<{ locale: string; slug: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -590,17 +572,18 @@ export default async function WorkspacePage(props: {
     return <ConfigurePage orgId={orgId} manifest={manifest} searchParams={searchParams} now={await currentTime()} />;
   }
 
-  // WHAT THE AGENTS MOVED, week by week: each figure a measure source read
-  // for every week, outcomes above the work that produced them.
+  // WHAT MOVED, by week or by month: each figure a measure source read for
+  // every period, outcomes above the activity that produced them.
   if (manifest.archetype === 'metrics' && manifest.metrics) {
-    const { readWeeklyMetrics } = await import('@/services/metrics/weeklyMetrics');
+    const { readPeriodMetrics } = await import('@/services/metrics/periodMetrics');
     const { MetricsView } = await import('@/features/dashboard/metrics/MetricsView');
-    const [agentSlugs, timezone, now] = await Promise.all([metricsAgents(orgId, manifest), workspaceTimeZone(orgId), currentTime()]);
-    const { weeks, figures } = await readWeeklyMetrics(orgId, manifest.metrics, { teamSlug: manifest.slug, agentSlugs }, timezone, new Date(now));
+    const unit = searchParams.by === 'month' ? 'month' : 'week';
+    const [timezone, now] = await Promise.all([workspaceTimeZone(orgId), currentTime()]);
+    const { periods, figures } = await readPeriodMetrics(orgId, manifest.metrics, unit, timezone, new Date(now));
     return (
       <>
         <TitleBar title={manifest.title} description={manifest.description} />
-        <MetricsView weeks={weeks} figures={figures} timezone={timezone} now={new Date(now)} />
+        <MetricsView slug={manifest.slug} unit={unit} periods={periods} figures={figures} timezone={timezone} now={new Date(now)} />
       </>
     );
   }

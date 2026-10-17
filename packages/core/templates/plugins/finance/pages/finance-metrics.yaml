@@ -1,8 +1,8 @@
-# What the finance team moved, week by week: the changes it made to the books
-# and how many of them a person signed off.
+# What the finance team changed in the books, by week or by month, and how
+# many of those changes a person signed off.
 slug: finance-metrics
 title: Metrics
-description: What the finance agents changed in the books each week, and how much of it a person approved.
+description: What changed in the books each week or month, and how much of it a person approved.
 icon: chart-column
 nav: {section: Finance, order: 1}
 archetype: metrics

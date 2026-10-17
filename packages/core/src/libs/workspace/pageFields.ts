@@ -458,13 +458,13 @@ export type PageMetric = z.infer<typeof MetricSchema>;
 
 /**
  * A `metrics` page's figures: each read for every one of the last `weeks`
- * weeks (Monday to Sunday in the workspace's zone, this week to date last).
- * `agents` narrows whose actions and runs count; absent, the plugin's own
- * agents for a plugin page, every agent for a workspace page.
+ * weeks (Monday to Sunday in the workspace's zone) or `months` calendar
+ * months, the current one to date last. Activity counts whoever did it,
+ * agent or person.
  */
 const MetricsSchema = z.object({
   weeks: z.number().int().min(4).max(26).default(12),
-  agents: z.array(SlugSchema).min(1).optional(),
+  months: z.number().int().min(3).max(24).default(12),
   items: z.array(MetricSchema).min(1).max(12),
 }).refine(m => new Set(m.items.map(i => i.key)).size === m.items.length, { message: 'two metrics share a key', path: ['items'] });
 export type PageMetrics = z.infer<typeof MetricsSchema>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lastWeeks } from './weeks';
+import { lastMonths, lastWeeks } from './periods';
 
 const LA = 'America/Los_Angeles';
 
@@ -37,5 +37,23 @@ describe('the weeks a Metrics page reads', () => {
     const weeks = lastWeeks(1, new Date('2026-10-19T04:00:00Z'), LA);
 
     expect(weeks[0]!.start).toBe('2026-10-12');
+  });
+});
+
+describe('the months a Metrics page reads', () => {
+  it('runs by calendar month in the zone, oldest first, this month cut at now', () => {
+    const now = new Date('2026-10-17T15:00:00Z');
+    const months = lastMonths(3, now, LA);
+
+    expect(months.map(m => m.start)).toEqual(['2026-08-01', '2026-09-01', '2026-10-01']);
+    expect(months.map(m => m.label)).toEqual(['Aug 2026', 'Sep 2026', 'Oct 2026']);
+    expect(months[0]!.since.toISOString()).toBe('2026-08-01T07:00:00.000Z');
+    expect(months[0]!.until.toISOString()).toBe('2026-09-01T07:00:00.000Z');
+    expect(months[2]!.until).toBe(now);
+    expect(months.map(m => m.partial)).toEqual([false, false, true]);
+  });
+
+  it('crosses the year end', () => {
+    expect(lastMonths(3, new Date('2027-01-10T20:00:00Z'), LA).map(m => m.start)).toEqual(['2026-11-01', '2026-12-01', '2027-01-01']);
   });
 });

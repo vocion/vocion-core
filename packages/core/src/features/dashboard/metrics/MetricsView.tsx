@@ -1,12 +1,19 @@
-import type { MetricSummary, WeeklyMetric } from '@/services/metrics/weeklyMetrics';
-import type { Week } from '@/services/metrics/weeks';
+import type { MetricSummary, PeriodMetric } from '@/services/metrics/periodMetrics';
+import type { Period, PeriodUnit } from '@/services/metrics/periods';
 import { ChartCardView } from '@/libs/cards/firstParty/chart';
-import { summarize } from '@/services/metrics/weeklyMetrics';
+import { Link } from '@/libs/I18nNavigation';
+import { summarize } from '@/services/metrics/periodMetrics';
 
 const GROUPS = [
   { key: 'outcome', heading: 'What moved in the business' },
-  { key: 'work', heading: 'What the agents did' },
+  { key: 'work', heading: 'Activity' },
 ] as const;
+
+/** The words that change with the unit. */
+const WORDS: Record<PeriodUnit, { current: string; previous: string; usual: string; plural: string; table: string; tableHead: string; note: string }> = {
+  week: { current: 'this week so far', previous: 'Last week', usual: 'Usual week', plural: 'weeks', table: 'Week by week', tableHead: 'Week of', note: 'Weeks run Monday to Sunday. This week is counted through' },
+  month: { current: 'this month so far', previous: 'Last month', usual: 'Usual month', plural: 'months', table: 'Month by month', tableHead: 'Month', note: 'Months are calendar months. This month is counted through' },
+};
 
 function figure(v: number | null, format: 'number' | 'money'): string {
   if (v === null) {
@@ -27,22 +34,23 @@ function Fact({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MetricCard({ f }: { f: WeeklyMetric }) {
+function MetricCard({ f, unit }: { f: PeriodMetric; unit: PeriodUnit }) {
   const s: MetricSummary = summarize(f.points);
   const fmt = (v: number | null) => figure(v, f.metric.format);
+  const w = WORDS[unit];
   return (
     <section className="min-w-0 border-t border-border/70 pt-4">
       <h3 className="text-sm font-semibold">{f.metric.label}</h3>
       {f.metric.description && <p className="mt-0.5 text-[13px] text-muted-foreground">{f.metric.description}</p>}
       <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2">
         <div>
-          <div className="font-mono text-3xl font-semibold tabular-nums">{fmt(s.thisWeek)}</div>
-          <div className="text-[11px] text-muted-foreground">this week so far</div>
+          <div className="font-mono text-3xl font-semibold tabular-nums">{fmt(s.current)}</div>
+          <div className="text-[11px] text-muted-foreground">{w.current}</div>
         </div>
         <dl className="flex flex-wrap gap-x-6 gap-y-1">
-          <Fact label="Last week" value={fmt(s.lastWeek)} />
-          <Fact label="Usual week" value={fmt(s.usual)} />
-          <Fact label={`${f.points.length} weeks`} value={fmt(s.total)} />
+          <Fact label={w.previous} value={fmt(s.previous)} />
+          <Fact label={w.usual} value={fmt(s.usual)} />
+          <Fact label={`${f.points.length} ${w.plural}`} value={fmt(s.total)} />
         </dl>
       </div>
       {f.unavailable
@@ -53,11 +61,11 @@ function MetricCard({ f }: { f: WeeklyMetric }) {
                 surface="page"
                 data={{
                   type: 'bar',
-                  x: f.points.map(p => (p.week.partial ? `${p.week.label} (to date)` : p.week.label)),
+                  x: f.points.map(p => (p.period.partial ? `${p.period.label} (to date)` : p.period.label)),
                   series: [{ name: f.metric.label, values: f.points.map(p => p.value) }],
                   unit: f.metric.format === 'money' ? '$' : undefined,
                   trend: true,
-                  partialLast: f.points.at(-1)?.week.partial,
+                  partialLast: f.points.at(-1)?.period.partial,
                 }}
               />
             </div>
@@ -66,24 +74,24 @@ function MetricCard({ f }: { f: WeeklyMetric }) {
   );
 }
 
-function WeekTable({ weeks, figures }: { weeks: Week[]; figures: WeeklyMetric[] }) {
+function PeriodTable({ periods, figures, unit }: { periods: Period[]; figures: PeriodMetric[]; unit: PeriodUnit }) {
   return (
     <div className="mt-10 overflow-x-auto">
       <table className="w-full min-w-max text-sm">
         <thead>
           <tr className="border-b border-border text-left">
-            <th className="py-2 pr-4 text-xs font-medium text-muted-foreground">Week of</th>
+            <th className="py-2 pr-4 text-xs font-medium text-muted-foreground">{WORDS[unit].tableHead}</th>
             {figures.map(f => <th key={f.metric.key} className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">{f.metric.label}</th>)}
           </tr>
         </thead>
         <tbody>
-          {[...weeks].reverse().map((w) => {
-            const i = weeks.indexOf(w);
+          {[...periods].reverse().map((p) => {
+            const i = periods.indexOf(p);
             return (
-              <tr key={w.start} className="border-b border-border/50">
+              <tr key={p.start} className="border-b border-border/50">
                 <td className="py-1.5 pr-4 whitespace-nowrap">
-                  {w.label}
-                  {w.partial && <span className="text-muted-foreground"> (to date)</span>}
+                  {p.label}
+                  {p.partial && <span className="text-muted-foreground"> (to date)</span>}
                 </td>
                 {figures.map(f => <td key={f.metric.key} className="px-3 py-1.5 text-right font-mono tabular-nums">{figure(f.points[i]?.value ?? null, f.metric.format)}</td>)}
               </tr>
@@ -95,16 +103,39 @@ function WeekTable({ weeks, figures }: { weeks: Week[]; figures: WeeklyMetric[] 
   );
 }
 
+function UnitToggle({ slug, unit }: { slug: string; unit: PeriodUnit }) {
+  const choices: Array<{ value: PeriodUnit; label: string }> = [{ value: 'week', label: 'By week' }, { value: 'month', label: 'By month' }];
+  return (
+    <div className="flex gap-1 rounded-full border border-border p-0.5 text-xs" role="group" aria-label="Group by">
+      {choices.map(c => (
+        <Link
+          key={c.value}
+          href={c.value === 'week' ? `/dashboard/p/${slug}` : `/dashboard/p/${slug}?by=month`}
+          aria-current={c.value === unit ? 'true' : undefined}
+          className={c.value === unit
+            ? 'rounded-full bg-foreground px-3 py-1 font-medium text-background'
+            : 'rounded-full px-3 py-1 text-muted-foreground hover:text-foreground'}
+        >
+          {c.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 /**
- * A plugin's Metrics page: what its agents moved, week by week. Outcomes
- * first, then the work that produced them, then every week as numbers.
- * @param props
- * @param props.weeks - The weeks read, oldest first.
- * @param props.figures - Each declared figure, read for every week.
- * @param props.timezone - The zone the weeks are judged in.
- * @param props.now - The clock the current week was cut at.
+ * A plugin's Metrics page: what moved in the business and the activity behind
+ * it, by week or by month. Outcomes first, then the activity, then every
+ * period as numbers.
+ * @param props - The page.
+ * @param props.slug - The page's slug, for the toggle's links.
+ * @param props.unit - Weeks or months.
+ * @param props.periods - The periods read, oldest first.
+ * @param props.figures - Each declared figure, read for every period.
+ * @param props.timezone - The zone the periods are judged in.
+ * @param props.now - The clock the current period was cut at.
  */
-export function MetricsView({ weeks, figures, timezone, now }: { weeks: Week[]; figures: WeeklyMetric[]; timezone: string; now: Date }) {
+export function MetricsView({ slug, unit, periods, figures, timezone, now }: { slug: string; unit: PeriodUnit; periods: Period[]; figures: PeriodMetric[]; timezone: string; now: Date }) {
   const stamp = (d: Date) => new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: timezone, timeZoneName: 'short' }).format(d);
   // The oldest sync behind any HubSpot figure: the whole page is only as current as that.
   const synced = figures
@@ -114,10 +145,13 @@ export function MetricsView({ weeks, figures, timezone, now }: { weeks: Week[]; 
     .sort((a, b) => a.getTime() - b.getTime())[0];
   return (
     <div>
-      <p className="mb-6 text-[13px] text-muted-foreground">
-        {`Weeks run Monday to Sunday. This week is counted through ${stamp(now)}.`}
-        {synced && ` HubSpot figures are from the copy synced ${stamp(synced)}.`}
-      </p>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 text-[13px] text-muted-foreground">
+          {`${WORDS[unit].note} ${stamp(now)}.`}
+          {synced && ` HubSpot figures are from the copy synced ${stamp(synced)}.`}
+        </p>
+        <UnitToggle slug={slug} unit={unit} />
+      </div>
       {GROUPS.map((g) => {
         const inGroup = figures.filter(f => f.metric.group === g.key);
         return inGroup.length === 0
@@ -126,13 +160,13 @@ export function MetricsView({ weeks, figures, timezone, now }: { weeks: Week[]; 
               <div key={g.key} className="mb-10">
                 <h2 className="mb-2 text-base font-semibold">{g.heading}</h2>
                 <div className="grid gap-x-10 gap-y-6 lg:grid-cols-2">
-                  {inGroup.map(f => <MetricCard key={f.metric.key} f={f} />)}
+                  {inGroup.map(f => <MetricCard key={f.metric.key} f={f} unit={unit} />)}
                 </div>
               </div>
             );
       })}
-      <h2 className="text-base font-semibold">Week by week</h2>
-      <WeekTable weeks={weeks} figures={figures} />
+      <h2 className="text-base font-semibold">{WORDS[unit].table}</h2>
+      <PeriodTable periods={periods} figures={figures} unit={unit} />
     </div>
   );
 }
