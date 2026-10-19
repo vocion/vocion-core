@@ -273,7 +273,11 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
         // Elements taller than the viewport (long tables) would swallow the
         // screen: pin them to the top and cap the spotlight's height.
         const tall = raw.height > vh * 0.7;
-        if (raw.top < 0 || raw.bottom > vh) {
+        // Always bring a short target to the middle of its own scroller: a line
+        // inside a scrolled panel (the agent rail) can sit under that panel's
+        // sticky header while still inside the window, and its ring is cut off
+        // (Bella demo, 2026-10-19).
+        if (!tall || raw.top < 0 || raw.bottom > vh) {
           el.scrollIntoView({ block: tall ? 'start' : 'center', behavior: 'smooth' });
         }
       }
