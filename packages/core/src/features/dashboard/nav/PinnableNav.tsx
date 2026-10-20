@@ -15,6 +15,7 @@ import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, Side
 import { useSidebar } from '@/components/ui/useSidebar';
 import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
 import { Link, usePathname } from '@/libs/I18nNavigation';
+import { cn } from '@/utils/Helpers';
 import { splitOverflow } from './navPins';
 
 const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
@@ -59,7 +60,7 @@ export function PinnableNav(props: {
 }) {
   // `isMobile` comes from the sidebar's own context: at this width the
   // sidebar IS a sheet, which is exactly when a flyout has nowhere to fly to.
-  const { toggleSidebar, isMobile } = useSidebar();
+  const { toggleSidebar, isMobile, state } = useSidebar();
   const pathname = usePathname();
   const [dragging, setDragging] = useState<string | null>(null);
   // Phone: a long press on a row opens its pin menu, and the tap that ends it does not navigate.
@@ -89,6 +90,14 @@ export function PinnableNav(props: {
       }
     : {});
   const { shown, more } = splitOverflow(props.items, props.max ?? 7);
+  // "More" opens IN PLACE on the desktop sidebar (Chris, 2026-10-20: "More
+  // doesn't work" — a menu flying out to the right reads as nothing
+  // happening). The phone sheet and the collapsed icon rail have no room for
+  // sub-rows, so they keep the menu. It starts open while one of its rows is
+  // the page you are on.
+  const inlineMore = !isMobile && state === 'expanded';
+  const [moreToggled, setMoreToggled] = useState<boolean | null>(null);
+  const moreOpen = moreToggled ?? more.some(item => isNavItemActive(pathname, item.url));
 
   if (props.items.length === 0) {
     return null;
@@ -204,7 +213,47 @@ export function PinnableNav(props: {
             </SidebarMenuItem>
           ))}
 
-          {more.length > 0 && (
+          {more.length > 0 && inlineMore && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                tooltip={props.moreLabel}
+                className="text-muted-foreground"
+                aria-expanded={moreOpen}
+                data-testid="nav-more-toggle"
+                onClick={() => setMoreToggled(!moreOpen)}
+              >
+                <ChevronRight className={cn('transition-transform', moreOpen && 'rotate-90')} />
+                <span>{props.moreLabel}</span>
+              </SidebarMenuButton>
+              {moreOpen && (
+                <SidebarMenuSub>
+                  {more.map(item => (
+                    <SidebarMenuSubItem key={item.url} className="group/more flex items-center">
+                      <SidebarMenuSubButton asChild isActive={isNavItemActive(pathname, item.url)} className="min-w-0 flex-1">
+                        <Link href={item.url}>
+                          <item.icon aria-hidden />
+                          <span className="truncate">{item.title}</span>
+                        </Link>
+                      </SidebarMenuSubButton>
+                      {item.pinnable !== false && (
+                        <button
+                          type="button"
+                          title={pinTitle(item.url)}
+                          aria-label={`${pinTitle(item.url)}: ${item.title}`}
+                          onClick={() => props.onTogglePin(item.url)}
+                          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity group-hover/more:opacity-100 hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100 [&_svg]:size-3.5"
+                        >
+                          {pinIcon(item.url)}
+                        </button>
+                      )}
+                    </SidebarMenuSubItem>
+                  ))}
+                </SidebarMenuSub>
+              )}
+            </SidebarMenuItem>
+          )}
+
+          {more.length > 0 && !inlineMore && (
             <SidebarMenuItem>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

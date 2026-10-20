@@ -32,9 +32,20 @@ function subscribeTitle(onChange: () => void) {
 
 const BRAND = (process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion').toLowerCase();
 
-/** The page's own title, or '' when it is only the app's generic one. */
-function readTitle() {
-  const t = document.title.replace(/\s*[|·–-]\s*Vocion.*$/i, '').trim();
+/**
+ * The page's own title, or '' when it is only the app's generic one. On an
+ * Org-branded install the tab reads "<page> · <Org>" and the default is
+ * "<Org> · Vocion" (`libs/branding/orgBrand.ts` brandTitle), so the Org's
+ * name is stripped too: the crumb read "Finance Team › Metacto" on every page
+ * that set no title of its own (2026-10-20).
+ * @param brandName - The Org's brand name, when the Org leads the install.
+ */
+function readTitle(brandName?: string | null) {
+  let t = document.title.replace(/\s*[|·–-]\s*Vocion.*$/i, '').trim();
+  if (brandName) {
+    const suffix = ` · ${brandName}`;
+    t = t === brandName ? '' : t.endsWith(suffix) ? t.slice(0, -suffix.length).trim() : t;
+  }
   const generic = t.toLowerCase();
   if (generic === BRAND || generic === `${BRAND} dashboard` || generic === 'vocion dashboard' || generic === 'dashboard') {
     return '';
@@ -42,9 +53,9 @@ function readTitle() {
   return t;
 }
 
-export function Breadcrumb({ workspaceName }: { workspaceName?: string | null } = {}) {
+export function Breadcrumb({ workspaceName, brandName = null }: { workspaceName?: string | null; brandName?: string | null } = {}) {
   const pathname = usePathname();
-  const docTitle = useSyncExternalStore(subscribeTitle, readTitle, () => '');
+  const docTitle = useSyncExternalStore(subscribeTitle, () => readTitle(brandName), () => '');
 
   const crumbs = buildCrumbs({ pathname, docTitle, workspaceName });
   if (!crumbs) {

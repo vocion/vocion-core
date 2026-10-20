@@ -36,7 +36,7 @@ export async function workspaceAppNav(input: { orgId: string | null; enabledPlug
     apps: installedApps(enabledPlugins, enabledSurfaces, safeListApps()),
     nav,
     surfaces: enabledSurfaces.filter(id => !nav.claimedSurfaces.includes(id)),
-    pages: pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: p.href ?? `/dashboard/p/${p.slug}`, section: p.nav.section, secondary: p.nav.secondary })),
+    pages: pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: p.href ?? `/dashboard/p/${p.slug}`, section: p.nav.section, secondary: p.nav.secondary, order: p.nav.order, icon: p.icon, home: p.nav.home })),
     coreRoutes: DASHBOARD_ROUTES,
   });
 }

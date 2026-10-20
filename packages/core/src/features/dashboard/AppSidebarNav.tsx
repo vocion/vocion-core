@@ -3,13 +3,15 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ComponentPropsWithoutRef } from 'react';
 import { ChevronRight } from 'lucide-react';
+import { useState } from 'react';
 import { PendingIcon } from '@/components/patterns/PendingIcon';
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
+import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
 import { Link, usePathname } from '@/libs/I18nNavigation';
+import { cn } from '@/utils/Helpers';
 
 const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
 
@@ -39,10 +41,15 @@ export const AppSidebarNav = (props: {
   moreLabel?: string;
 } & ComponentPropsWithoutRef<typeof SidebarGroup>) => {
   const { label, items: allItems, moreLabel, ...rest } = props;
-  const { toggleSidebar, isMobile } = useSidebar();
+  const { toggleSidebar, isMobile, state } = useSidebar();
   const pathname = usePathname();
   const items = allItems.filter(i => !i.secondary);
   const more = allItems.filter(i => i.secondary);
+  // In place on the desktop sidebar; a menu on the phone sheet and the icon
+  // rail (same rule as PinnableNav).
+  const inlineMore = !isMobile && state === 'expanded';
+  const [moreToggled, setMoreToggled] = useState<boolean | null>(null);
+  const moreOpen = moreToggled ?? more.some(item => isNavItemActive(pathname, item.url));
 
   return (
     <SidebarGroup {...rest}>
@@ -99,7 +106,36 @@ export const AppSidebarNav = (props: {
           {/* Secondary rows live under one "More ›" row — the same submenu
               the pinnable groups use, without the pin control. Drops below
               the trigger on a phone, where the sheet already fills the screen. */}
-          {more.length > 0 && (
+          {more.length > 0 && inlineMore && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                tooltip={moreLabel ?? 'More'}
+                className="text-muted-foreground"
+                aria-expanded={moreOpen}
+                data-testid="nav-more-toggle"
+                onClick={() => setMoreToggled(!moreOpen)}
+              >
+                <ChevronRight className={cn('transition-transform', moreOpen && 'rotate-90')} />
+                <span>{moreLabel ?? 'More'}</span>
+              </SidebarMenuButton>
+              {moreOpen && (
+                <SidebarMenuSub>
+                  {more.map(item => (
+                    <SidebarMenuSubItem key={item.url}>
+                      <SidebarMenuSubButton asChild isActive={isNavItemActive(pathname, item.url)}>
+                        <Link href={item.url}>
+                          <item.icon aria-hidden />
+                          <span className="truncate">{item.title}</span>
+                        </Link>
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
+                  ))}
+                </SidebarMenuSub>
+              )}
+            </SidebarMenuItem>
+          )}
+
+          {more.length > 0 && !inlineMore && (
             <SidebarMenuItem>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

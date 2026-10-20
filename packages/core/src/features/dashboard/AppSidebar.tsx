@@ -369,12 +369,15 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     ...(pagesFolded ? pagesPrimaryFirst : []),
     ...appSections.filter(section => section.items.length === 1).map(section => ({ ...section.items[0]!, origin: 'work' as const, pinnable: false as const })),
   ];
-  // A phone has no rail: the other apps this workspace has are rows under More.
-  const mobileApps: PinnableItem[] = isMobile
-    ? railApps.filter(a => a.href && a.id !== activeAppId).map(a => ({ title: a.name, url: a.href!, icon: iconByName(a.icon), origin: 'work' as const, pinnable: false as const }))
-    : [];
-  const mainItems = [...workCore, ...applyPins(workOptional, workPins), ...folded, ...withoutPins(workOptional, workPins), ...mobileApps];
-  const mainShown = workShown + folded.length;
+  // The other apps this workspace has (Finance beside the Workforce). On a
+  // phone there is no rail, so they are rows under More. On the desktop the
+  // rail's icon alone hid them (Chris, 2026-10-20: "is there Finance specific
+  // nav missing?"), so they are also rows here, above More.
+  // This workspace's own apps only: one an Org has elsewhere is the rail's to show.
+  const desktopApps: PinnableItem[] = isMobile ? [] : apps.filter(a => a.href && a.id !== activeAppId && !a.core).map(a => ({ title: a.name, url: a.href!, icon: iconByName(a.icon), origin: 'work' as const, pinnable: false as const }));
+  const mobileApps = isMobile ? railApps.filter(a => a.href && a.id !== activeAppId).map(a => ({ title: a.name, url: a.href!, icon: iconByName(a.icon), origin: 'work' as const, pinnable: false as const })) : [];
+  const mainItems = [...workCore, ...applyPins(workOptional, workPins), ...folded, ...desktopApps, ...withoutPins(workOptional, workPins), ...mobileApps];
+  const mainShown = workShown + folded.length + desktopApps.length;
   const mainPins = useMemo(() => [...new Set([...workPins, ...prefs.pins])], [workPins, prefs.pins]);
   const manageGroup = (section: { label: string; items: PinnableItem[] }) => (
     <PinnableNav

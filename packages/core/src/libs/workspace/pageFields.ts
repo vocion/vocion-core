@@ -698,7 +698,14 @@ export const PageManifestSchema = z.object({
      * once somebody added a seventh.
      */
     secondary: z.boolean().default(false),
-  }).default({ section: 'Workspace', order: 0, hidden: false, secondary: false }),
+    /**
+     * The page an app opens on, ahead of the app's declared `entry`. An app's
+     * manifest is core's (`templates/apps/<id>/app.yaml`), so this is how a
+     * workspace makes its own page the app's landing: Metacto's Finance opens
+     * on Reports rather than the plugin's Account rules (2026-10-20).
+     */
+    home: z.boolean().default(false),
+  }).default({ section: 'Workspace', order: 0, hidden: false, secondary: false, home: false }),
   /**
    * `link` is a nav row, not a page: it pins an existing core route into the
    * manifest's section under its own label, and `/dashboard/p/<slug>`

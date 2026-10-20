@@ -28,7 +28,7 @@ export type PluginPageInput = {
   slug: string;
   title: string;
   icon?: string;
-  nav: { section: string; order: number; hidden: boolean; secondary?: boolean };
+  nav: { section: string; order: number; hidden: boolean; secondary?: boolean; home?: boolean };
   origin: string;
   /** Set when a workspace page replaces this plugin's page by slug. */
   overrides?: string;
@@ -48,6 +48,8 @@ export type PluginNavItem = {
   order: number;
   /** Sits under the section's "More ›" whatever the row count — a core route the plugin offers but does not own. */
   secondary?: boolean;
+  /** The app's landing (`nav.home` on the page). */
+  home?: boolean;
 };
 
 export type PluginNavSection = {
@@ -115,7 +117,7 @@ export function pluginNav(input: {
       // declared secondary, drawn in the main list because this dropped it).
       const url = page.href ?? `/dashboard/p/${page.slug}`;
       own.push(url);
-      push(label, { title: page.title, url, icon: page.icon ?? 'panels-top-left', plugin: plugin.slug, order: base + page.nav.order, ...(page.nav.secondary ? { secondary: true } : {}) });
+      push(label, { title: page.title, url, icon: page.icon ?? 'panels-top-left', plugin: plugin.slug, order: base + page.nav.order, ...(page.nav.secondary ? { secondary: true } : {}), ...(page.nav.home ? { home: true } : {}) });
     }
     // The core routes it owns.
     for (const route of input.routes) {
