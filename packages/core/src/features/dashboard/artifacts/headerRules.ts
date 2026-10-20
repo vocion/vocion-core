@@ -107,6 +107,10 @@ export type ArtifactActionId
     | 'chat'
   /** The PDF the renderer printed. */
     | 'pdf'
+  /** Every table as an Excel workbook (opens in Google Sheets too). */
+    | 'spreadsheet'
+  /** A table artifact as CSV. */
+    | 'csv'
   /** The document at full screen. */
     | 'open'
   /** Give the column back. */
@@ -124,6 +128,8 @@ export type ActionInput = {
   hasPdf?: boolean;
   /** The surface gave us something to close back to. */
   closable?: boolean;
+  /** It has tables a spreadsheet export would carry (`hasExportableTables`). */
+  hasTables?: boolean;
 };
 
 /**
@@ -138,6 +144,10 @@ export type ActionInput = {
  *   browser's Back is the way out of a page.
  * - **`pdf` / `open` are the document's**, on every surface that has one,
  *   because they are the two things a person does with a finished document.
+ * - **`spreadsheet` is any artifact's that has tables** — a document's tables
+ *   or a table artifact's rows — on every surface, `/open` included, because
+ *   taking the numbers into a spreadsheet is the third thing; `csv` is the
+ *   table artifact's alone, since a document's tables are several.
  * - **`open` is not on `/open`** — that is the surface it opens.
  * - **`history`, `save`, `export`, `share` need the pane's state**, which
  *   `/open` does not have: it is a read of one version at full screen, and
@@ -156,6 +166,7 @@ export function actionsFor(surface: ArtifactSurface, input: ActionInput): Artifa
     return [
       'chat',
       ...(isDocument && input.hasPdf ? (['pdf'] as const) : []),
+      ...(input.hasTables ? (['spreadsheet'] as const) : []),
     ];
   }
   const canEdit = Boolean(input.editable) && !isDocument && !input.dirty && !input.historical;
@@ -165,6 +176,8 @@ export function actionsFor(surface: ArtifactSurface, input: ActionInput): Artifa
     'history',
     ...(surface === 'page' ? (['chat'] as const) : []),
     ...(isDocument && input.hasPdf ? (['pdf'] as const) : []),
+    ...(input.hasTables ? (['spreadsheet'] as const) : []),
+    ...(input.hasTables && input.kind === 'table' ? (['csv'] as const) : []),
     ...(isDocument ? (['open'] as const) : []),
     'export',
     'share',

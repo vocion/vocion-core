@@ -47,6 +47,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { toast } from '@/components/ui/toast';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { hasExportableTables, tableExportHref } from '@/libs/artifacts/tableExportAvailability';
 import { verificationChip } from '@/libs/documents/audit';
 import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
@@ -309,7 +310,8 @@ export function ArtifactPane(props: ArtifactPaneProps) {
     historical,
     hasPdf: Boolean(verification?.pdf),
     closable: Boolean(props.onClose),
-  }), [artifact.kind, artifact.pending, dirty, historical, props.onClose, surface, verification?.pdf]);
+    hasTables: !artifact.pending && !historical && hasExportableTables({ kind: artifact.kind, spec: shown.spec }),
+  }), [artifact.kind, artifact.pending, dirty, historical, props.onClose, shown.spec, surface, verification?.pdf]);
   const isSource = SOURCE.has(artifact.kind);
 
   return (
@@ -351,6 +353,8 @@ export function ArtifactPane(props: ArtifactPaneProps) {
             })}
         conversationId={props.conversationId ?? null}
         pdfHref={verification?.pdf ?? null}
+        xlsxHref={tableExportHref(artifact.id, 'xlsx')}
+        csvHref={tableExportHref(artifact.id, 'csv')}
         pdfPages={verification?.pdfPages ?? null}
         openHref={artifact.kind === 'document' ? `/dashboard/artifacts/${artifact.id}/open` : null}
         {...(props.onClose ? { onClose: props.onClose } : {})}

@@ -102,6 +102,7 @@ import { searchKnowledgeTool } from './searchKnowledge';
 import { sentryTools } from './sentry';
 import { setupWorkspaceTools } from './setupWorkspace';
 import { setVoiceTool } from './setVoice';
+import { exportArtifactXlsxTool } from './tableExport';
 import { openTeamThreadTool } from './teamThread';
 import { trackerTools } from './trackerTools';
 import { updateObjectTools } from './updateObject';
@@ -309,6 +310,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // export_document_pdf). Same rule as render_*: no side effect outside the
     // conversation, so on for every agent.
     ...documentTools(ctx),
+    // An artifact's tables as an .xlsx file artifact, the header's
+    // "Download as Excel" for an agent. Writes only a file beside it.
+    exportArtifactXlsxTool(ctx),
     // Data rooms: the source of record per engagement. Reads and filing are
     // in-workspace writes (records, links, artifacts, asks) — nothing leaves.
     // Present while the `data-rooms` plugin is on (an older context with no

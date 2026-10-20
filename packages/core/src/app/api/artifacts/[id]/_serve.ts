@@ -29,9 +29,9 @@ const notFound = () => NextResponse.json({ error: { code: 'NOT_FOUND', message: 
  * @param req
  * @param id
  */
-type Caller = { orgId: string; userId: string | null; hasToken: boolean };
+export type Caller = { orgId: string; userId: string | null; hasToken: boolean };
 
-async function callerOrgFor(req: NextRequest, id: string): Promise<Caller | NextResponse> {
+export async function callerOrgFor(req: NextRequest, id: string): Promise<Caller | NextResponse> {
   const token = req.nextUrl.searchParams.get('share');
   if (token) {
     const claim = verifyArtifactShare(token);
