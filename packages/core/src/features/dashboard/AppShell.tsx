@@ -22,7 +22,7 @@ import { NavigationTrail } from '@/features/navigation/cameFrom';
 import { isSurfaceId } from '@/features/navigation/surfaces';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
-import { readWorkspaceTour } from '@/libs/workspace/tour';
+import { readWorkspaceToursFor } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
 import { agentBudgetStatuses, listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
@@ -125,6 +125,8 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   const appNavRead = workspaceAppNav({ orgId: orgId ?? null, enabledPlugins, enabledSurfaces });
   const usageRead = orgId ? shellUsage(orgId) : Promise.resolve(null);
   const blockedRead = orgId ? shellBlockedAgents(orgId) : Promise.resolve([]);
+  // This workspace's own tours (pages/tours/*.yaml in its folder), not the shared mount's.
+  const toursRead = readWorkspaceToursFor(orgId ?? null);
   // Where a shared workspace stands on its first four steps — the sidebar's
   // Getting started checklist. Null for a personal one; a failed read hides
   // the checklist rather than the page.
@@ -155,6 +157,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // purpose: a refused turn is the person's first sign otherwise. A read that
   // fails hides the banner rather than the page.
   const blockedAgents = await blockedRead;
+  const tours = await toursRead;
   const gettingStarted = await gettingStartedRead;
 
   return (
@@ -227,12 +230,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             </div>
           </PageContextProvider>
         </ShellBarActionsProvider>
-        {(() => {
-          const tour = readWorkspaceTour();
-          return tour
-            ? <WorkspaceTour steps={tour.steps} title={tour.title} autoStart={tour.autoStart} />
-            : null;
-        })()}
+        {tours.length > 0 ? <WorkspaceTour tours={tours} /> : null}
         <WorkspaceDriftBanner />
         <NavigationTrail />
         <AgentSurfaceHotkey isAdmin={isAdmin} enabledPlugins={enabledPlugins} agents={agents.map(a => ({ slug: a.slug, name: a.name, description: a.description }))} />

@@ -3,6 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { ArtifactHeader } from '@/features/dashboard/artifacts/ArtifactHeader';
 import { actionsFor } from '@/features/dashboard/artifacts/headerRules';
+import { VersionWatch } from '@/features/dashboard/versions/VersionWatch';
 import { hasExportableTables, tableExportHref } from '@/libs/artifacts/tableExportAvailability';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { canOpenArtifact } from '@/libs/share/audience';
@@ -49,6 +50,8 @@ export default async function OpenDocumentPage(props: { params: Promise<{ locale
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-document-open-page>
+      {/* A version written from chat beside it refreshes this read in place, so the frame's version-keyed src takes v2 (2026-10-07). */}
+      <VersionWatch refs={[{ type: 'artifact', id: String(row.id) }]} />
       <ArtifactHeader
         surface="open"
         artifactId={row.id}
@@ -67,10 +70,11 @@ export default async function OpenDocumentPage(props: { params: Promise<{ locale
       />
       <iframe
         title={row.title}
-        src={`/api/artifacts/${row.id}/document.html`}
+        src={`/api/artifacts/${row.id}/document.html?v=${row.currentVersion}`}
         sandbox="allow-scripts allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin"
         className="min-h-0 w-full flex-1 rounded-b-xl border border-border/70 bg-[#e9e9e4]"
         data-document-open-frame
+        data-version={row.currentVersion}
       />
     </div>
   );

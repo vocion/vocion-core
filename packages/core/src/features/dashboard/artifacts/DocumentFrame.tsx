@@ -30,6 +30,11 @@
  * (agent-chat-surface.md §6: one entry function). "Change" is "Ask" with the
  * instruction pre-typed, so "cut this" or "make this three agents" is one
  * click plus the words; the agent edits the sheet through edit_document.
+ *
+ * **Paging from outside.** The same script answers the parent: `vocion:scroll-to`
+ * ({target, index}, what a tour's `scrollTo` posts into a frame it cannot reach)
+ * and `vocion:document-scroll` ({frame?, to: 'next' | 'prev' | 'top' | sheet
+ * index}). Both smooth-scroll to a sheet, so a tour can page a deck.
  */
 
 import type { DocumentRedTeam, DocumentVerification } from '@/libs/cards/specs';
@@ -50,7 +55,7 @@ type SelectionMessage = { type: 'vocion:document-selection'; frame: string; text
 
 function bridgeScript(frameId: string): string {
   // Kept tiny and dependency-free: it runs inside the client's document.
-  return `<script>(function(){var F=${JSON.stringify(frameId)};function post(){var s=window.getSelection();var t=s?String(s).trim():'';var r=null;try{if(s&&s.rangeCount&&!s.isCollapsed){r=s.getRangeAt(0).getBoundingClientRect();}}catch(e){}parent.postMessage({type:'vocion:document-selection',frame:F,text:t.length>=4&&r?t:'',x:r?r.left+r.width/2:0,y:r?r.top:0},'*');}document.addEventListener('mouseup',function(){setTimeout(post,0);});document.addEventListener('keyup',function(e){if(e.key==='Shift'||e.key==='ArrowLeft'||e.key==='ArrowRight'){setTimeout(post,0);}});document.addEventListener('mousedown',function(){parent.postMessage({type:'vocion:document-selection',frame:F,text:'',x:0,y:0},'*');});})();</script>`;
+  return `<script>(function(){var F=${JSON.stringify(frameId)};function post(){var s=window.getSelection();var t=s?String(s).trim():'';var r=null;try{if(s&&s.rangeCount&&!s.isCollapsed){r=s.getRangeAt(0).getBoundingClientRect();}}catch(e){}parent.postMessage({type:'vocion:document-selection',frame:F,text:t.length>=4&&r?t:'',x:r?r.left+r.width/2:0,y:r?r.top:0},'*');}document.addEventListener('mouseup',function(){setTimeout(post,0);});document.addEventListener('keyup',function(e){if(e.key==='Shift'||e.key==='ArrowLeft'||e.key==='ArrowRight'){setTimeout(post,0);}});document.addEventListener('mousedown',function(){parent.postMessage({type:'vocion:document-selection',frame:F,text:'',x:0,y:0},'*');});function sheets(){return document.querySelectorAll('.sheet');}function at(){var s=sheets(),y=window.scrollY+8,i=0;for(var k=0;k<s.length;k++){if(s[k].offsetTop<=y)i=k;}return i;}function go(el){if(el)el.scrollIntoView({behavior:'smooth',block:'start'});}window.addEventListener('message',function(e){var d=e.data;if(!d||e.source!==parent)return;if(d.type==='vocion:scroll-to'){go(document.querySelectorAll(d.target||'.sheet')[d.index||0]);}else if(d.type==='vocion:document-scroll'&&(!d.frame||d.frame===F)){var s=sheets();var t=d.to==='next'?at()+1:d.to==='prev'?at()-1:d.to==='top'?0:Number(d.to);if(t>=0&&t<s.length)go(s[t]);}});})();</script>`;
 }
 
 /**
@@ -83,6 +88,11 @@ export function DocumentFrame(props: {
   const hostRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [host, setHost] = useState<{ width: number; height: number }>({ width: 400, height: 600 });
+  // When nothing above the frame bounds its height (a flex chain with an unbounded link, as on the
+  // standalone artifact page beside an open chat rail), flex-1 + min-h-0 collapses the host to 0px
+  // and the document is a hairline (Chris, 2026-10-07: "when it opens the deck, I don't see any
+  // slides"). Then the host takes the rest of the viewport below its own top instead.
+  const [fallback, setFallback] = useState<number | null>(null);
   const [hit, setHit] = useState<{ text: string; x: number; y: number } | null>(null);
 
   // Fit the 850px layout to whatever the host has, in BOTH axes: the width
@@ -95,13 +105,20 @@ export function DocumentFrame(props: {
       return;
     }
     const measure = () => {
-      setHost({ width: el.clientWidth, height: el.clientHeight });
+      const collapsed = el.clientHeight < 160;
+      const below = Math.max(480, Math.round(window.innerHeight - el.getBoundingClientRect().top - 24));
+      setFallback(f => (collapsed ? below : f !== null && el.clientHeight <= (f ?? 0) + 1 ? f : null));
+      setHost({ width: el.clientWidth, height: collapsed ? below : el.clientHeight });
       setScale(Math.min(1, el.clientWidth / DOCUMENT_FRAME_WIDTH));
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
   }, []);
 
   useEffect(() => {
@@ -151,7 +168,7 @@ export function DocumentFrame(props: {
           and the ONLY scroller in this column is the document's own. Nothing
           sits above the document any more — the verify verdict is one quiet
           line in the artifact header and the findings are a tab. */}
-      <div ref={hostRef} className="relative min-h-0 w-full flex-1 overflow-hidden rounded-md border border-border/70 bg-[#e9e9e4]">
+      <div ref={hostRef} className="relative min-h-0 w-full flex-1 overflow-hidden rounded-md border border-border/70 bg-[#e9e9e4]" style={fallback !== null ? { height: fallback, flex: 'none' } : undefined}>
         <iframe
           title={props.title}
           srcDoc={srcDoc}

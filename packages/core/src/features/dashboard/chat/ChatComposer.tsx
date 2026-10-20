@@ -828,6 +828,7 @@ export function ChatComposer({
             <button
               type="submit"
               disabled={!sendEnabled}
+              data-testid="composer-send"
               // The one primary is ink, as everywhere else in the app
               // (`--action`, docs/design/patterns.md → Tokens) — Send, or Queue
               // while a turn runs; empty, it recedes to the muted ground until
