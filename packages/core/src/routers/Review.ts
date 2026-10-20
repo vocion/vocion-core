@@ -490,6 +490,8 @@ export const decideActionRoute = os
       /** An outbound message's recipients, comma-separated, when its card lets them be edited. */
       to: z.string().max(2000).optional(),
       cc: z.string().max(2000).optional(),
+      /** The approver's choice on a card that offers one: send now, or write a draft. */
+      mode: z.enum(['draft', 'send']).optional(),
     })).optional(),
   }))
   .handler(async ({ input }) => {

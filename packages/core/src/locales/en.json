@@ -340,6 +340,7 @@
     "shortcut_decline": "Decline",
     "shortcut_snooze": "Snooze",
     "shortcut_edit": "Edit the message",
+    "shortcut_draft": "Create a draft instead",
     "context_label": "Context for this decision",
     "context_contact": "Contact",
     "context_name": "Name",

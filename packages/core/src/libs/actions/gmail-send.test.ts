@@ -4,6 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const findReplyThread = vi.fn();
 vi.mock('@/services/mail/replyThread', () => ({ findReplyThread: (...args: unknown[]) => findReplyThread(...args) }));
 
+const resolveAttachments = vi.fn();
+const describeAttachments = vi.fn();
+vi.mock('./emailAttachments', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./emailAttachments')>();
+  return {
+    ...actual,
+    resolveAttachments: (...args: unknown[]) => resolveAttachments(...args),
+    describeAttachments: (...args: unknown[]) => describeAttachments(...args),
+  };
+});
+
 const { gmailSendAction, withSignature } = await import('./gmail-send');
 const { nameOf, splitRecipients } = await import('@/libs/mail/recipients');
 
@@ -34,7 +45,11 @@ const THREAD = {
   matchedBy: 'id' as const,
 };
 
-beforeEach(() => findReplyThread.mockReset().mockResolvedValue(null));
+beforeEach(() => {
+  findReplyThread.mockReset().mockResolvedValue(null);
+  resolveAttachments.mockReset().mockResolvedValue([]);
+  describeAttachments.mockReset().mockResolvedValue([]);
+});
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -151,6 +166,56 @@ describe('gmailSendAction', () => {
     expect(gmailSendAction.applyContentEdits!(input, [{ id: 'message', to: '', cc: '' }])).toMatchObject({ to: 'a@b.com', cc: undefined });
     // An edit against an id the card never issued changes nothing.
     expect(gmailSendAction.applyContentEdits!(input, [{ id: 'other', body: 'x' }])).toEqual(input);
+  });
+
+  it('lets the approver choose: a send proposed as a draft runs as a send, and back', () => {
+    const asDraft = parse({ to: 'a@b.com', subject: 'Hi', body: 'hello', draft: true });
+
+    expect(gmailSendAction.applyContentEdits!(asDraft, [{ id: 'message', mode: 'send' }])).toMatchObject({ draft: false, body: 'hello' });
+    expect(gmailSendAction.applyContentEdits!(parse({ to: 'a@b.com', body: 'hello' }), [{ id: 'message', mode: 'draft' }])).toMatchObject({ draft: true });
+    // No choice made, the proposal's own suggestion stands.
+    expect(gmailSendAction.applyContentEdits!(asDraft, [{ id: 'message', body: 'edited' }])).toMatchObject({ draft: true, body: 'edited' });
+  });
+
+  it('offers the choice on the card, and lists each attachment the approver can open', async () => {
+    describeAttachments.mockResolvedValue([{ artifactId: 5166, title: 'Monthly report, September', meta: 'PDF · 2 pages', href: '/dashboard/artifacts/5166' }]);
+
+    const card = await gmailSendAction.reviewCard!({ orgId: 'o' }, parse({ to: 'a@b.com', subject: 'September', body: 'hello', draft: true, attachments: [{ artifactId: 5166 }] }));
+
+    expect(describeAttachments).toHaveBeenCalledWith('o', [{ artifactId: 5166 }]);
+    expect(card.outbound?.modeChoice).toBe(true);
+    expect(card.outbound?.attachments).toEqual([{ artifactId: 5166, title: 'Monthly report, September', meta: 'PDF · 2 pages', href: '/dashboard/artifacts/5166' }]);
+    expect(card.fields).toContainEqual({ label: 'Attachments', value: 'Monthly report, September' });
+  });
+
+  it('sends attachments as multipart/mixed, the copy first and each file base64, and the receipt names them', async () => {
+    resolveAttachments.mockResolvedValue([{ artifactId: 5166, filename: 'September report.pdf', contentType: 'application/pdf', data: Buffer.from('%PDF-1.7 fake') }]);
+    const f = vi.fn(async (_url: string, _init?: RequestInit) => res({ id: 'm-1', threadId: 't-1' }));
+    vi.stubGlobal('fetch', f);
+
+    const result = await gmailSendAction.execute({ orgId: 'o', credentials: { token: 't' }, reviewedBy: 'usr-1' }, parse({ to: 'a@b.com', subject: 'September', body: 'Attached.', attachments: [{ artifactId: 5166 }] }));
+
+    expect(resolveAttachments).toHaveBeenCalledWith('o', [{ artifactId: 5166 }], { kind: 'human', id: 'usr-1' });
+
+    const raw = sentRaw(f.mock.calls[0]!);
+
+    expect(raw).toMatch(/Content-Type: multipart\/mixed; boundary="([^"]+)"/);
+
+    const boundary = /boundary="([^"]+)"/.exec(raw)![1]!;
+
+    expect(raw.indexOf('Attached.')).toBeLessThan(raw.indexOf('Content-Disposition: attachment; filename="September report.pdf"'));
+    expect(raw).toContain(Buffer.from('%PDF-1.7 fake').toString('base64'));
+    expect(raw.trimEnd().endsWith(`--${boundary}--`)).toBe(true);
+    expect(result).toMatchObject({ mode: 'sent', attachments: [{ artifactId: 5166, filename: 'September report.pdf', bytes: 13 }] });
+  });
+
+  it('sends nothing when an attachment cannot go, and says which', async () => {
+    resolveAttachments.mockRejectedValue(new Error('Attachment "Q3 pack": not found.'));
+    const f = vi.fn(async (_url: string, _init?: RequestInit) => res({}));
+    vi.stubGlobal('fetch', f);
+
+    await expect(gmailSendAction.execute({ orgId: 'o', credentials: { token: 't' } }, parse({ to: 'a@b.com', body: 'x', attachments: [{ artifactId: 9 }] }))).rejects.toThrow('Q3 pack');
+    expect(f.mock.calls.some(c => String(c[0]).includes('/messages/send') || String(c[0]).includes('/drafts'))).toBe(false);
   });
 
   it('undoes a draft by deleting it, and refuses to promise an unsend', async () => {

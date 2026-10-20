@@ -340,6 +340,7 @@
     "shortcut_decline": "Refuser",
     "shortcut_snooze": "Reporter",
     "shortcut_edit": "Modifier le message",
+    "shortcut_draft": "Créer un brouillon à la place",
     "context_label": "Contexte de cette décision",
     "context_contact": "Contact",
     "context_name": "Nom",

@@ -6,7 +6,7 @@ import type { Crumb } from '@/components/patterns';
 import type { ActionRevision } from '@/libs/actions/revisions';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { ReviewCard, ReviewContent, ReviewContentEdit } from '@/libs/actions/types';
-import { AlarmClock, Ban, Check, Loader2, Pencil, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
+import { AlarmClock, Ban, Check, FilePen, Loader2, Pencil, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import {
   ConfidenceMeter,
@@ -697,6 +697,12 @@ export function ReviewSurface(props: {
   // the tabs.
   const outbound = card.outbound && content.length === 1 && content[0]!.id === card.outbound.contentId ? card.outbound : null;
   const sequence = !outbound ? card.sequence ?? null : null;
+  // Send or draft is the approver's call on a card that offers it: Send is the
+  // primary, the draft a secondary with its own key. Whichever is pressed is
+  // what runs, whatever the proposal suggested.
+  const modeChoice = Boolean(outbound?.modeChoice && outbound.channel === 'email' && !awaitingExecution && !choices);
+  /** What the last approve chose, for its receipt. */
+  const chosenMode = useRef<'draft' | 'send' | null>(null);
   // Read the KEYS off the run, not off the hook's working copy: the copy is
   // seeded in an effect, so deriving the tabs from it would open the screen on
   // Why for one paint and leave a fields-only type there.
@@ -776,11 +782,14 @@ export function ReviewSurface(props: {
     return () => clearTimeout(timer);
   }, [justChanged]);
 
-  const decide = async (decision: 'approve' | 'reject' | 'done', answer?: { id: string; label: string }) => {
+  const decide = async (decision: 'approve' | 'reject' | 'done', answer?: { id: string; label: string }, mode?: 'draft' | 'send') => {
     landed.current = false;
     const verbLabel = decision === 'reject' ? rejectVerb : approveVerb;
+    chosenMode.current = mode ?? null;
     try {
-      await d.decide(decision, answer ? { answer: answer.id } : undefined);
+      await d.decide(decision, answer
+        ? { answer: answer.id }
+        : mode && outbound ? { mode: { contentId: outbound.contentId, mode } } : undefined);
       if (answer && landed.current) {
         toast.success(`You chose ${answer.label} · ${card.title}`);
         return;
@@ -804,8 +813,9 @@ export function ReviewSurface(props: {
         // back while there is one ("Draft created. Open in Gmail →  Undo").
         const result = executed.current ?? {};
         const link = typeof result.link === 'string' && /^https:\/\//.test(result.link) ? result.link : null;
-        const undoable = outbound.mode === 'draft' && typeof result.draftId === 'string';
-        toast.success(outbound.doneLabel, {
+        const sentAs = chosenMode.current ?? outbound.mode;
+        const undoable = sentAs === 'draft' && typeof result.draftId === 'string';
+        toast.success(modeChoice ? (sentAs === 'draft' ? 'Draft created' : 'Sent') : outbound.doneLabel, {
           description: card.title,
           duration: 10_000,
           ...(link ? { link: { label: `${outbound.openLabel ?? `Open in ${outbound.system}`} →`, href: link } } : {}),
@@ -937,7 +947,7 @@ export function ReviewSurface(props: {
       return;
     }
     if (!walkStep) {
-      void decide('approve');
+      void decide('approve', undefined, modeChoice ? 'send' : undefined);
       return;
     }
     if (walkStep.open) {
@@ -983,6 +993,9 @@ export function ReviewSurface(props: {
       } else if (action === 'edit' && outbound && !props.guided) {
         e.preventDefault();
         editMessage();
+      } else if (action === 'draft' && modeChoice && !heldPrimary) {
+        e.preventDefault();
+        void decide('approve', undefined, 'draft');
       }
     };
     window.addEventListener('keydown', onKey);
@@ -1344,7 +1357,7 @@ export function ReviewSurface(props: {
                 // send carries a check, then the card's own verb.
                 // A failed run keeps its verb: the card says what went wrong
                 // and how to fix it, and pressing it again is the retry.
-                'label': choices ? choices[0]!.label : walkStep ? 'Approve' : approveVerb,
+                'label': choices ? choices[0]!.label : walkStep ? 'Approve' : modeChoice ? 'Send' : approveVerb,
                 'onClick': pressPrimary,
                 'disabled': heldPrimary,
                 'busy': d.busy,
@@ -1359,6 +1372,9 @@ export function ReviewSurface(props: {
                     { 'label': 'Snooze', 'onClick': () => setSnoozeOpen(o => !o), 'disabled': d.held, 'icon': AlarmClock, 'shortcut': 's' as const, 'data-testid': 'decide-snooze' },
                   ]
                 : [
+                    ...(modeChoice && outbound
+                      ? [{ 'label': `Create draft in ${outbound.system}`, 'onClick': () => void decide('approve', undefined, 'draft'), 'disabled': heldPrimary, 'icon': FilePen, 'shortcut': 'r', 'labelAlways': true, 'data-testid': 'decide-draft' }]
+                      : []),
                     ...(outbound && !props.guided && contentKindEditable(content[0]!.kind)
                       ? [{ 'label': 'Edit', 'onClick': editMessage, 'disabled': d.held, 'icon': Pencil, 'shortcut': 'e', 'data-testid': 'decide-edit' }]
                       : []),

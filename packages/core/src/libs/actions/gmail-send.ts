@@ -19,6 +19,15 @@
  * it directly, and it is on the never-auto list. Credentials come from the
  * `gmail` source's vault entry. A draft can be undone (it is deleted); a sent
  * email cannot.
+ *
+ * WHICH ONE IS THE APPROVER'S CALL. The proposal's `draft` is a suggestion: the
+ * card offers Send and Create draft side by side (`outbound.modeChoice`), and
+ * what the approver presses rides back as a content edit (`mode`) and becomes
+ * `draft` on the input that runs. A draft stays undoable; a send does not.
+ *
+ * ATTACHMENTS are artifacts, named by id (`emailAttachments.ts`): a document
+ * goes as its printed PDF, a file as stored. The card lists each one, openable
+ * before approval, and says so when one cannot go.
  */
 
 import type { Action, ReviewCard } from './types';
@@ -29,6 +38,7 @@ import { nameOf, splitRecipients } from '@/libs/mail/recipients';
 import { resolveGoogleAccessToken } from '@/libs/sources/googleAuth';
 import { addressOf } from '@/libs/sources/mailThreadState';
 import { isHtmlBody } from '@/libs/writing/emailBody';
+import { describeAttachments, MAX_ATTACHMENTS, resolveAttachments } from './emailAttachments';
 
 const gmailSendInput = z.object({
   to: z.string().min(1).describe('Recipient(s), comma-separated; "Name <address>" keeps the name on the card'),
@@ -39,8 +49,10 @@ const gmailSendInput = z.object({
   threadId: z.string().optional().describe('The Gmail thread being replied to (from search or the thread state), so the draft threads under it'),
   /** The sender's sign-off, appended on approval when the body does not already end with it. */
   signature: z.string().max(2000).optional().describe('The sender\'s signature as they sign their own mail in this thread, when known'),
-  /** Create a draft instead of sending. */
+  /** Create a draft instead of sending. The approver can change it at approval. */
   draft: z.boolean().default(false),
+  /** Artifacts to attach: a document goes as its PDF, a file as stored. */
+  attachments: z.array(z.object({ artifactId: z.number().int().positive() })).max(MAX_ATTACHMENTS).optional().describe('Reports or files to attach, by artifact id. A document (a report, a reconciliation) goes as its PDF. Attach the artifact instead of mentioning its number in the body.'),
   baseUrl: z.string().url().default('https://gmail.googleapis.com/gmail/v1'),
 });
 
@@ -96,20 +108,50 @@ export function withSignature(body: string, signature: string | undefined): stri
  * @param reply - The headers that thread it, when it answers a message.
  * @param reply.inReplyTo
  * @param reply.references
+ * @param attachments
  */
-export function toRfc822(input: { to: string; subject: string; body: string; cc?: string; signature?: string }, reply?: { inReplyTo: string; references: string }): string {
+export function toRfc822(
+  input: { to: string; subject: string; body: string; cc?: string; signature?: string },
+  reply?: { inReplyTo: string; references: string },
+  attachments: ReadonlyArray<{ filename: string; contentType: string; data: Buffer }> = [],
+): string {
   const body = withSignature(input.body, input.signature);
-  const lines = [
+  const bodyType = `Content-Type: ${isHtmlBody(body) ? 'text/html' : 'text/plain'}; charset="UTF-8"`;
+  const headers = [
     `To: ${oneLine(input.to)}`,
     ...(input.cc ? [`Cc: ${oneLine(input.cc)}`] : []),
     `Subject: ${encodedWord(oneLine(input.subject))}`,
     ...(reply?.inReplyTo ? [`In-Reply-To: ${reply.inReplyTo}`, `References: ${reply.references}`] : []),
     'MIME-Version: 1.0',
-    `Content-Type: ${isHtmlBody(body) ? 'text/html' : 'text/plain'}; charset="UTF-8"`,
+  ];
+  if (attachments.length === 0) {
+    return Buffer.from([...headers, bodyType, '', body].join('\r\n'), 'utf8').toString('base64url');
+  }
+  // multipart/mixed: the copy first, then each file base64 in 76-column lines.
+  const boundary = `vocion-${Buffer.from(input.subject + input.to).toString('hex').slice(0, 16)}-${attachments.length}`;
+  const parts = [
+    ...headers,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    bodyType,
     '',
     body,
+    ...attachments.flatMap((a) => {
+      const name = encodedWord(oneLine(a.filename).replace(/"/g, '\''));
+      return [
+        `--${boundary}`,
+        `Content-Type: ${oneLine(a.contentType)}; name="${name}"`,
+        `Content-Disposition: attachment; filename="${name}"`,
+        'Content-Transfer-Encoding: base64',
+        '',
+        a.data.toString('base64').replace(/.{76}(?=.)/g, '$&\r\n'),
+      ];
+    }),
+    `--${boundary}--`,
+    '',
   ];
-  return Buffer.from(lines.join('\r\n'), 'utf8').toString('base64url');
+  return Buffer.from(parts.join('\r\n'), 'utf8').toString('base64url');
 }
 
 /**
@@ -168,7 +210,7 @@ async function replyHeaders(baseUrl: string, headers: Record<string, string>, th
 export const gmailSendAction: Action<typeof gmailSendInput> = {
   id: 'gmail.send',
   name: 'Send email',
-  description: 'A one-to-one email as the connected Gmail user — a reply in an existing thread (pass threadId so it threads) or a follow-up to someone already in conversation; a draft by default (draft: true), sent only when asked. Fill to and cc as the thread has them, the subject as "Re: <thread subject>", and the sender\'s signature when you know it. Not for multi-touch outbound to a prospect who is not in a conversation: that is a sequence.',
+  description: 'A one-to-one email as the connected Gmail user — a reply in an existing thread (pass threadId so it threads) or a follow-up to someone already in conversation; a draft by default (draft: true), sent only when asked, and the approver can switch between the two on the card. Fill to and cc as the thread has them, the subject as "Re: <thread subject>", and the sender\'s signature when you know it. To send a report or document with it, put its artifact id in `attachments` (a document goes as its PDF) — never write "artifact 123" in the body. Not for multi-touch outbound to a prospect who is not in a conversation: that is a sequence.',
   inputSchema: gmailSendInput,
   grant: 'send_email',
   external: true,
@@ -191,6 +233,7 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
     const name = nameOf(first) ?? (sameAsThread ? nameOf(thread.counterpart) : null) ?? addressOf(first);
     const reply = Boolean(input.threadId || thread || /^\s*re\s*:/i.test(input.subject));
     const title = `${input.draft ? 'Draft' : 'Send'} ${reply ? 'a reply' : 'an email'} to ${name}${to.length > 1 ? ` and ${to.length - 1} more` : ''}`;
+    const attachments = await describeAttachments(ctx.orgId, input.attachments).catch(() => []);
     return {
       title,
       object: { title, subtitle: `${addressOf(first)} · Gmail` },
@@ -209,6 +252,8 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
         ...(thread && thread.messages.length > 0
           ? { thread: { subject: thread.subject, ...(thread.href ? { href: thread.href } : {}), messages: thread.messages } }
           : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+        modeChoice: true,
         doneLabel: input.draft ? 'Draft created' : 'Sent',
         openLabel: 'Open in Gmail',
       },
@@ -216,6 +261,7 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
       fields: [
         { label: 'To', value: input.to },
         ...(input.cc ? [{ label: 'Cc', value: input.cc }] : []),
+        ...(attachments.length > 0 ? [{ label: 'Attachments', value: attachments.map(a => a.title).join(', ') }] : []),
       ],
       verbs: { approve: input.draft ? 'Create draft in Gmail' : 'Send', reject: 'Reject' },
       nextAction: input.draft ? 'Writes a draft in Gmail. Nothing is sent.' : 'Sends this email now.',
@@ -232,6 +278,8 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
       ...(edit.body !== undefined ? { body: edit.body } : {}),
       ...(edit.to !== undefined && splitRecipients(edit.to).length > 0 ? { to: splitRecipients(edit.to).join(', ') } : {}),
       ...(edit.cc !== undefined ? { cc: splitRecipients(edit.cc).join(', ') || undefined } : {}),
+      // The approver's send-or-draft choice beats what the proposal suggested.
+      ...(edit.mode !== undefined ? { draft: edit.mode === 'draft' } : {}),
     };
   },
   async execute(ctx, input) {
@@ -244,7 +292,11 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
     // thread its recipient and Re: subject match.
     const threadId = input.threadId ?? (await replyThreadFor(ctx.orgId, input))?.threadId ?? undefined;
     const reply = threadId ? await replyHeaders(input.baseUrl, headers, threadId) : null;
-    const raw = toRfc822(input, reply ?? undefined);
+    // Resolved before anything is written: an attachment that cannot go stops
+    // the send with its reason, rather than an email arriving without it.
+    const files = await resolveAttachments(ctx.orgId, input.attachments, ctx.reviewedBy ? { kind: 'human', id: ctx.reviewedBy } : { kind: 'system' });
+    const raw = toRfc822(input, reply ?? undefined, files);
+    const attached = files.map(f => ({ artifactId: f.artifactId, filename: f.filename, bytes: f.data.byteLength }));
     const message = { raw, ...(threadId && reply ? { threadId } : {}) };
 
     if (input.draft) {
@@ -265,6 +317,7 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
         threadId: body.message?.threadId ?? (reply ? threadId : null) ?? null,
         threaded: Boolean(reply),
         to: input.to,
+        ...(attached.length > 0 ? { attachments: attached } : {}),
         link: gmailLink(mailbox, messageId ? `#drafts?compose=${messageId}` : '#drafts'),
       };
     }
@@ -284,6 +337,7 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
       threadId: body.threadId ?? null,
       threaded: Boolean(reply),
       to: input.to,
+      ...(attached.length > 0 ? { attachments: attached } : {}),
       link: gmailLink(mailbox, body.threadId ? `#all/${body.threadId}` : '#sent'),
     };
   },

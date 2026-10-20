@@ -197,10 +197,35 @@ export type OutboundMessage = {
     /** The last 1–3 messages, oldest first. */
     messages: Array<{ from: string; at: string; snippet: string }>;
   };
+  /**
+   * The files that go with the message, each one the approver can open before
+   * deciding. One that cannot go carries `problem`, said on the card.
+   */
+  attachments?: OutboundAttachment[];
+  /**
+   * The approver picks at approval time whether it is sent or written as a
+   * draft, whatever `mode` the proposal named (`mode` is then only the
+   * proposal's suggestion). The choice rides the approval as a content edit
+   * (`ReviewContentEdit.mode`), mapped back by the action.
+   */
+  modeChoice?: boolean;
   /** What the receipt says once it lands: "Draft created", "Sent", "Posted". */
   doneLabel: string;
   /** The link on the receipt: "Open in Gmail". The URL comes from the run's result (`result.link`). */
   openLabel?: string;
+};
+
+/** One file an outbound message carries, as its review card shows it. */
+export type OutboundAttachment = {
+  /** The artifact that goes; opens in the preview panel. */
+  artifactId: number;
+  title: string;
+  /** What it goes as: "PDF · 2 pages", "43 KB". */
+  meta?: string;
+  /** The artifact's page, for a link out. */
+  href: string;
+  /** Why it cannot go, when it cannot. */
+  problem?: string;
 };
 
 /** A HubSpot (or any) sequence enrolment, as the sequence card shows it. */
@@ -339,9 +364,18 @@ export type RegenerateOptions = {
 /**
  * One reviewer edit to a content item, keyed by the item's `id`. `to` and
  * `cc` are an outbound message's recipients, comma-separated, for a card
- * whose `outbound.recipientsEditable` says they take edits.
+ * whose `outbound.recipientsEditable` says they take edits; `mode` is the
+ * approver's send-or-draft choice on a card whose `outbound.modeChoice` is set.
  */
-export type ReviewContentEdit = { id: string; subject?: string; body?: string; to?: string; cc?: string };
+export type ReviewContentEdit = {
+  id: string;
+  subject?: string;
+  body?: string;
+  to?: string;
+  cc?: string;
+  /** On a card whose `outbound.modeChoice` is set: what the approver chose — send it, or write a draft. */
+  mode?: 'draft' | 'send';
+};
 
 export type Action<S extends z.ZodType = z.ZodType> = {
   /** Stable id, e.g. `gmail.send`. */
