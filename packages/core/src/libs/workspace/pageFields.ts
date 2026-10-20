@@ -496,7 +496,36 @@ const WidgetSchema = z.object({
  * can name a monitor another plugin ships. A closed set, like the configure
  * tabs: each is a read core owns, and a page only chooses which and where.
  */
-export const PAGE_BLOCK_KINDS = ['monitors', 'checkLog'] as const;
+export const PAGE_BLOCK_KINDS = ['monitors', 'checkLog', 'team', 'flow'] as const;
+
+/**
+ * One step of a `flow` block: who does it, when, and what it leaves behind.
+ * `agent` names the agent that does the step; `person` marks a step a person
+ * takes (an approval), drawn apart from the agents' steps. `automation` is the
+ * scheduled automation that runs it, so the step shows its real cadence and
+ * last run; `cadence` is the words to show when no automation carries it.
+ * `artifacts` link what the step produced, by id, under their own titles.
+ */
+export const FlowStepSchema = z.object({
+  title: z.string().min(1).max(80),
+  detail: z.string().max(200).optional(),
+  agent: SlugSchema.optional(),
+  person: z.string().min(1).max(60).optional(),
+  automation: SlugSchema.optional(),
+  cadence: z.string().min(1).max(60).optional(),
+  artifacts: z.array(z.number().int().positive()).max(4).optional(),
+  links: z.array(z.object({ label: z.string().min(1).max(40), href: z.string().min(1) })).max(3).optional(),
+});
+export type FlowStep = z.infer<typeof FlowStepSchema>;
+
+/*
+ *   team       a team drawn as a team: its lead, the agents that report to
+ *              it, the person accountable, and for each agent what it owns,
+ *              its skills, the systems it reads, and what it did this month.
+ *   flow       the steps of a recurring piece of work drawn as a diagram, in
+ *              order, each with its agent or person, cadence, last run and
+ *              what it produced. A person's step reads as an approval.
+ */
 export const PageBlockSchema = z.object({
   kind: z.enum(PAGE_BLOCK_KINDS),
   title: z.string().min(1).max(60).optional(),
@@ -504,6 +533,18 @@ export const PageBlockSchema = z.object({
   automations: z.array(SlugSchema).min(1).optional(),
   /** checkLog: how many runs it lists. */
   limit: z.number().int().positive().max(200).default(30),
+  /** team: which team; absent, the team of the page's plugin, else the first team. */
+  team: SlugSchema.optional(),
+  /** team: which of its agents to draw, in this order; absent, every active member. */
+  agents: z.array(SlugSchema).min(1).optional(),
+  /** team: names to show for systems, by source slug ("finance-production": QuickBooks); an empty name hides that source. */
+  systems: z.record(z.string(), z.string().max(40)).optional(),
+  /** flow: the steps, in order. */
+  steps: z.array(FlowStepSchema).min(2).max(8).optional(),
+}).superRefine((b, ctx) => {
+  if (b.kind === 'flow' && !b.steps) {
+    ctx.addIssue({ code: 'custom', path: ['steps'], message: 'a flow block names its steps' });
+  }
 });
 export type PageBlock = z.infer<typeof PageBlockSchema>;
 

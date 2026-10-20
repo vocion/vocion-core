@@ -20,8 +20,14 @@ export async function PageMonitorBlocks({ orgId, blocks, position, plugin, now }
   const { workspaceTimeZone } = await import('@/libs/time/workspaceTimeZone');
   const timeZone = await workspaceTimeZone(orgId);
   const drawn = await Promise.all(here.map(async (b, i) => {
-    const slugs = await monitorSlugs(orgId, b, plugin);
     const title = b.title ?? BLOCK_TITLE[b.kind];
+    if (b.kind === 'team' || b.kind === 'flow') {
+      const [{ loadFlowBlock, loadTeamBlock }, { FlowBlock, TeamBlock }] = await Promise.all([import('@/services/workspace/teamFlow'), import('./TeamFlowBlocks')]);
+      return b.kind === 'team'
+        ? <TeamBlock key={`${b.kind}-${i}`} title={title} team={await loadTeamBlock(orgId, b, new Date(now), timeZone)} />
+        : <FlowBlock key={`${b.kind}-${i}`} title={title} steps={await loadFlowBlock(orgId, b.steps ?? [], new Date(now))} now={now} timeZone={timeZone} />;
+    }
+    const slugs = await monitorSlugs(orgId, b, plugin);
     return b.kind === 'monitors'
       ? <MonitorsBlock key={`${b.kind}-${i}`} title={title} monitors={await loadMonitors(orgId, slugs, new Date(now))} now={now} timeZone={timeZone} />
       : <CheckLogBlock key={`${b.kind}-${i}`} title={title} rows={await loadCheckLog(orgId, slugs, b.limit)} now={now} timeZone={timeZone} />;
