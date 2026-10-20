@@ -535,6 +535,8 @@ export const PageBlockSchema = z.object({
   limit: z.number().int().positive().max(200).default(30),
   /** team: which team; absent, the team of the page's plugin, else the first team. */
   team: SlugSchema.optional(),
+  /** team: which of its agents to draw, in this order; absent, every active member. */
+  agents: z.array(SlugSchema).min(1).optional(),
   /** team: names to show for systems, by source slug ("finance-production": QuickBooks); an empty name hides that source. */
   systems: z.record(z.string(), z.string().max(40)).optional(),
   /** flow: the steps, in order. */

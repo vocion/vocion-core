@@ -106,17 +106,20 @@ async function monthCounts(orgId: string, slugs: string[], since: Date): Promise
  * A `team` block's team: lead, members, the person accountable, and each
  * agent's skills, systems and month.
  * @param orgId - The workspace.
- * @param block - The block (its `team` names which; absent, the first team).
+ * @param block - The block: `team` names which (absent, the first team), `agents` who is drawn, `systems` what sources read as.
  * @param now - The clock.
  * @param timeZone - The workspace's zone.
  */
-export async function loadTeamBlock(orgId: string, block: Pick<PageBlock, 'team' | 'systems'>, now: Date, timeZone: string): Promise<TeamBlockView | null> {
+export async function loadTeamBlock(orgId: string, block: Pick<PageBlock, 'team' | 'systems' | 'agents'>, now: Date, timeZone: string): Promise<TeamBlockView | null> {
   const teams = await listTeams(orgId);
   const team = (block.team ? teams.find(t => t.slug === block.team) : teams[0]) ?? null;
   if (!team) {
     return null;
   }
-  const slugs = team.members.map(m => m.slug);
+  // `agents` picks and orders who is drawn; the lead is drawn whenever it is a member.
+  const slugs = block.agents
+    ? [...new Set([...(team.leadAgentSlug ? [team.leadAgentSlug] : []), ...block.agents])].filter(s => team.members.some(m => m.slug === s))
+    : team.members.map(m => m.slug);
   const { start, label } = monthStart(now, timeZone);
   const [agents, counts] = await Promise.all([
     slugs.length
