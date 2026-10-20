@@ -37,6 +37,7 @@ import { logger } from '@/libs/Logger';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { withSpecCompliantName } from '@/libs/skills/name';
 import { pluginRoots } from '@/libs/workspace/plugins';
+import { workspacePathForProject } from '@/libs/workspace/project-path';
 import { getWorkspacePath } from '@/libs/workspace/reader';
 import { substituteEnvTokens } from '@/libs/workspace/template-vars';
 import { playbookSchema } from '@/models/Schema';
@@ -97,6 +98,10 @@ export async function mountSkills(opts: MountSkillsOptions): Promise<Record<stri
     rows.push(...extra.filter(r => r.kind === 'playbook'));
   }
 
+  // The org's own folder: on a multi-workspace box `VOCION_WORKSPACE_MAP`
+  // names it per project, and the one shared `WORKSPACE_PATH` is some other
+  // workspace's — reading a tenant skill from there skips it silently.
+  const workspaceDir = await workspacePathForProject(opts.orgId);
   const out: Record<string, string> = {};
   for (const row of rows) {
     // A slug can name a skill and only mounts as what it is: the agent's
@@ -106,14 +111,14 @@ export async function mountSkills(opts: MountSkillsOptions): Promise<Record<stri
     if ((row.kind === 'skill' && !requestedAsSkill) || (row.kind === 'playbook' && !requestedAsPlaybook)) {
       continue;
     }
-    mountRow(row, out);
+    mountRow(row, out, workspaceDir);
   }
   return out;
 }
 
-function mountRow(row: CatalogRow, out: Record<string, string>): void {
+function mountRow(row: CatalogRow, out: Record<string, string>, workspaceDir: string | null): void {
   const mountBase = row.kind === 'skill' ? `/skills/${row.slug}` : `/playbooks/${row.slug}`;
-  const body = readByOrigin(row, 'SKILL.md');
+  const body = readByOrigin(row, 'SKILL.md', workspaceDir);
   if (body === null) {
     // Row exists but the on-disk file is gone (renamed?). Skip silently —
     // workspace:apply should be re-run to clean up.
@@ -127,7 +132,7 @@ function mountRow(row: CatalogRow, out: Record<string, string>): void {
   // mounted skill on every turn. See `libs/skills/name.ts`.
   out[`${mountBase}/SKILL.md`] = withSpecCompliantName(body, row.slug);
   for (const rel of row.sourceFiles ?? []) {
-    const content = readByOrigin(row, rel);
+    const content = readByOrigin(row, rel, workspaceDir);
     if (content !== null) {
       out[`${mountBase}/${rel}`] = content;
     }
@@ -215,8 +220,13 @@ function resolveInsideBase(candidate: PlaybookFileCandidate, row: Pick<CatalogRo
  * owns the row before anything is read.
  * @param row - The catalog row whose file is being read.
  * @param resourcePath - Which file inside the row's folder to read.
+ * @param workspaceDir - The org's workspace folder (`workspacePathForProject`); defaults to the shared `WORKSPACE_PATH`.
  */
-export function readByOrigin(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, resourcePath: string): string | null {
+export function readByOrigin(
+  row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>,
+  resourcePath: string,
+  workspaceDir: string | null = getWorkspacePath(),
+): string | null {
   if (resourcePath.trim() === '') {
     // The MCP tool turns an omitted `resource` into 'SKILL.md' before it
     // gets here, so an empty string means the caller explicitly asked for
@@ -231,7 +241,7 @@ export function readByOrigin(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, 
 
   const kindFolder = row.kind === 'skill' ? 'skills' : 'playbooks';
   const tenantCandidate = (): PlaybookFileCandidate | null => {
-    const workspace = getWorkspacePath();
+    const workspace = workspaceDir;
     if (!workspace) {
       return null;
     }

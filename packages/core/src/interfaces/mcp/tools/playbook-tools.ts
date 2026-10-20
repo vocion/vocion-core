@@ -2,6 +2,7 @@ import type { McpConfig } from '../config';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
+import { workspacePathForProject } from '@/libs/workspace/project-path';
 import { playbookSchema } from '@/models/Schema';
 import { readByOrigin } from '@/services/playbooks/mount';
 
@@ -70,7 +71,7 @@ function playbookGetTool(config: McpConfig): ToolModule {
       if (!row) {
         throw new Error(`playbook ${slug} not found`);
       }
-      const content = readByOrigin(row, resource ?? 'SKILL.md');
+      const content = readByOrigin(row, resource ?? 'SKILL.md', await workspacePathForProject(config.orgId));
       if (content === null) {
         throw new Error(`file ${resource ?? 'SKILL.md'} for ${row.kind} ${slug} not found on disk`);
       }

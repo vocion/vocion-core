@@ -20,7 +20,7 @@ import { logger } from '@/libs/Logger';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { playbookSchema } = await import('@/models/Schema');
+const { playbookSchema, projectSchema, tenantAccountSchema } = await import('@/models/Schema');
 const { mountSkills, readByOrigin } = await import('./mount');
 
 const ORG = 'org_playbooks';
@@ -95,6 +95,7 @@ writeFileSync(
 );
 
 const ORIGINAL_PATH = process.env.WORKSPACE_PATH;
+const ORIGINAL_MAP = process.env.VOCION_WORKSPACE_MAP;
 const ORIGINAL_ALLOWLIST = process.env.WORKSPACE_TEMPLATE_VARS;
 const ORIGINAL_API_URL = process.env.LARKFIELD_API_URL;
 
@@ -160,6 +161,7 @@ function restoreEnvVar(name: string, original: string | undefined): void {
 
 afterEach(() => {
   restoreEnvVar('WORKSPACE_PATH', ORIGINAL_PATH);
+  restoreEnvVar('VOCION_WORKSPACE_MAP', ORIGINAL_MAP);
   restoreEnvVar('WORKSPACE_TEMPLATE_VARS', ORIGINAL_ALLOWLIST);
   restoreEnvVar('LARKFIELD_API_URL', ORIGINAL_API_URL);
 });
@@ -173,6 +175,26 @@ afterAll(async () => {
 });
 
 describe('mountSkills', () => {
+  it('reads a tenant skill from the org\'s own folder on a multi-workspace box, not the shared WORKSPACE_PATH', async () => {
+    // Prod serves several workspaces from one process: WORKSPACE_PATH is one
+    // of them, and VOCION_WORKSPACE_MAP names each project's folder. Reading
+    // from WORKSPACE_PATH skipped every other workspace's skills silently.
+    await db.delete(projectSchema);
+    await db.delete(tenantAccountSchema);
+    await db.insert(tenantAccountSchema).values({ id: 'acct-acme', name: 'Acme', slug: 'acme' });
+    await db.insert(projectSchema).values({ id: ORG, accountId: 'acct-acme', slug: 'acme-team', name: 'Acme Team' });
+    process.env.WORKSPACE_PATH = join(ROOT, 'nowhere');
+    process.env.VOCION_WORKSPACE_MAP = `other-team:${join(ROOT, 'nowhere')},acme-team:${WORKSPACE}`;
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: ['write-lead-brief'], playbookSlugs: [] });
+
+    expect(files['/skills/write-lead-brief/SKILL.md']).toBe(SKILL_BODY);
+    expect(files['/skills/write-lead-brief/examples.md']).toBe('an example');
+
+    await db.delete(projectSchema);
+    await db.delete(tenantAccountSchema);
+  });
+
   it('mounts a named skill (with siblings) when WORKSPACE_PATH is absolute, which is what prod sets', async () => {
     process.env.WORKSPACE_PATH = WORKSPACE;
 
