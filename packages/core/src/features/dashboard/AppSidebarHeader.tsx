@@ -135,7 +135,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
             {envLabel}
           </span>
         )}
-        {!titleClaimed && <Breadcrumb workspaceName={workspace?.name ?? null} />}
+        {!titleClaimed && <Breadcrumb workspaceName={workspace?.name ?? null} brandName={chrome.lead === 'org' ? orgBrand?.name ?? null : null} />}
         <ShellBarTitleOutlet />
       </div>
 

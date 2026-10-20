@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { StandaloneArtifactView } from '@/features/dashboard/artifacts/StandaloneArtifactView';
@@ -8,6 +9,27 @@ import { getArtifact, toPayload } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * The tab and the breadcrumb name the artifact ("Performance report ·
+ * September 2026"), not the Org. An artifact the person may not open keeps
+ * the default: its title is not theirs to read.
+ * @param props - The route's params.
+ * @param props.params - The artifact id.
+ */
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await props.params;
+  const { orgId, userId } = await auth();
+  const artifactId = Number(id);
+  if (!orgId || !Number.isInteger(artifactId) || artifactId <= 0) {
+    return {};
+  }
+  const row = await getArtifact({ orgId, id: artifactId }).catch(() => null);
+  if (!row || !canOpenArtifact({ audience: row.shareAudience, ownerId: row.shareOwnerId ?? null }, { userId: userId ?? null, isMember: true, hasToken: false })) {
+    return {};
+  }
+  return { title: row.title };
+}
 
 /**
  * /dashboard/artifacts/[id] — one artifact on its own page.

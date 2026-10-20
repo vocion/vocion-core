@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import type { PageField, PageManifest, PageRow, PageView, PageWindow } from '@/libs/workspace/pages';
 import { components as wsxComponents } from '@wsx/registry';
 import { and, desc, eq, inArray } from 'drizzle-orm';
@@ -505,6 +506,19 @@ function WindowPicker({ slug, window, chosen }: { slug: string; window: PageWind
       ))}
     </div>
   );
+}
+
+/**
+ * The tab and the breadcrumb read the page's own title ("Reports · Metacto"),
+ * not the workspace default, which left the crumb naming the Org.
+ * @param props - The route's params.
+ * @param props.params - The page slug.
+ */
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await props.params;
+  const { orgId } = await auth();
+  const manifest = orgId ? await readPageForOrg(slug, orgId).catch(() => null) : null;
+  return manifest ? { title: manifest.title } : {};
 }
 
 export default async function WorkspacePage(props: {
