@@ -371,7 +371,12 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                             ? <img src={src} alt={alt ?? ''} data-spark className="m-0! mr-1.5 inline-block size-[1.2em] align-[-0.2em]" {...rest} />
                             : typeof src === 'string' && src.endsWith('#icon')
                               ? <img src={src} alt={alt ?? ''} className="m-0! mr-1.5 inline-block size-[1.05em] align-[-0.15em]" {...rest} />
-                              : <img src={src} alt={alt ?? ''} {...rest} />),
+                              // `#thumb` is a picture the agent read (a scanned walk
+                              // report): a small framed thumbnail, opened full size
+                              // by the link the agent wraps it in.
+                              : typeof src === 'string' && src.endsWith('#thumb')
+                                ? <img src={src} alt={alt ?? ''} className="my-2! inline-block w-44 rounded-md border border-border shadow-sm" {...rest} />
+                                : <img src={src} alt={alt ?? ''} {...rest} />),
                           // The first bold run after a spark is the catch's label ("Caught:"): amber.
                           strong: ({ node: _node, children, ...rest }) => <strong className="[img[data-spark]+&]:text-brand-amber-deep" {...rest}>{children}</strong>,
                           // A table is the one thing in a turn that cannot

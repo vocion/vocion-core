@@ -62,6 +62,27 @@ function routePath(route: string): string {
 }
 
 /**
+ * A title whose ✦ spark — the mark for "the agent caught or learned this" —
+ * is drawn in the brand orange, the same mark the agent's own lines carry.
+ * @param props - The title text.
+ * @param props.text - Title, possibly holding ✦.
+ */
+function SparkTitle({ text }: { text: string }) {
+  const parts = text.split('✦');
+  return (
+    <>
+      {parts.map((p, i) => (
+        // eslint-disable-next-line react/no-array-index-key -- a fixed split of one string
+        <span key={i}>
+          {i > 0 && <span className="text-[#F18700]">✦</span>}
+          {p}
+        </span>
+      ))}
+    </>
+  );
+}
+
+/**
  * The first visible element matching the step, honouring `selectorText`.
  * @param selector - CSS selector.
  * @param text - Optional text the element must contain.
@@ -120,7 +141,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
   const [idx, setIdx] = useState(0);
   // The spotlight's box, keyed to the step it was measured for: a new step
   // reads no box until its own element is found, with nothing to reset.
-  const [measured, setMeasured] = useState<{ key: string; rect: Rect } | null>(null);
+  const [measured, setMeasured] = useState<{ key: string; rect: Rect; place?: Rect } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [popSize, setPopSize] = useState({ w: 400, h: 240 });
   const [tapping, setTapping] = useState(false);
@@ -132,6 +153,8 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
   const step = steps[Math.min(idx, steps.length - 1)]!;
   const stepKey = `${slug}:${idx}`;
   const rect = measured?.key === stepKey ? measured.rect : null;
+  // Where the popover sits: beside `placeAgainst` when the step names one, else the spotlight.
+  const placeRect = measured?.key === stepKey ? (measured.place ?? measured.rect) : null;
   const ringOnly = (step.mask ?? tour.mask) === 'none';
   const isLast = idx >= steps.length - 1;
   // The path a step route names: no locale, no `/w/<workspace>` prefix
@@ -292,10 +315,19 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
       const height = ringOnly || !overflows ? Math.min(r.height + 16, vh - top - 8) : Math.min(r.height + 16, vh * 0.62, vh - top - 8);
       const left = Math.max(8, r.left - 8);
       const next = { top, left, width: Math.min(r.width + 16, window.innerWidth - left - 8), height: Math.max(40, height) };
+      // A small target inside a bigger control (the send button in the
+      // composer) would put the popover on the control and hide what the step
+      // asks people to read; `placeAgainst` places it beside the control
+      // instead, while the tap still counts only on the target.
+      const holder = step.placeAgainst ? findTarget(step.placeAgainst) : null;
+      const h = holder?.getBoundingClientRect();
+      const place = h ? { top: h.top - 8, left: h.left - 8, width: h.width + 16, height: h.height + 16 } : undefined;
       setMeasured((prev) => {
         const p = prev?.key === stepKey ? prev.rect : null;
-        const same = p && Math.abs(p.top - next.top) < 1 && Math.abs(p.left - next.left) < 1 && Math.abs(p.width - next.width) < 1 && Math.abs(p.height - next.height) < 1;
-        return same ? prev : { key: stepKey, rect: next };
+        const q = prev?.key === stepKey ? prev.place : undefined;
+        const same = p && Math.abs(p.top - next.top) < 1 && Math.abs(p.left - next.left) < 1 && Math.abs(p.width - next.width) < 1 && Math.abs(p.height - next.height) < 1
+          && (q === place || (q && place && Math.abs(q.top - place.top) < 1 && Math.abs(q.left - place.left) < 1));
+        return same ? prev : { key: stepKey, rect: next, place };
       });
     };
     measure();
@@ -312,7 +344,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
     };
-  }, [active, stepKey, onRoute, step.selector, step.selectorText, ringOnly]);
+  }, [active, stepKey, onRoute, step.selector, step.selectorText, step.placeAgainst, ringOnly]);
 
   // `advance: appear` — move on once the awaited element is on the page.
   useEffect(() => {
@@ -615,12 +647,12 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
   const popStyle: React.CSSProperties = centered
     ? { top: Math.max(12, (vh - POP_H) / 2), left: Math.max(12, (vw - POP_W) / 2) }
     : step.placement === 'top'
-      ? clamp(rect.top - POP_H - 14, rect.left)
+      ? clamp(placeRect!.top - POP_H - 14, placeRect!.left)
       : step.placement === 'left'
-        ? clamp(rect.top, rect.left - POP_W - 14)
+        ? clamp(placeRect!.top, placeRect!.left - POP_W - 14)
         : step.placement === 'right'
-          ? clamp(rect.top, rect.left + rect.width + 14)
-          : clamp(rect.top + rect.height + 14, rect.left); // bottom (default)
+          ? clamp(placeRect!.top, placeRect!.left + placeRect!.width + 14)
+          : clamp(placeRect!.top + placeRect!.height + 14, placeRect!.left); // bottom (default)
 
   const dim = (step.mask ?? tour.mask) !== 'none';
   const caption = (step.presentation ?? tour.presentation) === 'caption';
@@ -714,7 +746,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
           <div className="flex items-center gap-8 bg-[#1B2733]/95 px-12 py-7 text-white backdrop-blur">
             <div className="min-w-0 flex-1">
               <div className="mb-1.5 text-[15px] font-semibold tracking-[0.12em] text-[#F26A1B] uppercase">{step.eyebrow ?? tour.title}</div>
-              <div className="text-[34px] leading-tight font-semibold tracking-tight">{step.caption ?? step.title}</div>
+              <div className="text-[34px] leading-tight font-semibold tracking-tight"><SparkTitle text={step.caption ?? step.title} /></div>
             </div>
             {waiting && (
               <div className="relative h-1.5 w-40 shrink-0 overflow-hidden rounded-full bg-white/15">
@@ -757,7 +789,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
           <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
             {step.eyebrow ?? tour.title}
           </div>
-          <div className="mb-1.5 text-lg leading-snug font-semibold">{step.title}</div>
+          <div className="mb-1.5 text-lg leading-snug font-semibold"><SparkTitle text={step.title} /></div>
           <p className="mb-4 text-[15px] leading-relaxed whitespace-pre-line text-muted-foreground">{step.body}</p>
           {waiting && (
             <div className="relative mb-4 h-1 overflow-hidden rounded-full bg-muted">

@@ -32,6 +32,12 @@ const StepSchema = z.object({
   eyebrow: z.string().optional(),
   /** CSS selector to spotlight. Omitted → centered popover, no spotlight. */
   selector: z.string().optional(),
+  /**
+   * Selector of the element the popover is placed beside, when it is not the
+   * spotlit one — the whole composer for a step that spotlights its send
+   * button, so the card never covers the line it asks people to send.
+   */
+  placeAgainst: z.string().optional(),
   /** Popover placement relative to the spotlit element. */
   placement: z.enum(['top', 'bottom', 'left', 'right', 'center']).default('bottom'),
   /** Let the audience click the page (e.g. open a record) instead of blocking. */
