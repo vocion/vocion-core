@@ -253,6 +253,7 @@
     "welcome_back_named": "Bon retour, {name}.",
     "welcome_back": "Bon retour.",
     "team_on_it": "L’équipe {workspace} s’en occupe.",
+    "named_team_on_it": "L’équipe {workspace} s’en occupe.",
     "agent_on_it": "{name} s’en occupe.",
     "team_caption": "{lead} · {count, plural, one {# agent} other {# agents}}",
     "ask_team": "Demandez à l’équipe…",

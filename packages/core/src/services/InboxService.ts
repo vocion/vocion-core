@@ -459,7 +459,27 @@ export type AgendaRow = InboxItem & AgendaCandidate;
  * This is the narrow fix. The durable one keys the fold on the SUBJECT a row
  * is about rather than the words in its title, at which point this set goes.
  */
-const UNFOLDED_ACTIONS: ReadonlySet<string> = new Set(['personalization.enroll']);
+const UNFOLDED_ACTIONS: ReadonlySet<string> = new Set([
+  'personalization.enroll',
+  // A connector write or a send is one change to one record or one person.
+  // Two ledger recategorizations share the account names in their titles
+  // ("move from Operations:Software & SaaS to Operations:AI Vendors"), and the
+  // fold put a pending one under an older failed one, out of sight (finance
+  // inbox, 2026-10-20: Reclaim ACT-8952 hidden under failed Granola ACT-8603).
+  'mcp.call',
+  'gmail.send',
+]);
+
+/**
+ * A proposal whose execution failed. It stays on the open tab so a person can
+ * retry or dismiss it, but it is not a decision waiting on anyone: it never
+ * roots a topic (where it would hide the pending decisions folded under it)
+ * and it is not counted on the badge.
+ * @param item
+ */
+function isFailedProposal(item: InboxItem): boolean {
+  return item.kind === 'proposal' && item.status === 'failed';
+}
 
 /**
  * The open tab, after the admission bar.
@@ -472,8 +492,10 @@ const UNFOLDED_ACTIONS: ReadonlySet<string> = new Set(['personalization.enroll']
  * @param rows - Every candidate row the factory produced.
  */
 function admitted(rows: InboxItem[]): Pick<Inbox, 'items' | 'reclassified' | 'policyGaps'> {
-  const unfolded = rows.filter(r => r.actionId !== undefined && UNFOLDED_ACTIONS.has(r.actionId));
-  const agenda = reviewAgenda(rows.filter(r => !unfolded.includes(r)).map((item): AgendaRow => ({
+  const failed = rows.filter(isFailedProposal);
+  const live = rows.filter(r => !isFailedProposal(r));
+  const unfolded = live.filter(r => r.actionId !== undefined && UNFOLDED_ACTIONS.has(r.actionId));
+  const agenda = reviewAgenda(live.filter(r => !unfolded.includes(r)).map((item): AgendaRow => ({
     ...item,
     body: item.detail ?? item.subline ?? null,
     grounds: declaredGrounds(item),
@@ -488,7 +510,7 @@ function admitted(rows: InboxItem[]): Pick<Inbox, 'items' | 'reclassified' | 'po
       ...(folded > 0 ? { count: (topic.root.count ?? 1) + folded, detail: enrichmentLine(topic) ?? topic.root.detail } : {}),
     };
   });
-  return { items: [...items, ...unfolded], reclassified: agenda.reclassified, policyGaps: agenda.policyGaps };
+  return { items: [...items, ...unfolded, ...failed], reclassified: agenda.reclassified, policyGaps: agenda.policyGaps };
 }
 
 /**
@@ -801,6 +823,11 @@ export async function listInbox(orgId: string, query: InboxQuery = {}): Promise<
     items = items.filter(i => query.kinds!.includes(i.kind));
   }
   sortItems(items, tab === 'decided' ? (query.sort ?? 'newest') : (query.sort ?? 'oldest'));
+  if (tab === 'open') {
+    // What is waiting on a person comes first; failed runs to retry or dismiss
+    // follow, so an old failure never sits at the top of the queue.
+    items = [...items.filter(i => !isFailedProposal(i)), ...items.filter(isFailedProposal)];
+  }
 
   return { items, counts, total: items.length, tabs, facets, reclassified: tab === 'open' ? reclassified : [], policyGaps: tab === 'open' ? policyGaps : [] };
 }
@@ -863,7 +890,7 @@ export async function needsYouCount(orgId: string): Promise<number> {
  * @param orgId - The workspace.
  */
 export async function needsYouItems(orgId: string): Promise<InboxItem[]> {
-  return admitted(await openItems(orgId)).items;
+  return admitted(await openItems(orgId)).items.filter(i => !isFailedProposal(i));
 }
 
 /**

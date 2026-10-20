@@ -72,11 +72,15 @@ export function MonitorsBlock({ title, monitors, now, timeZone }: { title: strin
                     <span className="flex flex-col gap-0.5">
                       <Subline
                         separator="·"
-                        segments={[
-                          m.targets.length > 0 ? `${m.kind ? `${m.kind}: ` : ''}${andList(m.targets)}` : 'Not checked yet',
-                          m.every,
-                          `${m.day.checks} ${m.day.checks === 1 ? 'check' : 'checks'} in 24 h${m.day.opened > 0 ? `, ${m.day.opened} opened an incident` : ''}`,
-                        ]}
+                        segments={m.lastCheck || m.targets.length > 0 || !m.nextRun
+                          ? [
+                              m.targets.length > 0 ? `${m.kind ? `${m.kind}: ` : ''}${andList(m.targets)}` : 'Not checked yet',
+                              m.every,
+                              `${m.day.checks} ${m.day.checks === 1 ? 'check' : 'checks'} in 24 h${m.day.opened > 0 ? `, ${m.day.opened} opened an incident` : ''}`,
+                            ]
+                          // Before its first run there is nothing to count:
+                          // say when it runs instead of "Not checked yet · 0 checks".
+                          : [m.every, `Next run ${formatDateTime(m.nextRun, timeZone)}`]}
                       />
                       {m.lastCheck && (
                         <span className="text-[12px] text-muted-foreground">
@@ -94,7 +98,9 @@ export function MonitorsBlock({ title, monitors, now, timeZone }: { title: strin
                     ? <StatusPill status="paused" label="Paused" size="sm" />
                     : m.state === 'off'
                       ? <StatusPill status="inactive" label="Off" size="sm" />
-                      : <OutcomeDot outcome={m.lastCheck?.outcome ?? null} />}
+                      : m.lastCheck || !m.nextRun
+                        ? <OutcomeDot outcome={m.lastCheck?.outcome ?? null} />
+                        : <StatusDot tone="neutral" label="Scheduled" />}
                   actions={m.state === 'off' ? undefined : <AutomationPauseControl slug={m.slug} paused={m.pause} compact />}
                   actionsAlways
                 />

@@ -1084,11 +1084,10 @@ export default async function WorkspacePage(props: {
         <section id="wsx-review" className="mt-8">
           <h2 className="mb-2 text-sm font-semibold">{reviewCfg.heading ?? 'Waiting on a person'}</h2>
           <p className="mb-3 text-sm text-muted-foreground">
-            The same items as
+            The changes on this page that wait for a person. Approve or decline them here, or in the
             {' '}
             <Link href="/dashboard/inbox?kind=proposal" className="underline">Review queue</Link>
-            {' '}
-            — the core decision list, scoped to this page. Approve or decline here or there; it is one queue.
+            : it is the same list.
           </p>
           {pendingActions.length > 0
             ? (

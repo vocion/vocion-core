@@ -5,6 +5,7 @@ import { cronToText } from '@/features/dashboard/TriggerBadge';
 import { checkLine, readCheckResult } from '@/libs/automations/checkResult';
 import { db } from '@/libs/DB';
 import { pausedSince } from '@/libs/factory/delivery';
+import { nextCronRun } from '@/libs/schedule/nextCronRun';
 import { listPluginSlugs, loadPlugin, pluginContents } from '@/libs/workspace/plugins';
 import { automationRunSchema, automationSchema } from '@/models/Schema';
 import { CONTROL_RUN_KIND, pausesFor, SKIPPED_RUN_KIND } from '@/services/AutomationService';
@@ -36,6 +37,8 @@ export type MonitorRow = {
   lastCheck: { at: Date; outcome: CheckOutcome | null; line: string; failed: boolean } | null;
   /** Its checks, and those that opened an incident, over the last day. */
   day: { checks: number; opened: number };
+  /** When its schedule next fires, while it is on; null when unscheduled. */
+  nextRun?: Date | null;
 };
 
 export type CheckLogRow = {
@@ -161,6 +164,7 @@ export async function loadMonitors(orgId: string, slugs: string[], now: Date = n
       kind: logged?.check?.kind ?? null,
       lastCheck: logged ? { at: logged.at, outcome: logged.outcome, line: logged.line, failed: logged.status === 'error' } : null,
       day: { checks: Number(counts?.checks ?? 0), opened: Number(counts?.opened ?? 0) },
+      nextRun: typeof schedule === 'string' && !r.pausedAt && r.status !== 'disabled' ? nextCronRun(schedule, new Date()) : null,
     }];
   });
 }

@@ -27,6 +27,7 @@ import { isSelfUpdate } from '@/libs/actions/selfUpdate';
 import { nounCode } from '@/libs/codes';
 import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
+import { alignmentPhrase } from './alignmentPhrase';
 import { contentKindEditable, contentKindRenderer } from './contentKinds';
 import { approvableItems, isChecked, walkApplies, walkCount } from './contentWalk';
 import { ExecutionFailure } from './ExecutionFailure';
@@ -1048,7 +1049,6 @@ export function ReviewSurface(props: {
     }
     return { lines: lines.slice(0, 2), evidence };
   })();
-  const alignmentRate = run.alignment && run.alignment.n > 0 ? run.alignment.agreementRate : null;
   // Said once. Most presenters build the recommendation's detail and the
   // summary out of the same sentence the run already carries as its
   // rationale, and three copies of one paragraph under one tab reads as three
@@ -1256,19 +1256,8 @@ export function ReviewSurface(props: {
                 !brief && !outbound && run.proposal?.suggestedDecision ? { label: 'Agent suggests', value: SUGGESTION_LABEL[run.proposal.suggestedDecision] } : null,
                 { label: 'Run', value: nounCode('action', run.id) },
                 handoff ? { label: 'Who runs it', value: <span data-testid="who-runs-it">{whoRunsIt}</span> } : null,
-                alignmentRate !== null && run.alignment
-                  ? {
-                      label: 'Aligned',
-                      value: (
-                        <span
-                          data-testid="alignment-score"
-                          className="tabular-nums"
-                          title={`You have agreed with this agent ${Math.round(alignmentRate * 100)}% of the time — ${run.alignment.n} decided recommendation${run.alignment.n === 1 ? '' : 's'} of this kind in the last ${run.alignment.window === 'all' ? 'all time' : run.alignment.window}`}
-                        >
-                          {`${Math.round(alignmentRate * 100)}% of the time`}
-                        </span>
-                      ),
-                    }
+                alignmentPhrase(run.alignment)
+                  ? { label: 'Your agreement', value: <span data-testid="alignment-score" className="tabular-nums">{alignmentPhrase(run.alignment)!.long}</span> }
                   : null,
               ]}
             />

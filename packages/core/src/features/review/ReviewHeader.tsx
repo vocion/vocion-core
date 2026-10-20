@@ -9,6 +9,7 @@ import { ConfidenceMeter } from '@/components/patterns';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
+import { alignmentPhrase } from './alignmentPhrase';
 
 /**
  * The decision-screen header every kind on "Review queue" shares: a breadcrumb
@@ -149,17 +150,14 @@ export function ReviewHeader(props: {
     // Never a bare score: the meter carries what the confidence is IN.
     meta.push(<ConfidenceMeter key="confidence" value={props.confidence} label={props.confidenceSubject} readingHidden />);
   }
-  const alignmentRate = props.alignment && props.alignment.n > 0 ? props.alignment.agreementRate : null;
-  if (props.alignment && alignmentRate !== null) {
-    const a = props.alignment;
+  const alignment = alignmentPhrase(props.alignment);
+  if (alignment) {
     meta.push(
       <Tooltip key="alignment">
         <TooltipTrigger asChild>
-          <span className="tabular-nums" data-testid="alignment-score">{`${Math.round(alignmentRate * 100)}% aligned`}</span>
+          <span className="tabular-nums" data-testid="alignment-score">{alignment.short}</span>
         </TooltipTrigger>
-        <TooltipContent>
-          {`You have agreed with this agent ${Math.round(alignmentRate * 100)}% of the time — ${a.n} decided recommendation${a.n === 1 ? '' : 's'} of this kind in the last ${a.window === 'all' ? 'all time' : a.window}`}
-        </TooltipContent>
+        <TooltipContent>{alignment.long}</TooltipContent>
       </Tooltip>,
     );
   }
