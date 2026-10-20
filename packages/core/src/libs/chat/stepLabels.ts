@@ -64,6 +64,7 @@ const KNOWN: Record<string, StepLabels> = {
   get_gmail_thread: { running: 'Reading the email thread…', done: 'Read the email thread' },
   query_state: { running: 'Reading what is waiting…', done: 'Read what is waiting' },
   get_zoom_transcript: { running: 'Reading the call transcript…', done: 'Read the call transcript' },
+  get_drive_file: { running: 'Reading the Drive file…', done: 'Read the Drive file' },
   read_discovery_transcript: { running: 'Reading the call transcript…', done: 'Read the call transcript' },
   list_data_rooms: { running: 'Listing the data rooms…', done: 'Listed the data rooms' },
   read_data_room: { running: 'Reading the data room…', done: 'Read the data room' },
