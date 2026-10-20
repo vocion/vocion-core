@@ -177,6 +177,28 @@ describe('splitNavByApp', () => {
     expect(r.core.nav.pinnedByDefault).toEqual(['/dashboard/rooms']);
   });
 
+  it('orders a workspace\'s own pages after the plugin\'s, by their own order and icon, and lands on the page marked home', () => {
+    const r = splitNavByApp({
+      apps: installed,
+      nav: nav([{ label: 'Sales', items: [{ title: 'Team report', url: '/dashboard/team-report', icon: 'bar-chart-3', plugin: 'deals', order: 4 }] }]),
+      surfaces: [],
+      pages: [
+        { title: 'Pipeline', url: '/dashboard/p/pipeline', section: 'Sales', order: 2, icon: 'kanban' },
+        { title: 'Reports', url: '/dashboard/p/reports', section: 'Sales', order: 0, icon: 'file-text', home: true },
+      ],
+      coreRoutes: routes,
+    });
+    const salesApp = r.apps.find(a => a.id === 'sales')!;
+
+    expect(salesApp.sections[0]!.items).toEqual([
+      { title: 'Team report', url: '/dashboard/team-report', icon: 'bar-chart-3' },
+      { title: 'Reports', url: '/dashboard/p/reports', icon: 'file-text', home: true },
+      { title: 'Pipeline', url: '/dashboard/p/pipeline', icon: 'kanban' },
+    ]);
+    // Home beats the manifest's entry (and the first row).
+    expect(salesApp.href).toBe('/dashboard/p/reports');
+  });
+
   it('with no apps installed beyond the core, changes nothing', () => {
     const input = nav([{ label: 'Workspace', items: [{ title: 'Wiki', url: '/dashboard/p/wiki', icon: 'book-open', plugin: 'wiki', order: 5 }] }]);
     const r = splitNavByApp({ apps: [home], nav: input, surfaces: ['discovery'], pages: [{ title: 'Hiring', url: '/dashboard/p/hiring', section: 'Sales' }], coreRoutes: routes });

@@ -36,7 +36,7 @@ export type AppSummary = { id: string; name: string; icon: string; order: number
 export type AppWorkspace = { projectId: string; slug: string; name: string };
 
 /** One row of an app's nav. `icon` is a lucide name; the sidebar resolves it. */
-export type AppNavItem = { title: string; url: string; icon: string; secondary?: boolean };
+export type AppNavItem = { title: string; url: string; icon: string; secondary?: boolean; home?: boolean };
 
 /** An app as one workspace has it: its rail entry, where picking it lands, and its rows. */
 export type AppNav = AppSummary & {
@@ -52,7 +52,7 @@ export type AppNav = AppSummary & {
 export type AccessibleWorkspace = AppWorkspace & { enabledPlugins: readonly string[]; enabledSurfaces: readonly string[] };
 
 /** A workspace page as the shell lists it (`libs/workspace/pages.ts`). */
-export type NavPageInput = { title: string; url: string; section: string; secondary?: boolean };
+export type NavPageInput = { title: string; url: string; section: string; secondary?: boolean; order?: number; icon?: string; home?: boolean };
 
 /**
  * The app every workspace has (`core: true`), if the catalogue has one.
@@ -210,7 +210,7 @@ export function splitNavByApp(input: {
         if (route?.pinnable && route.plugin === item.plugin) {
           released.add(route.url);
         }
-        add(app, section.label, { title: item.title, url: item.url, icon: item.icon, order: item.order, ...(item.secondary ? { secondary: true } : {}) }, item.plugin);
+        add(app, section.label, { title: item.title, url: item.url, icon: item.icon, order: item.order, ...(item.secondary ? { secondary: true } : {}), ...(item.home ? { home: true } : {}) }, item.plugin);
       } else {
         kept.push(item);
       }
@@ -235,7 +235,9 @@ export function splitNavByApp(input: {
   for (const page of input.pages) {
     const app = appOwningSection(page.section, input.apps);
     if (app) {
-      add(app, page.section, { title: page.title, url: page.url, icon: 'panels-top-left', order: 1000, ...(page.secondary ? { secondary: true } : {}) });
+      // A workspace's own pages follow the plugin's (1000+), in their own order and
+      // with their own icon; one that shadows a plugin page rides the plugin's row.
+      add(app, page.section, { title: page.title, url: page.url, icon: page.icon ?? 'panels-top-left', order: 1000 + (page.order ?? 0), ...(page.secondary ? { secondary: true } : {}), ...(page.home ? { home: true } : {}) });
     } else {
       corePages.push(page);
     }
@@ -253,9 +255,12 @@ export function splitNavByApp(input: {
     }));
     const rows = appSections.flatMap(s => s.items);
     const primary = rows.filter(i => !i.secondary);
+    // A page that declared itself the app's home (`nav.home`) wins; then the
+    // manifest's entry while it is still a row; then the first row.
+    const home = primary.find(i => i.home);
     const href = app.core
       ? app.entry
-      : (rows.some(i => pathOf(i.url) === app.entry) ? app.entry : (primary[0] ?? rows[0])?.url ?? app.entry);
+      : home?.url ?? (rows.some(i => pathOf(i.url) === app.entry) ? app.entry : (primary[0] ?? rows[0])?.url ?? app.entry);
     return { ...appSummary(app), href, sections: app.core ? [] : appSections, owns: [...(owns.get(app.id) ?? [])] };
   });
 
