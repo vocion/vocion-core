@@ -13,6 +13,22 @@ config:
 
 Connect a **REST or MCP API (bearer token)** credential to the source, using the complete HTTPS MCP endpoint as `baseUrl`. The existing credential platform supports multiple independent endpoint/token pairs per workspace. Credentials remain in the vault, never in YAML. Redirects and private network endpoints are refused.
 
+## Each person signs in (`auth: person`)
+
+A server that answers each person by their own identity, with its own document permissions, roles or MFA, cannot be read with one workspace token: everyone would read as whoever pasted it. Declare the endpoint and let each person sign in:
+
+```yaml
+slug: company-knowledge
+name: Company knowledge
+kind: mcp
+config:
+  auth: person
+  url: https://knowledge.example.com/mcp
+  readTools: [search_knowledge, get_document]
+```
+
+No credential is connected. The first time a person's turn reads the source, the tool answers with a sign-in link (`/api/connect/mcp/start`). Vocion discovers the server's OAuth (protected-resource metadata), registers itself as a public client and signs the person in with PKCE. The grant is kept in that person's Personal, keyed by the endpoint, so one sign-in serves every workspace that declares the same `url`. It is refreshed when it runs out, and it is used only for that person's own turns. A turn with no person in it (an automation, a background step) cannot read the source and says so. A per-person source declares no `writeTools`: a write runs when a reviewer approves it, not as the person who asked. The server must support dynamic client registration, S256 PKCE and refresh tokens.
+
 Assign the source slug to the agent's `connectorSources`. `mcp_list_tools` discovers declared schemas; `mcp_read` calls reads. Both intersect the agent's assignment with the requesting user's source ACL. Discovery never executes a provider tool.
 
 Submit a write with `propose_action` using action id `mcp.call` and input:
