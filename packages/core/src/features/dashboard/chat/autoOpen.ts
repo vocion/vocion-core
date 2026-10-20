@@ -1,3 +1,5 @@
+import { previewMayOpenItself } from '@/features/preview/previewState';
+
 /**
  * WHEN A PREVIEW OPENS BY ITSELF.
  *
@@ -6,10 +8,11 @@
  * file the person just attached is not news to them, and on a phone the
  * preview it opened took the screen (a phone walk, 2026-10-10: an uploaded
  * .xlsx opened by itself). Such a turn shows its chip in the chat; a tap on
- * the chip opens it.
+ * the chip opens it. Nor while a workspace tour is running: the tour opens
+ * what it shows itself (`previewMayOpenItself`).
  * @param turn - The turn the event came from.
  * @param turn.fromUpload - The person's message carried files.
  */
 export function opensPreviewOnItsOwn(turn: { fromUpload: boolean }): boolean {
-  return !turn.fromUpload;
+  return !turn.fromUpload && previewMayOpenItself();
 }

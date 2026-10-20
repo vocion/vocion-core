@@ -19,7 +19,7 @@ vi.mock('@/libs/Orpc', () => ({
   },
 }));
 const openPreview = vi.fn();
-vi.mock('@/features/preview/previewState', () => ({ openPreview: (...a: unknown[]) => openPreview(...a) }));
+vi.mock('@/features/preview/previewState', () => ({ openPreview: (...a: unknown[]) => openPreview(...a), previewMayOpenItself: () => true }));
 
 const { useChatSession } = await import('./useChatSession');
 const { opensPreviewOnItsOwn } = await import('./autoOpen');
