@@ -3,7 +3,11 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { callMcpTool, listMcpTools, mcpCredentialsOf, validateMcpInput, withMcp } from '@/libs/outboundMcp/client';
 import { loadMcpSources } from '@/libs/outboundMcp/sources';
+import { personMcpCredentials } from '@/services/outboundMcp/personSignIn';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
+
+/** A per-person source the person in the turn cannot read yet: the sentence says why and where to sign in. */
+class SignInNeeded extends Error {}
 
 /**
  * Keep structured reads line-addressable when large results spill to a file.
@@ -51,17 +55,31 @@ export function mcpTools(ctx: RuntimeContext) {
     }
     return source;
   }
+  // A `person` source reads as the person in the turn, never with a workspace token.
+  async function credentialsFor(source: Awaited<ReturnType<typeof sourceFor>>) {
+    if (source.config.auth !== 'person' || !source.config.url) {
+      return mcpCredentialsOf(await getCredentialsForSource(ctx.orgId, source.slug));
+    }
+    const signedIn = await personMcpCredentials({ source: { orgId: ctx.orgId, slug: source.slug, name: source.name, url: source.config.url }, userId: ctx.userId });
+    if (!signedIn.ok) {
+      throw new SignInNeeded(signedIn.why);
+    }
+    return signedIn.credentials;
+  }
   return [
     tool(async ({ sourceSlug }) => {
       try {
         const source = await sourceFor(sourceSlug);
-        const credentials = mcpCredentialsOf(await getCredentialsForSource(ctx.orgId, sourceSlug));
+        const credentials = await credentialsFor(source);
         return JSON.stringify(await withMcp(credentials, async client => ({
           sourceSlug,
           tools: (await listMcpTools(client)).filter(remote => source.config.readTools.includes(remote.name) || source.config.writeTools.includes(remote.name)),
           writes: 'Propose declared writes with propose_action, action_id=mcp.call. Approval executes the exact submitted arguments.',
         })));
-      } catch {
+      } catch (error) {
+        if (error instanceof SignInNeeded) {
+          return JSON.stringify({ isError: true, error: error.message });
+        }
         return JSON.stringify({ isError: true, error: 'MCP discovery failed. Use an assigned, permitted source with a connected credential; no provider tool was called.' });
       }
     }, { name: 'mcp_list_tools', description: 'Discover declared MCP tools and their input schemas for an assigned source.', metadata: { alwaysLoaded: true }, schema: z.object({ sourceSlug: z.string() }) }),
@@ -75,7 +93,7 @@ export function mcpTools(ctx: RuntimeContext) {
             availableReadTools: source.config.readTools,
           });
         }
-        const credentials = mcpCredentialsOf(await getCredentialsForSource(ctx.orgId, sourceSlug));
+        const credentials = await credentialsFor(source);
         return JSON.stringify(await withMcp(credentials, async (client) => {
           const remote = (await listMcpTools(client)).find(remote => remote.name === name);
           if (!remote || remote.annotations?.readOnlyHint !== true) {
@@ -90,7 +108,10 @@ export function mcpTools(ctx: RuntimeContext) {
           }
           return readableResult(await callMcpTool(client, remote, input));
         }), null, 2);
-      } catch {
+      } catch (error) {
+        if (error instanceof SignInNeeded) {
+          return JSON.stringify({ isError: true, error: error.message });
+        }
         // Transport/provider exceptions can contain credentials and raw bodies.
         // A read failure is recoverable and must not imply an uncertain write.
         return JSON.stringify({ isError: true, error: 'MCP read failed. No write tool was invoked. Check that the source is assigned, permitted and connected; retry a valid read or report that it is unavailable.' });
