@@ -138,6 +138,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
     decline: t('shortcut_decline'),
     snooze: t('shortcut_snooze'),
     edit: t('shortcut_edit'),
+    draft: t('shortcut_draft'),
   };
   if (!p.loaded) {
     return <div className="flex justify-center py-16"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
