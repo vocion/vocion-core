@@ -162,12 +162,22 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
    * @param opts - A ruling's choice rides the approval as its answer, exactly
    * as the chat card sends it (`answerInput`).
    * @param opts.answer - The chosen option's id.
+   * @param opts.mode - On a message whose card offers the choice: send it, or
+   * write it as a draft. Rides the approval as that item's content edit.
+   * @param opts.mode.contentId - The message's content item.
+   * @param opts.mode.mode - What the approver chose.
    */
-  const decide = (decision: ReviewDecision, opts?: { answer?: string }) => once(async () => {
+  const decide = (decision: ReviewDecision, opts?: { answer?: string; mode?: { contentId: string; mode: 'draft' | 'send' } }) => once(async () => {
     setBusy(true);
     try {
       const built = buildDecision();
-      const ce = built.contentEdits;
+      const chosen = decision === 'approve' ? opts?.mode : undefined;
+      const ce = chosen
+        ? [
+            ...(built.contentEdits ?? []).filter(e => e.id !== chosen.contentId),
+            { ...(built.contentEdits ?? []).find(e => e.id === chosen.contentId), id: chosen.contentId, mode: chosen.mode },
+          ]
+        : built.contentEdits;
       const editedInput = opts?.answer && decision === 'approve' ? answerInput(built.editedInput ?? run.input, opts.answer) : built.editedInput;
       // Never less than ~400ms in flight: a decision that lands instantly
       // reads as nothing having happened.

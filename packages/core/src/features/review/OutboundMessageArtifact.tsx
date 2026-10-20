@@ -2,9 +2,11 @@
 
 import type { ReactNode } from 'react';
 import type { ContentEdit } from './contentKinds';
-import type { OutboundMessage, ReviewContent } from '@/libs/actions/types';
-import { ChevronDown, ExternalLink, X } from 'lucide-react';
+import type { OutboundAttachment, OutboundMessage, ReviewContent } from '@/libs/actions/types';
+import { ChevronDown, ExternalLink, Paperclip, TriangleAlert, X } from 'lucide-react';
 import { useState } from 'react';
+import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { usePreviewOpener } from '@/features/preview/previewState';
 import { addressIn, nameOf, splitRecipients } from '@/libs/mail/recipients';
 import { cn } from '@/utils/Helpers';
 
@@ -17,8 +19,9 @@ import { cn } from '@/utils/Helpers';
  * messages of the thread, folded to the newest), who it goes to (To and Cc as
  * chips a reviewer can change), the copy itself (the registered renderer for
  * the item's kind, so editing and the rich body are what every card uses),
- * and the signature it will carry. The Why sits above it, said once
- * (`ReviewSurface`), and the decision is on the bar.
+ * the signature it will carry, and the files that go with it (each opens in
+ * the preview panel, so the approver reads exactly what is sent). The Why
+ * sits above it, said once (`ReviewSurface`), and the decision is on the bar.
  *
  * A presenter fills `card.outbound` with what its channel has; this file
  * never asks which system it is drawing, only which parts were given.
@@ -161,6 +164,39 @@ function ThreadContext(props: { thread: NonNullable<OutboundMessage['thread']> }
   );
 }
 
+/**
+ * One attachment: what it is and what it goes as, opening the artifact in the
+ * preview panel. One that cannot go says why, before anyone approves.
+ * @param props
+ * @param props.attachment
+ */
+function AttachmentChip(props: { attachment: OutboundAttachment }) {
+  const a = props.attachment;
+  const open = usePreviewOpener({ type: 'artifact', id: String(a.artifactId) });
+  return (
+    <li className="min-w-0">
+      <button
+        type="button"
+        onClick={open}
+        data-testid="outbound-attachment"
+        data-problem={a.problem ? 'true' : undefined}
+        title={a.problem ?? `Preview ${a.title}`}
+        className={cn(
+          'inline-flex max-w-full items-center gap-1.5 rounded-lg border border-rule px-2.5 py-1.5 text-left text-[13px] hover:bg-surface-hover',
+          a.problem && 'border-brand-amber-deep/40',
+        )}
+      >
+        {a.problem
+          ? <TriangleAlert className="size-3.5 shrink-0 text-brand-amber-deep" aria-hidden />
+          : <Paperclip className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
+        <span className="truncate text-foreground">{a.title}</span>
+        {a.meta && <span className="shrink-0 text-[12px] text-muted-foreground">{a.meta}</span>}
+      </button>
+      {a.problem && <p className="mt-1 text-[12px] text-brand-amber-deep">{a.problem}</p>}
+    </li>
+  );
+}
+
 export function OutboundMessageArtifact(props: {
   outbound: OutboundMessage;
   item: ReviewContent;
@@ -207,10 +243,21 @@ export function OutboundMessageArtifact(props: {
         <div className="pt-2" data-testid="outbound-body">
           {props.children}
         </div>
+        {outbound.attachments && outbound.attachments.length > 0 && (
+          <section data-testid="outbound-attachments" aria-label="Attachments" className="mt-3 border-t border-rule px-2 pt-3">
+            <h3 className="mb-2 text-[12px] text-muted-foreground">
+              {`Attached · ${outbound.attachments.length} file${outbound.attachments.length === 1 ? '' : 's'} — open one to see exactly what goes`}
+            </h3>
+            <ul className="flex flex-wrap gap-2">
+              {outbound.attachments.map(a => <AttachmentChip key={a.artifactId} attachment={a} />)}
+            </ul>
+            <PreviewPanel />
+          </section>
+        )}
         {email && outbound.signature && (
           <div className="mt-3 px-2" data-testid="outbound-signature">
             <p className="text-[13px] leading-relaxed whitespace-pre-line text-foreground/70">{outbound.signature}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">{`Signature · added when the ${outbound.mode === 'draft' ? 'draft is created' : 'email is sent'}`}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{outbound.modeChoice ? 'Signature · added when it is sent or drafted' : `Signature · added when the ${outbound.mode === 'draft' ? 'draft is created' : 'email is sent'}`}</p>
           </div>
         )}
       </div>

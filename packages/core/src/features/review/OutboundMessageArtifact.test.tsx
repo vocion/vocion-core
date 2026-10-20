@@ -244,3 +244,48 @@ describe('a sequence, on the same shell', () => {
     expect(page.getByTestId('decide-approve').element().textContent).not.toMatch(/draft/i);
   });
 });
+
+describe('send or draft, and what goes with it', () => {
+  const withChoice = (over: Partial<NonNullable<ReviewCardRun['card']['outbound']>> = {}) => {
+    const run = replyDraft();
+    return { ...run, card: { ...run.card, outbound: { ...run.card.outbound!, modeChoice: true, ...over } } };
+  };
+
+  it('offers Send first and the draft beside it, whatever the proposal suggested', async () => {
+    await render(<ReviewSurface run={withChoice()} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Send');
+    await expect.element(page.getByTestId('decide-draft')).toHaveTextContent('Create draft in Gmail');
+  });
+
+  it('runs what was pressed: Send carries mode send, the draft (or r) carries mode draft', async () => {
+    await render(
+      <>
+        <ReviewSurface run={withChoice()} crumbs={CRUMBS} />
+        <Toaster />
+      </>,
+    );
+
+    await page.getByTestId('decide-draft').click();
+
+    await expect.poll(() => decideAction.mock.calls.length).toBe(1);
+    expect(decideAction.mock.calls[0]![0]).toMatchObject({ decision: 'approve', contentEdits: [{ id: 'message', mode: 'draft' }] });
+  });
+
+  it('lists each attachment with what it goes as, and says when one cannot go', async () => {
+    await render(
+      <ReviewSurface
+        run={withChoice({ attachments: [
+          { artifactId: 5166, title: 'Monthly report, September', meta: 'PDF · 2 pages', href: '/dashboard/artifacts/5166' },
+          { artifactId: 9, title: 'Artifact #9', href: '/dashboard/artifacts/9', problem: 'Not found in this workspace, so it cannot be attached.' },
+        ] })}
+        crumbs={CRUMBS}
+      />,
+    );
+
+    await expect.element(page.getByTestId('outbound-attachments')).toHaveTextContent('Attached · 2 files');
+    expect(page.getByTestId('outbound-attachment').all()).toHaveLength(2);
+    await expect.element(page.getByTestId('outbound-attachments')).toHaveTextContent('PDF · 2 pages');
+    await expect.element(page.getByTestId('outbound-attachments')).toHaveTextContent('cannot be attached');
+  });
+});
