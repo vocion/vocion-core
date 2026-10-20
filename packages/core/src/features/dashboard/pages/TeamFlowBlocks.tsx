@@ -2,7 +2,6 @@ import type { FlowStepView, TeamBlockView, TeamMemberView } from '@/services/wor
 import { Bot, FileText, UserCheck } from 'lucide-react';
 import { IntegrationLogo } from '@/components/patterns';
 import { Link } from '@/libs/I18nNavigation';
-import { formatDate } from '@/libs/time/zone';
 import { timeAgo } from '@/libs/timeAgo';
 import { cn } from '@/utils/Helpers';
 
@@ -34,7 +33,7 @@ function MonthStat({ n, label }: { n: number; label: string }) {
   return (
     <div className="flex flex-col">
       <span className="text-lg leading-tight font-semibold tabular-nums">{n}</span>
-      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <span className="truncate text-[11px] text-muted-foreground">{label}</span>
     </div>
   );
 }
@@ -69,9 +68,9 @@ function AgentCard({ m, monthLabel }: { m: TeamMemberView; monthLabel: string })
         </div>
       </div>
       {m.owns && <p className="line-clamp-3 text-sm text-muted-foreground">{m.owns}</p>}
-      <div className="grid grid-cols-4 gap-2 border-t border-border/70 pt-3" aria-label={`${m.name} in ${monthLabel}`}>
+      <div className="grid grid-cols-4 gap-1 border-t border-border/70 pt-3" aria-label={`${m.name} in ${monthLabel}`}>
         <MonthStat n={m.month.conversations} label="Asks" />
-        <MonthStat n={m.month.documents} label="Documents" />
+        <MonthStat n={m.month.documents} label="Docs" />
         <MonthStat n={m.month.proposals} label="Proposed" />
         <MonthStat n={m.month.approved} label="Approved" />
       </div>
@@ -147,7 +146,7 @@ export function TeamBlock({ title, team }: { title: string; team: TeamBlockView 
 
 function Arrow() {
   return (
-    <svg aria-hidden viewBox="0 0 32 16" className="h-4 w-8 shrink-0 text-muted-foreground/70 max-lg:my-1 max-lg:rotate-90">
+    <svg aria-hidden viewBox="0 0 32 16" className="h-4 w-8 shrink-0 self-center text-muted-foreground/70 max-lg:my-1 max-lg:rotate-90">
       <path d="M1 8h26" stroke="currentColor" strokeWidth="1.5" fill="none" />
       <path d="M22 3l6 5-6 5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round" />
     </svg>
@@ -162,7 +161,7 @@ function stepWhen(s: FlowStepView, now: number, timeZone: string): string[] {
     : m?.lastCheck
       ? `Last ran ${timeAgo(m.lastCheck.at, now)}`
       : m?.nextRun
-        ? `Next run ${formatDate(m.nextRun, timeZone)}`
+        ? `Next run ${new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short', month: 'short', day: 'numeric' }).format(m.nextRun)}`
         : null;
   return [cadence, status].filter((x): x is string => Boolean(x));
 }
@@ -173,7 +172,7 @@ function StepNode({ s, n, now, timeZone }: { s: FlowStepView; n: number; now: nu
     <div
       data-testid={`flow-step-${n}`}
       className={cn(
-        'flex min-w-0 flex-1 flex-col gap-2 rounded-xl border bg-card p-4',
+        'flex min-w-0 flex-1 flex-col gap-2 self-stretch rounded-xl border bg-card p-4 max-lg:w-full',
         human ? 'border-[var(--brand-teal)]/50 bg-[var(--brand-teal-tint)]/40' : 'border-border',
       )}
     >
@@ -204,9 +203,9 @@ function StepNode({ s, n, now, timeZone }: { s: FlowStepView; n: number; now: nu
       {(s.produced.length > 0 || (s.links?.length ?? 0) > 0) && (
         <div className="mt-auto flex flex-col gap-1 border-t border-border/70 pt-2">
           {s.produced.map(a => (
-            <Link key={a.id} href={`/dashboard/artifacts/${a.id}`} className="inline-flex min-w-0 items-center gap-1.5 text-xs hover:underline">
-              <FileText className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-              <span className="truncate">{a.title}</span>
+            <Link key={a.id} href={`/dashboard/artifacts/${a.id}`} className="inline-flex min-w-0 items-start gap-1.5 text-xs hover:underline">
+              <FileText className="mt-px size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="line-clamp-2">{a.title}</span>
             </Link>
           ))}
           {s.links?.map(l => (
@@ -243,7 +242,7 @@ export function FlowBlock({ title, steps, now, timeZone }: { title: string; step
       </p>
       <div className="flex items-stretch max-lg:flex-col max-lg:items-center lg:gap-1">
         {steps.map((s, i) => (
-          <div key={`${i}-${s.title}`} className="flex min-w-0 flex-1 items-center max-lg:w-full max-lg:flex-col">
+          <div key={`${i}-${s.title}`} className="flex min-w-0 flex-1 items-stretch max-lg:w-full max-lg:flex-col max-lg:items-center">
             <StepNode s={s} n={i + 1} now={now} timeZone={timeZone} />
             {i < steps.length - 1 && <Arrow />}
           </div>
