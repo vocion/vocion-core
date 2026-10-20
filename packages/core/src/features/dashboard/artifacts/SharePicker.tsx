@@ -3,7 +3,7 @@
 import type { ShareAudience } from '@/libs/share/audience';
 import { Check, Globe, Link2, Lock, Users } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client } from '@/libs/Orpc';
 import { SHARE_AUDIENCE_COPY, SHARE_AUDIENCES } from '@/libs/share/audience';
@@ -26,8 +26,12 @@ const ICON: Record<ShareAudience, typeof Lock> = { me: Lock, workspace: Users, a
  * @param props.dashboardHref - The signed-in link (`/dashboard/artifacts/<id>`, workspace-prefixed when known).
  * @param props.workspaceName - Named in the workspace row's hint.
  * @param props.className
+ * @param props.labeled - Draw the trigger as a "Share" button that names the
+ *   current audience ("Share · Workspace"), for a header with room for it —
+ *   the artifact's own page and pane. The bare link icon read as decoration
+ *   (Chris, 2026-10-20: "can we show … share?").
  */
-export function SharePicker({ artifactId, title, dashboardHref, workspaceName, className }: { artifactId: number; title: string; dashboardHref: string; workspaceName?: string | null; className?: string }) {
+export function SharePicker({ artifactId, title, dashboardHref, workspaceName, className, labeled }: { artifactId: number; title: string; dashboardHref: string; workspaceName?: string | null; className?: string; labeled?: boolean }) {
   const [open, setOpen] = useState(false);
   const [audience, setAudience] = useState<ShareAudience | null>(null);
   const [publicPath, setPublicPath] = useState<string | null>(null);
@@ -69,6 +73,14 @@ export function SharePicker({ artifactId, title, dashboardHref, workspaceName, c
     });
   };
 
+  // A labeled trigger names the audience, so it needs it before anyone opens
+  // the picker. One read, on mount; the icon-only trigger still reads on open.
+  useEffect(() => {
+    if (labeled) {
+      void load();
+    }
+  }, [labeled, load]);
+
   const Current = ICON[audience ?? 'workspace'];
 
   return (
@@ -86,9 +98,22 @@ export function SharePicker({ artifactId, title, dashboardHref, workspaceName, c
           <PopoverPrimitive.Trigger
             aria-label={`Share “${title}”`}
             data-testid="share-picker"
-            className={cn('flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground', className)}
+            className={cn(
+              labeled
+                ? 'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border px-2 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover data-[state=open]:bg-surface-hover'
+                : 'flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground',
+              className,
+            )}
           >
-            <Link2 className="size-4" aria-hidden />
+            {labeled
+              ? (
+                  <>
+                    <Current className="size-3.5 text-muted-foreground" aria-hidden />
+                    Share
+                    {audience && <span className="hidden font-normal text-muted-foreground @md/artifact:inline">{`· ${SHARE_AUDIENCE_COPY[audience].label}`}</span>}
+                  </>
+                )
+              : <Link2 className="size-4" aria-hidden />}
           </PopoverPrimitive.Trigger>
         </TooltipTrigger>
         <TooltipContent side="bottom" align="end" collisionPadding={8}>Share</TooltipContent>

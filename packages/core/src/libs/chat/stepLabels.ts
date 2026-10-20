@@ -41,6 +41,7 @@ const KNOWN: Record<string, StepLabels> = {
   verify_document: { running: 'Verifying the document…', done: 'Verified the document' },
   red_team_document: { running: 'Reading it as the buyer…', done: 'Read it as the buyer' },
   export_document_pdf: { running: 'Exporting the PDF…', done: 'Exported the PDF' },
+  export_artifact_xlsx: { running: 'Exporting the spreadsheet…', done: 'Exported the spreadsheet' },
   render_table: { running: 'Building the table…', done: 'Built the table' },
   render_chart: { running: 'Drawing the chart…', done: 'Drew the chart' },
   render_record: { running: 'Laying out the record…', done: 'Laid out the record' },

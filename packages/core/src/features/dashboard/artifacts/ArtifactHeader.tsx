@@ -25,7 +25,7 @@
 import type { ReactNode } from 'react';
 import type { ArtifactActionId, ArtifactSurface, ArtifactTabDescriptor, ArtifactTabId } from './headerRules';
 import type { ArtifactKind } from '@/libs/cards/specs';
-import { ArrowLeft, Code2, Download, ExternalLink, FileDown, FileText, MessageSquareText, Pencil, Save, ShieldAlert, X } from 'lucide-react';
+import { ArrowLeft, Code2, Download, ExternalLink, FileDown, FileSpreadsheet, FileText, MessageSquareText, Pencil, Save, ShieldAlert, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -80,6 +80,9 @@ export type ArtifactHeaderProps = {
   conversationId?: number | null;
   pdfHref?: string | null;
   pdfPages?: number | null;
+  /** The spreadsheet downloads (`tableExportHref`). */
+  xlsxHref?: string | null;
+  csvHref?: string | null;
   openHref?: string | null;
   onClose?: () => void;
   /**
@@ -326,7 +329,7 @@ function HeaderAction({ id, ...props }: { id: ArtifactActionId } & ArtifactHeade
         : null;
     case 'share':
       return props.shareHref
-        ? <SharePicker artifactId={props.artifactId} title={props.title} dashboardHref={props.shareHref} className="size-7" />
+        ? <SharePicker artifactId={props.artifactId} title={props.title} dashboardHref={props.shareHref} labeled />
         : null;
     case 'chat':
       return <OpenInChat artifactId={props.artifactId} title={props.title} conversationId={props.conversationId ?? null} />;
@@ -336,6 +339,26 @@ function HeaderAction({ id, ...props }: { id: ArtifactActionId } & ArtifactHeade
             <IconAction label={props.pdfPages == null ? 'PDF' : `PDF · ${props.pdfPages} ${props.pdfPages === 1 ? 'page' : 'pages'}`}>
               <a href={props.pdfHref} target="_blank" rel="noreferrer" className={ICON_BUTTON} aria-label="Open the PDF" data-document-pdf>
                 <FileDown className="size-3.5" aria-hidden />
+              </a>
+            </IconAction>
+          )
+        : null;
+    case 'spreadsheet':
+      return props.xlsxHref
+        ? (
+            <IconAction label="Download as Excel · opens in Google Sheets">
+              <a href={props.xlsxHref} download className={ICON_BUTTON} aria-label="Download the tables as an Excel workbook" data-artifact-xlsx>
+                <FileSpreadsheet className="size-3.5" aria-hidden />
+              </a>
+            </IconAction>
+          )
+        : null;
+    case 'csv':
+      return props.csvHref
+        ? (
+            <IconAction label="Download as CSV">
+              <a href={props.csvHref} download className={ICON_BUTTON} aria-label="Download the table as CSV" data-artifact-csv>
+                <FileText className="size-3.5" aria-hidden />
               </a>
             </IconAction>
           )

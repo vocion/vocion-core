@@ -109,6 +109,17 @@ describe('actionsFor', () => {
     expect(actions).toEqual(['chat', 'pdf']);
   });
 
+  it('offers the spreadsheet download wherever there are tables, /open included, and CSV only for a table', () => {
+    for (const surface of ['pane', 'page', 'open'] as const) {
+      expect(actionsFor(surface, { ...DOC, hasTables: true })).toContain('spreadsheet');
+      expect(actionsFor(surface, { ...DOC, hasTables: true })).not.toContain('csv');
+      expect(actionsFor(surface, DOC)).not.toContain('spreadsheet');
+    }
+
+    expect(actionsFor('page', { kind: 'table', hasTables: true })).toEqual(expect.arrayContaining(['spreadsheet', 'csv']));
+    expect(actionsFor('pane', { kind: 'chart' })).not.toContain('spreadsheet');
+  });
+
   it('agrees with itself: every surface draws the verbs it has in the same order', () => {
     const pane = actionsFor('pane', { ...DOC, hasPdf: true, closable: true }).filter(a => a !== 'close');
     const page = actionsFor('page', { ...DOC, hasPdf: true }).filter(a => a !== 'chat');

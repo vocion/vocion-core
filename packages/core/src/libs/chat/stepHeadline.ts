@@ -16,7 +16,7 @@ export type HeadlineStep = {
   tool?: string;
 };
 
-const ARTIFACT_TOOLS = new Set(['render_markdown', 'render_document', 'edit_document', 'export_document_pdf', 'render_table', 'render_chart', 'render_record', 'create_artifact', 'update_artifact']);
+const ARTIFACT_TOOLS = new Set(['render_markdown', 'render_document', 'edit_document', 'export_document_pdf', 'export_artifact_xlsx', 'render_table', 'render_chart', 'render_record', 'create_artifact', 'update_artifact']);
 
 function lower(s: string): string {
   return s.replace(/^→\s*/, '').replace(/^./, c => c.toLowerCase());

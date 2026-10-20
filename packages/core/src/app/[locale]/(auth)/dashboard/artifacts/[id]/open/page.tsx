@@ -3,6 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { ArtifactHeader } from '@/features/dashboard/artifacts/ArtifactHeader';
 import { actionsFor } from '@/features/dashboard/artifacts/headerRules';
+import { hasExportableTables, tableExportHref } from '@/libs/artifacts/tableExportAvailability';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { canOpenArtifact } from '@/libs/share/audience';
 import { getArtifact } from '@/services/ArtifactService';
@@ -44,6 +45,7 @@ export default async function OpenDocumentPage(props: { params: Promise<{ locale
   }
   const verification = (row.spec as { verification?: DocumentVerification }).verification;
   const pages = verification?.pdfPages;
+  const hasTables = hasExportableTables({ kind: row.kind, spec: row.spec });
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-document-open-page>
@@ -55,11 +57,12 @@ export default async function OpenDocumentPage(props: { params: Promise<{ locale
         versionLine={`v${row.currentVersion}`}
         tabs={[]}
         tab="document"
-        actions={actionsFor('open', { kind: 'document', hasPdf: Boolean(verification?.pdf) })}
+        actions={actionsFor('open', { kind: 'document', hasPdf: Boolean(verification?.pdf), hasTables })}
         backHref={`/dashboard/artifacts/${row.id}`}
         conversationId={row.conversationId ?? null}
         pdfHref={verification?.pdf ?? null}
         pdfPages={pages ?? null}
+        xlsxHref={hasTables ? tableExportHref(row.id, 'xlsx') : null}
         className="rounded-t-xl border border-b-0 border-border/70"
       />
       <iframe
