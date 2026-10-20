@@ -32,13 +32,17 @@ export async function workspacePathForProject(projectId: string): Promise<string
  * @param projectId
  */
 export async function workspaceFolderForProject(projectId: string): Promise<{ path: string; explicit: boolean } | null> {
+  const map = process.env.VOCION_WORKSPACE_MAP ?? '';
+  if (!map) {
+    const path = getWorkspacePath();
+    return path ? { path, explicit: false } : null;
+  }
   const [proj] = await db
     .select({ slug: projectSchema.slug })
     .from(projectSchema)
     .where(eq(projectSchema.id, projectId))
     .limit(1);
-  const map = process.env.VOCION_WORKSPACE_MAP ?? '';
-  if (proj && map) {
+  if (proj) {
     for (const pair of map.split(',')) {
       const idx = pair.indexOf(':');
       if (idx > 0 && pair.slice(0, idx).trim() === proj.slug) {
