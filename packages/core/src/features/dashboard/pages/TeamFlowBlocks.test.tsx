@@ -47,7 +47,7 @@ describe('team block', () => {
     render(<TeamBlock title="The team" team={TEAM} />);
 
     await expect.element(page.getByTestId('team-agent-controller')).toHaveTextContent('Lead');
-    await expect.element(page.getByTestId('team-agent-controller')).toHaveTextContent('12Asks');
+    await expect.element(page.getByTestId('team-agent-controller')).toHaveTextContent('12Asks4Docs');
     await expect.element(page.getByTestId('team-agent-bookkeeper')).toHaveTextContent('+1 more');
     await expect.element(page.getByTestId('team-agent-analyst')).toHaveTextContent('Google Drive');
     await expect.element(page.getByTestId('team-block')).toHaveTextContent('Accountable: Dana Reyes');

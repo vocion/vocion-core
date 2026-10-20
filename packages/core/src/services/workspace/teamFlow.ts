@@ -110,7 +110,7 @@ async function monthCounts(orgId: string, slugs: string[], since: Date): Promise
  * @param now - The clock.
  * @param timeZone - The workspace's zone.
  */
-export async function loadTeamBlock(orgId: string, block: Pick<PageBlock, 'team' | 'systems' | 'agents'>, now: Date, timeZone: string): Promise<TeamBlockView | null> {
+export async function loadTeamBlock(orgId: string, block: Pick<PageBlock, 'team' | 'systems' | 'agents' | 'accountable'>, now: Date, timeZone: string): Promise<TeamBlockView | null> {
   const teams = await listTeams(orgId);
   const team = (block.team ? teams.find(t => t.slug === block.team) : teams[0]) ?? null;
   if (!team) {
@@ -177,7 +177,7 @@ export async function loadTeamBlock(orgId: string, block: Pick<PageBlock, 'team'
   return {
     name: team.name,
     goal: team.description,
-    accountable: team.accountable ? (team.accountable.name ?? team.accountable.email) : null,
+    accountable: block.accountable ?? (team.accountable ? (team.accountable.name ?? team.accountable.email) : null),
     lead,
     members,
     monthLabel: label,
