@@ -1,6 +1,5 @@
 import type { PageBlock } from '@/libs/workspace/pageFields';
 import { BLOCK_TITLE, CheckLogBlock, MonitorsBlock } from './MonitorBlocks';
-import { FlowBlock, TeamBlock } from './TeamFlowBlocks';
 /**
  * A page's blocks at one position, read and drawn (kept apart from the
  * drawing so a component test never bundles the server reads). Renders nothing when the
@@ -23,7 +22,7 @@ export async function PageMonitorBlocks({ orgId, blocks, position, plugin, now }
   const drawn = await Promise.all(here.map(async (b, i) => {
     const title = b.title ?? BLOCK_TITLE[b.kind];
     if (b.kind === 'team' || b.kind === 'flow') {
-      const { loadFlowBlock, loadTeamBlock } = await import('@/services/workspace/teamFlow');
+      const [{ loadFlowBlock, loadTeamBlock }, { FlowBlock, TeamBlock }] = await Promise.all([import('@/services/workspace/teamFlow'), import('./TeamFlowBlocks')]);
       return b.kind === 'team'
         ? <TeamBlock key={`${b.kind}-${i}`} title={title} team={await loadTeamBlock(orgId, b, new Date(now), timeZone)} />
         : <FlowBlock key={`${b.kind}-${i}`} title={title} steps={await loadFlowBlock(orgId, b.steps ?? [], new Date(now))} now={now} timeZone={timeZone} />;
