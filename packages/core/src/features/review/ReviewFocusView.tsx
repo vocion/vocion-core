@@ -13,6 +13,7 @@ import { decisionCrumbs } from '@/features/dashboard/inbox/inboxMeta';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
+import { alignmentPhrase } from './alignmentPhrase';
 import { describeAction } from './describeAction';
 import { ReviewHeader } from './ReviewHeader';
 import { itemTitle, queuePosition, typeLabel } from './reviewQueueModel';
@@ -295,9 +296,9 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
             )}
             {/* The alignment score: confidence is how sure the agent is; this is
                 how often you agreed with this kind of recommendation (0099). */}
-            {current.alignment && current.alignment.n > 0 && current.alignment.agreementRate !== null && (
-              <p data-testid="alignment-score" className="border-b border-rule py-3 text-[13px] text-muted-foreground tabular-nums" title={`${current.alignment.n} decided recommendations of this kind in the last 30 days`}>
-                {`Agrees with you ${Math.round(current.alignment.agreementRate * 100)}% · n=${current.alignment.n}`}
+            {alignmentPhrase(current.alignment) && (
+              <p data-testid="alignment-score" className="border-b border-rule py-3 text-[13px] text-muted-foreground tabular-nums">
+                {alignmentPhrase(current.alignment)!.long}
               </p>
             )}
             {current.input.draft === true && (

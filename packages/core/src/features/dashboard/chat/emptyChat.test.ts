@@ -66,6 +66,8 @@ describe('your team is here (founder, 2026-10-09)', () => {
     expect(teamLine({ workspace: 'Northwind', members: [lead, analyst] }, t)).toBe('team_on_it {"workspace":"Northwind"}');
     expect(teamLine({ workspace: 'Personal', members: [{ slug: 'assistant', name: 'Assistant' }] }, t)).toBe('agent_on_it {"name":"Assistant"}');
     expect(teamLine({ workspace: 'Northwind', members: [] }, t)).toBeNull();
+    // A workspace already named "… Team" is the team, never "Finance Team's team".
+    expect(teamLine({ workspace: 'Finance Team', members: [lead, analyst] }, t)).toBe('named_team_on_it {"workspace":"Finance Team"}');
 
     // A lead with a given name speaks for the team; the composer still asks the team.
     const ava = { slug: 'workspace-lead', name: 'Ava', givenName: 'Ava', leadLabel: 'Ava · Revenue lead' };

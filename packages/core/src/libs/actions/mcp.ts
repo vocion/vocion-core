@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { callMcpTool, listMcpTools, mcpCredentialsOf, validateMcpInput, withMcp } from '@/libs/outboundMcp/client';
 import { loadMcpSources } from '@/libs/outboundMcp/sources';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
+import { approveVerb, changeRows, firstSentence, shortTitle } from './mcpCard';
 
 const inputSchema = z.object({
   sourceSlug: z.string().min(1),
@@ -41,14 +42,27 @@ export const mcpCallAction: Action<typeof inputSchema> = {
       }
     });
   },
-  async reviewCard(_ctx, input) {
+  async reviewCard(ctx, input) {
+    const [source] = await loadMcpSources(ctx.orgId, [input.sourceSlug]).catch(() => []);
+    const system = source?.name ?? input.sourceSlug;
+    const rows = changeRows(input.input, input.summary);
+    const verb = approveVerb(system, input.sourceSlug, input.tool);
     return {
-      title: input.summary,
-      system: input.sourceSlug,
-      headline: input.summary,
-      fields: [{ label: 'Source', value: input.sourceSlug }, { label: 'Tool', value: input.tool }],
-      content: [{ kind: 'text', id: 'arguments', label: 'Exact arguments to execute', body: JSON.stringify(input.input, null, 2), preformatted: true }],
-      verbs: { approve: 'Execute', reject: 'Reject' },
+      title: shortTitle(input.summary),
+      system,
+      headline: firstSentence(input.summary),
+      fields: rows,
+      content: [
+        {
+          kind: 'text',
+          id: 'change',
+          label: 'What changes',
+          body: [...rows.map(r => `${r.label}: ${r.value}`), '', input.summary].join('\n').trim(),
+        },
+        { kind: 'text', id: 'arguments', label: 'Technical details', tabLabel: 'Technical details', body: `${input.tool} on ${input.sourceSlug}\n\n${JSON.stringify(input.input, null, 2)}`, preformatted: true },
+      ],
+      verbs: { approve: verb, reject: 'Reject' },
+      nextAction: `${verb.replace(/^Approve and /, '').replace(/^./, c => c.toUpperCase())} now. Nothing changes until you approve.`,
     };
   },
   async execute(ctx, input) {

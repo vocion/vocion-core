@@ -7,7 +7,7 @@ import { RowMenu } from '@/components/patterns/RowMenu';
 import { Badge } from '@/components/ui/badge';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
 import { Link } from '@/libs/I18nNavigation';
-import { fieldIsEmptyOn, interpolateHref, resolveField, resolveRowActionHref, subtitleLines, tableLayout } from '@/libs/workspace/pageFields';
+import { fieldIsEmptyOn, interpolateHref, resolveField, resolveRowActionHref, subtitleLines, subtitleNumberLabel, tableLayout } from '@/libs/workspace/pageFields';
 import { OriginChatLink } from './OriginChatLink';
 
 /**
@@ -167,7 +167,15 @@ function Fact({ row, field, now, links }: { row: PageRow; field: PageField; now:
   // A badge draws its tone in the pill itself; the dot is for a sentence.
   const tone = field.toneFrom && field.format !== 'badge' ? resolveField(row, field.toneFrom) : undefined;
   const dot = typeof tone === 'string' ? TONE_DOT[tone] : undefined;
-  const value = <FieldValue row={row} field={field} now={now} links={links} />;
+  const label = subtitleNumberLabel(row, field);
+  const value = label
+    ? (
+        <span>
+          {`${label}${label.endsWith('$') ? '' : ' '}`}
+          <FieldValue row={row} field={field} now={now} links={links} />
+        </span>
+      )
+    : <FieldValue row={row} field={field} now={now} links={links} />;
   const body = dot ? <StatusDot tone={dot} label={value} /> : value;
   const strong = field.emphasis === 'strong' ? 'text-sm font-medium text-foreground' : undefined;
   return to

@@ -158,19 +158,43 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
         const recordLinks = run.status === 'done' ? await recordLinksForOrg(orgId) : null;
         const made = recordLinks ? resultLinks(runShape, recordLinker(recordLinks), recordLinks.codes) : [];
         const by = run.decidedBy ? run.people?.[run.decidedBy] ?? null : null;
-        return (
-          <div className="mx-auto w-full max-w-3xl">
-            <ReviewHeader crumbs={decisionCrumbs('proposal', run.card?.subject?.name ?? desc.title)} title={run.card?.title ?? desc.title} system={run.card?.system ?? desc.system} status={run.status} proposedBy={run.invokedBy} confidence={run.proposal?.confidence} alignment={run.alignment} />
-            <p className="mt-4 text-sm text-muted-foreground" data-testid="proposal-receipt">
-              {run.status === 'rejected' ? 'Declined' : 'Approved'}
+        // A send says it was sent (or drafted), not just "Approved".
+        const mode = (run.result as { mode?: unknown } | null)?.mode;
+        const verdict = run.status === 'rejected' ? 'Declined' : run.status === 'done' && mode === 'sent' ? 'Sent' : run.status === 'done' && mode === 'draft' ? 'Draft created' : 'Approved';
+        const receipt = (
+          <>
+            <p className="text-sm text-muted-foreground" data-testid="proposal-receipt">
+              {verdict}
               {by ? ` by ${by}` : ''}
               {' · '}
-              {agoLabel(new Date(run.decidedAt ?? run.createdAt))}
+              {agoLabel(new Date(run.decidedAt ?? run.executedAt ?? run.createdAt))}
               {did ? ` — ${did}` : ''}
               {' · '}
               <Link href="/dashboard/inbox?tab=decided" className="underline-offset-2 hover:underline">All decided</Link>
             </p>
             <ResultLinks links={made} className="mt-2 text-sm" />
+          </>
+        );
+        // A decided card keeps what was decided, read-only: the message as it
+        // went (to, subject, body, attachments) or the change as it was made.
+        // A one-line receipt left a sent email with nothing on it to show what
+        // went (finance demo, 2026-10-20).
+        if (run.card) {
+          return (
+            <div className="min-w-0 flex-1">
+              <ReviewSurface
+                run={{ ...run, card: run.card }}
+                crumbs={decisionCrumbs('proposal', run.card.subject?.name ?? desc.title)}
+                decidable={false}
+                beforeTabs={<div className="py-3">{receipt}</div>}
+              />
+            </div>
+          );
+        }
+        return (
+          <div className="mx-auto w-full max-w-3xl">
+            <ReviewHeader crumbs={decisionCrumbs('proposal', desc.title)} title={desc.title} system={desc.system} status={run.status} proposedBy={run.invokedBy} confidence={run.proposal?.confidence} alignment={run.alignment} />
+            <div className="mt-4">{receipt}</div>
           </div>
         );
       }

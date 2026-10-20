@@ -2111,6 +2111,26 @@ export function shortUrlLabel(url: string): string {
 }
 
 /**
+ * The label a subtitle fact reads with, when its value alone says nothing.
+ *
+ * A subtitle is a line of values with no labels, which reads well for words
+ * ("Send · dogfood · healthy") and not at all for a bare number: the Finance
+ * close calendar's line read "5 · 500" (2026-10-20). A plain number in the
+ * subtitle carries its field's label in front ("Close by business day 5 ·
+ * Materiality $500"); money, dates, badges and words stay as they are.
+ * @param row - The row.
+ * @param field - The subtitle field.
+ */
+export function subtitleNumberLabel(row: PageRow, field: PageField): string | null {
+  if (field.format !== undefined && field.format !== 'text' && field.format !== 'mono') {
+    return null;
+  }
+  const value = resolveField(row, field.from ?? field.key);
+  const bare = typeof value === 'number' || (typeof value === 'string' && /^-?\d+(?:\.\d+)?$/.test(value.trim()));
+  return bare && field.label ? field.label : null;
+}
+
+/**
  * The subtitle's fields as LINES: a field that declared `breakBefore` starts
  * a new one. A break whose own field is empty on this row still breaks, so
  * the next fact does not run on into the line before it.

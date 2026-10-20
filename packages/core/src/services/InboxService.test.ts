@@ -303,6 +303,22 @@ describe('InboxService \u2014 the admission bar', () => {
     expect(await needsYouCount(ORG)).toBe(4);
   });
 
+  it('never hides a pending ledger write under an older failed one, and does not count the failure on the badge', async () => {
+    const now = Date.now();
+    // Finance inbox, 2026-10-20: a failed Oct 16 recategorization and a
+    // pending one share their account names, so the topic fold rooted the
+    // pair on the failure and the pending card was nowhere on the list.
+    await db.insert(actionRunSchema).values([
+      { orgId: ORG, actionId: 'mcp.call', status: 'failed', invokedBy: 'agent:bookkeeper', createdAt: new Date(now - 4 * day), error: 'QuickBooks HTTP 400', input: { tool: 'quickbooks_recategorize_expense', sourceSlug: 'finance-production', summary: 'Move Granola ($188.95, Oct 9) from Operations:AI Vendors to Operations:Software & SaaS (non-AI)', input: { expense_id: '6271', line_id: '1', to_account_id: '54', expected_account_id: '53' } }, proposal: { agentSlug: 'bookkeeper' } },
+      { orgId: ORG, actionId: 'mcp.call', status: 'pending', invokedBy: 'agent:bookkeeper', createdAt: new Date(now - 1 * day), input: { tool: 'quickbooks_recategorize_expense', sourceSlug: 'finance-production', summary: 'Reclaim, Oct 12, $96.00: move from Operations:Software & SaaS (non-AI) to Operations:AI Vendors', input: { expense_id: '6278', line_id: '1', to_account_id: '53', expected_account_id: '54' } }, proposal: { agentSlug: 'bookkeeper', confidence: 0.6 } },
+    ] as never);
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.items.map(i => i.status)).toEqual(['pending', 'failed']);
+    expect(await needsYouCount(ORG)).toBe(1);
+  });
+
   it('reports no reclassification on a tab that is not the open one', async () => {
     await upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: 'Own the release notes for the observability releases?' } });
 
