@@ -119,6 +119,61 @@ export const driveConnector: SourceConnector<typeof driveConfigSchema> = {
   },
 };
 
+/**
+ * One Drive file as the sync would yield it (same externalId, content and
+ * metadata, so an upsert of it is a no-op when nothing changed) — the miss
+ * path of `get_drive_file`. Returns null when Drive does not know the file or
+ * the connected identity cannot open it.
+ * @param input
+ * @param input.credentials
+ * @param input.orgId
+ * @param input.fileId
+ * @param input.baseUrl
+ */
+export async function fetchDriveFileDoc(input: {
+  credentials: Record<string, unknown>;
+  orgId: string;
+  fileId: string;
+  baseUrl?: string;
+}): Promise<IngestDoc | null> {
+  const baseUrl = input.baseUrl ?? 'https://www.googleapis.com/drive/v3';
+  const token = await resolveGoogleAccessToken(input.credentials, input.orgId);
+  const headers = { authorization: `Bearer ${token}` };
+  // A file on a shared drive answers 404 unless the request says it supports
+  // shared drives; saying so is harmless for My Drive files.
+  const shared = 'supportsAllDrives=true';
+  const metaRes = await fetch(`${baseUrl}/files/${encodeURIComponent(input.fileId)}?fields=id,name,mimeType,modifiedTime&${shared}`, { headers });
+  if (metaRes.status === 404 || metaRes.status === 403) {
+    return null;
+  }
+  if (!metaRes.ok) {
+    throw new Error(`Drive file lookup failed: ${metaRes.status}`);
+  }
+  const file = (await metaRes.json()) as DriveFile;
+  let content = '';
+  const exportMime = exportMimeFor(file.mimeType);
+  if (exportMime) {
+    const res = await fetch(`${baseUrl}/files/${file.id}/export?${new URLSearchParams({ mimeType: exportMime }).toString()}&${shared}`, { headers });
+    if (!res.ok) {
+      throw new Error(`Drive export failed: ${res.status}`);
+    }
+    content = await res.text();
+  } else if (file.mimeType.startsWith('text/')) {
+    const res = await fetch(`${baseUrl}/files/${file.id}?alt=media&${shared}`, { headers });
+    if (!res.ok) {
+      throw new Error(`Drive download failed: ${res.status}`);
+    }
+    content = await res.text();
+  }
+  return {
+    externalId: `drive:${file.id}`,
+    title: file.name,
+    content,
+    lastModifiedAt: file.modifiedTime ? new Date(file.modifiedTime) : null,
+    metadata: { kind: 'drive-file', mimeType: file.mimeType },
+  };
+}
+
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 /**

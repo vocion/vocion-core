@@ -43,6 +43,7 @@ import { discoveryTools } from './discovery';
 import { documentTools } from './documents';
 import { drawArchitectureTools } from './drawArchitecture';
 import { drawMockupTools } from './drawMockup';
+import { driveTools } from './driveFile';
 import { editArtifactTools } from './editArtifacts';
 import { extractRecordsTool } from './extractRecords';
 import { fetchImageTool } from './fetchImage';
@@ -334,9 +335,10 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ...mcpTools(ctx),
     // Source-gated — the PostHog daily mirror, summed. Empty without a posthog source.
     ...posthogCountTools(ctx),
-    // Source-gated read-through caches (zoom / gmail sources in scope).
+    // Source-gated read-through caches (zoom / gmail / drive sources in scope).
     ...zoomTools(ctx),
     ...gmailTools(ctx),
+    ...driveTools(ctx),
     ...calendarTools(ctx),
     // Granted-only (harness.grantTools) — empty for agents without the grant.
     ...discoveryTools(ctx),
