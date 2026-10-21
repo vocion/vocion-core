@@ -23,27 +23,33 @@ vi.mock('@/services/outboundMcp/personSignIn', async importOriginal => ({
       : { ok: false, why: 'not signed in', signIn: true };
   },
 }));
-const sessions = vi.hoisted(() => ({ tokens: [] as string[] }));
-vi.mock('@/libs/outboundMcp/client', async importOriginal => ({
-  ...await importOriginal<typeof import('@/libs/outboundMcp/client')>(),
-  withMcp: async (credentials: { token: string }, fn: (x: unknown) => unknown) => {
-    sessions.tokens.push(credentials.token);
-    return fn({});
-  },
-  listMcpTools: async () => [{ name: 'search', annotations: { readOnlyHint: true }, inputSchema: { type: 'object' } }],
-  callMcpTool: async () => ({ content: [{ type: 'text', text: 'found' }] }),
-}));
+const sessions = vi.hoisted(() => ({ tokens: [] as string[], refuse: false }));
+vi.mock('@/libs/outboundMcp/client', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/libs/outboundMcp/client')>();
+  return {
+    ...real,
+    withMcp: async (credentials: { token: string }, fn: (x: unknown) => unknown) => {
+      sessions.tokens.push(credentials.token);
+      if (sessions.refuse) {
+        throw new real.McpUnauthorized('MCP server refused the credential (401).');
+      }
+      return fn({});
+    },
+    listMcpTools: async () => [{ name: 'search', annotations: { readOnlyHint: true }, inputSchema: { type: 'object' } }],
+    callMcpTool: async () => ({ content: [{ type: 'text', text: 'found' }] }),
+  };
+});
 const { mcpTools } = await import('./mcpDirect');
 
 const emitted: Array<{ type: string; card?: { title: string; href?: string } }> = [];
 function context(userId?: string): RuntimeContext {
-  return { orgId: 'org', userId, conversationId: 42, connectorSources: ['knowledge'], sourceKinds: { knowledge: 'mcp' }, emit: (event: { type: string }) => emitted.push(event) } as unknown as RuntimeContext;
+  return { orgId: 'org', userId, conversationId: 42, connectorSources: ['knowledge'], sourceKinds: { knowledge: 'mcp' }, mcpSources: [{ slug: 'knowledge', name: 'Company Knowledge', readTools: ['search', 'query_ad_report'], perPerson: true }], emit: (event: { type: string }) => emitted.push(event) } as unknown as RuntimeContext;
 }
 
 describe('a per-person MCP source', () => {
   beforeEach(() => {
     Object.assign(signIn, { users: [], signedIn: true });
-    Object.assign(sessions, { tokens: [] });
+    Object.assign(sessions, { tokens: [], refuse: false });
     workspaceToken.reads = 0;
     emitted.length = 0;
   });
@@ -74,5 +80,21 @@ describe('a per-person MCP source', () => {
     expect(href.pathname).toBe('/api/connect/mcp/start');
     expect(Object.fromEntries(href.searchParams)).toMatchObject({ workspace: 'org', source: 'knowledge', returnTo: '/dashboard/chat?conversation=42', conversation: '42' });
     expect(sessions.tokens).toEqual([]);
+  });
+
+  it('names what each assigned server reads in the tools themselves', () => {
+    const tools = mcpTools(context('usr-alex'));
+
+    for (const name of ['mcp_list_tools', 'mcp_read']) {
+      expect(tools.find(t => t.name === name)!.description).toContain('knowledge (Company Knowledge, read as the person asking) reads search, query_ad_report');
+    }
+  });
+
+  it('offers the sign-in card again when the server refuses the person\'s grant', async () => {
+    sessions.refuse = true;
+    const read = mcpTools(context('usr-alex')).find(t => t.name === 'mcp_read')!;
+
+    expect(JSON.parse(await read.invoke({ sourceSlug: 'knowledge', name: 'search', input: {} }) as string)).toMatchObject({ isError: true, error: expect.stringContaining('sign-in card') });
+    expect(emitted).toHaveLength(1);
   });
 });
