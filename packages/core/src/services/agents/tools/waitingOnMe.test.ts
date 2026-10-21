@@ -141,8 +141,12 @@ describe('waiting_on_me', () => {
   });
 
   it('answers with the typed list, in the order to take it, and tells the model not to search', async () => {
+    // The tool reads the clock itself: pinned to the fixtures' day, or the follow-up decided on
+    // Oct 7 falls out of its 14-day window as the calendar moves (it did on 2026-10-21).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
     const [t] = waitingOnMeTools(ctxFor(alexHome, 'personal'));
-    const out = String(await t!.invoke({}));
+    const out = String(await t!.invoke({}).finally(() => vi.useRealTimers()));
 
     expect(out).toMatch(/do not search/);
     expect(out.indexOf('Approve the Contoso Supply change order')).toBeLessThan(out.indexOf('Send the Northwind renewal quote'));
