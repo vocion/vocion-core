@@ -166,7 +166,7 @@ describe('typed words are judged against the open Decision before routing', () =
     expect(opts.message).toContain('Answered in their own words: 1 and 3');
   });
 
-  it('a genuinely new topic routes as usual, is read for intent as usual, and is told the Decision still waits', async () => {
+  it('a genuinely new topic routes as usual, is read for intent as usual, and sets the ask it moved past aside', async () => {
     const { conv, view } = await threadWithAQuestion();
     decisionRead.mockResolvedValueOnce({ kind: 'none', option_ids: [], free_text: null });
     await turn({ conversation_id: conv.id, message: 'what did Northwind say yesterday?', agent_slug: 'revenue-lead' });
@@ -175,8 +175,8 @@ describe('typed words are judged against the open Decision before routing', () =
     expect(opts.agentSlug).toBe('revenue-lead');
     expect(opts.intent).toBeUndefined();
     expect(opts.message).toContain('what did Northwind say yesterday?');
-    expect(opts.message).toContain(`Decision #${view.id} ("Which area should the factory start on?") is still docked`);
-    expect((await openDecisions(ORG, conv.id)).map(d => d.id)).toEqual([view.id]);
+    expect(opts.message).toContain(`Decision #${view.id} ("Which area should the factory start on?"), so it was set aside`);
+    expect((await openDecisions(ORG, conv.id)).map(d => d.id)).toEqual([]);
   });
 
   it('a conversation with nothing open is never read against anything', async () => {
