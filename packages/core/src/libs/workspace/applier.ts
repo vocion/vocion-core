@@ -1841,6 +1841,7 @@ async function upsertSource(orgId: string, src: LoadedSource, mode: ApplyMode, k
 function specForSource(src: LoadedSource): SourceUpsertSpec {
   return {
     slug: src.slug,
+    name: src.name,
     kind: src.kind,
     config: src.config,
     enabled: src.enabled,

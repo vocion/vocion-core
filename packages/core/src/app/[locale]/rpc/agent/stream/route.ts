@@ -156,7 +156,7 @@ export async function POST(request: Request): Promise<Response> {
   // answer is recorded as it is, and a typed message in a conversation with
   // an open Decision is read against it. An answer goes to the agent that
   // asked; only a message that is not one routes as usual.
-  const { answersFirst, stillOpenNote } = await import('@/services/decisions/answersFirst');
+  const { answersFirst, setAsideNote, stillOpenNote } = await import('@/services/decisions/answersFirst');
   const visibleConversation = conversationIdAsked !== null ? await existingRead : null;
   const first = await answersFirst({ orgId, userId, conversationId: visibleConversation?.id ?? null, message, wire: body.decision_answer });
   if (first.kind === 'refused') {
@@ -321,7 +321,7 @@ export async function POST(request: Request): Promise<Response> {
     ? answerText!
     : answered
       ? `${message}\n\n${answerText}`
-      : first.kind === 'none' && first.open ? `${message}${stillOpenNote(first.open)}` : message;
+      : first.kind === 'none' && first.open ? `${message}${first.setAside ? setAsideNote(first.open) : stillOpenNote(first.open)}` : message;
   let absenceCorrected = false;
   const { correctionNote, detectCorrection, reflectOnCorrection } = await import('@/services/chat/correctionReflector');
   const correction = answered ? null : detectCorrection([...conversationHistory].reverse().find(t => t.role === 'assistant')?.content, message);
@@ -575,6 +575,10 @@ export async function POST(request: Request): Promise<Response> {
       // The answer, as a fact the dock reads: the card leaves, the receipt
       // stays. When the chosen option ran an action, its Done line comes
       // with it — Undo only where that kind has one.
+      // An ask they moved past leaves the dock too, set aside.
+      if (first.kind === 'none' && first.setAside) {
+        writeEvent({ type: 'decision', decision: first.setAside.view });
+      }
       if (answered) {
         writeEvent({ type: 'decision', decision: answered.answered.view });
         const effect = answered.answered.effect;

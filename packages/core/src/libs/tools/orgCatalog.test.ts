@@ -225,3 +225,27 @@ describe('toolTitle', () => {
 it('seeded the second REST source', () => {
   expect(cmsId).toBeGreaterThan(0);
 });
+
+describe('a remote MCP server', () => {
+  const MCP_ORG = 'org_tool_catalog_mcp';
+
+  beforeAll(async () => {
+    await db.insert(projectSchema).values({ id: MCP_ORG, accountId: 'acct_catalog', slug: 'northwind-catalog-mcp', name: 'Northwind Finance', enabledPlugins: [] });
+    await db.insert(knowledgeSourceSchema).values({ orgId: MCP_ORG, slug: 'company-knowledge', kind: 'plugin', configJson: { _connector: 'mcp', _name: 'Company Knowledge', auth: 'person', url: 'https://knowledge.northwind.example/mcp', readTools: ['search_knowledge', 'get_document'] } });
+    await db.insert(agentSchema).values({ orgId: MCP_ORG, slug: 'controller', name: 'Controller', systemPrompt: 'Close the books.', connectorSources: ['company-knowledge'], objectTypeSlugs: [], harnessConfig: {} });
+  });
+
+  it('is its own family of declared reads, namespaced by source, held by the agents assigned to it', async () => {
+    credentialStatusForOrg.mockResolvedValue({ bySourceId: {}, byConnectorSlug: {} });
+    const catalog = await toolCatalogForOrg(MCP_ORG, { withStatuses: false });
+    const family = catalog.families.find(f => f.id === 'mcp:company-knowledge')!;
+
+    expect(family).toMatchObject({ kind: 'mcp', label: 'Company Knowledge', readiness: { ready: true } });
+    expect(family.tools.map(t => [t.name, t.title, t.agents])).toEqual([
+      ['company-knowledge.search_knowledge', 'Search knowledge', ['controller']],
+      ['company-knowledge.get_document', 'Get document', ['controller']],
+    ]);
+    expect(catalog.families.find(f => f.kind === 'workspace')?.tools.map(t => t.name) ?? []).not.toContain('mcp_read');
+    expect(catalogToolByName(catalog, 'search_knowledge')?.family.id).not.toBe('mcp:company-knowledge');
+  });
+});

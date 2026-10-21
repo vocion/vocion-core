@@ -80,7 +80,7 @@ export function mcpTools(ctx: RuntimeContext) {
         card: { id: cardId, kind: 'link', title: `Sign in to ${source.name}`, actions: [], source: { agentSlug: ctx.agentSlug, tool: 'mcp_read' }, href: signInPath(source, { conversationId: ctx.conversationId, cardId }), hrefLabel: 'Sign in', state: 'proposed' },
       });
     }
-    return `${source.name} answers each person as themselves, and this person has not signed in to it yet. A sign-in card is docked above their composer: say in one line that they sign in there once (it covers every workspace) and then ask again. Do not retry, and do not answer from other sources as if it were this one. No tool was called.`;
+    return `${source.name} answers each person as themselves, and this person has not signed in to it yet. A sign-in card is docked above their composer: say in one line that they sign in there once (it covers every workspace). When the card comes back answered (they chose Sign in), they are signed in: call this tool again at once and carry on with what they asked. Never ask them to ask again, and do not answer from other sources as if it were this one. No tool was called.`;
   }
   return [
     tool(async ({ sourceSlug }) => {

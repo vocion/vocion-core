@@ -50,15 +50,20 @@ export type PersonMcpSource = { orgId: string; slug: string; name: string; url: 
  * @param from - The conversation and card the sign-in was offered in, if any.
  * @param from.conversationId - The conversation.
  * @param from.cardId - The sign-in card.
+ * @param from.returnTo - Where to land when the sign-in was not offered in chat.
  */
-export function signInPath(source: Pick<PersonMcpSource, 'orgId' | 'slug'>, from: { conversationId?: number; cardId?: string } = {}): string {
-  const params = new URLSearchParams({ workspace: source.orgId, source: source.slug });
+export function signInPath(source: Pick<PersonMcpSource, 'orgId' | 'slug'>, from: { conversationId?: number; cardId?: string; returnTo?: string } = {}): string {
+  // `connector` names the source the way every connect link does, so the chat
+  // card's step is answered on the way back (`useAnswerOnConnectReturn`).
+  const params = new URLSearchParams({ workspace: source.orgId, source: source.slug, connector: source.slug });
   if (from.conversationId) {
     params.set('returnTo', `/dashboard/chat?conversation=${from.conversationId}`);
     params.set('conversation', String(from.conversationId));
     if (from.cardId) {
       params.set('card', from.cardId);
     }
+  } else if (from.returnTo) {
+    params.set('returnTo', from.returnTo);
   }
   return `/api/connect/mcp/start?${params}`;
 }
@@ -198,4 +203,35 @@ export async function personMcpCredentials(input: { source: PersonMcpSource; use
     return { ok: false, why: `Your sign-in to ${source.name} has run out. Give the person this link to sign in again: [Sign in to ${source.name}](${signInLink(source)}). No tool was called.`, signIn: true };
   }
   return { ok: true, credentials: mcpCredentialsOf(grant) };
+}
+
+/**
+ * Whether the person has a live sign-in to an endpoint.
+ * @param userId - The person.
+ * @param url - The MCP endpoint.
+ */
+export async function personSignedIn(userId: string, url: string): Promise<boolean> {
+  return (await readGrant(userId, mcpEndpoint(url))) !== null;
+}
+
+/**
+ * Forget the person's sign-in to an endpoint: deleted, not revoked, as a
+ * disconnected personal grant is (`forgetLogins`). Every workspace that
+ * declares the endpoint asks them to sign in again.
+ * @param userId - The person.
+ * @param url - The MCP endpoint.
+ * @returns How many grants were deleted.
+ */
+export async function forgetPersonGrant(userId: string, url: string): Promise<number> {
+  const personal = await findPersonalProject(userId);
+  if (!personal) {
+    return 0;
+  }
+  const deleted = await db.delete(apiTokenSchema).where(and(
+    eq(apiTokenSchema.orgId, personal.id),
+    eq(apiTokenSchema.platform, GRANT_PLATFORM),
+    eq(apiTokenSchema.account, mcpEndpoint(url)),
+    eq(apiTokenSchema.obtainedVia, 'login'),
+  )).returning({ id: apiTokenSchema.id });
+  return deleted.length;
 }

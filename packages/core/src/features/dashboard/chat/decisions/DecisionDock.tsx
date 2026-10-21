@@ -3,13 +3,15 @@
 import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import type { DoneReceipt } from '@/libs/decisions/receipt';
 import { X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ConnectSystemsFlow } from '@/features/dashboard/connect-systems/ConnectSystemsFlow';
 import { startConnectSystems, useConnectSystems } from '@/features/dashboard/connect-systems/launch';
 import { forgetWalk, recallWalk, rememberWalk } from '@/features/dashboard/connect-systems/walkMemory';
 import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
 import { decisionKey } from '@/libs/decisions/decision';
+import { isConnectStart, listenForConnectReturn, openConnectTab } from '../connectTabHandoff';
 import { dockPlan } from '../emptyChat';
+import { stepForConnector } from '../useAnswerOnConnectReturn';
 import { WaitingNudge } from '../WaitingNudge';
 import { DecisionCard } from './DecisionCard';
 import { DoneReceipts } from './DoneReceipts';
@@ -176,6 +178,30 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
       forgetWalk(conversationId);
     }
   }, [walking, conversationId, openIds]);
+  // A sign-in opened in its own tab: the card waits here, and the step is
+  // answered here when that tab hands the outcome back (`connectTabHandoff.ts`).
+  const [waitingTab, setWaitingTab] = useState(false);
+  const [tabNotice, setTabNotice] = useState<string | null>(null);
+  const decisionsRef = useRef(session.openDecisions);
+  const answerRef = useRef(session.answerDecision);
+  useEffect(() => {
+    decisionsRef.current = session.openDecisions;
+    answerRef.current = session.answerDecision;
+  });
+  useEffect(() => listenForConnectReturn((outcome) => {
+    const step = stepForConnector(decisionsRef.current, outcome.connector);
+    if (!step) {
+      return false;
+    }
+    setWaitingTab(false);
+    if (outcome.ok) {
+      setTabNotice(null);
+      answerRef.current(step.view, { kind: 'option', optionIds: [step.optionId] });
+    } else {
+      setTabNotice(`That didn't connect (${outcome.reason ?? 'no reason given'}). Try again from the card.`);
+    }
+    return true;
+  }), []);
   if (walk.active) {
     const active = walk.active;
     return (
@@ -218,13 +244,22 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
     <DecisionDock
       decisions={plan.own}
       waiting={plan.elsewhere}
-      notice={session.dockNotice}
-      onDismissNotice={session.dismissDockNotice}
+      notice={waitingTab ? { line: 'Finish signing in in the new tab. This card updates when you are done.' } : tabNotice ? { line: tabNotice } : session.dockNotice}
+      onDismissNotice={() => {
+        if (waitingTab || tabNotice) {
+          setWaitingTab(false);
+          setTabNotice(null);
+        } else {
+          session.dismissDockNotice();
+        }
+      }}
       onAnswer={session.answerDecision}
       onOpen={(href, decision) => {
         const input = connectSystemsInputOfHref(href);
         if (input) {
           startConnectSystems({ input, decisionId: decision.id });
+        } else if (isConnectStart(href) && openConnectTab(href)) {
+          setWaitingTab(true);
         } else {
           window.location.assign(href);
         }

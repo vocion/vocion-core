@@ -1,3 +1,5 @@
+import type { ContextRef } from './types';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
@@ -360,6 +362,53 @@ describe('ChatComposer @artifact and the (+) menu', () => {
     // The mention never reaches the model as text — the chip carries it, the
     // way every other ref does.
     expect(onChange).toHaveBeenCalledWith('');
+  });
+
+  it('keeps a picked record tag inline in the text, underlined, and untags it when it is deleted', async () => {
+    const team = { type: 'team' as const, id: 'revenue', label: 'Revenue' };
+    const onAddTag = vi.fn();
+    const onRemoveTag = vi.fn();
+    const onChange = vi.fn();
+    function Harness() {
+      const [value, setValue] = useState('ask @reve');
+      const [tags, setTags] = useState<ContextRef[]>([]);
+      return (
+        <ChatComposer
+          value={value}
+          onChange={(v) => {
+            onChange(v);
+            setValue(v);
+          }}
+          onSubmit={() => {}}
+          tags={tags}
+          onAddTag={(r) => {
+            onAddTag(r);
+            setTags(t => [...t, r]);
+          }}
+          onRemoveTag={(r) => {
+            onRemoveTag(r);
+            setTags(t => t.filter(x => x.id !== r.id));
+          }}
+          tagSearch={async () => [team]}
+        />
+      );
+    }
+    await render(<Harness />);
+
+    await expect.element(page.getByRole('option', { name: /Revenue/ })).toBeInTheDocument();
+
+    await userEvent.click(page.getByRole('textbox'));
+    await userEvent.keyboard('{Enter}');
+
+    expect(onAddTag).toHaveBeenCalledWith(team);
+    expect(onChange).toHaveBeenLastCalledWith('ask @revenue ');
+    await expect.element(page.getByTestId('composer-inline-tags')).toHaveTextContent('ask @revenue');
+    expect(page.getByTestId('composer-tag').elements()).toHaveLength(0);
+
+    await userEvent.clear(page.getByRole('textbox'));
+    await userEvent.type(page.getByRole('textbox'), 'ask nobody');
+
+    expect(onRemoveTag).toHaveBeenCalledWith(team);
   });
 
   it('renders a picked tag as the same chip every other ref gets', async () => {

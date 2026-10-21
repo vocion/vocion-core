@@ -1,8 +1,10 @@
+import type { McpSignIn } from './McpSignInControl';
 import type { CatalogTool, OrgToolCatalog, RestActionEntry, ToolFamily } from '@/libs/tools/orgCatalog';
 import { Bot, Wrench } from 'lucide-react';
 import { IntegrationLogo, ListRow, ListRows, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Link } from '@/libs/I18nNavigation';
+import { McpSignInControl } from './McpSignInControl';
 import { ReadinessBadge } from './ReadinessBadge';
 
 /**
@@ -150,32 +152,52 @@ function FamilyNotice({ family }: { family: ToolFamily }) {
 }
 
 /**
- * One family of tools: a heading with its readiness, what it is, its cards,
- * and for a REST source the writes beneath the reads.
+ * One family of tools as one line: logo, name, readiness, how many tools and
+ * the source behind it. It opens to what it is, any fix it needs, its tools
+ * and, for a REST source, its writes. The built-ins, and a family that
+ * needs a fix, open by themselves. The caller's own sign-in sits on the line, outside the toggle.
  * @param props
  * @param props.family
+ * @param props.signIn
  */
-function FamilySection({ family }: { family: ToolFamily }) {
+function FamilySection({ family, signIn }: { family: ToolFamily; signIn?: McpSignIn }) {
+  const needsFix = family.readiness !== null && !family.readiness.ready && !family.readiness.keyStateUnknown && family.sources.length > 0;
+  // The built-ins are what this page is opened for (whose key a paid tool spends): open.
+  const open = needsFix || family.kind === 'builtin';
+  const count = family.tools.length + family.actions.length;
   return (
-    <section data-testid={`tool-family-${family.id}`}>
-      <div className="mb-1 flex items-center gap-2">
-        <IntegrationLogo brand={family.brand} name={family.label} size="xs" markOnly />
-        <h2 className="text-xs font-medium text-muted-foreground">{family.label}</h2>
-        {family.readiness && <ReadinessBadge ready={family.readiness.ready} keyStateUnknown={family.readiness.keyStateUnknown} />}
-        {family.sources.length > 0 && (
-          <span className="font-mono text-[11px] text-muted-foreground">
-            {family.sources.map(s => s.slug).join(', ')}
+    <section className="relative" data-testid={`tool-family-${family.id}`}>
+      <details className="group" open={open}>
+        <summary className={`flex cursor-pointer list-none items-center gap-2 rounded-md py-1.5 pr-2 hover:bg-muted/40 sm:py-2 ${signIn ? 'sm:pr-56' : ''}`}>
+          <span className="w-3 shrink-0 text-xs text-muted-foreground transition group-open:rotate-90">▸</span>
+          <IntegrationLogo brand={family.brand} name={family.label} size="xs" markOnly />
+          <h2 className="truncate text-sm font-medium">{family.label}</h2>
+          {family.readiness && <ReadinessBadge ready={family.readiness.ready} keyStateUnknown={family.readiness.keyStateUnknown} />}
+          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+            {count}
+            {' '}
+            {count === 1 ? 'tool' : 'tools'}
           </span>
-        )}
-      </div>
-      <p className="mb-2 line-clamp-1 max-w-2xl text-xs text-muted-foreground sm:mb-3 sm:line-clamp-none">{family.description}</p>
-      <FamilyNotice family={family} />
-      {family.tools.length > 0 && (
-        <ListRows>
-          {family.tools.map(tool => <ToolCard key={tool.name} tool={tool} />)}
-        </ListRows>
-      )}
-      {family.actions.length > 0 && <RestActions actions={family.actions} />}
+          {family.sources.length > 0 && (
+            <span className="hidden truncate font-mono text-[11px] text-muted-foreground sm:inline">
+              {family.sources.map(s => s.slug).join(', ')}
+            </span>
+          )}
+        </summary>
+        <div className="pb-4 pl-5">
+          {/* On a phone the line says enough; the rows come first. */}
+          <p className="mb-3 hidden max-w-2xl text-xs text-muted-foreground sm:block">{family.description}</p>
+          <FamilyNotice family={family} />
+          {family.tools.length > 0 && (
+            <ListRows>
+              {family.tools.map(tool => <ToolCard key={tool.name} tool={tool} />)}
+            </ListRows>
+          )}
+          {family.actions.length > 0 && <RestActions actions={family.actions} />}
+        </div>
+      </details>
+      {signIn && <span className="absolute top-1.5 right-2 hidden sm:block"><McpSignInControl signIn={signIn} /></span>}
+      {signIn && <div className="pb-2 pl-5 sm:hidden"><McpSignInControl signIn={signIn} /></div>}
     </section>
   );
 }
@@ -235,8 +257,9 @@ function Stat({ label, value }: { label: string; value: number }) {
  * workspace's own tools folded at the end.
  * @param props
  * @param props.catalog - From `toolCatalogForOrg`.
+ * @param props.signIns
  */
-export function ToolCatalogView({ catalog }: { catalog: OrgToolCatalog }) {
+export function ToolCatalogView({ catalog, signIns = {} }: { catalog: OrgToolCatalog; signIns?: Record<string, McpSignIn> }) {
   const families = catalog.families.filter(f => f.kind !== 'workspace');
   const workspace = catalog.families.find(f => f.kind === 'workspace');
   const toolCount = catalog.families.reduce((n, f) => n + f.tools.length, 0);
@@ -250,9 +273,11 @@ export function ToolCatalogView({ catalog }: { catalog: OrgToolCatalog }) {
         <Stat label="Need a key" value={needKey} />
       </div>
 
-      <div className="flex flex-col gap-6 sm:gap-8">
-        {families.map(family => <FamilySection key={family.id} family={family} />)}
-        {workspace && <WorkspaceSection family={workspace} />}
+      <div className="flex flex-col">
+        <div className="divide-y divide-border/70">
+          {families.map(family => <FamilySection key={family.id} family={family} signIn={signIns[family.id]} />)}
+        </div>
+        {workspace && <div className="mt-6"><WorkspaceSection family={workspace} /></div>}
         {catalog.agents.length === 0 && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="no-agents">
             <Bot className="size-3.5" />

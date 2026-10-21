@@ -325,7 +325,13 @@ function ChatShellInner({
     router.replace(`${pathname}${qs ? `?${qs}` : ''}`);
   }, [startNew, session.booted, router, pathname]);
   // Back from a login: the agent carries on by itself, once, and the URL is cleaned so a reload never repeats it.
-  useAnswerOnConnectReturn({ outcome: connectReturn ?? null, ready: session.booted, decisions: session.openDecisions, answer: session.answerDecision, fail: session.failDecision, pathname, replaceUrl: router.replace });
+  // Opened in its own tab, the tab that asked takes it; this one closes, or says it can be.
+  const [handedOff, setHandedOff] = useState(false);
+  const onHandedOff = useCallback(() => {
+    setHandedOff(true);
+    window.close();
+  }, []);
+  useAnswerOnConnectReturn({ outcome: connectReturn ?? null, ready: session.booted, decisions: session.openDecisions, answer: session.answerDecision, fail: session.failDecision, pathname, replaceUrl: router.replace, handedOff: onHandedOff });
   // A link that asked for something ("Help me connect …") is sent once, as
   // the person's own message in a fresh thread, when the saved thread has
   // settled; its params leave the URL so a reload never sends it twice.
@@ -384,6 +390,11 @@ function ChatShellInner({
 
   return (
     <div className="relative flex h-full flex-1 flex-col">
+      {handedOff && (
+        <div role="status" data-testid="connect-handed-off" className="border-b bg-muted/60 px-4 py-2 text-center text-[13px] text-muted-foreground">
+          Signed in. Your conversation carried on in the tab you started from; you can close this one.
+        </div>
+      )}
       {/* The page's name is its thread's, in the shell bar where the
           workspace crumb was — click it to rename. A new chat has no name
           yet, so the bar keeps the workspace until the first send. */}

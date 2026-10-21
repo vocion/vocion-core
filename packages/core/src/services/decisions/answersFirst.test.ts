@@ -15,7 +15,7 @@ vi.mock('@/services/EventService', () => ({ ASK_DECIDED: 'ask.decided', emitEven
 const { db } = await import('@/libs/DB');
 const { askSchema } = await import('@/models/Schema');
 const { raiseDecision } = await import('./DecisionService');
-const { answersFirst, stillOpenNote } = await import('./answersFirst');
+const { answersFirst, setAsideNote, stillOpenNote } = await import('./answersFirst');
 
 const ORG = 'org_answers_first';
 const DANA = 'usr-dana';
@@ -97,20 +97,22 @@ describe('typed words are read against the open Decision before routing', () => 
     expect(out.kind === 'answered' && out.answered.answer).toEqual({ kind: 'option', optionIds: ['uploads', 'billing'] });
   });
 
-  it('"1 and 3" where only options are accepted routes as usual, and the Decision stays docked', async () => {
+  it('"1 and 3" where only options are accepted routes as usual, and the ask they moved past is set aside', async () => {
     const view = await dockQuestion({ allowOther: false });
     const out = await answersFirst({ orgId: ORG, userId: DANA, conversationId: 392, message: '1 and 3', read: judgeSaying({ kind: 'option', option_ids: ['uploads', 'billing'], free_text: null }) });
 
-    expect(out).toEqual({ kind: 'none', open: expect.objectContaining({ id: view.id, state: 'open' }) });
+    expect(out).toMatchObject({ kind: 'none', open: expect.objectContaining({ id: view.id }), setAside: { answer: { kind: 'skip' } } });
   });
 
-  it('a genuinely new topic routes as usual — told the Decision is still waiting', async () => {
+  it('a genuinely new topic routes as usual, and sets the ask aside rather than leaving it docked', async () => {
     const view = await dockQuestion();
     const out = await answersFirst({ orgId: ORG, userId: DANA, conversationId: 392, message: 'what did Northwind say yesterday?', read: judgeSaying({ kind: 'none', option_ids: [], free_text: null }) });
 
     expect(out.kind).toBe('none');
     expect(out.kind === 'none' && out.open?.id).toBe(view.id);
-    expect(stillOpenNote(view)).toContain(`Decision #${view.id} ("Which area should the factory start on?") is still docked`);
+    expect(out.kind === 'none' && out.setAside?.view.state).not.toBe('open');
+    expect(setAsideNote(view)).toContain(`Decision #${view.id} ("Which area should the factory start on?"), so it was set aside`);
+    expect(stillOpenNote(view)).toContain('is still docked');
   });
 
   it('an option the Decision does not have is read as their words', async () => {

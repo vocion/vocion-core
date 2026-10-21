@@ -199,3 +199,29 @@ export const setOrgReachRoute = os
     await setIncludeInPersonal(accountId, input.include);
     return { include: input.include };
   });
+
+/** Enable a per-person MCP server from one of the person's workspaces in their own Personal (`services/outboundMcp/personalEnable.ts`). */
+export const enableMcpRoute = os
+  .input(z.object({ fromOrgId: z.string().min(1).max(120), slug: z.string().min(1).max(120) }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { enablePersonalMcp } = await import('@/services/outboundMcp/personalEnable');
+    const result = await enablePersonalMcp({ userId, personalId: orgId, fromOrgId: input.fromOrgId, slug: input.slug });
+    if (!result.ok) {
+      throw ApiError.badRequest(result.error);
+    }
+    return { name: result.name };
+  });
+
+/** Sign the caller out of a per-person MCP source of this workspace: their grant is deleted, for every workspace. */
+export const mcpSignOutRoute = os
+  .input(z.object({ source: z.string().min(1).max(120) }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const [{ personMcpSourceFor }, { forgetPersonGrant }] = await Promise.all([import('@/libs/outboundMcp/personSource'), import('@/services/outboundMcp/personSignIn')]);
+    const source = await personMcpSourceFor({ userId, orgId, slug: input.source });
+    if (!source) {
+      throw ApiError.notFound();
+    }
+    return { removed: await forgetPersonGrant(userId, source.url) };
+  });

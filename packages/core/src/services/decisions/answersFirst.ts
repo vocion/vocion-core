@@ -26,9 +26,12 @@ import type { DecisionView } from '@/libs/decisions/decision';
 import type { DecisionAnswerReading } from '@/services/agents/turnJudge';
 import { readDecisionAnswerWire } from '@/libs/decisions/decision';
 
+/** The asks a message that moves on sets aside; approvals and sign-offs wait. */
+const SET_ASIDE_KINDS = new Set<DecisionView['kind']>(['question', 'choice', 'setup']);
+
 export type AnswersFirst
   /** Not an answer: route the turn as usual. `open` is what still waits, when anything does. */
-  = | { kind: 'none'; open: DecisionView | null }
+  = | { kind: 'none'; open: DecisionView | null; setAside?: AnsweredDecision }
     /** An answer, recorded. `card`: keys or a click, nothing typed. `composer`: their typed words, read as the answer. */
     | { kind: 'answered'; source: 'card' | 'composer'; answered: AnsweredDecision }
     /** A card's answer that cannot be taken — not found here, already decided, or not an answer it takes. */
@@ -82,6 +85,19 @@ export async function answersFirst(opts: {
   const reading = await (opts.read ?? (i => readDecisionAnswer(i)))({ orgId: opts.orgId, message: opts.message, decision: open });
   const answer = decisionAnswerFromReading(open, reading, opts.message);
   if (!answer) {
+    // They moved on: an ask (a question, a choice, a sign-in) is set aside
+    // rather than left docked over the conversation they carried on with.
+    // An approval or sign-off gates a write, so it waits for its answer.
+    if (SET_ASIDE_KINDS.has(open.kind) && open.subject !== 'proposal') {
+      try {
+        const setAside = await answerDecision({ orgId: opts.orgId, conversationId: opts.conversationId, id: open.id, subject: open.subject, answer: { kind: 'skip' }, by: opts.userId, via: 'composer' });
+        return { kind: 'none', open, setAside };
+      } catch (err) {
+        if (!(err instanceof DecisionError)) {
+          throw err;
+        }
+      }
+    }
     return { kind: 'none', open };
   }
   try {
@@ -102,6 +118,16 @@ export async function answersFirst(opts: {
  * Decision: it is still docked, unanswered, and not to be asked again.
  * @param open - The Decision still waiting.
  */
+/**
+ * The note for a turn that moved past an ask: it was set aside, not answered.
+ * @param open - The Decision that was docked.
+ * @param open.id - Its id.
+ * @param open.question - Its question.
+ */
+export function setAsideNote(open: Pick<DecisionView, 'id' | 'question'>): string {
+  return `\n\n--- moved on ---\nThey carried on instead of answering Decision #${open.id} ("${open.question}"), so it was set aside (skipped), not answered. Answer this message. Ask it again only if what they ask now cannot be done without it.`;
+}
+
 export function stillOpenNote(open: Pick<DecisionView, 'id' | 'question'>): string {
   return `\n\n--- waiting on them ---\nDecision #${open.id} ("${open.question}") is still docked above their composer, unanswered. This message is about something else: answer it, and do not ask that question again.`;
 }
