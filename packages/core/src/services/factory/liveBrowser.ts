@@ -60,9 +60,9 @@ import path from 'node:path';
 import process from 'node:process';
 import { hrefLeadingTo, HUMAN_BEATS } from '@/libs/factory/demoNavigation';
 import { LIVE_ROLE } from '@/libs/factory/liveCheck';
-import { snapshotWindow } from '@/libs/factory/snapshotWindow';
 import { CURSOR_GLIDE_MS, DEMO_CHROME_SCRIPT } from '@/libs/media/demoChrome';
 import { spokenMs } from '@/libs/media/narration';
+import { byRef, pageSnapshot } from '@/services/browser/pageSnapshot';
 import { allowedOrigins, environmentFor, releaseLines, signIn, signInProblem } from './liveCheck';
 
 /** The two viewports QA may open a page at — the runner's own sizes (`packages/runner/src/qa.mjs` VIEWPORTS). */
@@ -529,27 +529,12 @@ function refuse(why: string, id: string | null = null): BrowserAnswer {
 
 /**
  * The page's accessibility snapshot, with refs, as QA reads it: the address, the title and the
- * tree, capped. Playwright's own snapshot for an AI (`_snapshotForAI`, what Playwright MCP serves):
- * each element carries its role, name, state (`[disabled]`, `[checked]`, `[expanded]`) and a ref.
+ * tree, capped (`services/browser/pageSnapshot.ts`, shared with a person's browser runs).
  * @param page - The page.
- * @param find
+ * @param find - Words on the part of a long page to show, else its top.
  */
-async function ariaSnapshot(page: Page, find?: string | null): Promise<{ url: string; title: string; text: string }> {
-  const url = page.url();
-  const title = await page.title().catch(() => '');
-  const p = page as Page & { _snapshotForAI?: (o?: { timeout?: number }) => Promise<{ full: string } | string> };
-  let tree: string;
-  if (typeof p._snapshotForAI === 'function') {
-    const snap = await p._snapshotForAI({ timeout: 10_000 });
-    tree = typeof snap === 'string' ? snap : snap.full;
-  } else {
-    // A Playwright without the AI snapshot: the plain aria snapshot, without refs.
-    tree = `${await page.locator('body').ariaSnapshot({ timeout: 10_000 })}\n[this browser gives no refs: act on nothing, read only]`;
-  }
-  const head = `URL: ${url}\nTitle: ${title}\n`;
-  // A page longer than the cap shows its top, or the part around the words asked for (`snapshotWindow`).
-  const { text } = snapshotWindow(tree, BROWSER_LIMITS.snapshotChars - head.length, find);
-  return { url, title, text: head + text };
+function ariaSnapshot(page: Page, find?: string | null): Promise<{ url: string; title: string; text: string }> {
+  return pageSnapshot(page, BROWSER_LIMITS.snapshotChars, find);
 }
 
 async function settle(page: Page): Promise<void> {
@@ -803,16 +788,6 @@ export async function browserSnapshot(key: string | null, deps: Partial<LiveBrow
   }
   const out = await withSnapshot(a.s, a.tab, d, { ok: true, id: null }, input.find ?? null);
   return { ...out, id: out.snapshotId ?? null };
-}
-
-/**
- * A ref from the last snapshot, as a locator, or why it cannot be one.
- * @param page - The page.
- * @param ref - The ref (`e5`).
- */
-function byRef(page: Page, ref: string) {
-  const r = ref.trim().replace(/^\[?ref=/, '').replace(/\]$/, '');
-  return /^[a-z]?\d+$|^f\d+e\d+$/i.test(r) ? page.locator(`aria-ref=${r}`) : null;
 }
 
 function act(key: string | null, d: LiveBrowserDeps, what: string, ref: string | null, run: (page: Page, tab: Tab) => Promise<{ ok: boolean; result: string }>, say?: string, keyName?: string): Promise<BrowserAnswer> {

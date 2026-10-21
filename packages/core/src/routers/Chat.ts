@@ -54,5 +54,10 @@ export const tagSources = os.handler(async () => {
     userId ? allowedSourceSlugsForUser(orgId, userId) : Promise.resolve([]),
   ]);
   const readable = new Set(allowed);
-  return { sources: rows.filter(row => readable.has(row.slug)).map(row => ({ slug: row.slug, name: sourceNameOf(row.config, row.slug) })) };
+  const { browserRunsOn } = await import('@/services/browser/enabled');
+  return {
+    sources: rows.filter(row => readable.has(row.slug)).map(row => ({ slug: row.slug, name: sourceNameOf(row.config, row.slug) })),
+    // Ways of working a turn can be tagged with (`libs/chat/askedFor.ts`), offered only where they can act.
+    tools: browserRunsOn() ? [{ slug: 'browser', name: 'Browser' }] : [],
+  };
 });

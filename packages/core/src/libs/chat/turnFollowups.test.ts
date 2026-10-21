@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { proposeResultOf, turnFollowups } from './turnFollowups';
+import { browserRunsDone, proposeResultOf, turnFollowups } from './turnFollowups';
 
 describe('what a turn set moving, to watch (Chris, 2026-09-29, request #201)', () => {
   it('a done action names the run it started and the records it touched, from its result', () => {
@@ -67,5 +67,25 @@ describe('what a turn set moving, to watch (Chris, 2026-09-29, request #201)', (
 
     expect(turnFollowups(reads)).toEqual([]);
     expect(turnFollowups([{ type: 'tool', name: 'update_object', output: 'request #201 "Document detail" updated: outcome.' }], { exclude: [{ type: 'object', id: '201' }] })).toEqual([]);
+  });
+
+  it('a browser task names its run, started or filed for the person to Start', () => {
+    const out = '{"browserRunId":12,"run":"Browser run 12","status":"waiting","steps":9,"note":"…"}';
+
+    expect(turnFollowups([{ type: 'tool', name: 'browser_task', output: out }]).map(f => [f.label, f.ref.type, f.ref.id, f.href])).toEqual([
+      ['Browser run 12', 'browser_run', '12', '/dashboard/browser/12'],
+    ]);
+    expect(turnFollowups([{ type: 'tool', name: 'browser_task', output: 'Not started: your browser is busy with Browser run 11.' }])).toEqual([]);
+  });
+
+  it('a browser run handed back done is drawn under the answer by the run itself, once', () => {
+    const done = '{"browserRunId":12,"status":"done","result":{"total":40689.35}}';
+
+    expect(browserRunsDone([
+      { type: 'tool', name: 'browser_task', output: done },
+      { type: 'tool', name: 'browser_task_check', output: done },
+      { type: 'tool', name: 'browser_task', output: '{"browserRunId":13,"status":"waiting"}' },
+      { type: 'tool', name: 'web_search', output: done },
+    ])).toEqual([12]);
   });
 });

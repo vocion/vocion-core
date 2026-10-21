@@ -33,6 +33,8 @@ export const RECORD_TYPES = [
   'object',
   'deal',
   'worker_run',
+  /** A browser run (`browser_run`): a task done in a person's browser, watched live in the pane. */
+  'browser_run',
   'conversation',
   /** The artifact open beside the conversation — what "this table"/"the doc" means. */
   'artifact',
@@ -170,6 +172,11 @@ export type PageContext = {
   selection?: { text: string; quote?: true };
   /** Records the person @-mentioned in the composer. */
   refs?: RecordRef[];
+  /**
+   * What the person tagged the turn to use (`@browser`), set by the stream route from the typed
+   * `asked_for` field (`libs/chat/askedFor.ts`), never parsed from the client's page context.
+   */
+  askedFor?: import('@/libs/chat/askedFor').AskedFor[];
   /**
    * The ARTIFACTS the page is showing — the brief, the recommendation, the
    * draft sequence, the CRM snapshot it was built from.

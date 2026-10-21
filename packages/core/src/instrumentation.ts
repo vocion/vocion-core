@@ -33,6 +33,9 @@ export async function register() {
     // The one durable executor (backlog 054): resumes waiting runs after every deploy.
     // Never awaited: a database that is slow to answer must not hold the server's boot.
     void import('./libs/durable/executor').then(m => m.startDurableExecutor());
+    // A BROWSER RUN SURVIVES A RESTART: runs whose process went away are picked up from their
+    // checkpoint (`services/browser/BrowserRunService.ts`). Never awaited, for the same reason.
+    void import('./services/browser/BrowserRunService').then(m => m.startBrowserRunKeeper()).catch(() => {});
     // A TURN SURVIVES A RESTART (backlog 056). Told to stop, the process lets
     // the turns it is answering finish first, up to the container's grace
     // period, instead of dying under them. Next's own handler would exit at

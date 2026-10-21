@@ -4,7 +4,7 @@ import type { BriefAudio } from '@/services/briefings/audio/types';
 import type { BriefingV2 } from '@/services/briefings/document';
 import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
-import { bigint, bigserial, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, bigserial, boolean, check, customType, doublePrecision, index, integer, json, jsonb, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -5569,5 +5569,63 @@ export const goalSchema = pgTable(
   table => [
     index('goal_org_owner_status_idx').on(table.orgId, table.ownerUserId, table.status),
     index('goal_owner_status_idx').on(table.ownerUserId, table.status),
+  ],
+);
+
+/**
+ * A BROWSER RUN (`services/browser/BrowserRunService.ts`, migration 0210): a
+ * task handed to a browser — what to do, where to start, its inputs and the
+ * outputs it owes — and what the browser did, step by step, with the result.
+ * The run noun's third kind, beside `worker_run` and `mission_run`. One live
+ * run per person; the browser itself lives in the app process.
+ */
+export const browserRunSchema = pgTable(
+  'browser_run',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+    /** The person whose browser it runs in, and who approves its steps. */
+    userId: text('user_id').notNull(),
+    /** The conversation it was asked from, when one: its result is said there. */
+    conversationId: integer('conversation_id'),
+    /** The agent that asked for it, when one. */
+    agentSlug: text('agent_slug'),
+    status: text('status').$type<import('@/libs/browser/run').BrowserRunStatus>().default('proposed').notNull(),
+    task: text('task').notNull(),
+    startUrl: text('start_url'),
+    /** Name → value. A secret's value is never stored here; it lives in the process for the run. */
+    inputs: jsonb('inputs').$type<Record<string, import('@/libs/browser/run').BrowserInput>>().default({}).notNull(),
+    outputs: jsonb('outputs').$type<import('@/libs/browser/run').BrowserOutputSpec[]>().default([]).notNull(),
+    /** json, not jsonb: jsonb reorders keys, and a table's columns keep the order the run gave them. */
+    result: json('result').$type<Record<string, unknown>>(),
+    summary: text('summary'),
+    steps: jsonb('steps').$type<import('@/libs/browser/run').BrowserStep[]>().default([]).notNull(),
+    waiting: jsonb('waiting').$type<import('@/libs/browser/run').BrowserWaiting>(),
+    error: text('error'),
+    /** The page as it stood when the run ended. */
+    finalShotUrl: text('final_shot_url'),
+    /**
+     * Where to pick up after a restart: the browser's cookies, site storage and page, the run's
+     * notes and its secrets, sealed under the workspace's key (`libs/crypto/credentialVault.ts`).
+     * Cleared when the run ends.
+     */
+    checkpoint: jsonb('checkpoint').$type<import('@/libs/crypto/credentialVault').EncryptResult>(),
+    /** The process driving the run, and its last beat: a stale beat means it went away. */
+    runnerId: text('runner_id'),
+    heartbeatAt: timestamp('heartbeat_at', { mode: 'date' }),
+    /** How many times a new process picked the run up after the last one went away. */
+    resumes: integer('resumes').default(0).notNull(),
+    /** Where the browser ran: `remote` (its own container), `sandboxed`, `unsandboxed`. */
+    isolation: text('isolation'),
+    /** `person` (they asked for it) or `agent:<slug>` (suggested, started by the person's click). */
+    proposedBy: text('proposed_by').notNull(),
+    microCents: bigint('micro_cents', { mode: 'number' }).default(0).notNull(),
+    startedAt: timestamp('started_at', { mode: 'date' }),
+    endedAt: timestamp('ended_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('browser_run_org_user_status_idx').on(table.orgId, table.userId, table.status),
   ],
 );

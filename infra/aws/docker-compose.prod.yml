@@ -31,6 +31,9 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: 0.0.0.0
+      # Browser runs open their pages in the `browser` container below, never in this one
+      # (`services/browser/browserHost.ts`).
+      VOCION_BROWSER_ENDPOINT: ws://browser:9323/${VOCION_BROWSER_TOKEN:-browser}
       # Override DATABASE_URL inside .env.production to point at the
       # in-network postgres service or an external RDS endpoint.
     depends_on:
@@ -38,6 +41,7 @@ services:
         condition: service_healthy
     networks:
       - vocion
+      - browser
     expose:
       - '3000'
     # Migrations are applied by infra/aws/apply-migrations.sh, which
@@ -130,6 +134,47 @@ services:
     networks:
       - vocion
 
+  # BROWSER RUNS' BROWSER (docs/guides/browser-runs.md): a page a browser run opens is anyone's
+  # code, so it renders here, not in the app. The same image (its Chromium and Playwright match the
+  # app's), serving one Playwright browser on a network only the app joins. It holds none of the
+  # app's settings: no env_file, no keys, no database login. No capabilities, no privilege
+  # escalation, a read-only filesystem but /tmp, and limits on memory and processes. Every request
+  # its pages make is still checked by the app (`browserEngine.mayLoad`).
+  browser:
+    image: vocion-app:latest
+    container_name: vocion-browser
+    restart: unless-stopped
+    working_dir: /app/packages/core
+    environment:
+      HOME: /tmp
+      VOCION_BROWSER_TOKEN: ${VOCION_BROWSER_TOKEN:-browser}
+    command:
+      - node
+      - -e
+      - >-
+        require('playwright-core').chromium.launchServer({ host: '0.0.0.0', port: 9323,
+        wsPath: '/' + process.env.VOCION_BROWSER_TOKEN, headless: true,
+        executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH, chromiumSandbox: false,
+        args: ['--disable-dev-shm-usage', '--disable-gpu'] })
+        .then(() => console.log('browser server listening on 9323'))
+        .catch(e => { console.error(e); process.exit(1); })
+    networks:
+      - browser
+    expose:
+      - '9323'
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    tmpfs:
+      - /tmp
+    shm_size: 512m
+    mem_limit: 2g
+    pids_limit: 1024
+    cpus: 1.5
+    logging:
+      driver: json-file
+      options: {max-size: 20m, max-file: '3'}
+
   caddy:
     image: caddy:2-alpine
     container_name: vocion-caddy
@@ -156,6 +201,8 @@ networks:
   vocion:
     external: true
     name: vocion_default
+  # The app and its browser, and nothing else: no database, no runner, no proxy.
+  browser: {}
 
 volumes:
   caddy_data:

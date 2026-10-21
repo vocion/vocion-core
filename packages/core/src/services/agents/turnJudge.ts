@@ -109,7 +109,9 @@ export async function readIntent(input: { orgId: string; message: string; previo
 
 export const SaidToDecideSchema = z.object({
   said: z.boolean().describe('The person\'s own words (the latest message, or the one before it when the latest only confirms it) tell the agent to take exactly this decision — this action, on this target. Words about the same work that ask for a different action are not consent to this one.'),
-  quote: z.string().max(300).nullable().describe('Their words that say it, quoted exactly; null when they did not.'),
+  // No length cap in the schema: a long request is quoted whole, and a cap here failed the parse
+  // and read as no consent (2026-10-21, a 400-character "use the browser to …"). Cut after.
+  quote: z.string().nullable().describe('Their words that say it, quoted exactly (the sentence that says it, not the whole message); null when they did not.'),
 });
 
 /**
@@ -135,7 +137,7 @@ export async function saidToDecide(input: { orgId: string; messages: string[]; d
       `The person, latest message: ${input.messages[0]!.slice(0, 2_000)}`,
       input.messages[1] ? `The person, message before: ${input.messages[1].slice(0, 2_000)}` : '',
     ].filter(Boolean).join('\n\n'));
-    return out ?? { said: false, quote: null };
+    return out ? { said: out.said, quote: out.quote ? out.quote.slice(0, 300) : null } : { said: false, quote: null };
   } catch (err) {
     console.warn('turn judge: consent read failed', { orgId: input.orgId, message: (err as Error).message });
     return { said: false, quote: null };

@@ -117,6 +117,14 @@ export function turnFollowups(runs: readonly TurnToolStep[] | undefined, opts: {
       }
       continue;
     }
+    if (r.name === 'browser_task') {
+      // The run the browser task started (or filed for the person to Start): its JSON names it.
+      const id = /"browserRunId"\s*:\s*(\d+)/.exec(r.output)?.[1];
+      if (id) {
+        push({ label: `Browser run ${id}`, href: `/dashboard/browser/${id}`, ref: { type: 'browser_run', id } });
+      }
+      continue;
+    }
     if (r.name === 'update_object') {
       // Changed another record in place: watch it too. A proposal to change
       // one is waiting on a person and is its card's business.
@@ -150,6 +158,25 @@ export function turnFollowups(runs: readonly TurnToolStep[] | undefined, opts: {
       for (const a of about) {
         push({ label: `${words(a.type)} #${a.id}`, href: genericRecordLinker({ objectType: a.type, id: a.id }), ref: { type: 'object', id: a.id } });
       }
+    }
+  }
+  return out;
+}
+
+/**
+ * The browser runs a turn's tool steps handed back done (`browser_task`, `browser_task_check`): the
+ * runs whose outputs are drawn under the answer, once each, in order.
+ * @param runs - The turn's steps (`message.runs`).
+ */
+export function browserRunsDone(runs: readonly TurnToolStep[] | undefined): number[] {
+  const out: number[] = [];
+  for (const r of runs ?? []) {
+    if (r.type !== 'tool' || (r.name !== 'browser_task' && r.name !== 'browser_task_check') || typeof r.output !== 'string') {
+      continue;
+    }
+    const id = /"browserRunId"\s*:\s*(\d+)/.exec(r.output)?.[1];
+    if (id && /"status"\s*:\s*"done"/.test(r.output) && !out.includes(Number(id))) {
+      out.push(Number(id));
     }
   }
   return out;

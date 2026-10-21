@@ -5,7 +5,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { parseTopic } from '@/libs/live/topics';
 import { canOpenArtifact } from '@/libs/share/audience';
-import { actionRunSchema, artifactSchema, askSchema, businessObjectSchema, missionRunSchema, workerRunSchema } from '@/models/Schema';
+import { actionRunSchema, artifactSchema, askSchema, browserRunSchema, businessObjectSchema, missionRunSchema, workerRunSchema } from '@/models/Schema';
 
 /**
  * WHO MAY FOLLOW WHAT on the live stream (backlog 050).
@@ -49,7 +49,7 @@ export async function authorizeTopics(caller: ApiCaller, rawTopics: readonly str
   const orgId = caller.orgId;
   const userId = caller.principal.kind === 'user' ? caller.principal.id : null;
 
-  const [records, cards, runs, missions, asks, artifacts] = await Promise.all([
+  const [records, cards, runs, missions, asks, artifacts, browsers] = await Promise.all([
     present(ids('record'), set => db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.id, set)))),
     present(ids('card'), set => db.select({ id: actionRunSchema.id }).from(actionRunSchema).where(and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.id, set)))),
     present(ids('run'), set => db.select({ id: workerRunSchema.id }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.id, set)))),
@@ -62,6 +62,7 @@ export async function authorizeTopics(caller: ApiCaller, rawTopics: readonly str
           .from(artifactSchema)
           .where(and(eq(artifactSchema.orgId, orgId), inArray(artifactSchema.id, ids('artifact'))))
           .then(rows => new Map(rows.map(r => [r.id, { audience: r.audience, ownerId: r.ownerId }]))),
+    present(ids('browser'), set => db.select({ id: browserRunSchema.id }).from(browserRunSchema).where(and(eq(browserRunSchema.orgId, orgId), inArray(browserRunSchema.id, set)))),
   ]);
 
   const allowed: string[] = [];
@@ -90,7 +91,7 @@ export async function authorizeTopics(caller: ApiCaller, rawTopics: readonly str
         break;
       }
       default: {
-        const found = { record: records, card: cards, run: runs, mission: missions, ask: asks }[t.kind];
+        const found = { record: records, card: cards, run: runs, mission: missions, ask: asks, browser: browsers }[t.kind];
         if (found.has(t.id)) {
           allowed.push(t.topic);
         } else {

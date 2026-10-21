@@ -10,7 +10,7 @@ import { ATTACHMENT_ACCEPT, ATTACHMENT_HINT } from '@/libs/chat/attachmentFormat
 import { DELIVERABLE_REF_TYPE } from '@/libs/chat/deliverable';
 import { AttachmentChip, attachmentMeta } from './AttachmentChip';
 import { COMPOSER_CONTROL, COMPOSER_MAX_PX, COMPOSER_ROW, CONTROL_PX } from './composerBar';
-import { buildComposerMenu, selectableItems, TAG_ICON } from './composerMenu';
+import { buildComposerMenu, selectableItems, tagIcon } from './composerMenu';
 import { ComposerMenuPanel } from './ComposerMenuPanel';
 import { hasInlineTag, inlineTagParts, insertTagAt, INTENT_REF_TYPE, tagSlug } from './composerTags';
 import { matchSlashCommands, parseSlashCommand, slashQuery } from './slashCommands';
@@ -234,7 +234,7 @@ function tagHint(ref: ContextRef): string {
     return 'produce a document';
   }
   if (ref.type === INTENT_REF_TYPE) {
-    return 'edit the open draft';
+    return ref.id === 'browser' ? 'do it in the browser' : 'edit the open draft';
   }
   if (ref.type === 'page') {
     return 'this page';
@@ -724,7 +724,7 @@ export function ChatComposer({
               </span>
             )}
             {tags.filter(tag => !isInline(tag)).map((tag) => {
-              const Icon = TAG_ICON[tag.type];
+              const Icon = tagIcon(tag);
               return (
                 <span key={`${tag.type}:${tag.id}`} data-testid="composer-tag" className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs">
                   <Icon className="size-3 text-muted-foreground" aria-hidden />

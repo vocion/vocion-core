@@ -19,7 +19,7 @@
 
 import type { SlashCommand } from './slashCommands';
 import type { ContextRef } from './types';
-import { AtSign, Bot, Database, FileText, PencilLine, Target, Users } from 'lucide-react';
+import { AtSign, Bot, Database, FileText, Globe, PencilLine, Target, Users } from 'lucide-react';
 import { tagSlug } from './composerTags';
 import { matchSlashCommands } from './slashCommands';
 
@@ -37,6 +37,17 @@ export const TAG_ICON: Record<ContextRef['type'], typeof Bot> = {
   deliverable: FileText,
   intent: PencilLine,
 };
+
+/**
+ * A tag's icon: its type's, except an intent that names a way of working (`@browser`), which shows
+ * what it is rather than the generic edit pencil.
+ * @param ref - The tag.
+ * @param ref.type - Its type.
+ * @param ref.id - Its id.
+ */
+export function tagIcon(ref: { type: ContextRef['type']; id: string }): typeof Bot {
+  return ref.type === 'intent' && ref.id === 'browser' ? Globe : TAG_ICON[ref.type];
+}
 
 export type ComposerMenuMode = 'slash' | 'tag' | 'plus' | 'help';
 

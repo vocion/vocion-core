@@ -42,7 +42,7 @@ export type LiveNotice = {
 };
 
 /** Nouns that name one thing by id. */
-const ONE = ['record', 'card', 'run', 'mission', 'ask', 'artifact'] as const;
+const ONE = ['record', 'card', 'run', 'mission', 'ask', 'artifact', 'browser'] as const;
 /** Nouns that are a whole workspace feed. */
 const FEEDS = ['cards', 'runs', 'asks', 'events'] as const;
 
@@ -135,6 +135,8 @@ export function topicsForRef(ref: { type: string; id: string | number }): string
       return own('artifact', id);
     case 'worker_run':
       return own('run', id);
+    case 'browser_run':
+      return own('browser', id);
     case 'mission_run':
       return own('mission', id);
     case 'ask':
