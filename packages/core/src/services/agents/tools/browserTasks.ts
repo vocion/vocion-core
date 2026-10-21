@@ -50,13 +50,48 @@ function enabled(ctx: RuntimeContext): boolean {
  * @param v
  * @param note
  */
-function answerOf(v: import('@/libs/browser/run').BrowserRunView, note: string): string {
+/**
+ * A run's outputs as the agent receives them. When the run is done its outputs are drawn under the
+ * answer by the run itself (`BrowserRunResult`), so a list of rows reaches the agent as a count and
+ * its columns, not the rows: an agent that restated rows put them in its own order (2026-10-21),
+ * and rows it never holds it cannot reorder. Single values come through, to answer with.
+ * `rows: true` (browser_task_check) hands the rows over, numbered in the page's order, for an agent
+ * that has to work something out from them.
+ * @param result - The run's outputs.
+ * @param rows - Hand list rows over in full.
+ */
+export function outputsForAgent(result: Record<string, unknown> | null, rows = false): Record<string, unknown> | null {
+  if (!result) {
+    return null;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(result)) {
+    const isTable = Array.isArray(v) && v.length > 0 && v.every(x => x && typeof x === 'object' && !Array.isArray(x));
+    if (!isTable) {
+      out[k] = v;
+    } else if (rows) {
+      out[k] = (v as Array<Record<string, unknown>>).map((row, i) => ({ '#': i + 1, ...row }));
+    } else {
+      out[k] = { shown_under_your_answer: true, rows: v.length, columns: [...new Set((v as Array<Record<string, unknown>>).flatMap(x => Object.keys(x)))] };
+    }
+  }
+  return out;
+}
+
+/**
+ * The run, as the model hands it on: where it stands, and what it found.
+ * @param v - The run.
+ * @param note - What to do with it.
+ * @param rows - Hand list rows over in full (`outputsForAgent`).
+ */
+function answerOf(v: import('@/libs/browser/run').BrowserRunView, note: string, rows = false): string {
+  const result = outputsForAgent(v.result, rows || v.status !== 'done');
   return JSON.stringify({
     browserRunId: v.id,
     run: browserRunLabel(v.id),
     status: v.status,
     ...(v.summary ? { summary: v.summary } : {}),
-    ...(v.result ? { result: v.result } : {}),
+    ...(result ? { result } : {}),
     ...(v.waiting ? { waiting_on_person: v.waiting.kind === 'approval' ? `approve or decline: ${v.waiting.text}` : v.waiting.text } : {}),
     ...(v.error ? { error: v.error } : {}),
     steps: v.steps.length,
@@ -68,7 +103,7 @@ function answerOf(v: import('@/libs/browser/run').BrowserRunView, note: string):
 function noteFor(status: string): string {
   switch (status) {
     case 'done':
-      return 'Done. Give the person the result in your own words; the run, with every step and a picture of the page, is linked under your answer.';
+      return 'Done. Its outputs are drawn under your answer by the run itself, tables included, in the order the page gave them. Answer what the person asked in a sentence or two from the summary and the values here; never write the rows out. To work something out from the rows, call browser_task_check with rows: true.';
     case 'failed':
       return 'It could not finish. Say why plainly, and what it did get.';
     case 'waiting':
@@ -164,12 +199,12 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
         }
         const wait = Math.min(args.wait_seconds ?? 0, Math.round(waitMs / 1000)) * 1000;
         const v = wait > 0 && ['queued', 'running'].includes(first.status) ? await waitForBrowserRun(ctx.orgId, args.run_id, wait) ?? first : first;
-        return answerOf(v, noteFor(v.status));
+        return answerOf(v, args.rows ? 'The rows, numbered in the order the page gave them, for you to work from. The person already sees them under the answer: use them, do not write them out again.' : noteFor(v.status), args.rows === true);
       },
       {
         name: 'browser_task_check',
         description: 'Where a browser run stands, with its result once it is done. wait_seconds waits for it to finish first.',
-        schema: z.object({ run_id: z.number().int().positive(), wait_seconds: z.number().int().min(0).max(240).optional() }),
+        schema: z.object({ run_id: z.number().int().positive(), wait_seconds: z.number().int().min(0).max(240).optional(), rows: z.boolean().optional().describe('Hand over the rows of its table outputs, numbered in the page\'s order, to work something out from them.') }),
       },
     ),
     tool(

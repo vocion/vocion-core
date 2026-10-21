@@ -5604,6 +5604,19 @@ export const browserRunSchema = pgTable(
     error: text('error'),
     /** The page as it stood when the run ended. */
     finalShotUrl: text('final_shot_url'),
+    /**
+     * Where to pick up after a restart: the browser's cookies, site storage and page, the run's
+     * notes and its secrets, sealed under the workspace's key (`libs/crypto/credentialVault.ts`).
+     * Cleared when the run ends.
+     */
+    checkpoint: jsonb('checkpoint').$type<import('@/libs/crypto/credentialVault').EncryptResult>(),
+    /** The process driving the run, and its last beat: a stale beat means it went away. */
+    runnerId: text('runner_id'),
+    heartbeatAt: timestamp('heartbeat_at', { mode: 'date' }),
+    /** How many times a new process picked the run up after the last one went away. */
+    resumes: integer('resumes').default(0).notNull(),
+    /** Where the browser ran: `remote` (its own container), `sandboxed`, `unsandboxed`. */
+    isolation: text('isolation'),
     /** `person` (they asked for it) or `agent:<slug>` (suggested, started by the person's click). */
     proposedBy: text('proposed_by').notNull(),
     microCents: bigint('micro_cents', { mode: 'number' }).default(0).notNull(),

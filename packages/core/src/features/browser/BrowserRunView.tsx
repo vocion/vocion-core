@@ -25,17 +25,25 @@ import { StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { announceConversationAppended } from '@/features/dashboard/chat/conversationAppended';
 import { cn } from '@/utils/Helpers';
+import { OutputValue } from './OutputValue';
 
 const ACTIVE = new Set(['proposed', 'queued', 'running', 'waiting']);
+
+/** Where the browser ran, as a person reads it (`services/browser/browserHost.ts`). */
+const ISOLATION: Record<string, string> = {
+  remote: 'Ran in its own isolated container',
+  sandboxed: 'Ran in a sandboxed browser',
+  unsandboxed: 'Ran in its own browser process, without Chrome\'s sandbox',
+};
 
 function statusLine(run: Run): { tone: 'pass' | 'amber' | 'fail' | 'neutral'; word: string; pulse: boolean } {
   switch (run.status) {
     case 'proposed':
       return { tone: 'neutral', word: 'Suggested · ready to start', pulse: false };
     case 'queued':
-      return { tone: 'amber', word: 'Starting the browser', pulse: true };
+      return { tone: 'amber', word: run.resuming ? 'Picking up after a restart' : 'Starting the browser', pulse: true };
     case 'running':
-      return { tone: 'amber', word: `Working · step ${run.steps.length}`, pulse: true };
+      return { tone: 'amber', word: run.resuming ? 'Picking up after a restart' : `Working · step ${run.steps.length}`, pulse: true };
     case 'waiting':
       return { tone: 'amber', word: run.waiting?.kind === 'approval' ? 'Waiting for your approval' : 'Waiting for your answer', pulse: true };
     case 'done':
@@ -102,45 +110,6 @@ function useFrame(run: Run): string | null {
     }
   }, []);
   return src;
-}
-
-function Cell({ value }: { value: unknown }) {
-  if (value === null || value === undefined || value === '') {
-    return <span className="text-muted-foreground">—</span>;
-  }
-  if (typeof value === 'number') {
-    return <>{value.toLocaleString('en-US', { maximumFractionDigits: 2 })}</>;
-  }
-  return <>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</>;
-}
-
-function OutputValue({ value }: { value: unknown }) {
-  if (Array.isArray(value) && value.length > 0 && value.every(v => v && typeof v === 'object' && !Array.isArray(v))) {
-    const cols = [...new Set(value.flatMap(v => Object.keys(v as object)))];
-    return (
-      <div className="overflow-x-auto">
-        <table className="w-full text-[12px]">
-          <thead>
-            <tr className="border-b border-border text-left text-[11px] tracking-wide text-muted-foreground uppercase">
-              {cols.map(c => <th key={c} className="py-1 pr-3 font-medium">{c.replace(/_/g, ' ')}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {value.map((row, i) => (
-              // eslint-disable-next-line react/no-array-index-key -- rows have no id of their own
-              <tr key={i} className="border-b border-border/60">
-                {cols.map(c => <td key={c} className={cn('py-1 pr-3 align-top', typeof (row as Record<string, unknown>)[c] === 'number' && 'text-right tabular-nums')}><Cell value={(row as Record<string, unknown>)[c]} /></td>)}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
-  if (Array.isArray(value)) {
-    return <ul className="list-disc pl-4">{value.map((v, i) => <li key={i}><Cell value={v} /></li>)}</ul>; // eslint-disable-line react/no-array-index-key
-  }
-  return <p className="text-sm font-medium text-foreground"><Cell value={value} /></p>;
 }
 
 function StepRow({ step }: { step: BrowserStep }) {
@@ -279,6 +248,12 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
               )}
         </div>
       </figure>
+      {run.isolation && (
+        <p className="-mt-2 text-[11px] text-muted-foreground" data-browser-isolation={run.isolation}>
+          {ISOLATION[run.isolation] ?? run.isolation}
+          {run.resumes > 0 && ` · picked up after ${run.resumes === 1 ? 'a restart' : `${run.resumes} restarts`}`}
+        </p>
+      )}
 
       {run.waiting && (
         <div className="rounded-lg border border-brand-amber/50 bg-brand-amber/5 p-3" data-browser-waiting={run.waiting.kind}>

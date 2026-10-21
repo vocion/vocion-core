@@ -46,6 +46,8 @@ export type BrowserSession = {
   cdp: CDPSession | null;
   frame: Buffer | null;
   frameSeq: number;
+  /** Where no screencast is offered, a picture taken this often instead. */
+  poll: ReturnType<typeof setInterval> | null;
   /** Requests the guard stopped since the model last looked. */
   blocked: string[];
   idle: ReturnType<typeof setTimeout> | null;
@@ -56,7 +58,9 @@ export type BrowserSession = {
 export type EngineDeps = { browser: () => Promise<Browser> };
 
 const defaultDeps: EngineDeps = {
-  browser: async () => (await import('@/libs/documents/render')).sharedBrowser(),
+  // Its own browser, never the document renderer's: in a container of its own where there is one
+  // (`browserHost.ts`).
+  browser: async () => (await import('./browserHost')).browserHost(),
 };
 
 const sessions = new Map<string, BrowserSession>();
@@ -120,9 +124,32 @@ async function startScreencast(s: BrowserSession): Promise<void> {
     });
     await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 70, maxWidth: BROWSER_VIEWPORT.width, maxHeight: BROWSER_VIEWPORT.height, everyNthFrame: 1 });
   } catch {
-    // No screencast (a browser that does not speak CDP): the pane falls back to screenshots.
+    // No screencast (a browser that does not speak CDP to us): a picture twice a second instead.
     s.cdp = null;
+    if (!s.poll) {
+      s.poll = setInterval(() => {
+        if (s.page.isClosed()) {
+          return;
+        }
+        void s.page.screenshot({ type: 'jpeg', quality: 60 }).then((jpeg) => {
+          s.frame = jpeg;
+          s.frameSeq += 1;
+        }).catch(() => {});
+      }, 500);
+      s.poll.unref?.();
+    }
   }
+}
+
+/** A saved browser: its cookies and site storage, and where it was. */
+export type SavedBrowser = { storageState: Awaited<ReturnType<BrowserContext['storageState']>>; url: string };
+
+/**
+ * The browser as it stands, to put it back after a restart: cookies, site storage, the page.
+ * @param s - The browser.
+ */
+export async function saveBrowser(s: BrowserSession): Promise<SavedBrowser> {
+  return { storageState: await s.context.storageState(), url: s.page.url() };
 }
 
 function touch(s: BrowserSession): void {
@@ -136,8 +163,9 @@ function touch(s: BrowserSession): void {
  * The person's browser, opened if it is not.
  * @param key - `personKey(orgId, userId)`.
  * @param deps - Chrome.
+ * @param restore
  */
-export async function openBrowserSession(key: string, deps: Partial<EngineDeps> = {}): Promise<BrowserSession> {
+export async function openBrowserSession(key: string, deps: Partial<EngineDeps> = {}, restore?: SavedBrowser | null): Promise<BrowserSession> {
   const existing = sessions.get(key);
   if (existing && !existing.page.isClosed()) {
     touch(existing);
@@ -145,9 +173,9 @@ export async function openBrowserSession(key: string, deps: Partial<EngineDeps> 
   }
   const d = { ...defaultDeps, ...deps };
   const browser = await d.browser();
-  const context = await browser.newContext({ viewport: BROWSER_VIEWPORT, deviceScaleFactor: 1, locale: 'en-US', timezoneId: 'America/Los_Angeles' });
+  const context = await browser.newContext({ viewport: BROWSER_VIEWPORT, deviceScaleFactor: 1, locale: 'en-US', timezoneId: 'America/Los_Angeles', acceptDownloads: false, ...(restore ? { storageState: restore.storageState } : {}) });
   await context.addInitScript(DEMO_CHROME_SCRIPT);
-  const s: BrowserSession = { key, context, page: await context.newPage(), cdp: null, frame: null, frameSeq: 0, blocked: [], idle: null, busy: false };
+  const s: BrowserSession = { key, context, page: await context.newPage(), cdp: null, frame: null, frameSeq: 0, poll: null, blocked: [], idle: null, busy: false };
   await context.route('**/*', async (route) => {
     const url = route.request().url();
     const practice = practiceResponse(url);
@@ -172,6 +200,11 @@ export async function openBrowserSession(key: string, deps: Partial<EngineDeps> 
   });
   sessions.set(key, s);
   await startScreencast(s);
+  // Put back where it was: the page it was on, signed in as it was (`saveBrowser`).
+  if (restore && /^https?:/.test(restore.url)) {
+    await s.page.goto(restore.url, { waitUntil: 'domcontentloaded', timeout: 20_000 }).catch(() => {});
+    await settle(s.page);
+  }
   return s;
 }
 
@@ -186,6 +219,9 @@ export async function closeBrowserSession(key: string): Promise<void> {
   }
   sessions.delete(key);
   touch(s);
+  if (s.poll) {
+    clearInterval(s.poll);
+  }
   await s.context.close().catch(() => {});
 }
 

@@ -84,6 +84,12 @@ export type BrowserRunView = {
   agentSlug: string | null;
   conversationId: number | null;
   cents: number;
+  /** Where the browser ran: `remote` (its own container), `sandboxed`, `unsandboxed`; null before it opened. */
+  isolation: string | null;
+  /** How many times it was picked up again after the app restarted. */
+  resumes: number;
+  /** Its process went away and it is about to be picked up again. */
+  resuming: boolean;
   startedAt: string | null;
   endedAt: string | null;
   createdAt: string;

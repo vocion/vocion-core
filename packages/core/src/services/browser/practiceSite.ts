@@ -122,7 +122,9 @@ function invoice(no) {
 }
 function payment() {
   const a = S.get('remit') || { line1: '1200 Oak Avenue', line2: '', city: 'Oakland', state: 'CA', zip: '94607' };
+  // Said once, on the page the save landed on: a later visit shows the form, not an old confirmation.
   const saved = S.get('saved');
+  S.set('saved', null);
   app.innerHTML = shell('pay', (saved ? '<div class="ok" role="status">Saved. Your change reference is <b>' + saved + '</b>. Fernhill will use this address from the next statement.</div>' : '')
     + '<div class="card"><h1>Payment details</h1><p class="muted">Where Fernhill sends statements and where your remittances are recorded from.</p>'
     + '<form id="f"><h2 style="margin-top:16px">Remit-to address</h2>'

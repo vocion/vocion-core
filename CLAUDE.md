@@ -233,8 +233,10 @@ run with its inputs, named outputs, steps and result (`browser_run`), watched li
 pane. Asked for in words, with the `@browser` composer tag (`asked_for` on the wire), or suggested
 by an agent and started by the person. The engine (`services/browser/browserEngine.ts`) holds any
 click that submits, sends, pays, saves or deletes for the person's approval; a secret input never
-reaches the model; only public addresses load. One live run per person, one browser per person
-kept between runs, in the app process. On with `VOCION_BROWSER_RUNS=on`, or per agent with
+reaches the model; only public addresses load. The browser runs in its own container
+(`VOCION_BROWSER_ENDPOINT`, the `browser` service), never in the app; a run seals a checkpoint
+after each step and is picked up by the next process after a restart. One live run per person, one
+browser per person kept between runs. On with `VOCION_BROWSER_RUNS=on`, or per agent with
 `harness.grantTools: [browser_tasks]`.
 
 ## Background worker

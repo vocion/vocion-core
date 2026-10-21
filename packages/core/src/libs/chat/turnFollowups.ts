@@ -162,3 +162,22 @@ export function turnFollowups(runs: readonly TurnToolStep[] | undefined, opts: {
   }
   return out;
 }
+
+/**
+ * The browser runs a turn's tool steps handed back done (`browser_task`, `browser_task_check`): the
+ * runs whose outputs are drawn under the answer, once each, in order.
+ * @param runs - The turn's steps (`message.runs`).
+ */
+export function browserRunsDone(runs: readonly TurnToolStep[] | undefined): number[] {
+  const out: number[] = [];
+  for (const r of runs ?? []) {
+    if (r.type !== 'tool' || (r.name !== 'browser_task' && r.name !== 'browser_task_check') || typeof r.output !== 'string') {
+      continue;
+    }
+    const id = /"browserRunId"\s*:\s*(\d+)/.exec(r.output)?.[1];
+    if (id && /"status"\s*:\s*"done"/.test(r.output) && !out.includes(Number(id))) {
+      out.push(Number(id));
+    }
+  }
+  return out;
+}

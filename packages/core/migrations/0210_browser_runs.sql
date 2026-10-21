@@ -3,8 +3,10 @@
 -- outputs it owes — and what the browser did, step by step, with the result.
 -- `result` is json, not jsonb: jsonb reorders an object's keys, and a table's
 -- columns come back in the order the run gave them.
--- One live run per person at a time; the browser itself lives in the app
--- process, this row is the record. The table is new, so its index is built here.
+-- One live run per person at a time. The process driving a run beats
+-- `heartbeat_at`; a run whose beat stops is resumed from `checkpoint` (the
+-- browser's cookies, storage and page, the run's notes and secrets, sealed
+-- under the workspace's key) by the next process that sees it. The table is new, so its index is built here.
 CREATE TABLE IF NOT EXISTS "browser_run" (
   "id" serial PRIMARY KEY NOT NULL,
   "org_id" text NOT NULL REFERENCES "project"("id") ON DELETE CASCADE,
@@ -22,6 +24,11 @@ CREATE TABLE IF NOT EXISTS "browser_run" (
   "waiting" jsonb,
   "error" text,
   "final_shot_url" text,
+  "checkpoint" jsonb,
+  "runner_id" text,
+  "heartbeat_at" timestamp,
+  "resumes" integer DEFAULT 0 NOT NULL,
+  "isolation" text,
   "proposed_by" text NOT NULL,
   "micro_cents" bigint DEFAULT 0 NOT NULL,
   "started_at" timestamp,

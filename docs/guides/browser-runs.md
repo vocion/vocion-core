@@ -67,9 +67,57 @@ reports back in that thread.
   still signed in (`continue_from_current_page`).
 - **Per run:** 40 steps, 8 minutes of work, and 30 minutes waiting on the
   person.
-- **In process.** The browser runs in the app process (the shared Chromium
-  that renders documents). A run that was live when the app restarted reads as
-  failed, saying so.
+
+## Where the browser runs
+
+A page a browser run opens is anyone's code, so it never renders in the app's
+process or in the document renderer's Chromium (`services/browser/browserHost.ts`).
+
+- **Its own container (deployed installations).** `infra/aws/docker-compose.prod.yml`
+  runs a `browser` service:
+  - from the app image, so Chromium and Playwright match;
+  - on a network only the app joins;
+  - with no env file, keys or database login;
+  - with no capabilities, no privilege escalation, a read-only filesystem
+    except `/tmp`, and memory and process limits.
+
+  The app drives it over `VOCION_BROWSER_ENDPOINT`, and every request it makes
+  still passes the app's guard.
+- **Sandboxed (a laptop).** With no endpoint, the app starts its own Chromium
+  with Chrome's sandbox on, and an environment holding nothing of the app's.
+- **Unsandboxed, said so.** Where the sandbox cannot start, or the container
+  cannot be reached, runs carry on in their own Chromium without it rather than
+  fail.
+
+Each run's pane says which of these it ran in.
+
+## A run outlives a restart
+
+- **Checkpoints:** the process driving a run beats `heartbeat_at` every few
+  seconds and seals a checkpoint after each step: the browser's cookies, site
+  storage and page, the run's notes and its secrets, under the workspace's key.
+- **Pick-up:** when the beat stops (a deploy, a crash, the browser container
+  restarting), the next process claims the run in one write (`startBrowserRunKeeper`,
+  from boot). It opens a browser from the checkpoint and carries on, told what
+  it had already done.
+- **Approvals carry over:** a run waiting on the person waits again, with the
+  same Approve and Decline. An approval given meanwhile is taken without asking
+  twice.
+- **Lost form edits:** anything typed into a form and not saved is gone after a
+  restart. The run redoes it.
+- **Limit:** after three restarts a run stops and says so.
+- **Cleanup:** the checkpoint is cleared when the run ends.
+
+## What the answer shows
+
+When a run is done, its outputs are drawn under the answer that asked for them
+by the run itself (`BrowserRunResult`), with the same component as the pane, in
+the order the page gave them.
+
+The agent receives single values and the summary. A table reaches it as a row
+count and its columns, so it cannot restate the rows in another order.
+`browser_task_check` with `rows: true` hands the rows over, numbered, when the
+agent has to work something out from them.
 
 ## The practice site
 

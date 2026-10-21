@@ -13,13 +13,14 @@ import remarkGfm from 'remark-gfm';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { BrowserRunResult } from '@/features/browser/BrowserRunResult';
 import { BriefAudioPlayer } from '@/features/dashboard/briefings/BriefAudioPlayer';
 import { RecordMicrocard } from '@/features/dashboard/factory/WorkStatus';
 import { openPreview } from '@/features/preview/previewState';
 import { normalizeAnswerHtml, stripCardNotes } from '@/libs/chat/answerText';
 import { splitScratch } from '@/libs/chat/scratch';
 import { stripSuggestBlocks } from '@/libs/chat/suggestions';
-import { turnFollowups } from '@/libs/chat/turnFollowups';
+import { browserRunsDone, turnFollowups } from '@/libs/chat/turnFollowups';
 import { Link } from '@/libs/I18nNavigation';
 import { isFailure } from '@/services/chat/turnStatus';
 import { AgentMark } from './AgentMark';
@@ -299,6 +300,8 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   const follow = useMemo(() => turnFollowups(message.runs as TurnToolStep[] | undefined, {
     exclude: [...(pageRecord ? [pageRecord] : []), ...(message.artifacts ?? []).map(a => ({ type: 'artifact', id: String(a.id) })), ...microcards.map(r => ({ type: 'object', id: String(r.id) }))],
   }), [message.runs, message.artifacts, pageRecord, microcards]);
+  // The browser runs this turn handed back done, with outputs for the run to draw (`BrowserRunResult`).
+  const doneBrowserRuns = useMemo(() => browserRunsDone(message.runs as TurnToolStep[] | undefined), [message.runs]);
   // A failure is a failure whether it arrived as a legacy run or as a typed
   // trace node — #368 persists the latter, and the badge has to find both.
   // A step a later step of the same kind recovered from is not a failure of
@@ -611,6 +614,8 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               artifacts, then each run, record or ask its steps started,
               followed live (Chris, 2026-09-29). Not while it streams: a
               chip for a step still running would be a claim. */}
+          {/* A browser run's outputs, drawn by the run itself under the answer that asked for them. */}
+          {!streaming && doneBrowserRuns.map(id => <BrowserRunResult key={id} runId={id} />)}
           {microcards.length > 0 && (
             <div className="-mx-2 mt-3 space-y-0.5" data-testid="turn-record-microcards">
               {microcards.map(r => <RecordMicrocard key={r.id} record={r} />)}

@@ -37,6 +37,8 @@ export type LoopHooks = {
   charge: (response: unknown) => Promise<void>;
   /** True once the person pressed Stop. */
   stopped: () => boolean;
+  /** The run's notes changed: kept on its checkpoint, so a restart does not lose them. */
+  notes?: (notes: readonly string[]) => void;
   now: () => number;
 };
 
@@ -50,7 +52,20 @@ export type LoopInput = {
   outputs: BrowserOutputSpec[];
   /** Whether the browser already holds a page from the person's last run. */
   continuing: boolean;
+  /**
+   * Picked up after the app restarted: what was already done (step labels), the notes, and a held
+   * step the person approved meanwhile — taken without asking again.
+   */
+  resume?: { done: string[]; notes: string[]; approved: string | null };
 };
+
+/** The browser went away under the run (its container restarted): the run is picked up again, not failed. */
+export class BrowserLostError extends Error {
+  constructor() {
+    super('the browser closed under the run');
+    this.name = 'BrowserLostError';
+  }
+}
 
 export type LoopResult
   = | { status: 'done'; summary: string; result: Record<string, unknown> }
@@ -99,6 +114,7 @@ function system(input: LoopInput, notes: string[]): string {
     '- Be quick: no extra looks, no re-checking what the snapshot already shows. Finish as soon as the outputs are in hand.',
     '- You only see the current page. Before you leave a page whose values you need, write them down with note; your notes are shown below on every step.',
     `- You have ${BROWSER_RUN_LIMITS.steps} steps.`,
+    input.resume ? `\nYou were partway through this task when the app restarted. The browser has been put back on the page you were on, signed in as before, but anything typed into a form and not saved is gone. What you had done:\n${input.resume.done.slice(-30).map(d => `- ${d}`).join('\n')}${input.resume.approved ? `\nThe person has approved: ${input.resume.approved}. Redo what that step needs, then take it.` : ''}` : '',
     '',
     notes.length > 0 ? `Your notes so far:\n${notes.map((n, i) => `${i + 1}. ${n}`).join('\n')}` : 'Your notes so far: none.',
   ].filter(s => s !== '').join('\n');
@@ -150,9 +166,11 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
   const history: Array<{ ai: AIMessage; replies: Array<{ id: string; short: string; full: string }> }> = [];
   const mask = (x: string) => maskSecrets(x, input.secrets);
   let missingNagged = false;
-  const notes: string[] = [];
+  const notes: string[] = [...(input.resume?.notes ?? [])];
+  // A step the person approved while no process held the run: taken once, without asking again.
+  let approvedAhead = input.resume?.approved ?? null;
 
-  if (input.startUrl && !input.continuing) {
+  if (input.startUrl && !input.continuing && !input.resume) {
     const out = await act(s, { kind: 'open', url: input.startUrl });
     await hooks.step({ kind: 'open', label: `Opened ${input.startUrl}`, url: s.page.url(), ok: out.ok, detail: out.ok ? undefined : out.detail });
   } else if (input.startUrl && input.continuing && s.page.url() === 'about:blank') {
@@ -162,6 +180,9 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
   for (let n = 0; n < BROWSER_RUN_LIMITS.steps; n += 1) {
     if (hooks.stopped()) {
       return { status: 'stopped', summary: 'Stopped by the person.' };
+    }
+    if (s.page.isClosed()) {
+      throw new BrowserLostError();
     }
     if (hooks.now() - started - waited > BROWSER_RUN_LIMITS.runMs) {
       return { status: 'failed', summary: 'The run ran out of time before the task was done.', result: null, error: 'time limit' };
@@ -205,6 +226,11 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
      * @param label
      */
     const hold = async (label: string): Promise<{ go: boolean; reply?: string }> => {
+      if (approvedAhead && approvedAhead === label) {
+        approvedAhead = null;
+        await hooks.step({ kind: 'approval', label: `Approved by the person: ${label}`, ok: true });
+        return { go: true };
+      }
       const before = hooks.now();
       await hooks.step({ kind: 'approval', label: `Waiting for approval: ${label}`, url: s.page.url(), ok: true });
       const answer = await hooks.wait({ kind: 'approval', text: label, step: label });
@@ -313,6 +339,7 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
       case 'note': {
         const text = mask(String(args.text ?? '')).trim();
         notes.push(text);
+        hooks.notes?.(notes);
         await hooks.step({ kind: 'note', label: `Noted: ${text.replace(/\s+/g, ' ').slice(0, 140)}${text.length > 140 ? '…' : ''}`, ok: true });
         outcome = { ok: true, detail: 'noted' };
         break;
