@@ -1,9 +1,10 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { newCardId } from '@/libs/cards/card';
 import { callMcpTool, listMcpTools, mcpCredentialsOf, validateMcpInput, withMcp } from '@/libs/outboundMcp/client';
 import { loadMcpSources } from '@/libs/outboundMcp/sources';
-import { personMcpCredentials } from '@/services/outboundMcp/personSignIn';
+import { personMcpCredentials, signInPath } from '@/services/outboundMcp/personSignIn';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 
 /** A per-person source the person in the turn cannot read yet: the sentence says why and where to sign in. */
@@ -60,11 +61,26 @@ export function mcpTools(ctx: RuntimeContext) {
     if (source.config.auth !== 'person' || !source.config.url) {
       return mcpCredentialsOf(await getCredentialsForSource(ctx.orgId, source.slug));
     }
-    const signedIn = await personMcpCredentials({ source: { orgId: ctx.orgId, slug: source.slug, name: source.name, url: source.config.url }, userId: ctx.userId });
+    const person = { orgId: ctx.orgId, slug: source.slug, name: source.name, url: source.config.url };
+    const signedIn = await personMcpCredentials({ source: person, userId: ctx.userId });
     if (!signedIn.ok) {
-      throw new SignInNeeded(signedIn.why);
+      throw new SignInNeeded(signedIn.signIn ? offerSignIn(person) : signedIn.why);
     }
     return signedIn.credentials;
+  }
+  // The same one-tap card a connector login is offered with, docked above the
+  // composer, once per source per turn; the sign-in lands back in this conversation.
+  const offered = new Set<string>();
+  function offerSignIn(source: { orgId: string; slug: string; name: string }): string {
+    if (!offered.has(source.slug)) {
+      offered.add(source.slug);
+      const cardId = newCardId();
+      ctx.emit({
+        type: 'card',
+        card: { id: cardId, kind: 'link', title: `Sign in to ${source.name}`, actions: [], source: { agentSlug: ctx.agentSlug, tool: 'mcp_read' }, href: signInPath(source, { conversationId: ctx.conversationId, cardId }), hrefLabel: 'Sign in', state: 'proposed' },
+      });
+    }
+    return `${source.name} answers each person as themselves, and this person has not signed in to it yet. A sign-in card is docked above their composer: say in one line that they sign in there once (it covers every workspace) and then ask again. Do not retry, and do not answer from other sources as if it were this one. No tool was called.`;
   }
   return [
     tool(async ({ sourceSlug }) => {

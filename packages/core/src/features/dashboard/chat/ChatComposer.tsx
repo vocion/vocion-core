@@ -206,7 +206,7 @@ const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['⌘ / Ctrl + Enter', 'Stop the turn and send now'],
   ['Esc', 'Stop the turn (empty box)'],
   ['Shift + Enter', 'New line'],
-  ['@', 'Tag an agent, team, mission or the page'],
+  ['@', 'Tag an agent, team, mission, source or the page'],
   ['(+) · drop · paste', `Attach a ${ATTACHMENT_HINT}`],
   ['@artifact', 'This turn ends in a document'],
   ['@change', 'This ask changes the draft in view'],

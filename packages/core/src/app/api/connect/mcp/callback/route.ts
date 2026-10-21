@@ -21,6 +21,7 @@ import { logger } from '@/libs/Logger';
 import { exchangeMcpCode, mcpEndpoint } from '@/libs/outboundMcp/oauth';
 import { personMcpSourceFor } from '@/libs/outboundMcp/personSource';
 import { projectSchema } from '@/models/Schema';
+import { approveLoginCard } from '@/services/connect/completeLogin';
 import { storePersonGrant } from '@/services/outboundMcp/personSignIn';
 
 /**
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
   if (!verified.ok || verified.payload.provider !== 'mcp' || verified.payload.userId !== userId || !verified.payload.sourceSlug || !verified.payload.loginClientId) {
     return refuse('This sign-in link is not valid for you or has expired. Start it again from Vocion.', 400);
   }
-  const { orgId, sourceSlug, loginClientId } = verified.payload;
+  const { orgId, sourceSlug, loginClientId, returnTo, conversationId, cardId } = verified.payload;
   const source = await personMcpSourceFor({ userId, orgId, slug: sourceSlug });
   if (!source) {
     return refuse('That MCP source no longer signs people in, or you can no longer open its workspace.', 404);
@@ -69,6 +70,13 @@ export async function GET(req: NextRequest) {
     const reason = error instanceof Error && /^(?:The MCP server|You have no Personal)/.test(error.message) ? ` ${error.message}` : '';
     return refuse(`Could not finish signing in to ${source.name}.${reason} Start it again from Vocion.`, 502);
   }
+  if (conversationId !== undefined && cardId) {
+    // The card is a view: the sign-in stands whether or not it can be marked.
+    await approveLoginCard({ orgId, userId, card: { conversationId, cardId } }).catch((error: unknown) => {
+      logger.warn('The MCP sign-in card could not be marked done', { orgId, errorName: error instanceof Error ? error.name : 'unknown' });
+    });
+  }
+  const back = returnTo ?? '/dashboard';
   const [workspace] = await db.select({ slug: projectSchema.slug }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
-  return NextResponse.redirect(workspace ? workspaceUrl(workspace.slug, '/dashboard', { absolute: true }) : `${origin}/dashboard`, 303);
+  return NextResponse.redirect(workspace ? workspaceUrl(workspace.slug, back, { absolute: true }) : `${origin}${back}`, 303);
 }

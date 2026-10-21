@@ -14,12 +14,13 @@ vi.mock('@/services/SourceCredentialService', () => ({
   },
 }));
 const signIn = vi.hoisted(() => ({ users: [] as Array<string | null | undefined>, signedIn: true }));
-vi.mock('@/services/outboundMcp/personSignIn', () => ({
+vi.mock('@/services/outboundMcp/personSignIn', async importOriginal => ({
+  signInPath: (await importOriginal<typeof import('@/services/outboundMcp/personSignIn')>()).signInPath,
   personMcpCredentials: async ({ userId }: { userId?: string | null }) => {
     signIn.users.push(userId);
     return signIn.signedIn
       ? { ok: true, credentials: { baseUrl: 'https://knowledge.example/mcp', token: `token-${userId}` } }
-      : { ok: false, why: 'Sign in to Company Knowledge: [Sign in](https://app.example/api/connect/mcp/start?workspace=org&source=knowledge)' };
+      : { ok: false, why: 'not signed in', signIn: true };
   },
 }));
 const sessions = vi.hoisted(() => ({ tokens: [] as string[] }));
@@ -34,8 +35,9 @@ vi.mock('@/libs/outboundMcp/client', async importOriginal => ({
 }));
 const { mcpTools } = await import('./mcpDirect');
 
+const emitted: Array<{ type: string; card?: { title: string; href?: string } }> = [];
 function context(userId?: string): RuntimeContext {
-  return { orgId: 'org', userId, connectorSources: ['knowledge'], sourceKinds: { knowledge: 'mcp' } } as unknown as RuntimeContext;
+  return { orgId: 'org', userId, conversationId: 42, connectorSources: ['knowledge'], sourceKinds: { knowledge: 'mcp' }, emit: (event: { type: string }) => emitted.push(event) } as unknown as RuntimeContext;
 }
 
 describe('a per-person MCP source', () => {
@@ -43,6 +45,7 @@ describe('a per-person MCP source', () => {
     Object.assign(signIn, { users: [], signedIn: true });
     Object.assign(sessions, { tokens: [] });
     workspaceToken.reads = 0;
+    emitted.length = 0;
   });
 
   it('reads with the grant of the person in the turn, never the workspace token', async () => {
@@ -54,15 +57,22 @@ describe('a per-person MCP source', () => {
     expect(workspaceToken.reads).toBe(0);
   });
 
-  it('answers with the sign-in link when the person has not signed in, calling nothing', async () => {
+  it('docks one sign-in card that lands back in this conversation, calling nothing', async () => {
     signIn.signedIn = false;
     const tools = mcpTools(context('usr-cass'));
 
     const list = tools.find(t => t.name === 'mcp_list_tools')!;
     const read = tools.find(t => t.name === 'mcp_read')!;
 
-    expect(JSON.parse(await list.invoke({ sourceSlug: 'knowledge' }) as string)).toMatchObject({ isError: true, error: expect.stringContaining('/api/connect/mcp/start?') });
-    expect(JSON.parse(await read.invoke({ sourceSlug: 'knowledge', name: 'search', input: {} }) as string)).toMatchObject({ isError: true, error: expect.stringContaining('/api/connect/mcp/start?') });
+    expect(JSON.parse(await list.invoke({ sourceSlug: 'knowledge' }) as string)).toMatchObject({ isError: true, error: expect.stringContaining('sign-in card') });
+    expect(JSON.parse(await read.invoke({ sourceSlug: 'knowledge', name: 'search', input: {} }) as string)).toMatchObject({ isError: true, error: expect.stringContaining('sign-in card') });
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.card!.title).toBe('Sign in to Company Knowledge');
+
+    const href = new URL(emitted[0]!.card!.href!, 'https://app.example');
+
+    expect(href.pathname).toBe('/api/connect/mcp/start');
+    expect(Object.fromEntries(href.searchParams)).toMatchObject({ workspace: 'org', source: 'knowledge', returnTo: '/dashboard/chat?conversation=42', conversation: '42' });
     expect(sessions.tokens).toEqual([]);
   });
 });

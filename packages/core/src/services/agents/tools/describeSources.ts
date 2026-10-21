@@ -139,7 +139,10 @@ export function describeSourcesTool(ctx: RuntimeContext) {
         for (const line of scopeLines(s.config ?? {})) {
           lines.push(`  ${line}`);
         }
-        if (!connected) {
+        if (connector === 'mcp' && s.config?.auth === 'person') {
+          // No workspace credential by design: each person signs in to it.
+          lines.push('  Each person signs in to this source themselves; read it with mcp_list_tools / mcp_read, which offer the person the sign-in when they have not.');
+        } else if (!connected) {
           lines.push(`  Credential: none stored${status?.broken ? ` (${status.broken})` : ''} — nothing is read until a person connects it at /dashboard/connectors`);
         } else {
           const grant: GrantSummary | null = await grantSummaryForSource({ orgId: ctx.orgId, sourceSlug: s.slug, connectorSlug: connector });
