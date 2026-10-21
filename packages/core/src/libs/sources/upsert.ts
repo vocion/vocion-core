@@ -284,6 +284,20 @@ export async function upsertSourceRow(
   if (!opts.dryRun) {
     await db.update(knowledgeSourceSchema).set(payload).where(eq(knowledgeSourceSchema.id, existing.id));
   }
+  // A new display name alone is written but is not a config change: it must
+  // not earn the full sync an `updated` source is queued for.
+  const unnamed = (config: unknown) => {
+    const { [SOURCE_NAME_KEY]: _name, ...rest } = (config ?? {}) as Record<string, unknown>;
+    return canonical(rest);
+  };
+  if (
+    existing.kind === payload.kind
+    && existing.enabled === payload.enabled
+    && unnamed(existing.configJson) === unnamed(payload.configJson)
+    && canonical(existing.accessPolicy ?? null) === canonical(payload.accessPolicy)
+  ) {
+    return { outcome: 'unchanged', id: existing.id };
+  }
   return { outcome: 'updated', id: existing.id };
 }
 

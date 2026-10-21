@@ -13,6 +13,7 @@ import type { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { returnUrl } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { pkceVerifierFor, verifyState } from '@/libs/connect/state';
 import { db } from '@/libs/DB';
@@ -48,13 +49,20 @@ export async function GET(req: NextRequest) {
   if (!source) {
     return refuse('That MCP source no longer signs people in, or you can no longer open its workspace.', 404);
   }
+  const [workspace] = await db.select({ slug: projectSchema.slug }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
+  const origin = connectOrigin() ?? '';
+  // Back where the sign-in was offered, with the outcome every connect lands
+  // with: the chat card's step is answered, or says why it was not.
+  const land = (outcome: { ok: true } | { ok: false; reason: string }) => {
+    const path = returnUrl('', outcome, { connector: sourceSlug, returnTo: returnTo ?? '/dashboard' });
+    return NextResponse.redirect(workspace ? workspaceUrl(workspace.slug, path, { absolute: true }) : `${origin}${path}`, 303);
+  };
   if (req.nextUrl.searchParams.get('error')) {
-    return refuse(`${source.name} did not grant access. Start the sign-in again from Vocion if that was not intended.`, 400);
+    return land({ ok: false, reason: 'access_denied' });
   }
   const code = req.nextUrl.searchParams.get('code');
-  const origin = connectOrigin();
   if (!code || !origin) {
-    return refuse(`${source.name} sent no authorization code.`, 400);
+    return land({ ok: false, reason: 'no_code' });
   }
   try {
     const grant = await exchangeMcpCode({
@@ -67,8 +75,7 @@ export async function GET(req: NextRequest) {
     await storePersonGrant({ userId, sourceName: source.name, grant });
   } catch (error) {
     logger.warn('An MCP sign-in could not finish', { orgId, source: sourceSlug, errorName: error instanceof Error ? error.name : 'unknown' });
-    const reason = error instanceof Error && /^(?:The MCP server|You have no Personal)/.test(error.message) ? ` ${error.message}` : '';
-    return refuse(`Could not finish signing in to ${source.name}.${reason} Start it again from Vocion.`, 502);
+    return land({ ok: false, reason: 'exchange_failed' });
   }
   if (conversationId !== undefined && cardId) {
     // The card is a view: the sign-in stands whether or not it can be marked.
@@ -76,7 +83,5 @@ export async function GET(req: NextRequest) {
       logger.warn('The MCP sign-in card could not be marked done', { orgId, errorName: error instanceof Error ? error.name : 'unknown' });
     });
   }
-  const back = returnTo ?? '/dashboard';
-  const [workspace] = await db.select({ slug: projectSchema.slug }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
-  return NextResponse.redirect(workspace ? workspaceUrl(workspace.slug, back, { absolute: true }) : `${origin}${back}`, 303);
+  return land({ ok: true });
 }

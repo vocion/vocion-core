@@ -26,6 +26,7 @@ import type { AgentContextRow } from '@/services/agents/runtimeContext';
 import type { ToolCatalogEntry } from '@/services/agents/tools/registry';
 import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { loadMcpSources } from '@/libs/outboundMcp/sources';
 import { platformForToolProvider } from '@/libs/platforms/registry';
 import { loadRestSources } from '@/libs/rest/sources';
 import { endpointDescription, REST_LIST_ACTIONS_TOOL, restToolName, toolPrefixFor } from '@/libs/rest/spec';
@@ -38,7 +39,7 @@ import { credentialStatusForOrg } from '@/services/SourceCredentialService';
 import { BUILTIN_TOOLS, capabilityStatuses } from './catalog';
 
 /** Where a tool comes from. */
-export type ToolFamilyKind = 'builtin' | 'records' | 'hubspot' | 'apollo' | 'gmail' | 'calendar' | 'zoom' | 'posthog' | 'rest' | 'workspace';
+export type ToolFamilyKind = 'builtin' | 'records' | 'hubspot' | 'apollo' | 'gmail' | 'calendar' | 'zoom' | 'posthog' | 'rest' | 'mcp' | 'workspace';
 
 /** Whether the tools of a family (or one paid built-in) can run right now. */
 export type ToolReadiness = {
@@ -100,7 +101,7 @@ export type RestActionEntry = {
 };
 
 export type ToolFamily = {
-  /** `builtin`, `records`, a source family's kind, `rest:<source slug>` or `workspace`. */
+  /** `builtin`, `records`, a source family's kind, `rest:<source slug>`, `mcp:<source slug>` or `workspace`. */
   id: string;
   kind: ToolFamilyKind;
   label: string;
@@ -126,7 +127,7 @@ export type OrgToolCatalog = {
 
 /** How a source family recognises its sources (by slug) and its tools (by name). */
 type SourceFamilyRule = {
-  kind: Exclude<ToolFamilyKind, 'builtin' | 'records' | 'rest' | 'workspace'>;
+  kind: Exclude<ToolFamilyKind, 'builtin' | 'records' | 'rest' | 'mcp' | 'workspace'>;
   label: string;
   description: string;
   connectorSlug: string;
@@ -416,6 +417,37 @@ export async function toolCatalogForOrg(orgId: string, opts: { withStatuses?: bo
     return family;
   });
 
+  // MCP: one family per remote server, its declared reads listed by name
+  // (the server is not called to draw this page). Agents reach them through
+  // mcp_list_tools / mcp_read, so those two belong to MCP, not Workspace.
+  const mcpRows = sourceRows.filter(s => s.configJson?._connector === 'mcp');
+  const mcpSpecs = mcpRows.length > 0 ? await loadMcpSources(orgId, mcpRows.map(s => s.slug)).catch(() => []) : [];
+  const mcpRead = union.get('mcp_read');
+  const mcpFamilies: ToolFamily[] = mcpSpecs.map((spec) => {
+    const row = mcpRows.find(s => s.slug === spec.slug)!;
+    const id = `mcp:${spec.slug}`;
+    const holders = agentRows.filter(a => (a.connectorSources ?? []).includes(spec.slug) && (mcpRead?.agents.includes(a.slug) ?? false)).map(a => a.slug);
+    const perPerson = spec.config.auth === 'person';
+    return {
+      id,
+      kind: 'mcp',
+      label: spec.name,
+      description: perPerson
+        ? `A remote MCP server read live as the person asking: each person signs in to ${spec.name} once, from chat. Read-only.`
+        : `A remote MCP server read live with this workspace's connected token. Writes go through mcp.call and the review queue.`,
+      sources: [{ id: row.id, slug: spec.slug, name: spec.name }],
+      // A per-person server has no workspace credential to miss.
+      readiness: perPerson ? { ready: true, keyStateUnknown: false } : familyReadiness([{ id: row.id, slug: spec.slug, name: spec.name }], connections),
+      // Named `<source>.<tool>`: a server's tool may share a name with a Vocion one (`search_knowledge`).
+      tools: spec.config.readTools.map(name => ({ name: `${spec.slug}.${name}`, title: toolTitle(name), description: `Read through mcp_read on ${spec.name}.`, familyId: id, agents: holders, inputSchema: { type: 'object', properties: {} } })),
+      actions: [],
+    };
+  });
+  if (mcpFamilies.length > 0) {
+    claimed.add('mcp_read');
+    claimed.add('mcp_list_tools');
+  }
+
   // Everything else an agent holds: the workspace's own tools — search,
   // records, artifacts, asks, learning, briefings — shown last, compactly.
   const workspaceTools = [...union.values()].filter(u => !claimed.has(u.entry.name)).map(u => toolOf(u.entry.name, 'workspace', u));
@@ -433,7 +465,7 @@ export async function toolCatalogForOrg(orgId: string, opts: { withStatuses?: bo
     : null;
 
   return {
-    families: [builtin, ...(records ? [records] : []), ...sourceFamilies, ...restFamilies, ...(workspace ? [workspace] : [])],
+    families: [builtin, ...(records ? [records] : []), ...sourceFamilies, ...restFamilies, ...mcpFamilies, ...(workspace ? [workspace] : [])],
     agents: agentRows.map(a => ({ slug: a.slug, name: a.name })),
     statuses,
   };

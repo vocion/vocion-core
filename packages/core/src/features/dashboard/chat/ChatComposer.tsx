@@ -12,7 +12,7 @@ import { AttachmentChip, attachmentMeta } from './AttachmentChip';
 import { COMPOSER_CONTROL, COMPOSER_MAX_PX, COMPOSER_ROW, CONTROL_PX } from './composerBar';
 import { buildComposerMenu, selectableItems, TAG_ICON } from './composerMenu';
 import { ComposerMenuPanel } from './ComposerMenuPanel';
-import { insertTagAt, INTENT_REF_TYPE, tagSlug } from './composerTags';
+import { hasInlineTag, inlineTagParts, insertTagAt, INTENT_REF_TYPE, tagSlug } from './composerTags';
 import { matchSlashCommands, parseSlashCommand, slashQuery } from './slashCommands';
 
 /**
@@ -294,6 +294,7 @@ export function ChatComposer({
   const words = { ...DEFAULT_COPY, ...copy };
   const [queuedExpanded, setQueuedExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const mirrorRef = useRef<HTMLDivElement | null>(null);
   // The one panel above the box (`composerMenu.ts`). `/` and `@` open it by
   // typing; (+) and ? open it by button — that half is this state.
   const [panel, setPanel] = useState<'plus' | 'help' | null>(null);
@@ -393,7 +394,7 @@ export function ChatComposer({
   // Resolve the tag query as it is typed.
   useEffect(() => {
     if (tagQuery === null || !tagSearch) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+      // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect, react-hooks/set-state-in-effect -- clearing stale hits when the query ends
       setTagHits([]);
       return;
     }
@@ -422,15 +423,46 @@ export function ChatComposer({
     setCaret(to);
   };
 
+  // Tags picked from the `@` menu live in the text: one whose `@slug` is gone is untagged.
+  const [inlineKeys, setInlineKeys] = useState<ReadonlySet<string>>(() => new Set());
   const pickTag = (ref: ContextRef) => {
     onAddTag?.(ref);
-    // Drop the `@query` the person typed; the chip carries it now. Only the
-    // text BEFORE the caret is rewritten — anything after it is untouched.
-    const nextHead = head.replace(/(^|\s)@[\w-]*$/, '$1').trimEnd();
+    // An instruction (`@artifact`, `@change`) is not words about something:
+    // it never reaches the model as text, so it stays a chip.
+    if (ref.type === 'deliverable' || ref.type === INTENT_REF_TYPE) {
+      const bare = head.replace(/(^|\s)@[\w-]*$/, '$1').trimEnd();
+      moveCaret(bare.length);
+      onChange(bare + tail);
+      setTagHits([]);
+      textareaRef.current?.focus();
+      return;
+    }
+    // The tag stays where it was typed: the `@query` becomes `@<slug>`, drawn
+    // with a dotted underline, and deleting it drops the tag. Only the text
+    // BEFORE the caret is rewritten — anything after it is untouched.
+    setInlineKeys(keys => new Set([...keys, `${ref.type}:${ref.id}`]));
+    const nextHead = head.replace(/(^|\s)@[\w-]*$/, `$1@${tagSlug(ref)} `);
     moveCaret(nextHead.length);
     onChange(nextHead + tail);
     setTagHits([]);
     textareaRef.current?.focus();
+  };
+  const isInline = (tag: ContextRef) => inlineKeys.has(`${tag.type}:${tag.id}`);
+  const inlineSlugs = tags.filter(isInline).map(t => tagSlug(t));
+  /**
+   * Untag what the person deleted from the text: an inline tag whose `@slug`
+   * is no longer in the draft.
+   * @param next - The draft after the edit.
+   */
+  const dropDeletedTags = (next: string) => {
+    const gone = tags.filter(tag => isInline(tag) && !hasInlineTag(next, tagSlug(tag)));
+    if (gone.length === 0) {
+      return;
+    }
+    setInlineKeys(keys => new Set([...keys].filter(key => !gone.some(tag => key === `${tag.type}:${tag.id}`))));
+    for (const tag of gone) {
+      onRemoveTag?.(tag);
+    }
   };
 
   /**
@@ -659,7 +691,7 @@ export function ChatComposer({
             </button>
           </div>
         )}
-        {(pastedText || tags.length > 0 || commandHint || attachments.length > 0 || pendingUploads.length > 0 || uploading) && (
+        {(pastedText || tags.some(tag => !isInline(tag)) || commandHint || attachments.length > 0 || pendingUploads.length > 0 || uploading) && (
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
             {/* The files, as chips — an image shows itself, a document its name
                 and size. Each ✕ drops the chip; the artifact row stays (it is
@@ -691,7 +723,7 @@ export function ChatComposer({
                 Uploading…
               </span>
             )}
-            {tags.map((tag) => {
+            {tags.filter(tag => !isInline(tag)).map((tag) => {
               const Icon = TAG_ICON[tag.type];
               return (
                 <span key={`${tag.type}:${tag.id}`} data-testid="composer-tag" className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs">
@@ -780,31 +812,48 @@ export function ChatComposer({
             <Plus className="size-4" aria-hidden />
           </button>
           {controls}
-          <textarea
-            ref={textareaRef}
-            data-agent-composer
-            value={value}
-            onChange={(e) => {
-              setCaret(e.target.selectionStart);
-              onChange(e.target.value);
-            }}
-            // Every caret move, however it happened (arrows, a click, a
-            // drag). Cheap: the box already re-renders on every keystroke.
-            onSelect={e => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder={streaming ? words.streamingPlaceholder : (placeholder ?? 'Ask anything…')}
-            rows={1}
-            // Never `disabled`: the box stays live for the whole turn, so
-            // Enter can queue and ⌘⏎ can jump the queue.
-            // 16px on mobile: iOS Safari auto-zooms (and scroll-cuts) any focused
-            // input under 16px. Compact 14px only from sm: up (no mobile zoom).
-            // `leading-6` rather than a multiplier: the line box is 24px at
-            // both 16px and 14px, so one line is one control tall on every
-            // breakpoint and the row's centres do not move at `sm`.
-            className="order-first w-full flex-1 resize-none border-0 bg-transparent py-1 text-base leading-6 outline-none placeholder:text-muted-foreground/70 sm:order-none sm:w-auto sm:text-sm"
-            style={{ minHeight: CONTROL_PX, maxHeight: COMPOSER_MAX_PX }}
-          />
+          {/* Inline `@` tags: the same text, drawn behind the box with a dotted
+              underline under each tag, so the draft reads as typed. */}
+          <div className="relative order-first w-full min-w-0 flex-1 sm:order-none sm:w-auto">
+            {inlineSlugs.length > 0 && (
+              <div ref={mirrorRef} aria-hidden data-testid="composer-inline-tags" className="pointer-events-none absolute inset-0 overflow-hidden py-1 text-base leading-6 break-words whitespace-pre-wrap text-transparent sm:text-sm">
+                {inlineTagParts(value, inlineSlugs).map((part, i) => (part.tag
+                  ? <span key={i} className="underline decoration-muted-foreground decoration-dotted decoration-1 underline-offset-4">{part.text}</span>
+                  : <span key={i}>{part.text}</span>))}
+              </div>
+            )}
+            <textarea
+              ref={textareaRef}
+              data-agent-composer
+              value={value}
+              onChange={(e) => {
+                setCaret(e.target.selectionStart);
+                dropDeletedTags(e.target.value);
+                onChange(e.target.value);
+              }}
+              // Every caret move, however it happened (arrows, a click, a
+              // drag). Cheap: the box already re-renders on every keystroke.
+              onSelect={e => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              placeholder={streaming ? words.streamingPlaceholder : (placeholder ?? 'Ask anything…')}
+              rows={1}
+              // Never `disabled`: the box stays live for the whole turn, so
+              // Enter can queue and ⌘⏎ can jump the queue.
+              // 16px on mobile: iOS Safari auto-zooms (and scroll-cuts) any focused
+              // input under 16px. Compact 14px only from sm: up (no mobile zoom).
+              // `leading-6` rather than a multiplier: the line box is 24px at
+              // both 16px and 14px, so one line is one control tall on every
+              // breakpoint and the row's centres do not move at `sm`.
+              className="relative block w-full resize-none border-0 bg-transparent py-1 text-base leading-6 outline-none placeholder:text-muted-foreground/70 sm:text-sm"
+              onScroll={(e) => {
+                if (mirrorRef.current) {
+                  mirrorRef.current.scrollTop = e.currentTarget.scrollTop;
+                }
+              }}
+              style={{ minHeight: CONTROL_PX, maxHeight: COMPOSER_MAX_PX }}
+            />
+          </div>
           {/*
                 * One primary action, still (#345). While streaming with an
                 * empty box it is Stop; the moment there is something to say it
