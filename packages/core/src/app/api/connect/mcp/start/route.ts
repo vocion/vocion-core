@@ -12,6 +12,7 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { safeReturnPath } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { pkceChallengeFor, pkceVerifierFor, signState } from '@/libs/connect/state';
 import { Env } from '@/libs/Env';
@@ -43,7 +44,13 @@ export async function GET(req: NextRequest) {
   try {
     const server = await discoverMcpAuth(baseUrl);
     const clientId = await registerMcpClient(server, redirectUri);
-    const state = signState({ provider: 'mcp', orgId, sourceSlug: slug, userId, loginClientId: clientId });
+    const params = req.nextUrl.searchParams;
+    const returnTo = safeReturnPath(params.get('returnTo'));
+    const conversation = params.get('conversation') ?? '';
+    const card = params.get('card') ?? '';
+    // From a chat card: land back in that conversation and mark the card done.
+    const from = /^[1-9]\d{0,9}$/.test(conversation) && /^[\w-]{1,64}$/.test(card) ? { conversationId: Number(conversation), cardId: card } : {};
+    const state = signState({ provider: 'mcp', orgId, sourceSlug: slug, userId, loginClientId: clientId, ...(returnTo ? { returnTo } : {}), ...from });
     return NextResponse.redirect(mcpAuthorizeUrl(server, { clientId, redirectUri, state, codeChallenge: pkceChallengeFor(pkceVerifierFor(state)) }), 302);
   } catch (error) {
     logger.warn('An MCP sign-in could not start', { orgId, source: slug, errorName: error instanceof Error ? error.name : 'unknown' });

@@ -33,7 +33,7 @@ export function useComposerTags(
   intents: { change?: boolean } = {},
 ): Pick<ChatComposerProps, 'tagSearch' | 'attachable'> {
   const t = useTranslations('Chat');
-  const cacheRef = useRef<{ teams: ContextRef[] | null; missions: ContextRef[] | null }>({ teams: null, missions: null });
+  const cacheRef = useRef<{ teams: ContextRef[] | null; missions: ContextRef[] | null; sources: ContextRef[] | null }>({ teams: null, missions: null, sources: null });
 
   // Depended on by value, not by identity: the caller builds this object
   // inline every render, so `{ change: true }` must not re-derive the list.
@@ -63,12 +63,21 @@ export function useComposerTags(
         cache.missions = [];
       }
     }
+    if (cache.sources === null) {
+      try {
+        const res = await client.chat.tagSources();
+        cache.sources = res.sources.map(r => ({ type: 'source' as const, id: r.slug, label: r.name }));
+      } catch {
+        cache.sources = [];
+      }
+    }
     const pool: ContextRef[] = [
       // First, because it is the one tag that changes what the turn produces.
       ...attachable,
       ...agents.filter(a => a.slug !== '__search__').map(a => ({ type: 'agent' as const, id: a.slug, label: a.name })),
       ...cache.teams,
       ...cache.missions,
+      ...cache.sources,
     ];
     return pool.filter(r => matchesTag(r, term)).slice(0, 12);
   }, [agents, attachable]);

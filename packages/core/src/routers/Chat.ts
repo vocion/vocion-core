@@ -1,7 +1,12 @@
 import { os } from '@orpc/server';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { db } from '@/libs/DB';
+import { sourceNameOf } from '@/libs/sources/upsert';
+import { knowledgeSourceSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
 import { synthesizeAgentChips } from '@/services/chat/synthesis';
+import { allowedSourceSlugsForUser } from '@/services/SourceAccessService';
 import { guardAuth } from './AuthGuards';
 
 /**
@@ -36,3 +41,18 @@ export const hintEvent = os
     await Promise.all(input.hints.map(h => track(actor, eventType, { meta: h })));
     return { ok: true };
   });
+
+/**
+ * The sources a person can `@`-tag in the composer: every source in this
+ * workspace their source access lets them read. A tag tells the turn which
+ * source the question is about; reaching it is still the agent's assignment.
+ */
+export const tagSources = os.handler(async () => {
+  const { orgId, userId } = await guardAuth();
+  const [rows, allowed] = await Promise.all([
+    db.select({ slug: knowledgeSourceSchema.slug, config: knowledgeSourceSchema.configJson }).from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, orgId)),
+    userId ? allowedSourceSlugsForUser(orgId, userId) : Promise.resolve([]),
+  ]);
+  const readable = new Set(allowed);
+  return { sources: rows.filter(row => readable.has(row.slug)).map(row => ({ slug: row.slug, name: sourceNameOf(row.config, row.slug) })) };
+});

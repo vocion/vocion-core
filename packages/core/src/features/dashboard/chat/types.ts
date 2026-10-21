@@ -208,7 +208,7 @@ export type ContextRef = {
    * before the wire — see `libs/chat/deliverable.ts` and
    * `features/dashboard/chat/composerTags.ts`.
    */
-  type: 'agent' | 'team' | 'mission' | 'ask' | 'object' | 'briefing' | 'deal' | 'page' | 'deliverable' | 'intent';
+  type: 'agent' | 'team' | 'mission' | 'ask' | 'object' | 'briefing' | 'deal' | 'page' | 'source' | 'deliverable' | 'intent';
   id: string;
   label: string;
   /** For a team: the agent slug a `@team` tag routes the turn to (its lead). */

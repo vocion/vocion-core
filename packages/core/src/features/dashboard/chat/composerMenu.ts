@@ -19,7 +19,7 @@
 
 import type { SlashCommand } from './slashCommands';
 import type { ContextRef } from './types';
-import { AtSign, Bot, FileText, PencilLine, Target, Users } from 'lucide-react';
+import { AtSign, Bot, Database, FileText, PencilLine, Target, Users } from 'lucide-react';
 import { tagSlug } from './composerTags';
 import { matchSlashCommands } from './slashCommands';
 
@@ -33,6 +33,7 @@ export const TAG_ICON: Record<ContextRef['type'], typeof Bot> = {
   briefing: AtSign,
   deal: AtSign,
   page: AtSign,
+  source: Database,
   deliverable: FileText,
   intent: PencilLine,
 };

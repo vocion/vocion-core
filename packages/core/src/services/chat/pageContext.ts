@@ -65,6 +65,8 @@ export const RECORD_TYPES = [
   'goal',
   // The composer can tag the page itself (`@page`).
   'page',
+  /** A source the person tagged in the composer (`@company-knowledge`): the question is about what it holds. */
+  'source',
 ] as const;
 
 export type RecordType = (typeof RECORD_TYPES)[number];

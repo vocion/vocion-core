@@ -33,20 +33,43 @@ const GRANT_PLATFORM = 'rest';
 
 const REFRESH_CLAIM_MS = 30_000;
 
-/** A person's credentials for an MCP endpoint, or the sentence that says why there are none. */
-export type PersonMcpCredentials = { ok: true; credentials: McpCredentials } | { ok: false; why: string };
+/**
+ * A person's credentials for an MCP endpoint, or the sentence that says why
+ * there are none. `signIn` marks the failures signing in fixes, so chat can
+ * offer the sign-in card.
+ */
+export type PersonMcpCredentials = { ok: true; credentials: McpCredentials } | { ok: false; why: string; signIn?: true };
 
 /** A source that signs each person in, as the start route and the tools name it. */
 export type PersonMcpSource = { orgId: string; slug: string; name: string; url: string };
+
+/**
+ * Where the person signs in, inside the app. From chat it carries the
+ * conversation to land back in and the card to mark done.
+ * @param source - The source.
+ * @param from - The conversation and card the sign-in was offered in, if any.
+ * @param from.conversationId - The conversation.
+ * @param from.cardId - The sign-in card.
+ */
+export function signInPath(source: Pick<PersonMcpSource, 'orgId' | 'slug'>, from: { conversationId?: number; cardId?: string } = {}): string {
+  const params = new URLSearchParams({ workspace: source.orgId, source: source.slug });
+  if (from.conversationId) {
+    params.set('returnTo', `/dashboard/chat?conversation=${from.conversationId}`);
+    params.set('conversation', String(from.conversationId));
+    if (from.cardId) {
+      params.set('card', from.cardId);
+    }
+  }
+  return `/api/connect/mcp/start?${params}`;
+}
 
 /**
  * Where the person signs in, as a link a chat answer can carry.
  * @param source - The source.
  */
 export function signInLink(source: Pick<PersonMcpSource, 'orgId' | 'slug'>): string {
-  const path = `/api/connect/mcp/start?${new URLSearchParams({ workspace: source.orgId, source: source.slug })}`;
   const origin = connectOrigin();
-  return origin ? `${origin}${path}` : path;
+  return origin ? `${origin}${signInPath(source)}` : signInPath(source);
 }
 
 /**
@@ -168,11 +191,11 @@ export async function personMcpCredentials(input: { source: PersonMcpSource; use
   }
   const stored = await readGrant(input.userId, mcpEndpoint(source.url));
   if (!stored) {
-    return { ok: false, why: signInNeeded(source) };
+    return { ok: false, why: signInNeeded(source), signIn: true };
   }
   const grant = grantIsExpiring(stored.grant.expiresAt) ? await refreshed(stored, input.userId) : stored.grant;
   if (!grant) {
-    return { ok: false, why: `Your sign-in to ${source.name} has run out. Give the person this link to sign in again: [Sign in to ${source.name}](${signInLink(source)}). No tool was called.` };
+    return { ok: false, why: `Your sign-in to ${source.name} has run out. Give the person this link to sign in again: [Sign in to ${source.name}](${signInLink(source)}). No tool was called.`, signIn: true };
   }
   return { ok: true, credentials: mcpCredentialsOf(grant) };
 }

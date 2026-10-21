@@ -32,6 +32,7 @@ const ROUTES: Record<RecordType, (id: string) => string | undefined> = {
   // A feature page's drawer: the page, with that drawer open.
   feature_section: id => (/^\d+\.[\w-]+$/.test(id) ? `/dashboard/p/feature/${id.split('.')[0]}?preview=feature_section:${id}` : undefined),
   goal: id => `/dashboard/goals/${encodeURIComponent(id)}`,
+  source: () => '/dashboard/connectors',
   // A `@page` tag points at wherever the person already is — no record route.
   page: () => undefined,
 };
