@@ -7,7 +7,7 @@
 import type { OrgToolCatalog } from '@/libs/tools/orgCatalog';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 
 // The app's Link needs the router; a plain anchor carries the same href.
 vi.mock('@/libs/I18nNavigation', () => ({
@@ -92,6 +92,17 @@ const CATALOG: OrgToolCatalog = {
   ],
 };
 
+/**
+ * Open one family's line, as a person clicking it would.
+ * @param id - The family id.
+ */
+async function openFamily(id: string) {
+  const summary = document.querySelector(`[data-testid="tool-family-${id}"] summary`);
+  if (summary instanceof HTMLElement) {
+    await userEvent.click(summary);
+  }
+}
+
 describe('ToolCatalogView', () => {
   it('groups the tools by family, built-ins first, then each connected source, the workspace\'s own folded last', async () => {
     await render(<ToolCatalogView catalog={CATALOG} />);
@@ -106,6 +117,12 @@ describe('ToolCatalogView', () => {
       'tool-family-rest:contoso-cms',
       'tool-family-workspace',
     ]);
+    // Each family is one folded line until it is opened.
+    expect(document.querySelector('[data-testid="tool-family-rest:acme-delivery"] details')?.hasAttribute('open')).toBe(false);
+
+    await openFamily('rest:acme-delivery');
+    await openFamily('records');
+
     await expect.element(page.getByTestId('tool-card-delivery_list_projects')).toBeVisible();
     await expect.element(page.getByTestId('tool-card-file_request')).toBeVisible();
     // Folded: the workspace's own tools are there for whoever opens them.
@@ -115,6 +132,7 @@ describe('ToolCatalogView', () => {
 
   it('shows a REST source\'s reads as cards with their endpoint, and its writes in a second block', async () => {
     await render(<ToolCatalogView catalog={CATALOG} />);
+    await openFamily('rest:acme-delivery');
 
     const card = page.getByTestId('tool-card-delivery_list_projects');
 
