@@ -3,6 +3,7 @@
 import type { ConnectReturn } from '@/libs/connect/returnTo';
 import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import { useEffect, useRef } from 'react';
+import { offerConnectReturn } from './connectTabHandoff';
 
 /** The query params the connect callback adds to the URL it sends the person back to. */
 const CONNECT_PARAMS = ['connect', 'reason', 'source', 'connector'] as const;
@@ -56,6 +57,7 @@ export function stepForConnector(decisions: readonly DecisionView[], connector: 
  * @param input.fail - Says on the card why the connect failed.
  * @param input.pathname - The current path, for the cleaned URL.
  * @param input.replaceUrl - Replaces the URL without adding a history entry.
+ * @param input.handedOff - The tab that asked took the outcome; this one can close.
  */
 export function useAnswerOnConnectReturn(input: {
   outcome: ConnectReturn | null;
@@ -65,25 +67,34 @@ export function useAnswerOnConnectReturn(input: {
   fail: (message: string) => void;
   pathname: string;
   replaceUrl: (url: string) => void;
+  handedOff?: () => void;
 }): void {
-  const { outcome, ready, decisions, answer, fail, pathname, replaceUrl } = input;
+  const { outcome, ready, decisions, answer, fail, pathname, replaceUrl, handedOff } = input;
   const done = useRef(false);
   useEffect(() => {
     if (!outcome || !ready || done.current) {
       return;
     }
     const step = stepForConnector(decisions, outcome.connector);
-    if (!step) {
+    if (!step && decisions.length === 0) {
       // Nothing this thread asked: wait for its Decisions to load; the URL is cleaned either way below.
-      if (decisions.length === 0) {
-        return;
-      }
-    } else if (outcome.ok) {
-      answer(step.view, { kind: 'option', optionIds: [step.optionId] });
-    } else {
-      fail(`Connecting ${outcome.connector} didn't work (${outcome.reason ?? 'no reason given'}). Try again from the card.`);
+      return;
     }
     done.current = true;
     replaceUrl(`${pathname}${withoutConnectParams(window.location.search)}`);
-  }, [outcome, ready, decisions, answer, fail, pathname, replaceUrl]);
+    if (!step) {
+      return;
+    }
+    // Opened in its own tab, the tab that asked answers it (`connectTabHandoff.ts`);
+    // this one only says so. Unclaimed, it is answered here, as before.
+    void offerConnectReturn(outcome).then((claimed) => {
+      if (claimed) {
+        handedOff?.();
+      } else if (outcome.ok) {
+        answer(step.view, { kind: 'option', optionIds: [step.optionId] });
+      } else {
+        fail(`Connecting ${outcome.connector} didn't work (${outcome.reason ?? 'no reason given'}). Try again from the card.`);
+      }
+    });
+  }, [outcome, ready, decisions, answer, fail, pathname, replaceUrl, handedOff]);
 }

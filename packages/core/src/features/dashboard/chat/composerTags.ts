@@ -188,3 +188,35 @@ export function insertTagAt(value: string, caret: number, slug: string): { value
   const next = head + token;
   return { value: next + tail, caret: next.length };
 }
+
+/**
+ * The text split around the inline `@slug` tags it holds, for drawing them
+ * (a dotted underline under each) without changing a character.
+ * @param value - The draft.
+ * @param slugs - The slugs tagged inline.
+ */
+export function inlineTagParts(value: string, slugs: readonly string[]): Array<{ text: string; tag: boolean }> {
+  if (slugs.length === 0) {
+    return [{ text: value, tag: false }];
+  }
+  const alternatives = [...slugs].sort((a, b) => b.length - a.length).map(slug => slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const pattern = new RegExp(`(^|\\s)(@(?:${alternatives}))(?![\\w-])`, 'g');
+  const parts: Array<{ text: string; tag: boolean }> = [];
+  let last = 0;
+  for (const match of value.matchAll(pattern)) {
+    const start = match.index + match[1]!.length;
+    parts.push({ text: value.slice(last, start), tag: false }, { text: match[2]!, tag: true });
+    last = start + match[2]!.length;
+  }
+  parts.push({ text: value.slice(last), tag: false });
+  return parts;
+}
+
+/**
+ * Whether the draft still holds `@slug` as a word.
+ * @param value - The draft.
+ * @param slug - The tag's slug.
+ */
+export function hasInlineTag(value: string, slug: string): boolean {
+  return inlineTagParts(value, [slug]).some(part => part.tag);
+}

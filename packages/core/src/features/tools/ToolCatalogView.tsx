@@ -1,8 +1,10 @@
+import type { McpSignIn } from './McpSignInControl';
 import type { CatalogTool, OrgToolCatalog, RestActionEntry, ToolFamily } from '@/libs/tools/orgCatalog';
 import { Bot, Wrench } from 'lucide-react';
 import { IntegrationLogo, ListRow, ListRows, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Link } from '@/libs/I18nNavigation';
+import { McpSignInControl } from './McpSignInControl';
 import { ReadinessBadge } from './ReadinessBadge';
 
 /**
@@ -154,8 +156,9 @@ function FamilyNotice({ family }: { family: ToolFamily }) {
  * and for a REST source the writes beneath the reads.
  * @param props
  * @param props.family
+ * @param props.signIn
  */
-function FamilySection({ family }: { family: ToolFamily }) {
+function FamilySection({ family, signIn }: { family: ToolFamily; signIn?: McpSignIn }) {
   return (
     <section data-testid={`tool-family-${family.id}`}>
       <div className="mb-1 flex items-center gap-2">
@@ -167,6 +170,7 @@ function FamilySection({ family }: { family: ToolFamily }) {
             {family.sources.map(s => s.slug).join(', ')}
           </span>
         )}
+        {signIn && <span className="ml-auto"><McpSignInControl signIn={signIn} /></span>}
       </div>
       <p className="mb-2 line-clamp-1 max-w-2xl text-xs text-muted-foreground sm:mb-3 sm:line-clamp-none">{family.description}</p>
       <FamilyNotice family={family} />
@@ -235,8 +239,9 @@ function Stat({ label, value }: { label: string; value: number }) {
  * workspace's own tools folded at the end.
  * @param props
  * @param props.catalog - From `toolCatalogForOrg`.
+ * @param props.signIns
  */
-export function ToolCatalogView({ catalog }: { catalog: OrgToolCatalog }) {
+export function ToolCatalogView({ catalog, signIns = {} }: { catalog: OrgToolCatalog; signIns?: Record<string, McpSignIn> }) {
   const families = catalog.families.filter(f => f.kind !== 'workspace');
   const workspace = catalog.families.find(f => f.kind === 'workspace');
   const toolCount = catalog.families.reduce((n, f) => n + f.tools.length, 0);
@@ -251,7 +256,7 @@ export function ToolCatalogView({ catalog }: { catalog: OrgToolCatalog }) {
       </div>
 
       <div className="flex flex-col gap-6 sm:gap-8">
-        {families.map(family => <FamilySection key={family.id} family={family} />)}
+        {families.map(family => <FamilySection key={family.id} family={family} signIn={signIns[family.id]} />)}
         {workspace && <WorkspaceSection family={workspace} />}
         {catalog.agents.length === 0 && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="no-agents">
