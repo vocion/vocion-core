@@ -2,7 +2,8 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { newCardId } from '@/libs/cards/card';
-import { callMcpTool, listMcpTools, mcpCredentialsOf, validateMcpInput, withMcp } from '@/libs/outboundMcp/client';
+import { logger } from '@/libs/Logger';
+import { callMcpTool, listMcpTools, mcpCredentialsOf, McpUnauthorized, validateMcpInput, withMcp } from '@/libs/outboundMcp/client';
 import { loadMcpSources } from '@/libs/outboundMcp/sources';
 import { personMcpCredentials, signInPath } from '@/services/outboundMcp/personSignIn';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
@@ -82,6 +83,25 @@ export function mcpTools(ctx: RuntimeContext) {
     }
     return `${source.name} answers each person as themselves, and this person has not signed in to it yet. A sign-in card is docked above their composer: say in one line that they sign in there once (it covers every workspace). When the card comes back answered (they chose Sign in), they are signed in: call this tool again at once and carry on with what they asked. Never ask them to ask again, and do not answer from other sources as if it were this one. No tool was called.`;
   }
+  // What each assigned server declares it reads, named in the tools themselves:
+  // the agent knows a server covers ad reports or invoices before it has to
+  // discover it, and never takes a missing native connector for a missing source.
+  const servers = (ctx.mcpSources ?? []).filter(s => slugs.includes(s.slug));
+  const covers = servers.length > 0
+    ? ` Assigned servers: ${servers.map(s => `${s.slug} (${s.name}${s.perPerson ? ', read as the person asking' : ''}) reads ${s.readTools.join(', ')}`).join('; ')}. Prefer these over saying a system is not connected.`
+    : '';
+  // A per-person server that refused the person's grant: the same sign-in card, again.
+  async function signInAgain(sourceSlug: string): Promise<string | null> {
+    const [source] = await loadMcpSources(ctx.orgId, [sourceSlug]).catch(() => []);
+    if (!source || source.config.auth !== 'person' || !source.config.url) {
+      return null;
+    }
+    return offerSignIn({ orgId: ctx.orgId, slug: source.slug, name: source.name });
+  }
+  // A read that failed: why, for the logs, never with a token or a body.
+  const noteFailure = (sourceSlug: string, error: unknown) => {
+    logger.warn('MCP call failed', { orgId: ctx.orgId, sourceSlug, errorName: error instanceof Error ? error.constructor.name : 'unknown', message: error instanceof McpUnauthorized ? error.message : undefined });
+  };
   return [
     tool(async ({ sourceSlug }) => {
       try {
@@ -96,9 +116,14 @@ export function mcpTools(ctx: RuntimeContext) {
         if (error instanceof SignInNeeded) {
           return JSON.stringify({ isError: true, error: error.message });
         }
+        noteFailure(sourceSlug, error);
+        const again = error instanceof McpUnauthorized ? await signInAgain(sourceSlug) : null;
+        if (again) {
+          return JSON.stringify({ isError: true, error: again });
+        }
         return JSON.stringify({ isError: true, error: 'MCP discovery failed. Use an assigned, permitted source with a connected credential; no provider tool was called.' });
       }
-    }, { name: 'mcp_list_tools', description: 'Discover declared MCP tools and their input schemas for an assigned source.', metadata: { alwaysLoaded: true }, schema: z.object({ sourceSlug: z.string() }) }),
+    }, { name: 'mcp_list_tools', description: `Discover declared MCP tools and their input schemas for an assigned source.${covers}`, metadata: { alwaysLoaded: true }, schema: z.object({ sourceSlug: z.string() }) }),
     tool(async ({ sourceSlug, name, input }) => {
       try {
         const source = await sourceFor(sourceSlug);
@@ -128,10 +153,15 @@ export function mcpTools(ctx: RuntimeContext) {
         if (error instanceof SignInNeeded) {
           return JSON.stringify({ isError: true, error: error.message });
         }
+        noteFailure(sourceSlug, error);
+        const again = error instanceof McpUnauthorized ? await signInAgain(sourceSlug) : null;
+        if (again) {
+          return JSON.stringify({ isError: true, error: again });
+        }
         // Transport/provider exceptions can contain credentials and raw bodies.
         // A read failure is recoverable and must not imply an uncertain write.
         return JSON.stringify({ isError: true, error: 'MCP read failed. No write tool was invoked. Check that the source is assigned, permitted and connected; retry a valid read or report that it is unavailable.' });
       }
-    }, { name: 'mcp_read', description: 'Execute an explicitly declared read-only MCP tool. Writes are unavailable here.', metadata: { alwaysLoaded: true }, schema: z.object({ sourceSlug: z.string(), name: z.string(), input: z.record(z.string(), z.unknown()) }) }),
+    }, { name: 'mcp_read', description: `Execute an explicitly declared read-only MCP tool. Writes are unavailable here.${covers}`, metadata: { alwaysLoaded: true }, schema: z.object({ sourceSlug: z.string(), name: z.string(), input: z.record(z.string(), z.unknown()) }) }),
   ];
 }

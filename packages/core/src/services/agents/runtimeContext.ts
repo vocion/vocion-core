@@ -32,6 +32,7 @@ import type { agentSchema } from '@/models/Schema';
 import { ToolMessage } from '@langchain/core/messages';
 import { createMiddleware } from 'langchain';
 import { loadSourceKinds } from '@/libs/connectors/families';
+import { loadMcpSources } from '@/libs/outboundMcp/sources';
 import { loadRestSources } from '@/libs/rest/sources';
 import { resolveTimeZone } from '@/libs/time/zone';
 import { loadFilingTypes } from './tools/fileRecord';
@@ -53,7 +54,7 @@ export type WorkspaceScope = {
 };
 
 /** The workspace facts plus the agent's own resolved tool inputs. */
-export type AgentScope = WorkspaceScope & Pick<RuntimeContext, 'filingTypes' | 'restSources' | 'sourceKinds'>;
+export type AgentScope = WorkspaceScope & Pick<RuntimeContext, 'filingTypes' | 'restSources' | 'mcpSources' | 'sourceKinds'>;
 
 /**
  * The workspace facts the in-process harness reads once per graph build,
@@ -106,13 +107,16 @@ async function workspaceKindOf(orgId: string): Promise<'shared' | 'personal'> {
  * @param workspace - The workspace facts, when the caller already has them (one read for many agents).
  */
 export async function agentScope(orgId: string, row: AgentContextRow, workspace?: WorkspaceScope): Promise<AgentScope> {
-  const [ws, filingTypes, restSources, sourceKinds] = await Promise.all([
+  const [ws, filingTypes, restSources, mcpSources, sourceKinds] = await Promise.all([
     workspace ?? workspaceScope(orgId),
     loadFilingTypes(orgId, row.objectTypeSlugs ?? []).catch(() => []),
     loadRestSources(orgId, row.connectorSources ?? []).catch(() => []),
+    loadMcpSources(orgId, row.connectorSources ?? [])
+      .then(rows => rows.map(r => ({ slug: r.slug, name: r.name, readTools: r.config.readTools, perPerson: r.config.auth === 'person' })))
+      .catch(() => []),
     loadSourceKinds(orgId, row.connectorSources ?? []).catch(() => ({})),
   ]);
-  return { ...ws, filingTypes, restSources, sourceKinds };
+  return { ...ws, filingTypes, restSources, mcpSources, sourceKinds };
 }
 
 /**
@@ -171,6 +175,7 @@ export function runtimeContextFromScope(
     workspaceKind: scope.workspaceKind,
     filingTypes: scope.filingTypes,
     restSources: scope.restSources,
+    mcpSources: scope.mcpSources,
     sourceKinds: scope.sourceKinds,
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig: row.harnessConfig ?? {},

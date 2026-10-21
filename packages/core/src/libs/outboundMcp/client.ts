@@ -1,10 +1,13 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import Ajv from 'ajv';
 import { resolvesPublicly } from '@/libs/net/publicUrl';
 
 class McpToolFailure extends Error {}
+
+/** The server refused the credential (401/403): for a per-person source, the person signs in again. */
+export class McpUnauthorized extends Error {}
 
 export type McpCredentials = { baseUrl: string; token: string };
 
@@ -42,6 +45,9 @@ export async function withMcp<T>(credentials: McpCredentials, work: (client: Cli
   } catch (error) {
     if (error instanceof McpToolFailure) {
       throw error;
+    }
+    if (error instanceof StreamableHTTPError && (error.code === 401 || error.code === 403)) {
+      throw new McpUnauthorized(`MCP server refused the credential (${error.code}).`);
     }
     // SDK transport exceptions can contain response bodies; do not send secrets to the ledger.
     throw new Error('MCP request failed. A submitted write may have succeeded; inspect provider state before retrying.');
