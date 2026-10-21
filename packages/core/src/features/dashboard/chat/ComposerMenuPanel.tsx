@@ -2,7 +2,7 @@
 
 import type { ComposerMenuItem, ComposerMenuMode, ComposerMenuSection } from './composerMenu';
 import { Check, CircleHelp, Paperclip, Slash } from 'lucide-react';
-import { selectableItems, TAG_ICON } from './composerMenu';
+import { selectableItems, tagIcon } from './composerMenu';
 
 /**
  * The composer's one panel (`composerMenu.ts` decides its contents). Sits
@@ -53,7 +53,7 @@ export function ComposerMenuPanel({ mode, sections, cursor, onPick, onHover }: {
               }
               const i = order.get(item.id) ?? -1;
               const selected = i === cursor;
-              const Icon = item.kind === 'command' ? Slash : item.kind === 'file' ? Paperclip : item.kind === 'help' ? CircleHelp : item.kind === 'setting' ? null : TAG_ICON[item.ref.type];
+              const Icon = item.kind === 'command' ? Slash : item.kind === 'file' ? Paperclip : item.kind === 'help' ? CircleHelp : item.kind === 'setting' ? null : tagIcon(item.ref);
               return (
                 <li key={item.id} role="option" aria-selected={selected} data-setting-selected={item.kind === 'setting' && item.selected ? 'true' : undefined}>
                   <button

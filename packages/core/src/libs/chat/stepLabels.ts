@@ -20,6 +20,21 @@ export type StepLabels = {
   done: string;
 };
 
+/**
+ * Tools whose hand-written name is the whole label: the model half is not asked. A browser task's
+ * arguments describe what the browser is asked to do, and a label written from them ("Signed in and
+ * reviewed invoices", 2026-10-21) claimed work that had not happened yet.
+ */
+const FIXED = new Set(['browser_task', 'browser_task_check', 'browser_task_stop']);
+
+/**
+ * Whether a tool's label is fixed (never asked of the model).
+ * @param tool - The raw tool name.
+ */
+export function hasFixedStepLabels(tool: string): boolean {
+  return FIXED.has(tool);
+}
+
 /** Hand-written names for the tools whose humanised name would mislead or read badly. */
 const KNOWN: Record<string, StepLabels> = {
   get_brand: { running: 'Reading the brand guide…', done: 'Read the brand guide' },
@@ -28,6 +43,11 @@ const KNOWN: Record<string, StepLabels> = {
   search_knowledge: { running: 'Searching sources…', done: 'Searched sources' },
   source_check: { running: 'Checking the answer against its sources…', done: 'Checked the answer against its sources' },
   web_search: { running: 'Searching the web…', done: 'Searched the web' },
+  // A browser task's call returns while the run may still be going or waiting on the person: the
+  // label says it was handed to the browser, never what the browser did (that is on the run).
+  browser_task: { running: 'Handing the task to the browser…', done: 'Handed the task to the browser' },
+  browser_task_check: { running: 'Checking the browser run…', done: 'Checked the browser run' },
+  browser_task_stop: { running: 'Stopping the browser run…', done: 'Stopped the browser run' },
   fetch_url: { running: 'Reading a web page…', done: 'Read a web page' },
   fetch_image: { running: 'Fetching the image…', done: 'Fetched the image' },
   crawl_site: { running: 'Crawling the site…', done: 'Crawled the site' },

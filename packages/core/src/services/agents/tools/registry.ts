@@ -27,6 +27,7 @@ import { apolloPeopleTools } from './apolloPeople';
 import { assistantTools } from './assistant';
 import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
+import { browserTaskTools } from './browserTasks';
 import { calendarTools } from './calendarEvents';
 import { listCapabilitiesTool } from './capabilities';
 import { chatTools } from './chatTools';
@@ -240,6 +241,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // account (the browser tools), and what QA saw, line by line with its
     // evidence, written on the release and its features (record_live_check).
     ...liveBrowserTools(ctx),
+    // Granted or switched on (`VOCION_BROWSER_RUNS`): a task handed to the person's own browser,
+    // watched live beside the conversation, with its steps that submit held for their approval.
+    ...browserTaskTools(ctx),
     ...recordLiveCheckTools(ctx),
     // Granted-only: production errors from the workspace's Sentry — issues by
     // project, environment, release and time, and one issue's latest event

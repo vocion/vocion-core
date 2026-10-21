@@ -12,10 +12,10 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
-import { askSchema, businessObjectSchema, businessObjectTypeSchema, missionRunSchema, workerRunSchema } from '@/models/Schema';
+import { askSchema, browserRunSchema, businessObjectSchema, businessObjectTypeSchema, missionRunSchema, workerRunSchema } from '@/models/Schema';
 
 export type FollowState = 'queued' | 'running' | 'done' | 'failed' | 'waiting';
-export type FollowRef = { type: 'worker_run' | 'object' | 'ask' | 'artifact' | 'mission_run'; id: string };
+export type FollowRef = { type: 'worker_run' | 'object' | 'ask' | 'artifact' | 'mission_run' | 'browser_run'; id: string };
 export type FollowStatus = {
   state: FollowState;
   label: string;
@@ -68,6 +68,17 @@ export async function followStatuses(orgId: string, refs: FollowRef[]): Promise<
     const rows = await db.select({ id: missionRunSchema.id, status: missionRunSchema.status }).from(missionRunSchema).where(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.id, missionIds)));
     for (const r of rows) {
       out[key({ type: 'mission_run', id: String(r.id) })] = { state: followStateOf(r.status), label: r.status };
+    }
+  }
+  const browserIds = ids(refs, 'browser_run');
+  if (browserIds.length > 0) {
+    const rows = await db.select({ id: browserRunSchema.id, status: browserRunSchema.status, waiting: browserRunSchema.waiting }).from(browserRunSchema).where(and(eq(browserRunSchema.orgId, orgId), inArray(browserRunSchema.id, browserIds)));
+    for (const r of rows) {
+      out[key({ type: 'browser_run', id: String(r.id) })] = r.status === 'waiting'
+        ? { state: 'waiting', label: r.waiting?.kind === 'approval' ? 'waiting on your approval' : 'waiting on you' }
+        : r.status === 'proposed'
+          ? { state: 'waiting', label: 'ready to start' }
+          : { state: followStateOf(r.status), label: r.status };
     }
   }
   const askIds = ids(refs, 'ask');

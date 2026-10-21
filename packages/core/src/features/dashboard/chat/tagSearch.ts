@@ -6,7 +6,7 @@ import type { PageContext } from '@/services/chat/pageContext';
 import { useTranslations } from 'next-intl';
 import { useCallback, useMemo, useRef } from 'react';
 import { client } from '@/libs/Orpc';
-import { contextTagRefs, matchesTag } from './composerTags';
+import { browserRef, contextTagRefs, matchesTag } from './composerTags';
 
 /**
  * Everything the composer can pull into a turn, for one surface.
@@ -33,7 +33,7 @@ export function useComposerTags(
   intents: { change?: boolean } = {},
 ): Pick<ChatComposerProps, 'tagSearch' | 'attachable'> {
   const t = useTranslations('Chat');
-  const cacheRef = useRef<{ teams: ContextRef[] | null; missions: ContextRef[] | null; sources: ContextRef[] | null }>({ teams: null, missions: null, sources: null });
+  const cacheRef = useRef<{ teams: ContextRef[] | null; missions: ContextRef[] | null; sources: ContextRef[] | null; tools: ContextRef[] | null }>({ teams: null, missions: null, sources: null, tools: null });
 
   // Depended on by value, not by identity: the caller builds this object
   // inline every render, so `{ change: true }` must not re-derive the list.
@@ -67,13 +67,17 @@ export function useComposerTags(
       try {
         const res = await client.chat.tagSources();
         cache.sources = res.sources.map(r => ({ type: 'source' as const, id: r.slug, label: r.name }));
+        // Ways of working (`@browser`): intent tags, offered only where the server says they can act.
+        cache.tools = (res.tools ?? []).map(r => browserRef(r.name));
       } catch {
         cache.sources = [];
+        cache.tools = [];
       }
     }
     const pool: ContextRef[] = [
       // First, because it is the one tag that changes what the turn produces.
       ...attachable,
+      ...(cache.tools ?? []),
       ...agents.filter(a => a.slug !== '__search__').map(a => ({ type: 'agent' as const, id: a.slug, label: a.name })),
       ...cache.teams,
       ...cache.missions,

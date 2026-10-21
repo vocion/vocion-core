@@ -58,6 +58,13 @@ export type PreviewDoc = {
    */
   run?: import('@/libs/worker/runLog').RunGlance;
   /**
+   * A browser run, drawn live: the browser as it works, its steps, what it
+   * waits on with Approve and Decline, and what it found
+   * (`features/browser/BrowserRunView`, which re-reads it while it runs).
+   * When set, the pane draws this in place of the facts and the body.
+   */
+  browserRun?: import('@/libs/browser/run').BrowserRunView;
+  /**
    * A feature's Timeline, drawn by the component its page draws it with, at
    * full density (`FeatureTimeline`), after the subtitle and in place of the
    * body (Chris, 2026-10-02: one list, two densities).

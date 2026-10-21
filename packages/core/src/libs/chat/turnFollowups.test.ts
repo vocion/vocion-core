@@ -68,4 +68,13 @@ describe('what a turn set moving, to watch (Chris, 2026-09-29, request #201)', (
     expect(turnFollowups(reads)).toEqual([]);
     expect(turnFollowups([{ type: 'tool', name: 'update_object', output: 'request #201 "Document detail" updated: outcome.' }], { exclude: [{ type: 'object', id: '201' }] })).toEqual([]);
   });
+
+  it('a browser task names its run, started or filed for the person to Start', () => {
+    const out = '{"browserRunId":12,"run":"Browser run 12","status":"waiting","steps":9,"note":"…"}';
+
+    expect(turnFollowups([{ type: 'tool', name: 'browser_task', output: out }]).map(f => [f.label, f.ref.type, f.ref.id, f.href])).toEqual([
+      ['Browser run 12', 'browser_run', '12', '/dashboard/browser/12'],
+    ]);
+    expect(turnFollowups([{ type: 'tool', name: 'browser_task', output: 'Not started: your browser is busy with Browser run 11.' }])).toEqual([]);
+  });
 });

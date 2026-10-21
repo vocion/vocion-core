@@ -54,6 +54,7 @@
  * | fixture | role |
  * |---|---|
  * | `Northwind` | customer with a live retainer deal in the revenue pipeline |
+ * | `Fernhill Supply` | supplier whose portal has no API: the browser runs' practice site |
  * | `Kestrel Capital` (contact `Dana Reyes`) | investor / referral source / sponsor account |
  * | `Radley Manufacturing` | manufacturing client whose photo kits go through vision QC |
  * | `Larkfield Systems` | the fictional client tenant that runs its own parent deployment |

@@ -59,6 +59,25 @@ export function changeRef(label: string = DEFAULT_TAG_LABELS.change): ContextRef
   return { type: INTENT_REF_TYPE, id: CHANGE_TAG, label };
 }
 
+/** The intent that says "do this in the browser" (`libs/chat/askedFor.ts`). */
+export const BROWSER_TAG = 'browser';
+
+/**
+ * The browser intent as a composer tag.
+ * @param label - Its name.
+ */
+export function browserRef(label = 'Browser'): ContextRef {
+  return { type: INTENT_REF_TYPE, id: BROWSER_TAG, label };
+}
+
+/**
+ * What the person tagged this message to use, as the typed `asked_for` field.
+ * @param refs - The composer's tags for the message about to go out.
+ */
+export function askedForFromRefs(refs: ReadonlyArray<{ type: string; id: string }>): Array<'browser'> {
+  return refs.some(r => r.type === INTENT_REF_TYPE && r.id === BROWSER_TAG) ? ['browser'] : [];
+}
+
 /**
  * Whether one composer tag is an intent tag (any intent).
  * @param ref - A composer tag (`{ type }` is all that is read).

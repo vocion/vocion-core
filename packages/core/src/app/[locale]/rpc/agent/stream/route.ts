@@ -115,6 +115,9 @@ export async function POST(request: Request): Promise<Response> {
   // enforces rather than something the model decided while it was busy.
   const { readDeliverable } = await import('@/libs/chat/deliverable');
   const deliverable = readDeliverable(body.deliverable);
+  // What the person tagged the turn to use (`@browser`): a typed field, read by the tool it names.
+  const { askedForLine, readAskedFor } = await import('@/libs/chat/askedFor');
+  const askedFor = readAskedFor(body.asked_for);
   // Resolve the agent. Explicit `agent_slug` wins (an `@mention` routes one
   // turn); otherwise the WORKSPACE AGENT answers — the project's lead
   // (agent-chat-surface.md §9.10), falling back to the first agent when no
@@ -336,7 +339,8 @@ export async function POST(request: Request): Promise<Response> {
   const onEvent = (event: AgentEvent) => (sink ? sink(event) : early.push(event));
   // What the turn spent, counted while it runs (`budget/runCost.ts`).
   const turnCost: { cost: RunCostScope | null } = { cost: null };
-  const modelMessage = withPageContext(messageForModel, pageContext, contextRefs, grounding.text);
+  const modelMessage = `${withPageContext(messageForModel, pageContext, contextRefs, grounding.text)}${askedForLine(askedFor)}`;
+  const turnPageContext = askedFor.length > 0 ? { ...(pageContext ?? { path: '/dashboard/chat', title: 'Chat' }), askedFor } : pageContext;
   const runTurn = (slug: string, hold?: Promise<boolean>) => {
     const turn = () => runAgentDeep({
       allowedSourceSlugs,
@@ -346,7 +350,7 @@ export async function POST(request: Request): Promise<Response> {
       userId,
       conversationId: conversationId ?? undefined,
       conversationHistory,
-      pageContext: pageContext ?? undefined,
+      pageContext: turnPageContext ?? undefined,
       timeZone,
       ...(deliverable ? { deliverable } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
@@ -444,7 +448,7 @@ export async function POST(request: Request): Promise<Response> {
   // place below. A ledger that cannot be written changes nothing: the row is
   // then written at the end, as before.
   const turnRow = conversationId !== null
-    ? await beginTurn({ orgId, conversationId, agentSlug, turn: { streamId, userMessageId, request: { message: answered?.source === 'card' ? answerText! : message, messageForModel: modelMessage, agentSlug, userId, allowedSourceSlugs, timeZone, ...(deliverable ? { deliverable } : {}), attachmentIds, ...(modelPrefs ? { modelPrefs } : {}), ...(pageContext ? { pageContext } : {}), autonomy, ...(clientHistory.length > 0 ? { clientHistory } : {}) } } })
+    ? await beginTurn({ orgId, conversationId, agentSlug, turn: { streamId, userMessageId, request: { message: answered?.source === 'card' ? answerText! : message, messageForModel: modelMessage, agentSlug, userId, allowedSourceSlugs, timeZone, ...(deliverable ? { deliverable } : {}), attachmentIds, ...(modelPrefs ? { modelPrefs } : {}), ...(turnPageContext ? { pageContext: turnPageContext } : {}), autonomy, ...(clientHistory.length > 0 ? { clientHistory } : {}) } } })
     : null;
 
   // Multiplex the agent event stream + a 15s keepalive timer into one

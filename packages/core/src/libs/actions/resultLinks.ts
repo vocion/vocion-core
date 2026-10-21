@@ -36,7 +36,7 @@ export type ResultLink = {
    * What it is, as a preview ref — so a surface can open it in the preview
    * pane and follow its status (`preview.status`). Absent on an external link.
    */
-  ref?: { type: 'worker_run' | 'object' | 'ask' | 'artifact'; id: string };
+  ref?: { type: 'worker_run' | 'object' | 'ask' | 'artifact' | 'browser_run'; id: string };
 };
 
 type Meta = Record<string, unknown>;

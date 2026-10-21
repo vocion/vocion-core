@@ -10,6 +10,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Accordion } from '@/components/patterns';
 import { PanelCloseButton } from '@/components/ui/panel-close-button';
+import { BrowserRunView } from '@/features/browser/BrowserRunView';
 import { ARTIFACT_KIND_ICON } from '@/features/dashboard/artifacts/kinds';
 import { SharePicker } from '@/features/dashboard/artifacts/SharePicker';
 import { requestAgentSurface, stashChatAbout } from '@/features/dashboard/chat/agentSurface';
@@ -238,6 +239,14 @@ function Body(props: { doc: PreviewDoc }) {
     return (
       <div className="px-4 py-3">
         <FeatureTimeline rows={doc.timeline.rows} cost={doc.timeline.cost} density="full" />
+      </div>
+    );
+  }
+  // A browser run draws live: the browser as it works, its steps, what it waits on.
+  if (doc.browserRun) {
+    return (
+      <div className="px-4 py-3">
+        <BrowserRunView key={doc.browserRun.id} initial={doc.browserRun} compact />
       </div>
     );
   }

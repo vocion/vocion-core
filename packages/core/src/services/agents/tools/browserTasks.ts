@@ -1,0 +1,195 @@
+/**
+ * `browser_task`, `browser_task_check`, `browser_task_stop` — hand a task to
+ * the person's browser from chat, follow it, stop it
+ * (`services/browser/BrowserRunService.ts`).
+ *
+ * The run opens beside the conversation as it starts (a `record_created`,
+ * like every other thing a turn starts) and a follow chip with its live
+ * status sits under the answer; the pane shows the browser as it works, the
+ * steps, what it waits on and what it found.
+ *
+ * Whose word starts it. A person who asked for it in this turn: it starts at
+ * once, as theirs (`saidToDecide`, a model reading their own words). An agent
+ * that thought of it: it is filed as a suggestion with a Start button, and
+ * nothing runs until the person presses it.
+ *
+ * The call waits a while for the run (inside the turn's deadline; on the
+ * container, under the tool timeout) and hands back the result when it is
+ * done in time, or where it stands — still going, or waiting on the person —
+ * when it is not. A run that outlives the call says its result in the
+ * conversation itself when it ends.
+ *
+ * Who has it: an agent granted `browser` tasks (`harness.grantTools:
+ * [browser_tasks]`), or every agent in a person's turn when
+ * `VOCION_BROWSER_RUNS=on`.
+ */
+
+import type { StructuredToolInterface } from '@langchain/core/tools';
+import type { RuntimeContext } from '../types';
+import { tool } from '@langchain/core/tools';
+import { z } from 'zod';
+import { browserRunLabel } from '@/libs/browser/run';
+import { browserRunsOn } from '@/services/browser/enabled';
+import { containerWaitMs } from './teamThread';
+
+/** The grant that puts browser tasks on an agent's belt. */
+const BROWSER_TASKS_GRANT = 'browser_tasks';
+
+/** How long `browser_task` waits for its run in this process. */
+const IN_PROCESS_WAIT_MS = 4 * 60_000;
+
+function enabled(ctx: RuntimeContext): boolean {
+  if ((ctx.harnessConfig.grantTools ?? []).includes(BROWSER_TASKS_GRANT)) {
+    return true;
+  }
+  return browserRunsOn() && Boolean(ctx.userId);
+}
+
+/**
+ * The run, as the model hands it on: where it stands, and what it found.
+ * @param v
+ * @param note
+ */
+function answerOf(v: import('@/libs/browser/run').BrowserRunView, note: string): string {
+  return JSON.stringify({
+    browserRunId: v.id,
+    run: browserRunLabel(v.id),
+    status: v.status,
+    ...(v.summary ? { summary: v.summary } : {}),
+    ...(v.result ? { result: v.result } : {}),
+    ...(v.waiting ? { waiting_on_person: v.waiting.kind === 'approval' ? `approve or decline: ${v.waiting.text}` : v.waiting.text } : {}),
+    ...(v.error ? { error: v.error } : {}),
+    steps: v.steps.length,
+    page: v.url,
+    note,
+  });
+}
+
+function noteFor(status: string): string {
+  switch (status) {
+    case 'done':
+      return 'Done. Give the person the result in your own words; the run, with every step and a picture of the page, is linked under your answer.';
+    case 'failed':
+      return 'It could not finish. Say why plainly, and what it did get.';
+    case 'waiting':
+      return 'It is waiting on the person (the pane beside the conversation shows what, with Approve and Decline). Tell them in one line; it carries on when they answer, and says its result here when done. Do not wait for it.';
+    case 'stopped':
+      return 'The person stopped it.';
+    case 'proposed':
+      return 'Filed as a suggestion: nothing runs until the person presses Start on it, beside the conversation. Tell them in one line what it would do.';
+    default:
+      return 'Still going, in the pane beside the conversation. Tell the person it is working; it says its result here when done. Do not wait for it or make up its result.';
+  }
+}
+
+const OUTPUT = z.object({
+  name: z.string().trim().regex(/^[a-z]\w{0,40}$/i).describe('A key, snake_case: unpaid_invoices.'),
+  description: z.string().trim().min(3).max(200).describe('What it holds, and its shape when it is a list: "each open invoice: number, due date, amount".'),
+});
+
+export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[] {
+  if (!enabled(ctx) || !ctx.userId) {
+    return [];
+  }
+  const userId = ctx.userId;
+  const svc = () => import('@/services/browser/BrowserRunService');
+  const waitMs = ctx.provider === 'runtime' ? containerWaitMs() : IN_PROCESS_WAIT_MS;
+  return [
+    tool(
+      async (args) => {
+        const { createBrowserRun, waitForBrowserRun, BrowserRunBusyError } = await svc();
+        // The person's word starts it; an agent's idea waits for their Start.
+        // The person's word: a tagged @browser, a token caller of their own, or a model reading their words.
+        let asked = Boolean(ctx.pageContext?.askedFor?.includes('browser')) || (userId.startsWith('token:') && !ctx.turnIntent);
+        if (!asked) {
+          const { personSaidToDecide } = await import('../owedDecision');
+          asked = (await personSaidToDecide(ctx, `use a browser to do this task: ${args.task}`)).said;
+        }
+        const inputs = Object.fromEntries((args.inputs ?? []).map(i => [i.name, i.value]));
+        const secretNames = (args.inputs ?? []).filter(i => i.secret).map(i => i.name);
+        let view;
+        try {
+          view = await createBrowserRun({
+            orgId: ctx.orgId,
+            userId,
+            conversationId: ctx.conversationId ?? null,
+            agentSlug: ctx.agentSlug ?? null,
+            task: args.task,
+            startUrl: args.start_url ?? null,
+            inputs,
+            secretNames,
+            outputs: args.outputs ?? [],
+            proposedBy: asked ? 'person' : `agent:${ctx.agentSlug ?? 'assistant'}`,
+            start: asked,
+            continuing: args.continue_from_current_page ?? false,
+          });
+        } catch (e) {
+          if (e instanceof BrowserRunBusyError) {
+            return `Not started: ${e.message} Its run is ${browserRunLabel(e.runId)}.`;
+          }
+          throw e;
+        }
+        const { recordRef } = await import('@/services/chat/recordContext');
+        ctx.emit({ type: 'record_created', record: recordRef('browser_run', view.id, browserRunLabel(view.id)) });
+        if (!asked) {
+          return answerOf(view, noteFor('proposed'));
+        }
+        ctx.emit({ type: 'step_progress', tool: 'browser_task', note: `${browserRunLabel(view.id)} · started` });
+        const after = await waitForBrowserRun(ctx.orgId, view.id, waitMs) ?? view;
+        return answerOf(after, noteFor(after.status));
+      },
+      {
+        name: 'browser_task',
+        description: [
+          'Hand a task to a web browser that works on its own, in the person\'s own browser session, while they watch it beside the conversation: open pages, sign in, click, fill forms, read tables, and bring back named outputs. For work on a site with no API or connector (a vendor or customer portal, a government site, a site that needs a sign-in), or when the person asks to "use the browser".',
+          'Prefer a connector or web_search when one can answer; a browser is slower. Steps that submit, send, pay, save or delete wait for the person\'s approval in the pane, so include them in the task when the task needs them.',
+          'When the person tagged @browser, use this tool for their ask. One task per call, written as the person would brief an assistant. Give the inputs it needs (mark passwords and codes secret: the browser types them without the model reading them) and the outputs you want back, each named. When the person asked for it, it starts now; when it is your idea, it is filed for them to Start.',
+          'One run at a time per person; the browser stays open between their runs, so continue_from_current_page carries on where the last one left off.',
+        ].join(' '),
+        schema: z.object({
+          task: z.string().trim().min(10).max(2_000).describe('What to do, start to finish, as you would brief a person.'),
+          start_url: z.string().trim().max(2_000).optional().describe('Where to start: a full address.'),
+          inputs: z.array(z.object({ name: z.string().trim().regex(/^[a-z]\w{0,40}$/i), value: z.string().max(2_000), secret: z.boolean().optional() })).max(20).optional().describe('What it needs: account email, a password (secret: true), the new address…'),
+          outputs: z.array(OUTPUT).max(12).optional().describe('What it brings back, each named.'),
+          continue_from_current_page: z.boolean().optional().describe('Carry on from the page the person\'s browser is on now, instead of start_url.'),
+        }),
+      },
+    ),
+    tool(
+      async (args) => {
+        const { getBrowserRun, waitForBrowserRun } = await svc();
+        const first = await getBrowserRun(ctx.orgId, args.run_id);
+        if (!first || first.proposedBy === undefined) {
+          return `No ${browserRunLabel(args.run_id)} in this workspace.`;
+        }
+        const wait = Math.min(args.wait_seconds ?? 0, Math.round(waitMs / 1000)) * 1000;
+        const v = wait > 0 && ['queued', 'running'].includes(first.status) ? await waitForBrowserRun(ctx.orgId, args.run_id, wait) ?? first : first;
+        return answerOf(v, noteFor(v.status));
+      },
+      {
+        name: 'browser_task_check',
+        description: 'Where a browser run stands, with its result once it is done. wait_seconds waits for it to finish first.',
+        schema: z.object({ run_id: z.number().int().positive(), wait_seconds: z.number().int().min(0).max(240).optional() }),
+      },
+    ),
+    tool(
+      async (args) => {
+        const { stopBrowserRun, BrowserRunError } = await svc();
+        try {
+          await stopBrowserRun(ctx.orgId, userId, args.run_id);
+        } catch (e) {
+          if (e instanceof BrowserRunError) {
+            return `Not stopped: ${e.message}`;
+          }
+          throw e;
+        }
+        return `${browserRunLabel(args.run_id)} is stopping.`;
+      },
+      {
+        name: 'browser_task_stop',
+        description: 'Stop the person\'s browser run, when they ask to.',
+        schema: z.object({ run_id: z.number().int().positive() }),
+      },
+    ),
+  ];
+}

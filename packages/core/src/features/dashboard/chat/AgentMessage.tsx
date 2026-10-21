@@ -6,7 +6,7 @@ import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } fro
 import type { Suggestion } from '@/libs/chat/suggestions';
 import type { FollowExclude, TurnToolStep } from '@/libs/chat/turnFollowups';
 import type { TurnRecord } from '@/libs/factory/liveStatus';
-import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Globe, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -83,6 +83,7 @@ const LINK_ICON: Record<DashboardLinkKind, typeof Bot> = {
   'workflow': Rocket,
   'team-report': Users,
   'chat': MessageSquare,
+  'browser': Globe,
   'page': ArrowUpRight,
 };
 

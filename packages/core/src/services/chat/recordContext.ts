@@ -20,6 +20,7 @@ const ROUTES: Record<RecordType, (id: string) => string | undefined> = {
   object: id => (id.includes(':') ? undefined : `/dashboard/objects/${encodeURIComponent(id)}`),
   deal: () => undefined,
   worker_run: id => `/dashboard/team-report/${encodeURIComponent(id)}`,
+  browser_run: id => `/dashboard/browser/${encodeURIComponent(id)}`,
   conversation: () => '/dashboard/chat',
   artifact: id => `/dashboard/artifacts/${encodeURIComponent(id)}`,
   document: id => `/dashboard/search/${encodeURIComponent(id)}`,

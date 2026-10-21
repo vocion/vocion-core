@@ -19,6 +19,8 @@ export const FEATURES = {
    * cap with `personal.brief` (`services/briefings/budgetGate.ts`).
    */
   BRIEF_AUDIO: 'brief.audio',
+  /** A browser run's own model loop: one call per step it takes (`services/browser/browserLoop.ts`). */
+  BROWSER_RUN: 'browser.run',
   /** Chat-time agent runs via `runAgentDeep` (LangChain + deepagents). */
   AGENT_CHAT: 'agent.chat',
   /** Legacy OpenAI-loop agent runs via `runAgent`. */

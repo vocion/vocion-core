@@ -479,6 +479,30 @@ async function resolveSources(ref: RecordRef, ctx: { orgId: string }, which: { c
   };
 }
 
+registerPreview('browser_run', {
+  sourceLabel: 'Browser',
+  resolve: async (ref, ctx) => {
+    const id = Number.parseInt(ref.id, 10);
+    if (!Number.isSafeInteger(id)) {
+      return null;
+    }
+    const { getBrowserRun } = await import('@/services/browser/BrowserRunService');
+    const run = await getBrowserRun(ctx.orgId, id);
+    if (!run) {
+      return null;
+    }
+    return {
+      ref,
+      title: run.task.length > 90 ? `${run.task.slice(0, 88)}…` : run.task,
+      sourceLabel: 'Browser',
+      href: `/dashboard/browser/${run.id}`,
+      browserRun: run,
+      facts: facts({ label: 'Run', value: `Browser run ${run.id}` }, { label: 'Status', value: run.status }, run.url && { label: 'Page', value: run.url }),
+      ...(run.summary ? { body: run.summary } : {}),
+    };
+  },
+});
+
 registerPreview('worker_run', {
   sourceLabel: 'Run',
   resolve: async (ref, ctx) => {

@@ -16,7 +16,7 @@
 import type { StepLabels } from '@/libs/chat/stepLabels';
 import { createHash } from 'node:crypto';
 import process from 'node:process';
-import { fallbackStepLabels, isSafeStepLabels, normalizeStepLabels } from '@/libs/chat/stepLabels';
+import { fallbackStepLabels, hasFixedStepLabels, isSafeStepLabels, normalizeStepLabels } from '@/libs/chat/stepLabels';
 
 const CACHE_MAX = 500;
 const TIMEOUT_MS = 4_000;
@@ -103,7 +103,7 @@ async function defaultModel(orgId: string): Promise<LabelModel> {
  */
 export async function labelStep(opts: { orgId: string; tool: string; args?: Record<string, unknown>; model?: LabelModel }): Promise<StepLabels> {
   const fallback = fallbackStepLabels(opts.tool, undefined, opts.args);
-  if (process.env.VOCION_STEP_LABELS === 'off') {
+  if (process.env.VOCION_STEP_LABELS === 'off' || hasFixedStepLabels(opts.tool)) {
     return fallback;
   }
   const args = compactArgs(opts.args);

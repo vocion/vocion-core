@@ -29,7 +29,7 @@ import type { ChatMessageArtifact } from './types';
 import type { DotTone } from '@/components/patterns';
 import type { TurnFollowup } from '@/libs/chat/turnFollowups';
 import type { FollowState } from '@/services/preview/followStatus';
-import { CircleDot, Hammer, Inbox, Play } from 'lucide-react';
+import { CircleDot, Globe, Hammer, Inbox, Play } from 'lucide-react';
 import { useState } from 'react';
 import { StatusDot } from '@/components/patterns';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -53,7 +53,7 @@ export const FOLLOW_TONE: Record<FollowState, { tone: DotTone; word: string }> =
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Refs the preview pane can open; anything else opens its page. */
-const PREVIEWABLE = new Set(['worker_run', 'object', 'artifact', 'mission_run']);
+const PREVIEWABLE = new Set(['worker_run', 'object', 'artifact', 'mission_run', 'browser_run']);
 
 export function ArtifactChips({ artifacts, follow = [], onOpen, onBuild }: {
   artifacts: ChatMessageArtifact[];
@@ -132,7 +132,7 @@ export function ArtifactChips({ artifacts, follow = [], onOpen, onBuild }: {
         const key = `${f.ref.type}:${f.ref.id}`;
         const status = statuses[key];
         const shown = status ? FOLLOW_TONE[status.state] : null;
-        const Icon = f.ref.type === 'worker_run' ? Play : f.ref.type === 'ask' ? Inbox : CircleDot;
+        const Icon = f.ref.type === 'worker_run' ? Play : f.ref.type === 'browser_run' ? Globe : f.ref.type === 'ask' ? Inbox : CircleDot;
         const body = (
           <>
             <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />

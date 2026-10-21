@@ -117,6 +117,14 @@ export function turnFollowups(runs: readonly TurnToolStep[] | undefined, opts: {
       }
       continue;
     }
+    if (r.name === 'browser_task') {
+      // The run the browser task started (or filed for the person to Start): its JSON names it.
+      const id = /"browserRunId"\s*:\s*(\d+)/.exec(r.output)?.[1];
+      if (id) {
+        push({ label: `Browser run ${id}`, href: `/dashboard/browser/${id}`, ref: { type: 'browser_run', id } });
+      }
+      continue;
+    }
     if (r.name === 'update_object') {
       // Changed another record in place: watch it too. A proposal to change
       // one is waiting on a person and is its card's business.

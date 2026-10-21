@@ -54,6 +54,8 @@ function describe(type: RecordRef['type'], rawId: string): RefDescription {
   switch (type) {
     case 'mission_run':
       return n ? { label: nounCode('run', n), href: `/dashboard/p/runs/agent-${n}` } : { label: 'Agent run', href: null };
+    case 'browser_run':
+      return n ? { label: `Browser run ${n}`, href: `/dashboard/browser/${n}` } : { label: 'Browser run', href: null };
     case 'worker_run':
       return n ? { label: nounCode('run', n), href: `/dashboard/p/runs/${n}` } : { label: 'Run', href: null };
     case 'feature_section': {

@@ -31,7 +31,8 @@ import { client } from '@/libs/Orpc';
 import { shrinkImage, uploadAttachments } from './attachmentUpload';
 import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { opensPreviewOnItsOwn } from './autoOpen';
-import { isIntentTag } from './composerTags';
+import { askedForFromRefs, isIntentTag } from './composerTags';
+import { CONVERSATION_APPENDED_EVENT } from './conversationAppended';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
@@ -1398,6 +1399,30 @@ export function useChatSession({
     setActivity(null);
   }, [nameOfAgent]);
 
+  // A line written into this conversation outside its turns (a browser run's result): read the
+  // conversation again, unless a turn of ours is running, whose own stream is the truth.
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+  useEffect(() => {
+    const onAppended = (e: Event) => {
+      const id = (e as CustomEvent<{ conversationId?: number }>).detail?.conversationId;
+      const busy = () => phaseRef.current !== 'idle' || waitingRef.current || abortRef.current !== null;
+      if (typeof id !== 'number' || conversationIdRef.current !== id || busy()) {
+        return;
+      }
+      void client.conversations.get({ id }).then((conv) => {
+        const { messages: next } = hydrateTranscript((conv.messages ?? []) as PersistedMessageRow[], nameOfAgent);
+        // A turn still being answered (ours, or one that started meanwhile) is its stream's to draw.
+        if (conversationIdRef.current !== id || busy() || next.some(m => m.status === 'running')) {
+          return;
+        }
+        setMessages(next);
+      }).catch(() => {});
+    };
+    window.addEventListener(CONVERSATION_APPENDED_EVENT, onAppended);
+    return () => window.removeEventListener(CONVERSATION_APPENDED_EVENT, onAppended);
+  }, [nameOfAgent]);
+
   // Resume the agent's saved thread on mount / agent-switch, so navigating
   // away and back doesn't start over. __search__ is ephemeral and never
   // resumes; an explicit page handoff also starts fresh (it stashes its own
@@ -1571,6 +1596,8 @@ export function useChatSession({
     // record, so it is stripped before `context_refs` travels — the model is
     // never handed "a record called Artifact".
     const deliverable = deliverableFromRefs(refs);
+    // `@browser`: the person asked for the browser, as a typed field the server reads.
+    const askedFor = askedForFromRefs(refs);
     // `@artifact` says what the turn OWES, `@change` says what it must DO.
     // Neither points at a record, so neither travels as one.
     const recordRefs = refs.filter(r => !isArtifactTag(r) && !isIntentTag(r));
@@ -1618,6 +1645,7 @@ export function useChatSession({
           // The turn's deliverable contract (0102) — a typed field, decided
           // before the turn runs, not a judgement the model makes during it.
           deliverable,
+          ...(askedFor.length > 0 ? { asked_for: askedFor } : {}),
           // R4: page context travels on every surface; a scoped dock also sends
           // its scope so the server folds it in as a ref (mergeScopeRef).
           ...(pageContextRef.current ? { page_context: pageContextRef.current } : {}),
