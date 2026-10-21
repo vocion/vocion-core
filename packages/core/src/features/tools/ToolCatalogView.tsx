@@ -168,7 +168,7 @@ function FamilySection({ family, signIn }: { family: ToolFamily; signIn?: McpSig
   return (
     <section className="relative" data-testid={`tool-family-${family.id}`}>
       <details className="group" open={open}>
-        <summary className={`flex cursor-pointer list-none items-center gap-2 rounded-md py-2 pr-2 hover:bg-muted/40 ${signIn ? 'sm:pr-56' : ''}`}>
+        <summary className={`flex cursor-pointer list-none items-center gap-2 rounded-md py-1.5 pr-2 hover:bg-muted/40 sm:py-2 ${signIn ? 'sm:pr-56' : ''}`}>
           <span className="w-3 shrink-0 text-xs text-muted-foreground transition group-open:rotate-90">▸</span>
           <IntegrationLogo brand={family.brand} name={family.label} size="xs" markOnly />
           <h2 className="truncate text-sm font-medium">{family.label}</h2>
@@ -185,7 +185,8 @@ function FamilySection({ family, signIn }: { family: ToolFamily; signIn?: McpSig
           )}
         </summary>
         <div className="pb-4 pl-5">
-          <p className="mb-2 max-w-2xl text-xs text-muted-foreground sm:mb-3">{family.description}</p>
+          {/* On a phone the line says enough; the rows come first. */}
+          <p className="mb-3 hidden max-w-2xl text-xs text-muted-foreground sm:block">{family.description}</p>
           <FamilyNotice family={family} />
           {family.tools.length > 0 && (
             <ListRows>
