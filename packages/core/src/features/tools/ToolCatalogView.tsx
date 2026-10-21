@@ -154,18 +154,20 @@ function FamilyNotice({ family }: { family: ToolFamily }) {
 /**
  * One family of tools as one line: logo, name, readiness, how many tools and
  * the source behind it. It opens to what it is, any fix it needs, its tools
- * and, for a REST source, its writes. A family that needs a fix opens by
- * itself. The caller's own sign-in sits on the line, outside the toggle.
+ * and, for a REST source, its writes. The built-ins, and a family that
+ * needs a fix, open by themselves. The caller's own sign-in sits on the line, outside the toggle.
  * @param props
  * @param props.family
  * @param props.signIn
  */
 function FamilySection({ family, signIn }: { family: ToolFamily; signIn?: McpSignIn }) {
   const needsFix = family.readiness !== null && !family.readiness.ready && !family.readiness.keyStateUnknown && family.sources.length > 0;
+  // The built-ins are what this page is opened for (whose key a paid tool spends): open.
+  const open = needsFix || family.kind === 'builtin';
   const count = family.tools.length + family.actions.length;
   return (
     <section className="relative" data-testid={`tool-family-${family.id}`}>
-      <details className="group" open={needsFix}>
+      <details className="group" open={open}>
         <summary className={`flex cursor-pointer list-none items-center gap-2 rounded-md py-2 pr-2 hover:bg-muted/40 ${signIn ? 'sm:pr-56' : ''}`}>
           <span className="w-3 shrink-0 text-xs text-muted-foreground transition group-open:rotate-90">▸</span>
           <IntegrationLogo brand={family.brand} name={family.label} size="xs" markOnly />

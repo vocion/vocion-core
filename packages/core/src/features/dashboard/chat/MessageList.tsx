@@ -170,7 +170,10 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
   // WHAT THIS THREAD IS ABOUT, under the latest turn whatever it was about:
   // read from the records, so it survives a reload (Chris, 2026-09-30, #269).
   const threadRecords = useThreadRecords(conversationId, `${messages.length}:${streaming ? 1 : 0}`);
-  const blocksAfter = (i: number) => blocks.filter(b => b.afterIndex === i || (i === lastIdx && b.afterIndex > lastIdx)).map(b => <div key={b.key}>{b.node}</div>);
+  const blocksAfter = (i: number) => blocks.filter(b => b.afterIndex === i).map(b => <div key={b.key}>{b.node}</div>);
+  // What comes after the last message (the Decision waiting on them) sits on
+  // the composer: a short thread leaves its space above the card, not below.
+  const trailing = messages.length > 0 ? blocks.filter(b => b.afterIndex > lastIdx) : [];
   // The rhythm is the exchange: an answer sits close under the question it
   // answers, and the next question starts a little further down — one even
   // 32px between every message read as a list of equals, not a conversation.
@@ -200,57 +203,64 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
           parent sized off min-content hands the transcript 768px on a 390px
           phone. */}
       <ChatAgentsProvider value={agents ?? NO_AGENTS}>
-        <div ref={columnRef} className="mx-auto w-full max-w-3xl min-w-0 space-y-8">
-          {blocksAfter(-1)}
-          {messages.map((msg, i) => (
-            <div key={i} className={`space-y-8 ${gapAfter(i)}`}>
-              {msg.role === 'user'
-                ? (
-                  // A card's answer has no words: it is drawn as the receipt
-                  // it is. Typed words that answered keep their bubble.
-                    <>
-                      {/* An answered Decision IS the person's turn: one bubble,
+        <div ref={columnRef} className="mx-auto flex w-full max-w-3xl min-w-0 flex-1 flex-col">
+          <div className="space-y-8">
+            {blocksAfter(-1)}
+            {messages.map((msg, i) => (
+              <div key={i} className={`space-y-8 ${gapAfter(i)}`}>
+                {msg.role === 'user'
+                  ? (
+                // A card's answer has no words: it is drawn as the receipt
+                // it is. Typed words that answered keep their bubble.
+                      <>
+                        {/* An answered Decision IS the person's turn: one bubble,
                           the question small and their answer under it — the
                           typed words too, when they answered in the composer. */}
-                      {msg.decisionAnswer
-                        ? <DecisionAnswerLine answer={msg.decisionAnswer} typed={msg.decisionAnswer.via === 'composer' ? msg.content : null} />
-                        : <UserMessage content={msg.content} attachments={msg.attachments} />}
-                    </>
-                  )
-                : (
-                    <AgentMessage
-                      message={msg}
-                      agentName={agentName}
-                      // A routed turn (`@agent`, `/search`, a delegation) is
-                      // attributed, never re-identified: "via <specialist>" (§9.10)
-                      // — from the turn's stamped agent, not a guess (backlog 009).
-                      // The turn opens with its speaker's avatar and name only
-                      // when the speaker changes to a teammate; the same
-                      // speaker's next turns keep the quiet mark (`speakers.ts`).
-                      via={speakers[i]?.opener ? t('via', { name: speakers[i]!.opener!.name }) : undefined}
-                      opener={speakers[i]?.opener ?? undefined}
-                      writer={speakers[i]?.speaker ?? undefined}
-                      viaReason={msg.routing?.reason}
-                      streaming={streaming && i === lastIdx}
-                      activity={i === lastIdx ? activity : undefined}
-                      onShowSources={onShowSources}
-                      onDigDeeper={onDigDeeper && !streaming ? level => onDigDeeper(i, level) : undefined}
-                      onCitationClick={onCitationClick}
-                      onFeedback={onFeedback}
-                      autonomy={autonomy}
-                      onOpenArtifact={onOpenArtifact}
-                      onBuildCard={onBuildCard}
-                      conversationId={conversationId}
-                      pageRecord={pageRecord}
-                      latest={i === lastIdx}
-                      onSuggestion={onSuggestion}
-                      threadRecords={i === lastIdx ? threadRecords : undefined}
-                    />
-                  )}
-              {blocksAfter(i)}
+                        {msg.decisionAnswer
+                          ? <DecisionAnswerLine answer={msg.decisionAnswer} typed={msg.decisionAnswer.via === 'composer' ? msg.content : null} />
+                          : <UserMessage content={msg.content} attachments={msg.attachments} />}
+                      </>
+                    )
+                  : (
+                      <AgentMessage
+                        message={msg}
+                        agentName={agentName}
+                        // A routed turn (`@agent`, `/search`, a delegation) is
+                        // attributed, never re-identified: "via <specialist>" (§9.10)
+                        // — from the turn's stamped agent, not a guess (backlog 009).
+                        // The turn opens with its speaker's avatar and name only
+                        // when the speaker changes to a teammate; the same
+                        // speaker's next turns keep the quiet mark (`speakers.ts`).
+                        via={speakers[i]?.opener ? t('via', { name: speakers[i]!.opener!.name }) : undefined}
+                        opener={speakers[i]?.opener ?? undefined}
+                        writer={speakers[i]?.speaker ?? undefined}
+                        viaReason={msg.routing?.reason}
+                        streaming={streaming && i === lastIdx}
+                        activity={i === lastIdx ? activity : undefined}
+                        onShowSources={onShowSources}
+                        onDigDeeper={onDigDeeper && !streaming ? level => onDigDeeper(i, level) : undefined}
+                        onCitationClick={onCitationClick}
+                        onFeedback={onFeedback}
+                        autonomy={autonomy}
+                        onOpenArtifact={onOpenArtifact}
+                        onBuildCard={onBuildCard}
+                        conversationId={conversationId}
+                        pageRecord={pageRecord}
+                        latest={i === lastIdx}
+                        onSuggestion={onSuggestion}
+                        threadRecords={i === lastIdx ? threadRecords : undefined}
+                      />
+                    )}
+                {blocksAfter(i)}
+              </div>
+            ))}
+            {messages.length === 0 && blocks.filter(b => b.afterIndex > -1).map(b => <div key={b.key}>{b.node}</div>)}
+          </div>
+          {trailing.length > 0 && (
+            <div className="mt-auto space-y-8 pt-8" data-testid="thread-trailing">
+              {trailing.map(b => <div key={b.key}>{b.node}</div>)}
             </div>
-          ))}
-          {messages.length === 0 && blocks.filter(b => b.afterIndex > -1).map(b => <div key={b.key}>{b.node}</div>)}
+          )}
         </div>
       </ChatAgentsProvider>
     </div>
