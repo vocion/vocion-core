@@ -38,6 +38,7 @@ import { pause as pauseAutomationRoute, resume as resumeAutomationRoute } from '
 import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
 import { get as getBrandRoute, restore as restoreBrandRoute, save as saveBrandRoute, uploadLogo as uploadBrandLogoRoute } from './Branding';
 import { audioRoute as briefingsAudioRoute, latestRoute as briefingsLatestRoute, personalRoute as briefingsPersonalRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
+import { actOnBrowserRunRoute, getBrowserRunRoute, practiceBrowserRunRoute } from './Browser';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
   addLink,
@@ -350,6 +351,11 @@ export const router = {
     changeRole: changeRoleRoute,
     remove: removeMemberRoute,
     resetSecondFactor: resetSecondFactorRoute,
+  },
+  browser: {
+    get: getBrowserRunRoute,
+    act: actOnBrowserRunRoute,
+    practice: practiceBrowserRunRoute,
   },
   chat: {
     suggestions: chatSuggestions,

@@ -22,8 +22,6 @@ import type { AIMessage, BaseMessage } from '@langchain/core/messages';
 import type { ActOutcome, BrowserSession as Session } from './browserEngine';
 import type { BrowserOutputSpec, BrowserStep, BrowserWaiting } from '@/libs/browser/run';
 import { HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
-import { tool } from '@langchain/core/tools';
-import { z } from 'zod';
 import { BROWSER_RUN_LIMITS, needsApproval } from '@/libs/browser/run';
 import { act, describeElement, formSubmitOf, markTarget, snapshot } from './browserEngine';
 
@@ -72,23 +70,36 @@ export type LoopResult
     | { status: 'failed'; summary: string; result: Record<string, unknown> | null; error: string }
     | { status: 'stopped'; summary: string };
 
-const DIR = z.string().trim().max(300).describe('Why, in a few plain words a person watching would understand ("Sign in with the account given").');
+/**
+ * The loop's tools, as plain JSON Schema definitions for `bindTools`: the model is only ever asked
+ * to call one, and the loop reads the call itself, so there is nothing for LangChain's `tool()` to
+ * run. Plain data also keeps the type-checker out of a dozen zod inferences (CI's type check sits
+ * at its heap limit).
+ */
+type ToolDef = { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } };
 
-function tools(outputs: BrowserOutputSpec[]) {
-  const result = z.object(Object.fromEntries(outputs.map(o => [o.name, z.any().describe(o.description)]))).partial().passthrough();
+const WHY = { type: 'string', maxLength: 300, description: 'Why, in a few plain words a person watching would understand ("Sign in with the account given").' };
+const REF = { type: 'string', minLength: 1, maxLength: 20, description: 'The element\'s ref from the page snapshot, e.g. e12.' };
+
+function def(name: string, description: string, properties: Record<string, unknown>, required: string[]): ToolDef {
+  return { type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } } };
+}
+
+function tools(outputs: BrowserOutputSpec[]): ToolDef[] {
+  const result = { type: 'object', description: 'The outputs, by name.', properties: Object.fromEntries(outputs.map(o => [o.name, { description: o.description }])), additionalProperties: true };
   return [
-    tool(async () => '', { name: 'open_url', description: 'Go to an address.', schema: z.object({ url: z.string().trim().min(1).max(2000), why: DIR }) }),
-    tool(async () => '', { name: 'click', description: 'Click an element by its ref from the page snapshot.', schema: z.object({ ref: z.string().trim().min(1).max(20), why: DIR }) }),
-    tool(async () => '', { name: 'type', description: 'Type into a field by its ref, replacing what it held. Write {{name}} to type a secret input. submit presses Enter after.', schema: z.object({ ref: z.string().trim().min(1).max(20), text: z.string().max(4000), submit: z.boolean().optional(), why: DIR }) }),
-    tool(async () => '', { name: 'select_option', description: 'Choose an option in a select (dropdown) by its ref, by the option\'s label.', schema: z.object({ ref: z.string().trim().min(1).max(20), value: z.string().trim().min(1).max(300), why: DIR }) }),
-    tool(async () => '', { name: 'press', description: 'Press a key on the page (Enter, Escape, Tab, PageDown…).', schema: z.object({ key: z.string().trim().min(1).max(40), why: DIR }) }),
-    tool(async () => '', { name: 'scroll', description: 'Scroll the page.', schema: z.object({ direction: z.enum(['down', 'up']), why: DIR }) }),
-    tool(async () => '', { name: 'look', description: 'Read the page again, or the part around some words on a long page.', schema: z.object({ find: z.string().trim().max(120).optional(), why: DIR }) }),
-    tool(async () => '', { name: 'wait', description: 'Wait for the page to finish something (up to 10 seconds).', schema: z.object({ seconds: z.number().min(0.5).max(10), why: DIR }) }),
-    tool(async () => '', { name: 'note', description: 'Write down what you found that you will need later (the rows of a table, a reference number). You only ever see the current page: what is not in your notes is gone once you leave it. Notes are shown to you on every step.', schema: z.object({ text: z.string().trim().min(1).max(6_000) }) }),
-    tool(async () => '', { name: 'ask_person', description: 'Ask the person something only they can answer (a code sent to their phone, a choice the task left open). The run waits for their answer.', schema: z.object({ question: z.string().trim().min(3).max(400) }) }),
-    tool(async () => '', { name: 'finish', description: 'The task is done: give the outputs and one plain-sentence summary of what was done.', schema: z.object({ summary: z.string().trim().min(3).max(600), result }) }),
-    tool(async () => '', { name: 'give_up', description: 'The task cannot be done here: say why in one plain sentence, with any outputs you did get.', schema: z.object({ why: z.string().trim().min(3).max(600), result: result.optional() }) }),
+    def('open_url', 'Go to an address.', { url: { type: 'string', minLength: 1, maxLength: 2000 }, why: WHY }, ['url', 'why']),
+    def('click', 'Click an element by its ref from the page snapshot.', { ref: REF, why: WHY }, ['ref', 'why']),
+    def('type', 'Type into a field by its ref, replacing what it held. Write {{name}} to type a secret input. submit presses Enter after.', { ref: REF, text: { type: 'string', maxLength: 4000 }, submit: { type: 'boolean' }, why: WHY }, ['ref', 'text', 'why']),
+    def('select_option', 'Choose an option in a select (dropdown) by its ref, by the option\'s label.', { ref: REF, value: { type: 'string', minLength: 1, maxLength: 300 }, why: WHY }, ['ref', 'value', 'why']),
+    def('press', 'Press a key on the page (Enter, Escape, Tab, PageDown…).', { key: { type: 'string', minLength: 1, maxLength: 40 }, why: WHY }, ['key', 'why']),
+    def('scroll', 'Scroll the page.', { direction: { type: 'string', enum: ['down', 'up'] }, why: WHY }, ['direction', 'why']),
+    def('look', 'Read the page again, or the part around some words on a long page.', { find: { type: 'string', maxLength: 120 }, why: WHY }, ['why']),
+    def('wait', 'Wait for the page to finish something (up to 10 seconds).', { seconds: { type: 'number', minimum: 0.5, maximum: 10 }, why: WHY }, ['seconds', 'why']),
+    def('note', 'Write down what you found that you will need later (the rows of a table, a reference number). You only ever see the current page: what is not in your notes is gone once you leave it. Notes are shown to you on every step.', { text: { type: 'string', minLength: 1, maxLength: 6000 } }, ['text']),
+    def('ask_person', 'Ask the person something only they can answer (a code sent to their phone, a choice the task left open). The run waits for their answer.', { question: { type: 'string', minLength: 3, maxLength: 400 } }, ['question']),
+    def('finish', 'The task is done: give the outputs and one plain-sentence summary of what was done.', { summary: { type: 'string', minLength: 3, maxLength: 600 }, result }, ['summary', 'result']),
+    def('give_up', 'The task cannot be done here: say why in one plain sentence, with any outputs you did get.', { why: { type: 'string', minLength: 3, maxLength: 600 }, result }, ['why']),
   ];
 }
 
@@ -160,7 +171,7 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
   const t = tools(input.outputs);
   // tool_choice stays auto: the 5-family models refuse a forced choice, and a reply with no call is
   // answered below by asking for one action.
-  const bound = model.bindTools!(t);
+  const bound = model.bindTools!(t as never);
   const started = hooks.now();
   let waited = 0;
   const history: Array<{ ai: AIMessage; replies: Array<{ id: string; short: string; full: string }> }> = [];

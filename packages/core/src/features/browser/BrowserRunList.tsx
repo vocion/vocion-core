@@ -7,6 +7,7 @@ import { StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { browserRunLabel } from '@/libs/browser/run';
 import { Link, useRouter } from '@/libs/I18nNavigation';
+import { client } from '@/libs/Orpc';
 
 const TONE: Record<string, 'pass' | 'amber' | 'fail' | 'neutral'> = { done: 'pass', running: 'amber', queued: 'amber', waiting: 'amber', proposed: 'neutral', stopped: 'neutral', failed: 'fail' };
 
@@ -24,13 +25,12 @@ export function BrowserRunList({ runs }: { runs: BrowserRunView[] }) {
   const practice = async () => {
     setBusy(true);
     setError(null);
-    const res = await fetch('/api/browser-runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ example: 'practice' }) });
-    const json = await res.json() as { run?: { id: number }; error?: { message: string } };
+    const json = await client.browser.practice().catch(() => ({ run: null, error: 'It did not start.' }));
     setBusy(false);
     if (json.run) {
       router.push(`/dashboard/browser/${json.run.id}`);
     } else {
-      setError(json.error?.message ?? 'It did not start.');
+      setError(json.error ?? 'It did not start.');
     }
   };
   return (

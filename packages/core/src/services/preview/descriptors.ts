@@ -486,8 +486,8 @@ registerPreview('browser_run', {
     if (!Number.isSafeInteger(id)) {
       return null;
     }
-    const { getBrowserRun } = await import('@/services/browser/BrowserRunService');
-    const run = await getBrowserRun(ctx.orgId, id);
+    const { readBrowserRun } = await import('@/services/browser/runReads');
+    const run = await readBrowserRun(ctx.orgId, id);
     if (!run) {
       return null;
     }

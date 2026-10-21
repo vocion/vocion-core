@@ -17,16 +17,16 @@ import { Globe } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { openPreview } from '@/features/preview/previewState';
 import { browserRunLabel } from '@/libs/browser/run';
+import { client } from '@/libs/Orpc';
 import { OutputValue } from './OutputValue';
 
 export function BrowserRunResult({ runId }: { runId: number }) {
   const [run, setRun] = useState<BrowserRunView | null>(null);
   useEffect(() => {
     let stop = false;
-    void fetch(`/api/browser-runs/${runId}`, { cache: 'no-store' })
-      .then(r => (r.ok ? r.json() as Promise<{ run: BrowserRunView }> : null))
+    void client.browser.get({ id: runId })
       .then((j) => {
-        if (!stop && j) {
+        if (!stop && j.run) {
           setRun(j.run);
         }
       })

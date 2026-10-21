@@ -14,7 +14,7 @@
  *   steps    what it did, one line each, newest last
  *   inputs   what it was given (a secret as ••••)
  *
- * Re-read about once a second while live (`/api/browser-runs/:id`); the
+ * Re-read about once a second while live (`browser.get` on the RPC route); the
  * picture is fetched as it moves (`/frame`), one request at a time.
  */
 
@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { announceConversationAppended } from '@/features/dashboard/chat/conversationAppended';
+import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
 import { OutputValue } from './OutputValue';
 
@@ -140,9 +141,9 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
     }
     let stop = false;
     const timer = setInterval(async () => {
-      const res = await fetch(`/api/browser-runs/${run.id}`, { cache: 'no-store' }).catch(() => null);
-      if (!stop && res?.ok) {
-        setRun(((await res.json()) as { run: Run }).run);
+      const res = await client.browser.get({ id: run.id }).catch(() => null);
+      if (!stop && res?.run) {
+        setRun(res.run);
       }
     }, 1000);
     return () => {
@@ -170,18 +171,22 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
     return undefined;
   }, [active, run.conversationId]);
 
-  const send = useCallback(async (body: Record<string, unknown>) => {
+  const send = useCallback(async (body: { action: 'start' | 'stop' | 'approve' | 'deny' | 'answer'; text?: string }) => {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/browser-runs/${run.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const json = await res.json() as { run?: Run; error?: { message: string } };
-      if (!res.ok) {
-        setError(json.error?.message ?? 'That did not go through.');
-      } else if (json.run) {
-        setRun(json.run);
-        setReply('');
+      const res = await client.browser.act({ id: run.id, ...body });
+      if (res.error) {
+        setError(res.error);
       }
+      if (res.run) {
+        setRun(res.run);
+        if (!res.error) {
+          setReply('');
+        }
+      }
+    } catch {
+      setError('That did not go through.');
     } finally {
       setBusy(false);
     }

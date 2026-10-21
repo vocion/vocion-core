@@ -178,6 +178,11 @@ jobs:
         run: npm run lint
 
       - name: Type checking
+        # tsc checks ~9,800 files and uses about 4 GB, which is where Node's default heap ends on
+        # this runner: a PR adding a feature ran it out of memory (#1365, 2026-10-21) while the
+        # same tree passed locally. The heap is raised for tsc only; it is not a product budget.
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run check:types
 
       - name: Check dependencies

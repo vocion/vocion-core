@@ -39,7 +39,8 @@ import { asRootRun } from '@/libs/agents/rootRun';
 import { BROWSER_RUN_LIMITS, browserRunLabel, isLive, SECRET_MASK } from '@/libs/browser/run';
 import { db } from '@/libs/DB';
 import { browserRunSchema } from '@/models/Schema';
-import { claim, closeBrowserSession, existingSession, frameSeq, latestFrame, openBrowserSession, personKey, releaseBrowserSession, saveBrowser, screenshot, whereNow } from './browserEngine';
+import { claim, closeBrowserSession, existingSession, openBrowserSession, personKey, releaseBrowserSession, saveBrowser, screenshot } from './browserEngine';
+import { isStale, STALE_MS, toView } from './runReads';
 
 type Row = typeof browserRunSchema.$inferSelect;
 
@@ -47,7 +48,6 @@ type Row = typeof browserRunSchema.$inferSelect;
 const RUNNER_ID = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
 /** How often a driven run's beat is written, and how old a beat is before the run counts as abandoned. */
 const BEAT_MS = 8_000;
-const STALE_MS = 30_000;
 /** Restarts a run survives before it stops and says so. */
 const MAX_RESUMES = 3;
 /** The least time between two checkpoints of one run. */
@@ -115,47 +115,6 @@ function pushLive(orgId: string, id: number): void {
   void import('@/libs/live/publish').then(m => m.publish({ orgId, topics: [`browser:${id}`], ref: `browser:${id}`, kind: 'changed' })).catch(() => {});
 }
 
-function toView(row: Row, l?: Live | null): BrowserRunView {
-  const key = personKey(row.orgId, row.userId);
-  const where = l ? whereNow(key) : null;
-  const steps = l?.steps ?? row.steps ?? [];
-  const lastUrl = [...steps].reverse().find(s => s.url)?.url ?? row.startUrl ?? null;
-  return {
-    id: row.id,
-    status: row.status,
-    task: row.task,
-    startUrl: row.startUrl,
-    inputs: row.inputs ?? {},
-    outputs: row.outputs ?? [],
-    result: row.result ?? null,
-    summary: row.summary,
-    steps,
-    waiting: row.waiting ?? null,
-    error: row.error,
-    url: where?.url && where.url !== 'about:blank' ? where.url : lastUrl,
-    title: where?.title ?? null,
-    frameSeq: l ? frameSeq(key) : 0,
-    live: Boolean(l && latestFrame(key)),
-    finalShotUrl: row.finalShotUrl,
-    proposedBy: row.proposedBy,
-    agentSlug: row.agentSlug,
-    conversationId: row.conversationId,
-    cents: Math.round(Number(row.microCents ?? 0) / 1_000_000),
-    isolation: row.isolation ?? null,
-    resumes: row.resumes ?? 0,
-    // Live in the database, driven by no process this one can see, and its beat stopped: it is
-    // about to be picked up again.
-    resuming: isLive(row.status) && !l && isStale(row),
-    startedAt: row.startedAt?.toISOString() ?? null,
-    endedAt: row.endedAt?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString(),
-  };
-}
-
-function isStale(row: Pick<Row, 'heartbeatAt'>): boolean {
-  return !row.heartbeatAt || Date.now() - row.heartbeatAt.getTime() > STALE_MS;
-}
-
 async function patch(id: number, values: Partial<typeof browserRunSchema.$inferInsert>): Promise<void> {
   await db.update(browserRunSchema).set({ ...values, updatedAt: new Date() }).where(eq(browserRunSchema.id, id));
 }
@@ -195,7 +154,7 @@ async function readRow(orgId: string, id: number): Promise<Row | null> {
  */
 export async function getBrowserRun(orgId: string, id: number): Promise<BrowserRunView | null> {
   const row = await readRow(orgId, id);
-  return row ? toView(row, live.get(id)) : null;
+  return row ? toView(row) : null;
 }
 
 /**
@@ -206,17 +165,6 @@ export async function getBrowserRun(orgId: string, id: number): Promise<BrowserR
 export async function liveRunFor(orgId: string, userId: string): Promise<{ id: number; task: string } | null> {
   const [r] = await db.select({ id: browserRunSchema.id, task: browserRunSchema.task }).from(browserRunSchema).where(and(eq(browserRunSchema.orgId, orgId), eq(browserRunSchema.userId, userId), inArray(browserRunSchema.status, ['queued', 'running', 'waiting']))).orderBy(desc(browserRunSchema.id)).limit(1);
   return r ?? null;
-}
-
-/**
- * The person's recent runs, newest first.
- * @param orgId - The workspace.
- * @param userId - The person.
- * @param limit - How many.
- */
-export async function recentBrowserRuns(orgId: string, userId: string, limit = 20): Promise<BrowserRunView[]> {
-  const rows = await db.select().from(browserRunSchema).where(and(eq(browserRunSchema.orgId, orgId), eq(browserRunSchema.userId, userId))).orderBy(desc(browserRunSchema.id)).limit(limit);
-  return rows.map(r => toView(r, live.get(r.id)));
 }
 
 export type CreateBrowserRun = {
@@ -279,7 +227,7 @@ export async function createBrowserRun(input: CreateBrowserRun): Promise<Browser
   }).returning();
   if (input.start) {
     begin(row!, secrets, input.continuing ?? false, null);
-    return toView(row!, live.get(row!.id));
+    return toView(row!);
   }
   return toView(row!);
 }
@@ -313,7 +261,7 @@ export async function startBrowserRun(orgId: string, userId: string, id: number)
     throw new BrowserRunError(`${browserRunLabel(id)} has already been started.`);
   }
   begin(claimed, secrets, false, null);
-  return toView(claimed, live.get(id));
+  return toView(claimed);
 }
 
 /**

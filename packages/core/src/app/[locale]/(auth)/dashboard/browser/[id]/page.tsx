@@ -5,7 +5,7 @@ import { DetailPage } from '@/components/patterns';
 import { BrowserRunView } from '@/features/browser/BrowserRunView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { browserRunLabel } from '@/libs/browser/run';
-import { getBrowserRun } from '@/services/browser/BrowserRunService';
+import { readBrowserRun } from '@/services/browser/runReads';
 
 export const metadata: Metadata = { title: 'Browser run' };
 
@@ -23,7 +23,7 @@ export default async function BrowserRunPage(props: { params: Promise<{ locale: 
   if (!orgId || !userId || !Number.isSafeInteger(runId) || runId <= 0) {
     notFound();
   }
-  const run = await getBrowserRun(orgId, runId);
+  const run = await readBrowserRun(orgId, runId);
   if (!run) {
     notFound();
   }

@@ -27,7 +27,6 @@
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
-import { z } from 'zod';
 import { browserRunLabel } from '@/libs/browser/run';
 import { browserRunsOn } from '@/services/browser/enabled';
 import { containerWaitMs } from './teamThread';
@@ -117,10 +116,12 @@ function noteFor(status: string): string {
   }
 }
 
-const OUTPUT = z.object({
-  name: z.string().trim().regex(/^[a-z]\w{0,40}$/i).describe('A key, snake_case: unpaid_invoices.'),
-  description: z.string().trim().min(3).max(200).describe('What it holds, and its shape when it is a list: "each open invoice: number, due date, amount".'),
-});
+// Plain JSON Schema, not zod: three tools' worth of zod inference is real weight in a type check
+// that runs at its heap limit in CI, and the registry serves either (`registry.ts` inputSchema).
+const NAME = { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9_]{0,40}$' };
+
+type TaskArgs = { task: string; start_url?: string; inputs?: Array<{ name: string; value: string; secret?: boolean }>; outputs?: Array<{ name: string; description: string }>; continue_from_current_page?: boolean };
+type CheckArgs = { run_id: number; wait_seconds?: number; rows?: boolean };
 
 export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[] {
   if (!enabled(ctx) || !ctx.userId) {
@@ -131,7 +132,8 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
   const waitMs = ctx.provider === 'runtime' ? containerWaitMs() : IN_PROCESS_WAIT_MS;
   return [
     tool(
-      async (args) => {
+      async (raw: unknown) => {
+        const args = raw as TaskArgs;
         const { createBrowserRun, waitForBrowserRun, BrowserRunBusyError } = await svc();
         // The person's word starts it; an agent's idea waits for their Start.
         // The person's word: a tagged @browser, a token caller of their own, or a model reading their words.
@@ -181,17 +183,22 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
           'When the person tagged @browser, use this tool for their ask. One task per call, written as the person would brief an assistant. Give the inputs it needs (mark passwords and codes secret: the browser types them without the model reading them) and the outputs you want back, each named. When the person asked for it, it starts now; when it is your idea, it is filed for them to Start.',
           'One run at a time per person; the browser stays open between their runs, so continue_from_current_page carries on where the last one left off.',
         ].join(' '),
-        schema: z.object({
-          task: z.string().trim().min(10).max(2_000).describe('What to do, start to finish, as you would brief a person.'),
-          start_url: z.string().trim().max(2_000).optional().describe('Where to start: a full address.'),
-          inputs: z.array(z.object({ name: z.string().trim().regex(/^[a-z]\w{0,40}$/i), value: z.string().max(2_000), secret: z.boolean().optional() })).max(20).optional().describe('What it needs: account email, a password (secret: true), the new address…'),
-          outputs: z.array(OUTPUT).max(12).optional().describe('What it brings back, each named.'),
-          continue_from_current_page: z.boolean().optional().describe('Carry on from the page the person\'s browser is on now, instead of start_url.'),
-        }),
+        schema: {
+          type: 'object',
+          properties: {
+            task: { type: 'string', minLength: 10, maxLength: 2000, description: 'What to do, start to finish, as you would brief a person.' },
+            start_url: { type: 'string', maxLength: 2000, description: 'Where to start: a full address.' },
+            inputs: { type: 'array', maxItems: 20, description: 'What it needs: account email, a password (secret: true), the new address…', items: { type: 'object', properties: { name: NAME, value: { type: 'string', maxLength: 2000 }, secret: { type: 'boolean' } }, required: ['name', 'value'] } },
+            outputs: { type: 'array', maxItems: 12, description: 'What it brings back, each named.', items: { type: 'object', properties: { name: { ...NAME, description: 'A key, snake_case: unpaid_invoices.' }, description: { type: 'string', minLength: 3, maxLength: 200, description: 'What it holds, and its shape when it is a list: "each open invoice: number, due date, amount".' } }, required: ['name', 'description'] } },
+            continue_from_current_page: { type: 'boolean', description: 'Carry on from the page the person\'s browser is on now, instead of start_url.' },
+          },
+          required: ['task'],
+        },
       },
     ),
     tool(
-      async (args) => {
+      async (raw: unknown) => {
+        const args = raw as CheckArgs;
         const { getBrowserRun, waitForBrowserRun } = await svc();
         const first = await getBrowserRun(ctx.orgId, args.run_id);
         if (!first || first.proposedBy === undefined) {
@@ -204,11 +211,12 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
       {
         name: 'browser_task_check',
         description: 'Where a browser run stands, with its result once it is done. wait_seconds waits for it to finish first.',
-        schema: z.object({ run_id: z.number().int().positive(), wait_seconds: z.number().int().min(0).max(240).optional(), rows: z.boolean().optional().describe('Hand over the rows of its table outputs, numbered in the page\'s order, to work something out from them.') }),
+        schema: { type: 'object', properties: { run_id: { type: 'integer', minimum: 1 }, wait_seconds: { type: 'integer', minimum: 0, maximum: 240 }, rows: { type: 'boolean', description: 'Hand over the rows of its table outputs, numbered in the page\'s order, to work something out from them.' } }, required: ['run_id'] },
       },
     ),
     tool(
-      async (args) => {
+      async (raw: unknown) => {
+        const args = raw as { run_id: number };
         const { stopBrowserRun, BrowserRunError } = await svc();
         try {
           await stopBrowserRun(ctx.orgId, userId, args.run_id);
@@ -223,7 +231,7 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
       {
         name: 'browser_task_stop',
         description: 'Stop the person\'s browser run, when they ask to.',
-        schema: z.object({ run_id: z.number().int().positive() }),
+        schema: { type: 'object', properties: { run_id: { type: 'integer', minimum: 1 } }, required: ['run_id'] },
       },
     ),
   ];

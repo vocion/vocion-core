@@ -3,7 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { ListPage } from '@/components/patterns';
 import { BrowserRunList } from '@/features/browser/BrowserRunList';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { recentBrowserRuns } from '@/services/browser/BrowserRunService';
+import { recentBrowserRuns } from '@/services/browser/runReads';
 
 export const metadata: Metadata = { title: 'Browser runs' };
 
