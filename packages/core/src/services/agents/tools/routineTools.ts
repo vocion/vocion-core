@@ -117,10 +117,10 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
     tool(
       async (raw: unknown) => {
         const args = raw as { slate_url: string; name?: string; note?: string; start_url?: string };
-        const { startTeaching, waitForDraft, RoutineError } = await svc();
+        const { startTeaching, waitForDraft, RoutineError, UNNAMED } = await svc();
         let out;
         try {
-          out = await startTeaching({ orgId: ctx.orgId, userId, name: args.name?.trim() || 'New routine', targetUrl: args.start_url?.trim() || null, note: args.note ?? null, slateUrl: args.slate_url, conversationId: ctx.conversationId ?? null });
+          out = await startTeaching({ orgId: ctx.orgId, userId, name: args.name?.trim() || UNNAMED, targetUrl: args.start_url?.trim() || null, note: args.note ?? null, slateUrl: args.slate_url, conversationId: ctx.conversationId ?? null });
         } catch (e) {
           if (e instanceof RoutineError) {
             return `Not started: ${e.message}`;
