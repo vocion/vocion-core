@@ -33,6 +33,7 @@ export type HubspotClient = {
   get: <T>(path: string, params?: Record<string, string>) => Promise<HubspotResult<T>>;
   post: <T>(path: string, body: unknown) => Promise<HubspotResult<T>>;
   patch: <T>(path: string, body: unknown) => Promise<HubspotResult<T>>;
+  delete: (path: string) => Promise<HubspotResult<undefined>>;
   /** Stage labels + closed-ness across EVERY deal pipeline. One request. */
   fetchDealStages: () => Promise<HubspotResult<Map<string, StageInfo>>>;
   baseUrl: string;
@@ -103,7 +104,7 @@ export function createHubspotClient(opts: { token: string; baseUrl?: string }): 
   const baseUrl = opts.baseUrl ?? 'https://api.hubapi.com';
   const headers = { 'authorization': `Bearer ${opts.token}`, 'content-type': 'application/json' };
 
-  async function request<T>(method: 'GET' | 'POST' | 'PATCH', path: string, params?: Record<string, string>, body?: unknown): Promise<HubspotResult<T>> {
+  async function request<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, params?: Record<string, string>, body?: unknown): Promise<HubspotResult<T>> {
     const qs = params ? `?${new URLSearchParams(params).toString()}` : '';
     let res: Response;
     try {
@@ -130,6 +131,7 @@ export function createHubspotClient(opts: { token: string; baseUrl?: string }): 
     get: (path, params) => request('GET', path, params),
     post: (path, body) => request('POST', path, undefined, body),
     patch: (path, body) => request('PATCH', path, undefined, body),
+    delete: path => request('DELETE', path),
     async fetchDealStages() {
       type PipelinesBody = {
         results?: Array<{

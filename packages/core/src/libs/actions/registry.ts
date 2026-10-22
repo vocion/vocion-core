@@ -30,6 +30,7 @@ import { githubRerunFailedJobsAction } from './github-rerun';
 import { githubRevertPullAction } from './github-revert';
 import { gmailSendAction } from './gmail-send';
 import { goalCreateAction } from './goal-create';
+import { hubspotCreateAction } from './hubspot-create';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { mcpCallAction } from './mcp';
@@ -121,6 +122,8 @@ export function actionCatalog(scope?: ActionSourceScope): string {
 // Built-ins.
 registerAction(gmailSendAction);
 registerAction(hubspotUpdateAction);
+// A new deal, contact or company, associated on create; Undo archives it (`libs/actions/hubspot-create.ts`).
+registerAction(hubspotCreateAction);
 // A write to any `rest` source through an endpoint it declares — external,
 // not reversible, keyed per endpoint on the ladder (`rest.request.<source>.<action>`).
 registerAction(restRequestAction);

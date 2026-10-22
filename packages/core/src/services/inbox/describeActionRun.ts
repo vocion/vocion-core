@@ -204,6 +204,36 @@ function hubspotRecordName(objectType: string, objectId: string, properties: Rec
   return found ? { name: found, idLabel, fromId: false } : { name: idLabel, idLabel, fromId: true };
 }
 
+/**
+ * A new CRM record: named by what it will be called, with every property it
+ * is created with as a change from nothing.
+ * @param run
+ */
+function describeHubspotCreate(run: ActionRunLike): ActionDescription {
+  const input = rec(run.input);
+  const objectType = str(input.objectType) ?? 'records';
+  const properties = rec(input.properties);
+  const named = hubspotRecordName(objectType, 'new', properties, {});
+  const kindWord = HUBSPOT_OBJECT_KIND[objectType] ?? 'record';
+  const name = named.fromId ? `new ${kindWord}` : named.name;
+  const changes: ActionChange[] = Object.entries(properties).map(([field, to]) => ({ field, to: valueLabel(to) }));
+  const agentSlug = agentOf(run);
+  const amount = num(properties.amount);
+  return {
+    title: `Create ${kindWord} ${name}${amount === null ? '' : `, ${amountLabel(amount, str(properties.deal_currency_code) ?? 'USD')}`}`,
+    subline: ['CRM create', agentSlug ? `recommended by ${agentSlug}` : null].filter(Boolean).join(' › '),
+    actionKind: 'CRM create',
+    record: { kind: HUBSPOT_OBJECT_KIND[objectType] ?? 'other', key: `hubspot:${objectType}:new`, name, idLabel: `new ${kindWord}`, fromId: false },
+    changes,
+    amount,
+    currency: amount === null ? null : str(properties.deal_currency_code) ?? 'USD',
+    confidence: num(run.proposal?.confidence),
+    agentSlug,
+    rationale: str(run.proposal?.rationale),
+    evidence: Array.isArray(run.proposal?.evidence) ? run.proposal.evidence.filter((e): e is string => typeof e === 'string') : [],
+  };
+}
+
 /** Fields that name the record rather than change it — not listed as changes. */
 const HUBSPOT_IDENTITY_FIELDS = new Set(['dealname', 'firstname', 'lastname', 'email', 'name', 'domain']);
 
@@ -368,6 +398,7 @@ const DESCRIBERS: Record<string, (run: ActionRunLike, opts?: DescribeOptions) =>
     actionKind: 'Connected action',
   }),
   'hubspot.update': describeHubspotUpdate,
+  'hubspot.create': describeHubspotCreate,
   'personalization.enroll': describeEnroll,
   'gmail.send': describeGmailSend,
 };

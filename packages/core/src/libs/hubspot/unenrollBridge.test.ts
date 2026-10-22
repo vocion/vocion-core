@@ -37,6 +37,7 @@ function scriptedClient(handler: (call: Call) => HubspotResult<unknown>): { clie
       post: run('POST') as HubspotClient['post'],
       patch: run('PATCH') as HubspotClient['patch'],
       fetchDealStages: vi.fn(),
+      delete: vi.fn(),
     },
   };
 }
