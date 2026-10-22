@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { clerkAuth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { browserRunSchema } from '@/models/Schema';
-import { latestFrame, sessionKeyOf } from '@/services/browser/browserEngine';
+import { latestFrame, sessionKeyOf } from '@/services/browser/liveFrames';
 
 /**
  * `GET /api/browser-runs/:id/frame` — the browser's picture right now, as a

@@ -116,11 +116,11 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
   return [
     tool(
       async (raw: unknown) => {
-        const args = raw as { slate_url: string; name?: string; note?: string };
+        const args = raw as { slate_url: string; name?: string; note?: string; start_url?: string };
         const { startTeaching, waitForDraft, RoutineError } = await svc();
         let out;
         try {
-          out = await startTeaching({ orgId: ctx.orgId, userId, name: args.name?.trim() || 'New routine', targetUrl: null, note: args.note ?? null, slateUrl: args.slate_url, conversationId: ctx.conversationId ?? null });
+          out = await startTeaching({ orgId: ctx.orgId, userId, name: args.name?.trim() || 'New routine', targetUrl: args.start_url?.trim() || null, note: args.note ?? null, slateUrl: args.slate_url, conversationId: ctx.conversationId ?? null });
         } catch (e) {
           if (e instanceof RoutineError) {
             return `Not started: ${e.message}`;
@@ -141,7 +141,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
       {
         name: 'routine_teach',
         description: 'Teach a routine from a Slate recording: a person recorded themselves doing repeatable work in a web app and narrated why; the Routine analyst reads the recording (transcript, what was on screen, frames) and drafts the routine — steps linked to moments in the recording, rules, escalation points, inputs and outputs, and questions for its expert. Use when the person shares a Slate link and asks to teach, learn or make a routine from it. The person who asks is the routine\'s expert.',
-        schema: { type: 'object', properties: { slate_url: { type: 'string', minLength: 8, maxLength: 2000, description: 'The Slate share link.' }, name: { type: 'string', maxLength: 120, description: 'What the person calls the routine, if they said.' }, note: { type: 'string', maxLength: 2000, description: 'Anything else they said about it.' } }, required: ['slate_url'] },
+        schema: { type: 'object', properties: { slate_url: { type: 'string', minLength: 8, maxLength: 2000, description: 'The Slate share link.' }, name: { type: 'string', maxLength: 120, description: 'What the person calls the routine, if they said.' }, note: { type: 'string', maxLength: 2000, description: 'Anything else they said about it.' }, start_url: { type: 'string', maxLength: 2000, description: 'The address the work starts at, when the person gave it (the site the recording was made on).' } }, required: ['slate_url'] },
       },
     ),
     tool(

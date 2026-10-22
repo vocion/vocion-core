@@ -629,11 +629,14 @@ function Receipt({ receipt }: { receipt: RoutineReceipt }) {
           </thead>
           <tbody>
             {receipt.checks.map(c => (
-              <tr key={c.name} className="border-b border-border/60 last:border-b-0" data-check={c.ok ? 'ok' : 'not'}>
+              <tr key={c.name} className="border-b border-border/60 last:border-b-0" data-check={c.ok ? 'ok' : c.waived ? 'waived' : 'not'} title={c.waived ? `Differs ${c.waived}` : undefined}>
                 <td className="py-1 pr-2 align-top font-mono text-[11px] text-muted-foreground">{c.name}</td>
                 <td className="py-1 pr-2 align-top break-words text-foreground">{c.expected}</td>
-                <td className={cn('py-1 pr-2 align-top break-words', c.ok ? 'text-foreground' : 'text-brand-fail')}>{c.actual ?? '—'}</td>
-                <td className="py-1 align-top">{c.ok ? <Check className="size-3.5 text-brand-pass" strokeWidth={3} aria-label="matches" /> : <X className="size-3.5 text-brand-fail" aria-label="does not match" />}</td>
+                <td className={cn('py-1 pr-2 align-top break-words', c.ok || c.waived ? 'text-foreground' : 'text-brand-fail')}>
+                  {c.actual ?? '—'}
+                  {c.waived && <span className="block text-[11px] text-muted-foreground">{`Differs ${c.waived}`}</span>}
+                </td>
+                <td className="py-1 align-top">{c.ok ? <Check className="size-3.5 text-brand-pass" strokeWidth={3} aria-label="matches" /> : c.waived ? <Check className="size-3.5 text-muted-foreground" strokeWidth={3} aria-label="differs as the expert answered" /> : <X className="size-3.5 text-brand-fail" aria-label="does not match" />}</td>
               </tr>
             ))}
           </tbody>

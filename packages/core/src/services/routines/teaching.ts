@@ -81,7 +81,11 @@ How to write it:
 - If the work adds records to a list (users, contacts, members), fill "reconcile" so a batch can compare the whole list with the rows it was given; otherwise null.
 - Questions: two or three that one example cannot settle and that change what the run does (what counts as a duplicate, what to do when someone is already enrolled, a default for a field). Never ask what the recording already answers.
 - manualMinutes: how long one run takes a person by hand, from the recording's length and pace.
+- Cover every path the specialist names, not only the one shown: when they say what they do if the person already exists, is already enrolled, or a field is missing, the steps say what to do then (e.g. "If a user already has that email, do not add one: open their page and go on to enroll").
 - Use only what the recording shows or says. A value you cannot see is null.`;
+
+/** The question the analyst adds when the recording does not show where the work starts. */
+export const START_QUESTION = 'start';
 
 type Raw = Record<string, unknown>;
 
@@ -134,7 +138,34 @@ export function normalizeSpec(raw: Raw): { name: string; description: string; sp
     questions,
     manualMinutes: num(raw.manualMinutes),
   };
+  if (!spec.startUrl) {
+    // A run cannot begin without an address, and a recording with no address bar does not show one.
+    spec.questions.unshift({ id: START_QUESTION, question: 'What is the address (URL) the work starts at?', why: 'The recording does not show the address, and every run opens it first.', at: null, answer: null, answeredBy: null });
+  }
   return { name: str(raw.name, 120) || 'Untitled routine', description: str(raw.description, 400), spec };
+}
+
+/**
+ * A spec with what an answer settles written in: the start address from an answer that holds one.
+ * @param spec - The spec, its questions already answered.
+ */
+export function settleAnswers(spec: RoutineSpec): RoutineSpec {
+  const start = spec.questions.find(q => q.id === START_QUESTION)?.answer;
+  const url = start ? /https?:\/\/[^\s)>"']+/i.exec(start)?.[0] : null;
+  if (!url) {
+    return spec;
+  }
+  let host: string | null = null;
+  try {
+    host = new URL(url).host;
+  } catch {
+    return spec;
+  }
+  return {
+    ...spec,
+    startUrl: url,
+    systems: [...new Set([...spec.systems, host])],
+  };
 }
 
 /**
@@ -175,8 +206,9 @@ function contentText(content: unknown): string {
  * @param hints - What the person said about it.
  * @param hints.name - The name they gave it.
  * @param hints.note - Anything they added.
+ * @param hints.startUrl
  */
-export async function draftSpec(orgId: string, rec: SlateRecording, frames: SlateFrame[], hints: { name?: string | null; note?: string | null }): Promise<{ name: string; description: string; spec: RoutineSpec }> {
+export async function draftSpec(orgId: string, rec: SlateRecording, frames: SlateFrame[], hints: { name?: string | null; note?: string | null; startUrl?: string | null }): Promise<{ name: string; description: string; spec: RoutineSpec }> {
   const { buildChatModelForOrg } = await import('@/libs/llm');
   const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
   const model = await buildChatModelForOrg('main', orgId, { temperature: 0, streaming: false, maxTokens: 8_000, thinking: 'off' });
@@ -188,6 +220,7 @@ export async function draftSpec(orgId: string, rec: SlateRecording, frames: Slat
     rec.video.summary ? `Slate's summary: ${rec.video.summary}` : '',
     hints.name ? `The person calls this routine: ${hints.name}` : '',
     hints.note ? `They added: ${hints.note}` : '',
+    hints.startUrl ? `The work starts at: ${hints.startUrl}` : '',
     pages ? `Pages on screen:\n${pages}` : '',
     activity ? `What had focus, moment by moment:\n${activity}` : '',
     `Transcript:\n${transcript || '(no transcript)'}`,
@@ -206,6 +239,10 @@ export async function draftSpec(orgId: string, rec: SlateRecording, frames: Slat
     if (raw) {
       const out = normalizeSpec(raw);
       if (out.spec.steps.length > 0) {
+        if (hints.startUrl && !out.spec.startUrl) {
+          out.spec.startUrl = hints.startUrl;
+          out.spec.questions = out.spec.questions.filter(q => q.id !== START_QUESTION);
+        }
         return { ...out, name: hints.name?.trim() || out.name };
       }
     }

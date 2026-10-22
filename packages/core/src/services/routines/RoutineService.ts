@@ -43,7 +43,7 @@ import { db } from '@/libs/DB';
 import { batchLabel, clock, ROUTINE_LIMITS, routineRunOpen, TRUST_LABEL } from '@/libs/routines/types';
 import { routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema } from '@/models/Schema';
 import { batchStatusLine, batchView, currentVersions, getBatch, getRoutine, namesOf } from './routineReads';
-import { compileTask, runOutputs, workflowYamlFor } from './teaching';
+import { compileTask, runOutputs, settleAnswers, workflowYamlFor } from './teaching';
 
 type RoutineRow = typeof routineSchema.$inferSelect;
 type VersionRow = typeof routineVersionSchema.$inferSelect;
@@ -291,7 +291,7 @@ async function teach(id: number): Promise<void> {
   const frames = await slateFrames(creds.credentials, r.source.url, framesToRead(rec.data));
   let drafted;
   try {
-    drafted = await draftSpec(r.orgId, rec.data, frames.ok ? frames.data : [], { name: r.name, note: r.teaching?.note ?? null });
+    drafted = await draftSpec(r.orgId, rec.data, frames.ok ? frames.data : [], { name: r.name, note: r.teaching?.note ?? null, startUrl: r.teaching?.targetUrl ?? null });
   } catch (e) {
     await fail(`Vocion could not draft a routine from the recording: ${(e as Error).message}`);
     return;
@@ -402,7 +402,7 @@ export async function answerRoutineQuestion(orgId: string, userId: string, id: n
   if (!q) {
     throw new RoutineError('No such question on this routine.');
   }
-  const spec: RoutineSpec = { ...target.spec, questions: target.spec.questions.map(x => (x.id === questionId ? { ...x, answer: answer.trim(), answeredBy: userId } : x)) };
+  const spec: RoutineSpec = settleAnswers({ ...target.spec, questions: target.spec.questions.map(x => (x.id === questionId ? { ...x, answer: answer.trim(), answeredBy: userId } : x)) });
   if (target.status === 'draft') {
     await db.update(routineVersionSchema).set({ spec, task: compileTask(r.name, spec), workflowYaml: workflowYamlFor(r.slug, r.name, target.n, spec) }).where(eq(routineVersionSchema.id, target.id));
   } else {
@@ -495,6 +495,9 @@ export async function startRoutineBatch(input: StartBatch): Promise<RoutineBatch
   const { current } = currentVersions(await versionsOf(r.id));
   if (!current || current.status !== 'approved') {
     throw new RoutineError('Approve a version of this routine first: a routine runs only under an approved version.');
+  }
+  if (!current.spec.startUrl) {
+    throw new RoutineError('This routine does not say where the work starts. Answer “What is the address the work starts at?” and approve the new version.');
   }
   if (input.rows.length === 0 || input.rows.length > ROUTINE_LIMITS.batchRows) {
     throw new RoutineError(`A batch takes 1 to ${ROUTINE_LIMITS.batchRows} rows.`);

@@ -49,6 +49,7 @@ describe('the analyst\'s draft', () => {
   it('types and bounds whatever the model wrote', () => {
     const { name, spec } = normalizeSpec({
       name: 'Add a user',
+      startUrl: 'https://console.example/users',
       inputs: [{ name: 'Email', key: true }, { name: 'password', secret: true }, { name: 'Email' }],
       outputs: [{ name: 'savedEmail', checks: 'email' }, { name: 'x', checks: 'nope' }],
       steps: [{ text: 'Search', at: '14' }, { text: '' }, { text: 'Add user', at: 30 }],
@@ -172,3 +173,18 @@ describe('moments on the recording', () => {
 });
 
 void ({} as RoutineSpec);
+
+describe('where the work starts', () => {
+  it('is asked of the expert when the recording does not show it, and their answer sets it', async () => {
+    const { normalizeSpec, settleAnswers } = await import('./teaching');
+    const { spec } = normalizeSpec({ steps: [{ text: 'Search', at: 1 }] });
+
+    expect(spec.startUrl).toBeNull();
+    expect(spec.questions[0]?.id).toBe('start');
+
+    const answered = settleAnswers({ ...spec, questions: spec.questions.map(q => ({ ...q, answer: 'It is https://staging.example.com/users' })) });
+
+    expect(answered.startUrl).toBe('https://staging.example.com/users');
+    expect(answered.systems).toContain('staging.example.com');
+  });
+});

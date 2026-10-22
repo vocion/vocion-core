@@ -70,26 +70,8 @@ const defaultDeps: EngineDeps = {
 // browsers it opened, so a live run's picture and its answers reach the run that holds them.
 const sessions: Map<string, BrowserSession> = ((globalThis as { __vocionBrowserSessions?: Map<string, BrowserSession> }).__vocionBrowserSessions ??= new Map());
 
-/**
- * The person's browser key.
- * @param orgId
- * @param userId
- */
-export function personKey(orgId: string, userId: string): string {
-  return `${orgId}:${userId}`;
-}
-
-/**
- * The browser a run drives: the person's own, or — for a run of a routine — one of its own.
- * @param row - The run.
- * @param row.orgId - Its workspace.
- * @param row.userId - Its person.
- * @param row.id - The run.
- * @param row.routineRunId - The routine run it is, when one.
- */
-export function sessionKeyOf(row: { orgId: string; userId: string; id: number; routineRunId?: number | null }): string {
-  return row.routineRunId ? `${row.orgId}:run:${row.id}` : personKey(row.orgId, row.userId);
-}
+// Which browser a run drives, and the live picture, are read without the engine (`liveFrames.ts`).
+export { frameSeq, latestFrame, personKey, sessionKeyOf, whereNow } from './liveFrames';
 
 function allowHosts(): Set<string> {
   return new Set((process.env.VOCION_BROWSER_ALLOW_HOSTS ?? '').split(',').map(h => h.trim().toLowerCase()).filter(Boolean));
@@ -264,35 +246,6 @@ export function releaseBrowserSession(key: string): void {
 export function existingSession(key: string): BrowserSession | null {
   const s = sessions.get(key);
   return s && !s.page.isClosed() ? s : null;
-}
-
-/**
- * The live picture, or null when there is no browser or no frame yet.
- * @param key
- */
-export function latestFrame(key: string): { jpeg: Buffer; seq: number } | null {
-  const s = sessions.get(key);
-  return s?.frame ? { jpeg: s.frame, seq: s.frameSeq } : null;
-}
-
-/**
- * The frame counter, so the run's view can say when the picture moved.
- * @param key
- */
-export function frameSeq(key: string): number {
-  return sessions.get(key)?.frameSeq ?? 0;
-}
-
-/**
- * Where the person's browser is, when it is open.
- * @param key
- */
-export function whereNow(key: string): { url: string; title: string } | null {
-  const s = sessions.get(key);
-  if (!s || s.page.isClosed()) {
-    return null;
-  }
-  return { url: s.page.url(), title: '' };
 }
 
 async function settle(page: Page): Promise<void> {

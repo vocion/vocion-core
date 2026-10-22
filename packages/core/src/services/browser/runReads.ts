@@ -14,7 +14,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { isLive } from '@/libs/browser/run';
 import { db } from '@/libs/DB';
 import { browserRunSchema } from '@/models/Schema';
-import { frameSeq, latestFrame, sessionKeyOf, whereNow } from './browserEngine';
+import { frameSeq, latestFrame, sessionKeyOf, whereNow } from './liveFrames';
 
 type Row = typeof browserRunSchema.$inferSelect;
 
