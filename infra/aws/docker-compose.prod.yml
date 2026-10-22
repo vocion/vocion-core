@@ -168,9 +168,11 @@ services:
     tmpfs:
       - /tmp
     shm_size: 512m
-    mem_limit: 2g
-    pids_limit: 1024
-    cpus: 1.5
+    # A routine runs up to 10 browsers at once here (VOCION_ROUTINE_CONCURRENCY), each its own
+    # context with a live screencast. 2 CPUs is the most the smallest box (r6i.large) has.
+    mem_limit: 4g
+    pids_limit: 2048
+    cpus: 2
     logging:
       driver: json-file
       options: {max-size: 20m, max-file: '3'}
