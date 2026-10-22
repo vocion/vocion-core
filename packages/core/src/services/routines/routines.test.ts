@@ -149,6 +149,7 @@ describe('the report', () => {
         { id: 1, batchId: 7, n: 1, label: 'Aisha Karim', status: 'done', input: {}, browserRunId: 11, browser: null, waiting: null, receipt: null, summary: 'Added and enrolled.', error: null, humanMs: 0, cents: 35, startedAt: null, endedAt: null },
         { id: 2, batchId: 7, n: 2, label: 'Tomás Ortega', status: 'skipped', input: {}, browserRunId: 12, browser: null, waiting: null, receipt: null, summary: 'The expert said to leave him.', error: null, humanMs: 90_000, cents: 35, startedAt: null, endedAt: null },
       ],
+      followUp: null,
       findings: [{ id: 'f1', kind: 'not_on_list', title: '1 record in the account is not on the list', detail: 'Checked.', items: [{ name: 'QA Test', email: 'qa-test@x.example' }], askId: 3, options: [], state: 'open', answer: null, followUpBatchId: null }],
       report: null,
     };

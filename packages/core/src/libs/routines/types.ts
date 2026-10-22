@@ -247,6 +247,8 @@ export type RoutineBatchView = {
    * on the list it was given — each with the decision it put to the expert.
    */
   findings: RoutineFinding[];
+  /** A batch a finding's answer started: the batch it follows, and what the expert chose. */
+  followUp: { parentBatchId: number; answer: string; approvedBy: string } | null;
   report: { artifactId: number; url: string } | null;
 };
 

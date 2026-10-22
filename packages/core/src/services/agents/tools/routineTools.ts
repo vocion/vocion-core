@@ -265,6 +265,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
         return JSON.stringify({
           routineBatchId: v.id,
           routine: v.routine.name,
+          ...(v.followUp ? { follow_up_of: `${batchLabel(v.followUp.parentBatchId)}: the expert answered its finding “${v.followUp.answer}”, and this batch made that change` } : {}),
           status: v.status,
           summary: batchStatusLine(v),
           waiting_on_expert: v.runs.filter(x => x.waiting).map(x => `${x.label}: ${x.waiting!.text.split('\n')[0]}`),

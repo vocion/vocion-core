@@ -1318,6 +1318,7 @@ export function reportMarkdown(v: RoutineBatchView, followUps: RoutineBatchView[
     `# ${batchLabel(v.id)} · ${v.routine.name}`,
     `Version ${v.routine.version} · ${TRUST_LABEL[v.routine.trust]} trust · expert ${v.routine.expert ?? 'not named'}${v.requestedBy ? ` · run by ${v.requestedBy}` : ''} · started ${new Date(v.startedAt).toUTCString()}`,
     '',
+    ...(v.followUp ? [`A follow-up to ${batchLabel(v.followUp.parentBatchId)}: its expert (${v.followUp.approvedBy}) answered its finding “${v.followUp.answer}”, and this batch made that change, and only that, for each record. Its writes were approved by that answer.`, ''] : []),
     '## Results',
     `- **${v.total}** rows: **${done}** done and verified by read-back, ${c.skipped ?? 0} skipped, ${(c.escalated ?? 0) + (c.waiting ?? 0)} still waiting on the expert, ${c.failed ?? 0} failed, ${c.unknown_outcome ?? 0} to check by hand.`,
     `- Wall clock: ${mins(wall)} for the whole batch, runs in parallel.`,
