@@ -669,6 +669,13 @@ export async function skipAsk(opts: { orgId: string; id: number; by: string; via
  * @param row - The ask as written.
  */
 async function settleWaitersOn(row: Ask): Promise<void> {
+  if (row.sourceRef?.startsWith('routine-')) {
+    // A routine's run, check or finding waits on this answer (`services/routines/RoutineService.ts`).
+    void import('@/services/routines/RoutineService').then(m => m.onRoutineAskSettled(row)).catch(async (err) => {
+      const { logger } = await import('@/libs/Logger');
+      logger.warn('a routine could not hear an answered ask', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
+    });
+  }
   try {
     const { onAskSettled } = await import('@/services/needsYou/ResumeGateService');
     await onAskSettled(row);

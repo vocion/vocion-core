@@ -503,6 +503,56 @@ registerPreview('browser_run', {
   },
 });
 
+registerPreview('routine', {
+  sourceLabel: 'Routine',
+  resolve: async (ref, ctx) => {
+    const id = Number.parseInt(ref.id, 10);
+    if (!Number.isSafeInteger(id)) {
+      return null;
+    }
+    const { batchesOf, getRoutine } = await import('@/services/routines/routineReads');
+    const routine = await getRoutine(ctx.orgId, id);
+    if (!routine) {
+      return null;
+    }
+    const batches = await batchesOf(ctx.orgId, id);
+    const { routineLine } = await import('@/libs/routines/display');
+    return {
+      ref,
+      title: routine.name,
+      sourceLabel: 'Routine',
+      href: `/dashboard/routines/${routine.id}`,
+      routine: { routine, batches },
+      facts: facts({ label: 'Status', value: routineLine(routine) }, routine.expert && { label: 'Expert', value: routine.expert.name }, routine.source?.url && { label: 'Taught from', value: routine.source.title ?? routine.source.url }),
+      ...(routine.description ? { body: routine.description } : {}),
+    };
+  },
+});
+
+registerPreview('routine_batch', {
+  sourceLabel: 'Routine batch',
+  resolve: async (ref, ctx) => {
+    const id = Number.parseInt(ref.id, 10);
+    if (!Number.isSafeInteger(id)) {
+      return null;
+    }
+    const { getBatch } = await import('@/services/routines/routineReads');
+    const batch = await getBatch(ctx.orgId, id);
+    if (!batch) {
+      return null;
+    }
+    const { batchProgress } = await import('@/libs/routines/display');
+    return {
+      ref,
+      title: `Routine batch ${batch.id} · ${batch.routine.name}`,
+      sourceLabel: 'Routine batch',
+      href: `/dashboard/routines/batches/${batch.id}`,
+      routineBatch: batch,
+      facts: facts({ label: 'Progress', value: batchProgress(batch.counts, batch.total) }, { label: 'Routine', value: `${batch.routine.name} v${batch.routine.version}` }),
+    };
+  },
+});
+
 registerPreview('worker_run', {
   sourceLabel: 'Run',
   resolve: async (ref, ctx) => {

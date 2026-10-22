@@ -2,8 +2,11 @@
  * Shared Slate API client — the one place that knows how to talk to Slate
  * (MetaCTO's screen-recording product). The `slate` connector's Test
  * connection goes through it, so the bearer header and the error shaping
- * exist exactly once. Nothing outside `libs/slate/` and the connector names
- * Slate (Chris, 2026-10-03: Slate is a connector, and nothing more, for now).
+ * exist exactly once. Slate is also READ now: Routines read a recording —
+ * its facts, transcript, on-screen activity and frames — through Slate's MCP
+ * server, in `recording.ts` beside this file, with the same credential.
+ * Nothing is synced. Nothing outside `libs/slate/` and the connector names
+ * Slate.
  *
  * The protocol, as Slate's own API serves it (read from its source, 2026-10-03):
  *

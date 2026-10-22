@@ -18,6 +18,9 @@
  * | `artifact:<id>` | an `artifact` (a new head version moves its row) |
  * | `events` | every event emitted (`event_log`) |
  * | `notification:<userId>` | a notification for that person (`publish()`); only that person may follow it |
+ * | `browser:<id>` | a `browser_run` (`publish()`) |
+ * | `routine:<id>` | a `routine`: teaching moved, a version drafted or approved, trust changed (`publish()`) |
+ * | `routine-batch:<id>` | a `routine_batch`: any of its runs moved, a finding raised or answered (`publish()`) |
  *
  * The first eight are published by triggers (migration 0155); anything else
  * goes through `publish()` in `libs/live/publish.ts`.
@@ -42,7 +45,7 @@ export type LiveNotice = {
 };
 
 /** Nouns that name one thing by id. */
-const ONE = ['record', 'card', 'run', 'mission', 'ask', 'artifact', 'browser'] as const;
+const ONE = ['record', 'card', 'run', 'mission', 'ask', 'artifact', 'browser', 'routine', 'routine-batch'] as const;
 /** Nouns that are a whole workspace feed. */
 const FEEDS = ['cards', 'runs', 'asks', 'events'] as const;
 
@@ -105,6 +108,9 @@ export const liveTopic = {
   mission: (id: number | string) => `mission:${id}`,
   ask: (id: number | string) => `ask:${id}`,
   artifact: (id: number | string) => `artifact:${id}`,
+  browser: (id: number | string) => `browser:${id}`,
+  routine: (id: number | string) => `routine:${id}`,
+  routineBatch: (id: number | string) => `routine-batch:${id}`,
   /**
    * The topic a person's notifications arrive on (backlog 048).
    * @param userId - The person, as their session names them.
@@ -137,6 +143,10 @@ export function topicsForRef(ref: { type: string; id: string | number }): string
       return own('run', id);
     case 'browser_run':
       return own('browser', id);
+    case 'routine':
+      return own('routine', id);
+    case 'routine_batch':
+      return own('routine-batch', id);
     case 'mission_run':
       return own('mission', id);
     case 'ask':

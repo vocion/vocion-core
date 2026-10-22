@@ -7,7 +7,7 @@
 
 export type DashboardLinkKind
   = 'agent' | 'team' | 'mission' | 'mission-run' | 'ask' | 'briefing' | 'object' | 'room' | 'goal' | 'review' | 'learning'
-    | 'eval' | 'connector' | 'workflow' | 'team-report' | 'chat' | 'browser' | 'page';
+    | 'eval' | 'connector' | 'workflow' | 'team-report' | 'chat' | 'browser' | 'routine' | 'routine-batch' | 'page';
 
 export type DashboardLink = {
   /** The path to navigate to (locale prefix stripped, same origin). */
@@ -37,6 +37,8 @@ const RULES: Array<[RegExp, DashboardLinkKind]> = [
   [/^\/dashboard\/team-report(?:\/([^/?#]+))?/, 'team-report'],
   [/^\/dashboard\/chat/, 'chat'],
   [/^\/dashboard\/browser\/(\d+)/, 'browser'],
+  [/^\/dashboard\/routines\/batches\/(\d+)/, 'routine-batch'],
+  [/^\/dashboard\/routines\/(\d+)/, 'routine'],
   [/^\/dashboard(?:\/|$)/, 'page'],
 ];
 
@@ -78,7 +80,7 @@ export function classifyDashboardLink(href: string | undefined, origin?: string)
  * resolver; everything else navigates as before.
  * @param link - A classified dashboard link.
  */
-export function previewRefFor(link: DashboardLink): { type: 'object' | 'record_history' | 'goal' | 'browser_run'; id: string } | null {
+export function previewRefFor(link: DashboardLink): { type: 'object' | 'record_history' | 'goal' | 'browser_run' | 'routine' | 'routine_batch'; id: string } | null {
   // A version in a record's history (`libs/versions/versionRef.ts`): the
   // "Changed …" line peeks the history at that version beside the chat.
   const history = /[?&]preview=record_history(?::|%3A)([\d@%]+)(?:&|#|$)/i.exec(link.href);
@@ -92,6 +94,13 @@ export function previewRefFor(link: DashboardLink): { type: 'object' | 'record_h
   // A browser run peeks: the pane is where it is watched, approved and read.
   if (link.kind === 'browser' && link.id) {
     return { type: 'browser_run', id: link.id };
+  }
+  // A routine and its batch peek too: the pane is where it is reviewed, run and watched.
+  if (link.kind === 'routine' && link.id) {
+    return { type: 'routine', id: link.id };
+  }
+  if (link.kind === 'routine-batch' && link.id) {
+    return { type: 'routine_batch', id: link.id };
   }
   return link.kind === 'room' && link.id ? { type: 'object', id: link.id } : null;
 }

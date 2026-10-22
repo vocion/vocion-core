@@ -2,6 +2,9 @@
  * A PERSON'S BROWSER: one per person, kept between their runs, so a second
  * task picks up where the first left off — still signed in, on the same page.
  * Runs in it go one at a time (`BrowserRunService` refuses a second live run).
+ * A run of a routine is the exception: it gets a browser of its own
+ * (`sessionKeyOf`), so a routine runs for many rows at once, each in its own
+ * cookies and storage, and that browser closes when the run ends.
  *
  * What it gives a run:
  *   - the page as a model reads it (`pageSnapshot`: roles, names, states, refs);
@@ -63,7 +66,9 @@ const defaultDeps: EngineDeps = {
   browser: async () => (await import('./browserHost')).browserHost(),
 };
 
-const sessions = new Map<string, BrowserSession>();
+// On the process, not the module: a module evaluated again (a dev server's reload) still finds the
+// browsers it opened, so a live run's picture and its answers reach the run that holds them.
+const sessions: Map<string, BrowserSession> = ((globalThis as { __vocionBrowserSessions?: Map<string, BrowserSession> }).__vocionBrowserSessions ??= new Map());
 
 /**
  * The person's browser key.
@@ -72,6 +77,18 @@ const sessions = new Map<string, BrowserSession>();
  */
 export function personKey(orgId: string, userId: string): string {
   return `${orgId}:${userId}`;
+}
+
+/**
+ * The browser a run drives: the person's own, or — for a run of a routine — one of its own.
+ * @param row - The run.
+ * @param row.orgId - Its workspace.
+ * @param row.userId - Its person.
+ * @param row.id - The run.
+ * @param row.routineRunId - The routine run it is, when one.
+ */
+export function sessionKeyOf(row: { orgId: string; userId: string; id: number; routineRunId?: number | null }): string {
+  return row.routineRunId ? `${row.orgId}:run:${row.id}` : personKey(row.orgId, row.userId);
 }
 
 function allowHosts(): Set<string> {

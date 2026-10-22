@@ -398,6 +398,25 @@ export async function advanceWorkflowRun(runId: number): Promise<WorkflowRunSumm
         });
         const [paused] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
         return summarize(paused!);
+      } else if (step.type === 'action' && step.action === 'routine.run') {
+        // An action that runs: the routine for the rows given, as a batch under its approved version
+        // and trust level (`services/routines/RoutineService.ts`). The step completes once the batch
+        // is started; its runs report on the batch, and its escalations reach the routine's expert.
+        const actionInput = interpolateRecord(step.input as Record<string, unknown>, scope);
+        const { findRoutine } = await import('@/services/routines/routineReads');
+        const { startRoutineBatch } = await import('@/services/routines/RoutineService');
+        const routine = await findRoutine(run.orgId, String(actionInput.routine ?? ''));
+        if (!routine) {
+          throw new Error(`routine.run: no routine "${String(actionInput.routine ?? '')}"`);
+        }
+        const rawRows = typeof actionInput.rows === 'string' ? JSON.parse(actionInput.rows) as unknown : actionInput.rows;
+        const rows = (Array.isArray(rawRows) ? rawRows : []).filter((x): x is Record<string, string> => Boolean(x) && typeof x === 'object');
+        const shared = actionInput.shared && typeof actionInput.shared === 'object' ? actionInput.shared as Record<string, string> : {};
+        const by = run.createdBy && !['mcp', 'system'].includes(run.createdBy) && !run.createdBy.includes(':') ? run.createdBy : (routine.expert?.userId ?? run.createdBy ?? 'system');
+        const batch = await startRoutineBatch({ orgId: run.orgId, userId: by, routineId: routine.id, rows, shared, conversationId: null });
+        const output = { batchId: batch.id, routine: routine.name, rows: batch.total, url: `/dashboard/routines/batches/${batch.id}` };
+        stepResults[name] = { status: 'completed', output, startedAt: stepResults[name]!.startedAt, finishedAt: new Date().toISOString() };
+        scope.steps[name] = { output };
       } else if (step.type === 'action') {
         // v1 stub: record the intent but take no side effect. Output carries
         // a `__card: 'send-stub'` discriminator so the run-detail page

@@ -34,7 +34,7 @@ import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { resolveWebAnalyticsCredentials } from '@/libs/analytics/credentials';
 import { GA4_WINDOW_NOTE, runWebAnalyticsReport, WEB_ANALYTICS_SOURCE_LABEL } from '@/libs/analytics/ga4';
 import { db } from '@/libs/DB';
-import { accountMembershipSchema, actionRunSchema, artifactSchema, askSchema, businessObjectSchema, businessObjectTypeSchema, decisionAlignmentSchema, objectDocumentLinkSchema, projectSchema, workerRunSchema } from '@/models/Schema';
+import { accountMembershipSchema, actionRunSchema, artifactSchema, askSchema, businessObjectSchema, businessObjectTypeSchema, decisionAlignmentSchema, objectDocumentLinkSchema, projectSchema, routineRunSchema, workerRunSchema } from '@/models/Schema';
 import { queryCrmRecords } from '@/services/CrmRecordsService';
 import { deriveReading } from './derive';
 import { actionAgentSlug } from './humanLoad';
@@ -367,6 +367,13 @@ async function countDataRoomSources(orgId: string, range: Range): Promise<number
   return Number(row?.n ?? 0);
 }
 
+async function countVerifiedRoutineRuns(orgId: string, range: Range): Promise<number> {
+  const rows = await db.select({ receipt: routineRunSchema.receipt })
+    .from(routineRunSchema)
+    .where(and(eq(routineRunSchema.orgId, orgId), eq(routineRunSchema.status, 'done'), gte(routineRunSchema.endedAt, range.since), lt(routineRunSchema.endedAt, range.until)));
+  return rows.filter(r => r.receipt?.verified).length;
+}
+
 /**
  * Dispatch a `verified` source to the connector it names.
  * @param orgId - Tenant.
@@ -431,6 +438,9 @@ export async function readSourceRaw(orgId: string, s: TeamMeasureSource, scope: 
         }
         if (s.rows === 'data-room-sources') {
           return { value: await countDataRoomSources(orgId, range), asOf: now, freshness: live(now), sourceLabel: 'sources filed', unavailableReason: null, unavailableKind: null };
+        }
+        if (s.rows === 'routine-runs') {
+          return { value: await countVerifiedRoutineRuns(orgId, range), asOf: now, freshness: live(now), sourceLabel: 'verified routine runs', unavailableReason: null, unavailableKind: null };
         }
         return unavailable('unsupported', 'The observed source names neither actions, a counts key nor rows.', 'Vocion');
       case 'human-confirmed': {

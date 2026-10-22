@@ -15,6 +15,8 @@
  * signed in. Fictional data, fixed, so a test can assert on it.
  */
 
+import { PRACTICE_CONSOLE_ORIGIN, practiceConsoleResponse } from './practiceConsole';
+
 export const PRACTICE_ORIGIN = 'https://portal.fernhill-supply.test';
 
 /** The practice site's sign-in. Shown in the example task; it opens nothing real. */
@@ -152,7 +154,8 @@ else app.innerHTML = shell('', '<div class="card"><h1>Support</h1><p>Call Fernhi
 
 /**
  * What the practice site answers for this address, or null when it is not the practice site.
- * Every path is the one page, which draws itself from the path.
+ * Every path is the one page, which draws itself from the path. The second practice site,
+ * the Lumen Awareness campaign console, answers through here too (`practiceConsole.ts`).
  * @param url - The request's address.
  */
 export function practiceResponse(url: string): { status: number; contentType: string; body: string } | null {
@@ -161,6 +164,9 @@ export function practiceResponse(url: string): { status: number; contentType: st
     u = new URL(url);
   } catch {
     return null;
+  }
+  if (u.origin === PRACTICE_CONSOLE_ORIGIN) {
+    return practiceConsoleResponse(url);
   }
   if (u.origin !== PRACTICE_ORIGIN) {
     return null;

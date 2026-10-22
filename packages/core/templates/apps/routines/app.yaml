@@ -1,0 +1,12 @@
+# Routines: repeatable work taught once from a narrated Slate recording, run in
+# a browser for every row it is given, with every exception sent to the
+# routine's expert. Installed in a workspace when the routines plugin is on.
+id: routines
+name: Routines
+icon: repeat
+tint: mint
+order: 6
+description: Teach repeatable work once from a recording; Vocion runs it for every row, and your experts handle the exceptions.
+plugins: [routines]
+entry: /dashboard/routines
+nav: [Routines]

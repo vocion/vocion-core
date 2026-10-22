@@ -708,8 +708,11 @@ export const VerifiedMeasureSourceSchema = z.discriminatedUnion('connector', [
  * calls this "signups"; the row kind does not, because what Vocion can prove
  * is that an account gained a member, and the measure's own `label` is where
  * the workspace's word for that belongs.
+ *
+ * `routine-runs` — `routine_run` rows that ended `done` with a verified receipt
+ * (read back after the write and matched) in the window.
  */
-export const OBSERVED_ROW_KINDS = ['workspace-members', 'artifacts', 'data-rooms', 'data-room-sources'] as const;
+export const OBSERVED_ROW_KINDS = ['workspace-members', 'artifacts', 'data-rooms', 'data-room-sources', 'routine-runs'] as const;
 export type ObservedRowKind = typeof OBSERVED_ROW_KINDS[number];
 
 /**

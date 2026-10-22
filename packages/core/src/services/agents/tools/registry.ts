@@ -97,6 +97,7 @@ import { recordVerdictTools } from './recordVerdict';
 import { renderArtifactTools } from './renderArtifacts';
 import { repoTools } from './repoTools';
 import { restTools } from './restDirect';
+import { routineTools } from './routineTools';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
@@ -244,6 +245,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted or switched on (`VOCION_BROWSER_RUNS`): a task handed to the person's own browser,
     // watched live beside the conversation, with its steps that submit held for their approval.
     ...browserTaskTools(ctx),
+    // The routines plugin (or `VOCION_ROUTINES`): teach a routine from a Slate recording, approve it,
+    // run it for many rows at once, follow the batch, write its report.
+    ...routineTools(ctx),
     ...recordLiveCheckTools(ctx),
     // Granted-only: production errors from the workspace's Sentry — issues by
     // project, environment, release and time, and one issue's latest event

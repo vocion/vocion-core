@@ -5,7 +5,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { parseTopic } from '@/libs/live/topics';
 import { canOpenArtifact } from '@/libs/share/audience';
-import { actionRunSchema, artifactSchema, askSchema, browserRunSchema, businessObjectSchema, missionRunSchema, workerRunSchema } from '@/models/Schema';
+import { actionRunSchema, artifactSchema, askSchema, browserRunSchema, businessObjectSchema, missionRunSchema, routineBatchSchema, routineSchema, workerRunSchema } from '@/models/Schema';
 
 /**
  * WHO MAY FOLLOW WHAT on the live stream (backlog 050).
@@ -16,7 +16,7 @@ import { actionRunSchema, artifactSchema, askSchema, browserRunSchema, businessO
  * for a record in someone else's workspace is refused rather than silently
  * never heard. Each check is the one the thing's own read makes:
  *
- * - a record, card, run, agent run or ask: it exists in this workspace;
+ * - a record, card, run, agent run, ask, browser run, routine or routine batch: it exists in this workspace;
  * - an artifact: it exists here and its share audience opens it for this
  *   caller (`canOpenArtifact` — an "only me" artifact follows only for its owner);
  * - `notification:<userId>`: only that person;
@@ -49,7 +49,7 @@ export async function authorizeTopics(caller: ApiCaller, rawTopics: readonly str
   const orgId = caller.orgId;
   const userId = caller.principal.kind === 'user' ? caller.principal.id : null;
 
-  const [records, cards, runs, missions, asks, artifacts, browsers] = await Promise.all([
+  const [records, cards, runs, missions, asks, artifacts, browsers, routines, routineBatches] = await Promise.all([
     present(ids('record'), set => db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.id, set)))),
     present(ids('card'), set => db.select({ id: actionRunSchema.id }).from(actionRunSchema).where(and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.id, set)))),
     present(ids('run'), set => db.select({ id: workerRunSchema.id }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.id, set)))),
@@ -63,6 +63,8 @@ export async function authorizeTopics(caller: ApiCaller, rawTopics: readonly str
           .where(and(eq(artifactSchema.orgId, orgId), inArray(artifactSchema.id, ids('artifact'))))
           .then(rows => new Map(rows.map(r => [r.id, { audience: r.audience, ownerId: r.ownerId }]))),
     present(ids('browser'), set => db.select({ id: browserRunSchema.id }).from(browserRunSchema).where(and(eq(browserRunSchema.orgId, orgId), inArray(browserRunSchema.id, set)))),
+    present(ids('routine'), set => db.select({ id: routineSchema.id }).from(routineSchema).where(and(eq(routineSchema.orgId, orgId), inArray(routineSchema.id, set)))),
+    present(ids('routine-batch'), set => db.select({ id: routineBatchSchema.id }).from(routineBatchSchema).where(and(eq(routineBatchSchema.orgId, orgId), inArray(routineBatchSchema.id, set)))),
   ]);
 
   const allowed: string[] = [];
@@ -91,7 +93,7 @@ export async function authorizeTopics(caller: ApiCaller, rawTopics: readonly str
         break;
       }
       default: {
-        const found = { record: records, card: cards, run: runs, mission: missions, ask: asks, browser: browsers }[t.kind];
+        const found = { 'record': records, 'card': cards, 'run': runs, 'mission': missions, 'ask': asks, 'browser': browsers, 'routine': routines, 'routine-batch': routineBatches }[t.kind];
         if (found.has(t.id)) {
           allowed.push(t.topic);
         } else {

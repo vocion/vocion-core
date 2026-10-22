@@ -157,6 +157,7 @@ import {
   unapproveContentRoute,
   undoActionRoute,
 } from './Review';
+import { actOnRoutineRoute, answerRoutineFindingRoute, answerRoutineRunRoute, getRoutineBatchRoute, getRoutineRoute, listRoutinesRoute, practiceRoutineRoute, routineReportRoute, runRoutineRoute, teachRoutineRoute } from './Routines';
 import { glanceRoute as runGlanceRoute, logRoute as runLogRoute } from './Runs';
 import { scorecardAgentsRoute } from './Scorecard';
 import { reset as resetSetupRoute, state as setupStateRoute } from './Setup';
@@ -356,6 +357,18 @@ export const router = {
     get: getBrowserRunRoute,
     act: actOnBrowserRunRoute,
     practice: practiceBrowserRunRoute,
+  },
+  routines: {
+    list: listRoutinesRoute,
+    get: getRoutineRoute,
+    batch: getRoutineBatchRoute,
+    act: actOnRoutineRoute,
+    run: runRoutineRoute,
+    answer: answerRoutineRunRoute,
+    report: routineReportRoute,
+    teach: teachRoutineRoute,
+    finding: answerRoutineFindingRoute,
+    practice: practiceRoutineRoute,
   },
   chat: {
     suggestions: chatSuggestions,

@@ -10,11 +10,11 @@
  */
 
 import type { BrowserRunView } from '@/libs/browser/run';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { isLive } from '@/libs/browser/run';
 import { db } from '@/libs/DB';
 import { browserRunSchema } from '@/models/Schema';
-import { frameSeq, latestFrame, personKey, whereNow } from './browserEngine';
+import { frameSeq, latestFrame, sessionKeyOf, whereNow } from './browserEngine';
 
 type Row = typeof browserRunSchema.$inferSelect;
 
@@ -35,7 +35,7 @@ export function isStale(row: Pick<Row, 'heartbeatAt'>): boolean {
  * @param row - The run.
  */
 export function toView(row: Row): BrowserRunView {
-  const key = personKey(row.orgId, row.userId);
+  const key = sessionKeyOf(row);
   const holding = isLive(row.status) && Boolean(latestFrame(key));
   const where = holding ? whereNow(key) : null;
   const steps = row.steps ?? [];
@@ -89,6 +89,7 @@ export async function readBrowserRun(orgId: string, id: number): Promise<Browser
  * @param limit - How many.
  */
 export async function recentBrowserRuns(orgId: string, userId: string, limit = 20): Promise<BrowserRunView[]> {
-  const rows = await db.select().from(browserRunSchema).where(and(eq(browserRunSchema.orgId, orgId), eq(browserRunSchema.userId, userId))).orderBy(desc(browserRunSchema.id)).limit(limit);
+  // A routine's runs are listed on its batch, not among the person's own.
+  const rows = await db.select().from(browserRunSchema).where(and(eq(browserRunSchema.orgId, orgId), eq(browserRunSchema.userId, userId), isNull(browserRunSchema.routineRunId))).orderBy(desc(browserRunSchema.id)).limit(limit);
   return rows.map(toView);
 }

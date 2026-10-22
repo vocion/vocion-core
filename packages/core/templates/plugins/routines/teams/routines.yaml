@@ -1,0 +1,22 @@
+name: Routines
+description: >-
+  Turns repeatable work into routines its experts trust, and runs them.
+  Graded on runs verified by read-back.
+goal: Repeatable work taught once runs correctly for every row, and every exception reaches its expert.
+lead: routine-analyst
+measures:
+  - key: verified_runs
+    label: Runs verified by read-back
+    dimension: outcome
+    target: 50
+    unit: runs
+    window: 30d
+    source: {kind: observed, rows: routine-runs}
+  - key: expert_decisions
+    label: Escalations answered by experts
+    dimension: quality
+    target: 5
+    unit: decisions
+    window: 30d
+    source: {kind: human-confirmed, askKinds: [ruling]}
+rules: []

@@ -73,7 +73,7 @@ describe('the shipped catalogue', () => {
   });
 
   it('refuses an unknown slug and names the catalogue', () => {
-    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: company, data-rooms, finance, growth-loop, production-watch, proposals, red-team, software-factory, wiki/);
+    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: company, data-rooms, finance, growth-loop, production-watch, proposals, red-team, routines, software-factory, wiki/);
   });
 
   it('counts what the finance plugin ships: five roles, the jobs each owns as skills, and setup by family', () => {

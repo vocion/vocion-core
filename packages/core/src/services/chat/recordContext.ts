@@ -21,6 +21,8 @@ const ROUTES: Record<RecordType, (id: string) => string | undefined> = {
   deal: () => undefined,
   worker_run: id => `/dashboard/team-report/${encodeURIComponent(id)}`,
   browser_run: id => `/dashboard/browser/${encodeURIComponent(id)}`,
+  routine: id => `/dashboard/routines/${encodeURIComponent(id)}`,
+  routine_batch: id => `/dashboard/routines/batches/${encodeURIComponent(id)}`,
   conversation: () => '/dashboard/chat',
   artifact: id => `/dashboard/artifacts/${encodeURIComponent(id)}`,
   document: id => `/dashboard/search/${encodeURIComponent(id)}`,

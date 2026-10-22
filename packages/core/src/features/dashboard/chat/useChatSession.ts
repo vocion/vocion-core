@@ -1406,6 +1406,10 @@ export function useChatSession({
   useEffect(() => {
     const onAppended = (e: Event) => {
       const id = (e as CustomEvent<{ conversationId?: number }>).detail?.conversationId;
+      if (typeof id === 'number' && conversationIdRef.current === id) {
+        // Something said in it from outside a turn may have docked a Decision (a routine's escalation).
+        setDecisionsTick(t => t + 1);
+      }
       const busy = () => phaseRef.current !== 'idle' || waitingRef.current || abortRef.current !== null;
       if (typeof id !== 'number' || conversationIdRef.current !== id || busy()) {
         return;

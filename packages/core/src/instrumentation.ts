@@ -36,6 +36,8 @@ export async function register() {
     // A BROWSER RUN SURVIVES A RESTART: runs whose process went away are picked up from their
     // checkpoint (`services/browser/BrowserRunService.ts`). Never awaited, for the same reason.
     void import('./services/browser/BrowserRunService').then(m => m.startBrowserRunKeeper()).catch(() => {});
+    // Routines: pick up a launched teaching session's finished recording, and queued runs a restart left.
+    void import('./services/routines/RoutineService').then(m => m.startRoutineKeeper()).catch(() => {});
     // A TURN SURVIVES A RESTART (backlog 056). Told to stop, the process lets
     // the turns it is answering finish first, up to the container's grace
     // period, instead of dying under them. Next's own handler would exit at
