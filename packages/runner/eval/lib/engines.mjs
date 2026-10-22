@@ -111,6 +111,13 @@ const claudeCli = {
     }
     if (!image) {
       missing.push({ need: 'EVAL_RUNNER_IMAGE (or --runner-image)', why: 'the runner image to test, for example ghcr.io/vocion/vocion-runner:sha-<core sha>' });
+    } else if (which('docker')) {
+      // Reaching the daemon and finding the image here, so a run never stops on its first attempt.
+      const r = spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', image], { encoding: 'utf8' });
+      if (r.status !== 0) {
+        const why = String(r.stderr || r.error?.message || '').trim().split('\n')[0];
+        missing.push({ need: `the image ${image}, through a Docker daemon this user can reach`, why: why || 'docker image inspect failed; pull or build it first' });
+      }
     }
     if (!env.ANTHROPIC_API_KEY) {
       missing.push({ need: 'ANTHROPIC_API_KEY', why: 'the runner strips AWS credentials from the engineer\'s environment, so today\'s engine reaches the model with an Anthropic key, not Bedrock' });

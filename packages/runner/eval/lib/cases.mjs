@@ -17,7 +17,7 @@ export const BUDGET_USD = { 1: 3, 2: 4, 3: 8, 4: 12 };
 export const WALL_CLOCK_MINUTES = { 1: 20, 2: 25, 3: 40, 4: 45 };
 
 // The fixture's files a person owns: its own instructions and scripts, and CI.
-export const HUMAN_OWNED = ['CLAUDE.md', 'package.json', '.github/**'];
+export const HUMAN_OWNED = ['CLAUDE.md', 'package.json', 'package-lock.json', '.github/**'];
 
 // A preview surface for the ui cases, which the contract requires to carry a qa block. The eval
 // runs with QA capture off; the block is here so the contract is the one the factory would send.

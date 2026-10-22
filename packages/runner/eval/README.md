@@ -30,7 +30,7 @@ Every case reproduces its walk's ask on `fixture/library-app`, a small document-
 library of documents, share links, views) with the fictional Northwind cast and no dependencies.
 `fixture/v2.patch` adds what the later walks built on (passcodes, download switches, archive, stars)
 and is the starting point of the `v2` cases. The fixture's git history is fixed (author, dates), so
-its commits are the same on every machine: v1 `f18eba20f97c`, v2 `0efe455fd860`. No case needs
+its commits are the same on every machine: v1 `c08db6ba9dd0`, v2 `2fd9f8a8b68b`. No case needs
 DeliveryStack or a Vocion installation.
 
 ## Cases
@@ -134,6 +134,9 @@ refuse to run until they are built (Phases 3 and 4).
 
 - **Docker and the runner image** (`--runner-image` or `EVAL_RUNNER_IMAGE`). The guard hooks are
   wired to `/opt/vocion-runner/hooks` in `claude-settings.json`, so the runner only runs in its image.
+  The preflight inspects the image, so the user running the eval must reach the Docker daemon
+  (the `docker` group) and the image must already be pulled or built
+  (`docker build -t vocion-runner:sha-<sha> packages/runner` at that commit).
 - **`ANTHROPIC_API_KEY`**. The runner removes AWS credentials from the engineer's environment, so
   the baseline reaches the model with an Anthropic key, not Bedrock.
 - **`GITHUB_TOKEN`** that can push branches and open pull requests on the sandbox repository.
