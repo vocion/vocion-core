@@ -94,6 +94,8 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
   // autonomy page and the class read one table (`libs/actions/selfUpdate.ts`).
   ...SELF_UPDATE_RISK,
   'hubspot.update': 'low',
+  // A new record the sales team sees in their pipeline; Undo archives it.
+  'hubspot.create': 'medium',
   'gmail.send': 'medium',
   // A post to a channel the workspace bound: read by people who did not ask,
   // but taken back by Undo. Medium, beside the email.

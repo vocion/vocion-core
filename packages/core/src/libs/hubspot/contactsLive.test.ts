@@ -18,6 +18,7 @@ function clientWith(post: (path: string, body: unknown) => HubspotResult<unknown
       get: vi.fn(),
       patch: vi.fn(),
       fetchDealStages: vi.fn(),
+      delete: vi.fn(),
       post: (async (path: string, body: unknown) => {
         posts.push({ path, body });
         return post(path, body) as never;
