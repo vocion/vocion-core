@@ -234,6 +234,7 @@ export async function batchView(b: BatchRow): Promise<RoutineBatchView> {
     endedAt: b.endedAt?.toISOString() ?? null,
     runs: tiles,
     findings: b.findings ?? [],
+    followUp: b.followUp ? { parentBatchId: b.followUp.parentBatchId, answer: /\u201C(.+?)\u201D/.exec(b.followUp.task)?.[1] ?? 'the expert\'s answer', approvedBy: b.followUp.approvedBy } : null,
     report: b.reportArtifactId ? { artifactId: b.reportArtifactId, url: `/dashboard/artifacts/${b.reportArtifactId}` } : null,
   };
 }

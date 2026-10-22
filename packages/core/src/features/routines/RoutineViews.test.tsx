@@ -98,6 +98,7 @@ const BATCH: Batch = {
   startedAt: new Date(Date.now() - 310_000).toISOString(),
   endedAt: null,
   runs,
+  followUp: null,
   findings: [{ id: 'f1', kind: 'not_on_list', title: '3 people in the console are not on the roster', detail: 'They have active accounts but are not in the employee list this batch was given. Deactivate them, or leave them?', items: [{ name: 'Pat Quill', email: 'pat@northwind.example', status: 'Active' }, { name: 'Lee Marsh', email: 'lee@northwind.example', status: 'Active' }, { name: 'Robin Fair', email: 'robin@northwind.example', status: 'Active' }], askId: 43, options: ['Deactivate them', 'Delete them', 'Leave them'], state: 'open', answer: null, followUpBatchId: null }],
   report: null,
 };
