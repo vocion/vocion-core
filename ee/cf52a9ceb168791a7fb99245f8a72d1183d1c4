@@ -1,0 +1,22 @@
+packages/core/src/libs/actions/hubspot-create.ts
+  s_a913762c870677::t_3515a1d84d70bb 13,16,111
+packages/core/src/libs/actions/hubspot-update.ts
+  s_a913762c870677::t_3515a1d84d70bb 22-23,27-33
+  s_a913762c870677::t_ddada20e932122 34-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eecf52a9ceb168791a7fb99245f8a72d1183d1c4",
+  "prompts": {},
+  "sessions": {
+    "s_a913762c870677": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b58cf0e9-8d6a-4345-87ca-a941890949a8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
