@@ -50,6 +50,9 @@ type VersionRow = typeof routineVersionSchema.$inferSelect;
 type BatchRow = typeof routineBatchSchema.$inferSelect;
 type RunRow = typeof routineRunSchema.$inferSelect;
 
+/** The name a routine is filed under until the analyst names it. */
+export const UNNAMED = 'New routine';
+
 /** A request about a routine this person may not make, or that is not in that state. */
 export class RoutineError extends Error {}
 
@@ -187,6 +190,15 @@ export function idemKeyOf(row: Record<string, string>, spec: RoutineSpec): strin
  * @param input.conversationId - Where they asked, when in chat.
  */
 export async function startTeaching(input: { orgId: string; userId: string; name: string; targetUrl: string | null; note: string | null; slateUrl: string | null; conversationId: number | null }): Promise<{ routine: RoutineView; recordUrl: string | null }> {
+  if (input.slateUrl) {
+    // Asked again after teaching failed (Slate was not connected yet): the same routine tries again.
+    const failed = (await db.select().from(routineSchema).where(and(eq(routineSchema.orgId, input.orgId), eq(routineSchema.status, 'teaching'))).limit(50))
+      .find(r => r.teaching?.state === 'failed' && r.source?.url === input.slateUrl);
+    if (failed) {
+      await attachRecording(input.orgId, input.userId, failed.id, input.slateUrl);
+      return { routine: (await getRoutine(input.orgId, failed.id))!, recordUrl: null };
+    }
+  }
   const slug = await uniqueSlug(input.orgId, input.name);
   // No page can start Slate's recorder (`libs/slate/watch.ts`): the person presses its hotkey on
   // the tab the page opens, and Slate's web recorder is there for anyone without the extension.
@@ -291,10 +303,15 @@ async function teach(id: number): Promise<void> {
   const frames = await slateFrames(creds.credentials, r.source.url, framesToRead(rec.data));
   let drafted;
   try {
-    drafted = await draftSpec(r.orgId, rec.data, frames.ok ? frames.data : [], { name: r.name, note: r.teaching?.note ?? null, startUrl: r.teaching?.targetUrl ?? null });
+    // A routine filed with no name of its own takes the one the analyst gives it.
+    drafted = await draftSpec(r.orgId, rec.data, frames.ok ? frames.data : [], { name: r.name === UNNAMED ? null : r.name, note: r.teaching?.note ?? null, startUrl: r.teaching?.targetUrl ?? null });
   } catch (e) {
     await fail(`Vocion could not draft a routine from the recording: ${(e as Error).message}`);
     return;
+  }
+  const named = r.name === UNNAMED ? { name: drafted.name, slug: await uniqueSlug(r.orgId, drafted.name) } : { name: r.name, slug: r.slug };
+  if (r.name === UNNAMED) {
+    await touch(id, named);
   }
   const versions = await versionsOf(id);
   const n = (versions[0]?.n ?? 0) + 1;
@@ -304,8 +321,8 @@ async function teach(id: number): Promise<void> {
     n,
     status: 'draft',
     spec: drafted.spec,
-    task: compileTask(r.name, drafted.spec),
-    workflowYaml: workflowYamlFor(r.slug, r.name, n, drafted.spec),
+    task: compileTask(named.name, drafted.spec),
+    workflowYaml: workflowYamlFor(named.slug, named.name, n, drafted.spec),
     change: n === 1 ? null : 'Taught again from a new recording',
   });
   await touch(id, { status: 'in_review', description: drafted.description || null, teaching: null, error: null });
@@ -313,7 +330,7 @@ async function teach(id: number): Promise<void> {
   if (r.conversationId) {
     const { tellConversation } = await import('@/services/chat/tellConversation');
     const open = drafted.spec.questions.length;
-    await tellConversation(r.orgId, r.conversationId, `Routine “${r.name}” is drafted from the recording: ${drafted.spec.steps.length} steps, ${drafted.spec.rules.length} rules, ${drafted.spec.escalations.length} escalation points${open ? `, and ${open} question${open > 1 ? 's' : ''} for its expert` : ''}. [Open the routine](/dashboard/routines/${id})`, { key: `routine:${id}:drafted:${n}`, url: `/dashboard/routines/${id}` }).catch(() => {});
+    await tellConversation(r.orgId, r.conversationId, `Routine “${named.name}” is drafted from the recording: ${drafted.spec.steps.length} steps, ${drafted.spec.rules.length} rules, ${drafted.spec.escalations.length} escalation points${open ? `, and ${open} question${open > 1 ? 's' : ''} for its expert` : ''}. [Open the routine](/dashboard/routines/${id})`, { key: `routine:${id}:drafted:${n}`, url: `/dashboard/routines/${id}` }).catch(() => {});
   }
 }
 
