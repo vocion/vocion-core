@@ -1,0 +1,33 @@
+diff --git a/src/api.mjs b/src/api.mjs
+index 19e33f6..16e3849 100644
+--- a/src/api.mjs
++++ b/src/api.mjs
+@@ -27,15 +27,12 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+       return { status: 200, body: { documents: store.listDocuments(userId, { q: query.q || '' }).map(summary) } };
+     }
+     const doc = store.findDocument(id);
+-    if (!doc) {
++    if (!store.canSee(userId, doc)) {
+       return notFound;
+     }
+     if (!sub && method === 'GET') {
+       return { status: 200, body: { document: summary(doc) } };
+     }
+-    if (sub === 'links' && !store.canSee(userId, doc)) {
+-      return notFound;
+-    }
+     if (sub === 'links' && method === 'GET') {
+       return { status: 200, body: { links: store.linksFor(doc.id) } };
+     }
+diff --git a/test/api.test.mjs b/test/api.test.mjs
+index 560e23e..d62127e 100644
+--- a/test/api.test.mjs
++++ b/test/api.test.mjs
+@@ -31,3 +31,7 @@ test('a link needs a recipient email', () => {
+ test('an unknown link is not found', () => {
+   assert.equal(handle(createStore(), { path: '/l/nope' }).status, 404);
+ });
++
++test('a document in another library is not found', () => {
++  assert.equal(handle(createStore(), { path: '/api/documents/d1', userId: 'u_other' }).status, 404);
++});

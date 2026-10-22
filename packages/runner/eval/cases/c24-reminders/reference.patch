@@ -1,0 +1,72 @@
+diff --git a/src/api.mjs b/src/api.mjs
+index 19e33f6..d0650d8 100644
+--- a/src/api.mjs
++++ b/src/api.mjs
+@@ -33,6 +33,12 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (!sub && method === 'GET') {
+       return { status: 200, body: { document: summary(doc) } };
+     }
++    if (sub === 'reminders' && method === 'POST') {
++      if (!store.canSee(userId, doc)) {
++        return notFound;
++      }
++      return { status: 200, body: store.remind(doc) };
++    }
+     if (sub === 'links' && !store.canSee(userId, doc)) {
+       return notFound;
+     }
+diff --git a/src/store.mjs b/src/store.mjs
+index 3471d73..508a795 100644
+--- a/src/store.mjs
++++ b/src/store.mjs
+@@ -1,5 +1,7 @@
+ import { seed } from './data.mjs';
+ 
++const REMIND_EVERY_MS = 72 * 60 * 60 * 1000;
++
+ // The data in memory and the queries over it. `store.db` is the data itself.
+ export function createStore(data = seed()) {
+   const db = structuredClone(data);
+@@ -27,6 +29,25 @@ export function createStore(data = seed()) {
+       db.links.push(link);
+       return link;
+     },
++    /** Queues a reminder per link nobody but the owner opened; one per link per 72 hours. */
++    remind(doc) {
++      db.outbox ||= [];
++      const queued = [];
++      const skipped = [];
++      for (const link of db.links.filter(l => l.docId === doc.id)) {
++        if (db.views.some(v => v.linkId === link.id && v.viewerId !== doc.ownerId)) {
++          continue;
++        }
++        const recent = db.outbox.some(m => m.linkId === link.id && new Date(db.now) - new Date(m.at) < REMIND_EVERY_MS);
++        if (recent) {
++          skipped.push(link.recipientEmail);
++          continue;
++        }
++        db.outbox.push({ to: link.recipientEmail, linkId: link.id, docId: doc.id, at: db.now });
++        queued.push(link.recipientEmail);
++      }
++      return { queued, skipped };
++    },
+     recordView(docId, { viewerId, linkId = null }) {
+       const view = { docId, linkId, viewerId, at: db.now };
+       db.views.push(view);
+diff --git a/test/reminders.test.mjs b/test/reminders.test.mjs
+new file mode 100644
+index 0000000..e07bc8e
+--- /dev/null
++++ b/test/reminders.test.mjs
+@@ -0,0 +1,11 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { handle } from '../src/api.mjs';
++import { createStore } from '../src/store.mjs';
++
++test('a reminder goes to a recipient who has not opened, once per 72 hours', () => {
++  const store = createStore();
++  const remind = () => handle(store, { method: 'POST', path: '/api/documents/d4/reminders', userId: 'u_owner' }).body;
++  assert.deepEqual(remind().queued, ['legal@contoso.example']);
++  assert.deepEqual(remind().skipped, ['legal@contoso.example']);
++});

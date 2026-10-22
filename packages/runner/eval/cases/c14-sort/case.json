@@ -1,0 +1,26 @@
+{
+  "id": "c14-sort",
+  "split": "tuning",
+  "complexity": 3,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 18,
+    "kind": "walk-adapted",
+    "note": "The walk kept the choice per browser; the fixture has no browser, so it is kept per person."
+  },
+  "fixture_ref": "v1",
+  "title": "Sort the library by name, upload date or last opened, and remember the choice",
+  "objective": "Let a person sort the library by name, upload date or last opened. libraryPage(store, userId, { sort }) and GET /api/documents?sort= accept 'name' (A to Z, ignoring case), 'uploaded' (newest first, the default) and 'opened' (most recently opened first, never-opened documents last, then newest upload). The choice is remembered per person: a later call without sort uses that person's last choice (kept in store.db.prefs). An unknown sort value is ignored. The page shows the current sort in an element with data-testid=\"sort\" naming it (Name, Uploaded or Last opened).",
+  "acceptance": [
+    "sort=name orders A to Z ignoring case",
+    "The default is newest upload first",
+    "sort=opened puts the most recently opened first and never-opened last",
+    "The choice is remembered per person, and one person's choice does not change another's",
+    "The page names the current sort"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "A sortDocuments helper in store.mjs used by the page and the API; prefs keyed by user id."
+}

@@ -1,0 +1,22 @@
+diff --git a/docs/sharing.md b/docs/sharing.md
+new file mode 100644
+index 0000000..c247f43
+--- /dev/null
++++ b/docs/sharing.md
+@@ -0,0 +1,16 @@
++# Sharing documents
++
++## Share links
++
++A share link sends one document to one person. Each link has its own address, /l/<link id>,
++and the library counts every open through it, so you can see who read what.
++
++## Who can open a link
++
++Anyone with the link can open it, and a visitor needs no account. The people in your library
++can create links for any of its documents and see every link and its opens.
++
++## What a visitor sees
++
++A visitor sees the document's title and can download it. Their opens appear on the document
++page for the people in the library.

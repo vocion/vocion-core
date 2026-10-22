@@ -1,0 +1,25 @@
+{
+  "id": "c18-link-expiry",
+  "split": "held-out",
+  "complexity": 3,
+  "risk_class": "schema",
+  "origin": {
+    "walk": 22,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Link expiry controls",
+  "objective": "Add expiry controls to share links. PATCH /api/documents/:id/links/:linkId accepts expiresAt (an ISO time after the store clock, or null to clear; anything else is 400 { error: 'invalid_expiry' }) and maxOpens (a whole number of at least 1, or null; anything else is 400 { error: 'invalid_max_opens' }); members only (404 otherwise). From expiresAt on, or once the link has been opened maxOpens times, GET /l/:linkId and its download answer 410 { error: 'expired' } with nothing about the document and no open counted; the visitor page reads \"This link has expired\" (data-testid=\"expired\"). With maxOpens 2, two opens work and the third is refused. On the document page each link row shows its limits, like \"Expires Oct 5\" and \"1 of 5 opens\".",
+  "acceptance": [
+    "Members set and clear an expiry time and an open limit, with validation",
+    "After the expiry time the link answers 410 and counts nothing",
+    "The open limit allows exactly that many opens",
+    "The visitor page says the link has expired",
+    "The document page shows each link's limits"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "expiresAt and maxOpens on links (a schema change), a PATCH route, a gate in the visitor routes and linkPage, limits on the document page."
+}

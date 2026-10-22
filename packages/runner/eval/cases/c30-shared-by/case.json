@@ -1,0 +1,23 @@
+{
+  "id": "c30-shared-by",
+  "split": "held-out",
+  "complexity": 1,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 17,
+    "kind": "walk-derived",
+    "note": "From the visitor lines walk 17 added to the archive ask."
+  },
+  "fixture_ref": "v1",
+  "title": "Say who shared the document on the visitor page",
+  "objective": "On the visitor's link page (linkPage), show \"Shared by <owner name>\" under the title, in an element with data-testid=\"shared-by\". When the owner's user record no longer exists, show \"Shared with you\" instead.",
+  "acceptance": [
+    "A visitor opening l1 sees \"Shared by Owner\" under the title",
+    "With the owner record gone, the page reads \"Shared with you\""
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Look up store.user(doc.ownerId) in linkPage."
+}

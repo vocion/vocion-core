@@ -1,0 +1,24 @@
+{
+  "id": "c28-empty-states",
+  "split": "tuning",
+  "complexity": 2,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 26,
+    "kind": "walk-derived",
+    "note": "From the \"friendly empty state\" lines of walks 13 and 26."
+  },
+  "fixture_ref": "v1",
+  "title": "Friendly empty states on the library",
+  "objective": "Give the library friendly empty states (data-testid=\"empty\"). An empty library reads \"Your library is empty. Upload a document to share it.\" A search with no matches reads 'No documents match \"<search>\"' with a link to clear the search (data-testid=\"clear-search\", href=\"/\"). The search text is escaped.",
+  "acceptance": [
+    "An empty library reads the upload line",
+    "A search with no match names the search and offers a clear-search link",
+    "The search text is escaped in the message"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Two branches in libraryPage."
+}

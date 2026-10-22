@@ -1,0 +1,24 @@
+{
+  "id": "c26-sharing-docs",
+  "split": "tuning",
+  "complexity": 1,
+  "risk_class": "docs",
+  "origin": {
+    "walk": 22,
+    "kind": "walk-derived",
+    "note": "A docs-class case so the set covers the plan-exempt path; the content comes from the link lines of walks 22 to 25."
+  },
+  "fixture_ref": "v1",
+  "title": "Write the sharing guide",
+  "objective": "Write docs/sharing.md for people new to the library: what a share link is, who can open one, and what a visitor sees. Use exactly these three second-level headings, in this order: \"## Share links\", \"## Who can open a link\", \"## What a visitor sees\", each followed by at least one line of prose. Say that a link's address is /l/<link id> and that a visitor needs no account. Keep it under 80 lines. Change no other file.",
+  "acceptance": [
+    "docs/sharing.md exists with the three headings in order, each with prose",
+    "It says a link lives at /l/<link id> and that a visitor needs no account",
+    "It is under 80 lines",
+    "No other file changed"
+  ],
+  "allowed_paths": [
+    "docs/sharing.md"
+  ],
+  "plan_summary": "One new markdown file."
+}

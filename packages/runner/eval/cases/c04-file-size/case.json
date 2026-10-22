@@ -1,0 +1,25 @@
+{
+  "id": "c04-file-size",
+  "split": "tuning",
+  "complexity": 2,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 8,
+    "kind": "walk-adapted",
+    "note": "The walk added the size beside an existing page count; the fixture has none, so this case asks for both."
+  },
+  "fixture_ref": "v1",
+  "title": "Show the file size next to the page count",
+  "objective": "On the document page's meta line (data-testid=\"doc-meta\"), show the page count and the file size, like \"18 pages · 2.4 MB\". Sizes under 1 MB show whole KB (\"48 KB\"); 1 MB and over show MB with one decimal. 1 KB is 1000 bytes.",
+  "acceptance": [
+    "d1 reads \"18 pages · 2.4 MB\"",
+    "d2 reads \"1 page · 48 KB\"",
+    "d3 (980,000 bytes) reads \"12 pages · 980 KB\"",
+    "A 1,000,000-byte document reads \"1.0 MB\""
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Add formatBytes to format.mjs; render pages and size joined by a middle dot in documentPage."
+}

@@ -1,0 +1,31 @@
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..4bca3ce 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -2,9 +2,12 @@ import { escapeHtml, layout } from './format.mjs';
+ 
+ export function libraryPage(store, userId, { q = '' } = {}) {
+   const documents = store.listDocuments(userId, { q });
++  const all = q ? store.listDocuments(userId).length : documents.length;
++  const noun = n => `${n} ${n === 1 ? 'document' : 'documents'}`;
++  const count = all ? `<p data-testid="doc-count">${q ? `${documents.length} of ${noun(all)}` : noun(all)}</p>` : '';
+   const rows = documents.map(d => `<li data-testid="doc-row" data-id="${d.id}"><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta"></div></li>`).join('');
+   const list = documents.length ? `<ul data-testid="library">${rows}</ul>` : '<p data-testid="empty">No documents</p>';
+-  return layout('Library', `<h1>Library</h1><form role="search" action="/"><input name="q" value="${escapeHtml(q)}"></form>${list}`);
++  return layout('Library', `<h1>Library</h1><form role="search" action="/"><input name="q" value="${escapeHtml(q)}"></form>${count}${list}`);
+ }
+ 
+ export function documentPage(store, userId, id) {
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index 9d7fb79..d311c5a 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -27,3 +27,8 @@ test('the document page is not shown outside the library', () => {
+ test('the link page offers the download', () => {
+   assert.equal(byTestId(linkPage(createStore(), 'l1'), 'download').length, 1);
+ });
++
++test('the library counts its documents', () => {
++  assert.equal(text(byTestId(libraryPage(createStore(), 'u_owner'), 'doc-count')[0]), '5 documents');
++  assert.equal(text(byTestId(libraryPage(createStore(), 'u_owner', { q: 'Deck' }), 'doc-count')[0]), '1 of 5 documents');
++});

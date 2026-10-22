@@ -1,0 +1,48 @@
+diff --git a/src/web/format.mjs b/src/web/format.mjs
+index e0bbcb9..76764fc 100644
+--- a/src/web/format.mjs
++++ b/src/web/format.mjs
+@@ -7,3 +7,12 @@ export function escapeHtml(s) {
+ export function layout(title, body) {
+   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body><main>${body}</main></body></html>`;
+ }
++
++const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
++
++/** "Sep 30", with the year when it is not the year of `now`. UTC. */
++export function formatDate(iso, now) {
++  const d = new Date(iso);
++  const day = `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
++  return now && new Date(now).getUTCFullYear() !== d.getUTCFullYear() ? `${day}, ${d.getUTCFullYear()}` : day;
++}
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..93ddf17 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -1,4 +1,4 @@
+-import { escapeHtml, layout } from './format.mjs';
++import { escapeHtml, formatDate, layout } from './format.mjs';
+ 
+ export function libraryPage(store, userId, { q = '' } = {}) {
+   const documents = store.listDocuments(userId, { q });
+@@ -13,7 +13,7 @@ export function documentPage(store, userId, id) {
+     return null;
+   }
+   const links = store.linksFor(doc.id).map(l => `<li data-testid="link-row" data-id="${l.id}">${escapeHtml(l.recipientEmail)}</li>`).join('');
+-  return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta"></p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
++  return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="uploaded">Uploaded ${formatDate(doc.uploadedAt, store.now())}</p><p data-testid="doc-meta"></p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
+ }
+ 
+ export function linkPage(store, linkId, { viewer = '' } = {}) {
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index 9d7fb79..31d449c 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -27,3 +27,7 @@ test('the document page is not shown outside the library', () => {
+ test('the link page offers the download', () => {
+   assert.equal(byTestId(linkPage(createStore(), 'l1'), 'download').length, 1);
+ });
++
++test('the document page says when it was uploaded', () => {
++  assert.equal(text(byTestId(documentPage(createStore(), 'u_owner', 'd1'), 'uploaded')[0]), 'Uploaded Sep 30');
++});

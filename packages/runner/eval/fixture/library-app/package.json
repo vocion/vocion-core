@@ -1,0 +1,12 @@
+{
+  "name": "northwind-library",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Eval fixture: a small document library with share links. No dependencies.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "node src/server.mjs"
+  }
+}

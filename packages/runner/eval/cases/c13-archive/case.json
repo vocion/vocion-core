@@ -1,0 +1,25 @@
+{
+  "id": "c13-archive",
+  "split": "held-out",
+  "complexity": 4,
+  "risk_class": "schema",
+  "origin": {
+    "walk": 17,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Archive a document",
+  "objective": "Let the owner archive a document and unarchive it. POST /api/documents/:id/archive and POST /api/documents/:id/unarchive (owner only: a teammate gets 403 { error: 'owner_only' }, a non-member 404). An archived document carries archivedAt and leaves the library list and GET /api/documents, unless asked to show archived (libraryPage(store, userId, { showArchived: true }) or ?archived=1), where its row carries an \"Archived\" mark (data-testid=\"mark-archived\"). Its share links stop working: GET /l/:linkId and the download answer 410 { error: 'archived' } with nothing about the document and no open counted, and the visitor page reads \"This document is no longer available\" (data-testid=\"unavailable\"). Unarchiving restores it and its links as they were. Views stay readable on the document page.",
+  "acceptance": [
+    "The owner archives and unarchives; a teammate gets 403",
+    "An archived document leaves the library unless archived ones are shown, where it is marked",
+    "Its links answer 410 with nothing about the document, and no open is counted",
+    "The visitor page says it is no longer available",
+    "Unarchiving restores the document and its links"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "archivedAt on the document (a schema change in data and summary), routes in api.mjs, a filter in listDocuments, a gate in the visitor routes and linkPage."
+}
