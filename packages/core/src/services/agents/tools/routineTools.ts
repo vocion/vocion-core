@@ -166,7 +166,16 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
             if (!(await said(`approve the routine "${r.name}" so it can run`))) {
               return 'Not approved: approving a routine is its expert\'s own decision. Ask them.';
             }
-            await s.approveRoutineVersion(ctx.orgId, userId, r.id);
+            try {
+              await s.approveRoutineVersion(ctx.orgId, userId, r.id);
+            } catch (e) {
+              // Answers sent in a call beside this one may still be landing: look again once.
+              if (!(e instanceof s.RoutineError) || !/Answer the open question/.test(e.message)) {
+                throw e;
+              }
+              await new Promise(res => setTimeout(res, 3_000));
+              await s.approveRoutineVersion(ctx.orgId, userId, r.id);
+            }
             done.push('approved the draft');
           }
           if (args.trust) {
@@ -188,7 +197,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
       },
       {
         name: 'routine_update',
-        description: 'Change a routine as its expert says: record their answers to the analyst\'s open questions (by question id, in their words), add a rule they give, approve the draft so it can run, or set its trust level (Drafted: every save waits; Approved: the saves the spec names run unattended). Only what the person said in this conversation; never answer or approve on their behalf.',
+        description: 'Change a routine as its expert says: record their answers to the analyst\'s open questions (by question id, in their words), add a rule they give, approve the draft so it can run, or set its trust level (Drafted: every save waits; Approved: the saves the spec names run unattended). Answers, approval and trust go in ONE call, in that order: a draft is approved only once every question is answered. Only what the person said in this conversation; never answer or approve on their behalf.',
         schema: {
           type: 'object',
           properties: {
