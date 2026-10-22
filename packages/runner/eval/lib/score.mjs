@@ -153,7 +153,10 @@ export function summarize(runs) {
       const m = median(runs.map(r => r.score.timeToPrS));
       return m === null ? null : round2(m / 60);
     })(),
-    medianCostUsd: median(runs.map(r => r.score.costUsd)),
+    medianCostUsd: (() => {
+      const m = median(runs.map(r => r.score.costUsd));
+      return m === null ? null : round2(m);
+    })(),
     totalCostUsd: round2(runs.reduce((s, r) => s + (r.score.costUsd || 0), 0)),
     infraRate: n ? round2(count(r => r.score.infra) / n) : null,
     guardViolations: count(r => r.score.guardViolation),

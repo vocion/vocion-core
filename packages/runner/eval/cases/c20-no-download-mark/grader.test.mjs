@@ -29,8 +29,10 @@ test('A3: the switch', () => {
   const rows = byTestId(documentPage(store, 'u_owner', 'd1'), 'link-row');
   const l1 = rows.find(r => r.includes('data-id="l1"'));
   const l2 = rows.find(r => r.includes('data-id="l2"'));
-  const box = r => (r.match(/<input[^>]*data-testid="allow-download"[^>]*>/) || [''])[0];
-  assert.match(box(l1), /type="checkbox"/);
+  // The input tag with its quoted values blanked, so a handler that reads box.checked is not the attribute.
+  const box = r => (r.match(/<input[^>]*data-testid="allow-download"[^>]*>/) || [''])[0].replace(/"[^"]*"|'[^']*'/g, '""');
+  assert.match(box(l1), /^<input/);
+  assert.match(l1, /type="checkbox"/);
   assert.doesNotMatch(box(l1), /\bchecked\b/);
   assert.match(box(l2), /\bchecked\b/);
   assert.match(text(l2), /Allow downloads/);

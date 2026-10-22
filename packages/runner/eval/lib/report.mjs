@@ -23,6 +23,7 @@ export function scoreboard(report, { title = 'Factory eval' } = {}) {
   const lines = [
     `# ${title}: ${report.engine}${report.label ? ` (${report.label})` : ''}`,
     '',
+    ...(report.stopped ? [`**Stopped early: ${report.stopped}.**`, ''] : []),
     `${report.results.length} runs, ${report.options.runs} per case, up to ${report.options.maxAttempts} attempts each. Fixture v1 \`${report.fixture.v1.slice(0, 12)}\`, v2 \`${report.fixture.v2.slice(0, 12)}\`. ${report.startedAt} to ${report.finishedAt} (UTC).`,
     '',
     '| Set | Runs | Accepted (90% interval) | First attempt | Lines passed | Median score | Median min to PR | Median cost | Infra failures | Guard violations |',

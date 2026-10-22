@@ -121,8 +121,20 @@ node packages/runner/eval/run.mjs run \
 ```
 
 `run` writes `results/<time>-<engine>/<engine>.json` and `.md` (the scoreboard), plus each
-attempt's runner log. Flags: `--split tuning|held-out|all`, `--cases c07,c13`, `--runs`,
-`--max-attempts` (3), `--model` (the engineering seat's pin, `claude-opus-5-5`), `--effort`, `--out`.
+attempt's runner log and `runs.jsonl`, one line per finished run. Flags: `--split
+tuning|held-out|all`, `--cases c07,c13`, `--runs`, `--max-attempts` (3), `--model` (the engineering
+seat's pin, `claude-opus-5-5`), `--effort`, `--out`, and for long runs `--concurrency` (runs at
+once), `--max-spend <usd>` and `--max-infra-streak <n>` (stop starting work, and stop the running
+containers, past either), and `--resume <results dir>` (skip the runs already in its `runs.jsonl`).
+`report --resume <results dir>` rebuilds the report from `runs.jsonl`.
+
+`results/` stays out of git: it holds the runner logs. A baseline worth keeping is copied to
+`baselines/` (report JSON and scoreboard only), after checking it carries no credentials.
+
+## Baselines
+
+- `baselines/2026-10-22-claude-cli.md`: today's engine (runner image at `ed1e5f2`,
+  `claude-opus-5-5`), all 30 cases once: 29 of 30 accepted, median score 100, $11.64.
 
 Engines: `claude-cli` (the baseline), `oracle` (applies the reference change) and `noop` (changes
 nothing), the last two to prove the harness. `openhands`, `codex` and `claude-sdk` are named and

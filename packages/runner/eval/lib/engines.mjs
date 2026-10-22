@@ -100,10 +100,21 @@ export function parseRunnerLog(text) {
   return { ...out, costUsd, costComplete: costComplete && costUsd !== null, events: events.length };
 }
 
+// The containers this process started and has not seen exit, so an aborted eval stops them.
+const RUNNING = new Set();
+
+/** Stops every runner container this eval still has running. */
+export function stopRunning() {
+  for (const name of RUNNING) {
+    spawnSync('docker', ['kill', name], { stdio: 'ignore' });
+  }
+}
+
 /** The runner image, given the contract: one attempt, its log on stdout (packages/runner/src/runner.mjs). */
 const claudeCli = {
   id: 'claude-cli',
   needsRemote: true,
+  stop: stopRunning,
   preflight({ image = process.env.EVAL_RUNNER_IMAGE, fixtureRepo = process.env.EVAL_FIXTURE_REPO, env = process.env } = {}) {
     const missing = [];
     if (!which('docker')) {
@@ -136,9 +147,12 @@ const claudeCli = {
     // The contract's budget and clock, and the runner's own caps set to the same, so neither is
     // cut short by a default. QA capture is off: the hidden tests are the QA seat here.
     const caps = [`MAX_BUDGET_USD=${contract.token_budget_usd}`, `WALL_CLOCK_MINUTES=${contract.wall_clock_minutes}`, 'QA_CAPTURE=0'];
-    const args = ['run', '--rm', '-e', 'LOCAL_TASK_JSON', ...caps.flatMap(k => ['-e', k]), ...pass.flatMap(k => ['-e', k]), image];
+    const name = `vocion-eval-${contract.task_id}-a${contract.attempt}-${process.pid}`.replace(/[^\w.-]/g, '-');
+    const args = ['run', '--rm', '--name', name, '-e', 'LOCAL_TASK_JSON', ...caps.flatMap(k => ['-e', k]), ...pass.flatMap(k => ['-e', k]), image];
     return new Promise((resolve) => {
       const child = spawn('docker', args, { env: { ...env, LOCAL_TASK_JSON: JSON.stringify(contract) }, stdio: ['ignore', 'pipe', 'pipe'] });
+      RUNNING.add(name);
+      child.on('close', () => RUNNING.delete(name));
       let log = '';
       child.stdout.on('data', (d) => {
         log += d;
