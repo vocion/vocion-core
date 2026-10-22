@@ -58,7 +58,7 @@ function specBrief(r: RoutineView): Record<string, unknown> {
     steps: v.spec.steps.map(s => `${s.n}. ${s.text}${s.at !== null ? ` [${clock(s.at)}]` : ''}`),
     rules: v.spec.rules.map(x => x.text),
     escalations: v.spec.escalations.map(e => `${e.when} → ${e.ask}`),
-    inputs: v.spec.inputs.map(i => `${i.name}${i.secret ? ' (secret)' : ''}${i.shared ? ' (same for every row)' : ''}${i.key ? ' (identifies the row)' : ''}: ${i.description}`),
+    inputs: v.spec.inputs.map(i => `${i.name}${i.secret ? ' (secret)' : ''}${i.shared ? ' (same for every row)' : ''}${i.key ? ' (identifies the row)' : ''}${r.savedInputs.includes(i.name) ? ' (saved on the routine: do not ask for it)' : ''}: ${i.description}`),
     writes: v.spec.writes.map(w => w.button),
     reconcile: v.spec.reconcile ? `After a batch, it checks ${v.spec.reconcile.listUrl ?? 'the list'} against the rows by ${v.spec.reconcile.matchOn}.` : null,
     open_questions: v.spec.questions.filter(q => !q.answer).map(q => ({ id: q.id, question: q.question })),
@@ -232,7 +232,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
       },
       {
         name: 'routine_run',
-        description: 'Run an approved routine for many rows at once — one browser run per row (e.g. every person on a roster), in parallel, under the routine\'s version, rules and trust level. Rows this routine already did are skipped. Inputs every row shares (the sign-in email and password, the campaign) go in shared. Only when the person asked for it.',
+        description: 'Run an approved routine for many rows at once — one browser run per row (e.g. every person on a roster), in parallel, under the routine\'s version, rules and trust level. Rows this routine already did are skipped. Inputs every row shares (the sign-in, the campaign) go in shared, unless the routine has them saved (routine_list says which); never ask for a password in chat when it is saved. Only when the person asked for it.',
         schema: {
           type: 'object',
           properties: {
@@ -295,7 +295,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
     tool(
       async () => {
         const all = await (await reads()).listRoutines(ctx.orgId);
-        return JSON.stringify(all.slice(0, 30).map(r => ({ id: r.id, name: r.name, status: r.status, trust: TRUST_LABEL[r.trust], expert: r.expert?.name ?? null, version: r.version?.n ?? null, runs: r.stats.runs, lastBatchId: r.stats.lastBatchId })));
+        return JSON.stringify(all.slice(0, 30).map(r => ({ id: r.id, name: r.name, status: r.status, trust: TRUST_LABEL[r.trust], expert: r.expert?.name ?? null, version: r.version?.n ?? null, inputs: r.version?.spec.inputs.map(i => i.name) ?? [], saved_inputs: r.savedInputs, runs: r.stats.runs, lastBatchId: r.stats.lastBatchId })));
       },
       { name: 'routine_list', description: 'The workspace\'s routines: name, status, trust level, expert, version, runs.', schema: { type: 'object', properties: {} } },
     ),

@@ -446,6 +446,34 @@ export async function setRoutineExpert(orgId: string, userId: string, id: number
 }
 
 /**
+ * Save the inputs every run of this routine shares (the sign-in, the campaign), sealed, so a batch
+ * asked for in chat needs no password typed into the conversation. Null forgets them.
+ * @param orgId - The workspace.
+ * @param userId - The expert.
+ * @param id - The routine.
+ * @param values - Input name → value, or null to forget.
+ */
+export async function saveRoutineInputs(orgId: string, userId: string, id: number, values: Record<string, string> | null): Promise<void> {
+  const r = await routineRow(orgId, id);
+  await asExpert(r, userId);
+  if (!values) {
+    await touch(id, { savedInputs: null });
+    pushLive(orgId, { routineId: id });
+    return;
+  }
+  const { current } = currentVersions(await versionsOf(id));
+  const allowed = new Set((current?.spec.inputs ?? []).filter(i => i.shared || i.secret).map(i => i.name));
+  const kept = Object.fromEntries(Object.entries(normalizeRow(values)).filter(([k, v]) => v && (allowed.size === 0 || allowed.has(k))));
+  if (Object.keys(kept).length === 0) {
+    throw new RoutineError('Nothing to save: only the inputs every row shares (the sign-in, the campaign) are kept on a routine.');
+  }
+  const prior = r.savedInputs ? await unseal(orgId, r.savedInputs.sealed) : {};
+  const merged = { ...prior, ...kept };
+  await touch(id, { savedInputs: { names: Object.keys(merged).sort(), sealed: await seal(orgId, merged) } });
+  pushLive(orgId, { routineId: id });
+}
+
+/**
  * Retire a routine: kept, with its runs, and never run again.
  * @param orgId - The workspace.
  * @param userId - The expert.
@@ -520,7 +548,9 @@ export async function startRoutineBatch(input: StartBatch): Promise<RoutineBatch
     throw new RoutineError(`A batch takes 1 to ${ROUTINE_LIMITS.batchRows} rows.`);
   }
   const spec = current.spec;
-  const shared = normalizeRow(input.shared ?? {});
+  // What the expert saved on the routine comes first; what this request gives wins.
+  const saved = r.savedInputs ? await unseal(input.orgId, r.savedInputs.sealed) : {};
+  const shared = { ...saved, ...normalizeRow(input.shared ?? {}) };
   const rows = input.rows.map(normalizeRow);
   // Shared inputs given on every row (a sign-in pasted with the list) move to the batch.
   for (const i of spec.inputs.filter(x => x.shared || x.secret)) {

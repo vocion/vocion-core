@@ -443,12 +443,15 @@ function RunForm({ routine, compact }: { routine: Routine; compact: boolean }) {
   const example = exampleRows(inputs);
   const [text, setText] = useState('');
   const [secretValues, setSecretValues] = useState<Record<string, string>>({});
+  const [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false);
+  // What the expert saved on the routine (the sign-in, the campaign) needs no typing again.
+  const saved = new Set(routine.savedInputs);
   const [error, setError] = useState<string | null>(null);
   const parsed = parseRows(text, inputs);
   // Inputs the rows do not carry are the same for every row: asked once, beside the secrets.
   const sharedInputs = [...(parsed.rows.length > 0 ? plain.filter(i => !parsed.columns.includes(i.name)) : []), ...secrets];
-  const missingShared = sharedInputs.filter(s => !secretValues[s.name]?.trim());
+  const missingShared = sharedInputs.filter(s => !secretValues[s.name]?.trim() && !saved.has(s.name));
   const ready = parsed.rows.length > 0 && !parsed.error && missingShared.length === 0;
 
   const run = async () => {
@@ -457,8 +460,8 @@ function RunForm({ routine, compact }: { routine: Routine; compact: boolean }) {
     }
     setBusy(true);
     setError(null);
-    const shared = Object.fromEntries(sharedInputs.map(s => [s.name, secretValues[s.name]!.trim()]));
-    const res = await client.routines.run({ id: routine.id, rows: parsed.rows, ...(sharedInputs.length > 0 ? { shared } : {}) }).catch(() => ({ batch: null, error: 'That did not go through.' }));
+    const shared = Object.fromEntries(sharedInputs.filter(s => secretValues[s.name]?.trim()).map(s => [s.name, secretValues[s.name]!.trim()]));
+    const res = await client.routines.run({ id: routine.id, rows: parsed.rows, ...(Object.keys(shared).length > 0 ? { shared, remember } : {}) }).catch(() => ({ batch: null, error: 'That did not go through.' }));
     setBusy(false);
     if (!res.batch) {
       setError(res.error ?? 'It did not start.');
@@ -514,11 +517,15 @@ function RunForm({ routine, compact }: { routine: Routine; compact: boolean }) {
                 autoComplete="off"
                 value={secretValues[s.name] ?? ''}
                 onChange={e => setSecretValues(v => ({ ...v, [s.name]: e.target.value }))}
-                placeholder={s.secret ? 'Used for every row; never shown to the model' : (s.example ?? s.description)}
+                placeholder={saved.has(s.name) ? 'Saved for this routine' : s.secret ? 'Used for every row; never shown to the model' : (s.example ?? s.description)}
                 className="h-8 min-w-0 flex-1"
               />
             </div>
           ))}
+          <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
+            <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} className="size-3.5" data-routine-remember />
+            Remember these for this routine, sealed, so a batch asked for in chat needs no password
+          </label>
         </div>
       )}
       <div className="flex flex-wrap items-center gap-3">
