@@ -116,6 +116,7 @@ const ROUTINE: Routine = {
   versions: [{ n: 1, status: 'draft', change: null, createdAt: new Date().toISOString() }],
   stats: { runs: 0, done: 0, escalated: 0, failed: 0, lastBatchId: null },
   teaching: null,
+  savedInputs: [],
   error: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),

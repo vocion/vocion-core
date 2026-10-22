@@ -5660,6 +5660,8 @@ export const routineSchema = pgTable(
     teaching: jsonb('teaching').$type<import('@/libs/routines/types').RoutineTeaching & { note?: string | null; userId: string }>(),
     /** Teaching failed: why. */
     error: text('error'),
+    /** Inputs every run shares, saved by the expert (migration 0212): names in the clear, values sealed. */
+    savedInputs: jsonb('saved_inputs').$type<{ names: string[]; sealed: import('@/libs/crypto/credentialVault').EncryptResult }>(),
     createdBy: text('created_by').notNull(),
     conversationId: integer('conversation_id'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),

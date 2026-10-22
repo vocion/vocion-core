@@ -91,6 +91,7 @@ async function routineViews(rows: RoutineRow[]): Promise<RoutineView[]> {
         lastBatchId: rs.reduce<number | null>((m, x) => (m === null || x.batchId > m ? x.batchId : m), null),
       },
       teaching: t ? { state: t.state, startedAt: t.startedAt, targetUrl: t.targetUrl, recordUrl: t.recordUrl, instruction: t.instruction ?? null, checks: t.checks, lastCheckedAt: t.lastCheckedAt } : null,
+      savedInputs: r.savedInputs?.names ?? [],
       error: r.error,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),

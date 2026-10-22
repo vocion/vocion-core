@@ -36,7 +36,7 @@ export const getRoutineBatchRoute = os
 export const actOnRoutineRoute = os
   .input(z.object({
     id: z.number().int().positive(),
-    action: z.enum(['approve', 'trust', 'answer_question', 'expert', 'attach_recording', 'retire']),
+    action: z.enum(['approve', 'trust', 'answer_question', 'expert', 'attach_recording', 'forget_inputs', 'retire']),
     trust: z.enum(ROUTINE_TRUST).optional(),
     questionId: z.string().trim().min(1).max(40).optional(),
     answer: z.string().trim().min(1).max(2_000).optional(),
@@ -64,6 +64,8 @@ export const actOnRoutineRoute = os
           return { routine: await getRoutine(orgId, input.id), error: 'Paste the Slate link first.' };
         }
         await svc.attachRecording(orgId, userId, input.id, input.answer);
+      } else if (input.action === 'forget_inputs') {
+        await svc.saveRoutineInputs(orgId, userId, input.id, null);
       } else if (input.action === 'expert') {
         await svc.setRoutineExpert(orgId, userId, input.id, input.expertUserId ?? userId);
       } else {
@@ -84,11 +86,16 @@ export const runRoutineRoute = os
     rows: z.array(z.record(z.string(), z.string().max(2_000))).min(1).max(200),
     /** Inputs every row shares (the campaign, the sign-in); a secret input's value too. */
     shared: z.record(z.string(), z.string().max(2_000)).optional(),
+    /** Keep the shared inputs on the routine, sealed, for the next batch (asked in chat). */
+    remember: z.boolean().optional(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
     const svc = await import('@/services/routines/RoutineService');
     try {
+      if (input.remember && input.shared && Object.keys(input.shared).length > 0) {
+        await svc.saveRoutineInputs(orgId, userId, input.id, input.shared);
+      }
       const batch = await svc.startRoutineBatch({ orgId, userId, routineId: input.id, rows: input.rows, shared: input.shared ?? {}, conversationId: null });
       return { batch, error: null };
     } catch (e) {

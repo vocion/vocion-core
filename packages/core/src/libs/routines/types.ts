@@ -157,6 +157,8 @@ export type RoutineView = {
    * on, and Vocion picks the finished recording up on its own (`services/routines/teaching.ts`).
    */
   teaching: RoutineTeaching | null;
+  /** Inputs every run shares that its expert saved (the sign-in, the campaign): names only; values are sealed. */
+  savedInputs: string[];
   /** Set while teaching failed: what went wrong. */
   error: string | null;
   createdAt: string;
