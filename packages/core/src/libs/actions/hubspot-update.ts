@@ -19,9 +19,18 @@ import { createHubspotClient } from '@/libs/hubspot/client';
  * @param ctx - The action context carrying the vault credentials.
  * @throws {Error} When the login cannot be refreshed.
  */
-async function freshHubspotToken(ctx: ActionContext): Promise<string | undefined> {
-  const { hubspotTokenForActionSlug } = await import('@/services/agents/tools/hubspotDirect');
+export async function freshHubspotToken(ctx: ActionContext): Promise<string | undefined> {
+  const { hubspotTokenForActionSlug } = await hubspotDirect();
   return hubspotTokenForActionSlug(ctx.orgId, 'hubspot', ctx.credentials);
+}
+
+/**
+ * The direct HubSpot tools module, loaded on use. The one dynamic import of it
+ * for the hubspot actions: a second site made Turbopack emit two chunks to one
+ * output path and fail the production build (as in #1266).
+ */
+export function hubspotDirect(): Promise<typeof import('@/services/agents/tools/hubspotDirect')> {
+  return import('@/services/agents/tools/hubspotDirect');
 }
 
 const hubspotUpdateInput = z.object({

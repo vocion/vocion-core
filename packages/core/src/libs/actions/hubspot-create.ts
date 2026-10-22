@@ -10,9 +10,10 @@
  * restorable for 90 days).
  */
 
-import type { Action, ActionContext } from './types';
+import type { Action } from './types';
 import { z } from 'zod';
 import { createHubspotClient } from '@/libs/hubspot/client';
+import { freshHubspotToken, hubspotDirect } from './hubspot-update';
 
 type ObjectType = 'contacts' | 'deals' | 'companies';
 
@@ -54,15 +55,6 @@ const hubspotCreateInput = z.object({
     }
   }
 });
-
-/**
- * The HubSpot token for this run; see `hubspot-update.ts`.
- * @param ctx - The action context carrying the vault credentials.
- */
-async function freshHubspotToken(ctx: ActionContext): Promise<string | undefined> {
-  const { hubspotTokenForActionSlug } = await import('@/services/agents/tools/hubspotDirect');
-  return hubspotTokenForActionSlug(ctx.orgId, 'hubspot', ctx.credentials);
-}
 
 /**
  * Why a deal's stage or pipeline would be refused, naming the ids to use
@@ -116,7 +108,7 @@ export const hubspotCreateAction: Action<typeof hubspotCreateInput> = {
       return;
     }
     // Best-effort: with no live client the stage is checked by HubSpot on execute.
-    const { hubspotClientForOrg } = await import('@/services/agents/tools/hubspotDirect');
+    const { hubspotClientForOrg } = await hubspotDirect();
     const live = await hubspotClientForOrg(ctx.orgId);
     if (!live.ok) {
       return;
