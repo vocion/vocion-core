@@ -1,0 +1,42 @@
+packages/core/src/libs/hubspot/contactsLive.test.ts
+  s_a913762c870677::t_3ae96c222afe9d 21
+packages/core/src/libs/actions/registry.ts
+  s_a913762c870677::t_f895cb759284b2 33,125-126
+packages/core/src/libs/actions/hubspot-create.ts
+  s_a913762c870677::t_021eaebfd62126 2
+  s_a913762c870677::t_c37a557d146a6d 76
+  s_a913762c870677::t_d44b026dfbab60 32
+  s_a913762c870677::t_cb4c4bf5d5dd1a 1,3-31,33-75,77-183
+packages/core/src/features/review/reviewSheetModel.ts
+  s_a913762c870677::t_f895cb759284b2 72-74
+packages/core/src/libs/actions/hubspot-create.test.ts
+  s_a913762c870677::t_6ca3834da0a56b 1-19,22-30,32-37,40-75,77-90,92-94,96-98,100-109
+  s_a913762c870677::t_d44b026dfbab60 20-21,31,38-39,76,91,95,99
+packages/core/src/libs/hubspot/client.ts
+  s_a913762c870677::t_f895cb759284b2 36,107,134
+packages/core/src/services/autonomy/rungs.ts
+  s_a913762c870677::t_f895cb759284b2 97-98
+packages/core/src/services/inbox/describeActionRun.ts
+  s_a913762c870677::t_aabd345b5c1091 207-222,224-236,401
+  s_a913762c870677::t_7acc2bd9dc23cc 223
+packages/core/src/libs/hubspot/unenrollBridge.test.ts
+  s_a913762c870677::t_3ae96c222afe9d 40
+docs/entities/trust.md
+  s_a913762c870677::t_8899123346d87a 27,31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3cb9a36813892d6db2167f83432752d0e4b4e409",
+  "prompts": {},
+  "sessions": {
+    "s_a913762c870677": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b58cf0e9-8d6a-4345-87ca-a941890949a8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
