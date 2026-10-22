@@ -23,6 +23,7 @@ import {
   Newspaper,
   Palette,
   Plug,
+  Repeat,
   ShieldCheck,
   Sparkles,
   Target,
@@ -167,6 +168,8 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // Knowledge beside Objects (a room IS a record); the WORK view keeps its
   // five doors, and the rooms are one ⌘K away.
   { url: '/dashboard/rooms', title: 'Data rooms', group: 'Workspace', icon: FolderOpen, pinnable: true, plugin: 'data-rooms', keywords: ['data room', 'engagement', 'client', 'deal', 'proposal', 'transcripts', 'decision log'] },
+  // Repeatable work taught once from a recording, run as many browser runs at once.
+  { url: '/dashboard/routines', title: 'Routines', group: 'Workspace', icon: Repeat, pinnable: true, plugin: 'routines', keywords: ['routine', 'teach', 'recording', 'repeatable', 'slate', 'process', 'batch', 'queue'] },
   { url: '/dashboard/learnings', title: 'Learnings', group: 'Knowledge', icon: Sparkles, i18nKey: 'learnings', keywords: ['rules', 'feedback'] },
   { url: '/dashboard/workspace', title: 'Context', group: 'Knowledge', icon: FileCode2, i18nKey: 'context', keywords: ['workspace', 'yaml', 'workspace-as-code'] },
 

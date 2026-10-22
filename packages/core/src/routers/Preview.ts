@@ -35,7 +35,7 @@ export const getRoute = os
  */
 export const statusRoute = os
   .input(z.object({
-    refs: z.array(z.object({ type: z.enum(['worker_run', 'object', 'ask', 'artifact', 'mission_run', 'browser_run']), id: z.string().regex(/^\d{1,12}$/) })).max(24),
+    refs: z.array(z.object({ type: z.enum(['worker_run', 'object', 'ask', 'artifact', 'mission_run', 'browser_run', 'routine', 'routine_batch']), id: z.string().regex(/^\d{1,12}$/) })).max(24),
   }))
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();

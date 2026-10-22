@@ -1,0 +1,29 @@
+# The routines plugin — repeatable work a specialist teaches once, that Vocion
+# runs in a browser for every row it is given, escalates to the routine's
+# expert when a rule says so, and improves from every correction.
+#
+# Core ships the MECHANISM (the routine noun and its versions, batches of
+# browser runs in parallel, the trust ladder in the engine, receipts, the
+# reconciliation, the pages and the tools — `services/routines/`); this plugin
+# ships the MEANING: the Routine analyst, the skill that says how to teach and
+# run a routine, and the team graded on verified runs. A workspace turns it on
+# with `plugins: [routines]` and overrides any file by slug.
+slug: routines
+name: Routines
+version: 1.0.0
+description: Teach Vocion repeatable work once, from a narrated Slate recording. It runs the work in a browser for every row you give it, many at once, holds for your team on anything outside the approved spec, escalates to the routine's expert when a rule says so, reads back every change, and reports what it did and what it found.
+# Its own app on the rail (`templates/apps/routines`), with the Routines row; in Workforce it is one ⌘K away.
+nav: {section: Routines}
+recommend:
+  when:
+    - a person does the same task in a web app or portal many times a week
+    - a team records walkthroughs in Slate or Loom to train new staff
+    - a list of people or records has to be entered or updated in a system that has no API
+    - a person shares a Slate recording of themselves doing a task
+  connectors: [slate]
+
+starters:
+  - label: Teach a routine from a recording
+    prompt: 'Teach a routine from this Slate recording: '
+  - label: Run a routine for a list
+    prompt: 'Run the routine for everyone on this list: '

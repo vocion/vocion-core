@@ -12,10 +12,11 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
-import { askSchema, browserRunSchema, businessObjectSchema, businessObjectTypeSchema, missionRunSchema, workerRunSchema } from '@/models/Schema';
+import { batchProgress, needsYou } from '@/libs/routines/display';
+import { askSchema, browserRunSchema, businessObjectSchema, businessObjectTypeSchema, missionRunSchema, routineBatchSchema, routineRunSchema, routineSchema, workerRunSchema } from '@/models/Schema';
 
 export type FollowState = 'queued' | 'running' | 'done' | 'failed' | 'waiting';
-export type FollowRef = { type: 'worker_run' | 'object' | 'ask' | 'artifact' | 'mission_run' | 'browser_run'; id: string };
+export type FollowRef = { type: 'worker_run' | 'object' | 'ask' | 'artifact' | 'mission_run' | 'browser_run' | 'routine' | 'routine_batch'; id: string };
 export type FollowStatus = {
   state: FollowState;
   label: string;
@@ -79,6 +80,39 @@ export async function followStatuses(orgId: string, refs: FollowRef[]): Promise<
         : r.status === 'proposed'
           ? { state: 'waiting', label: 'ready to start' }
           : { state: followStateOf(r.status), label: r.status };
+    }
+  }
+  const routineIds = ids(refs, 'routine');
+  if (routineIds.length > 0) {
+    const rows = await db.select({ id: routineSchema.id, status: routineSchema.status, error: routineSchema.error }).from(routineSchema).where(and(eq(routineSchema.orgId, orgId), inArray(routineSchema.id, routineIds)));
+    for (const r of rows) {
+      out[key({ type: 'routine', id: String(r.id) })] = r.status === 'teaching'
+        ? (r.error ? { state: 'failed', label: 'could not learn it' } : { state: 'running', label: 'teaching' })
+        : r.status === 'in_review'
+          ? { state: 'waiting', label: 'in review' }
+          : { state: 'done', label: r.status === 'live' ? 'live' : 'retired' };
+    }
+  }
+  const batchIds = ids(refs, 'routine_batch');
+  if (batchIds.length > 0) {
+    // A batch is its runs: "7 of 10 done · 1 waiting on you", and waiting while any run wants a person.
+    const [batches, runs] = await Promise.all([
+      db.select({ id: routineBatchSchema.id, status: routineBatchSchema.status }).from(routineBatchSchema).where(and(eq(routineBatchSchema.orgId, orgId), inArray(routineBatchSchema.id, batchIds))),
+      db.select({ batchId: routineRunSchema.batchId, status: routineRunSchema.status, n: sql<number>`count(*)::int` }).from(routineRunSchema).where(and(eq(routineRunSchema.orgId, orgId), inArray(routineRunSchema.batchId, batchIds))).groupBy(routineRunSchema.batchId, routineRunSchema.status),
+    ]);
+    for (const b of batches) {
+      const counts: Partial<Record<(typeof runs)[number]['status'], number>> = {};
+      let total = 0;
+      for (const r of runs.filter(x => x.batchId === b.id)) {
+        counts[r.status] = Number(r.n);
+        total += Number(r.n);
+      }
+      const label = batchProgress(counts, total);
+      out[key({ type: 'routine_batch', id: String(b.id) })] = needsYou(counts) > 0
+        ? { state: 'waiting', label, name: `Routine batch ${b.id}` }
+        : b.status === 'running'
+          ? { state: 'running', label, name: `Routine batch ${b.id}` }
+          : { state: (counts.done ?? 0) === 0 && (counts.failed ?? 0) > 0 ? 'failed' : 'done', label, name: `Routine batch ${b.id}` };
     }
   }
   const askIds = ids(refs, 'ask');

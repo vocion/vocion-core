@@ -1,7 +1,7 @@
 'use client';
 
 import type { TurnFollowup } from '@/libs/chat/turnFollowups';
-import type { FollowStatus } from '@/services/preview/followStatus';
+import type { FollowRef, FollowStatus } from '@/services/preview/followStatus';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLive } from '@/hooks/useLive';
 import { topicsForRef } from '@/libs/live/topics';
@@ -26,7 +26,7 @@ const settled = (s: FollowStatus | undefined) => s !== undefined && (s.state ===
  */
 export function useFollowStatus(follow: readonly TurnFollowup[], pollMs = FOLLOW_POLL_MS): Record<string, FollowStatus> {
   const [statuses, setStatuses] = useState<Record<string, FollowStatus>>({});
-  const refs = useMemo(() => follow.map(f => ({ type: f.ref.type as 'worker_run' | 'object' | 'ask' | 'artifact' | 'mission_run' | 'browser_run', id: f.ref.id })), [follow]);
+  const refs = useMemo(() => follow.map(f => ({ type: f.ref.type as FollowRef['type'], id: f.ref.id })), [follow]);
   const signature = refs.map(r => `${r.type}:${r.id}`).join(',');
 
   // Pushed: every ref not yet settled. A burst of notices is one read.

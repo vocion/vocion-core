@@ -1,0 +1,4 @@
+# Routines take their trust from the routine itself, not from a rule here: each
+# routine's level (Drafted, Approved, Autonomous) is set by its expert and
+# enforced by the browser engine on every consequential click.
+rules: []

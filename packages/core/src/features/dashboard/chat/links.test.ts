@@ -40,3 +40,11 @@ describe('classifyDashboardLink', () => {
     expect(previewRefFor(link!)).toEqual({ type: 'record_history', id: '214@5' });
   });
 });
+
+describe('routine links', () => {
+  it('peek a routine and a batch of its runs in the pane', () => {
+    expect(previewRefFor(classifyDashboardLink('/dashboard/routines/7')!)).toEqual({ type: 'routine', id: '7' });
+    expect(previewRefFor(classifyDashboardLink('/en/dashboard/routines/batches/3')!)).toEqual({ type: 'routine_batch', id: '3' });
+    expect(classifyDashboardLink('/dashboard/routines')).toMatchObject({ kind: 'page' });
+  });
+});

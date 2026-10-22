@@ -21,6 +21,8 @@ export const FEATURES = {
   BRIEF_AUDIO: 'brief.audio',
   /** A browser run's own model loop: one call per step it takes (`services/browser/browserLoop.ts`). */
   BROWSER_RUN: 'browser.run',
+  /** The Routine analyst reading a recording and drafting a routine's spec (`services/routines/teaching.ts`). */
+  ROUTINE_TEACH: 'routines.teach',
   /** Chat-time agent runs via `runAgentDeep` (LangChain + deepagents). */
   AGENT_CHAT: 'agent.chat',
   /** Legacy OpenAI-loop agent runs via `runAgent`. */

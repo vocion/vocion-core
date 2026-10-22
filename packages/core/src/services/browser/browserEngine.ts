@@ -2,6 +2,9 @@
  * A PERSON'S BROWSER: one per person, kept between their runs, so a second
  * task picks up where the first left off — still signed in, on the same page.
  * Runs in it go one at a time (`BrowserRunService` refuses a second live run).
+ * A run of a routine is the exception: it gets a browser of its own
+ * (`sessionKeyOf`), so a routine runs for many rows at once, each in its own
+ * cookies and storage, and that browser closes when the run ends.
  *
  * What it gives a run:
  *   - the page as a model reads it (`pageSnapshot`: roles, names, states, refs);
@@ -63,16 +66,12 @@ const defaultDeps: EngineDeps = {
   browser: async () => (await import('./browserHost')).browserHost(),
 };
 
-const sessions = new Map<string, BrowserSession>();
+// On the process, not the module: a module evaluated again (a dev server's reload) still finds the
+// browsers it opened, so a live run's picture and its answers reach the run that holds them.
+const sessions: Map<string, BrowserSession> = ((globalThis as { __vocionBrowserSessions?: Map<string, BrowserSession> }).__vocionBrowserSessions ??= new Map());
 
-/**
- * The person's browser key.
- * @param orgId
- * @param userId
- */
-export function personKey(orgId: string, userId: string): string {
-  return `${orgId}:${userId}`;
-}
+// Which browser a run drives, and the live picture, are read without the engine (`liveFrames.ts`).
+export { frameSeq, latestFrame, personKey, sessionKeyOf, whereNow } from './liveFrames';
 
 function allowHosts(): Set<string> {
   return new Set((process.env.VOCION_BROWSER_ALLOW_HOSTS ?? '').split(',').map(h => h.trim().toLowerCase()).filter(Boolean));
@@ -247,35 +246,6 @@ export function releaseBrowserSession(key: string): void {
 export function existingSession(key: string): BrowserSession | null {
   const s = sessions.get(key);
   return s && !s.page.isClosed() ? s : null;
-}
-
-/**
- * The live picture, or null when there is no browser or no frame yet.
- * @param key
- */
-export function latestFrame(key: string): { jpeg: Buffer; seq: number } | null {
-  const s = sessions.get(key);
-  return s?.frame ? { jpeg: s.frame, seq: s.frameSeq } : null;
-}
-
-/**
- * The frame counter, so the run's view can say when the picture moved.
- * @param key
- */
-export function frameSeq(key: string): number {
-  return sessions.get(key)?.frameSeq ?? 0;
-}
-
-/**
- * Where the person's browser is, when it is open.
- * @param key
- */
-export function whereNow(key: string): { url: string; title: string } | null {
-  const s = sessions.get(key);
-  if (!s || s.page.isClosed()) {
-    return null;
-  }
-  return { url: s.page.url(), title: '' };
 }
 
 async function settle(page: Page): Promise<void> {

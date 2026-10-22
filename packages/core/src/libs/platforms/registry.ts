@@ -865,7 +865,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     toolProvider: null,
     keyPattern: null,
     keyShapeHint: 'a Slate session token (slt_…)',
-    helpText: 'A Slate session token (slt_…, about 90 days) — sign in to Slate\'s desktop or command-line app and copy its token. Test connection reads whose account it is; nothing is synced or uploaded.',
+    helpText: 'A Slate session token (slt_…, about 90 days) — sign in to Slate\'s desktop or command-line app and copy its token. Test connection reads whose account it is; routines read the recordings you hand them through it. Nothing is synced or uploaded.',
     fields: [
       {
         name: 'token',

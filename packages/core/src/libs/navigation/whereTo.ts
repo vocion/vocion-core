@@ -26,6 +26,7 @@ export type WhereToIntent
     | 'adopt-learning'
     | 'open-data-rooms'
     | 'open-data-room'
+    | 'open-routines'
     | 'open-connector'
     | 'browse-artifacts'
     | 'search-knowledge'
@@ -73,6 +74,7 @@ export const WHERE_TO: readonly WhereTo[] = [
   T('adopt-learning', 'Adopt or reject a learning', '/dashboard/learnings', 'Pending candidates are listed with who said it and how often; Adopt makes it a rule, Reject drops it.', ['learning', 'rule', 'candidate', 'adopt', 'teach', 'feedback']),
   T('open-data-rooms', 'Open the data rooms', '/dashboard/rooms', 'One room per engagement: status, sources, decision logs and open items. Open a room to read or export it.', ['data room', 'rooms', 'engagement', 'client', 'deal room']),
   T('open-data-room', 'Open one data room', '/dashboard/rooms/{id}', 'The room\'s status, cast, sources and open items; Download context exports it, Draft a document starts a proposal from it.', ['room', 'engagement', 'proposal']),
+  T('open-routines', 'Teach or run a routine', '/dashboard/routines', 'Every routine with its expert and trust level; Teach a routine opens the site to record on, and a routine\'s page has Run it for many rows at once.', ['routine', 'routines', 'teach', 'recording', 'slate', 'repeatable', 'batch', 'process']),
   T('open-connector', 'Open one connector\'s detail', '/dashboard/connectors/{slug}', 'The connector\'s configuration (secrets redacted), its sync checkpoint and what it has ingested.', ['connector detail', 'checkpoint', 'configuration']),
   T('browse-artifacts', 'Find an artifact', '/dashboard/artifacts', 'Every document, table and chart an agent or a person made, with versions; open one to read, edit or export it.', ['artifact', 'document', 'table', 'chart', 'version', 'export', 'pdf']),
   T('search-knowledge', 'Search the knowledge base', '/dashboard/search', 'Type a question or a name; results cite the connected system they came from.', ['search', 'find', 'knowledge', 'retrieval']),
