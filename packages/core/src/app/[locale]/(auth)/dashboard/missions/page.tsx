@@ -1,8 +1,8 @@
 import { Activity, Compass, Plus } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
+import { ListPage, ListRow, ListRows, Subline } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { EmptyState } from '@/components/ui/empty-state';
-import { TitleBar } from '@/features/dashboard/TitleBar';
 import { TriggerBadge } from '@/features/dashboard/TriggerBadge';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
@@ -16,12 +16,10 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
   const templates = orgId ? await listMissions(orgId) : [];
 
   return (
-    <>
-      <TitleBar
-        title="Missions"
-        description="Goals a team owns, like ‘no lead goes cold’, checked on their own schedule."
-      />
-
+    <ListPage
+      title="Missions"
+      description="Goals a team owns, like ‘no lead goes cold’, checked on their own schedule."
+    >
       <div className="mb-4 flex items-center gap-2 sm:mb-6 sm:gap-3">
         <Link href="/dashboard/missions/new" className={buttonVariants({ className: 'shrink-0' })}>
           <Plus className="size-4" />
@@ -48,28 +46,27 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
               <p className="mb-3 text-xs text-muted-foreground">
                 Missions with a schedule get checked on that cadence: the lead reviews the goal against current state, does only what's needed, and reports. Repeatable procedures should be Workflows instead.
               </p>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <ListRows>
                 {templates.map(t => (
-                  <Link
+                  <ListRow
                     key={t.id}
                     href={`/dashboard/missions/${t.slug}`}
-                    className="rounded-lg border border-border bg-background p-4 transition hover:bg-surface-hover"
-                  >
-                    <div className="text-sm font-medium">{t.name}</div>
-                    {t.description && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{t.description}</p>}
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                      <TriggerBadge trigger={null} schedule={t.schedule} />
-                      <span>
-                        Agent:
-                        {' '}
-                        {t.agentSlug}
-                      </span>
-                    </div>
-                  </Link>
+                    title={t.name}
+                    subline={(
+                      <Subline
+                        separator="·"
+                        segments={[
+                          <TriggerBadge key="trigger" trigger={null} schedule={t.schedule} />,
+                          `Agent: ${t.agentSlug}`,
+                          t.description,
+                        ]}
+                      />
+                    )}
+                  />
                 ))}
-              </div>
+              </ListRows>
             </>
           )}
-    </>
+    </ListPage>
   );
 }
