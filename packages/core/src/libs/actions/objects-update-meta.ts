@@ -89,6 +89,7 @@ type Row = {
   id: number;
   title: string;
   status: string | null;
+  snoozedUntil: Date | null;
   metadata: Record<string, unknown>;
 };
 
@@ -103,7 +104,7 @@ async function readRow(orgId: string, typeId: number, id: number): Promise<Row |
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema } = await import('@/models/Schema');
   const [row] = await db
-    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, status: businessObjectSchema.status, metadata: businessObjectSchema.metadata })
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, status: businessObjectSchema.status, snoozedUntil: businessObjectSchema.snoozedUntil, metadata: businessObjectSchema.metadata })
     .from(businessObjectSchema)
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.typeId, typeId), eq(businessObjectSchema.id, id)))
     .limit(1);
@@ -132,6 +133,36 @@ export function rowStatusOf(schema: Record<string, unknown> | null, set: Record<
   }
   const v = String(set.status ?? '').trim().toLowerCase();
   return (ROW_STATUSES as readonly string[]).includes(v) ? v : null;
+}
+
+/** The row column a write puts a record off with (`business_object.snoozed_until`). */
+export const SNOOZE_KEY = 'snoozedUntil';
+
+/**
+ * The snooze a write asks for, when it may: `snoozedUntil` in `set`, on a type with no field of
+ * that name — a date to put the record off to, or null to wake it. Undefined when the write does
+ * not snooze; `'invalid'` when it names something that is not a date.
+ * @param schema - The type's schema.
+ * @param set - The write.
+ */
+export function snoozeOf(schema: Record<string, unknown> | null, set: Record<string, unknown>): { until: Date | null } | 'invalid' | undefined {
+  const properties = (schema?.properties ?? {}) as Record<string, unknown>;
+  if (!(SNOOZE_KEY in set) || SNOOZE_KEY in properties) {
+    return undefined;
+  }
+  const v = set[SNOOZE_KEY];
+  if (v === null) {
+    return { until: null };
+  }
+  const at = typeof v === 'string' ? new Date(v) : null;
+  return at && !Number.isNaN(at.getTime()) ? { until: at } : 'invalid';
+}
+
+async function writeSnooze(orgId: string, id: number, until: Date | null): Promise<void> {
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  await db.update(businessObjectSchema).set({ snoozedUntil: until, updatedAt: new Date() }).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)));
 }
 
 async function writeRowStatus(orgId: string, id: number, status: string): Promise<void> {
@@ -278,7 +309,12 @@ async function refuseWrite(schema: Record<string, unknown> | null, typeSlug: str
   if ('status' in set && !('status' in properties) && !rowStatusOf(schema, set)) {
     return `status on "${typeSlug}" is the record's lifecycle: one of ${ROW_STATUSES.join(', ')}.`;
   }
-  const keys = Object.keys(set).filter(k => !(k === 'status' && rowStatusOf(schema, set))).sort();
+  // So is the date it is put off to (`snoozeOf`).
+  const snooze = snoozeOf(schema, set);
+  if (snooze === 'invalid') {
+    return `${SNOOZE_KEY} is the date to put the record off to (ISO 8601, e.g. 2026-11-02T09:00:00Z), or null to wake it.`;
+  }
+  const keys = Object.keys(set).filter(k => !(k === 'status' && rowStatusOf(schema, set)) && !(k === SNOOZE_KEY && snooze)).sort();
   const reserved = keys.filter(k => RESERVED_OBJECT_KEYS.has(k));
   if (reserved.length > 0) {
     return `${reserved.join(', ')} ${reserved.length === 1 ? 'is' : 'are'} not a field of the record but the row itself and cannot be written here. Fields on "${typeSlug}": ${declared.join(', ')}.`;
@@ -308,7 +344,7 @@ async function refuseWrite(schema: Record<string, unknown> | null, typeSlug: str
 export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
   id: UPDATE_ACTION_ID,
   name: 'Update a record\'s fields',
-  description: 'Write one or more declared fields on an existing record of a workspace object type — a priority, a state, a link to what answered it — or move the record itself through its lifecycle with status: open, active, done, closed, dropped or archived (closing a finished follow-up). Only fields the type declares, checked against its schema; never the title. Reversible: the previous values are one Undo away, and every write is on the record\'s run history with who, why and what was there before.',
+  description: 'Write one or more declared fields on an existing record of a workspace object type — a priority, a state, a link to what answered it — or move the record itself through its lifecycle with status: open, active, done, closed, dropped or archived (closing a finished follow-up), or put it off to a date with snoozedUntil (ISO 8601; null wakes it). Only fields the type declares, checked against its schema; never the title. Reversible: the previous values are one Undo away, and every write is on the record\'s run history with who, why and what was there before.',
   inputSchema: updateMetaInput,
   grant: 'update_object',
   external: false,
@@ -383,8 +419,12 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     if (rowStatus) {
       fields.push({ label: 'Status', value: `${row?.status ?? 'open'} → ${rowStatus}` });
     }
+    const snooze = snoozeOf(objectType?.schema ?? null, input.set as Record<string, unknown>);
+    if (snooze && snooze !== 'invalid') {
+      fields.push({ label: 'Snoozed until', value: snooze.until ? snooze.until.toISOString().slice(0, 10) : '(woken)' });
+    }
     for (const [key, value] of Object.entries(input.set)) {
-      if (rowStatus && key === 'status') {
+      if ((rowStatus && key === 'status') || (snooze && key === SNOOZE_KEY)) {
         continue;
       }
       const before = row && key in row.metadata ? displayValue(row.metadata[key]) : '';
@@ -425,7 +465,9 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // Undo puts both back.
     // The record's own lifecycle, when the write moves it, goes on the row; the rest are fields.
     const rowStatus = rowStatusOf(objectType.schema, input.set as Record<string, unknown>);
-    const fieldSet = rowStatus ? Object.fromEntries(Object.entries(input.set).filter(([k]) => k !== 'status')) : input.set;
+    const snoozeAsked = snoozeOf(objectType.schema, input.set as Record<string, unknown>);
+    const snooze = snoozeAsked === 'invalid' ? undefined : snoozeAsked;
+    const fieldSet = Object.fromEntries(Object.entries(input.set).filter(([k]) => !(rowStatus && k === 'status') && !(snooze && k === SNOOZE_KEY)));
     const written = withFollowedStatus(readStatusModel(objectType.schema), fieldSet as Record<string, unknown>);
     // Sorted: the input comes back from jsonb in no particular order, and the
     // history should read the same however it was stored.
@@ -440,6 +482,9 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     await writeMetadata(ctx.orgId, row.id, next);
     if (rowStatus && rowStatus !== row.status) {
       await writeRowStatus(ctx.orgId, row.id, rowStatus);
+    }
+    if (snooze) {
+      await writeSnooze(ctx.orgId, row.id, snooze.until);
     }
     // The row is written exactly as before; the body's version rides beside
     // it and can never fail it.
@@ -493,10 +538,11 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
       objectId: row.id,
       objectType: input.objectType,
       title: row.title,
-      updated: rowStatus ? [...keys, 'status'] : keys,
+      updated: [...keys, ...(rowStatus ? ['status'] : []), ...(snooze ? [SNOOZE_KEY] : [])],
       set: input.set,
       previous,
       ...(rowStatus ? { rowStatus, previousRowStatus: row.status ?? null } : {}),
+      ...(snooze ? { snoozedUntil: snooze.until?.toISOString() ?? null, previousSnoozedUntil: row.snoozedUntil?.toISOString() ?? null } : {}),
       ...(visual === null ? {} : { visual }),
       ...(body.status === 'written' || body.status === 'unchanged' ? { bodyVersion: body.version } : {}),
       // Which version this write made, from which — what a page showing the
@@ -524,6 +570,9 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     await writeMetadata(ctx.orgId, row.id, applySet(row.metadata, previous));
     if (typeof result.rowStatus === 'string') {
       await writeRowStatus(ctx.orgId, row.id, typeof result.previousRowStatus === 'string' ? result.previousRowStatus : 'open');
+    }
+    if ('snoozedUntil' in result) {
+      await writeSnooze(ctx.orgId, row.id, typeof result.previousSnoozedUntil === 'string' ? new Date(result.previousSnoozedUntil) : null);
     }
     // Undo is a write too, so it is a version: history never shows a record
     // saying something its body does not.

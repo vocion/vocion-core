@@ -18,7 +18,7 @@ vi.mock('@/libs/Orpc', () => ({ client: { review: { propose: (...a: unknown[]) =
 const surface = vi.fn();
 vi.mock('@/features/dashboard/chat/agentSurface', () => ({ openAgentSurface: (...a: unknown[]) => surface(...a) }));
 
-const { RecordLifecycle } = await import('./RecordLifecycle');
+const { RecordLifecycle, snoozeChoices } = await import('./RecordLifecycle');
 
 const record = { type: 'object' as const, id: '412', label: 'Send Dana the deck' };
 
@@ -124,5 +124,26 @@ describe('a record\'s verbs', () => {
     const view = await render(<RecordLifecycle record={record} objectType="follow-up" status="active" className="mb-6" />);
 
     expect(view.container.querySelector('[data-testid="record-lifecycle"]')?.className).toContain('mb-6');
+  });
+
+  it('puts a snoozed record\'s date first, and Wake writes it back to now, with Undo', async () => {
+    const view = await render(<RecordLifecycle record={record} objectType="follow-up" status="active" snoozedUntil="2026-11-02T17:00:00.000Z" />);
+
+    expect(view.container.querySelector('[data-testid="record-lifecycle-snoozed"]')?.textContent).toContain('Snoozed until');
+    expect(view.container.querySelector('[data-testid="record-lifecycle-snooze"]')).toBeNull();
+
+    await view.getByTestId('record-lifecycle-wake').click();
+
+    await expect.poll(() => propose.mock.calls.length).toBe(1);
+    expect(propose).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ set: { snoozedUntil: null } }) }));
+    await expect.poll(() => view.container.querySelector('[data-testid="record-lifecycle-moved"]')?.textContent).toContain('Back on the list.');
+  });
+
+  it('offers tomorrow, next Monday and two weeks out, each at nine', () => {
+    // A Friday afternoon.
+    const choices = snoozeChoices(new Date(2026, 9, 23, 15, 0));
+
+    expect(choices.map(c => c.label)).toEqual(['Tomorrow', 'Next Monday', 'In 2 weeks']);
+    expect(choices.map(c => [c.at.getDate(), c.at.getHours()])).toEqual([[24, 9], [26, 9], [6, 9]]);
   });
 });

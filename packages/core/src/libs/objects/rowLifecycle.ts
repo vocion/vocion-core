@@ -85,8 +85,10 @@ export function finishedLabel(status: string): string {
  * three follow-ups "to contact" when all three were still proposals waiting
  * in Review, and the person could not find a way to act on them.
  * @param status - The row's status (null reads as open).
+ * @param snoozedUntil - The date an open record is put off to, if any; one that has passed is over.
+ * @param now - The clock.
  */
-export function recordStateLine(status: string | null | undefined): string {
+export function recordStateLine(status: string | null | undefined, snoozedUntil?: Date | null, now: number = Date.now()): string {
   const s = String(status ?? '').toLowerCase();
   if (s === CANDIDATE) {
     return 'proposed: waiting for a person to approve or dismiss it in Review; not yet a record they stand behind';
@@ -97,5 +99,10 @@ export function recordStateLine(status: string | null | undefined): string {
   if (isFinishedStatus(s)) {
     return `finished (${finishedLabel(s).toLowerCase()})`;
   }
-  return isOwedStatus(s) ? 'open' : s;
+  if (!isOwedStatus(s)) {
+    return s;
+  }
+  return snoozedUntil && snoozedUntil.getTime() > now
+    ? `open, snoozed until ${snoozedUntil.toISOString().slice(0, 10)}: put off by a person; do not raise it before then`
+    : 'open';
 }

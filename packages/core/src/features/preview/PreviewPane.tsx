@@ -527,7 +527,7 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
             : (
                 <>
                   {doc?.lifecycle && !props.compact && (
-                    <RecordLifecycle key={`${recordRef.id}:${doc.lifecycle.status}`} record={record} objectType={doc.lifecycle.objectType} status={doc.lifecycle.status} decideRunId={doc.lifecycle.decideRunId} />
+                    <RecordLifecycle key={`${recordRef.id}:${doc.lifecycle.status}`} record={record} objectType={doc.lifecycle.objectType} status={doc.lifecycle.status} decideRunId={doc.lifecycle.decideRunId} snoozedUntil={doc.lifecycle.snoozedUntil} />
                   )}
                   <Body doc={shown} />
                 </>
