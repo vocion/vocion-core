@@ -4,8 +4,11 @@
 # Published from vocion-core CI, tagged by the commit it was built from. See docs/guides/runner.md.
 #
 # Two targets (src/engines/):
-#   internal (the default, the last stage): the claude-cli engine, headless Claude Code. What CI
-#            builds and publishes, unchanged.
+#   internal (the default, the last stage): both engines, headless Claude Code (claude-cli, the
+#            default when a contract names no engine) on top of the open stage's OpenHands. What
+#            CI builds and publishes. It carries both so that any runner on an installation can
+#            take any run: runners claim across every workspace, oldest first, and a runner that
+#            claims a run whose engine its image lacks fails it.
 #   open     the openhands engine: the OpenHands Software Agent SDK (MIT) in /opt/openhands, and no
 #            Claude Code. The image a client installation pulls.
 #              docker build --target open -t vocion-runner-open packages/runner
@@ -89,9 +92,10 @@ ENV OPENHANDS_HOME=/opt/openhands \
     OPENHANDS_SUPPRESS_BANNER=1
 LABEL org.opencontainers.image.description="The Vocion runner, open engines (OpenHands): one headless engineering task per container."
 
-# ---------- internal (default): the claude-cli engine ----------
-FROM base AS internal
+# ---------- internal (default): claude-cli on top of the open stage, so both engines ----------
+FROM open AS internal
 USER root
 ARG CLAUDE_CODE_VERSION=latest
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cache clean --force
 USER runner
+LABEL org.opencontainers.image.description="The Vocion runner, claude-cli and openhands engines: one headless engineering task per container."

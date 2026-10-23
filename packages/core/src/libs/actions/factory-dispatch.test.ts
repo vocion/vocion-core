@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, keptBranchOf, pathsFromComponents, pickResumeBase, repoCloneUrl, repoFullName, riskFromPaths, underwayNow, underwayRefusal } from './factory-dispatch';
+import { contractFromTask, contractGaps, deriveContract, enginePolicy, factoryDispatchAction, fitName, higherRisk, keptBranchOf, pathsFromComponents, pickResumeBase, repoCloneUrl, repoFullName, riskFromPaths, underwayNow, underwayRefusal } from './factory-dispatch';
 
 // The engineering_task record as the worker's contract (snake_case), and what
 // stops a task from being started. Every name and path below is invented.
@@ -338,6 +338,72 @@ describe('the engineer seat\'s model reaches the worker', () => {
 
   it('a task\'s own policy wins over the seat\'s', () => {
     expect(contractFromTask({ ...task, meta: { ...task.meta, modelPolicy: { model: 'claude-sonnet-5' } } }, { product: 'send', modelPolicy: { model: 'claude-opus-5' } }).model_policy).toEqual({ model: 'claude-sonnet-5' });
+  });
+});
+
+describe('the engineer seat\'s engine reaches the worker (engine plan, Phase 2)', () => {
+  const task = { id: 5, title: 'Copy link', meta: { objective: 'Add it.', acceptanceContract: ['a'], allowedPaths: ['apps/web/**'], requiredChecks: ['test'], riskClass: 'ui', repo: 'https://github.com/acme/app.git' } as Record<string, unknown> };
+
+  it('carries the seat\'s engine as engine, and says nothing when the seat names none', () => {
+    expect(contractFromTask(task, { product: 'send', engine: { id: 'openhands' } }).engine).toEqual({ id: 'openhands' });
+    expect(contractFromTask(task, { product: 'send', engine: { id: 'openhands', model: 'bedrock/us.anthropic.claude-opus-5-5' } }).engine).toEqual({ id: 'openhands', model: 'bedrock/us.anthropic.claude-opus-5-5' });
+    expect(contractFromTask(task, { product: 'send' })).not.toHaveProperty('engine');
+    expect(contractFromTask(task, { product: 'send', engine: null })).not.toHaveProperty('engine');
+  });
+
+  it('never writes the default engine, so an older runner reads the contract it always did', () => {
+    expect(contractFromTask(task, { product: 'send', engine: { id: 'claude-cli' } })).not.toHaveProperty('engine');
+    expect(enginePolicy({ id: 'claude-cli' })).toBeNull();
+    expect(enginePolicy({ id: 'claude-cli', model: 'claude-opus-5-5' })).toEqual({ id: 'claude-cli', model: 'claude-opus-5-5' });
+  });
+
+  it('a task\'s own engine wins over the seat\'s', () => {
+    expect(contractFromTask({ ...task, meta: { ...task.meta, engine: { id: 'claude-cli', model: 'claude-sonnet-5' } } }, { product: 'send', engine: { id: 'openhands' } }).engine).toEqual({ id: 'claude-cli', model: 'claude-sonnet-5' });
+  });
+
+  it('drops an engine the runner does not know rather than send a contract it refuses', () => {
+    expect(enginePolicy({ id: 'devin' })).toBeNull();
+    expect(enginePolicy('openhands')).toBeNull();
+    expect(enginePolicy({ id: 'openhands', model: '  ' })).toEqual({ id: 'openhands' });
+    expect(contractFromTask({ ...task, meta: { ...task.meta, engine: { id: 'devin' } } }, { product: 'send', engine: { id: 'openhands' } }).engine).toEqual({ id: 'openhands' });
+  });
+});
+
+describe('the work lands on the repo record\'s default branch (DeliveryStack builds on dev)', () => {
+  const task = { id: 6, title: 'Copy link', meta: { objective: 'Add it.', acceptanceContract: ['a'], allowedPaths: ['apps/web/**'], requiredChecks: ['test'], riskClass: 'ui', repo: 'https://github.com/acme/app.git' } as Record<string, unknown> };
+
+  it('carries a branch other than main as base_branch, and starts from it', () => {
+    const c = contractFromTask({ ...task, meta: { ...task.meta, baseBranch: 'dev' } }, { product: 'send' });
+
+    expect(c.base_branch).toBe('dev');
+    expect(c.base_sha).toBe('origin/dev');
+  });
+
+  it('keeps a main-based contract exactly as it was', () => {
+    const c = contractFromTask({ ...task, meta: { ...task.meta, baseBranch: 'main' } }, { product: 'send' });
+
+    expect(c).not.toHaveProperty('base_branch');
+    expect(c.base_sha).toBe('origin/main');
+    expect(contractFromTask(task, { product: 'send' })).not.toHaveProperty('base_branch');
+  });
+
+  it('a resumed branch is still the start, landing on the default branch', () => {
+    const c = contractFromTask({ ...task, meta: { ...task.meta, baseBranch: 'dev', baseSha: 'factory/t5' } }, { product: 'send' });
+
+    expect(c.base_sha).toBe('factory/t5');
+    expect(c.base_branch).toBe('dev');
+  });
+
+  it('refuses a branch name the runner would refuse', () => {
+    expect(contractFromTask({ ...task, meta: { ...task.meta, baseBranch: '-rf dev' } }, { product: 'send' })).not.toHaveProperty('base_branch');
+  });
+
+  it('deriveContract reads the repo record\'s defaultBranch, and a card\'s own baseBranch wins', () => {
+    const repo = { title: 'acme/app', defaultBranch: 'dev', checks: [{ name: 'test' }] };
+
+    expect(deriveContract({ given: {}, request: { title: 'Copy link' }, plan: null, repo }).baseBranch).toBe('dev');
+    expect(deriveContract({ given: { baseBranch: 'release' }, request: { title: 'Copy link' }, plan: null, repo }).baseBranch).toBe('release');
+    expect(deriveContract({ given: {}, request: { title: 'Copy link' }, plan: null, repo: { title: 'acme/app' } })).not.toHaveProperty('baseBranch');
   });
 });
 
