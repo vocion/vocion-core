@@ -232,11 +232,22 @@ schema:
     repos: {relation: repos, value: slug}
 ```
 
+**Things owed.** A type whose records are things to finish (a follow-up, a to-do, an owed touch) says so with `x-owed: true`. Its records then carry their verbs wherever they are read: the preview pane opens with **Do it**, **Done** and **Drop**, a finished record offers **Reopen**, and a record under a chat answer shows a quiet ✓ on hover. Done and Drop move the record's own lifecycle (`status`: open, active, done, closed, dropped, archived) through `objects.update_meta`, the same action an agent's close goes through, so a click is a run on the record's history with Undo. **Do it** sends the team "do what this owes" about the record, and anything that goes out to someone waits for the person's approval. The preview also leads with the record's age ("opened on Jul 16, 2026"), because an owed thing three months old calls for a different decision. Without `x-owed` a record shows no verbs: a product or a company has a lifecycle too, but Done on one would be nonsense. A type that declares its own `status` field moves it by its own transitions and is never this lifecycle.
+
+```yaml
+# objects/follow-up/type.yaml
+schema:
+  type: object
+  x-owed: true
+  properties:
+    owed_action: {type: string, description: The specific touch owed}
+```
+
 ## Rules
 
 - Slugs are unique across object types.
 - Only files named `type.yaml` / `type.yml` under `objects/` are loaded — anything else in the folder is treated as a resource, not a manifest.
-- An agent's `objectTypes:` entries name these slugs; activating a base agent pulls in the object types it uses. They are also what the agent may **write**: `update_object` sets declared fields on a record of a listed type, through the `objects.update_meta` action ([trust](./trust.md#the-agents-own-writes)) — only keys under `schema.properties`, each value checked against its field, never `title`, `status` or the row's bookkeeping. A field the type does not declare is refused with the list of the ones it does, so a new field is a change to `type.yaml` first.
+- An agent's `objectTypes:` entries name these slugs; activating a base agent pulls in the object types it uses. They are also what the agent may **write**: `update_object` sets declared fields on a record of a listed type, through the `objects.update_meta` action ([trust](./trust.md#the-agents-own-writes)) — only keys under `schema.properties`, each value checked against its field, never `title` or the row's bookkeeping. On a type with no `status` field of its own, `status` moves the record through its lifecycle (open, active, done, closed, dropped, archived), with Undo. A field the type does not declare is refused with the list of the ones it does, so a new field is a change to `type.yaml` first.
 
 ## Related
 

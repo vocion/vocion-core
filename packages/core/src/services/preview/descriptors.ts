@@ -215,21 +215,34 @@ async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: strin
       // the version as a fact, the history one click away in this pane.
       const { recordBody } = await import('@/services/objects/recordBody');
       const bodyRow = await recordBody(ctx.orgId, obj.id).catch(() => null);
-      const historyLink = bodyRow ? `[History — v${bodyRow.currentVersion}](?preview=${encodeURIComponent(`record_history:${obj.id}`)})` : '';
+      // A first version has no history worth a link: the version fact is enough.
+      const historyLink = bodyRow && bodyRow.currentVersion > 1 ? `[History — v${bodyRow.currentVersion}](?preview=${encodeURIComponent(`record_history:${obj.id}`)})` : '';
       // WHERE IT IS, at the top — the same three lines its page draws, for
       // a record whose type has a report page. A status that cannot be read
       // leaves the preview as it was rather than failing it.
       const { loadRecordStatus } = await import('@/services/objects/recordStatus');
       const status = await loadRecordStatus(ctx.orgId, obj.id).catch(() => null);
+      // A record that moves through its own lifecycle carries its verbs
+      // (`RecordLifecycle`): what is owed reads as something to do, not only
+      // to read. Its age leads the facts — a three-month-old owed touch is a
+      // different decision from yesterday's.
+      const { offersOwedVerbs } = await import('@/libs/objects/rowLifecycle');
+      const { timeAgo } = await import('@/libs/timeAgo');
+      const lifecycle = typeSlug && offersOwedVerbs(obj.type?.schema ?? null) ? { objectType: typeSlug, status: obj.status ?? 'open' } : null;
+      const opened = lifecycle && obj.createdAt ? { label: 'Opened', value: `opened ${timeAgo(new Date(obj.createdAt), Date.now())}` } : null;
+      const hrefLabel = openRecordLabel(href);
       return {
         ref,
         ...(status?.ok ? { status: status.status } : {}),
+        ...(lifecycle ? { lifecycle } : {}),
         title: obj.title,
         sourceLabel: obj.type?.label ?? 'Record',
-        facts: facts(...parts.facts, obj.status && { label: 'Status', value: obj.status }, bodyRow && { label: 'Version', value: `v${bodyRow.currentVersion}` }),
+        facts: facts(opened, ...parts.facts, !lifecycle && obj.status && { label: 'Status', value: obj.status }, bodyRow && { label: 'Version', value: `v${bodyRow.currentVersion}` }),
         ...body([summary, parts.body, historyLink].filter(Boolean).join('\n\n')),
         href,
-        hrefLabel: openRecordLabel(href),
+        // The header's icon already opens the record; a link under the body
+        // is worth its words only when it names a page ("Open feature").
+        ...(hrefLabel === 'Open record' ? {} : { hrefLabel }),
       };
     }
   }

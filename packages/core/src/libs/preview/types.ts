@@ -93,6 +93,12 @@ export type PreviewDoc = {
    * the pane and kept current while something runs.
    */
   status?: import('@/libs/factory/liveStatus').RecordStatus;
+  /**
+   * A record that moves through its own lifecycle (`libs/objects/rowLifecycle`):
+   * its type and where it is, so the pane offers Do it, Done and Drop with Undo
+   * (`features/dashboard/objects/RecordLifecycle`).
+   */
+  lifecycle?: { objectType: string; status: string };
   /** In-app full detail page. Relative only. */
   href?: string;
   /**

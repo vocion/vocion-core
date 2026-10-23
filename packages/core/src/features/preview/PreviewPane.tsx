@@ -19,6 +19,7 @@ import { RunStepList } from '@/features/dashboard/factory/RunDetail';
 import { RunGlanceView } from '@/features/dashboard/factory/RunGlanceView';
 import { LiveWorkStatus } from '@/features/dashboard/factory/WorkStatus';
 import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
+import { RecordLifecycle } from '@/features/dashboard/objects/RecordLifecycle';
 import { useVersionRefresh } from '@/features/dashboard/versions/VersionWatch';
 import { RoutineBatchView } from '@/features/routines/RoutineBatchView';
 import { RoutineView } from '@/features/routines/RoutineView';
@@ -46,7 +47,9 @@ import { closePreview, openPreview } from './previewState';
  *
  * A preview never carries actions that belong to the detail page — it answers
  * "is this the right thing, and what does it say", and the link is how you
- * make it the task.
+ * make it the task. The one exception is a record's own lifecycle (Do it,
+ * Done, Drop, with Undo): finishing an owed thing is the answer to reading
+ * it, and sending a person to a page to press Done is a step for nothing.
  *
  * It renders no `Section`, deliberately. `Section` is a commentable region
  * (`patterns/DetailPage`), and a comment anchored in a peek would be filed
@@ -493,7 +496,14 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
         ? <Restarting retrying={retrying} onRetry={retryNow} />
         : !doc && !failure
             ? <p className="px-4 py-3 text-sm text-muted-foreground" role="status">Loading…</p>
-            : <Body doc={shown} />}
+            : (
+                <>
+                  {doc?.lifecycle && !props.compact && (
+                    <RecordLifecycle key={`${recordRef.id}:${doc.lifecycle.status}`} record={record} objectType={doc.lifecycle.objectType} status={doc.lifecycle.status} />
+                  )}
+                  <Body doc={shown} />
+                </>
+              )}
     </section>
   );
 }
