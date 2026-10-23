@@ -24,6 +24,12 @@ import type { RecordRef, RecordType } from '@/services/chat/pageContext';
  * renders and never queries.
  */
 
+/**
+ * A record's own verbs (`services/objects/recordActions`): its type, where it
+ * stands, and — for a candidate — the pending Review item Approve and Dismiss decide.
+ */
+export type RecordActions = { objectType: string; status: string; decideRunId?: number };
+
 /** One `label: value` line in the panel header block. */
 export type PreviewFact = { label: string; value: string };
 
@@ -104,7 +110,7 @@ export type PreviewDoc = {
    * its type and where it is, so the pane offers Do it, Done and Drop with Undo
    * (`features/dashboard/objects/RecordLifecycle`).
    */
-  lifecycle?: { objectType: string; status: string };
+  lifecycle?: RecordActions;
   /** In-app full detail page. Relative only. */
   href?: string;
   /**

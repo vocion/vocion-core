@@ -11,6 +11,7 @@ import { ObjectAgentActivity } from '@/features/dashboard/ObjectAgentActivity';
 import { RecordBody } from '@/features/dashboard/objects/RecordBody';
 import { RecordChangeIntent } from '@/features/dashboard/objects/RecordChangeIntent';
 import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
+import { RecordLifecycle } from '@/features/dashboard/objects/RecordLifecycle';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { VersionChip } from '@/features/dashboard/versions/VersionChip';
 import { VersionWatch } from '@/features/dashboard/versions/VersionWatch';
@@ -23,6 +24,7 @@ import { declaredRecordFields, hasInspectionImage, isDiscoveryRecord, recordSect
 import { getBusinessObject } from '@/services/BusinessObjectService';
 import { recordRef } from '@/services/chat/recordContext';
 import { codeForRecord } from '@/services/codes';
+import { recordActionsOf } from '@/services/objects/recordActions';
 import { recordVersionOf } from '@/services/objects/recordBody';
 import { recordBodyEnabled } from '@/services/objects/recordBodyFormat';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
@@ -123,6 +125,10 @@ export default async function ObjectDetailPage(props: {
   // What it is connected to — the chat that started it, what its type
   // declares, its artifacts — in the one Related block (`relatedOf`).
   const related = await relatedOf(orgId, obj.id).catch(() => undefined);
+  // What a person can do with it, the bar its preview draws too
+  // (`recordActionsOf`): Approve / Dismiss on a candidate, Do it / Done / Drop
+  // on a thing owed, Reopen once finished.
+  const actions = await recordActionsOf(orgId, obj).catch(() => null);
 
   return (
     <>
@@ -157,6 +163,9 @@ export default async function ObjectDetailPage(props: {
           </div>
         )}
       />
+      {actions && (
+        <RecordLifecycle record={recordRef('object', obj.id, obj.title)} objectType={actions.objectType} status={actions.status} decideRunId={actions.decideRunId} className="-mt-2 mb-6" />
+      )}
       <RecordContext record={recordRef('object', obj.id, obj.title)} />
       {/* A version written from chat (or anywhere on this page) refreshes the
           record in place and marks what changed (backlog 035). */}

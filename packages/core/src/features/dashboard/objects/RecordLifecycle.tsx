@@ -5,7 +5,7 @@ import { Check, Loader2, RotateCcw, Sparkles, X } from 'lucide-react';
 import { useState } from 'react';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { useRouter } from '@/libs/I18nNavigation';
-import { finishedLabel, isFinishedStatus, isOwedStatus } from '@/libs/objects/rowLifecycle';
+import { CANDIDATE, finishedLabel, isFinishedStatus, isOwedStatus } from '@/libs/objects/rowLifecycle';
 import { client } from '@/libs/Orpc';
 
 /**
@@ -27,9 +27,12 @@ import { client } from '@/libs/Orpc';
  * @param props.record - The record (`type: 'object'`), with its label.
  * @param props.objectType - Its type's slug.
  * @param props.status - Its row status now.
- * @param props.look - `bar` under a preview's title; `inline` on a chat microcard (Done only, on hover).
+ * @param props.look - `bar` under a preview's title or a record page's; `inline` on a chat microcard (Done only, on hover).
+ * @param props.decideRunId - For a candidate, the pending Review item that proposed it: Approve and
+ * Dismiss decide it here (Chris, 2026-10-23, on a candidate's page: "how do I act from this?").
+ * @param props.className - Where the bar sits: the preview's edge-to-edge row by default.
  */
-export function RecordLifecycle({ record, objectType, status, look = 'bar' }: { record: RecordRef; objectType: string; status: string; look?: 'bar' | 'inline' }) {
+export function RecordLifecycle({ record, objectType, status, look = 'bar', decideRunId, className }: { record: RecordRef; objectType: string; status: string; look?: 'bar' | 'inline'; decideRunId?: number; className?: string }) {
   const router = useRouter();
   const [now, setNow] = useState(status);
   const [phase, setPhase] = useState<{ s: 'idle' } | { s: 'working' } | { s: 'moved'; runId: number; from: string } | { s: 'error'; message: string }>({ s: 'idle' });
@@ -61,6 +64,23 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar' }: { 
     }
   };
 
+  // A candidate's one pending decision, made where the record is read: the
+  // same decision its Review item makes. Approved, it is a thing owed and its
+  // verbs follow; dismissed, it is the record of what was proposed.
+  const decide = async (decision: 'approve' | 'reject') => {
+    if (!decideRunId) {
+      return;
+    }
+    setPhase({ s: 'working' });
+    try {
+      await client.review.decideAction({ id: decideRunId, decision, ...(decision === 'reject' ? { reason: 'Dismissed from the record.' } : {}) });
+      setNow(decision === 'approve' ? 'approved' : 'rejected');
+      setPhase({ s: 'idle' });
+    } catch (err) {
+      setPhase({ s: 'error', message: (err as Error).message });
+    }
+  };
+
   const undo = async (runId: number, from: string) => {
     setPhase({ s: 'working' });
     try {
@@ -83,6 +103,27 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar' }: { 
   const working = phase.s === 'working';
   const quiet = 'inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[12.5px] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground disabled:opacity-60';
 
+  const bar = className ?? 'border-b border-border/60 px-4 py-2';
+  const proposal = now === CANDIDATE && Boolean(decideRunId);
+  if (proposal && look === 'bar') {
+    return (
+      <div className={`flex flex-wrap items-center gap-1.5 ${bar}`} data-testid="record-lifecycle" data-status={now}>
+        <span className="mr-1 text-[13px] text-muted-foreground">Proposed. Keep it?</span>
+        <button type="button" onClick={() => void decide('approve')} disabled={working} data-testid="record-lifecycle-approve" className="inline-flex h-7 items-center gap-1.5 rounded-full bg-foreground px-3 text-[12.5px] font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60">
+          {working ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
+          Approve
+        </button>
+        <button type="button" onClick={() => void decide('reject')} disabled={working} data-testid="record-lifecycle-dismiss" className={quiet}>
+          <X className="size-3.5" aria-hidden />
+          Dismiss
+        </button>
+        {phase.s === 'error' && <p className="w-full text-xs text-[var(--brand-fail)]" role="alert">{phase.message}</p>}
+      </div>
+    );
+  }
+  if (now === 'rejected' && look === 'bar' && decideRunId) {
+    return <p className={`text-[13px] text-muted-foreground ${bar}`} data-testid="record-lifecycle-dismissed">Dismissed.</p>;
+  }
   if (!owed && !finished && phase.s !== 'moved') {
     return null;
   }
@@ -116,7 +157,7 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar' }: { 
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-b border-border/60 px-4 py-2" data-testid="record-lifecycle" data-status={now}>
+    <div className={`flex flex-wrap items-center gap-1.5 ${bar}`} data-testid="record-lifecycle" data-status={now}>
       {phase.s === 'moved'
         ? (
             <p className="flex items-center gap-2 text-[13px] text-muted-foreground" data-testid="record-lifecycle-moved">

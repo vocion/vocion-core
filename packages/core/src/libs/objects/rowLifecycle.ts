@@ -43,8 +43,14 @@ export function offersOwedVerbs(schema: unknown): boolean {
   return Boolean(schema) && typeof schema === 'object' && hasRowLifecycle(schema) && (schema as Record<string, unknown>)['x-owed'] === true;
 }
 
-/** The states a record is still owed in: its verbs are Do it, Done and Drop. */
-const OWED: ReadonlySet<string> = new Set(['', 'open', 'active']);
+/**
+ * The states a record is still owed in: its verbs are Do it, Done and Drop.
+ * `approved` is a candidate a person stood behind (`USABLE_RECORD_STATUSES`).
+ */
+const OWED: ReadonlySet<string> = new Set(['', 'open', 'active', 'approved']);
+
+/** A proposal waiting for a person's judgment: its verbs are Approve and Dismiss, its Review decision. */
+export const CANDIDATE = 'candidate';
 
 /**
  * Whether a row status means the record is still owed. Any other state that
