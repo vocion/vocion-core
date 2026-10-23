@@ -1,7 +1,7 @@
 'use client';
 
 import type { GoalScorecard as Scorecard, ScorecardCell } from './types';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { cn } from '@/utils/Helpers';
 
 /**
@@ -22,10 +22,18 @@ export function GoalScorecard(props: { scorecard: Scorecard; editable: boolean; 
   const { scorecard } = props;
   const [editing, setEditing] = useState<string | null>(null);
   const notes = scorecard.columns.filter(c => c.note);
+  // On a phone the latest weeks are what matter: open the scroller at this week.
+  const scroller = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el) {
+      el.scrollLeft = el.scrollWidth;
+    }
+  }, [scorecard.columns.length]);
 
   return (
     <div data-testid="goal-scorecard">
-      <div className="-mx-1 overflow-x-auto px-1">
+      <div ref={scroller} className="-mx-1 overflow-x-auto px-1">
         <table className="w-full min-w-max border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-rule">
@@ -41,7 +49,7 @@ export function GoalScorecard(props: { scorecard: Scorecard; editable: boolean; 
           <tbody className="divide-y divide-rule">
             {scorecard.rows.map(r => (
               <tr key={r.key} data-testid="goal-scorecard-row">
-                <th scope="row" className="sticky left-0 max-w-[14rem] bg-background py-1.5 pr-3 text-left font-normal">
+                <th scope="row" className="sticky left-0 max-w-[14rem] bg-background py-1.5 pr-3 text-left font-normal max-md:max-w-[10rem]">
                   <span className="block truncate text-foreground">{r.label}</span>
                   <span className="block text-[12px] text-muted-foreground tabular-nums">
                     {r.perWeek}
@@ -125,7 +133,7 @@ function Cell(props: { cell: ScorecardCell; perWeek: number; label: string; disa
       data-met={cell.met === null ? undefined : String(cell.met)}
       className={cn(
         'inline-flex min-w-10 items-center justify-end rounded px-2 py-1 tabular-nums transition-colors max-md:min-h-11 disabled:cursor-default',
-        cell.met === true && 'bg-[var(--brand-pass)]/12 font-medium text-[var(--brand-pass)]',
+        cell.met === true && 'bg-[var(--brand-pass)]/12 font-medium text-[var(--brand-pass)] dark:bg-[var(--brand-pass)]/30 dark:text-foreground',
         cell.met === false && 'bg-[var(--brand-amber)]/12 font-medium text-[var(--brand-amber-deep)]',
         cell.met === null && 'text-muted-foreground',
         !props.disabled && 'hover:ring-1 hover:ring-border',
