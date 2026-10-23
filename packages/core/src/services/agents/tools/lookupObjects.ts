@@ -2,6 +2,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { parseCode, recordCode } from '@/libs/codes';
+import { recordStateLine } from '@/libs/objects/rowLifecycle';
 import { listBusinessObjects } from '@/services/BusinessObjectService';
 import { typeCodesForOrg } from '@/services/codes';
 import { objectKnowledge } from '@/services/MemoryService';
@@ -123,7 +124,9 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
         // It is the first key because it is what the next tool call needs, and
         // a digest that buries the handle is a digest a model has to hunt in.
         // The CODE beside it: what the answer names the record by (FE-294, `libs/codes.ts`).
-        const rec: Record<string, unknown> = { id: obj.id, code: recordCode(codes, obj.type?.slug, obj.id), title: obj.title, status: obj.status };
+        // `record_state` says the row's lifecycle in words, beside fields that may
+        // sound like one (`relationship_status`), so the answer names the right one.
+        const rec: Record<string, unknown> = { id: obj.id, code: recordCode(codes, obj.type?.slug, obj.id), title: obj.title, status: obj.status, record_state: recordStateLine(obj.status) };
         if (statuses[i]) {
           rec.liveStatus = statuses[i];
         }
@@ -166,7 +169,7 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
     },
     {
       name: 'lookup_objects',
-      description: `Look up the structured business objects (follow-ups, events, deals, accounts) the agent tracks. Returns a compact, sanitized digest to SYNTHESIZE into a plain answer — never paste it back verbatim. When ${STATUS_READS} or fewer records match and their type has a report page, each carries liveStatus: where it is now and its delivery facts (QA's verdict, whether its pull request merged, CI, whether its merge runs itself, the request's stage) — say status from those fields, never from a field that only says a run ended.`,
+      description: `Look up the structured business objects (follow-ups, events, deals, accounts) the agent tracks. Returns a compact, sanitized digest to SYNTHESIZE into a plain answer — never paste it back verbatim. When ${STATUS_READS} or fewer records match and their type has a report page, each carries liveStatus: where it is now and its delivery facts (QA's verdict, whether its pull request merged, CI, whether its merge runs itself, the request's stage) — say status from those fields, never from a field that only says a run ended. A record's own state is record_state (open, proposed in Review, dismissed, finished); a field of the type that sounds like a status is that field, never the record's state.`,
       schema: z.object({
         type_slug: z.string().optional().describe(`Object type to filter by${available ? ` (available: ${available})` : ''}`),
         id: recordIdArg('One record — the fastest way to read a record you already know').optional(),
