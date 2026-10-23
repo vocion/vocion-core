@@ -1,0 +1,23 @@
+{
+  "id": "c03-upload-date-document",
+  "split": "tuning",
+  "complexity": 1,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 3,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Show when the document was uploaded, under its title",
+  "objective": "On the document page, show when the document was uploaded, under its title, like \"Uploaded Sep 30\", in an element with data-testid=\"uploaded\". Dates are UTC. A document uploaded in an earlier year than the store's clock shows the year: \"Uploaded Sep 30, 2025\".",
+  "acceptance": [
+    "The Q3 Board Deck (d1) reads \"Uploaded Sep 30\" under its title",
+    "A document from an earlier year shows the year, like \"Uploaded Sep 30, 2025\"",
+    "The date is the UTC date"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Add formatDate(iso, now) to format.mjs and render it in documentPage."
+}

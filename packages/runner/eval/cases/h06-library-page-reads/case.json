@@ -1,0 +1,26 @@
+{
+  "id": "h06-library-page-reads",
+  "tier": "hard",
+  "split": "tuning",
+  "complexity": 4,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 23,
+    "kind": "walk-derived",
+    "note": "Walks 11, 13 and 23 each put more activity on the library row; the read count grew with every document. Graded by a measurable bar, not by taste."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Make the library page fast for big libraries",
+  "objective": "Libraries with a few thousand documents take seconds to load the library page, and the database team says the page issues one query per document. Make the page's database reads a small fixed number however many documents the library holds (the in-memory database counts reads in `db.stats.reads`), so its time grows roughly linearly with the library. What the page shows must not change, nor the numbers anything else derives from the same activity data (the weekly digest, for one). Add a test that holds the page to its read count.",
+  "acceptance": [
+    "The library page takes the same small number of reads (at most 12) for 20 or 400 documents",
+    "Every row's activity and opened-by numbers, and documentStats' values, are unchanged",
+    "Computing the page's stats for 2000 documents takes under 30 times as long as for 200",
+    "The weekly digest counts the same opens"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "A views repository read for many documents at once; documentStats groups one read instead of reading per document; a read-count test."
+}

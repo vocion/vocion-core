@@ -1,0 +1,26 @@
+{
+  "id": "h17-preview-bots-counted",
+  "tier": "hard",
+  "split": "tuning",
+  "complexity": 4,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 23,
+    "kind": "walk-derived",
+    "note": "Walks 11 and 23 counted opens; pasting a link into chat makes the chat app fetch it. The helper that knows robots exists and the activity page already uses it; the recording path does not."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Bug: links count as opened the moment we paste them in chat",
+  "objective": "Bug report: \"We paste a recipient's link into our team chat to tell colleagues it went out, and within seconds the library says the document was opened, and the recipient never gets a reminder. Our mail security gateway seems to do the same when the share email arrives.\" Find the cause and fix it so these do not count as opens anywhere in the product, while people opening links in a browser count as before and robots still get a page to draw their preview from. Add a regression test.",
+  "acceptance": [
+    "A chat app's link preview is not an open on the library page, the analytics API or for reminders",
+    "A HEAD request is not an open",
+    "No known robot counts (library, digest); a person in a browser still counts and stops reminders",
+    "Robots still get the link page"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "openLink stops recording visits from known robots (lib/bots) and HEAD requests; the visitor route passes the method; a regression test."
+}

@@ -1,0 +1,109 @@
+diff --git a/src/api.mjs b/src/api.mjs
+index 19e33f6..a44537b 100644
+--- a/src/api.mjs
++++ b/src/api.mjs
+@@ -24,7 +24,7 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     }
+     const [, , id, sub] = parts;
+     if (!id && method === 'GET') {
+-      return { status: 200, body: { documents: store.listDocuments(userId, { q: query.q || '' }).map(summary) } };
++      return { status: 200, body: { documents: store.listDocuments(userId, { q: query.q || '', sort: query.sort }).map(summary) } };
+     }
+     const doc = store.findDocument(id);
+     if (!doc) {
+diff --git a/src/store.mjs b/src/store.mjs
+index 3471d73..3e8495d 100644
+--- a/src/store.mjs
++++ b/src/store.mjs
+@@ -1,5 +1,28 @@
+ import { seed } from './data.mjs';
+ 
++export const SORTS = ['name', 'uploaded', 'opened'];
++
++function sorter(store, sort) {
++  const newest = (a, b) => b.uploadedAt.localeCompare(a.uploadedAt);
++  if (sort === 'name') {
++    return (a, b) => a.title.localeCompare(b.title, 'en', { sensitivity: 'base' });
++  }
++  if (sort === 'opened') {
++    return (a, b) => {
++      const x = store.lastOpenedAt(a.id);
++      const y = store.lastOpenedAt(b.id);
++      if (x === y) {
++        return newest(a, b);
++      }
++      if (!x || !y) {
++        return x ? -1 : 1;
++      }
++      return y.localeCompare(x);
++    };
++  }
++  return newest;
++}
++
+ // The data in memory and the queries over it. `store.db` is the data itself.
+ export function createStore(data = seed()) {
+   const db = structuredClone(data);
+@@ -12,12 +35,23 @@ export function createStore(data = seed()) {
+       return Boolean(doc) && store.librariesOf(userId).some(l => l.id === doc.libraryId);
+     },
+     findDocument: id => db.documents.find(d => d.id === id) || null,
+-    listDocuments(userId, { q = '' } = {}) {
++    sortFor(userId, sort) {
++      db.prefs ||= {};
++      if (SORTS.includes(sort)) {
++        db.prefs[userId] = { ...db.prefs[userId], sort };
++      }
++      return db.prefs[userId]?.sort || 'uploaded';
++    },
++    lastOpenedAt(docId) {
++      const times = db.views.filter(v => v.docId === docId).map(v => v.at).sort();
++      return times.length ? times.at(-1) : null;
++    },
++    listDocuments(userId, { q = '', sort } = {}) {
+       const libraries = new Set(store.librariesOf(userId).map(l => l.id));
+       return db.documents
+         .filter(d => libraries.has(d.libraryId))
+         .filter(d => !q || d.title.includes(q))
+-        .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
++        .sort(sorter(store, store.sortFor(userId, sort)));
+     },
+     findLink: id => db.links.find(l => l.id === id) || null,
+     linksFor: docId => db.links.filter(l => l.docId === docId),
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..a861019 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -1,10 +1,13 @@
+ import { escapeHtml, layout } from './format.mjs';
+ 
+-export function libraryPage(store, userId, { q = '' } = {}) {
+-  const documents = store.listDocuments(userId, { q });
++const SORT_NAMES = { name: 'Name', uploaded: 'Uploaded', opened: 'Last opened' };
++
++export function libraryPage(store, userId, { q = '', sort } = {}) {
++  const documents = store.listDocuments(userId, { q, sort });
++  const current = store.sortFor(userId);
+   const rows = documents.map(d => `<li data-testid="doc-row" data-id="${d.id}"><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta"></div></li>`).join('');
+   const list = documents.length ? `<ul data-testid="library">${rows}</ul>` : '<p data-testid="empty">No documents</p>';
+-  return layout('Library', `<h1>Library</h1><form role="search" action="/"><input name="q" value="${escapeHtml(q)}"></form>${list}`);
++  return layout('Library', `<h1>Library</h1><form role="search" action="/"><input name="q" value="${escapeHtml(q)}"></form><p data-testid="sort">Sorted by ${SORT_NAMES[current]}</p>${list}`);
+ }
+ 
+ export function documentPage(store, userId, id) {
+diff --git a/test/sort.test.mjs b/test/sort.test.mjs
+new file mode 100644
+index 0000000..a40b08e
+--- /dev/null
++++ b/test/sort.test.mjs
+@@ -0,0 +1,10 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { createStore } from '../src/store.mjs';
++
++test('the library sorts by name and remembers it', () => {
++  const store = createStore();
++  assert.equal(store.listDocuments('u_owner', { sort: 'name' })[0].id, 'd4');
++  assert.equal(store.listDocuments('u_owner')[0].id, 'd4');
++  assert.equal(store.listDocuments('u_teammate')[0].id, 'd2');
++});

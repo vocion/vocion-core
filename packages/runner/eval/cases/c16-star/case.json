@@ -1,0 +1,25 @@
+{
+  "id": "c16-star",
+  "split": "tuning",
+  "complexity": 3,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 20,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Star documents and keep them at the top of the library",
+  "objective": "Let a person star the documents they care about. PUT /api/documents/:id/star with { starred: true | false } stars or unstars (one control, same click). Stars are per person (store.db.stars). Starred documents sit at the top of that person's library under a Starred heading (an element with data-testid=\"starred-heading\"), in the order they were starred, and the rest follow as today. Each row has a star control (data-testid=\"star\", aria-pressed=\"true\" when starred). GET /api/documents returns starred: true|false for the person, and libraryPage(store, userId, { starred: true }) or ?starred=1 shows only starred documents.",
+  "acceptance": [
+    "Starring puts the document at the top under a Starred heading, in the order starred",
+    "Unstarring with the same control returns it to its place",
+    "Stars are per person: a teammate's library is unchanged",
+    "The API returns starred for the person, and the Starred filter shows only starred documents",
+    "Each row has a star control showing its state"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "A stars table in data, star/unstar in store.mjs, a PUT route, ordering in listDocuments for the page."
+}

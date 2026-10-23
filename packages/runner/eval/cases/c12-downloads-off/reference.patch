@@ -1,0 +1,95 @@
+diff --git a/src/api.mjs b/src/api.mjs
+index 19e33f6..5ea9e22 100644
+--- a/src/api.mjs
++++ b/src/api.mjs
+@@ -22,7 +22,7 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (!userId) {
+       return signIn;
+     }
+-    const [, , id, sub] = parts;
++    const [, , id, sub, linkId] = parts;
+     if (!id && method === 'GET') {
+       return { status: 200, body: { documents: store.listDocuments(userId, { q: query.q || '' }).map(summary) } };
+     }
+@@ -36,8 +36,21 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (sub === 'links' && !store.canSee(userId, doc)) {
+       return notFound;
+     }
++    if (sub === 'links' && linkId) {
++      const link = store.findLink(linkId);
++      if (!link || link.docId !== doc.id || method !== 'PATCH') {
++        return notFound;
++      }
++      if ('allowDownload' in body) {
++        if (typeof body.allowDownload !== 'boolean') {
++          return { status: 400, body: { error: 'invalid_allow_download' } };
++        }
++        link.allowDownload = body.allowDownload;
++      }
++      return { status: 200, body: { link: { ...link, allowDownload: store.allowsDownload(link) } } };
++    }
+     if (sub === 'links' && method === 'GET') {
+-      return { status: 200, body: { links: store.linksFor(doc.id) } };
++      return { status: 200, body: { links: store.linksFor(doc.id).map(l => ({ ...l, allowDownload: store.allowsDownload(l) })) } };
+     }
+     if (sub === 'links' && method === 'POST') {
+       const recipientEmail = String(body.recipientEmail || '').trim();
+@@ -58,9 +71,12 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (!parts[2] && method === 'GET') {
+       store.recordView(doc.id, { viewerId: visitorId(query, userId), linkId: link.id });
+       const { id, title, pageCount, mimeType, sizeBytes } = doc;
+-      return { status: 200, body: { document: { id, title, pageCount, mimeType, sizeBytes }, link: { id: link.id } } };
++      return { status: 200, body: { document: { id, title, pageCount, mimeType, sizeBytes }, link: { id: link.id, allowDownload: store.allowsDownload(link) } } };
+     }
+     if (parts[2] === 'download' && method === 'GET') {
++      if (!store.allowsDownload(link)) {
++        return { status: 403, body: { error: 'download_disabled' } };
++      }
+       return { status: 200, body: { url: `/files/${doc.id}` } };
+     }
+   }
+diff --git a/src/store.mjs b/src/store.mjs
+index 3471d73..17da918 100644
+--- a/src/store.mjs
++++ b/src/store.mjs
+@@ -20,10 +20,11 @@ export function createStore(data = seed()) {
+         .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+     },
+     findLink: id => db.links.find(l => l.id === id) || null,
++    allowsDownload: link => link.allowDownload !== false,
+     linksFor: docId => db.links.filter(l => l.docId === docId),
+     viewsFor: docId => db.views.filter(v => v.docId === docId),
+     createLink(docId, { recipientEmail, createdBy }) {
+-      const link = { id: `l${db.links.length + 1}`, docId, recipientEmail, createdBy, createdAt: db.now };
++      const link = { id: `l${db.links.length + 1}`, docId, recipientEmail, createdBy, createdAt: db.now, allowDownload: true };
+       db.links.push(link);
+       return link;
+     },
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..7fa1b05 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -23,5 +23,5 @@ export function linkPage(store, linkId, { viewer = '' } = {}) {
+     return layout('Not found', '<h1>This link does not exist</h1>');
+   }
+   store.recordView(doc.id, { viewerId: viewer ? `v:${viewer}` : 'v:anonymous', linkId: link.id });
+-  return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><a data-testid="download" href="/l/${link.id}/download">Download</a>`);
++  return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1>${store.allowsDownload(link) ? `<a data-testid="download" href="/l/${link.id}/download">Download</a>` : '<p data-testid="download-off">Downloads are turned off for this link</p>'}`);
+ }
+diff --git a/test/downloads.test.mjs b/test/downloads.test.mjs
+new file mode 100644
+index 0000000..46ad9f3
+--- /dev/null
++++ b/test/downloads.test.mjs
+@@ -0,0 +1,11 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { handle } from '../src/api.mjs';
++import { createStore } from '../src/store.mjs';
++
++test('a link with downloads off still opens but does not download', () => {
++  const store = createStore();
++  assert.equal(handle(store, { method: 'PATCH', path: '/api/documents/d1/links/l1', body: { allowDownload: false }, userId: 'u_owner' }).status, 200);
++  assert.equal(handle(store, { path: '/l/l1/download' }).status, 403);
++  assert.equal(handle(store, { path: '/l/l1' }).status, 200);
++});

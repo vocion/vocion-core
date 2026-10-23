@@ -1,0 +1,98 @@
+diff --git a/src/api.mjs b/src/api.mjs
+index 912185f..f0d0bd2 100644
+--- a/src/api.mjs
++++ b/src/api.mjs
+@@ -46,6 +46,52 @@ function linkRoute(store, doc, link, linkSub, method, body) {
+   return notFound;
+ }
+ 
++const UNDO = { star: 'unstar', unstar: 'star', archive: 'unarchive', unarchive: 'archive' };
++
++/** One action over several documents, each under its single-document rule. */
++function bulk(store, userId, { ids, action } = {}) {
++  if (!Array.isArray(ids) || !['star', 'unstar', 'archive', 'unarchive', 'copy-links'].includes(action)) {
++    return { status: 400, body: { error: 'invalid_bulk' } };
++  }
++  const results = [];
++  const changed = [];
++  const lines = [];
++  for (const id of ids) {
++    const doc = store.findDocument(id);
++    if (!store.canSee(userId, doc)) {
++      results.push({ id, ok: false, error: 'not_found' });
++      continue;
++    }
++    if (action === 'copy-links') {
++      lines.push(...store.linksFor(doc.id).map(l => `${doc.title}: /l/${l.id}`));
++      results.push({ id, ok: true });
++      continue;
++    }
++    if (action === 'star' || action === 'unstar') {
++      const want = action === 'star';
++      if (store.isStarred(userId, doc.id) !== want) {
++        store.setStar(userId, doc.id, want);
++        changed.push(id);
++      }
++      results.push({ id, ok: true });
++      continue;
++    }
++    const want = action === 'archive';
++    const was = Boolean(doc.archivedAt);
++    const r = store.setArchived(userId, doc, want);
++    if (r.error) {
++      results.push({ id, ok: false, error: r.error });
++      continue;
++    }
++    if (was !== want) {
++      changed.push(id);
++    }
++    results.push({ id, ok: true });
++  }
++  const undo = action !== 'copy-links' && changed.length ? { action: UNDO[action], ids: changed } : null;
++  return { status: 200, body: { results, undo, ...(action === 'copy-links' ? { text: lines.join('\n') } : {}) } };
++}
++
+ export function handle(store, { method = 'GET', path, query = {}, body = {}, userId = null }) {
+   const parts = String(path).split('?')[0].split('/').filter(Boolean);
+ 
+@@ -54,6 +100,9 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+       return signIn;
+     }
+     const [, , id, sub, linkId, linkSub] = parts;
++    if (id === 'bulk' && method === 'POST') {
++      return bulk(store, userId, body);
++    }
+     if (!id && method === 'GET') {
+       const listed = store.starredFirst(userId, store.listDocuments(userId, { q: query.q || '', archived: query.archived === '1' }), { onlyStarred: query.starred === '1' });
+       return { status: 200, body: { documents: listed.map(d => ({ ...summary(d), starred: store.isStarred(userId, d.id) })) } };
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index a0636e4..e37bea4 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -5,7 +5,7 @@ export function libraryPage(store, userId, { q = '', starred = false, showArchiv
+   const row = (d) => {
+     const on = store.isStarred(userId, d.id);
+     const marks = d.archivedAt ? '<span data-testid="mark-archived">Archived</span>' : '';
+-    return `<li data-testid="doc-row" data-id="${d.id}"><button data-testid="star" aria-pressed="${on}" aria-label="Star">${on ? '\u2605' : '\u2606'}</button><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta">${marks}</div></li>`;
++    return `<li data-testid="doc-row" data-id="${d.id}"><input type="checkbox" data-testid="select" value="${d.id}" aria-label="Select ${escapeHtml(d.title)}"><button data-testid="star" aria-pressed="${on}" aria-label="Star">${on ? '\u2605' : '\u2606'}</button><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta">${marks}</div></li>`;
+   };
+   const stars = documents.filter(d => store.isStarred(userId, d.id));
+   const rest = documents.filter(d => !store.isStarred(userId, d.id));
+diff --git a/test/bulk.test.mjs b/test/bulk.test.mjs
+new file mode 100644
+index 0000000..fd662ef
+--- /dev/null
++++ b/test/bulk.test.mjs
+@@ -0,0 +1,12 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { handle } from '../src/api.mjs';
++import { createStore } from '../src/store.mjs';
++
++test('starring several at once can be undone', () => {
++  const store = createStore();
++  const r = handle(store, { method: 'POST', path: '/api/documents/bulk', body: { ids: ['d1', 'd3'], action: 'star' }, userId: 'u_owner' });
++  assert.deepEqual(r.body.undo, { action: 'unstar', ids: ['d1', 'd3'] });
++  handle(store, { method: 'POST', path: '/api/documents/bulk', body: r.body.undo, userId: 'u_owner' });
++  assert.equal(store.isStarred('u_owner', 'd1'), false);
++});

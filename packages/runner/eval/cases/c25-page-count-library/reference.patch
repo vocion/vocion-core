@@ -1,0 +1,39 @@
+diff --git a/src/web/format.mjs b/src/web/format.mjs
+index e0bbcb9..d153ac9 100644
+--- a/src/web/format.mjs
++++ b/src/web/format.mjs
+@@ -7,3 +7,7 @@ export function escapeHtml(s) {
+ export function layout(title, body) {
+   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body><main>${body}</main></body></html>`;
+ }
++
++export function plural(n, one, many = `${one}s`) {
++  return `${n} ${n === 1 ? one : many}`;
++}
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..2b0f5e4 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -1,8 +1,8 @@
+-import { escapeHtml, layout } from './format.mjs';
++import { escapeHtml, layout, plural } from './format.mjs';
+ 
+ export function libraryPage(store, userId, { q = '' } = {}) {
+   const documents = store.listDocuments(userId, { q });
+-  const rows = documents.map(d => `<li data-testid="doc-row" data-id="${d.id}"><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta"></div></li>`).join('');
++  const rows = documents.map(d => `<li data-testid="doc-row" data-id="${d.id}"><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta"><span data-testid="pages">${plural(d.pageCount, 'page')}</span></div></li>`).join('');
+   const list = documents.length ? `<ul data-testid="library">${rows}</ul>` : '<p data-testid="empty">No documents</p>';
+   return layout('Library', `<h1>Library</h1><form role="search" action="/"><input name="q" value="${escapeHtml(q)}"></form>${list}`);
+ }
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index 9d7fb79..6617283 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -27,3 +27,7 @@ test('the document page is not shown outside the library', () => {
+ test('the link page offers the download', () => {
+   assert.equal(byTestId(linkPage(createStore(), 'l1'), 'download').length, 1);
+ });
++
++test('each library row shows its page count', () => {
++  assert.match(text(libraryPage(createStore(), 'u_owner')), /Q3 Board Deck 18 pages/);
++});

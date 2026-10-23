@@ -1,0 +1,23 @@
+{
+  "id": "c01-page-count",
+  "split": "tuning",
+  "complexity": 2,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 1,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Show how many pages the document has",
+  "objective": "Show how many pages the document has on the document page, in the document's meta line (data-testid=\"doc-meta\"), like \"18 pages\".",
+  "acceptance": [
+    "The document page meta line reads \"18 pages\" for the 18-page Q3 Board Deck (d1)",
+    "A one-page document reads \"1 page\", not \"1 pages\"",
+    "The page count is in the doc-meta line, under the title"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Render the page count from doc.pageCount in documentPage; a small plural helper in format.mjs."
+}

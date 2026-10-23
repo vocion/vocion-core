@@ -1,0 +1,113 @@
+diff --git a/src/services/search.mjs b/src/services/search.mjs
+index 2e3cf30..2136227 100644
+--- a/src/services/search.mjs
++++ b/src/services/search.mjs
+@@ -1,20 +1,50 @@
+ import { SEARCH_LIMIT } from '../config.mjs';
+ 
+ const words = s => String(s).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
++const collator = new Intl.Collator();
++const byTitle = (a, b) => collator.compare(a.title, b.title) || collator.compare(a.id, b.id);
+ 
+ /**
+  * Title search over the documents a person can see. Every word of the query must start a word of
+  * the title, in any order, ignoring case. The index keeps itself current from document events.
++ *
++ * Titles are split into words once, when indexed, into a map from every word prefix to the
++ * documents that have it. A query starts from its rarest term's documents; a short list is sorted,
++ * a long one is read off the entries kept in result order, stopping at the limit.
+  */
+ export function createSearch({ repos, events }) {
+   const index = new Map();
+-  const put = doc => index.set(doc.id, { id: doc.id, title: doc.title, libraryId: doc.libraryId, archivedAt: doc.archivedAt });
++  const prefixes = new Map();
++  let sorted = null;
++  const prefixesOf = entry => new Set(entry.words.flatMap(w => Array.from({ length: w.length }, (_, i) => w.slice(0, i + 1))));
++  const drop = (id) => {
++    const old = index.get(id);
++    if (old) {
++      for (const p of prefixesOf(old)) {
++        prefixes.get(p)?.delete(id);
++      }
++      index.delete(id);
++    }
++    sorted = null;
++  };
++  const put = (doc) => {
++    drop(doc.id);
++    const entry = { id: doc.id, title: doc.title, words: words(doc.title), libraryId: doc.libraryId, archivedAt: doc.archivedAt };
++    index.set(doc.id, entry);
++    for (const p of prefixesOf(entry)) {
++      if (!prefixes.has(p)) {
++        prefixes.set(p, new Set());
++      }
++      prefixes.get(p).add(doc.id);
++    }
++  };
+   for (const doc of repos.documents.all()) {
+     put(doc);
+   }
+   events.on('document.created', ({ doc }) => put(doc));
+   events.on('document.archived', ({ doc }) => put(doc));
+-  events.on('document.deleted', ({ doc }) => index.delete(doc.id));
++  events.on('document.deleted', ({ doc }) => drop(doc.id));
++  const inOrder = () => (sorted ||= [...index.values()].sort(byTitle));
+ 
+   return {
+     size: () => index.size,
+@@ -23,18 +53,26 @@ export function createSearch({ repos, events }) {
+       if (!terms.length) {
+         return [];
+       }
+-      const libraries = repos.libraries.forUser(userId);
++      const sets = terms.map(t => prefixes.get(t) || new Set());
++      const rarest = sets.reduce((a, b) => (b.size < a.size ? b : a));
++      if (!rarest.size) {
++        return [];
++      }
++      const libraries = new Set(repos.libraries.forUser(userId));
++      const visible = e => libraries.has(e.libraryId) && (archived || !e.archivedAt) && sets.every(s => s.has(e.id));
++      if (rarest.size * 8 < index.size) {
++        return [...rarest].map(id => index.get(id)).filter(visible).sort(byTitle).slice(0, SEARCH_LIMIT).map(e => e.id);
++      }
+       const hits = [];
+-      for (const entry of index.values()) {
+-        if (!libraries.includes(entry.libraryId) || (!archived && entry.archivedAt)) {
+-          continue;
+-        }
+-        const titleWords = words(entry.title);
+-        if (terms.every(t => titleWords.some(w => w.startsWith(t)))) {
+-          hits.push(entry);
++      for (const entry of inOrder()) {
++        if (visible(entry)) {
++          hits.push(entry.id);
++          if (hits.length === SEARCH_LIMIT) {
++            break;
++          }
+         }
+       }
+-      return hits.sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id)).slice(0, SEARCH_LIMIT).map(e => e.id);
++      return hits;
+     },
+   };
+ }
+diff --git a/test/documents.test.mjs b/test/documents.test.mjs
+index 360560a..a7214c7 100644
+--- a/test/documents.test.mjs
++++ b/test/documents.test.mjs
+@@ -30,3 +30,15 @@ test('upload adds a document and audits it', async () => {
+   assert.equal(app.repos.audit.forTarget(r.body.document.id)[0].action, 'document.created');
+   assert.equal((await request(app, { method: 'POST', path: '/api/documents', user: 'u_other', body: { libraryId: 'lib_team', title: 'x' } })).status, 404);
+ });
++
++test('search over many documents returns the first 50 in title order', () => {
++  const app = createApp();
++  for (let i = 0; i < 120; i++) {
++    app.db.insert('documents', { id: `m${i}`, libraryId: 'lib_team', ownerId: 'u_owner', title: `Memo ${String(119 - i).padStart(3, '0')}`, mimeType: 'application/pdf', sizeBytes: 1, pageCount: 1, uploadedAt: '2026-09-01T00:00:00.000Z' });
++  }
++  const fresh = createApp({ db: app.db });
++  const ids = fresh.services.search.search('u_owner', 'memo');
++  assert.equal(ids.length, 50);
++  assert.equal(ids[0], 'm119');
++  assert.equal(ids[49], 'm70');
++});

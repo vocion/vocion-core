@@ -1,0 +1,25 @@
+{
+  "id": "c21-passcode-mark",
+  "split": "held-out",
+  "complexity": 3,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 25,
+    "kind": "walk",
+    "note": "Runs on the v2 fixture, where passcodes shipped and still ask the owner: the defect walk 25's live check caught."
+  },
+  "fixture_ref": "v2",
+  "title": "A passcode switch beside access, with a Passcode mark, and members never asked",
+  "objective": "Passcodes can already be set per link. Make them visible and fix who is asked. On the library list, a row whose document has any passcode-protected link shows a \"Passcode\" mark (data-testid=\"mark-passcode\"); on the document page, a protected link row reads \"Passcode\" too. The people in the document's library are never asked for a passcode: signed in (userId on GET /l/:linkId, or linkPage(store, linkId, { userId })) they open a protected link directly, and their open is counted as theirs. Anyone else is still asked.",
+  "acceptance": [
+    "A row whose document has a protected link shows the Passcode mark; others do not",
+    "The protected link row on the document page reads Passcode",
+    "A signed-in library member opens a protected link without being asked, on the API and the page",
+    "A signed-in non-member and a visitor are still asked"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Read hasPasscode in the pages; let a member through the visitor gate in api.mjs and linkPage."
+}

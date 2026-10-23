@@ -1,0 +1,35 @@
+diff --git a/src/services/sharing.mjs b/src/services/sharing.mjs
+index 478d5d4..47ae5b1 100644
+--- a/src/services/sharing.mjs
++++ b/src/services/sharing.mjs
+@@ -80,8 +80,12 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+           return { state: 'wrong_passcode', link, doc };
+         }
+       }
+-      const viewer = userId ? repos.users.find(userId) : null;
+-      repos.views.record({ linkId: link.id, docId: doc.id, viewerEmail: viewer ? viewer.email : link.recipientEmail, userId, at: clock.now(), userAgent });
++      // A member of the library checking the link is previewing it, not the recipient opening it:
++      // recording it would show the recipient as having opened it and stop their reminders.
++      if (userId && access.canSee(userId, doc)) {
++        return { state: 'ok', link, doc, preview: true };
++      }
++      repos.views.record({ linkId: link.id, docId: doc.id, viewerEmail: link.recipientEmail, userId, at: clock.now(), userAgent });
+       events.emit('link.opened', { link, doc });
+       return { state: 'ok', link, doc };
+     },
+diff --git a/test/sharing.test.mjs b/test/sharing.test.mjs
+index 53ce01c..8ed68d0 100644
+--- a/test/sharing.test.mjs
++++ b/test/sharing.test.mjs
+@@ -33,3 +33,11 @@ test('a passcode guards the link; downloads can be turned off', async () => {
+   assert.equal(app.repos.views.forLink('l2').length, 1);
+   assert.doesNotMatch(JSON.stringify(app.repos.links.find('l2')), /tiger42/);
+ });
++
++test('a library member previewing a link is not an open and does not stop reminders', async () => {
++  const app = createApp();
++  await request(app, { path: '/l/l2', user: 'u_owner' });
++  assert.equal(app.repos.views.forLink('l2').length, 0);
++  app.clock.set('2026-10-03T13:00:00.000Z');
++  assert.ok(app.runJob('reminders').some(m => m.to === 'board@kestrel.example'));
++});

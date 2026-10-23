@@ -1,0 +1,25 @@
+{
+  "id": "c19-shortcuts",
+  "split": "held-out",
+  "complexity": 3,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 23,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Keyboard shortcuts in the library",
+  "objective": "Add keyboard shortcuts to the library as a pure function in src/web/shortcuts.mjs: export libraryKey(state, event), where state is { ids: [document ids in row order], highlight: index or -1 } and event is { key, target: { tagName } }. It returns { highlight, action } (action null or { type, id }): ArrowDown and j move the highlight down one row (from -1 to 0; it stops at the last row), ArrowUp and k move it up (it stops at 0), Enter opens the highlighted document (type 'open'), s stars it ('star'), a archives it ('archive'), c copies its link ('copy-link'), ? shows the shortcut sheet ({ type: 'help' }, no id). A key that needs a row does nothing with no highlight. Nothing fires while typing: when target.tagName is INPUT, TEXTAREA or SELECT it returns null. The library page lists the shortcuts in a sheet with data-testid=\"shortcut-help\".",
+  "acceptance": [
+    "Up and Down (and j and k) move a highlight between rows and stop at the ends",
+    "Enter opens, s stars, a archives and c copies the highlighted row",
+    "? shows the sheet, and the library page carries the shortcut sheet",
+    "A row key with no highlight does nothing",
+    "Nothing fires while typing in a field"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "A new pure module src/web/shortcuts.mjs and a static sheet in libraryPage."
+}

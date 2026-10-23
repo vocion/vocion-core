@@ -1,0 +1,29 @@
+{
+  "id": "h01-document-expiry",
+  "tier": "hard",
+  "split": "tuning",
+  "complexity": 5,
+  "risk_class": "schema",
+  "origin": {
+    "walk": 22,
+    "kind": "walk-derived",
+    "note": "Walk 18 asked for link expiry; this is the document-level version the product asked for next, across migration, API, visitor page, a job, audit and the library page."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Let documents expire",
+  "objective": "Documents can be given an expiry date. Add `expiresAt` (an ISO date-time or null) to documents with a new migration; existing documents upgrade to null. `PATCH /api/documents/:id` accepts `expiresAt` on its own (no title needed): a future ISO date-time sets it, null clears it, anything else is 400 `invalid_expiry`. Only the document's uploader or an owner of its library may set it (403 for other members; renaming stays open to any member), and each change writes an audit entry `document.expiry_set`. A document is expired once `expiresAt` <= now: it drops out of the library page, `GET /api/documents` and search, but `GET /api/documents/:id` still returns it to members, with `expired: true` (false otherwise). Its link page and download answer 410 with error `expired`, show nothing of the document and record no view. A new job, run as `app.runJob('expiry')` (hourly), removes the links of documents expired for 30 days or more and writes one `document.expired` audit entry per document; the document itself stays. On the library page, a document expiring within the next 7 days shows a mark `data-testid=\"mark-expires\"` reading `Expires Oct 5` (UTC day). Add tests.",
+  "acceptance": [
+    "A new migration adds documents.expiresAt; migrations 1 to 3 are unchanged; an upgraded database has null expiry everywhere",
+    "PATCH sets and clears expiresAt with validation (400 invalid_expiry), uploader-or-library-owner permission (403), audit document.expiry_set; rename stays open to members",
+    "An expired document leaves the library page, the list API and search; GET /api/documents/:id returns it with expired: true",
+    "Its link page and download answer 410 expired and record no view",
+    "The expiry job removes links 30 days after expiry, audits document.expired once per document and keeps the document",
+    "The library page marks documents expiring within 7 days with mark-expires 'Expires <Mon D>'"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**",
+    "docs/**"
+  ],
+  "plan_summary": "Migration 004 and its registration; document repo filters by expiry; PATCH handles expiresAt with its own permission and audit; openLink and download answer 410; a new expiry service run as a job; the library view adds the mark; tests."
+}

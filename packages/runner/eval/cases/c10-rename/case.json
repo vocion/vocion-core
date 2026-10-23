@@ -1,0 +1,25 @@
+{
+  "id": "c10-rename",
+  "split": "tuning",
+  "complexity": 3,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 14,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Let the owner rename a document",
+  "objective": "Let the document's owner rename it. PATCH /api/documents/:id with { title } renames it: the title is trimmed; a blank title is refused with 400 { error: 'title_required' } and nothing changes; over 120 characters is refused with 400 { error: 'title_too_long' }; anyone but the owner gets 403 { error: 'owner_only' }. The new name shows everywhere the document is listed (library list, document page, API). On the document page, the owner's title carries data-editable=\"true\" (inline edit: Enter saves, Escape cancels); a teammate's does not.",
+  "acceptance": [
+    "The owner renames d1 and the new, trimmed name shows on the library list, the document page and GET /api/documents/d1",
+    "A blank name is not saved (400) and the old name stays",
+    "A name over 120 characters is refused (400)",
+    "A teammate cannot rename (403)",
+    "Only the owner sees the title as editable"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "A PATCH route in api.mjs with a renameDocument rule in store.mjs; data-editable on the h1 for the owner."
+}

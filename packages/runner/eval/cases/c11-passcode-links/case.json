@@ -1,0 +1,26 @@
+{
+  "id": "c11-passcode-links",
+  "split": "tuning",
+  "complexity": 4,
+  "risk_class": "auth",
+  "origin": {
+    "walk": 15,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Passcode-protected share links",
+  "objective": "Let the people in a library protect a share link with a passcode. PUT /api/documents/:id/links/:linkId/passcode with { passcode } sets it (4 to 32 characters, else 400 { error: 'invalid_passcode' }); DELETE on the same path removes it. Only library members may set or remove one (404 not_found otherwise, like a missing document). The passcode is stored only as a salted hash (never in plain text, never returned); GET /api/documents/:id/links shows hasPasscode: true|false per link. A visitor opening a protected link (GET /l/:linkId) without the passcode gets 401 { error: 'passcode_required' } and nothing about the document; a wrong one (query.passcode) gets 401 { error: 'passcode_invalid' }; the right one opens it. The open is counted only after unlock. The download (GET /l/:linkId/download) follows the same rule. The visitor page (linkPage(store, linkId, { viewer, passcode })) shows a passcode form (data-testid=\"passcode-form\") and not the title until unlocked.",
+  "acceptance": [
+    "Members set and remove a passcode; 4 to 32 characters is enforced on the server",
+    "The passcode is stored only as a hash and never returned; links show hasPasscode",
+    "A visitor without the passcode, or with a wrong one, gets 401 and nothing about the document",
+    "The right passcode opens the link, and only then is the open counted",
+    "The download follows the same rule",
+    "The visitor page asks for the passcode before showing the title"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "A passcode hash (node:crypto scrypt with a salt) on the link; set/remove routes; a gate in the visitor routes and linkPage."
+}

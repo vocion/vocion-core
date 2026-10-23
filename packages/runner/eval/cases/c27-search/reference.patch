@@ -1,0 +1,38 @@
+diff --git a/src/store.mjs b/src/store.mjs
+index 3471d73..608ccf2 100644
+--- a/src/store.mjs
++++ b/src/store.mjs
+@@ -1,5 +1,12 @@
+ import { seed } from './data.mjs';
+ 
++/** Every word of the search starts a word of the title, ignoring case; a blank search matches all. */
++function matches(title, q) {
++  const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
++  const titleWords = title.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
++  return words.every(w => titleWords.some(t => t.startsWith(w)));
++}
++
+ // The data in memory and the queries over it. `store.db` is the data itself.
+ export function createStore(data = seed()) {
+   const db = structuredClone(data);
+@@ -16,7 +23,7 @@ export function createStore(data = seed()) {
+       const libraries = new Set(store.librariesOf(userId).map(l => l.id));
+       return db.documents
+         .filter(d => libraries.has(d.libraryId))
+-        .filter(d => !q || d.title.includes(q))
++        .filter(d => matches(d.title, q))
+         .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+     },
+     findLink: id => db.links.find(l => l.id === id) || null,
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index 9d7fb79..14e86d9 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -27,3 +27,7 @@ test('the document page is not shown outside the library', () => {
+ test('the link page offers the download', () => {
+   assert.equal(byTestId(linkPage(createStore(), 'l1'), 'download').length, 1);
+ });
++
++test('search ignores case and word order', () => {
++  assert.equal(byTestId(libraryPage(createStore(), 'u_owner', { q: 'deck q3' }), 'doc-row').length, 1);
++});

@@ -1,0 +1,58 @@
+diff --git a/src/http/routes/visitor.mjs b/src/http/routes/visitor.mjs
+index 8882f0c..7596194 100644
+--- a/src/http/routes/visitor.mjs
++++ b/src/http/routes/visitor.mjs
+@@ -3,7 +3,7 @@ import { linkPage } from '../../views/link.mjs';
+ 
+ export const visitorRoutes = [
+   ['GET', '/l/:linkId', ({ req, params, query, user, repos, services }) => {
+-    const r = services.sharing.openLink(params.linkId, { userId: user?.id || null, passcode: query.passcode, userAgent: req.headers?.['user-agent'] || '' });
++    const r = services.sharing.openLink(params.linkId, { userId: user?.id || null, passcode: query.passcode, userAgent: req.headers?.['user-agent'] || '', method: req.method });
+     const status = r.state === 'wrong_passcode' ? 401 : 200;
+     return { status, html: linkPage({ ...r, sharedBy: repos.users.find(r.link.createdBy) }) };
+   }],
+diff --git a/src/services/sharing.mjs b/src/services/sharing.mjs
+index 478d5d4..a52e020 100644
+--- a/src/services/sharing.mjs
++++ b/src/services/sharing.mjs
+@@ -1,3 +1,4 @@
++import { isBot } from '../lib/bots.mjs';
+ import { hashSecret, verifySecret } from '../lib/crypto.mjs';
+ import { badRequest, isEmail, notFound } from '../lib/validate.mjs';
+ 
+@@ -66,7 +67,7 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+      * A visitor opening a link. Returns { state, link, doc }: 'ok' (a view is recorded),
+      * 'passcode' (asked for one) or 'wrong_passcode'.
+      */
+-    openLink(linkId, { userId = null, passcode, userAgent = '' } = {}) {
++    openLink(linkId, { userId = null, passcode, userAgent = '', method = 'GET' } = {}) {
+       const link = repos.links.find(linkId);
+       const doc = link && repos.documents.find(link.docId);
+       if (!link || !doc || doc.archivedAt) {
+@@ -80,6 +81,11 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+           return { state: 'wrong_passcode', link, doc };
+         }
+       }
++      // A chat app or mail scanner fetching the link to draw a preview, or a HEAD request, is not a
++      // person opening it: recording it would show the link as opened and stop the reminders.
++      if (method === 'HEAD' || isBot(userAgent)) {
++        return { state: 'ok', link, doc, preview: true };
++      }
+       const viewer = userId ? repos.users.find(userId) : null;
+       repos.views.record({ linkId: link.id, docId: doc.id, viewerEmail: viewer ? viewer.email : link.recipientEmail, userId, at: clock.now(), userAgent });
+       events.emit('link.opened', { link, doc });
+diff --git a/test/sharing.test.mjs b/test/sharing.test.mjs
+index 53ce01c..d137bc3 100644
+--- a/test/sharing.test.mjs
++++ b/test/sharing.test.mjs
+@@ -33,3 +33,10 @@ test('a passcode guards the link; downloads can be turned off', async () => {
+   assert.equal(app.repos.views.forLink('l2').length, 1);
+   assert.doesNotMatch(JSON.stringify(app.repos.links.find('l2')), /tiger42/);
+ });
++
++test('link previews and HEAD requests are not opens', async () => {
++  const app = createApp();
++  await request(app, { path: '/l/l2', headers: { 'user-agent': 'Slackbot-LinkExpanding 1.0' } });
++  await request(app, { method: 'HEAD', path: '/l/l2', headers: { 'user-agent': 'Mozilla/5.0 Safari/605.1' } });
++  assert.equal(app.repos.views.forLink('l2').length, 0);
++});

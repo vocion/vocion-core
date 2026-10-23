@@ -1,0 +1,46 @@
+diff --git a/src/http/routes/admin.mjs b/src/http/routes/admin.mjs
+index 1b733b7..1b615fa 100644
+--- a/src/http/routes/admin.mjs
++++ b/src/http/routes/admin.mjs
+@@ -1,5 +1,6 @@
+ import { csvResponse } from '../../lib/csv.mjs';
+ import { format } from '../../lib/legacyDate.mjs';
++import { isoMinute } from '../../lib/time.mjs';
+ import { forbidden, notFound } from '../../lib/validate.mjs';
+ 
+ export const adminRoutes = [
+@@ -19,4 +20,18 @@ export const adminRoutes = [
+     const rows = entries.map(a => [format(a.at, 'YYYY-MM-DD HH:mm'), repos.users.find(a.actorId)?.email || a.actorId, a.action, a.targetId, a.detail?.recipientEmail || '']);
+     return csvResponse(`audit-${library.id}.csv`, ['When (UTC)', 'Who', 'Action', 'Target', 'Recipient'], rows);
+   }],
++
++  // A document's opens, for the owners of its library (the same people as the audit log). Robots
++  // are left out, as on the activity page.
++  ['GET', '/api/documents/:id/activity.csv', ({ user, params, repos, services }) => {
++    const doc = services.access.visibleDocument(user.id, params.id);
++    if (repos.libraries.membership(doc.libraryId, user.id)?.role !== 'owner') {
++      throw forbidden();
++    }
++    const visits = services.analytics.linkActivity(doc.id)
++      .flatMap(a => a.visits.map(v => ({ ...v, recipientEmail: a.recipientEmail })))
++      .sort((a, b) => a.at.localeCompare(b.at));
++    const rows = visits.map(v => [isoMinute(v.at), v.recipientEmail, v.userAgent]);
++    return csvResponse(`activity-${doc.id}.csv`, ['When (UTC)', 'Recipient', 'Browser'], rows);
++  }],
+ ];
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index cb3686c..62fb576 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -46,3 +46,11 @@ test('the audit export is for library owners', async () => {
+   assert.equal((await request(app, { path: '/api/libraries/lib_team/audit.csv', user: 'u_teammate' })).status, 403);
+   assert.equal((await request(app, { path: '/api/libraries/lib_team/audit.csv', user: 'u_other' })).status, 404);
+ });
++
++test('a document\'s activity downloads as CSV for library owners', async () => {
++  const app = createApp();
++  const r = await request(app, { path: '/api/documents/d1/activity.csv', user: 'u_owner' });
++  assert.equal(r.headers['content-disposition'], 'attachment; filename="activity-d1.csv"');
++  assert.equal(r.body.split('\r\n')[1], '2026-09-30 10:00,cfo@kestrel.example,Mozilla/5.0 (Macintosh) Safari/605.1');
++  assert.equal((await request(app, { path: '/api/documents/d1/activity.csv', user: 'u_teammate' })).status, 403);
++});

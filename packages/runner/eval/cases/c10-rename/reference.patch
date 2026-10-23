@@ -1,0 +1,75 @@
+diff --git a/src/api.mjs b/src/api.mjs
+index 19e33f6..08cb5f1 100644
+--- a/src/api.mjs
++++ b/src/api.mjs
+@@ -33,6 +33,13 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (!sub && method === 'GET') {
+       return { status: 200, body: { document: summary(doc) } };
+     }
++    if (!sub && method === 'PATCH') {
++      if (!store.canSee(userId, doc)) {
++        return notFound;
++      }
++      const r = store.renameDocument(userId, doc.id, body.title);
++      return r.error ? { status: r.status, body: { error: r.error } } : { status: 200, body: { document: summary(r.doc) } };
++    }
+     if (sub === 'links' && !store.canSee(userId, doc)) {
+       return notFound;
+     }
+diff --git a/src/store.mjs b/src/store.mjs
+index 3471d73..370f989 100644
+--- a/src/store.mjs
++++ b/src/store.mjs
+@@ -27,6 +27,21 @@ export function createStore(data = seed()) {
+       db.links.push(link);
+       return link;
+     },
++    renameDocument(userId, id, title) {
++      const doc = store.findDocument(id);
++      const clean = String(title ?? '').trim();
++      if (!clean) {
++        return { error: 'title_required', status: 400 };
++      }
++      if (clean.length > 120) {
++        return { error: 'title_too_long', status: 400 };
++      }
++      if (doc.ownerId !== userId) {
++        return { error: 'owner_only', status: 403 };
++      }
++      doc.title = clean;
++      return { doc };
++    },
+     recordView(docId, { viewerId, linkId = null }) {
+       const view = { docId, linkId, viewerId, at: db.now };
+       db.views.push(view);
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..5b846c0 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -13,7 +13,7 @@ export function documentPage(store, userId, id) {
+     return null;
+   }
+   const links = store.linksFor(doc.id).map(l => `<li data-testid="link-row" data-id="${l.id}">${escapeHtml(l.recipientEmail)}</li>`).join('');
+-  return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta"></p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
++  return layout(doc.title, `<h1 data-testid="title"${doc.ownerId === userId ? ' data-editable="true"' : ''}>${escapeHtml(doc.title)}</h1><p data-testid="doc-meta"></p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
+ }
+ 
+ export function linkPage(store, linkId, { viewer = '' } = {}) {
+diff --git a/test/rename.test.mjs b/test/rename.test.mjs
+new file mode 100644
+index 0000000..acb9fb5
+--- /dev/null
++++ b/test/rename.test.mjs
+@@ -0,0 +1,12 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { handle } from '../src/api.mjs';
++import { createStore } from '../src/store.mjs';
++
++test('the owner renames a document; a blank name is refused', () => {
++  const store = createStore();
++  assert.equal(handle(store, { method: 'PATCH', path: '/api/documents/d1', body: { title: ' New ' }, userId: 'u_owner' }).status, 200);
++  assert.equal(store.findDocument('d1').title, 'New');
++  assert.equal(handle(store, { method: 'PATCH', path: '/api/documents/d1', body: { title: ' ' }, userId: 'u_owner' }).status, 400);
++  assert.equal(handle(store, { method: 'PATCH', path: '/api/documents/d1', body: { title: 'x' }, userId: 'u_teammate' }).status, 403);
++});

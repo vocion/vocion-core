@@ -1,0 +1,130 @@
+diff --git a/src/api.mjs b/src/api.mjs
+index 19e33f6..25f389f 100644
+--- a/src/api.mjs
++++ b/src/api.mjs
+@@ -22,7 +22,7 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (!userId) {
+       return signIn;
+     }
+-    const [, , id, sub] = parts;
++    const [, , id, sub, linkId] = parts;
+     if (!id && method === 'GET') {
+       return { status: 200, body: { documents: store.listDocuments(userId, { q: query.q || '' }).map(summary) } };
+     }
+@@ -36,6 +36,28 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (sub === 'links' && !store.canSee(userId, doc)) {
+       return notFound;
+     }
++    if (sub === 'links' && linkId) {
++      const link = store.findLink(linkId);
++      if (!link || link.docId !== doc.id || method !== 'PATCH') {
++        return notFound;
++      }
++      if ('expiresAt' in body && body.expiresAt !== null) {
++        const t = new Date(body.expiresAt);
++        if (typeof body.expiresAt !== 'string' || Number.isNaN(t.getTime()) || t <= new Date(store.now())) {
++          return { status: 400, body: { error: 'invalid_expiry' } };
++        }
++      }
++      if ('maxOpens' in body && body.maxOpens !== null && !(Number.isInteger(body.maxOpens) && body.maxOpens >= 1)) {
++        return { status: 400, body: { error: 'invalid_max_opens' } };
++      }
++      if ('expiresAt' in body) {
++        link.expiresAt = body.expiresAt === null ? null : new Date(body.expiresAt).toISOString();
++      }
++      if ('maxOpens' in body) {
++        link.maxOpens = body.maxOpens;
++      }
++      return { status: 200, body: { link } };
++    }
+     if (sub === 'links' && method === 'GET') {
+       return { status: 200, body: { links: store.linksFor(doc.id) } };
+     }
+@@ -55,6 +77,9 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (!doc) {
+       return notFound;
+     }
++    if (store.isExpired(link)) {
++      return { status: 410, body: { error: 'expired' } };
++    }
+     if (!parts[2] && method === 'GET') {
+       store.recordView(doc.id, { viewerId: visitorId(query, userId), linkId: link.id });
+       const { id, title, pageCount, mimeType, sizeBytes } = doc;
+diff --git a/src/store.mjs b/src/store.mjs
+index 3471d73..2265f7c 100644
+--- a/src/store.mjs
++++ b/src/store.mjs
+@@ -22,6 +22,13 @@ export function createStore(data = seed()) {
+     findLink: id => db.links.find(l => l.id === id) || null,
+     linksFor: docId => db.links.filter(l => l.docId === docId),
+     viewsFor: docId => db.views.filter(v => v.docId === docId),
++    opensOf: linkId => db.views.filter(v => v.linkId === linkId).length,
++    isExpired(link) {
++      if (link.expiresAt && new Date(db.now) >= new Date(link.expiresAt)) {
++        return true;
++      }
++      return link.maxOpens != null && store.opensOf(link.id) >= link.maxOpens;
++    },
+     createLink(docId, { recipientEmail, createdBy }) {
+       const link = { id: `l${db.links.length + 1}`, docId, recipientEmail, createdBy, createdAt: db.now };
+       db.links.push(link);
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..b9552e8 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -1,5 +1,19 @@
+ import { escapeHtml, layout } from './format.mjs';
+ 
++const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
++
++function limits(store, l) {
++  const out = [];
++  if (l.expiresAt) {
++    const d = new Date(l.expiresAt);
++    out.push(`Expires ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`);
++  }
++  if (l.maxOpens != null) {
++    out.push(`${store.opensOf(l.id)} of ${l.maxOpens} opens`);
++  }
++  return out.length ? ` <span class="limits">${out.join(' \u00B7 ')}</span>` : '';
++}
++
+ export function libraryPage(store, userId, { q = '' } = {}) {
+   const documents = store.listDocuments(userId, { q });
+   const rows = documents.map(d => `<li data-testid="doc-row" data-id="${d.id}"><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta"></div></li>`).join('');
+@@ -12,7 +26,7 @@ export function documentPage(store, userId, id) {
+   if (!store.canSee(userId, doc)) {
+     return null;
+   }
+-  const links = store.linksFor(doc.id).map(l => `<li data-testid="link-row" data-id="${l.id}">${escapeHtml(l.recipientEmail)}</li>`).join('');
++  const links = store.linksFor(doc.id).map(l => `<li data-testid="link-row" data-id="${l.id}">${escapeHtml(l.recipientEmail)}${limits(store, l)}</li>`).join('');
+   return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta"></p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
+ }
+ 
+@@ -22,6 +36,9 @@ export function linkPage(store, linkId, { viewer = '' } = {}) {
+   if (!doc) {
+     return layout('Not found', '<h1>This link does not exist</h1>');
+   }
++  if (store.isExpired(link)) {
++    return layout('Expired', '<h1 data-testid="expired">This link has expired</h1>');
++  }
+   store.recordView(doc.id, { viewerId: viewer ? `v:${viewer}` : 'v:anonymous', linkId: link.id });
+   return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><a data-testid="download" href="/l/${link.id}/download">Download</a>`);
+ }
+diff --git a/test/expiry.test.mjs b/test/expiry.test.mjs
+new file mode 100644
+index 0000000..a106c96
+--- /dev/null
++++ b/test/expiry.test.mjs
+@@ -0,0 +1,11 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { handle } from '../src/api.mjs';
++import { createStore } from '../src/store.mjs';
++
++test('a link stops at its open limit', () => {
++  const store = createStore();
++  assert.equal(handle(store, { method: 'PATCH', path: '/api/documents/d3/links/l3', body: { maxOpens: 2 }, userId: 'u_owner' }).status, 200);
++  assert.equal(handle(store, { path: '/l/l3' }).status, 200);
++  assert.equal(handle(store, { path: '/l/l3' }).status, 410);
++});

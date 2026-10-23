@@ -1,0 +1,305 @@
+diff --git a/src/http/routes/admin.mjs b/src/http/routes/admin.mjs
+index 1b733b7..615fd87 100644
+--- a/src/http/routes/admin.mjs
++++ b/src/http/routes/admin.mjs
+@@ -1,18 +1,10 @@
+ import { csvResponse } from '../../lib/csv.mjs';
+ import { format } from '../../lib/legacyDate.mjs';
+-import { forbidden, notFound } from '../../lib/validate.mjs';
+ 
+ export const adminRoutes = [
+   // The audit log of a library, for its owners.
+-  ['GET', '/api/libraries/:id/audit.csv', ({ user, params, repos }) => {
+-    const library = repos.libraries.find(params.id);
+-    const role = library && repos.libraries.membership(library.id, user.id)?.role;
+-    if (!role) {
+-      throw notFound();
+-    }
+-    if (role !== 'owner') {
+-      throw forbidden();
+-    }
++  ['GET', '/api/libraries/:id/audit.csv', ({ user, params, repos, services }) => {
++    const library = services.access.requireLibrary(user.id, 'audit', params.id);
+     const docIds = new Set(repos.documents.inLibrary(library.id, { archived: true }).map(d => d.id));
+     const linkIds = new Set(repos.links.all().filter(l => docIds.has(l.docId)).map(l => l.id));
+     const entries = repos.audit.all().filter(a => docIds.has(a.targetId) || linkIds.has(a.targetId) || docIds.has(a.detail?.docId));
+diff --git a/src/http/routes/analytics.mjs b/src/http/routes/analytics.mjs
+index b2d2b10..c28ef34 100644
+--- a/src/http/routes/analytics.mjs
++++ b/src/http/routes/analytics.mjs
+@@ -1,12 +1,8 @@
+-import { notFound } from '../../lib/validate.mjs';
+ import { analyticsPage } from '../../views/analytics.mjs';
+ 
+ export const analyticsRoutes = [
+-  ['GET', '/api/documents/:id/analytics', ({ user, params, repos, services }) => {
+-    const doc = repos.documents.find(params.id);
+-    if (!doc || !repos.libraries.isMember(doc.libraryId, user.id)) {
+-      throw notFound();
+-    }
++  ['GET', '/api/documents/:id/analytics', ({ user, params, services }) => {
++    const doc = services.access.require(user.id, 'view', params.id);
+     return { json: { activity: services.analytics.linkActivity(doc.id) } };
+   }],
+ 
+diff --git a/src/http/routes/documents.mjs b/src/http/routes/documents.mjs
+index 520d0c6..ed3fb31 100644
+--- a/src/http/routes/documents.mjs
++++ b/src/http/routes/documents.mjs
+@@ -1,5 +1,5 @@
+ import { TITLE_MAX } from '../../config.mjs';
+-import { badRequest, forbidden, notFound, requireString } from '../../lib/validate.mjs';
++import { badRequest, requireString } from '../../lib/validate.mjs';
+ 
+ const view = d => ({ id: d.id, libraryId: d.libraryId, title: d.title, mimeType: d.mimeType, sizeBytes: d.sizeBytes, pageCount: d.pageCount, uploadedAt: d.uploadedAt, archivedAt: d.archivedAt });
+ 
+@@ -13,18 +13,13 @@ export const documentRoutes = [
+     return { json: { documents: docs.map(view) } };
+   }],
+ 
+-  ['GET', '/api/documents/:id', ({ user, params, repos }) => {
+-    const doc = repos.documents.find(params.id);
+-    if (!doc || !repos.libraries.isMember(doc.libraryId, user.id)) {
+-      throw notFound();
+-    }
++  ['GET', '/api/documents/:id', ({ user, params, services }) => {
++    const doc = services.access.require(user.id, 'view', params.id);
+     return { json: { document: view(doc) } };
+   }],
+ 
+   ['POST', '/api/documents', ({ user, body, repos, services, clock }) => {
+-    if (!repos.libraries.isMember(body.libraryId, user.id)) {
+-      throw notFound();
+-    }
++    services.access.requireLibrary(user.id, 'view', body.libraryId);
+     const title = requireString(body.title, 'invalid_title', { max: TITLE_MAX });
+     const doc = repos.documents.create({ libraryId: body.libraryId, ownerId: user.id, title, mimeType: body.mimeType || 'application/pdf', sizeBytes: Number(body.sizeBytes) || 0, pageCount: Number(body.pageCount) || 1, uploadedAt: clock.now() });
+     repos.audit.write({ at: clock.now(), actorId: user.id, action: 'document.created', targetId: doc.id, detail: { title } });
+@@ -33,11 +28,8 @@ export const documentRoutes = [
+   }],
+ 
+   // Rename: any member of the library.
+-  ['PATCH', '/api/documents/:id', ({ user, params, body, repos, clock }) => {
+-    const doc = repos.documents.find(params.id);
+-    if (!doc || !repos.libraries.isMember(doc.libraryId, user.id)) {
+-      throw notFound();
+-    }
++  ['PATCH', '/api/documents/:id', ({ user, params, body, repos, services, clock }) => {
++    const doc = services.access.require(user.id, 'rename', params.id);
+     const title = requireString(body.title, 'invalid_title', { max: TITLE_MAX });
+     const updated = repos.documents.update(doc.id, { title });
+     repos.audit.write({ at: clock.now(), actorId: user.id, action: 'document.renamed', targetId: doc.id, detail: { from: doc.title, to: title } });
+@@ -46,13 +38,7 @@ export const documentRoutes = [
+ 
+   // Archive and unarchive: only the person who uploaded it.
+   ['POST', '/api/documents/:id/archive', ({ user, params, body, repos, services, clock }) => {
+-    const doc = repos.documents.find(params.id);
+-    if (!doc || !repos.libraries.isMember(doc.libraryId, user.id)) {
+-      throw notFound();
+-    }
+-    if (doc.ownerId !== user.id) {
+-      throw forbidden();
+-    }
++    const doc = services.access.require(user.id, 'archive', params.id);
+     const archivedAt = body.archived === false ? null : clock.now();
+     const updated = repos.documents.update(doc.id, { archivedAt });
+     repos.audit.write({ at: clock.now(), actorId: user.id, action: archivedAt ? 'document.archived' : 'document.unarchived', targetId: doc.id });
+@@ -62,14 +48,7 @@ export const documentRoutes = [
+ 
+   // Delete: the uploader or a library owner.
+   ['DELETE', '/api/documents/:id', ({ user, params, repos, services, clock }) => {
+-    const doc = repos.documents.find(params.id);
+-    if (!doc || !repos.libraries.isMember(doc.libraryId, user.id)) {
+-      throw notFound();
+-    }
+-    const role = repos.libraries.membership(doc.libraryId, user.id)?.role;
+-    if (doc.ownerId !== user.id && role !== 'owner') {
+-      throw forbidden();
+-    }
++    const doc = services.access.require(user.id, 'delete', params.id);
+     if (repos.links.forDocument(doc.id).length) {
+       throw badRequest('has_links', 'remove its links first');
+     }
+diff --git a/src/http/routes/links.mjs b/src/http/routes/links.mjs
+index ef325a9..9cf8591 100644
+--- a/src/http/routes/links.mjs
++++ b/src/http/routes/links.mjs
+@@ -1,13 +1,8 @@
+-import { notFound } from '../../lib/validate.mjs';
+-
+ const view = l => ({ id: l.id, docId: l.docId, recipientEmail: l.recipientEmail, createdAt: l.createdAt, allowDownload: l.allowDownload !== false, hasPasscode: Boolean(l.passcodeHash) });
+ 
+ export const linkRoutes = [
+-  ['GET', '/api/documents/:id/links', ({ user, params, repos }) => {
+-    const doc = repos.documents.find(params.id);
+-    if (!doc || !repos.libraries.isMember(doc.libraryId, user.id)) {
+-      throw notFound();
+-    }
++  ['GET', '/api/documents/:id/links', ({ user, params, repos, services }) => {
++    const doc = services.access.require(user.id, 'view', params.id);
+     return { json: { links: repos.links.forDocument(doc.id).map(view) } };
+   }],
+ 
+diff --git a/src/http/routes/pages.mjs b/src/http/routes/pages.mjs
+index e9fccfd..2384b0a 100644
+--- a/src/http/routes/pages.mjs
++++ b/src/http/routes/pages.mjs
+@@ -4,7 +4,7 @@ import { libraryPage } from '../../views/library.mjs';
+ export const pageRoutes = [
+   ['GET', '/', ({ user, query, repos, services }) => {
+     const libraryId = query.library || repos.libraries.forUser(user.id)[0];
+-    if (!libraryId || !repos.libraries.isMember(libraryId, user.id)) {
++    if (!services.access.canLibrary(user.id, 'view', libraryId)) {
+       return { status: 404, html: '<p>No library</p>' };
+     }
+     const library = repos.libraries.find(libraryId);
+diff --git a/src/services/access.mjs b/src/services/access.mjs
+index 31fc76f..60a2c7a 100644
+--- a/src/services/access.mjs
++++ b/src/services/access.mjs
+@@ -1,22 +1,77 @@
+-import { notFound } from '../lib/validate.mjs';
++import { forbidden, notFound } from '../lib/validate.mjs';
++
++// Every access decision in one place. A document a person cannot see answers exactly like a
++// missing one (404); one they can see but may not act on answers 403.
++//
++//   view, rename, share   any member of the document's library
++//   archive               only the person who uploaded it (not even a library owner)
++//   delete                the uploader or an owner of the library
++const RULES = {
++  view: () => true,
++  rename: () => true,
++  share: () => true,
++  archive: ({ userId, doc }) => doc.ownerId === userId,
++  delete: ({ userId, doc, role }) => doc.ownerId === userId || role === 'owner',
++};
++
++const LIBRARY_RULES = {
++  view: () => true,
++  audit: ({ role }) => role === 'owner',
++};
+ 
+-/** Who may see a document: members of its library. */
+ export function createAccess({ repos }) {
++  const roleIn = (libraryId, userId) => (userId ? repos.libraries.membership(libraryId, userId)?.role || null : null);
++
+   function canSee(userId, doc) {
+-    return Boolean(doc) && repos.libraries.isMember(doc.libraryId, userId);
++    return Boolean(doc) && Boolean(roleIn(doc.libraryId, userId));
++  }
++
++  function can(userId, action, doc) {
++    const rule = RULES[action];
++    if (!rule) {
++      throw new Error(`unknown action ${action}`);
++    }
++    const role = doc ? roleIn(doc.libraryId, userId) : null;
++    return Boolean(role) && rule({ userId, doc, role });
++  }
++
++  /** The document, if `userId` may do `action` to it; 404 if they cannot see it, 403 if they may not act. */
++  function require(userId, action, id) {
++    const doc = repos.documents.find(id);
++    if (!canSee(userId, doc)) {
++      throw notFound();
++    }
++    if (!can(userId, action, doc)) {
++      throw forbidden();
++    }
++    return doc;
++  }
++
++  function canLibrary(userId, action, libraryId) {
++    const role = roleIn(libraryId, userId);
++    return Boolean(role) && LIBRARY_RULES[action]({ userId, role });
+   }
++
++  /** The library, if `userId` may do `action` in it; 404 for non-members, 403 otherwise. */
++  function requireLibrary(userId, action, libraryId) {
++    const library = libraryId ? repos.libraries.find(libraryId) : null;
++    if (!library || !roleIn(library.id, userId)) {
++      throw notFound();
++    }
++    if (!canLibrary(userId, action, library.id)) {
++      throw forbidden();
++    }
++    return library;
++  }
++
+   return {
++    can,
+     canSee,
++    canLibrary,
++    require,
++    requireLibrary,
+     /** The document, or not_found for anyone who may not see it. */
+-    visibleDocument(userId, id) {
+-      const doc = repos.documents.find(id);
+-      if (!canSee(userId, doc)) {
+-        throw notFound();
+-      }
+-      return doc;
+-    },
+-    role(userId, libraryId) {
+-      return repos.libraries.membership(libraryId, userId)?.role || null;
+-    },
++    visibleDocument: (userId, id) => require(userId, 'view', id),
++    role: roleIn,
+   };
+ }
+diff --git a/src/services/sharing.mjs b/src/services/sharing.mjs
+index 478d5d4..8b0af78 100644
+--- a/src/services/sharing.mjs
++++ b/src/services/sharing.mjs
+@@ -8,7 +8,7 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+ 
+   return {
+     createLink(userId, docId, recipientEmail) {
+-      const doc = access.visibleDocument(userId, docId);
++      const doc = access.require(userId, 'share', docId);
+       if (!isEmail(recipientEmail)) {
+         throw badRequest('invalid_email');
+       }
+@@ -27,7 +27,7 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+     },
+ 
+     updateLink(userId, docId, linkId, { allowDownload, passcode } = {}) {
+-      const doc = access.visibleDocument(userId, docId);
++      const doc = access.require(userId, 'share', docId);
+       const link = repos.links.find(linkId);
+       if (!link || link.docId !== doc.id) {
+         throw notFound();
+@@ -53,7 +53,7 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+     },
+ 
+     removeLink(userId, docId, linkId) {
+-      const doc = access.visibleDocument(userId, docId);
++      const doc = access.require(userId, 'share', docId);
+       const link = repos.links.find(linkId);
+       if (!link || link.docId !== doc.id) {
+         throw notFound();
+diff --git a/test/access.test.mjs b/test/access.test.mjs
+new file mode 100644
+index 0000000..5a44e48
+--- /dev/null
++++ b/test/access.test.mjs
+@@ -0,0 +1,18 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { createApp } from './helpers.mjs';
++
++test('access.can holds the rules: archive is the uploader\'s alone, delete also a library owner\'s', async () => {
++  const app = createApp();
++  const doc = app.repos.documents.find('d1');
++  const can = (u, a) => app.services.access.can(u, a, doc);
++  assert.equal(can('u_teammate', 'view'), true);
++  assert.equal(can('u_other', 'view'), false);
++  assert.equal(can('u_teammate', 'archive'), false);
++  assert.equal(can('u_owner', 'archive'), true);
++  assert.equal(can('u_teammate', 'delete'), false);
++  const tom = (await app.handle({ method: 'POST', path: '/api/documents', headers: { 'x-user': 'u_teammate' }, body: { libraryId: 'lib_team', title: 'T' } })).body.document;
++  const t = app.repos.documents.find(tom.id);
++  assert.equal(app.services.access.can('u_owner', 'archive', t), false);
++  assert.equal(app.services.access.can('u_owner', 'delete', t), true);
++});

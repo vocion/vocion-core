@@ -1,0 +1,27 @@
+{
+  "id": "h20-api-tokens",
+  "tier": "hard",
+  "split": "tuning",
+  "complexity": 5,
+  "risk_class": "auth",
+  "origin": {
+    "kind": "synthetic",
+    "note": "No walk built an API; customers syncing to a CRM ask for one. An authentication change in the router with scope, revocation and escalation tests."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Personal API tokens with read and write scopes",
+  "objective": "Customers want to sync with their CRM, so let people create personal API tokens. Store them in a new table `api_tokens` through a migration. `POST /api/tokens` with `{ name, scope }` (scope `read` or `write`; 400 `invalid_name` or `invalid_scope`) answers 201 `{ token: { id, name, scope, createdAt, lastUsedAt, revokedAt }, secret }`: the secret is shown only then and never stored, only a hash of it. `GET /api/tokens` lists your own tokens (never a secret or hash) and `DELETE /api/tokens/:id` revokes one of yours (204; 404 for anyone else's). On /api routes, `Authorization: Bearer <secret>` acts as the token's owner, seeing exactly what they see; a `read` token may only make GET requests (403 `insufficient_scope` otherwise, changing nothing); an unknown or revoked token gets 401. A token cannot list, create or revoke tokens (403), and HTML pages ignore tokens. Each use records `lastUsedAt`. Creating and revoking are audited (`token.created`, `token.revoked`) without the secret. Add tests, including the refusals.",
+  "acceptance": [
+    "A migration creates api_tokens; migrations 1 to 3 are unchanged; the secret is returned once and never stored",
+    "A bearer token acts as its owner; read scope gets 403 insufficient_scope on writes and changes nothing; unknown tokens get 401",
+    "Owners list (no secrets) and revoke their own tokens; revoked tokens stop working; both are audited without the secret",
+    "A token cannot manage tokens or open HTML pages; name and scope are validated; signed-out callers get 401",
+    "Each use records lastUsedAt"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**",
+    "docs/**"
+  ],
+  "plan_summary": "Migration 004 and a tokens repository; a tokens service hashing secrets with SHA-256; the router authenticates bearer tokens on /api routes with scope and session-only checks; token routes; tests."
+}

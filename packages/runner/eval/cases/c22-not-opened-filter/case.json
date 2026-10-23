@@ -1,0 +1,26 @@
+{
+  "id": "c22-not-opened-filter",
+  "split": "tuning",
+  "complexity": 3,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 26,
+    "kind": "walk",
+    "note": "The walk found the owner-open defect live; the owner opening their own link is the trap this case keeps."
+  },
+  "fixture_ref": "v1",
+  "title": "A \"Not opened yet\" filter on the library",
+  "objective": "Add a \"Not opened yet\" filter to the library: libraryPage(store, userId, { notOpened: true }) and GET /api/documents?notOpened=1 show only documents that have been sent (at least one share link) and never opened by anyone but the document's owner. The owner's own opens never count, through a link or not. A chip (data-testid=\"filter-not-opened\") on the library page reads \"Not opened yet (N)\" with the count. When the filter is on and nothing matches, the page reads \"Every document you sent has been opened\" (data-testid=\"empty\").",
+  "acceptance": [
+    "Only sent documents nobody but the owner opened are shown (d4 here)",
+    "The owner opening their own link does not take a document out of the filter",
+    "A visitor opening it does",
+    "The chip shows the count",
+    "A friendly empty state when nothing matches"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "A notOpened predicate in store.mjs shared by the page and the API."
+}

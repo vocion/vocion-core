@@ -1,0 +1,27 @@
+{
+  "id": "h14-activity-export",
+  "tier": "hard",
+  "split": "tuning",
+  "complexity": 4,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 11,
+    "kind": "walk-derived",
+    "note": "Walks 11 and 27 put activity on screen; the export is the next ask. Everything it must match is already in the codebase, so the grade is whether the engineer finds and follows it."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Export a document's activity as CSV",
+  "objective": "Owners want to download a document's activity into a spreadsheet. Add `GET /api/documents/:id/activity.csv`: one row per open of any of the document's links, oldest first, with the columns `When (UTC)`, `Recipient` and `Browser` (the user agent as recorded). The file is named `activity-<document id>.csv`. In every other respect (who may download it, the file format, how dates are written, how fields are escaped, which visits count as opens) it must be consistent with the export and activity page the product already has. Add a test.",
+  "acceptance": [
+    "A CSV download, named activity-<id>.csv, for the same people as the audit export (403 for other members, 404 outside, 401 signed out)",
+    "One row per open, oldest first, dates in UTC as the audit export writes them, CRLF lines",
+    "Quoting and formula neutralising as the shared CSV helper does, and robots left out as on the activity page",
+    "It is built on the shared CSV helper rather than a second CSV writer"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**",
+    "docs/**"
+  ],
+  "plan_summary": "A route beside the audit export using csvResponse, isoMinute and analytics.linkActivity (which leaves robots out), owner-only like the audit export; a test."
+}

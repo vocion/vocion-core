@@ -1,0 +1,34 @@
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..4eac8fa 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -13,7 +13,7 @@ export function documentPage(store, userId, id) {
+     return null;
+   }
+   const links = store.linksFor(doc.id).map(l => `<li data-testid="link-row" data-id="${l.id}">${escapeHtml(l.recipientEmail)}</li>`).join('');
+-  return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta"></p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
++  return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><span data-testid="view-count">${viewCount(store.viewsFor(doc.id).length)}</span><p data-testid="doc-meta"></p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
+ }
+ 
+ export function linkPage(store, linkId, { viewer = '' } = {}) {
+@@ -25,3 +25,7 @@ export function linkPage(store, linkId, { viewer = '' } = {}) {
+   store.recordView(doc.id, { viewerId: viewer ? `v:${viewer}` : 'v:anonymous', linkId: link.id });
+   return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><a data-testid="download" href="/l/${link.id}/download">Download</a>`);
+ }
++
++function viewCount(n) {
++  return `Viewed ${n} ${n === 1 ? 'time' : 'times'}`;
++}
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index 9d7fb79..e32e456 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -27,3 +27,8 @@ test('the document page is not shown outside the library', () => {
+ test('the link page offers the download', () => {
+   assert.equal(byTestId(linkPage(createStore(), 'l1'), 'download').length, 1);
+ });
++
++test('the document page counts its views', () => {
++  assert.equal(text(byTestId(documentPage(createStore(), 'u_owner', 'd1'), 'view-count')[0]), 'Viewed 4 times');
++  assert.equal(text(byTestId(documentPage(createStore(), 'u_owner', 'd3'), 'view-count')[0]), 'Viewed 1 time');
++});

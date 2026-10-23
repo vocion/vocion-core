@@ -1,0 +1,26 @@
+{
+  "id": "c17-bulk-actions",
+  "split": "tuning",
+  "complexity": 3,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 21,
+    "kind": "walk",
+    "note": "Runs on the v2 fixture, where star and archive have shipped, as they had before walk 21."
+  },
+  "fixture_ref": "v2",
+  "title": "Select several documents and act on them at once",
+  "objective": "Let a person select several library documents and star, archive or copy all their share links in one move, with Undo. Each library row gets a selection checkbox (data-testid=\"select\", value the document id). POST /api/documents/bulk with { ids, action } where action is star, unstar, archive, unarchive or copy-links applies it to each id the person may act on, using the existing single-document rules (archiving stays owner-only); ids the person cannot see or act on are reported and left alone. It answers 200 { results: [{ id, ok, error? }], undo } where undo is { action, ids } reversing exactly what changed (star to unstar, archive to unarchive; null for copy-links or when nothing changed). copy-links also returns text: one line per share link, \"<title>: /l/<link id>\", in the order of ids.",
+  "acceptance": [
+    "Starring several at once stars each, and the undo unstars exactly those",
+    "Archiving several archives the ones the person owns and reports the rest; undo restores them",
+    "Ids in another library are reported not_found and left alone",
+    "copy-links returns every link of the selected documents, one per line",
+    "Each row has a selection checkbox"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "A bulk route in api.mjs looping over the existing star and archive rules; the undo is computed from what changed."
+}

@@ -1,0 +1,49 @@
+diff --git a/src/http/routes/documents.mjs b/src/http/routes/documents.mjs
+index 520d0c6..24b489f 100644
+--- a/src/http/routes/documents.mjs
++++ b/src/http/routes/documents.mjs
+@@ -33,7 +33,7 @@ export const documentRoutes = [
+   }],
+ 
+   // Rename: any member of the library.
+-  ['PATCH', '/api/documents/:id', ({ user, params, body, repos, clock }) => {
++  ['PATCH', '/api/documents/:id', ({ user, params, body, repos, services, clock }) => {
+     const doc = repos.documents.find(params.id);
+     if (!doc || !repos.libraries.isMember(doc.libraryId, user.id)) {
+       throw notFound();
+@@ -41,6 +41,7 @@ export const documentRoutes = [
+     const title = requireString(body.title, 'invalid_title', { max: TITLE_MAX });
+     const updated = repos.documents.update(doc.id, { title });
+     repos.audit.write({ at: clock.now(), actorId: user.id, action: 'document.renamed', targetId: doc.id, detail: { from: doc.title, to: title } });
++    services.events.emit('document.renamed', { doc: updated });
+     return { json: { document: view(updated) } };
+   }],
+ 
+diff --git a/src/services/search.mjs b/src/services/search.mjs
+index 2e3cf30..992fb47 100644
+--- a/src/services/search.mjs
++++ b/src/services/search.mjs
+@@ -14,6 +14,7 @@ export function createSearch({ repos, events }) {
+   }
+   events.on('document.created', ({ doc }) => put(doc));
+   events.on('document.archived', ({ doc }) => put(doc));
++  events.on('document.renamed', ({ doc }) => put(doc));
+   events.on('document.deleted', ({ doc }) => index.delete(doc.id));
+ 
+   return {
+diff --git a/test/documents.test.mjs b/test/documents.test.mjs
+index 360560a..e6b909a 100644
+--- a/test/documents.test.mjs
++++ b/test/documents.test.mjs
+@@ -30,3 +30,11 @@ test('upload adds a document and audits it', async () => {
+   assert.equal(app.repos.audit.forTarget(r.body.document.id)[0].action, 'document.created');
+   assert.equal((await request(app, { method: 'POST', path: '/api/documents', user: 'u_other', body: { libraryId: 'lib_team', title: 'x' } })).status, 404);
+ });
++
++test('search finds a renamed document by its new title only', async () => {
++  const app = createApp();
++  await request(app, { method: 'PATCH', path: '/api/documents/d2', user: 'u_owner', body: { title: 'Rate Card' } });
++  const q = async q => (await request(app, { path: '/api/documents', user: 'u_owner', query: { q } })).body.documents.map(d => d.id);
++  assert.deepEqual(await q('rate'), ['d2']);
++  assert.deepEqual(await q('pricing'), []);
++});

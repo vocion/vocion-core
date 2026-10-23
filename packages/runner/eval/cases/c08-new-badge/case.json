@@ -1,0 +1,24 @@
+{
+  "id": "c08-new-badge",
+  "split": "held-out",
+  "complexity": 2,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 12,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "A New badge on documents uploaded in the last 24 hours",
+  "objective": "On the library list, put a small \"New\" badge (an element with data-testid=\"badge-new\" reading New) next to the title of any document uploaded less than 24 hours before the store's clock (store.now()).",
+  "acceptance": [
+    "The Pricing Sheet (d2, uploaded 4 hours ago) shows a New badge beside its title",
+    "The Q3 Board Deck (d1, 27 hours ago) and older documents show none",
+    "A document uploaded exactly 24 hours ago shows none; 23 hours 59 minutes ago shows one",
+    "The badge follows the store clock, not the system clock"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Compare uploadedAt with store.now() in libraryPage; render a span beside the title."
+}

@@ -1,0 +1,25 @@
+{
+  "id": "c15-tags",
+  "split": "held-out",
+  "complexity": 4,
+  "risk_class": "schema",
+  "origin": {
+    "walk": 19,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Tag documents and filter the library by tag",
+  "objective": "Let people tag documents. PUT /api/documents/:id/tags with { tags: [...] } replaces a document's tags (library members only, 404 otherwise). Tags are trimmed, 1 to 24 characters (else 400 { error: 'invalid_tag' }), at most 10 (else 400 { error: 'too_many_tags' }), and duplicates that differ only in case are dropped, keeping the first spelling. Tags belong to the library, so teammates see the same tags. GET /api/documents returns tags ([] when none). Each library row shows its tags as chips under the title (data-testid=\"tag-chip\"). libraryPage(store, userId, { tag }) and ?tag= filter the library to one tag, ignoring case, and show a link to clear the filter (data-testid=\"clear-tag\", href=\"/\") only while filtering.",
+  "acceptance": [
+    "Members set tags; the rules (trim, length, count, case-insensitive duplicates) hold on the server",
+    "Teammates see the same tags, and the API returns them",
+    "Rows show the tags as chips",
+    "Filtering by a tag ignores case and offers a clear-filter link",
+    "Non-members cannot tag"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "tags on the document (a schema change), a PUT route with a normaliser, chips and a tag filter in libraryPage and listDocuments."
+}

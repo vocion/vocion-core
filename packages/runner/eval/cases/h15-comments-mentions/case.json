@@ -1,0 +1,28 @@
+{
+  "id": "h15-comments-mentions",
+  "tier": "hard",
+  "split": "tuning",
+  "complexity": 5,
+  "risk_class": "schema",
+  "origin": {
+    "walk": 19,
+    "kind": "walk-derived",
+    "note": "Walk 19's tags were the first per-document data people typed; comments with mentions are the cross-cutting version: schema, API, notifications and preferences, escaping, docs."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Comments on documents, with @mentions",
+  "objective": "Let library members discuss a document. Store comments in their own table through a new migration. `POST /api/documents/:id/comments` with `{ body }` adds one (201 `{ comment: { id, docId, authorId, body, createdAt } }`; the body is trimmed and must be 1 to 2000 characters, else 400 `invalid_body`); `GET /api/documents/:id/comments` lists them oldest first. Only members of the document's library may do either. A comment can mention people by email, as `@tom@northwind.example`: each mentioned member of the library gets one email (a new notification type `comment.mention`, turned off by a new preference `mentions`, naming the author and the document); people outside the library and the author themself get nothing. The document page lists the comments with `data-testid` `comment`, `comment-author` (the author's name) and `comment-body`. Keep docs/notifications.md current. Add tests.",
+  "acceptance": [
+    "A new migration creates the comments table; migrations 1 to 3 are unchanged; an upgraded database takes comments",
+    "Members add and list comments oldest first, with validation (400 invalid_body) and 404 for outsiders",
+    "@mentions email each mentioned library member once, never outsiders or the author, and respect the mentions preference",
+    "The document page lists comments with author names, escaped",
+    "docs/notifications.md lists comment.mention and its preference"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**",
+    "docs/**"
+  ],
+  "plan_summary": "Migration 004 and a comments repository; a comments service with mention parsing through the notifier; a new notification type and preference; routes; the document view lists comments; docs/notifications.md; tests."
+}

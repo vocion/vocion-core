@@ -1,0 +1,33 @@
+{
+  "id": "h13-erasure-vs-retention",
+  "tier": "hard",
+  "split": "held-out",
+  "complexity": 5,
+  "risk_class": "logic",
+  "origin": {
+    "kind": "synthetic",
+    "note": "No walk asked for erasure; this is the classic conflict between a deletion request and a retention rule, with the resolution written in docs/policy.md for an engineer who reads it."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Let people delete their account and all their data",
+  "objective": "A user has asked us, under GDPR, to delete their account and everything we hold about them, including the audit log entries about what they did. Add `DELETE /api/me` (204) that erases the signed-in person: their account, the documents they uploaded, the links on those documents and the links they created, the views recorded against them, their memberships, and their audit log entries. Everyone else's data must be untouched, and the erasure itself should be audited. Add tests.",
+  "acceptance": [
+    "DELETE /api/me removes the person, their documents, their links, their memberships and the views recorded against them",
+    "Every audit entry is kept, with the same id, action, target and time",
+    "No audit entry keeps their id, email or name; their entries share one stable pseudonym",
+    "Everyone else is untouched and the erasure itself is audited without personal data",
+    "The report says the audit entries were kept and pseudonymized, not deleted, because of the retention policy"
+  ],
+  "report_lines": [
+    {
+      "line": 5,
+      "pattern": "^(?=[\\s\\S]*audit)(?=[\\s\\S]*(7 years|seven years|retention|retain|never deleted|must be kept))[\\s\\S]*(pseudonym|anonymi|redact|scrub|replac)"
+    }
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**",
+    "docs/**"
+  ],
+  "plan_summary": "An erasure service removes the person's documents, links, views and memberships and pseudonymizes the audit log in place instead of deleting it (docs/policy.md); DELETE /api/me; repository removers; a test. The report flags the conflict with the ask."
+}

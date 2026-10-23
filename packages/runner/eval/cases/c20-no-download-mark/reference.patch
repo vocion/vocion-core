@@ -1,0 +1,37 @@
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index a0636e4..5319708 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -4,7 +4,8 @@ export function libraryPage(store, userId, { q = '', starred = false, showArchiv
+   const documents = store.starredFirst(userId, store.listDocuments(userId, { q, archived: showArchived }), { onlyStarred: starred });
+   const row = (d) => {
+     const on = store.isStarred(userId, d.id);
+-    const marks = d.archivedAt ? '<span data-testid="mark-archived">Archived</span>' : '';
++    const noDownload = store.linksFor(d.id).some(l => !store.allowsDownload(l));
++    const marks = `${d.archivedAt ? '<span data-testid="mark-archived">Archived</span>' : ''}${noDownload ? '<span data-testid="mark-no-download">No download</span>' : ''}`;
+     return `<li data-testid="doc-row" data-id="${d.id}"><button data-testid="star" aria-pressed="${on}" aria-label="Star">${on ? '\u2605' : '\u2606'}</button><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta">${marks}</div></li>`;
+   };
+   const stars = documents.filter(d => store.isStarred(userId, d.id));
+@@ -19,7 +20,7 @@ export function documentPage(store, userId, id) {
+   if (!store.canSee(userId, doc)) {
+     return null;
+   }
+-  const links = store.linksFor(doc.id).map(l => `<li data-testid="link-row" data-id="${l.id}">${escapeHtml(l.recipientEmail)}</li>`).join('');
++  const links = store.linksFor(doc.id).map(l => `<li data-testid="link-row" data-id="${l.id}">${escapeHtml(l.recipientEmail)} <label><input type="checkbox" data-testid="allow-download"${store.allowsDownload(l) ? ' checked' : ''}> Allow downloads</label></li>`).join('');
+   return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta"></p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
+ }
+ 
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index 9d7fb79..f2a90a3 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -27,3 +27,9 @@ test('the document page is not shown outside the library', () => {
+ test('the link page offers the download', () => {
+   assert.equal(byTestId(linkPage(createStore(), 'l1'), 'download').length, 1);
+ });
++
++test('a document with downloads off on a link is marked', () => {
++  const store = createStore();
++  store.findLink('l1').allowDownload = false;
++  assert.match(text(libraryPage(store, 'u_owner')), /No download/);
++});

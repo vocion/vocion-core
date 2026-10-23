@@ -1,0 +1,26 @@
+{
+  "id": "h04-duplicate-reminders",
+  "tier": "hard",
+  "split": "tuning",
+  "complexity": 4,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 5,
+    "kind": "walk-derived",
+    "note": "Walks 5 to 7 shipped reminders; this is the duplicate-send report that schedule invites, with the rule only in docs/notifications.md."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Bug: recipients get two reminders an hour apart",
+  "objective": "Support ticket: \"legal@contoso.example got two reminders about the Draft Contract last night, one at 23:30 and another at 00:30. Another customer says the same, and theirs came at different hours.\" Find out why and fix it so reminders follow the product's documented rules, whatever time zone the server runs in. Add a regression test.",
+  "acceptance": [
+    "A reminder an hour after the last, across midnight, is not sent; one 24 hours later is",
+    "Over ten days of hourly runs each recipient gets at most one per 24 hours and at most 3 in all, and the due reminders still go out",
+    "The same holds with the server in Pacific/Auckland or America/Los_Angeles",
+    "Opening the link still stops reminders"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "The reminder job checks the time since the last reminder instead of a calendar-day key, using the UTC time helpers; a regression test."
+}

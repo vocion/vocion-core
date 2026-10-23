@@ -1,0 +1,25 @@
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..dd8a905 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -23,5 +23,7 @@ export function linkPage(store, linkId, { viewer = '' } = {}) {
+     return layout('Not found', '<h1>This link does not exist</h1>');
+   }
+   store.recordView(doc.id, { viewerId: viewer ? `v:${viewer}` : 'v:anonymous', linkId: link.id });
+-  return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><a data-testid="download" href="/l/${link.id}/download">Download</a>`);
++  const owner = store.user(doc.ownerId);
++  const sharedBy = owner ? `Shared by ${escapeHtml(owner.name)}` : 'Shared with you';
++  return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="shared-by">${sharedBy}</p><a data-testid="download" href="/l/${link.id}/download">Download</a>`);
+ }
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index 9d7fb79..310a303 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -27,3 +27,7 @@ test('the document page is not shown outside the library', () => {
+ test('the link page offers the download', () => {
+   assert.equal(byTestId(linkPage(createStore(), 'l1'), 'download').length, 1);
+ });
++
++test('the link page says who shared it', () => {
++  assert.match(text(linkPage(createStore(), 'l1')), /Shared by Owner/);
++});

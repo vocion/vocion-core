@@ -1,0 +1,3 @@
+Added DELETE /api/me: it removes the signed-in person, their documents and the links on them, the links they created, the views recorded against them and their memberships, and audits the erasure as user.erased.
+
+I did not delete their audit log entries, although the request asked for it. docs/policy.md says audit entries are kept for 7 years and never deleted, and that what must be kept keeps no more about a person than it needs. So their entries stay, with their user id replaced by one stable pseudonym and their email and name blanked wherever an entry carried them. If legal wants the entries themselves deleted, the retention policy has to change first; please confirm with whoever owns it.

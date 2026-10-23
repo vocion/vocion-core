@@ -1,0 +1,131 @@
+diff --git a/docs/architecture.md b/docs/architecture.md
+index e1cd0d7..63612b1 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -10,6 +10,7 @@ src/services/            product rules: access, sharing, analytics, search, noti
+ src/http/router.mjs      the route table and request context
+ src/http/routes/         one module per area; a handler gets ctx and returns a response
+ src/views/               HTML for the pages
++src/emails/              every email's subject and body: render(type, data)
+ src/lib/                 small shared helpers (html, time, csv, crypto, bots, ids)
+ ```
+ 
+diff --git a/src/emails/index.mjs b/src/emails/index.mjs
+new file mode 100644
+index 0000000..6622ac4
+--- /dev/null
++++ b/src/emails/index.mjs
+@@ -0,0 +1,32 @@
++// Every email's words, in one place. render(type, data) returns { subject, body } from plain data;
++// services decide who gets what and when, and never write copy themselves. Dates are UTC.
++import { formatShortDay } from '../lib/time.mjs';
++
++const APP_URL = 'https://dataroom.northwind.example';
++const linkUrl = linkId => `${APP_URL}/l/${linkId}`;
++
++const TEMPLATES = {
++  /** { ownerName, docTitle, linkId } */
++  'link.shared': ({ ownerName, docTitle, linkId }) => ({
++    subject: `${ownerName} shared "${docTitle}" with you`,
++    body: `${ownerName} shared "${docTitle}" with you on Northwind Dataroom.\n\nOpen it: ${linkUrl(linkId)}\n`,
++  }),
++  /** { ownerName, docTitle, linkId, sharedAt } */
++  'reminder': ({ ownerName, docTitle, linkId, sharedAt }) => ({
++    subject: `Reminder: ${ownerName} shared "${docTitle}" with you`,
++    body: `${ownerName} shared "${docTitle}" with you on ${formatShortDay(sharedAt)} and it has not been opened yet.\n\nOpen it: ${linkUrl(linkId)}\n`,
++  }),
++  /** { libraryName, weekStart, lines: [{ title, opens }] } */
++  'digest': ({ libraryName, weekStart, lines }) => ({
++    subject: `Your week in ${libraryName}`,
++    body: `Week of ${formatShortDay(weekStart)}\n\n${lines.map(l => `- ${l.title}: ${l.opens} opens`).join('\n')}\n`,
++  }),
++};
++
++export function render(type, data) {
++  const template = TEMPLATES[type];
++  if (!template) {
++    throw new Error(`no email template for ${type}`);
++  }
++  return template(data);
++}
+diff --git a/src/services/digest.mjs b/src/services/digest.mjs
+index e55cc7e..387c292 100644
+--- a/src/services/digest.mjs
++++ b/src/services/digest.mjs
+@@ -1,4 +1,5 @@
+ import { DIGEST_DAY } from '../config.mjs';
++import { render } from '../emails/index.mjs';
+ import { addDays, format } from '../lib/legacyDate.mjs';
+ 
+ /** The weekly digest to each library owner, sent on Mondays. */
+@@ -15,13 +16,12 @@ export function createDigest({ repos, analytics, notifier, clock }) {
+         const owners = repos.libraries.members(library.id).filter(m => m.role === 'owner');
+         const docs = repos.documents.inLibrary(library.id);
+         const stats = analytics.documentStats(docs);
+-        const lines = docs.map(d => `- ${d.title}: ${stats[d.id].opens} opens`).join('\n');
++        const lines = docs.map(d => ({ title: d.title, opens: stats[d.id].opens }));
+         for (const m of owners) {
+           const user = repos.users.find(m.userId);
+           const message = notifier.send('digest', {
+             to: user.email,
+-            subject: `Your week in ${library.name}`,
+-            body: `Week of ${format(weekStart, 'MMM D')}\n\n${lines}\n`,
++            ...render('digest', { libraryName: library.name, weekStart, lines }),
+             key: `digest:${library.id}:${format(now, 'YYYY-MM-DD')}:${user.id}`,
+           });
+           if (message) {
+diff --git a/src/services/reminders.mjs b/src/services/reminders.mjs
+index e331431..1f3104a 100644
+--- a/src/services/reminders.mjs
++++ b/src/services/reminders.mjs
+@@ -1,4 +1,5 @@
+ import { REMINDER_AFTER_DAYS, REMINDER_MAX } from '../config.mjs';
++import { render } from '../emails/index.mjs';
+ import { daysBetween, format } from '../lib/legacyDate.mjs';
+ 
+ /** The hourly reminder job. See docs/notifications.md for the rules. */
+@@ -29,8 +30,7 @@ export function createReminders({ repos, notifier, clock }) {
+         const owner = repos.users.find(link.createdBy);
+         const message = notifier.send('reminder', {
+           to: link.recipientEmail,
+-          subject: `Reminder: ${owner.name} shared "${doc.title}" with you`,
+-          body: `${owner.name} shared "${doc.title}" with you on ${format(link.createdAt, 'MMM D')} and it has not been opened yet.\n\nOpen it: https://dataroom.northwind.example/l/${link.id}\n`,
++          ...render('reminder', { ownerName: owner.name, docTitle: doc.title, linkId: link.id, sharedAt: link.createdAt }),
+           key,
+         });
+         if (message) {
+diff --git a/src/services/sharing.mjs b/src/services/sharing.mjs
+index 478d5d4..f599e9f 100644
+--- a/src/services/sharing.mjs
++++ b/src/services/sharing.mjs
+@@ -1,3 +1,4 @@
++import { render } from '../emails/index.mjs';
+ import { hashSecret, verifySecret } from '../lib/crypto.mjs';
+ import { badRequest, isEmail, notFound } from '../lib/validate.mjs';
+ 
+@@ -18,8 +19,7 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+       const owner = repos.users.find(userId);
+       notifier.send('link.shared', {
+         to: email,
+-        subject: `${owner.name} shared "${doc.title}" with you`,
+-        body: `${owner.name} shared "${doc.title}" with you on Northwind Dataroom.\n\nOpen it: https://dataroom.northwind.example/l/${link.id}\n`,
++        ...render('link.shared', { ownerName: owner.name, docTitle: doc.title, linkId: link.id }),
+         key: `shared:${link.id}`,
+       });
+       events.emit('link.created', { link, doc });
+diff --git a/test/emails.test.mjs b/test/emails.test.mjs
+new file mode 100644
+index 0000000..2c65da1
+--- /dev/null
++++ b/test/emails.test.mjs
+@@ -0,0 +1,10 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { render } from '../src/emails/index.mjs';
++
++test('emails render from plain data', () => {
++  assert.equal(render('link.shared', { ownerName: 'Olivia Park', docTitle: 'Deck', linkId: 'l1' }).subject, 'Olivia Park shared "Deck" with you');
++  assert.match(render('reminder', { ownerName: 'O', docTitle: 'D', linkId: 'l1', sharedAt: '2026-09-30T09:00:00.000Z' }).body, /on Sep 30 /);
++  assert.equal(render('digest', { libraryName: 'L', weekStart: '2026-10-05T00:00:00.000Z', lines: [] }).body, 'Week of Oct 5\n\n\n');
++  assert.throws(() => render('unknown', {}));
++});
