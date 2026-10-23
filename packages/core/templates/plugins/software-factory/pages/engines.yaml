@@ -1,0 +1,16 @@
+# Engines. How each engine that builds the factory's tasks is doing, side by
+# side on the same figures, and the runs behind them (ADR 0005; Jamie,
+# 2026-10-23: see the engine scoreboard in the platform, not only the API).
+#
+# The figures are the engine scoreboard's (services/factory/engineRun.ts): one
+# row per engineering run, whichever engine did it, brought up to date as the
+# page is read. The page is drawn by core (archetype `engines`); it declares
+# nothing else. Under More, beside Runs: the machine's record, not the loop a
+# person walks (the three-page rule, 2026-09-24).
+slug: engines
+title: Engines
+description: Each engine side by side on the same work — PR rate, QA, acceptance, time and cost — and the runs behind the figures.
+icon: gauge
+nav: {section: Software factory, order: 7, secondary: true}
+archetype: engines
+pluginPanel: false

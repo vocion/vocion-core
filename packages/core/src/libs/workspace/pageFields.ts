@@ -755,7 +755,7 @@ export const PageManifestSchema = z.object({
    * redirects to `href`. It exists so a plugin can seat a core surface (the
    * team report) beside its own pages without duplicating it.
    */
-  archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report', 'wiki', 'configure', 'metrics']),
+  archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report', 'wiki', 'configure', 'metrics', 'engines']),
   /**
    * Whether this page carries its plugin's "How <plugin> is doing" panel.
    * On by default; a plugin with many pages keeps it on one of them (the
