@@ -63,7 +63,7 @@ export function TeamCluster({ members, href = '/dashboard/teams' }: { members: r
         {rest.map((m, i) => (
           <span
             key={m.slug}
-            className={cn(ENTER, '-ml-2 motion-safe:fill-mode-both motion-safe:slide-in-from-left-2')}
+            className={cn(ENTER, i === 0 ? 'ml-1' : '-ml-2', 'motion-safe:fill-mode-both motion-safe:slide-in-from-left-2')}
             style={{ zIndex: 9 - i, animationDelay: `${80 + i * 60}ms` }}
             data-testid="team-member"
           >
