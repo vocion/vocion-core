@@ -89,7 +89,7 @@ export const RECORD_SETS: readonly RecordSet[] = [
   {
     id: 'vocion.decision',
     noun: 'decision',
-    description: 'decisions in the review queue that are the person\'s to make (asks, approvals, proposed actions)',
+    description: 'the person\'s OWN decisions waiting (assigned to them or raised in their turns); for the Review queue as its page shows it, by age, kind or agent, use list_review_queue',
     async read(ctx, limit) {
       if (!ctx.userId) {
         return { rows: [], total: 0 };

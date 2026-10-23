@@ -118,7 +118,8 @@ export function PageDock({ agents }: { agents: AgentOption[] }) {
   const pathname = routeOf(usePathname());
   const [title, setTitle] = useState('');
   // The record the page declared (R4) — travels as `page_context.record`.
-  const { record } = usePageRecord();
+  // What a page that is not one record declared it shows: its name and state.
+  const { record, view } = usePageRecord();
   // `?conversation=<id>` names a thread to resume (§9) — one of the two
   // intentional returns. Read from the location rather than
   // `useSearchParams` so the shell needs no Suspense boundary.
@@ -150,7 +151,7 @@ export function PageDock({ agents }: { agents: AgentOption[] }) {
     <ChatDock
       agents={agents}
       scopeLabel="Everything"
-      pageContext={record ? { path: pathname, title, record } : { path: pathname, title }}
+      pageContext={{ path: pathname, title: view?.title ?? title, ...(record ? { record } : {}), ...(view && view.state.length > 0 ? { state: view.state } : {}) }}
       // Full width by default, everywhere. A record page is no longer the
       // exception (2026-09-16).
       defaultCollapsed

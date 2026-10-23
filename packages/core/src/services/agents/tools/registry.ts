@@ -99,6 +99,7 @@ import { recordVerdictTools } from './recordVerdict';
 import { renderArtifactTools } from './renderArtifacts';
 import { repoTools } from './repoTools';
 import { restTools } from './restDirect';
+import { reviewQueueTools } from './reviewQueue';
 import { routineTools } from './routineTools';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
@@ -378,6 +379,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // workspace across all of theirs. Never a search.
     ...waitingOnMeTools(ctx),
     queryStateTool(ctx),
+    // Whenever a person is in the turn: the Review queue as the page shows it,
+    // and many of its decisions declined on one card (`reviewQueue.ts`).
+    ...reviewQueueTools(ctx),
     // Whenever a person is in the turn: their goals — drafted as a Decision,
     // linked, read live, moved (`services/objectives/GoalService.ts`).
     ...goalTools(ctx),

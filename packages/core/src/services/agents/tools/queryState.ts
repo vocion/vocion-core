@@ -105,7 +105,7 @@ export function withheldLines(withheld: ReadonlyArray<{ accountName: string; wor
 
 /** Vocion's own record kinds (`services/state/state.ts` RECORD_SETS), named here so the tool's import graph stays small. */
 const RECORD_KINDS = [
-  { id: 'vocion.decision', description: 'decisions in the review queue that are the person\'s to make (asks, approvals, proposed actions)' },
+  { id: 'vocion.decision', description: 'the person\'s OWN decisions waiting (assigned to them or raised in their turns); for the Review queue as its page shows it, by age, kind or agent, use list_review_queue' },
   { id: 'vocion.connection', description: 'connected systems whose last sync failed, with the reason' },
 ];
 

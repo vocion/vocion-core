@@ -95,6 +95,8 @@ const KNOWN: Record<string, StepLabels> = {
   waiting_on_me: { running: 'Reading what is waiting on you…', done: 'Read what is waiting on you' },
   get_gmail_thread: { running: 'Reading the email thread…', done: 'Read the email thread' },
   query_state: { running: 'Reading what is waiting…', done: 'Read what is waiting' },
+  list_review_queue: { running: 'Reading the Review queue…', done: 'Read the Review queue' },
+  decline_review_items: { running: 'Drafting the decline…', done: 'Drafted the decline for you to approve' },
   get_zoom_transcript: { running: 'Reading the call transcript…', done: 'Read the call transcript' },
   get_drive_file: { running: 'Reading the Drive file…', done: 'Read the Drive file' },
   read_discovery_transcript: { running: 'Reading the call transcript…', done: 'Read the call transcript' },

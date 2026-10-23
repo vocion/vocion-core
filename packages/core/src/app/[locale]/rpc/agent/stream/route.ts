@@ -191,7 +191,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     const lead = await leadNow;
     if (body.route === true && message.trim()) {
-      const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn } = await import('@/services/agents/router');
+      const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn, workspacePageDecision } = await import('@/services/agents/router');
       // A follow-up stays with the agent the thread is with; the router
       // picks only a conversation's first turn, or an agent the person names
       // (conversation 349: "Please file it now." left the product manager's
@@ -203,7 +203,9 @@ export async function POST(request: Request): Promise<Response> {
       // page is the context, a keyword is not (conversation 362).
       const pageRecord = pageContext?.record?.objectType ? { objectType: pageContext.record.objectType, id: pageContext.record.id } : null;
       routing = followUpDecision({ agents: routable, message, threadAgent, surface: 'chat' })
-        ?? pageOwnerDecision({ agents: routable, message, record: pageRecord, ownerSlug: pageRecord ? await recordOwnerSlug(orgId, pageRecord.objectType) : null, surface: 'chat' });
+        ?? pageOwnerDecision({ agents: routable, message, record: pageRecord, ownerSlug: pageRecord ? await recordOwnerSlug(orgId, pageRecord.objectType) : null, surface: 'chat' })
+        // On the Review queue, which holds every seat's decisions, the lead answers.
+        ?? workspacePageDecision({ agents: routable, message, pagePath: pageRecord ? null : pageContext?.path, leadSlug: lead.leadAgentSlug, surface: 'chat' });
       // Otherwise the first turn is read by a model against the roster and
       // what each seat owns (conversation 397: "file it and build it" went
       // to the wiki researcher on a keyword score).

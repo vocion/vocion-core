@@ -110,27 +110,38 @@ export const INFER_SYSTEM = [
   'standard — gather from a few places and synthesise: what do I owe replies to, prepare me for this meeting, what changed on this deal, draft a reply.',
   'deep — research or analysis across many sources or a long period, a plan, a document, a comparison, or ranking, prioritising or weighing risk across many items: research everything on an account since July, audit the pipeline, write a proposal, rank every open thread by revenue risk and say what to tell each.',
   'When unsure between two, pick the lower one: the person can always ask to dig deeper.',
-  'Also say two facts about the request: "drafts" is true when it asks to write, revise or soften something a person will send or read (an email, a note, a reply, a draft already proposed); "systems" is how many distinct systems or sources it needs checked (Gmail and HubSpot is 2; "confirm with the company knowledge base" after an earlier answer adds one).',
-  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>}.',
+  'Also say three facts about the request: "drafts" is true when it asks to write, revise or soften something a person will send or read (an email, a note, a reply, a draft already proposed); "systems" is how many distinct systems or sources it needs checked (Gmail and HubSpot is 2; "confirm with the company knowledge base" after an earlier answer adds one); "changes" is how many records it asks to change, decide, dismiss, approve or delete (0 for a question; "approve this one" is 1; "clear out everything older than a week" or "decline all of these" is many, so say 10 or more).',
+  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>, "changes": <number>}.',
 ].join(' ');
 
 /** Test seam: one small-model call returning its text. */
 export type EffortModel = (system: string, user: string) => Promise<{ text: string; response?: unknown }>;
 
+/** A request that changes at least this many records is a bulk change, never Quick. */
+export const BULK_CHANGES = 2;
+
 /**
- * The least Auto may pick, from the two facts the read reports: writing
+ * The least Auto may pick, from the facts the read reports: writing
  * something a person will send, or checking more than one system, is never
  * Quick. On 2026-10-23 Auto put "have I had contact with him (gmail,
  * hubspot?)" and "can we soften the ask" on Quick, and both answers fell
  * short: one checked a single system, the other revised a draft on the fast
  * model. Code routes on the typed facts; the words are never matched.
+ *
+ * The same day "can we kill all these old GTM recommendations? anything
+ * older than 5 days?" ran on Quick, read the queue backwards and asked the
+ * person for ids: a request that changes many records is never Quick either.
  * @param facts - What the read said about the request.
  * @param facts.drafts - It writes or revises something a person will send.
  * @param facts.systems - How many systems it needs checked.
+ * @param facts.changes - How many records it asks to change or decide.
  */
-export function autoFloor(facts: { drafts: boolean; systems: number }): { level: EffortLevel; reason: string } | null {
+export function autoFloor(facts: { drafts: boolean; systems: number; changes?: number }): { level: EffortLevel; reason: string } | null {
   if (facts.drafts) {
     return { level: 'standard', reason: 'drafting something you will send' };
+  }
+  if ((facts.changes ?? 0) >= BULK_CHANGES) {
+    return { level: 'standard', reason: 'changing many records at once' };
   }
   if (facts.systems >= 2) {
     return { level: 'standard', reason: `checking ${facts.systems} systems` };
@@ -154,8 +165,8 @@ export function parseEffort(raw: string): { level: EffortLevel; reason: string }
       return null;
     }
     const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 80) : '';
-    const facts = parsed as { drafts?: unknown; systems?: unknown };
-    const floor = autoFloor({ drafts: facts.drafts === true, systems: typeof facts.systems === 'number' ? facts.systems : 1 });
+    const facts = parsed as { drafts?: unknown; systems?: unknown; changes?: unknown };
+    const floor = autoFloor({ drafts: facts.drafts === true, systems: typeof facts.systems === 'number' ? facts.systems : 1, changes: typeof facts.changes === 'number' ? facts.changes : 0 });
     if (floor && EFFORT_LEVELS.indexOf(parsed.level as EffortLevel) < EFFORT_LEVELS.indexOf(floor.level)) {
       return { level: floor.level, reason: floor.reason };
     }
