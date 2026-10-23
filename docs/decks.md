@@ -51,7 +51,9 @@ alignment). Children flow inside it; `position:absolute` pins a child to the
 slide. Later children paint over earlier ones.
 
 Allowed elements: `h1 h2 h3 p ul ol li br b i u a span div img table tr th td
-svg hr aside` and three Vocion elements:
+svg hr aside` (plus `thead tbody tfoot`, which every HTML parser inserts, and
+the synonyms `strong em sup sub`; SVG children are allowed inside `<svg>`) and
+three Vocion elements:
 
 | Element | Attributes | Renders as |
 |---|---|---|
@@ -60,7 +62,13 @@ svg hr aside` and three Vocion elements:
 | `<x-connector x1 y1 x2 y2>` | `head`: `end` (default) `start both none`; `route`: `straight` (default) `hv vh`; inline `color`, `border-width`, `border-style` | an SVG line in slide coordinates |
 
 An unknown icon name, shape kind or element is an **audit failure that names
-it**, never a silent blank.
+it**, never a silent blank: the runtime marks it `data-vocion-unknown` and
+draws a dashed red box. What is never allowed in a slide — `<script>`,
+`<style>`, frames, form fields, `on*` handlers, `javascript:` URLs, a slide that
+is not exactly one `<section id>` matching its key, notes that are not one
+trailing `<aside>` of at most 4,000 characters — refuses the write with a
+sentence naming it (`libs/decks/slides.ts` `checkSlide`). Self-closed
+`<x-icon …/>` is accepted and stored opened.
 
 **Speaker notes** are plain text in one `<aside>`, the section's last child, up
 to 4,000 characters. In Metacto's house style the notes carry provenance: who
@@ -95,26 +103,48 @@ Every create and every revision:
    **prints the PDF**: one 1920×1080 page per slide, backgrounds on.
 
 The verification is stored on the version it verified, exactly as documents do,
-so the pane, the board and the agent's receipt all read the same facts.
+so the pane, the board and the agent's receipt all read the same facts. Its
+shape (`deckVerificationSchema` in `libs/cards/specs.ts`): `{ at, slides,
+pdfPages, pdf?, issues, reports, ok }`, each slide `{ id, n, label?,
+overflowPx, clipped, smallText, belowFooter, elementCount, unknownElements,
+unresolvedAssets, placeholders, hasNotes, image? }` — `image` is the served URL
+of the slide's screenshot, the same field a document sheet carries. `issues`
+are blocking and decide `ok`; `reports` (under the footer line, placeholders,
+no notes, a skipped look) never do. The footer band is the pinned elements
+(`position:absolute|fixed`) whose top is at or below y 920 and that are at
+most 80px tall. The optional vision look reuses the document look
+(`services/documents/look.ts`); its findings join `issues` as `look: slide N`.
+
+A renderer that cannot launch still writes the version: the verification
+carries the static audit (placeholders, notes, assets, unknown elements) and
+an issue saying it was not rendered.
 
 ## Tools
 
-| Tool | Does |
-|---|---|
-| `render_deck` | Create a deck from a `vocion-deck/1` spec (or Claude Slides v4 files, converted on the way in) in a data room; render, audit, return the receipt |
-| `read_deck` | The deck as files: index, slides with notes, assets, and the last receipt |
-| `edit_deck` | Operations, applied atomically as one version: `replace_slide`, `insert_slide`, `remove_slide`, `move_slide`, `replace_text` (literal, must match), `set_notes`, `set_title`, `set_asset` |
-| `verify_deck` | Re-render and re-audit, optionally with the vision look |
-| `export_deck_pdf` | Print through the same export gate as `export_document_pdf` |
-| `deck_checkout` / `deck_checkin` | The editor-neutral round trip, below. Also work for documents |
-| `export_pptx` / `import_pptx` | The PPTX adapter for decks |
-| `export_docx` / `import_docx` | The DOCX adapter for documents |
+| Tool | Arguments | Does |
+|---|---|---|
+| `render_deck` | `room_id?`, `title?`, `deck?` (`{title, order, slides, sections?, faces?}`) or `files?` (Vocion or Claude Slides v4 files), `assets?` (`{id: {url \| base64, name?}}`), `playbook?`, `folder?`, `look?` | Create a deck in a data room; render, audit, return the receipt |
+| `read_deck` | `id?`, `slides?` (ids or 1-based numbers), `images?` | The index (one line per slide, assets), the last receipt and the red-team state; with `slides`, their HTML with notes |
+| `edit_deck` | `id?`, `ops`, `assets?`, `change_summary`, `look?` | Operations, applied atomically as one version: `replace_slide{id,html}`, `insert_slide{html,after?}` (`after` omitted appends, `"^"` puts it first), `remove_slide{id}`, `move_slide{id,to}`, `replace_text{find,replace,slide?,all?}` (literal; exactly once in the named slide, or once across the deck, unless `all`), `set_notes{id,notes}`, `set_title{title}`, `set_asset{asset,value\|null}`. New images in `assets` are stored first and become `set_asset` ops |
+| `verify_deck` | `id?`, `look?` (default true) | Re-render and re-audit, recorded as a system version; the red-team receipt stands |
+| `export_deck_pdf` | `id?`, `asked_by_person?` | Print through the same export gate as `export_document_pdf` |
+| `deck_checkout` / `deck_checkin` | below | The editor-neutral round trip. Also work for documents |
+| `export_pptx` / `import_pptx` | | The PPTX adapter for decks (wired by its own change) |
+| `export_docx` / `import_docx` | | The DOCX adapter for documents (wired by its own change) |
+
+All are in the single registry (`services/agents/tools/decks.ts`, wired in
+`registry.ts`), so they reach every loop and Vocion's MCP server like the
+document tools. `export_document_pdf` takes `asked_by_person` too.
 
 `red_team_document` and the export gate accept either kind. The red team reads
-slide text **and** speaker notes. The gate keeps its existing behaviour and the
-"accelerate, never block" rule: it holds an agent's export on a blocking
-finding, and a person who asks for the PDF gets it with the finding as one line
-of advice.
+slide text **and** speaker notes; findings carry the slide number in the
+stored finding's `sheet` field (one finding shape for both kinds). The gate
+(`services/deliverables/exportGate.ts` + `gate.ts`) keeps its existing
+behaviour and the "accelerate, never block" rule: it holds an agent's export on
+a blocking finding, and when the agent says the person asked for the PDF in
+their own words (`asked_by_person`), the PDF goes out with the first blocking
+finding as one line of advice. `concept` and `case-study` join `proposal`,
+`scope` and `partnership-update` in the default client-facing playbooks.
 
 ## Out and back
 
@@ -123,13 +153,21 @@ Vocion is the canonical copy. Every way out records where the deck went
 
 ### MCP check-out and check-in (any assistant)
 
-- `deck_checkout { id }` returns the deliverable as files (for a deck:
-  `deck.json` plus `slides/<id>.html`; for a document: `document.html`),
-  short-lived download URLs for its assets, and `baseVersion`.
-- `deck_checkin { id, baseVersion, files, assets? }` writes a new version.
-  New images arrive as URLs or base64. **A stale `baseVersion` is refused**
-  with a slide-by-slide (or sheet-by-sheet) diff of what changed in Vocion
-  since the checkout, so the person can redo their change on top.
+- `deck_checkout { id, format? }` returns the deliverable as files (for a
+  deck: `deck.json` — format, title, order, sections, faces, playbook, and
+  each asset's name, type and download link — plus `slides/<id>.html`, or a
+  Claude Slides project with `format: "claude-slides"`; for a document:
+  `document.html`), short-lived download URLs for its assets
+  (`/api/deck-assets/<token>`, signed, one file, an hour), and `baseVersion`.
+  It writes nothing.
+- `deck_checkin { id, baseVersion, files, assets?, tool?, change_summary? }`
+  writes a new version with `origin: {kind: 'checkout', tool?, baseVersion}`.
+  New images arrive as URLs or base64; asset ids already on the deck are kept.
+  **A stale `baseVersion` is refused** with a slide-by-slide (or
+  sheet-by-sheet) diff of what changed in Vocion since the checkout, so the
+  person can redo their change on top. Stale means the CONTENT changed: a
+  version that only recorded a verify or a red-team read does not count.
+  Files identical to the current version write nothing.
 - Claude Slides v4 files (`project/deck.json`, `project/slides/*.html`,
   `/_blob/<id>` images) are accepted as-is and converted. That conversion is
   the whole Claude adapter.
@@ -167,3 +205,35 @@ sheet large, its notes, the version menu, the last receipt, and **Download**
 the page; each commit is an `edit_deck` (or `edit_document`) operation and a
 version with a one-line summary. Decks also have **Present**: full screen,
 arrow keys, notes in a second window.
+
+## Where things are (for the pane and the adapters)
+
+- **Types**: `DeckSpec`, `deckSpecSchema`, `DeckVerification`,
+  `DeckSlideAudit`, `DeckAsset` in `packages/core/src/libs/cards/specs.ts`.
+  `slides[id]` is always a fragment whose root is `<section id="<id>">`.
+- **Pure libs** (`libs/decks/`): `slides.ts` (check, text and notes,
+  placeholders, asset refs, `withNotes`), `icons.ts` + generated `iconData.ts`
+  (`packages/core/scripts/generate-deck-icons.mjs`), `runtime.ts`, `page.ts`
+  (`buildDeckPage`), `audit.ts`, `edit.ts` (`applyDeckOps`), `diff.ts`
+  (`diffDecks`, `diffDocuments`, `diffText`), `files.ts`, `claudeSlides.ts`,
+  `outline.ts`, `assetLink.ts`.
+- **A rendered deck in Playwright**: `openDeckPage(spec, { loadAsset,
+  deviceScaleFactor })` in `libs/decks/render.ts` returns `{ page, blocked,
+  close }` — the shared Chromium, 1920×1080 viewport, the runtime applied,
+  fonts loaded. Each slide is `.vocion-slide[data-slide-id]` with its
+  `<section>` inside; Vocion's generated SVG carries `data-vocion-generated`.
+  The caller closes it. `deckAssetLoader(orgId, spec)` in `DeckEngine.ts`
+  supplies `loadAsset`.
+- **Engine** (`services/decks/DeckEngine.ts`): `createDeck`, `reviseDeck`
+  (whole deck or ops, `ifVersion`), `verifyDeckArtifact`,
+  `redTeamDeckArtifact`, `exportDeckPdf`, `verifyDeckSpec`,
+  `ingestDeckAssets`, `deckReceipt`, `loadDeck`.
+- **Assets** are stored with `storeImageAsset` (`services/deliverables/files.ts`)
+  in the same file store `file` artifacts and screenshots use
+  (`libs/tools/artifacts/store.ts`), served at `/api/artifacts/<id>/<file>`;
+  the bytes are checked to be an image and a scripted SVG is refused. The
+  renderer reads them from the store (`readStoredFile`), never over HTTP.
+- **Check-out/check-in**: `services/deliverables/checkout.ts`.
+- **Card**: `libs/cards/firstParty/deck.tsx` with
+  `features/dashboard/artifacts/DeckView.tsx` — the chat summary and a
+  thumbnail grid from the verified screenshots, plus the PDF link.
