@@ -129,7 +129,7 @@ async function main() {
       const href = await row.getAttribute('href');
       note(`--- newest document: ${href}`);
       await page.goto(`${BASE}${href}`);
-      await page.locator('[data-document-frame]').waitFor({ timeout: 120_000 });
+      await page.locator('[data-deliverable-pane="document"]').waitFor({ timeout: 120_000 });
     }
     const state = page.locator('[data-document-state]');
     if (await state.count()) {
