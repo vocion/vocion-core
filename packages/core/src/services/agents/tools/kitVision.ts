@@ -36,6 +36,7 @@ import { db } from '@/libs/DB';
 import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
 import { metadataFromKey, parseS3Config } from '@/libs/sources/s3';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema } from '@/models/Schema';
+import { chargeAnthropicCall } from '@/services/budget/chargeModelCall';
 import { createBusinessObject, updateBusinessObject } from '@/services/BusinessObjectService';
 import { getNamespace, listNamespaces } from '@/services/MemoryService';
 import { recordHref } from '@/services/objects/recordHref';
@@ -446,6 +447,7 @@ export function kitVisionTools(ctx: RuntimeContext) {
           system: systemPrompt,
           messages: [{ role: 'user', content }],
         });
+        await chargeAnthropicCall({ orgId: ctx.orgId, agentSlug: ctx.agentSlug, feature: 'tool.vision', response: res });
         let text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
         let verdict: z.infer<typeof VerdictSchema>;
         try {
@@ -459,6 +461,7 @@ export function kitVisionTools(ctx: RuntimeContext) {
             system: `${systemPrompt}\n\nYour previous answer was ${res.stop_reason === 'max_tokens' ? 'cut off' : 'not valid JSON'}. Answer again with ONLY the JSON object. Keep every "observed", "expected" and "notes" value under 12 words and the explanation under 60 words.`,
             messages: [{ role: 'user', content }],
           });
+          await chargeAnthropicCall({ orgId: ctx.orgId, agentSlug: ctx.agentSlug, feature: 'tool.vision', response: res });
           text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
           try {
             verdict = parseVerdict(text);

@@ -68,6 +68,8 @@ export async function lookAtSheets(orgId: string, sheets: ReadonlyArray<{ n: num
   content.push({ type: 'text', text: `${chosen.length} sheets shown${sheets.length > chosen.length ? ` (of ${sheets.length})` : ''}. Return the JSON now.` });
   const client = new Anthropic({ apiKey });
   const res = await client.messages.create({ model: LOOK_MODEL, max_tokens: 2000, temperature: 0, system: SYSTEM, messages: [{ role: 'user', content }] });
+  const { chargeAnthropicCall } = await import('@/services/budget/chargeModelCall');
+  await chargeAnthropicCall({ orgId, feature: 'document.look', response: res });
   const text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');

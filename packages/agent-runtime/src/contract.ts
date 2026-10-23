@@ -86,7 +86,7 @@ export type AgentEvent
      * caller (vocion-core's runtime provider) can charge agent budgets.
      * Never forwarded to the browser.
      */
-    | { type: 'usage'; model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
+    | { type: 'usage'; model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; cacheWrite1hTokens?: number };
 
 /* ------------------------------------------------------------------ */
 /* Invocation payload                                                  */

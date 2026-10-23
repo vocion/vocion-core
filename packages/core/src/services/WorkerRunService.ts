@@ -402,7 +402,8 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
       cacheReadTokens: input.usage.cacheReadTokens,
       cacheWriteTokens: input.usage.cacheWriteTokens,
     };
-    await chargeUsage({ orgId: run.orgId, agentSlug: run.agentSlug, model: input.usage.model, usage });
+    const { withCallContext } = await import('@/services/spend/callContext');
+    await withCallContext({ runKind: 'worker_run', runId: run.id }, () => chargeUsage({ orgId: run.orgId, agentSlug: run.agentSlug, model: input.usage!.model, usage }));
   }
   const eventsAccepted = await landEvents({ orgId: run.orgId, runId: run.id, events: input.events });
   const r = updated!;

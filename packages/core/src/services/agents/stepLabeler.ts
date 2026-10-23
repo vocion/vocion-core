@@ -88,6 +88,8 @@ async function defaultModel(orgId: string): Promise<LabelModel> {
   const model = await buildChatModelForOrg('classifier', orgId, { temperature: 0, maxTokens: 120, streaming: false });
   return async (system, user) => {
     const res = await model.invoke([{ role: 'system', content: system }, { role: 'user', content: user }]);
+    const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
+    await chargeModelCall({ orgId, feature: 'chat.step-label', role: 'classifier', response: res });
     const c = res.content;
     return typeof c === 'string' ? c : JSON.stringify(c);
   };

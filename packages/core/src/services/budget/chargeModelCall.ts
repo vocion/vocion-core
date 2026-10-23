@@ -30,7 +30,7 @@
 import type { FeatureName } from '@/libs/Langfuse/features';
 import type { ModelRole } from '@/libs/llm';
 import { resolvedModelId } from '@/libs/llm';
-import { modelIdOf, tokenUsageOf } from '@/libs/llm/usage';
+import { modelIdOf, tokenUsageOf, wasCharged } from '@/libs/llm/usage';
 
 /**
  * Charge what a model response says it cost.
@@ -40,6 +40,7 @@ import { modelIdOf, tokenUsageOf } from '@/libs/llm/usage';
  * @param opts.feature - The surface this call belongs to.
  * @param opts.role - The model role the call was built with; resolved to the billed model id here.
  * @param opts.response - Whatever `model.invoke()` returned.
+ * @param opts.latencyMs - How long the call took, when the caller timed it.
  */
 export async function chargeModelCall(opts: {
   orgId?: string | null;
@@ -47,8 +48,14 @@ export async function chargeModelCall(opts: {
   feature: FeatureName;
   role: ModelRole;
   response: unknown;
+  latencyMs?: number;
 }): Promise<void> {
   if (!opts.orgId) {
+    return;
+  }
+  // Made inside an agent's graph, the call was already charged by the agent's
+  // own callback, which LangChain hands down to every model call under it.
+  if (wasCharged(opts.response)) {
     return;
   }
   const usage = tokenUsageOf(opts.response);
@@ -67,6 +74,7 @@ export async function chargeModelCall(opts: {
       feature: opts.feature,
       model: modelIdOf(opts.response) ?? resolvedModelId(opts.role),
       usage,
+      ...(opts.latencyMs !== undefined ? { latencyMs: opts.latencyMs } : {}),
     });
   } catch (error) {
     logChargeFailure({
@@ -96,4 +104,51 @@ function logChargeFailure(properties: Record<string, unknown>): void {
     // an uncharged call that says nothing anywhere is the defect this exists to
     // report.
     .catch(loggerError => console.error('could not charge a model call to the budget, and the logger was unavailable', { ...properties, loggerError }));
+}
+
+/** Usage as the Anthropic SDK reports it on a raw `messages.create` response. */
+type AnthropicSdkUsage = {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+};
+
+/**
+ * Charge a raw Anthropic SDK response (`client.messages.create`), for the few
+ * vision and document calls that build their own client. The SDK reports
+ * `input_tokens` as the uncached remainder, so the cache counts are added back:
+ * `libs/pricing` takes input as the whole input side.
+ * @param opts - Who spent it and what came back.
+ * @param opts.orgId - Tenant. Nothing is charged when there is none.
+ * @param opts.agentSlug - The agent whose work this was, when there is one.
+ * @param opts.feature - The surface this call belongs to.
+ * @param opts.response - What `messages.create` returned.
+ * @param opts.response.model - The model it ran on.
+ * @param opts.response.usage - What it reported.
+ */
+export async function chargeAnthropicCall(opts: {
+  orgId?: string | null;
+  agentSlug?: string;
+  feature: FeatureName;
+  response: { model?: string; usage?: AnthropicSdkUsage | null };
+}): Promise<void> {
+  const u = opts.response.usage;
+  if (!opts.orgId || !u || !opts.response.model) {
+    return;
+  }
+  const cacheRead = u.cache_read_input_tokens ?? 0;
+  const cacheWrite = u.cache_creation_input_tokens ?? 0;
+  try {
+    const { chargeUsage } = await import('@/services/BudgetService');
+    await chargeUsage({
+      orgId: opts.orgId,
+      agentSlug: opts.agentSlug,
+      feature: opts.feature,
+      model: opts.response.model,
+      usage: { inputTokens: (u.input_tokens ?? 0) + cacheRead + cacheWrite, outputTokens: u.output_tokens ?? 0, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite },
+    });
+  } catch (error) {
+    logChargeFailure({ orgId: opts.orgId, feature: opts.feature, model: opts.response.model, error: error instanceof Error ? error.message : String(error) });
+  }
 }

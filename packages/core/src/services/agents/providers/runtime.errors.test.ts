@@ -24,6 +24,7 @@ vi.mock('@/libs/DB');
 const mintBedrockSessionForRuntime = vi.fn(async () => null);
 const chargeUsage = vi.fn(async () => {});
 const preflightCheck = vi.fn(async (): Promise<unknown> => ({ ok: true }));
+const loggedError = vi.fn();
 vi.mock('@/libs/llm/bedrockCredentials', () => ({ mintBedrockSessionForRuntime }));
 vi.mock('@/services/agents/harness', () => ({
   buildInitialFiles: vi.fn(async () => ({})),
@@ -32,6 +33,7 @@ vi.mock('@/services/agents/harness', () => ({
 vi.mock('@/services/agents/tools/registry', () => ({ buildToolCatalog: vi.fn(() => []) }));
 vi.mock('@/services/agents/claims', () => ({ signClaim: vi.fn(() => 'signed-claim') }));
 vi.mock('@/services/BudgetService', () => ({ chargeUsage, preflightCheck }));
+vi.mock('@/libs/Logger', () => ({ logger: { error: loggedError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 /** What the deployed (AgentCore) transport was handed, and the frames it streams back. */
 const agentCore = { frames: [] as string[], abortSignal: undefined as AbortSignal | undefined };
@@ -216,14 +218,15 @@ describe('budget-charge failure', () => {
         + sseFrame(JSON.stringify({ type: 'done', response: 'here is your answer' })),
       ),
     })));
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
     const result = await runAgentOnRuntime({ orgId: ORG_A, agentSlug: 'sales-assistant', message: 'hi' });
 
     expect(result.response).toBe('here is your answer');
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('budget service unavailable'));
 
-    errorSpy.mockRestore();
+    // Logged as an error, with the cause, where production reads its logs.
+    await vi.waitFor(() => expect(loggedError).toHaveBeenCalledWith(
+      expect.stringContaining('not charged'),
+      expect.objectContaining({ orgId: ORG_A, agentSlug: 'sales-assistant', error: 'budget service unavailable' }),
+    ));
   });
 });
 
