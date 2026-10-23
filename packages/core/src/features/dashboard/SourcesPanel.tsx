@@ -22,6 +22,7 @@ import { firstSentence, IntegrationLogo } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { HowItsAuthored } from '@/components/ui/how-its-authored';
+import { Notice } from '@/components/ui/notice';
 import { toast } from '@/components/ui/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { connectStartHref, returnUrl, safeReturnPath } from '@/libs/connect/returnTo';
@@ -327,39 +328,30 @@ export function SourcesPanel({ connectInfo = {}, timeZone, overview = NO_OVERVIE
     <div className="flex flex-col gap-4">
       {connectOutcome
         ? (
-            <div
+            <Notice
               role="status"
-              className={connectOutcome.ok
-                ? 'flex items-start gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm'
-                : 'flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive'}
+              tone={connectOutcome.ok ? 'pass' : 'fail'}
+              action={(
+                <button type="button" onClick={() => setConnectOutcome(null)} className="text-xs underline-offset-2 hover:underline">
+                  Dismiss
+                </button>
+              )}
             >
-              <CircleAlert className="mt-0.5 size-4 shrink-0" />
-              <span className="flex-1">{connectOutcomeMessage({ ...connectOutcome, source: connectorNameFor(connectors, connectOutcome.source) })}</span>
-              <button type="button" onClick={() => setConnectOutcome(null)} className="text-xs underline-offset-2 hover:underline">
-                Dismiss
-              </button>
-            </div>
+              {connectOutcomeMessage({ ...connectOutcome, source: connectorNameFor(connectors, connectOutcome.source) })}
+            </Notice>
           )
         : null}
       {error
         ? (
-            <div className="flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              <CircleAlert className="mt-0.5 size-4 shrink-0" />
-              {error}
-            </div>
+            <Notice tone="fail">{error}</Notice>
           )
         : null}
 
       {syncOutcome
         ? (
-            <div
-              className={syncOutcome.hadErrors
-                ? 'flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-500'
-                : 'flex items-start gap-1.5 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground'}
-            >
-              {syncOutcome.hadErrors ? <CircleAlert className="mt-0.5 size-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}
+            <Notice tone={syncOutcome.hadErrors ? 'warn' : 'info'}>
               {syncOutcome.message}
-            </div>
+            </Notice>
           )
         : null}
 
@@ -530,8 +522,8 @@ function InspectionChecklist({ inspection }: { inspection: ConnectorInspection }
         {inspection.checks.map(check => (
           <li key={check.key} className="flex items-start gap-2 text-sm">
             {check.ok
-              ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-              : <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-500" />}
+              ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-pass" />
+              : <CircleAlert className="mt-0.5 size-4 shrink-0 text-warn" />}
             <span className="min-w-0">
               <span className="font-medium text-foreground/80">{check.label}</span>
               {check.detail
@@ -1908,7 +1900,7 @@ function CollectionVerdict({ check }: { check: CollectionCheck | undefined }) {
   if (check.status === 'ok') {
     return (
       <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-        <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+        <CheckCircle2 className="size-3.5 text-pass" />
         {check.entryCount ?? 0}
         {check.entryCount === 1 ? ' entry' : ' entries'}
       </span>
@@ -2325,7 +2317,7 @@ function AddStrapiSourceDialog({ kind, title, lead, existing, onClose, onAdded }
 
         {inspection?.authorized && inspection.detectedVersion
           ? (
-              <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
+              <p className="mt-2 text-xs text-pass">
                 Connected — Strapi v
                 {inspection.detectedVersion}
                 , token accepted.
@@ -2335,7 +2327,7 @@ function AddStrapiSourceDialog({ kind, title, lead, existing, onClose, onAdded }
 
         {inspection?.reachable && inspection.error
           ? (
-              <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
+              <p className="mt-2 flex items-start gap-1.5 text-xs text-warn">
                 <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
                 {inspection.error}
               </p>

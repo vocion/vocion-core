@@ -14,7 +14,7 @@ import { KIND_LABEL } from './inboxMeta';
 export function AskReceipt({ ask, compact = false }: { ask: Ask; compact?: boolean }) {
   const label = ask.decision ? labelFor(ask, ask.decision) : ask.status;
   const Icon = ask.status === 'rejected' ? X : Check;
-  const tone = ask.status === 'rejected' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400';
+  const tone = ask.status === 'rejected' ? 'text-fail' : 'text-pass';
   return (
     <div className={compact ? 'flex items-start gap-3 px-4 py-3' : 'rounded-md border border-border px-4 py-3'}>
       <Icon className={`mt-0.5 size-4 shrink-0 ${tone}`} aria-hidden />
@@ -29,7 +29,7 @@ export function AskReceipt({ ask, compact = false }: { ask: Ask; compact?: boole
           {ask.decidedBy && <span className="truncate font-mono">{ask.decidedBy}</span>}
           {ask.decidedAt && <span>{ask.decidedAt.toLocaleString()}</span>}
           {ask.followUp && (
-            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+            <span className="inline-flex items-center gap-1 text-waiting">
               <MessageSquareReply className="size-3" aria-hidden />
               follow-up owed
             </span>

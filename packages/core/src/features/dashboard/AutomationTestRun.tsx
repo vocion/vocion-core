@@ -4,6 +4,7 @@ import type { AutomationCheckResult } from '@/services/automations/checkSummary'
 import { ExternalLink, FlaskConical, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Notice } from '@/components/ui/notice';
 import { formatDuration, summarizeResult } from './automationResult';
 
 /**
@@ -215,14 +216,14 @@ export function AutomationTestRun({
 
       {/* The real consequence of THIS automation, not the sweep's copy. */}
       {isCheck && (
-        <p className="mt-2 text-[11px] text-amber-600">
+        <p className="mt-2 text-[11px] text-warn">
           {reportOnly
             ? 'Report only: the agent identifies who is in scope and stops. No briefs, no drafts, no review items.'
             : 'A live pass: queues arrivals, writes briefs, drafts sends and proposes enroll cards for review. Nothing is sent and nobody is enrolled — every send still waits for a human’s Enroll.'}
         </p>
       )}
       {!isCheck && !dryRun && (
-        <p className="mt-2 text-[11px] text-amber-600">
+        <p className="mt-2 text-[11px] text-warn">
           A real run posts matched calls to the review queue and marks them routed.
         </p>
       )}
@@ -257,9 +258,9 @@ export function AutomationTestRun({
       )}
 
       {error && (
-        <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-700 dark:text-red-300">
+        <Notice tone="fail" className="mt-2">
           {error}
-        </div>
+        </Notice>
       )}
 
       {result !== null && <TestRunResult result={result} status={status} />}
@@ -381,7 +382,7 @@ function TestRunResult({ result, status }: { result: unknown; status: string | n
               )}
               {m.classification && (
                 <div>
-                  <span className={m.classification.isDiscovery ? 'text-emerald-600' : 'text-muted-foreground'}>
+                  <span className={m.classification.isDiscovery ? 'text-pass' : 'text-muted-foreground'}>
                     {m.classification.isDiscovery ? 'discovery' : 'not discovery'}
                   </span>
                   {' '}
@@ -450,7 +451,7 @@ function CheckResult({ result, status }: { result: AutomationCheckResult; status
       )}
 
       {result.mirror?.stale && (
-        <p className="text-[11px] text-amber-600">{result.mirror.note ?? 'The mirror this pass read is behind its own sync schedule.'}</p>
+        <p className="text-[11px] text-warn">{result.mirror.note ?? 'The mirror this pass read is behind its own sync schedule.'}</p>
       )}
       {result.mirror?.asOf && !result.mirror.stale && (
         <p className="text-[11px] text-muted-foreground">

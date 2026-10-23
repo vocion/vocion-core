@@ -77,7 +77,7 @@ export function VisionEngineControl({ compact = false }: { compact?: boolean }) 
   const running = status === 'RUNNING';
   const transitional = status === 'STARTING' || status === 'STOPPING';
   const canStart = status === 'TRAINING_COMPLETED' || status === 'STOPPED';
-  const tone = running ? 'border-emerald-600/40 bg-emerald-500/10 text-emerald-700' : transitional ? 'border-amber-600/40 bg-amber-500/10 text-amber-700' : 'border-border bg-muted/40 text-muted-foreground';
+  const tone = running ? 'bg-pass-soft text-pass' : transitional ? 'bg-warn-soft text-warn' : 'bg-surface-soft text-muted-foreground';
   const label = running ? 'Running' : status === 'STARTING' ? 'Starting…' : status === 'STOPPING' ? 'Stopping…' : status === 'TRAINING_IN_PROGRESS' ? 'Training…' : status === 'TRAINING_COMPLETED' || status === 'STOPPED' ? 'Off' : status === 'LOADING' ? '…' : status;
 
   return (
@@ -86,8 +86,8 @@ export function VisionEngineControl({ compact = false }: { compact?: boolean }) 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
             Engines
-            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${tone}`}>
-              <span className={`size-1.5 rounded-full ${running ? 'bg-emerald-500' : transitional ? 'animate-pulse bg-amber-500' : 'bg-muted-foreground/50'}`} aria-hidden />
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>
+              <span className={`size-1.5 rounded-full ${running ? 'bg-pass' : transitional ? 'animate-pulse bg-warn' : 'bg-muted-foreground/50'}`} aria-hidden />
               Rekognition classifier
               {' '}
               {label}
@@ -103,7 +103,7 @@ export function VisionEngineControl({ compact = false }: { compact?: boolean }) 
                   : 'Analyze runs on Claude Vision alone (reference comparison). Start the classifier to add the Rekognition second opinion.'}
             {typeof state?.f1 === 'number' && !compact && ` Test F1 ${state.f1.toFixed(2)} on a small held-out set.`}
           </p>
-          {(error || actionError) && <p className="mt-1 text-xs text-red-600">{actionError ?? error}</p>}
+          {(error || actionError) && <p className="mt-1 text-xs text-fail">{actionError ?? error}</p>}
         </div>
         <div className="flex items-center gap-2">
           <Link href="/dashboard/models" className="text-xs underline-offset-2 hover:underline">Model details</Link>

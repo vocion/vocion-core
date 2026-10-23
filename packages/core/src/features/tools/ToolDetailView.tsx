@@ -1,6 +1,7 @@
 import type { CatalogAgent, CatalogTool, RestActionEntry, ToolFamily } from '@/libs/tools/orgCatalog';
 import { ArrowLeft, Bot, Globe } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Notice } from '@/components/ui/notice';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
 import { fieldsFromInputSchema } from './inputFields';
@@ -203,13 +204,13 @@ export function ToolDetailView({ tool, family, agents }: { tool: CatalogTool; fa
       />
 
       {family.readiness && !family.readiness.ready && !family.readiness.keyStateUnknown && (
-        <p className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-xs text-muted-foreground" data-testid="needs-credential">
+        <Notice tone="warn" className="mb-6" data-testid="needs-credential">
           {family.label}
           {' '}
           has no credential connected, so this tool would refuse every call.
           {' '}
           <Link href="/dashboard/connectors" className="font-medium text-primary hover:underline">Connect it on the Connectors page →</Link>
-        </p>
+        </Notice>
       )}
 
       {tool.rest && <RestEndpoint tool={tool} />}

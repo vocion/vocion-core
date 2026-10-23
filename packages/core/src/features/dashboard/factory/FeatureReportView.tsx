@@ -8,6 +8,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Related, Section, StatusDot } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
+import { Notice } from '@/components/ui/notice';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { heroPictures } from '@/libs/factory/heroPictures';
 import { showsAnError } from '@/libs/factory/mockup';
@@ -139,9 +140,9 @@ function HeroMedia({ pictures, docs, mockupStatus, recordings, acceptance }: { p
   // missing a picture, it has them (Chris, 2026-09-30, #269).
   const status = mockupStatus && (pictures.length === 0 || mockupStatus.tone === 'info')
     ? (
-        <p data-testid="report-mockup-status" data-tone={mockupStatus.tone} className={`rounded-lg border border-dashed px-3 py-2 text-sm ${mockupStatus.tone === 'warn' ? 'border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-300' : 'border-border text-muted-foreground'}`}>
+        <Notice tone={mockupStatus.tone === 'warn' ? 'warn' : 'info'} data-testid="report-mockup-status">
           {mockupStatus.line}
-        </p>
+        </Notice>
       )
     : null;
   if (pictures.length === 0 && videos.length === 0) {

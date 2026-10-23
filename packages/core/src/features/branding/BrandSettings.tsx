@@ -353,7 +353,7 @@ export function BrandSettings({ initial, draft, orgName, poweredBy = true, api }
             </Button>
           )}
           {status && (
-            <p className={cn('text-[13px]', status.ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive')} role={status.ok ? 'status' : 'alert'} data-testid="brand-status">
+            <p className={cn('text-[13px]', status.ok ? 'text-pass' : 'text-destructive')} role={status.ok ? 'status' : 'alert'} data-testid="brand-status">
               {status.message}
               {status.ok && status.undo !== undefined && (
                 <>

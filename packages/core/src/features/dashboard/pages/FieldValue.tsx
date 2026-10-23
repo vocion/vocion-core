@@ -295,7 +295,7 @@ function FieldBody({ row, field, now, links }: { row: PageRow; field: PageField;
     }
     case 'score': {
       const n = Number(raw);
-      const cls = n >= 85 ? 'text-emerald-600' : n >= 70 ? 'text-foreground' : n >= 60 ? 'text-amber-600' : 'text-muted-foreground';
+      const cls = n >= 85 ? 'text-pass' : n >= 70 ? 'text-foreground' : n >= 60 ? 'text-warn' : 'text-muted-foreground';
       return <span className={`font-mono text-sm font-semibold tabular-nums ${cls}`}>{Number.isFinite(n) ? n : s}</span>;
     }
     case 'date': {

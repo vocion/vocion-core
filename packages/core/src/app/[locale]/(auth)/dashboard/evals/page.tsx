@@ -209,7 +209,7 @@ function Fact(props: { label: string; value: string; mono?: boolean; tone?: 'war
         className={[
           'mt-0.5',
           props.mono ? 'font-mono' : '',
-          props.tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-foreground',
+          props.tone === 'warn' ? 'text-warn' : 'text-foreground',
         ].filter(Boolean).join(' ')}
       >
         {props.value}

@@ -20,7 +20,7 @@ function StatusLine({ status }: { status: Status | null }) {
     return null;
   }
   return (
-    <p className={`text-sm ${status.ok ? 'text-emerald-600' : 'text-destructive'}`}>
+    <p className={`text-sm ${status.ok ? 'text-pass' : 'text-destructive'}`}>
       {status.message}
     </p>
   );

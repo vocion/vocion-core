@@ -45,14 +45,14 @@ export function MemberTable({ members, window }: { members: MemberReport[]; wind
                     <span className="truncate font-medium group-hover:text-primary">{m.name}</span>
                     {m.isLead && <span className="shrink-0 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">lead</span>}
                     {m.active > 0 && (
-                      <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400">
-                        <span className="size-1.5 rounded-full bg-emerald-500" aria-hidden />
+                      <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-pass">
+                        <span className="size-1.5 rounded-full bg-pass" aria-hidden />
                         {m.active}
                         {' '}
                         running
                       </span>
                     )}
-                    {m.failed > 0 && <span className="shrink-0 text-[11px] text-rose-700 dark:text-rose-400">{`${m.failed} failed`}</span>}
+                    {m.failed > 0 && <span className="shrink-0 text-[11px] text-fail">{`${m.failed} failed`}</span>}
                   </Link>
                 </td>
                 <td className="py-2 pr-3"><ShareCell share={m.shareOfCents} tone="primary" /></td>
@@ -82,8 +82,8 @@ export function MemberTable({ members, window }: { members: MemberReport[]; wind
  * @param root0.tone
  */
 function ShareCell({ share, tone }: { share: number; tone: 'emerald' | 'primary' }) {
-  const fill = tone === 'emerald' ? 'bg-emerald-600 dark:bg-emerald-500' : 'bg-foreground/70';
-  const track = tone === 'emerald' ? 'bg-emerald-600/15' : 'bg-muted';
+  const fill = tone === 'emerald' ? 'bg-pass' : 'bg-foreground/70';
+  const track = tone === 'emerald' ? 'bg-pass/15' : 'bg-muted';
   return (
     <div className="flex items-center gap-2">
       <span className={`h-1 w-16 rounded-full ${track}`} aria-hidden>

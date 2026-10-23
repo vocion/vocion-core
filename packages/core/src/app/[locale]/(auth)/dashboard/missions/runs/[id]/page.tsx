@@ -12,9 +12,9 @@ import { getMissionRun } from '@/services/MissionService';
 import { threadViewOfRun } from '@/services/teams/TeamThreadService';
 
 const TASK_STATUS_TONE: Record<string, string> = {
-  completed: 'text-emerald-600 dark:text-emerald-400',
+  completed: 'text-pass',
   running: 'text-primary',
-  awaiting_approval: 'text-amber-600 dark:text-amber-400',
+  awaiting_approval: 'text-waiting',
   failed: 'text-destructive',
   pending: 'text-muted-foreground',
   skipped: 'text-muted-foreground',

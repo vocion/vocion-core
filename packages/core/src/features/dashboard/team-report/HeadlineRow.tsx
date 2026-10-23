@@ -33,7 +33,7 @@ export function HeadlineRow({ report, now = new Date() }: { report: TeamReport; 
       <Stat label="Auto-completed work" value={h.autoCompletedRate === null ? '—' : pct(h.autoCompletedRate)} note={h.autoCompletedRate === null ? 'No work items yet' : 'needed nobody'} />
       <div className="min-w-0">
         <dt className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Needs attention</dt>
-        <dd className={`text-2xl leading-tight font-semibold tabular-nums ${h.needsAttention > 0 ? 'text-amber-700 dark:text-amber-400' : ''}`}>
+        <dd className={`text-2xl leading-tight font-semibold tabular-nums ${h.needsAttention > 0 ? 'text-waiting' : ''}`}>
           {h.needsAttention > 0 ? h.needsAttention : <span className="text-base font-medium text-muted-foreground">No pending escalations</span>}
         </dd>
         <dd className="mt-0.5 text-xs text-muted-foreground">

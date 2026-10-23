@@ -6,6 +6,7 @@ import { X } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { CLOSE_BUTTON } from '@/components/ui/buttonVariants';
+import { Notice } from '@/components/ui/notice';
 import { appMissingHere } from '@/features/navigation/apps';
 import { usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
@@ -74,8 +75,17 @@ export function AppNotHereNotice(props: { apps: readonly AppNav[]; elsewhere: re
     return null;
   }
   return (
-    <div role="status" className="flex items-start gap-2 border-b border-border bg-muted/40 px-4 py-2 text-[13px] text-foreground" data-testid="app-not-here">
-      <p className="min-w-0 flex-1">
+    <Notice
+      edge
+      tone="info"
+      data-testid="app-not-here"
+      action={(
+        <button type="button" onClick={() => setNotice(null)} aria-label={t('app_not_here_dismiss')} className={CLOSE_BUTTON}>
+          <X className="size-3.5" aria-hidden />
+        </button>
+      )}
+    >
+      <p>
         {t('app_not_here', { app: notice.app.name })}
         {notice.where.length > 0 && (
           <>
@@ -92,9 +102,6 @@ export function AppNotHereNotice(props: { apps: readonly AppNav[]; elsewhere: re
           </>
         )}
       </p>
-      <button type="button" onClick={() => setNotice(null)} aria-label={t('app_not_here_dismiss')} className={CLOSE_BUTTON}>
-        <X className="size-3.5" aria-hidden />
-      </button>
-    </div>
+    </Notice>
   );
 }

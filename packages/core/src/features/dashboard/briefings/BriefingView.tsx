@@ -315,7 +315,7 @@ function Metric({ metric }: { metric: BriefingMetric }) {
       <span>{metric.label}</span>
       <span className="ml-1.5 font-medium text-foreground tabular-nums">{formatValue(metric.value!, metric.unit)}</span>
       {delta && (
-        <span className={`ml-1.5 tabular-nums ${metric.direction === 'up' ? 'text-emerald-600 dark:text-emerald-400' : metric.direction === 'down' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
+        <span className={`ml-1.5 tabular-nums ${metric.direction === 'up' ? 'text-pass' : metric.direction === 'down' ? 'text-fail' : 'text-muted-foreground'}`}>
           {delta}
         </span>
       )}

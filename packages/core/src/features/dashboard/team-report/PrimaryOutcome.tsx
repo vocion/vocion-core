@@ -23,7 +23,7 @@ export function PrimaryOutcome({ teamSlug, reading, now = new Date() }: { teamSl
   const target = figure(m.target);
   const attainment = reading.attainment === null ? null : pct(reading.attainment);
   const Trend = reading.trend === 'up' ? ArrowUpRight : reading.trend === 'down' ? ArrowDownRight : ArrowRight;
-  const trendTone = reading.improving === null ? 'text-muted-foreground' : reading.improving ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400';
+  const trendTone = reading.improving === null ? 'text-muted-foreground' : reading.improving ? 'text-pass' : 'text-fail';
   const delta = reading.delta === null ? null : `${reading.delta > 0 ? '+' : reading.delta < 0 ? '−' : ''}${measureValue(Math.abs(reading.delta), m.unit)}`;
 
   return (
@@ -41,7 +41,7 @@ export function PrimaryOutcome({ teamSlug, reading, now = new Date() }: { teamSl
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums">
         {attainment !== null
           ? (
-              <span className={reading.met ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-foreground/80'}>
+              <span className={reading.met ? 'font-medium text-pass' : 'text-foreground/80'}>
                 {attainment}
                 {' of '}
                 {windowAdjective(m.window)}

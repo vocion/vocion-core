@@ -113,7 +113,7 @@ function AsideBlock({ block, testId }: { block: ConfigureAside; testId?: string 
               <IntegrationLogo brand={item.brand} name={item.label} size="xs" markOnly />
               <span className="min-w-0 truncate">{item.label}</span>
             </span>
-            <span className={cn('shrink-0 text-xs', item.done ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground')}>{item.done ? 'Done' : 'To do'}</span>
+            <span className={cn('shrink-0 text-xs', item.done ? 'text-pass' : 'text-muted-foreground')}>{item.done ? 'Done' : 'To do'}</span>
           </li>
         ))}
         {block.kind === 'health' && block.items.map(m => (

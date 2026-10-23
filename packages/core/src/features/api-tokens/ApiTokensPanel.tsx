@@ -847,7 +847,7 @@ export function ApiTokensPanel() {
                   {selectedPlatform?.helpText}
                 </p>
                 {selectedPlatform?.loginApp && !selectedPlatform.redirectUrl && (
-                  <p className="text-xs text-amber-600 dark:text-amber-500">
+                  <p className="text-xs text-warn">
                     This server does not know its public address (NEXT_PUBLIC_APP_URL is not set), so it cannot show the redirect URL to register at the vendor. Ask whoever runs the server to set it.
                   </p>
                 )}
@@ -866,7 +866,7 @@ export function ApiTokensPanel() {
                   </p>
                 )}
                 {existingKey && (
-                  <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-500">
+                  <p className="flex items-start gap-1.5 text-xs text-warn">
                     <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
                     <span>
                       {`A workspace holds one ${selectedPlatform?.label} key at a time, and this one already has `}

@@ -69,7 +69,7 @@ export function LineageSheet({ teamSlug, measureKey, label, children }: { teamSl
             Tracing…
           </p>
         )}
-        {error && <p className="mt-6 text-sm text-rose-700 dark:text-rose-400">{error}</p>}
+        {error && <p className="mt-6 text-sm text-fail">{error}</p>}
 
         {funnel && (
           <>

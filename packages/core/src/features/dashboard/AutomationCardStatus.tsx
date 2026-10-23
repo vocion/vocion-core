@@ -43,7 +43,7 @@ export function AutomationCardStatus({
   return (
     <div className="mt-1 space-y-0.5">
       {health.overdue && (
-        <div className="inline-flex items-center gap-1 font-medium text-amber-600" title={health.expectedAt ? `expected at ${health.expectedAt.toISOString()}` : undefined}>
+        <div className="inline-flex items-center gap-1 font-medium text-warn" title={health.expectedAt ? `expected at ${health.expectedAt.toISOString()}` : undefined}>
           <AlertTriangle className="size-3" />
           overdue —
           {' '}
@@ -52,7 +52,7 @@ export function AutomationCardStatus({
       )}
 
       {skips && skips.rateLimited > 0 && (
-        <div className="inline-flex items-center gap-1 font-medium text-amber-600" title={`when.maxFiresPer10m${skips.ceiling ? ` = ${skips.ceiling}` : ''}; the held fires are coalesced into one run after the window`}>
+        <div className="inline-flex items-center gap-1 font-medium text-warn" title={`when.maxFiresPer10m${skips.ceiling ? ` = ${skips.ceiling}` : ''}; the held fires are coalesced into one run after the window`}>
           <AlertTriangle className="size-3" />
           rate limited —
           {' '}
@@ -79,7 +79,7 @@ export function AutomationCardStatus({
       {run
         ? (
             <>
-              <div className={run.status === 'error' ? 'text-red-600' : undefined}>
+              <div className={run.status === 'error' ? 'text-fail' : undefined}>
                 {run.status === 'error' ? 'last run failed' : run.status === 'running' ? 'running since' : 'last run'}
                 {' '}
                 {run.startedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
@@ -87,9 +87,9 @@ export function AutomationCardStatus({
                 {duration && ` · ${duration}`}
               </div>
               {summary && <div className="text-muted-foreground/70">{summary}</div>}
-              {run.error && <div className="max-w-56 truncate text-red-600" title={run.error}>{run.error}</div>}
+              {run.error && <div className="max-w-56 truncate text-fail" title={run.error}>{run.error}</div>}
               {check?.mirror?.stale && (
-                <div className="max-w-56 text-amber-600" title={check.mirror.note ?? undefined}>
+                <div className="max-w-56 text-warn" title={check.mirror.note ?? undefined}>
                   read stale data
                 </div>
               )}
@@ -126,7 +126,7 @@ function SourceFreshness({ freshness }: { freshness: MirrorFreshness }) {
   const age = freshness.ageMs === null ? 'never synced' : `${humanizeAge(freshness.ageMs)} ago`;
   return (
     <div
-      className={`inline-flex max-w-56 items-start gap-1 ${freshness.stale ? 'text-amber-600' : 'text-muted-foreground/70'}`}
+      className={`inline-flex max-w-56 items-start gap-1 ${freshness.stale ? 'text-warn' : 'text-muted-foreground/70'}`}
       title={freshness.reason ?? undefined}
     >
       <Database className="mt-0.5 size-3 shrink-0" />

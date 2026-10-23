@@ -78,7 +78,7 @@ export function DecisionCards({ cards, live, queued, href }: {
       )}
 
       {open.some(c => c.incident) && (
-        <p className="mt-2 flex items-start gap-1.5 text-[13px] text-amber-600 dark:text-amber-400">
+        <p className="mt-2 flex items-start gap-1.5 text-[13px] text-warn">
           <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
           <span>{`A brief shows at most three decisions. ${incidentReason(open)}`}</span>
         </p>

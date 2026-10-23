@@ -193,7 +193,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
           <Section eyebrow="Timeline" data-testid="room-timeline">
             <ol className="space-y-1.5 text-sm">
               {milestones.map(ms => (
-                <li key={`${ms.date}-${ms.title}`} className={`flex items-baseline gap-3 ${ms.status === 'planned' && ms.date < today ? 'text-amber-700 dark:text-amber-400' : ms.status === 'planned' ? 'text-muted-foreground' : 'text-foreground'}`}>
+                <li key={`${ms.date}-${ms.title}`} className={`flex items-baseline gap-3 ${ms.status === 'planned' && ms.date < today ? 'text-warn' : ms.status === 'planned' ? 'text-muted-foreground' : 'text-foreground'}`}>
                   <span className="w-24 shrink-0 text-xs text-muted-foreground tabular-nums">{ms.date}</span>
                   <span className="flex-1">
                     {ms.artifactId ? <a href={`/dashboard/artifacts/${ms.artifactId}`} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{ms.title}</a> : ms.title}

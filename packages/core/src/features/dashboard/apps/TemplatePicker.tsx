@@ -111,7 +111,7 @@ export function InstallReceipt(props: { receipt: TemplateInstallReceipt }) {
   return (
     <div data-testid="template-receipt" className="space-y-3 text-sm">
       <p className="flex items-start gap-2">
-        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-pass" aria-hidden />
         <span>
           {createdNothing
             ? `${r.name} was already set up here — nothing needed changing.`

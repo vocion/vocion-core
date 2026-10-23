@@ -152,7 +152,7 @@ export function GettingStartedChecklist({ initial, onDismiss, live = true }: Get
               >
                 {step.done
                   ? (
-                      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+                      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-pass-soft text-pass">
                         <Check className="size-3" aria-hidden />
                       </span>
                     )

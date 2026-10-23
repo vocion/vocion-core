@@ -245,14 +245,14 @@ function StatusLine({ row }: { row: ConnectionRow }) {
   }
   if (row.status === 'attention') {
     return (
-      <span className="flex min-w-0 items-start gap-1 text-[13px] text-amber-700 dark:text-amber-400" data-testid="connection-status">
+      <span className="flex min-w-0 items-start gap-1 text-[13px] text-warn" data-testid="connection-status">
         <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         <span>{t('status_attention', { reason: problemWords[row.problem!] })}</span>
       </span>
     );
   }
   return (
-    <span className="flex items-center gap-1 text-[13px] text-emerald-700 dark:text-emerald-400" data-testid="connection-status">
+    <span className="flex items-center gap-1 text-[13px] text-pass" data-testid="connection-status">
       {row.syncing ? <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden /> : <CheckCircle2 className="size-3.5 shrink-0" aria-hidden />}
       {t('status_working')}
     </span>
@@ -489,7 +489,7 @@ function SourceDetail({ source, row }: { source: Source; row: ConnectionRow }) {
                     <dd className="inline break-words">{sync.error}</dd>
                   </div>
                 )}
-                {skipped && <p className="text-amber-700 dark:text-amber-400" data-testid="sync-skipped-line">{t('detail_kept_none', { reason: skipped })}</p>}
+                {skipped && <p className="text-warn" data-testid="sync-skipped-line">{t('detail_kept_none', { reason: skipped })}</p>}
               </>
             )
           : <p className="text-muted-foreground">{t('never_synced')}</p>}
@@ -561,7 +561,7 @@ function GrantDetail({ source, grant }: { source: Source; grant: GrantSummary })
                     <li key={r.name} className="flex items-center gap-1.5" data-grant-state={r.state}>
                       {r.state === 'not-granted'
                         ? <CircleAlert className="size-3.5 shrink-0 text-destructive" aria-hidden />
-                        : <Check className={cn('size-3.5 shrink-0', r.state === 'not-listed' ? 'text-muted-foreground/60' : 'text-emerald-600 dark:text-emerald-500')} aria-hidden />}
+                        : <Check className={cn('size-3.5 shrink-0', r.state === 'not-listed' ? 'text-muted-foreground/60' : 'text-pass')} aria-hidden />}
                       <span className={r.state === 'not-listed' ? 'text-muted-foreground' : ''}>{r.name}</span>
                       {r.state === 'not-granted' && <span className="font-sans text-destructive">{t('detail_not_granted')}</span>}
                       {r.state === 'not-listed' && <span className="font-sans text-muted-foreground">{t('detail_not_listed')}</span>}

@@ -30,7 +30,7 @@ export function HireButton({ slug, name, hired }: { slug: string; name: string; 
 
   if (done) {
     return (
-      <div className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[var(--brand-teal-deep)]">
+      <div className="inline-flex items-center gap-1.5 text-[13px] font-medium text-pass">
         <Check className="size-3.5" aria-hidden />
         {t('hired', { name })}
       </div>
@@ -63,7 +63,7 @@ export function HireButton({ slug, name, hired }: { slug: string; name: string; 
           : <Plus className="size-3.5" aria-hidden />}
         {t('hire')}
       </button>
-      {error && <p className="mt-1.5 text-xs text-[var(--brand-amber-deep)]">{error}</p>}
+      {error && <p className="mt-1.5 text-xs text-fail">{error}</p>}
     </div>
   );
 }

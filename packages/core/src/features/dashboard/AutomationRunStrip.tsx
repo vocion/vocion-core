@@ -37,15 +37,15 @@ function bucket(runs: AutomationRunRow[]): Map<string, Cell> {
 
 function shade(cell: Cell): string {
   if (cell.errored) {
-    return 'bg-red-500';
+    return 'bg-fail';
   }
   if (cell.maxMs < 5 * 60_000) {
-    return 'bg-emerald-400';
+    return 'bg-pass/50';
   }
   if (cell.maxMs < 15 * 60_000) {
-    return 'bg-emerald-600';
+    return 'bg-pass';
   }
-  return 'bg-amber-500';
+  return 'bg-warn';
 }
 
 /**
@@ -118,7 +118,7 @@ export function AutomationRunStrip({
                               : outOfRange
                                 ? 'bg-transparent'
                                 : expected
-                                  ? 'border border-dashed border-amber-500/60'
+                                  ? 'border border-dashed border-warn/60'
                                   : 'bg-muted'
                           }`}
                         />
@@ -132,11 +132,11 @@ export function AutomationRunStrip({
         </table>
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-1 text-[10px] text-muted-foreground">
-        <Key className="bg-emerald-400" label="under 5 min" />
-        <Key className="bg-emerald-600" label="5 to 15 min" />
-        <Key className="bg-amber-500" label="over 15 min" />
-        <Key className="bg-red-500" label="errored" />
-        {expected && <Key className="border border-dashed border-amber-500/60" label="did not run" />}
+        <Key className="bg-pass/50" label="under 5 min" />
+        <Key className="bg-pass" label="5 to 15 min" />
+        <Key className="bg-warn" label="over 15 min" />
+        <Key className="bg-fail" label="errored" />
+        {expected && <Key className="border border-dashed border-warn/60" label="did not run" />}
       </div>
       <p className="text-[11px] text-muted-foreground">
         One cell per UTC hour. Hover any cell for its runs and the longest of them.

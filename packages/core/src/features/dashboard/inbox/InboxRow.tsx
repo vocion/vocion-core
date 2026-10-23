@@ -225,7 +225,7 @@ export function InboxRow({ item, tab, why, workspaceId, agent }: { item: InboxIt
                 aria-label={`${verb.label}: ${item.title}`}
                 title={verb.label}
                 className={`inline-flex size-8 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 ${
-                  verb.tone === 'danger' ? 'text-red-600 hover:bg-red-500/10 dark:text-red-400' : 'text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400'
+                  verb.tone === 'danger' ? 'text-fail hover:bg-fail-soft' : 'text-pass hover:bg-pass-soft'
                 }`}
               >
                 {busy === verb.id ? <Loader2 className="size-4 animate-spin" aria-hidden /> : verb.tone === 'danger' ? <X className="size-4" aria-hidden /> : <Check className="size-4" aria-hidden />}
@@ -244,7 +244,7 @@ export function InboxRow({ item, tab, why, workspaceId, agent }: { item: InboxIt
       />
 
       {error && (
-        <span role="alert" className="absolute inset-x-3 -bottom-1 truncate text-[11px] text-red-600 dark:text-red-400">{error}</span>
+        <span role="alert" className="absolute inset-x-3 -bottom-1 truncate text-[11px] text-fail">{error}</span>
       )}
     </div>
   );

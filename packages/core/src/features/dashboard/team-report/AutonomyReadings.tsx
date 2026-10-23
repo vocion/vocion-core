@@ -22,7 +22,7 @@ export function AutonomyReadings({ readings, compact = false }: { readings: Auto
     <span className="flex flex-col gap-0.5 text-xs tabular-nums">
       {shown.map(r => (
         <span key={r.actionId} className="flex items-baseline gap-1.5 whitespace-nowrap" title={`${RUNG_LABEL[r.rung]} · ${r.riskTier} risk · ${r.n} decided recommendation${r.n === 1 ? '' : 's'} in 30d`}>
-          <span className={rungAutomates(r.rung) ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'font-medium text-foreground/80'}>{compact ? RUNG_SHORT[r.rung] : RUNG_LABEL[r.rung]}</span>
+          <span className={rungAutomates(r.rung) ? 'font-medium text-pass' : 'font-medium text-foreground/80'}>{compact ? RUNG_SHORT[r.rung] : RUNG_LABEL[r.rung]}</span>
           <span className="font-mono text-muted-foreground">{r.actionId}</span>
           <span className="text-muted-foreground">
             {r.agreementRate === null ? 'no agreement yet' : `agrees ${pct(r.agreementRate)}`}

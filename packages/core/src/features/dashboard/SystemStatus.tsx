@@ -1,7 +1,12 @@
 'use client';
 
+import type { Tone } from '@/components/ui/status-pill';
 import { Activity, AlertTriangle, CheckCircle2, Database, ExternalLink, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Notice } from '@/components/ui/notice';
+import { TONE } from '@/components/ui/status-pill';
+import { cn } from '@/utils/Helpers';
 
 type ServiceCheck = {
   name: string;
@@ -21,23 +26,22 @@ type StatusData = {
 
 const StatusIcon = ({ status }: { status: string }) => {
   switch (status) {
-    case 'up': return <CheckCircle2 className="size-4 stroke-green-600" />;
-    case 'degraded': return <AlertTriangle className="size-4 stroke-amber-500" />;
-    case 'down': return <XCircle className="size-4 stroke-red-500" />;
+    case 'up': return <CheckCircle2 className="size-4 stroke-pass" />;
+    case 'degraded': return <AlertTriangle className="size-4 stroke-warn" />;
+    case 'down': return <XCircle className="size-4 stroke-fail" />;
     default: return <Activity className="size-4 stroke-muted-foreground" />;
   }
 };
 
 const StatusBadge = ({ status }: { status: string }) => {
-  const variants: Record<string, string> = {
-    up: 'bg-green-100 text-green-800',
-    degraded: 'bg-amber-100 text-amber-800',
-    down: 'bg-red-100 text-red-800',
-  };
+  // Through Badge and the shared TONE sets (design sweep, 2026-10-23): the
+  // old green-100 / red-100 pills were light-only.
+  const variants: Record<string, Tone> = { up: 'pass', degraded: 'amber', down: 'fail' };
+  const tone = TONE[variants[status] ?? 'neutral'];
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${variants[status] ?? 'bg-gray-100 text-gray-800'}`}>
+    <Badge className={cn(tone.bg, tone.fg)}>
       {status}
-    </span>
+    </Badge>
   );
 };
 
@@ -89,11 +93,11 @@ export const SystemStatus = () => {
 
   if (error && !data) {
     return (
-      <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+      <Notice tone="fail">
         Failed to load status:
         {' '}
         {error}
-      </div>
+      </Notice>
     );
   }
 
@@ -109,10 +113,10 @@ export const SystemStatus = () => {
       {/* Summary bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className={`flex size-10 items-center justify-center rounded-full ${upCount === totalCount ? 'bg-green-100' : 'bg-amber-100'}`}>
+          <div className={`flex size-10 items-center justify-center rounded-full ${upCount === totalCount ? 'bg-pass-soft' : 'bg-warn-soft'}`}>
             {upCount === totalCount
-              ? <CheckCircle2 className="size-5 stroke-green-600" />
-              : <AlertTriangle className="size-5 stroke-amber-600" />}
+              ? <CheckCircle2 className="size-5 stroke-pass" />
+              : <AlertTriangle className="size-5 stroke-warn" />}
           </div>
           <div>
             <div className="font-semibold">

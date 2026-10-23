@@ -86,7 +86,7 @@ export function AutomationRunLog({ runs, showAutomation = true }: { runs: Automa
                 <td className={CELL}><RunStatus status={run.status} /></td>
                 <td className={`${CELL} min-w-64`}>
                   {run.error
-                    ? <span className="text-red-600" title={run.error}>{run.error.slice(0, 160)}</span>
+                    ? <span className="text-fail" title={run.error}>{run.error.slice(0, 160)}</span>
                     : (summary ?? <span className="text-muted-foreground/60">—</span>)}
                 </td>
                 <td className={CELL}>
@@ -111,7 +111,7 @@ export function AutomationRunLog({ runs, showAutomation = true }: { runs: Automa
 function RunStatus({ status }: { status: string }) {
   if (status === 'error') {
     return (
-      <span className="inline-flex items-center gap-1 whitespace-nowrap text-red-600">
+      <span className="inline-flex items-center gap-1 whitespace-nowrap text-fail">
         <AlertTriangle className="size-3" />
         error
       </span>
@@ -126,7 +126,7 @@ function RunStatus({ status }: { status: string }) {
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap text-emerald-600">
+    <span className="inline-flex items-center gap-1 whitespace-nowrap text-pass">
       <CheckCircle2 className="size-3" />
       ok
     </span>

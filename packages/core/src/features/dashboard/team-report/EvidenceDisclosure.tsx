@@ -78,7 +78,7 @@ function ChainLine({ chain, now }: { chain: OutcomeChain; now: Date }) {
       <span className="text-muted-foreground/60">·</span>
       {chain.externalEvent
         ? (
-            <span className="text-emerald-700 dark:text-emerald-400" title={chain.externalEvent.asOf ? `HubSpot mirror synced ${ago(chain.externalEvent.asOf, now)}` : undefined}>
+            <span className="text-pass" title={chain.externalEvent.asOf ? `HubSpot mirror synced ${ago(chain.externalEvent.asOf, now)}` : undefined}>
               {chain.externalEvent.summary}
             </span>
           )

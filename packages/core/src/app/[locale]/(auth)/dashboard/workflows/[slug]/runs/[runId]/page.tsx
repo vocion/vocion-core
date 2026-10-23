@@ -2,6 +2,7 @@ import { ArrowLeft, CheckCircle2, Circle, Loader2, OctagonAlert, ShieldCheck } f
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { Notice } from '@/components/ui/notice';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { resolveCard } from '@/libs/cards';
@@ -23,10 +24,10 @@ type StepResult = {
 
 const STATUS_META: Record<StepResult['status'], { label: string; icon: React.ReactNode; dot: string }> = {
   pending: { label: 'Pending', icon: <Circle className="size-4 text-muted-foreground" />, dot: 'bg-muted' },
-  running: { label: 'Running', icon: <Loader2 className="size-4 animate-spin text-blue-500" />, dot: 'bg-blue-500/70' },
-  completed: { label: 'Completed', icon: <CheckCircle2 className="size-4 text-emerald-500" />, dot: 'bg-emerald-500' },
-  failed: { label: 'Failed', icon: <OctagonAlert className="size-4 text-red-500" />, dot: 'bg-red-500' },
-  awaiting_approval: { label: 'Awaiting approval', icon: <ShieldCheck className="size-4 text-amber-500" />, dot: 'bg-amber-500' },
+  running: { label: 'Running', icon: <Loader2 className="size-4 animate-spin text-muted-foreground" />, dot: 'bg-muted-foreground/60' },
+  completed: { label: 'Completed', icon: <CheckCircle2 className="size-4 text-pass" />, dot: 'bg-pass' },
+  failed: { label: 'Failed', icon: <OctagonAlert className="size-4 text-fail" />, dot: 'bg-fail' },
+  awaiting_approval: { label: 'Awaiting approval', icon: <ShieldCheck className="size-4 text-waiting" />, dot: 'bg-waiting' },
 };
 
 const RUN_STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -122,15 +123,11 @@ export default async function WorkflowRunDetailPage(props: Props) {
       />
 
       {run.error && (
-        <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/5 p-4 text-sm">
-          <div className="flex items-center gap-2 font-semibold text-red-600 dark:text-red-400">
-            <OctagonAlert className="size-4" />
-            Run failed
-          </div>
-          <pre className="mt-2 overflow-x-auto font-mono text-xs whitespace-pre-wrap text-red-600/90 dark:text-red-400/90">
+        <Notice tone="fail" className="mb-6" title="Run failed">
+          <pre className="mt-1 overflow-x-auto font-mono text-xs whitespace-pre-wrap text-fail">
             {run.error}
           </pre>
-        </div>
+        </Notice>
       )}
 
       <section>
@@ -169,7 +166,7 @@ export default async function WorkflowRunDetailPage(props: Props) {
                 </header>
                 <div className="px-4 py-4">
                   {result?.error && (
-                    <pre className="mb-3 overflow-x-auto rounded border border-red-500/30 bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">
+                    <pre className="mb-3 overflow-x-auto rounded bg-fail-soft p-3 font-mono text-xs whitespace-pre-wrap text-fail">
                       {result.error}
                     </pre>
                   )}

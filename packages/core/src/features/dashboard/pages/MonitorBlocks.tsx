@@ -90,7 +90,7 @@ export function MonitorsBlock({ title, monitors, now, timeZone }: { title: strin
                         </span>
                       )}
                       {m.pause && (
-                        <span className="text-[12px] text-amber-600">{`Paused by ${m.pause.byName} since ${m.pause.when}${m.pause.note ? `: ${m.pause.note}` : ''}`}</span>
+                        <span className="text-[12px] text-waiting">{`Paused by ${m.pause.byName} since ${m.pause.when}${m.pause.note ? `: ${m.pause.note}` : ''}`}</span>
                       )}
                     </span>
                   )}

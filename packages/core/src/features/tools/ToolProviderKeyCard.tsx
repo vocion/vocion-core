@@ -191,7 +191,7 @@ export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
           )}
 
       {sharedWithModelCalls && (
-        <p className="mb-3 text-xs text-amber-600 dark:text-amber-400">
+        <p className="mb-3 text-xs text-warn">
           This workspace holds one
           {' '}
           {platformLabel}
@@ -225,7 +225,7 @@ export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
 
         {error !== null && <p className="text-xs text-destructive">{error}</p>}
         {saved && error === null && (
-          <p className="text-xs text-emerald-600 dark:text-emerald-400">
+          <p className="text-xs text-pass">
             Key saved. This workspace now runs
             {' '}
             {platformLabel}

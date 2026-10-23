@@ -4,6 +4,7 @@ import type { InboxRefKind } from '@/services/inbox/inboxRef';
 import { ArrowLeft, ArrowUpRight, Play, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Notice } from '@/components/ui/notice';
 import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
@@ -128,7 +129,7 @@ export function RunDecision({ run }: { run: RunSummary }) {
       </section>
 
       {error && (
-        <div role="alert" className="mt-3 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div>
+        <Notice tone="fail" className="mt-3">{error}</Notice>
       )}
 
       {run.actionable && !stopped

@@ -130,7 +130,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
           <span
             data-testid="env-badge"
             aria-label={`This is the ${envLabel} instance, not production`}
-            className="shrink-0 rounded-md bg-amber-500 px-1.5 py-0.5 font-mono text-[10px] leading-none font-bold tracking-wide text-white uppercase"
+            className="shrink-0 rounded-md bg-warn px-1.5 py-0.5 font-mono text-[10px] leading-none font-bold tracking-wide text-background uppercase"
           >
             {envLabel}
           </span>

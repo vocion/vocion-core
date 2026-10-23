@@ -5,6 +5,7 @@ import { Check, ChevronDown, Loader2, ThumbsDown, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { buttonVariants } from '@/components/ui/buttonVariants';
+import { Notice } from '@/components/ui/notice';
 import { RuleChangeEvidence } from '@/features/learnings/RuleChangeEvidence';
 import { ruleChangeKind, ruleChangeVerbs } from '@/libs/learning/ruleChange';
 
@@ -272,9 +273,9 @@ export function PendingCandidates({ candidates, total, pageSize, steps }: Props)
       </p>
 
       {error && (
-        <div className="mt-4 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+        <Notice tone="fail" className="mt-4">
           {error}
-        </div>
+        </Notice>
       )}
 
       <ul className="mt-4 space-y-3">
@@ -321,7 +322,7 @@ export function PendingCandidates({ candidates, total, pageSize, steps }: Props)
                   : <code className="font-mono">{candidate.stepName}</code>}
                 <span aria-hidden>·</span>
                 <span
-                  className={candidate.polarity === 'reinforce' ? 'text-emerald-700' : 'text-amber-700'}
+                  className={candidate.polarity === 'reinforce' ? 'text-pass' : 'text-warn'}
                   title={candidate.polarity === 'reinforce'
                     ? 'Someone praised this and said why — adopting it tells the agent to keep doing it'
                     : 'Someone disagreed and said why — adopting it tells the agent to do this differently'}
