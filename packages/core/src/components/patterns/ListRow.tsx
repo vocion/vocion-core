@@ -201,6 +201,8 @@ export type ListRowProps = {
   /** Marks the row the preview is currently showing. */
   'selected'?: boolean;
   'icon'?: LucideIcon;
+  /** A visual in the icon's place, for a row that is someone (an agent's `AgentDot`). */
+  'lead'?: ReactNode;
   'title': ReactNode;
   /** `<Subline>` or any one-line node under the title. Raw nodes get the subline's type and spacing. */
   'subline'?: ReactNode;
@@ -274,11 +276,12 @@ export function ListRow(props: ListRowProps) {
   const chip = props.chip && <span className="shrink-0">{props.chip}</span>;
   const content = (
     <>
-      {Icon && (
+      {Icon && !props.lead && (
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-soft text-muted-foreground">
           <Icon className="size-4" aria-hidden />
         </span>
       )}
+      {props.lead && <span className="flex size-8 shrink-0 items-center justify-center">{props.lead}</span>}
       <span className="min-w-0 flex-1">
         <span data-slot="row-title" className={TITLE}>{props.title}</span>
         {/* Raw text gets the subline's type and spacing, as the prop promises. */}

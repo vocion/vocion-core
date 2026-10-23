@@ -456,6 +456,86 @@
 }
 
 /*
+ * An agent's dot at work (`AgentDot working`, polish pass 2026-10-23): the
+ * agent keeps its own colour at rest, and while it works the spark blooms
+ * over it from the centre (scale .55 → 1, 600ms), turns, and breathes its
+ * glow; when the work ends the same element settles back to the agent's own
+ * colour. One face per agent, the spark only while it works. A dot that
+ * mounts already working (the live line) blooms in via @starting-style.
+ * Reduced motion: the spark simply shows, then simply goes.
+ */
+.agent-dot-spark {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  opacity: 0;
+  transform: scale(0.55);
+  transition:
+    opacity 600ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+}
+.agent-dot-spark::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--spark-conic);
+  animation: spark-orb-turn 3.2s linear infinite;
+}
+.agent-dot-spark::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 32% 28%, oklch(1 0 0 / 80%), oklch(1 0 0 / 0%) 48%);
+}
+.agent-dot-face {
+  transition: opacity 400ms ease;
+}
+[data-slot='agent-dot'][data-working] {
+  animation: spark-orb-breathe 2.4s ease-in-out infinite;
+}
+[data-slot='agent-dot'][data-working] > .agent-dot-spark {
+  opacity: 1;
+  transform: scale(1);
+}
+[data-slot='agent-dot'][data-working] > .agent-dot-face {
+  opacity: 0;
+}
+/* A turn just ended: the header's dot shows the spark once more and lets it
+   go, back to the agent's colour (`AgentDot settling`). */
+@keyframes agent-dot-settle {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+}
+[data-slot='agent-dot'][data-settling] > .agent-dot-spark {
+  animation: agent-dot-settle 900ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+@starting-style {
+  [data-slot='agent-dot'][data-working] > .agent-dot-spark {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-dot-spark,
+  .agent-dot-face {
+    transition: none;
+  }
+  .agent-dot-spark::before,
+  [data-slot='agent-dot'][data-working],
+  [data-slot='agent-dot'][data-settling] > .agent-dot-spark {
+    animation: none;
+  }
+}
+
+/*
  * The composer while a turn runs (`ChatComposer`): its hairline becomes the
  * spark, drifting slowly. The bar's shape does not change (it stays one
  * control tall, patterns.md); only its edge says the agent is at work.

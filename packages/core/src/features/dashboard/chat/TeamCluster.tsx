@@ -4,7 +4,6 @@ import type { TeamMember } from './emptyChat';
 import { useTranslations } from 'next-intl';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { AgentStackItem, AgentStackMore } from '@/components/ui/agent-stack';
-import { SparkOrb } from '@/components/ui/spark-orb';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { TEAM_SHOWN } from './emptyChat';
@@ -23,8 +22,8 @@ function agentHref(slug: string) {
 /**
  * YOUR TEAM IS HERE: the centre of an empty conversation is the workspace's
  * agents, not a logo (founder, 2026-10-09: the calm start "looks too much
- * like Claude"). A small overlapping cluster: the lead in front as the
- * spark at rest, its teammates as smaller `AgentDot`s; at most four, then
+ * like Claude"). A small overlapping cluster: the lead in front, larger,
+ * in its own colour, its teammates as smaller `AgentDot`s; at most four, then
  * "+N". Each comes forward on hover with its name and opens its profile; the
  * "+N" opens the team. Under it, a quiet caption ("Ava · Revenue lead · 3 agents")
  * that opens the team. Only the lead when it is alone; a personal workspace's
@@ -52,12 +51,12 @@ export function TeamCluster({ members, href = '/dashboard/teams' }: { members: r
           so a held animation transform never pins the item in place. */}
       <div className="group/stack flex items-center">
         {/* The lead in front: drawn last among siblings would hide it, so it
-            sits first with the highest z. It is the spark at rest
-            (`SparkOrb`), the mark of the agent who answers, still until a
-            turn runs; colour now means "at work" (2026-10-23). */}
+            sits first with the highest z. It wears its own colour at rest,
+            like everywhere else it appears (Chris, 2026-10-23: one face per
+            agent); the spark is for its turns. */}
         <span className={cn(ENTER, 'z-10 motion-safe:zoom-in-90')} data-testid="team-lead">
           <AgentStackItem label={leadLabel} href={agentHref(lead.slug)} className="ring-4">
-            <SparkOrb size="xl" working={false} className="size-14" />
+            <AgentDot name={lead.name} accent={lead.accent} size="xl" decorative className="size-14 text-lg" />
           </AgentStackItem>
         </span>
         {rest.map((m, i) => (

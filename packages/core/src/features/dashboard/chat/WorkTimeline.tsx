@@ -788,10 +788,12 @@ export function LiveLine({ text, steps = 0, elapsed, expanded = false, onToggle,
   const meta = [count, elapsed >= 1 ? formatElapsed(elapsed) : null].filter(Boolean).join(' · ');
   const line = (
     <>
-      {/* The spark orb: the one mark of an agent at work (`SparkOrb`). The
-          writing agent is named on hover; the turn's header says who it is. */}
+      {/* The writing agent's own dot, at work: the spark blooms over its
+          colour (`AgentDot working`). No agent known: the bare spark orb. */}
       <span className="inline-flex shrink-0" title={agent?.name}>
-        <SparkOrb size="xs" className="size-3.5" />
+        {agent
+          ? <AgentDot name={agent.name} accent={agent.accent} size="xs" decorative working className="size-3.5" />
+          : <SparkOrb size="xs" className="size-3.5" />}
       </span>
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
         <span className="work-shimmer min-w-0 truncate font-medium">{text}</span>

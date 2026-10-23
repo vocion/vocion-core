@@ -103,16 +103,12 @@ function AgentRow({ card }: { card: AgentCard }) {
     card.specialists.length > 0 && `${count(card.specialists.length, 'agent', 'agents')}: ${card.specialists.map(s => s.name).join(', ')}`,
     card.skillCount > 0 && count(card.skillCount, 'skill', 'skills'),
   ].filter(Boolean) as string[];
-  const title = (
-    <>
-      <span className="mr-1.5 inline-flex align-[-3px]"><AgentDot name={card.name} accent={card.accent} size="xs" decorative /></span>
-      <span className={card.activated ? undefined : 'text-muted-foreground'}>{card.name}</span>
-    </>
-  );
+  const title = <span className={card.activated ? undefined : 'text-muted-foreground'}>{card.name}</span>;
   return (
     <ListRow
       href={card.activated ? `/dashboard/agents/${card.slug}` : undefined}
       className={card.activated ? undefined : 'opacity-70'}
+      lead={<AgentDot name={card.name} accent={card.accent} size="md" decorative />}
       title={title}
       subline={(
         <Subline
