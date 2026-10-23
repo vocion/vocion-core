@@ -49,6 +49,13 @@ describe('the Auto floor', () => {
     expect(parseEffort('{"level":"quick","reason":"calendar"}')).toEqual({ level: 'quick', reason: 'calendar' });
     expect(autoFloor({ drafts: false, systems: 1 })).toBeNull();
   });
+
+  it('never puts a change to many records on Quick, from the typed count', () => {
+    expect(parseEffort('{"level":"quick","reason":"clear old items","drafts":false,"systems":1,"changes":64}')).toEqual({ level: 'standard', reason: 'changing many records at once' });
+    expect(parseEffort('{"level":"quick","reason":"approve one","drafts":false,"systems":1,"changes":1}')).toEqual({ level: 'quick', reason: 'approve one' });
+    expect(parseEffort('{"level":"deep","reason":"audit","drafts":false,"systems":1,"changes":40}')).toEqual({ level: 'deep', reason: 'audit' });
+    expect(autoFloor({ drafts: false, systems: 1, changes: 0 })).toBeNull();
+  });
 });
 
 describe('the envelope', () => {

@@ -2,10 +2,12 @@ import type { InboxKind, InboxSort, InboxTab } from '@/services/InboxService';
 import { Inbox as InboxIcon } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
+import { PageViewContext } from '@/features/dashboard/context/PageViewContext';
 import { InboxControls } from '@/features/dashboard/inbox/InboxControls';
 import { InboxList } from '@/features/dashboard/inbox/InboxList';
 import { contextLine } from '@/features/dashboard/inbox/inboxMeta';
 import { InboxScope } from '@/features/dashboard/inbox/InboxScope';
+import { reviewPageView } from '@/features/dashboard/inbox/pageView';
 import { RecommendationBatches } from '@/features/dashboard/inbox/RecommendationBatches';
 import { defaultSortFor } from '@/features/dashboard/inbox/searchParams';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -75,9 +77,12 @@ export default async function InboxPage(props: {
   // The oldest open row regardless of the current sort or filters: the queue's real age.
   const oldest = tab === 'open' ? inbox.items.reduce<Date | undefined>((m, i) => (m === undefined || i.at < m ? i.at : m), undefined) : undefined;
   const filtered = Boolean(q || kinds.length || actionKinds.length || agents.length);
+  // What is on screen, for the chat beside the queue: "these" binds to it.
+  const view = reviewPageView({ scope: 'here', tab, shown: inbox.total, tabs: inbox.tabs, oldest, kinds, agents, q, batch: batches[0] ? { label: batches[0].label, count: batches[0].count } : null });
 
   return (
     <div className="mx-auto w-full max-w-5xl">
+      <PageViewContext title={view.title} state={view.state} />
       <TitleBar title="Review queue" description={<span data-testid="inbox-context">{contextLine(tab, open, oldest, inbox.total)}</span>} />
 
       <div className="mb-4 space-y-3">
@@ -126,6 +131,7 @@ async function AllWorkspaces({ userId, orgId, workspace }: { userId: string; org
     : `${cross.total} ${cross.total === 1 ? 'decision' : 'decisions'} across ${places} ${places === 1 ? 'workspace' : 'workspaces'}${cross.yours > 0 ? `, ${cross.yours} yours` : ''}.`;
   return (
     <div className="mx-auto w-full max-w-5xl">
+      <PageViewContext {...reviewPageView({ scope: 'all', tab: 'open', shown: cross.total })} />
       <TitleBar title="Review queue" description={<span data-testid="inbox-context">{line}</span>} />
       <div className="mb-4">
         <InboxScope scope="all" workspace={workspace} total={cross.total} workspaces={cross.workspaces.map(w => ({ id: w.id, name: w.name, count: w.count, kind: w.kind }))} />

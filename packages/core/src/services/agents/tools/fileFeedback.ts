@@ -43,7 +43,7 @@ export function fileFeedbackTool(ctx: RuntimeContext) {
           return `Recorded as a proposed rule (candidate ${filed.candidateId}) for a person to adopt or reject. No recommendation was filed: this workspace has no team whose mission is building, so there is nobody here to plan it. Say that plainly rather than implying work has started.`;
         }
         return [
-          `Filed. Proposed rule recorded (candidate ${filed.candidateId}), and a recommendation is waiting for a person in the Needs-you inbox: "${filed.ask.title}" — options Plan and start (recommended), Add to backlog, Decline.`,
+          `Filed. Proposed rule recorded (candidate ${filed.candidateId}), and a recommendation is waiting for a person on the Review queue: "${filed.ask.title}" — options Plan and start (recommended), Add to backlog, Decline.`,
           filed.inboxUrl ? `Link: ${filed.inboxUrl}` : '',
           `Tell them exactly this in your reply, with the link, and that approving "Plan and start" is what begins the work. Do not start it yourself from here.`,
         ].filter(Boolean).join('\n');
@@ -53,7 +53,7 @@ export function fileFeedbackTool(ctx: RuntimeContext) {
     },
     {
       name: 'file_feedback',
-      description: 'Record feedback or an instruction about the product — a request, a complaint, a "you should have…" — so it teaches the system instead of being read once. Writes a proposed rule for a person to adopt, and, when this workspace has a team that builds, files a recommendation in the Needs-you inbox with Plan and start / Add to backlog / Decline. Approving it is what starts the work; this tool starts nothing. Call it whenever someone tells you what the product should do differently, then say in your reply what you filed and link it.',
+      description: 'Record feedback or an instruction about the product — a request, a complaint, a "you should have…" — so it teaches the system instead of being read once. Writes a proposed rule for a person to adopt, and, when this workspace has a team that builds, files a recommendation on the Review queue with Plan and start / Add to backlog / Decline. Approving it is what starts the work; this tool starts nothing. Call it whenever someone tells you what the product should do differently, then say in your reply what you filed and link it.',
       schema: z.object({
         feedback: z.string().min(3).describe('What the person said, VERBATIM. Do not paraphrase — a human edits the rule from these words.'),
         saidBy: z.string().optional().describe('Who said it, as a name if you know one.'),

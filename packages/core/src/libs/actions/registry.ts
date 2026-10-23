@@ -51,6 +51,7 @@ import { repoCancelPipelineRunAction } from './repo-cancel-pipeline-run';
 import { repoCommentPullAction } from './repo-comment-pull';
 import { repoSubmitReviewAction } from './repo-submit-review';
 import { restRequestAction } from './rest';
+import { reviewDeclineAction } from './review-decline';
 import { slackPostMessageAction } from './slack-post-message';
 import { sourceConnectAction } from './source-connect';
 import { teamHireAgentAction } from './team-hire-agent';
@@ -149,6 +150,8 @@ registerAction(recordsSettleIntakeAction);
 registerAction(meSetPhoneAction);
 registerAction(viewSaveAction);
 registerAction(goalCreateAction);
+// Many open decisions on the Review queue declined in one move, on one card the person approves (`review-decline.ts`).
+registerAction(reviewDeclineAction);
 // Start the build: approve the plan, queue the engineer on the task contract.
 registerAction(factoryDispatchAction);
 registerAction(factoryApprovePlanAction);

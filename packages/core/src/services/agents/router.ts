@@ -27,6 +27,7 @@
 
 import type { Initiative } from '@/services/agents/initiative';
 import type { AgentRow } from '@/services/AgentService';
+import { workspaceWidePage } from '@/libs/chat/workspacePages';
 import { normalizeHarnessTarget } from '@/services/agents/harnessTarget';
 import { INITIATIVE_RANK, readInitiative } from '@/services/agents/initiative';
 import { listAgents } from '@/services/AgentService';
@@ -526,6 +527,47 @@ export function routableFromRow(row: Pick<AgentRow, 'slug' | 'name' | 'descripti
   };
 }
 
+/**
+ * The seats a message nobody addressed may go to: every active one but a
+ * quiet seat (`initiative: low`), which volunteers nothing and so answers only
+ * when named, in its own thread or on its records' page. The lead always
+ * stays, whatever its initiative. Pure.
+ * @param active - The active roster.
+ * @param lead - The workspace lead's slug.
+ */
+export function unaddressedSeats(active: RoutableAgent[], lead: string): RoutableAgent[] {
+  return active.filter(a => a.slug === lead || readInitiative(a.initiative) !== 'low');
+}
+
+/**
+ * A CHAT ON A WORKSPACE-WIDE PAGE IS THE LEAD'S. The Review queue holds every
+ * seat's decisions, so no specialist owns a message about it: the lead
+ * answers the first turn and hands off when the work is a teammate's.
+ * Null off such a page, or when the person names an agent (that path wins).
+ * @param opts - The roster, the message, the page and the lead.
+ * @param opts.agents - Every agent the caller may route to.
+ * @param opts.message - The message as typed.
+ * @param opts.pagePath - The page's path, as the client sent it.
+ * @param opts.leadSlug - `project.leadAgentSlug`.
+ * @param opts.surface - Where the message came from, for the record.
+ */
+export function workspacePageDecision(opts: { agents: RoutableAgent[]; message: string; pagePath: string | null | undefined; leadSlug: string | null | undefined; surface: string }): RoutingDecision | null {
+  const page = opts.pagePath ? workspaceWidePage(opts.pagePath) : null;
+  if (!page) {
+    return null;
+  }
+  const at = new Date().toISOString();
+  const named = namedAgent(opts.agents, opts.message);
+  if (named) {
+    return { chosen: named, defaulted: false, reason: `The person named ${named}.`, candidates: [], surface: opts.surface, at, decidedBy: 'named' };
+  }
+  const lead = opts.agents.find(a => a.slug === opts.leadSlug);
+  if (!lead || !isActive(lead)) {
+    return null;
+  }
+  return { chosen: lead.slug, defaulted: false, reason: `The page is the ${page}, which holds every seat's work, so the lead answers and hands off.`, candidates: [], surface: opts.surface, at, decidedBy: 'page' };
+}
+
 /** The model read `routeFirstTurn` routes on (`routeRead.ts`); a seam for tests. */
 export type RouteReader = (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; signal?: AbortSignal }) => Promise<{ chosen: string; confidence: number; reason: string }>;
 
@@ -563,14 +605,20 @@ export async function routeFirstTurn(
     timeoutMs?: number;
   } = {},
 ): Promise<RoutingDecision | null> {
-  const active = opts.agents.filter(isActive);
-  if (active.length === 0) {
+  const live = opts.agents.filter(isActive);
+  if (live.length === 0) {
     return null;
   }
-  const lead = (opts.leadSlug && active.some(a => a.slug === opts.leadSlug)) ? opts.leadSlug : active[0]!.slug;
+  const lead = (opts.leadSlug && live.some(a => a.slug === opts.leadSlug)) ? opts.leadSlug : live[0]!.slug;
+  // A quiet seat (`initiative: low`) never takes a message nobody addressed
+  // to it: it answers when named, in its own thread, or on its records' page.
+  // 2026-10-23: on the Review queue "can we kill all these old GTM
+  // recommendations?" went to the Wiki curator, a back-office seat that
+  // tends pages on Fridays, which read the queue wrong and asked for ids.
+  const active = unaddressedSeats(live, lead);
   const at = new Date().toISOString();
   if (active.length === 1) {
-    return { chosen: active[0]!.slug, defaulted: false, reason: `${active[0]!.slug} is the only active agent here.`, candidates: [], surface: opts.surface, at, decidedBy: 'roster' };
+    return { chosen: active[0]!.slug, defaulted: false, reason: `${active[0]!.slug} is the only ${live.length > 1 ? 'agent here that takes unaddressed messages' : 'active agent here'}.`, candidates: [], surface: opts.surface, at, decidedBy: 'roster' };
   }
 
   const fallback = (why: string): RoutingDecision => {
