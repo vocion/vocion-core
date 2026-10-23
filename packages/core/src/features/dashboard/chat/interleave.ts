@@ -29,9 +29,16 @@ import type { AgentRun, TraceNode } from './types';
 
 export type ToolRun = Extract<AgentRun, { type: 'tool' }>;
 
+/**
+ * A line the agent wrote while it worked ("Let me check the tracker…"),
+ * folded into the work it introduced. `at` is the text run it was, so it can
+ * be put back between the steps that came before and after it.
+ */
+export type WorkNote = { text: string; at: number };
+
 export type TurnSegment
   = | { kind: 'text'; text: string; index: number }
-    | { kind: 'work'; runs: ToolRun[]; trace: TraceNode[]; index: number };
+    | { kind: 'work'; runs: ToolRun[]; trace: TraceNode[]; index: number; notes?: WorkNote[] };
 
 /**
  * Fold a turn's runs and trace into ordered segments.
@@ -98,4 +105,76 @@ export function segmentTurn(runs: AgentRun[], trace: TraceNode[] = []): TurnSegm
 export function liveWorkIndex(segments: TurnSegment[]): number | null {
   const last = segments[segments.length - 1];
   return last && last.kind === 'work' ? last.index : null;
+}
+
+/**
+ * Fold the agent's working narration into the work it introduced.
+ *
+ * A turn reads "I'll pull the plan and the tracker" → steps → "Let me find
+ * the goal" → steps → the answer. Those between-step lines are the agent
+ * saying what it is about to do, not what it found, and in the message flow
+ * they read as part of the answer (Chris, 2026-10-23: "are we spilling
+ * thought/metadata onto the chat flow, that should be hidden behind an
+ * expand/thinking chip?"). The rule is structural, never a reading of the
+ * words: a passage the agent followed with more work, and that is not the
+ * turn's last passage, is narration. It moves into the work group after it,
+ * as a note, and groups that only narration separated become one. The last
+ * passage is the answer and stays the body, also when work follows it (a
+ * card raised, a record written after the answer). While a turn streams, the
+ * newest passage is the last one and stays in view as what the agent is
+ * doing; once the agent writes past the next step, it folds.
+ * @param segments - The folded turn, from {@link segmentTurn}.
+ */
+export function foldNarration(segments: TurnSegment[]): TurnSegment[] {
+  let lastText = -1;
+  segments.forEach((seg, i) => {
+    if (seg.kind === 'text') {
+      lastText = i;
+    }
+  });
+  const out: TurnSegment[] = [];
+  let pending: WorkNote[] = [];
+  segments.forEach((seg, i) => {
+    if (seg.kind === 'text') {
+      if (i < lastText && segments[i + 1]?.kind === 'work') {
+        if (seg.text.trim()) {
+          pending.push({ text: seg.text, at: seg.index });
+        }
+        return;
+      }
+      out.push(seg);
+      return;
+    }
+    const notes = pending;
+    pending = [];
+    const prev = out[out.length - 1];
+    if (prev?.kind === 'work') {
+      out[out.length - 1] = { ...prev, runs: [...prev.runs, ...seg.runs], trace: [...prev.trace, ...seg.trace], notes: [...(prev.notes ?? []), ...notes, ...(seg.notes ?? [])] };
+      return;
+    }
+    out.push(notes.length > 0 ? { ...seg, notes: [...notes, ...(seg.notes ?? [])] } : seg);
+  });
+  return out;
+}
+
+/**
+ * A work group's steps with its notes put back where they were said: a note
+ * written as text run `n` goes before the first step that began after it
+ * (anchor above `n`); notes said after the last step close the list.
+ * @param steps - The group's root steps, in order.
+ * @param notes - The group's notes.
+ */
+export function stepsWithNotes<T extends { anchor?: number }>(steps: readonly T[], notes: readonly WorkNote[] = []): Array<{ kind: 'note'; note: WorkNote } | { kind: 'step'; step: T }> {
+  const queue = [...notes].sort((a, b) => a.at - b.at);
+  const out: Array<{ kind: 'note'; note: WorkNote } | { kind: 'step'; step: T }> = [];
+  for (const step of steps) {
+    while (queue.length > 0 && queue[0]!.at < (step.anchor ?? 0)) {
+      out.push({ kind: 'note', note: queue.shift()! });
+    }
+    out.push({ kind: 'step', step });
+  }
+  for (const note of queue) {
+    out.push({ kind: 'note', note });
+  }
+  return out;
 }

@@ -44,6 +44,23 @@ export type RawStreamEvent = {
   } & Record<string, unknown>;
 };
 
+/**
+ * Whether a model event came from a model a TOOL's own code called, not
+ * from an agent. LangChain hands the turn's callbacks down to any model
+ * invoked inside a tool, so the mail thread labeller that `freshen_source`
+ * runs, a judge, a classifier, all stream their output through the turn's
+ * event stream, under the tool's namespace (`tools:<id>`). Read as the
+ * lead's words, that output was the answer: a labeller's
+ * `{"state": "outbound_spam", …}` printed in a Founder GTM turn
+ * (2026-10-23). An agent's own model, the lead's or a teammate's inside
+ * `task`, always runs in its graph's model node, never in `tools`.
+ * @param ev - One raw stream event.
+ */
+export function isToolInternalModelEvent(ev: RawStreamEvent): boolean {
+  const kind = ev.event ?? '';
+  return (kind.startsWith('on_chat_model') || kind.startsWith('on_llm')) && ev.metadata?.langgraph_node === 'tools';
+}
+
 /** Tools that are runtime plumbing, not worth a user-facing trace node. */
 const PLUMBING_TOOLS = new Set(['write_todos', 'ls', 'glob', 'grep', 'read_file', 'edit_file', 'write_file']);
 

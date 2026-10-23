@@ -49,6 +49,27 @@ export function hotFrom(counts: Array<{ tool: string; calls: number }>): string[
 }
 
 /**
+ * The turn's tools the agent's own prompt names, which stay loaded whatever
+ * its history says. An agent's history is what it did, not what it was told
+ * to do: on 2026-10-23 the Founder GTM Lead's prompt was rewritten to read
+ * the plan with read_wiki_page and log the sprint with goal_progress, and
+ * both were deferred behind the tool search because it had never called
+ * them. It spent its turn looking for them ("Let me find the wiki/goal
+ * tools") and answered without the plan. A tool name is an identifier the
+ * workspace wrote into the prompt, so this is a lookup of the agent's own
+ * configuration: whole names only, never a fragment.
+ * @param prompt - The agent's authored system prompt.
+ * @param toolNames - The names of the turn's tools.
+ */
+export function namedInPrompt(prompt: string | null | undefined, toolNames: readonly string[]): string[] {
+  if (!prompt) {
+    return [];
+  }
+  const words = new Set(prompt.match(/[a-z]\w*/gi) ?? []);
+  return toolNames.filter(name => words.has(name));
+}
+
+/**
  * The tools this agent keeps loaded: its own recent use, else the
  * workspace's when it has none yet. Null when nothing has been used at all —
  * then nothing is deferred.

@@ -37,7 +37,7 @@ import { normalizeHarnessTarget } from './agents/harnessTarget';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
-import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
+import { extractChunk, isToolInternalModelEvent, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 import { HeadStartDropped, TurnGateCallback, TurnStopped } from './agents/turnGate';
 import { asksForAct, NO_INTENT, readIntent } from './agents/turnJudge';
 import { TurnRefusedError } from './agents/turnRefusal';
@@ -1184,6 +1184,12 @@ async function runAgentDeepInScope(opts: {
 
     for await (const evUnknown of stream as AsyncIterable<RawStreamEvent>) {
       const ev = evUnknown;
+      // A model a tool called (the mail labeller inside freshen_source, a
+      // judge) is the tool's work, not the agent's words or reasoning: it
+      // never reaches the answer, the thinking stream or the trace.
+      if (isToolInternalModelEvent(ev)) {
+        continue;
+      }
       if (ev.event === 'on_chat_model_end' && stopReasonOf(ev.data?.output) === 'refusal') {
         refused = true;
       }
