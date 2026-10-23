@@ -246,7 +246,7 @@ export type RoomDeliverablesSplit = {
 export function roomDeliverables(artifacts: readonly ArtifactRow[], deliverables: readonly RoomDeliverable[] = []): RoomDeliverablesSplit {
   // A file filed as one of the room's SOURCES (a dropped badge, `services/intake`)
   // is listed under Sources; it is evidence the room holds, not a document it made.
-  const docs = artifacts.filter(a => (a.kind === 'document' || a.kind === 'file') && !a.recordRole?.startsWith('source:'));
+  const docs = artifacts.filter(a => (a.kind === 'document' || a.kind === 'deck' || a.kind === 'file') && !a.recordRole?.startsWith('source:'));
   const byArtifact = new Map<number, RoomDeliverable>();
   for (const d of deliverables) {
     // Newest first, so the first line naming an artifact is the current one;
@@ -1044,8 +1044,9 @@ export function renderDataRoom(room: DataRoomDetail): string {
   if (split.documents.length) {
     lines.push('## Documents', '');
     for (const { artifact: a, state, date } of split.documents) {
-      const spec = a.spec as { sheets?: number; verification?: { ok?: boolean } };
-      lines.push(`- ${a.title} · v${a.currentVersion} · ${state}${date ? ` ${date}` : ''}${a.kind === 'document' ? ` · ${spec.sheets ?? '?'} sheets${spec.verification ? (spec.verification.ok ? ' · verified' : ' · has issues') : ''}` : ''}${a.url ? ` — ${artifactHref(a.url)}` : ''}`);
+      const spec = a.spec as { sheets?: number; order?: string[]; verification?: { ok?: boolean } };
+      const size = a.kind === 'document' ? `${spec.sheets ?? '?'} sheets` : a.kind === 'deck' ? `deck · ${spec.order?.length ?? '?'} slides` : null;
+      lines.push(`- ${a.title} · v${a.currentVersion} · ${state}${date ? ` ${date}` : ''}${size ? ` · ${size}${spec.verification ? (spec.verification.ok ? ' · verified' : ' · has issues') : ''}` : ''}${a.url ? ` — ${artifactHref(a.url)}` : ''}`);
     }
     lines.push('');
   }

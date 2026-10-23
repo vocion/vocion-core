@@ -15,9 +15,10 @@
  * database. `loadProposalBoard` is the two-query loader the page calls.
  */
 
-import type { DocumentRedTeam, DocumentVerification } from '@/libs/cards/specs';
+import type { DeckVerification, DocumentRedTeam, DocumentVerification } from '@/libs/cards/specs';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import type { DataRoom, DocumentState, RoomDeliverable } from '@/services/DataRoomService';
+import { deckVerificationChip } from '@/libs/decks/audit';
 import { redTeamChip, verificationChip } from '@/libs/documents/audit';
 import { ageLabel } from '@/libs/timeAgo';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
@@ -40,6 +41,8 @@ export type Reading = { label: string; tone: ReadingTone };
 
 export type ProposalDocument = {
   id: number;
+  /** A paginated document, or a deck. Both are client deliverables and read alike here. */
+  kind: 'document' | 'deck';
   title: string;
   href: string;
   /** `verified` · `issues` · `unverified` — the render-verify receipt's verdict. */
@@ -56,7 +59,7 @@ export type ProposalDocument = {
   /** The line beside the verify chip: `read as the buyer · 2 blocking`. */
   redTeamLabel: string;
   version: number;
-  /** How many sheets it renders to, when the spec says. */
+  /** How many sheets (or, for a deck, slides) it renders to, when the spec says. */
   sheets?: number;
   /** Drafted, or out with the buyer — the room's `deliverables` word for THIS artifact. */
   state: DocumentState;
@@ -75,6 +78,8 @@ export type ProposalRow = {
   /** ISO date the status was written, when the room says. */
   statusAt?: string;
   document: ProposalDocument | null;
+  /** The newest deck written from the room, beside the document (`docs/decks.md`). */
+  deck: ProposalDocument | null;
   openItems: number;
   href: string;
   /** The record the Draft action hands to the agent surface. */
@@ -134,29 +139,43 @@ export function proposalStage(stage: string | undefined): ProposalStage | null {
 }
 
 /**
- * The newest document written from a room, as the row shows it. The room's
- * `deliverables` supply the one thing the artifact cannot carry — whether the
- * thing has gone out — and nothing else: the artifact is the truth
- * (`roomDeliverables`).
+ * The newest deliverable of one kind written from a room, as the row shows
+ * it. The room's `deliverables` supply the one thing the artifact cannot
+ * carry — whether the thing has gone out — and nothing else: the artifact is
+ * the truth (`roomDeliverables`).
  * @param artifacts - Every artifact anchored to the room.
  * @param deliverables - `meta.deliverables`, for the state of THIS artifact.
+ * @param kind - `document` (default) or `deck`.
  */
-export function latestDocument(artifacts: readonly ArtifactRow[], deliverables: readonly RoomDeliverable[] = []): ProposalDocument | null {
-  const docs = artifacts.filter(a => a.kind === 'document');
+export function latestDocument(artifacts: readonly ArtifactRow[], deliverables: readonly RoomDeliverable[] = [], kind: 'document' | 'deck' = 'document'): ProposalDocument | null {
+  const docs = artifacts.filter(a => a.kind === kind);
   if (docs.length === 0) {
     return null;
   }
   const a = [...docs].sort((x, y) => (y.updatedAt ?? y.createdAt).getTime() - (x.updatedAt ?? x.createdAt).getTime())[0]!;
-  const spec = a.spec as { sheets?: number; verification?: DocumentVerification; redTeam?: DocumentRedTeam };
-  const r = spec.redTeam;
+  const r = (a.spec as { redTeam?: DocumentRedTeam }).redTeam;
   const merged = roomDeliverables([a], deliverables).documents[0]!;
-  const sheets = spec.verification?.sheets.length ?? spec.sheets;
+  let verification: { ok: boolean } | undefined;
+  let chip: string;
+  let sheets: number | undefined;
+  if (kind === 'deck') {
+    const spec = a.spec as { order?: string[]; verification?: DeckVerification };
+    verification = spec.verification;
+    sheets = spec.verification?.slides.length ?? spec.order?.length;
+    chip = deckVerificationChip(spec.verification, spec.order?.length);
+  } else {
+    const spec = a.spec as { sheets?: number; verification?: DocumentVerification };
+    verification = spec.verification;
+    sheets = spec.verification?.sheets.length ?? spec.sheets;
+    chip = verificationChip(spec.verification, spec.sheets);
+  }
   return {
     id: a.id,
+    kind,
     title: a.title,
     href: a.conversationId ? `/dashboard/chat/${a.conversationId}?artifact=${a.id}` : `/dashboard/artifacts/${a.id}`,
-    verify: spec.verification ? (spec.verification.ok ? 'verified' : 'issues') : 'unverified',
-    chip: verificationChip(spec.verification, spec.sheets),
+    verify: verification ? (verification.ok ? 'verified' : 'issues') : 'unverified',
+    chip,
     redTeam: !r ? 'unread' : r.blocks > 0 ? 'blocking' : r.fixes > 0 ? 'findings' : 'clean',
     redTeamLabel: redTeamChip(r),
     version: a.currentVersion,
@@ -201,7 +220,9 @@ const RED_TEAM_LABEL: Record<ProposalDocument['redTeam'], (chip: string) => stri
  * @param now - The clock, injected so the age is testable.
  */
 export function proposalRowView(row: ProposalRow, now: number): ProposalRowView {
-  const d = row.document;
+  // The document leads when there is one; a room with only a deck leads with the deck.
+  const d = row.document ?? row.deck ?? null;
+  const beside = row.document && row.deck ? row.deck : null;
   const sat = row.statusAt?.slice(0, 10);
   const facts = (...parts: Array<string | undefined>): Reading[] => parts.filter((x): x is string => Boolean(x)).map(label => ({ label, tone: 'neutral' as const }));
   if (!d) {
@@ -235,7 +256,8 @@ export function proposalRowView(row: ProposalRow, now: number): ProposalRowView 
       redTeam,
       ...facts(
         `v${d.version}`,
-        d.sheets === undefined ? undefined : `${d.sheets} ${d.sheets === 1 ? 'sheet' : 'sheets'}`,
+        d.sheets === undefined ? undefined : `${d.sheets} ${d.kind === 'deck' ? (d.sheets === 1 ? 'slide' : 'slides') : (d.sheets === 1 ? 'sheet' : 'sheets')}`,
+        beside ? `deck ${beside.verify === 'verified' ? 'verified' : beside.verify === 'issues' ? verificationIssues(beside.chip) : 'not verified'}` : undefined,
         row.client,
         row.title,
         sat ? `status ${sat}` : undefined,
@@ -290,6 +312,7 @@ export function proposalRows(
       status: r.meta.status,
       statusAt: r.meta.statusAt ?? r.updatedAt?.toISOString() ?? r.createdAt.toISOString(),
       document: latestDocument(artifactsByRoom.get(r.id) ?? [], r.meta.deliverables),
+      deck: latestDocument(artifactsByRoom.get(r.id) ?? [], r.meta.deliverables, 'deck'),
       openItems: openByRoom.get(r.id) ?? 0,
       href: roomHref(r.id),
       record: { type: 'object', id: String(r.id), label: r.title, href: roomHref(r.id) },

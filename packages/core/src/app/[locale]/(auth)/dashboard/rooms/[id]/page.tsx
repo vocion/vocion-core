@@ -10,6 +10,7 @@ import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { RoomKnowledge } from '@/features/dashboard/rooms/RoomKnowledge';
 import { UnfileSource } from '@/features/dashboard/rooms/UnfileSource';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { deckVerificationChip } from '@/libs/decks/audit';
 import { redTeamChip, verificationChip } from '@/libs/documents/audit';
 import { artifactHref } from '@/libs/tools/artifacts/url';
 import { getDataRoomDetail, roomAnchor, roomDeliverables, roomHref } from '@/services/DataRoomService';
@@ -281,7 +282,8 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
  */
 function DocumentRow({ doc, href }: { doc: RoomDocument; href: string }) {
   const a = doc.artifact;
-  const spec = a.spec as { sheets?: number; playbook?: string; verification?: Parameters<typeof verificationChip>[0]; redTeam?: Parameters<typeof redTeamChip>[0] };
+  const spec = a.spec as { sheets?: number; order?: string[]; playbook?: string; verification?: Parameters<typeof verificationChip>[0]; redTeam?: Parameters<typeof redTeamChip>[0] };
+  const deliverable = a.kind === 'document' || a.kind === 'deck';
   const kind = a.kind as keyof typeof ARTIFACT_KIND_ICON;
   const Icon = ARTIFACT_KIND_ICON[kind] ?? ARTIFACT_KIND_ICON.file;
   const state = doc.state.charAt(0).toUpperCase() + doc.state.slice(1);
@@ -302,13 +304,14 @@ function DocumentRow({ doc, href }: { doc: RoomDocument; href: string }) {
             spec.playbook,
             `v${a.currentVersion}`,
             a.kind === 'document' ? verificationChip(spec.verification, spec.sheets) : null,
-            a.kind === 'document' ? redTeamChip(spec.redTeam) : null,
+            a.kind === 'deck' ? deckVerificationChip(spec.verification as Parameters<typeof deckVerificationChip>[0], spec.order?.length) : null,
+            deliverable ? redTeamChip(spec.redTeam) : null,
             promise,
             doc.date ? `dated ${doc.date}` : `updated ${(a.updatedAt ?? a.createdAt)?.toISOString().slice(0, 10)}`,
           ]}
         />
       )}
-      chip={a.kind === 'document'
+      chip={deliverable
         ? <StatusPill status={doc.state === 'drafted' ? 'inactive' : 'active'} label={state} size="sm" />
         : 'File'}
       actions={a.url

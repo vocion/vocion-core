@@ -173,3 +173,24 @@ describe('proposalRowView — the whole matrix, one glance each', () => {
     expect(v.subline.map(x => x.tone)).toEqual(['pass', 'pass', 'neutral', 'neutral', 'neutral', 'neutral', 'neutral']);
   });
 });
+
+describe('decks on the board', () => {
+  const deckRow = (id: number, ok: boolean, over: Partial<ArtifactRow> = {}) => doc(id, { kind: 'deck', title: `Deck ${id}`, spec: { order: ['a', 'b', 'c'], verification: { ok, slides: [{}, {}, {}], issues: ok ? [] : ['Slide 2: text under 24px'], reports: [] } }, ...over } as Partial<ArtifactRow>);
+
+  it('reads the newest deck of a room beside its newest document', () => {
+    const artifacts = new Map<number, ArtifactRow[]>([[1, [doc(30, { spec: { sheets: 5, verification: { ok: true, sheets: Array.from({ length: 5 }), issues: [] } } }), deckRow(31, true)]]]);
+    const [row] = proposalRows([northwind], artifacts, new Map());
+
+    expect(row!.document).toMatchObject({ id: 30, kind: 'document' });
+    expect(row!.deck).toMatchObject({ id: 31, kind: 'deck', verify: 'verified', sheets: 3, chip: '3 slides · verified' });
+    expect(proposalRowView(row!, Date.parse('2026-09-20T00:00:00Z')).subline.map(s => s.label)).toContain('deck verified');
+  });
+
+  it('leads with the deck when a room has only a deck', () => {
+    const [row] = proposalRows([northwind], new Map([[1, [deckRow(32, false)]]]), new Map());
+    const view = proposalRowView(row!, Date.parse('2026-09-20T00:00:00Z'));
+
+    expect(view.title).toBe('Deck 32');
+    expect(view.subline.map(s => s.label)).toEqual(expect.arrayContaining(['1 issue', '3 slides']));
+  });
+});

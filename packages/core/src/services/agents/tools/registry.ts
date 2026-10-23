@@ -38,6 +38,7 @@ import { crmTools } from './crm';
 import { dataRoomTools } from './dataRooms';
 import { decideAskTool } from './decideAsk';
 import { decideProposalTool } from './decideProposal';
+import { deckTools } from './decks';
 import { describeSetupTool } from './describeSetup';
 import { describeSourcesTool } from './describeSources';
 import { discoveryTools } from './discovery';
@@ -318,6 +319,15 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // export_document_pdf). Same rule as render_*: no side effect outside the
     // conversation, so on for every agent.
     ...documentTools(ctx),
+    // Decks: 16:9 slides (vocion-deck/1) with the same loop — render_deck /
+    // read_deck / edit_deck / verify_deck / export_deck_pdf — and the
+    // editor-neutral round trip for decks AND documents (deck_checkout /
+    // deck_checkin). red_team_document reads both kinds. Same rule: no side
+    // effect outside the workspace, so on for every agent.
+    // TODO(decks): wire export_pptx / import_pptx (libs/decks/pptx/) and
+    // export_docx / import_docx (libs/documents/docx/) here when those
+    // adapters land — optional adapters, never on the path to the PDF.
+    ...deckTools(ctx),
     // An artifact's tables as an .xlsx file artifact, the header's
     // "Download as Excel" for an agent. Writes only a file beside it.
     exportArtifactXlsxTool(ctx),

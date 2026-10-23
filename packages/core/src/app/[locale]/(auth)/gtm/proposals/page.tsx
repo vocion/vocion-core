@@ -55,7 +55,7 @@ export default async function ProposalsPage(props: { params: Promise<{ locale: s
   return (
     <ListPage
       title="Proposals"
-      description="The document for every engagement at Proposal stage: what state it is in, whether it verified, whether a sceptical buyer has read it, and how long it has been sitting. A row opens the room it was written from."
+      description="The document (and deck) for every engagement at Proposal stage: what state it is in, whether it verified, whether a sceptical buyer has read it, and how long it has been sitting. A row opens the room it was written from."
     >
       <PluginPanel orgId={orgId} slug="proposals" />
 

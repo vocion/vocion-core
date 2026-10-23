@@ -11,6 +11,7 @@
 import { registerCard } from '../registry';
 import { chartCard } from './chart';
 import { dataTableCard } from './dataTable';
+import { deckCard } from './deck';
 import { documentCard } from './document';
 import { jsonDumpCard } from './jsonDump';
 import { keyValueCard } from './keyValue';
@@ -48,6 +49,8 @@ export function registerFirstPartyCards(): void {
   // The paginated document (render_document) — rendered the way it prints,
   // with its render-verify verdict.
   registerCard(documentCard);
+  // The deck (render_deck) — its render-verified slides, verdict and PDF.
+  registerCard(deckCard);
   // Workspace sources (libs/workspace/source.ts): a mission's YAML and a
   // SKILL.md, mirrored so they edit like artifacts.
   registerCard(missionCard);
