@@ -164,7 +164,7 @@ describe('WorkspaceSwitcher, several Orgs', () => {
 describe('WorkspaceSwitcher, where each workspace opens', () => {
   const finance: SwitcherProject = { id: 'p-finance', slug: 'finance', name: 'Larkfield Finance', agentCount: 3, accountId: 'acct-metacto' };
   const revenue: SwitcherProject = { id: 'p-revenue', slug: 'revenue', name: 'Larkfield Revenue', agentCount: 4, accountId: 'acct-metacto' };
-  const lines: Record<string, string> = { 'p-finance': 'Finance · opens in Finance', 'p-revenue': 'GTM · Routines · opens on Review' };
+  const lines: Record<string, string> = { 'p-finance': 'Finance', 'p-revenue': 'GTM · Routines' };
 
   it('names each workspace\'s apps and where it opens, and goes there', async () => {
     const navigate = vi.fn();
@@ -176,7 +176,7 @@ describe('WorkspaceSwitcher, where each workspace opens', () => {
       </NextIntlClientProvider>,
     );
 
-    await expect.element(page.getByRole('option', { name: /Larkfield Finance/ })).toHaveTextContent(/Finance · opens in Finance/);
+    await expect.element(page.getByRole('option', { name: /Larkfield Finance/ })).toHaveTextContent(/Finance/);
     await expect.element(page.getByRole('option', { name: /Larkfield Revenue/ })).toHaveTextContent(/GTM · Routines · opens on Review/);
 
     await page.getByRole('option', { name: /Larkfield Finance/ }).click();
