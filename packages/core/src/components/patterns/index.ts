@@ -53,5 +53,6 @@ export { RowMenu, type RowMenuItem } from './RowMenu';
 export { formatScore, scorePercent, type ScoreVerdict, scoreVerdict } from './scoreChip';
 
 export { ConversationSkeleton, ListSkeleton, ReportSkeleton } from './Skeletons';
+export { Stat, type StatDelta, StatRow } from './StatRow';
 export { type BarAction, type BarField, StickyActionBar } from './StickyActionBar';
 export { type RowSwipe, type SwipeAction } from './SwipeRow';
