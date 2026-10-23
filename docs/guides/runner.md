@@ -92,7 +92,7 @@ The factory sends the engineer seat's engine. A workspace sets it with an `exten
 extends: core
 slug: task-engineer
 harness:
-  engine: openhands            # claude-cli (the default) | openhands
+  engine: openhands # claude-cli (the default) | openhands
   # engineModel: bedrock/us.anthropic.claude-opus-5-5   # optional; else anthropic/<harness.model>
 ```
 
