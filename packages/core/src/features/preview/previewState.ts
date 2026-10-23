@@ -53,7 +53,91 @@ function readSearch(): string {
 /** The element that opened the current preview, so Escape can hand focus back. */
 let opener: HTMLElement | null = null;
 
-function writeParam(value: string | null): void {
+/**
+ * THE PANE'S STACK — what was open in it before the preview on top.
+ *
+ * Chris, 2026-10-23: open a record, then the thread's background work, and
+ * the second must not become a second side surface; it stands on top of the
+ * first in the same pane, and a back control returns to it ("our standard
+ * sidebar panes, that can stack if needed"). Every opening already pushes
+ * a history entry, so the browser's Back walks down the same stack; this
+ * list only lets the pane say what is underneath and offer it. It lives in
+ * memory for the page it was built on: a reload or another page starts with
+ * none, and the pane simply has no back control.
+ *
+ * Pure: the keys under the top after `next` opens on top of `current`. An
+ * item already underneath moves up rather than appearing twice.
+ * @param stack - What was underneath.
+ * @param current - What the pane shows now, or null when it is closed.
+ * @param next - What opens.
+ */
+export function stackAfterOpen(stack: readonly string[], current: string | null, next: string): string[] {
+  if (!current || current === next) {
+    return current ? [...stack] : [];
+  }
+  return [...stack.filter(k => k !== next && k !== current), current];
+}
+
+/**
+ * Pure: the stack once the URL says `current` is on top — after Back, the
+ * pane's own back control, or a close. A key found underneath means the
+ * person walked back to it, so it and everything above it come off.
+ * @param stack - What was underneath.
+ * @param current - What the URL says is open.
+ */
+export function stackAfterUrl(stack: readonly string[], current: string | null): readonly string[] {
+  if (current === null) {
+    return stack.length === 0 ? stack : [];
+  }
+  const at = stack.lastIndexOf(current);
+  return at === -1 ? stack : stack.slice(0, at);
+}
+
+let stack: readonly string[] = [];
+let stackPath: string | null = null;
+
+function currentKey(): string | null {
+  return new URLSearchParams(window.location.search).get(PREVIEW_PARAM);
+}
+
+/** The stack as the URL now reads it; the same array while nothing moved. */
+function readStack(): readonly string[] {
+  if (window.location.pathname !== stackPath) {
+    if (stack.length > 0) {
+      stack = [];
+    }
+    return stack;
+  }
+  const next = stackAfterUrl(stack, currentKey());
+  if (next !== stack) {
+    stack = next;
+  }
+  return stack;
+}
+
+const NO_STACK: readonly string[] = [];
+
+/** What each preview opened on this page was called, so the back control can name it. */
+const titles = new Map<string, string>();
+
+/**
+ * Remember what a preview is called once its pane has read it.
+ * @param key - Its `<type>:<id>`.
+ * @param title - Its title.
+ */
+export function rememberPreviewTitle(key: string, title: string): void {
+  titles.set(key, title);
+}
+
+/**
+ * What a preview underneath is called: its read title, or null before it was read.
+ * @param key - Its `<type>:<id>`.
+ */
+export function previewTitle(key: string): string | null {
+  return titles.get(key) ?? null;
+}
+
+function writeParam(value: string | null, mode: 'push' | 'replace' = 'push'): void {
   const params = new URLSearchParams(window.location.search);
   if (value === null) {
     params.delete(PREVIEW_PARAM);
@@ -73,7 +157,11 @@ function writeParam(value: string | null): void {
   // `replaceState`, and the pane closed (Chris, 2026-09-30, #269). Handed
   // `null`, the patch copies the router's own history state onto the entry
   // itself, so Back still traverses, and every later commit keeps the param.
-  window.history.pushState(null, '', next);
+  if (mode === 'replace') {
+    window.history.replaceState(null, '', next);
+  } else {
+    window.history.pushState(null, '', next);
+  }
   emit();
 }
 
@@ -111,7 +199,38 @@ export function openPreview(ref: Pick<RecordRef, 'type' | 'id'>, from: HTMLEleme
   }
   opener = from;
   dismissSelectionControl();
-  writeParam(previewKey(ref));
+  const key = previewKey(ref);
+  stack = stackAfterOpen(readStack(), currentKey(), key);
+  stackPath = window.location.pathname;
+  writeParam(key);
+}
+
+/**
+ * What is underneath the preview on top, nearest last — empty when the pane
+ * has nothing to go back to.
+ */
+export function usePreviewStack(): readonly string[] {
+  return useSyncExternalStore(subscribe, readStack, () => NO_STACK);
+}
+
+/**
+ * Back to what the pane showed before the preview on top. The browser's own
+ * history holds that entry, so this is its Back; should the entry it lands
+ * on show something else, the URL is set to what the pane promised.
+ */
+export function previewBack(): void {
+  const target = readStack().at(-1);
+  if (!target) {
+    return;
+  }
+  const settle = () => {
+    window.removeEventListener('popstate', settle);
+    if (currentKey() !== target) {
+      writeParam(target, 'replace');
+    }
+  };
+  window.addEventListener('popstate', settle);
+  window.history.back();
 }
 
 /** Ref types that name one `business_object` by id — one record, two spellings. */

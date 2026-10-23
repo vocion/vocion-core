@@ -3,10 +3,10 @@
 import type { WorkItem, WorkView } from '@/services/work/WorkService';
 import { ChevronDown, ChevronRight, Loader2, Square } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
-import { useIsMobile } from '@/components/ui/useMobile';
+import { openPreview } from '@/features/preview/previewState';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { workPreviewRef } from '@/libs/preview/workRef';
 import { formatElapsed } from '../useElapsed';
 
 /**
@@ -16,11 +16,17 @@ import { formatElapsed } from '../useElapsed';
  * allowing click to explorability").
  *
  * The chip says how many are running, and how many finished since the
- * conversation began; tapping it opens the panel — a side panel on a desktop,
- * a sheet on a phone — listing what runs now (Stop where the run has one) and
- * a folded "Finished N", each linking to its run. Read from the run records
- * the platform already keeps (`services/work/WorkService.ts`); polled while
- * anything runs, and again when a turn lands.
+ * conversation began; tapping it opens the work in the right column's one
+ * preview pane (`?preview=conversation:<id>.work`, `libs/preview/workRef.ts`),
+ * on top of whatever that pane already showed — a full-screen sheet on a
+ * phone, as every preview is. It lists what runs now (Stop where the run has
+ * one) and a folded "Finished N", each linking to its run. Read from the run
+ * records the platform already keeps (`services/work/WorkService.ts`); polled
+ * while anything runs, and again when a turn lands.
+ *
+ * It had its own sheet until 2026-10-23, which opened a second side surface
+ * beside the preview pane (Chris: "a new sidebar implement"). One column, one
+ * pane, one shape.
  */
 
 const POLL_MS = 10_000;
@@ -29,9 +35,10 @@ const POLL_MS = 10_000;
  * The work behind a conversation, kept fresh while anything runs.
  * @param conversationId - The conversation, or null for a new one.
  * @param turnIdle - No turn is running (a turn that started work is a reason to read again).
+ * @param initial
  */
-export function useConversationWork(conversationId: number | null, turnIdle: boolean) {
-  const [view, setView] = useState<WorkView | null>(null);
+export function useConversationWork(conversationId: number | null, turnIdle: boolean, initial: WorkView | null = null) {
+  const [view, setView] = useState<WorkView | null>(initial);
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick(t => t + 1), []);
   useEffect(() => {
@@ -142,41 +149,42 @@ export function RunningWorkPanel({ view, onStop }: { view: WorkView; onStop: (it
 }
 
 /**
- * The chip in the thread and the panel it opens; nothing when there is no work.
+ * The chip in the thread; tapping it opens the work in the preview pane. Nothing when there is no work.
  * @param props - The chip.
  * @param props.view - The work behind the conversation.
- * @param props.onChanged - Read the work again (after a Stop).
+ * @param props.conversationId - The conversation it is behind.
  */
-export function RunningWorkChip({ view, onChanged }: { view: WorkView | null; onChanged: () => void }) {
-  const [open, setOpen] = useState(false);
-  const isMobile = useIsMobile();
+export function RunningWorkChip({ view, conversationId }: { view: WorkView | null; conversationId: number | null }) {
   const line = view ? chipLine(view) : null;
-  if (!view || !line) {
+  if (!view || !line || conversationId === null) {
     return null;
   }
-  const stop = (item: WorkItem) => {
-    void client.work.stop({ key: item.key }).catch(() => null).then(onChanged);
-  };
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        data-testid="running-work-chip"
-        className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/70 bg-background px-2.5 py-1 text-[12.5px] text-muted-foreground transition hover:text-foreground max-md:min-h-11"
-      >
-        {view.running.length > 0 && <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />}
-        <span className="truncate">{line}</span>
-        <ChevronRight className="size-3.5 shrink-0" aria-hidden />
-      </button>
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side={isMobile ? 'bottom' : 'right'} className={isMobile ? 'max-h-[80dvh]' : 'w-[380px] sm:max-w-[380px]'}>
-          <SheetTitle className="px-4 pt-4 text-[15px]">Background work</SheetTitle>
-          <RunningWorkPanel view={view} onStop={stop} />
-        </SheetContent>
-      </Sheet>
-    </>
+    <button
+      type="button"
+      onClick={e => openPreview(workPreviewRef(conversationId), e.currentTarget)}
+      data-testid="running-work-chip"
+      className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/70 bg-background px-2.5 py-1 text-[12.5px] text-muted-foreground transition hover:text-foreground max-md:min-h-11"
+    >
+      {view.running.length > 0 && <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />}
+      <span className="truncate">{line}</span>
+      <ChevronRight className="size-3.5 shrink-0" aria-hidden />
+    </button>
   );
+}
+
+/**
+ * The work as the preview pane draws it: the panel, kept fresh while anything runs, with Stop.
+ * @param props - The pane body.
+ * @param props.conversationId - The conversation.
+ * @param props.initial - What the preview resolver read.
+ */
+export function ConversationWorkPane({ conversationId, initial }: { conversationId: number; initial: WorkView }) {
+  const { view, refresh } = useConversationWork(conversationId, true, initial);
+  const stop = (item: WorkItem) => {
+    void client.work.stop({ key: item.key }).catch(() => null).then(refresh);
+  };
+  return <RunningWorkPanel view={view ?? initial} onStop={stop} />;
 }
 
 /**
@@ -187,8 +195,8 @@ export function RunningWorkChip({ view, onChanged }: { view: WorkView | null; on
  * @param props.session.isStreaming - A turn runs.
  */
 export function ConversationWork({ session }: { session: { conversationId: number | null; isStreaming?: boolean } }) {
-  const { view, refresh } = useConversationWork(session.conversationId, !session.isStreaming);
-  return <RunningWorkChip view={view} onChanged={refresh} />;
+  const { view } = useConversationWork(session.conversationId, !session.isStreaming);
+  return <RunningWorkChip view={view} conversationId={session.conversationId} />;
 }
 
 /**
