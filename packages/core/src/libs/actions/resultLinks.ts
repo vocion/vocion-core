@@ -84,6 +84,9 @@ const URL_KEYS: ReadonlyArray<{ key: string; label: string }> = [
   { key: 'prUrl', label: 'Pull request' },
   { key: 'resultUrl', label: 'Result' },
   { key: 'url', label: 'Open' },
+  // Where a message it wrote opens in the mail app: the Gmail draft or the
+  // sent thread (`gmail-send.ts`), named by the result's own `linkLabel`.
+  { key: 'link', label: 'Open' },
 ];
 
 /**
@@ -94,8 +97,12 @@ const URL_KEYS: ReadonlyArray<{ key: string; label: string }> = [
  * @param run.result - What it returned.
  * @param link - Where a record opens in this workspace.
  * @param codes - The workspace's type codes, so a record reads FE-201; absent, it reads by its page's noun.
+ * @param opts - What the caller knows that the result may not say.
+ * @param opts.openLabel - The label for an external link the result does not
+ * name itself: the card's "Open in Gmail", for a run made before results
+ * carried `linkLabel`.
  */
-export function resultLinks(run: { actionId: string; input: Meta | null; result: Meta | null }, link: RecordLinker, codes?: TypeCodes): ResultLink[] {
+export function resultLinks(run: { actionId: string; input: Meta | null; result: Meta | null }, link: RecordLinker, codes?: TypeCodes, opts?: { openLabel?: string }): ResultLink[] {
   const result = run.result;
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
     return [];
@@ -145,10 +152,11 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
     push({ label: nounCode('artifact', artifactId), href: `/dashboard/artifacts/${artifactId}`, ref: { type: 'artifact', id: String(artifactId) } });
   }
 
+  const ownLabel = typeof result.linkLabel === 'string' && result.linkLabel.trim() ? result.linkLabel.trim() : opts?.openLabel;
   for (const { key, label } of URL_KEYS) {
     const url = result[key];
     if (typeof url === 'string' && /^https?:\/\//.test(url.trim())) {
-      push({ label, href: url.trim(), external: true });
+      push({ label: key === 'link' && ownLabel ? ownLabel : label, href: url.trim(), external: true });
       break;
     }
   }

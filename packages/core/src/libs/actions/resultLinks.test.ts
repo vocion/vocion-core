@@ -48,4 +48,19 @@ describe('what a done run made, as links (Chris, 2026-09-29: "I expected a path 
     expect(resultLinks({ actionId: 'ask.file', input: {}, result: { id: 3, objectType: 'ask.file' } }, generic)).toEqual([]);
     expect(resultLinks({ actionId: 'x', input: {}, result: { url: 'javascript:alert(1)', requestId: 0, workerRunId: 'abc' } }, generic)).toEqual([]);
   });
+
+  it('links the message a mail action wrote, by the label it names, else the caller\'s', () => {
+    const draft = { mode: 'draft', draftId: 'r-77', messageId: 'm-77', link: 'https://mail.google.com/mail/u/ann%40noco.example/#drafts?compose=m-77' };
+
+    expect(resultLinks({ actionId: 'gmail.send', input: {}, result: { ...draft, linkLabel: 'Open in Gmail' } }, link)).toEqual([
+      { label: 'Open in Gmail', href: draft.link, external: true },
+    ]);
+    // A run made before results named their link takes the card's label.
+    expect(resultLinks({ actionId: 'gmail.send', input: {}, result: draft }, link, undefined, { openLabel: 'Open in Gmail' })).toEqual([
+      { label: 'Open in Gmail', href: draft.link, external: true },
+    ]);
+    expect(resultLinks({ actionId: 'gmail.send', input: {}, result: draft }, link)).toEqual([
+      { label: 'Open', href: draft.link, external: true },
+    ]);
+  });
 });

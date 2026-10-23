@@ -226,6 +226,14 @@ export const googleProvider: ConnectProvider = {
     return { account: credentials.email };
   },
 
+  hasAccess: (credentials, connectorSlug, access) => {
+    const needed = GOOGLE_EXTRA_ACCESS[connectorSlug]?.[access];
+    if (!needed || typeof credentials.scope !== 'string' || !credentials.scope) {
+      return null;
+    }
+    return hasEveryScope(credentials.scope, needed);
+  },
+
   missingAccessFor: (credentials, connectorSlug, audience) => {
     const required = vendorScopesFor(connectorSlug, audience);
     if (!required || typeof credentials.scope !== 'string') {

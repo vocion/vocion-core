@@ -111,6 +111,13 @@ export type ReviewCardRun = {
   revisions?: ActionRevision[] | null;
   /** What the last execution attempt said, set when `status` is `failed`. */
   error?: string | null;
+  /**
+   * On a run that failed for want of access: whether the connection it runs
+   * on holds that access now (the person reconnected since), read from the
+   * stored grant by the loader (`services/review/accessGranted.ts`). True
+   * turns the reconnect banner into "the access is in place, press it again".
+   */
+  accessGranted?: boolean | null;
   /** How often this agent's recommendations of this kind matched the person's decision (server-computed, 30d). */
   alignment?: { agreementRate: number | null; n: number; window: string } | null;
   /**
@@ -1445,7 +1452,7 @@ export function ReviewSurface(props: {
           )}
           {/* A plain sentence and the fix; the vendor's own words behind
               Details, never in the main view (#1286's three levels). */}
-          {d.execError && <ExecutionFailure error={d.execError} actionId={run.actionId} approveVerb={approveVerb} />}
+          {d.execError && <ExecutionFailure error={d.execError} actionId={run.actionId} approveVerb={approveVerb} accessGranted={d.execError === run.error ? run.accessGranted ?? null : null} />}
           {props.hold && (
             <Notice tone="amber" icon={<Ban className="size-4" aria-hidden />} testid="primary-held">
               <span className="font-medium">{`${approveVerb} is held.`}</span>

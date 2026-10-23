@@ -156,7 +156,7 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
         const runShape = { actionId: run.actionId, input: (run.input ?? {}) as Record<string, unknown>, result: (run.result ?? null) as Record<string, unknown> | null };
         const did = run.status === 'done' ? doneSummary(runShape) : null;
         const recordLinks = run.status === 'done' ? await recordLinksForOrg(orgId) : null;
-        const made = recordLinks ? resultLinks(runShape, recordLinker(recordLinks), recordLinks.codes) : [];
+        const made = recordLinks ? resultLinks(runShape, recordLinker(recordLinks), recordLinks.codes, { openLabel: run.card?.outbound?.openLabel }) : [];
         const by = run.decidedBy ? run.people?.[run.decidedBy] ?? null : null;
         // A send says it was sent (or drafted), not just "Approved".
         const mode = (run.result as { mode?: unknown } | null)?.mode;

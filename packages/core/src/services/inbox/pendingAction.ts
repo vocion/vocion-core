@@ -5,6 +5,7 @@ import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema, reviewAssignmentSchema, userSchema } from '@/models/Schema';
 import { scoreFor } from '@/services/alignment/AlignmentService';
+import { accessGrantedSince } from '@/services/review/accessGranted';
 
 /**
  * One proposal, loaded for its decision screen: the run row, the action's own
@@ -58,7 +59,11 @@ export async function loadPendingAction(orgId: string, id: number): Promise<Acti
   // one query, so the lifecycle under Run details reads "by Rowan Pike"
   // rather than a user id.
   const trail = (row.result ?? {}) as { handoff?: { releasedBy?: unknown }; executed?: { by?: unknown } };
-  const people = await namesFor([row.decidedBy, found.assignedTo, trail.handoff?.releasedBy, trail.executed?.by]);
+  const [people, accessGranted] = await Promise.all([
+    namesFor([row.decidedBy, found.assignedTo, trail.handoff?.releasedBy, trail.executed?.by]),
+    // A run that failed for want of access says whether it is there now.
+    row.status === 'failed' ? accessGrantedSince(orgId, { actionId: row.actionId, input: row.input, error: row.error ?? null }) : Promise.resolve(null),
+  ]);
   return {
     id: row.id,
     actionId: row.actionId,
@@ -76,6 +81,7 @@ export async function loadPendingAction(orgId: string, id: number): Promise<Acti
     contentReview: row.contentReview ?? null,
     revisions: row.revisions ?? null,
     error: row.error ?? null,
+    ...(accessGranted !== null ? { accessGranted } : {}),
     ...(card ? { card } : {}),
     typeLabel: getAction(row.actionId)?.name ?? undefined,
     alignment: score ? { agreementRate: score.agreementRate, n: score.n, window: score.window } : null,
