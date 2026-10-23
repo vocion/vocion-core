@@ -602,6 +602,24 @@ export default async function WorkspacePage(props: {
     );
   }
 
+  // HOW EACH ENGINE IS DOING, side by side (ADR 0005): the engine scoreboard
+  // for the window and source asked for, then the runs behind it.
+  if (manifest.archetype === 'engines') {
+    const { listEngineRuns, loadEngineScoreboard } = await import('@/services/factory/engineRun');
+    const { readEnginesQuery } = await import('@/features/dashboard/engines/engineBoard');
+    const { EnginesView } = await import('@/features/dashboard/engines/EnginesView');
+    const query = readEnginesQuery(searchParams);
+    const [board, timezone] = await Promise.all([loadEngineScoreboard(orgId, { days: query.days, source: query.source }), workspaceTimeZone(orgId)]);
+    const since = new Date(board.since);
+    const rows = await listEngineRuns(orgId, { source: query.source, engine: query.engine ?? undefined, since, limit: 200 });
+    return (
+      <>
+        <TitleBar title={manifest.title} description={manifest.description} />
+        <EnginesView slug={manifest.slug} query={query} engines={board.engines} rows={rows} since={since} timezone={timezone} />
+      </>
+    );
+  }
+
   const content = readWorkspacePageContent(manifest);
   const methodology = readWorkspacePageMethodology(manifest);
   const now = await currentTime();

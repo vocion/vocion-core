@@ -397,12 +397,14 @@ export async function loadEngineScoreboard(orgId: string, opts: { days?: number;
  * @param opts - Filters and paging.
  * @param opts.engine - One engine's.
  * @param opts.source - One source's.
+ * @param opts.since - Only rows written since then.
  * @param opts.limit - Page size.
  * @param opts.offset - Page start.
  */
-export async function listEngineRuns(orgId: string, opts: { engine?: string; source?: string; limit?: number; offset?: number } = {}): Promise<EngineRunRow[]> {
+export async function listEngineRuns(orgId: string, opts: { engine?: string; source?: string; since?: Date; limit?: number; offset?: number } = {}): Promise<EngineRunRow[]> {
   return db.select().from(engineRunSchema).where(and(
     eq(engineRunSchema.orgId, orgId),
+    ...(opts.since ? [gte(engineRunSchema.createdAt, opts.since)] : []),
     ...(opts.engine ? [eq(engineRunSchema.engine, opts.engine)] : []),
     ...(opts.source ? [eq(engineRunSchema.source, opts.source)] : []),
   )).orderBy(desc(engineRunSchema.id)).limit(Math.min(opts.limit ?? 50, 200)).offset(opts.offset ?? 0);
