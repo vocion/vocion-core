@@ -67,6 +67,69 @@ pins the `sha-` tag of the core commit its installation runs, so the runner move
 pin moves, never on its own. The image reports that commit as `workerVersion` on every claim and
 heartbeat.
 
+## Engines
+
+The engineering pass is the only part of a run that depends on the engine. A contract names one in
+its optional `engine` block (`{ "id": "openhands" }`); without it the runner uses `claude-cli`,
+exactly as before the field existed. `packages/runner/src/engines/` holds the registry:
+
+| Engine | What runs | Image |
+|---|---|---|
+| `claude-cli` (default) | headless Claude Code, the arguments the runner always passed | the default (`internal`) target |
+| `openhands` | the OpenHands Software Agent SDK (MIT), through `openhands_driver.py` | `docker build --target open` |
+
+Everything else is the runner's and the same for every engine: the contract, the guard hooks and
+the files a person owns, the required checks, the budget and wall clock, cost and usage on the
+heartbeat, verify, land, keep and the kept-branch retry. An engine is a process that reads the
+brief on stdin and prints Claude Code's stream-json, so the events, the transcript and the cost
+come from the same reader. A runner refuses, before the clone, an engine its image does not carry.
+
+### OpenHands
+
+The SDK runs in the runner container, not as an agent-server sidecar. The container is already
+the sandbox (one task, non-root, credentials stripped). A sidecar would add a shared volume, a
+localhost port, session keys and a second image to pin, and no isolation the container lacks. The
+open image installs `openhands-sdk` and `openhands-tools` from the pinned
+`packages/runner/openhands-requirements.txt`, with no browser tool (and so no `browser-use` or
+`posthog`) and no agent-server. The driver turns off Laminar and LiteLLM telemetry.
+
+The guard is the runner's own. OpenHands runs `hooks/openhands-guard.sh` as a PreToolUse hook on
+every tool call (exit 2 blocks, as in Claude Code), and the hook hands the call to the same scripts:
+
+| OpenHands call | Checked by | Blocks |
+|---|---|---|
+| `terminal` | `guard-bash.sh` | git push, commit, merge, rebase and friends; GitHub writes; destructive commands; reading env files, keys and credential stores; dumping or naming credential variables; AWS writes, deploys and publishing; outbound writes; shell writes outside the repository |
+| `file_editor` create, str_replace, insert, undo_edit | `guard-write.sh` | secrets and env files, `.git`, CI workflows, the repository's `human_owned`, anything outside the repository |
+| `file_editor` view | the read denials in `claude-settings.json` | `.env*`, `*.pem`, `*.key`, `.ssh`, `.aws`, `.netrc`, `.npmrc`, `.git-credentials`, gh config |
+| `task_tracker`, `finish`, `think` | allowed | |
+| anything else | blocked | the hook fails closed, because OpenHands treats any exit but 2 as allow |
+
+The final-diff check in verify (no file a person owns) is the backstop for both engines. The model
+key is read once and removed from the driver's environment before any tool starts, so the agent's
+shell holds no credentials at all.
+
+**Model.** LiteLLM ids. A contract model such as `claude-opus-5-5` becomes
+`anthropic/claude-opus-5-5` with `ANTHROPIC_API_KEY`. For production on Bedrock, set
+`OPENHANDS_PROVIDER=bedrock` (and `OPENHANDS_BEDROCK_PREFIX`, for example `us.anthropic.`), or put
+the full id in the contract (`engine.model: "bedrock/<inference profile id>"`). The runner then
+keeps the task role's credentials for the driver only; the driver resolves them with boto3, hands
+them to LiteLLM and drops them before any tool runs. The task role needs `bedrock:InvokeModel*` on
+the allowed models.
+
+**Known gaps.**
+- A hook that times out (30 s) is not a block in OpenHands. The guard scripts take milliseconds;
+  verify still refuses a change to a file a person owns.
+- On Fargate the task role's metadata endpoint is reachable from the agent's shell, as it is for
+  any process in the task. A LiteLLM proxy outside the task would remove that.
+- There is no WebFetch tool (claude-cli allows a few documentation domains); the agent can still
+  read the web with curl, under the same outbound-write rules.
+- `model_policy.escalate_to` (claude-cli's fallback model) has no OpenHands equivalent yet.
+
+### Where a resumed run lands
+
+`base_branch` (optional, default `main`) is the branch the work lands on: a resumed branch is
+rebased on it, its kept work is folded back against it, and the pull request targets it.
+
 ## Where it runs: the installation's targets
 
 Runners are installation config, not workspace config. An installation declares its targets once,

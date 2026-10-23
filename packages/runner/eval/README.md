@@ -190,9 +190,11 @@ repository owners replaced by `<sandbox-owner>`), after checking it carries no c
   29 of 30 ($10.72), hard tier 16 of 18 ($10.81+), median score 100 in both. Two of the three
   misses were grader bugs, since fixed (c20, h12); h10 hit a runner land bug. See its notes.
 
-Engines: `claude-cli` (the baseline), `oracle` (applies the reference change) and `noop` (changes
-nothing), the last two to prove the harness. `openhands`, `codex` and `claude-sdk` are named and
-refuse to run until they are built (Phases 3 and 4).
+Engines: `claude-cli` (the baseline), `openhands` (the same runner image built with
+`--target open`, the contract's `engine` set to `openhands`), `oracle` (applies the reference
+change) and `noop` (changes nothing), the last two to prove the harness. `codex` and `claude-sdk`
+are named and refuse to run until they are built. Every case's contract carries its fixture's
+`base_branch`, so a retry is rebased on and compared with its own fixture, not the sandbox main.
 
 ### What a claude-cli run needs
 
