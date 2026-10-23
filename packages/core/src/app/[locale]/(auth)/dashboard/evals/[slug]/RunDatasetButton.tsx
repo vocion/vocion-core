@@ -4,6 +4,7 @@ import { Loader2, PlayCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { buttonVariants } from '@/components/ui/buttonVariants';
+import { Notice } from '@/components/ui/notice';
 
 /**
  * Starts an eval run and goes straight to its page.
@@ -60,9 +61,9 @@ export function RunDatasetButton({ slug }: { slug: string }) {
       {error && (
         // An alert, not just red text: the person pressed a button and needs
         // to be told it did not work whether or not they are watching.
-        <div role="alert" className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-700 dark:text-red-300">
+        <Notice tone="fail">
           {error}
-        </div>
+        </Notice>
       )}
     </div>
   );

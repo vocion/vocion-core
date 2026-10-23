@@ -9,6 +9,7 @@ import { useSession } from 'next-auth/react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { CountBadge } from '@/components/ui/count-badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { routing } from '@/libs/I18nRouting';
@@ -107,11 +108,7 @@ function WorkspaceRow(props: { w: PageWorkspace; href: string; line: string; wai
         <span className={cn('block truncate text-[14px] font-medium', w.placeholder ? 'text-muted-foreground' : 'text-foreground')}>{w.name}</span>
         <span className="block truncate text-[12.5px] text-muted-foreground" data-testid="workspace-row-line">{props.line}</span>
       </span>
-      {props.waiting > 0 && (
-        <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-brand-amber px-1.5 text-[11px] font-semibold text-white tabular-nums" aria-label={props.waitingLabel} title={props.waitingLabel} data-testid="workspace-row-waiting">
-          {props.waiting}
-        </span>
-      )}
+      <CountBadge count={props.waiting} label={props.waitingLabel} title={props.waitingLabel} data-testid="workspace-row-waiting" />
       {props.current && (
         <span className="shrink-0 text-foreground" data-testid="workspace-row-current">
           <Check className="size-4" aria-hidden />

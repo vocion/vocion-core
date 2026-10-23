@@ -9,6 +9,7 @@ import { ArrowRight, Check, ChevronRight, ChevronsUpDown, Search, Settings2 } fr
 import { useSession } from 'next-auth/react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useMemo, useState } from 'react';
+import { CountBadge } from '@/components/ui/count-badge';
 import { DRAWER_CLOSE_ATTR } from '@/components/ui/drawerClose';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -173,11 +174,7 @@ export function SwitcherRow(props: {
         </span>
         {props.sub && <span className="block truncate text-[11.5px] text-muted-foreground" data-testid="switcher-row-sub">{props.sub}</span>}
       </span>
-      {(props.waiting ?? 0) > 0 && (
-        <span className="inline-flex h-4.5 min-w-4.5 shrink-0 items-center justify-center rounded-full bg-brand-amber px-1 text-[10.5px] font-semibold text-white tabular-nums" data-testid="switcher-row-waiting">
-          {props.waiting}
-        </span>
-      )}
+      <CountBadge count={props.waiting ?? 0} data-testid="switcher-row-waiting" />
       {props.selected && <Check className="size-4 shrink-0 text-foreground" aria-hidden />}
       {props.drills && <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
     </button>

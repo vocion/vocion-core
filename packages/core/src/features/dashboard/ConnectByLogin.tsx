@@ -228,7 +228,7 @@ function StoredCredentialLine({ stored, providerLabel, revealing, note, onShow, 
     : `${providerLabel ?? 'App'} App installation · ${stored.account ?? 'your account'}`;
   return (
     <div className="space-y-1.5" data-testid="connect-logged-in">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-pass-soft px-3 py-2 text-sm">
         <span className="flex-1 font-mono text-xs sm:text-sm" data-testid="connect-stored-text">{text}</span>
         {stored.revealable
           ? (

@@ -168,7 +168,7 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
             {decided.map(c => (
               <li key={c.id} className="rounded-lg border border-border bg-background px-4 py-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span className={c.status === 'approved' ? 'font-medium text-emerald-700' : 'font-medium text-red-700'}>
+                  <span className={c.status === 'approved' ? 'font-medium text-pass' : 'font-medium text-fail'}>
                     {c.changeKind === 'adopt' ? c.status : c.status === 'approved' ? (c.changeKind === 'merge' ? 'merged' : 'retired') : 'kept'}
                   </span>
                   {c.changeKind !== 'adopt' && (

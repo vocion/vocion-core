@@ -1,4 +1,7 @@
 import { Check, CircleHelp, TriangleAlert } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { TONE } from '@/components/ui/status-pill';
+import { cn } from '@/utils/Helpers';
 
 /**
  * The one-word verdict on whether a tool can run, shown on the Tools list and
@@ -23,24 +26,24 @@ import { Check, CircleHelp, TriangleAlert } from 'lucide-react';
 export function ReadinessBadge(props: { ready: boolean; keyStateUnknown: boolean }) {
   if (props.keyStateUnknown) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <Badge className={cn('text-[10px]', TONE.neutral.bg, TONE.neutral.fg)}>
         <CircleHelp className="size-3" />
         Can't check
-      </span>
+      </Badge>
     );
   }
   if (props.ready) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+      <Badge className={cn('text-[10px]', TONE.pass.bg, TONE.pass.fg)}>
         <Check className="size-3" />
         Ready
-      </span>
+      </Badge>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+    <Badge className={cn('text-[10px]', TONE.amber.bg, TONE.amber.fg)}>
       <TriangleAlert className="size-3" />
       Needs key
-    </span>
+    </Badge>
   );
 }

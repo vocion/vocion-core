@@ -96,7 +96,7 @@ function ActionButton({ a, primary }: { a: BarAction; primary?: boolean }) {
         // underneath them.
         'h-10 w-auto gap-2 rounded-lg text-sm',
         primary ? `${INK} px-4 sm:min-w-36` : `${GHOST} px-3`,
-        !primary && a.tone === 'danger' && 'hover:text-red-600 dark:hover:text-red-400',
+        !primary && a.tone === 'danger' && 'hover:text-fail',
       )}
     >
       {a.busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : Icon && <Icon className="size-4" aria-hidden />}

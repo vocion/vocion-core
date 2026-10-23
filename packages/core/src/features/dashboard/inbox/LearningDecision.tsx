@@ -5,6 +5,7 @@ import { Check, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Notice } from '@/components/ui/notice';
 import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { RuleChangeEvidence } from '@/features/learnings/RuleChangeEvidence';
@@ -162,7 +163,7 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
           </span>
           <span aria-hidden className="text-muted-foreground/50">·</span>
           <span
-            className={candidate.polarity === 'reinforce' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}
+            className={candidate.polarity === 'reinforce' ? 'text-pass' : 'text-warn'}
             title={candidate.polarity === 'reinforce'
               ? 'Someone praised this and said why — adopting it tells the agent to keep doing it'
               : 'Someone disagreed and said why — adopting it tells the agent to do this differently'}
@@ -199,7 +200,7 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
       </section>
 
       {error && (
-        <div role="alert" className="mt-3 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div>
+        <Notice tone="fail" className="mt-3">{error}</Notice>
       )}
 
       {open && (

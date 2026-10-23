@@ -50,7 +50,7 @@ export function AutonomyTable({ policies, isAdmin }: { policies: AutonomyPolicyV
       <p className="text-sm text-muted-foreground tabular-nums">
         {`${automating} of ${policies.length} kinds execute within bounds`}
         {flagged > 0 && (
-          <span className="text-amber-700 dark:text-amber-400">{` · ${flagged} demoted automatically and waiting for a look`}</span>
+          <span className="text-waiting">{` · ${flagged} demoted automatically and waiting for a look`}</span>
         )}
         <span className="text-muted-foreground/70">{' · '}</span>
         <span className="text-muted-foreground/90">{RUNGS.map(r => RUNG_LABEL[r]).join(' → ')}</span>
@@ -77,13 +77,13 @@ export function AutonomyTable({ policies, isAdmin }: { policies: AutonomyPolicyV
               const canDemote = isAdmin && rungIndex(p.rung) > 0;
               const isBusy = busy === p.actionId;
               return (
-                <tr key={p.actionId} className={`border-b border-border/60 last:border-0 ${p.flagged ? 'bg-amber-500/5' : ''}`}>
+                <tr key={p.actionId} className={`border-b border-border/60 last:border-0 ${p.flagged ? 'bg-waiting-soft' : ''}`}>
                   <td className="py-2.5 pr-3 align-top">
                     <div className="font-medium">{p.name}</div>
                     <div className="font-mono text-[11px] text-muted-foreground">{p.actionId}</div>
                   </td>
                   <td className="py-2.5 pr-3 align-top">
-                    <div className={rungAutomates(p.rung) && p.automates ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'font-medium'}>{RUNG_LABEL[p.rung]}</div>
+                    <div className={rungAutomates(p.rung) && p.automates ? 'font-medium text-pass' : 'font-medium'}>{RUNG_LABEL[p.rung]}</div>
                     <div className="text-[11px] text-muted-foreground">
                       {p.neverAuto
                         ? 'held here by the platform'
@@ -96,7 +96,7 @@ export function AutonomyTable({ policies, isAdmin }: { policies: AutonomyPolicyV
                               : 'default'}
                     </div>
                     {p.flagged && (
-                      <div className="mt-1 flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-400">
+                      <div className="mt-1 flex items-start gap-1 text-[11px] text-waiting">
                         <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden />
                         <span>{p.flagReason}</span>
                       </div>
@@ -120,7 +120,7 @@ export function AutonomyTable({ policies, isAdmin }: { policies: AutonomyPolicyV
                         )}
                   </td>
                   <td className="py-2.5 pr-3 align-top text-xs">
-                    <span className={p.eligibility.earned && p.eligibility.nextRung && rungAutomates(p.eligibility.nextRung) ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}>
+                    <span className={p.eligibility.earned && p.eligibility.nextRung && rungAutomates(p.eligibility.nextRung) ? 'font-medium text-pass' : 'text-muted-foreground'}>
                       {p.eligibility.reason}
                     </span>
                   </td>

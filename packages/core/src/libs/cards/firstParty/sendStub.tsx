@@ -81,8 +81,8 @@ export const sendStubCard = defineCard({
               </span>
             )}
             <span className={dense
-              ? 'rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300'
-              : 'rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300'}
+              ? 'rounded-full bg-warn-soft px-1.5 py-0.5 text-[10px] font-medium text-warn'
+              : 'rounded-full bg-warn-soft px-2 py-0.5 text-xs font-medium text-warn'}
             >
               {data.stubbed ? 'Stub' : 'Sent'}
             </span>

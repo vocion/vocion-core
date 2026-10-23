@@ -4,6 +4,7 @@ import { Loader2, PlayCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { buttonVariants } from '@/components/ui/buttonVariants';
+import { Notice } from '@/components/ui/notice';
 
 /**
  * Workflow runner form — minimal v0.4 floor. Renders a textarea per declared
@@ -99,7 +100,7 @@ export function RunForm({ slug, inputSchema }: RunFormProps) {
         <div key={key}>
           <label htmlFor={`run-${key}`} className="mb-1.5 block text-sm font-medium">
             {key}
-            {required.has(key) && <span className="ml-1 text-red-500">*</span>}
+            {required.has(key) && <span className="ml-1 text-fail">*</span>}
           </label>
           {prop?.description && (
             <p className="mb-2 text-xs text-muted-foreground">{prop.description}</p>
@@ -148,10 +149,10 @@ function SubmitButton({ submitting }: { submitting: boolean }) {
 
 function ErrorBanner({ message }: { message: string }) {
   return (
-    <div className="mt-3 rounded-md border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-700 dark:text-red-300">
+    <Notice tone="fail" className="mt-3">
       <strong className="font-semibold">Failed to start run:</strong>
       {' '}
       {message}
-    </div>
+    </Notice>
   );
 }

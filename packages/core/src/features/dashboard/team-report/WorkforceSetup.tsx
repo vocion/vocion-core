@@ -31,13 +31,13 @@ export function WorkforceSetup({ report, isAdmin }: { report: TeamReport; isAdmi
           {s.items.map(item => (
             <div key={item.key} className="flex items-start gap-2.5">
               {item.status === 'ok'
-                ? <Check className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden />
+                ? <Check className="mt-0.5 size-4 shrink-0 text-pass" aria-hidden />
                 : item.status === 'missing'
-                  ? <CircleDashed className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+                  ? <CircleDashed className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden />
                   : <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground/60" aria-hidden />}
               <div className="min-w-0">
                 <dt className="text-sm font-medium">{item.label}</dt>
-                <dd className={`text-sm ${item.status === 'missing' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>{item.detail}</dd>
+                <dd className={`text-sm ${item.status === 'missing' ? 'text-warn' : 'text-muted-foreground'}`}>{item.detail}</dd>
               </div>
             </div>
           ))}
@@ -76,7 +76,7 @@ export function WorkforceSetup({ report, isAdmin }: { report: TeamReport; isAdmi
                 <span className="text-muted-foreground/60">·</span>
                 <span>{t.contract.owner ? ownerDisplayName(t.contract.owner) : 'no owner'}</span>
                 <span className="text-muted-foreground/60">·</span>
-                <span className={t.contract.measures.length > 0 ? 'text-emerald-700 dark:text-emerald-400' : ''}>{t.contract.measures.length > 0 ? 'measured' : 'no measure'}</span>
+                <span className={t.contract.measures.length > 0 ? 'text-pass' : ''}>{t.contract.measures.length > 0 ? 'measured' : 'no measure'}</span>
               </span>
             </li>
           ))}

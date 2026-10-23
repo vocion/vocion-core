@@ -305,7 +305,7 @@ export function ConfigureWorkforce({ goal, teams, isAdmin }: { goal: string | nu
               </fieldset>
             ))}
 
-            {error && <p className="text-sm text-rose-700 dark:text-rose-400">{error}</p>}
+            {error && <p className="text-sm text-fail">{error}</p>}
             <div className="flex justify-end gap-2 border-t border-border pt-4">
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={busy}>
@@ -319,7 +319,7 @@ export function ConfigureWorkforce({ goal, teams, isAdmin }: { goal: string | nu
         {step === 'review' && plan && (
           <div className="space-y-4">
             {plan.files.map(f => <FileDiff key={f.path} file={f} />)}
-            {error && <p className="text-sm text-rose-700 dark:text-rose-400">{error}</p>}
+            {error && <p className="text-sm text-fail">{error}</p>}
             <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
               <Button type="button" variant="ghost" onClick={() => setStep('form')}>Back</Button>
               {plan.canApply && isAdmin && (
@@ -336,10 +336,10 @@ export function ConfigureWorkforce({ goal, teams, isAdmin }: { goal: string | nu
         {step === 'done' && (
           <div className="space-y-3">
             <p className="inline-flex items-center gap-2 text-sm">
-              <Check className="size-4 text-emerald-600" aria-hidden />
+              <Check className="size-4 text-pass" aria-hidden />
               {written.length === 0 ? 'Nothing needed to change.' : `Wrote ${written.length} file${written.length === 1 ? '' : 's'} and applied the workspace.`}
             </p>
-            {error && <p className="text-sm text-rose-700 dark:text-rose-400">{error}</p>}
+            {error && <p className="text-sm text-fail">{error}</p>}
             <div className="flex justify-end">
               <Button type="button" onClick={() => setOpen(false)}>Done</Button>
             </div>

@@ -72,7 +72,7 @@ function Cell({ label, declared, value, note, now }: { label: string; declared: 
           </span>
         </dd>
         <dd className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-          <span className={declared.met ? 'text-emerald-700 dark:text-emerald-400' : ''}>
+          <span className={declared.met ? 'text-pass' : ''}>
             {m.label}
             {declared.met ? ' · on target' : ''}
           </span>

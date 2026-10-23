@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Notice } from '@/components/ui/notice';
 import { AuthCard } from '@/features/auth/AuthCard';
 import { OrDivider, ProviderButtons } from '@/features/auth/ProviderButtons';
 import { signInMessage } from '@/features/auth/signInMessages';
@@ -162,7 +163,7 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
   return (
     <AuthCard title={t('title')} subtitle={target ? t('subtitle_org', { org: target }) : t('subtitle')}>
       {hint && (
-        <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
+        <Notice tone="warn" icon={false} className="mb-5">
           <strong>{t('demo_credentials')}</strong>
           {' '}
           {hint.email}
@@ -170,7 +171,7 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
           {hint.password}
           {' · '}
           <button type="button" className="font-medium underline" onClick={autofillHint}>{t('autofill')}</button>
-        </div>
+        </Notice>
       )}
 
       {sentTo !== null

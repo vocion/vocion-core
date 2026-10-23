@@ -3,6 +3,7 @@ import type { CatalogTool, OrgToolCatalog, RestActionEntry, ToolFamily } from '@
 import { Bot, Wrench } from 'lucide-react';
 import { IntegrationLogo, ListRow, ListRows, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
+import { Notice } from '@/components/ui/notice';
 import { Link } from '@/libs/I18nNavigation';
 import { McpSignInControl } from './McpSignInControl';
 import { ReadinessBadge } from './ReadinessBadge';
@@ -59,7 +60,7 @@ function ToolCard({ tool }: { tool: CatalogTool }) {
               tool.rest ? <span key="rest" className="font-mono text-[12px]">{`${tool.rest.method} ${tool.rest.path}`}</span> : null,
               status ? <span key="provider" className="font-mono text-[12px]">{`provider: ${status.provider}`}</span> : null,
               status && !status.ready && status.missingEnv.length > 0
-                ? <span key="env" className="font-mono text-[12px] text-amber-600 dark:text-amber-400">{`set ${status.missingEnv.join(', ')}`}</span>
+                ? <span key="env" className="font-mono text-[12px] text-warn">{`set ${status.missingEnv.join(', ')}`}</span>
                 : null,
             ]}
           />
@@ -124,13 +125,13 @@ function FamilyNotice({ family }: { family: ToolFamily }) {
   return (
     <div className="mb-3 flex flex-col gap-2">
       {noCredential && (
-        <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground" data-testid="family-needs-credential">
+        <Notice tone="warn" data-testid="family-needs-credential">
           {family.label}
           {' '}
           is set up as a source but has no credential connected, so these tools would refuse every call.
           {' '}
           <Link href="/dashboard/connectors" className="font-medium text-primary hover:underline">Connect it on the Connectors page →</Link>
-        </p>
+        </Notice>
       )}
       {unheld && (
         <p className="rounded-lg border border-border p-3 text-xs text-muted-foreground" data-testid="family-unheld">

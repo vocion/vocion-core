@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, ChevronRight, OctagonAlert, TestTu
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { Notice } from '@/components/ui/notice';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -37,7 +38,7 @@ const SYNC_TONE_CLASSES: Record<DatasetSyncTone, string> = {
   'pending': 'border-border bg-muted/20 text-muted-foreground',
   'behind': 'border-border bg-muted/20 text-foreground',
   'in-step': 'border-border bg-muted/20 text-muted-foreground',
-  'failed': 'border-amber-500/30 bg-amber-500/5 text-amber-800 dark:text-amber-200',
+  'failed': 'border-warn/30 bg-warn-soft text-warn',
 };
 
 type Props = {
@@ -231,8 +232,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
       </section>
 
       {evaluatorProblems.length > 0 && (
-        <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
-          <div className="mb-1 font-semibold">Some evaluators this dataset declares could not be set up</div>
+        <Notice tone="warn" className="mb-6" title="Some evaluators this dataset declares could not be set up">
           <ul className="space-y-1">
             {evaluatorProblems.map(problem => (
               <li key={`${problem.provider}-${problem.slug}`}>
@@ -243,11 +243,11 @@ export default async function EvalDatasetDetailPage(props: Props) {
             ))}
           </ul>
           <p className="mt-2">Runs go ahead without them rather than failing, so scores here are missing those checks.</p>
-        </div>
+        </Notice>
       )}
 
       {graderProblem && (
-        <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
+        <Notice tone="warn" className="mb-6">
           <strong className="font-semibold">{graderLabel}</strong>
           {' '}
           grades this dataset but cannot run right now:
@@ -256,7 +256,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
           {' '}
           Past scores are still shown; a new run will refuse to start until this is fixed, rather than
           executing every case and failing at the end.
-        </div>
+        </Notice>
       )}
 
       {/*
@@ -288,9 +288,9 @@ export default async function EvalDatasetDetailPage(props: Props) {
           </div>
 
           {period.problem && (
-            <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-800 dark:text-amber-200" role="alert">
+            <Notice tone="warn" role="alert">
               {period.problem}
-            </p>
+            </Notice>
           )}
 
           <PeriodSummary summary={summary} graderLabel={graderLabel} slug={dataset.slug} periodQuery={periodQueryString} />
@@ -378,7 +378,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
                           <RunFact label="Started">{new Date(run.startedAt).toLocaleString()}</RunFact>
                           {typeof pass === 'number' && (
                             <RunFact label="Pass rate">
-                              <span className={pass >= passThreshold ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'font-mono text-amber-600 dark:text-amber-400'}>
+                              <span className={pass >= passThreshold ? 'font-mono text-pass' : 'font-mono text-warn'}>
                                 {formatPassRate(pass)}
                               </span>
                             </RunFact>
@@ -468,7 +468,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
 function RunStatusBadge({ status }: { status: string }) {
   if (status === 'succeeded') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-pass-soft px-2 py-0.5 text-xs font-medium text-pass">
         <CheckCircle2 className="size-3" />
         {' '}
         succeeded
@@ -477,7 +477,7 @@ function RunStatusBadge({ status }: { status: string }) {
   }
   if (status === 'failed') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-fail-soft px-2 py-0.5 text-xs font-medium text-fail">
         <OctagonAlert className="size-3" />
         {' '}
         failed
@@ -591,8 +591,8 @@ function PeriodSummary(props: { summary: RunPeriodSummary; graderLabel: string; 
 }
 
 const STAT_TONE_CLASSES = {
-  danger: 'border-red-500/40 bg-red-500/5 text-red-700 dark:text-red-300',
-  warning: 'border-amber-500/40 bg-amber-500/5 text-amber-800 dark:text-amber-200',
+  danger: 'border-fail/40 bg-fail-soft text-fail',
+  warning: 'border-warn/40 bg-warn-soft text-warn',
 } as const;
 
 /**

@@ -207,7 +207,7 @@ export default async function ToolDetailPage(props: {
             </div>
             {!isReady && status?.missingEnv.length
               ? (
-                  <div className="text-amber-600 dark:text-amber-400">
+                  <div className="text-warn">
                     <span>Set </span>
                     <code className="font-mono text-xs">{status.missingEnv.join(', ')}</code>
                     <span> to enable this capability.</span>

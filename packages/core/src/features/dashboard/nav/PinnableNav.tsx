@@ -6,6 +6,7 @@ import { ChevronRight, GripVertical, Pin, PinOff } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { PendingIcon } from '@/components/patterns/PendingIcon';
 import { buttonVariants } from '@/components/ui/buttonVariants';
+import { CountBadge } from '@/components/ui/count-badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,8 +19,6 @@ import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
 import { Link, usePathname } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { splitOverflow } from './navPins';
-
-const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
 
 /**
  * A sidebar group whose rows can be pinned (ElevenLabs pattern, Chris
@@ -156,8 +155,8 @@ export function PinnableNav(props: {
               </SidebarMenuButton>
               {item.badge
                 ? (
-                    <SidebarMenuBadge className="rounded-full bg-brand-amber/12 px-1.5 text-[11px] font-medium text-brand-amber-deep group-hover/menu-item:hidden">
-                      {formatBadge(item.badge)}
+                    <SidebarMenuBadge className="h-auto min-w-0 px-0 group-hover/menu-item:hidden">
+                      <CountBadge count={item.badge} />
                     </SidebarMenuBadge>
                   )
                 : null}

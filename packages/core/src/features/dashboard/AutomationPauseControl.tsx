@@ -3,6 +3,7 @@
 import { Loader2, Pause, Play } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { Notice } from '@/components/ui/notice';
 import { client } from '@/libs/Orpc';
 
 /**
@@ -72,7 +73,7 @@ export function AutomationPauseControl({ slug, paused, compact = false }: { slug
   return (
     <div className="flex flex-col items-start gap-2 text-xs">
       {paused && !compact && (
-        <p className="text-amber-600" data-testid="automation-paused-by">
+        <p className="text-waiting" data-testid="automation-paused-by">
           Paused by
           {' '}
           <span className="font-medium">{paused.byName}</span>
@@ -135,9 +136,9 @@ export function AutomationPauseControl({ slug, paused, compact = false }: { slug
           )}
 
       {error && (
-        <div role="alert" className="rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-700 dark:text-red-300">
+        <Notice tone="fail">
           {error}
-        </div>
+        </Notice>
       )}
     </div>
   );

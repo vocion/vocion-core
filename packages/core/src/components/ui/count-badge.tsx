@@ -12,6 +12,7 @@ import { cn } from '@/utils/Helpers';
  * @param root0.max
  * @param root0.className
  * @param root0.label
+ * @param root0.title
  */
 export function CountBadge({ count, tone = 'waiting', max = 99, className, label, ...rest }: {
   'count': number;
@@ -21,6 +22,8 @@ export function CountBadge({ count, tone = 'waiting', max = 99, className, label
   'className'?: string;
   /** An accessible label when the count stands alone ("3 waiting on you"). */
   'label'?: string;
+  /** A hover tooltip, when the count has a longer name. */
+  'title'?: string;
   'data-testid'?: string;
 }) {
   if (count <= 0) {

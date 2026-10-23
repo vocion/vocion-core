@@ -29,13 +29,13 @@ const dur = (s: number | null | undefined) => (typeof s === 'number' ? `${Math.f
 
 function statusTone(s: string) {
   if (s === 'RUNNING') {
-    return 'text-emerald-700 border-emerald-600/40';
+    return 'text-pass border-pass/40';
   }
   if (s === 'TRAINING_IN_PROGRESS' || s === 'STARTING' || s === 'STOPPING') {
-    return 'text-amber-700 border-amber-600/40';
+    return 'text-warn border-warn/40';
   }
   if (s.includes('FAILED')) {
-    return 'text-red-600 border-red-500/40';
+    return 'text-fail border-fail/40';
   }
   return 'text-muted-foreground border-border';
 }
@@ -229,8 +229,8 @@ export default async function ModelsPage(props: { params: Promise<{ locale: stri
                   {r.trainingSet.map(t => (
                     <tr key={t.template} className="border-b border-border/60 last:border-0">
                       <td className="py-1 pr-4 font-mono">{t.template}</td>
-                      <td className="py-1 pr-4 text-emerald-700 tabular-nums">{t.good}</td>
-                      <td className="py-1 pr-4 text-amber-700 tabular-nums">{t.bad}</td>
+                      <td className="py-1 pr-4 text-pass tabular-nums">{t.good}</td>
+                      <td className="py-1 pr-4 text-warn tabular-nums">{t.bad}</td>
                     </tr>
                   ))}
                 </tbody>

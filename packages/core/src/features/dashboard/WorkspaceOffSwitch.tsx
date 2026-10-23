@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Notice } from '@/components/ui/notice';
 import { client } from '@/libs/Orpc';
 
 /**
@@ -169,47 +170,48 @@ export function WorkspacePausedBanner({ pause, canResume }: { pause: WorkspacePa
   };
 
   return (
-    <div
-      role="status"
+    // A Notice at the edge, waiting tone: a person has to resume it (design
+    // sweep, 2026-10-23).
+    <Notice
+      edge
+      tone="waiting"
       data-testid="workspace-paused-banner"
-      className="shrink-0 border-b border-brand-amber/40 bg-brand-amber/10 px-3 py-2.5 lg:px-6"
+      className="shrink-0 lg:px-6"
+      title={(
+        <>
+          <span className="font-semibold">This workspace is paused.</span>
+          {' '}
+          {pause.note ?? 'No reason was given.'}
+        </>
+      )}
+      action={canResume
+        ? (
+            <button
+              type="button"
+              onClick={resume}
+              disabled={busy}
+              data-testid="workspace-resume"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 self-start rounded-full border border-border bg-background px-3.5 text-[13px] font-medium transition-colors hover:bg-surface-hover disabled:opacity-60"
+            >
+              {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Play className="size-3.5" aria-hidden />}
+              {busy ? 'Resuming…' : 'Resume'}
+            </button>
+          )
+        : undefined}
     >
-      {/* Column on a phone, row from `sm` up: the sentence must never be
-          truncated to fit a button beside it. */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground">
-            <span className="font-semibold">This workspace is paused.</span>
-            {' '}
-            {pause.note ?? 'No reason was given.'}
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Paused by
-            {' '}
-            <span className="font-medium text-foreground/80">{pause.byName}</span>
-            {' '}
-            {pause.when}
-            .
-            {' '}
-            {REFUSED}
-            {' '}
-            {STILL_RUNNING}
-          </p>
-          {error && <p role="alert" className="mt-1 text-xs text-destructive">{error}</p>}
-        </div>
-        {canResume && (
-          <button
-            type="button"
-            onClick={resume}
-            disabled={busy}
-            data-testid="workspace-resume"
-            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 self-start rounded-full border border-border bg-background px-3.5 text-[13px] font-medium transition-colors hover:bg-surface-hover disabled:opacity-60"
-          >
-            {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Play className="size-3.5" aria-hidden />}
-            {busy ? 'Resuming…' : 'Resume'}
-          </button>
-        )}
-      </div>
-    </div>
+      <p className="text-xs">
+        Paused by
+        {' '}
+        <span className="font-medium text-foreground/80">{pause.byName}</span>
+        {' '}
+        {pause.when}
+        .
+        {' '}
+        {REFUSED}
+        {' '}
+        {STILL_RUNNING}
+      </p>
+      {error && <p role="alert" className="mt-1 text-xs text-fail">{error}</p>}
+    </Notice>
   );
 }

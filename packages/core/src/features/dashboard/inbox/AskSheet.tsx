@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Notice } from '@/components/ui/notice';
 import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
@@ -443,10 +444,10 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
                     <span className="font-medium text-primary">{sentBack(ask.id) ? 'Sent back with direction' : labelFor(ask, a.decision)}</span>
                     {a.note.trim() && <span className="text-muted-foreground">{` — ${a.note.trim()}`}</span>}
                   </p>
-                  {outcome && !outcome.ok && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{outcome.error}</p>}
+                  {outcome && !outcome.ok && <p className="mt-1 text-xs text-fail">{outcome.error}</p>}
                 </div>
                 {outcome?.ok
-                  ? <Check className="mt-1 size-4 shrink-0 text-emerald-600" aria-label="Submitted" />
+                  ? <Check className="mt-1 size-4 shrink-0 text-pass" aria-label="Submitted" />
                   : (
                       <button
                         type="button"
@@ -640,7 +641,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
           </div>
 
           {done && (
-            <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400" data-testid="ask-answered">
+            <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-pass" data-testid="ask-answered">
               <Check className="size-4" aria-hidden />
               {`Answered: ${chosen ?? answer.decision}`}
             </p>
@@ -671,7 +672,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
           )}
 
           {outcome && !outcome.ok && (
-            <div role="alert" className="mt-3 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">{outcome.error}</div>
+            <Notice tone="fail" className="mt-3">{outcome.error}</Notice>
           )}
         </div>
         {sideNode && <div className="mt-8 lg:mt-4">{sideNode}</div>}

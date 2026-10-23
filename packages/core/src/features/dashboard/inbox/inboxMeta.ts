@@ -45,9 +45,9 @@ export const KIND_LABEL: Record<string, string> = Object.fromEntries(
 export function riskTone(risk: string | null): string {
   switch (risk) {
     case 'high':
-      return 'border-red-500/40 text-red-600 dark:text-red-400';
+      return 'border-fail/40 text-fail';
     case 'medium':
-      return 'border-amber-500/40 text-amber-600 dark:text-amber-400';
+      return 'border-warn/40 text-warn';
     case 'low':
       return 'border-border text-muted-foreground';
     default:

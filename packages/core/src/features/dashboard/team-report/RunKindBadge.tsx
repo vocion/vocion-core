@@ -1,24 +1,21 @@
+import { Badge } from '@/components/ui/badge';
 import { JUDGEMENT_KINDS } from '@/services/TeamReportService';
 
 /**
  * Which kinds are judgement OVER the work rather than the work — these get
- * their own hue so a reader can find every board pass and red-team grade
- * on a page of runs at a glance. Everything else stays neutral.
+ * a hairline so a reader can find every board pass and red-team grade on a
+ * page of runs at a glance. Neutral, not a hue: violet, rose and sky are the
+ * AI spark's colours (design sweep, 2026-10-23). Everything else is a soft chip.
  * @param kind - `worker_run.kind`.
  */
-export function kindTone(kind: string): string {
+export function kindVariant(kind: string): 'outline' | 'secondary' {
   switch (kind) {
     case 'board':
-      return 'border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300';
     case 'red-team':
-      return 'border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300';
     case 'lead':
-      return 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300';
-    case 'compact':
-    case 'snapshot':
-      return 'border-border bg-muted text-muted-foreground';
+      return 'outline';
     default:
-      return 'border-border bg-background text-foreground/70';
+      return 'secondary';
   }
 }
 
@@ -46,13 +43,14 @@ export function kindShortLabel(kind: string): string {
  */
 export function RunKindBadge({ kind, count }: { kind: string; count?: number }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-px text-[10px] font-semibold tracking-wide uppercase ${kindTone(kind)}`}
+    <Badge
+      variant={kindVariant(kind)}
+      className="rounded-sm px-1.5 py-px text-[10px] font-semibold tracking-wide uppercase"
       title={JUDGEMENT_KINDS.includes(kind) ? 'Judgement about the work — counted as quality spend, not output' : undefined}
     >
       {kindShortLabel(kind)}
       {count !== undefined && <span className="font-normal normal-case tabular-nums">{count}</span>}
-    </span>
+    </Badge>
   );
 }
 

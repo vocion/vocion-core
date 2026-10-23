@@ -158,7 +158,7 @@ export function TwoStepSection() {
         )}
 
         {message && (
-          <p className={`text-sm ${message.ok ? 'text-emerald-600' : 'text-destructive'}`} role={message.ok ? 'status' : 'alert'}>
+          <p className={`text-sm ${message.ok ? 'text-pass' : 'text-destructive'}`} role={message.ok ? 'status' : 'alert'}>
             {message.text}
           </p>
         )}

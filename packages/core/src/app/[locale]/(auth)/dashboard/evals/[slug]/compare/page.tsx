@@ -1,7 +1,8 @@
 import type { CaseSide, Delta, ModelUpgradeComparison, RunSide } from '@/services/evals/modelUpgradeTest';
-import { ArrowLeft, CheckCircle2, GitCompareArrows, MinusCircle, OctagonAlert, TriangleAlert, XCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, GitCompareArrows, MinusCircle, OctagonAlert, XCircle } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { Notice } from '@/components/ui/notice';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
@@ -78,8 +79,7 @@ export default async function EvalComparePage(props: {
       />
 
       {(c.baseline.unpriced || c.candidate.unpriced) && (
-        <div className="mb-5 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <Notice tone="warn" className="mb-5">
           <span>
             {[c.baseline.unpriced ? c.baseline.model : null, c.candidate.unpriced ? c.candidate.model : null].filter(Boolean).map(m => <code key={m} className="font-mono">{m}</code>)}
             {' '}
@@ -89,7 +89,7 @@ export default async function EvalComparePage(props: {
             {' '}
             before trusting the cost rows.
           </span>
-        </div>
+        </Notice>
       )}
 
       <section className="mb-8">
@@ -202,8 +202,8 @@ function DeltaChip({ d, lowerIsBetter }: { d: Delta; lowerIsBetter: boolean }) {
   const Icon = better ? CheckCircle2 : XCircle;
   return (
     <span className={better
-      ? 'inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 font-mono text-xs text-emerald-800 dark:text-emerald-200'
-      : 'inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 font-mono text-xs text-red-800 dark:text-red-200'}
+      ? 'inline-flex items-center gap-1 rounded-full bg-pass-soft px-2 py-0.5 font-mono text-xs text-pass'
+      : 'inline-flex items-center gap-1 rounded-full bg-fail-soft px-2 py-0.5 font-mono text-xs text-fail'}
     >
       <Icon className="size-3" aria-hidden />
       {p > 0 ? '+' : ''}
@@ -266,7 +266,7 @@ function SideCell({ s }: { s: CaseSide | null }) {
 function Verdict({ v }: { v: string }) {
   if (v === 'pass') {
     return (
-      <span className="inline-flex items-center gap-1 text-emerald-800 dark:text-emerald-200">
+      <span className="inline-flex items-center gap-1 text-pass">
         <CheckCircle2 className="size-3" aria-hidden />
         pass
       </span>
@@ -274,7 +274,7 @@ function Verdict({ v }: { v: string }) {
   }
   if (v === 'fail') {
     return (
-      <span className="inline-flex items-center gap-1 text-red-800 dark:text-red-200">
+      <span className="inline-flex items-center gap-1 text-fail">
         <XCircle className="size-3" aria-hidden />
         fail
       </span>
@@ -282,7 +282,7 @@ function Verdict({ v }: { v: string }) {
   }
   if (v === 'error') {
     return (
-      <span className="inline-flex items-center gap-1 text-amber-800 dark:text-amber-200">
+      <span className="inline-flex items-center gap-1 text-warn">
         <OctagonAlert className="size-3" aria-hidden />
         error
       </span>
@@ -294,7 +294,7 @@ function Verdict({ v }: { v: string }) {
 function Flip({ flip }: { flip: 'gained' | 'lost' | 'same' }) {
   if (flip === 'gained') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:text-emerald-200">
+      <span className="inline-flex items-center gap-1 rounded-full bg-pass-soft px-2 py-0.5 text-xs font-medium text-pass">
         <CheckCircle2 className="size-3" aria-hidden />
         gained
       </span>
@@ -302,7 +302,7 @@ function Flip({ flip }: { flip: 'gained' | 'lost' | 'same' }) {
   }
   if (flip === 'lost') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-800 dark:text-red-200">
+      <span className="inline-flex items-center gap-1 rounded-full bg-fail-soft px-2 py-0.5 text-xs font-medium text-fail">
         <XCircle className="size-3" aria-hidden />
         lost
       </span>

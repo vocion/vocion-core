@@ -47,7 +47,7 @@ export function Roster({ team }: { team: TeamReportTeam }) {
                 {owner.source === 'workspace' ? ' (workspace default)' : ''}
               </span>
             )
-          : <span className="text-amber-700 dark:text-amber-400">no owner named</span>}
+          : <span className="text-warn">no owner named</span>}
       </dd>
     </div>
   );
@@ -110,8 +110,8 @@ export function NeedsYou({ team, now = new Date() }: { team: TeamReportTeam; now
       <dd className="mt-1 text-sm">
         {n.count > 0
           ? (
-              <Link href={n.href} className="inline-flex items-center gap-1.5 font-medium text-amber-700 hover:underline dark:text-amber-400">
-                <span className="size-2 rounded-full bg-amber-500" aria-hidden />
+              <Link href={n.href} className="inline-flex items-center gap-1.5 font-medium text-primary hover:underline">
+                <span className="size-2 rounded-full bg-waiting" aria-hidden />
                 {n.count}
                 {n.count === 1 ? ' item pending' : ' items pending'}
                 {n.oldestAt ? ` · oldest ${age(n.oldestAt, now)}` : ''}
@@ -120,7 +120,7 @@ export function NeedsYou({ team, now = new Date() }: { team: TeamReportTeam; now
             )
           : (
               <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                <span className="size-2 rounded-full bg-emerald-500/70" aria-hidden />
+                <span className="size-2 rounded-full bg-pass-soft" aria-hidden />
                 No pending escalations
                 <Link href={n.href} className="ml-1 inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline">
                   Inbox

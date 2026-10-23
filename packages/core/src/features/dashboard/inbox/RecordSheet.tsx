@@ -233,7 +233,7 @@ function DecidedList({ rows }: { rows: DecidedProposal[] }) {
             <span className="block truncate">{row.title}</span>
             <span className="block truncate text-xs text-muted-foreground">{row.subline}</span>
           </Link>
-          <span className={`shrink-0 text-xs font-medium ${row.status === 'rejected' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+          <span className={`shrink-0 text-xs font-medium ${row.status === 'rejected' ? 'text-fail' : 'text-pass'}`}>
             {row.status === 'rejected' ? 'Declined' : 'Approved'}
           </span>
           <span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">

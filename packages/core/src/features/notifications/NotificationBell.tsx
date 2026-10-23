@@ -5,6 +5,7 @@ import type { DevicePushState } from './webPushClient';
 import { Bell, BellRing, Settings2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { BAR_ICON_BUTTON } from '@/components/ui/buttonVariants';
+import { CountBadge } from '@/components/ui/count-badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast } from '@/components/ui/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -80,7 +81,6 @@ export function NotificationBell({ label }: { label: string }) {
   };
 
   const count = unread ?? 0;
-  const badge = count > 99 ? '99+' : String(count);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -94,11 +94,7 @@ export function NotificationBell({ label }: { label: string }) {
               className={BAR_ICON_BUTTON}
             >
               <Bell className="size-4" aria-hidden />
-              {count > 0 && (
-                <span data-testid="notification-badge" className="absolute top-1.5 right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-amber-deep px-1 text-[10px] leading-none font-semibold text-white tabular-nums sm:top-0.5 sm:right-0.5">
-                  {badge}
-                </span>
-              )}
+              <CountBadge count={count} data-testid="notification-badge" className="absolute top-1.5 right-1.5 sm:top-0.5 sm:right-0.5" />
             </button>
           </PopoverTrigger>
         </TooltipTrigger>

@@ -153,7 +153,7 @@ export function LiveRefresh({ everyMs, follow, poll = true }: { everyMs: number;
         >
           <span
             aria-hidden
-            className={`size-1.5 shrink-0 rounded-full ${visible ? 'bg-emerald-500' : 'bg-amber-500'}`}
+            className={`size-1.5 shrink-0 rounded-full ${visible ? 'bg-pass' : 'bg-warn'}`}
           />
           {/* A word at every width: a bare dot in a corner says nothing (phone, 2026-09-24). */}
           <span className="sm:hidden">{visible ? 'live' : 'paused'}</span>

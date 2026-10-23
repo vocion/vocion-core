@@ -50,7 +50,7 @@ export function VersionChip({ objectId, version, updatedAt, live: liveOpts, clas
           data-live={live ? (live.visible ? 'on' : 'paused') : 'off'}
           className={cn('inline-flex h-6 items-center gap-1.5 rounded-full px-2 font-mono text-[12px] text-muted-foreground tabular-nums transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none', className)}
         >
-          {live && <span aria-hidden className={cn('size-1.5 shrink-0 rounded-full', live.visible ? 'bg-emerald-500' : 'bg-amber-500')} />}
+          {live && <span aria-hidden className={cn('size-1.5 shrink-0 rounded-full', live.visible ? 'bg-pass' : 'bg-warn')} />}
           {label}
         </button>
       </TooltipTrigger>

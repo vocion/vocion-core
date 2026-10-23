@@ -35,20 +35,20 @@ const KIND_META: Record<ActivityKind, { label: string; icon: typeof Compass }> =
  */
 function runKindBadge(runKind: string | undefined): { label: string; tone: string } | null {
   if (runKind === 'board') {
-    return { label: 'board', tone: 'border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300' };
+    return { label: 'board', tone: 'bg-surface-soft text-muted-foreground' };
   }
   if (runKind === 'red-team') {
-    return { label: 'red team', tone: 'border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300' };
+    return { label: 'red team', tone: 'bg-surface-soft text-muted-foreground' };
   }
   return null;
 }
 
 function statusTone(status: string): string {
   if (status === 'completed' || status === 'triggered') {
-    return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+    return 'bg-pass-soft text-pass';
   }
   if (ATTENTION_STATUSES.has(status)) {
-    return 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    return 'bg-warn-soft text-warn';
   }
   if (status === 'cancelled' || status === 'no_match') {
     return 'bg-muted text-muted-foreground';
@@ -66,7 +66,7 @@ function Row({ item }: { item: ActivityItem }) {
         <>
           {item.title}
           {badge && (
-            <span className={`ml-2 rounded-sm border px-1.5 py-px align-[1px] text-[10px] font-semibold tracking-wide uppercase ${badge.tone}`}>
+            <span className={`ml-2 rounded-sm px-1.5 py-px align-[1px] text-[10px] font-semibold tracking-wide uppercase ${badge.tone}`}>
               {badge.label}
             </span>
           )}
@@ -141,9 +141,9 @@ export default async function ActivityPage(props: {
       )}
 
       {attention.length > 0 && (
-        <section className="mb-6 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 sm:p-5">
+        <section className="mb-6 rounded-lg bg-warn-soft p-3 sm:p-5">
           <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">
-            <AlertTriangle className="size-4 text-amber-600" />
+            <AlertTriangle className="size-4 text-warn" />
             Needs attention
           </h2>
           <ListRows>{attention.slice(0, 8).map(item => <Row key={item.key} item={item} />)}</ListRows>

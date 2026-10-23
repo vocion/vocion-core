@@ -106,8 +106,8 @@ export default async function MemberReportPage(props: {
           <Num k="Spend" v={usd(member.cents)} />
           <Num k="Tokens" v={compact(member.tokens)} />
           <Num k="Runs" v={String(member.runs)} />
-          {member.failed > 0 && <Num k="Failed / lost" v={String(member.failed)} tone="text-rose-700 dark:text-rose-400" />}
-          {member.active > 0 && <Num k="Running" v={String(member.active)} tone="text-emerald-700 dark:text-emerald-400" />}
+          {member.failed > 0 && <Num k="Failed / lost" v={String(member.failed)} tone="text-fail" />}
+          {member.active > 0 && <Num k="Running" v={String(member.active)} tone="text-pass" />}
           {member.judgementCents > 0 && <Num k="Judgement spend" v={usd(member.judgementCents)} />}
           {member.budget && (
             <Num
@@ -171,7 +171,7 @@ function RunRow({ run }: { run: WorkerRun }) {
         <span className="ml-auto font-mono text-[11px] text-muted-foreground/70">{`#${run.id}`}</span>
       </div>
       {run.summary && <p className="mt-1.5 max-w-4xl text-sm leading-relaxed whitespace-pre-line text-foreground/85">{run.summary}</p>}
-      {run.error && <p className="mt-1.5 text-sm text-rose-700 dark:text-rose-400">{run.error}</p>}
+      {run.error && <p className="mt-1.5 text-sm text-fail">{run.error}</p>}
       {countEntries.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {countEntries.map(([k, v]) => (
@@ -189,11 +189,11 @@ function RunRow({ run }: { run: WorkerRun }) {
 
 function StatusPill({ status }: { status: string }) {
   const tone = status === 'completed'
-    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+    ? 'bg-pass-soft text-pass'
     : status === 'failed' || status === 'lost'
-      ? 'bg-rose-500/10 text-rose-700 dark:text-rose-400'
+      ? 'bg-fail-soft text-fail'
       : status === 'running' || status === 'paused' || status === 'awaiting_review'
-        ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+        ? 'bg-warn-soft text-warn'
         : 'bg-muted text-muted-foreground';
   return <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${tone}`}>{status.replaceAll('_', ' ')}</span>;
 }

@@ -49,7 +49,7 @@ export function ProvenanceChip({ reading, now = new Date() }: { reading: Pick<Me
   const tone = weakest
     ? 'border-dashed border-border text-muted-foreground'
     : kind === 'verified'
-      ? 'border-emerald-600/40 text-emerald-700 dark:text-emerald-400'
+      ? 'border-pass/40 text-pass'
       : 'border-border text-foreground/80';
   const tip = [PROVENANCE_MEANING[kind], reading.freshness.note ?? undefined, reading.unavailableReason ?? undefined].filter(Boolean).join(' ');
   return (
@@ -60,7 +60,7 @@ export function ProvenanceChip({ reading, now = new Date() }: { reading: Pick<Me
     >
       <Icon className="size-3" aria-hidden />
       {label}
-      {reading.freshness.stale && <span className="text-amber-700 dark:text-amber-400">· stale</span>}
+      {reading.freshness.stale && <span className="text-warn">· stale</span>}
     </span>
   );
 }

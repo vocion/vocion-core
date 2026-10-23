@@ -4,6 +4,7 @@ import { Check, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { buttonVariants } from '@/components/ui/buttonVariants';
+import { Notice } from '@/components/ui/notice';
 
 type Rule = {
   /** The rule's file slug inside the step (e.g. `r5` or `ws-cite-sources`). */
@@ -170,9 +171,9 @@ export function RulesEditor({ step, initialRules }: Props) {
       )}
 
       {error && (
-        <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+        <Notice tone="fail" className="mb-4">
           {error}
-        </div>
+        </Notice>
       )}
 
       {rules.length === 0 && !adding
@@ -244,7 +245,7 @@ export function RulesEditor({ step, initialRules }: Props) {
                                 <button
                                   type="button"
                                   onClick={() => onDelete(r.id)}
-                                  className="rounded p-1.5 text-muted-foreground hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
+                                  className="rounded p-1.5 text-muted-foreground hover:bg-fail-soft hover:text-fail"
                                   aria-label="Remove"
                                 >
                                   <Trash2 className="size-3.5" />

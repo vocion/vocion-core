@@ -111,7 +111,7 @@ export async function ObjectAgentActivity({ orgId, externalRef }: {
           {pending.map((a) => {
             const who = a.invokedBy?.startsWith('agent:') ? agentName.get(a.invokedBy.slice(6)) ?? a.invokedBy.slice(6) : a.invokedBy;
             return (
-              <div key={a.id} className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+              <div key={a.id} className="rounded-lg bg-waiting-soft p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium">{a.actionId}</span>
                   <StatusPill status="pending" size="sm" />
@@ -158,7 +158,7 @@ export async function ObjectAgentActivity({ orgId, externalRef }: {
               </div>
               {why && <p className="mt-1.5 text-sm text-muted-foreground">{why}</p>}
               {c.error && (
-                <p className="mt-1.5 border-l-2 border-red-500/50 pl-2 text-xs text-red-600">{c.error}</p>
+                <p className="mt-1.5 border-l-2 border-fail/50 pl-2 text-xs text-fail">{c.error}</p>
               )}
             </div>
           );

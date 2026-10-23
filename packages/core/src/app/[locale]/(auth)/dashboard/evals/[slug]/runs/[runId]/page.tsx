@@ -2,6 +2,7 @@ import { ArrowLeft, CheckCircle2, Loader2, OctagonAlert, TestTube } from 'lucide
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { Notice } from '@/components/ui/notice';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -118,7 +119,7 @@ export default async function EvalRunDetailPage(props: Props) {
               {labelFor(run.provider)}
             </Badge>
             {typeof passRate === 'number' && (
-              <span className={passRate >= passThresholdFor(dataset.passThreshold) ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'font-mono text-amber-600 dark:text-amber-400'}>
+              <span className={passRate >= passThresholdFor(dataset.passThreshold) ? 'font-mono text-pass' : 'font-mono text-warn'}>
                 {`${formatPassRate(passRate)} pass`}
               </span>
             )}
@@ -160,17 +161,22 @@ export default async function EvalRunDetailPage(props: Props) {
       {run.status === 'failed' && run.errorMessage && (
         // A grader that refused the whole run says why here. Cases that failed
         // on their merits are not this: those have scores, and read below.
-        <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
-          <div className="mb-1 font-semibold">
-            {labelFor(run.provider)}
-            {' '}
-            could not grade this run
-          </div>
+        <Notice
+          tone="warn"
+          className="mb-6"
+          title={(
+            <>
+              {labelFor(run.provider)}
+              {' '}
+              could not grade this run
+            </>
+          )}
+        >
           <p>{run.errorMessage}</p>
           <p className="mt-1">
             The transcripts were produced and are listed below; only the scoring failed. Earlier runs keep their scores.
           </p>
-        </div>
+        </Notice>
       )}
 
       {siblingRuns.length > 0 && (
@@ -372,9 +378,9 @@ function ScoreChip(props: { name: string; label: string | null; value: number | 
   const tone = props.errorMessage
     ? 'bg-muted text-muted-foreground'
     : props.label === 'pass'
-      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+      ? 'bg-pass-soft text-pass'
       : props.label === 'fail'
-        ? 'bg-red-500/15 text-red-700 dark:text-red-300'
+        ? 'bg-fail-soft text-fail'
         : 'bg-muted text-muted-foreground';
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
@@ -404,7 +410,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 function RunStatusBadge({ status }: { status: string }) {
   if (status === 'succeeded') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-pass-soft px-2 py-0.5 text-xs font-medium text-pass">
         <CheckCircle2 className="size-3" />
         {' '}
         succeeded
@@ -413,7 +419,7 @@ function RunStatusBadge({ status }: { status: string }) {
   }
   if (status === 'failed') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-fail-soft px-2 py-0.5 text-xs font-medium text-fail">
         <OctagonAlert className="size-3" />
         {' '}
         failed
@@ -435,21 +441,21 @@ function RunStatusBadge({ status }: { status: string }) {
 function VerdictBadge({ verdict }: { verdict: string }) {
   if (verdict === 'pass') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-pass-soft px-2 py-0.5 text-xs font-medium text-pass">
         pass
       </span>
     );
   }
   if (verdict === 'fail') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-fail-soft px-2 py-0.5 text-xs font-medium text-fail">
         fail
       </span>
     );
   }
   if (verdict === 'error') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-xs font-medium text-warn">
         error
       </span>
     );

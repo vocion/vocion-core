@@ -150,7 +150,7 @@ const TONE_ICON = {
 } as const;
 
 const TONE_CLASS = {
-  success: 'text-emerald-600 dark:text-emerald-400',
+  success: 'text-pass',
   error: 'text-destructive',
   info: 'text-muted-foreground',
   pending: 'text-muted-foreground',

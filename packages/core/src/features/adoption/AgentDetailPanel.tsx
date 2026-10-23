@@ -122,7 +122,7 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
               </tr>
             ))}
             {detail.confidenceAlignment.confidentRejectedLast7 > 0 && (
-              <tr className="border-t border-border/50 text-xs text-amber-700 dark:text-amber-400">
+              <tr className="border-t border-border/50 text-xs text-warn">
                 <td className="py-2 pr-3" colSpan={2}>
                   ⚠
                   {' '}

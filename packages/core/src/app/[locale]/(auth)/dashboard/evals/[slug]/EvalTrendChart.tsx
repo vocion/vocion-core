@@ -189,7 +189,7 @@ export function EvalTrendChart(props: {
               y={PAD.top + innerH + 4}
               textAnchor="middle"
               fontSize="14"
-              className="fill-red-600 dark:fill-red-400"
+              className="fill-fail"
               tabIndex={0}
               aria-label={`Run ${failure.runId} errored before it was scored`}
               data-testid="eval-trend-failure"
@@ -281,7 +281,7 @@ export function EvalTrendChart(props: {
           )}
           {failures.length > 0 && (
             <span className="inline-flex items-center gap-1.5">
-              <span aria-hidden className="font-mono text-red-600 dark:text-red-400">×</span>
+              <span aria-hidden className="font-mono text-fail">×</span>
               {`Errored run, not scored (${failures.length}).`}
             </span>
           )}

@@ -6,14 +6,13 @@ import { ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { PendingIcon } from '@/components/patterns/PendingIcon';
 
+import { CountBadge } from '@/components/ui/count-badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
 import { Link, usePathname } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
-
-const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
 
 export type SidebarNavItem = {
   title: string;
@@ -95,8 +94,8 @@ export const AppSidebarNav = (props: {
                   )}
               {item.badge
                 ? (
-                    <SidebarMenuBadge className="rounded-full bg-brand-amber/12 px-1.5 text-[11px] font-medium text-brand-amber-deep">
-                      {formatBadge(item.badge)}
+                    <SidebarMenuBadge className="h-auto min-w-0 px-0">
+                      <CountBadge count={item.badge} />
                     </SidebarMenuBadge>
                   )
                 : null}

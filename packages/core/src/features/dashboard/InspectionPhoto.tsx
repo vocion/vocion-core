@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { SparkOrb } from '@/components/ui/spark-orb';
 import { useVisionModel } from '@/features/dashboard/VisionEngineControl';
 import { Link } from '@/libs/I18nNavigation';
 
@@ -100,7 +101,7 @@ function initialPhases(hybrid: boolean): Phase[] {
 }
 
 function EngineCell({ name, sub, verdict, confidence, detail, action }: { name: string; sub: string; verdict: string | null; confidence: number | null; detail: string; action?: React.ReactNode }) {
-  const tone = verdict === 'pass' ? 'text-emerald-600' : verdict === 'hold' ? 'text-amber-600' : 'text-muted-foreground';
+  const tone = verdict === 'pass' ? 'text-pass' : verdict === 'hold' ? 'text-warn' : 'text-muted-foreground';
   return (
     <div className="px-3 py-2.5">
       <div className="flex items-center gap-2">
@@ -378,7 +379,7 @@ export function InspectionPhoto(props: Props) {
     }
   }, [pinned, findings, props.regions, zoomToBox, resetView]);
   const analyzed = !!props.checks?.reference;
-  const verdictTone = props.verdict === 'pass' ? 'text-emerald-600 border-emerald-600/40' : 'text-amber-600 border-amber-600/40';
+  const verdictTone = props.verdict === 'pass' ? 'text-pass border-pass/40' : 'text-warn border-warn/40';
   const refs = liveRefs.length ? liveRefs : (props.referenceUrls ?? []);
   const usage = props.checks?.reference?.usage as { input_tokens?: number; output_tokens?: number } | undefined;
 
@@ -410,13 +411,13 @@ export function InspectionPhoto(props: Props) {
       {phases && (
         <div className="mb-4 rounded-md border border-border bg-muted/20 p-3">
           <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-            {analyzing ? <Loader2 className="size-3.5 animate-spin text-amber-600" aria-hidden /> : lastRun ? <CheckCircle2 className="size-3.5 text-emerald-600" aria-hidden /> : <XCircle className="size-3.5 text-red-600" aria-hidden />}
+            {analyzing ? <SparkOrb size="xs" /> : lastRun ? <CheckCircle2 className="size-3.5 text-pass" aria-hidden /> : <XCircle className="size-3.5 text-fail" aria-hidden />}
             {analyzing ? `Analysis running · ${elapsed}s` : lastRun ? `Done in ${Math.round(lastRun.ms / 1000)}s · ${String(lastRun.verdict ?? '').toUpperCase()}` : 'Analysis failed'}
           </div>
           <ol className="mt-2 grid gap-1.5 sm:grid-cols-2">
             {phases.map(p => (
               <li key={p.key} className="flex items-start gap-2 text-xs">
-                {p.state === 'done' ? <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-600" aria-hidden /> : p.state === 'doing' ? <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin text-amber-600" aria-hidden /> : p.state === 'fail' ? <XCircle className="mt-0.5 size-3.5 shrink-0 text-red-600" aria-hidden /> : <Circle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/40" aria-hidden />}
+                {p.state === 'done' ? <Check className="mt-0.5 size-3.5 shrink-0 text-pass" aria-hidden /> : p.state === 'doing' ? <SparkOrb size="xs" className="mt-0.5 shrink-0" /> : p.state === 'fail' ? <XCircle className="mt-0.5 size-3.5 shrink-0 text-fail" aria-hidden /> : <Circle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/40" aria-hidden />}
                 <span className={p.state === 'todo' ? 'text-muted-foreground' : ''}>
                   {p.label}
                   {p.detail && <span className="block font-mono text-[11px] text-muted-foreground">{p.detail}</span>}
@@ -475,17 +476,20 @@ export function InspectionPhoto(props: Props) {
                   const [x, y, w, h] = f.box.map(v => Math.max(0, Math.min(1, v))) as [number, number, number, number];
                   const on = highlight === i;
                   const dim = highlight !== null && !on;
-                  const c = ok ? '16,185,129' : '245,158,11';
+                  // The overlay reads the status tokens (design sweep, 2026-10-23), so a
+                  // finding is the warn colour and a match the pass colour in both themes.
+                  const c = ok ? 'var(--brand-pass)' : 'var(--brand-borderline)';
+                  const mix = (alpha: number) => `color-mix(in oklch, ${c} ${Math.round(alpha * 100)}%, transparent)`;
                   // Strokes and labels are divided by the CSS zoom so they stay
                   // hairline at any magnification; fills drop out once zoomed in
                   // so nothing under a box is hidden.
                   const z = view.scale;
-                  const fill = z > 1.4 ? 'none' : on ? `rgba(${c},0.14)` : `rgba(${c},${ok ? 0.02 : 0.05})`;
+                  const fill = z > 1.4 ? 'none' : on ? mix(0.14) : mix(ok ? 0.02 : 0.05);
                   return (
                     <g key={`${f.region}-${i}`} opacity={dim ? 0.2 : ok && highlight === null ? 0.7 : 1}>
-                      <rect x={x * 1000} y={y * 1000} width={w * 1000} height={h * 1000} fill={fill} stroke={`rgba(${c},${on ? 1 : 0.85})`} strokeWidth={(on ? 5 : ok ? 2 : 3) / z} strokeDasharray={ok && !on ? `${10 / z} ${6 / z}` : undefined} vectorEffect="non-scaling-stroke" />
+                      <rect x={x * 1000} y={y * 1000} width={w * 1000} height={h * 1000} style={{ fill, stroke: mix(on ? 1 : 0.85) }} strokeWidth={(on ? 5 : ok ? 2 : 3) / z} strokeDasharray={ok && !on ? `${10 / z} ${6 / z}` : undefined} vectorEffect="non-scaling-stroke" />
                       {(!ok || on) && (
-                        <text x={x * 1000 + 6 / z} y={Math.max(y * 1000 - 8 / z, 20 / z)} fill={`rgb(${c})`} fontSize={22 / z} fontWeight="700" style={{ paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.75)', strokeWidth: 5 / z }}>{ok ? '✓' : i + 1}</text>
+                        <text x={x * 1000 + 6 / z} y={Math.max(y * 1000 - 8 / z, 20 / z)} fontSize={22 / z} fontWeight="700" style={{ fill: c, paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.75)', strokeWidth: 5 / z }}>{ok ? '✓' : i + 1}</text>
                       )}
                     </g>
                   );
@@ -497,13 +501,14 @@ export function InspectionPhoto(props: Props) {
                 }
                 const [x, y, w, h] = f.box as [number, number, number, number];
                 return (
-                  <button key={`hit-${f.region}-${i}`} type="button" aria-label={`${i < findings.length ? 'Finding' : 'Region'} ${i + 1}: ${f.region ?? ''}`} onMouseEnter={() => setActive(i)} onFocus={() => setActive(i)} onClick={() => setPinned(p => (p === i ? null : i))} className="absolute cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-500" style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
+                  <button key={`hit-${f.region}-${i}`} type="button" aria-label={`${i < findings.length ? 'Finding' : 'Region'} ${i + 1}: ${f.region ?? ''}`} onMouseEnter={() => setActive(i)} onFocus={() => setActive(i)} onClick={() => setPinned(p => (p === i ? null : i))} className="absolute cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-warn" style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
                 );
               })}
             </div>
             {analyzing && (
               <div className="pointer-events-none absolute inset-0 bg-background/40 backdrop-blur-[1px]">
-                <div className="absolute inset-x-0 top-0 h-1 animate-pulse bg-amber-500" />
+                {/* The agent reading the photo: the spark orb, not an amber bar (design sweep, 2026-10-23). */}
+                <SparkOrb size="lg" label="Analyzing the photo" className="absolute top-3 left-1/2 -translate-x-1/2" />
               </div>
             )}
             <div role="toolbar" aria-label="Zoom" className="absolute right-2 bottom-2 flex items-center gap-1 rounded-md border border-border bg-background/90 p-1 shadow-sm backdrop-blur" onDoubleClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
@@ -578,7 +583,7 @@ export function InspectionPhoto(props: Props) {
                     : 'not run (classifier off)'}
                 />
               </div>
-              <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-3 py-2 text-xs ${props.engines.agreement === 'disagree' ? 'bg-amber-500/10' : 'bg-muted/30'}`}>
+              <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-3 py-2 text-xs ${props.engines.agreement === 'disagree' ? 'bg-warn-soft' : 'bg-muted/30'}`}>
                 <span className="font-semibold">
                   Hybrid:
                   {' '}
@@ -586,7 +591,7 @@ export function InspectionPhoto(props: Props) {
                   {pct(props.engines.hybrid_confidence) ? ` · ${pct(props.engines.hybrid_confidence)}` : ''}
                 </span>
                 <span className="text-muted-foreground">{props.engines.hybrid_reason}</span>
-                <span className={`ml-auto rounded-full border px-2 py-0.5 ${props.engines.agreement === 'agree' ? 'border-emerald-600/40 text-emerald-700' : props.engines.agreement === 'disagree' ? 'border-amber-600/50 text-amber-700' : 'border-border text-muted-foreground'}`}>
+                <span className={`ml-auto rounded-full border px-2 py-0.5 ${props.engines.agreement === 'agree' ? 'border-pass/40 text-pass' : props.engines.agreement === 'disagree' ? 'border-warn/50 text-warn' : 'border-border text-muted-foreground'}`}>
                   {props.engines.agreement === 'agree' ? 'engines agree' : props.engines.agreement === 'disagree' ? 'engines disagree' : 'one engine'}
                 </span>
               </div>
@@ -621,15 +626,15 @@ export function InspectionPhoto(props: Props) {
                       }
                       setPinned(p => (p === i ? null : i));
                     }}
-                    className={`px-3 py-2.5 text-sm transition ${f.box ? 'cursor-zoom-in' : ''} ${pinned === i ? 'bg-amber-500/15 ring-1 ring-amber-500/40 ring-inset' : on ? 'bg-amber-500/10' : ''}`}
+                    className={`px-3 py-2.5 text-sm transition ${f.box ? 'cursor-zoom-in' : ''} ${pinned === i ? 'bg-warn-soft ring-1 ring-warn/40 ring-inset' : on ? 'bg-warn-soft' : ''}`}
                     title={f.box ? (pinned === i ? 'Click to zoom back out' : 'Click to zoom to this region') : undefined}
                   >
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                       <button type="button" onClick={() => setPinned(p => (p === i ? null : i))} className="flex items-baseline gap-2 text-left">
-                        <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[11px] font-bold text-white">{i + 1}</span>
+                        <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-warn text-[11px] font-bold text-background">{i + 1}</span>
                         <span className="font-medium">{f.region ?? 'region'}</span>
                       </button>
-                      <Badge variant="outline" className={`text-[11px] ${f.issue === 'ok' ? 'text-emerald-600' : f.severity === 'blocking' ? 'text-red-600' : f.severity === 'info' ? 'text-muted-foreground' : 'text-amber-600'}`}>{f.issue === 'ok' ? 'ok after zoom' : f.issue === 'missed' ? 'missed — flagged by reviewer' : (f.issue ?? '')}</Badge>
+                      <Badge variant="outline" className={`text-[11px] ${f.issue === 'ok' ? 'text-pass' : f.severity === 'blocking' ? 'text-fail' : f.severity === 'info' ? 'text-muted-foreground' : 'text-warn'}`}>{f.issue === 'ok' ? 'ok after zoom' : f.issue === 'missed' ? 'missed — flagged by reviewer' : (f.issue ?? '')}</Badge>
                       {!f.box && <span className="text-[11px] text-muted-foreground">no region marked</span>}
                       {pct(f.confidence) && <span className="ml-auto font-mono text-xs text-muted-foreground" title="How sure the model is about this specific finding">{`${pct(f.confidence)} sure`}</span>}
                     </div>
@@ -661,7 +666,7 @@ export function InspectionPhoto(props: Props) {
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {fb
                         ? (
-                            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${fb.signal === 'agree' ? 'border-emerald-600/40 text-emerald-700' : 'border-red-500/40 text-red-600'}`}>
+                            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${fb.signal === 'agree' ? 'border-pass/40 text-pass' : 'border-fail/40 text-fail'}`}>
                               {fb.signal === 'agree' ? <ThumbsUp className="size-3" aria-hidden /> : <ThumbsDown className="size-3" aria-hidden />}
                               {fb.signal === 'agree' ? 'Agreed' : 'Disagreed'}
                               {fb.note ? ` — “${fb.note}”` : ''}
@@ -670,11 +675,11 @@ export function InspectionPhoto(props: Props) {
                           )
                         : (
                             <>
-                              <button type="button" disabled={busy !== null} onClick={() => send(i, 'agree')} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition hover:bg-emerald-500/10 hover:text-emerald-700 disabled:opacity-50">
+                              <button type="button" disabled={busy !== null} onClick={() => send(i, 'agree')} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition hover:bg-pass-soft hover:text-pass disabled:opacity-50">
                                 <ThumbsUp className="size-3" aria-hidden />
                                 Agree
                               </button>
-                              <button type="button" disabled={busy !== null} onClick={() => setNoteFor(n => (n === i ? null : i))} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition hover:bg-red-500/10 hover:text-red-600 disabled:opacity-50">
+                              <button type="button" disabled={busy !== null} onClick={() => setNoteFor(n => (n === i ? null : i))} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition hover:bg-fail-soft hover:text-fail disabled:opacity-50">
                                 <ThumbsDown className="size-3" aria-hidden />
                                 Disagree
                               </button>
@@ -683,7 +688,7 @@ export function InspectionPhoto(props: Props) {
                     </div>
                     {noteFor === i && !fb && (
                       <div className="mt-2 flex flex-col gap-2">
-                        <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="What did the model get wrong? (e.g. that's the Rev B bracket — two extra holes, correct part)" className="min-h-16 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-amber-500" />
+                        <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="What did the model get wrong? (e.g. that's the Rev B bracket — two extra holes, correct part)" className="min-h-16 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-warn" />
                         <button type="button" disabled={busy !== null || !note.trim()} onClick={() => send(i, 'disagree', note.trim())} className="inline-flex items-center gap-1 self-start rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background disabled:opacity-50">
                           <MessageSquareWarning className="size-3" aria-hidden />
                           Record &amp; propose learning
@@ -699,7 +704,7 @@ export function InspectionPhoto(props: Props) {
 
           {okRegions.length > 0 && (
             <details className="rounded-md border border-border" open={findings.length === 0}>
-              <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-emerald-700">
+              <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-pass">
                 {`${okRegions.length} region${okRegions.length === 1 ? '' : 's'} matched the references`}
                 <span className="ml-2 font-normal text-muted-foreground">hover or click to see each on the photo</span>
               </summary>
@@ -721,10 +726,10 @@ export function InspectionPhoto(props: Props) {
                         }
                         setPinned(p => (p === i ? null : i));
                       }}
-                      className={`px-3 py-1.5 text-[13px] transition ${r.box ? 'cursor-zoom-in' : ''} ${pinned === i ? 'bg-emerald-500/15' : on ? 'bg-emerald-500/10' : ''}`}
+                      className={`px-3 py-1.5 text-[13px] transition ${r.box ? 'cursor-zoom-in' : ''} ${pinned === i ? 'bg-pass-soft' : on ? 'bg-pass-soft' : ''}`}
                     >
                       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                        <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white">✓</span>
+                        <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-pass text-[10px] font-bold text-background">✓</span>
                         <span className="font-medium">{r.region}</span>
                         {r.observed && <span className="text-muted-foreground">{r.observed}</span>}
                         {pct(r.confidence) && <span className="ml-auto font-mono text-[11px] text-muted-foreground">{pct(r.confidence)}</span>}
@@ -732,18 +737,18 @@ export function InspectionPhoto(props: Props) {
                       <div className="mt-1 flex flex-wrap items-center gap-2 pl-7">
                         {fb
                           ? (
-                              <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${fb.signal === 'agree' ? 'border-emerald-600/40 text-emerald-700' : 'border-red-500/40 text-red-600'}`}>
+                              <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${fb.signal === 'agree' ? 'border-pass/40 text-pass' : 'border-fail/40 text-fail'}`}>
                                 {fb.signal === 'agree' ? <ThumbsUp className="size-3" aria-hidden /> : <ThumbsDown className="size-3" aria-hidden />}
                                 {fb.signal === 'agree' ? 'Agreed' : 'Disagreed — flagged as a missed defect'}
                               </span>
                             )
                           : (
                               <>
-                                <button type="button" disabled={busy !== null} onClick={() => send(apiIndex, 'agree', undefined, 'region')} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] transition hover:bg-emerald-500/10 hover:text-emerald-700 disabled:opacity-50">
+                                <button type="button" disabled={busy !== null} onClick={() => send(apiIndex, 'agree', undefined, 'region')} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] transition hover:bg-pass-soft hover:text-pass disabled:opacity-50">
                                   <ThumbsUp className="size-3" aria-hidden />
                                   Agree
                                 </button>
-                                <button type="button" disabled={busy !== null} onClick={() => setRegionNoteFor(n => (n === apiIndex ? null : apiIndex))} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] transition hover:bg-red-500/10 hover:text-red-600 disabled:opacity-50">
+                                <button type="button" disabled={busy !== null} onClick={() => setRegionNoteFor(n => (n === apiIndex ? null : apiIndex))} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] transition hover:bg-fail-soft hover:text-fail disabled:opacity-50">
                                   <ThumbsDown className="size-3" aria-hidden />
                                   Disagree — it's not OK
                                 </button>
@@ -752,7 +757,7 @@ export function InspectionPhoto(props: Props) {
                       </div>
                       {regionNoteFor === apiIndex && !fb && (
                         <div className="mt-2 flex flex-col gap-2 pl-7">
-                          <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="What's wrong here? (e.g. bag 25520 is present but empty — should contain hardware like the references)" className="min-h-16 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-red-500" />
+                          <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="What's wrong here? (e.g. bag 25520 is present but empty — should contain hardware like the references)" className="min-h-16 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-fail" />
                           <button type="button" disabled={busy !== null || !note.trim()} onClick={() => send(apiIndex, 'disagree', note.trim(), 'region')} className="inline-flex items-center gap-1 self-start rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background disabled:opacity-50">
                             <MessageSquareWarning className="size-3" aria-hidden />
                             Flag as missed defect &amp; hold the kit
@@ -766,7 +771,7 @@ export function InspectionPhoto(props: Props) {
               </ul>
             </details>
           )}
-          {error && <p className="text-xs text-red-600">{error}</p>}
+          {error && <p className="text-xs text-fail">{error}</p>}
           {findings.some(f => f.feedback) && (
             <p className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
               <Check className="size-3" aria-hidden />
@@ -800,7 +805,7 @@ export function InspectionPhoto(props: Props) {
               <section>
                 <h3 className="text-xs font-medium text-muted-foreground">Images sent</h3>
                 <div className="mt-1 flex flex-wrap gap-2">
-                  <a href={props.imageUrl} target="_blank" rel="noreferrer" className="block overflow-hidden rounded border-2 border-amber-500"><img src={props.imageUrl} alt="candidate" className="h-20 w-32 object-cover" /></a>
+                  <a href={props.imageUrl} target="_blank" rel="noreferrer" className="block overflow-hidden rounded border-2 border-warn"><img src={props.imageUrl} alt="candidate" className="h-20 w-32 object-cover" /></a>
                   {refs.map(u => <a key={u} href={u} target="_blank" rel="noreferrer" className="block overflow-hidden rounded border border-border"><img src={u} alt="reference" className="h-20 w-32 object-cover" /></a>)}
                 </div>
                 <p className="mt-1 text-[11px] text-muted-foreground">Candidate (amber) then the verified-good references, in the order the model saw them.</p>
@@ -830,7 +835,7 @@ export function InspectionPhoto(props: Props) {
             </section>
             <section>
               <h3 className="text-xs font-medium text-muted-foreground">Learning history for this kit</h3>
-              {historyError && <p className="mt-1 text-xs text-red-600">{historyError}</p>}
+              {historyError && <p className="mt-1 text-xs text-fail">{historyError}</p>}
               {!history && !historyError && <p className="mt-1 text-[13px] text-muted-foreground">Loading…</p>}
               {history && (
                 <>
@@ -840,7 +845,7 @@ export function InspectionPhoto(props: Props) {
                       {history.candidates.map(c => (
                         <li key={c.id} className="rounded-md border border-border px-2.5 py-1.5 text-[13px]">
                           <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                            <span className={`rounded-full border px-1.5 py-0.5 ${c.status === 'approved' ? 'border-emerald-600/40 text-emerald-700' : c.status === 'rejected' ? 'border-red-500/40 text-red-600' : 'border-amber-600/40 text-amber-700'}`}>{c.status}</span>
+                            <span className={`rounded-full border px-1.5 py-0.5 ${c.status === 'approved' ? 'border-pass/40 text-pass' : c.status === 'rejected' ? 'border-fail/40 text-fail' : 'border-warn/40 text-warn'}`}>{c.status}</span>
                             <span className="text-muted-foreground">{new Date(c.createdAt).toLocaleString()}</span>
                             {c.fromThisRecord && <span className="text-muted-foreground">· from this record</span>}
                             {c.decidedBy && <span className="text-muted-foreground">{`· decided by ${c.decidedBy}`}</span>}

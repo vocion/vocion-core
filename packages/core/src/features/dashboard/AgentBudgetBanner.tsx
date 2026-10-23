@@ -1,4 +1,5 @@
 import type { AgentBudgetStatus, BudgetLimitSource } from '@/services/BudgetService';
+import { Notice } from '@/components/ui/notice';
 
 /** The blocked agents as the banner shows them — only what it reads. */
 export type BlockedAgentView = Pick<AgentBudgetStatus, 'agentSlug' | 'agentName' | 'spentCents' | 'hardCentsLimit' | 'hardCentsLimitFrom' | 'tokens' | 'hardTokenLimit' | 'periodResetsAt'>;
@@ -62,18 +63,21 @@ export function AgentBudgetBanner({ blocked }: { blocked: BlockedAgentView[] }) 
     return null;
   }
   return (
-    <div
-      role="alert"
+    // A Notice at the edge (design sweep, 2026-10-23): the fail tone, no
+    // hand-made border and tint.
+    <Notice
+      edge
+      tone="fail"
       data-testid="agent-budget-banner"
-      className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-2.5 lg:px-6"
-    >
-      <p className="text-sm font-medium text-foreground">
-        <span className="font-semibold">
+      className="shrink-0 lg:px-6"
+      title={(
+        <>
           {blocked.length === 1 ? '1 agent has reached its budget' : `${blocked.length} agents have reached their budgets`}
           {' '}
           and will refuse new turns.
-        </span>
-      </p>
+        </>
+      )}
+    >
       <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
         {blocked.map(agent => (
           <li key={agent.agentSlug}>
@@ -91,6 +95,6 @@ export function AgentBudgetBanner({ blocked }: { blocked: BlockedAgentView[] }) 
         {' '}
         <code>GET /api/v1/budgets/agents</code>
       </p>
-    </div>
+    </Notice>
   );
 }
