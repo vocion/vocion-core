@@ -153,7 +153,10 @@ corridor around it: the hourly drafting pass proposes through
 stored input. So `personalization.enroll` has a `precheck` that runs inside
 `proposeAction` — after schema validation, before any write — and lints every
 send with `lintSends`. The refusal names every span and reason and nothing is
-persisted.
+persisted. `gmail.send` has the same `precheck` for an agent's own proposal
+(never a person's words), with `maxWordsPerSend` and `maxAsksPerSend` left
+out: those are sequence limits, and a one-to-one email runs as long as it
+needs to.
 
 **3. The rewrite seam.** `ReviewService.rewriteDraft` (the queue's "Add
 change" / Regenerate copy path) used to build its own prompt from one

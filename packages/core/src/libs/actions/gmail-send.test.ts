@@ -2,6 +2,8 @@ import { Buffer } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const findReplyThread = vi.fn();
+const voiceRulesFor = vi.fn();
+vi.mock('@/libs/writing/loadVoiceRules', () => ({ voiceRulesFor: (...args: unknown[]) => voiceRulesFor(...args) }));
 vi.mock('@/services/mail/replyThread', () => ({ findReplyThread: (...args: unknown[]) => findReplyThread(...args) }));
 
 const resolveAttachments = vi.fn();
@@ -49,6 +51,7 @@ beforeEach(() => {
   findReplyThread.mockReset().mockResolvedValue(null);
   resolveAttachments.mockReset().mockResolvedValue([]);
   describeAttachments.mockReset().mockResolvedValue([]);
+  voiceRulesFor.mockReset().mockResolvedValue({ never: [{ id: 'colon', pattern: /:[ \t]+[a-z]/, reason: 'A colon in prose.' }], maxWordsPerSend: 5 });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -274,6 +277,22 @@ describe('gmailSendAction', () => {
     expect(named).toBe(a);
     // A different recipient is a different queue item.
     expect(gmailSendAction.dedupKeyFor!(parse({ to: 'other@b.com', subject: 'Hi', body: 'x' }))).not.toBe(a);
+  });
+});
+
+describe('voice at the door', () => {
+  const draft = { to: 'dana@kestrel.example', subject: 'Next steps', body: 'Hi Dana,\n\nWhat I heard: more capacity, fewer hours, and a plan for the quarter.', draft: true };
+
+  it('refuses an agent\'s draft that breaks the workspace voice, naming the phrase', async () => {
+    const out = await gmailSendAction.precheck!({ orgId: 'o', proposedBy: 'agent:revenue-lead' }, parse(draft));
+
+    expect(out).toMatch(/NOTHING WAS SAVED/);
+    expect(out).toContain('A colon in prose.');
+  });
+
+  it('never holds a person\'s own words, and leaves length to the writer', async () => {
+    await expect(gmailSendAction.precheck!({ orgId: 'o', proposedBy: 'usr-1' }, parse(draft))).resolves.toBeUndefined();
+    await expect(gmailSendAction.precheck!({ orgId: 'o', proposedBy: 'agent:revenue-lead' }, parse({ ...draft, body: 'Hi Dana,\n\nHere is what I heard on the call, and the three things we agreed to do next week.' }))).resolves.toBeUndefined();
   });
 });
 

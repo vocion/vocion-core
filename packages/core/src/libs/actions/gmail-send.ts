@@ -36,6 +36,15 @@
  * Gmail treats it as the signature when the draft is opened. No signature, or
  * Gmail not answering, sends without one rather than not at all.
  *
+ * VOICE IS CHECKED AT THE DOOR, as it is for a sequence. An agent's draft is
+ * linted against the workspace's `voice.yaml` and the platform floor before
+ * it can reach Review, and refused with the phrase and the reason so the
+ * agent rewrites it (2026-10-23: a follow-up went to Review with colons, a
+ * "Christa, Breann," greeting and a typed sign-off over the Gmail signature,
+ * because only `personalization.enroll` was ever linted). A person's own
+ * words are never held. The per-send length and ask limits are sequence
+ * limits and stay there; a one-to-one email is as long as it needs to be.
+ *
  * ATTACHMENTS are artifacts, named by id (`emailAttachments.ts`): a document
  * or deck goes as its printed PDF, a file as stored. The card lists each one, openable
  * before approval, and says so when one cannot go.
@@ -329,6 +338,24 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
       verbs: { approve: input.draft ? 'Create draft in Gmail' : 'Send', reject: 'Reject' },
       nextAction: input.draft ? 'Writes a draft in Gmail. Nothing is sent.' : 'Sends this email now.',
     };
+  },
+  async precheck(ctx, input) {
+    if (!ctx.proposedBy?.startsWith('agent:')) {
+      return;
+    }
+    const { voiceRulesFor } = await import('@/libs/writing/loadVoiceRules');
+    const { lintSends } = await import('@/libs/writing/voiceRules');
+    const rules = await voiceRulesFor(ctx.orgId);
+    const { ok, report, count } = lintSends([{ step: 1, subject: input.subject, body: input.body }], { ...rules, maxWordsPerSend: undefined, maxAsksPerSend: undefined });
+    if (ok) {
+      return;
+    }
+    return [
+      `NOTHING WAS SAVED. ${count} voice-rule violation(s) in the drafted email.`,
+      'These are the workspace\'s versioned voice rules (voice.yaml plus the platform floor), not a style suggestion:',
+      report,
+      'Rewrite the email without those constructions and propose again. Do not paraphrase a banned phrase back in.',
+    ].join('\n');
   },
   applyContentEdits(input, edits) {
     const edit = edits.find(e => e.id === 'message');
