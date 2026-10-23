@@ -16,17 +16,17 @@ export function request(app, { method = 'GET', path, user = null, query = {}, bo
 
 export const api = (app, user, method, path, body = {}, extra = {}) => request(app, { method, path, user, body, ...extra });
 
+const NAMED = { nbsp: ' ', quot: '"', apos: '\'', lt: '<', gt: '>', mdash: '\u2014', ndash: '\u2013', middot: '\u00B7', hellip: '\u2026', bull: '\u2022', lsquo: '\u2018', rsquo: '\u2019', ldquo: '\u201C', rdquo: '\u201D', times: '\u00D7', larr: '\u2190', rarr: '\u2192', copy: '\u00A9' };
+
 /** The visible text of HTML: tags removed, entities decoded, spaces collapsed. */
 export function text(html) {
   return String(html || '')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&#39;|&apos;/g, '\'')
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(Number.parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&([a-z]+);/gi, (m, n) => NAMED[n.toLowerCase()] ?? m)
+    .replace(/&amp;/gi, '&')
     .replace(/\s+/g, ' ')
     .trim();
 }
