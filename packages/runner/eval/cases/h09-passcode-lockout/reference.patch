@@ -1,0 +1,144 @@
+diff --git a/src/config.mjs b/src/config.mjs
+index 4f13618..75ffb77 100644
+--- a/src/config.mjs
++++ b/src/config.mjs
+@@ -7,3 +7,9 @@ export const DIGEST_DAY = 1; // Monday, UTC
+ export const NEW_BADGE_HOURS = 24;
+ export const TITLE_MAX = 120;
+ export const SEARCH_LIMIT = 50;
++
++// Passcode guessing: this many wrong passcodes within the window lock the link for the lockout.
++// Counted per link: we record no IP addresses (docs/policy.md).
++export const PASSCODE_MAX_FAILURES = 5;
++export const PASSCODE_WINDOW_MINUTES = 10;
++export const PASSCODE_LOCKOUT_MINUTES = 15;
+diff --git a/src/db/migrations/004_passcode_lockout.mjs b/src/db/migrations/004_passcode_lockout.mjs
+new file mode 100644
+index 0000000..064dc27
+--- /dev/null
++++ b/src/db/migrations/004_passcode_lockout.mjs
+@@ -0,0 +1,9 @@
++// Wrong passcodes are counted per link, so a link can be locked after too many.
++export default {
++  version: 4,
++  name: 'passcode_lockout',
++  up(db) {
++    db.addColumn('links', 'failedAttempts', []);
++    db.addColumn('links', 'lockedUntil', null);
++  },
++};
+diff --git a/src/db/migrations/index.mjs b/src/db/migrations/index.mjs
+index 25aaf29..10904c0 100644
+--- a/src/db/migrations/index.mjs
++++ b/src/db/migrations/index.mjs
+@@ -1,8 +1,9 @@
+ import init from './001_init.mjs';
+ import linkControls from './002_link_controls.mjs';
+ import archive from './003_archive.mjs';
++import passcodeLockout from './004_passcode_lockout.mjs';
+ 
+-export const MIGRATIONS = [init, linkControls, archive];
++export const MIGRATIONS = [init, linkControls, archive, passcodeLockout];
+ 
+ /** Runs every migration above the database's version, up to `to` (all of them by default). */
+ export function migrate(db, { to = Infinity } = {}) {
+diff --git a/src/http/routes/visitor.mjs b/src/http/routes/visitor.mjs
+index 8882f0c..0fea93f 100644
+--- a/src/http/routes/visitor.mjs
++++ b/src/http/routes/visitor.mjs
+@@ -4,7 +4,7 @@ import { linkPage } from '../../views/link.mjs';
+ export const visitorRoutes = [
+   ['GET', '/l/:linkId', ({ req, params, query, user, repos, services }) => {
+     const r = services.sharing.openLink(params.linkId, { userId: user?.id || null, passcode: query.passcode, userAgent: req.headers?.['user-agent'] || '' });
+-    const status = r.state === 'wrong_passcode' ? 401 : 200;
++    const status = { wrong_passcode: 401, locked: 429 }[r.state] || 200;
+     return { status, html: linkPage({ ...r, sharedBy: repos.users.find(r.link.createdBy) }) };
+   }],
+ 
+diff --git a/src/services/sharing.mjs b/src/services/sharing.mjs
+index 478d5d4..836be82 100644
+--- a/src/services/sharing.mjs
++++ b/src/services/sharing.mjs
+@@ -1,4 +1,6 @@
++import { PASSCODE_LOCKOUT_MINUTES, PASSCODE_MAX_FAILURES, PASSCODE_WINDOW_MINUTES } from '../config.mjs';
+ import { hashSecret, verifySecret } from '../lib/crypto.mjs';
++import { addMinutes } from '../lib/time.mjs';
+ import { badRequest, isEmail, notFound } from '../lib/validate.mjs';
+ 
+ export function createSharing({ repos, access, notifier, events, clock }) {
+@@ -64,7 +66,8 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+ 
+     /**
+      * A visitor opening a link. Returns { state, link, doc }: 'ok' (a view is recorded),
+-     * 'passcode' (asked for one) or 'wrong_passcode'.
++     * 'passcode' (asked for one), 'wrong_passcode' or 'locked' (too many wrong passcodes).
++     * Members of the document's library are never asked for the passcode.
+      */
+     openLink(linkId, { userId = null, passcode, userAgent = '' } = {}) {
+       const link = repos.links.find(linkId);
+@@ -72,13 +75,29 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+       if (!link || !doc || doc.archivedAt) {
+         throw notFound();
+       }
+-      if (link.passcodeHash) {
++      const member = Boolean(userId) && access.canSee(userId, doc);
++      if (link.passcodeHash && !member) {
++        const now = clock.now();
++        if (link.lockedUntil && link.lockedUntil > now) {
++          return { state: 'locked', link, doc };
++        }
+         if (passcode === undefined || passcode === '') {
+           return { state: 'passcode', link, doc };
+         }
+         if (!verifySecret(passcode, link.passcodeHash)) {
++          const since = addMinutes(now, -PASSCODE_WINDOW_MINUTES);
++          const failures = [...(link.failedAttempts || []).filter(at => at > since), now];
++          if (failures.length >= PASSCODE_MAX_FAILURES) {
++            repos.links.update(link.id, { failedAttempts: [], lockedUntil: addMinutes(now, PASSCODE_LOCKOUT_MINUTES) });
++            audit(null, 'link.locked', link.id, { docId: doc.id, minutes: PASSCODE_LOCKOUT_MINUTES });
++            return { state: 'locked', link, doc };
++          }
++          repos.links.update(link.id, { failedAttempts: failures });
+           return { state: 'wrong_passcode', link, doc };
+         }
++        if (link.failedAttempts?.length || link.lockedUntil) {
++          repos.links.update(link.id, { failedAttempts: [], lockedUntil: null });
++        }
+       }
+       const viewer = userId ? repos.users.find(userId) : null;
+       repos.views.record({ linkId: link.id, docId: doc.id, viewerEmail: viewer ? viewer.email : link.recipientEmail, userId, at: clock.now(), userAgent });
+diff --git a/src/views/link.mjs b/src/views/link.mjs
+index 1ccbd66..7d2eb7b 100644
+--- a/src/views/link.mjs
++++ b/src/views/link.mjs
+@@ -3,6 +3,9 @@ import { formatDay } from '../lib/time.mjs';
+ 
+ /** What a visitor sees: the passcode prompt, or the document. */
+ export function linkPage({ state, link, doc, sharedBy }) {
++  if (state === 'locked') {
++    return layout('Link locked', '<h1>This link is locked</h1><p data-testid="passcode-locked">Too many wrong passcodes. Try again in 15 minutes.</p>');
++  }
+   if (state === 'passcode' || state === 'wrong_passcode') {
+     const error = state === 'wrong_passcode' ? '<p data-testid="passcode-error">That passcode is not right.</p>' : '';
+     return layout('Passcode required', `<h1>This document is protected</h1>${error}<form data-testid="passcode-form" method="get" action="/l/${link.id}"><input name="passcode" type="password" aria-label="Passcode"><button>Open</button></form>`);
+diff --git a/test/sharing.test.mjs b/test/sharing.test.mjs
+index 53ce01c..343f4d4 100644
+--- a/test/sharing.test.mjs
++++ b/test/sharing.test.mjs
+@@ -33,3 +33,16 @@ test('a passcode guards the link; downloads can be turned off', async () => {
+   assert.equal(app.repos.views.forLink('l2').length, 1);
+   assert.doesNotMatch(JSON.stringify(app.repos.links.find('l2')), /tiger42/);
+ });
++
++test('five wrong passcodes in 10 minutes lock a link for 15 minutes; members are not asked', async () => {
++  const app = createApp();
++  await request(app, { method: 'PATCH', path: '/api/documents/d1/links/l2', user: 'u_owner', body: { passcode: '4321' } });
++  for (let i = 0; i < 4; i++) {
++    assert.equal((await request(app, { path: '/l/l2', query: { passcode: 'bad' } })).status, 401);
++  }
++  assert.equal((await request(app, { path: '/l/l2', query: { passcode: 'bad' } })).status, 429);
++  assert.equal((await request(app, { path: '/l/l2', query: { passcode: '4321' } })).status, 429);
++  app.clock.advanceMinutes(15);
++  assert.equal((await request(app, { path: '/l/l2', query: { passcode: '4321' } })).status, 200);
++  assert.equal((await request(app, { path: '/l/l2', user: 'u_owner' })).status, 200);
++});

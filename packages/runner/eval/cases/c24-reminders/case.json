@@ -1,0 +1,26 @@
+{
+  "id": "c24-reminders",
+  "split": "tuning",
+  "complexity": 4,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 5,
+    "kind": "walk-adapted",
+    "note": "Walks 5 to 7 carried a reminder ask whose merge added a real email schedule; the fixture records reminders in an outbox instead of sending."
+  },
+  "fixture_ref": "v1",
+  "title": "Remind recipients who have not opened",
+  "objective": "Let the people in a library remind the recipients who have not opened a document. POST /api/documents/:id/reminders (members only, 404 otherwise) queues one reminder for each of the document's links that nobody but the owner has opened: a row { to, linkId, docId, at } in store.db.outbox (at is the store clock). A link already reminded less than 72 hours ago is skipped. It answers 200 { queued: [emails], skipped: [emails] }. Nothing is sent here; the outbox is the record.",
+  "acceptance": [
+    "A reminder is queued for each link nobody but the owner opened (only legal@contoso.example for d4)",
+    "Links a recipient opened get none (d1)",
+    "A second press inside 72 hours skips; after 72 hours it queues again",
+    "The outbox rows carry to, linkId, docId and the store time",
+    "Non-members cannot remind"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "An outbox array in data, a reminders route and a pure selection rule in store.mjs."
+}

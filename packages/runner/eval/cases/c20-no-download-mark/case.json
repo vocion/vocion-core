@@ -1,0 +1,24 @@
+{
+  "id": "c20-no-download-mark",
+  "split": "tuning",
+  "complexity": 3,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 24,
+    "kind": "walk",
+    "note": "Runs on the v2 fixture, where the downloads switch shipped in the API first, as it had before walk 24."
+  },
+  "fixture_ref": "v2",
+  "title": "A \"No download\" mark, and the switch beside each link",
+  "objective": "Downloads can already be turned off per link (PATCH /api/documents/:id/links/:linkId { allowDownload }). Make it visible. On the library list, a row whose document has any link with downloads off shows a \"No download\" mark (data-testid=\"mark-no-download\"). On the document page, each link row carries a switch for it beside the link: an <input type=\"checkbox\" data-testid=\"allow-download\"> that is checked when downloads are allowed, labelled \"Allow downloads\".",
+  "acceptance": [
+    "A row whose document has a link with downloads off shows the No download mark; others do not",
+    "The mark goes away when downloads are turned back on",
+    "Each link row on the document page has an Allow downloads switch showing its state"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Read link.allowDownload in libraryPage and documentPage."
+}

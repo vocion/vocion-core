@@ -1,0 +1,23 @@
+{
+  "id": "c25-page-count-library",
+  "split": "tuning",
+  "complexity": 1,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 1,
+    "kind": "walk-derived",
+    "note": "Walk 1 put the page count on the document page; the library row is the next surface the walks extended."
+  },
+  "fixture_ref": "v1",
+  "title": "Show the page count on each library row",
+  "objective": "On the library list, show each document's page count in the row's meta (an element with data-testid=\"pages\" inside each data-testid=\"doc-row\"), like \"18 pages\" or \"1 page\".",
+  "acceptance": [
+    "Every library row shows its page count",
+    "d1 reads \"18 pages\" and d5 reads \"1 page\""
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Render doc.pageCount in each row of libraryPage with a plural helper."
+}

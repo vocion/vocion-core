@@ -487,6 +487,36 @@
       },
       "description": "Optional. The engineer's model and effort, and the model to escalate to on failure. Defaults to the runner's DEFAULT_MODEL."
     },
+    "base_branch": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._][A-Za-z0-9._/-]{0,199}$",
+      "description": "Optional and additive. The branch the work lands on: a resumed branch is rebased on it, its kept work is folded back relative to it, and the pull request targets it. Absent means main, exactly as before this field existed."
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": [
+            "claude-cli",
+            "openhands"
+          ],
+          "default": "claude-cli",
+          "description": "The engine that does the engineering pass. claude-cli is headless Claude Code (the default); openhands is the OpenHands Software Agent SDK (MIT), carried by the runner image's open variant. A runner refuses an engine its image does not carry."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional. The engine's model as that engine names it: openhands takes a LiteLLM id such as anthropic/claude-opus-5-5 or bedrock/<model or inference profile id>. Defaults to model_policy.model."
+        },
+        "params": {
+          "type": "object",
+          "description": "Optional engine-specific settings, passed through to the engine."
+        }
+      },
+      "description": "Optional and additive. Which engine runs the engineering pass. Absent means claude-cli, exactly as before this field existed. The guard hooks, protected paths, required checks, budget, wall clock, cost reporting and the kept-branch retry are the runner's and hold for every engine."
+    },
     "environment": {
       "type": "object",
       "additionalProperties": false,

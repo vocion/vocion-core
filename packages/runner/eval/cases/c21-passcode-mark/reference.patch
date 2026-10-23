@@ -1,0 +1,61 @@
+diff --git a/src/api.mjs b/src/api.mjs
+index 912185f..ab5474a 100644
+--- a/src/api.mjs
++++ b/src/api.mjs
+@@ -105,7 +105,8 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (doc.archivedAt) {
+       return { status: 410, body: { error: 'archived' } };
+     }
+-    if (link.passcodeHash && !store.checkPasscode(link, query.passcode)) {
++    // The people in the document's library are never asked for its passcode.
++    if (link.passcodeHash && !store.canSee(userId, doc) && !store.checkPasscode(link, query.passcode)) {
+       return { status: 401, body: { error: query.passcode ? 'passcode_invalid' : 'passcode_required' } };
+     }
+     if (!parts[2] && method === 'GET') {
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index a0636e4..d709c47 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -4,7 +4,8 @@ export function libraryPage(store, userId, { q = '', starred = false, showArchiv
+   const documents = store.starredFirst(userId, store.listDocuments(userId, { q, archived: showArchived }), { onlyStarred: starred });
+   const row = (d) => {
+     const on = store.isStarred(userId, d.id);
+-    const marks = d.archivedAt ? '<span data-testid="mark-archived">Archived</span>' : '';
++    const passcode = store.linksFor(d.id).some(l => l.passcodeHash);
++    const marks = `${d.archivedAt ? '<span data-testid="mark-archived">Archived</span>' : ''}${passcode ? '<span data-testid="mark-passcode">Passcode</span>' : ''}`;
+     return `<li data-testid="doc-row" data-id="${d.id}"><button data-testid="star" aria-pressed="${on}" aria-label="Star">${on ? '\u2605' : '\u2606'}</button><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta">${marks}</div></li>`;
+   };
+   const stars = documents.filter(d => store.isStarred(userId, d.id));
+@@ -19,7 +20,7 @@ export function documentPage(store, userId, id) {
+   if (!store.canSee(userId, doc)) {
+     return null;
+   }
+-  const links = store.linksFor(doc.id).map(l => `<li data-testid="link-row" data-id="${l.id}">${escapeHtml(l.recipientEmail)}</li>`).join('');
++  const links = store.linksFor(doc.id).map(l => `<li data-testid="link-row" data-id="${l.id}">${escapeHtml(l.recipientEmail)}${l.passcodeHash ? ' <span class="mark">Passcode</span>' : ''}</li>`).join('');
+   return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta"></p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
+ }
+ 
+@@ -32,7 +33,7 @@ export function linkPage(store, linkId, { viewer = '', passcode = '', userId = n
+   if (doc.archivedAt) {
+     return layout('Not available', '<h1 data-testid="unavailable">This document is no longer available</h1>');
+   }
+-  if (link.passcodeHash && !store.checkPasscode(link, passcode)) {
++  if (link.passcodeHash && !store.canSee(userId, doc) && !store.checkPasscode(link, passcode)) {
+     const wrong = passcode ? '<p role="alert">That passcode is not right.</p>' : '';
+     return layout('Passcode required', `<h1>Enter the passcode</h1>${wrong}<form data-testid="passcode-form" method="get"><input name="passcode" type="password" aria-label="Passcode"><button>Open</button></form>`);
+   }
+diff --git a/test/passcode.test.mjs b/test/passcode.test.mjs
+index a074758..b1eb22b 100644
+--- a/test/passcode.test.mjs
++++ b/test/passcode.test.mjs
+@@ -10,3 +10,10 @@ test('a passcode locks a link until it is given', () => {
+   assert.equal(handle(store, { path: '/l/l1', query: { passcode: 'tiger42' } }).status, 200);
+   assert.doesNotMatch(JSON.stringify(store.db.links), /tiger42/);
+ });
++
++test('a member opens a protected link without being asked', () => {
++  const store = createStore();
++  handle(store, { method: 'PUT', path: '/api/documents/d1/links/l1/passcode', body: { passcode: 'tiger42' }, userId: 'u_owner' });
++  assert.equal(handle(store, { path: '/l/l1', userId: 'u_teammate' }).status, 200);
++  assert.equal(handle(store, { path: '/l/l1', userId: 'u_other' }).status, 401);
++});

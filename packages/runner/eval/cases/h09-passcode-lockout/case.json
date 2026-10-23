@@ -1,0 +1,27 @@
+{
+  "id": "h09-passcode-lockout",
+  "tier": "hard",
+  "split": "held-out",
+  "complexity": 4,
+  "risk_class": "auth",
+  "origin": {
+    "walk": 25,
+    "kind": "walk-derived",
+    "note": "Walk 15 shipped passcodes and walk 25's live check caught owners being asked for their own passcode; the lockout is the security follow-up, with the privacy policy ruling out per-IP counting."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Lock a link after repeated wrong passcodes",
+  "objective": "Passcodes on links can be guessed without limit. Lock a link after the fifth wrong passcode within 10 minutes: that attempt and every attempt for the next 15 minutes, even with the right passcode, answer 429 with a page carrying `data-testid=\"passcode-locked\"`, no passcode form and nothing of the document, and no view is recorded. After 15 minutes the link opens again with the right passcode and the count starts over. Wrong attempts more than 10 minutes old do not count. The lock applies to the link, survives a restart of the app on the same database, and is audited once per lock as `link.locked`. Follow the product's data policy in how you count. While you are in there: members of the document's library should never be asked for a link's passcode (people outside it still are). Add tests.",
+  "acceptance": [
+    "The fifth wrong passcode within 10 minutes locks the link with a 429 locked page; even the right passcode is refused and nothing is recorded",
+    "It unlocks after 15 minutes and the count restarts; failures spread beyond 10 minutes never lock",
+    "The lock is per link, survives a restart on the same database and is audited once",
+    "Library members are never asked for the passcode; others still are"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**",
+    "docs/**"
+  ],
+  "plan_summary": "Migration 004 adds failed attempts and a lock time to links; openLink counts failures in a sliding window, locks and audits, and skips the passcode for members; the visitor route answers 429 with a locked page; tests."
+}

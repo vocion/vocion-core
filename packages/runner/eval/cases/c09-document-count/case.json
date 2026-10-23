@@ -1,0 +1,24 @@
+{
+  "id": "c09-document-count",
+  "split": "tuning",
+  "complexity": 3,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 13,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Show how many documents are in the library at the top of the list",
+  "objective": "Show how many documents are in the library at the top of the list, like \"5 documents\", in an element with data-testid=\"doc-count\" above the list. Under a search it reads \"2 of 5 documents\" (matches of all). One document reads \"1 document\". An empty library keeps its empty state and shows no count.",
+  "acceptance": [
+    "The library reads \"5 documents\" above the list",
+    "Under a search it reads \"N of 5 documents\"",
+    "One document reads \"1 document\"",
+    "An empty library shows its empty state and no \"0 documents\""
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Count listDocuments with and without q in libraryPage; render above the list."
+}

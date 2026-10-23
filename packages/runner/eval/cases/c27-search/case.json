@@ -1,0 +1,24 @@
+{
+  "id": "c27-search",
+  "split": "tuning",
+  "complexity": 2,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 13,
+    "kind": "walk-derived",
+    "note": "From walk 13's \"3 of 12 documents under a search\" line."
+  },
+  "fixture_ref": "v1",
+  "title": "Search ignores case, extra spaces and word order, and matches whole words from their start",
+  "objective": "Make the library search forgiving, on both libraryPage(store, userId, { q }) and GET /api/documents?q=: it ignores case and surrounding spaces, and a document matches when every search word is the start of a word in its title, in any order (\"board\" finds \"Q3 Board Deck\" but not \"Onboarding Guide\"). An empty or all-space search shows everything.",
+  "acceptance": [
+    "\"board\" and \"  BOARD \" both find the Q3 Board Deck, and not the Onboarding Guide",
+    "\"deck q3\" finds it (every word, any order), \"onboard\" finds the Onboarding Guide, and \"deck pricing\" finds nothing",
+    "A blank search shows everything"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Split q and the title into words in store.listDocuments; each search word must start a title word."
+}

@@ -1,0 +1,25 @@
+{
+  "id": "c29-document-access",
+  "split": "held-out",
+  "complexity": 2,
+  "risk_class": "auth",
+  "origin": {
+    "walk": 13,
+    "kind": "walk-derived",
+    "note": "An auth-class case, so the set covers the plan-required auth path; the gap mirrors the access lines the walk PM added."
+  },
+  "fixture_ref": "v1",
+  "title": "A document in another library is not reachable by id",
+  "objective": "Close an access gap in the API: GET /api/documents/:id returns another library's document to anyone signed in. A document is reachable only by members of its library. For anyone else, GET /api/documents/:id, GET and POST /api/documents/:id/links answer exactly like a missing document: 404 { error: 'not_found' }, with no title in the body. Signed-out calls stay 401.",
+  "acceptance": [
+    "A member of another library gets 404 not_found for d1, exactly like a missing id",
+    "Links of d1 are not listed or created by a non-member",
+    "Members still read the document and its links",
+    "Signed out is still 401"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Use store.canSee in the document routes of api.mjs."
+}

@@ -1,0 +1,26 @@
+{
+  "id": "h10-retire-legacy-dates",
+  "tier": "hard",
+  "split": "tuning",
+  "complexity": 4,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 3,
+    "kind": "walk-derived",
+    "note": "Walks 3, 9 and 11 each added a date in their own way; this is the API migration that unifies them, graded by byte-identical output across server time zones."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Retire the legacy date helper",
+  "objective": "src/lib/legacyDate.mjs is deprecated: it formats dates in the server's local time zone, so what customers see depends on where the server runs. Move its remaining callers to src/lib/time.mjs and delete legacyDate.mjs. On a UTC server every page, export, email and key must read exactly as it does today, byte for byte; on a server in any other time zone it must read the same as on UTC. Keep the existing tests passing and add one that proves the time-zone independence.",
+  "acceptance": [
+    "legacyDate.mjs is deleted and nothing imports it",
+    "Pages, the audit export, reminder and digest emails and their keys read exactly as before on a UTC server",
+    "They read the same on servers in Pacific/Auckland, America/Los_Angeles and Asia/Kolkata"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**",
+    "docs/**"
+  ],
+  "plan_summary": "Five callers move to time.mjs equivalents (formatDay, formatShortDay, isoDay, isoMinute, daysBetween, addDays); legacyDate.mjs deleted; docs and the test helper comment updated; a time-zone test."
+}

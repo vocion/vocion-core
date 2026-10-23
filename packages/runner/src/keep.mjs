@@ -657,3 +657,20 @@ export function globMatches(glob, rel) {
   const dir = glob.trim().replace(/^\.\//, '').replace(/\/+$/, '');
   return Boolean(dir) && !/[*?]/.test(dir) && (rel === dir || rel.startsWith(`${dir}/`));
 }
+
+/**
+ * The paths `git add -A --` can take: those on disk or in the index.
+ *
+ * WHY (eval h10, 2026-10-22): the engineer removed a file with `git rm`, so the deletion was already
+ * staged and the path was neither on disk nor in the index. `git status` still listed it as changed,
+ * `git add -A -- <that path>` failed with "pathspec did not match any files", and both the land and
+ * the keep step died, so the work was lost and the next attempt pointed at a branch never pushed.
+ * A path in neither place has nothing left to stage; it is left out, and its staged deletion is
+ * committed with everything else.
+ * @param files - Repository-relative paths from changedFiles().
+ * @param onDisk - f => whether the path exists in the working tree.
+ * @param inIndex - f => whether the index has the path.
+ */
+export function stageablePaths(files, onDisk, inIndex) {
+  return files.filter(f => onDisk(f) || inIndex(f));
+}

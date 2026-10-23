@@ -9,6 +9,6 @@
   },
   "scripts": {
     "start": "node src/runner.mjs",
-    "test": "node --test src/*.test.mjs"
+    "test": "node --test src/*.test.mjs eval/lib/*.test.mjs"
   }
 }

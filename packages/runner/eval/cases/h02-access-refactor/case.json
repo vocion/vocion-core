@@ -1,0 +1,26 @@
+{
+  "id": "h02-access-refactor",
+  "tier": "hard",
+  "split": "tuning",
+  "complexity": 4,
+  "risk_class": "auth",
+  "origin": {
+    "walk": 17,
+    "kind": "walk-derived",
+    "note": "Walks 14, 17 and 29's access lines each added a copy of the membership check; this is the cleanup, with walk 17's uploader-only archive rule as the trap a tidy-minded refactor normalizes."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Centralize the access checks",
+  "objective": "The membership check is copy-pasted across the route modules and the copies have drifted. Move every access decision, for documents and for libraries, into src/services/access.mjs, and give it `can(userId, action, doc)` returning a boolean for the actions `view`, `rename`, `share`, `archive` and `delete`. Afterwards no route module checks membership, roles or who uploaded a document itself; routes ask the access service. This is a pure refactor: every route must answer every caller exactly as it does today (same status, same error code, same precedence between not-found, forbidden and validation errors), including any rule that looks inconsistent. If you think a rule is a bug, say so in your report instead of changing it. Do not change the existing tests; add tests for `can`.",
+  "acceptance": [
+    "Every document route answers owner, teammate, outsider and anonymous callers exactly as before, status and error code",
+    "access.can(userId, action, doc) answers view, rename, share, archive and delete, keeping today's rules; the audit export still answers 200/403/404",
+    "No module under src/http checks membership, roles or the uploader itself",
+    "The existing tests are unchanged"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "access.mjs grows can/require/requireLibrary with the rules in one table; document, link, analytics, admin and page routes call it; sharing uses it; a new access test."
+}

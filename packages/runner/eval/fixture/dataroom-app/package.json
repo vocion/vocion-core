@@ -1,0 +1,12 @@
+{
+  "name": "northwind-dataroom",
+  "type": "module",
+  "version": "3.4.0",
+  "private": true,
+  "description": "Northwind Dataroom: share documents through tracked links. No dependencies.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "node src/server.mjs"
+  }
+}

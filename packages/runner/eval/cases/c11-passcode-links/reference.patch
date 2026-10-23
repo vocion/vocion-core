@@ -1,0 +1,145 @@
+diff --git a/src/api.mjs b/src/api.mjs
+index 19e33f6..c289c8f 100644
+--- a/src/api.mjs
++++ b/src/api.mjs
+@@ -1,5 +1,10 @@
+ // Every HTTP route. handle() never throws: a bad request is a status and an error body.
+ 
++export function publicLink(link) {
++  const { passcodeHash, ...rest } = link;
++  return { ...rest, hasPasscode: Boolean(passcodeHash) };
++}
++
+ export function summary(doc) {
+   const { id, libraryId, ownerId, title, mimeType, sizeBytes, pageCount, uploadedAt } = doc;
+   return { id, libraryId, ownerId, title, mimeType, sizeBytes, pageCount, uploadedAt };
+@@ -22,7 +27,7 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (!userId) {
+       return signIn;
+     }
+-    const [, , id, sub] = parts;
++    const [, , id, sub, linkId, linkSub] = parts;
+     if (!id && method === 'GET') {
+       return { status: 200, body: { documents: store.listDocuments(userId, { q: query.q || '' }).map(summary) } };
+     }
+@@ -36,15 +41,34 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (sub === 'links' && !store.canSee(userId, doc)) {
+       return notFound;
+     }
++    if (sub === 'links' && linkId) {
++      const link = store.findLink(linkId);
++      if (!link || link.docId !== doc.id) {
++        return notFound;
++      }
++      if (linkSub === 'passcode' && method === 'PUT') {
++        const passcode = typeof body.passcode === 'string' ? body.passcode : '';
++        if (passcode.length < 4 || passcode.length > 32) {
++          return { status: 400, body: { error: 'invalid_passcode' } };
++        }
++        store.setPasscode(link, passcode);
++        return { status: 200, body: { link: publicLink(link) } };
++      }
++      if (linkSub === 'passcode' && method === 'DELETE') {
++        store.setPasscode(link, null);
++        return { status: 200, body: { link: publicLink(link) } };
++      }
++      return notFound;
++    }
+     if (sub === 'links' && method === 'GET') {
+-      return { status: 200, body: { links: store.linksFor(doc.id) } };
++      return { status: 200, body: { links: store.linksFor(doc.id).map(publicLink) } };
+     }
+     if (sub === 'links' && method === 'POST') {
+       const recipientEmail = String(body.recipientEmail || '').trim();
+       if (!recipientEmail.includes('@')) {
+         return { status: 400, body: { error: 'recipient_email_required' } };
+       }
+-      return { status: 201, body: { link: store.createLink(doc.id, { recipientEmail, createdBy: userId }) } };
++      return { status: 201, body: { link: publicLink(store.createLink(doc.id, { recipientEmail, createdBy: userId })) } };
+     }
+     return notFound;
+   }
+@@ -55,6 +79,9 @@ export function handle(store, { method = 'GET', path, query = {}, body = {}, use
+     if (!doc) {
+       return notFound;
+     }
++    if (link.passcodeHash && !store.checkPasscode(link, query.passcode)) {
++      return { status: 401, body: { error: query.passcode ? 'passcode_invalid' : 'passcode_required' } };
++    }
+     if (!parts[2] && method === 'GET') {
+       store.recordView(doc.id, { viewerId: visitorId(query, userId), linkId: link.id });
+       const { id, title, pageCount, mimeType, sizeBytes } = doc;
+diff --git a/src/store.mjs b/src/store.mjs
+index 3471d73..3e91d6f 100644
+--- a/src/store.mjs
++++ b/src/store.mjs
+@@ -1,3 +1,4 @@
++import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+ import { seed } from './data.mjs';
+ 
+ // The data in memory and the queries over it. `store.db` is the data itself.
+@@ -27,6 +28,24 @@ export function createStore(data = seed()) {
+       db.links.push(link);
+       return link;
+     },
++    setPasscode(link, passcode) {
++      if (passcode === null) {
++        delete link.passcodeHash;
++        return;
++      }
++      const salt = randomBytes(16).toString('hex');
++      link.passcodeHash = `${salt}:${scryptSync(passcode, salt, 32).toString('hex')}`;
++    },
++    checkPasscode(link, passcode) {
++      if (!link.passcodeHash) {
++        return true;
++      }
++      if (typeof passcode !== 'string' || !passcode) {
++        return false;
++      }
++      const [salt, hash] = link.passcodeHash.split(':');
++      return timingSafeEqual(Buffer.from(hash, 'hex'), scryptSync(passcode, salt, 32));
++    },
+     recordView(docId, { viewerId, linkId = null }) {
+       const view = { docId, linkId, viewerId, at: db.now };
+       db.views.push(view);
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..b1199d5 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -16,12 +16,16 @@ export function documentPage(store, userId, id) {
+   return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta"></p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
+ }
+ 
+-export function linkPage(store, linkId, { viewer = '' } = {}) {
++export function linkPage(store, linkId, { viewer = '', passcode = '' } = {}) {
+   const link = store.findLink(linkId);
+   const doc = link && store.findDocument(link.docId);
+   if (!doc) {
+     return layout('Not found', '<h1>This link does not exist</h1>');
+   }
++  if (link.passcodeHash && !store.checkPasscode(link, passcode)) {
++    const wrong = passcode ? '<p role="alert">That passcode is not right.</p>' : '';
++    return layout('Passcode required', `<h1>Enter the passcode</h1>${wrong}<form data-testid="passcode-form" method="get"><input name="passcode" type="password" aria-label="Passcode"><button>Open</button></form>`);
++  }
+   store.recordView(doc.id, { viewerId: viewer ? `v:${viewer}` : 'v:anonymous', linkId: link.id });
+   return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><a data-testid="download" href="/l/${link.id}/download">Download</a>`);
+ }
+diff --git a/test/passcode.test.mjs b/test/passcode.test.mjs
+new file mode 100644
+index 0000000..a074758
+--- /dev/null
++++ b/test/passcode.test.mjs
+@@ -0,0 +1,12 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { handle } from '../src/api.mjs';
++import { createStore } from '../src/store.mjs';
++
++test('a passcode locks a link until it is given', () => {
++  const store = createStore();
++  assert.equal(handle(store, { method: 'PUT', path: '/api/documents/d1/links/l1/passcode', body: { passcode: 'tiger42' }, userId: 'u_owner' }).status, 200);
++  assert.equal(handle(store, { path: '/l/l1' }).status, 401);
++  assert.equal(handle(store, { path: '/l/l1', query: { passcode: 'tiger42' } }).status, 200);
++  assert.doesNotMatch(JSON.stringify(store.db.links), /tiger42/);
++});

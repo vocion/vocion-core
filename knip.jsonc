@@ -83,10 +83,19 @@
     },
     "packages/runner": {
       "entry": [
-        "src/*.test.mjs"
+        "src/*.test.mjs",
+        "eval/run.mjs",
+        "eval/lib/*.test.mjs"
       ],
       "project": [
-        "src/**/*.mjs"
+        "src/**/*.mjs",
+        "eval/lib/**/*.mjs"
+      ],
+      // Each eval case's hidden tests import the fixture app's files from where the grader copies
+      // them (./helpers.mjs, ../src/...), so they do not resolve from the source tree.
+      // `node packages/runner/eval/run.mjs check` proves them instead.
+      "ignore": [
+        "eval/cases/**"
       ],
       // Playwright is installed into the image beside the runner (its Dockerfile pins the
       // version), not in the workspace: the runner has no npm dependencies of its own, and the

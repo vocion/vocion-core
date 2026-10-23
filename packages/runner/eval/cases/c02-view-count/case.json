@@ -1,0 +1,24 @@
+{
+  "id": "c02-view-count",
+  "split": "tuning",
+  "complexity": 2,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 2,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Show how many times the document has been viewed",
+  "objective": "On the document page, show how many times the document has been viewed, next to its title, like \"Viewed 4 times\", in an element with data-testid=\"view-count\". Every open counts, the owner's included.",
+  "acceptance": [
+    "The Q3 Board Deck (d1, four opens) shows \"Viewed 4 times\" next to its title",
+    "One open reads \"Viewed 1 time\"",
+    "No opens reads \"Viewed 0 times\"",
+    "A new open through a link raises the count"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Count store.viewsFor(doc.id) in documentPage and render it beside the h1."
+}

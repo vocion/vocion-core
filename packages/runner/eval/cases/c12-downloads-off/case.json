@@ -1,0 +1,25 @@
+{
+  "id": "c12-downloads-off",
+  "split": "tuning",
+  "complexity": 4,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 16,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Turn off downloads for a share link",
+  "objective": "Let the people in a library turn downloading off for a share link. PATCH /api/documents/:id/links/:linkId with { allowDownload: true | false } sets it (members only, 404 otherwise; a non-boolean is 400 { error: 'invalid_allow_download' }). Links allow downloads unless turned off, including the links that exist today. When it is off, GET /l/:linkId/download answers 403 { error: 'download_disabled' }; GET /l/:linkId still opens the document and returns link.allowDownload; the visitor page shows no download button and says \"Downloads are turned off for this link\" (data-testid=\"download-off\"). The links list returns allowDownload per link.",
+  "acceptance": [
+    "Members turn downloads off and on for a link; others get 404",
+    "Existing and new links allow downloads by default",
+    "With downloads off the download answers 403 and the visitor can still read the document",
+    "The visitor page hides the download button and says why",
+    "The links list shows allowDownload"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "An allowDownload flag on links (default true), a PATCH route, a check in the download route and in linkPage."
+}

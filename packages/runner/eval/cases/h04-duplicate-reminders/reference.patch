@@ -1,0 +1,61 @@
+diff --git a/src/config.mjs b/src/config.mjs
+index 4f13618..cfc2e6f 100644
+--- a/src/config.mjs
++++ b/src/config.mjs
+@@ -2,6 +2,7 @@ export const PRODUCT = 'Northwind Dataroom';
+ 
+ export const REMINDER_AFTER_DAYS = 3;
+ export const REMINDER_MAX = 3;
++export const REMINDER_GAP_HOURS = 24;
+ export const DIGEST_DAY = 1; // Monday, UTC
+ 
+ export const NEW_BADGE_HOURS = 24;
+diff --git a/src/services/reminders.mjs b/src/services/reminders.mjs
+index e331431..501f09c 100644
+--- a/src/services/reminders.mjs
++++ b/src/services/reminders.mjs
+@@ -1,5 +1,5 @@
+-import { REMINDER_AFTER_DAYS, REMINDER_MAX } from '../config.mjs';
+-import { daysBetween, format } from '../lib/legacyDate.mjs';
++import { REMINDER_AFTER_DAYS, REMINDER_GAP_HOURS, REMINDER_MAX } from '../config.mjs';
++import { daysBetween, formatShortDay, hoursBetween, isoDay } from '../lib/time.mjs';
+ 
+ /** The hourly reminder job. See docs/notifications.md for the rules. */
+ export function createReminders({ repos, notifier, clock }) {
+@@ -22,15 +22,16 @@ export function createReminders({ repos, notifier, clock }) {
+         if (earlier.length >= REMINDER_MAX) {
+           continue;
+         }
+-        const key = `reminder:${link.id}:${format(now, 'YYYY-MM-DD')}`;
+-        if (earlier.some(o => o.key === key)) {
++        // At most one in any 24 hours: a calendar-day key let two go out an hour apart across midnight.
++        if (earlier.some(o => hoursBetween(o.at, now) < REMINDER_GAP_HOURS)) {
+           continue;
+         }
++        const key = `reminder:${link.id}:${isoDay(now)}`;
+         const owner = repos.users.find(link.createdBy);
+         const message = notifier.send('reminder', {
+           to: link.recipientEmail,
+           subject: `Reminder: ${owner.name} shared "${doc.title}" with you`,
+-          body: `${owner.name} shared "${doc.title}" with you on ${format(link.createdAt, 'MMM D')} and it has not been opened yet.\n\nOpen it: https://dataroom.northwind.example/l/${link.id}\n`,
++          body: `${owner.name} shared "${doc.title}" with you on ${formatShortDay(link.createdAt)} and it has not been opened yet.\n\nOpen it: https://dataroom.northwind.example/l/${link.id}\n`,
+           key,
+         });
+         if (message) {
+diff --git a/test/jobs.test.mjs b/test/jobs.test.mjs
+index a0e71db..104b138 100644
+--- a/test/jobs.test.mjs
++++ b/test/jobs.test.mjs
+@@ -30,3 +30,12 @@ test('the digest goes to library owners on Mondays', () => {
+   app.clock.set('2026-10-06T07:00:00.000Z');
+   assert.deepEqual(app.runJob('digest'), []);
+ });
++
++test('reminders keep 24 hours apart even across midnight', () => {
++  const app = createApp();
++  app.clock.set('2026-10-01T23:30:00.000Z');
++  app.runJob('reminders');
++  app.clock.set('2026-10-02T00:30:00.000Z');
++  app.runJob('reminders');
++  assert.equal(app.repos.outbox.all().filter(o => o.to === 'legal@contoso.example').length, 2);
++});

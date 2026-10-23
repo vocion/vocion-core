@@ -1,0 +1,25 @@
+{
+  "id": "c07-last-opened",
+  "split": "tuning",
+  "complexity": 3,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 11,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Show when each document was last opened on the library list",
+  "objective": "On the library list, show when each document was last opened under its title, in an element with data-testid=\"last-opened\" inside each row, like \"Last opened 2 days ago\", or \"Not opened yet\" when nobody has opened it. Any open counts. Relative to the store clock: under an hour reads \"N minutes ago\" (\"just now\" under a minute), under a day \"N hours ago\", otherwise \"N days ago\", whole units rounded down, singular for 1. Also return lastOpenedAt (ISO or null) on each document in GET /api/documents.",
+  "acceptance": [
+    "d1 (last open 2 hours before the clock) reads \"Last opened 2 hours ago\"",
+    "d3 reads \"Last opened 6 days ago\" and d4 \"Last opened 10 days ago\"",
+    "d5, never opened, reads \"Not opened yet\"",
+    "Singular units and \"just now\" read correctly",
+    "GET /api/documents returns lastOpenedAt for each document, null when never opened"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "A relativeTime(now, then) helper in format.mjs; a lastOpenedAt(docId) query in store.mjs used by the page and the API summary."
+}

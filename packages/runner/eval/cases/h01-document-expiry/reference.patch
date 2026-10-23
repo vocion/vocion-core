@@ -1,0 +1,366 @@
+diff --git a/src/app.mjs b/src/app.mjs
+index 8da4b30..9d7fa01 100644
+--- a/src/app.mjs
++++ b/src/app.mjs
+@@ -10,6 +10,7 @@ import { createAccess } from './services/access.mjs';
+ import { createAnalytics } from './services/analytics.mjs';
+ import { createDigest } from './services/digest.mjs';
+ import { createEvents } from './services/events.mjs';
++import { createExpiry } from './services/expiry.mjs';
+ import { createNotifier } from './services/notifications.mjs';
+ import { createReminders } from './services/reminders.mjs';
+ import { createSearch } from './services/search.mjs';
+@@ -35,11 +36,12 @@ export function createApp({ db, now, seed = true } = {}) {
+   const access = createAccess({ repos });
+   const notifier = createNotifier({ repos, clock });
+   const analytics = createAnalytics({ repos });
+-  const search = createSearch({ repos, events });
++  const search = createSearch({ repos, events, clock });
+   const sharing = createSharing({ repos, access, notifier, events, clock });
+   const services = { events, access, notifier, analytics, search, sharing };
+   services.reminders = createReminders({ repos, notifier, clock });
+   services.digest = createDigest({ repos, analytics, notifier, clock });
++  services.expiry = createExpiry({ repos, clock });
+   const app = { db: database, clock, ids, repos, services };
+   const route = createRouter(ROUTES);
+   return {
+diff --git a/src/config.mjs b/src/config.mjs
+index 4f13618..8946618 100644
+--- a/src/config.mjs
++++ b/src/config.mjs
+@@ -7,3 +7,5 @@ export const DIGEST_DAY = 1; // Monday, UTC
+ export const NEW_BADGE_HOURS = 24;
+ export const TITLE_MAX = 120;
+ export const SEARCH_LIMIT = 50;
++export const EXPIRED_LINKS_KEPT_DAYS = 30;
++export const EXPIRES_SOON_DAYS = 7;
+diff --git a/src/db/migrations/004_expiry.mjs b/src/db/migrations/004_expiry.mjs
+new file mode 100644
+index 0000000..9d4f562
+--- /dev/null
++++ b/src/db/migrations/004_expiry.mjs
+@@ -0,0 +1,8 @@
++// Documents can expire.
++export default {
++  version: 4,
++  name: 'expiry',
++  up(db) {
++    db.addColumn('documents', 'expiresAt', null);
++  },
++};
+diff --git a/src/db/migrations/index.mjs b/src/db/migrations/index.mjs
+index 25aaf29..0e62313 100644
+--- a/src/db/migrations/index.mjs
++++ b/src/db/migrations/index.mjs
+@@ -1,8 +1,9 @@
+ import init from './001_init.mjs';
+ import linkControls from './002_link_controls.mjs';
+ import archive from './003_archive.mjs';
++import expiry from './004_expiry.mjs';
+ 
+-export const MIGRATIONS = [init, linkControls, archive];
++export const MIGRATIONS = [init, linkControls, archive, expiry];
+ 
+ /** Runs every migration above the database's version, up to `to` (all of them by default). */
+ export function migrate(db, { to = Infinity } = {}) {
+diff --git a/src/http/routes/documents.mjs b/src/http/routes/documents.mjs
+index 520d0c6..7d8403e 100644
+--- a/src/http/routes/documents.mjs
++++ b/src/http/routes/documents.mjs
+@@ -1,24 +1,25 @@
+ import { TITLE_MAX } from '../../config.mjs';
+ import { badRequest, forbidden, notFound, requireString } from '../../lib/validate.mjs';
++import { isExpired } from '../../services/expiry.mjs';
+ 
+-const view = d => ({ id: d.id, libraryId: d.libraryId, title: d.title, mimeType: d.mimeType, sizeBytes: d.sizeBytes, pageCount: d.pageCount, uploadedAt: d.uploadedAt, archivedAt: d.archivedAt });
++const view = (d, now) => ({ id: d.id, libraryId: d.libraryId, title: d.title, mimeType: d.mimeType, sizeBytes: d.sizeBytes, pageCount: d.pageCount, uploadedAt: d.uploadedAt, archivedAt: d.archivedAt, expiresAt: d.expiresAt ?? null, expired: isExpired(d, now) });
+ 
+ export const documentRoutes = [
+-  ['GET', '/api/documents', ({ user, query, repos, services }) => {
++  ['GET', '/api/documents', ({ user, query, repos, services, clock }) => {
+     const libraries = repos.libraries.forUser(user.id);
+     const archived = query.archived === '1';
+     const docs = query.q
+       ? services.search.search(user.id, query.q, { archived }).map(id => repos.documents.find(id))
+-      : repos.documents.inLibraries(libraries, { archived });
+-    return { json: { documents: docs.map(view) } };
++      : repos.documents.inLibraries(libraries, { archived, now: clock.now() });
++    return { json: { documents: docs.map(d => view(d, clock.now())) } };
+   }],
+ 
+-  ['GET', '/api/documents/:id', ({ user, params, repos }) => {
++  ['GET', '/api/documents/:id', ({ user, params, repos, clock }) => {
+     const doc = repos.documents.find(params.id);
+     if (!doc || !repos.libraries.isMember(doc.libraryId, user.id)) {
+       throw notFound();
+     }
+-    return { json: { document: view(doc) } };
++    return { json: { document: view(doc, clock.now()) } };
+   }],
+ 
+   ['POST', '/api/documents', ({ user, body, repos, services, clock }) => {
+@@ -29,19 +30,39 @@ export const documentRoutes = [
+     const doc = repos.documents.create({ libraryId: body.libraryId, ownerId: user.id, title, mimeType: body.mimeType || 'application/pdf', sizeBytes: Number(body.sizeBytes) || 0, pageCount: Number(body.pageCount) || 1, uploadedAt: clock.now() });
+     repos.audit.write({ at: clock.now(), actorId: user.id, action: 'document.created', targetId: doc.id, detail: { title } });
+     services.events.emit('document.created', { doc });
+-    return { status: 201, json: { document: view(doc) } };
++    return { status: 201, json: { document: view(doc, clock.now()) } };
+   }],
+ 
+-  // Rename: any member of the library.
+-  ['PATCH', '/api/documents/:id', ({ user, params, body, repos, clock }) => {
++  // Rename: any member of the library. Expiry: the uploader or a library owner.
++  ['PATCH', '/api/documents/:id', ({ user, params, body, repos, services, clock }) => {
+     const doc = repos.documents.find(params.id);
+     if (!doc || !repos.libraries.isMember(doc.libraryId, user.id)) {
+       throw notFound();
+     }
+-    const title = requireString(body.title, 'invalid_title', { max: TITLE_MAX });
+-    const updated = repos.documents.update(doc.id, { title });
+-    repos.audit.write({ at: clock.now(), actorId: user.id, action: 'document.renamed', targetId: doc.id, detail: { from: doc.title, to: title } });
+-    return { json: { document: view(updated) } };
++    const patch = {};
++    if (body.title !== undefined || body.expiresAt === undefined) {
++      patch.title = requireString(body.title, 'invalid_title', { max: TITLE_MAX });
++    }
++    if (body.expiresAt !== undefined) {
++      const role = repos.libraries.membership(doc.libraryId, user.id)?.role;
++      if (doc.ownerId !== user.id && role !== 'owner') {
++        throw forbidden();
++      }
++      const at = body.expiresAt;
++      if (at !== null && (typeof at !== 'string' || Number.isNaN(Date.parse(at)) || new Date(at).toISOString() <= clock.now())) {
++        throw badRequest('invalid_expiry');
++      }
++      patch.expiresAt = at === null ? null : new Date(at).toISOString();
++    }
++    const updated = repos.documents.update(doc.id, patch);
++    if (patch.title !== undefined) {
++      repos.audit.write({ at: clock.now(), actorId: user.id, action: 'document.renamed', targetId: doc.id, detail: { from: doc.title, to: patch.title } });
++    }
++    if (patch.expiresAt !== undefined) {
++      repos.audit.write({ at: clock.now(), actorId: user.id, action: 'document.expiry_set', targetId: doc.id, detail: { expiresAt: patch.expiresAt } });
++    }
++    services.events.emit('document.updated', { doc: updated });
++    return { json: { document: view(updated, clock.now()) } };
+   }],
+ 
+   // Archive and unarchive: only the person who uploaded it.
+@@ -57,7 +78,7 @@ export const documentRoutes = [
+     const updated = repos.documents.update(doc.id, { archivedAt });
+     repos.audit.write({ at: clock.now(), actorId: user.id, action: archivedAt ? 'document.archived' : 'document.unarchived', targetId: doc.id });
+     services.events.emit('document.archived', { doc: updated });
+-    return { json: { document: view(updated) } };
++    return { json: { document: view(updated, clock.now()) } };
+   }],
+ 
+   // Delete: the uploader or a library owner.
+diff --git a/src/http/routes/pages.mjs b/src/http/routes/pages.mjs
+index e9fccfd..f20406e 100644
+--- a/src/http/routes/pages.mjs
++++ b/src/http/routes/pages.mjs
+@@ -2,7 +2,7 @@ import { documentPage } from '../../views/document.mjs';
+ import { libraryPage } from '../../views/library.mjs';
+ 
+ export const pageRoutes = [
+-  ['GET', '/', ({ user, query, repos, services }) => {
++  ['GET', '/', ({ user, query, repos, services, clock }) => {
+     const libraryId = query.library || repos.libraries.forUser(user.id)[0];
+     if (!libraryId || !repos.libraries.isMember(libraryId, user.id)) {
+       return { status: 404, html: '<p>No library</p>' };
+@@ -11,8 +11,8 @@ export const pageRoutes = [
+     const archived = query.archived === '1';
+     const documents = query.q
+       ? services.search.search(user.id, query.q, { archived }).map(id => repos.documents.find(id)).filter(d => d.libraryId === libraryId)
+-      : repos.documents.inLibrary(libraryId, { archived }).sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+-    return { html: libraryPage({ library, documents, stats: services.analytics.documentStats(documents), q: query.q || '' }) };
++      : repos.documents.inLibrary(libraryId, { archived, now: clock.now() }).sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
++    return { html: libraryPage({ library, documents, stats: services.analytics.documentStats(documents), q: query.q || '', now: clock.now() }) };
+   }, { auth: true }],
+ 
+   ['GET', '/documents/:id', ({ user, params, repos, services }) => {
+diff --git a/src/http/routes/visitor.mjs b/src/http/routes/visitor.mjs
+index 8882f0c..ff16820 100644
+--- a/src/http/routes/visitor.mjs
++++ b/src/http/routes/visitor.mjs
+@@ -1,4 +1,5 @@
+-import { forbidden } from '../../lib/validate.mjs';
++import { forbidden, HttpError } from '../../lib/validate.mjs';
++import { isExpired } from '../../services/expiry.mjs';
+ import { linkPage } from '../../views/link.mjs';
+ 
+ export const visitorRoutes = [
+@@ -8,11 +9,14 @@ export const visitorRoutes = [
+     return { status, html: linkPage({ ...r, sharedBy: repos.users.find(r.link.createdBy) }) };
+   }],
+ 
+-  ['GET', '/l/:linkId/download', ({ params, repos }) => {
++  ['GET', '/l/:linkId/download', ({ params, repos, clock }) => {
+     const link = repos.links.find(params.linkId);
+     if (!link) {
+       return { status: 404, json: { error: 'not_found' } };
+     }
++    if (isExpired(repos.documents.find(link.docId), clock.now())) {
++      throw new HttpError(410, 'expired');
++    }
+     if (link.allowDownload === false) {
+       throw forbidden();
+     }
+diff --git a/src/repos/documents.mjs b/src/repos/documents.mjs
+index dd8cf5b..f5ea13f 100644
+--- a/src/repos/documents.mjs
++++ b/src/repos/documents.mjs
+@@ -1,9 +1,12 @@
++const live = (d, now) => !d.expiresAt || !now || d.expiresAt > now;
++
+ export function documentsRepo(db, ids) {
+   return {
+     find: id => db.find('documents', id),
+     all: () => db.all('documents'),
+-    inLibrary: (libraryId, { archived = false } = {}) => db.where('documents', d => d.libraryId === libraryId && (archived || !d.archivedAt)),
+-    inLibraries: (libraryIds, { archived = false } = {}) => db.where('documents', d => libraryIds.includes(d.libraryId) && (archived || !d.archivedAt)),
++    inLibrary: (libraryId, { archived = false, now = null } = {}) => db.where('documents', d => d.libraryId === libraryId && (archived || !d.archivedAt) && live(d, now)),
++    inLibraries: (libraryIds, { archived = false, now = null } = {}) => db.where('documents', d => libraryIds.includes(d.libraryId) && (archived || !d.archivedAt) && live(d, now)),
++    expiredBefore: when => db.where('documents', d => d.expiresAt && d.expiresAt <= when),
+     create: doc => db.insert('documents', { id: ids.next('doc'), ...doc }),
+     update: (id, patch) => db.update('documents', id, patch),
+     remove: id => db.remove('documents', d => d.id === id),
+diff --git a/src/services/expiry.mjs b/src/services/expiry.mjs
+new file mode 100644
+index 0000000..5cf3404
+--- /dev/null
++++ b/src/services/expiry.mjs
+@@ -0,0 +1,26 @@
++import { EXPIRED_LINKS_KEPT_DAYS } from '../config.mjs';
++import { addDays } from '../lib/time.mjs';
++
++export const isExpired = (doc, now) => Boolean(doc?.expiresAt) && doc.expiresAt <= now;
++
++/** The hourly expiry job: a document expired for 30 days loses its links; it is audited once. */
++export function createExpiry({ repos, clock }) {
++  return {
++    run() {
++      const now = clock.now();
++      const done = [];
++      for (const doc of repos.documents.expiredBefore(addDays(now, -EXPIRED_LINKS_KEPT_DAYS))) {
++        const links = repos.links.forDocument(doc.id);
++        if (!links.length) {
++          continue;
++        }
++        for (const link of links) {
++          repos.links.remove(link.id);
++        }
++        repos.audit.write({ at: now, actorId: null, action: 'document.expired', targetId: doc.id, detail: { links: links.map(l => l.id) } });
++        done.push(doc.id);
++      }
++      return done;
++    },
++  };
++}
+diff --git a/src/services/search.mjs b/src/services/search.mjs
+index 2e3cf30..fd53e40 100644
+--- a/src/services/search.mjs
++++ b/src/services/search.mjs
+@@ -6,14 +6,15 @@ const words = s => String(s).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  * Title search over the documents a person can see. Every word of the query must start a word of
+  * the title, in any order, ignoring case. The index keeps itself current from document events.
+  */
+-export function createSearch({ repos, events }) {
++export function createSearch({ repos, events, clock }) {
+   const index = new Map();
+-  const put = doc => index.set(doc.id, { id: doc.id, title: doc.title, libraryId: doc.libraryId, archivedAt: doc.archivedAt });
++  const put = doc => index.set(doc.id, { id: doc.id, title: doc.title, libraryId: doc.libraryId, archivedAt: doc.archivedAt, expiresAt: doc.expiresAt || null });
+   for (const doc of repos.documents.all()) {
+     put(doc);
+   }
+   events.on('document.created', ({ doc }) => put(doc));
+   events.on('document.archived', ({ doc }) => put(doc));
++  events.on('document.updated', ({ doc }) => put(doc));
+   events.on('document.deleted', ({ doc }) => index.delete(doc.id));
+ 
+   return {
+@@ -26,7 +27,7 @@ export function createSearch({ repos, events }) {
+       const libraries = repos.libraries.forUser(userId);
+       const hits = [];
+       for (const entry of index.values()) {
+-        if (!libraries.includes(entry.libraryId) || (!archived && entry.archivedAt)) {
++        if (!libraries.includes(entry.libraryId) || (!archived && entry.archivedAt) || (clock && entry.expiresAt && entry.expiresAt <= clock.now())) {
+           continue;
+         }
+         const titleWords = words(entry.title);
+diff --git a/src/services/sharing.mjs b/src/services/sharing.mjs
+index 478d5d4..4fc4ca4 100644
+--- a/src/services/sharing.mjs
++++ b/src/services/sharing.mjs
+@@ -1,5 +1,6 @@
+ import { hashSecret, verifySecret } from '../lib/crypto.mjs';
+-import { badRequest, isEmail, notFound } from '../lib/validate.mjs';
++import { badRequest, HttpError, isEmail, notFound } from '../lib/validate.mjs';
++import { isExpired } from './expiry.mjs';
+ 
+ export function createSharing({ repos, access, notifier, events, clock }) {
+   function audit(actorId, action, targetId, detail = {}) {
+@@ -72,6 +73,9 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+       if (!link || !doc || doc.archivedAt) {
+         throw notFound();
+       }
++      if (isExpired(doc, clock.now())) {
++        throw new HttpError(410, 'expired');
++      }
+       if (link.passcodeHash) {
+         if (passcode === undefined || passcode === '') {
+           return { state: 'passcode', link, doc };
+diff --git a/src/views/library.mjs b/src/views/library.mjs
+index 1ca16af..78e075d 100644
+--- a/src/views/library.mjs
++++ b/src/views/library.mjs
+@@ -1,5 +1,7 @@
+ import { escapeHtml, layout } from '../lib/html.mjs';
++import { EXPIRES_SOON_DAYS } from '../config.mjs';
+ import { format } from '../lib/legacyDate.mjs';
++import { formatShortDay, hoursBetween } from '../lib/time.mjs';
+ import { fileType, mark, plural } from './components.mjs';
+ 
+ function activity(s) {
+@@ -10,8 +12,10 @@ function activity(s) {
+ }
+ 
+ /** The library list. `stats` is analytics.documentStats for these documents. */
+-export function libraryPage({ library, documents, stats, q = '' }) {
+-  const rows = documents.map(d => `<li data-testid="doc-row" data-id="${d.id}"><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta"><span data-testid="uploaded">${format(d.uploadedAt, 'MMM D, YYYY')}</span> · <span data-testid="pages">${plural(d.pageCount, 'page')}</span> · <span data-testid="type">${fileType(d.mimeType)}</span>${d.archivedAt ? ` ${mark('mark-archived', 'Archived')}` : ''}</div><div class="activity">${activity(stats[d.id])}</div></li>`).join('');
++const expiresSoon = (d, now) => d.expiresAt && now && hoursBetween(now, d.expiresAt) <= EXPIRES_SOON_DAYS * 24 ? ` ${mark('mark-expires', `Expires ${formatShortDay(d.expiresAt)}`)}` : '';
++
++export function libraryPage({ library, documents, stats, q = '', now = null }) {
++  const rows = documents.map(d => `<li data-testid="doc-row" data-id="${d.id}"><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta"><span data-testid="uploaded">${format(d.uploadedAt, 'MMM D, YYYY')}</span> · <span data-testid="pages">${plural(d.pageCount, 'page')}</span> · <span data-testid="type">${fileType(d.mimeType)}</span>${d.archivedAt ? ` ${mark('mark-archived', 'Archived')}` : ''}${expiresSoon(d, now)}</div><div class="activity">${activity(stats[d.id])}</div></li>`).join('');
+   const search = `<form data-testid="search" action="/" method="get"><input name="q" value="${escapeHtml(q)}" aria-label="Search"></form>`;
+   const empty = documents.length ? '' : `<p data-testid="empty">${q ? 'No documents match your search.' : 'No documents yet.'}</p>`;
+   return layout(library.name, `<h1 data-testid="library-name">${escapeHtml(library.name)}</h1>${search}<p data-testid="count">${plural(documents.length, 'document')}</p><ul data-testid="documents">${rows}</ul>${empty}`);
+diff --git a/test/expiry.test.mjs b/test/expiry.test.mjs
+new file mode 100644
+index 0000000..ac49fa7
+--- /dev/null
++++ b/test/expiry.test.mjs
+@@ -0,0 +1,23 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { createApp, request } from './helpers.mjs';
++
++const patch = (app, id, body, user = 'u_owner') => request(app, { method: 'PATCH', path: `/api/documents/${id}`, user, body });
++
++test('expiry is set by the uploader or a library owner, and must be in the future', async () => {
++  const app = createApp();
++  assert.equal((await patch(app, 'd1', { expiresAt: '2026-10-10T00:00:00.000Z' })).status, 200);
++  assert.equal((await patch(app, 'd1', { expiresAt: '2026-10-10T00:00:00.000Z' }, 'u_teammate')).status, 403);
++  assert.equal((await patch(app, 'd1', { expiresAt: '2026-01-01T00:00:00.000Z' })).body.error, 'invalid_expiry');
++});
++
++test('an expired document is hidden, its links answer 410, and the job removes them after 30 days', async () => {
++  const app = createApp();
++  await patch(app, 'd1', { expiresAt: '2026-10-02T00:00:00.000Z' });
++  app.clock.set('2026-10-02T00:00:00.000Z');
++  assert.equal((await request(app, { path: '/l/l1' })).status, 410);
++  assert.ok(!(await request(app, { path: '/', user: 'u_owner' })).body.includes('data-id="d1"'));
++  app.clock.set('2026-11-01T00:00:00.000Z');
++  app.runJob('expiry');
++  assert.equal(app.repos.links.forDocument('d1').length, 0);
++});

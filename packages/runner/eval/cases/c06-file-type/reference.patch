@@ -1,0 +1,54 @@
+diff --git a/src/web/format.mjs b/src/web/format.mjs
+index e0bbcb9..98be05e 100644
+--- a/src/web/format.mjs
++++ b/src/web/format.mjs
+@@ -7,3 +7,18 @@ export function escapeHtml(s) {
+ export function layout(title, body) {
+   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body><main>${body}</main></body></html>`;
+ }
++
++export function plural(n, one, many = `${one}s`) {
++  return `${n} ${n === 1 ? one : many}`;
++}
++
++const TYPES = {
++  'application/pdf': 'PDF',
++  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word',
++  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel',
++  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PowerPoint',
++};
++
++export function typeLabel(mimeType) {
++  return TYPES[mimeType] || 'File';
++}
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..6523cab 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -1,4 +1,4 @@
+-import { escapeHtml, layout } from './format.mjs';
++import { escapeHtml, layout, plural, typeLabel } from './format.mjs';
+ 
+ export function libraryPage(store, userId, { q = '' } = {}) {
+   const documents = store.listDocuments(userId, { q });
+@@ -13,7 +13,7 @@ export function documentPage(store, userId, id) {
+     return null;
+   }
+   const links = store.linksFor(doc.id).map(l => `<li data-testid="link-row" data-id="${l.id}">${escapeHtml(l.recipientEmail)}</li>`).join('');
+-  return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta"></p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
++  return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta">${plural(doc.pageCount, 'page')} &middot; ${typeLabel(doc.mimeType)}</p><section data-testid="links"><h2>Links</h2><ul>${links}</ul></section>`);
+ }
+ 
+ export function linkPage(store, linkId, { viewer = '' } = {}) {
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index 9d7fb79..66961ae 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -27,3 +27,7 @@ test('the document page is not shown outside the library', () => {
+ test('the link page offers the download', () => {
+   assert.equal(byTestId(linkPage(createStore(), 'l1'), 'download').length, 1);
+ });
++
++test('the document page shows pages and type', () => {
++  assert.match(byTestId(documentPage(createStore(), 'u_owner', 'd4'), 'doc-meta')[0], /4 pages &middot; Word/);
++});

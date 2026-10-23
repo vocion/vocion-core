@@ -1,0 +1,304 @@
+diff --git a/src/config.mjs b/src/config.mjs
+index 4f13618..62c6069 100644
+--- a/src/config.mjs
++++ b/src/config.mjs
+@@ -7,3 +7,4 @@ export const DIGEST_DAY = 1; // Monday, UTC
+ export const NEW_BADGE_HOURS = 24;
+ export const TITLE_MAX = 120;
+ export const SEARCH_LIMIT = 50;
++export const RECIPIENTS_MAX = 20;
+diff --git a/src/db/migrations/004_recipients.mjs b/src/db/migrations/004_recipients.mjs
+new file mode 100644
+index 0000000..1c09f6b
+--- /dev/null
++++ b/src/db/migrations/004_recipients.mjs
+@@ -0,0 +1,9 @@
++// A link can have several recipients. Existing links get their one recipient as the list;
++// recipientEmail stays, always the first recipient, for older readers.
++export default {
++  version: 4,
++  name: 'recipients',
++  up(db) {
++    db.addColumn('links', 'recipients', row => (row.recipientEmail ? [row.recipientEmail] : []));
++  },
++};
+diff --git a/src/db/migrations/index.mjs b/src/db/migrations/index.mjs
+index 25aaf29..cd6ca30 100644
+--- a/src/db/migrations/index.mjs
++++ b/src/db/migrations/index.mjs
+@@ -1,8 +1,9 @@
+ import init from './001_init.mjs';
+ import linkControls from './002_link_controls.mjs';
+ import archive from './003_archive.mjs';
++import recipients from './004_recipients.mjs';
+ 
+-export const MIGRATIONS = [init, linkControls, archive];
++export const MIGRATIONS = [init, linkControls, archive, recipients];
+ 
+ /** Runs every migration above the database's version, up to `to` (all of them by default). */
+ export function migrate(db, { to = Infinity } = {}) {
+diff --git a/src/http/routes/links.mjs b/src/http/routes/links.mjs
+index ef325a9..2a71290 100644
+--- a/src/http/routes/links.mjs
++++ b/src/http/routes/links.mjs
+@@ -1,6 +1,8 @@
+ import { notFound } from '../../lib/validate.mjs';
+ 
+-const view = l => ({ id: l.id, docId: l.docId, recipientEmail: l.recipientEmail, createdAt: l.createdAt, allowDownload: l.allowDownload !== false, hasPasscode: Boolean(l.passcodeHash) });
++import { recipientsOf } from '../../services/sharing.mjs';
++
++const view = l => ({ id: l.id, docId: l.docId, recipientEmail: recipientsOf(l)[0], recipients: recipientsOf(l), createdAt: l.createdAt, allowDownload: l.allowDownload !== false, hasPasscode: Boolean(l.passcodeHash) });
+ 
+ export const linkRoutes = [
+   ['GET', '/api/documents/:id/links', ({ user, params, repos }) => {
+@@ -12,7 +14,7 @@ export const linkRoutes = [
+   }],
+ 
+   ['POST', '/api/documents/:id/links', ({ user, params, body, services }) => {
+-    const link = services.sharing.createLink(user.id, params.id, body.recipientEmail);
++    const link = services.sharing.createLink(user.id, params.id, body.recipients ?? body.recipientEmail);
+     return { status: 201, json: { link: view(link) } };
+   }],
+ 
+diff --git a/src/http/routes/visitor.mjs b/src/http/routes/visitor.mjs
+index 8882f0c..566abbf 100644
+--- a/src/http/routes/visitor.mjs
++++ b/src/http/routes/visitor.mjs
+@@ -3,9 +3,9 @@ import { linkPage } from '../../views/link.mjs';
+ 
+ export const visitorRoutes = [
+   ['GET', '/l/:linkId', ({ req, params, query, user, repos, services }) => {
+-    const r = services.sharing.openLink(params.linkId, { userId: user?.id || null, passcode: query.passcode, userAgent: req.headers?.['user-agent'] || '' });
++    const r = services.sharing.openLink(params.linkId, { userId: user?.id || null, passcode: query.passcode, to: query.to || null, userAgent: req.headers?.['user-agent'] || '' });
+     const status = r.state === 'wrong_passcode' ? 401 : 200;
+-    return { status, html: linkPage({ ...r, sharedBy: repos.users.find(r.link.createdBy) }) };
++    return { status, html: linkPage({ ...r, sharedBy: repos.users.find(r.link.createdBy), to: query.to || null }) };
+   }],
+ 
+   ['GET', '/l/:linkId/download', ({ params, repos }) => {
+diff --git a/src/services/analytics.mjs b/src/services/analytics.mjs
+index 3e3dfbb..b4ce391 100644
+--- a/src/services/analytics.mjs
++++ b/src/services/analytics.mjs
+@@ -1,4 +1,5 @@
+ import { isBot } from '../lib/bots.mjs';
++import { recipientsOf } from './sharing.mjs';
+ 
+ export function createAnalytics({ repos }) {
+   return {
+@@ -19,7 +20,8 @@ export function createAnalytics({ repos }) {
+         const views = repos.views.forLink(link.id).filter(v => !isBot(v.userAgent));
+         return {
+           linkId: link.id,
+-          recipientEmail: link.recipientEmail,
++          recipientEmail: recipientsOf(link)[0],
++          recipients: recipientsOf(link),
+           opens: views.length,
+           lastOpenedAt: views.reduce((m, v) => (m && m > v.at ? m : v.at), null),
+           visits: views.map(v => ({ at: v.at, viewerEmail: v.viewerEmail, userAgent: v.userAgent })),
+diff --git a/src/services/reminders.mjs b/src/services/reminders.mjs
+index e331431..7cb1edb 100644
+--- a/src/services/reminders.mjs
++++ b/src/services/reminders.mjs
+@@ -1,5 +1,6 @@
+ import { REMINDER_AFTER_DAYS, REMINDER_MAX } from '../config.mjs';
+ import { daysBetween, format } from '../lib/legacyDate.mjs';
++import { recipientUrl, recipientsOf } from './sharing.mjs';
+ 
+ /** The hourly reminder job. See docs/notifications.md for the rules. */
+ export function createReminders({ repos, notifier, clock }) {
+@@ -15,26 +16,32 @@ export function createReminders({ repos, notifier, clock }) {
+         if (daysBetween(link.createdAt, now) < REMINDER_AFTER_DAYS) {
+           continue;
+         }
+-        if (repos.views.forLink(link.id).length > 0) {
+-          continue;
+-        }
+-        const earlier = repos.outbox.where(o => o.type === 'reminder' && o.key?.startsWith(`reminder:${link.id}:`));
+-        if (earlier.length >= REMINDER_MAX) {
+-          continue;
+-        }
+-        const key = `reminder:${link.id}:${format(now, 'YYYY-MM-DD')}`;
+-        if (earlier.some(o => o.key === key)) {
+-          continue;
+-        }
++        // Each recipient who has not opened the link is reminded on their own schedule.
++        const opened = new Set(repos.views.forLink(link.id).map(v => v.viewerEmail));
++        const recipients = recipientsOf(link);
+         const owner = repos.users.find(link.createdBy);
+-        const message = notifier.send('reminder', {
+-          to: link.recipientEmail,
+-          subject: `Reminder: ${owner.name} shared "${doc.title}" with you`,
+-          body: `${owner.name} shared "${doc.title}" with you on ${format(link.createdAt, 'MMM D')} and it has not been opened yet.\n\nOpen it: https://dataroom.northwind.example/l/${link.id}\n`,
+-          key,
+-        });
+-        if (message) {
+-          sent.push(message);
++        for (const to of recipients) {
++          if (opened.has(to)) {
++            continue;
++          }
++          const earlier = repos.outbox.where(o => o.type === 'reminder' && o.to === to && o.key?.startsWith(`reminder:${link.id}:`));
++          if (earlier.length >= REMINDER_MAX) {
++            continue;
++          }
++          const day = format(now, 'YYYY-MM-DD');
++          const key = recipients.length === 1 ? `reminder:${link.id}:${day}` : `reminder:${link.id}:${day}:${to}`;
++          if (earlier.some(o => o.key === key)) {
++            continue;
++          }
++          const message = notifier.send('reminder', {
++            to,
++            subject: `Reminder: ${owner.name} shared "${doc.title}" with you`,
++            body: `${owner.name} shared "${doc.title}" with you on ${format(link.createdAt, 'MMM D')} and it has not been opened yet.\n\nOpen it: ${recipients.length === 1 ? `https://dataroom.northwind.example/l/${link.id}` : recipientUrl(link.id, to)}\n`,
++            key,
++          });
++          if (message) {
++            sent.push(message);
++          }
+         }
+       }
+       return sent;
+diff --git a/src/services/sharing.mjs b/src/services/sharing.mjs
+index 478d5d4..65e3f6d 100644
+--- a/src/services/sharing.mjs
++++ b/src/services/sharing.mjs
+@@ -1,27 +1,46 @@
++import { RECIPIENTS_MAX } from '../config.mjs';
+ import { hashSecret, verifySecret } from '../lib/crypto.mjs';
+ import { badRequest, isEmail, notFound } from '../lib/validate.mjs';
+ 
++/** A recipient's own address for a link: opens through it are recorded against them. */
++export const recipientUrl = (linkId, email) => `https://dataroom.northwind.example/l/${linkId}?to=${encodeURIComponent(email)}`;
++
++/** One address or a list, trimmed, lower-cased and de-duplicated; 400 when any is not an email. */
++function normalizeRecipients(input) {
++  const list = Array.isArray(input) ? input : [input];
++  if (!list.length || !list.every(isEmail)) {
++    throw badRequest('invalid_email');
++  }
++  const emails = [...new Set(list.map(e => e.trim().toLowerCase()))];
++  if (emails.length > RECIPIENTS_MAX) {
++    throw badRequest('too_many_recipients');
++  }
++  return emails;
++}
++
++export const recipientsOf = link => (link.recipients?.length ? link.recipients : [link.recipientEmail]);
++
+ export function createSharing({ repos, access, notifier, events, clock }) {
+   function audit(actorId, action, targetId, detail = {}) {
+     repos.audit.write({ at: clock.now(), actorId, action, targetId, detail });
+   }
+ 
+   return {
+-    createLink(userId, docId, recipientEmail) {
++    /** `recipients` is one email or a list of them. */
++    createLink(userId, docId, recipients) {
+       const doc = access.visibleDocument(userId, docId);
+-      if (!isEmail(recipientEmail)) {
+-        throw badRequest('invalid_email');
+-      }
+-      const email = recipientEmail.trim().toLowerCase();
+-      const link = repos.links.create({ docId: doc.id, recipientEmail: email, createdBy: userId, createdAt: clock.now() });
+-      audit(userId, 'link.created', link.id, { docId: doc.id, recipientEmail: email });
++      const emails = normalizeRecipients(recipients);
++      const link = repos.links.create({ docId: doc.id, recipientEmail: emails[0], recipients: emails, createdBy: userId, createdAt: clock.now() });
++      audit(userId, 'link.created', link.id, { docId: doc.id, recipientEmail: emails[0], recipients: emails });
+       const owner = repos.users.find(userId);
+-      notifier.send('link.shared', {
+-        to: email,
+-        subject: `${owner.name} shared "${doc.title}" with you`,
+-        body: `${owner.name} shared "${doc.title}" with you on Northwind Dataroom.\n\nOpen it: https://dataroom.northwind.example/l/${link.id}\n`,
+-        key: `shared:${link.id}`,
+-      });
++      for (const email of emails) {
++        notifier.send('link.shared', {
++          to: email,
++          subject: `${owner.name} shared "${doc.title}" with you`,
++          body: `${owner.name} shared "${doc.title}" with you on Northwind Dataroom.\n\nOpen it: ${recipientUrl(link.id, email)}\n`,
++          key: emails.length === 1 ? `shared:${link.id}` : `shared:${link.id}:${email}`,
++        });
++      }
+       events.emit('link.created', { link, doc });
+       return link;
+     },
+@@ -66,7 +85,7 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+      * A visitor opening a link. Returns { state, link, doc }: 'ok' (a view is recorded),
+      * 'passcode' (asked for one) or 'wrong_passcode'.
+      */
+-    openLink(linkId, { userId = null, passcode, userAgent = '' } = {}) {
++    openLink(linkId, { userId = null, passcode, userAgent = '', to = null } = {}) {
+       const link = repos.links.find(linkId);
+       const doc = link && repos.documents.find(link.docId);
+       if (!link || !doc || doc.archivedAt) {
+@@ -81,7 +100,9 @@ export function createSharing({ repos, access, notifier, events, clock }) {
+         }
+       }
+       const viewer = userId ? repos.users.find(userId) : null;
+-      repos.views.record({ linkId: link.id, docId: doc.id, viewerEmail: viewer ? viewer.email : link.recipientEmail, userId, at: clock.now(), userAgent });
++      const recipients = recipientsOf(link);
++      const recipient = recipients.includes(String(to || '').toLowerCase()) ? String(to).toLowerCase() : recipients[0];
++      repos.views.record({ linkId: link.id, docId: doc.id, viewerEmail: viewer ? viewer.email : recipient, userId, at: clock.now(), userAgent });
+       events.emit('link.opened', { link, doc });
+       return { state: 'ok', link, doc };
+     },
+diff --git a/src/views/analytics.mjs b/src/views/analytics.mjs
+index c7be21d..d5a7da7 100644
+--- a/src/views/analytics.mjs
++++ b/src/views/analytics.mjs
+@@ -3,6 +3,6 @@ import { isoMinute } from '../lib/time.mjs';
+ import { plural } from './components.mjs';
+ 
+ export function analyticsPage({ doc, activity }) {
+-  const rows = activity.map(a => `<tr data-testid="activity-row" data-id="${a.linkId}"><td data-testid="recipient">${escapeHtml(a.recipientEmail)}</td><td data-testid="opens">${plural(a.opens, 'open')}</td><td data-testid="last-opened">${a.lastOpenedAt ? isoMinute(a.lastOpenedAt) : 'Never'}</td></tr>`).join('');
++  const rows = activity.map(a => `<tr data-testid="activity-row" data-id="${a.linkId}"><td data-testid="recipient">${escapeHtml((a.recipients || [a.recipientEmail]).join(', '))}</td><td data-testid="opens">${plural(a.opens, 'open')}</td><td data-testid="last-opened">${a.lastOpenedAt ? isoMinute(a.lastOpenedAt) : 'Never'}</td></tr>`).join('');
+   return layout(`${doc.title}: activity`, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><table data-testid="activity"><thead><tr><th>Recipient</th><th>Opens</th><th>Last opened (UTC)</th></tr></thead><tbody>${rows}</tbody></table>`);
+ }
+diff --git a/src/views/document.mjs b/src/views/document.mjs
+index 9a360b7..864dda5 100644
+--- a/src/views/document.mjs
++++ b/src/views/document.mjs
+@@ -5,7 +5,7 @@ import { fileSize, fileType, mark, plural } from './components.mjs';
+ export function documentPage({ doc, links }) {
+   const rows = links.map((l) => {
+     const marks = `${l.passcodeHash ? mark('mark-passcode', 'Passcode') : ''}${l.allowDownload === false ? mark('mark-no-download', 'No download') : ''}`;
+-    return `<li data-testid="link-row" data-id="${l.id}"><span data-testid="recipient">${escapeHtml(l.recipientEmail)}</span> <span data-testid="link-created">${format(l.createdAt, 'MMM D')}</span> ${marks}</li>`;
++    return `<li data-testid="link-row" data-id="${l.id}"><span data-testid="recipient">${escapeHtml((l.recipients?.length ? l.recipients : [l.recipientEmail]).join(', '))}</span> <span data-testid="link-created">${format(l.createdAt, 'MMM D')}</span> ${marks}</li>`;
+   }).join('');
+   const meta = `${plural(doc.pageCount, 'page')} · ${fileType(doc.mimeType)} · ${fileSize(doc.sizeBytes)} · uploaded ${format(doc.uploadedAt, 'MMM D, YYYY')}`;
+   return layout(doc.title, `<a data-testid="back" href="/">Library</a><h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta">${meta}</p><section data-testid="links"><h2>Links</h2><ul>${rows}</ul></section><a data-testid="analytics-link" href="/documents/${doc.id}/analytics">Activity</a>`);
+diff --git a/src/views/link.mjs b/src/views/link.mjs
+index 1ccbd66..fc3ede0 100644
+--- a/src/views/link.mjs
++++ b/src/views/link.mjs
+@@ -2,10 +2,10 @@ import { escapeHtml, layout } from '../lib/html.mjs';
+ import { formatDay } from '../lib/time.mjs';
+ 
+ /** What a visitor sees: the passcode prompt, or the document. */
+-export function linkPage({ state, link, doc, sharedBy }) {
++export function linkPage({ state, link, doc, sharedBy, to = null }) {
+   if (state === 'passcode' || state === 'wrong_passcode') {
+     const error = state === 'wrong_passcode' ? '<p data-testid="passcode-error">That passcode is not right.</p>' : '';
+-    return layout('Passcode required', `<h1>This document is protected</h1>${error}<form data-testid="passcode-form" method="get" action="/l/${link.id}"><input name="passcode" type="password" aria-label="Passcode"><button>Open</button></form>`);
++    return layout('Passcode required', `<h1>This document is protected</h1>${error}<form data-testid="passcode-form" method="get" action="/l/${link.id}">${to ? `<input type="hidden" name="to" value="${escapeHtml(to)}">` : ''}<input name="passcode" type="password" aria-label="Passcode"><button>Open</button></form>`);
+   }
+   const download = link.allowDownload === false ? '' : `<a data-testid="download" href="/l/${link.id}/download">Download</a>`;
+   return layout(doc.title, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="shared-by">Shared by ${escapeHtml(sharedBy?.name || 'a Northwind Dataroom user')} on ${formatDay(link.createdAt)}</p><div data-testid="viewer">${doc.pageCount} pages</div>${download}`);
+diff --git a/test/sharing.test.mjs b/test/sharing.test.mjs
+index 53ce01c..935f407 100644
+--- a/test/sharing.test.mjs
++++ b/test/sharing.test.mjs
+@@ -33,3 +33,12 @@ test('a passcode guards the link; downloads can be turned off', async () => {
+   assert.equal(app.repos.views.forLink('l2').length, 1);
+   assert.doesNotMatch(JSON.stringify(app.repos.links.find('l2')), /tiger42/);
+ });
++
++test('a link can have several recipients, each with their own address and reminders', async () => {
++  const app = createApp();
++  const r = await request(app, { method: 'POST', path: '/api/documents/d2/links', user: 'u_owner', body: { recipients: ['amy@kestrel.example', 'ben@kestrel.example'] } });
++  assert.deepEqual(r.body.link.recipients, ['amy@kestrel.example', 'ben@kestrel.example']);
++  await request(app, { path: `/l/${r.body.link.id}`, query: { to: 'ben@kestrel.example' } });
++  app.clock.set('2026-10-04T13:00:00.000Z');
++  assert.deepEqual(app.runJob('reminders').filter(m => m.body.includes(r.body.link.id)).map(m => m.to), ['amy@kestrel.example']);
++});

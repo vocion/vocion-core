@@ -33,8 +33,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa, shotsDirFor, taskShotsDir } from './contract.mjs';
+import { engineFor, engineId } from './engines/index.mjs';
 import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown, usageFromMessages } from './events.mjs';
-import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, matchingTests, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testResultsOf, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
+import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, matchingTests, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, stageablePaths, taskHeadline, testResultsOf, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
 import { planRequirement } from './plan.mjs';
 import { checkAllowedPaths, checkNotRunnableFailure, notRunnableChecks, pathsMissingFailure } from './preflight.mjs';
 import { captureEvidence, collectRepoTestShots, collectRepoTestVideos, containerCredentials, excludeShotsDir, otherTasksShots, productionBase, publishArtifact, qaReportMarkdown, reportArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
@@ -78,6 +79,8 @@ const cfg = {
   defaultProduct: env.DEFAULT_PRODUCT || 'default',
   defaultModel: env.DEFAULT_MODEL || 'sonnet',
   claudeBin: env.CLAUDE_BIN || 'claude',
+  // The OpenHands engine's virtualenv (the image's open target); see src/engines/openhands.mjs.
+  openhandsHome: env.OPENHANDS_HOME || '/opt/openhands',
   // Where a `postgres` service answers when the contract names no url: the target's sidecar or
   // compose service. A repo whose tests expect another address names it on its repo record.
   postgresUrl: env.RUNNER_POSTGRES_URL || 'postgresql://postgres:postgres@localhost:5432/postgres',
@@ -755,10 +758,11 @@ function prepareRepo(task, run) {
   // and the feature waited on a person): the branch stays as it was and the brief names the files.
   let resumedFrom = null;
   if (base.resume) {
-    must('git', ['fetch', '--quiet', 'origin', 'main']);
-    const mainSha = must('git', ['rev-parse', 'origin/main']).trim();
-    const ahead = Number(must('git', ['rev-list', '--count', `origin/main..${baseSha}`]).trim()) || 0;
-    const rebase = sh('git', ['rebase', '--quiet', 'origin/main'], { timeoutSeconds: 300 });
+    const target = landingBranch(task);
+    must('git', ['fetch', '--quiet', 'origin', target]);
+    const mainSha = must('git', ['rev-parse', `origin/${target}`]).trim();
+    const ahead = Number(must('git', ['rev-list', '--count', `origin/${target}..${baseSha}`]).trim()) || 0;
+    const rebase = sh('git', ['rebase', '--quiet', `origin/${target}`], { timeoutSeconds: 300 });
     if (rebase.code !== 0) {
       const conflicts = sh('git', ['diff', '--name-only', '--diff-filter=U']).stdout.trim().split('\n').filter(Boolean);
       sh('git', ['rebase', '--abort']);
@@ -881,6 +885,11 @@ async function startServices(task) {
   log('services_started', { services_started: state.services });
 }
 
+/** The branch the work lands on: the contract's base_branch, else main (as before the field). */
+function landingBranch(task) {
+  return task.base_branch || 'main';
+}
+
 /** The run's model budget in dollars: the contract's, never above the worker's (or the run's cap). */
 function runBudgetUsd(task) {
   return Math.min(cfg.maxBudgetUsd, num(task.token_budget_usd, cfg.maxBudgetUsd));
@@ -902,54 +911,19 @@ function runClaude(task, runId, opts = {}) {
   const label = opts.label || 'engineer';
   setPhase(label === 'engineer' ? 'claude' : 'repair', `${label}: model=${model} budget=$${budget} timeout=${claudeTimeout}s${opts.resume ? ' (same session)' : ''}`);
 
-  const args = [
-    '-p',
-    '--output-format',
-    'stream-json',
-    '--verbose',
-    '--max-budget-usd',
-    String(budget),
-    '--permission-mode',
-    'dontAsk',
-    '--allowedTools',
-    'Read',
-    'Edit',
-    'Write',
-    'MultiEdit',
-    'Glob',
-    'Grep',
-    'Bash',
-    'TodoWrite',
-    'Task',
-    '--disallowedTools',
-    'WebSearch',
-    'NotebookEdit',
-    '--settings',
-    path.join(cfg.runnerHome, 'claude-settings.json'),
-    '--append-system-prompt',
-    standingRules(task),
-    '--model',
-    model,
-  ];
-  // The session is kept on disk (under ~/.claude, inside the container) so a repair pass can resume it.
-  if (opts.resume) {
-    args.push('--resume', opts.resume);
-  } else if (opts.sessionId) {
-    args.push('--session-id', opts.sessionId);
-  } else {
-    args.push('--no-session-persistence');
-  }
-  if (task.model_policy.effort) {
-    args.push('--effort', String(task.model_policy.effort));
-  }
-  if (task.model_policy.escalate_to) {
-    args.push('--fallback-model', String(task.model_policy.escalate_to));
-  }
+  // The engine (src/engines/) builds the pass's process; everything else here is the runner's.
+  const engine = engineFor(task);
+  const proc = engine.pass({ task, model, budget, opts, cfg, rules: standingRules(task), repoDir: REPO_DIR, logDir: LOG_DIR });
 
   // The agent never sees the GitHub or Vocion credentials; it only needs the Anthropic key.
+  // An engine that reaches its model through the task role keeps those credentials for its own
+  // process (keepEnv) and drops them before any tool runs; GitHub and Vocion are never kept.
   const childEnv = { ...process.env };
+  const keep = new Set((proc.keepEnv || []).filter(k => k.startsWith('AWS_')));
   for (const k of ['GITHUB_TOKEN', 'GH_TOKEN', 'VOCION_TOKEN', 'VOCION_RUNNER_TOKEN', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_AUTHORIZATION_TOKEN']) {
-    delete childEnv[k];
+    if (!keep.has(k)) {
+      delete childEnv[k];
+    }
   }
   Object.assign(childEnv, state.serviceEnv, {
     // The hooks fence the repository, not the plan's scope (humanOwned, keep.mjs).
@@ -960,6 +934,7 @@ function runClaude(task, runId, opts = {}) {
     RUNNER_TOOL_LEDGER: path.join(LOG_DIR, 'tools.jsonl'),
     CLAUDE_PROJECT_DIR: REPO_DIR,
   });
+  Object.assign(childEnv, proc.env || {});
 
   const prompt = opts.prompt ?? renderTaskMarkdown(task, runId);
   fs.writeFileSync(path.join(LOG_DIR, label === 'engineer' ? 'prompt.md' : `prompt.${label}.md`), prompt);
@@ -967,7 +942,7 @@ function runClaude(task, runId, opts = {}) {
   const streamPath = path.join(LOG_DIR, label === 'engineer' ? 'claude.stream.jsonl' : `claude.${label}.stream.jsonl`);
   return new Promise((resolve) => {
     const started = Date.now();
-    const child = spawn(cfg.claudeBin, args, { cwd: REPO_DIR, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(proc.bin, proc.args, { cwd: REPO_DIR, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
     state.claude = child;
     let out = '';
     let err = '';
@@ -1323,9 +1298,18 @@ async function provenByTests(recordId, runId) {
   return { proofs: runs.filter(r => r.passed), runLink, notRun, allSkipped, tests };
 }
 
+/** `git add -A --` on the paths that still have something to stage (keep.mjs stageablePaths). */
+function stagePaths(files) {
+  const index = new Set(must('git', ['ls-files', '-z']).split('\0').filter(Boolean));
+  const paths = stageablePaths(files, f => fs.existsSync(path.join(REPO_DIR, f)), f => index.has(f));
+  if (paths.length) {
+    must('git', ['add', '-A', '--', ...paths]);
+  }
+}
+
 function land(task, runId, verification, claude, prepared, evidence = null, tests = { proofs: [], runLink: null }) {
   setPhase('land', `commit and push ${prepared.branch}`);
-  must('git', ['add', '-A', '--', ...verification.files]);
+  stagePaths(verification.files);
   const title = taskHeadline(task, { max: 72 });
   const message = [
     `${task.risk_class}: ${title}`,
@@ -1402,7 +1386,7 @@ function land(task, runId, verification, claude, prepared, evidence = null, test
   fs.writeFileSync(path.join(SCRATCH_DIR, 'pr-body.md'), body);
   const pullRequestTitle = prTitle({ task });
   let prUrl = '';
-  const create = sh('gh', ['pr', 'create', '--base', 'main', '--head', prepared.branch, '--title', pullRequestTitle, '--body-file', path.join(SCRATCH_DIR, 'pr-body.md')], { timeoutSeconds: 120 });
+  const create = sh('gh', ['pr', 'create', '--base', landingBranch(task), '--head', prepared.branch, '--title', pullRequestTitle, '--body-file', path.join(SCRATCH_DIR, 'pr-body.md')], { timeoutSeconds: 120 });
   if (create.code === 0) {
     prUrl = (create.stdout.match(/https:\/\/github\.com\/\S+\/pull\/\d+/) || [''])[0];
   } else {
@@ -1452,7 +1436,7 @@ function keepWork(task, runId, prepared, claude, verification, reason) {
   setPhase('keep', `${reason}: ${decision.kept.length} file(s) to ${branch}`);
   try {
     must('git', ['checkout', '--quiet', '-B', branch]);
-    must('git', ['add', '-A', '--', ...decision.kept]);
+    stagePaths(decision.kept);
     const message = wipCommitMessage({ task, reason, runId, model: modelDisplayName(claude?.model) });
     fs.writeFileSync(path.join(SCRATCH_DIR, 'wip-commit-msg.txt'), message);
     must('git', ['commit', '--quiet', '-F', path.join(SCRATCH_DIR, 'wip-commit-msg.txt')]);
@@ -1481,7 +1465,7 @@ function keepWork(task, runId, prepared, claude, verification, reason) {
     const title = wipPrTitle({ task, reason, runId });
     ensureLabel('checks-failed', 'D93F0B', 'Factory run kept unverified work as a draft PR');
     let prUrl = '';
-    const create = sh('gh', ['pr', 'create', '--draft', '--base', 'main', '--head', branch, '--title', title, '--label', 'checks-failed', '--body-file', path.join(SCRATCH_DIR, 'wip-pr-body.md')], { timeoutSeconds: 120 });
+    const create = sh('gh', ['pr', 'create', '--draft', '--base', landingBranch(task), '--head', branch, '--title', title, '--label', 'checks-failed', '--body-file', path.join(SCRATCH_DIR, 'wip-pr-body.md')], { timeoutSeconds: 120 });
     if (create.code === 0) {
       prUrl = (create.stdout.match(/https:\/\/github\.com\/\S+\/pull\/\d+/) || [''])[0];
     } else {
@@ -1853,6 +1837,14 @@ async function main() {
   const baseKind = classifyBase(task.base_sha);
   log('plan', planLogLine(task));
   log('task', { task_id: task.task_id, product: task.product, repo: task.repo, base_sha: task.base_sha, resumedFrom: baseKind.resume ? baseKind.ref : undefined, risk_class: task.risk_class, allowed_paths: task.allowed_paths, required_checks: task.required_checks, services: task.environment?.services || [], model_policy: task.model_policy, token_budget_usd: task.token_budget_usd, wall_clock_minutes: task.wall_clock_minutes, attempt: effectiveAttempt(run?.attempt, task.attempt), defaults_applied: applied, objective: task.objective.slice(0, 200) });
+
+  // The engine the contract asks for must be in this image; refused before the clone if not.
+  const engineReady = engineFor(task).available(cfg);
+  log('engine', { id: engineId(task), ok: engineReady.ok, model: task.engine?.model || undefined });
+  if (!engineReady.ok) {
+    await fail(runId, `engine ${engineId(task)} is not carried by this runner image: ${engineReady.why}. Nothing was cloned and no model was called.`, [{ scope: 'engine', message: engineReady.why }], { task_id: task.task_id });
+    return;
+  }
 
   let prepared;
   try {

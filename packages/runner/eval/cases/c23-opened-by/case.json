@@ -1,0 +1,24 @@
+{
+  "id": "c23-opened-by",
+  "split": "held-out",
+  "complexity": 3,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 27,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "\"Opened by N\" on each library row",
+  "objective": "Under each library document, show how many different people opened it, like \"Opened by 2\", in an element with data-testid=\"opened-by\". The same person twice counts once; the document owner's own opens never count; a document nobody else opened reads \"Not opened\". Also return openedBy (the number) on each document in GET /api/documents.",
+  "acceptance": [
+    "d1 (two different visitors, one of them twice, plus the owner) reads \"Opened by 2\"",
+    "A teammate's open counts: d2 reads \"Opened by 1\"",
+    "d4, opened only by its owner, and d5, never opened, read \"Not opened\"",
+    "GET /api/documents returns openedBy"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "A distinct-viewers query excluding doc.ownerId in store.mjs, used by the page and the API."
+}

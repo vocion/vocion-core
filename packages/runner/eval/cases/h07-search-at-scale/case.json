@@ -1,0 +1,25 @@
+{
+  "id": "h07-search-at-scale",
+  "tier": "hard",
+  "split": "held-out",
+  "complexity": 4,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 13,
+    "kind": "walk-derived",
+    "note": "Walk 13's search line, at the size a larger customer's library reaches; graded against the shipped algorithm's own results and time."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Make search fast on 20,000 documents",
+  "objective": "A customer with about 20,000 documents says search is sluggish. Make title search at least 4 times faster at that size without changing a single result: the same matches, the same order, the same 50-result limit, the same handling of archived documents, libraries and odd input. The index must still follow creates, archives and deletes. Add a test.",
+  "acceptance": [
+    "Results on 20000 documents are identical to the shipped search for every query, user and archived setting",
+    "A batch of queries over 20000 documents runs at least 4 times faster than the shipped algorithm",
+    "The index still follows creates, archives and deletes"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Titles tokenized once into a prefix index; queries start from the rarest term and stop at the limit over entries kept in result order; a test."
+}

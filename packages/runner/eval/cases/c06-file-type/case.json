@@ -1,0 +1,24 @@
+{
+  "id": "c06-file-type",
+  "split": "held-out",
+  "complexity": 2,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 10,
+    "kind": "walk-adapted",
+    "note": "The walk added the type beside an existing page count; the fixture has none, so this case asks for both."
+  },
+  "fixture_ref": "v1",
+  "title": "Show the file type next to the page count",
+  "objective": "On the document page's meta line (data-testid=\"doc-meta\"), show the page count and the file type, like \"18 pages · PDF\". Types: application/pdf is PDF, a Word document (.docx) is Word, an Excel sheet (.xlsx) is Excel, a PowerPoint deck (.pptx) is PowerPoint, anything else is File.",
+  "acceptance": [
+    "d1 reads \"18 pages · PDF\"",
+    "d4 reads \"4 pages · Word\" and d2 reads \"1 page · Excel\"",
+    "A PowerPoint deck reads PowerPoint and an unknown type reads File"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "A typeLabel(mimeType) helper in format.mjs; render it beside the page count."
+}

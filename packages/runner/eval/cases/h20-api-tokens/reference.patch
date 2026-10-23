@@ -1,0 +1,258 @@
+diff --git a/src/app.mjs b/src/app.mjs
+index 8da4b30..c4154c3 100644
+--- a/src/app.mjs
++++ b/src/app.mjs
+@@ -14,6 +14,7 @@ import { createNotifier } from './services/notifications.mjs';
+ import { createReminders } from './services/reminders.mjs';
+ import { createSearch } from './services/search.mjs';
+ import { createSharing } from './services/sharing.mjs';
++import { createTokens } from './services/tokens.mjs';
+ 
+ /**
+  * The whole product in one object. `db` defaults to a fresh, migrated database with the seed;
+@@ -40,6 +41,7 @@ export function createApp({ db, now, seed = true } = {}) {
+   const services = { events, access, notifier, analytics, search, sharing };
+   services.reminders = createReminders({ repos, notifier, clock });
+   services.digest = createDigest({ repos, analytics, notifier, clock });
++  services.tokens = createTokens({ repos, clock });
+   const app = { db: database, clock, ids, repos, services };
+   const route = createRouter(ROUTES);
+   return {
+diff --git a/src/config.mjs b/src/config.mjs
+index 4f13618..b15a3fe 100644
+--- a/src/config.mjs
++++ b/src/config.mjs
+@@ -7,3 +7,4 @@ export const DIGEST_DAY = 1; // Monday, UTC
+ export const NEW_BADGE_HOURS = 24;
+ export const TITLE_MAX = 120;
+ export const SEARCH_LIMIT = 50;
++export const TOKEN_NAME_MAX = 60;
+diff --git a/src/db/migrations/004_api_tokens.mjs b/src/db/migrations/004_api_tokens.mjs
+new file mode 100644
+index 0000000..606f45a
+--- /dev/null
++++ b/src/db/migrations/004_api_tokens.mjs
+@@ -0,0 +1,8 @@
++// Personal API tokens. Only a hash of each secret is stored.
++export default {
++  version: 4,
++  name: 'api_tokens',
++  up(db) {
++    db.createTable('api_tokens', { id: null, userId: null, name: null, scope: 'read', hash: null, createdAt: null, lastUsedAt: null, revokedAt: null });
++  },
++};
+diff --git a/src/db/migrations/index.mjs b/src/db/migrations/index.mjs
+index 25aaf29..68e5d0a 100644
+--- a/src/db/migrations/index.mjs
++++ b/src/db/migrations/index.mjs
+@@ -1,8 +1,9 @@
+ import init from './001_init.mjs';
+ import linkControls from './002_link_controls.mjs';
+ import archive from './003_archive.mjs';
++import apiTokens from './004_api_tokens.mjs';
+ 
+-export const MIGRATIONS = [init, linkControls, archive];
++export const MIGRATIONS = [init, linkControls, archive, apiTokens];
+ 
+ /** Runs every migration above the database's version, up to `to` (all of them by default). */
+ export function migrate(db, { to = Infinity } = {}) {
+diff --git a/src/http/router.mjs b/src/http/router.mjs
+index ee05049..cfa214d 100644
+--- a/src/http/router.mjs
++++ b/src/http/router.mjs
+@@ -4,6 +4,9 @@ import { HttpError } from '../lib/validate.mjs';
+  * The route table. A route is [method, pattern, handler, { auth }]; a pattern's :name segments
+  * become ctx.params. A handler gets ctx and returns { status, json } , { status, html } or a
+  * full response. HEAD is answered by the GET route.
++ *
++ * A caller is signed in by the x-user header, or on /api routes by `Authorization: Bearer <api
++ * token>`. A read-scope token may only read; routes marked { session: true } refuse tokens.
+  */
+ export function createRouter(routes) {
+   const table = routes.map(([method, pattern, handler, options = {}]) => {
+@@ -12,7 +15,7 @@ export function createRouter(routes) {
+       names.push(n);
+       return '([^/]+)';
+     })}$`);
+-    return { method, re, names, handler, auth: options.auth ?? pattern.startsWith('/api/') };
++    return { method, re, names, handler, auth: options.auth ?? pattern.startsWith('/api/'), api: pattern.startsWith('/api/'), session: Boolean(options.session) };
+   });
+ 
+   return async function handle(req, app) {
+@@ -24,12 +27,27 @@ export function createRouter(routes) {
+         continue;
+       }
+       const params = Object.fromEntries(r.names.map((n, i) => [n, decodeURIComponent(m[i + 1])]));
+-      const userId = req.headers?.['x-user'] || null;
++      let userId = req.headers?.['x-user'] || null;
++      let token = null;
++      const bearer = String(req.headers?.authorization || '').match(/^Bearer\s+(\S+)$/i);
++      if (!userId && bearer && r.api) {
++        token = app.services.tokens.authenticate(bearer[1]);
++        if (!token) {
++          return json(401, { error: 'unauthorized' });
++        }
++        if (r.session) {
++          return json(403, { error: 'session_required' });
++        }
++        if (token.scope === 'read' && method !== 'GET') {
++          return json(403, { error: 'insufficient_scope' });
++        }
++        userId = token.userId;
++      }
+       const user = userId ? app.repos.users.find(userId) : null;
+       if (r.auth && !user) {
+         return json(401, { error: 'unauthorized' });
+       }
+-      const ctx = { req, params, query: req.query || {}, body: req.body || {}, user, ...app };
++      const ctx = { req, params, query: req.query || {}, body: req.body || {}, user, token, ...app };
+       try {
+         return toResponse(await r.handler(ctx));
+       } catch (e) {
+diff --git a/src/http/routes/index.mjs b/src/http/routes/index.mjs
+index fcab921..44ddeba 100644
+--- a/src/http/routes/index.mjs
++++ b/src/http/routes/index.mjs
+@@ -3,7 +3,8 @@ import { analyticsRoutes } from './analytics.mjs';
+ import { documentRoutes } from './documents.mjs';
+ import { linkRoutes } from './links.mjs';
+ import { pageRoutes } from './pages.mjs';
++import { tokenRoutes } from './tokens.mjs';
+ import { userRoutes } from './users.mjs';
+ import { visitorRoutes } from './visitor.mjs';
+ 
+-export const ROUTES = [...documentRoutes, ...linkRoutes, ...visitorRoutes, ...analyticsRoutes, ...adminRoutes, ...pageRoutes, ...userRoutes];
++export const ROUTES = [...documentRoutes, ...linkRoutes, ...visitorRoutes, ...analyticsRoutes, ...adminRoutes, ...pageRoutes, ...userRoutes, ...tokenRoutes];
+diff --git a/src/http/routes/tokens.mjs b/src/http/routes/tokens.mjs
+new file mode 100644
+index 0000000..709f67d
+--- /dev/null
++++ b/src/http/routes/tokens.mjs
+@@ -0,0 +1,18 @@
++const view = t => ({ id: t.id, name: t.name, scope: t.scope, createdAt: t.createdAt, lastUsedAt: t.lastUsedAt, revokedAt: t.revokedAt });
++
++// Managing tokens takes a signed-in session: a token cannot mint or revoke tokens.
++const SESSION = { session: true };
++
++export const tokenRoutes = [
++  ['GET', '/api/tokens', ({ user, services }) => ({ json: { tokens: services.tokens.list(user.id).map(view) } }), SESSION],
++
++  ['POST', '/api/tokens', ({ user, body, services }) => {
++    const { token, secret } = services.tokens.create(user.id, body);
++    return { status: 201, json: { token: view(token), secret } };
++  }, SESSION],
++
++  ['DELETE', '/api/tokens/:id', ({ user, params, services }) => {
++    services.tokens.revoke(user.id, params.id);
++    return { status: 204, json: {} };
++  }, SESSION],
++];
+diff --git a/src/repos/index.mjs b/src/repos/index.mjs
+index 94fd886..bee795a 100644
+--- a/src/repos/index.mjs
++++ b/src/repos/index.mjs
+@@ -3,6 +3,7 @@ import { documentsRepo } from './documents.mjs';
+ import { librariesRepo } from './libraries.mjs';
+ import { linksRepo } from './links.mjs';
+ import { outboxRepo } from './outbox.mjs';
++import { tokensRepo } from './tokens.mjs';
+ import { usersRepo } from './users.mjs';
+ import { viewsRepo } from './views.mjs';
+ 
+@@ -15,5 +16,6 @@ export function createRepos(db, ids) {
+     views: viewsRepo(db, ids),
+     audit: auditRepo(db, ids),
+     outbox: outboxRepo(db, ids),
++    tokens: tokensRepo(db, ids),
+   };
+ }
+diff --git a/src/repos/tokens.mjs b/src/repos/tokens.mjs
+new file mode 100644
+index 0000000..c627643
+--- /dev/null
++++ b/src/repos/tokens.mjs
+@@ -0,0 +1,9 @@
++export function tokensRepo(db, ids) {
++  return {
++    find: id => db.find('api_tokens', id),
++    byHash: hash => db.where('api_tokens', t => t.hash === hash)[0] || null,
++    forUser: userId => db.where('api_tokens', t => t.userId === userId),
++    create: token => db.insert('api_tokens', { id: ids.next('tok'), ...token }),
++    update: (id, patch) => db.update('api_tokens', id, patch),
++  };
++}
+diff --git a/src/services/tokens.mjs b/src/services/tokens.mjs
+new file mode 100644
+index 0000000..d0ba9fa
+--- /dev/null
++++ b/src/services/tokens.mjs
+@@ -0,0 +1,49 @@
++import { TOKEN_NAME_MAX } from '../config.mjs';
++import { randomToken, sha256 } from '../lib/crypto.mjs';
++import { badRequest, notFound, requireString } from '../lib/validate.mjs';
++
++export const SCOPES = ['read', 'write'];
++const PREFIX = 'dr_';
++
++/**
++ * Personal API tokens: `Authorization: Bearer <secret>` acts as the token's owner on /api routes.
++ * A `read` token may only read (GET). The secret is shown once, at creation; only its SHA-256 is
++ * stored, so a database leak does not leak working tokens.
++ */
++export function createTokens({ repos, clock }) {
++  const audit = (actorId, action, targetId, detail = {}) => repos.audit.write({ at: clock.now(), actorId, action, targetId, detail });
++  return {
++    create(userId, { name, scope } = {}) {
++      const label = requireString(name, 'invalid_name', { max: TOKEN_NAME_MAX });
++      if (!SCOPES.includes(scope)) {
++        throw badRequest('invalid_scope');
++      }
++      const secret = `${PREFIX}${randomToken(24)}`;
++      const token = repos.tokens.create({ userId, name: label, scope, hash: sha256(secret), createdAt: clock.now() });
++      audit(userId, 'token.created', token.id, { name: label, scope });
++      return { token, secret };
++    },
++    list: userId => repos.tokens.forUser(userId),
++    revoke(userId, id) {
++      const token = repos.tokens.find(id);
++      if (!token || token.userId !== userId) {
++        throw notFound();
++      }
++      if (!token.revokedAt) {
++        repos.tokens.update(token.id, { revokedAt: clock.now() });
++        audit(userId, 'token.revoked', token.id, { name: token.name });
++      }
++    },
++    /** The live token for a secret (its last use recorded), or null. */
++    authenticate(secret) {
++      if (typeof secret !== 'string' || !secret.startsWith(PREFIX)) {
++        return null;
++      }
++      const token = repos.tokens.byHash(sha256(secret));
++      if (!token || token.revokedAt) {
++        return null;
++      }
++      return repos.tokens.update(token.id, { lastUsedAt: clock.now() });
++    },
++  };
++}
+diff --git a/test/tokens.test.mjs b/test/tokens.test.mjs
+new file mode 100644
+index 0000000..a15812d
+--- /dev/null
++++ b/test/tokens.test.mjs
+@@ -0,0 +1,14 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { createApp, request } from './helpers.mjs';
++
++test('API tokens authenticate, respect their scope and can be revoked', async () => {
++  const app = createApp();
++  const r = await request(app, { method: 'POST', path: '/api/tokens', user: 'u_owner', body: { name: 'sync', scope: 'read' } });
++  const auth = { authorization: `Bearer ${r.body.secret}` };
++  assert.equal((await request(app, { path: '/api/me', headers: auth })).body.user.id, 'u_owner');
++  assert.equal((await request(app, { method: 'PATCH', path: '/api/documents/d1', headers: auth, body: { title: 'x' } })).body.error, 'insufficient_scope');
++  assert.ok(!JSON.stringify(app.db.all('api_tokens')).includes(r.body.secret));
++  await request(app, { method: 'DELETE', path: `/api/tokens/${r.body.token.id}`, user: 'u_owner' });
++  assert.equal((await request(app, { path: '/api/me', headers: auth })).status, 401);
++});

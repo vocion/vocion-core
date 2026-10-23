@@ -1,0 +1,23 @@
+{
+  "id": "c05-upload-date-library",
+  "split": "tuning",
+  "complexity": 2,
+  "risk_class": "ui",
+  "origin": {
+    "walk": 9,
+    "kind": "walk"
+  },
+  "fixture_ref": "v1",
+  "title": "Show the upload date under each title on the library list",
+  "objective": "On the library list, show each document's upload date under its title, like \"Uploaded Sep 30\", in the row's meta (an element with data-testid=\"uploaded\" inside each data-testid=\"doc-row\"). Dates are UTC; an earlier year shows the year.",
+  "acceptance": [
+    "Every library row shows its upload date under the title",
+    "d1 reads \"Uploaded Sep 30\" and d3 reads \"Uploaded Sep 12\"",
+    "An earlier year shows the year, like \"Uploaded Dec 31, 2025\""
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "formatDate in format.mjs; render it in each row of libraryPage."
+}

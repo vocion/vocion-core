@@ -1,0 +1,73 @@
+diff --git a/src/lib/browsers.mjs b/src/lib/browsers.mjs
+new file mode 100644
+index 0000000..e9be612
+--- /dev/null
++++ b/src/lib/browsers.mjs
+@@ -0,0 +1,13 @@
++// The browser family of a user agent, as the activity page names it. Order matters: Edge and
++// Chrome also claim Safari, and Edge also claims Chrome.
++const FAMILIES = [
++  ['Edge', /Edg\//],
++  ['Chrome', /Chrome\//],
++  ['Firefox', /Firefox\//],
++  ['Safari', /Safari\//],
++];
++
++export function browserName(userAgent) {
++  const ua = String(userAgent || '');
++  return FAMILIES.find(([, re]) => re.test(ua))?.[0] || 'Other';
++}
+diff --git a/src/services/analytics.mjs b/src/services/analytics.mjs
+index 3e3dfbb..9cd3b04 100644
+--- a/src/services/analytics.mjs
++++ b/src/services/analytics.mjs
+@@ -1,4 +1,5 @@
+ import { isBot } from '../lib/bots.mjs';
++import { browserName } from '../lib/browsers.mjs';
+ 
+ export function createAnalytics({ repos }) {
+   return {
+@@ -17,11 +18,13 @@ export function createAnalytics({ repos }) {
+     linkActivity(docId) {
+       return repos.links.forDocument(docId).map((link) => {
+         const views = repos.views.forLink(link.id).filter(v => !isBot(v.userAgent));
++        const latest = views.reduce((m, v) => (m && m.at > v.at ? m : v), null);
+         return {
+           linkId: link.id,
+           recipientEmail: link.recipientEmail,
+           opens: views.length,
+-          lastOpenedAt: views.reduce((m, v) => (m && m > v.at ? m : v.at), null),
++          lastOpenedAt: latest?.at || null,
++          lastBrowser: latest ? browserName(latest.userAgent) : null,
+           visits: views.map(v => ({ at: v.at, viewerEmail: v.viewerEmail, userAgent: v.userAgent })),
+         };
+       });
+diff --git a/src/views/analytics.mjs b/src/views/analytics.mjs
+index c7be21d..8375f55 100644
+--- a/src/views/analytics.mjs
++++ b/src/views/analytics.mjs
+@@ -3,6 +3,6 @@ import { isoMinute } from '../lib/time.mjs';
+ import { plural } from './components.mjs';
+ 
+ export function analyticsPage({ doc, activity }) {
+-  const rows = activity.map(a => `<tr data-testid="activity-row" data-id="${a.linkId}"><td data-testid="recipient">${escapeHtml(a.recipientEmail)}</td><td data-testid="opens">${plural(a.opens, 'open')}</td><td data-testid="last-opened">${a.lastOpenedAt ? isoMinute(a.lastOpenedAt) : 'Never'}</td></tr>`).join('');
+-  return layout(`${doc.title}: activity`, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><table data-testid="activity"><thead><tr><th>Recipient</th><th>Opens</th><th>Last opened (UTC)</th></tr></thead><tbody>${rows}</tbody></table>`);
++  const rows = activity.map(a => `<tr data-testid="activity-row" data-id="${a.linkId}"><td data-testid="recipient">${escapeHtml(a.recipientEmail)}</td><td data-testid="opens">${plural(a.opens, 'open')}</td><td data-testid="last-opened">${a.lastOpenedAt ? isoMinute(a.lastOpenedAt) : 'Never'}</td><td data-testid="browser">${escapeHtml(a.lastBrowser || '—')}</td></tr>`).join('');
++  return layout(`${doc.title}: activity`, `<h1 data-testid="title">${escapeHtml(doc.title)}</h1><table data-testid="activity"><thead><tr><th>Recipient</th><th>Opens</th><th>Last opened (UTC)</th><th>Browser</th></tr></thead><tbody>${rows}</tbody></table>`);
+ }
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index cb3686c..35f4522 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -46,3 +46,11 @@ test('the audit export is for library owners', async () => {
+   assert.equal((await request(app, { path: '/api/libraries/lib_team/audit.csv', user: 'u_teammate' })).status, 403);
+   assert.equal((await request(app, { path: '/api/libraries/lib_team/audit.csv', user: 'u_other' })).status, 404);
+ });
++
++test('the activity page names the browser of each link\'s latest open', async () => {
++  const app = createApp();
++  const html = (await request(app, { path: '/documents/d1/analytics', user: 'u_owner' })).body;
++  const rows = rowsById(html, 'activity-row');
++  assert.equal(text(byTestId(rows.l1, 'browser')[0]), 'Safari');
++  assert.equal(text(byTestId(rows.l2, 'browser')[0]), '—');
++});

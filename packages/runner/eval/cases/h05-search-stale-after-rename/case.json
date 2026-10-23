@@ -1,0 +1,25 @@
+{
+  "id": "h05-search-stale-after-rename",
+  "tier": "hard",
+  "split": "tuning",
+  "complexity": 4,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 14,
+    "kind": "walk-derived",
+    "note": "Walk 14 shipped rename and walk 13's line asked for search; the two never met. Given as the user report, without pointers."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Bug: search cannot find a document I renamed",
+  "objective": "Bug report from Tom: \"I renamed 'Pricing Sheet' to 'Rate Card 2027'. Searching for 'rate' finds nothing, but searching for 'pricing' still shows it, under its new name.\" Find the cause and fix it for the library page search and the documents API, with a regression test. Search's existing behaviour (matching, order, archived and deleted documents) must not change.",
+  "acceptance": [
+    "A renamed document is found by its new title, in title order, on the page and the API",
+    "Its old title no longer finds it",
+    "Created, archived, unarchived and deleted documents still keep search current"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "Rename emits a document event the search index listens to; a regression test."
+}

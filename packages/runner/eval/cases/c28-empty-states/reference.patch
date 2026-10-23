@@ -1,0 +1,27 @@
+diff --git a/src/web/pages.mjs b/src/web/pages.mjs
+index 208ea41..f2bdd32 100644
+--- a/src/web/pages.mjs
++++ b/src/web/pages.mjs
+@@ -3,7 +3,9 @@ import { escapeHtml, layout } from './format.mjs';
+ export function libraryPage(store, userId, { q = '' } = {}) {
+   const documents = store.listDocuments(userId, { q });
+   const rows = documents.map(d => `<li data-testid="doc-row" data-id="${d.id}"><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta"></div></li>`).join('');
+-  const list = documents.length ? `<ul data-testid="library">${rows}</ul>` : '<p data-testid="empty">No documents</p>';
++  const list = documents.length ? `<ul data-testid="library">${rows}</ul>` : q.trim()
++      ? `<p data-testid="empty">No documents match "${escapeHtml(q)}". <a data-testid="clear-search" href="/">Clear the search</a></p>`
++      : '<p data-testid="empty">Your library is empty. Upload a document to share it.</p>';
+   return layout('Library', `<h1>Library</h1><form role="search" action="/"><input name="q" value="${escapeHtml(q)}"></form>${list}`);
+ }
+ 
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index 9d7fb79..2519804 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -27,3 +27,7 @@ test('the document page is not shown outside the library', () => {
+ test('the link page offers the download', () => {
+   assert.equal(byTestId(linkPage(createStore(), 'l1'), 'download').length, 1);
+ });
++
++test('a search with no match says so', () => {
++  assert.match(text(libraryPage(createStore(), 'u_owner', { q: 'zebra' })), /No documents match "zebra"/);
++});

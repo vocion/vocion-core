@@ -1,0 +1,27 @@
+{
+  "id": "h19-email-templates",
+  "tier": "hard",
+  "split": "held-out",
+  "complexity": 4,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 5,
+    "kind": "walk-derived",
+    "note": "Walks 5 to 7 put email copy inside the reminder job; the share and digest emails followed the same pattern. The refactor is graded by byte-identical output over a scripted fortnight."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Move email copy into templates",
+  "objective": "Email wording is scattered through the services, so the copywriter cannot review it in one place. Create src/emails/index.mjs exporting `render(type, data)` that returns `{ subject, body }` for each email the product sends, from plain data: `link.shared` takes `{ ownerName, docTitle, linkId }`, `reminder` takes `{ ownerName, docTitle, linkId, sharedAt }` and `digest` takes `{ libraryName, weekStart, lines: [{ title, opens }] }`; an unknown type throws. Afterwards no service, route or view holds email wording. This is a refactor: every email must come out byte-for-byte as it does today. Do not change the existing tests; add tests for render.",
+  "acceptance": [
+    "render(type, data) in src/emails/index.mjs produces each email from the given data and throws on an unknown type",
+    "Every email the product sends over a scripted fortnight is byte-identical to before",
+    "No module outside src/emails (and the seed) holds email wording",
+    "The existing tests are unchanged"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**",
+    "docs/**"
+  ],
+  "plan_summary": "src/emails/index.mjs with one template per type; sharing, reminders and digest call render; architecture doc notes the new folder; a render test."
+}
