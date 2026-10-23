@@ -296,27 +296,19 @@ export function appOwningPath(pathname: string, apps: readonly Pick<AppNav, 'id'
  * A page an app owns is in that app, so a link or a refresh lands on the
  * right app with nothing stored. A page no app owns — Chat, Review, the wiki,
  * a record opened from an app's list — is shared, and keeps the app the
- * person was last in while this workspace has it. A pick in the rail that
- * did not navigate (an app this workspace does not have) holds until the
- * person moves. Anything else is the core app.
- * @param input - The current path and what the person last chose.
+ * person was last in in THIS workspace while it has it
+ * (`dashboard/nav/workspaceMemory.ts`). Anything else is the core app. The
+ * rail shows only this workspace's apps, so there is no pick to hold.
+ * @param input - The current path and what the person last chose here.
  * @param input.pathname - The locale-stripped path.
  * @param input.apps - This workspace's apps (`splitNavByApp(...).apps`).
- * @param input.remembered - The app the person was last in, if any.
- * @param input.pick - A rail pick that did not navigate (`appId`), and the path it was made on (`path`).
- * @param input.known - Every app the rail shows, for a pick of one this workspace lacks.
+ * @param input.remembered - The app the person was last in here, if any.
  */
 export function resolveActiveApp(input: {
   pathname: string;
   apps: readonly Pick<AppNav, 'id' | 'core' | 'owns'>[];
   remembered?: string | null;
-  pick?: { appId: string; path: string } | null;
-  known?: readonly string[];
 }): string | undefined {
-  const core = input.apps.find(a => a.core)?.id;
-  if (input.pick && input.pick.path === input.pathname && (input.apps.some(a => a.id === input.pick!.appId) || input.known?.includes(input.pick.appId))) {
-    return input.pick.appId;
-  }
   const owner = appOwningPath(input.pathname, input.apps);
   if (owner) {
     return owner;
@@ -324,36 +316,74 @@ export function resolveActiveApp(input: {
   if (input.remembered && input.apps.some(a => a.id === input.remembered)) {
     return input.remembered;
   }
-  return core;
+  return input.apps.find(a => a.core)?.id;
 }
 
 /**
- * Where a workspace switch lands: the target's home, never the page the person
- * was on (founder, 2026-10-09: "when switching workspaces, we should probably
- * default to the app main page, or chat"). A sub-path, its query and an open
- * record belong to the workspace they were in, and in another one they open
- * on nothing or on the wrong thing.
+ * The app a page belongs to when THIS workspace lacks it: a deep link (a
+ * bookmark, a shared URL) into an app another workspace has. Null when the
+ * page is this workspace's, or no app owns it.
+ * @param pathname - The locale-stripped path.
+ * @param here - This workspace's apps.
+ * @param elsewhere - The apps this workspace does not have, with what each owns.
+ */
+export function appMissingHere(pathname: string, here: readonly Pick<AppNav, 'id' | 'core' | 'owns'>[], elsewhere: readonly Pick<AppNav, 'id' | 'core' | 'owns'>[]): string | null {
+  if (appOwningPath(pathname, here)) {
+    return null;
+  }
+  const owner = appOwningPath(pathname, elsewhere);
+  return owner && !here.some(a => a.id === owner) ? owner : null;
+}
+
+/**
+ * A workspace's home app: the app it opens in when the person has no place
+ * there yet. A workspace with exactly one app beyond the core one is that
+ * app's workspace (Metacto Finance opens in Finance, not Chat); otherwise
+ * the app the person was last in there, while it still has it; otherwise
+ * the core app.
+ * @param input - The workspace's apps and what the person last used there.
+ * @param input.apps - The workspace's apps, core included.
+ * @param input.remembered - The app the person was last in there, if any.
+ */
+export function homeAppOf(input: { apps: readonly Pick<AppSummary, 'id' | 'core'>[]; remembered?: string | null }): string | undefined {
+  const others = input.apps.filter(a => !a.core);
+  if (others.length === 1) {
+    return others[0]!.id;
+  }
+  if (input.remembered && input.apps.some(a => a.id === input.remembered)) {
+    return input.remembered;
+  }
+  return input.apps.find(a => a.core)?.id;
+}
+
+/**
+ * Where a workspace switch lands, and why. Workspace first (founder,
+ * 2026-10-23): a workspace opens where the person left it, whatever app they
+ * are in now. Never the page the person is on (founder, 2026-10-09: "when
+ * switching workspaces, we should probably default to the app main page, or
+ * chat"): a sub-path, its query and an open record belong to the workspace
+ * they were in. What a switch restores is the TARGET's own last page.
  *
- * - In an app the target also has (other than the core one): that app's main
- *   page, its entry.
- * - Otherwise the core app's entry: the workspace's own home, which is Chat
- *   unless the workspace's core app says otherwise.
+ * - The person's last page in the target, while the target still has that
+ *   page's app (`restored`).
+ * - Otherwise the target's home app ({@link homeAppOf}): its entry, or the
+ *   core app's entry (Chat unless the workspace's core app says otherwise).
  *
  * A deep link into another workspace (a notification opening a record there)
  * does not come through here: it names its page with `workspaceUrl` and goes
- * straight to it. Only switching resets.
+ * straight to it.
  * @param input - The switch.
- * @param input.activeApp - The app the sidebar shows.
- * @param input.coreApp - The core app's id.
- * @param input.targetApps - Ids of the apps the target workspace has.
- * @param input.appEntry - The active app's entry route.
+ * @param input.targetApps - The target workspace's apps, core included.
+ * @param input.place - The person's last place in the target, if any.
  * @param input.coreEntry - The core app's entry route.
+ * @returns The page, the app it is in, and whether it is where the person left off.
  */
-export function workspaceSwitchPath(input: { activeApp: string | undefined; coreApp?: string; targetApps: readonly string[]; appEntry?: string; coreEntry: string }): string {
-  if (input.activeApp && input.activeApp !== input.coreApp && input.appEntry && input.targetApps.includes(input.activeApp)) {
-    return input.appEntry;
+export function workspaceLanding(input: { targetApps: readonly Pick<AppSummary, 'id' | 'core' | 'entry'>[]; place?: { app: string; path: string } | null; coreEntry: string }): { path: string; app: string | undefined; restored: boolean } {
+  if (input.place && input.targetApps.some(a => a.id === input.place!.app)) {
+    return { path: input.place.path, app: input.place.app, restored: true };
   }
-  return input.coreEntry;
+  const home = input.targetApps.find(a => a.id === homeAppOf({ apps: input.targetApps, remembered: input.place?.app }));
+  return { path: home && !home.core ? home.entry : input.coreEntry, app: home?.id, restored: false };
 }
 
 /**

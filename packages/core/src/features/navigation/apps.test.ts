@@ -6,7 +6,7 @@ import { defaultPinDismissal, resolveWorkPins } from '@/features/dashboard/nav/n
 import { defaultTint } from '@/libs/tints';
 import { listApps } from '@/libs/workspace/apps';
 import { listPlugins } from '@/libs/workspace/plugins';
-import { appForPlugin, appOwningPath, groupPluginsByApp, installedApps, resolveActiveApp, splitNavByApp, workspacesByApp, workspaceSwitchPath } from './apps';
+import { appForPlugin, appMissingHere, appOwningPath, groupPluginsByApp, homeAppOf, installedApps, resolveActiveApp, splitNavByApp, workspaceLanding, workspacesByApp } from './apps';
 import { DASHBOARD_ROUTES } from './dashboardNav';
 import { pluginNav } from './pluginNav';
 
@@ -235,27 +235,55 @@ describe('route → app', () => {
     expect(resolveActiveApp({ pathname: '/dashboard/chat', apps, remembered: null })).toBe('home');
   });
 
-  it('holds a rail pick of an app only another workspace has until the person moves', () => {
-    const pick = { appId: 'elsewhere', path: '/dashboard/p/board' };
+  it('names the app a deep link needs when this workspace does not have it, and nothing otherwise', () => {
+    const here = apps.filter(a => a.id !== 'sales');
+    const elsewhere = [{ id: 'sales', core: false, owns: ['/gtm/discovery'] }];
 
-    expect(resolveActiveApp({ pathname: '/dashboard/p/board', apps, pick, known: ['home', 'factory', 'elsewhere'] })).toBe('elsewhere');
-    expect(resolveActiveApp({ pathname: '/dashboard/chat', apps, pick, known: ['home', 'factory', 'elsewhere'] })).toBe('home');
-    expect(resolveActiveApp({ pathname: '/dashboard/p/board', apps, pick, known: ['home'] })).toBe('factory');
+    expect(appMissingHere('/gtm/discovery/42', here, elsewhere)).toBe('sales');
+    expect(appMissingHere('/dashboard/p/board', here, elsewhere)).toBeNull();
+    expect(appMissingHere('/dashboard/chat', here, elsewhere)).toBeNull();
+    expect(appMissingHere('/gtm/discovery', apps, elsewhere)).toBeNull();
   });
 });
 
-describe('workspaceSwitchPath', () => {
-  const base = { coreApp: 'home', appEntry: '/dashboard/p/board', coreEntry: '/dashboard/chat' };
+describe('homeAppOf', () => {
+  const home = { id: 'home', core: true };
+  const finance = { id: 'finance', core: false };
+  const sales = { id: 'sales', core: false };
 
-  it('lands on the app\'s main page when the target has the app, never on the page the person was on', () => {
-    expect(workspaceSwitchPath({ ...base, activeApp: 'factory', targetApps: ['home', 'factory'] })).toBe('/dashboard/p/board');
-    expect(workspaceSwitchPath({ ...base, activeApp: 'sales', appEntry: '/gtm/proposals', targetApps: ['home', 'sales'] })).toBe('/gtm/proposals');
+  it('opens a workspace with one app beyond Workforce in that app', () => {
+    expect(homeAppOf({ apps: [home, finance] })).toBe('finance');
+    expect(homeAppOf({ apps: [home, finance], remembered: 'home' })).toBe('finance');
   });
 
-  it('lands on the workspace\'s home (Chat) in the core app, or when the target lacks the app', () => {
-    expect(workspaceSwitchPath({ ...base, activeApp: 'home', targetApps: ['home'] })).toBe('/dashboard/chat');
-    expect(workspaceSwitchPath({ ...base, activeApp: 'factory', targetApps: ['home'] })).toBe('/dashboard/chat');
-    expect(workspaceSwitchPath({ ...base, activeApp: undefined, targetApps: ['home'] })).toBe('/dashboard/chat');
+  it('otherwise opens in the app last used there, while the workspace has it, else Workforce', () => {
+    expect(homeAppOf({ apps: [home, finance, sales], remembered: 'sales' })).toBe('sales');
+    expect(homeAppOf({ apps: [home, finance, sales], remembered: 'factory' })).toBe('home');
+    expect(homeAppOf({ apps: [home, finance, sales] })).toBe('home');
+    expect(homeAppOf({ apps: [home] })).toBe('home');
+  });
+});
+
+describe('workspaceLanding', () => {
+  const home = { id: 'home', core: true, entry: '/dashboard/chat' };
+  const factory = { id: 'factory', core: false, entry: '/dashboard/p/board' };
+  const finance = { id: 'finance', core: false, entry: '/dashboard/p/account-rules' };
+  const sales = { id: 'sales', core: false, entry: '/gtm/proposals' };
+  const base = { coreEntry: '/dashboard/chat' };
+
+  it('opens where the person left the target, whatever app they are in now', () => {
+    expect(workspaceLanding({ ...base, targetApps: [home, finance], place: { app: 'finance', path: '/dashboard/p/invoices' } })).toEqual({ path: '/dashboard/p/invoices', app: 'finance', restored: true });
+    expect(workspaceLanding({ ...base, targetApps: [home, factory, sales], place: { app: 'home', path: '/dashboard/inbox' } })).toEqual({ path: '/dashboard/inbox', app: 'home', restored: true });
+  });
+
+  it('with no place there, opens the target\'s home app: Metacto Finance opens in Finance, not Chat', () => {
+    expect(workspaceLanding({ ...base, targetApps: [home, finance] })).toEqual({ path: '/dashboard/p/account-rules', app: 'finance', restored: false });
+    expect(workspaceLanding({ ...base, targetApps: [home, finance, sales] })).toEqual({ path: '/dashboard/chat', app: 'home', restored: false });
+    expect(workspaceLanding({ ...base, targetApps: [home] }).path).toBe('/dashboard/chat');
+  });
+
+  it('ignores a place whose app the target no longer has', () => {
+    expect(workspaceLanding({ ...base, targetApps: [home, finance, sales], place: { app: 'factory', path: '/dashboard/p/board' } })).toEqual({ path: '/dashboard/chat', app: 'home', restored: false });
   });
 });
 
