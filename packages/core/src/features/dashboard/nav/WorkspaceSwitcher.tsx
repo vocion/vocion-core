@@ -6,7 +6,7 @@ import type { WorkspaceDirectory } from './useWorkspaceDirectory';
 import type { SwitcherAccount, SwitcherProject, WorkspaceSwitcherTargetPath } from './workspaceSwitch';
 import type { Tint } from '@/libs/tints';
 import type { OrgsMode } from '@/services/OrgPolicy';
-import { ArrowLeftRight, ArrowRight, Check, ChevronLeft, ChevronRight, Search, Settings2 } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, Check, ChevronRight, Search, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useMemo, useState } from 'react';
@@ -21,7 +21,7 @@ import { client } from '@/libs/Orpc';
 import { relativeLabel } from '@/libs/timeAgo';
 import { TINT_BG } from '@/libs/tints';
 import { cn } from '@/utils/Helpers';
-import { orderForPicker, pickerLine, pickerOrgs } from './pickerModel';
+import { pickerLine, pickerOrgs } from './pickerModel';
 import { ALL_WORKSPACES_HREF, crossAccountSlug, filterProjects, projectAccent, WORKSPACE_HOME, workspaceSwitchHref } from './workspaceSwitch';
 
 /**
@@ -34,26 +34,26 @@ import { ALL_WORKSPACES_HREF, crossAccountSlug, filterProjects, projectAccent, W
  * last row. No nested submenu. Switching navigates through
  * `/w/<slug>/<same page>` — the one switch mechanism (#336).
  *
- * ONE CONTROL FOR WHERE YOU ARE. Orgs (what people call a `tenant_account`)
- * show only on a multi-Org deployment, which an extension turns on
- * (`services/OrgPolicy.ts`). There the picker has two levels, iOS style
- * (founder, 2026-10-09): Personal, then one row per Org; an Org with one
- * workspace opens it from its row, one with several slides to its
- * workspaces ("‹ Orgs" back, ← and Esc too). Search reaches every Org at
- * once, flat. A switch into another Org's workspace is also how a person
- * switches Org: tenancy follows the picked workspace (vocion-core#128). The
- * chip names the workspace alone, with the Org's square mark; the Org's name
- * is said only in the picker (never "S.. › Squatch"). A single-Org install
- * (the default) never names an Org and has no Org level. This is the one
- * place to switch; a surface outside the sidebar can still open this popover
- * via {@link OPEN_WORKSPACE_SWITCHER}. Collapsed to the icon rail, the avatar
- * alone is the button. Arrow keys move through the list, from the search box
- * too. Every switch lands on the target's home (`workspaceSwitchPath`).
+ * ONE CONTROL FOR WHERE YOU ARE, and it is workspace first (founder,
+ * 2026-10-23: "I constantly find myself on the wrong app inside of the
+ * Finance team. Or when I'm on the Finance app, not being able to find the
+ * right workspace in the switcher"). It lists EVERY workspace, in one list:
+ * Personal under "You", then each Org's workspaces under the Org's name
+ * (only on a multi-Org deployment, which an extension turns on,
+ * `services/OrgPolicy.ts`; a single-Org install never names an Org). Each
+ * row says the apps it has and where it will open (`rowLine`). Search reaches
+ * every Org at once, flat. A switch into another Org's workspace is also how
+ * a person switches Org: tenancy follows the picked workspace
+ * (vocion-core#128). The chip names the workspace alone, with the Org's
+ * square mark; the rail beside it shows the workspace's apps, so the chip
+ * never names one. A surface outside the sidebar can still open this popover
+ * via {@link OPEN_WORKSPACE_SWITCHER}. Collapsed to the icon rail, the
+ * avatar alone is the button. Arrow keys move through the list, from the
+ * search box too. A switch lands where the person left the target
+ * (`targetPath`, `workspaceLanding`).
  *
- * It is also every app's workspace picker — one switcher, not one per app
- * (principle 6): the sidebar hands it only the workspaces that have the
- * selected app, a `placeholder` for when the current workspace is not one of
- * them, and `targetPath` to say which page the switch lands on.
+ * The two-level Org picker (2026-10-09) and the per-app pickers it fed are
+ * gone: one list a person scans beats two levels they have to remember.
  */
 
 export const OPEN_WORKSPACE_SWITCHER = 'vocion:open-workspace-switcher';
@@ -84,14 +84,10 @@ export type WorkspaceSwitcherProps = {
   /** Force the popover open (stories). */
   defaultOpen?: boolean;
   collapsed?: boolean;
-  /**
-   * Shown in place of a name when `activeId` is not in `projects` — an app
-   * picker the current workspace is not listed in. Without it the first
-   * workspace stands in for the active one, as it always has.
-   */
-  placeholder?: string;
   /** The page a switch to `p` lands on. Default: the workspace's home, Chat. */
   targetPath?: WorkspaceSwitcherTargetPath;
+  /** The small line under a workspace: its apps and where it will open ("GTM · opens in GTM"). Default: what it is. */
+  rowLine?: (p: SwitcherProject) => string | null;
   /** Which way the list opens. Default: up, as it did from the bottom of the sidebar. */
   side?: 'top' | 'bottom';
   /** The app this picker belongs to: the chip wears its tint (front doors, `libs/tints.ts`). */
@@ -253,9 +249,6 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const locale = useLocale();
   const [open, setOpen] = useState(props.defaultOpen ?? false);
   const [query, setQuery] = useState('');
-  // Level 2: the Org drilled into, and which way the last move went (for the slide).
-  const [orgLevel, setOrgLevel] = useState<string | null>(null);
-  const [direction, setDirection] = useState<'in' | 'out'>('in');
   const [now] = useState(() => Date.now());
 
   useEffect(() => {
@@ -266,33 +259,22 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
 
   const loading = props.projects === null;
   const projects = useMemo(() => props.projects ?? [], [props.projects]);
-  const active = projects.find(p => p.id === props.activeId) ?? (props.placeholder === undefined ? projects[0] ?? null : null);
+  const active = projects.find(p => p.id === props.activeId) ?? projects[0] ?? null;
   const visible = useMemo(() => filterProjects(projects, { query, activeId: active?.id ?? null }), [projects, query, active]);
   const live = useMemo(() => filterProjects(projects, { activeId: active?.id ?? null }), [projects, active]);
   const accounts = props.accounts ?? [];
   const details = props.details ?? {};
-  // Two levels only where there is more than one Org to pick between.
-  const levelled = props.orgsMode === 'multi' && accounts.length > 1;
-  const level1 = useMemo(() => pickerOrgs(live, accounts, details, props.account?.id), [live, accounts, details, props.account?.id]);
-  const drilled = levelled && orgLevel ? level1.orgs.find(o => o.account.id === orgLevel) ?? null : null;
+  // Orgs are named only where there is more than one to tell apart.
+  const multiOrg = props.orgsMode === 'multi' && accounts.length > 1;
+  const groups = useMemo(() => pickerOrgs(live, accounts, details, props.account?.id), [live, accounts, details, props.account?.id]);
   const searching = query.trim() !== '';
   const orgName = new Map(accounts.map(a => [a.id, a.name]));
 
   const openChange = (next: boolean) => {
     setOpen(next);
     if (!next) {
-      // A picker opens where a person starts: at the Orgs, with nothing typed.
-      setOrgLevel(null);
       setQuery('');
     }
-  };
-  const drillInto = (accountId: string) => {
-    setDirection('in');
-    setOrgLevel(accountId);
-  };
-  const back = () => {
-    setDirection('out');
-    setOrgLevel(null);
   };
 
   const go = (p: SwitcherProject) => {
@@ -300,7 +282,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
       openChange(false);
       return;
     }
-    // The target's home, never this page or its query (`workspaceSwitchPath`).
+    // Where the person left the target, else its home; never this page (`workspaceLanding`).
     const target = props.targetPath ? props.targetPath(p, pathname) : WORKSPACE_HOME;
     const href = workspaceSwitchHref({
       slug: p.slug,
@@ -312,18 +294,26 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     (props.navigate ?? (h => window.location.assign(h)))(href);
   };
 
-  const line = (p: SwitcherProject) => pickerLine(p, details[p.id], {
+  // What a row says under its name: its apps and where it opens, when the
+  // sidebar knows; else what it is ("Atlas · 7 agents · active 2h ago").
+  const line = (p: SwitcherProject) => props.rowLine?.(p) ?? pickerLine(p, details[p.id], {
     agents: n => t('picker_agents', { count: n }),
     active: iso => t('picker_active', { ago: relativeLabel(new Date(iso), now) }),
   });
   const option = (p: SwitcherProject, suffix?: string | null) => (
     <WorkspaceOption key={p.id} project={p} selected={p.id === active?.id} onPick={go} line={line(p)} waiting={details[p.id]?.waiting} suffix={suffix} />
   );
+  const group = (key: string, label: string, rows: readonly SwitcherProject[]) => (
+    <div key={key} role="group" aria-label={label} data-testid="switcher-group">
+      <div role="presentation" className="px-2 pt-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase" data-testid="switcher-group-heading">{label}</div>
+      {rows.map(p => option(p))}
+    </div>
+  );
 
   // The chip says the workspace, with its Org's square mark when the Org has
   // one (founder, 2026-10-09: never "S.. › Squatch"); the Org's name is said
   // in the picker, not here.
-  const name = active?.name ?? (loading ? '' : props.placeholder ?? t('workspace_fallback'));
+  const name = active?.name ?? (loading ? '' : t('workspace_fallback'));
   const railLabel = name;
   const initial = (name || 'W').charAt(0).toUpperCase();
   const accent = active ? projectAccent(active.slug) : 'oklch(0.7 0 0)';
@@ -385,70 +375,24 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
         </PopoverTrigger>
       );
 
-  // ← goes back a level (outside the search box, where it moves the caret).
-  const onListKey = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.key === 'ArrowLeft' && drilled && !(e.target instanceof HTMLInputElement)) {
-      e.preventDefault();
-      back();
-      return;
-    }
-    moveThroughOptions(e);
-  };
-  // → or Enter on an Org drills in; the row's own click handles Enter too.
-  const orgKey = (accountId: string) => (e: KeyboardEvent<HTMLButtonElement>) => {
-    if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      drillInto(accountId);
-    }
-  };
-  const slide = direction === 'in' ? 'slide-in-from-right-6' : 'slide-in-from-left-6';
-
   let body: ReactNode;
   if (searching) {
     // Search reaches every Org at once, flat, each row saying its Org.
     body = visible.length === 0
       ? <div className="px-2 py-6 text-center text-[12px] text-muted-foreground">{t('no_workspaces_match')}</div>
-      : visible.map(p => option(p, levelled && p.kind !== 'personal' ? orgName.get(p.accountId ?? '') : null));
-  } else if (levelled && drilled) {
-    body = (
-      <div key={drilled.account.id} role="group" aria-label={drilled.account.name} className={cn('animate-in fade-in-0 duration-200 motion-reduce:animate-none', slide)} data-testid="switcher-level-workspaces">
-        <div className="sticky top-0 z-10 flex items-center gap-1 bg-popover pb-1">
-          <button type="button" onClick={back} className="inline-flex min-h-8 items-center gap-0.5 rounded-md px-1.5 text-[12.5px] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground max-md:min-h-11" data-testid="switcher-back">
-            <ChevronLeft className="size-4" aria-hidden />
-            {t('picker_orgs')}
-          </button>
-          <span className="min-w-0 flex-1 truncate pr-6 text-center text-[13px] font-semibold text-foreground" data-testid="switcher-level-title">{drilled.account.name}</span>
-        </div>
-        {drilled.workspaces.map(p => option(p))}
-      </div>
-    );
-  } else if (levelled) {
-    body = (
-      <div key="orgs" className={cn('animate-in fade-in-0 duration-200 motion-reduce:animate-none', orgLevel === null && direction === 'out' && slide)} data-testid="switcher-level-orgs">
-        {level1.personal.map(p => option(p))}
-        {level1.orgs.map(o => (
-          <SwitcherRow
-            key={o.account.id}
-            name={o.account.name}
-            sub={o.only ? o.only.name : t('picker_workspaces', { count: o.workspaces.length })}
-            accentKey={o.account.slug}
-            mark={props.marks?.[o.account.id] ?? null}
-            selected={o.current}
-            waiting={o.waiting}
-            drills={!o.only}
-            onPick={() => (o.only ? go(o.only) : drillInto(o.account.id))}
-            onKeyDown={o.only ? undefined : orgKey(o.account.id)}
-            testId="switcher-org"
-          />
-        ))}
-      </div>
-    );
+      : visible.map(p => option(p, multiOrg && p.kind !== 'personal' ? orgName.get(p.accountId ?? '') : null));
+  } else if (live.length === 0) {
+    body = <div className="px-2 py-6 text-center text-[12px] text-muted-foreground">{t('no_workspaces_match')}</div>;
   } else {
-    // One Org: no level 1. Personal first, then the rest by recent use.
-    const personal = visible.filter(p => p.kind === 'personal');
-    body = visible.length === 0
-      ? <div className="px-2 py-6 text-center text-[12px] text-muted-foreground">{t('no_workspaces_match')}</div>
-      : [...personal, ...orderForPicker(visible.filter(p => p.kind !== 'personal'), details)].map(p => option(p));
+    // One list of every workspace (founder, 2026-10-23, workspace first):
+    // Personal under "You", then each Org's workspaces under its name, by
+    // recent use. A single-Org install names no Org: one "Workspaces" group.
+    body = (
+      <>
+        {groups.personal.length > 0 && group('you', t('picker_you'), groups.personal)}
+        {groups.orgs.map(o => group(o.account.id, multiOrg ? o.account.name : t('picker_workspaces_heading'), o.workspaces))}
+      </>
+    );
   }
 
   return (
@@ -463,13 +407,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
         side={props.collapsed ? 'right' : (props.side ?? 'top')}
         className="w-80 max-w-[calc(100vw-2rem)] p-0"
         onOpenAutoFocus={keepKeyboardDownOnTouch}
-        onKeyDown={onListKey}
-        onEscapeKeyDown={(e) => {
-          if (drilled && !searching) {
-            e.preventDefault();
-            back();
-          }
-        }}
+        onKeyDown={moveThroughOptions}
       >
         <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
           <Search className="size-4 shrink-0 text-muted-foreground/60" aria-hidden />
@@ -519,17 +457,15 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
  * The live switcher: the directory the sidebar loaded, the active project from the session.
  * @param props - The switcher's inputs.
  * @param props.directory - What `useWorkspaceDirectory` loaded; null while loading.
- * @param props.only - Project ids to list (an app's workspaces); omitted lists every one.
+ * @param props.rowLine - The line under each workspace: its apps and where it opens.
  * @param props.onManage - The "Workspace settings" row's action.
- * @param props.placeholder - Shown when the current workspace is not in the list.
  * @param props.targetPath - The page a switch lands on.
  * @param props.tint - The selected app's tint, worn by the chip.
  */
 export function WorkspaceSwitcherLive(props: {
   directory: WorkspaceDirectory | null;
-  only?: readonly string[];
+  rowLine?: (p: SwitcherProject) => string | null;
   onManage?: () => void;
-  placeholder?: string;
   targetPath?: WorkspaceSwitcherTargetPath;
   tint?: Tint;
 }) {
@@ -537,13 +473,7 @@ export function WorkspaceSwitcherLive(props: {
   const { state } = useSidebar();
   const brand = useOrgBrand();
   const data = props.directory;
-  const only = props.only;
-  const projects = useMemo(() => {
-    if (!data) {
-      return null;
-    }
-    return only ? data.projects.filter(p => only.includes(p.id)) : data.projects;
-  }, [data, only]);
+  const projects = data?.projects ?? null;
   // What each row says beyond its name, read once the directory is in: the
   // lead, last activity and Org marks (`projects.overview`), and what waits
   // on the person (`inbox.mineCount`, the one count). A failed read leaves
@@ -585,8 +515,8 @@ export function WorkspaceSwitcherLive(props: {
       activeId={session?.user?.projectId ?? null}
       onManage={props.onManage}
       collapsed={state === 'collapsed'}
-      placeholder={props.placeholder}
       targetPath={props.targetPath}
+      rowLine={props.rowLine}
       side="bottom"
       tint={props.tint}
       logo={brand?.mark.light ? { light: brand.mark.light, dark: brand.mark.dark } : null}

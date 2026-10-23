@@ -87,13 +87,15 @@ function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[], or
 }
 
 describe('WorkspaceSwitcher, one Org', () => {
-  it('skips the Org level: the workspaces, Personal first, with no Org anywhere', async () => {
+  it('lists Personal under You, then the workspaces, with no Org anywhere', async () => {
     await renderOpen(ACCOUNTS, [...PROJECTS, CONTOSO_OPS, PERSONAL], 'single');
 
     const names = page.getByTestId('switcher-workspace').elements().map(e => e.textContent ?? '');
+    const headings = page.getByTestId('switcher-group-heading').elements().map(e => e.textContent ?? '');
 
     expect(names[0]).toMatch(/Personal/);
-    expect(page.getByTestId('switcher-org').elements()).toHaveLength(0);
+    expect(headings[0]).toBe('You');
+    expect(headings.slice(1).every(h => h === 'Workspaces')).toBe(true);
     expect(page.getByText('Contoso', { exact: true }).elements()).toHaveLength(0);
   });
 
@@ -101,55 +103,31 @@ describe('WorkspaceSwitcher, one Org', () => {
     await renderOpen([ACCOUNTS[1]!], [PROJECTS[1]!, CONTOSO_OPS]);
 
     await expect.element(page.getByRole('option', { name: /Ops/ })).toHaveTextContent(/Atlas · 1 agent/);
-    expect(page.getByTestId('switcher-org').elements()).toHaveLength(0);
   });
 });
 
 describe('WorkspaceSwitcher, several Orgs', () => {
-  it('opens on Personal, then one row per Org, the current one checked', async () => {
+  it('is one list: Personal under You, then every Org\'s workspaces under its name, the current one checked', async () => {
     await renderOpen(ACCOUNTS, [...PROJECTS, CONTOSO_OPS, PERSONAL]);
 
-    const orgs = page.getByTestId('switcher-org');
+    const headings = page.getByTestId('switcher-group-heading').elements().map(e => e.textContent ?? '');
 
+    expect(headings).toEqual(['You', 'Metacto', 'Contoso']);
+    expect(page.getByTestId('switcher-workspace').elements()).toHaveLength(4);
     await expect.element(page.getByTestId('switcher-workspace').first()).toHaveTextContent(/Personal/);
-    await expect.element(orgs.nth(0)).toHaveTextContent(/Metacto.*Support/);
-    await expect.element(orgs.nth(1)).toHaveTextContent(/Contoso.*2 workspaces/);
-    await expect.element(orgs.nth(1)).toHaveAttribute('aria-selected', 'true');
-    // What waits on the person across the Org.
-    await expect.element(orgs.nth(1).getByTestId('switcher-row-waiting')).toHaveTextContent('2');
+    await expect.element(page.getByRole('group', { name: 'Contoso' }).getByRole('option', { name: /Support/ })).toHaveAttribute('aria-selected', 'true');
+    // What waits on the person there.
+    await expect.element(page.getByRole('option', { name: /Ops/ }).getByTestId('switcher-row-waiting')).toHaveTextContent('2');
   });
 
-  it('opens an Org\'s one workspace straight from its row', async () => {
+  it('opens another Org\'s workspace from its row, switching Org with it', async () => {
     const navigate = vi.fn();
     await renderOpen(ACCOUNTS, [...PROJECTS, CONTOSO_OPS], 'multi', navigate);
 
-    await page.getByTestId('switcher-org').filter({ hasText: 'Metacto' }).click();
+    await page.getByRole('group', { name: 'Metacto' }).getByRole('option', { name: /Support/ }).click();
 
     // Its home, Chat: never this page or its query.
     expect(navigate).toHaveBeenCalledWith('/w/support/dashboard/chat?org=metacto');
-  });
-
-  it('drills into an Org with several, and comes back with ‹ Orgs, ← or Esc', async () => {
-    await renderOpen(ACCOUNTS, [...PROJECTS, CONTOSO_OPS]);
-
-    await page.getByTestId('switcher-org').filter({ hasText: 'Contoso' }).click();
-
-    await expect.element(page.getByTestId('switcher-level-title')).toHaveTextContent('Contoso');
-    await expect.element(page.getByRole('option', { name: /Ops/ })).toBeVisible();
-
-    await page.getByTestId('switcher-back').click();
-
-    await expect.element(page.getByTestId('switcher-level-orgs')).toBeVisible();
-
-    // → on an Org drills; Esc comes back without closing.
-    (page.getByTestId('switcher-org').filter({ hasText: 'Contoso' }).element() as HTMLElement).focus();
-    await userEvent.keyboard('{ArrowRight}');
-
-    await expect.element(page.getByTestId('switcher-level-workspaces')).toBeVisible();
-
-    await userEvent.keyboard('{Escape}');
-
-    await expect.element(page.getByTestId('switcher-level-orgs')).toBeVisible();
   });
 
   it('searches every Org at once, flat, each row saying its Org', async () => {
@@ -180,38 +158,31 @@ describe('WorkspaceSwitcher, several Orgs', () => {
 });
 
 /**
- * An app's workspace picker is this same switcher (Vocion 5.0): handed only
- * the workspaces that have the app, a placeholder for when the current one is
- * not among them, and the page each switch lands on.
+ * Workspace first (founder, 2026-10-23): every row says what the workspace
+ * has and where it will open, and a switch lands where the sidebar says.
  */
-describe('WorkspaceSwitcher as an app\'s picker', () => {
-  const contosoOps: SwitcherProject = { id: 'p-contoso-ops', slug: 'ops', name: 'Ops', agentCount: 1, accountId: 'acct-contoso' };
+describe('WorkspaceSwitcher, where each workspace opens', () => {
+  const finance: SwitcherProject = { id: 'p-finance', slug: 'finance', name: 'Larkfield Finance', agentCount: 3, accountId: 'acct-metacto' };
+  const revenue: SwitcherProject = { id: 'p-revenue', slug: 'revenue', name: 'Larkfield Revenue', agentCount: 4, accountId: 'acct-metacto' };
+  const lines: Record<string, string> = { 'p-finance': 'Finance · opens in Finance', 'p-revenue': 'GTM · Routines · opens on Review' };
 
-  it('reads as a prompt, not as the first workspace, when the current one does not have the app', async () => {
-    await render(
-      <NextIntlClientProvider locale="en" messages={en}>
-        <SidebarProvider>
-          <WorkspaceSwitcher account={{ id: 'acct-contoso', name: 'Contoso' }} accounts={[ACCOUNTS[1]!]} projects={[contosoOps]} activeId="p-contoso-support" placeholder="Pick a workspace" navigate={() => {}} />
-        </SidebarProvider>
-      </NextIntlClientProvider>,
-    );
-
-    await expect.element(page.getByRole('button', { name: 'Switch workspace' })).toHaveTextContent(/Pick a workspace/);
-    expect(page.getByText('Ops').elements()).toHaveLength(0);
-  });
-
-  it('switches to the page the picker says, through the workspace entry route', async () => {
+  it('names each workspace\'s apps and where it opens, and goes there', async () => {
     const navigate = vi.fn();
     await render(
       <NextIntlClientProvider locale="en" messages={en}>
         <SidebarProvider>
-          <WorkspaceSwitcher account={{ id: 'acct-contoso', name: 'Contoso' }} accounts={[ACCOUNTS[1]!]} projects={[PROJECTS[1]!, contosoOps]} activeId="p-contoso-support" defaultOpen side="bottom" targetPath={() => '/dashboard/p/products'} navigate={navigate} />
+          <WorkspaceSwitcher projects={[revenue, finance]} activeId="p-revenue" defaultOpen side="bottom" rowLine={p => lines[p.id] ?? null} targetPath={p => (p.id === 'p-finance' ? '/dashboard/p/account-rules' : '/dashboard/inbox')} navigate={navigate} />
         </SidebarProvider>
       </NextIntlClientProvider>,
     );
 
-    await page.getByRole('option', { name: /Ops/ }).click();
+    await expect.element(page.getByRole('option', { name: /Larkfield Finance/ })).toHaveTextContent(/Finance · opens in Finance/);
+    await expect.element(page.getByRole('option', { name: /Larkfield Revenue/ })).toHaveTextContent(/GTM · Routines · opens on Review/);
 
-    expect(navigate).toHaveBeenCalledWith('/w/ops/dashboard/p/products');
+    await page.getByRole('option', { name: /Larkfield Finance/ }).click();
+
+    expect(navigate).toHaveBeenCalledWith('/w/finance/dashboard/p/account-rules');
+    // The chip names the workspace alone; the rail beside it shows the app.
+    await expect.element(page.getByRole('button', { name: 'Switch workspace' })).toHaveTextContent(/^.?Larkfield Revenue/);
   });
 });

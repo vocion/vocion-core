@@ -1,9 +1,10 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
+import type { ElsewhereApp } from './nav/AppNotHereNotice';
 import type { RailApp } from './nav/AppRail';
 import type { PinnableItem } from './nav/navPins';
-import type { WorkspaceSwitcherTargetPath } from './nav/workspaceSwitch';
+import type { SwitcherProject, WorkspaceSwitcherTargetPath } from './nav/workspaceSwitch';
 import type { GettingStartedState } from '@/features/dashboard/GettingStartedChecklist';
 import type { AppNav } from '@/features/navigation/apps';
 import type { DashboardRoute } from '@/features/navigation/dashboardNav';
@@ -25,23 +26,26 @@ import { iconByName } from '@/features/dashboard/iconByName';
 import { InviteTeamCard } from '@/features/dashboard/InviteTeamCard';
 import { AppRail } from '@/features/dashboard/nav/AppRail';
 import { applyPins, defaultPinDismissal, resolveWorkPins, withoutPins } from '@/features/dashboard/nav/navPins';
+import { appsLine } from '@/features/dashboard/nav/pickerModel';
 import { PinnableNav } from '@/features/dashboard/nav/PinnableNav';
 import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
 import { useWorkspaceDirectory } from '@/features/dashboard/nav/useWorkspaceDirectory';
+import { placeIn, rememberPlace } from '@/features/dashboard/nav/workspaceMemory';
 import { WORKSPACE_HOME } from '@/features/dashboard/nav/workspaceSwitch';
 import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { SETUP_CHANGED_EVENT } from '@/features/dashboard/setupChanged';
-import { OPEN_MANAGE_VIEW, readNavApp, readNavView, writeNavApp, writeNavView } from '@/features/dashboard/useNavView';
-import { appOwningPath, resolveActiveApp, workspaceSwitchPath } from '@/features/navigation/apps';
+import { OPEN_MANAGE_VIEW, readNavView, writeNavView } from '@/features/dashboard/useNavView';
+import { appMissingHere, appOwningPath, resolveActiveApp, workspaceLanding } from '@/features/navigation/apps';
 import { DASHBOARD_ROUTES, DEFAULT_WORK_PINS, manageNavGroups, manageRoutes, tabsOf, workCoreRoutes, workPinnableRoutes } from '@/features/navigation/dashboardNav';
 import { PLUGIN_NAV_WORKSPACE } from '@/features/navigation/pluginNav';
 import { groupEnabledSurfaces } from '@/features/navigation/surfaces';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
+import { useWorkspaceSlug } from '@/libs/workspaceSlug';
 
 /**
  * Dashboard left sidebar — the app rail (Vocion 5.0) and, beside it, the
  * selected app's nav. Every app's nav opens with the workspace picker (the
- * one switcher, filtered to the workspaces that have the app). Workforce, the
+ * one switcher, listing every workspace). Workforce, the
  * core app, is the nav below; any other app (Software Factory, GTM) shows
  * Chat and Review — shared by every app — and then only its own sections
  * (`features/navigation/apps.ts` splits the rows by app manifest).
@@ -109,7 +113,7 @@ function pluginIcon(url: string, name: string): LucideIcon {
   return DASHBOARD_ROUTES.find(r => r.url === url)?.icon ?? iconByName(name);
 }
 
-export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, goalsCount = 0, apps = [], gettingStarted = null, personalWorkspace = false, ...props }: React.ComponentProps<typeof Sidebar> & {
+export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, goalsCount = 0, apps = [], elsewhere = [], gettingStarted = null, personalWorkspace = false, ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
   /** Plugins the workspace turned on (`project.enabledPlugins`); a plugin-owned row (Data rooms) shows only while its plugin is on. */
@@ -129,6 +133,8 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
    * other props hold only the core app's rows. Empty: no rail, the nav as it was.
    */
   apps?: AppNav[];
+  /** The apps this workspace lacks, with what each owns (`appsElsewhere`): a page of one is never remembered as a place. */
+  elsewhere?: readonly ElsewhereApp[];
   /**
    * Where a shared workspace stands on its first four steps
    * (`services/workspace/gettingStarted.ts`); null for a personal one. While
@@ -175,16 +181,18 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   };
 
   // ---- the app rail ----
-  // Which app the nav shows. A page an app owns says its app; a shared page
-  // (Chat, Review, a record) keeps the app the person was last in. That is
-  // tracked here as the newest owning app seen on a navigation, adjusted
-  // while rendering when the path changes, and persisted per browser so a
-  // refresh on a shared page stays put.
+  // Workspace first (founder, 2026-10-23): the rail is THIS workspace's
+  // apps, picking one stays here, and the switcher lists every workspace.
+  // Which app the nav shows: a page an app owns says its app; a shared page
+  // (Chat, Review, a record) keeps the app the person was last in HERE,
+  // remembered per workspace with the page (`nav/workspaceMemory.ts`), so a
+  // refresh on a shared page stays put and one workspace's app never follows
+  // the person into another.
   const pathname = usePathname();
+  const slug = useWorkspaceSlug();
   const directory = useWorkspaceDirectory();
   const [lastApp, setLastApp] = useState<string | null>(() => appOwningPath(pathname, apps) ?? null);
   const [seenPath, setSeenPath] = useState(pathname);
-  const [railPick, setRailPick] = useState<{ appId: string; path: string } | null>(null);
   if (pathname !== seenPath) {
     setSeenPath(pathname);
     const owner = appOwningPath(pathname, apps);
@@ -193,65 +201,59 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     }
   }
   useEffect(() => {
-    if (lastApp) {
-      writeNavApp(globalThis.localStorage, lastApp);
-    }
-  }, [lastApp]);
-  useEffect(() => {
-    const stored = readNavApp(globalThis.localStorage);
+    const stored = placeIn(globalThis.localStorage, slug)?.app;
     if (stored) {
       // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- SSR-safe restore, the same as the view above
       setLastApp(current => current ?? stored);
     }
-  }, []);
-  const railApps = useMemo<RailApp[]>(() => {
-    const here = new Map(apps.map(a => [a.id, a]));
-    const out: RailApp[] = apps.map(({ sections: _sections, owns: _owns, href, ...summary }) => ({ ...summary, href }));
-    for (const a of directory?.apps ?? []) {
-      if (!here.has(a.id)) {
-        out.push(a);
-      }
-    }
-    return out.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-  }, [apps, directory]);
+  }, [slug]);
+  const railApps = useMemo<RailApp[]>(() => apps.map(({ sections: _sections, owns: _owns, ...app }) => app), [apps]);
   const coreAppNav = apps.find(a => a.core);
-  const activeAppId = resolveActiveApp({ pathname, apps, remembered: lastApp, pick: railPick, known: railApps.map(a => a.id) });
+  const activeAppId = resolveActiveApp({ pathname, apps, remembered: lastApp });
   const activeApp = railApps.find(a => a.id === activeAppId);
   const activeAppNav = apps.find(a => a.id === activeAppId);
   const inCoreApp = !activeApp || activeApp.core;
-  // The manage view is the workspace's own configuration — Workforce's —
-  // so its picker lists every workspace, whichever app was open.
-  const pickerForAll = inCoreApp || view === 'manage';
-  const pickApp = (app: RailApp) => {
-    if (app.href) {
-      setRailPick(null);
-      setLastApp(app.id);
-      writeNavApp(globalThis.localStorage, app.id);
-    } else {
-      setRailPick({ appId: app.id, path: pathname });
+  // Where the person is here, remembered for the next switch back. A page of
+  // an app this workspace lacks is not a place: the shell moves off it.
+  const lost = appMissingHere(pathname, apps, elsewhere) !== null;
+  useEffect(() => {
+    if (slug && activeAppNav && !lost) {
+      rememberPlace(globalThis.localStorage, slug, { app: activeAppNav.id, path: pathname });
     }
+  }, [slug, activeAppNav, pathname, lost]);
+  const pickApp = (app: RailApp) => {
+    setLastApp(app.id);
     if (view === 'manage') {
       pick('work');
     }
   };
-  // Each app's picker lists the workspaces that have it; Workforce lists all.
-  const pickerOnly = useMemo(() => (pickerForAll || !activeAppId ? undefined : (directory?.workspacesByApp[activeAppId] ?? []).map(w => w.projectId)), [pickerForAll, activeAppId, directory]);
   // The apps a workspace has, the core app always (even before the directory loads).
   const appsOfProject = (projectId: string) => [
-    ...(coreAppNav ? [coreAppNav.id] : []),
-    ...Object.entries(directory?.workspacesByApp ?? {}).filter(([, ws]) => ws.some(w => w.projectId === projectId)).map(([id]) => id),
+    ...(coreAppNav ? [{ id: coreAppNav.id, name: coreAppNav.name, core: true, entry: coreAppNav.href }] : []),
+    ...(directory?.apps ?? []).filter(a => !a.core && (directory?.workspacesByApp[a.id] ?? []).some(w => w.projectId === projectId)),
   ];
-  // A switch lands on the target's home, never on this page (`workspaceSwitchPath`).
-  const switchTarget: WorkspaceSwitcherTargetPath = p => workspaceSwitchPath({ activeApp: activeAppId, coreApp: coreAppNav?.id, targetApps: appsOfProject(p.id), appEntry: activeApp?.entry, coreEntry: coreAppNav?.href ?? WORKSPACE_HOME });
-  // ONE control for where you are: the Org and the workspace together, two
-  // levels on a multi-Org deployment, never a second switcher above it.
+  const landingOf = (p: Pick<SwitcherProject, 'id' | 'slug'>) => workspaceLanding({ targetApps: appsOfProject(p.id), place: placeIn(globalThis.localStorage, p.slug), coreEntry: coreAppNav?.href ?? WORKSPACE_HOME });
+  // A switch lands where the person left the target, or on its home app,
+  // never on this page (`workspaceLanding`).
+  const switchTarget: WorkspaceSwitcherTargetPath = p => landingOf(p).path;
+  // Under each workspace: what it has, and where it will open.
+  const rowLine = (p: SwitcherProject) => {
+    const target = appsOfProject(p.id);
+    const landing = landingOf(p);
+    const page = landing.restored ? DASHBOARD_ROUTES.find(r => r.url === landing.path) : undefined;
+    const app = target.find(a => a.id === landing.app);
+    const opens = page ? t('picker_opens_on', { page: page.i18nKey ? t(page.i18nKey) : page.title }) : app ? t('picker_opens_in', { app: app.name }) : null;
+    return [appsLine(target), opens].filter(Boolean).join(' · ') || null;
+  };
+  // ONE control for where you are: the Org and the workspace together, one
+  // list of every workspace, never a second switcher above it.
+  const shownApp = view === 'manage' ? coreAppNav : activeApp;
   const picker = (
     <WorkspaceSwitcherLive
       directory={directory}
-      only={pickerOnly}
+      rowLine={directory ? rowLine : undefined}
       onManage={() => pick('manage')}
-      placeholder={pickerForAll ? undefined : t('pick_workspace')}
-      tint={view === 'manage' ? coreAppNav?.tint : activeApp?.tint}
+      tint={shownApp?.tint}
       targetPath={switchTarget}
     />
   );
@@ -373,9 +375,8 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   // phone there is no rail, so they are rows under More. On the desktop the
   // rail's icon alone hid them (Chris, 2026-10-20: "is there Finance specific
   // nav missing?"), so they are also rows here, above More.
-  // This workspace's own apps only: one an Org has elsewhere is the rail's to show.
-  const desktopApps: PinnableItem[] = isMobile ? [] : apps.filter(a => a.href && a.id !== activeAppId && !a.core).map(a => ({ title: a.name, url: a.href!, icon: iconByName(a.icon), origin: 'work' as const, pinnable: false as const }));
-  const mobileApps = isMobile ? railApps.filter(a => a.href && a.id !== activeAppId).map(a => ({ title: a.name, url: a.href!, icon: iconByName(a.icon), origin: 'work' as const, pinnable: false as const })) : [];
+  const desktopApps: PinnableItem[] = isMobile ? [] : apps.filter(a => a.id !== activeAppId && !a.core).map(a => ({ title: a.name, url: a.href, icon: iconByName(a.icon), origin: 'work' as const, pinnable: false as const }));
+  const mobileApps = isMobile ? railApps.filter(a => a.id !== activeAppId).map(a => ({ title: a.name, url: a.href, icon: iconByName(a.icon), origin: 'work' as const, pinnable: false as const })) : [];
   const mainItems = [...workCore, ...applyPins(workOptional, workPins), ...folded, ...desktopApps, ...withoutPins(workOptional, workPins), ...mobileApps];
   const mainShown = workShown + folded.length + desktopApps.length;
   const mainPins = useMemo(() => [...new Set([...workPins, ...prefs.pins])], [workPins, prefs.pins]);
@@ -402,29 +403,23 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   );
 
   // A non-core app's nav: Chat and Review (every app shares them), then its
-  // own sections. An app this workspace does not have shows its picker and
-  // one line saying where it is.
+  // own sections. The rail shows only this workspace's apps, so the app is
+  // always one it has.
   const appWork = (
     <>
-      {activeAppNav
-        ? (
-            <>
-              <AppSidebarNav items={workCore.map(i => ({ title: i.title, url: i.url, icon: i.icon, badge: i.badge }))} />
-              {activeAppNav.sections.map(section => (
-                <AppSidebarNav
-                  key={`app:${section.label}`}
-                  label={section.label}
-                  items={section.items.map(i => ({ title: i.title, url: i.url, icon: pluginIcon(i.url, i.icon), ...(i.secondary ? { secondary: true } : {}) }))}
-                  moreLabel={t('more')}
-                />
-              ))}
-            </>
-          )
-        : (
-            <p data-testid="app-not-here" className="px-4 py-3 text-[12px] leading-relaxed text-muted-foreground group-data-[collapsible=icon]:hidden">
-              {t('app_not_in_workspace', { app: activeApp?.name ?? '' })}
-            </p>
-          )}
+      {activeAppNav && (
+        <>
+          <AppSidebarNav items={workCore.map(i => ({ title: i.title, url: i.url, icon: i.icon, badge: i.badge }))} />
+          {activeAppNav.sections.map(section => (
+            <AppSidebarNav
+              key={`app:${section.label}`}
+              label={section.label}
+              items={section.items.map(i => ({ title: i.title, url: i.url, icon: pluginIcon(i.url, i.icon), ...(i.secondary ? { secondary: true } : {}) }))}
+              moreLabel={t('more')}
+            />
+          ))}
+        </>
+      )}
       <div className="mt-auto">{manageRow}</div>
     </>
   );
@@ -566,7 +561,6 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                 label={t('apps')}
                 addLabel={t('add_app')}
                 addHref="/dashboard/apps"
-                elsewhereLabel={t('app_elsewhere')}
               />
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">{nav}</div>
             </div>

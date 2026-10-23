@@ -14,10 +14,9 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 /**
- * The picker's two levels on a phone, with the app's styles (founder,
- * 2026-10-09: "pick org, then pick workspace on next? For orgs with 1
- * workspace, I should just be able to click on the top level entry").
- * `VITE_SHOTS_DIR` saves each level for the pull request.
+ * The picker on a phone, with the app's styles: one list of every workspace,
+ * Personal under You and each Org's under its name (workspace first, founder
+ * 2026-10-23). `VITE_SHOTS_DIR` saves it for the pull request.
  */
 
 const ACCOUNTS: SwitcherAccount[] = [
@@ -52,31 +51,28 @@ function renderPicker(navigate: (href: string) => void) {
 }
 
 describe('the picker on a phone, several Orgs', () => {
-  it('opens a one-workspace Org at once, and drills into one with several', async () => {
+  it('lists every workspace at once, grouped by Org, recent first, and opens one from its row', async () => {
     await page.viewport(390, 844);
     const navigate = vi.fn();
     await renderPicker(navigate);
     const shots = (import.meta.env as unknown as Record<string, string | undefined>).VITE_SHOTS_DIR;
 
-    await expect.element(page.getByTestId('switcher-level-orgs')).toBeVisible();
+    const headings = page.getByTestId('switcher-group-heading').elements().map(e => e.textContent ?? '');
 
-    if (shots) {
-      await page.screenshot({ path: `${shots}/picker-orgs-390.png` });
-    }
-
-    await page.getByTestId('switcher-org').filter({ hasText: 'Kestrel Capital' }).click();
-
-    await expect.element(page.getByTestId('switcher-level-title')).toHaveTextContent('Kestrel Capital');
+    expect(headings).toEqual(['You', 'Northwind', 'Kestrel Capital']);
 
     // Recent first; the empty one last.
-    const rows = page.getByTestId('switcher-workspace').elements().map(e => e.textContent ?? '');
+    const kestrel = page.getByRole('group', { name: 'Kestrel Capital' }).getByTestId('switcher-workspace').elements().map(e => e.textContent ?? '');
 
-    expect(rows.map(r => r.replace(/^./, '').split(/[A-Z][a-z]+ ·|\d/)[0])).toEqual(['Kestrel Ops', 'Deal Desk', 'Pilot']);
+    expect(kestrel.map(r => r.replace(/^./, '').split(/[A-Z][a-z]+ ·|\d/)[0])).toEqual(['Kestrel Ops', 'Deal Desk', 'Pilot']);
 
     if (shots) {
       await new Promise(r => setTimeout(r, 300));
-      await page.screenshot({ path: `${shots}/picker-kestrel-390.png` });
+      await page.screenshot({ path: `${shots}/picker-one-list-390.png` });
     }
+
+    // Nothing wider than the phone.
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 
     await page.getByRole('option', { name: /Deal Desk/ }).click();
 
@@ -84,8 +80,7 @@ describe('the picker on a phone, several Orgs', () => {
     expect(navigate).toHaveBeenCalledWith('/w/deals/dashboard/chat?org=kestrel');
 
     navigate.mockClear();
-    await page.getByTestId('switcher-back').click();
-    await page.getByTestId('switcher-org').filter({ hasText: 'Northwind' }).click();
+    await page.getByRole('option', { name: /^.?Northwind/ }).click();
 
     expect(navigate).not.toHaveBeenCalled(); // the current workspace: the picker only closes
   });
