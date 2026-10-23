@@ -1006,7 +1006,13 @@ async function runAgentDeepInScope(opts: {
   const goalsNote = boundCtx.userId && !boundCtx.missionRunId
     ? await import('./objectives/GoalService').then(m => m.goalsTurnNote({ orgId: opts.orgId, userId: boundCtx.userId!, personal: boundCtx.workspaceKind === 'personal' })).catch(() => '')
     : '';
-  const userContent = await composeUserContent(`${clock}${effortLine}${goalsNote ? `\n${goalsNote}` : ''}\n\n${opts.message}`, opts.attachments ?? []);
+  // What already waits on the person in this conversation, by number, so a
+  // revision replaces its draft rather than queueing behind it
+  // (`decisions/revise.ts`); and so nothing still waiting is told as done.
+  const waitingNote = boundCtx.userId && !boundCtx.missionRunId && typeof opts.conversationId === 'number'
+    ? await import('./decisions/revise').then(async m => m.openAsksTurnNote(await m.openAsksIn(opts.orgId, opts.conversationId!))).catch(() => '')
+    : '';
+  const userContent = await composeUserContent(`${clock}${effortLine}${goalsNote ? `\n${goalsNote}` : ''}${waitingNote ? `\n${waitingNote}` : ''}\n\n${opts.message}`, opts.attachments ?? []);
   const input = {
     messages: [
       ...history,

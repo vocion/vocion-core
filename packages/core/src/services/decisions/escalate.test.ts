@@ -26,6 +26,43 @@ beforeEach(async () => {
   await db.delete(actionRunSchema);
 });
 
+describe('a revision replaces the draft it revises (2026-10-23)', () => {
+  const rec = (label: string, body: string, extra: Record<string, unknown> = {}) => ({ type: 'recommended_action' as const, recommendation: { actionId: 'hubspot.update', input: { objectType: 'deal', id: '4410', properties: { description: body } }, label, agentSlug: 'revenue-lead', suggestedDecision: 'approve' as const, ...extra } });
+
+  it('the same action on the same record: the old ask is withdrawn and the new card says it revises it', async () => {
+    const first = decisionOf(await escalate(rec('Update the Northwind deal note', 'Lead with the price.'), turn))!;
+    const out = await escalate(rec('Update the Northwind deal note, leading with the talks offer', 'Lead with the talks offer.'), turn);
+
+    const events = (out ?? []).filter(e => e.type === 'decision').map(e => (e.type === 'decision' ? e.decision : null)!);
+
+    expect(events.map(d => [d.id === first.id, d.state])).toEqual([[true, 'withdrawn'], [false, 'open']]);
+    expect(events[1]!.revises).toBe(first.id);
+
+    const rows = await db.select().from(askSchema);
+
+    expect(rows.map(r => r.status).sort()).toEqual(['open', 'superseded']);
+    expect(rows.find(r => r.status === 'superseded')!.decisionNote).toContain('Revised: Update the Northwind deal note, leading with the talks offer');
+  });
+
+  it('the agent\'s own link wins, even with no record named', async () => {
+    const send = (label: string, extra: Record<string, unknown> = {}) => ({ type: 'recommended_action' as const, recommendation: { actionId: 'gmail.send', input: { to: 'dana@northwind.example', subject: label, body: 'Hi', draft: true }, label, agentSlug: 'revenue-lead', suggestedDecision: 'approve' as const, ...extra } });
+    const first = decisionOf(await escalate(send('Draft the intro ask'), turn))!;
+    const out = await escalate(send('Draft the softer intro ask', { supersedes: first.id }), turn);
+    const revised = (out ?? []).map(e => (e.type === 'decision' ? e.decision : null)).find(d => d?.state === 'open')!;
+
+    expect(revised.revises).toBe(first.id);
+    expect((await db.select().from(askSchema)).filter(r => r.status === 'open').map(r => r.id)).toEqual([revised.id]);
+  });
+
+  it('a different action stays its own decision: both wait', async () => {
+    await escalate(rec('Update the Northwind deal note', 'Lead with the price.'), turn);
+    const other = decisionOf(await escalate({ type: 'recommended_action', recommendation: { actionId: 'gmail.send', input: { to: 'pat@northwind.example' }, label: 'Send the price list', suggestedDecision: 'approve' } }, turn))!;
+
+    expect(other.revises).toBeUndefined();
+    expect((await db.select().from(askSchema)).filter(r => r.status === 'open')).toHaveLength(2);
+  });
+});
+
 describe('outside trust: an approval', () => {
   it('a recommendation is an approval docked in the conversation, Approve running the action as the person', async () => {
     const out = await escalate({ type: 'recommended_action', recommendation: { actionId: 'hubspot.update', input: { objectType: 'deal', id: '4410', properties: { dealstage: 'negotiation' } }, label: 'Move Northwind to Negotiation', rationale: 'They signed the LOI.', agentSlug: 'revenue-lead', suggestedDecision: 'approve' } }, turn);

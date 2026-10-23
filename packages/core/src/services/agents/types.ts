@@ -92,6 +92,12 @@ export type RecommendedActionPayload = {
    * bar" was a dead line). `missing` is what the bar said.
    */
   draft?: { prompt: string; missing: string };
+  /**
+   * The open ask in this conversation this recommendation revises (its id,
+   * from the turn's "waiting on the person" list): the new card replaces it
+   * and the old one is withdrawn (`services/decisions/revise.ts`).
+   */
+  supersedes?: number;
 };
 
 /**

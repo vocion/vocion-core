@@ -153,8 +153,10 @@ async function fromRecommendation(rec: RecommendedActionPayload, deps: Escalatio
   }
   // OUTSIDE TRUST: an approval, asked the way a permission prompt asks —
   // the exact payload above Allow once; Allow once runs it as the person.
+  // A revision of one already waiting replaces it (`revise.ts`).
   const { payloadPreview } = await import('./preview');
-  return raise(deps, {
+  const revises = await revisedAsk(rec, deps);
+  const raised = await raise(deps, {
     kind: 'approval',
     question: rec.label,
     body: rec.rationale ?? rec.suggestedDecisionReason ?? null,
@@ -163,6 +165,47 @@ async function fromRecommendation(rec: RecommendedActionPayload, deps: Escalatio
     contextUrl: rec.href ?? null,
     contextMd: payloadPreview(rec.input),
   }, rec.actionId);
+  return revises === null ? raised : replaceRevised(raised, revises, rec, deps);
+}
+
+/**
+ * The open ask this recommendation revises, or null.
+ * @param rec - The recommendation.
+ * @param deps - The turn.
+ */
+async function revisedAsk(rec: RecommendedActionPayload, deps: EscalationDeps): Promise<number | null> {
+  const [{ openAsksIn, revisionTarget }, { cardRecordRef }] = await Promise.all([import('./revise'), import('@/services/agents/tools/recommendAction')]);
+  return revisionTarget(rec, await openAsksIn(deps.orgId, deps.conversationId), deps.conversationId, cardRecordRef);
+}
+
+/**
+ * The revised draft in place of the one it revises: the old ask is withdrawn
+ * (superseded, the new one named as why) and goes on the wire closed, so the
+ * dock drops it; the new one carries `revises`, so the card says "Revised".
+ * An ask the upsert refreshed in place (the same question) is only marked.
+ * @param raised - What raising the new one put on the wire.
+ * @param revises - The ask it revises.
+ * @param rec - The recommendation.
+ * @param deps - The turn.
+ */
+async function replaceRevised(raised: AgentEvent[], revises: number, rec: RecommendedActionPayload, deps: EscalationDeps): Promise<AgentEvent[]> {
+  const [first, ...rest] = raised;
+  if (first?.type !== 'decision') {
+    return raised;
+  }
+  const marked: AgentEvent = { ...first, decision: { ...first.decision, revises } };
+  if (first.decision.id === revises) {
+    return [marked, ...rest];
+  }
+  try {
+    const [{ supersedeAsk }, { decisionViewOf }] = await Promise.all([import('@/services/AskService'), import('@/libs/decisions/decision')]);
+    const old = await supersedeAsk(deps.orgId, revises, `Revised: ${rec.label}`.slice(0, 300));
+    return [{ type: 'decision', decision: decisionViewOf(old) }, marked, ...rest];
+  } catch (error) {
+    // The new card stands either way; the old one waits until someone settles it.
+    console.warn('escalate: could not withdraw the revised ask', { orgId: deps.orgId, revises, message: (error as Error).message });
+    return [marked, ...rest];
+  }
 }
 
 /**

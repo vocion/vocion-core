@@ -90,6 +90,12 @@ export type DecisionView = {
   conversationId: number | null;
   /** When the default applies if nobody answers, and what it is. */
   deadline?: { at: string; defaultLabel: string | null } | null;
+  /**
+   * The earlier draft of the same action this one replaced in the turn that
+   * raised it (`escalate.ts` `revisedAsk`): the card says "Revised". On the
+   * wire only; a reload reads the open Decision without it.
+   */
+  revises?: number | null;
   /** What was answered, once it was. */
   answer?: DecisionAnswerRecord | null;
   /** The action the chosen option started, when it started one. */

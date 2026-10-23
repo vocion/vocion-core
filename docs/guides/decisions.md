@@ -195,6 +195,14 @@ A card decided on a proposal records its decision **on the card** — the action
 who, when, and which typed option — and the next turn replays the card as what its
 proposal is now. No turn is written in the person's name.
 
+## The docked card stays true (2026-10-23)
+
+- **It folds while you chat.** Tapping into the composer or typing folds the docked card to its one-line bar: the same surface, the asking agent's avatar, "<agent> asks", the question. Leaving the composer empty opens it again, unless you folded it yourself (`useComposerEngagement`).
+- **It follows its own row.** The dock follows each Decision it shows on the live stream (`ask:<id>`, `card:<id>`) and reads them again on a change or a return to the tab. One settled anywhere else (Review, another tab, Slack, a teammate, the agent withdrawing it) leaves the dock, which says "Settled elsewhere: …" once (`decisions/dockLive.ts`).
+- **A turn that may revise it says so.** A card docked when a turn starts reads "Updating…" with its draft shimmering, and waits, until the turn lands.
+- **A revision replaces the draft.** A recommendation that revises one already waiting (the agent's `supersedes` on `recommend_action`, or the same action on the same record in the same conversation) withdraws the old ask as superseded, naming the new one, and the new card says "Revised" (`services/decisions/revise.ts`). The agent sees what waits, by number, on every turn, along with the fact that none of it has happened yet.
+- **The newest first.** With several of a conversation's own waiting, the newest leads and the rest stay one move away. A setup plan keeps its order.
+
 ## Where it lives
 
 - **Chat** — the latest item IN the conversation on every surface that has one
