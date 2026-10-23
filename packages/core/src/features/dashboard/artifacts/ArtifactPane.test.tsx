@@ -1,6 +1,7 @@
 import type { ArtifactEntry } from './artifactReducer';
+import { NextIntlClientProvider } from 'next-intl';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render } from 'vitest-browser-react';
+import { render as renderBase } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 
 /**
@@ -25,6 +26,15 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 const { ArtifactPane } = await import('./ArtifactPane');
+const en = (await import('@/locales/en.json')).default;
+
+/**
+ * The deliverable pane and its header verbs speak through next-intl, as the app does.
+ * @param ui
+ */
+const render = (ui: React.ReactElement) => renderBase(ui, {
+  wrapper: ({ children }) => <NextIntlClientProvider locale="en" messages={en}>{children}</NextIntlClientProvider>,
+});
 
 const HTML = '<!doctype html><html><head><title>Northwind — Proposal v1</title></head><body>'
   + '<div class="actions"><a href="#" onclick="window.print()">⤓ PDF</a></div>'

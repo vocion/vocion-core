@@ -69,6 +69,66 @@ export function withSelectionBridge(html: string, frameId: string): string {
   return i === -1 ? `${html}${script}` : `${html.slice(0, i)}${script}${html.slice(i)}`;
 }
 
+/**
+ * Select-to-talk for a sandboxed frame: the frame's bridge posts the
+ * selection up (`vocion:document-selection`), this places the one control
+ * the other surfaces show and ends where they end — `openAgentSurface`, with
+ * the passage quoted and the artifact as the record. Shared by the document
+ * frame and the deliverable pane's page frame (one shape, used everywhere).
+ * @param frameId - The frame the bridge names.
+ * @param place - How frame coordinates map onto the host: its scale and the frame's offset in the host.
+ * @param place.scale
+ * @param place.x
+ * @param place.y
+ * @param record - The artifact a selection is about.
+ */
+export function useFrameSelection(frameId: string, place: { scale: number; x?: number; y?: number }, record?: RecordRef) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [hit, setHit] = useState<{ text: string; x: number; y: number } | null>(null);
+  const { scale, x: dx = 0, y: dy = 0 } = place;
+
+  useEffect(() => {
+    const onMessage = (ev: MessageEvent<SelectionMessage>) => {
+      const d = ev.data;
+      if (!d || d.type !== 'vocion:document-selection' || d.frame !== frameId) {
+        return;
+      }
+      if (!d.text) {
+        setHit(null);
+        return;
+      }
+      setHit({ text: d.text, x: dx + d.x * scale, y: dy + d.y * scale });
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [frameId, scale, dx, dy]);
+
+  const open = useCallback((mode: 'ask' | 'change') => {
+    if (!hit) {
+      return;
+    }
+    const text = hit.text;
+    setHit(null);
+    openAgentSurface(
+      {
+        ...(mode === 'change' ? { prompt: 'Change this: ' } : {}),
+        context: {
+          path: pathname,
+          title: typeof document === 'undefined' ? '' : document.title,
+          ...(record ? { record } : {}),
+          selection: { text, quote: true },
+          openedFrom: true,
+        },
+        fallbackContext: text,
+      },
+      href => router.push(href),
+    );
+  }, [hit, pathname, record, router]);
+
+  return { hit, open, clear: () => setHit(null) };
+}
+
 export function DocumentFrame(props: {
   html: string;
   title: string;
@@ -83,8 +143,6 @@ export function DocumentFrame(props: {
   className?: string;
 }) {
   const frameId = useId();
-  const router = useRouter();
-  const pathname = usePathname();
   const hostRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [host, setHost] = useState<{ width: number; height: number }>({ width: 400, height: 600 });
@@ -93,7 +151,6 @@ export function DocumentFrame(props: {
   // and the document is a hairline (Chris, 2026-10-07: "when it opens the deck, I don't see any
   // slides"). Then the host takes the rest of the viewport below its own top instead.
   const [fallback, setFallback] = useState<number | null>(null);
-  const [hit, setHit] = useState<{ text: string; x: number; y: number } | null>(null);
 
   // Fit the 850px layout to whatever the host has, in BOTH axes: the width
   // sets the scale, the height is how much document is on screen at once. The
@@ -121,45 +178,9 @@ export function DocumentFrame(props: {
     };
   }, []);
 
-  useEffect(() => {
-    const onMessage = (ev: MessageEvent<SelectionMessage>) => {
-      const d = ev.data;
-      if (!d || d.type !== 'vocion:document-selection' || d.frame !== frameId) {
-        return;
-      }
-      if (!d.text) {
-        setHit(null);
-        return;
-      }
-      setHit({ text: d.text, x: d.x * scale, y: d.y * scale });
-    };
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [frameId, scale]);
+  const { hit, open } = useFrameSelection(frameId, { scale }, props.record);
 
   const srcDoc = useMemo(() => withSelectionBridge(stripDocumentChrome(props.html), frameId), [props.html, frameId]);
-
-  const open = useCallback((mode: 'ask' | 'change') => {
-    if (!hit) {
-      return;
-    }
-    const text = hit.text;
-    setHit(null);
-    openAgentSurface(
-      {
-        ...(mode === 'change' ? { prompt: 'Change this: ' } : {}),
-        context: {
-          path: pathname,
-          title: typeof document === 'undefined' ? '' : document.title,
-          ...(props.record ? { record: props.record } : {}),
-          selection: { text, quote: true },
-          openedFrom: true,
-        },
-        fallbackContext: text,
-      },
-      href => router.push(href),
-    );
-  }, [hit, pathname, props.record, router]);
 
   return (
     <div className={cn('flex min-h-0 w-full min-w-0 flex-1 flex-col', props.className)} data-document-frame>

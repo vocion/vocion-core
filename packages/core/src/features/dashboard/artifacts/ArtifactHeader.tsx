@@ -23,6 +23,7 @@
  */
 
 import type { ReactNode } from 'react';
+import type { ExportFormat } from './deliverable/transfer';
 import type { ArtifactActionId, ArtifactSurface, ArtifactTabDescriptor, ArtifactTabId } from './headerRules';
 import type { ArtifactKind } from '@/libs/cards/specs';
 import { ArrowLeft, Code2, Download, ExternalLink, FileDown, FileSpreadsheet, FileText, MessageSquareText, Pencil, Save, ShieldAlert, X } from 'lucide-react';
@@ -32,6 +33,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { stashChatAbout } from '@/features/dashboard/chat/agentSurface';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
+import { DownloadAction, PresentAction, UploadAction } from './deliverable/HeaderActions';
 import { openInChatTarget } from './headerRules';
 import { ARTIFACT_KIND_LABEL } from './kinds';
 import { SharePicker } from './SharePicker';
@@ -84,6 +86,13 @@ export type ArtifactHeaderProps = {
   xlsxHref?: string | null;
   csvHref?: string | null;
   openHref?: string | null;
+  /** A deck, full screen (`present`). */
+  onPresent?: () => void;
+  /** A deliverable's download formats and the handler (`download`). */
+  downloadFormats?: ExportFormat[];
+  onDownload?: (format: ExportFormat) => void;
+  /** Pick a .pptx / .docx to bring back as the next version (`upload`). */
+  onUpload?: () => void;
   onClose?: () => void;
   /**
    * The surface has no room for two panes, so closing this one is how you get
@@ -342,6 +351,16 @@ function HeaderAction({ id, ...props }: { id: ArtifactActionId } & ArtifactHeade
               </a>
             </IconAction>
           )
+        : null;
+    case 'present':
+      return props.onPresent ? <PresentAction onPresent={props.onPresent} /> : null;
+    case 'download':
+      return props.onDownload && props.downloadFormats?.length
+        ? <DownloadAction formats={props.downloadFormats} onDownload={props.onDownload} pdfPages={props.pdfPages} />
+        : null;
+    case 'upload':
+      return props.onUpload && (props.kind === 'deck' || props.kind === 'document')
+        ? <UploadAction onUpload={props.onUpload} kind={props.kind} />
         : null;
     case 'spreadsheet':
       return props.xlsxHref

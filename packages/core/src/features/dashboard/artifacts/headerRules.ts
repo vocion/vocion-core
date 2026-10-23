@@ -105,8 +105,14 @@ export type ArtifactActionId
     | 'share'
   /** Open the conversation this came out of, with the artifact beside it. */
     | 'chat'
-  /** The PDF the renderer printed. */
+  /** The PDF the renderer printed (the `/open` surface; the pane and page offer `download`). */
     | 'pdf'
+  /** A deck, full screen, with notes in a second window. */
+    | 'present'
+  /** A deliverable as PDF, PPTX or DOCX, through the export route. */
+    | 'download'
+  /** A .pptx or .docx back in as the next version. */
+    | 'upload'
   /** Every table as an Excel workbook (opens in Google Sheets too). */
     | 'spreadsheet'
   /** A table artifact as CSV. */
@@ -144,6 +150,11 @@ export type ActionInput = {
  *   browser's Back is the way out of a page.
  * - **`pdf` / `open` are the document's**, on every surface that has one,
  *   because they are the two things a person does with a finished document.
+ *   On the pane and the page a deliverable (deck or document) offers
+ *   **`download`** instead — PDF, and PPTX or Word, through the export gate —
+ *   with **`upload`** beside it for the way back, and a deck adds
+ *   **`present`**. An older version is read-only: it can be downloaded, never
+ *   uploaded onto or presented from.
  * - **`spreadsheet` is any artifact's that has tables** — a document's tables
  *   or a table artifact's rows — on every surface, `/open` included, because
  *   taking the numbers into a spreadsheet is the third thing; `csv` is the
@@ -169,13 +180,16 @@ export function actionsFor(surface: ArtifactSurface, input: ActionInput): Artifa
       ...(input.hasTables ? (['spreadsheet'] as const) : []),
     ];
   }
-  const canEdit = Boolean(input.editable) && !isDocument && !input.dirty && !input.historical;
+  const deliverable = input.kind === 'deck' || isDocument;
+  const canEdit = Boolean(input.editable) && !deliverable && !input.dirty && !input.historical;
   return [
     ...(canEdit ? (['edit'] as const) : []),
     ...(input.dirty ? (['save'] as const) : []),
     'history',
     ...(surface === 'page' ? (['chat'] as const) : []),
-    ...(isDocument && input.hasPdf ? (['pdf'] as const) : []),
+    ...(input.kind === 'deck' && !input.historical ? (['present'] as const) : []),
+    ...(deliverable ? (['download'] as const) : []),
+    ...(deliverable && !input.historical ? (['upload'] as const) : []),
     ...(input.hasTables ? (['spreadsheet'] as const) : []),
     ...(input.hasTables && input.kind === 'table' ? (['csv'] as const) : []),
     ...(isDocument ? (['open'] as const) : []),

@@ -186,7 +186,8 @@ describe('the transcript on a phone', () => {
       // "greater than zero": the frame has to be most of the screen for the
       // document to be readable at all.
       const pane = document.querySelector('[data-artifact-pane]')!;
-      const frame = document.querySelector('[data-document-frame]')!;
+      // The page itself, large, in the deliverable pane (thumbnails sit above it on a phone).
+      const frame = document.querySelector('[data-page-frame="page"]')!;
       const paneH = Math.round(pane.getBoundingClientRect().height);
       const frameH = Math.round(frame.getBoundingClientRect().height);
 
