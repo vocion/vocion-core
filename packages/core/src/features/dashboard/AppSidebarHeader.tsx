@@ -162,9 +162,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
             is a row in the Manage workspace view of the sidebar. */}
         {/* The titlebar entry point — one function, whichever surface the
             page carries (agent-chat-surface.md §6). Amber sparkle only. */}
-        <span className="[&_button]:text-brand-amber-deep [&_button:hover]:bg-surface-hover">
-          <AgentSurfaceButton />
-        </span>
+        <AgentSurfaceButton />
 
         {/* Notifications (backlog 048): the unread count and the latest few,
             on the phone header too — the slot this bell was reserved in. */}

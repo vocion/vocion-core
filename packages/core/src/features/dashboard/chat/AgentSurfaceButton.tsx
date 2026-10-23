@@ -2,7 +2,9 @@
 
 import { MessageCircle } from 'lucide-react';
 
+import { BAR_ICON_BUTTON } from '@/components/ui/buttonVariants';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
+import { cn } from '@/utils/Helpers';
 import { requestAgentSurface } from './agentSurface';
 import { useDockOpen } from './dockState';
 
@@ -37,7 +39,7 @@ export function AgentSurfaceButton() {
       aria-expanded={dockOpen}
       aria-label={dockOpen ? 'Close the agent' : 'Ask the agent'}
       title={dockOpen ? 'Close the agent (⌘J)' : 'Ask the agent (⌘J)'}
-      className={`flex size-11 items-center justify-center rounded-full transition hover:bg-muted hover:text-foreground sm:size-9 ${dockOpen ? 'bg-muted text-foreground' : 'text-muted-foreground'}`}
+      className={cn(BAR_ICON_BUTTON, dockOpen && 'bg-surface-hover text-foreground')}
     >
       <MessageCircle className="size-4" aria-hidden="true" />
     </button>

@@ -3,6 +3,7 @@
 import type { HistoryHit } from './HistoryPopover';
 import { Maximize2, SquarePen } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { BAR_ICON_BUTTON } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
 import { composerSurfaceOf, focusAgentComposer } from './agentSurface';
@@ -29,7 +30,7 @@ export function ChatHeaderActions({ onNewChat, onCopy, history, compact, fullPag
   fullPageHref?: string | null;
   /** Build the thread as plain text, on demand. Null on a surface with nothing to copy. */
   onCopy?: (() => string) | null;
-  history: { recent: HistoryHit[]; currentId: number | null; onPick: (id: number) => void; search: (q: string) => Promise<HistoryHit[]> } | null;
+  history: { recent: HistoryHit[]; currentId: number | null; onPick: (id: number) => void; search: (q: string) => Promise<HistoryHit[]>; agents?: ReadonlyArray<{ slug: string; name: string; accent?: string | null }> } | null;
   compact?: boolean;
 }) {
   const t = useTranslations('Chat');
@@ -54,7 +55,7 @@ export function ChatHeaderActions({ onNewChat, onCopy, history, compact, fullPag
             }}
             aria-label={t('new_chat')}
             data-testid="new-chat"
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+            className={BAR_ICON_BUTTON}
           >
             <SquarePen className="size-4" aria-hidden />
           </button>
@@ -68,7 +69,7 @@ export function ChatHeaderActions({ onNewChat, onCopy, history, compact, fullPag
               href={fullPageHref}
               aria-label={t('open_full_chat')}
               data-testid="open-full-chat"
-              className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+              className={BAR_ICON_BUTTON}
             >
               <Maximize2 className="size-4" aria-hidden />
             </Link>
@@ -77,7 +78,7 @@ export function ChatHeaderActions({ onNewChat, onCopy, history, compact, fullPag
         </Tooltip>
       )}
       <span className={icons}>
-        {history && <HistoryPopover recent={history.recent} currentId={history.currentId} onPick={history.onPick} search={history.search} />}
+        {history && <HistoryPopover recent={history.recent} currentId={history.currentId} onPick={history.onPick} search={history.search} agents={history.agents} />}
       </span>
       {/* The ⋯ menu carries what is left: Copy conversation, All conversations. */}
       <span className={menu}>

@@ -14,10 +14,11 @@ export type RailApp = AppSummary & {
   href: string;
 };
 
-// Each app wears its tint (front doors, `libs/tints.ts`): a tinted tile with
-// the app's icon, the same mark the app's nav header and the marketplace draw.
-// The active app gets a ring, not a second colour.
-const RAIL_BUTTON = 'grid size-10 place-items-center rounded-xl outline-hidden transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[active=true]:bg-sidebar-accent';
+// The app you are in wears its tint (front doors, `libs/tints.ts`): a tinted
+// tile with the app's icon, the same mark its nav header draws. The others are
+// the plain icon in muted ink (polish pass, 2026-10-23), so the rail shows
+// where you are rather than a row of colours.
+const RAIL_BUTTON = 'grid size-10 place-items-center rounded-xl text-muted-foreground outline-hidden transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring';
 
 /**
  * The app rail — the dashboard's far-left column (Vocion 5.0). THIS
@@ -67,7 +68,9 @@ export function AppRail(props: {
                 onClick={() => props.onPick(app)}
                 className={RAIL_BUTTON}
               >
-                <LetterTile name={app.name} icon={Icon} tint={app.tint} size="sm" />
+                {active
+                  ? <LetterTile name={app.name} icon={Icon} tint={app.tint} size="sm" />
+                  : <span aria-hidden className="grid size-7 place-items-center [&>svg]:size-4"><Icon aria-hidden strokeWidth={1.5} /></span>}
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right" collisionPadding={8}>{app.name}</TooltipContent>
@@ -77,7 +80,7 @@ export function AppRail(props: {
       <Tooltip>
         <TooltipTrigger asChild>
           <Link href={props.addHref} aria-label={props.addLabel} className={cn(RAIL_BUTTON, 'mt-1')}>
-            <LetterTile name={props.addLabel} icon={Plus} size="sm" muted />
+            <span aria-hidden className="grid size-7 place-items-center rounded-lg border border-dashed border-ink-secondary/35 [&>svg]:size-3.5"><Plus aria-hidden /></span>
           </Link>
         </TooltipTrigger>
         <TooltipContent side="right" collisionPadding={8}>{props.addLabel}</TooltipContent>

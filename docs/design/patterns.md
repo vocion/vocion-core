@@ -69,9 +69,13 @@ Front doors add six tints, `--tint-violet|sky|mint|peach|butter|rose`
 every tint is ≥ 5.3:1 in light and ≥ 5.4:1 in dark. Tints belong to front
 doors only — never to a row, a section or a record.
 
-The page (`--background`, `#FEFCF9`) is a step brighter than the sidebar
-(`--sidebar`, `#F4F0E9`) so the work reads as a sheet on its chrome; in dark
-the sidebar is the darker of the two (`#0D0B10` under `#121015`).
+**One surface.** The sidebar and the page are the same warm paper
+(`--background`, `#FEFCF9`), split by one hairline (`--sidebar-border`); in
+dark the sidebar is a step darker than the page (`#0D0B10` under `#121015`).
+Selection is one soft warm fill (`--sidebar-accent`) on the rail and the nav
+alike. Menus and popovers are one surface too: `rounded-xl`, one hairline,
+`--shadow-pop`, rows highlighted with `--surface-hover`, never the amber
+`--accent`.
 
 ### The spark
 

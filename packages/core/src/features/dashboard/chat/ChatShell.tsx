@@ -423,6 +423,7 @@ function ChatShellInner({
             currentId: session.conversationId,
             onPick: id => void session.handlePickConversation(id),
             search: session.searchConversations,
+            agents,
           }}
         />
       </ShellBarActionsPortal>
