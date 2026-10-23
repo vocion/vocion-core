@@ -2,6 +2,7 @@ import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
+import { decisionKey } from '@/libs/decisions/decision';
 import '@/styles/global.css';
 
 /**
@@ -223,7 +224,7 @@ describe('the dock', () => {
     expect(onAnswer).toHaveBeenCalledWith(expect.objectContaining({ id: 43 }), { kind: 'option', optionIds: ['api'] });
   });
 
-  it('folds to its own bar when the person taps into the composer or types, and opens again when they leave it empty (Chris, 2026-10-23)', async () => {
+  it('stays open while the person taps into the composer and types (Chris, 2026-10-23)', async () => {
     await render(
       <div>
         <DecisionDock decisions={[repo]} onAnswer={vi.fn()} agentName={() => 'Product manager'} />
@@ -234,43 +235,38 @@ describe('the dock', () => {
     await expect.element(page.getByRole('dialog')).toBeInTheDocument();
 
     await page.getByRole('textbox', { name: 'Message' }).click();
+    await userEvent.keyboard('Northwind is fine');
+
+    await expect.element(page.getByRole('dialog')).toBeInTheDocument();
+    expect(page.getByTestId('decision-folded').query()).toBeNull();
+  });
+
+  it('folds to its own bar once the reply to the person\'s message starts to stream in, and stays folded', async () => {
+    const key = new Set([decisionKey(repo)]);
+    const screen = await render(<DecisionDock decisions={[repo]} onAnswer={vi.fn()} agentName={() => 'Product manager'} updating={key} />);
+
+    // Sent, still thinking: the card waits ("Updating…") but stays open.
+    await expect.element(page.getByRole('dialog')).toBeInTheDocument();
+
+    await screen.rerender(<DecisionDock decisions={[repo]} onAnswer={vi.fn()} agentName={() => 'Product manager'} updating={key} replying />);
 
     await expect.element(page.getByTestId('decision-folded')).toBeInTheDocument();
     // The same card, folded: its surface, its agent, its "asks" line.
     await expect.element(page.getByTestId('decision-folded-asker')).toHaveTextContent('Product manager asks');
     expect(page.getByTestId('decision-folded').element().className).toContain('bg-card');
-    await expect.element(page.getByRole('button', { name: /1 decision waiting/ })).toBeInTheDocument();
 
-    await userEvent.keyboard('Northwind is fine');
-    await userEvent.click(document.body);
+    // The turn lands; the fold is the person's to undo.
+    await screen.rerender(<DecisionDock decisions={[repo]} onAnswer={vi.fn()} agentName={() => 'Product manager'} />);
 
-    // Words still in the box: the card stays out of the way.
     await expect.element(page.getByTestId('decision-folded')).toBeInTheDocument();
-
-    await page.getByRole('textbox', { name: 'Message' }).clear();
-    await userEvent.click(document.body);
-
-    await expect.element(page.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('a fold the person made by hand stays folded when they leave the composer', async () => {
-    await render(
-      <div>
-        <DecisionDock decisions={[repo]} onAnswer={vi.fn()} agentName={() => 'Product manager'} />
-        <textarea data-agent-composer aria-label="Message" />
-      </div>,
-    );
+  it('a reply streaming in a turn that started without the card folds nothing', async () => {
+    const screen = await render(<DecisionDock decisions={[repo]} onAnswer={vi.fn()} agentName={() => 'Product manager'} />);
+
+    await screen.rerender(<DecisionDock decisions={[repo]} onAnswer={vi.fn()} agentName={() => 'Product manager'} replying />);
 
     await expect.element(page.getByRole('dialog')).toBeInTheDocument();
-
-    await userEvent.keyboard('{Escape}');
-
-    await expect.element(page.getByTestId('decision-folded')).toBeInTheDocument();
-
-    await page.getByRole('textbox', { name: 'Message' }).click();
-    await userEvent.click(document.body);
-
-    await expect.element(page.getByTestId('decision-folded')).toBeInTheDocument();
   });
 
   it('while a turn may revise it, says "Updating…" and waits; a revision says "Revised" (2026-10-23)', async () => {

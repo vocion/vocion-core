@@ -18,7 +18,6 @@ import { WaitingNudge } from '../WaitingNudge';
 import { DecisionCard } from './DecisionCard';
 import { decisionTopics, settledElsewhere, settledElsewhereLine } from './dockLive';
 import { DoneReceipts } from './DoneReceipts';
-import { useComposerEngagement } from './useComposerEngagement';
 
 /**
  * The Decisions waiting on the person, docked above the composer: ONE card at a
@@ -33,10 +32,11 @@ import { useComposerEngagement } from './useComposerEngagement';
  * the turn lands (`useChatSession.answerDecision`).
  *
  * Folding it away (Esc, the chevron) answers nothing: it shrinks to one line,
- * "N decisions waiting", and opens again from there. It folds by itself when
- * the person taps into the composer or types (Chris, 2026-10-23: "when I start
- * chatting, can you collapse the ask/action card?"), and opens again when they
- * leave the composer empty — unless they folded it themselves. An answer given to one
+ * "N decisions waiting", and opens again from there. It folds by itself once
+ * the person has sent a message and the reply starts to stream in (Chris,
+ * 2026-10-23: "shouldn't automatically collapse when I click in the compose
+ * bar, but it can or should collapse when I submit, and start getting new
+ * text"). Tapping into or typing in the composer folds nothing. An answer given to one
  * that waits elsewhere starts no turn; the dock says once what it did.
  * @param props - The dock.
  * @param props.decisions - This conversation's open Decisions, oldest first; the dock shows the newest first.
@@ -48,11 +48,12 @@ import { useComposerEngagement } from './useComposerEngagement';
  * @param props.answeringId - The Decision whose answer is on its way.
  * @param props.disabled - Nothing may be answered now.
  * @param props.updating - What the running turn may revise: those cards read "Updating…" and wait.
+ * @param props.replying - The running turn's answer has started to stream in.
  * @param props.error - Why the last answer did not land.
  * @param props.notice - What the last answer from the queue did.
  * @param props.onDismissNotice - Clears it.
  */
-export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentName, agentAccent, answeringId = null, disabled = false, updating, error = null, notice = null, onDismissNotice }: {
+export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentName, agentAccent, answeringId = null, disabled = false, updating, replying = false, error = null, notice = null, onDismissNotice }: {
   decisions: DecisionView[];
   waiting?: DecisionView[];
   onAnswer: (decision: DecisionView, answer: DecisionAnswer) => void;
@@ -65,6 +66,8 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
   disabled?: boolean;
   /** The Decisions a running turn may revise (they waited when the person replied), by `decisionKey`. */
   updating?: ReadonlySet<string>;
+  /** The running turn's answer has started to stream in. */
+  replying?: boolean;
   error?: string | null;
   notice?: { line: string; receipt?: DoneReceipt } | null;
   onDismissNotice?: () => void;
@@ -78,24 +81,17 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
   const queue = [...own, ...waiting.filter(d => !here.has(decisionKey(d)))];
   const current = queue[0];
   const [collapsedFor, setCollapsedFor] = useState<string | null>(null);
-  // Folded because the person started chatting, not by their own hand: only
-  // that fold opens again when they leave the composer empty.
-  const foldedForChat = useRef(false);
   const currentKey = current ? decisionKey(current) : null;
-  useComposerEngagement(
-    () => {
-      if (currentKey && collapsedFor !== currentKey) {
-        foldedForChat.current = true;
-        setCollapsedFor(currentKey);
-      }
-    },
-    () => {
-      if (foldedForChat.current) {
-        foldedForChat.current = false;
-        setCollapsedFor(null);
-      }
-    },
-  );
+  // The person replied in chat and the answer is arriving: the card it may
+  // revise steps aside, once per turn. Their own hand opens it again.
+  const replyingTo = replying && currentKey !== null && (updating?.has(currentKey) ?? false) ? currentKey : null;
+  const [foldedForReply, setFoldedForReply] = useState<string | null>(null);
+  if (replyingTo !== foldedForReply) {
+    setFoldedForReply(replyingTo);
+    if (replyingTo !== null) {
+      setCollapsedFor(replyingTo);
+    }
+  }
   // SEVERAL ASKS ARE ONE ROW (a phone walk, 2026-10-10: eight approvals
   // stacked up in one goal). "8 asks · Review" until the person opens them;
   // then one card at a time, "1 of 8", as before.
@@ -140,10 +136,7 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
           context={here.has(decisionKey(current)) ? null : 'Waiting on you'}
           position={{ index: 0, total: queue.length }}
           collapsed={collapsedFor === decisionKey(current)}
-          onCollapsedChange={(folded) => {
-            foldedForChat.current = false;
-            setCollapsedFor(folded ? decisionKey(current) : null);
-          }}
+          onCollapsedChange={folded => setCollapsedFor(folded ? decisionKey(current) : null)}
           onAnswer={answer => onAnswer(current, answer)}
           {...(onOpen ? { onOpen: (href: string) => onOpen(href, current) } : {})}
           busy={answeringId === current.id}
@@ -182,6 +175,8 @@ type DockSession = {
   sendMessage: (text: string) => unknown;
   messages: readonly unknown[];
   isStreaming?: boolean;
+  /** The running turn's answer has started to stream in. */
+  isAnswering?: boolean;
 };
 
 /**
@@ -376,6 +371,7 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
       agentAccent={session.agentAccentOf}
       answeringId={session.answeringDecisionId}
       updating={updatingKeys}
+      replying={session.isAnswering ?? false}
       error={session.decisionError}
     />
   );
