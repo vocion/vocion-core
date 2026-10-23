@@ -44,6 +44,12 @@ export type TenantClaim = {
    * the artifact can relay it but never change it.
    */
   pageContext?: import('@/services/chat/pageContext').PageContext;
+  /**
+   * A turn a person started in chat: the endpoint gives the person's own MCP
+   * servers to its tools (`services/outboundMcp/followingSources.ts`). Signed,
+   * so the container can carry it but never set it.
+   */
+  personTurn?: boolean;
   /** Unix ms expiry. Claims are per-invocation and short-lived. */
   exp: number;
 };

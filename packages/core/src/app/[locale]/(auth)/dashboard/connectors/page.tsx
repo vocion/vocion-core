@@ -1,4 +1,6 @@
 import { getTranslations, setRequestLocale } from 'next-intl/server';
+import { MembersOwnConnections } from '@/features/connections/MembersOwnConnections';
+import { YourOrgConnections } from '@/features/connections/YourOrgConnections';
 import { SourcesPanel } from '@/features/dashboard/SourcesPanel';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { PersonalConnections } from '@/features/personal/PersonalConnections';
@@ -33,6 +35,7 @@ export default async function ConnectorsPage(props: {
       <>
         <TitleBar title={t('personal_title')} description={<ScopeLine line={t('personal_line')} link={teamHref ? { href: teamHref, label: t('team_link') } : null} />} />
         <PersonalConnections />
+        <YourOrgConnections />
       </>
     );
   }
@@ -49,6 +52,7 @@ export default async function ConnectorsPage(props: {
         description={<ScopeLine line={t('shared_line')} link={overview.personalHref ? { href: overview.personalHref, label: t('personal_link') } : null} />}
       />
       <SourcesPanel connectInfo={connectInfo} overview={overview} isAdmin={isAdmin} />
+      <MembersOwnConnections />
     </>
   );
 }

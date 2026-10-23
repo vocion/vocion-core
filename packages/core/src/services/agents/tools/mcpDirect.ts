@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { newCardId } from '@/libs/cards/card';
 import { logger } from '@/libs/Logger';
 import { callMcpTool, listMcpTools, mcpCredentialsOf, McpUnauthorized, validateMcpInput, withMcp } from '@/libs/outboundMcp/client';
-import { loadMcpSources } from '@/libs/outboundMcp/sources';
+import { mcpEndpoint } from '@/libs/outboundMcp/oauth';
+import { loadMcpSources, mcpConfigSchema } from '@/libs/outboundMcp/sources';
 import { personMcpCredentials, signInPath } from '@/services/outboundMcp/personSignIn';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 
@@ -44,10 +45,21 @@ function readableResult(result: Record<string, unknown>) {
 export function mcpTools(ctx: RuntimeContext) {
   const slugs = ctx.connectorSources.filter(slug => ctx.sourceKinds?.[slug] === 'mcp'
     && (!ctx.allowedSourceSlugs || ctx.allowedSourceSlugs.includes(slug)));
-  if (!slugs.length) {
+  // The person's own servers join a turn they started (`followingSources.ts`),
+  // once each: one the agent already holds as its own source stays its own.
+  const heldEndpoints = new Set((ctx.mcpSources ?? []).filter(s => slugs.includes(s.slug) && s.url).map(s => mcpEndpoint(s.url!)));
+  const following = new Map((ctx.followingMcp ?? [])
+    .filter(f => !slugs.includes(f.slug) && !heldEndpoints.has(mcpEndpoint(f.url)))
+    .map(f => [f.slug, f]));
+  if (!slugs.length && following.size === 0) {
     return [];
   }
   async function sourceFor(slug: string) {
+    const yours = following.get(slug);
+    if (yours) {
+      // Reads only: a per-person source declares no writes, and none travel.
+      return { slug: yours.slug, name: yours.name, config: mcpConfigSchema.parse({ auth: 'person', url: yours.url, readTools: yours.readTools, writeTools: [] }) };
+    }
     if (!slugs.includes(slug)) {
       throw new Error('MCP source is outside this request scope.');
     }
@@ -57,6 +69,12 @@ export function mcpTools(ctx: RuntimeContext) {
     }
     return source;
   }
+  // What a read of the person's own server says it came from: kept with the
+  // tool's output, so the turn's record shows whose access answered.
+  const viaYours = (slug: string): string | undefined => {
+    const yours = following.get(slug);
+    return yours ? `${yours.name} · your connection, from ${yours.fromWorkspace}: read with your own sign-in, not this workspace's.` : undefined;
+  };
   // A `person` source reads as the person in the turn, never with a workspace token.
   async function credentialsFor(source: Awaited<ReturnType<typeof sourceFor>>) {
     if (source.config.auth !== 'person' || !source.config.url) {
@@ -87,11 +105,19 @@ export function mcpTools(ctx: RuntimeContext) {
   // the agent knows a server covers ad reports or invoices before it has to
   // discover it, and never takes a missing native connector for a missing source.
   const servers = (ctx.mcpSources ?? []).filter(s => slugs.includes(s.slug));
-  const covers = servers.length > 0
-    ? ` Assigned servers: ${servers.map(s => `${s.slug} (${s.name}${s.perPerson ? ', read as the person asking' : ''}) reads ${s.readTools.join(', ')}`).join('; ')}. Prefer these over saying a system is not connected.`
+  const assigned = servers.length > 0
+    ? ` Assigned servers: ${servers.map(s => `${s.slug} (${s.name}${s.perPerson ? ', read as the person asking' : ''}) reads ${s.readTools.join(', ')}`).join('; ')}.`
     : '';
+  const yours = following.size > 0
+    ? ` The person's own connections, which join this turn because they started it (read as them, with their own sign-in): ${[...following.values()].map(f => `${f.slug} (${f.name}, your connection, from ${f.fromWorkspace}) reads ${f.readTools.join(', ')}`).join('; ')}. When the person names one loosely ("the company KB", "@company knowledge"), it is this; say its answers came from their own connection.`
+    : '';
+  const covers = assigned || yours ? `${assigned}${yours} Prefer these over saying a system is not connected.` : '';
   // A per-person server that refused the person's grant: the same sign-in card, again.
   async function signInAgain(sourceSlug: string): Promise<string | null> {
+    const own = following.get(sourceSlug);
+    if (own) {
+      return offerSignIn({ orgId: ctx.orgId, slug: own.slug, name: own.name });
+    }
     const [source] = await loadMcpSources(ctx.orgId, [sourceSlug]).catch(() => []);
     if (!source || source.config.auth !== 'person' || !source.config.url) {
       return null;
@@ -107,8 +133,10 @@ export function mcpTools(ctx: RuntimeContext) {
       try {
         const source = await sourceFor(sourceSlug);
         const credentials = await credentialsFor(source);
+        const via = viaYours(sourceSlug);
         return JSON.stringify(await withMcp(credentials, async client => ({
           sourceSlug,
+          ...(via ? { via } : {}),
           tools: (await listMcpTools(client)).filter(remote => source.config.readTools.includes(remote.name) || source.config.writeTools.includes(remote.name)),
           writes: 'Propose declared writes with propose_action, action_id=mcp.call. Approval executes the exact submitted arguments.',
         })));
@@ -147,7 +175,9 @@ export function mcpTools(ctx: RuntimeContext) {
             // its arguments instead of aborting the entire chat graph.
             return { isError: true, error: 'Arguments do not match the tool schema. Correct them using inputSchema; no tool was called.', inputSchema: remote.inputSchema };
           }
-          return readableResult(await callMcpTool(client, remote, input));
+          const result = readableResult(await callMcpTool(client, remote, input));
+          const via = viaYours(sourceSlug);
+          return via ? { via, ...result } : result;
         }), null, 2);
       } catch (error) {
         if (error instanceof SignInNeeded) {

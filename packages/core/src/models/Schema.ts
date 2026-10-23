@@ -504,6 +504,15 @@ export const projectSchema = pgTable(
     mailboxAddress: text('mailbox_address'),
     mailboxEnabled: boolean('mailbox_enabled').default(false).notNull(),
     /**
+     * Whether members' own connections join their turns here (migration 0215,
+     * `services/outboundMcp/followingSources.ts`): an `auth: person` MCP server
+     * declared in any workspace of the Org is read in a turn a member starts in
+     * this one, as them, with their own sign-in. On by default; an admin turns
+     * it off for a workspace whose shared records must not draw on members'
+     * own access. The servers this workspace declares itself are unaffected.
+     */
+    membersOwnConnections: boolean('members_own_connections').default(true).notNull(),
+    /**
      * IANA zone the workspace lives in (`defaults.timezone` in workspace.yaml).
      * The day boundary for everything no browser is behind — missions,
      * briefings, mail — and the fallback when a turn arrives without one.
@@ -3540,6 +3549,14 @@ export const apiTokenSchema = pgTable(
      * refresh is underway. See `claimLoginRefresh`.
      */
     refreshingUntil: timestamp('refreshing_until', { mode: 'date' }),
+    /**
+     * For a person's sign-in to an `auth: person` MCP server (migration 0215):
+     * whether it joins their turns in every workspace of the Org, not only the
+     * ones that declare the server (`services/outboundMcp/followingSources.ts`).
+     * On by default; the person turns it off per connection. Meaningless on
+     * every other row.
+     */
+    everyWorkspace: boolean('every_workspace').default(true).notNull(),
   },
   table => [
     index('api_token_org_idx').on(table.orgId),

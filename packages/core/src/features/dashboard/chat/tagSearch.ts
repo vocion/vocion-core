@@ -66,7 +66,8 @@ export function useComposerTags(
     if (cache.sources === null) {
       try {
         const res = await client.chat.tagSources();
-        cache.sources = res.sources.map(r => ({ type: 'source' as const, id: r.slug, label: r.name }));
+        // A person's own connection reads as theirs in the list and on the chip.
+        cache.sources = res.sources.map(r => ({ type: 'source' as const, id: r.slug, label: 'yours' in r && r.yours ? t('tag_your_connection', { name: r.name }) : r.name }));
         // Ways of working (`@browser`): intent tags, offered only where the server says they can act.
         cache.tools = (res.tools ?? []).map(r => browserRef(r.name));
       } catch {
@@ -84,7 +85,7 @@ export function useComposerTags(
       ...cache.sources,
     ];
     return pool.filter(r => matchesTag(r, term)).slice(0, 12);
-  }, [agents, attachable]);
+  }, [agents, attachable, t]);
 
   return { tagSearch, attachable };
 }

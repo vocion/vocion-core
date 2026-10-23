@@ -129,3 +129,17 @@ describe('what a step did for the person', () => {
     expect(isSafeStepLabels({ running: 'Asking you to connect Jira…', done: 'Asked you to connect Jira' }, 'offer_connection')).toBe(true);
   });
 });
+
+describe('a read of the person\'s own connection says so', () => {
+  const hints = { yourConnections: [{ slug: 'company-knowledge', name: 'Company Knowledge', from: 'Finance' }] };
+
+  it('names the connection as theirs and where it is declared, in the step the turn keeps', () => {
+    expect(personFacingStepLabels('mcp_read', { sourceSlug: 'company-knowledge', name: 'search_knowledge' }, hints)).toEqual({ running: 'Reading your Company Knowledge…', done: 'Read your Company Knowledge · your connection, from Finance' });
+    expect(personFacingStepLabels('mcp_list_tools', { sourceSlug: 'company-knowledge' }, hints)?.done).toBe('Checked what your Company Knowledge reads · your connection, from Finance');
+  });
+
+  it('leaves a workspace\'s own MCP source to the usual labels', () => {
+    expect(personFacingStepLabels('mcp_read', { sourceSlug: 'ledger', name: 'read' }, hints)).toBeNull();
+    expect(personFacingStepLabels('mcp_read', { sourceSlug: 'company-knowledge' })).toBeNull();
+  });
+});
