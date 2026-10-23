@@ -89,6 +89,12 @@ export type InboxItem = {
   detail?: string;
   /** Set for ask rows, so the client can decide in place. */
   askId?: number;
+  /**
+   * The asks that only chased this one (`reAskChain.ts`): folded into its
+   * row, still open on their own. A decline from chat declines them with it,
+   * or they would stand up as rows of their own once this one is gone.
+   */
+  chases?: number[];
   /** Set for a single proposed action, so the row can approve/reject in place. */
   reviewId?: number;
   /** The action id (`hubspot.update`) — the action-kind filter chips. */
@@ -184,6 +190,13 @@ export type Inbox = {
   total: number;
   /** Rows per tab, before search/filter, for the tab labels. */
   tabs: Record<InboxTab, number>;
+  /**
+   * Of the open tab's rows, the failed runs waiting to be retried or
+   * dismissed. The rest are the decisions the sidebar badge counts
+   * (`needsYouCount`): the page header says both, so neither number reads as
+   * the other's mistake.
+   */
+  failedOpen: number;
   facets: InboxFacets;
 };
 
@@ -382,6 +395,7 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
       // The count is the rows this one replaced, so the page can say the
       // question was asked eight times without printing it eight times.
       count: chain.chases.length > 0 ? chain.chases.length + 1 : undefined,
+      ...(chain.chases.length > 0 ? { chases: chain.chases.map(c => c.id) } : {}),
     });
   }
   return rows;
@@ -491,7 +505,7 @@ function isFailedProposal(item: InboxItem): boolean {
  * filter nobody can see behind.
  * @param rows - Every candidate row the factory produced.
  */
-function admitted(rows: InboxItem[]): Pick<Inbox, 'items' | 'reclassified' | 'policyGaps'> {
+function admitted(rows: InboxItem[]): Pick<Inbox, 'items' | 'reclassified' | 'policyGaps'> & { folded: Map<string, InboxItem[]> } {
   const failed = rows.filter(isFailedProposal);
   const live = rows.filter(r => !isFailedProposal(r));
   const unfolded = live.filter(r => r.actionId !== undefined && UNFOLDED_ACTIONS.has(r.actionId));
@@ -501,7 +515,14 @@ function admitted(rows: InboxItem[]): Pick<Inbox, 'items' | 'reclassified' | 'po
     grounds: declaredGrounds(item),
   })));
 
+  // The related decisions a row stands for, by the row's key: each is still
+  // open on its own, so a decline from chat takes them with the row.
+  const foldedRows = new Map<string, InboxItem[]>();
   const items = agenda.entries.map(({ topic }) => {
+    const others = topic.members.filter(m => m.key !== topic.root.key);
+    if (others.length > 0) {
+      foldedRows.set(topic.root.key, others);
+    }
     const folded = topic.members.length - 1 + topic.enrichments.length;
     return {
       ...topic.root,
@@ -510,7 +531,7 @@ function admitted(rows: InboxItem[]): Pick<Inbox, 'items' | 'reclassified' | 'po
       ...(folded > 0 ? { count: (topic.root.count ?? 1) + folded, detail: enrichmentLine(topic) ?? topic.root.detail } : {}),
     };
   });
-  return { items: [...items, ...unfolded, ...failed], reclassified: agenda.reclassified, policyGaps: agenda.policyGaps };
+  return { items: [...items, ...unfolded, ...failed], reclassified: agenda.reclassified, policyGaps: agenda.policyGaps, folded: foldedRows };
 }
 
 /**
@@ -829,7 +850,36 @@ export async function listInbox(orgId: string, query: InboxQuery = {}): Promise<
     items = [...items.filter(i => !isFailedProposal(i)), ...items.filter(isFailedProposal)];
   }
 
-  return { items, counts, total: items.length, tabs, facets, reclassified: tab === 'open' ? reclassified : [], policyGaps: tab === 'open' ? policyGaps : [] };
+  return { items, counts, total: items.length, tabs, failedOpen: open.filter(isFailedProposal).length, facets, reclassified: tab === 'open' ? reclassified : [], policyGaps: tab === 'open' ? policyGaps : [] };
+}
+
+/** The open queue as a decline from chat reads it (`services/inbox/queueSelection.ts`). */
+export type OpenQueue = {
+  /** The open tab's rows as the page lists them, its kind, agent and search filters applied. */
+  items: InboxItem[];
+  /** A row's key → the related decisions folded into it, each still open on its own. */
+  folded: ReadonlyMap<string, InboxItem[]>;
+  /** Every row on the open tab, before the filters: the page's Open count. */
+  open: number;
+  /** Of those, the failed runs to retry or dismiss; the rest are the badge's decisions. */
+  failed: number;
+};
+
+/**
+ * The open tab with what each row stands for: the rows the page renders,
+ * plus the decisions the agenda folded into each one. A row declined alone
+ * leaves its folded members open, and the next read makes one of them the
+ * row again: the row a person thought they cleared, back with the same title.
+ * @param orgId - The workspace.
+ * @param query - The page's filters: kinds, agents, search.
+ */
+export async function openQueue(orgId: string, query: Pick<InboxQuery, 'kinds' | 'agents' | 'q'> = {}): Promise<OpenQueue> {
+  const { items: open, folded } = admitted(await openItems(orgId));
+  let items = narrow(open, query);
+  if (query.kinds && query.kinds.length > 0) {
+    items = items.filter(i => query.kinds!.includes(i.kind));
+  }
+  return { items, folded, open: open.length, failed: open.filter(isFailedProposal).length };
 }
 
 /**

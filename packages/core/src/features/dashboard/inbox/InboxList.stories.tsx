@@ -63,6 +63,7 @@ const INBOX: Inbox = {
   counts,
   total: ITEMS.length,
   tabs: { open: ITEMS.length, decided: 12, snoozed: 1 },
+  failedOpen: 0,
   facets: {
     actionKinds: [{ id: 'hubspot.update', count: 2 }],
     agents: [{ slug: 'revenue-lead', count: 2 }, { slug: 'proposal-writer', count: 1 }],

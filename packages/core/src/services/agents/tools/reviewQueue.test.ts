@@ -15,7 +15,7 @@ const TARGETS = [
 
 vi.mock('@/services/inbox/queueSelection', async (orig) => {
   const real = await orig<typeof import('@/services/inbox/queueSelection')>();
-  return { ...real, selectQueue: vi.fn(async () => ({ targets: TARGETS, open: 69, notDeclinable: { run: 2 } })) };
+  return { ...real, selectQueue: vi.fn(async () => ({ targets: TARGETS, rows: 2, open: 69, failed: 4, leftOpen: [{ kind: 'run' as const, count: 2, why: 'a paused run is resumed or cancelled on its own page' }] })) };
 });
 
 function ctx(over: Partial<RuntimeContext> = {}): RuntimeContext {
@@ -29,11 +29,13 @@ describe('reading the queue', () => {
   });
 
   it('says the total, each ref and wait, calls it the Review queue, and never asks for ids', () => {
-    const out = renderQueue({ targets: TARGETS, open: 69, notDeclinable: { run: 2 } }, 'Open decisions waiting 5 days or more', NOW);
+    const out = renderQueue({ targets: TARGETS, rows: 2, open: 69, failed: 4, leftOpen: [{ kind: 'run', count: 2, why: 'a paused run is resumed or cancelled on its own page' }] }, 'Open decisions waiting 5 days or more', NOW);
 
-    expect(out).toContain('Review queue, this workspace: 2 of 69 open decisions match');
+    // The page header's own numbers, so a reply quotes what the person sees.
+    expect(out).toContain('Review queue, this workspace: 65 decisions and 4 failed runs to retry or dismiss, as the page header says.');
+    expect(out).toContain('Open decisions waiting 5 days or more: 2 decisions a decline can take, from 2 rows');
     expect(out).toContain('- ask:7 · Approvals · Approve the Kestrel discount · waited 90d · from deal-desk');
-    expect(out).toContain('2 Runs');
+    expect(out).toContain('2 runs (a paused run is resumed or cancelled on its own page)');
     expect(out).toContain('Never ask the person for ids.');
     expect(out).not.toMatch(/inbox/i);
   });
@@ -58,8 +60,16 @@ describe('declining from chat', () => {
 
     const event = (c.emit as ReturnType<typeof vi.fn>).mock.calls[0]![0];
 
-    expect(event).toMatchObject({ type: 'recommended_action', recommendation: { actionId: 'review.decline', label: 'Decline 2 decisions: Open decisions waiting 5 days or more', input: { refs: ['ask:7', 'proposal:12'], reason: 'Too old to act on.' } } });
+    expect(event).toMatchObject({ type: 'recommended_action', recommendation: { actionId: 'review.decline', label: 'Decline 2 decisions: Open decisions waiting 5 days or more', input: {
+      refs: ['ask:7', 'proposal:12'],
+      reason: 'Too old to act on.',
+      // Kept, so the result can say what is still open in it.
+      filter: { older_than_days: 5 },
+      // Said on the card before anyone approves.
+      left_open: [{ label: 'runs', count: 2, why: 'a paused run is resumed or cancelled on its own page' }],
+    } } });
     expect(out).toContain('Nothing is declined until they approve it.');
+    expect(out).toContain('Not on the card, and said on it: 2 runs (a paused run is resumed or cancelled on its own page).');
   });
 
   it('narrows to refs it listed, and never reaches past the selection', async () => {

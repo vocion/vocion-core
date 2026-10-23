@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { personEffortChoice } from '@/services/AgentService';
-import { autoFloor, CONSULT_TOOL, createEffortMiddleware, decideEffort, EffortCeilings, effortNote, envelopeFor, inferEffort, nextLevel, parseEffort, synthesisLevel } from './effort';
+import { answerFloor, autoFloor, CONSULT_TOOL, createEffortMiddleware, decideEffort, EffortCeilings, effortNote, envelopeFor, inferEffort, nextLevel, parseEffort, synthesisLevel } from './effort';
 
 describe('choosing the level', () => {
   const auto = async () => ({ level: 'deep' as const, reason: 'research across months' });
@@ -38,6 +38,17 @@ describe('choosing the level', () => {
       throw new Error('no key');
     } })).level).toBe('standard');
     expect(parseEffort('{"level":"enormous"}')).toBeNull();
+  });
+});
+
+describe('a turn reporting an approved card', () => {
+  // 2026-10-23: "approve" on a card declining 100 decisions ran Quick on the
+  // fast model, and the reply said "Done" over a queue that was not.
+  it('is never Quick when the card changed many records, and is left alone otherwise', () => {
+    expect(answerFloor({ level: 'quick', reason: 'one word' }, 112)).toEqual({ level: 'standard', reason: 'reporting a change to 112 records' });
+    expect(answerFloor({ level: 'quick', reason: 'one word' }, 1)).toEqual({ level: 'quick', reason: 'one word' });
+    expect(answerFloor({ level: 'quick', reason: 'one word' }, undefined)).toEqual({ level: 'quick', reason: 'one word' });
+    expect(answerFloor({ level: 'deep', reason: 'synthesizing 3 teams', teams: 3 }, 112)).toEqual({ level: 'deep', reason: 'synthesizing 3 teams', teams: 3 });
   });
 });
 

@@ -415,7 +415,7 @@ export function answerLine(view: Pick<DecisionView, 'options'>, answer: Decision
  * @param answer - The answer.
  * @param effect - The actual execution outcome, when the decision ran an action.
  */
-export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'options' | 'subject' | 'body' | 'refs'>, answer: DecisionAnswer, effect?: { runId: number; status: string; error?: string | null; executedInput?: Record<string, unknown> } | null): string {
+export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'options' | 'subject' | 'body' | 'refs'>, answer: DecisionAnswer, effect?: { runId: number; status: string; error?: string | null; executedInput?: Record<string, unknown>; resultLine?: string } | null): string {
   const lines = [`[${view.subject === 'proposal' ? 'proposal' : 'decision'} #${view.id} answered] ${view.question}`];
   if (view.body?.trim()) {
     lines.push(`Asked with: ${view.body.trim()}`);
@@ -436,6 +436,13 @@ export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'o
   }
   if (effect) {
     lines.push(`Execution result for ACT-${effect.runId}: ${effect.status}.${effect.error ? ` Error: ${effect.error}` : ''}`);
+    if (effect.resultLine) {
+      // The action's own account, with its numbers (2026-10-23: a bulk
+      // decline read only "done" and was reported as "Cleared 100" beside a
+      // queue still holding rows it was asked to clear).
+      lines.push(`What it did, in its own words: ${effect.resultLine}`);
+      lines.push('Report exactly these numbers. If it says something is still open, say what and why, and never call it done or cleared.');
+    }
     if (effect.executedInput) {
       lines.push(`Executed arguments (historical, not current state): ${JSON.stringify(effect.executedInput)}`);
     }
