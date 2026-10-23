@@ -11,7 +11,14 @@ true:
   agent's own colour from the centre (600ms), turns and breathes;
   `AgentDot settling` lets it go when the work ends (900ms). The live line
   blooms; the turn header settles. One face per agent: its own colour at rest
-  everywhere, the chat landing included.
+  everywhere.
+- **The empty chat's big spark**: a still `SparkOrb` (`xl`, 64px) above the
+  team, Vocion ready to work; the lead and its teammates sit under it in
+  their own colours.
+- **At inline size the spark is flat.** Below 20px (`SparkOrb` and `AgentDot`
+  at `xs`/`sm`, the live line's 14px mark) a sphere's highlight, a turning
+  conic and a glow halo turn to mud, so the mark is a flat disc of the
+  gradient that softly pulses (`data-flat`). Larger orbs keep the sphere.
 - **The thinking line** (`.work-shimmer`), a soft spark band sweeping muted
   text, 13px semibold on the live line: slow (4.8s, eased) and quiet (each stop
   blended a third back to the muted tone), so it glows rather than flashes.
