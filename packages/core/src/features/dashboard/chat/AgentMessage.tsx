@@ -378,11 +378,12 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                     <span data-testid="speaker-opener" className="inline-flex items-center gap-1.5 tracking-normal normal-case">
                       <AgentDot name={opener.name} accent={opener.accent} size="sm" decorative settling={settling} />
                       <span className="font-medium text-foreground/85">{opener.name}</span>
-                      {opener.eyebrow && <span className="text-muted-foreground/80">{`· ${opener.eyebrow}`}</span>}
                       {via && <span className="sr-only">{via}</span>}
                     </span>
                   </TooltipTrigger>
-                  {viaReason && <TooltipContent side="bottom" align="start" collisionPadding={8}>{viaReason}</TooltipContent>}
+                  {/* The role rides on hover, not in the line (polish pass,
+                      2026-10-23: one face, one name, never a dotted chain). */}
+                  {(viaReason || opener.eyebrow) && <TooltipContent side="bottom" align="start" collisionPadding={8}>{[opener.eyebrow, viaReason].filter(Boolean).join(' · ')}</TooltipContent>}
                 </Tooltip>
               )
             // The same speaker's next turns keep a quiet mark, now its own
@@ -398,6 +399,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                 )
               : <AgentMark name={agentName} />}
           {timestamp && <span className="tracking-normal text-muted-foreground/60 normal-case tabular-nums">{formatTime(timestamp)}</span>}
+          {/* The turn's meta sits on the right, one quiet line (polish pass,
+              2026-10-23): sources, then the level, model and time. */}
+          <span className="flex-1" aria-hidden />
           {sourceCount > 0 && (
             <button
               type="button"

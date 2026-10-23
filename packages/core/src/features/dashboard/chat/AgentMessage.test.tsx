@@ -69,7 +69,7 @@ describe('AgentMessage Sources chip', () => {
 });
 
 describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', () => {
-  it('opens a turn the speaker changed to with that teammate\'s avatar and name ("Dana · Pricing")', async () => {
+  it('opens a turn the speaker changed to with that teammate\'s avatar and name, the role on hover', async () => {
     await render(
       <AgentMessage
         agentName="Revenue"
@@ -79,7 +79,8 @@ describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', ()
       />,
     );
 
-    await expect.element(page.getByTestId('speaker-opener')).toHaveTextContent('Dana· Pricing');
+    await expect.element(page.getByTestId('speaker-opener')).toHaveTextContent(/^Dana/);
+    expect(page.getByTestId('speaker-opener').element().textContent).not.toContain('Pricing');
     expect(document.querySelector('[data-testid="speaker-opener"] [data-slot="agent-dot"]')).not.toBeNull();
   });
 
