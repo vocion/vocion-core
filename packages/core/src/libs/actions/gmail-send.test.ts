@@ -61,7 +61,7 @@ describe('gmailSendAction', () => {
     const out = await gmailSendAction.execute({ orgId: 'o', credentials: { token: 'x' } }, parse({ to: 'a@b.com', subject: 'Hi', body: 'hello' }));
 
     expect(out).toMatchObject({ mode: 'sent', messageId: 'msg1', to: 'a@b.com', link: 'https://mail.google.com/mail/#all/t1' });
-    expect(String((f.mock.calls[0] as unknown as [string])[0])).toContain('/messages/send');
+    expect(String(f.mock.calls.at(-1)![0])).toContain('/messages/send');
   });
 
   it('creates a draft when draft:true (never sends), with a link to it', async () => {
@@ -71,8 +71,8 @@ describe('gmailSendAction', () => {
     const out = await gmailSendAction.execute({ orgId: 'o', credentials: { token: 'x', email: 'rowan@northwind.example' } }, parse({ to: 'a@b.com', body: 'hi', draft: true }));
 
     expect(out).toMatchObject({ mode: 'draft', draftId: 'draft1', link: 'https://mail.google.com/mail/u/rowan%40northwind.example/#drafts?compose=m1' });
-    expect(String((f.mock.calls[0] as unknown as [string])[0])).toContain('/drafts');
-    expect(f.mock.calls.some(c => String(c[0]).includes('/send'))).toBe(false);
+    expect(String(f.mock.calls.at(-1)![0])).toContain('/drafts');
+    expect(f.mock.calls.some(c => String(c[0]).includes('/messages/send'))).toBe(false);
   });
 
   it('threads a reply under the thread\'s last message: threadId, In-Reply-To and References', async () => {
@@ -96,8 +96,40 @@ describe('gmailSendAction', () => {
     expect(raw).toContain('In-Reply-To: <a2@kestrel.example>');
     expect(raw).toContain('References: <a1@kestrel.example> <a2@kestrel.example>');
     // The signature rides under the body, once.
-    expect(raw).toMatch(/Monday works\.\r?\n\r?\nRowan Pike\nNorthwind$/);
+    expect(raw).toMatch(/Monday works\.\r?\n\r?\nRowan Pike\nNorthwind\r\n--vocion-alt/);
     expect(out).toMatchObject({ mode: 'draft', threaded: true, threadId: 't-42' });
+  });
+
+  it('writes HTML beside a text copy, with the sender\'s own Gmail signature under both', async () => {
+    const sig = '<div><p>Thanks,</p><p>Rowan</p><img src="https://cdn.northwind.example/rowan.png"></div>';
+    const f = vi.fn(async (url: string, _init?: RequestInit) => (url.endsWith('/settings/sendAs')
+      ? res({ sendAs: [{ sendAsEmail: 'alias@northwind.example', signature: '<p>alias</p>' }, { sendAsEmail: 'rowan@northwind.example', isDefault: true, signature: sig }] })
+      : res({ id: 'd1', message: { id: 'm1' } })));
+    vi.stubGlobal('fetch', f);
+
+    await gmailSendAction.execute({ orgId: 'o', credentials: { token: 'x', email: 'Rowan@Northwind.example' } }, parse({ to: 'dana@kestrel.example', subject: 'Next steps', body: 'Hi Dana,\n\nHere is what I heard.\n\n- One\n- Two', draft: true }));
+
+    const raw = sentRaw(f.mock.calls.find(c => String(c[0]).endsWith('/drafts'))!);
+
+    expect(raw).toContain('Content-Type: multipart/alternative');
+    expect(raw.indexOf('Content-Type: text/plain')).toBeLessThan(raw.indexOf('Content-Type: text/html'));
+    expect(raw).toContain('<p>Hi Dana,</p>');
+    expect(raw).toContain('<ul><li>One</li><li>Two</li></ul>');
+    expect(raw).toContain(`<div dir="ltr" class="gmail_signature">${sig}</div>`);
+    expect(raw).not.toContain('<p>alias</p>');
+    expect(raw).toMatch(/Two\r?\n\r?\n--\r?\nThanks,/);
+  });
+
+  it('goes without a signature when Gmail has none or does not answer', async () => {
+    const f = vi.fn(async (url: string, _init?: RequestInit) => (url.endsWith('/settings/sendAs') ? res({}, false, 403) : res({ id: 'd1', message: { id: 'm1' } })));
+    vi.stubGlobal('fetch', f);
+
+    await gmailSendAction.execute({ orgId: 'o', credentials: { token: 'x' } }, parse({ to: 'dana@kestrel.example', body: 'Hi Dana', draft: true }));
+
+    const raw = sentRaw(f.mock.calls.find(c => String(c[0]).endsWith('/drafts'))!);
+
+    expect(raw).toContain('<div dir="ltr"><p>Hi Dana</p></div>');
+    expect(raw).not.toContain('gmail_signature');
   });
 
   it('a reply proposed without a thread id still threads, by its recipient and Re: subject', async () => {
@@ -197,7 +229,7 @@ describe('gmailSendAction', () => {
 
     expect(resolveAttachments).toHaveBeenCalledWith('o', [{ artifactId: 5166 }], { kind: 'human', id: 'usr-1' });
 
-    const raw = sentRaw(f.mock.calls[0]!);
+    const raw = sentRaw(f.mock.calls.find(c => String(c[0]).includes('/messages/send'))!);
 
     expect(raw).toMatch(/Content-Type: multipart\/mixed; boundary="([^"]+)"/);
 
