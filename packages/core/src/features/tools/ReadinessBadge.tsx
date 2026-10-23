@@ -26,7 +26,7 @@ import { cn } from '@/utils/Helpers';
 export function ReadinessBadge(props: { ready: boolean; keyStateUnknown: boolean }) {
   if (props.keyStateUnknown) {
     return (
-      <Badge className={cn(TONE.neutral.bg, TONE.neutral.fg)}>
+      <Badge className={cn('text-[10px]', TONE.neutral.bg, TONE.neutral.fg)}>
         <CircleHelp className="size-3" />
         Can't check
       </Badge>
@@ -34,14 +34,14 @@ export function ReadinessBadge(props: { ready: boolean; keyStateUnknown: boolean
   }
   if (props.ready) {
     return (
-      <Badge className={cn(TONE.pass.bg, TONE.pass.fg)}>
+      <Badge className={cn('text-[10px]', TONE.pass.bg, TONE.pass.fg)}>
         <Check className="size-3" />
         Ready
       </Badge>
     );
   }
   return (
-    <Badge className={cn(TONE.amber.bg, TONE.amber.fg)}>
+    <Badge className={cn('text-[10px]', TONE.amber.bg, TONE.amber.fg)}>
       <TriangleAlert className="size-3" />
       Needs key
     </Badge>
