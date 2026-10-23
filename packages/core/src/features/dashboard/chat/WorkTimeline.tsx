@@ -1,6 +1,7 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
+import type { WorkNote } from './interleave';
 import type { Speaker } from './speakers';
 import type { AgentRun, IndexedDocument, TraceNode } from './types';
 import type { FailureReport } from '@/libs/chat/redact';
@@ -27,10 +28,12 @@ import { useEffect, useState } from 'react';
 import { AgentDot, AgentDots } from '@/components/ui/agent-dot';
 import { SparkOrb } from '@/components/ui/spark-orb';
 import { failureHeadline, failureOneLiner, failureReport } from '@/libs/chat/redact';
+import { splitScratch } from '@/libs/chat/scratch';
 import { stepHeadline } from '@/libs/chat/stepHeadline';
 import { fallbackStepLabels } from '@/libs/chat/stepLabels';
 import { useChatAgents } from './ChatAgents';
 import { sourceLabels } from './helpers';
+import { stepsWithNotes } from './interleave';
 import { speakerOf } from './speakers';
 import { liveStepLabel } from './traceReducer';
 import { formatElapsed, useElapsed } from './useElapsed';
@@ -72,6 +75,12 @@ export type WorkTimelineProps = {
   trace?: TraceNode[];
   /** Who this turn was, so a failed step can be copied as a report. */
   failureContext?: FailureReport;
+  /**
+   * What the agent wrote between these steps ("Let me check the tracker…"),
+   * folded out of the answer (`interleave.ts` `foldNarration`). Shown among
+   * the steps, where it was said; never in the message body.
+   */
+  notes?: WorkNote[];
   /**
    * Seconds since the TURN started — the live line's clock. The transcript
    * passes its own, so the count does not restart when the line moves
@@ -457,11 +466,39 @@ export function workSeconds(trace: readonly TraceNode[]): number | null {
   return Math.max(0, Math.round((Math.max(...ends) - Math.min(...starts)) / 1000));
 }
 
-export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace, failureContext, elapsed }: WorkTimelineProps) {
+export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace, failureContext, elapsed, notes }: WorkTimelineProps) {
   if (trace && trace.length > 0) {
-    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} failureContext={failureContext} elapsed={elapsed} />;
+    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} failureContext={failureContext} elapsed={elapsed} notes={notes} />;
   }
-  return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} elapsed={elapsed} />;
+  return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} elapsed={elapsed} notes={notes} />;
+}
+
+/**
+ * A line the agent wrote while it worked, among the steps it introduced:
+ * quiet, in the agent's own words, never in the answer.
+ * @param root0 - Component props.
+ * @param root0.note - The note.
+ */
+function NoteRow({ note }: { note: WorkNote }) {
+  const text = splitScratch(note.text).filter(p => p.kind !== 'scratch').map(p => p.text).join('').trim();
+  if (!text) {
+    return null;
+  }
+  return (
+    <li className="min-w-0 py-1 text-xs leading-snug break-words whitespace-pre-wrap text-muted-foreground/80" data-testid="work-note">
+      {text}
+    </li>
+  );
+}
+
+/**
+ * The newest thing the agent said while working, as one line for the live
+ * status when no step is running.
+ * @param notes - The group's notes.
+ */
+function latestNoteLine(notes: readonly WorkNote[] = []): string | null {
+  const last = [...notes].reverse().map(n => splitScratch(n.text).filter(p => p.kind !== 'scratch').map(p => p.text).join('').trim()).find(Boolean);
+  return last ? last.split('\n')[0]!.trim() : null;
 }
 
 /**
@@ -474,8 +511,12 @@ export function WorkTimeline({ runs, streaming, activity, thinkingText, document
  * @param group.runs - Flat tool runs (legacy turns).
  * @param group.trace - The typed trace, when the turn has one.
  * @param group.thinkingText - Legacy reasoning text.
+ * @param group.notes
  */
-export function hasLiveDetail({ runs, trace, thinkingText }: { runs: Extract<AgentRun, { type: 'tool' }>[]; trace?: TraceNode[]; thinkingText?: string }): boolean {
+export function hasLiveDetail({ runs, trace, thinkingText, notes }: { runs: Extract<AgentRun, { type: 'tool' }>[]; trace?: TraceNode[]; thinkingText?: string; notes?: WorkNote[] }): boolean {
+  if ((notes ?? []).some(n => n.text.trim())) {
+    return true;
+  }
   if (trace && trace.length > 0) {
     return trace.some(n => !n.parentId && (n.kind !== 'reason' || Boolean(n.text?.trim())));
   }
@@ -496,7 +537,7 @@ function delegateWho(node: TraceNode, kids: readonly TraceNode[]): { slug?: stri
   return { name: node.label.replace(/^→\s*/, '').replace(/^Delegated to |^Handing off to |^Asked /, '').replace(/ finished$/, '').trim() };
 }
 
-function TraceTimeline({ trace, streaming, activity, documents = [], failureContext, elapsed: turnElapsed }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[]; failureContext?: FailureReport; elapsed?: number }) {
+function TraceTimeline({ trace, streaming, activity, documents = [], failureContext, elapsed: turnElapsed, notes = [] }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[]; failureContext?: FailureReport; elapsed?: number; notes?: WorkNote[] }) {
   // Level-1 lines expand independently; one control recollapses everything
   // (agent-chat-surface.md §2.1 rule 1).
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
@@ -532,7 +573,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], failureCont
 
   // A completed turn with no real actions and no sources has nothing worth
   // surfacing; keep the line while streaming (live status).
-  if (!streaming && steps === 0 && sources === 0) {
+  if (!streaming && steps === 0 && sources === 0 && notes.length === 0) {
     return null;
   }
 
@@ -562,11 +603,11 @@ function TraceTimeline({ trace, streaming, activity, documents = [], failureCont
     // "Working…" on its own for a minute told the person nothing (Chris,
     // twice). The step that is running says what it is on, and — when the
     // call reports — where it has got to: `Building the document… sheet 7 of 12`.
-    const text = activity ?? (live ? liveStepLabel(live) : null) ?? 'Thinking…';
+    const text = activity ?? (live ? liveStepLabel(live) : null) ?? latestNoteLine(notes) ?? 'Thinking…';
     // Folded until asked, failures included: the line names what is
     // happening; the steps, and any error, are a tap away.
     const liveOpen = expanded;
-    const canOpen = actions.length > 0 || reasons.some(r => r.text?.trim());
+    const canOpen = actions.length > 0 || reasons.some(r => r.text?.trim()) || notes.length > 0;
     return (
       <div className="my-1.5" data-testid="work-timeline-live">
         <LiveLine text={text} steps={steps} elapsed={turnElapsed ?? elapsed} expanded={liveOpen} onToggle={canOpen ? () => setExpanded(v => !v) : undefined} />
@@ -579,6 +620,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], failureCont
             openIds={openIds}
             toggle={toggle}
             failureContext={failureContext}
+            notes={notes}
             testId="work-steps-live"
             avatarOf={(n) => {
               const who = delegateOf(n);
@@ -666,7 +708,11 @@ function TraceTimeline({ trace, streaming, activity, documents = [], failureCont
                 ))}
               </ClaimLine>
             )}
-            {actions.map((n) => {
+            {stepsWithNotes(actions, notes).map((item) => {
+              if (item.kind === 'note') {
+                return <NoteRow key={`note-${item.note.at}`} note={item.note} />;
+              }
+              const n = item.step;
               const kids = childrenOf(n.id);
               return (
                 <ClaimLine
@@ -783,6 +829,7 @@ export function LiveLine({ text, steps = 0, elapsed, expanded = false, onToggle,
  * The rows of a group — reasoning first, then each step with a delegate's
  * steps under it. The same list live and after the turn.
  * @param root0 - Component props.
+ * @param root0.notes
  * @param root0.reasons - Reasoning nodes.
  * @param root0.actions - Step nodes.
  * @param root0.childrenOf - A delegate's steps.
@@ -793,8 +840,9 @@ export function LiveLine({ text, steps = 0, elapsed, expanded = false, onToggle,
  * @param root0.testId - The list's test id.
  * @param root0.avatarOf - A consult's agent avatar, for its folded line.
  */
-function StepList({ reasons, actions, childrenOf, thoughtLabel, openIds, toggle, failureContext, testId, avatarOf }: {
+function StepList({ reasons, actions, childrenOf, thoughtLabel, openIds, toggle, failureContext, testId, avatarOf, notes }: {
   avatarOf?: (n: TraceNode) => React.ReactNode;
+  notes?: WorkNote[];
   reasons: TraceNode[];
   actions: TraceNode[];
   childrenOf: (id: string) => TraceNode[];
@@ -818,7 +866,11 @@ function StepList({ reasons, actions, childrenOf, thoughtLabel, openIds, toggle,
           <div className="max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{reasonText}</div>
         </ClaimLine>
       )}
-      {actions.map((n) => {
+      {stepsWithNotes(actions, notes).map((item) => {
+        if (item.kind === 'note') {
+          return <NoteRow key={`note-${item.note.at}`} note={item.note} />;
+        }
+        const n = item.step;
         // A consult (a teammate asked, a workspace asked) is its own folded
         // line with the agent's avatar; its steps are a tap under it.
         const kids = childrenOf(n.id);
@@ -900,7 +952,7 @@ function ClaimLine({ id, icon, label, detail, radius, error, nested, open, onTog
   );
 }
 
-function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [], elapsed: turnElapsed }: Omit<WorkTimelineProps, 'trace'>) {
+function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [], elapsed: turnElapsed, notes = [] }: Omit<WorkTimelineProps, 'trace'>) {
   const [open, setOpen] = useState(false);
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [drillOpen, setDrillOpen] = useState<number | null>(null);
@@ -913,9 +965,9 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
   const errors = nodes.filter(n => n.state === 'error').length;
   const sources = documents.length;
   const hasReasoning = Boolean(thinkingText && thinkingText.trim().length > 0);
-  const hasDetail = nodes.length > 0 || hasReasoning || sources > 0;
+  const hasDetail = nodes.length > 0 || hasReasoning || sources > 0 || notes.length > 0;
 
-  if (nodes.length === 0 && !streaming && !hasReasoning && sources === 0) {
+  if (nodes.length === 0 && !streaming && !hasReasoning && sources === 0 && notes.length === 0) {
     return null;
   }
 
@@ -938,7 +990,7 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
       {/* Live, the header IS the turn's one live line — the same line a typed
           trace draws, so a legacy turn does not grow a second shape. */}
       {streaming
-        ? <LiveLine text={activity ?? livePending ?? 'Thinking…'} steps={nodes.length} elapsed={turnElapsed ?? ownElapsed} expanded={open} onToggle={hasDetail ? () => setOpen(v => !v) : undefined} />
+        ? <LiveLine text={activity ?? livePending ?? latestNoteLine(notes) ?? 'Thinking…'} steps={nodes.length} elapsed={turnElapsed ?? ownElapsed} expanded={open} onToggle={hasDetail ? () => setOpen(v => !v) : undefined} />
         : (
             <button
               type="button"
@@ -979,6 +1031,7 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
 
             {/* trace */}
             <ol className="relative px-4 py-2 sm:px-3">
+              {notes.map(note => <NoteRow key={`note-${note.at}`} note={note} />)}
               {hasReasoning && (
                 <li className="relative py-2 pl-7">
                   <span className="absolute top-2.5 left-0"><Brain className="size-3.5 text-brand-amber-deep" aria-hidden /></span>

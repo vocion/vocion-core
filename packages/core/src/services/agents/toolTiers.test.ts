@@ -2,7 +2,7 @@ import { ChatAnthropic } from '@langchain/anthropic';
 import { tool } from '@langchain/core/tools';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { deferColdTools, hotFrom, TOOL_SEARCH } from './toolTiers';
+import { deferColdTools, hotFrom, namedInPrompt, TOOL_SEARCH } from './toolTiers';
 
 const make = (name: string) => tool(async () => 'ok', { name, description: `${name} does one thing.`, schema: z.object({ q: z.string() }) });
 
@@ -72,5 +72,21 @@ describe('a search step goes back to the model whole', () => {
     const types = body!.messages.find(m => m.role === 'assistant')!.content.map(c => c.type);
 
     expect(types).toEqual(['text', 'server_tool_use', 'tool_search_tool_result', 'tool_use']);
+  });
+});
+
+describe('namedInPrompt — the tools an agent is told to use stay loaded', () => {
+  const tools = ['read_wiki_page', 'write_wiki_page', 'goal_progress', 'goal_list', 'lookup_objects', 'goal'];
+
+  it('finds the tools the prompt names, by whole name', () => {
+    const prompt = 'Read the page with read_wiki_page before planning a week, and log the numbers with goal_progress. Read it (goal_list) when asked.';
+
+    expect(namedInPrompt(prompt, tools)).toEqual(['read_wiki_page', 'goal_progress', 'goal_list']);
+  });
+
+  it('never matches a fragment of a longer name, and an empty prompt names nothing', () => {
+    expect(namedInPrompt('Call write_wiki_pages_now.', tools)).toEqual([]);
+    expect(namedInPrompt('The goal is referrals.', ['goal_list'])).toEqual([]);
+    expect(namedInPrompt(null, tools)).toEqual([]);
   });
 });

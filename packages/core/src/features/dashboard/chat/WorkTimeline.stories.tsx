@@ -138,3 +138,29 @@ export const Folded: Story = {
     ],
   },
 };
+
+/**
+ * After the turn: the agent's working lines ("Let me check the tracker…")
+ * folded into the work, where they were said; the last passage is the
+ * answer. Open the line to read them between the steps.
+ */
+export const NarrationFolded: Story = {
+  render: () => (
+    <AgentMessage
+      agentName="Revenue Director"
+      message={{
+        role: 'assistant',
+        content: 'I will check the deal and its thread.\n\nNorthwind is still at Proposal Sent, and Devon has not replied since the governance call.',
+        runs: [
+          { type: 'text', text: 'I will check the deal and its thread.' },
+          { type: 'tool', name: 'lookup_objects', state: 'done' },
+          { type: 'text', text: 'Northwind is still at Proposal Sent, and Devon has not replied since the governance call.' },
+        ],
+        trace: [
+          { ...lookup, anchor: 1 },
+          { ...delegate, status: 'done', label: 'Delegated to Pipeline Analyst', result: 'stage confirmed', anchor: 1 },
+        ],
+      }}
+    />
+  ),
+};

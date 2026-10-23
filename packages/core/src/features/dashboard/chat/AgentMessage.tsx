@@ -28,7 +28,7 @@ import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
 import { CardHistory } from './decisions/CardHistory';
 import { DoneReceipts } from './decisions/DoneReceipts';
-import { liveWorkIndex, segmentTurn } from './interleave';
+import { foldNarration, liveWorkIndex, segmentTurn } from './interleave';
 import { classifyDashboardLink, isPlainClick, previewRefFor } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { ScratchFold } from './ScratchFold';
@@ -331,7 +331,10 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // specialist's calls would otherwise show twice, once nested under the
   // delegation and once flat.
   const typed = (message.trace?.length ?? 0) > 0;
-  const segments = segmentTurn(runs, message.trace).filter(seg => seg.kind === 'text' || !typed || seg.trace.length > 0);
+  // The agent's between-step lines ("Let me check the tracker…") fold into
+  // the work they introduced; the turn's last passage is the answer
+  // (`foldNarration`).
+  const segments = foldNarration(segmentTurn(runs, message.trace).filter(seg => seg.kind === 'text' || !typed || seg.trace.length > 0));
   // Legacy reasoning text has no anchor; it belongs at the top like it always did.
   if (message.thinkingText && !segments.some(seg => seg.kind === 'work')) {
     segments.unshift({ kind: 'work', runs: [], trace: [], index: 0 });
@@ -350,7 +353,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // there for the whole turn and carries the turn's clock.
   const liveSeg = segments.find(seg => seg.kind === 'work' && seg.index === liveIndex);
   const lineOnGroup = liveSeg?.kind === 'work'
-    && hasLiveDetail({ runs: liveSeg.runs, trace: liveSeg.trace, thinkingText: liveSeg.index === firstWork ? message.thinkingText : undefined });
+    && hasLiveDetail({ runs: liveSeg.runs, trace: liveSeg.trace, notes: liveSeg.notes, thinkingText: liveSeg.index === firstWork ? message.thinkingText : undefined });
   // What the bottom line says when no step is running: the agent is writing
   // once its words are the newest thing in the turn, thinking before that.
   // The writing agent's own avatar and name, not a bare "Writing…".
@@ -474,6 +477,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                         key={`work-${seg.index}`}
                         runs={seg.runs}
                         trace={seg.trace}
+                        notes={seg.notes}
                         // The live group IS the turn's live line; every other
                         // group is folded to the quiet line of finished work.
                         streaming={liveIndex === seg.index}

@@ -430,7 +430,9 @@ describe('a tool failure says what failed', () => {
 describe('the work sits where it happened (interleaved, not hoisted)', () => {
   const actor = { id: 'lead', kind: 'lead' as const, name: 'Revenue' };
 
-  it('renders each group of steps between the passages it fell between', async () => {
+  it('folds the agent\'s working lines into the work, in the order said, and keeps the last passage as the answer', async () => {
+    // Chris, 2026-10-23: "are we spilling thought/metadata onto the chat
+    // flow, that should be hidden behind an expand/thinking chip?"
     await render(
       <AgentMessage
         agentName="Revenue"
@@ -453,11 +455,17 @@ describe('the work sits where it happened (interleaved, not hoisted)', () => {
 
     await expect.element(page.getByText('Three deals moved.')).toBeInTheDocument();
 
-    // Document order: step a, passage 1, step b, passage 2.
+    // One group of work, then the answer: the working line is not in the body.
+    expect(page.getByTestId('work-group').elements()).toHaveLength(1);
+    expect(page.getByText('Reading the brief first.').elements()).toHaveLength(0);
+
+    await page.getByTestId('work-group').getByRole('button').first().click();
+
+    // Opened: step a, the line said after it, step b, then the answer below.
     const order = [
-      page.getByRole('button', { name: /Read the briefing/ }),
-      page.getByText('Reading the brief first.'),
-      page.getByRole('button', { name: /Looked up 3 deals/ }),
+      page.getByTestId('work-steps').getByRole('button', { name: /Read the briefing/ }),
+      page.getByTestId('work-note').getByText('Reading the brief first.'),
+      page.getByTestId('work-steps').getByRole('button', { name: /Looked up 3 deals/ }),
       page.getByText('Three deals moved.'),
     ].map(l => l.element());
     for (let i = 1; i < order.length; i++) {
