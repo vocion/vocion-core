@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Cpu, ExternalLink } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
+import { FactList } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
@@ -68,19 +69,18 @@ export default async function ModelsPage(props: { params: Promise<{ locale: stri
               <Badge variant="outline" className="ml-auto text-[11px]">reference comparison</Badge>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">Compares a photo against verified-good photos of the same kit, names the region, crops to count fasteners. No training run: enrol a kit with one good photo. Adopted learnings ride in the prompt.</p>
-            <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
-              <dt className="text-muted-foreground">Model</dt>
-              <dd className="font-mono">claude-sonnet-4-6</dd>
-              <dt className="text-muted-foreground">Checks run</dt>
-              <dd className="font-mono">
-                {r.usage.claude.calls}
-                {r.usage.claude.errors ? ` (${r.usage.claude.errors} errors)` : ''}
-              </dd>
-              <dt className="text-muted-foreground">Avg time</dt>
-              <dd className="font-mono">{r.usage.claude.avgMs != null ? `${Math.round(r.usage.claude.avgMs / 1000)}s` : '—'}</dd>
-              <dt className="text-muted-foreground">Last used</dt>
-              <dd>{fmt(r.usage.claude.lastAt)}</dd>
-            </dl>
+            <FactList
+              className="mt-3"
+              facts={[
+                { label: 'Model', value: <span className="font-mono">claude-sonnet-4-6</span> },
+                {
+                  label: 'Checks run',
+                  value: <span className="font-mono">{`${r.usage.claude.calls}${r.usage.claude.errors ? ` (${r.usage.claude.errors} errors)` : ''}`}</span>,
+                },
+                { label: 'Avg time', value: <span className="font-mono">{r.usage.claude.avgMs != null ? `${Math.round(r.usage.claude.avgMs / 1000)}s` : '—'}</span> },
+                { label: 'Last used', value: fmt(r.usage.claude.lastAt) },
+              ]}
+            />
           </section>
           <section className="rounded-lg border border-border p-5">
             <div className="flex items-center gap-2 text-sm font-semibold">
@@ -89,19 +89,18 @@ export default async function ModelsPage(props: { params: Promise<{ locale: stri
               <Badge variant="outline" className="ml-auto text-[11px]">whole-image classifier</Badge>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">Trained on this workspace's good/bad sets. Second opinion: a label with confidence, no region. Bills per hour while its endpoint runs.</p>
-            <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
-              <dt className="text-muted-foreground">Project</dt>
-              <dd className="font-mono break-all">{r.classifier.projectName ?? '—'}</dd>
-              <dt className="text-muted-foreground">Region</dt>
-              <dd className="font-mono">{r.region}</dd>
-              <dt className="text-muted-foreground">Checks run</dt>
-              <dd className="font-mono">
-                {r.usage.rekognition.calls}
-                {r.usage.rekognition.errors ? ` (${r.usage.rekognition.errors} errors)` : ''}
-              </dd>
-              <dt className="text-muted-foreground">Last used</dt>
-              <dd>{fmt(r.usage.rekognition.lastAt)}</dd>
-            </dl>
+            <FactList
+              className="mt-3"
+              facts={[
+                { label: 'Project', value: <span className="font-mono break-all">{r.classifier.projectName ?? '—'}</span> },
+                { label: 'Region', value: <span className="font-mono">{r.region}</span> },
+                {
+                  label: 'Checks run',
+                  value: <span className="font-mono">{`${r.usage.rekognition.calls}${r.usage.rekognition.errors ? ` (${r.usage.rekognition.errors} errors)` : ''}`}</span>,
+                },
+                { label: 'Last used', value: fmt(r.usage.rekognition.lastAt) },
+              ]}
+            />
             {consoleUrl && (
               <a href={consoleUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs underline">
                 Open in the AWS console
@@ -142,24 +141,16 @@ export default async function ModelsPage(props: { params: Promise<{ locale: stri
                         {typeof run.f1 === 'number' && <span className="text-xs text-muted-foreground">{`test F1 ${run.f1.toFixed(2)}`}</span>}
                         <span className="ml-auto text-xs text-muted-foreground">{`trained ${fmt(run.createdAt)}`}</span>
                       </div>
-                      <dl className="mt-2 grid gap-x-6 gap-y-1 text-[12px] sm:grid-cols-2 lg:grid-cols-4">
-                        <div>
-                          <dt className="text-muted-foreground">Training ended</dt>
-                          <dd>{fmt(run.trainingEndedAt)}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-muted-foreground">Billable training time</dt>
-                          <dd>{dur(run.billableTrainingSeconds)}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-muted-foreground">Inference units</dt>
-                          <dd>{run.minInferenceUnits ?? '—'}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-muted-foreground">Status message</dt>
-                          <dd>{run.statusMessage ?? '—'}</dd>
-                        </div>
-                      </dl>
+                      <FactList
+                        layout="column"
+                        className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-4"
+                        facts={[
+                          { label: 'Training ended', value: fmt(run.trainingEndedAt) },
+                          { label: 'Billable training time', value: dur(run.billableTrainingSeconds) },
+                          { label: 'Inference units', value: run.minInferenceUnits ?? '—' },
+                          { label: 'Status message', value: run.statusMessage ?? '—' },
+                        ]}
+                      />
                       <div className="mt-2 font-mono text-[11px] break-all text-muted-foreground">{run.arn}</div>
                       {run.labels.length > 0 && (
                         <div className="mt-3 overflow-x-auto">

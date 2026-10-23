@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowUpRight, CalendarClock, Compass, CornerUpLeft, GitBranch, ScrollText, TriangleAlert } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { IntegrationLogo } from '@/components/patterns';
+import { FactList, IntegrationLogo } from '@/components/patterns';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { AgentMemoryPanel } from '@/features/agents/AgentMemoryPanel';
 import { AgentVoiceControl } from '@/features/dashboard/AgentVoiceControl';
@@ -282,22 +282,14 @@ export default async function AgentDetailPage(props: {
           </RailGroup>
 
           <RailGroup label="Configuration">
-            <dl className="flex flex-col gap-2 text-xs">
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-muted-foreground">Model</dt>
-                <dd className="font-mono text-foreground/90">{agent.model ?? '—'}</dd>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-muted-foreground">Role</dt>
-                <dd className="text-foreground/90">{roleLabel}</dd>
-              </div>
-              {objectTypes.length > 0 && (
-                <div className="flex items-start justify-between gap-3">
-                  <dt className="shrink-0 text-muted-foreground">Object types</dt>
-                  <dd className="text-right font-mono text-foreground/90">{objectTypes.join(', ')}</dd>
-                </div>
-              )}
-            </dl>
+            <FactList
+              layout="column"
+              facts={[
+                { label: 'Model', value: <span className="font-mono">{agent.model ?? '—'}</span> },
+                { label: 'Role', value: roleLabel },
+                objectTypes.length > 0 && { label: 'Object types', value: <span className="font-mono">{objectTypes.join(', ')}</span> },
+              ]}
+            />
           </RailGroup>
         </aside>
 

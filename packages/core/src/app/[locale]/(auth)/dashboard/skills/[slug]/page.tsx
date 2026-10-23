@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { ArrowLeft } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { FactList } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { StandaloneArtifactView } from '@/features/dashboard/artifacts/StandaloneArtifactView';
@@ -246,29 +247,14 @@ export default async function SkillDetailPage(props: Props) {
 
           <section>
             <h2 className="mb-2 text-xs font-medium text-muted-foreground">Catalog</h2>
-            <dl className="space-y-1">
-              <div className="flex justify-between gap-2">
-                <dt className="text-muted-foreground">Version</dt>
-                <dd className="font-mono">
-                  v
-                  {row.version}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-muted-foreground">Files</dt>
-                <dd className="font-mono">{row.sourceFiles.length}</dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-muted-foreground">Updated</dt>
-                <dd>{new Date(row.updatedAt).toLocaleDateString()}</dd>
-              </div>
-              {row.license && (
-                <div className="flex justify-between gap-2">
-                  <dt className="text-muted-foreground">License</dt>
-                  <dd className="font-mono text-xs">{row.license}</dd>
-                </div>
-              )}
-            </dl>
+            <FactList
+              facts={[
+                { label: 'Version', value: <span className="font-mono">{`v${row.version}`}</span> },
+                { label: 'Files', value: <span className="font-mono">{row.sourceFiles.length}</span> },
+                { label: 'Updated', value: new Date(row.updatedAt).toLocaleDateString() },
+                row.license && { label: 'License', value: <span className="font-mono text-xs">{row.license}</span> },
+              ]}
+            />
           </section>
         </aside>
       </div>

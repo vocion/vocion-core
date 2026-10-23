@@ -5,6 +5,7 @@ import type { RunPeriodSummary } from '@/services/EvalService';
 import { ArrowLeft, ArrowRight, CheckCircle2, ChevronRight, OctagonAlert, TestTube } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { FactList } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Notice } from '@/components/ui/notice';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -356,44 +357,43 @@ export default async function EvalDatasetDetailPage(props: Props) {
                           number is which, and the workspace SHA in particular
                           looks like noise until it is named.
                         */}
-                        <dl className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                          <RunFact label="Run">
-                            <span className="font-mono">
-                              #
-                              {run.id}
-                            </span>
-                          </RunFact>
-                          <RunFact label="Status"><RunStatusBadge status={run.status} /></RunFact>
-                          {run.provider !== dataset.provider && (
-                            <RunFact label="Graded by">
-                              <Badge
-                                variant="outline"
-                                className="text-[10px]"
-                                title={describeProvider(run.provider).explanation}
-                              >
-                                {labelFor(run.provider)}
-                              </Badge>
-                            </RunFact>
-                          )}
-                          <RunFact label="Started">{new Date(run.startedAt).toLocaleString()}</RunFact>
-                          {typeof pass === 'number' && (
-                            <RunFact label="Pass rate">
-                              <span className={pass >= passThreshold ? 'font-mono text-pass' : 'font-mono text-warn'}>
-                                {formatPassRate(pass)}
-                              </span>
-                            </RunFact>
-                          )}
-                          {run.model && (
-                            <RunFact label="Model">
-                              <Badge variant="outline" className="font-mono text-[10px]">{run.model}</Badge>
-                            </RunFact>
-                          )}
-                          {run.workspaceSha && (
-                            <RunFact label="Workspace">
-                              <span className="font-mono" title={run.workspaceSha}>{run.workspaceSha.slice(0, 7)}</span>
-                            </RunFact>
-                          )}
-                        </dl>
+                        <FactList
+                          layout="inline"
+                          className="gap-y-1 text-xs"
+                          facts={[
+                            { label: 'Run', value: <span className="font-mono">{`#${run.id}`}</span> },
+                            { label: 'Status', value: <RunStatusBadge status={run.status} /> },
+                            run.provider !== dataset.provider && {
+                              label: 'Graded by',
+                              value: (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px]"
+                                  title={describeProvider(run.provider).explanation}
+                                >
+                                  {labelFor(run.provider)}
+                                </Badge>
+                              ),
+                            },
+                            { label: 'Started', value: new Date(run.startedAt).toLocaleString() },
+                            typeof pass === 'number' && {
+                              label: 'Pass rate',
+                              value: (
+                                <span className={pass >= passThreshold ? 'font-mono text-pass' : 'font-mono text-warn'}>
+                                  {formatPassRate(pass)}
+                                </span>
+                              ),
+                            },
+                            run.model && {
+                              label: 'Model',
+                              value: <Badge variant="outline" className="font-mono text-[10px]">{run.model}</Badge>,
+                            },
+                            run.workspaceSha && {
+                              label: 'Workspace',
+                              value: <span className="font-mono" title={run.workspaceSha}>{run.workspaceSha.slice(0, 7)}</span>,
+                            },
+                          ]}
+                        />
                         <ArrowRight className="size-4 text-muted-foreground" />
                       </Link>
                     </li>
@@ -486,21 +486,6 @@ function RunStatusBadge({ status }: { status: string }) {
   }
   return (
     <Badge variant="secondary">{status}</Badge>
-  );
-}
-
-/**
- * One labelled thing on a run row.
- * @param props - Props.
- * @param props.label - What the value is.
- * @param props.children - The value itself.
- */
-function RunFact(props: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <dt className="text-[10px] tracking-wide text-muted-foreground/70 uppercase">{props.label}</dt>
-      <dd className="mt-0.5 text-xs text-foreground">{props.children}</dd>
-    </div>
   );
 }
 

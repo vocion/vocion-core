@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { BookOpen, Code2, ExternalLink } from 'lucide-react';
 import { headers } from 'next/headers';
+import { FactList } from '@/components/patterns';
 import { ApiTokensPanel } from '@/features/api-tokens/ApiTokensPanel';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -58,14 +59,13 @@ export default async function DevelopersPage() {
         title="Connect"
         description="Point any MCP client (Claude, Cursor, Zed) at the endpoint with a Vocion token as a bearer header. The same token opens the REST API. Both are scoped to this workspace."
       >
-        <dl className="grid gap-x-6 gap-y-2 text-[13px] sm:grid-cols-[auto_1fr]">
-          <dt className="text-muted-foreground">MCP server</dt>
-          <dd><code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px] break-all">{mcpUrl}</code></dd>
-          <dt className="text-muted-foreground">REST API</dt>
-          <dd><code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px] break-all">{restUrl}</code></dd>
-          <dt className="text-muted-foreground">Authenticate</dt>
-          <dd><code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px]">Authorization: Bearer vcn_live_…</code></dd>
-        </dl>
+        <FactList
+          facts={[
+            { label: 'MCP server', value: <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px] break-all">{mcpUrl}</code> },
+            { label: 'REST API', value: <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px] break-all">{restUrl}</code> },
+            { label: 'Authenticate', value: <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px]">Authorization: Bearer vcn_live_…</code> },
+          ]}
+        />
         <p className="mt-4 mb-2 text-[13px] text-muted-foreground">Remote-server entry for an MCP client:</p>
         <pre className="overflow-x-auto rounded-lg bg-muted/60 px-4 py-3 font-mono text-[12px] leading-relaxed">{mcpConfig}</pre>
       </DashboardSection>

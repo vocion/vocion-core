@@ -4,6 +4,7 @@ import type { PageRow } from '@/libs/workspace/pages';
 import { ArrowLeft, ExternalLink, FileText, Link2, Sparkles } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { FactList } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
@@ -219,26 +220,14 @@ export default async function ObjectDetailPage(props: {
             )}
             <section className="rounded-lg border border-border p-5">
               <h2 className="mb-2 text-sm font-semibold">System Info</h2>
-              <dl className="space-y-1 text-xs text-muted-foreground">
-                <div className="flex justify-between gap-3">
-                  <dt>Code</dt>
-                  <dd className="font-mono">{code}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt>Type</dt>
-                  <dd className="font-mono">{obj.type.slug}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt>Created</dt>
-                  <dd>{new Date(obj.createdAt).toLocaleDateString()}</dd>
-                </div>
-                {obj.summaryGeneratedAt && (
-                  <div className="flex justify-between gap-3">
-                    <dt>Summary generated</dt>
-                    <dd>{new Date(obj.summaryGeneratedAt).toLocaleDateString()}</dd>
-                  </div>
-                )}
-              </dl>
+              <FactList
+                facts={[
+                  { label: 'Code', value: <span className="font-mono">{code}</span> },
+                  { label: 'Type', value: <span className="font-mono">{obj.type.slug}</span> },
+                  { label: 'Created', value: new Date(obj.createdAt).toLocaleDateString() },
+                  obj.summaryGeneratedAt && { label: 'Summary generated', value: new Date(obj.summaryGeneratedAt).toLocaleDateString() },
+                ]}
+              />
             </section>
           </>
         )}

@@ -3,6 +3,7 @@ import type { CatalogEntry } from '@/services/CatalogService';
 import { ArrowLeft, ScrollText, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { FactList } from '@/components/patterns';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { authoredIcon } from '@/features/dashboard/iconByName';
 import { HireButton } from '@/features/dashboard/marketplace/HireButton';
@@ -187,20 +188,14 @@ function CatalogEntryScreen({ entry, skills, hired }: {
           </RailGroup>
 
           <RailGroup label="Configuration">
-            <dl className="flex flex-col gap-2 text-xs">
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-muted-foreground">Skills</dt>
-                <dd className="font-mono text-foreground/90">{skills.length}</dd>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-muted-foreground">Required</dt>
-                <dd className="font-mono text-foreground/90">{entry.requires.length === 0 ? 'none' : entry.requires.map(titleCase).join(', ')}</dd>
-              </div>
-              <div className="flex items-start justify-between gap-3">
-                <dt className="shrink-0 text-muted-foreground">Nothing connected</dt>
-                <dd className="text-right text-foreground/90">Runs on uploads</dd>
-              </div>
-            </dl>
+            <FactList
+              layout="column"
+              facts={[
+                { label: 'Skills', value: <span className="font-mono">{skills.length}</span> },
+                { label: 'Required', value: <span className="font-mono">{entry.requires.length === 0 ? 'none' : entry.requires.map(titleCase).join(', ')}</span> },
+                { label: 'Nothing connected', value: 'Runs on uploads' },
+              ]}
+            />
           </RailGroup>
         </aside>
 

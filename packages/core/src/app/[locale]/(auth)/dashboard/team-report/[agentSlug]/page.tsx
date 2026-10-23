@@ -2,6 +2,7 @@ import type { WorkerRun } from '@/services/WorkerRunService';
 import { ArrowLeft } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { FactList } from '@/components/patterns';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { ContractGrid } from '@/features/dashboard/team-report/ContractGrid';
 import { ago, compact, duration, pct, usd, windowLabel } from '@/features/dashboard/team-report/format';
@@ -102,22 +103,24 @@ export default async function MemberReportPage(props: {
           </h2>
           <KindMix byKind={member.byKind} />
         </div>
-        <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-          <Num k="Spend" v={usd(member.cents)} />
-          <Num k="Tokens" v={compact(member.tokens)} />
-          <Num k="Runs" v={String(member.runs)} />
-          {member.failed > 0 && <Num k="Failed / lost" v={String(member.failed)} tone="text-fail" />}
-          {member.active > 0 && <Num k="Running" v={String(member.active)} tone="text-pass" />}
-          {member.judgementCents > 0 && <Num k="Judgement spend" v={usd(member.judgementCents)} />}
-          {member.budget && (
-            <Num
-              k={`${member.budget.period} budget`}
-              v={`${usd(member.budget.currentCents)}${member.budget.hardCentsLimit !== null ? ` / ${usd(member.budget.hardCentsLimit)} cap` : ' (no cap)'}`}
-            />
-          )}
-          {member.models.length > 0 && <Num k="Models" v={member.models.join(', ')} mono />}
-          <Num k="Last active" v={ago(member.lastActivity)} />
-        </dl>
+        <FactList
+          layout="inline"
+          className="mt-2 gap-x-6 gap-y-1"
+          facts={[
+            { label: 'Spend', value: usd(member.cents) },
+            { label: 'Tokens', value: compact(member.tokens) },
+            { label: 'Runs', value: String(member.runs) },
+            member.failed > 0 && { label: 'Failed / lost', value: <span className="text-fail">{String(member.failed)}</span> },
+            member.active > 0 && { label: 'Running', value: <span className="text-pass">{String(member.active)}</span> },
+            member.judgementCents > 0 && { label: 'Judgement spend', value: usd(member.judgementCents) },
+            member.budget && {
+              label: `${member.budget.period} budget`,
+              value: `${usd(member.budget.currentCents)}${member.budget.hardCentsLimit !== null ? ` / ${usd(member.budget.hardCentsLimit)} cap` : ' (no cap)'}`,
+            },
+            member.models.length > 0 && { label: 'Models', value: <span className="font-mono text-[12px]">{member.models.join(', ')}</span> },
+            { label: 'Last active', value: ago(member.lastActivity) },
+          ]}
+        />
         {countEntries.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {countEntries.slice(0, 16).map(([k, v]) => (
@@ -196,13 +199,4 @@ function StatusPill({ status }: { status: string }) {
         ? 'bg-warn-soft text-warn'
         : 'bg-muted text-muted-foreground';
   return <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${tone}`}>{status.replaceAll('_', ' ')}</span>;
-}
-
-function Num({ k, v, tone, mono = false }: { k: string; v: string; tone?: string; mono?: boolean }) {
-  return (
-    <div className="inline-flex items-baseline gap-1.5">
-      <dt className="text-xs text-muted-foreground">{k}</dt>
-      <dd className={`font-medium tabular-nums ${tone ?? ''} ${mono ? 'font-mono text-[12px]' : ''}`}>{v}</dd>
-    </div>
-  );
 }
