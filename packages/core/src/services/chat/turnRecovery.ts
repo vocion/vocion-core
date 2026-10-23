@@ -113,6 +113,8 @@ export async function runTurnAgain(row: TurnRow, onEvent: (event: AgentEvent) =>
         agentSlug: req.agentSlug,
         message: `${req.messageForModel}${stepsAlreadyDone(row.runs as never)}`,
         userId: req.userId,
+        // The same person's chat turn, picked up again: their own servers join it as before.
+        personTurn: true,
         conversationId: row.conversationId,
         conversationHistory: history,
         ...(req.pageContext ? { pageContext: req.pageContext as never } : {}),

@@ -225,3 +225,65 @@ export const mcpSignOutRoute = os
     }
     return { removed: await forgetPersonGrant(userId, source.url) };
   });
+
+/**
+ * In the caller's own Personal: every `auth: person` server their Org
+ * declares, with their sign-in and their "Use in every workspace" choice
+ * (`services/outboundMcp/followingSources.ts`).
+ */
+export const yourConnectionsRoute = os.handler(async () => {
+  const { orgId, userId } = await guardAuth();
+  const [{ ownPersonalWorkspace }, { yourOrgConnections }, { signInPath }] = await Promise.all([
+    import('@/services/personal/connections'),
+    import('@/services/outboundMcp/followingSources'),
+    import('@/services/outboundMcp/personSignIn'),
+  ]);
+  const own = await ownPersonalWorkspace(orgId, userId);
+  if (!own) {
+    return { connections: [] };
+  }
+  const [servers, here, { mcpEndpoint }] = await Promise.all([
+    yourOrgConnections({ userId, accountId: own.accountId }),
+    import('@/services/outboundMcp/followingSources').then(m => m.followingMcpSources({ userId, orgId: own.projectId, personTurn: true })),
+    import('@/libs/outboundMcp/oauth'),
+  ]);
+  // Signing in from Personal: the server as Personal's turns name it, else from the declaring workspace.
+  const slugHere = new Map(here.map(f => [mcpEndpoint(f.url), f.slug]));
+  return {
+    connections: servers.map((s) => {
+      const inPersonal = slugHere.get(mcpEndpoint(s.url));
+      return {
+        slug: s.slug,
+        name: s.name,
+        from: s.fromWorkspace,
+        signedIn: s.signedIn,
+        everyWorkspace: s.everyWorkspace,
+        signInHref: signInPath(inPersonal ? { orgId: own.projectId, slug: inPersonal } : { orgId: s.fromOrgId, slug: s.slug }, { returnTo: '/dashboard/connectors' }),
+      };
+    }),
+  };
+});
+
+/** The caller's "Use in every workspace" for one of their sign-ins, from their own Personal. */
+export const setEveryWorkspaceRoute = os
+  .input(z.object({ slug: z.string().min(1).max(120), on: z.boolean() }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const [{ ownPersonalWorkspace }, { yourOrgConnections }, { setPersonGrantEveryWorkspace }] = await Promise.all([
+      import('@/services/personal/connections'),
+      import('@/services/outboundMcp/followingSources'),
+      import('@/services/outboundMcp/personSignIn'),
+    ]);
+    const own = await ownPersonalWorkspace(orgId, userId);
+    if (!own) {
+      throw ApiError.notFound();
+    }
+    const server = (await yourOrgConnections({ userId, accountId: own.accountId })).find(s => s.slug === input.slug);
+    if (!server) {
+      throw ApiError.notFound();
+    }
+    if (!(await setPersonGrantEveryWorkspace(userId, server.url, input.on))) {
+      throw ApiError.badRequest(`Sign in to ${server.name} first; the choice is kept with your sign-in.`);
+    }
+    return { on: input.on };
+  });

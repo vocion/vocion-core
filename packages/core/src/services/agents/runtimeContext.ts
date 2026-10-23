@@ -112,7 +112,7 @@ export async function agentScope(orgId: string, row: AgentContextRow, workspace?
     loadFilingTypes(orgId, row.objectTypeSlugs ?? []).catch(() => []),
     loadRestSources(orgId, row.connectorSources ?? []).catch(() => []),
     loadMcpSources(orgId, row.connectorSources ?? [])
-      .then(rows => rows.map(r => ({ slug: r.slug, name: r.name, readTools: r.config.readTools, perPerson: r.config.auth === 'person' })))
+      .then(rows => rows.map(r => ({ slug: r.slug, name: r.name, readTools: r.config.readTools, perPerson: r.config.auth === 'person', ...(r.config.url ? { url: r.config.url } : {}) })))
       .catch(() => []),
     loadSourceKinds(orgId, row.connectorSources ?? []).catch(() => ({})),
   ]);
@@ -149,6 +149,8 @@ export type RuntimeContextOptions = {
   delegations?: RuntimeContext['delegations'];
   /** The scope already resolved by the caller (a blueprint, a definition), so nothing is read again. */
   scope?: AgentScope;
+  /** The person's own MCP servers joining this turn (`followingMcpSources`); a person's chat turn only. */
+  followingMcp?: RuntimeContext['followingMcp'];
 };
 
 /**
@@ -176,6 +178,7 @@ export function runtimeContextFromScope(
     filingTypes: scope.filingTypes,
     restSources: scope.restSources,
     mcpSources: scope.mcpSources,
+    followingMcp: opts.followingMcp,
     sourceKinds: scope.sourceKinds,
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig: row.harnessConfig ?? {},

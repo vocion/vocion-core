@@ -55,8 +55,17 @@ export const tagSources = os.handler(async () => {
   ]);
   const readable = new Set(allowed);
   const { browserRunsOn } = await import('@/services/browser/enabled');
+  // The person's own servers join their turns here too (`followingSources.ts`), so `@` offers them.
+  const { followingMcpSources } = await import('@/services/outboundMcp/followingSources');
+  const declared = rows.filter(row => readable.has(row.slug)).map(row => ({ slug: row.slug, name: sourceNameOf(row.config, row.slug) }));
+  const taken = new Set(declared.map(s => s.slug));
+  const yours = userId
+    ? (await followingMcpSources({ userId, orgId, personTurn: true }).catch(() => []))
+        .filter(f => !taken.has(f.slug))
+        .map(f => ({ slug: f.slug, name: f.name, yours: true as const, from: f.fromWorkspace }))
+    : [];
   return {
-    sources: rows.filter(row => readable.has(row.slug)).map(row => ({ slug: row.slug, name: sourceNameOf(row.config, row.slug) })),
+    sources: [...declared, ...yours],
     // Ways of working a turn can be tagged with (`libs/chat/askedFor.ts`), offered only where they can act.
     tools: browserRunsOn() ? [{ slug: 'browser', name: 'Browser' }] : [],
   };

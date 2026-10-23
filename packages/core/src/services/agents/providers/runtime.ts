@@ -80,6 +80,8 @@ export type RuntimeRunOptions = {
   timeZone?: string;
   /** Where the person is in the app — carried in the claim for `page_context` and record-scoped tools. */
   pageContext?: import('@/services/chat/pageContext').PageContext;
+  /** A turn a person started in chat: their own MCP servers join it, on the claim too (`followingSources.ts`). */
+  personTurn?: boolean;
   /**
    * What this turn's spans are grouped under, as `session.id`.
    *
@@ -130,6 +132,12 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   // execution time — descriptions embed source/operation lists, and
   // plugin-owned tools exist only when their plugin is on. The definition
   // already carries the resolved scope, so nothing is read twice.
+  // The person's own servers, so the catalog the container sees and the tools
+  // the endpoint runs agree (the endpoint reads them again from the claim).
+  const { followingMcpSources } = await import('@/services/outboundMcp/followingSources');
+  const followingMcp = opts.personTurn && !opts.missionRunId
+    ? await followingMcpSources({ userId: opts.userId, orgId: opts.orgId, personTurn: true }).catch(() => [])
+    : [];
   const catalog = buildToolCatalog(runtimeContextFromScope(opts.orgId, row, definition, {
     userId: opts.userId,
     allowedSourceSlugs: opts.allowedSourceSlugs,
@@ -138,6 +146,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     timeZone,
     pageContext: opts.pageContext,
     conversationId: opts.conversationId,
+    ...(followingMcp.length > 0 ? { followingMcp } : {}),
   }));
 
   const claim = signClaim({
@@ -150,6 +159,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     conversationId: opts.conversationId,
     timeZone,
     pageContext: opts.pageContext,
+    ...(opts.personTurn && !opts.missionRunId ? { personTurn: true } : {}),
   });
 
   const files = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });

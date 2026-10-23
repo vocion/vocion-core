@@ -108,7 +108,7 @@ export async function storePersonGrant(input: { userId: string; sourceName: stri
   });
 }
 
-type StoredGrant = { personalId: string; tokenId: string; grant: McpGrant };
+type StoredGrant = { personalId: string; tokenId: string; grant: McpGrant; everyWorkspace: boolean };
 
 /**
  * The person's live grant for an endpoint, newest first.
@@ -121,7 +121,7 @@ async function readGrant(userId: string, baseUrl: string): Promise<StoredGrant |
     return null;
   }
   const rows = await db
-    .select({ id: apiTokenSchema.id })
+    .select({ id: apiTokenSchema.id, everyWorkspace: apiTokenSchema.everyWorkspace })
     .from(apiTokenSchema)
     .where(and(
       eq(apiTokenSchema.orgId, personal.id),
@@ -135,7 +135,7 @@ async function readGrant(userId: string, baseUrl: string): Promise<StoredGrant |
     const resolved = await resolveCredentialById(personal.id, row.id);
     const grant = resolved.status === 'ok' ? asMcpGrant(resolved.values as Record<string, unknown>) : null;
     if (grant && grant.baseUrl === baseUrl) {
-      return { personalId: personal.id, tokenId: row.id, grant };
+      return { personalId: personal.id, tokenId: row.id, grant, everyWorkspace: row.everyWorkspace !== false };
     }
   }
   return null;
@@ -212,6 +212,64 @@ export async function personMcpCredentials(input: { source: PersonMcpSource; use
  */
 export async function personSignedIn(userId: string, url: string): Promise<boolean> {
   return (await readGrant(userId, mcpEndpoint(url))) !== null;
+}
+
+/**
+ * Whether the person is signed in to an endpoint, and whether that sign-in
+ * may join their turns in every workspace of the Org
+ * (`services/outboundMcp/followingSources.ts`). With no sign-in there is no
+ * choice stored yet, so it reads as on: the person's first sign-in answers.
+ * @param userId - The person.
+ * @param url - The MCP endpoint.
+ */
+export async function personGrantUse(userId: string, url: string): Promise<{ signedIn: boolean; everyWorkspace: boolean }> {
+  const stored = await readGrant(userId, mcpEndpoint(url));
+  return { signedIn: stored !== null, everyWorkspace: stored?.everyWorkspace ?? true };
+}
+
+/**
+ * The endpoints whose sign-in the person keeps to the workspaces that declare
+ * the server ("Use in every workspace" off). One read, no decryption: it says
+ * which choice is stored, never whether the grant still works.
+ * @param userId - The person.
+ */
+export async function endpointsKeptToDeclaring(userId: string): Promise<Set<string>> {
+  const personal = await findPersonalProject(userId);
+  if (!personal) {
+    return new Set();
+  }
+  const rows = await db.select({ account: apiTokenSchema.account }).from(apiTokenSchema).where(and(
+    eq(apiTokenSchema.orgId, personal.id),
+    eq(apiTokenSchema.platform, GRANT_PLATFORM),
+    eq(apiTokenSchema.obtainedVia, 'login'),
+    eq(apiTokenSchema.everyWorkspace, false),
+    isNull(apiTokenSchema.revokedAt),
+  ));
+  return new Set(rows.flatMap(r => (r.account ? [r.account] : [])));
+}
+
+/**
+ * The person's "Use in every workspace" for their sign-in to an endpoint.
+ * Kept on the sign-in row, so signing in again keeps it and disconnecting
+ * forgets it with the grant.
+ * @param userId - The person.
+ * @param url - The MCP endpoint.
+ * @param on - Whether it joins their turns in every workspace.
+ * @returns Whether a sign-in was there to change.
+ */
+export async function setPersonGrantEveryWorkspace(userId: string, url: string, on: boolean): Promise<boolean> {
+  const personal = await findPersonalProject(userId);
+  if (!personal) {
+    return false;
+  }
+  const updated = await db.update(apiTokenSchema).set({ everyWorkspace: on }).where(and(
+    eq(apiTokenSchema.orgId, personal.id),
+    eq(apiTokenSchema.platform, GRANT_PLATFORM),
+    eq(apiTokenSchema.account, mcpEndpoint(url)),
+    eq(apiTokenSchema.obtainedVia, 'login'),
+    isNull(apiTokenSchema.revokedAt),
+  )).returning({ id: apiTokenSchema.id });
+  return updated.length > 0;
 }
 
 /**

@@ -106,3 +106,26 @@ export const revealStoredCredentialRoute = os
       throw ApiError.badRequest(error instanceof VaultDecryptionError ? error.message : COULD_NOT_SHOW_STORED);
     }
   });
+
+/**
+ * This workspace's "Members' own connections" (`services/outboundMcp/followingSources.ts`):
+ * whether an `auth: person` server the Org declares elsewhere joins a member's
+ * turn here, read as them. Everyone may read it; only an admin changes it.
+ */
+export const membersOwnConnectionsRoute = os.handler(async () => {
+  const { orgId, has } = await guardAuth();
+  const { membersOwnConnectionsOn } = await import('@/services/outboundMcp/followingSources');
+  return { on: await membersOwnConnectionsOn(orgId), canChange: has({ role: ORG_ROLE.ADMIN }) };
+});
+
+export const setMembersOwnConnectionsRoute = os
+  .input(z.object({ on: z.boolean() }))
+  .handler(async ({ input }) => {
+    const { orgId, has } = await guardAuth();
+    if (!has({ role: ORG_ROLE.ADMIN })) {
+      throw ApiError.forbidden();
+    }
+    const { setMembersOwnConnections } = await import('@/services/outboundMcp/followingSources');
+    await setMembersOwnConnections(orgId, input.on);
+    return { on: input.on };
+  });

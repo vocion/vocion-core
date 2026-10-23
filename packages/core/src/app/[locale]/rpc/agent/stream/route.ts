@@ -349,6 +349,8 @@ export async function POST(request: Request): Promise<Response> {
       agentSlug: slug,
       message: modelMessage,
       userId,
+      // A person's own chat turn: their own MCP servers join it (`followingSources.ts`).
+      personTurn: true,
       conversationId: conversationId ?? undefined,
       conversationHistory,
       pageContext: turnPageContext ?? undefined,

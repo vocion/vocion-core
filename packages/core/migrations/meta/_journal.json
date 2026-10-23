@@ -1373,6 +1373,13 @@
       "when": 1792300214000,
       "tag": "0214_model_call",
       "breakpoints": true
+    },
+    {
+      "idx": 215,
+      "version": "7",
+      "when": 1792300215000,
+      "tag": "0215_members_own_connections",
+      "breakpoints": true
     }
   ]
 }

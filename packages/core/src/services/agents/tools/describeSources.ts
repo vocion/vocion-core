@@ -124,6 +124,18 @@ export function describeSourcesTool(ctx: RuntimeContext) {
         const reachable = ctx.connectorSources.includes(s.slug) || ctx.connectorSources.includes(connector);
         return reachable && (!only || s.slug === only || connector === only);
       });
+      // The person's own servers, joining this turn because they started it (`followingSources.ts`).
+      const held = new Set(mine.map(s => s.slug));
+      const yours = (ctx.followingMcp ?? []).filter(f => !held.has(f.slug) && (!only || f.slug === only || only === 'mcp'));
+      const yourBlocks = yours.map(f => [
+        `${f.slug} (mcp connector) — your connection, from ${f.fromWorkspace}`,
+        `  ${f.name}: read as you, with your own sign-in, because you started this turn. This workspace does not declare it.`,
+        `  Reads: ${f.readTools.join(', ') || 'none declared'}. No writes travel with it.`,
+        '  Read it with mcp_list_tools / mcp_read; without a sign-in they offer you the sign-in once.',
+      ].join('\n'));
+      if (mine.length === 0 && yourBlocks.length > 0) {
+        return yourBlocks.join('\n\n');
+      }
       if (mine.length === 0) {
         return only
           ? `No connected source named "${only}" is readable by this agent. Sources this agent can read: ${ctx.connectorSources.join(', ') || 'none'}.`
@@ -179,7 +191,7 @@ export function describeSourcesTool(ctx: RuntimeContext) {
         }
         blocks.push(lines.join('\n'));
       }
-      return blocks.join('\n\n');
+      return [...blocks, ...yourBlocks].join('\n\n');
     },
     {
       name: 'describe_sources',

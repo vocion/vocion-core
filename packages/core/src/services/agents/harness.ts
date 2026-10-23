@@ -290,6 +290,8 @@ export type AgentRequest = {
   turnMessage?: string;
   /** The person's own time zone for this turn; falls back to the workspace's. */
   timeZone?: string;
+  /** A turn a person started in chat: their own MCP servers join it (`followingSources.ts`). */
+  personTurn?: boolean;
 };
 
 /**
@@ -580,10 +582,13 @@ async function getBlueprint(orgId: string, agentSlug: string): Promise<AgentBlue
  * @param orgId - Tenant scope.
  * @param blueprint - The agent's cached, request-independent parts.
  * @param request - What this one request brings.
+ * @param followingMcp
  */
-function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: AgentRequest): RuntimeContext {
+function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: AgentRequest, followingMcp?: RuntimeContext['followingMcp']): RuntimeContext {
+  const { personTurn: _personTurn, ...rest } = request;
   return runtimeContextFromScope(orgId, blueprint.agentRow, blueprint, {
-    ...request,
+    ...rest,
+    ...(followingMcp && followingMcp.length > 0 ? { followingMcp } : {}),
     provider: 'local',
     // Delegation attribution for this turn only: the tool-call record reads
     // it to credit a specialist's calls (taskId → specialist name).
@@ -639,7 +644,16 @@ export async function compileAgentForRequest(
     ? await buildBlueprint(orgId, agentSlug, opts.modelOverride)
     : await getBlueprint(orgId, agentSlug);
 
-  const ctx = buildRequestContext(orgId, blueprint, request);
+  // The person's own servers join a turn they started; reading them never blocks the turn.
+  const followingMcp = request.personTurn
+    ? await import('@/services/outboundMcp/followingSources')
+        .then(m => m.followingMcpSources({ userId: request.userId, orgId, personTurn: true }))
+        .catch((error) => {
+          console.warn('agent turn: the person\'s own connections could not be read', { orgId, error: error instanceof Error ? error.message : String(error) });
+          return [];
+        })
+    : undefined;
+  const ctx = buildRequestContext(orgId, blueprint, request, followingMcp);
 
   // Tools: built-ins from createDeepAgent (ls/read_file/.../task/write_todos)
   // plus our domain-specific tools below.

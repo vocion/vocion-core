@@ -56,7 +56,7 @@ import {
 } from './BusinessObject';
 import { hintEvent as chatHintEvent, suggestions as chatSuggestions, tagSources as chatTagSources } from './Chat';
 import { getState as getChatWidgetState, setRail as setChatWidgetRail, setState as setChatWidgetState } from './ChatWidget';
-import { addConnectorRoute, revealStoredCredentialRoute, saveSourceRoute as saveConnectedSourceRoute } from './Connect';
+import { addConnectorRoute, membersOwnConnectionsRoute, revealStoredCredentialRoute, saveSourceRoute as saveConnectedSourceRoute, setMembersOwnConnectionsRoute } from './Connect';
 import { finishConnectionsRoute, planConnectionsRoute, saveConnectionKeyRoute, verifyConnectionRoute } from './ConnectSystems';
 import {
   append as appendConvMessage,
@@ -129,7 +129,7 @@ import {
 } from './Missions';
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, gettingStarted as navGettingStarted, setPins as setNavPins } from './Nav';
 import { currentRoute as currentObjectiveRoute, resumeRoute as resumeObjectiveRoute, stopRoute as stopObjectiveRoute } from './Objectives';
-import { connectionsRoute as personalConnectionsRoute, createFeedRoute as personalCreateFeedRoute, disconnectRoute as personalDisconnectRoute, enableMcpRoute as personalEnableMcpRoute, mcpSignOutRoute as personalMcpSignOutRoute, orgBriefsRoute as personalOrgBriefsRoute, orgReachRoute as personalOrgReachRoute, revokeFeedRoute as personalRevokeFeedRoute, rhythmRoute as personalRhythmRoute, setOrgBriefsRoute as personalSetOrgBriefsRoute, setOrgReachRoute as personalSetOrgReachRoute, setPolicyRoute as personalSetPolicyRoute, setRhythmRoute as personalSetRhythmRoute, voicesRoute as personalVoicesRoute } from './Personal';
+import { connectionsRoute as personalConnectionsRoute, createFeedRoute as personalCreateFeedRoute, disconnectRoute as personalDisconnectRoute, enableMcpRoute as personalEnableMcpRoute, mcpSignOutRoute as personalMcpSignOutRoute, orgBriefsRoute as personalOrgBriefsRoute, orgReachRoute as personalOrgReachRoute, revokeFeedRoute as personalRevokeFeedRoute, rhythmRoute as personalRhythmRoute, setEveryWorkspaceRoute as personalSetEveryWorkspaceRoute, setOrgBriefsRoute as personalSetOrgBriefsRoute, setOrgReachRoute as personalSetOrgReachRoute, setPolicyRoute as personalSetPolicyRoute, setRhythmRoute as personalSetRhythmRoute, voicesRoute as personalVoicesRoute, yourConnectionsRoute as personalYourConnectionsRoute } from './Personal';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { addApp as addAppRoute, list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
@@ -261,6 +261,8 @@ export const router = {
     setOrgReach: personalSetOrgReachRoute,
     enableMcp: personalEnableMcpRoute,
     mcpSignOut: personalMcpSignOutRoute,
+    yourConnections: personalYourConnectionsRoute,
+    setEveryWorkspace: personalSetEveryWorkspaceRoute,
   },
   profile: {
     get: getProfileRoute,
@@ -313,6 +315,8 @@ export const router = {
     saveSource: saveConnectedSourceRoute,
     addConnector: addConnectorRoute,
     revealStoredCredential: revealStoredCredentialRoute,
+    membersOwnConnections: membersOwnConnectionsRoute,
+    setMembersOwnConnections: setMembersOwnConnectionsRoute,
   },
   connectSystems: {
     plan: planConnectionsRoute,

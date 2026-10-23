@@ -61,7 +61,14 @@ export async function executeToolCall(opts: {
   // The same context the in-process harness builds — plugins, zone, typed
   // filing tools and REST sources included — read per call because this
   // endpoint has no graph. Per-call facts come from the claim alone.
+  // The person's own servers, read again per call from the signed claim:
+  // only a person's chat turn carries `personTurn`, never a mission's.
+  const { followingMcpSources } = await import('@/services/outboundMcp/followingSources');
+  const followingMcp = claim.personTurn && !claim.missionRunId
+    ? await followingMcpSources({ userId: claim.userId, orgId: claim.orgId, personTurn: true }).catch(() => [])
+    : [];
   const ctx = await runtimeContextForAgent(claim.orgId, row, {
+    ...(followingMcp.length > 0 ? { followingMcp } : {}),
     userId: claim.userId,
     allowedSourceSlugs: claim.allowedSourceSlugs,
     missionSlug: claim.missionSlug,

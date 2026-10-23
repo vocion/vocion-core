@@ -572,6 +572,13 @@ async function runAgentDeepInScope(opts: {
   /** The person's IANA time zone for this turn (from the browser); the workspace's when absent. */
   timeZone?: string;
   /**
+   * A turn a person started in chat. Only then do the person's own MCP
+   * servers join it although the agent is not assigned them
+   * (`services/outboundMcp/followingSources.ts`); a mission, automation,
+   * workflow, eval or API caller leaves it unset and gets none.
+   */
+  personTurn?: boolean;
+  /**
    * What this turn OWES (`libs/chat/deliverable.ts`). `artifact` means the
    * turn must end with an artifact beside the conversation; if the loop does
    * not make one, `applyTurnGuarantees` does. `answer` (and absent) means the
@@ -866,6 +873,7 @@ async function runAgentDeepInScope(opts: {
       pageContext: opts.pageContext,
       turnMessage: opts.message,
       timeZone: opts.timeZone,
+      personTurn: opts.personTurn,
     },
     { modelOverride, handOff: handOffGuard, turnMiddleware, ...(synthesisDue ? { synthesisDue } : {}) },
   );
@@ -1031,6 +1039,8 @@ async function runAgentDeepInScope(opts: {
       restSources: (compiled.ctx.restSources ?? []).map(s => ({ slug: s.slug, prefix: toolPrefixFor(s.slug, s.config), name: s.name })),
       // "Asked you to connect GitHub", never the slug.
       connectorName: slug => getConnector(slug)?.name ?? slug,
+      // The person's own servers: a read of one says so in the step it is kept as.
+      yourConnections: (compiled.ctx.followingMcp ?? []).map(f => ({ slug: f.slug, name: f.name, from: f.fromWorkspace })),
     },
   });
   const PLUMBING = new Set(['write_todos', 'ls', 'glob', 'grep', 'read_file', 'edit_file', 'write_file']);
@@ -1402,6 +1412,7 @@ async function runAgentDeepInScope(opts: {
             pageContext: opts.pageContext,
             turnMessage: opts.message,
             timeZone: opts.timeZone,
+            personTurn: opts.personTurn,
           },
           { modelOverride: { ...(modelOverride ?? {}), model: fallback, provider }, handOff: handOffGuard, turnMiddleware, ...(synthesisDue ? { synthesisDue } : {}) },
         );
@@ -1470,6 +1481,7 @@ async function runAgentDeepInScope(opts: {
             pageContext: opts.pageContext,
             turnMessage: opts.message,
             timeZone: opts.timeZone,
+            personTurn: opts.personTurn,
           },
           // A ModelOverride names its model; without one the provider lookup
           // trims undefined and the turn dies (MCP turn, 2026-09-25 04:26Z,

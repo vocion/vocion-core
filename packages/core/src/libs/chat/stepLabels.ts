@@ -161,6 +161,11 @@ export type StepLabelHints = {
   restSources?: ReadonlyArray<{ slug: string; prefix: string; name: string }>;
   /** A connector's name as a person reads it ("GitHub" for `github`); the slug, capitalised, without it. */
   connectorName?: (slug: string) => string;
+  /**
+   * The person's own MCP servers in this turn (`services/outboundMcp/followingSources.ts`):
+   * a read of one says it was theirs, in the step the turn keeps.
+   */
+  yourConnections?: ReadonlyArray<{ slug: string; name: string; from: string }>;
 };
 
 /**
@@ -198,6 +203,17 @@ export function personFacingStepLabels(tool: string, args: Record<string, unknow
       return { running: 'Asking you a question…', done: 'Asked you a question' };
     case 'request_human_review':
       return { running: 'Asking for your decision…', done: 'Asked for your decision' };
+    case 'mcp_list_tools':
+    case 'mcp_read': {
+      // A read of the person's own connection says whose access answered (`followingSources.ts`).
+      const yours = typeof args?.sourceSlug === 'string' ? hints?.yourConnections?.find(c => c.slug === args.sourceSlug) : undefined;
+      if (!yours) {
+        return null;
+      }
+      return tool === 'mcp_read'
+        ? { running: `Reading your ${yours.name}…`, done: `Read your ${yours.name} · your connection, from ${yours.from}` }
+        : { running: `Checking what your ${yours.name} reads…`, done: `Checked what your ${yours.name} reads · your connection, from ${yours.from}` };
+    }
     default:
       return null;
   }
