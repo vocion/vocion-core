@@ -82,7 +82,7 @@ const baseConfig: NextConfig = {
   // build's sake: SheetJS alone is ~7 MB of JavaScript, and compiling it into
   // every route that reaches the upload or the agent's tools would cost
   // build memory for code that runs only when a file arrives (#1300).
-  serverExternalPackages: ['@dbos-inc/dbos-sdk', '@electric-sql/pglite', 'playwright', 'playwright-core', 'pdf-parse', 'xlsx', 'fflate', 'postal-mime', '@kenjiuno/msgreader'],
+  serverExternalPackages: ['@dbos-inc/dbos-sdk', '@electric-sql/pglite', 'playwright', 'playwright-core', 'pdf-parse', 'xlsx', 'fflate', 'postal-mime', '@kenjiuno/msgreader', 'pptxgenjs', 'docx', 'jszip', 'fast-xml-parser'],
   reactCompiler: process.env.NODE_ENV === 'production', // Keep the development environment fast
   experimental: {
     // `next build` starts one worker per CPU, less one, to collect page data
