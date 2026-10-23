@@ -88,12 +88,71 @@ export async function readStoredFile(orgId: string, url: string): Promise<{ body
 }
 
 /**
+ * A download filename from a deliverable's title: no path separators, no control characters.
+ * @param title - The deliverable's title.
+ * @param ext - The extension, without the dot.
+ */
+export function deliverableFilename(title: string, ext: string): string {
+  // eslint-disable-next-line no-control-regex
+  const base = title.replace(/[\\/:*?"<>|\u0000-\u001F]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'document';
+  return `${base}.${ext}`;
+}
+
+/**
  * A filename Chrome would produce from a title: no path separators, no control characters.
  * @param title - The deliverable's title.
  */
 export function pdfFilename(title: string): string {
-  const base = title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'document';
-  return `${base}.pdf`;
+  return deliverableFilename(title, 'pdf');
+}
+
+/** What a deliverable can be exported as, and how each is stored. */
+export const EXPORT_FORMATS = {
+  pdf: { ext: 'pdf', contentType: 'application/pdf' },
+  pptx: { ext: 'pptx', contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
+  docx: { ext: 'docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+} as const;
+export type ExportFormat = keyof typeof EXPORT_FORMATS;
+
+/**
+ * File an exported deliverable beside the deck or document it came from:
+ * stored, then a `file` artifact on the same record with the format as its
+ * role, carrying `exportedFrom` (which deliverable, which version, as what).
+ * That is where the record of "it went out as PPTX" lives — on the file, so
+ * the deliverable itself gets no version for a download.
+ * @param input - The source row, the bytes and who exported it.
+ * @param input.orgId
+ * @param input.source
+ * @param input.format
+ * @param input.data
+ * @param input.filename
+ * @param input.author
+ * @param input.conversationId
+ * @param input.visibility
+ */
+export async function fileExport(input: { orgId: string; source: ArtifactRow; format: ExportFormat; data: Buffer; filename: string; author: Author; conversationId?: number | null; visibility?: 'user' | 'system' }): Promise<{ file: ArtifactRow; url: string; bytes: number }> {
+  const { ext, contentType } = EXPORT_FORMATS[input.format];
+  const saved = await saveArtifact({ orgId: input.orgId, data: input.data, ext, contentType });
+  const src = input.source;
+  const { artifact: file } = await createArtifact({
+    orgId: input.orgId,
+    conversationId: input.conversationId ?? null,
+    kind: 'file',
+    title: input.filename,
+    spec: {
+      filename: saved.filename,
+      contentType,
+      bytes: saved.bytes,
+      url: saved.url,
+      exportedFrom: { artifactId: src.id, version: src.currentVersion, format: input.format, at: new Date().toISOString() },
+    },
+    url: saved.url,
+    record: src.recordType && src.recordId ? { type: src.recordType, id: src.recordId, role: input.format } : null,
+    author: input.author,
+    visibility: input.visibility ?? 'user',
+    changeSummary: input.format === 'pdf' ? `Printed from "${src.title}" v${src.currentVersion}` : `Exported as ${input.format.toUpperCase()} from "${src.title}" v${src.currentVersion}`,
+  });
+  return { file, url: saved.url, bytes: saved.bytes };
 }
 
 /**
@@ -109,19 +168,5 @@ export function pdfFilename(title: string): string {
  * @param input.visibility
  */
 export async function filePdf(input: { orgId: string; source: ArtifactRow; pdf: Buffer; filename: string; author: Author; conversationId?: number | null; visibility?: 'user' | 'system' }): Promise<{ file: ArtifactRow; url: string; bytes: number }> {
-  const saved = await storePdf(input.orgId, input.pdf);
-  const src = input.source;
-  const { artifact: file } = await createArtifact({
-    orgId: input.orgId,
-    conversationId: input.conversationId ?? null,
-    kind: 'file',
-    title: input.filename,
-    spec: { filename: saved.filename, contentType: 'application/pdf', bytes: saved.bytes, url: saved.url },
-    url: saved.url,
-    record: src.recordType && src.recordId ? { type: src.recordType, id: src.recordId, role: 'pdf' } : null,
-    author: input.author,
-    visibility: input.visibility ?? 'user',
-    changeSummary: `Printed from "${src.title}" v${src.currentVersion}`,
-  });
-  return { file, url: saved.url, bytes: saved.bytes };
+  return fileExport({ ...input, format: 'pdf', data: input.pdf });
 }

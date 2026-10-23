@@ -18,7 +18,11 @@ render-verify receipt reads clean**.
   number nobody gave you is a placeholder. A workspace supplies its own slide
   library and house rules by overriding the skill folder, its playbook and
   `brand.yaml`; `deck_checkout` / `deck_checkin` take a deck or a document out
-  to any assistant and back as a new version.
+  to any assistant and back as a new version. A person who edits in
+  PowerPoint or Word downloads the PPTX or DOCX from the deliverable pane and
+  uploads it back as a new version (the optional office adapters,
+  `export_pptx` / `import_pptx` / `export_docx` / `import_docx`); nothing in
+  this pack's skills or prompts points the writer at them.
 - The `proposal-document` skill: the framework CSS, the component vocabulary,
   the twelve-sheet spine, when a sheet earns a visual, the structure and
   language rules, the verify loop and the red-team rubric.

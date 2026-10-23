@@ -271,9 +271,13 @@ PDF, and writes the verdict on the version. Decks and documents share
 `services/deliverables/` (file store, PDF filing, the export gate, check-out/check-in) and
 the red team, which reads slide text and notes. Tools: `render_deck`, `read_deck`,
 `edit_deck`, `verify_deck`, `export_deck_pdf`, `deck_checkout`, `deck_checkin` (the last two
-work for documents too). Every outside editor is an optional adapter (`claudeSlides.ts`; the
-PPTX/DOCX adapters live under `libs/decks/pptx/` and `libs/documents/docx/`); none is on the
-path from draft to PDF, and no core prompt names one.
+work for documents too), and the office adapters `export_pptx` / `import_pptx` /
+`export_docx` / `import_docx`. Every outside editor is an optional adapter (`claudeSlides.ts`;
+the PPTX/DOCX libraries under `libs/decks/pptx/` and `libs/documents/docx/`, wired by
+`services/deliverables/adapters.ts` and served to the pane at
+`/api/deliverables/<id>/{export,import}`); none is on the path from draft to PDF, and no core
+prompt names one. An export never versions the deliverable: it is recorded on the filed
+file's `exportedFrom`.
 
 ## Background worker
 

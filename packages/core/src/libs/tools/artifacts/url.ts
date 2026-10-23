@@ -74,6 +74,8 @@ const CONTENT_TYPES: Record<string, string> = {
   webp: 'image/webp',
   gif: 'image/gif',
   pdf: 'application/pdf',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
 
 export function contentTypeForExt(ext: string): string {

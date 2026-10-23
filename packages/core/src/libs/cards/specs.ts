@@ -154,6 +154,17 @@ export const fileSpecSchema = z.object({
    * feature page's carousel reads it rather than making one up.
    */
   caption: z.string().max(300).optional(),
+  /**
+   * Where a deliverable WENT: the deck or document this file was exported
+   * from, at which version, as what (`pdf`, `pptx`, `docx`). Recorded on the
+   * file, not the deliverable, so a download never writes a fake edit.
+   */
+  exportedFrom: z.object({
+    artifactId: z.number().int().positive(),
+    version: z.number().int().positive(),
+    format: z.string().max(20),
+    at: z.string().max(40),
+  }).optional(),
   /** Who or what made it, and where: `{by, drawnFrom, missionRunId, conversationId, workerRunId}`. */
   provenance: z.record(z.string(), z.unknown()).optional(),
   /** For a capture of the running product: the page it was taken from. */

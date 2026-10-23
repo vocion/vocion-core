@@ -129,12 +129,17 @@ an issue saying it was not rendered.
 | `verify_deck` | `id?`, `look?` (default true) | Re-render and re-audit, recorded as a system version; the red-team receipt stands |
 | `export_deck_pdf` | `id?`, `asked_by_person?` | Print through the same export gate as `export_document_pdf` |
 | `deck_checkout` / `deck_checkin` | below | The editor-neutral round trip. Also work for documents |
-| `export_pptx` / `import_pptx` | | The PPTX adapter for decks (wired by its own change) |
-| `export_docx` / `import_docx` | | The DOCX adapter for documents (wired by its own change) |
+| `export_pptx` | `id?` | The deck as a PPTX file artifact beside it; returns its link and the version it was made from |
+| `import_pptx` | `id?`, `file_id?` (an attachment's `file #N`; omitted = the latest `.pptx` attached in the conversation), `base_version?`, `tool?` | Bring an edited PPTX back as ONE new version; the receipt lists the per-slide report in plain words |
+| `export_docx` | `id?` | The document as a DOCX file artifact beside it |
+| `import_docx` | `id?`, `file_id?`, `base_version?` | Bring an edited DOCX back as ONE new version; the receipt lists edited and unplaced paragraphs |
 
-All are in the single registry (`services/agents/tools/decks.ts`, wired in
-`registry.ts`), so they reach every loop and Vocion's MCP server like the
-document tools. `export_document_pdf` takes `asked_by_person` too.
+All are in the single registry (`services/agents/tools/decks.ts` and
+`deliverableAdapters.ts`, wired in `registry.ts`), so they reach every loop and
+Vocion's MCP server like the document tools. `export_document_pdf` takes
+`asked_by_person` too. The office tools are optional adapters: their
+descriptions say what they do, and no core prompt or shipped skill tells an
+agent to prefer them.
 
 `red_team_document` and the export gate accept either kind. The red team reads
 slide text **and** speaker notes; findings carry the slide number in the
@@ -197,6 +202,62 @@ Vocion is the canonical copy. Every way out records where the deck went
 
 The PDF always comes from Vocion's renderer, never from an adapter.
 
+### Where an export is recorded
+
+Every export (PDF, PPTX, DOCX) is filed beside the deliverable as a `file`
+artifact on the same record (role `pdf`, `pptx` or `docx`) whose spec carries
+`exportedFrom: { artifactId, version, format, at }`. That is where "it went out
+as PPTX at v3" lives. The deck or document itself gets **no version** for an
+export: a person downloading has not edited anything, and a version that only
+says "downloaded" would be noise in the menu and a false staleness signal.
+`origin` on the deliverable is written by the way BACK — `{ kind: 'import',
+tool, baseVersion }` on the version an import writes (`tool` defaults to
+`PPTX`), `{ kind: 'checkout', … }` on a check-in.
+
+### The engine services (`services/deliverables/adapters.ts`)
+
+- `exportDeckPptx({ orgId, id, author })` opens the deck with `openDeckPage`,
+  runs `measureSlideLayouts` on that very page (images served from the file
+  store go in as their own bytes), writes `deckToPptx`, always closes the page,
+  and files the result. No renderer → a plain error, never a broken file.
+- `importDeckPptx(orgId, id, buf, { baseVersion?, author, tool? })` checks the
+  bytes, refuses a stale `baseVersion` with the slide diff (the same test as
+  `deck_checkin`: content, not verify or red-team versions), merges with
+  `pptxToDeck` against the deck as it stands, stores pictures from converted
+  slides through `ingestDeckAssets`, and writes one version through
+  `reviseDeck` (re-render, re-audit). A file that changes nothing writes
+  nothing (`status: 'unchanged'`).
+- `exportDocumentDocx` / `importDocumentDocx` the same for documents, through
+  `reviseDocument`, against the author's HTML (the framework stripped and
+  re-injected). Report: `{ kept, edited, unplaced }`; unplaced paragraphs are
+  listed, never guessed in.
+- The file's kind is read from the bytes (a zip holding
+  `ppt/presentation.xml` or `word/document.xml`); a Word file sent to a deck is
+  refused with a sentence, whatever its name. At most 50 MB.
+
+### HTTP, for the pane
+
+Both are authorised like `/api/artifacts/<id>` (`authApi`: a dashboard session
+or a `vcn_live_` token, the caller's workspace, then the artifact's audience);
+anything else is a 404. Errors are `{ ok: false, reason }`, `reason` one
+sentence for a person.
+
+- `GET /api/deliverables/<artifactId>/export?format=pdf|pptx|docx` streams the
+  file (`Content-Disposition: attachment`, the title-based filename) and files
+  it as above. `pdf` works for both kinds, `pptx` only for a deck, `docx` only
+  for a document (400 otherwise). A PDF goes through the export gate as the
+  person's own ask (`asked_by_person`): a client-facing version nobody has read
+  is read as the buyer first, and a blocking finding comes back as advice in
+  the `X-Vocion-Advice` header (URI-encoded), never as a refusal. 422 when it
+  cannot be produced, with why.
+- `POST /api/deliverables/<artifactId>/import`, multipart `file` (.pptx for a
+  deck, .docx for a document) and optional `baseVersion` → `{ ok: true,
+  version, changed, report, receipt }` (`report` is the adapter's own: the
+  per-slide list for a deck, `{ kept, edited, unplaced }` for a document;
+  `receipt` is plain lines). Refusals: 409 `{ ok: false, reason, diff,
+  currentVersion }` for a stale `baseVersion`; 413 over 50 MB; 415 for the
+  wrong kind of file; 422 when the merged result cannot be written.
+
 ## The pane
 
 One deliverable pane for both kinds: page thumbnails, the selected slide or
@@ -234,6 +295,16 @@ arrow keys, notes in a second window.
   the bytes are checked to be an image and a scripted SVG is refused. The
   renderer reads them from the store (`readStoredFile`), never over HTTP.
 - **Check-out/check-in**: `services/deliverables/checkout.ts`.
+- **Office adapters**: pure libraries in `libs/decks/pptx/` and
+  `libs/documents/docx/` (each with a README of what round-trips and what is
+  lossy), wired by `services/deliverables/adapters.ts`; tools in
+  `services/agents/tools/deliverableAdapters.ts`; routes in
+  `app/api/deliverables/[artifactId]/{export,import}/route.ts`. The layout pass
+  finds each slide as the `<section>` inside `.vocion-slide[data-slide-id]`
+  (falling back to `section#<id>` on a bare page), and a transparent section
+  takes the frame's white, not the page backdrop.
+- **Exports** are filed by `fileExport` (`services/deliverables/files.ts`) with
+  `exportedFrom` on the file spec.
 - **Card**: `libs/cards/firstParty/deck.tsx` with
   `features/dashboard/artifacts/DeckView.tsx` — the chat summary and a
   thumbnail grid from the verified screenshots, plus the PDF link.

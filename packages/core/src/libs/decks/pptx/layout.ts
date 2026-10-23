@@ -2,7 +2,9 @@
  * Slide layout measurement: turns a rendered deck into the objects the
  * exporter writes.
  *
- * The page is the engine's own render, one `section#<id>` per slide laid out at
+ * The page is the engine's own render (`libs/decks/render.ts` `openDeckPage`:
+ * each slide's `<section id>` inside `.vocion-slide[data-slide-id]`), or any
+ * page with one `section#<id>` per slide, laid out at
  * 1920 x 1080. This module only reads it: it walks each section's DOM with
  * `getBoundingClientRect` and computed styles, and screenshots the elements
  * that have no native PowerPoint form. Screenshots are isolated (everything
@@ -72,13 +74,16 @@ const WALKER = String.raw`(args) => {
   }
   const out = [];
   for (const id of args.ids) {
-    const sec = document.getElementById(id);
+    // The engine's page wraps each slide in .vocion-slide[data-slide-id]; prefer that frame's own section, so an inner element that happens to share the id is never taken for the slide.
+    const frame = Array.from(document.querySelectorAll('.vocion-slide')).find(f => f.getAttribute('data-slide-id') === id);
+    const sec = (frame && Array.from(frame.children).find(c => c.tagName === 'SECTION')) || document.getElementById(id);
     if (!sec) { out.push({ id, missing: true, objects: [] }); continue; }
     const sr = sec.getBoundingClientRect();
     const objects = [];
     const box = (r) => ({ x: r.left - sr.left, y: r.top - sr.top, w: r.width, h: r.height });
     const scs = getComputedStyle(sec);
     let bg = rgba(scs.backgroundColor);
+    if (bg.a === 0 && frame) bg = rgba(getComputedStyle(frame).backgroundColor);
     if (bg.a === 0) { bg = rgba(getComputedStyle(document.body).backgroundColor); if (bg.a === 0) bg = { r: 255, g: 255, b: 255, a: 1 }; }
     let bgRid = null;
     if (scs.backgroundImage !== 'none') bgRid = mark(sec, true, 0);

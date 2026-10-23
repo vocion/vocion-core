@@ -39,6 +39,7 @@ import { dataRoomTools } from './dataRooms';
 import { decideAskTool } from './decideAsk';
 import { decideProposalTool } from './decideProposal';
 import { deckTools } from './decks';
+import { deliverableAdapterTools } from './deliverableAdapters';
 import { describeSetupTool } from './describeSetup';
 import { describeSourcesTool } from './describeSources';
 import { discoveryTools } from './discovery';
@@ -324,10 +325,12 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // editor-neutral round trip for decks AND documents (deck_checkout /
     // deck_checkin). red_team_document reads both kinds. Same rule: no side
     // effect outside the workspace, so on for every agent.
-    // TODO(decks): wire export_pptx / import_pptx (libs/decks/pptx/) and
-    // export_docx / import_docx (libs/documents/docx/) here when those
-    // adapters land — optional adapters, never on the path to the PDF.
     ...deckTools(ctx),
+    // The office adapters: export_pptx / import_pptx for decks, export_docx /
+    // import_docx for documents (services/deliverables/adapters.ts). Optional,
+    // never on the path to the PDF; the same in-workspace rule, so on for
+    // every agent.
+    ...deliverableAdapterTools(ctx),
     // An artifact's tables as an .xlsx file artifact, the header's
     // "Download as Excel" for an agent. Writes only a file beside it.
     exportArtifactXlsxTool(ctx),
