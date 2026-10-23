@@ -125,6 +125,11 @@
     var(--spark-4),
     var(--spark-1)
   );
+  /* The spark as text: each stop deepened so a word stays legible mid-sweep. */
+  --shimmer-1: #c46a00;
+  --shimmer-2: #c8446a;
+  --shimmer-3: #6a3ad6;
+  --shimmer-4: #1a6fd0;
 
   /* Brand palette — warm, port from rev-ai */
   --brand-amber: oklch(0.74 0.17 65); /* ≈ #F18700 */
@@ -239,6 +244,10 @@
   --action-foreground: #141217;
   --shadow-pop: 0 8px 30px oklch(0 0 0 / 40%);
   --shadow-composer: 0 1px 2px oklch(0 0 0 / 30%), 0 8px 28px oklch(0 0 0 / 35%);
+  --shimmer-1: #ffa733;
+  --shimmer-2: #ff7a9c;
+  --shimmer-3: #a98bff;
+  --shimmer-4: #5aa9ff;
 
   --org-accent: var(--brand-amber);
   --org-accent-foreground: #141217;
@@ -372,7 +381,8 @@
  * The running step's line shimmers — a band of the spark sweeping through
  * muted text — so "working" is visible without a spinner fighting the prose
  * (`WorkTimeline`). Text only, never a box. The band's stops are the spark
- * pulled a quarter toward the ink, so the words stay legible as it passes.
+ * deepened for text (`--shimmer-1..4`, brighter in dark), so a word stays
+ * legible as the band passes: the stops of the plan's mock (2026-10-23).
  * Off when the person asked for reduced motion: the line reads in the muted
  * tone.
  */
@@ -389,11 +399,11 @@
     90deg,
     var(--muted-foreground) 0%,
     var(--muted-foreground) 30%,
-    color-mix(in oklch, var(--spark-1) 75%, var(--foreground)) 40%,
-    color-mix(in oklch, var(--spark-2) 75%, var(--foreground)) 47%,
-    color-mix(in oklch, var(--spark-3) 75%, var(--foreground)) 54%,
-    color-mix(in oklch, var(--spark-4) 75%, var(--foreground)) 61%,
-    var(--muted-foreground) 71%,
+    var(--shimmer-1) 40%,
+    var(--shimmer-2) 48%,
+    var(--shimmer-3) 56%,
+    var(--shimmer-4) 63%,
+    var(--muted-foreground) 72%,
     var(--muted-foreground) 100%
   );
   background-size: 250% 100%;
@@ -451,6 +461,86 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .spark-orb[data-state='working'] {
+    animation: none;
+  }
+}
+
+/*
+ * An agent's dot at work (`AgentDot working`, polish pass 2026-10-23): the
+ * agent keeps its own colour at rest, and while it works the spark blooms
+ * over it from the centre (scale .55 → 1, 600ms), turns, and breathes its
+ * glow; when the work ends the same element settles back to the agent's own
+ * colour. One face per agent, the spark only while it works. A dot that
+ * mounts already working (the live line) blooms in via @starting-style.
+ * Reduced motion: the spark simply shows, then simply goes.
+ */
+.agent-dot-spark {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  opacity: 0;
+  transform: scale(0.55);
+  transition:
+    opacity 600ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+}
+.agent-dot-spark::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--spark-conic);
+  animation: spark-orb-turn 3.2s linear infinite;
+}
+.agent-dot-spark::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 32% 28%, oklch(1 0 0 / 80%), oklch(1 0 0 / 0%) 48%);
+}
+.agent-dot-face {
+  transition: opacity 400ms ease;
+}
+[data-slot='agent-dot'][data-working] {
+  animation: spark-orb-breathe 2.4s ease-in-out infinite;
+}
+[data-slot='agent-dot'][data-working] > .agent-dot-spark {
+  opacity: 1;
+  transform: scale(1);
+}
+[data-slot='agent-dot'][data-working] > .agent-dot-face {
+  opacity: 0;
+}
+/* A turn just ended: the header's dot shows the spark once more and lets it
+   go, back to the agent's colour (`AgentDot settling`). */
+@keyframes agent-dot-settle {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+}
+[data-slot='agent-dot'][data-settling] > .agent-dot-spark {
+  animation: agent-dot-settle 900ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+@starting-style {
+  [data-slot='agent-dot'][data-working] > .agent-dot-spark {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-dot-spark,
+  .agent-dot-face {
+    transition: none;
+  }
+  .agent-dot-spark::before,
+  [data-slot='agent-dot'][data-working],
+  [data-slot='agent-dot'][data-settling] > .agent-dot-spark {
     animation: none;
   }
 }

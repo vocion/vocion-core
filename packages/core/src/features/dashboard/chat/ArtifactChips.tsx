@@ -32,14 +32,13 @@ import type { FollowState } from '@/services/preview/followStatus';
 import { CircleDot, Globe, Hammer, Inbox, LayoutGrid, Play, Repeat } from 'lucide-react';
 import { useState } from 'react';
 import { StatusDot } from '@/components/patterns';
+import { CHIP } from '@/components/ui/chip';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL } from '@/features/dashboard/artifacts/kinds';
 import { openPreview } from '@/features/preview/previewState';
 import { Link } from '@/libs/I18nNavigation';
 import { useFollowStatus } from './useFollowStatus';
 import { useWorkspaceIntake } from './useWorkspaceIntake';
-
-const CHIP = 'inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[12px] font-medium text-foreground/85 transition hover:border-brand-amber/40 hover:text-foreground';
 
 /** A follow state as the dot's tone and its word. */
 export const FOLLOW_TONE: Record<FollowState, { tone: DotTone; word: string }> = {
@@ -119,7 +118,7 @@ export function ArtifactChips({ artifacts, follow = [], onOpen, onBuild }: {
                 }}
                 data-build-card={a.id}
                 aria-label={`Build ${a.title}`}
-                className={`${CHIP} ml-1 border-brand-amber/40 text-foreground disabled:cursor-default disabled:opacity-60`}
+                className={`${CHIP} ml-1 border-foreground/20 text-foreground disabled:cursor-default disabled:opacity-60`}
               >
                 <Hammer className="size-3 shrink-0" aria-hidden />
                 {built.has(a.id) ? 'Sent to build' : 'Build it'}

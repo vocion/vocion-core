@@ -16,7 +16,6 @@ import {
 import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
 import { TeamsEmptyState } from '@/features/dashboard/teams/TeamsEmptyState';
 import { combinedPageTitle } from '@/features/navigation/combinedPages';
-import { agentAccent } from '@/libs/agentAccents';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceLead, listTeamAgents, listTeams } from '@/services/TeamService';
@@ -209,18 +208,13 @@ function NoWorkspaceLeadCallout() {
  */
 function TeamCard({ team }: { team: TeamView }) {
   const t = useTranslations('Teams');
-  const a = agentAccent(team.lead?.accent);
   const specialists = team.members.filter(m => m.slug !== team.leadAgentSlug);
 
   return (
     <ListRow
       href={`/dashboard/teams/${team.slug}`}
-      title={(
-        <>
-          <span className="mr-2 inline-block size-1.5 rounded-full align-middle" style={{ background: a.stripe }} aria-hidden />
-          {team.name}
-        </>
-      )}
+      lead={<AgentDot name={team.lead?.name ?? team.name} accent={team.lead?.accent} size="md" decorative />}
+      title={team.name}
       subline={(
         <Subline
           separator="·"

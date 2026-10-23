@@ -69,7 +69,7 @@ describe('AgentMessage Sources chip', () => {
 });
 
 describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', () => {
-  it('opens a turn the speaker changed to with that teammate\'s avatar and name ("Dana · Pricing")', async () => {
+  it('opens a turn the speaker changed to with that teammate\'s avatar and name, the role on hover', async () => {
     await render(
       <AgentMessage
         agentName="Revenue"
@@ -79,7 +79,8 @@ describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', ()
       />,
     );
 
-    await expect.element(page.getByTestId('speaker-opener')).toHaveTextContent('Dana· Pricing');
+    await expect.element(page.getByTestId('speaker-opener')).toHaveTextContent(/^Dana/);
+    expect(page.getByTestId('speaker-opener').element().textContent).not.toContain('Pricing');
     expect(document.querySelector('[data-testid="speaker-opener"] [data-slot="agent-dot"]')).not.toBeNull();
   });
 
@@ -95,7 +96,7 @@ describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', ()
     expect(page.getByTestId('speaker-opener').query()).toBeNull();
   });
 
-  it('says who is writing, with the working orb and their name on hover', async () => {
+  it('says who is writing, with their dot at work and their name on hover', async () => {
     await render(
       <AgentMessage
         agentName="Revenue"
@@ -106,8 +107,8 @@ describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', ()
     );
 
     await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Dana is writing…');
-    // While it writes, the mark is the spark orb (2026-10-23), the writer named on hover.
-    expect(document.querySelector('[data-testid="streaming-indicator"] [data-slot="spark-orb"]')).not.toBeNull();
+    // While it writes, the mark is the writer's own dot, at work: the spark over its colour (2026-10-23), named on hover.
+    expect(document.querySelector('[data-testid="streaming-indicator"] [data-slot="agent-dot"][data-working]')).not.toBeNull();
     expect(document.querySelector('[data-testid="streaming-indicator"] [title="Dana"]')).not.toBeNull();
   });
 });

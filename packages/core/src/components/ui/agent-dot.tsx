@@ -15,8 +15,10 @@ import { cn } from '@/utils/Helpers';
  *
  * `icon` draws the agent's authored `icon:` (white, on the same accent)
  * instead of its initial. The profile — where the agent is the whole page —
- * passes it; rosters and chat keep the initial, which reads at 16px where a
- * glyph does not.
+ * passes it; rosters keep the initial. Below 24px (inline in chat, history
+ * rows) there is no letter at all: the colour and the name beside it say who.
+ * `working` turns the dot into the spark while the agent works, and
+ * `settling` lets it go once the work ends.
  *
  * Drawn as a soft orb (design refresh, 2026-10-23): the accent lit from the
  * top left and deepening to its AA `dot` shade at the bottom right, where
@@ -36,7 +38,10 @@ const GLYPH: Record<keyof typeof SIZE, string> = { xs: 'size-2.5', sm: 'size-3',
 
 export type AgentDotSize = keyof typeof SIZE;
 
-export function AgentDot({ name, accent, icon: Icon, size = 'md', decorative = false, className }: {
+/** Below 24px a letter is noise: the colour and the name beside it say who. */
+const SHOWS_INITIAL: Record<keyof typeof SIZE, boolean> = { xs: false, sm: false, md: true, lg: true, xl: true };
+
+export function AgentDot({ name, accent, icon: Icon, size = 'md', decorative = false, working = false, settling = false, className }: {
   /** The agent's display name; its first letter is drawn. */
   name: string;
   /** The agent's authored icon, drawn instead of the initial (profiles). */
@@ -46,6 +51,15 @@ export function AgentDot({ name, accent, icon: Icon, size = 'md', decorative = f
   size?: AgentDotSize;
   /** True when the name is already visible beside the dot. */
   decorative?: boolean;
+  /**
+   * The agent is at work: the spark blooms over its colour, turns and
+   * breathes, then settles back when this goes false (`.agent-dot-spark`,
+   * styles/global.css). The same element across the change is what makes
+   * the transition; a dot that mounts working blooms in.
+   */
+  working?: boolean;
+  /** Work just ended: the spark shows once more and fades back to the agent's colour. */
+  settling?: boolean;
   className?: string;
 }) {
   const initial = name.trim().charAt(0).toUpperCase() || '?';
@@ -57,13 +71,18 @@ export function AgentDot({ name, accent, icon: Icon, size = 'md', decorative = f
       aria-label={decorative ? undefined : name}
       aria-hidden={decorative || undefined}
       title={decorative ? undefined : name}
-      className={cn('inline-flex shrink-0 items-center justify-center rounded-full leading-none font-semibold text-white select-none', SIZE[size], className)}
+      data-working={working || undefined}
+      data-settling={(settling && !working) || undefined}
+      className={cn('relative inline-flex shrink-0 items-center justify-center rounded-full leading-none font-semibold text-white select-none', SIZE[size], className)}
       style={{
         background: `radial-gradient(circle at 30% 25%, oklch(1 0 0 / 38%), oklch(1 0 0 / 0%) 55%), linear-gradient(135deg, color-mix(in oklch, ${dot} 78%, white), ${dot} 60%)`,
         textShadow: `0 1px 1px color-mix(in oklch, ${dot} 70%, black)`,
       }}
     >
-      {Icon ? <Icon className={GLYPH[size]} strokeWidth={2} aria-hidden /> : initial}
+      <span className="agent-dot-face inline-flex items-center justify-center">
+        {Icon ? <Icon className={GLYPH[size]} strokeWidth={2} aria-hidden /> : SHOWS_INITIAL[size] ? initial : null}
+      </span>
+      <span className="agent-dot-spark" aria-hidden />
     </span>
   );
 }

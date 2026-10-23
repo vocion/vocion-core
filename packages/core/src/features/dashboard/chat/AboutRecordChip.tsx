@@ -15,7 +15,7 @@ export function AboutRecordChip({ record, onDrop }: { record: RecordRef; onDrop:
   const label = record.label ?? `${record.type.replace('_', ' ')} ${record.id}`;
   return (
     <div className="mb-1.5 flex flex-wrap items-center gap-1.5" data-testid="about-record-chip">
-      <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
+      <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[12px] text-muted-foreground">
         <span className="shrink-0">About:</span>
         <span className="truncate font-medium text-foreground/85">{label}</span>
         <button type="button" aria-label="Ask without this record" title="Ask without this record" onClick={onDrop} className="ml-0.5 shrink-0 rounded-full text-muted-foreground hover:text-foreground">

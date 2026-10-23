@@ -679,7 +679,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], failureCont
               )
             : headline}
         </span>
-        {solo && soloRadius && <span className="max-w-[38%] shrink-0 truncate font-mono text-[10px] text-muted-foreground/70">{soloRadius}</span>}
+        {solo && soloRadius && <span className="max-w-[38%] shrink-0 truncate text-[11.5px] text-muted-foreground/70 tabular-nums">{soloRadius}</span>}
         {took !== null && <span className="shrink-0 text-muted-foreground/60 tabular-nums" data-testid="work-took">{formatElapsed(took)}</span>}
         <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground/50 transition group-hover/work:text-muted-foreground ${expanded ? 'rotate-90' : ''}`} aria-hidden />
       </button>
@@ -788,13 +788,15 @@ export function LiveLine({ text, steps = 0, elapsed, expanded = false, onToggle,
   const meta = [count, elapsed >= 1 ? formatElapsed(elapsed) : null].filter(Boolean).join(' · ');
   const line = (
     <>
-      {/* The spark orb: the one mark of an agent at work (`SparkOrb`). The
-          writing agent is named on hover; the turn's header says who it is. */}
+      {/* The writing agent's own dot, at work: the spark blooms over its
+          colour (`AgentDot working`). No agent known: the bare spark orb. */}
       <span className="inline-flex shrink-0" title={agent?.name}>
-        <SparkOrb size="xs" className="size-3.5" />
+        {agent
+          ? <AgentDot name={agent.name} accent={agent.accent} size="xs" decorative working className="size-3.5" />
+          : <SparkOrb size="xs" className="size-3.5" />}
       </span>
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-        <span className="work-shimmer min-w-0 truncate font-medium">{text}</span>
+        <span className="work-shimmer min-w-0 truncate font-semibold">{text}</span>
         {meta && (
           <span className="shrink-0 text-muted-foreground/55 tabular-nums">
             {'· '}
@@ -815,12 +817,12 @@ export function LiveLine({ text, steps = 0, elapsed, expanded = false, onToggle,
               onClick={onToggle}
               aria-expanded={expanded}
               aria-label={count ? `${text} · ${count}` : text}
-              className="group/work flex w-full min-w-0 items-center gap-2 py-1 text-left text-xs text-muted-foreground transition hover:text-foreground"
+              className="group/work flex w-full min-w-0 items-center gap-2 py-1 text-left text-[13px] text-muted-foreground transition hover:text-foreground"
             >
               {line}
             </button>
           )
-        : <div aria-hidden className="flex w-full min-w-0 items-center gap-2 py-1 text-xs text-muted-foreground">{line}</div>}
+        : <div aria-hidden className="flex w-full min-w-0 items-center gap-2 py-1 text-[13px] text-muted-foreground">{line}</div>}
     </div>
   );
 }
@@ -933,7 +935,7 @@ function ClaimLine({ id, icon, label, detail, radius, error, nested, open, onTog
           </span>
         )}
       </span>
-      {radius && <span className="max-w-[38%] shrink-0 truncate font-mono text-[10px] text-muted-foreground/80">{radius}</span>}
+      {radius && <span className="max-w-[38%] shrink-0 truncate text-[11.5px] text-muted-foreground/80 tabular-nums">{radius}</span>}
     </>
   );
   return (

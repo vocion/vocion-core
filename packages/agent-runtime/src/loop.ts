@@ -343,12 +343,15 @@ async function runTurn(
             (async () => {
               let started = false;
               for await (const token of msg.text) {
+                // Each model message is its own paragraph (2026-10-23): the
+                // same rule as core's services/agents/answerJoin.ts.
+                const sep = !started && finalText && !/\s$/.test(finalText) && !/^\s/.test(token) ? '\n\n' : '';
                 if (!started) {
                   started = true;
                   emit({ type: 'answering' });
                 }
-                finalText += token;
-                emit({ type: 'response_delta', delta: token });
+                finalText += sep + token;
+                emit({ type: 'response_delta', delta: sep + token });
               }
             })(),
             (async () => {

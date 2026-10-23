@@ -7,7 +7,7 @@ import type { Suggestion } from '@/libs/chat/suggestions';
 import type { FollowExclude, TurnToolStep } from '@/libs/chat/turnFollowups';
 import type { TurnRecord } from '@/libs/factory/liveStatus';
 import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Globe, Inbox, LayoutDashboard, LayoutGrid, MessageSquare, Newspaper, Repeat, Rocket, Target, Users } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AgentDot } from '@/components/ui/agent-dot';
@@ -289,6 +289,7 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
 
 export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onDigDeeper, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, opener, writer, onOpenArtifact, onBuildCard, conversationId, pageRecord, latest = false, threadRecords, onSuggestion }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
+  const settling = useJustEnded(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
@@ -375,17 +376,32 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span data-testid="speaker-opener" className="inline-flex items-center gap-1.5 tracking-normal normal-case">
-                      <AgentDot name={opener.name} accent={opener.accent} size="sm" decorative />
+                      <AgentDot name={opener.name} accent={opener.accent} size="sm" decorative settling={settling} />
                       <span className="font-medium text-foreground/85">{opener.name}</span>
-                      {opener.eyebrow && <span className="text-muted-foreground/80">{`· ${opener.eyebrow}`}</span>}
                       {via && <span className="sr-only">{via}</span>}
                     </span>
                   </TooltipTrigger>
-                  {viaReason && <TooltipContent side="bottom" align="start" collisionPadding={8}>{viaReason}</TooltipContent>}
+                  {/* The role rides on hover, not in the line (polish pass,
+                      2026-10-23: one face, one name, never a dotted chain). */}
+                  {(viaReason || opener.eyebrow) && <TooltipContent side="bottom" align="start" collisionPadding={8}>{[opener.eyebrow, viaReason].filter(Boolean).join(' · ')}</TooltipContent>}
                 </Tooltip>
               )
-            : <AgentMark name={agentName} />}
+            // The same speaker's next turns keep a quiet mark, now its own
+            // dot (polish pass, 2026-10-23: one face per agent). The live line
+            // carries the spark while the turn runs; when it ends this dot
+            // lets the spark go, back to the agent's colour.
+            : writer
+              ? (
+                  <span className="inline-flex" title={writer.name} data-agent-mark>
+                    <AgentDot name={writer.name} accent={writer.accent} size="sm" decorative settling={settling} />
+                    <span className="sr-only">{writer.name}</span>
+                  </span>
+                )
+              : <AgentMark name={agentName} />}
           {timestamp && <span className="tracking-normal text-muted-foreground/60 normal-case tabular-nums">{formatTime(timestamp)}</span>}
+          {/* The turn's meta sits on the right, one quiet line (polish pass,
+              2026-10-23): sources, then the level, model and time. */}
+          <span className="flex-1" aria-hidden />
           {sourceCount > 0 && (
             <button
               type="button"
@@ -734,3 +750,25 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
     </div>
   );
 });
+
+/**
+ * True for a moment after `active` goes from true to false: long enough for
+ * the header's dot to let the spark go (`agent-dot-settle`, 900ms).
+ * @param active - The turn is streaming.
+ */
+function useJustEnded(active: boolean): boolean {
+  const [ended, setEnded] = useState(false);
+  const was = useRef(active);
+  useEffect(() => {
+    if (was.current && !active) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+      setEnded(true);
+      const timer = setTimeout(() => setEnded(false), 1000);
+      was.current = active;
+      return () => clearTimeout(timer);
+    }
+    was.current = active;
+    return undefined;
+  }, [active]);
+  return ended;
+}

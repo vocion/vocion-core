@@ -30,6 +30,7 @@ import { agentSchema } from '@/models/Schema';
 import { flatHistory, historyMessages, withLiveCardState } from '@/services/chat/historyTools';
 import { noteConnectionNeeded } from '@/services/connect/triedAndFailed';
 import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agents/answerBackstop';
+import { messageBreak } from './agents/answerJoin';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { HandOffGateCallback, HandOffGuard, handsOff } from './agents/handOff';
@@ -1030,6 +1031,7 @@ async function runAgentDeepInScope(opts: {
   };
 
   let finalText = '';
+  let answerRunId: string | undefined;
 
   // Typed hierarchical trace: consume the RAW LangChain `streamEvents(v2)`
   // stream (not the flat deepagents v3 projection) so a specialist's own
@@ -1297,8 +1299,13 @@ async function runAgentDeepInScope(opts: {
                 }
               }
               if (answer) {
-                finalText += answer;
-                emit({ type: 'response_delta', delta: answer });
+                // A new model message after a tool starts a new paragraph,
+                // in the live stream and in the saved answer alike.
+                const runId = (ev as { run_id?: string }).run_id;
+                const sep = runId && runId !== answerRunId ? messageBreak(finalText, answer) : '';
+                answerRunId = runId ?? answerRunId;
+                finalText += sep + answer;
+                emit({ type: 'response_delta', delta: sep + answer });
               }
             }
           }
