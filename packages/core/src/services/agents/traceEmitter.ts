@@ -380,8 +380,15 @@ function detailFor(tool: string, args: Record<string, unknown>): string | undefi
  * humanized subagent_type, then a neutral label.
  * @param subagentType
  * @param description
+ * @param names - Registered teammates, slug to configured name.
  */
-function specialistName(subagentType: string, description = ''): string {
+function specialistName(subagentType: string, description = '', names: Record<string, string> = {}): string {
+  // A registered teammate shows its configured name ("Founder GTM Lead"),
+  // never its slug turned into words ("Founder Gtm Lead").
+  const named = subagentType ? names[subagentType] : undefined;
+  if (named) {
+    return named;
+  }
   // A real named subagent (declared in workspace YAML) wins — show ITS name.
   if (subagentType && subagentType !== 'general-purpose') {
     return subagentType
@@ -405,6 +412,8 @@ function specialistName(subagentType: string, description = ''): string {
 export type TraceEmitterOptions = {
   /** Display name of the front-door (lead) agent. */
   leadName: string;
+  /** The lead's registered teammates, slug to name, for the steps that consult them. */
+  agentNames?: Record<string, string>;
   /**
    * What the workspace knows that a tool name alone does not — its REST
    * sources and their prefixes — so `delivery_list_projects` reads as "Acme
@@ -458,10 +467,13 @@ export class TraceEmitter {
    * is the one thing the model half could only lose; `wantsLabels` skips them.
    */
   private readonly hintLabelled = new Set<string>();
+  /** The lead's registered teammates, slug to name (see `TraceEmitterOptions`). */
+  private readonly agentNames: Record<string, string>;
 
   constructor(opts: TraceEmitterOptions) {
     this.leadName = opts.leadName;
     this.hints = opts.labelHints;
+    this.agentNames = opts.agentNames ?? {};
   }
 
   private leadActor(): TraceActor {
@@ -674,7 +686,7 @@ export class TraceEmitter {
           // Record the specialist so its nested events attribute correctly.
           const subagentType = typeof args.subagent_type === 'string' ? args.subagent_type : '';
           const description = typeof args.description === 'string' ? args.description : '';
-          const name = specialistName(subagentType, description);
+          const name = specialistName(subagentType, description, this.agentNames);
           this.specialists.set(id, { id, kind: 'specialist', name });
           this.openDelegations.set(id, { actor, parentId, name });
           const brief = description ? description.replace(/\s+/g, ' ').trim().slice(0, 140) : undefined;

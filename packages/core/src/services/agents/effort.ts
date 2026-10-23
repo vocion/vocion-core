@@ -110,8 +110,8 @@ export const INFER_SYSTEM = [
   'standard — gather from a few places and synthesise: what do I owe replies to, prepare me for this meeting, what changed on this deal, draft a reply.',
   'deep — research or analysis across many sources or a long period, a plan, a document, a comparison, or ranking, prioritising or weighing risk across many items: research everything on an account since July, audit the pipeline, write a proposal, rank every open thread by revenue risk and say what to tell each.',
   'When unsure between two, pick the lower one: the person can always ask to dig deeper.',
-  'Also say three facts about the request: "drafts" is true when it asks to write, revise or soften something a person will send or read (an email, a note, a reply, a draft already proposed); "systems" is how many distinct systems or sources it needs checked (Gmail and HubSpot is 2; "confirm with the company knowledge base" after an earlier answer adds one); "changes" is how many records it asks to change, decide, dismiss, approve or delete (0 for a question; "approve this one" is 1; "clear out everything older than a week" or "decline all of these" is many, so say 10 or more).',
-  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>, "changes": <number>}.',
+  'Also say four facts about the request: "drafts" is true when it asks to write, revise or soften something a person will send or read (an email, a note, a reply, a draft already proposed); "systems" is how many distinct systems or sources it needs checked (Gmail and HubSpot is 2; "confirm with the company knowledge base" after an earlier answer adds one); "changes" is how many records it asks to change, decide, dismiss, approve or delete (0 for a question; "approve this one" is 1; "clear out everything older than a week" or "decline all of these" is many, so say 10 or more); "teams" is how many different teams\' or functions\' work the answer has to bring together (a status across pipeline, pitches and referrals is 3; how my go-to-market is going, across founder outreach and pipeline, is 2; one team\'s queue, one deal or one person is 1).',
+  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>, "changes": <number>, "teams": <number>}.',
 ].join(' ');
 
 /** Test seam: one small-model call returning its text. */
@@ -119,6 +119,12 @@ export type EffortModel = (system: string, user: string) => Promise<{ text: stri
 
 /** A request that changes at least this many records is a bulk change, never Quick. */
 export const BULK_CHANGES = 2;
+
+/** A lead's answer that brings together at least this many teams' work is a synthesis, run Deep. */
+export const SYNTHESIS_TEAMS = 2;
+
+/** What Auto read from the request: its level, why, and how many teams' work it spans. */
+export type AutoRead = { level: EffortLevel; reason: string; teams?: number };
 
 /**
  * The least Auto may pick, from the facts the read reports: writing
@@ -150,10 +156,29 @@ export function autoFloor(facts: { drafts: boolean; systems: number; changes?: n
 }
 
 /**
+ * A lead's answer that brings together two or more teams' work runs Deep.
+ * On 2026-10-23 "how's my GTM work this week?" read as Standard and the
+ * Revenue Director synthesised four teams on its Standard model: the answer
+ * was thinner than before and miscounted ("2 of 66 … the other 66"). Only a
+ * lead with teammates is raised: it is the one weighing their answers. The
+ * teammates it consults inside the turn are untouched. Raises, never lowers.
+ * @param read - What Auto read from the request.
+ * @param agent - The agent answering.
+ * @param agent.leadsTeammates - It has teammates it can consult.
+ */
+export function synthesisLevel(read: AutoRead, agent: { leadsTeammates: boolean }): AutoRead {
+  const teams = read.teams ?? 0;
+  if (!agent.leadsTeammates || teams < SYNTHESIS_TEAMS || read.level === 'deep') {
+    return read;
+  }
+  return { ...read, level: 'deep', reason: `synthesizing ${teams} teams` };
+}
+
+/**
  * Parse the model's answer, or null.
  * @param raw - The reply text.
  */
-export function parseEffort(raw: string): { level: EffortLevel; reason: string } | null {
+export function parseEffort(raw: string): AutoRead | null {
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
   if (start === -1 || end <= start) {
@@ -165,12 +190,13 @@ export function parseEffort(raw: string): { level: EffortLevel; reason: string }
       return null;
     }
     const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 80) : '';
-    const facts = parsed as { drafts?: unknown; systems?: unknown; changes?: unknown };
+    const facts = parsed as { drafts?: unknown; systems?: unknown; changes?: unknown; teams?: unknown };
     const floor = autoFloor({ drafts: facts.drafts === true, systems: typeof facts.systems === 'number' ? facts.systems : 1, changes: typeof facts.changes === 'number' ? facts.changes : 0 });
+    const teams = typeof facts.teams === 'number' && Number.isFinite(facts.teams) ? { teams: Math.max(0, Math.round(facts.teams)) } : {};
     if (floor && EFFORT_LEVELS.indexOf(parsed.level as EffortLevel) < EFFORT_LEVELS.indexOf(floor.level)) {
-      return { level: floor.level, reason: floor.reason };
+      return { level: floor.level, reason: floor.reason, ...teams };
     }
-    return { level: parsed.level as EffortLevel, reason };
+    return { level: parsed.level as EffortLevel, reason, ...teams };
   } catch {
     return null;
   }
@@ -189,7 +215,7 @@ const INFER_TIMEOUT_MS = 2_500;
  * @param opts.previous - The last exchange, when the message only makes sense with it ("and the other one?").
  * @param opts.model - Test seam.
  */
-export async function inferEffort(opts: { orgId: string; message: string; previous?: string; model?: EffortModel }): Promise<{ level: EffortLevel; reason: string }> {
+export async function inferEffort(opts: { orgId: string; message: string; previous?: string; model?: EffortModel }): Promise<AutoRead> {
   try {
     const model = opts.model ?? await defaultModel(opts.orgId);
     let timer: ReturnType<typeof setTimeout> | undefined;
