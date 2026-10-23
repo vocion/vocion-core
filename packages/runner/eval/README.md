@@ -186,6 +186,9 @@ repository owners replaced by `<sandbox-owner>`), after checking it carries no c
 
 - `baselines/2026-10-22-claude-cli.md`: today's engine (runner image at `ed1e5f2`,
   `claude-opus-5-5`), all 30 cases once: 29 of 30 accepted, median score 100, $11.64.
+- `baselines/2026-10-22-claude-cli-hard-tier.md`: the same engine on all 48 cases once. Core tier
+  29 of 30 ($10.72), hard tier 16 of 18 ($10.81+), median score 100 in both. Two of the three
+  misses were grader bugs, since fixed (c20, h12); h10 hit a runner land bug. See its notes.
 
 Engines: `claude-cli` (the baseline), `oracle` (applies the reference change) and `noop` (changes
 nothing), the last two to prove the harness. `openhands`, `codex` and `claude-sdk` are named and
