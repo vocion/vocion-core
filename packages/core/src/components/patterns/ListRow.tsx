@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import type { MouseEvent, ReactNode } from 'react';
 import type { RowSwipe } from './SwipeRow';
-import { ChevronRight } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronRight } from 'lucide-react';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { SwipeMenu, SwipeRow } from './SwipeRow';
@@ -101,6 +101,8 @@ const ROW = 'group flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-2.
  * @param props.grow - Take the leftover width instead of `kind`'s fixed one.
  * @param props.children
  * @param props.className
+ * @param props.role - `columnheader` when the column heads a `ListHeader`.
+ * @param props.ariaSort - That header's sort state.
  */
 export function Column(props: {
   kind: ColumnKind;
@@ -128,10 +130,14 @@ export function Column(props: {
   grow?: boolean;
   children: ReactNode;
   className?: string;
+  role?: 'columnheader';
+  ariaSort?: 'ascending' | 'descending' | 'none';
 }) {
   return (
     <span
       data-column={props.kind}
+      role={props.role}
+      aria-sort={props.ariaSort}
       className={cn(
         'truncate text-muted-foreground tabular-nums',
         props.grow
@@ -364,6 +370,82 @@ function renderRow(
     <div data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
       {content}
       {tail}
+    </div>
+  );
+}
+
+export type ListHeaderColumn = {
+  /** The sort key this column sorts by. */
+  key: string;
+  label: string;
+  kind: ColumnKind;
+  align?: 'left' | 'right';
+  /** Keep the column on phones, as its rows' `<Column always>` does. */
+  always?: boolean;
+  /** The same extra classes its rows' `<Column>` carries (a fixed phone width), so the two line up. */
+  className?: string;
+};
+
+/**
+ * The column titles above a `<ListRows>`, on the same grid as its rows: the
+ * icon's space, the title, each `<Column>` at its kind's width, the chevron's
+ * space. A list whose columns are facts a person compares (counts, dates, a
+ * stage) names them here, and a click on a title sorts by it; a second click
+ * reverses it (Chris, 2026-10-23, the Data rooms list: "give titles to
+ * columns and allow sorting. like i want to find last updated").
+ * @param props - The header.
+ * @param props.title - The title column's own heading and sort key.
+ * @param props.title.key
+ * @param props.title.label
+ * @param props.columns - The columns, in the rows' order.
+ * @param props.sort - The active sort key.
+ * @param props.dir - Its direction.
+ * @param props.onSort - A heading was clicked.
+ * @param props.icon - The rows carry an icon: keep its space.
+ * @param props.chevron - The rows carry a chevron: keep its space.
+ * @param props.label - What the list is, for the header's accessible name ("Data rooms").
+ */
+export function ListHeader(props: {
+  label: string;
+  title: { key: string; label: string };
+  columns: readonly ListHeaderColumn[];
+  sort: string;
+  dir: 'asc' | 'desc';
+  onSort: (key: string) => void;
+  icon?: boolean;
+  chevron?: boolean;
+}) {
+  const state = (key: string) => (props.sort === key ? (props.dir === 'asc' ? 'ascending' : 'descending') : 'none') as 'ascending' | 'descending' | 'none';
+  const heading = (key: string, label: string, align: 'left' | 'right') => {
+    const on = props.sort === key;
+    const Arrow = props.dir === 'asc' ? ArrowUp : ArrowDown;
+    return (
+      <button
+        type="button"
+        onClick={() => props.onSort(key)}
+        className={cn('inline-flex max-w-full items-center gap-1 rounded text-[12px] font-medium hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none', on ? 'text-foreground' : 'text-muted-foreground', align === 'right' && 'flex-row-reverse')}
+      >
+        <span className="truncate">{label}</span>
+        {on && <Arrow className="size-3 shrink-0" aria-hidden />}
+      </button>
+    );
+  };
+  return (
+    // The rows below are links, so they cannot be table rows; the header is its
+    // own one-row table, which is where `aria-sort` is valid.
+    <div role="table" aria-label={`Sort ${props.label}`} data-pattern="list-header">
+      <div role="row" className="flex items-center gap-3 border-b border-border/70 px-2 pb-2">
+        {props.icon && <span className="size-8 shrink-0" aria-hidden />}
+        <span role="columnheader" aria-sort={state(props.title.key)} className="min-w-0 flex-1">
+          {heading(props.title.key, props.title.label, 'left')}
+        </span>
+        {props.columns.map(c => (
+          <Column key={c.key} kind={c.kind} align={c.align} always={c.always} className={c.className} role="columnheader" ariaSort={state(c.key)}>
+            {heading(c.key, c.label, c.align ?? 'right')}
+          </Column>
+        ))}
+        {props.chevron && <span className="size-4 shrink-0" aria-hidden />}
+      </div>
     </div>
   );
 }

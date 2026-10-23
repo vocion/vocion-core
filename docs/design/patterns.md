@@ -147,6 +147,13 @@ not fork one locally.
 - **labelled counts** — several counts on one row are one `contents` column,
   labelled and joined ("2 agents · 3 skills · 1 page"), never bare numbers
   side by side.
+- **`<ListHeader>`** — when a person compares the columns down the list (find
+  the room updated last, the biggest), the list names them in a header on the
+  same grid: the icon's space, the title, each column at its kind's width.
+  A click on a title sorts by it and a second reverses it; the sort lives in
+  the address (`useListUrlState`) and shows as `aria-sort` and an arrow. With
+  a header, counts are separate numeric columns: the header labels them.
+  First used on Data rooms (Chris, 2026-10-23).
 - **columnsAside** — the same columns, for a row where one of them clicks
   through to somewhere of its own (a chip that opens the document). They
   render beside the link instead of inside it. Pass a row's WHOLE set here
