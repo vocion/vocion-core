@@ -33,7 +33,7 @@ export function PagePrompts({ prompts, page, record }: { prompts: PagePrompt[]; 
           onClick={() => openAgentSurface({ prompt: p.prompt, send: true, newChat: true, agentSlug: p.agent, context: { path: window.location.pathname, title: page, ...(record ? { record } : {}) } }, href => router.push(href))}
           className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-muted"
         >
-          <Sparkles className="size-3.5 text-brand-amber" aria-hidden />
+          <Sparkles className="size-3.5 text-muted-foreground" aria-hidden />
           {p.label}
         </button>
       ))}

@@ -157,7 +157,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
         <ReviewHeader crumbs={p.crumbs ?? decisionCrumbs('proposal')} title="Recommendations" status="pending" />
         {chips}
         <div className="px-2 py-16 text-center">
-          <ShieldCheck className="mx-auto size-8 text-brand-amber-deep" aria-hidden />
+          <ShieldCheck className="mx-auto size-8 text-muted-foreground" aria-hidden />
           <div className="mt-3 text-base font-semibold">
             {chosenLabel ? `No ${chosenLabel} items left` : activeTypes.length > 0 ? 'None of these types left' : 'All caught up'}
           </div>
@@ -265,7 +265,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
             {current.proposal?.rationale && (
               <section className="border-b border-rule py-6">
                 <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
-                  <Sparkles className="size-3.5 text-brand-amber-deep" aria-hidden />
+                  <Sparkles className="size-3.5 text-muted-foreground" aria-hidden />
                   Why
                 </div>
                 <p className="mt-2 max-w-3xl text-[15px] leading-relaxed break-words text-foreground/80">{current.proposal.rationale}</p>
@@ -279,7 +279,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
             {current.proposal?.suggestedDecisionReason && (
               <section data-testid="review-generic-suggestion-reason" className="border-b border-rule py-6">
                 <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
-                  <Sparkles className="size-3.5 text-brand-amber-deep" aria-hidden />
+                  <Sparkles className="size-3.5 text-muted-foreground" aria-hidden />
                   Why it suggests that
                 </div>
                 <p className="mt-2 max-w-3xl text-[15px] leading-relaxed break-words text-foreground/80">{current.proposal.suggestedDecisionReason}</p>

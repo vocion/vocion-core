@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
@@ -90,7 +91,7 @@ export function MissionBriefForm({
       <button
         type="submit"
         disabled={busy || !brief.trim()}
-        className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+        className={buttonVariants({ size: 'lg' })}
       >
         {busy ? 'Your team is planning & working…' : 'Brief the team'}
       </button>

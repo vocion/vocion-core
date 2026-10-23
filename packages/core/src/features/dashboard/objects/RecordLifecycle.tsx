@@ -4,6 +4,7 @@ import type { RecordRef } from '@/services/chat/pageContext';
 import { AlarmClock, Check, Loader2, RotateCcw, Sparkles, X } from 'lucide-react';
 import { useState } from 'react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { useRouter } from '@/libs/I18nNavigation';
 import { CANDIDATE, finishedLabel, isFinishedStatus, isOwedStatus } from '@/libs/objects/rowLifecycle';
@@ -132,7 +133,7 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar', deci
     return (
       <div className={`flex flex-wrap items-center gap-1.5 ${bar}`} data-testid="record-lifecycle" data-status={now}>
         <span className="mr-1 text-[13px] text-muted-foreground">Proposed. Keep it?</span>
-        <button type="button" onClick={() => void decide('approve')} disabled={working} data-testid="record-lifecycle-approve" className="inline-flex h-7 items-center gap-1.5 rounded-full bg-foreground px-3 text-[12.5px] font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60">
+        <button type="button" onClick={() => void decide('approve')} disabled={working} data-testid="record-lifecycle-approve" className={buttonVariants({ size: 'sm' })}>
           {working ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
           Approve
         </button>
@@ -172,7 +173,7 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar', deci
         aria-label={`Mark ${record.label ?? 'this record'} done`}
         title={phase.s === 'error' ? phase.message : 'Done'}
         data-testid="record-lifecycle-done"
-        className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity group-hover/microcard:opacity-100 hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100"
+        className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'opacity-0 group-hover/microcard:opacity-100 focus-visible:opacity-100' })}
       >
         {working ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
       </button>
@@ -207,7 +208,7 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar', deci
                     <button type="button" onClick={() => void snooze(null)} disabled={working} data-testid="record-lifecycle-wake" className="ml-1 text-foreground underline underline-offset-2">Wake</button>
                   </span>
                 )}
-                <button type="button" onClick={doIt} data-testid="record-lifecycle-do" className="inline-flex h-7 items-center gap-1.5 rounded-full bg-foreground px-3 text-[12.5px] font-medium text-background transition-opacity hover:opacity-90">
+                <button type="button" onClick={doIt} data-testid="record-lifecycle-do" className={buttonVariants({ size: 'sm' })}>
                   <Sparkles className="size-3.5" aria-hidden />
                   Do it
                 </button>

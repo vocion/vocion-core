@@ -4,6 +4,7 @@ import type { AutonomyPolicyView } from '@/services/autonomy/AutonomyService';
 import { ArrowDown, ArrowUp, Check, Loader2, TriangleAlert } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { riskTone } from '@/features/dashboard/inbox/inboxMeta';
 import { client } from '@/libs/Orpc';
 import { RUNG_LABEL, rungAutomates, rungIndex, RUNGS } from '@/services/autonomy/rungs';
@@ -143,7 +144,7 @@ export function AutonomyTable({ policies, isAdmin }: { policies: AutonomyPolicyV
                             type="button"
                             disabled={isBusy}
                             onClick={() => act(p.actionId, () => client.autonomy.promote({ actionId: p.actionId }))}
-                            className="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                            className={buttonVariants({ size: 'sm' })}
                           >
                             {isBusy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <ArrowUp className="size-3.5" aria-hidden />}
                             {`Promote to ${RUNG_LABEL[p.eligibility.nextRung!]}`}

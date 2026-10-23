@@ -92,7 +92,7 @@ function RestActions({ actions }: { actions: RestActionEntry[] }) {
       <div className="divide-y divide-border/70 rounded-lg border border-border">
         {actions.map(action => (
           <div key={action.name} className="flex items-start gap-3 px-3 py-2.5 text-xs">
-            <code className="shrink-0 rounded bg-primary/10 px-2 py-0.5 font-mono text-primary">{action.name}</code>
+            <code className="shrink-0 rounded bg-surface-soft px-2 py-0.5 font-mono text-foreground">{action.name}</code>
             <div className="min-w-0 flex-1">
               <div>{action.description}</div>
               <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">

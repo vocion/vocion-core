@@ -1,4 +1,4 @@
-import { ArrowLeft, FileCode2, Wrench } from 'lucide-react';
+import { ArrowLeft, FileCode2 } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { IntegrationLogo } from '@/components/patterns';
@@ -96,9 +96,6 @@ export default async function ToolDetailPage(props: {
       <TitleBar
         title={(
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Wrench className="size-5" aria-hidden />
-            </div>
             <div>
               <div>{tool.title}</div>
               <div className="mt-0.5 flex items-center gap-2 text-sm font-normal">

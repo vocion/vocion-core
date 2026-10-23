@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Column, ListRow, Subline } from '@/components/patterns';
 import { AgentDot } from '@/components/ui/agent-dot';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { toast } from '@/components/ui/toast';
 import { Link } from '@/libs/I18nNavigation';
@@ -210,7 +211,7 @@ export function InboxRow({ item, tab, why, workspaceId, agent }: { item: InboxIt
                 aria-label={`Undo: ${item.title}`}
                 title="Undo"
                 data-testid="inbox-undo"
-                className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50"
+                className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'disabled:opacity-50' })}
               >
                 {busy === 'undo' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <RotateCcw className="size-4" aria-hidden />}
               </button>
@@ -234,7 +235,7 @@ export function InboxRow({ item, tab, why, workspaceId, agent }: { item: InboxIt
               href={item.href}
               aria-label={`Open: ${item.title}`}
               title="Open"
-              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+              className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
             >
               {opensHere ? <ChevronRight className="size-4" aria-hidden /> : <ArrowUpRight className="size-3.5" aria-hidden />}
             </Link>

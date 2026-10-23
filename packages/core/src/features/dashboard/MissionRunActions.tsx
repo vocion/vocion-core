@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { client } from '@/libs/Orpc';
 
 export function MissionRunActions({ runId, status }: { runId: number; status: string }) {
@@ -46,7 +47,7 @@ export function MissionRunActions({ runId, status }: { runId: number; status: st
             type="button"
             disabled={busy}
             onClick={() => act(() => client.missions.resume({ id: runId }))}
-            className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+            className={buttonVariants()}
           >
             Approve &amp; continue
           </button>

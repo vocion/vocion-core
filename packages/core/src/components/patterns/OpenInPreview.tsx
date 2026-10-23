@@ -2,6 +2,7 @@
 
 import type { RecordRef } from '@/services/chat/pageContext';
 import { PanelRight } from 'lucide-react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useOpenPreviewRef, usePreviewOpener } from '@/features/preview/previewState';
 import { previewKey } from '@/libs/preview/types';
@@ -39,7 +40,7 @@ export function OpenInPreview({ recordRef, label = 'Open in preview', className 
           data-testid="open-in-preview"
           data-preview-key={previewKey(recordRef)}
           className={cn(
-            'inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
+            buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'focus-visible:opacity-100' }),
             // Hover-revealed where there is hover; always there on touch.
             'opacity-0 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100',
             isOpen && 'text-foreground opacity-100',

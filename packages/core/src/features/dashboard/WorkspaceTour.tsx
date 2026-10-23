@@ -3,6 +3,7 @@
 import type { TourManifest, TourStep } from '@/libs/workspace/tour';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { requestAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 
@@ -577,13 +578,13 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
     return (
       <div className="fixed right-4 bottom-4 z-40 flex flex-col items-end gap-2" data-tour-chrome>
         {menuOpen && visibleTours.length > 1 && (
-          <div className="w-72 overflow-hidden rounded-xl border border-border bg-background shadow-xl">
+          <div className="w-72 overflow-hidden rounded-xl border border-border bg-popover shadow-(--shadow-pop)">
             {visibleTours.map(t => (
               <button
                 key={t.slug}
                 type="button"
                 onClick={() => begin(t.slug, 0)}
-                className="block w-full px-4 py-3 text-left hover:bg-muted"
+                className="block w-full px-4 py-3 text-left hover:bg-surface-hover"
               >
                 <div className="text-sm font-medium">{t.title}</div>
                 {t.description && <div className="mt-0.5 text-xs text-muted-foreground">{t.description}</div>}
@@ -594,7 +595,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
         <button
           type="button"
           onClick={() => (visibleTours.length > 1 ? setMenuOpen(o => !o) : begin(visibleTours[0]!.slug, 0))}
-          className="rounded-full border border-border bg-background px-4 py-2 text-sm font-medium shadow-md hover:bg-muted"
+          className="rounded-full border border-border bg-background px-4 py-2 text-sm font-medium shadow-(--shadow-pop) hover:bg-surface-hover"
         >
           ▸
           {' '}
@@ -771,7 +772,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
               </button>
             )}
             {!autoplay && step.advance === 'next' && (
-              <button type="button" onClick={advance} className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90">
+              <button type="button" onClick={advance} className={buttonVariants()}>
                 {step.nextLabel ?? (isLast ? 'Finish' : 'Next')}
               </button>
             )}

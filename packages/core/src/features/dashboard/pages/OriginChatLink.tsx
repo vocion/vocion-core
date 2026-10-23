@@ -1,6 +1,7 @@
 'use client';
 
 import { MessageSquare } from 'lucide-react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePreviewOpener } from '@/features/preview/previewState';
 
@@ -27,7 +28,7 @@ export function OriginChatLink({ origin }: { origin: { conversationId: number; t
           }}
           aria-label={said}
           data-testid="row-origin-chat"
-          className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
         >
           <MessageSquare className="size-3.5" aria-hidden />
         </a>

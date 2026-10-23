@@ -116,7 +116,7 @@ export function SplitDivider(props: SplitDividerProps) {
         props.onCommit?.(next);
       }}
       className={cn(
-        'shrink-0 touch-none bg-surface-soft transition select-none hover:bg-brand-amber/30 focus-visible:bg-brand-amber/40 focus-visible:outline-none',
+        'shrink-0 touch-none bg-surface-soft transition select-none hover:bg-foreground/15 focus-visible:bg-foreground/20 focus-visible:outline-none',
         columns ? 'w-2 cursor-col-resize border-x border-border' : 'h-2 cursor-row-resize border-y border-border',
         props.className,
       )}

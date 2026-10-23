@@ -90,7 +90,7 @@ export function AgentMemoryPanel(props: { stats: AgentMemoryStats }) {
             <Link
               key={ns.name}
               href={`/dashboard/learnings/${ns.name}`}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border/70 px-2.5 py-0.5 text-[11px] text-muted-foreground transition hover:border-primary/50 hover:text-foreground"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border/70 px-2.5 py-0.5 text-[11px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
               title={`${ns.title} — ${ns.scopeKind} scope`}
             >
               <span className="font-medium text-foreground/80">{ns.title}</span>

@@ -6,6 +6,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Bold, Italic, Link2, List, ListOrdered, Unlink } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { isHtmlBody, textToParagraphs } from '@/libs/writing/emailBodyShape';
 import { cn } from '@/utils/Helpers';
 
@@ -73,7 +74,7 @@ function ToolButton(props: { on?: boolean; label: string; onClick: () => void; i
         props.onClick();
       }}
       className={cn(
-        'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-surface-hover hover:text-foreground disabled:opacity-40',
+        buttonVariants({ variant: 'ghost', size: 'icon-sm' }),
         props.on && 'bg-surface-hover text-foreground',
       )}
     >

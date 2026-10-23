@@ -3,6 +3,7 @@
 import { Mail, Pencil, Plug, Slack, Sparkles } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { InlineTitle } from '@/components/ui/inline-title';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
@@ -88,7 +89,7 @@ export function ConversationListRow({ id, title, snippet, meta, time, surface }:
             onClick={() => setEditing(true)}
             aria-label={`${t('rename_conversation')}: ${name}`}
             data-testid="conversation-row-rename"
-            className="mt-2 mr-2 flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-60 transition group-hover/row:opacity-100 hover:bg-background hover:text-foreground hover:opacity-100 focus-visible:opacity-100"
+            className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'mt-2 mr-2 opacity-60 group-hover/row:opacity-100 hover:opacity-100 focus-visible:opacity-100' })}
           >
             <Pencil className="size-3.5" aria-hidden />
           </button>

@@ -98,10 +98,10 @@ export function ChatDropZone({ onFiles, className, children }: { onFiles?: (file
           aria-hidden
           // Calm: a soft veil and a dashed hairline, no shadow. Pointer events
           // off so the drag keeps reaching the pane underneath.
-          className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand-amber/50 bg-background/90 backdrop-blur-[2px] motion-safe:animate-in motion-safe:fade-in-0"
+          className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-2xl border-2 border-dashed border-border bg-background/90 backdrop-blur-[2px] motion-safe:animate-in motion-safe:fade-in-0"
         >
           <div className="flex flex-col items-center gap-2 px-6 text-center">
-            <span className="flex size-11 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
+            <span className="flex size-11 items-center justify-center rounded-full bg-surface-soft text-muted-foreground">
               <Paperclip className="size-5" aria-hidden />
             </span>
             <span className="text-base font-medium text-foreground">Drop to attach</span>

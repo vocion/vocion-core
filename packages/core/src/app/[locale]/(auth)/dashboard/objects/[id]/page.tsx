@@ -5,6 +5,7 @@ import { ArrowLeft, ExternalLink, FileText, Link2, Sparkles } from 'lucide-react
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { InspectionPhoto } from '@/features/dashboard/InspectionPhoto';
 import { ObjectAgentActivity } from '@/features/dashboard/ObjectAgentActivity';
@@ -299,7 +300,7 @@ export default async function ObjectDetailPage(props: {
                       href={link.link}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                      className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
                     >
                       <ExternalLink className="size-4" />
                     </a>
@@ -316,7 +317,7 @@ export default async function ObjectDetailPage(props: {
             <div className="space-y-2">
               {nextSteps.map((step, i) => (
                 <div key={i} className="flex items-start gap-2 text-sm">
-                  <div className="mt-1 size-1.5 shrink-0 rounded-full bg-primary" />
+                  <div className="mt-1 size-1.5 shrink-0 rounded-full bg-muted-foreground" />
                   {step}
                 </div>
               ))}

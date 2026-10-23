@@ -4,6 +4,7 @@ import type { ShareAudience } from '@/libs/share/audience';
 import { Check, Globe, Link2, Lock, Users } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useCallback, useEffect, useState } from 'react';
+import { BAR_ICON_BUTTON, buttonVariants } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client } from '@/libs/Orpc';
 import { SHARE_AUDIENCE_COPY, SHARE_AUDIENCES } from '@/libs/share/audience';
@@ -100,8 +101,8 @@ export function SharePicker({ artifactId, title, dashboardHref, workspaceName, c
             data-testid="share-picker"
             className={cn(
               labeled
-                ? 'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border px-2 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover data-[state=open]:bg-surface-hover'
-                : 'flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground',
+                ? buttonVariants({ variant: 'outline', size: 'sm', className: 'data-[state=open]:bg-surface-hover' })
+                : BAR_ICON_BUTTON,
               className,
             )}
           >

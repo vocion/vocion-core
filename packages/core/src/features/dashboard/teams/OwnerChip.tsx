@@ -20,7 +20,7 @@ export function OwnerChip({ accountable }: { accountable: AccountableUser | null
 
   if (provenance === 'missing' || accountable === null) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--brand-amber-deep)]">
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-waiting">
         <TriangleAlert className="size-3.5" aria-hidden />
         {t('owner_missing')}
       </span>
@@ -64,7 +64,7 @@ function Avatar({ name, muted }: { name: string; muted: boolean }) {
   return (
     <span
       className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-background ${
-        muted ? 'bg-muted-foreground/50' : 'bg-[var(--brand-teal)]'
+        muted ? 'bg-muted-foreground/50' : 'bg-foreground'
       }`}
       aria-hidden
     >

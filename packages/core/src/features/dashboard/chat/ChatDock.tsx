@@ -938,7 +938,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       onPointerUp={onResizeEnd}
       onPointerCancel={onResizeEnd}
       onKeyDown={onResizeKey}
-      className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none transition select-none hover:bg-brand-amber/30 focus-visible:bg-brand-amber/40 focus-visible:outline-none"
+      className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none transition select-none hover:bg-foreground/15 focus-visible:bg-foreground/20 focus-visible:outline-none"
     />
   );
 

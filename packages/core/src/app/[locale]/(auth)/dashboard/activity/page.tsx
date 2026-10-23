@@ -53,7 +53,7 @@ function statusTone(status: string): string {
   if (status === 'cancelled' || status === 'no_match') {
     return 'bg-muted text-muted-foreground';
   }
-  return 'bg-primary/10 text-primary';
+  return 'bg-surface-soft text-foreground';
 }
 
 function Row({ item }: { item: ActivityItem }) {
@@ -153,7 +153,7 @@ export default async function ActivityPage(props: {
       <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:mb-4 sm:flex-wrap sm:px-0 [&::-webkit-scrollbar]:hidden">
         <Link
           href="/dashboard/activity"
-          className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap transition ${!activeKind ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+          className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap transition ${!activeKind ? 'border-transparent bg-action text-action-foreground' : 'border-border text-muted-foreground hover:bg-surface-hover hover:text-foreground'}`}
         >
           All ·
           {' '}
@@ -163,7 +163,7 @@ export default async function ActivityPage(props: {
           <Link
             key={k}
             href={`/dashboard/activity?kind=${k}`}
-            className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap transition ${activeKind === k ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+            className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap transition ${activeKind === k ? 'border-transparent bg-action text-action-foreground' : 'border-border text-muted-foreground hover:bg-surface-hover hover:text-foreground'}`}
           >
             {KIND_META[k].label}
             {' '}
@@ -180,7 +180,7 @@ export default async function ActivityPage(props: {
             <span className="mr-1 text-muted-foreground">Agent:</span>
             <Link
               href={toolQuery({ tool })}
-              className={`shrink-0 rounded-full border px-2.5 py-0.5 font-medium whitespace-nowrap transition ${!agent ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              className={`shrink-0 rounded-full border px-2.5 py-0.5 font-medium whitespace-nowrap transition ${!agent ? 'border-transparent bg-action text-action-foreground' : 'border-border text-muted-foreground hover:bg-surface-hover hover:text-foreground'}`}
             >
               all
             </Link>
@@ -188,7 +188,7 @@ export default async function ActivityPage(props: {
               <Link
                 key={a}
                 href={toolQuery({ agent: a, tool })}
-                className={`shrink-0 rounded-full border px-2.5 py-0.5 font-mono whitespace-nowrap transition ${agent === a ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                className={`shrink-0 rounded-full border px-2.5 py-0.5 font-mono whitespace-nowrap transition ${agent === a ? 'border-transparent bg-action text-action-foreground' : 'border-border text-muted-foreground hover:bg-surface-hover hover:text-foreground'}`}
               >
                 {a}
               </Link>
@@ -198,7 +198,7 @@ export default async function ActivityPage(props: {
             <span className="mr-1 text-muted-foreground">Tool:</span>
             <Link
               href={toolQuery({ agent })}
-              className={`shrink-0 rounded-full border px-2.5 py-0.5 font-medium whitespace-nowrap transition ${!tool ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              className={`shrink-0 rounded-full border px-2.5 py-0.5 font-medium whitespace-nowrap transition ${!tool ? 'border-transparent bg-action text-action-foreground' : 'border-border text-muted-foreground hover:bg-surface-hover hover:text-foreground'}`}
             >
               all
             </Link>
@@ -206,7 +206,7 @@ export default async function ActivityPage(props: {
               <Link
                 key={t}
                 href={toolQuery({ agent, tool: t })}
-                className={`shrink-0 rounded-full border px-2.5 py-0.5 font-mono whitespace-nowrap transition ${tool === t ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                className={`shrink-0 rounded-full border px-2.5 py-0.5 font-mono whitespace-nowrap transition ${tool === t ? 'border-transparent bg-action text-action-foreground' : 'border-border text-muted-foreground hover:bg-surface-hover hover:text-foreground'}`}
               >
                 {t}
               </Link>

@@ -738,7 +738,7 @@ export function ChatComposer({
               );
             })}
             {commandHint && (
-              <span data-testid="command-hint" className="inline-flex items-center gap-1.5 rounded-full border border-brand-amber/40 bg-brand-amber-tint px-2.5 py-1 text-xs font-medium text-brand-amber-deep">
+              <span data-testid="command-hint" className="inline-flex items-center gap-1.5 rounded-full bg-surface-soft px-2.5 py-1 text-xs font-medium text-foreground">
                 {commandHint}
               </span>
             )}

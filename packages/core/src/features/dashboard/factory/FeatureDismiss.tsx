@@ -2,6 +2,7 @@
 
 import { Loader2, RotateCcw, X } from 'lucide-react';
 import { useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client } from '@/libs/Orpc';
 
@@ -75,7 +76,7 @@ export function FeatureDismiss({ requestId, objectType = 'request', compact = fa
           aria-label="Why dismiss this proposal"
           className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 text-sm"
         />
-        <button type="button" onClick={() => void dismiss()} disabled={phase.s === 'working'} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-[13px] font-medium text-background disabled:opacity-60">
+        <button type="button" onClick={() => void dismiss()} disabled={phase.s === 'working'} className={buttonVariants({ size: 'sm' })}>
           {phase.s === 'working' && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
           Dismiss
         </button>

@@ -367,9 +367,9 @@ function FindingCard({ finding: f, expert, busy, compact, onDecide }: { finding:
   const cols = useMemo(() => [...new Set(f.items.flatMap(i => Object.keys(i)))], [f.items]);
   const open = f.state === 'open';
   return (
-    <section className={cn('rounded-xl border p-4', open ? 'border-brand-amber/50 bg-brand-amber/5' : 'border-border bg-card')} data-routine-finding={f.id} data-finding-state={f.state}>
+    <section className={cn('rounded-xl border p-4', open ? 'border-transparent bg-waiting-soft' : 'border-border bg-card')} data-routine-finding={f.id} data-finding-state={f.state}>
       <div className="flex flex-wrap items-center gap-2">
-        <CircleAlert className={cn('size-4 shrink-0', open ? 'text-brand-amber' : 'text-muted-foreground')} aria-hidden />
+        <CircleAlert className={cn('size-4 shrink-0', open ? 'text-waiting' : 'text-muted-foreground')} aria-hidden />
         <h3 className="min-w-0 flex-1 text-sm font-semibold text-foreground">{f.title}</h3>
         {open && <ToneChip tone="amber">{`Decision for ${expert ?? 'its expert'}`}</ToneChip>}
         {f.state === 'answered' && <ToneChip tone="pass">Decided</ToneChip>}
@@ -480,7 +480,7 @@ function RunTile({ run, expert, now, busy, onOpen, onAnswer }: { run: RoutineRun
     <article
       className={cn(
         '@container flex h-full flex-col overflow-hidden rounded-xl border bg-card shadow-xs transition-shadow',
-        wants ? 'border-brand-amber ring-3 ring-brand-amber/25' : 'border-border hover:shadow-sm',
+        wants ? 'border-transparent bg-waiting-soft' : 'border-border hover:bg-surface-hover',
       )}
       data-routine-run={run.id}
       data-run-status={run.status}

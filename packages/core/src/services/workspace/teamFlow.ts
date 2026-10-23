@@ -26,6 +26,8 @@ export type TeamMemberView = {
   eyebrow: string | null;
   owns: string | null;
   lead: boolean;
+  /** The agent's authored accent name, for its `AgentDot`. */
+  accent?: string | null;
   skills: string[];
   systems: string[];
   month: MonthCounts;
@@ -126,6 +128,7 @@ export async function loadTeamBlock(orgId: string, block: Pick<PageBlock, 'team'
       ? db.select({
           slug: agentSchema.slug,
           eyebrow: agentSchema.eyebrow,
+          accent: agentSchema.accent,
           description: agentSchema.description,
           skills: agentSchema.skillSlugs,
           sources: agentSchema.connectorSources,
@@ -166,6 +169,7 @@ export async function loadTeamBlock(orgId: string, block: Pick<PageBlock, 'team'
       eyebrow: a.eyebrow,
       owns: a.description ?? m.description,
       lead: slug === team.leadAgentSlug,
+      accent: a.accent ?? null,
       skills: (a.skills ?? []).map(s => skillName.get(s) ?? prettySlug(s)),
       // A system several sources reach (two QuickBooks companies) reads once.
       systems: [...new Set((a.sources ?? []).filter(s => !block.systems || block.systems[s] !== '').map(sourceName))],

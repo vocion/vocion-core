@@ -1,5 +1,5 @@
 import type { CatalogAgent, CatalogTool, RestActionEntry, ToolFamily } from '@/libs/tools/orgCatalog';
-import { ArrowLeft, Bot, Globe, Wrench } from 'lucide-react';
+import { ArrowLeft, Bot, Globe } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
@@ -83,7 +83,7 @@ function RestEndpoint({ tool }: { tool: CatalogTool }) {
         Endpoint
       </h2>
       <div className="mb-3 font-mono text-sm">
-        <span className="rounded bg-primary/10 px-2 py-0.5 text-primary">{rest.method}</span>
+        <span className="rounded bg-surface-soft px-2 py-0.5 font-mono text-foreground">{rest.method}</span>
         {' '}
         {rest.path}
       </div>
@@ -147,7 +147,7 @@ function RestActionCatalog({ actions }: { actions: RestActionEntry[] }) {
             <div className="flex flex-col">
               {actions.map(action => (
                 <div key={action.name} className="flex items-start gap-3 border-b border-border py-2.5 text-xs last:border-0">
-                  <code className="shrink-0 rounded bg-primary/10 px-2 py-0.5 font-mono text-primary">{action.name}</code>
+                  <code className="shrink-0 rounded bg-surface-soft px-2 py-0.5 font-mono text-foreground">{action.name}</code>
                   <div className="min-w-0 flex-1">
                     <div>{action.description}</div>
                     <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
@@ -189,9 +189,6 @@ export function ToolDetailView({ tool, family, agents }: { tool: CatalogTool; fa
       <TitleBar
         title={(
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Wrench className="size-5" aria-hidden />
-            </div>
             <div>
               <div>{tool.title}</div>
               <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm font-normal">

@@ -5,6 +5,7 @@ import type { Chip } from './ChipRow';
 import type { SortDirection } from './listUrlState';
 import { ArrowDown, ArrowUp, Search } from 'lucide-react';
 import { useId } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { cn } from '@/utils/Helpers';
 import { ChipRow } from './ChipRow';
 import { CompactFilters, CompactSection } from './CompactFilters';
@@ -304,7 +305,7 @@ export function ListToolbar(props: {
                   type="button"
                   onClick={() => direction.onChange(flipDirection(direction.value))}
                   aria-label={direction.value === 'desc' ? 'Sort ascending' : 'Sort descending'}
-                  className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
+                  className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
                 >
                   {direction.value === 'desc' ? <ArrowDown className="size-3.5" /> : <ArrowUp className="size-3.5" />}
                 </button>

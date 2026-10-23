@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { History } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { ListPage, ListRow, ListRows, Subline } from '@/components/patterns';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { AutomationsList } from '@/features/dashboard/automations/AutomationsList';
 import { planAutomations } from '@/features/dashboard/automations/automationsPlan';
 import { cronToText } from '@/features/dashboard/TriggerBadge';
@@ -80,7 +81,7 @@ export default async function AutomationsPage(props: { params: Promise<{ locale:
       title="Automations"
       description="The schedules and triggers that start work on their own; switch one off to pause it."
       actions={(
-        <Link href="/dashboard/automation/runs" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted">
+        <Link href="/dashboard/automation/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
           <History className="size-3.5" />
           Run log
         </Link>

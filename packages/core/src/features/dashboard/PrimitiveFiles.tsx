@@ -7,6 +7,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { AlertCircle, Check, FileText, GitBranch, Pencil, RotateCcw, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { client } from '@/libs/Orpc';
 
 type PrimitiveFile = {
@@ -149,7 +150,7 @@ export function PrimitiveFiles({ files, editInGitPath, dirty = false, dirtyFiles
             <button
               type="button"
               onClick={startEdit}
-              className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium hover:border-primary/40 hover:text-foreground"
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
             >
               <Pencil className="size-3" />
               Edit
@@ -161,7 +162,7 @@ export function PrimitiveFiles({ files, editInGitPath, dirty = false, dirtyFiles
                 type="button"
                 onClick={cancelEdit}
                 disabled={pending}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium hover:border-foreground/30 disabled:opacity-40"
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
               >
                 <X className="size-3" />
                 Cancel
@@ -170,7 +171,7 @@ export function PrimitiveFiles({ files, editInGitPath, dirty = false, dirtyFiles
                 type="button"
                 onClick={save}
                 disabled={pending || unchanged}
-                className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+                className={buttonVariants({ size: 'sm' })}
               >
                 {pending
                   ? <RotateCcw className="size-3 animate-spin" />

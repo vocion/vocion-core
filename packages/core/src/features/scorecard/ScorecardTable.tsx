@@ -4,6 +4,7 @@ import type { DateRange, ScorecardPreset } from './periods';
 import type { Scorecard, ScorecardRow } from '@/services/scorecard/ScorecardService';
 import { CalendarRange, Info } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client } from '@/libs/Orpc';
@@ -120,7 +121,7 @@ function PeriodPicker(props: { period: Period; onChange: (period: Period) => voi
       </select>
       <Popover open={customOpen} onOpenChange={setCustomOpen}>
         <PopoverTrigger asChild>
-          <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted/50" aria-label="Pick a custom date range">
+          <button type="button" className={buttonVariants({ variant: 'outline', size: 'sm' })} aria-label="Pick a custom date range">
             <CalendarRange className="size-3.5" aria-hidden />
             <span data-testid="scorecard-period-label">{describeRange(props.period.range)}</span>
           </button>

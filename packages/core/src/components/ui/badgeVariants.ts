@@ -16,7 +16,8 @@ export const badgeVariants = cva(
         secondary:
           'bg-surface-soft text-muted-foreground [a&]:hover:bg-surface-hover',
         accent:
-          'bg-brand-amber/12 text-brand-amber-deep [a&]:hover:bg-brand-amber/20',
+          // Design sweep, 2026-10-23: amber's one meaning outside the brand, something waits on a person.
+          'bg-waiting-soft text-waiting [a&]:hover:bg-waiting-soft/80',
         destructive:
           'bg-brand-fail-bg text-brand-fail [a&]:hover:bg-brand-fail-bg/80',
         outline:

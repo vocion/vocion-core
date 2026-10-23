@@ -22,7 +22,7 @@ export function SelectionToolbar({ x, y, width, actions, testId }: { x: number; 
     <div
       role="toolbar"
       aria-label="Selected passage"
-      className="absolute z-10 flex -translate-x-1/2 -translate-y-full items-center gap-0.5 rounded-md border border-border bg-background p-0.5 shadow-md"
+      className="absolute z-10 flex -translate-x-1/2 -translate-y-full items-center gap-0.5 rounded-lg border border-border bg-popover p-0.5 shadow-(--shadow-pop)"
       style={{ left: Math.max(60, Math.min(x, width - 60)), top: Math.max(28, y - 6) }}
       data-selection-toolbar={testId ?? true}
     >
@@ -36,7 +36,7 @@ export function SelectionToolbar({ x, y, width, actions, testId }: { x: number; 
             e.preventDefault();
             a.onClick();
           }}
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium hover:bg-muted"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:bg-surface-hover"
         >
           <a.icon className="size-3.5" aria-hidden />
           {a.label}

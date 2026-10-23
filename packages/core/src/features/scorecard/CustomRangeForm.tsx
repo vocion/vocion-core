@@ -3,6 +3,7 @@
 import type { FormEvent } from 'react';
 import type { DateRange } from './periods';
 import { useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { customRange, toDateInput } from './periods';
 
 /**
@@ -64,7 +65,7 @@ export function CustomRangeForm(props: { initial: DateRange; maxDays: number; on
         </label>
       </div>
       {error && <p className="text-[11px] text-destructive" role="alert">{error}</p>}
-      <button type="submit" className="w-full rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background">Apply</button>
+      <button type="submit" className={buttonVariants({ size: 'sm', className: 'w-full' })}>Apply</button>
     </form>
   );
 }

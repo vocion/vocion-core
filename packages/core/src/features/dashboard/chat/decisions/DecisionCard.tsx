@@ -5,11 +5,13 @@ import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import { ChevronDown, ChevronUp, CornerDownLeft, Loader2, X } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AgentDot } from '@/components/ui/agent-dot';
+import { CLOSE_BUTTON } from '@/components/ui/buttonVariants';
 import { Surface, SURFACE_CLASS } from '@/components/ui/surface';
 import { openPreview } from '@/features/preview/previewState';
 import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
 import { decisionTitle, DENY_ID } from '@/libs/decisions/decision';
 import { Link } from '@/libs/I18nNavigation';
+import { cn } from '@/utils/Helpers';
 import { DecisionLook } from './looks';
 
 /**
@@ -455,7 +457,7 @@ export function DecisionCard({
           aria-expanded
           aria-label="Fold the decision away (Esc)"
           title="Fold away (Esc)"
-          className="-mt-0.5 -mr-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-surface-hover hover:text-foreground max-md:size-11"
+          className={cn(CLOSE_BUTTON, '-mt-0.5 -mr-1 max-md:size-11')}
         >
           <ChevronDown className="size-4" aria-hidden />
         </button>

@@ -2,7 +2,9 @@
 
 import { UserPlus, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { CLOSE_BUTTON } from '@/components/ui/buttonVariants';
 import { Link } from '@/libs/I18nNavigation';
+import { cn } from '@/utils/Helpers';
 
 /**
  * Small, dismissible "Invite team members" card at the bottom of the sidebar
@@ -20,7 +22,7 @@ export function InviteTeamCard({ onDismiss }: { onDismiss: () => void }) {
         type="button"
         onClick={onDismiss}
         aria-label={t('dismiss')}
-        className="absolute top-2 right-2 flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-surface-hover hover:text-foreground"
+        className={cn(CLOSE_BUTTON, 'absolute top-2 right-2')}
       >
         <X className="size-3.5" aria-hidden />
       </button>

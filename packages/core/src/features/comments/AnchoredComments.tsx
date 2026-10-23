@@ -3,6 +3,7 @@
 import type { TextAnchor } from '@/libs/anchors/resolve';
 import { MessageSquareText, Pencil, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { SelectionToolbar } from '@/features/dashboard/chat/SelectionToolbar';
 import { buildAnchor } from '@/libs/anchors/resolve';
 import { client } from '@/libs/Orpc';
@@ -414,7 +415,7 @@ export function CommentPopover({ pending, onAdd, onAsk, onCancel, onBegin, chang
       role="dialog"
       aria-label="Comment on the selection"
       style={position}
-      className="fixed z-50 w-[300px] rounded-xl border border-border bg-background p-2.5 shadow-xl"
+      className="fixed z-50 w-[300px] rounded-xl border border-border bg-popover p-2.5 shadow-(--shadow-pop)"
     >
       <textarea
         // eslint-disable-next-line jsx-a11y/no-autofocus -- the person just chose to write; the span is already painted by onBegin
@@ -427,14 +428,14 @@ export function CommentPopover({ pending, onAdd, onAsk, onCancel, onBegin, chang
         className="w-full resize-none rounded-lg border border-border bg-background px-2.5 py-1.5 text-[13px] outline-none focus:border-brand-amber"
       />
       <div className="mt-1.5 flex justify-end gap-1.5">
-        <button type="button" onClick={onCancel} className="rounded-lg px-2.5 py-1 text-xs text-muted-foreground transition hover:text-foreground">
+        <button type="button" onClick={onCancel} className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
           Cancel
         </button>
         <button
           type="button"
           onClick={() => onAdd(note)}
           disabled={!note.trim()}
-          className="rounded-lg bg-brand-amber px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-brand-amber-deep disabled:bg-muted disabled:text-muted-foreground/60"
+          className={buttonVariants({ size: 'sm' })}
         >
           {changeLabel}
         </button>

@@ -261,7 +261,7 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
       )}
 
       {run.waiting && (
-        <div className="rounded-lg border border-brand-amber/50 bg-brand-amber/5 p-3" data-browser-waiting={run.waiting.kind}>
+        <div className="rounded-lg bg-waiting-soft p-3" data-browser-waiting={run.waiting.kind}>
           <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{run.waiting.kind === 'approval' ? 'Needs your approval' : 'Question for you'}</p>
           <p className="mt-1 text-sm font-medium text-foreground">{run.waiting.text}</p>
           {run.waiting.kind === 'approval'

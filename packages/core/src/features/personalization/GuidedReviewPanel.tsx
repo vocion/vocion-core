@@ -3,6 +3,7 @@
 import type { useGuidedReview } from './GuidedReview';
 import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import { useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { RichEmailBody } from '@/features/review/RichEmailBody';
 import { GuidedCard, GuidedList } from './GuidedReview';
 
@@ -65,9 +66,9 @@ export type GuidedReviewPanelProps = {
   pendingComments?: number;
 };
 
-const btn = 'rounded-lg px-2.5 py-1 text-xs font-semibold transition';
-const primary = `${btn} bg-brand-amber text-white hover:bg-brand-amber-deep disabled:bg-muted disabled:text-muted-foreground/60`;
-const quiet = `${btn} border border-border text-foreground/80 hover:bg-muted`;
+// Design sweep, 2026-10-23: the shared buttons, ink primary and hairline outline.
+const primary = buttonVariants({ size: 'sm' });
+const quiet = buttonVariants({ variant: 'outline', size: 'sm' });
 
 export function GuidedReviewPanel({ run, guided, pendingComments = 0 }: GuidedReviewPanelProps) {
   const [declining, setDeclining] = useState(false);

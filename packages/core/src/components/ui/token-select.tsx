@@ -172,7 +172,7 @@ export function TokenSelect({
     <div ref={wrap} className="relative w-full max-w-lg">
       <div
         className={`flex flex-wrap items-center gap-1.5 rounded-md border bg-background px-2 py-1.5 transition ${
-          open ? 'border-brand-amber' : 'border-border'
+          open ? 'border-foreground/40' : 'border-border'
         }`}
       >
         {selected.map((value) => {
@@ -180,7 +180,7 @@ export function TokenSelect({
           return (
             <span
               key={value}
-              className="inline-flex items-center gap-1 rounded-full bg-brand-amber-tint py-0.5 pr-1 pl-2 text-xs font-medium text-brand-amber-deep"
+              className="inline-flex items-center gap-1 rounded-full bg-surface-soft py-0.5 pr-1 pl-2 text-xs font-medium text-foreground"
             >
               {opt?.label ?? value}
               {opt?.count !== undefined && <span className="font-mono text-[10px] opacity-70">{opt.count}</span>}
@@ -188,7 +188,7 @@ export function TokenSelect({
                 type="button"
                 onClick={() => toggle(value)}
                 aria-label={`Remove ${opt?.label ?? value}`}
-                className="rounded-full p-0.5 transition hover:bg-brand-amber/20"
+                className="rounded-full p-0.5 transition hover:bg-surface-hover"
               >
                 <X className="size-3" aria-hidden />
               </button>
@@ -246,7 +246,7 @@ export function TokenSelect({
           role="listbox"
           aria-multiselectable
           aria-label={label}
-          className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-md border border-border bg-background py-1 shadow-lg"
+          className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-xl border border-border bg-popover py-1 shadow-(--shadow-pop)"
         >
           {emptyLabel && query.trim() === '' && (
             <li>
@@ -256,7 +256,7 @@ export function TokenSelect({
                   onChange([]);
                   setQuery('');
                 }}
-                className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition hover:bg-muted ${
+                className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition hover:bg-surface-hover ${
                   selected.length === 0 ? 'font-semibold' : ''
                 }`}
               >
@@ -299,10 +299,10 @@ export function TokenSelect({
                   onMouseEnter={() => setActive(i)}
                   onClick={() => toggle(opt.value)}
                   className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition ${
-                    i === activeIndex ? 'bg-muted' : ''
+                    i === activeIndex ? 'bg-surface-hover' : ''
                   }`}
                 >
-                  <Check className={`size-3.5 shrink-0 ${on ? 'text-brand-amber-deep' : 'invisible'}`} aria-hidden />
+                  <Check className={`size-3.5 shrink-0 ${on ? 'text-foreground' : 'invisible'}`} aria-hidden />
                   <span className="min-w-0 flex-1 truncate">{opt.label}</span>
                   {/* The slug, because it is what travels in the URL. */}
                   <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">{opt.value}</span>

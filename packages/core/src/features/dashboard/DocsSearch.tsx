@@ -2,6 +2,8 @@
 
 import { Search as SearchIcon, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { CLOSE_BUTTON } from '@/components/ui/buttonVariants';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Link } from '@/libs/I18nNavigation';
 
 /**
@@ -113,7 +115,7 @@ export function DocsSearch() {
     <button
       type="button"
       onClick={() => setOpen(true)}
-      className="inline-flex w-full items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-muted-foreground transition hover:border-primary"
+      className="inline-flex w-full items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-muted-foreground transition hover:bg-surface-hover"
       aria-label="Search docs"
     >
       <SearchIcon className="h-3.5 w-3.5" />
@@ -125,21 +127,12 @@ export function DocsSearch() {
   return (
     <>
       {trigger}
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[10vh]"
-        >
-          <button
-            type="button"
-            aria-label="Close search"
-            className="absolute inset-0 size-full cursor-default bg-black/40 backdrop-blur-sm"
-            onClick={() => setOpen(false)}
-          />
-          <div
-            role="dialog"
-            aria-label="Search the docs"
-            className="relative w-full max-w-2xl rounded-lg border border-border bg-background shadow-2xl"
-          >
+      {/* Design sweep, 2026-10-23: the shared Dialog (focus trap, Escape, scrim,
+          --shadow-pop) instead of a hand-made overlay with shadow-2xl. */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="top-[10vh] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-2xl" showCloseButton={false} aria-describedby={undefined}>
+          <DialogTitle className="sr-only">Search the docs</DialogTitle>
+          <div>
             <div className="flex items-center gap-3 border-b border-border px-4 py-3">
               <SearchIcon className="h-4 w-4 text-muted-foreground" />
               <input
@@ -155,7 +148,7 @@ export function DocsSearch() {
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="text-muted-foreground hover:text-foreground"
+                className={CLOSE_BUTTON}
                 aria-label="Close"
               >
                 <X className="h-4 w-4" />
@@ -193,7 +186,7 @@ export function DocsSearch() {
                       <Link
                         href={r.url}
                         onClick={() => setOpen(false)}
-                        className="block rounded-md px-3 py-2 text-sm hover:bg-muted"
+                        className="block rounded-md px-3 py-2 text-sm hover:bg-surface-hover"
                       >
                         <div className="font-medium text-foreground">{r.title}</div>
                         <div
@@ -207,8 +200,8 @@ export function DocsSearch() {
               )}
             </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

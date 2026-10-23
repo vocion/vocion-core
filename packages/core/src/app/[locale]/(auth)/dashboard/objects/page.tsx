@@ -69,7 +69,7 @@ export default async function ObjectsPage(props: {
                     <Link
                       key={t.id}
                       href={`/dashboard/objects/type/${t.slug}`}
-                      className="rounded-lg border border-border bg-background p-4 transition hover:border-primary/30"
+                      className="rounded-lg border border-border bg-background p-4 transition hover:bg-surface-hover"
                     >
                       <div className="mb-2 flex items-center gap-2">
                         <Database className="size-4 text-primary" />
@@ -111,7 +111,7 @@ export default async function ObjectsPage(props: {
                     <Link
                       key={obj.id}
                       href={`/dashboard/objects/${obj.id}`}
-                      className="flex items-center gap-3 rounded-lg border border-border bg-background p-3 transition hover:border-primary/30"
+                      className="flex items-center gap-3 rounded-lg border border-border bg-background p-3 transition hover:bg-surface-hover"
                     >
                       <Database className="size-4 shrink-0 text-primary" />
                       <div className="min-w-0 flex-1">

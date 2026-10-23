@@ -49,7 +49,7 @@ export function UserMessage({ content, attachments = [] }: UserMessageProps) {
                   </a>
                 )
               : (
-                  <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="inline-flex max-w-72 items-center gap-1.5 rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground/85 no-underline transition hover:border-brand-amber/40">
+                  <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="inline-flex max-w-72 items-center gap-1.5 rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground/85 no-underline transition hover:bg-surface-hover">
                     {a.contentType.startsWith('image/') ? <ImageIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden /> : <FileText className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
                     <span className="truncate">{a.title}</span>
                     <span className="shrink-0 text-muted-foreground">{formatBytes(a.bytes)}</span>
@@ -58,7 +58,7 @@ export function UserMessage({ content, attachments = [] }: UserMessageProps) {
           </div>
         )}
         {quote && (
-          <blockquote data-testid="message-quote" className="mb-1.5 border-l-2 border-brand-amber/60 pl-2.5 text-muted-foreground italic">
+          <blockquote data-testid="message-quote" className="mb-1.5 border-l-2 border-foreground/30 pl-2.5 text-muted-foreground italic">
             {quote}
           </blockquote>
         )}

@@ -731,16 +731,16 @@ function OptionRow({ option, selected, disabled, onSelect }: { option: AskOption
       disabled={disabled}
       onClick={onSelect}
       className={`flex min-h-14 w-full items-start gap-3 rounded-md border px-4 py-3 text-left transition disabled:cursor-default ${
-        selected ? 'border-primary bg-primary/5 ring-1 ring-primary/40' : primary ? 'border-primary/50 enabled:hover:bg-primary/5' : 'border-border enabled:hover:bg-muted/40'
+        selected ? 'border-foreground bg-surface-soft' : primary ? 'border-foreground/30 enabled:hover:bg-surface-hover' : 'border-border enabled:hover:bg-surface-hover'
       }`}
     >
-      <span className={`mt-1 size-4 shrink-0 rounded-full border ${selected ? 'border-primary bg-primary' : 'border-muted-foreground/50'}`} aria-hidden>
-        {selected && <Check className="size-4 text-primary-foreground" strokeWidth={3} />}
+      <span className={`mt-1 size-4 shrink-0 rounded-full border ${selected ? 'border-foreground bg-foreground' : 'border-muted-foreground/50'}`} aria-hidden>
+        {selected && <Check className="size-4 text-background" strokeWidth={3} />}
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
           {option.label}
-          {option.recommended && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Recommended</span>}
+          {option.recommended && <span className="rounded-full bg-surface-soft px-2 py-0.5 text-[10px] font-medium text-foreground">Recommended</span>}
         </span>
         {option.description && (
           // Choosing the row shows the whole description, so it needs no hover text.

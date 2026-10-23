@@ -159,7 +159,7 @@ export default async function AgentDetailPage(props: {
             {parent && (
               <Link
                 href={`/dashboard/agents/${parent.slug}`}
-                className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
               >
                 <CornerUpLeft className="size-3" />
                 Reports to

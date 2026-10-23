@@ -5,6 +5,7 @@ import { ChevronRight, GripVertical, Pin, PinOff } from 'lucide-react';
 
 import { useRef, useState } from 'react';
 import { PendingIcon } from '@/components/patterns/PendingIcon';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -202,7 +203,7 @@ export function PinnableNav(props: {
                         title={pinTitle(tab.url)}
                         aria-label={`${pinTitle(tab.url)}: ${tab.title}`}
                         onClick={() => props.onTogglePin(tab.url)}
-                        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity group-hover/tab:opacity-100 hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100 [&_svg]:size-3.5"
+                        className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100 [&_svg]:size-3.5' })}
                       >
                         {pinIcon(tab.url)}
                       </button>
@@ -241,7 +242,7 @@ export function PinnableNav(props: {
                           title={pinTitle(item.url)}
                           aria-label={`${pinTitle(item.url)}: ${item.title}`}
                           onClick={() => props.onTogglePin(item.url)}
-                          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity group-hover/more:opacity-100 hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100 [&_svg]:size-3.5"
+                          className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'opacity-0 group-hover/more:opacity-100 focus-visible:opacity-100 [&_svg]:size-3.5' })}
                         >
                           {pinIcon(item.url)}
                         </button>
@@ -290,7 +291,7 @@ export function PinnableNav(props: {
                             e.stopPropagation();
                             props.onTogglePin(item.url);
                           }}
-                          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity group-hover/more:opacity-100 hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100 [&_svg]:size-3.5"
+                          className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'opacity-0 group-hover/more:opacity-100 focus-visible:opacity-100 [&_svg]:size-3.5' })}
                         >
                           {pinIcon(item.url)}
                         </button>
