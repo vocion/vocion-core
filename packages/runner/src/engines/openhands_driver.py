@@ -109,7 +109,8 @@ def main():
     secrets = {k: os.environ.pop(k) for k in SECRET_ENV if k in os.environ}
 
     from pydantic import SecretStr
-    from openhands.sdk import LLM, Agent, AgentContext, Conversation, Tool
+    from openhands.sdk import LLM, Agent, AgentContext, Tool
+    from openhands.sdk.conversation.impl.local_conversation import LocalConversation
     from openhands.sdk.event import ActionEvent, AgentErrorEvent, MessageEvent, ObservationEvent
     from openhands.sdk.event.conversation_error import ConversationErrorEvent
     from openhands.sdk.event.llm_convertible.observation import UserRejectObservation
@@ -216,7 +217,7 @@ def main():
             state['subtype'] = 'error_max_budget_usd' if 'budget' in (ev.code + ev.detail).lower() else 'error_during_execution'
 
     os.makedirs(args.persist_dir, exist_ok=True)
-    conv = Conversation(
+    conv = LocalConversation(
         agent=agent,
         workspace=args.workdir,
         persistence_dir=args.persist_dir,
@@ -269,5 +270,16 @@ def main():
     return 0
 
 
+def safe_main():
+    """main(), and a result line even when it fails before the conversation starts."""
+    try:
+        return main()
+    except Exception as e:  # noqa: BLE001 - the runner needs a result line whatever happened
+        out({'type': 'result', 'subtype': 'error_during_execution', 'is_error': True,
+             'result': f'openhands driver failed: {type(e).__name__}: {e}'[:2000], 'num_turns': 0,
+             'total_cost_usd': 0, 'usage': usage_dict(None), 'modelUsage': {}, 'engine': 'openhands'})
+        return 1
+
+
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(safe_main())

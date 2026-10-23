@@ -2,13 +2,16 @@
 // the ones runner.mjs built before the engine seam, unchanged: stream-json out, the run's budget,
 // the guard hooks and denials in claude-settings.json, the standing rules appended to the system
 // prompt, and a session a repair pass can resume.
+import fs from 'node:fs';
 import path from 'node:path';
 
 export const id = 'claude-cli';
 
-/** What the image must carry for this engine: the claude binary. */
-export function available(cfg) {
-  return { ok: Boolean(cfg.claudeBin), why: cfg.claudeBin ? '' : 'CLAUDE_BIN is empty' };
+/** What the image must carry for this engine: the claude binary (the internal target has it, open does not). */
+export function available(cfg, env = process.env) {
+  const bin = cfg.claudeBin || '';
+  const found = bin.includes('/') ? fs.existsSync(bin) : String(env.PATH || '').split(path.delimiter).some(d => d && fs.existsSync(path.join(d, bin)));
+  return { ok: Boolean(bin) && found, why: found ? '' : `no ${bin || 'claude'} binary on PATH: this image does not carry the claude-cli engine (build the Dockerfile's default target)` };
 }
 
 /**

@@ -1,10 +1,16 @@
-# The Vocion runner: one headless Claude Code engineering task per container.
+# The Vocion runner: one headless engineering task per container.
 # Build (context is packages/runner, so the contract schema ships with the runner):
 #   docker build --platform linux/arm64 -f packages/runner/Dockerfile -t vocion-runner packages/runner
 # Published from vocion-core CI, tagged by the commit it was built from. See docs/guides/runner.md.
-FROM public.ecr.aws/docker/library/node:22-bookworm-slim
+#
+# Two targets (src/engines/):
+#   internal (the default, the last stage): the claude-cli engine, headless Claude Code. What CI
+#            builds and publishes, unchanged.
+#   open     the openhands engine: the OpenHands Software Agent SDK (MIT) in /opt/openhands, and no
+#            Claude Code. The image a client installation pulls.
+#              docker build --target open -t vocion-runner-open packages/runner
+FROM public.ecr.aws/docker/library/node:22-bookworm-slim AS base
 
-ARG CLAUDE_CODE_VERSION=latest
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
@@ -19,8 +25,6 @@ RUN apt-get update \
  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
-
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cache clean --force
 
 # Playwright and chromium, for the QA evidence pass. The library lives in /opt/vocion-runner so
 # `import('playwright')` from src/qa.mjs resolves without a NODE_PATH trick; the browser lives in
@@ -43,6 +47,7 @@ RUN useradd --create-home --uid 10001 --shell /bin/bash runner \
 # Every module, by glob: a hand list once missed one and every image built from it died on start
 # with ERR_MODULE_NOT_FOUND (2026-09-28). src/image.test.mjs holds this to what the sources import.
 COPY --chown=runner:runner src/*.mjs /opt/vocion-runner/src/
+COPY --chown=runner:runner src/engines/ /opt/vocion-runner/src/engines/
 COPY --chown=runner:runner hooks/ /opt/vocion-runner/hooks/
 COPY --chown=runner:runner contract/schema.json /opt/vocion-runner/contract/schema.json
 COPY --chown=runner:runner entrypoint.sh claude-settings.json /opt/vocion-runner/
@@ -65,3 +70,28 @@ LABEL org.opencontainers.image.source="https://github.com/vocion/vocion-core" \
       org.opencontainers.image.description="The Vocion runner: one headless engineering task per container."
 
 ENTRYPOINT ["/opt/vocion-runner/entrypoint.sh"]
+
+# ---------- open: the openhands engine, no Claude Code ----------
+FROM base AS open
+USER root
+# Python 3.13 (the SDK needs 3.12+; bookworm has 3.11) and tmux, which the terminal tool drives.
+# uv is pinned and copied from its release image; the environment is the pinned list, --no-deps.
+COPY --from=ghcr.io/astral-sh/uv:0.13.1 /uv /usr/local/bin/uv
+COPY openhands-requirements.txt /tmp/openhands-requirements.txt
+RUN apt-get update && apt-get install -y --no-install-recommends tmux && rm -rf /var/lib/apt/lists/* \
+ && UV_PYTHON_INSTALL_DIR=/opt/python uv python install 3.13 \
+ && UV_PYTHON_INSTALL_DIR=/opt/python uv venv --python 3.13 /opt/openhands \
+ && uv pip install --python /opt/openhands/bin/python --no-deps --no-cache -r /tmp/openhands-requirements.txt \
+ && rm -f /tmp/openhands-requirements.txt /usr/local/bin/uv \
+ && chmod -R a+rX /opt/python /opt/openhands
+USER runner
+ENV OPENHANDS_HOME=/opt/openhands \
+    OPENHANDS_SUPPRESS_BANNER=1
+LABEL org.opencontainers.image.description="The Vocion runner, open engines (OpenHands): one headless engineering task per container."
+
+# ---------- internal (default): the claude-cli engine ----------
+FROM base AS internal
+USER root
+ARG CLAUDE_CODE_VERSION=latest
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cache clean --force
+USER runner
