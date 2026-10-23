@@ -2,6 +2,8 @@ import { Buffer } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const findReplyThread = vi.fn();
+const voiceRulesFor = vi.fn();
+vi.mock('@/libs/writing/loadVoiceRules', () => ({ voiceRulesFor: (...args: unknown[]) => voiceRulesFor(...args) }));
 vi.mock('@/services/mail/replyThread', () => ({ findReplyThread: (...args: unknown[]) => findReplyThread(...args) }));
 
 const resolveAttachments = vi.fn();
@@ -49,6 +51,7 @@ beforeEach(() => {
   findReplyThread.mockReset().mockResolvedValue(null);
   resolveAttachments.mockReset().mockResolvedValue([]);
   describeAttachments.mockReset().mockResolvedValue([]);
+  voiceRulesFor.mockReset().mockResolvedValue({ never: [{ id: 'colon', pattern: /:[ \t]+[a-z]/, reason: 'A colon in prose.' }], maxWordsPerSend: 5 });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -61,7 +64,7 @@ describe('gmailSendAction', () => {
     const out = await gmailSendAction.execute({ orgId: 'o', credentials: { token: 'x' } }, parse({ to: 'a@b.com', subject: 'Hi', body: 'hello' }));
 
     expect(out).toMatchObject({ mode: 'sent', messageId: 'msg1', to: 'a@b.com', link: 'https://mail.google.com/mail/#all/t1' });
-    expect(String((f.mock.calls[0] as unknown as [string])[0])).toContain('/messages/send');
+    expect(String(f.mock.calls.at(-1)![0])).toContain('/messages/send');
   });
 
   it('creates a draft when draft:true (never sends), with a link to it', async () => {
@@ -71,8 +74,8 @@ describe('gmailSendAction', () => {
     const out = await gmailSendAction.execute({ orgId: 'o', credentials: { token: 'x', email: 'rowan@northwind.example' } }, parse({ to: 'a@b.com', body: 'hi', draft: true }));
 
     expect(out).toMatchObject({ mode: 'draft', draftId: 'draft1', link: 'https://mail.google.com/mail/u/rowan%40northwind.example/#drafts?compose=m1' });
-    expect(String((f.mock.calls[0] as unknown as [string])[0])).toContain('/drafts');
-    expect(f.mock.calls.some(c => String(c[0]).includes('/send'))).toBe(false);
+    expect(String(f.mock.calls.at(-1)![0])).toContain('/drafts');
+    expect(f.mock.calls.some(c => String(c[0]).includes('/messages/send'))).toBe(false);
   });
 
   it('threads a reply under the thread\'s last message: threadId, In-Reply-To and References', async () => {
@@ -96,8 +99,40 @@ describe('gmailSendAction', () => {
     expect(raw).toContain('In-Reply-To: <a2@kestrel.example>');
     expect(raw).toContain('References: <a1@kestrel.example> <a2@kestrel.example>');
     // The signature rides under the body, once.
-    expect(raw).toMatch(/Monday works\.\r?\n\r?\nRowan Pike\nNorthwind$/);
+    expect(raw).toMatch(/Monday works\.\r?\n\r?\nRowan Pike\nNorthwind\r\n--vocion-alt/);
     expect(out).toMatchObject({ mode: 'draft', threaded: true, threadId: 't-42' });
+  });
+
+  it('writes HTML beside a text copy, with the sender\'s own Gmail signature under both', async () => {
+    const sig = '<div><p>Thanks,</p><p>Rowan</p><img src="https://cdn.northwind.example/rowan.png"></div>';
+    const f = vi.fn(async (url: string, _init?: RequestInit) => (url.endsWith('/settings/sendAs')
+      ? res({ sendAs: [{ sendAsEmail: 'alias@northwind.example', signature: '<p>alias</p>' }, { sendAsEmail: 'rowan@northwind.example', isDefault: true, signature: sig }] })
+      : res({ id: 'd1', message: { id: 'm1' } })));
+    vi.stubGlobal('fetch', f);
+
+    await gmailSendAction.execute({ orgId: 'o', credentials: { token: 'x', email: 'Rowan@Northwind.example' } }, parse({ to: 'dana@kestrel.example', subject: 'Next steps', body: 'Hi Dana,\n\nHere is what I heard.\n\n- One\n- Two', draft: true }));
+
+    const raw = sentRaw(f.mock.calls.find(c => String(c[0]).endsWith('/drafts'))!);
+
+    expect(raw).toContain('Content-Type: multipart/alternative');
+    expect(raw.indexOf('Content-Type: text/plain')).toBeLessThan(raw.indexOf('Content-Type: text/html'));
+    expect(raw).toContain('<p>Hi Dana,</p>');
+    expect(raw).toContain('<ul><li>One</li><li>Two</li></ul>');
+    expect(raw).toContain(`<div dir="ltr" class="gmail_signature">${sig}</div>`);
+    expect(raw).not.toContain('<p>alias</p>');
+    expect(raw).toMatch(/Two\r?\n\r?\n--\r?\nThanks,/);
+  });
+
+  it('goes without a signature when Gmail has none or does not answer', async () => {
+    const f = vi.fn(async (url: string, _init?: RequestInit) => (url.endsWith('/settings/sendAs') ? res({}, false, 403) : res({ id: 'd1', message: { id: 'm1' } })));
+    vi.stubGlobal('fetch', f);
+
+    await gmailSendAction.execute({ orgId: 'o', credentials: { token: 'x' } }, parse({ to: 'dana@kestrel.example', body: 'Hi Dana', draft: true }));
+
+    const raw = sentRaw(f.mock.calls.find(c => String(c[0]).endsWith('/drafts'))!);
+
+    expect(raw).toContain('<div dir="ltr"><p>Hi Dana</p></div>');
+    expect(raw).not.toContain('gmail_signature');
   });
 
   it('a reply proposed without a thread id still threads, by its recipient and Re: subject', async () => {
@@ -197,7 +232,7 @@ describe('gmailSendAction', () => {
 
     expect(resolveAttachments).toHaveBeenCalledWith('o', [{ artifactId: 5166 }], { kind: 'human', id: 'usr-1' });
 
-    const raw = sentRaw(f.mock.calls[0]!);
+    const raw = sentRaw(f.mock.calls.find(c => String(c[0]).includes('/messages/send'))!);
 
     expect(raw).toMatch(/Content-Type: multipart\/mixed; boundary="([^"]+)"/);
 
@@ -242,6 +277,22 @@ describe('gmailSendAction', () => {
     expect(named).toBe(a);
     // A different recipient is a different queue item.
     expect(gmailSendAction.dedupKeyFor!(parse({ to: 'other@b.com', subject: 'Hi', body: 'x' }))).not.toBe(a);
+  });
+});
+
+describe('voice at the door', () => {
+  const draft = { to: 'dana@kestrel.example', subject: 'Next steps', body: 'Hi Dana,\n\nWhat I heard: more capacity, fewer hours, and a plan for the quarter.', draft: true };
+
+  it('refuses an agent\'s draft that breaks the workspace voice, naming the phrase', async () => {
+    const out = await gmailSendAction.precheck!({ orgId: 'o', proposedBy: 'agent:revenue-lead' }, parse(draft));
+
+    expect(out).toMatch(/NOTHING WAS SAVED/);
+    expect(out).toContain('A colon in prose.');
+  });
+
+  it('never holds a person\'s own words, and leaves length to the writer', async () => {
+    await expect(gmailSendAction.precheck!({ orgId: 'o', proposedBy: 'usr-1' }, parse(draft))).resolves.toBeUndefined();
+    await expect(gmailSendAction.precheck!({ orgId: 'o', proposedBy: 'agent:revenue-lead' }, parse({ ...draft, body: 'Hi Dana,\n\nHere is what I heard on the call, and the three things we agreed to do next week.' }))).resolves.toBeUndefined();
   });
 });
 
