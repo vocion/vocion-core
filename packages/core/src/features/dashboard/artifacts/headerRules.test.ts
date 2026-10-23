@@ -83,11 +83,28 @@ describe('actionsFor', () => {
     expect(actionsFor('page', { ...DOC, closable: true })).not.toContain('close');
   });
 
-  it('keeps PDF and Open for a document, on every surface that has them', () => {
-    expect(actionsFor('pane', { ...DOC, hasPdf: true })).toEqual(expect.arrayContaining(['pdf', 'open']));
-    expect(actionsFor('page', { ...DOC, hasPdf: true })).toEqual(expect.arrayContaining(['pdf', 'open']));
-    // No PDF was printed for this version: the verb is omitted, not disabled.
-    expect(actionsFor('page', { ...DOC, hasPdf: false })).not.toContain('pdf');
+  it('offers Download, Upload and Open for a document on the pane and the page, and the printed PDF on /open', () => {
+    expect(actionsFor('pane', { ...DOC, hasPdf: true })).toEqual(expect.arrayContaining(['download', 'upload', 'open']));
+    expect(actionsFor('page', { ...DOC, hasPdf: false })).toEqual(expect.arrayContaining(['download', 'upload', 'open']));
+    // Download goes through the export route, so it never waits on a printed PDF.
+    expect(actionsFor('page', { ...DOC, hasPdf: true })).not.toContain('pdf');
+    expect(actionsFor('open', { ...DOC, hasPdf: false })).not.toContain('pdf');
+  });
+
+  it('gives a deck Present, Download and Upload, and no hand-edit verb', () => {
+    const actions = actionsFor('pane', { kind: 'deck', editable: true });
+
+    expect(actions).toEqual(expect.arrayContaining(['present', 'download', 'upload']));
+    expect(actions).not.toContain('edit');
+    expect(actions).not.toContain('open');
+  });
+
+  it('lets an older version be downloaded, never presented from or uploaded onto', () => {
+    const actions = actionsFor('page', { kind: 'deck', historical: true });
+
+    expect(actions).toContain('download');
+    expect(actions).not.toContain('present');
+    expect(actions).not.toContain('upload');
   });
 
   it('gives a non-document neither PDF nor the full-screen document wrapper', () => {

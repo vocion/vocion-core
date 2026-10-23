@@ -53,6 +53,10 @@ import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
 import { ArtifactCard } from './ArtifactCard';
 import { ArtifactHeader } from './ArtifactHeader';
+import { DeliverablePane } from './deliverable/DeliverablePane';
+import { isDeliverableKind } from './deliverable/pages';
+import { exportFormats } from './deliverable/transfer';
+import { useDeliverableTransfer } from './deliverable/useDeliverableTransfer';
 import { actionableFindings, DocumentFindings } from './DocumentFindings';
 import { actionsFor, readStoredTab, resolveTab, tabsFor, writeStoredTab } from './headerRules';
 import { authorLabel, relativeTime } from './kinds';
@@ -73,9 +77,11 @@ const SOURCE: ReadonlySet<string> = new Set(['mission', 'playbook']);
  * is full-bleed: a markdown artifact would otherwise run a line the width of a
  * monitor, and a document's sheet renders 1:1 at 850px and gains nothing past
  * it. A table or a chart takes whatever width it is given — more columns on
- * screen is the whole point of the extra pixels.
+ * screen is the whole point of the extra pixels. A deck or a document is the
+ * deliverable pane (page thumbnails beside the page, scaled to fit), so it
+ * takes the width too.
  */
-const PROSE: ReadonlySet<string> = new Set(['markdown', 'document', 'mission', 'playbook']);
+const PROSE: ReadonlySet<string> = new Set(['markdown', 'mission', 'playbook']);
 /** `DOCUMENT_FRAME_WIDTH` (850px) plus this body's own padding. */
 const PROSE_MAX_WIDTH = 'max-w-[882px]';
 
@@ -130,6 +136,10 @@ export function ArtifactPane(props: ArtifactPaneProps) {
   const [viewing, setViewing] = useState<ArtifactVersionPayload | null>(null);
   const [exported, setExported] = useState<Awaited<ReturnType<typeof client.artifacts.exportPage>> | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  // The deliverable pane (deck, document): present mode, and the page an upload asks to show.
+  const [presenting, setPresenting] = useState(false);
+  const [selectPage, setSelectPage] = useState<{ key: string; nonce: number } | null>(null);
+  const deliverableKind = isDeliverableKind(artifact.kind) && !artifact.pending ? artifact.kind : null;
   const folderRef = useRef<HTMLInputElement>(null);
 
   // Focus the field the person just opened. `autoFocus` is banned (it steals
@@ -218,6 +228,16 @@ export function ArtifactPane(props: ArtifactPaneProps) {
     }
   }, [artifact.id, loadVersions, props]);
 
+  const transfer = useDeliverableTransfer({
+    artifactId: artifact.id,
+    kind: deliverableKind,
+    title: artifact.title,
+    version: artifact.version,
+    onUpdated: props.onUpdated,
+    onVersionsChanged: () => void loadVersions(),
+    onSelect: key => setSelectPage(prev => ({ key, nonce: (prev?.nonce ?? 0) + 1 })),
+  });
+
   const viewVersion = useCallback(async (version: number) => {
     if (version === artifact.version) {
       setViewing(null);
@@ -301,7 +321,8 @@ export function ArtifactPane(props: ArtifactPaneProps) {
   const htmlOpen = tab === 'html' && draft !== null && artifact.kind === 'document';
   // A document on its Document tab fills the pane and scrolls itself; anything
   // else scrolls the body. Exactly one scroller either way.
-  const fills = artifact.kind === 'document' && tab === 'document' && !artifact.pending;
+  const fills = (artifact.kind === 'deck' || (artifact.kind === 'document' && tab === 'document')) && !artifact.pending;
+  const showDeliverable = deliverableKind !== null && (deliverableKind === 'deck' || tab === 'document');
 
   const actions = useMemo(() => actionsFor(surface, {
     kind: artifact.kind,
@@ -357,6 +378,14 @@ export function ArtifactPane(props: ArtifactPaneProps) {
         csvHref={tableExportHref(artifact.id, 'csv')}
         pdfPages={verification?.pdfPages ?? null}
         openHref={artifact.kind === 'document' ? `/dashboard/artifacts/${artifact.id}/open` : null}
+        {...(deliverableKind
+          ? {
+              onPresent: () => setPresenting(true),
+              downloadFormats: exportFormats(deliverableKind),
+              onDownload: transfer.download,
+              onUpload: transfer.upload,
+            }
+          : {})}
         {...(props.onClose ? { onClose: props.onClose } : {})}
         folder={(
           <span className="inline-flex items-center gap-1">
@@ -426,6 +455,9 @@ export function ArtifactPane(props: ArtifactPaneProps) {
         </div>
       )}
 
+      {transfer.banner}
+      {transfer.input}
+
       {historical && (
         <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5 text-xs">
           <span className="text-muted-foreground">Read-only — this is an older version.</span>
@@ -454,67 +486,84 @@ export function ArtifactPane(props: ArtifactPaneProps) {
                   <div className="h-3 w-5/6 rounded bg-muted" />
                 </div>
               )
-            : tab === 'findings'
-              ? <DocumentFindings verification={verification} redTeam={redTeam} />
-              : htmlOpen
-                ? (
-                    <MarkdownArtifactEditor
-                      value={String((draft as { html?: string }).html ?? '')}
-                      onChange={html => setDraft({ ...draft, html })}
-                      onSave={() => void save()}
-                      onCancel={() => {
-                        setDraft(null);
-                        props.onEndEdit?.();
-                        chooseTab('document');
-                      }}
-                      disabled={saving}
-                    />
-                  )
-                : draft !== null && artifact.kind === 'markdown'
+            : showDeliverable && deliverableKind && !htmlOpen && tab !== 'findings'
+              ? (
+                  <DeliverablePane
+                    artifactId={artifact.id}
+                    kind={deliverableKind}
+                    title={shown.title}
+                    spec={shown.spec}
+                    version={artifact.version}
+                    readOnly={historical}
+                    record={{ type: 'artifact', id: String(artifact.id), label: artifact.title, href: `/dashboard/artifacts/${artifact.id}` }}
+                    onUpdated={props.onUpdated}
+                    onVersionsChanged={() => void loadVersions()}
+                    select={selectPage}
+                    presenting={presenting && !historical}
+                    onPresentingChange={setPresenting}
+                  />
+                )
+              : tab === 'findings'
+                ? <DocumentFindings verification={verification} redTeam={redTeam} />
+                : htmlOpen
                   ? (
                       <MarkdownArtifactEditor
-                        value={String((draft as Partial<MarkdownSpec>).md ?? '')}
-                        onChange={md => setDraft({ ...draft, md })}
+                        value={String((draft as { html?: string }).html ?? '')}
+                        onChange={html => setDraft({ ...draft, html })}
                         onSave={() => void save()}
                         onCancel={() => {
                           setDraft(null);
                           props.onEndEdit?.();
+                          chooseTab('document');
                         }}
                         disabled={saving}
                       />
                     )
-                  : draft !== null && isSource
+                  : draft !== null && artifact.kind === 'markdown'
                     ? (
-                      // The FILE, as text — the same plain editor markdown gets.
-                      // `yaml` for a mission, `md` for a SKILL.md; the save
-                      // writes it to the workspace and applies (Artifacts.update).
                         <MarkdownArtifactEditor
-                          value={String(artifact.kind === 'mission' ? (draft as { yaml?: string }).yaml ?? '' : (draft as { md?: string }).md ?? '')}
-                          onChange={text => setDraft(artifact.kind === 'mission' ? { ...draft, yaml: text } : { ...draft, md: text })}
+                          value={String((draft as Partial<MarkdownSpec>).md ?? '')}
+                          onChange={md => setDraft({ ...draft, md })}
                           onSave={() => void save()}
                           onCancel={() => {
                             setDraft(null);
                             props.onEndEdit?.();
                           }}
                           disabled={saving}
-                          label={artifact.kind === 'mission' ? 'Mission file (YAML)' : 'SKILL.md'}
-                          hint="⌘S saves a new version and applies the workspace · Esc discards"
                         />
                       )
-                    : draft !== null && artifact.kind === 'table'
+                    : draft !== null && isSource
                       ? (
-                          <TableArtifactEditor
-                            draft={draft as unknown as DataTableSpec}
-                            onChange={next => setDraft(next as unknown as Record<string, unknown>)}
+                    // The FILE, as text — the same plain editor markdown gets.
+                    // `yaml` for a mission, `md` for a SKILL.md; the save
+                    // writes it to the workspace and applies (Artifacts.update).
+                          <MarkdownArtifactEditor
+                            value={String(artifact.kind === 'mission' ? (draft as { yaml?: string }).yaml ?? '' : (draft as { md?: string }).md ?? '')}
+                            onChange={text => setDraft(artifact.kind === 'mission' ? { ...draft, yaml: text } : { ...draft, md: text })}
                             onSave={() => void save()}
                             onCancel={() => {
                               setDraft(null);
                               props.onEndEdit?.();
                             }}
                             disabled={saving}
+                            label={artifact.kind === 'mission' ? 'Mission file (YAML)' : 'SKILL.md'}
+                            hint="⌘S saves a new version and applies the workspace · Esc discards"
                           />
                         )
-                      : <ArtifactCard artifact={shown} surface="artifact" className={fills ? 'flex min-h-0 flex-1 flex-col' : undefined} />}
+                      : draft !== null && artifact.kind === 'table'
+                        ? (
+                            <TableArtifactEditor
+                              draft={draft as unknown as DataTableSpec}
+                              onChange={next => setDraft(next as unknown as Record<string, unknown>)}
+                              onSave={() => void save()}
+                              onCancel={() => {
+                                setDraft(null);
+                                props.onEndEdit?.();
+                              }}
+                              disabled={saving}
+                            />
+                          )
+                        : <ArtifactCard artifact={shown} surface="artifact" className={fills ? 'flex min-h-0 flex-1 flex-col' : undefined} />}
         </div>
       </div>
 
@@ -523,7 +572,7 @@ export function ArtifactPane(props: ArtifactPaneProps) {
           instruction pre-typed (the same two verbs the document frame shows).
           Both dispatch the existing openAgentSurface event with the passage
           quoted and this artifact as the record — the composer is untouched. */}
-      {artifact.kind !== 'document' && (
+      {!isDeliverableKind(artifact.kind) && (
         <AskAboutThis
           variant="none"
           selectionRoot="[data-artifact-body]"

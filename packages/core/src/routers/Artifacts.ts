@@ -12,6 +12,8 @@ import type { DeckInput } from '@/services/decks/DeckEngine';
 import { os } from '@orpc/server';
 import { z } from 'zod';
 import { exportArtifactAsPage } from '@/libs/artifacts/exportPage';
+import { DeckEditError, deckOpSchema } from '@/libs/decks/edit';
+import { DocumentEditError, documentOpSchema } from '@/libs/documents/edit';
 import { artifactSharePath, signArtifactShare } from '@/libs/share/artifactShareToken';
 import { SHARE_AUDIENCES } from '@/libs/share/audience';
 import { SOURCE_ARTIFACT_KINDS, sourceContentOf, sourceKindOf } from '@/libs/workspace/source';
@@ -104,10 +106,20 @@ export const update = os
     contentMarkdown: z.string().max(200_000).optional(),
     changeSummary: z.string().max(160).optional(),
     ifVersion: z.number().int().positive().optional(),
+    /**
+     * A deliverable's edit as operations — `edit_deck`'s ops for a deck,
+     * `edit_document`'s for a document — applied atomically as one version
+     * by the same engine call the agent's tool makes (`docs/decks.md`, "The
+     * pane"). Validated against the artifact's kind below.
+     */
+    ops: z.array(z.record(z.string(), z.unknown())).min(1).max(40).optional(),
   }))
   .handler(async ({ input }) => {
     const auth = await guardAuth();
     try {
+      if (input.ops) {
+        return await applyOpsAsPerson(auth, input.id, input.ops, input.changeSummary ?? 'Edited by hand', input.ifVersion);
+      }
       // A record's body (backlog 035): the ROW is the source of truth, so the
       // save is a record write and the version comes out of it.
       if (input.spec || input.contentMarkdown !== undefined || input.title) {
@@ -207,6 +219,49 @@ export const update = os
       return rethrow(err);
     }
   });
+
+/**
+ * A person's operations on a deck or a document: the agent's door
+ * (`reviseDeck` / `reviseDocument` with ops), the person as author.
+ * @param auth - The signed-in person.
+ * @param id - The artifact.
+ * @param rawOps - Ops as sent; parsed against the artifact's kind.
+ * @param changeSummary - The version's one line.
+ * @param ifVersion - The version the person was looking at.
+ */
+async function applyOpsAsPerson(auth: Awaited<ReturnType<typeof guardAuth>>, id: number, rawOps: unknown[], changeSummary: string, ifVersion?: number) {
+  const existing = await getArtifact({ orgId: auth.orgId, id });
+  if (!existing) {
+    throw ApiError.notFound({ id });
+  }
+  const author = { kind: 'human' as const, id: auth.userId ?? null };
+  try {
+    if (existing.kind === 'deck') {
+      const ops = z.array(deckOpSchema).safeParse(rawOps);
+      if (!ops.success) {
+        throw ApiError.badRequest(`not a deck edit: ${ops.error.issues[0]?.message ?? 'invalid ops'}`);
+      }
+      const { artifact, version } = await reviseDeck({ orgId: auth.orgId, id, ops: ops.data, author, changeSummary, ...(ifVersion ? { ifVersion } : {}) });
+      void track(auth, 'artifact.edited', { resource: ['artifact', artifact.id], meta: { kind: artifact.kind, action: 'edited', version: version.version } });
+      return { artifact: toPayload(artifact), version: toVersionPayload(version), collapsed: false };
+    }
+    if (existing.kind === 'document') {
+      const ops = z.array(documentOpSchema).safeParse(rawOps);
+      if (!ops.success) {
+        throw ApiError.badRequest(`not a document edit: ${ops.error.issues[0]?.message ?? 'invalid ops'}`);
+      }
+      const { artifact, version } = await reviseDocument({ orgId: auth.orgId, id, ops: ops.data, author, changeSummary, ...(ifVersion ? { ifVersion } : {}) });
+      void track(auth, 'artifact.edited', { resource: ['artifact', artifact.id], meta: { kind: artifact.kind, action: 'edited', version: version.version } });
+      return { artifact: toPayload(artifact), version: toVersionPayload(version), collapsed: false };
+    }
+  } catch (err) {
+    if (err instanceof DeckEditError || err instanceof DocumentEditError) {
+      throw ApiError.badRequest(err.message);
+    }
+    throw err;
+  }
+  throw ApiError.badRequest(`a ${existing.kind} takes no edit operations`);
+}
 
 /**
  * What the share picker shows: the audience, its owner, and the public path when there is one.

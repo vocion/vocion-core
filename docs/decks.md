@@ -260,12 +260,49 @@ sentence for a person.
 
 ## The pane
 
-One deliverable pane for both kinds: page thumbnails, the selected slide or
-sheet large, its notes, the version menu, the last receipt, and **Download**
-(PDF, PPTX or DOCX) and **Upload a new version**. Text is edited in place on
-the page; each commit is an `edit_deck` (or `edit_document`) operation and a
-version with a one-line summary. Decks also have **Present**: full screen,
-arrow keys, notes in a second window.
+One deliverable pane for both kinds (`features/dashboard/artifacts/deliverable/`),
+the body of the artifact pane for a deck and for a document's Document tab:
+page thumbnails (the verify's screenshots, or a live render when there is none
+or the page changed since), the selected slide or sheet large and live, its
+notes (decks), what the last receipt found on that page (advice, never a
+blocker), and the existing version menu. The header carries **Present**
+(decks), **Download** (PDF, PPTX or DOCX) and **Upload a new version**
+(`actionsFor`).
+
+- **A page** is the engine's own page HTML for that one slide (`buildDeckPage`
+  with one id) or that one sheet (the document with the others left out), in a
+  sandboxed iframe (`allow-scripts`, no `allow-same-origin`) scaled to fit. A
+  deck's images reach the frame as data URIs the pane fetched as the person,
+  since an opaque-origin frame sends no session cookie.
+- **Edit in place.** A small bridge in the frame (`deliverable/bridge.ts`)
+  stamps each element under the page root with its index BEFORE the element
+  runtime runs, and makes leaf text elements (text only, outside notes, SVG and
+  Vocion's elements) editable: click or Enter/F2, Enter or leaving commits,
+  Escape puts the words back. It posts `{path, before, after}`; the pane parses
+  the stored page, checks the element still reads `before`, replaces its text
+  nodes only (`textEdit.ts`) and writes the page back.
+- **Every commit is one ops batch** through `artifacts.update({ id, ops,
+  changeSummary, ifVersion })` — `edit_deck`'s ops for a deck
+  (`replace_slide`, `set_notes`, `move_slide`, `insert_slide`, `remove_slide`),
+  `edit_document`'s for a document (`replace_sheet`, `move_sheet`,
+  `insert_sheet`, `remove_sheet`) — applied by `reviseDeck` / `reviseDocument`
+  as the person: one version, a one-line summary ("Edited text on slide 4").
+  The pane applies the same ops locally so the change shows at once; a refused
+  write (a conflict, a bad op) says why and shows the artifact as it stands.
+  **Undo** is the toast's action: a restore of the version before, the same
+  verb the version menu offers.
+- **Reorder** by dragging a thumbnail, or Alt+↑/↓ on it; **Add slide**
+  duplicates the selected page as a starting point; **Delete** removes it
+  (undo as above). No slide library in core.
+- **Present** (decks): full screen, arrows/space/Page Up/Down, Home/End,
+  Escape; "Open notes" writes a second window that shows the current slide's
+  notes and the next slide, kept in step over `BroadcastChannel`
+  `vocion-present:<id>` (`presenterNotes.ts`); it can move the deck too.
+- **Download** fetches the export route and saves the file; `X-Vocion-Advice`
+  is one line in a toast. **Upload** posts the file with the version on screen
+  as `baseVersion`, says the report in plain words ("12 kept, 2 text edited, 1
+  added") and selects the first changed page; a 409 shows the reason and what
+  changed in Vocion, with **Reload and retry**.
 
 ## Where things are (for the pane and the adapters)
 
