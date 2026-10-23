@@ -5,13 +5,11 @@ import type { AppNav } from '@/features/navigation/apps';
 import { X } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
-import { appMissingHere, workspaceLanding } from '@/features/navigation/apps';
-import { usePathname, useRouter } from '@/libs/I18nNavigation';
+import { appMissingHere } from '@/features/navigation/apps';
+import { usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
 import { client } from '@/libs/Orpc';
-import { useWorkspaceSlug } from '@/libs/workspaceSlug';
-import { placeIn } from './workspaceMemory';
-import { crossAccountSlug, WORKSPACE_HOME, workspaceSwitchHref } from './workspaceSwitch';
+import { crossAccountSlug, workspaceSwitchHref } from './workspaceSwitch';
 
 /** An app this workspace lacks, with what it owns (`appsElsewhere`). */
 export type ElsewhereApp = Pick<AppNav, 'id' | 'name' | 'core' | 'owns'>;
@@ -19,9 +17,13 @@ export type ElsewhereApp = Pick<AppNav, 'id' | 'name' | 'core' | 'owns'>;
 /**
  * A deep link into an app this workspace does not have — a bookmark, a link
  * someone shared — is never a dead end (workspace first, founder 2026-10-23).
- * The page moves to this workspace's home (where the person left it, else its
- * home app, `workspaceLanding`) and one line says the app is not here and
- * which workspaces have it, each a link to the app there.
+ * The page stays where it is, and one line above it says the app is not
+ * here and which workspaces have it, each a link to the app there.
+ *
+ * It never navigates. The first version moved the person to this workspace's
+ * home from an effect, after the page had rendered and while they were using
+ * it; on 2026-10-23 that yanked the bulk actions page away mid-interaction
+ * and failed main's queue E2E on every commit from #1389 on.
  * @param props - The workspace's apps and the ones it lacks.
  * @param props.apps - This workspace's apps (`splitNavByApp(...).apps`).
  * @param props.elsewhere - The apps it lacks, each with the pages it owns.
@@ -29,10 +31,8 @@ export type ElsewhereApp = Pick<AppNav, 'id' | 'name' | 'core' | 'owns'>;
 export function AppNotHereNotice(props: { apps: readonly AppNav[]; elsewhere: readonly ElsewhereApp[] }) {
   const t = useTranslations('DashboardLayout');
   const pathname = usePathname();
-  const router = useRouter();
-  const slug = useWorkspaceSlug();
   const locale = useLocale();
-  const [notice, setNotice] = useState<{ app: ElsewhereApp; home: string; where: Array<{ name: string; href: string }> } | null>(null);
+  const [notice, setNotice] = useState<{ app: ElsewhereApp; where: Array<{ name: string; href: string }> } | null>(null);
   const missing = appMissingHere(pathname, props.apps, props.elsewhere);
 
   useEffect(() => {
@@ -40,13 +40,6 @@ export function AppNotHereNotice(props: { apps: readonly AppNav[]; elsewhere: re
       return;
     }
     const app = props.elsewhere.find(a => a.id === missing)!;
-    const core = props.apps.find(a => a.core);
-    const home = workspaceLanding({
-      targetApps: props.apps.map(a => ({ id: a.id, core: a.core, entry: a.href })),
-      place: placeIn(globalThis.localStorage, slug),
-      coreEntry: core?.href ?? WORKSPACE_HOME,
-    }).path;
-    router.replace(home);
     let cancelled = false;
     // Which workspaces have it, read only when a link needs it.
     Promise.all([client.projects.list(), client.apps.forUser()])
@@ -59,12 +52,12 @@ export function AppNotHereNotice(props: { apps: readonly AppNav[]; elsewhere: re
           href: workspaceSwitchHref({ slug: p.slug, pathname: entry, locale, defaultLocale: routing.defaultLocale, accountSlug: crossAccountSlug(p, r.account?.id, accounts) }),
         }));
         if (!cancelled) {
-          setNotice({ app, home, where });
+          setNotice({ app, where });
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setNotice({ app, home, where: [] });
+          setNotice({ app, where: [] });
         }
       });
     return () => {
@@ -72,8 +65,8 @@ export function AppNotHereNotice(props: { apps: readonly AppNav[]; elsewhere: re
     };
   }, [missing]);
 
-  // The notice is for the page it moved the person to; moving on clears it.
-  if (notice && !missing && pathname !== notice.home) {
+  // The notice is for a page of the missing app; moving out of it clears it.
+  if (notice && missing !== notice.app.id) {
     setNotice(null);
   }
   if (!notice) {
