@@ -176,6 +176,24 @@ describe('traceEmitter — delegation + nested specialist work', () => {
 
     expect(del[0]?.label).toBe('Delegating to GTM ROI Analyst');
   });
+
+  it('names a registered teammate by its configured name, never its slug turned into words', () => {
+    const em = new TraceEmitter({ leadName: 'Revenue Director', agentNames: { 'outreach-gtm-lead': 'Outreach GTM Lead' } });
+    const del = em.handle({
+      event: 'on_tool_start',
+      name: 'task',
+      metadata: { checkpoint_ns: 'tools:tm1' },
+      data: { input: { input: JSON.stringify({ subagent_type: 'outreach-gtm-lead', description: 'How is outreach going this week?' }) } },
+    });
+
+    expect(del[0]?.label).toBe('Delegating to Outreach GTM Lead');
+
+    const done = em.handle({ event: 'on_tool_end', name: 'task', metadata: { checkpoint_ns: 'tools:tm1' }, data: { output: { lg_name: 'Command', update: { messages: [] } } } });
+
+    expect(done[0]?.label).toBe('Outreach GTM Lead finished');
+    // Unknown to the roster: the slug in words, as before.
+    expect(new TraceEmitter({ leadName: 'Lead' }).handle({ event: 'on_tool_start', name: 'task', metadata: { checkpoint_ns: 'tools:tm2' }, data: { input: { input: JSON.stringify({ subagent_type: 'outreach-gtm-lead', description: 'x' }) } } })[0]?.label).toBe('Delegating to Outreach Gtm Lead');
+  });
 });
 
 /**

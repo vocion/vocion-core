@@ -18,6 +18,17 @@ On OpenAI the fast and strongest models are `gpt-4o-mini` and `gpt-4o`; on Bedro
 2. Otherwise the agent's `harness.turnEffort`, or the workspace's `defaults.turnEffort`.
 3. Otherwise **Auto**: a small model reads the request and picks the level. Ranking, risk analysis across many items, research and plans go to Deep; a lookup goes to Quick.
 
+Auto also reports typed facts about the request, and code applies the rules on them (`effort.ts`); the person's words are never matched:
+
+| Fact | Rule |
+|---|---|
+| `drafts`: it writes or revises something a person will send | Never Quick |
+| `systems`: how many systems it needs checked | 2 or more is never Quick |
+| `changes`: how many records it changes or decides | 2 or more is never Quick |
+| `teams`: how many teams' work the answer brings together | 2 or more runs **Deep** when the agent is a lead with teammates (`synthesisLevel`) |
+
+The last one is for the workspace lead's status questions ("how's my GTM work this week?"): the lead weighs its teammates' answers into one picture, which is Deep's job. Its line reads **Deep · synthesizing 3 teams**. The teammates it consults inside the turn are not raised. An agent with no teammates, a one-team question, or a person's own choice on the gauge is left as it was.
+
 **Dig deeper** on an answer asks the same question again one level up. A Standard answer on the agent's own model re-runs on the strongest one.
 
 ## What the answer says

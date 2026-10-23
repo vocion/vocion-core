@@ -754,8 +754,22 @@ async function runAgentDeepInScope(opts: {
   // the way it always has, with no envelope and no ceilings it did not ask for.
   const effortApplies = !!opts.userId && !opts.missionRunId && !opts.missionSlug;
   const personEffort = personEffortChoice(opts.modelPrefs);
+  // A lead weighing two or more teams' answers runs Deep (`synthesisLevel`);
+  // whether this agent leads anyone comes from the blueprint the turn compiles from.
+  const leadsTeammates = async () => {
+    try {
+      const { teammatesOf } = await import('./agents/harness');
+      return Object.keys(await teammatesOf(opts.orgId, opts.agentSlug)).length > 0;
+    } catch {
+      return false;
+    }
+  };
+  const readRequest = (previous?: string) => Promise.all([
+    effortMod.inferEffort({ orgId: opts.orgId, message: opts.message, ...(previous ? { previous } : {}) }),
+    leadsTeammates(),
+  ]).then(([read, leads]) => effortMod.synthesisLevel(read, { leadsTeammates: leads }));
   const autoEffort = effortApplies && personEffort === 'auto'
-    ? effortMod.inferEffort({ orgId: opts.orgId, message: opts.message, previous: [...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'assistant')?.content })
+    ? readRequest([...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'assistant')?.content)
     : null;
   // Phase 7 — pre-flight budget check. Refuse the run if the agent
   // is over its hard cap; otherwise proceed.
@@ -841,7 +855,7 @@ async function runAgentDeepInScope(opts: {
     ? await effortMod.decideEffort({
         person: personEffort,
         agent: harness?.turnEffort,
-        auto: () => autoEffort ?? effortMod.inferEffort({ orgId: opts.orgId, message: opts.message }),
+        auto: () => autoEffort ?? readRequest(),
       })
     : null;
   const envelope = effortDecision ? effortMod.envelopeFor(effortDecision.level, harness?.turnCeilings) : null;
@@ -1042,6 +1056,8 @@ async function runAgentDeepInScope(opts: {
   // tool outputs the post-run sanitizer needs.
   const tracer = new TraceEmitter({
     leadName: compiled.agentRow.name ?? compiled.agentRow.slug ?? 'Assistant',
+    // "Founder GTM Lead finished", from the teammate's own name, not its slug.
+    agentNames: compiled.teammateNames,
     // The REST sources this agent holds, so a step names the system it asked.
     labelHints: {
       restSources: (compiled.ctx.restSources ?? []).map(s => ({ slug: s.slug, prefix: toolPrefixFor(s.slug, s.config), name: s.name })),

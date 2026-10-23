@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { personEffortChoice } from '@/services/AgentService';
-import { autoFloor, CONSULT_TOOL, createEffortMiddleware, decideEffort, EffortCeilings, effortNote, envelopeFor, inferEffort, nextLevel, parseEffort } from './effort';
+import { autoFloor, CONSULT_TOOL, createEffortMiddleware, decideEffort, EffortCeilings, effortNote, envelopeFor, inferEffort, nextLevel, parseEffort, synthesisLevel } from './effort';
 
 describe('choosing the level', () => {
   const auto = async () => ({ level: 'deep' as const, reason: 'research across months' });
@@ -55,6 +55,28 @@ describe('the Auto floor', () => {
     expect(parseEffort('{"level":"quick","reason":"approve one","drafts":false,"systems":1,"changes":1}')).toEqual({ level: 'quick', reason: 'approve one' });
     expect(parseEffort('{"level":"deep","reason":"audit","drafts":false,"systems":1,"changes":40}')).toEqual({ level: 'deep', reason: 'audit' });
     expect(autoFloor({ drafts: false, systems: 1, changes: 0 })).toBeNull();
+  });
+});
+
+describe('a lead synthesising teams', () => {
+  it('reads the typed team count from the answer', () => {
+    expect(parseEffort('{"level":"standard","reason":"status across teams","drafts":false,"systems":3,"changes":0,"teams":3}')).toEqual({ level: 'standard', reason: 'status across teams', teams: 3 });
+    expect(parseEffort('{"level":"quick","reason":"calendar"}')).toEqual({ level: 'quick', reason: 'calendar' });
+  });
+
+  it('runs Deep when a lead brings two or more teams\' work together, and says so', () => {
+    const read = parseEffort('{"level":"standard","reason":"weekly status","drafts":false,"systems":3,"changes":0,"teams":3}')!;
+
+    expect(synthesisLevel(read, { leadsTeammates: true })).toEqual({ level: 'deep', reason: 'synthesizing 3 teams', teams: 3 });
+  });
+
+  it('leaves an agent with no teammates, a one-team question and a Deep read alone', () => {
+    const across = { level: 'standard' as const, reason: 'weekly status', teams: 2 };
+
+    expect(synthesisLevel(across, { leadsTeammates: false })).toEqual(across);
+    expect(synthesisLevel({ level: 'quick', reason: 'one deal', teams: 1 }, { leadsTeammates: true })).toEqual({ level: 'quick', reason: 'one deal', teams: 1 });
+    expect(synthesisLevel({ level: 'deep', reason: 'audit the pipeline', teams: 4 }, { leadsTeammates: true })).toEqual({ level: 'deep', reason: 'audit the pipeline', teams: 4 });
+    expect(synthesisLevel({ level: 'standard', reason: 'no count' }, { leadsTeammates: true })).toEqual({ level: 'standard', reason: 'no count' });
   });
 });
 

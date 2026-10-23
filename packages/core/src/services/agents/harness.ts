@@ -223,6 +223,8 @@ export type CompiledAgentGraph = {
    * `traceId`, for one) after the graph is compiled.
    */
   ctx: RuntimeContext;
+  /** The teammates it may consult, slug to name, for the steps that name them. */
+  teammateNames?: Record<string, string>;
 };
 
 /**
@@ -242,6 +244,12 @@ type AgentBlueprint = {
    * the requesting person's context, so they are attached per request.
    */
   subagentSpecs: Array<Omit<SubAgent, 'tools'>>;
+  /**
+   * The registered teammates it may consult, slug to name, so a step reads
+   * "Founder GTM Lead finished" rather than a slug turned into words, and
+   * Auto knows this agent is a lead (`effort.ts` `synthesisLevel`).
+   */
+  teammateNames?: Record<string, string>;
   /** This agent's chat model. Stateless per call, so one instance serves every request. */
   model: Awaited<ReturnType<typeof buildChatModelForOrg>>;
   /** The workspace's own zone (`project.time_zone`), the fallback when a turn names none. */
@@ -501,7 +509,8 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
     });
   }
 
-  return { agentRow: row, systemPrompt, subagentSpecs, defaultTimeZone, enabledPlugins, filingTypes, restSources, sourceKinds, workspaceKind };
+  const teammateNames = Object.fromEntries(roster.delegates.map(d => [d.slug, d.name]));
+  return { agentRow: row, systemPrompt, subagentSpecs, teammateNames, defaultTimeZone, enabledPlugins, filingTypes, restSources, sourceKinds, workspaceKind };
 }
 
 async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
@@ -722,7 +731,7 @@ export async function compileAgentForRequest(
     ...(blueprint.hasMounts ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
 
-  return { graph, agentRow: blueprint.agentRow, ctx };
+  return { graph, agentRow: blueprint.agentRow, ctx, teammateNames: blueprint.teammateNames ?? {} };
 }
 
 /**
@@ -754,6 +763,16 @@ async function tieredTools<T extends StructuredToolInterface>(blueprint: AgentBl
   // Anthropic runs the search itself; this entry only puts it in the request.
   const search = makeTool(async () => '', { name: TOOL_SEARCH.name, description: 'Server-side tool search.', schema: z.object({}), extras: { providerToolDefinition: TOOL_SEARCH } }) as unknown as T;
   return deferColdTools(tools, keep, search);
+}
+
+/**
+ * The teammates an agent may consult, slug to name; empty for an agent that
+ * leads nobody. Read from the cached blueprint the turn compiles from anyway.
+ * @param orgId - Tenant scope.
+ * @param agentSlug - The agent.
+ */
+export async function teammatesOf(orgId: string, agentSlug: string): Promise<Record<string, string>> {
+  return (await getBlueprint(orgId, agentSlug)).teammateNames ?? {};
 }
 
 /**
