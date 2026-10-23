@@ -1,6 +1,6 @@
 import { Database, Link2 } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import { ListPage, ListRow, ListRows, Subline } from '@/components/patterns';
+import { ListPage, ListRow, ListRows, Stat, StatRow, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -26,16 +26,18 @@ export default async function ObjectsPage(props: {
       title="Objects"
       description="The things your business tracks, like accounts and transcripts, with every document and run that mentions them."
     >
-      <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-5">
-        <Stat label="Types" value={objectTypes.length} />
-        <Stat label="Instances" value={objects.length} />
-        <Stat
-          label="Configured"
-          value={objectTypes.filter(t => !!t.classificationPrompt?.trim()).length}
-        />
-        <Stat label="Awaiting review" value={objects.filter(obj => obj.status === 'candidate').length} />
-        <Stat label="Rejected" value={objects.filter(obj => obj.status === 'rejected').length} />
-      </div>
+      {objectTypes.length > 0 && (
+        <StatRow className="mb-6 grid-cols-3">
+          <Stat label="Types" value={objectTypes.length} />
+          <Stat label="Instances" value={objects.length} />
+          <Stat
+            label="Configured"
+            value={objectTypes.filter(t => !!t.classificationPrompt?.trim()).length}
+          />
+          <Stat label="Awaiting review" value={objects.filter(obj => obj.status === 'candidate').length} />
+          <Stat label="Rejected" value={objects.filter(obj => obj.status === 'rejected').length} />
+        </StatRow>
+      )}
 
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Types</h2>
@@ -177,13 +179,4 @@ function labelForStatus(status: string): string {
     return 'awaiting review';
   }
   return status;
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-border p-3 text-center">
-      <div className="text-xl font-bold">{value}</div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-    </div>
-  );
 }

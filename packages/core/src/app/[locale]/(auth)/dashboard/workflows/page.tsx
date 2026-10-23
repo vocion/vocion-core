@@ -1,6 +1,6 @@
 import { Compass, GitBranch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import { ListPage, ListRow, ListRows, Subline } from '@/components/patterns';
+import { ListPage, ListRow, ListRows, Stat, StatRow, Subline } from '@/components/patterns';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
 import { TriggerBadge } from '@/features/dashboard/TriggerBadge';
@@ -26,11 +26,13 @@ export default async function WorkflowsPage(props: {
       title="Workflows"
       description="Repeatable work in set steps, with a person's approval where it matters."
     >
-      <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4">
-        <Stat label="Total" value={workflows.length} />
-        <Stat label="Active" value={active.length} />
-        <Stat label="Inactive" value={workflows.length - active.length} />
-      </div>
+      {workflows.length > 0 && (
+        <StatRow className="mb-6 grid-cols-3">
+          <Stat label="Total" value={workflows.length} />
+          <Stat label="Active" value={active.length} />
+          <Stat label="Inactive" value={workflows.length - active.length} />
+        </StatRow>
+      )}
 
       {workflows.length === 0
         ? (
@@ -88,14 +90,5 @@ export default async function WorkflowsPage(props: {
             </ListRows>
           )}
     </ListPage>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-border p-3 text-center">
-      <div className="text-xl font-bold">{value}</div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-    </div>
   );
 }
