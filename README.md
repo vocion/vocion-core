@@ -262,7 +262,7 @@ and licence is listed in
 
 ## Docs
 
-- [`docs/DESIGN-PRINCIPLES.md`](./docs/DESIGN-PRINCIPLES.md) — the Product Design Manifesto: the principles and the twelve-question test every product decision must pass
+- [`docs/DESIGN-PRINCIPLES.md`](./docs/DESIGN-PRINCIPLES.md) — the Product Design Manifesto: the principles and the five-question test every product decision must pass
 - [`docs/getting-started.md`](./docs/getting-started.md) — **start here**: zero to a working agent workforce, with an example of every entity type
 - [`AGENTS.md`](./AGENTS.md) — setup and conventions written for a coding agent working in this repo
 - [`llms.txt`](./llms.txt) — machine-readable index of this repo's public docs

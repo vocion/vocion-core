@@ -688,6 +688,10 @@ requirements/                       # Product specs and case studies
 - **New dashboard pages use `components/patterns`** (List / Detail / Ledger — see
   `docs/design/patterns.md`); don't hand-roll list/detail/ledger layouts. Hairlines not
   boxes, one primary action per screen, numbers right-aligned in a `Column`.
+- **The design system starts at `docs/design/README.md`**: colour, status, the spark, type,
+  shape, motion and the one component per job (`docs/design/components.md`). Tokens only: no
+  raw palette hues (`emerald-700`, `red-500/30`), no hex, no amber except brand, links, focus
+  and "waiting on a person". The spark (the AI colour) appears only while an agent works.
 - **Fixtures are fictional, and a test enforces it.** This repo is public. No
   real customer, prospect, contact, venue, email domain or live CRM/Zoom/Clerk
   id goes into a test, story, seed script, doc or screenshot — including in a

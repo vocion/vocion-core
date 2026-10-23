@@ -25,14 +25,13 @@ The bar these patterns are held to is `docs/DESIGN-PRINCIPLES.md`:
 
 - **#4 Simple beats flexible** — one obvious action over five; a useful default
   over a setting. Each pattern has one primary verb and few props.
-- **#11 Make the important things obvious** — what needs me, what changed, what
-  happens next. The decision never scrolls away; the state chip is always
-  visible; numbers line up.
-- **#12 Hide complexity, never hide truth** — the simplest reading first
+- **#8 Make the important things obvious, and beautiful is functional** — what
+  needs me, what changed, what happens next. The decision never scrolls away;
+  the state chip is always visible; numbers line up. Hairlines, not boxes.
+  Space, not chrome. A powerful platform should feel calm.
+- **#9 Hide complexity, never hide truth** — the simplest reading first
   (a title, a verdict, a score) with the evidence underneath (the rationale in a
   tooltip, the provenance in a mono footer, the transcript hash in a title).
-- **#16 Beautiful is functional** — hairlines, not boxes. Space, not chrome.
-  A powerful platform should feel calm.
 
 Storybook: `Patterns/List`, `Patterns/Detail`, `Patterns/Ledger`,
 `Patterns/Front doors`, `UI/Front-door primitives`, and the three reference
@@ -54,68 +53,10 @@ to a Detail page, it is a List.
 
 ## Tokens
 
-Patterns use the airy-shell tokens from `styles/global.css` only: `--rule`
-(hairlines), `--surface-hover` (the hover fill), `--surface-soft` (fields,
-soft chips), `--action` / `--action-foreground` (the one ink primary),
-`--ink-muted`; and the brand semantic set `--brand-pass` (green),
-`--brand-borderline` (amber), `--brand-fail` (red) for pass/amber/fail
-meanings. No hard-coded Tailwind colours.
-
-The neutrals are warm (from the marketing site, 2026-10): ink `#15131A`,
-secondary `#625D66` on a `#FCFAF6` background — 17.7:1 and 6.2:1 — with warm
-dark equivalents (`#F4F1EC` / `#A8A2AB` on `#121015`, 17:1 and 7.8:1).
-Front doors add six tints, `--tint-violet|sky|mint|peach|butter|rose`
-(`bg-tint-*`, names in `libs/tints.ts`), with dark variants; secondary ink on
-every tint is ≥ 5.3:1 in light and ≥ 5.4:1 in dark. Tints belong to front
-doors only — never to a row, a section or a record.
-
-**One surface.** The sidebar and the page are the same warm paper
-(`--background`, `#FEFCF9`), split by one hairline (`--sidebar-border`); in
-dark the sidebar is a step darker than the page (`#0D0B10` under `#121015`).
-Selection is one soft warm fill (`--sidebar-accent`) on the rail and the nav
-alike. Menus and popovers are one surface too: `rounded-xl`, one hairline,
-`--shadow-pop`, rows highlighted with `--surface-hover`, never the amber
-`--accent`.
-
-### Status, notices, counts and icon buttons
-
-**Status by meaning.** `pass`, `warn` and `fail` each have a text colour
-(`text-pass`), a soft fill (`bg-pass-soft`) and a dark value; `waiting`
-(`text-waiting`, `bg-waiting-soft`) is amber's one meaning outside the brand,
-something that waits on a person. Never a raw palette hue (`emerald-700`,
-`red-500/30`) for a state. `StatusPill` and `StatusBadge` are borderless soft
-fills.
-
-**`Notice`** (`components/ui/notice.tsx`) is the one inline message: a soft
-fill in its tone, an icon, the words and at most one action; `edge` for the
-full-width form at the top of a page. No hand-made red or amber boxes.
-
-**`CountBadge`** (`components/ui/count-badge.tsx`) is the one count beside a
-nav row, a workspace or the bell: `waiting` in amber or `quiet` in muted ink.
-
-**Icon buttons** are ghost rounded squares, never circles (the avatar is the
-only round thing in a bar): `BAR_ICON_BUTTON` in a bar, `size="icon-sm"` in
-a row or panel header, `CLOSE_BUTTON` for every close (panels, Dialog,
-Sheet). **Focus** is one recipe everywhere: `ring-2 ring-ring/50`.
-
-### The spark
-
-Vocion has one AI colour, the **spark**: Metacto amber into rose, violet and
-the mark's blue (`--spark-1…4`, `--spark`, `--spark-conic`). It means *an
-agent is at work*, and it appears only where that is true:
-
-- the **spark orb** (`components/ui/spark-orb.tsx`), the mark of a working
-  agent on the live line, turning and breathing; still, at rest, as the lead
-  on the empty chat;
-- the **thinking line** (`.work-shimmer`), a spark band sweeping muted text;
-- the **composer's edge** while a turn runs (`.composer-working`);
-- the **flash** on what a turn just changed (`[data-version-changed]`).
-
-Never a button, card, row, section, header or chip, and never on a surface
-when nothing is working. It stays Vocion's on a branded Org: the Org's colour
-is its logo, links and focus ring (`--org-accent*`). Reduced motion keeps the
-colour and drops the movement. Agents keep their own accents, drawn as lit
-orbs by `AgentDot`; only the spark says *working*.
+Colour, status, the spark, type, shape, elevation, icons and motion now live in
+[`foundations/`](./foundations/) (start at [`README.md`](./README.md)); the one
+component per job is in [`components.md`](./components.md). Patterns use those
+tokens and components only: no raw palette hues, no hex.
 
 ## List
 
@@ -175,9 +116,9 @@ consumers (Artifacts, Learnings) render through `patterns/ListRow` like
 everything else. Two lists should read as the same component with different
 data, not as two treatments.
 
-This is Manifesto **§4 (simple beats flexible)** — one row with a few props
-beats five bespoke row layouts — and **§19 (extend the core; keep specifics
-at the edge)**: a page that needs something the row does not do *extends the
+This is principle **#4 (simple beats flexible)** — one row with a few props
+beats five bespoke row layouts — and **#6 (one shape, used everywhere; extend
+the core, keep specifics at the edge)**: a page that needs something the row does not do *extends the
 row*, in `components/patterns`, where every other page gets it too. It does
 not fork one locally.
 
@@ -397,7 +338,7 @@ DetailPage ───────────────────────
   and the CRM record are under Evidence.
 - **The last tab is always Evidence**, and it is where everything the reduction
   pass took off the first screen went. Nothing is deleted; it is one click
-  away (§12).
+  away (#9).
 - **One primary, and it can be HELD.** Where the page cannot say what the
   primary would actually do — here, whether approving adds a sequence or
   replaces one — the bar states the reason and disables it rather than offering
@@ -726,7 +667,7 @@ Redaction happens **at the render boundary**, once, for every tool
 (`libs/chat/redact.ts#redactInternalIds`) — not in each thrower, where the next
 thrower forgets. The raw text is kept and travels in *Copy details*, which is
 what that control is for: the operator gets the id, the reader does not. This
-is §12 *hide complexity, never hide truth* read carefully — the truth is what
+is #9 *hide complexity, never hide truth* read carefully — the truth is what
 failed, not which row it failed on.
 
 **Where it came from.** The CEO's preview on a fresh database, 2026-09-16,
