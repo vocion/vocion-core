@@ -29,7 +29,7 @@ import { ArtifactChips } from './ArtifactChips';
 import { CardHistory } from './decisions/CardHistory';
 import { DoneReceipts } from './decisions/DoneReceipts';
 import { liveWorkIndex, segmentTurn } from './interleave';
-import { classifyDashboardLink, previewRefFor } from './links';
+import { classifyDashboardLink, isPlainClick, previewRefFor } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { ScratchFold } from './ScratchFold';
 import { SelfUpdateChips } from './SelfUpdateChips';
@@ -547,6 +547,30 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                             // navigates in place (§9); anything else stays an
                             // ordinary external link in a new tab.
                             const inApp = classifyDashboardLink(href, typeof window === 'undefined' ? undefined : window.location.origin);
+                            // A RECORD named in the prose (FU-504, ACT-97) reads as a
+                            // reference, not a web link: a dotted underline, a real
+                            // link to its page, and a plain click that opens it in the
+                            // preview pane beside the conversation. ⌘ / Ctrl / middle
+                            // click and Copy link stay the browser's (Chris, 2026-10-23).
+                            const record = inApp && inApp.kind === 'object' ? previewRefFor(inApp) : null;
+                            if (inApp && record) {
+                              return (
+                                <Link
+                                  href={inApp.href}
+                                  data-link-kind="record"
+                                  data-testid="inline-record-ref"
+                                  onClick={(e) => {
+                                    if (isPlainClick(e)) {
+                                      e.preventDefault();
+                                      openPreview(record, e.currentTarget);
+                                    }
+                                  }}
+                                  className="rounded-sm text-foreground underline decoration-muted-foreground/60 decoration-dotted decoration-[1.5px] underline-offset-[3px] transition-colors hover:decoration-foreground focus-visible:decoration-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                                >
+                                  {children}
+                                </Link>
+                              );
+                            }
                             if (inApp) {
                               const Icon = LINK_ICON[inApp.kind];
                               return (
@@ -557,7 +581,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                                   // the same rule as a list row (`usePreviewList`).
                                   onClick={(e) => {
                                     const peek = previewRefFor(inApp);
-                                    if (peek && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+                                    if (peek && isPlainClick(e)) {
                                       e.preventDefault();
                                       openPreview(peek, e.currentTarget);
                                     }

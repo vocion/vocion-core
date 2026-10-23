@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyDashboardLink, previewRefFor } from './links';
+import { classifyDashboardLink, isPlainClick, previewRefFor } from './links';
 
 describe('classifyDashboardLink', () => {
   it('recognises dashboard routes, with and without a locale prefix or origin', () => {
@@ -38,6 +38,31 @@ describe('classifyDashboardLink', () => {
 
     expect(link).toMatchObject({ kind: 'object', id: '214' });
     expect(previewRefFor(link!)).toEqual({ type: 'record_history', id: '214@5' });
+  });
+});
+
+describe('a record named in an answer', () => {
+  it('is read through the workspace prefix every record link carries, and keeps it to navigate', () => {
+    const link = classifyDashboardLink('/w/northwind/dashboard/objects/504');
+
+    expect(link).toEqual({ href: '/w/northwind/dashboard/objects/504', kind: 'object', id: '504' });
+    expect(classifyDashboardLink('https://agents.metacto.com/w/northwind/dashboard/agents/lead', 'https://agents.metacto.com')).toMatchObject({ kind: 'agent', id: 'lead' });
+  });
+
+  it('peeks in the pane, whatever its type and wherever its page is', () => {
+    expect(previewRefFor(classifyDashboardLink('/w/northwind/dashboard/objects/504')!)).toEqual({ type: 'object', id: '504' });
+    expect(previewRefFor(classifyDashboardLink('/w/northwind/dashboard/p/feature/214')!)).toEqual({ type: 'object', id: '214' });
+    expect(previewRefFor(classifyDashboardLink('/dashboard/objects/hubspot:deals:4021')!)).toEqual({ type: 'object', id: 'hubspot:deals:4021' });
+  });
+
+  it('takes over only a plain click; modifier and middle clicks stay the browser\'s', () => {
+    const plain = { button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false };
+
+    expect(isPlainClick(plain)).toBe(true);
+    expect(isPlainClick({ ...plain, metaKey: true })).toBe(false);
+    expect(isPlainClick({ ...plain, ctrlKey: true })).toBe(false);
+    expect(isPlainClick({ ...plain, shiftKey: true })).toBe(false);
+    expect(isPlainClick({ ...plain, button: 1 })).toBe(false);
   });
 });
 
