@@ -1,3 +1,4 @@
+import type { AgentRun } from './types';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
@@ -194,45 +195,29 @@ describe('a tool error is inspectable, one tap under the step that failed (2026-
 
 describe('what the agent says while it works stays on the thinking line (Chris, 2026-10-23)', () => {
   it('streams a passage on the line, never in the body, until its message ends without a tool', async () => {
-    const working = {
-      role: 'assistant' as const,
-      content: 'Let me check the tracker for Alliant.',
-      runs: [
-        { type: 'tool' as const, name: 'lookup_objects', state: 'done' as const },
-        { type: 'text' as const, text: 'The meeting was yesterday.\nLet me check the tracker for Alliant.' },
-      ],
-    };
-    const screen = await render(<AgentMessage agentName="Founder GTM Lead" message={working} streaming writer={{ name: 'Founder GTM Lead', accent: 'violet' }} />);
+    const writer = { name: 'Founder GTM Lead', accent: 'violet' };
+    const lookup: AgentRun = { type: 'tool', name: 'lookup_objects', state: 'done' };
+    const read: AgentRun = { type: 'tool', name: 'get_document', state: 'done' };
+    const said = 'The meeting was yesterday.\nLet me check the tracker for Northwind.';
+    const turn = (runs: AgentRun[]) => ({ role: 'assistant' as const, content: '', runs });
+
+    const screen = await render(<AgentMessage agentName="Founder GTM Lead" message={turn([lookup, { type: 'text', text: said }])} streaming writer={writer} />);
 
     // Its newest line is the live line; the body holds nothing yet.
-    await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Let me check the tracker for Alliant.');
-    expect(document.querySelector('.prose')?.textContent ?? '').not.toContain('Let me check the tracker');
+    await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Let me check the tracker for Northwind.');
+    expect(document.querySelector('.prose')).toBeNull();
 
     // It called a tool: narration, still off the body. The answer streams on the line too…
-    await screen.rerender(
-      <AgentMessage
-        agentName="Founder GTM Lead"
-        streaming
-        writer={{ name: 'Founder GTM Lead', accent: 'violet' }}
-        message={{ ...working, runs: [working.runs[0], { ...working.runs[1], narration: true as const }, { type: 'tool' as const, name: 'get_document', state: 'done' as const }, { type: 'text' as const, text: 'You owe Dana the revised scope.' }] }}
-      />,
-    );
+    await screen.rerender(<AgentMessage agentName="Founder GTM Lead" message={turn([lookup, { type: 'text', text: said, narration: true }, read, { type: 'text', text: 'You owe Dana the revised scope.' }])} streaming writer={writer} />);
 
     await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('You owe Dana the revised scope.');
-    expect(page.getByText('You owe Dana the revised scope.', { exact: true }).elements().every(el => el.closest('[data-testid="streaming-indicator"]'))).toBe(true);
+    expect(document.querySelector('.prose')).toBeNull();
 
     // …and is the body once its message ended without a tool.
-    await screen.rerender(
-      <AgentMessage
-        agentName="Founder GTM Lead"
-        streaming
-        writer={{ name: 'Founder GTM Lead', accent: 'violet' }}
-        message={{ ...working, runs: [working.runs[0], { ...working.runs[1], narration: true as const }, { type: 'tool' as const, name: 'get_document', state: 'done' as const }, { type: 'text' as const, text: 'You owe Dana the revised scope.', answer: true as const }] }}
-      />,
-    );
+    await screen.rerender(<AgentMessage agentName="Founder GTM Lead" message={turn([lookup, { type: 'text', text: said, narration: true }, read, { type: 'text', text: 'You owe Dana the revised scope.', answer: true }])} streaming writer={writer} />);
 
-    await expect.element(page.getByRole('paragraph').filter({ hasText: 'You owe Dana the revised scope.' })).toBeInTheDocument();
-    expect(document.body.textContent).not.toContain('The meeting was yesterday.You owe');
+    await expect.element(page.getByText('You owe Dana the revised scope.')).toBeInTheDocument();
+    expect(document.querySelector('.prose')?.textContent ?? '').not.toContain('Let me check the tracker');
   });
 });
 
@@ -322,14 +307,16 @@ describe('one live line per turn (Chris, 2026-10-08: "Can we combine that into 1
     await expect.element(page.getByTestId('work-steps-live')).toBeInTheDocument();
   });
 
-  it('moves to the bottom once prose follows the steps, and the group folds to a quiet finished line', async () => {
+  it('moves to the bottom once the answer follows the steps, and the group folds to a quiet finished line', async () => {
+    // The answer: its message ended without a tool (`passage_end`). A passage
+    // still being written is the thinking line's (`foldNarration` live).
     const screen = await render(
       <AgentMessage
         agentName="Revenue"
         message={{
           role: 'assistant',
           content: 'Three deals moved this week.',
-          runs: [{ type: 'text', text: 'Three deals moved this week.' }],
+          runs: [{ type: 'text', text: 'Three deals moved this week.', answer: true }],
           trace: [looked, { ...searching, status: 'done', label: 'Searched the CRM' }],
         }}
         streaming

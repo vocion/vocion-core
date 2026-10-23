@@ -156,7 +156,7 @@ describe('foldNarration — what the agent said while working stays with the wor
   });
 
   it('folds a marked passage whose tools drew no step (a plumbing read), so the answer does not open with it', () => {
-    // The Alliant turn of 2026-10-23: "…Let me get the full notes" stayed in
+    // A Founder GTM turn of 2026-10-23: "…Let me get the full notes" stayed in
     // the answer because the call after it drew no step, so nothing
     // separated it from the answer.
     const runs: AgentRun[] = [
