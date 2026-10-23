@@ -893,13 +893,19 @@ registerPreview('goal', {
     if (!Number.isSafeInteger(id)) {
       return null;
     }
-    const [{ getGoal, measureGoal }, { horizonLabel }] = await Promise.all([import('@/services/objectives/GoalService'), import('@/libs/objectives/goal')]);
+    const [{ getGoal, measureGoal, workspaceToday }, { horizonLabel, weekOf }] = await Promise.all([import('@/services/objectives/GoalService'), import('@/libs/objectives/goal')]);
     const goal = await getGoal(ctx.orgId, id);
     if (!goal || !ctx.userId || goal.ownerUserId !== ctx.userId) {
       return null;
     }
-    const { progress } = await measureGoal(goal, { persist: false });
-    const steps = goal.measure.kind === 'milestones' ? goal.measure.milestones.map(m => `- [${m.done ? 'x' : ' '}] ${m.label}`).join('\n') : '';
+    const today = await workspaceToday(goal.orgId);
+    const { progress } = await measureGoal(goal, { persist: false, today });
+    const week = goal.measure.kind === 'sprint' ? goal.measure.weeks.find(w => w.week === weekOf(today)) : undefined;
+    const steps = goal.measure.kind === 'milestones'
+      ? goal.measure.milestones.map(m => `- [${m.done ? 'x' : ' '}] ${m.label}`).join('\n')
+      : goal.measure.kind === 'sprint'
+        ? ['This week:', ...goal.measure.targets.map(t => `- ${t.label}: ${week?.values[t.key]?.value ?? '–'} of ${t.perWeek}`)].join('\n')
+        : '';
     return {
       ref,
       title: goal.title,

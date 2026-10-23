@@ -9,7 +9,8 @@
  *
  * Progress is never stored as the truth. A view measure is counted live from
  * the index each time it is read (`services/state/state.ts`); milestones
- * linked to work are read against that work. What the row keeps is the last
+ * linked to work are read against that work; a sprint is read off its own
+ * scorecard (the numbers logged each week). What the row keeps is the last
  * reading (`last_done` / `last_total`) and when it last moved
  * (`progress_at`), so a line can be said without measuring again and a goal
  * that has gone quiet can be noticed.
@@ -19,11 +20,11 @@
  * approval of the Decision the agent drafted.
  */
 
-import type { Goal, GoalActivity, GoalHorizon, GoalLink, GoalMeasure, GoalProgress, GoalStatus, LinkState, Milestone, NextStep } from '@/libs/objectives/goal';
+import type { Goal, GoalActivity, GoalHorizon, GoalLink, GoalMeasure, GoalProgress, GoalStatus, LinkState, Milestone, NextStep, SprintMeasure } from '@/libs/objectives/goal';
 import type { ObjectiveView } from '@/libs/objectives/objective';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { completeFromLinks, linkKey, measureProblem, milestoneProgress, setMilestone, viewProgress, withActivity } from '@/libs/objectives/goal';
+import { completeFromLinks, linkKey, localDay, measureProblem, milestoneProgress, setMilestone, setSprintNote, setSprintValue, sprintProgress, sprintTargetsFrom, sprintWeeks, targetOf, viewProgress, weekOf, withActivity } from '@/libs/objectives/goal';
 import { goalObjectiveView } from '@/libs/objectives/objective';
 import { artifactSchema, businessObjectSchema, conversationSchema, goalSchema, projectSchema, userSchema } from '@/models/Schema';
 
@@ -85,7 +86,7 @@ export type CreateGoal = {
  * @param input - The goal.
  */
 export async function createGoal(input: CreateGoal): Promise<Goal> {
-  const problem = measureProblem(input.measure);
+  const problem = measureProblem(input.measure, input.horizon);
   if (problem) {
     throw new GoalError(problem);
   }
@@ -231,6 +232,8 @@ export type GoalPatch = {
   nextSteps?: NextStep[];
   /** Replace the milestones (the agent's re-plan); done ones keep their state by key. */
   milestones?: Array<{ label: string; link?: GoalLink }>;
+  /** Re-plan a sprint's weekly targets; a kept label keeps its logged weeks. */
+  targets?: Array<{ label: string; perWeek: number; unit?: string }>;
 };
 
 /**
@@ -251,6 +254,10 @@ export async function updateGoal(orgId: string, id: number, actor: GoalActor, pa
     said.push(`Renamed to “${set.title}”`);
   }
   if (patch.horizon) {
+    const problem = measureProblem(goal.measure, patch.horizon);
+    if (problem) {
+      throw new GoalError(problem);
+    }
     set.horizon = patch.horizon;
     said.push('Horizon moved');
   }
@@ -265,9 +272,21 @@ export async function updateGoal(orgId: string, id: number, actor: GoalActor, pa
   if (patch.nextSteps) {
     set.nextSteps = patch.nextSteps.slice(0, 3);
   }
+  if (patch.targets) {
+    if (goal.measure.kind !== 'sprint') {
+      throw new GoalError('This goal is not a sprint; it has no weekly targets to re-plan.');
+    }
+    const measure: SprintMeasure = { ...goal.measure, targets: sprintTargetsFrom(patch.targets, goal.measure.targets) };
+    const problem = measureProblem(measure, set.horizon ?? goal.horizon);
+    if (problem) {
+      throw new GoalError(problem);
+    }
+    set.measure = measure;
+    said.push('Weekly targets re-planned');
+  }
   if (patch.milestones) {
     if (goal.measure.kind !== 'milestones') {
-      throw new GoalError('This goal is measured by a view; it has no milestones to re-plan.');
+      throw new GoalError(`This goal is measured by ${goal.measure.kind === 'sprint' ? 'a sprint' : 'a view'}; it has no milestones to re-plan.`);
     }
     const kept = new Map(goal.measure.milestones.map(m => [m.label.toLowerCase(), m]));
     const milestones: Milestone[] = patch.milestones.map((m, i) => {
@@ -343,7 +362,7 @@ export async function linkGoal(orgId: string, id: number, actor: GoalActor, chan
 export async function setGoalMilestone(orgId: string, id: number, actor: GoalActor, key: string, done: boolean, evidence?: string, now: Date = new Date()): Promise<Goal> {
   const goal = await ownGoal(orgId, id, actor);
   if (goal.measure.kind !== 'milestones') {
-    throw new GoalError('This goal is measured by a view: its progress is counted from the view, never ticked by hand.');
+    throw new GoalError(goal.measure.kind === 'sprint' ? 'This goal is a sprint: log its week on the scorecard instead.' : 'This goal is measured by a view: its progress is counted from the view, never ticked by hand.');
   }
   const out = setMilestone(goal.measure.milestones, key, done, who(actor), now, evidence);
   if (out.refused) {
@@ -361,6 +380,93 @@ export async function setGoalMilestone(orgId: string, id: number, actor: GoalAct
     ...(done ? { progressAt: now } : {}),
     activity: withActivity(goal.activity, { at: now.toISOString(), what: `${done ? 'Done' : 'Reopened'}: ${label}`, by: who(actor) }),
   }, now);
+}
+
+/**
+ * The workspace's calendar day, which a sprint's week is read in where no
+ * person's browser zone is in hand.
+ * @param orgId - The workspace.
+ * @param now - The clock.
+ */
+export async function workspaceToday(orgId: string, now: Date = new Date()): Promise<string> {
+  const [p] = await db.select({ timeZone: projectSchema.timeZone }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
+  return localDay(now, p?.timeZone ?? undefined);
+}
+
+/** One number to log on a sprint's scorecard: its target by key or label. */
+export type SprintEntry = { target: string; value: number | null; evidence?: string };
+
+/**
+ * Log a week on a sprint's scorecard: a number per target, and a note. The
+ * agent says what each number was counted from and never moves one the
+ * person wrote; the person's number holds. Each entry stands alone: one
+ * refused is said by name while the rest are logged.
+ * @param orgId - The workspace.
+ * @param id - The goal.
+ * @param actor - Who.
+ * @param input - The week.
+ * @param input.week - Any day of it (default: the person's today).
+ * @param input.entries - The numbers.
+ * @param input.note - A line on the week.
+ * @param input.today - The person's calendar day (`localDay`).
+ * @param now - The clock.
+ * @returns The goal, and the entries that were refused, with why.
+ */
+export async function logGoalSprintWeek(orgId: string, id: number, actor: GoalActor, input: { week?: string; entries: readonly SprintEntry[]; note?: string; today?: string }, now: Date = new Date()): Promise<{ goal: Goal; refused: string[] }> {
+  const goal = await ownGoal(orgId, id, actor);
+  if (goal.measure.kind !== 'sprint') {
+    throw new GoalError(`This goal is measured by ${goal.measure.kind === 'view' ? 'a view' : 'milestones'}, not a sprint; it has no scorecard.`);
+  }
+  const today = input.today ?? await workspaceToday(orgId, now);
+  const week = weekOf(input.week ?? today);
+  const weeks = sprintWeeks(goal.measure.starts, goal.horizon);
+  if (!weeks.includes(week)) {
+    throw new GoalError(`The week of ${week} is outside the sprint (${weeks[0]} to ${weeks.at(-1)}).`);
+  }
+  if (week > weekOf(today)) {
+    throw new GoalError(`The week of ${week} has not started; log a week once it has.`);
+  }
+  let measure: SprintMeasure = goal.measure;
+  const refused: string[] = [];
+  const logged: string[] = [];
+  for (const e of input.entries) {
+    const target = targetOf(measure.targets, e.target);
+    if (!target) {
+      refused.push(`No weekly target "${e.target}". Targets: ${measure.targets.map(t => `${t.key} ${t.label}`).join(', ')}.`);
+      continue;
+    }
+    const out = setSprintValue(measure, goal.horizon, week, target.key, e.value, who(actor), today, e.evidence);
+    if (out.refused) {
+      refused.push(out.refused);
+      continue;
+    }
+    if (out.changed) {
+      measure = out.measure;
+      logged.push(e.value === null ? `${target.label} cleared` : `${target.label} ${e.value}/${target.perWeek}`);
+    }
+  }
+  if (input.note !== undefined) {
+    const before = measure.weeks.find(w => w.week === week)?.note ?? '';
+    if (input.note.trim() !== before) {
+      measure = setSprintNote(measure, week, input.note);
+      logged.push('note');
+    }
+  }
+  if (logged.length === 0) {
+    if (refused.length > 0) {
+      throw new GoalError(refused.join(' '));
+    }
+    return { goal, refused };
+  }
+  const progress = sprintProgress(measure, goal.horizon, today);
+  const saved = await save(goal, {
+    measure,
+    lastDone: progress.done,
+    lastTotal: progress.total,
+    progressAt: now,
+    activity: withActivity(goal.activity, { at: now.toISOString(), what: `Week of ${week}: ${logged.join(', ')}`, by: who(actor) }),
+  }, now);
+  return { goal: saved, refused };
 }
 
 /** A link with what it is called now and where it opens. */
@@ -544,14 +650,17 @@ export type MeasuredGoal = { goal: Goal; progress: GoalProgress; viewName: strin
  * @param goal - The goal.
  * @param opts - Seams.
  * @param opts.now - The clock.
+ * @param opts.today - The person's calendar day, which a sprint's week is read in.
  * @param opts.persist - Write a move back (default true).
  */
-export async function measureGoal(goal: Goal, opts: { now?: Date; persist?: boolean } = {}): Promise<MeasuredGoal> {
+export async function measureGoal(goal: Goal, opts: { now?: Date; today?: string; persist?: boolean } = {}): Promise<MeasuredGoal> {
   const now = opts.now ?? new Date();
   let progress: GoalProgress;
   let viewName: string | null = null;
   const patch: Partial<Row> = {};
-  if (goal.measure.kind === 'view') {
+  if (goal.measure.kind === 'sprint') {
+    progress = sprintProgress(goal.measure, goal.horizon, opts.today ?? localDay(now));
+  } else if (goal.measure.kind === 'view') {
     const counts = await viewCounts(goal, goal.measure).catch((error: unknown) => ({ total: 0, done: 0, viewName: null, missing: error instanceof Error ? error.message : 'The view could not be read.' } as ViewCounts));
     viewName = counts.viewName;
     progress = counts.missing
@@ -603,8 +712,23 @@ export async function goalObjective(orgId: string, conversationId: number, objec
     return null;
   }
   const { progress } = await measureGoal(goal);
-  const milestones = goal.measure.kind === 'milestones' ? goal.measure.milestones.map(m => ({ key: m.key, label: m.label, done: m.done })) : [];
+  const milestones = goal.measure.kind === 'milestones'
+    ? goal.measure.milestones.map(m => ({ key: m.key, label: m.label, done: m.done }))
+    : goal.measure.kind === 'sprint'
+      ? sprintSteps(goal.measure)
+      : [];
   return goalObjectiveView(conversationId, objective, { title: goal.title, status: goal.status, milestones, progress });
+}
+
+/**
+ * A sprint as a conversation's strip draws it: this week's targets, each done
+ * once its number meets the target.
+ * @param m - The sprint.
+ * @param today - The day.
+ */
+function sprintSteps(m: SprintMeasure, today: string = localDay(new Date())): Array<{ key: string; label: string; done: boolean }> {
+  const week = m.weeks.find(w => w.week === weekOf(today));
+  return m.targets.map(t => ({ key: t.key, label: `${t.label} · ${week?.values[t.key]?.value ?? 0}/${t.perWeek}`, done: (week?.values[t.key]?.value ?? 0) >= t.perWeek }));
 }
 
 /**
@@ -630,7 +754,9 @@ export async function goalsTurnNote(input: { orgId: string; userId: string; pers
   }
   const { horizonLabel } = await import('@/libs/objectives/goal');
   const lines = rows.map((r) => {
-    const where = r.lastTotal !== null ? `${r.lastDone ?? 0} of ${r.lastTotal}` : r.measure.kind === 'milestones' ? `${r.measure.milestones.filter(m => m.done).length} of ${r.measure.milestones.length} milestones` : 'not measured yet';
+    const where = r.measure.kind === 'sprint'
+      ? sprintProgress(r.measure, r.horizon, localDay(new Date())).label
+      : r.lastTotal !== null ? `${r.lastDone ?? 0} of ${r.lastTotal}` : r.measure.kind === 'milestones' ? `${r.measure.milestones.filter(m => m.done).length} of ${r.measure.milestones.length} milestones` : 'not measured yet';
     return `- GOAL-${r.id} ${r.title} · ${where} · ${horizonLabel(r.horizon)}${input.personal ? ` · ${r.workspace}` : ''}`;
   });
   return [

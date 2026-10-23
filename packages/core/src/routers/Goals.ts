@@ -1,14 +1,15 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
 import { GOAL_LINK_KINDS, GOAL_STATUSES } from '@/libs/objectives/goal';
-import { GoalError, linkGoal, setGoalMilestone, updateGoal } from '@/services/objectives/GoalService';
+import { GoalError, linkGoal, logGoalSprintWeek, setGoalMilestone, updateGoal } from '@/services/objectives/GoalService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
 /**
  * The goal page's own moves (`app/.../dashboard/goals/[id]`): Pause, Done,
  * Drop and Resume; ticking a milestone by hand (which then wins over every
- * check); unlinking something. Each is the signed-in person's, on a goal they
+ * check); writing a number on a sprint's scorecard (which then holds);
+ * unlinking something. Each is the signed-in person's, on a goal they
  * own, in the workspace they are in (`services/objectives/GoalService.ts`).
  * Creating a goal is not here: it is a Decision (`goal.create`).
  */
@@ -45,6 +46,14 @@ export const setMilestoneRoute = os
   .handler(async ({ input }) => asPerson(async ({ orgId, userId }) => {
     const goal = await setGoalMilestone(orgId, input.goalId, { userId, by: 'person' }, input.key, input.done);
     return { id: goal.id, milestones: goal.measure.kind === 'milestones' ? goal.measure.milestones : [] };
+  }));
+
+/** goals.setSprintValue — the person's own number on the scorecard; it holds. Null clears it. */
+export const setSprintValueRoute = os
+  .input(goalInput.extend({ week: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), key: z.string().min(1).max(20), value: z.number().min(0).max(1_000_000).nullable() }))
+  .handler(async ({ input }) => asPerson(async ({ orgId, userId }) => {
+    const { goal } = await logGoalSprintWeek(orgId, input.goalId, { userId, by: 'person' }, { week: input.week, entries: [{ target: input.key, value: input.value }] });
+    return { id: goal.id, weeks: goal.measure.kind === 'sprint' ? goal.measure.weeks : [] };
   }));
 
 /** goals.unlink — take one linked item off the goal. */

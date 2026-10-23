@@ -36,11 +36,26 @@ export type GoalDetail = {
   workspace: string;
   weeklyReview: boolean;
   progress: { label: string; ratio: number | null; unmeasured?: string };
-  measure: { kind: 'view'; viewName: string; href: string | null } | { kind: 'milestones' };
+  measure: { kind: 'view'; viewName: string; href: string | null } | { kind: 'milestones' } | { kind: 'sprint' };
   milestones: Array<{ key: string; label: string; done: boolean; doneAt?: string; by: 'agent' | 'person' | null; evidence?: string; locked: boolean; link?: { title: string; href: string } | null }>;
+  /** A sprint's scorecard: the latest weeks up to this one, oldest first. */
+  scorecard: GoalScorecard | null;
   links: Array<{ kind: string; id: string; title: string; href: string }>;
   nextSteps: NextStep[];
   /** Newest first. */
   activity: Array<{ at: string; what: string; by: string }>;
   stalledDays: number | null;
+};
+
+/** One logged number, as a cell draws it. */
+export type ScorecardCell = { value: number | null; met: boolean | null; by: 'agent' | 'person' | null; evidence?: string };
+
+/** A sprint's scorecard: rows are weekly targets, columns are weeks. */
+export type GoalScorecard = {
+  /** "Week 3 of 13". */
+  week: number;
+  weeks: number;
+  /** Each column's Monday, oldest first, and how it reads ("Oct 26"). */
+  columns: Array<{ week: string; label: string; current: boolean; note?: string }>;
+  rows: Array<{ key: string; label: string; perWeek: number; unit?: string; cells: ScorecardCell[] }>;
 };

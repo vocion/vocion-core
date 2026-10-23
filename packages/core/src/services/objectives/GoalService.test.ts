@@ -3,7 +3,8 @@
  * approval; a view measure counted live from the view (never ticked), its
  * move noticed and dated; milestones completed by their linked work; every
  * read and write held to the home workspace and the owner; "Your goals" in
- * Personal across the person's workspaces, an Org that keeps its items out
+ * Personal across the person's workspaces, a sprint's week logged by the
+ * agent with evidence and held to the person's own number, an Org that keeps its items out
  * of Personal reaching it only as a count; and the conversation that set the
  * goal working on it. The index itself is the state module's business (and
  * tests): here a view is an input. Fixtures are fictional (Northwind Expo).
@@ -263,5 +264,58 @@ describe('the goal tools', () => {
 
     expect(await patsUpdate!.invoke({ goal: goal.id, status: 'dropped' })).toMatch(/someone else's goal/);
     expect((await db.select({ status: goalSchema.status }).from(goalSchema).where(and(eq(goalSchema.id, goal.id))))[0]!.status).toBe('active');
+  });
+});
+
+describe('a sprint', () => {
+  it('is set from the card, logged a week at a time by the agent with evidence, and the person\'s number holds', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-04T18:00:00Z'));
+    try {
+      const draft = { title: 'Larkfield partner sprint', horizon: '2027-01-23', weekly_review: true, measure: { kind: 'sprint', starts: '2026-10-26', targets: [{ label: 'Discovery calls', per_week: 3 }, { label: 'Partner touches', per_week: 5, unit: 'touches' }] } };
+      const card = await goalCreateAction.reviewCard!({ orgId: GTM } as never, goalCreateAction.inputSchema.parse(draft));
+
+      expect((card.content![0] as { body: string }).body).toContain('Weekly targets:\n1. Discovery calls · 3/wk\n2. Partner touches · 5/wk');
+
+      // The person raises a target on the card before approving.
+      const edited = goalCreateAction.applyContentEdits!(goalCreateAction.inputSchema.parse(draft), [{ id: 'goal', body: (card.content![0] as { body: string }).body.replace('Discovery calls · 3/wk', 'Discovery calls · 4/wk') }]);
+      const goal = await approved(edited);
+
+      expect(goal.measure).toMatchObject({ kind: 'sprint', starts: '2026-10-26', targets: [{ key: 't1', label: 'Discovery calls', perWeek: 4 }, { key: 't2', label: 'Partner touches', perWeek: 5, unit: 'touches' }], weeks: [] });
+
+      const [, update, , progress] = goalTools({ orgId: GTM, userId: DANA, agentSlug: 'lead', emit: () => {}, timeZone: 'America/Los_Angeles' });
+
+      // Last week, logged by the agent: one number per target, each with what it counted from.
+      const said = await progress!.invoke({ goal: goal.id, week: '2026-10-26', values: [{ target: 'Discovery calls', value: 4, evidence: '4 discovery meetings on the calendar' }, { target: 't2', value: 3, evidence: '3 partner threads with a reply' }], note: 'Two partners out at a conference.' });
+
+      expect(said).toMatch(/Week 2 of 13 · 1 of 2 weekly targets met/);
+      expect(said).toMatch(/t2 Partner touches · 5\/wk: 3 missed \| not logged/);
+
+      // The person corrects a number on the page; the agent cannot move it again.
+      await svc.logGoalSprintWeek(GTM, goal.id, { userId: DANA, by: 'person' }, { week: '2026-10-26', entries: [{ target: 't2', value: 5 }] });
+
+      expect(await progress!.invoke({ goal: goal.id, week: '2026-10-26', values: [{ target: 't2', value: 2, evidence: 'recount' }] })).toMatch(/^Not done: The person wrote Partner touches for the week of 2026-10-26 themselves \(5\)/);
+
+      // One entry refused never loses the rest.
+      const again = await progress!.invoke({ goal: goal.id, week: '2026-10-26', values: [{ target: 't1', value: 5, evidence: 'a fifth call booked late Friday' }, { target: 't2', value: 2, evidence: 'recount' }] });
+
+      expect(again).toMatch(/2 of 2 weekly targets met/);
+      expect(again).toMatch(/Not logged: The person wrote Partner touches/);
+      // A week that has not started is refused.
+      expect(await progress!.invoke({ goal: goal.id, week: '2026-11-09', values: [{ target: 't1', value: 1, evidence: 'calendar' }] })).toMatch(/has not started/);
+
+      // Re-planning keeps a kept target's logged weeks.
+      expect(await update!.invoke({ goal: goal.id, targets: [{ label: 'Partner touches', per_week: 5 }, { label: 'Proposals sent', per_week: 1 }] })).toMatch(/Updated GOAL-/);
+
+      const reread = (await svc.getGoal(GTM, goal.id))!;
+
+      expect(reread.measure.kind === 'sprint' && reread.measure.targets.map(t => t.key)).toEqual(['t2', 't3']);
+      expect((await svc.measureGoal(reread, { today: '2026-11-04' })).progress.label).toBe('Week 2 of 13 · 1 of 1 weekly targets met');
+      expect(reread.activity.map(a => a.what)).toContain('Week of 2026-10-26: Discovery calls 4/4, Partner touches 3/5, note');
+      // Milestones belong to milestone goals only.
+      await expect(svc.setGoalMilestone(GTM, goal.id, { userId: DANA, by: 'agent' }, 'm1', true, 'x')).rejects.toThrow(/scorecard/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

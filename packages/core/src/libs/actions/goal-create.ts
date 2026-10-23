@@ -1,7 +1,7 @@
 import type { Action, ReviewCard } from './types';
 import type { GoalLink, GoalMeasure } from '@/libs/objectives/goal';
 import { z } from 'zod';
-import { GOAL_LINK_KINDS, horizonLabel, MAX_MILESTONES, measureProblem, milestonesFrom, MIN_MILESTONES, parseHorizon } from '@/libs/objectives/goal';
+import { GOAL_LINK_KINDS, horizonLabel, MAX_MILESTONES, MAX_SPRINT_TARGETS, measureProblem, milestonesFrom, MIN_MILESTONES, MIN_SPRINT_TARGETS, parseHorizon, sprintTargetsFrom, sprintWeeks, targetLine } from '@/libs/objectives/goal';
 
 /**
  * goal.create — set one of the person's goals, as a Decision they approve.
@@ -9,7 +9,8 @@ import { GOAL_LINK_KINDS, horizonLabel, MAX_MILESTONES, measureProblem, mileston
  * "Make this a goal" in any chat, or the agent noticing an open-ended aim
  * ("I need to get back to everyone from the expo"), leads the agent to draft
  * the goal in the turn: a title, a horizon, a measure — a saved view that
- * fits, counted live, or 3–7 milestones it proposes — and the work to link.
+ * fits, counted live, 3–7 milestones it proposes, or a sprint of 2–10
+ * weekly targets from a start date to the horizon — and the work to link.
  * The draft is this card: the person approves it, edits it in place first,
  * or declines. A goal is never made silently; the card always shows, even
  * when the person asked for it (`goal_create` emits it directly rather than
@@ -37,6 +38,13 @@ const measure = z.discriminatedUnion('kind', [
     kind: z.literal('milestones'),
     milestones: z.array(z.object({ label: z.string().min(2).max(160), link: link.optional() })).min(MIN_MILESTONES).max(MAX_MILESTONES),
   }),
+  z.object({
+    kind: z.literal('sprint'),
+    /** The first day of the sprint (`2026-10-26`); it ends on the horizon. */
+    starts: z.string().min(10).max(10),
+    /** What a good week holds: "Discovery calls", 3 a week. */
+    targets: z.array(z.object({ label: z.string().min(2).max(80), per_week: z.number().int().min(1).max(10_000), unit: z.string().max(40).optional() })).min(MIN_SPRINT_TARGETS).max(MAX_SPRINT_TARGETS),
+  }),
 ]);
 
 const input = z.object({
@@ -59,6 +67,9 @@ export type GoalCreateInput = z.infer<typeof input>;
  * @param m - The measure.
  */
 function measureText(m: GoalCreateInput['measure']): string {
+  if (m.kind === 'sprint') {
+    return `A sprint from ${m.starts}: ${m.targets.length} weekly targets, logged each week`;
+  }
   if (m.kind === 'milestones') {
     return `${m.milestones.length} milestones`;
   }
@@ -72,7 +83,9 @@ function measureText(m: GoalCreateInput['measure']): string {
  */
 export function goalDraftText(i: GoalCreateInput): string {
   const out = [`Title: ${i.title}`, `Horizon: ${i.horizon}`];
-  if (i.measure.kind === 'milestones') {
+  if (i.measure.kind === 'sprint') {
+    out.push(`Starts: ${i.measure.starts}`, 'Weekly targets:', ...i.measure.targets.map((t, n) => `${n + 1}. ${targetLine({ label: t.label, perWeek: t.per_week })}`));
+  } else if (i.measure.kind === 'milestones') {
     out.push('Milestones:', ...i.measure.milestones.map((m, n) => `${n + 1}. ${m.label}`));
   } else {
     out.push(`Measure: ${measureText(i.measure)}`);
@@ -86,8 +99,8 @@ export function goalDraftText(i: GoalCreateInput): string {
 
 /**
  * The input after the person edited the draft on the card: the title, the
- * horizon, the target, the milestones (one per line) and the weekly review
- * are read back; anything else on the card stays as the agent drafted it.
+ * horizon, the target, the milestones (one per line), a sprint's start and
+ * weekly targets ("Discovery calls · 3/wk") and the weekly review are read back; anything else on the card stays as the agent drafted it.
  * Lines it cannot read are left alone rather than guessed at. Pure.
  * @param i - The drafted input.
  * @param body - The edited text.
@@ -108,7 +121,30 @@ export function applyGoalDraft(i: GoalCreateInput, body: string): GoalCreateInpu
   if (review) {
     next.weekly_review = /^(?:y|yes|on|true)$/i.test(review);
   }
-  if (next.measure.kind === 'view') {
+  if (next.measure.kind === 'sprint') {
+    const starts = field('Starts');
+    if (starts && /^\d{4}-\d{2}-\d{2}$/.test(starts)) {
+      next.measure = { ...next.measure, starts };
+    }
+    const start = lines.findIndex(l => /^weekly targets:?$/i.test(l));
+    if (start !== -1) {
+      const items: Array<{ label: string; per_week: number; unit?: string }> = [];
+      for (const l of lines.slice(start + 1)) {
+        // "1. Discovery calls · 3/wk": the item, then the number at its end.
+        const item = /^(?:\d+[.)]|[-*•])\s*(\S.*)$/.exec(l)?.[1];
+        const count = item ? /(\d+)(?:\/wk|\/week| a week| per week)?$/i.exec(item.replace(/\s*\/\s*/g, '/')) : null;
+        const label = item && count ? item.replace(/\s*\/\s*/g, '/').slice(0, count.index).replace(/[\s·:—-]+$/, '').trim() : '';
+        if (!count || !label) {
+          break;
+        }
+        const was = next.measure.targets.find(t => t.label.toLowerCase() === label.toLowerCase());
+        items.push({ label, per_week: Number(count[1]), ...(was?.unit ? { unit: was.unit } : {}) });
+      }
+      if (items.length >= MIN_SPRINT_TARGETS && items.length <= MAX_SPRINT_TARGETS && items.every(t => t.per_week > 0)) {
+        next.measure = { ...next.measure, targets: items };
+      }
+    }
+  } else if (next.measure.kind === 'view') {
     const target = Number(field('Target'));
     if (Number.isInteger(target) && target > 0) {
       next.measure = { ...next.measure, target };
@@ -138,6 +174,9 @@ export function applyGoalDraft(i: GoalCreateInput, body: string): GoalCreateInpu
  * @param m - The input's measure.
  */
 export function storedMeasure(m: GoalCreateInput['measure']): GoalMeasure {
+  if (m.kind === 'sprint') {
+    return { kind: 'sprint', starts: m.starts, targets: sprintTargetsFrom(m.targets.map(t => ({ label: t.label, perWeek: t.per_week, ...(t.unit ? { unit: t.unit } : {}) }))), weeks: [] };
+  }
   return m.kind === 'milestones'
     ? { kind: 'milestones', milestones: milestonesFrom(m.milestones.map(x => ({ label: x.label, ...(x.link ? { link: x.link as GoalLink } : {}) }))) }
     : { kind: 'view', view: m.view, ...(m.done ? { done: m.done } : {}), ...(m.target ? { target: m.target } : {}), ...(m.unit ? { unit: m.unit } : {}) };
@@ -162,7 +201,7 @@ async function ownerOf(ctx: { orgId: string; invokedBy?: string; origin?: { user
 export const goalCreateAction: Action<typeof input> = {
   id: GOAL_CREATE_ACTION_ID,
   name: 'Set a goal',
-  description: 'Set one of the person\'s goals — an outcome they own past this conversation, with a horizon and a measure: a saved view counted live (with the facets that mark a row done, or a target), or 3–7 milestones. Draft it when the person says "make this a goal" or states an open-ended aim; prefer the goal_create tool, which checks the view and drafts the card. Always the asker\'s own goal. Undo removes it.',
+  description: 'Set one of the person\'s goals — an outcome they own past this conversation, with a horizon and a measure: a saved view counted live (with the facets that mark a row done, or a target), 3–7 milestones, or a sprint of 2–10 weekly targets from a start date to the horizon, logged on a weekly scorecard. Draft it when the person says "make this a goal" or states an open-ended aim; prefer the goal_create tool, which checks the view and drafts the card. Always the asker\'s own goal. Undo removes it.',
   inputSchema: input,
   grant: 'update_profile',
   external: false,
@@ -175,7 +214,7 @@ export const goalCreateAction: Action<typeof input> = {
     if (!parseHorizon(i.horizon)) {
       return `"${i.horizon}" is not a horizon: give a date (2026-11-30) or a quarter (2026-Q4).`;
     }
-    const problem = measureProblem(storedMeasure(i.measure));
+    const problem = measureProblem(storedMeasure(i.measure), parseHorizon(i.horizon)!);
     if (problem) {
       return problem;
     }
@@ -201,6 +240,7 @@ export const goalCreateAction: Action<typeof input> = {
       fields: [
         { label: 'Horizon', value: horizon ? horizonLabel(horizon) : i.horizon },
         { label: 'Measured by', value: measureText(i.measure) },
+        ...(i.measure.kind === 'sprint' && horizon ? [{ label: 'Weeks', value: String(sprintWeeks(i.measure.starts, horizon).length) }] : []),
         ...(i.links?.length ? [{ label: 'Links', value: i.links.map(l => l.label ?? `${l.kind} ${l.id}`).join(', ') }] : []),
         { label: 'Weekly review', value: i.weekly_review ? 'Yes, in your Friday review' : 'No' },
       ],
