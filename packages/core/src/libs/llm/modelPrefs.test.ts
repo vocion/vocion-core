@@ -5,7 +5,7 @@ describe('model preferences', () => {
   it('balanced leaves the agent’s own model alone; fast and deep pick the vendor’s small and large', () => {
     expect(modelForStrength('anthropic', 'balanced')).toBeUndefined();
     expect(modelForStrength('anthropic', 'fast')).toBe('claude-haiku-4-5-20251001');
-    expect(modelForStrength('anthropic', 'deep')).toBe('claude-opus-5');
+    expect(modelForStrength('anthropic', 'deep')).toBe('claude-opus-5-5');
     expect(modelForStrength('bedrock', 'fast')).toMatch(/^us\.anthropic\.claude-haiku/);
     expect(modelForStrength('scripted', 'deep')).toBeUndefined();
   });
@@ -29,5 +29,19 @@ describe('model preferences', () => {
     expect(shortModelName('claude-sonnet-5')).toBe('Sonnet 5');
     expect(shortModelName('us.anthropic.claude-haiku-4-5-20251001-v1:0')).toBe('Haiku 4.5');
     expect(shortModelName('gpt-4o')).toBe('gpt-4o');
+  });
+});
+
+describe('a model as a person reads it', () => {
+  it('names the family and version, never the id', async () => {
+    const { levelModelNames, modelName } = await import('./modelPrefs');
+
+    expect(modelName('claude-opus-5-5')).toBe('Opus 5.5');
+    expect(modelName('claude-sonnet-5-5')).toBe('Sonnet 5.5');
+    expect(modelName('claude-haiku-4-5-20251001')).toBe('Haiku 4.5');
+    expect(modelName('us.anthropic.claude-sonnet-4-6')).toBe('Sonnet 4.6');
+    expect(modelName('claude-opus-5')).toBe('Opus 5');
+    expect(modelName('gpt-4o')).toBe('GPT-4o');
+    expect(levelModelNames('anthropic')).toEqual({ quick: 'Haiku 4.5', standard: null, deep: 'Opus 5.5' });
   });
 });

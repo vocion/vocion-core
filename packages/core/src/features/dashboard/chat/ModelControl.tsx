@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { EFFORT_CHOICES, isDefaultModelPrefs } from '@/libs/llm/modelPrefs';
+import { EFFORT_CHOICES, isDefaultModelPrefs, levelModelNames } from '@/libs/llm/modelPrefs';
 import { cn } from '@/utils/Helpers';
 import { COMPOSER_CONTROL } from './composerBar';
 
@@ -30,7 +30,10 @@ export function ModelControl({ value, onChange }: { value: ModelPrefs; onChange:
   // Picking a level supersedes a thread's older strength/thinking setting.
   const pick = (level: EffortChoice) => onChange({ strength: 'balanced', effort: 'off', level });
 
-  const row = (label: string, hint: string, selected: boolean, onPick: () => void) => (
+  // The model each level leads with, named, so the choice says what it buys; Standard is the agent's own.
+  const models = levelModelNames();
+  const modelOf = (e: EffortChoice) => (e === 'auto' ? null : e === 'standard' ? t('effort_model_own') : models[e]);
+  const row = (label: string, hint: string, selected: boolean, onPick: () => void, model?: string | null) => (
     <button
       type="button"
       role="radio"
@@ -39,7 +42,10 @@ export function ModelControl({ value, onChange }: { value: ModelPrefs; onChange:
       className={cn('flex w-full items-start gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-muted/60', selected && 'bg-muted')}
     >
       <span className="min-w-0 flex-1">
-        <span className="block font-medium text-foreground">{label}</span>
+        <span className="flex items-baseline gap-1.5 font-medium text-foreground">
+          {label}
+          {model && <span className="text-[11px] font-normal text-muted-foreground">{model}</span>}
+        </span>
         <span className="block text-[12px] text-muted-foreground">{hint}</span>
       </span>
       {selected && <Check className="mt-0.5 size-4 shrink-0 text-foreground" aria-hidden />}
@@ -80,7 +86,7 @@ export function ModelControl({ value, onChange }: { value: ModelPrefs; onChange:
             {t('effort_label')}
           </div>
           <div role="radiogroup" aria-label={t('effort_label')}>
-            {EFFORT_CHOICES.map((e: EffortChoice) => row(t(`effort_${e}`), t(`effort_${e}_hint`), e === value.level && (e !== 'auto' || isDefaultModelPrefs(value)), () => pick(e)))}
+            {EFFORT_CHOICES.map((e: EffortChoice) => row(t(`effort_${e}`), t(`effort_${e}_hint`), e === value.level && (e !== 'auto' || isDefaultModelPrefs(value)), () => pick(e), modelOf(e)))}
           </div>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
