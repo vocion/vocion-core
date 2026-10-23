@@ -5,7 +5,7 @@ import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import { ChevronDown, ChevronUp, CornerDownLeft, Loader2, X } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AgentDot } from '@/components/ui/agent-dot';
-import { Surface } from '@/components/ui/surface';
+import { Surface, SURFACE_CLASS } from '@/components/ui/surface';
 import { openPreview } from '@/features/preview/previewState';
 import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
 import { decisionTitle, DENY_ID } from '@/libs/decisions/decision';
@@ -67,6 +67,12 @@ export type DecisionCardProps = {
   busy?: boolean;
   /** Nothing may be answered now (a turn is running). */
   disabled?: boolean;
+  /**
+   * The turn running now may revise this card (the person replied while it
+   * waited): the draft shimmers, the options wait, and the eyebrow says
+   * "Updating…" until the turn lands with the revision or without one.
+   */
+  updating?: boolean;
   /** Why the last answer did not land. */
   error?: string | null;
   /** Take focus when a new Decision arrives, unless the person is typing elsewhere. */
@@ -168,6 +174,7 @@ export function DecisionCard({
   onAnswer,
   busy = false,
   disabled = false,
+  updating = false,
   error = null,
   takeFocus = variant === 'dock',
   context = null,
@@ -206,7 +213,7 @@ export function DecisionCard({
     setOther('');
     setDetailsOpen(false);
   }
-  const locked = busy || disabled;
+  const locked = busy || disabled || updating;
   const hasOptions = options.length > 0;
   const title = decisionTitle(decision, agentName);
   // A permission prompt's Esc says no; anywhere else Esc only folds.
@@ -456,6 +463,9 @@ export function DecisionCard({
     </>
   );
 
+  // FOLDED, IT IS STILL THE CARD (Chris, 2026-10-23: the folded bar's cream
+  // fill read as some other thing). The same surface, border and shadow, the
+  // same agent avatar and "asks" line, the question in one line.
   if (variant === 'dock' && collapsed) {
     return (
       <div className="mb-2" data-testid="decision-card" data-collapsed="true" data-decision-id={decision.id}>
@@ -463,10 +473,16 @@ export function DecisionCard({
           type="button"
           onClick={() => onCollapsedChange?.(false)}
           aria-expanded={false}
-          className={`flex w-full items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-left text-[13px] transition hover:bg-surface-hover ${TAP}`}
+          className={`${SURFACE_CLASS} flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] shadow-sm transition hover:bg-surface-hover ${TAP}`}
+          data-testid="decision-folded"
         >
-          <span className="shrink-0 font-medium text-foreground">{queue ? `${position!.total} decisions waiting` : '1 decision waiting'}</span>
-          <span className="min-w-0 truncate text-muted-foreground">{title}</span>
+          <span className="sr-only">{queue ? `${position!.total} decisions waiting` : '1 decision waiting'}</span>
+          {agentName && <AgentDot name={agentName} accent={agentAccent} size="sm" decorative />}
+          <span className="shrink-0 font-medium text-muted-foreground" data-testid="decision-folded-asker">
+            {asker}
+            {queue ? ` · ${queue}` : ''}
+          </span>
+          <span className="min-w-0 truncate font-medium text-foreground">{title}</span>
           <ChevronUp className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden />
           <span className="sr-only">Show the decision</span>
         </button>
@@ -505,6 +521,9 @@ export function DecisionCard({
                   {queue}
                 </span>
               )}
+              {updating
+                ? <span className="work-shimmer" data-testid="decision-updating">{' · Updating…'}</span>
+                : typeof decision.revises === 'number' && <span className="text-[var(--brand-pass)]" data-testid="decision-revised">{' · Revised'}</span>}
             </p>
             <h3 id={questionId} className="mt-1 text-[15px] leading-snug font-medium text-foreground">{title}</h3>
           </div>
@@ -533,12 +552,12 @@ export function DecisionCard({
               ? (
                   <details key={resetKey} className="mt-2" data-testid="decision-technical-details">
                     <summary className="cursor-pointer text-[12.5px] text-muted-foreground">Technical details</summary>
-                    <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 font-mono text-[12px] whitespace-pre-wrap" data-testid="decision-preview">
+                    <pre className={`mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 font-mono text-[12px] whitespace-pre-wrap ${updating ? 'animate-pulse' : ''}`} data-testid="decision-preview" data-updating={updating || undefined}>
                       {decision.preview}
                     </pre>
                   </details>
                 )
-              : <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 text-[13px] whitespace-pre-wrap" data-testid="decision-preview" aria-label="What it will do, exactly">{decision.preview}</pre>
+              : <pre className={`mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 text-[13px] whitespace-pre-wrap ${updating ? 'animate-pulse' : ''}`} data-testid="decision-preview" data-updating={updating || undefined} aria-label="What it will do, exactly">{decision.preview}</pre>
           )}
           {decision.deadline && <p className="mt-1 text-[12px] text-muted-foreground" data-testid="decision-deadline">{deadlineLine(decision.deadline)}</p>}
         </div>

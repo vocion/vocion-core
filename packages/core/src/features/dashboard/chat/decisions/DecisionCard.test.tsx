@@ -219,7 +219,75 @@ describe('the dock', () => {
 
     await page.getByTestId('decision-submit').click();
 
-    expect(onAnswer).toHaveBeenCalledWith(expect.objectContaining({ id: 41 }), { kind: 'option', optionIds: ['api'] });
+    // The newest of the conversation's own leads; the others stay one move away.
+    expect(onAnswer).toHaveBeenCalledWith(expect.objectContaining({ id: 43 }), { kind: 'option', optionIds: ['api'] });
+  });
+
+  it('folds to its own bar when the person taps into the composer or types, and opens again when they leave it empty (Chris, 2026-10-23)', async () => {
+    await render(
+      <div>
+        <DecisionDock decisions={[repo]} onAnswer={vi.fn()} agentName={() => 'Product manager'} />
+        <textarea data-agent-composer aria-label="Message" />
+      </div>,
+    );
+
+    await expect.element(page.getByRole('dialog')).toBeInTheDocument();
+
+    await page.getByRole('textbox', { name: 'Message' }).click();
+
+    await expect.element(page.getByTestId('decision-folded')).toBeInTheDocument();
+    // The same card, folded: its surface, its agent, its "asks" line.
+    await expect.element(page.getByTestId('decision-folded-asker')).toHaveTextContent('Product manager asks');
+    expect(page.getByTestId('decision-folded').element().className).toContain('bg-card');
+    await expect.element(page.getByRole('button', { name: /1 decision waiting/ })).toBeInTheDocument();
+
+    await userEvent.keyboard('Northwind is fine');
+    await userEvent.click(document.body);
+
+    // Words still in the box: the card stays out of the way.
+    await expect.element(page.getByTestId('decision-folded')).toBeInTheDocument();
+
+    await page.getByRole('textbox', { name: 'Message' }).clear();
+    await userEvent.click(document.body);
+
+    await expect.element(page.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('a fold the person made by hand stays folded when they leave the composer', async () => {
+    await render(
+      <div>
+        <DecisionDock decisions={[repo]} onAnswer={vi.fn()} agentName={() => 'Product manager'} />
+        <textarea data-agent-composer aria-label="Message" />
+      </div>,
+    );
+
+    await expect.element(page.getByRole('dialog')).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+
+    await expect.element(page.getByTestId('decision-folded')).toBeInTheDocument();
+
+    await page.getByRole('textbox', { name: 'Message' }).click();
+    await userEvent.click(document.body);
+
+    await expect.element(page.getByTestId('decision-folded')).toBeInTheDocument();
+  });
+
+  it('while a turn may revise it, says "Updating…" and waits; a revision says "Revised" (2026-10-23)', async () => {
+    const onAnswer = vi.fn();
+    const screen = await render(<DecisionCard decision={repo} agentName="Founder GTM Lead" updating onAnswer={onAnswer} />);
+
+    await expect.element(page.getByTestId('decision-updating')).toHaveTextContent('Updating…');
+    expect(page.getByTestId('decision-submit').element().hasAttribute('disabled')).toBe(true);
+
+    await userEvent.keyboard('{Enter}');
+
+    expect(onAnswer).not.toHaveBeenCalled();
+
+    await screen.rerender(<DecisionCard decision={{ ...repo, id: 44, revises: 41, question: 'Which repo, now that the portal is retired?' }} agentName="Founder GTM Lead" onAnswer={onAnswer} />);
+
+    expect(page.getByTestId('decision-updating').elements()).toHaveLength(0);
+    await expect.element(page.getByTestId('decision-revised')).toHaveTextContent('Revised');
   });
 
   it('draws nothing when nothing waits', async () => {

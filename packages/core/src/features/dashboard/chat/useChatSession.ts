@@ -434,6 +434,7 @@ export function useChatSession({
   const [decisionError, setDecisionError] = useState<string | null>(null);
   // Bumped to read the open Decisions again (an answer that did not land).
   const [decisionsTick, setDecisionsTick] = useState(0);
+  const refreshDecisions = useCallback(() => setDecisionsTick(n => n + 1), []);
   // WHAT ELSE WAITS ON THIS PERSON (`decisions.waiting`): questions a mission
   // or automation put on Needs you and proposals filed from no conversation.
   // They queue in the dock behind this conversation's own — the decision
@@ -2419,6 +2420,8 @@ export function useChatSession({
     /** What an answer from the queue did, said once in the dock. */
     dockNotice,
     dismissDockNotice: () => setDockNotice(null),
+    /** Read the open Decisions again: one was settled somewhere else (the live stream said so). */
+    refreshDecisions,
     /** A flow a card opened came back failed: say why on the card. */
     failDecision,
     /** Answer a Decision, typed — never as the person's words. */

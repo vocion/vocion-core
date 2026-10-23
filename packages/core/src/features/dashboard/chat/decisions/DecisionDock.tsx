@@ -4,9 +4,11 @@ import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import type { DoneReceipt } from '@/libs/decisions/receipt';
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { ConnectSystemsFlow } from '@/features/dashboard/connect-systems/ConnectSystemsFlow';
 import { startConnectSystems, useConnectSystems } from '@/features/dashboard/connect-systems/launch';
 import { forgetWalk, recallWalk, rememberWalk } from '@/features/dashboard/connect-systems/walkMemory';
+import { useLive } from '@/hooks/useLive';
 import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
 import { decisionKey } from '@/libs/decisions/decision';
 import { isConnectStart, listenForConnectReturn, openConnectTab } from '../connectTabHandoff';
@@ -14,7 +16,9 @@ import { dockPlan } from '../emptyChat';
 import { stepForConnector } from '../useAnswerOnConnectReturn';
 import { WaitingNudge } from '../WaitingNudge';
 import { DecisionCard } from './DecisionCard';
+import { decisionTopics, settledElsewhere, settledElsewhereLine } from './dockLive';
 import { DoneReceipts } from './DoneReceipts';
+import { useComposerEngagement } from './useComposerEngagement';
 
 /**
  * The Decisions waiting on the person, docked above the composer: ONE card at a
@@ -29,10 +33,13 @@ import { DoneReceipts } from './DoneReceipts';
  * the turn lands (`useChatSession.answerDecision`).
  *
  * Folding it away (Esc, the chevron) answers nothing: it shrinks to one line,
- * "N decisions waiting", and opens again from there. An answer given to one
+ * "N decisions waiting", and opens again from there. It folds by itself when
+ * the person taps into the composer or types (Chris, 2026-10-23: "when I start
+ * chatting, can you collapse the ask/action card?"), and opens again when they
+ * leave the composer empty — unless they folded it themselves. An answer given to one
  * that waits elsewhere starts no turn; the dock says once what it did.
  * @param props - The dock.
- * @param props.decisions - This conversation's open Decisions, oldest first.
+ * @param props.decisions - This conversation's open Decisions, oldest first; the dock shows the newest first.
  * @param props.waiting - What waits on the person elsewhere.
  * @param props.onAnswer - Sends the answer: to the agent that asked, or where it lives.
  * @param props.onOpen - Opens an option's flow.
@@ -40,11 +47,12 @@ import { DoneReceipts } from './DoneReceipts';
  * @param props.agentAccent
  * @param props.answeringId - The Decision whose answer is on its way.
  * @param props.disabled - Nothing may be answered now.
+ * @param props.updating - What the running turn may revise: those cards read "Updating…" and wait.
  * @param props.error - Why the last answer did not land.
  * @param props.notice - What the last answer from the queue did.
  * @param props.onDismissNotice - Clears it.
  */
-export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentName, agentAccent, answeringId = null, disabled = false, error = null, notice = null, onDismissNotice }: {
+export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentName, agentAccent, answeringId = null, disabled = false, updating, error = null, notice = null, onDismissNotice }: {
   decisions: DecisionView[];
   waiting?: DecisionView[];
   onAnswer: (decision: DecisionView, answer: DecisionAnswer) => void;
@@ -55,14 +63,39 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
   agentAccent?: (slug: string | null) => string | null;
   answeringId?: number | null;
   disabled?: boolean;
+  /** The Decisions a running turn may revise (they waited when the person replied), by `decisionKey`. */
+  updating?: ReadonlySet<string>;
   error?: string | null;
   notice?: { line: string; receipt?: DoneReceipt } | null;
   onDismissNotice?: () => void;
 }) {
   const here = new Set(decisions.map(decisionKey));
-  const queue = [...decisions, ...waiting.filter(d => !here.has(decisionKey(d)))];
+  // THE NEWEST OF THIS CONVERSATION'S OWN FIRST (2026-10-23: a revised draft
+  // queued behind the one it revised, so the card never seemed to change).
+  // Every one stays reachable: "1 of 2", and the folded bar's count. A setup
+  // plan is a sequence, so while one is docked its steps keep their order.
+  const own = decisions.some(d => d.kind === 'setup') ? decisions : [...decisions].reverse();
+  const queue = [...own, ...waiting.filter(d => !here.has(decisionKey(d)))];
   const current = queue[0];
   const [collapsedFor, setCollapsedFor] = useState<string | null>(null);
+  // Folded because the person started chatting, not by their own hand: only
+  // that fold opens again when they leave the composer empty.
+  const foldedForChat = useRef(false);
+  const currentKey = current ? decisionKey(current) : null;
+  useComposerEngagement(
+    () => {
+      if (currentKey && collapsedFor !== currentKey) {
+        foldedForChat.current = true;
+        setCollapsedFor(currentKey);
+      }
+    },
+    () => {
+      if (foldedForChat.current) {
+        foldedForChat.current = false;
+        setCollapsedFor(null);
+      }
+    },
+  );
   // SEVERAL ASKS ARE ONE ROW (a phone walk, 2026-10-10: eight approvals
   // stacked up in one goal). "8 asks · Review" until the person opens them;
   // then one card at a time, "1 of 8", as before.
@@ -91,8 +124,9 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
           type="button"
           onClick={() => setReviewing(true)}
           data-testid="decision-asks-row"
-          className="mb-2 flex w-full items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-left text-[13px] transition hover:bg-surface-hover max-md:min-h-11"
+          className="mb-2 flex w-full items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-left text-[13px] shadow-sm transition hover:bg-surface-hover max-md:min-h-11"
         >
+          {agentName?.(current.agentSlug) && <AgentDot name={agentName(current.agentSlug)!} accent={agentAccent?.(current.agentSlug) ?? null} size="sm" decorative />}
           <span className="shrink-0 font-medium text-foreground">{asksLine(queue.length)}</span>
           <span className="min-w-0 truncate text-muted-foreground">{agentName?.(current.agentSlug) ?? ''}</span>
           <span className="ml-auto shrink-0 font-medium text-foreground">Review</span>
@@ -106,11 +140,15 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
           context={here.has(decisionKey(current)) ? null : 'Waiting on you'}
           position={{ index: 0, total: queue.length }}
           collapsed={collapsedFor === decisionKey(current)}
-          onCollapsedChange={folded => setCollapsedFor(folded ? decisionKey(current) : null)}
+          onCollapsedChange={(folded) => {
+            foldedForChat.current = false;
+            setCollapsedFor(folded ? decisionKey(current) : null);
+          }}
           onAnswer={answer => onAnswer(current, answer)}
           {...(onOpen ? { onOpen: (href: string) => onOpen(href, current) } : {})}
           busy={answeringId === current.id}
           disabled={disabled}
+          updating={(updating?.has(decisionKey(current)) ?? false) && answeringId !== current.id}
           error={error}
         />
       )}
@@ -139,6 +177,8 @@ type DockSession = {
   agentNameOf: (slug: string | null) => string | null;
   agentAccentOf?: (slug: string | null) => string | null;
   conversationId: number | null;
+  /** Reads the open Decisions again; the dock calls it when one changes on the live stream. */
+  refreshDecisions?: () => void;
   sendMessage: (text: string) => unknown;
   messages: readonly unknown[];
   isStreaming?: boolean;
@@ -182,6 +222,8 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
   // answered here when that tab hands the outcome back (`connectTabHandoff.ts`).
   const [waitingTab, setWaitingTab] = useState(false);
   const [tabNotice, setTabNotice] = useState<string | null>(null);
+  // What was answered on this page, so the dock never calls its own answer "settled elsewhere".
+  const answeredHere = useRef(new Set<string>());
   const decisionsRef = useRef(session.openDecisions);
   const answerRef = useRef(session.answerDecision);
   useEffect(() => {
@@ -196,12 +238,89 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
     setWaitingTab(false);
     if (outcome.ok) {
       setTabNotice(null);
+      answeredHere.current.add(decisionKey(step.view));
       answerRef.current(step.view, { kind: 'option', optionIds: [step.optionId] });
     } else {
       setTabNotice(`That didn't connect (${outcome.reason ?? 'no reason given'}). Try again from the card.`);
     }
     return true;
   }), []);
+  // Nothing docks that the person did not start (`dockPlan`): this
+  // conversation's own once it is under way; what waits elsewhere only after
+  // they tap its chip — never by itself, mid-flow, beside the lead's own ask.
+  const plan = dockPlan({
+    own: session.openDecisions,
+    elsewhere: session.waitingDecisions,
+    messageCount: session.messages.length,
+    personStarted: false,
+    // Never docked by a tap: what waits elsewhere is answered where it lives
+    // (Review, a page) — no chip in chat opens a card without a turn.
+    elsewhereOpened: false,
+    streaming: session.isStreaming ?? false,
+  });
+  // LIVE: a docked Decision settled anywhere else — Review, another tab,
+  // Slack, a teammate, the agent withdrawing it — leaves the dock now, and
+  // the dock says so once (`dockLive.ts`). Its own answers it says nothing
+  // about: those are already in the thread.
+  const shown = [...plan.own, ...plan.elsewhere];
+  const liveAsked = useRef(false);
+  const lastShown = useRef(shown);
+  const [elsewhereLine, setElsewhereLine] = useState<string | null>(null);
+  const refreshDecisions = session.refreshDecisions;
+  useLive(decisionTopics(shown), () => {
+    liveAsked.current = true;
+    refreshDecisions?.();
+  });
+  // Back to the tab: what changed while it was hidden, read once.
+  useEffect(() => {
+    if (!refreshDecisions) {
+      return;
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        liveAsked.current = true;
+        refreshDecisions();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [refreshDecisions]);
+  const shownKey = shown.map(decisionKey).join(',');
+  useEffect(() => {
+    const before = lastShown.current;
+    lastShown.current = shown;
+    if (!liveAsked.current) {
+      return;
+    }
+    liveAsked.current = false;
+    const gone = settledElsewhere(before, shown, answeredHere.current);
+    if (gone.length > 0) {
+      setElsewhereLine(settledElsewhereLine(gone));
+    }
+  }, [shownKey]);
+  useEffect(() => {
+    if (!elsewhereLine) {
+      return;
+    }
+    const timer = setTimeout(() => setElsewhereLine(null), 6000);
+    return () => clearTimeout(timer);
+  }, [elsewhereLine]);
+  // A TURN THAT MAY REVISE THE CARD (Chris, 2026-10-23: "chat said it updated
+  // the recommendation based on my input, but I didn't see streaming/waiting
+  // animation and update on the card"). What was docked when the turn began
+  // reads "Updating…" until it lands; a card the turn itself raises does not.
+  const streaming = session.isStreaming ?? false;
+  const ownKey = plan.own.map(decisionKey).join(',');
+  const [turn, setTurn] = useState<{ streaming: boolean; keys: ReadonlySet<string> }>(() => ({ streaming, keys: new Set() }));
+  if (turn.streaming !== streaming) {
+    setTurn({ streaming, keys: streaming && ownKey ? new Set(ownKey.split(',')) : new Set() });
+  }
+  const updatingKeys = turn.keys;
+  const answer = (decision: DecisionView, a: DecisionAnswer) => {
+    answeredHere.current.add(decisionKey(decision));
+    session.answerDecision(decision, a);
+  };
+
   if (walk.active) {
     const active = walk.active;
     return (
@@ -220,19 +339,6 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
       />
     );
   }
-  // Nothing docks that the person did not start (`dockPlan`): this
-  // conversation's own once it is under way; what waits elsewhere only after
-  // they tap its chip — never by itself, mid-flow, beside the lead's own ask.
-  const plan = dockPlan({
-    own: session.openDecisions,
-    elsewhere: session.waitingDecisions,
-    messageCount: session.messages.length,
-    personStarted: false,
-    // Never docked by a tap: what waits elsewhere is answered where it lives
-    // (Review, a page) — no chip in chat opens a card without a turn.
-    elsewhereOpened: false,
-    streaming: session.isStreaming ?? false,
-  });
   if (plan.nudge !== null && !session.dockNotice) {
     return (
       <div className="mb-2 flex justify-center" data-testid="decision-dock-nudge">
@@ -244,16 +350,18 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
     <DecisionDock
       decisions={plan.own}
       waiting={plan.elsewhere}
-      notice={waitingTab ? { line: 'Finish signing in in the new tab. This card updates when you are done.' } : tabNotice ? { line: tabNotice } : session.dockNotice}
+      notice={waitingTab ? { line: 'Finish signing in in the new tab. This card updates when you are done.' } : tabNotice ? { line: tabNotice } : session.dockNotice ?? (elsewhereLine ? { line: elsewhereLine } : null)}
       onDismissNotice={() => {
         if (waitingTab || tabNotice) {
           setWaitingTab(false);
           setTabNotice(null);
+        } else if (!session.dockNotice && elsewhereLine) {
+          setElsewhereLine(null);
         } else {
           session.dismissDockNotice();
         }
       }}
-      onAnswer={session.answerDecision}
+      onAnswer={answer}
       onOpen={(href, decision) => {
         const input = connectSystemsInputOfHref(href);
         if (input) {
@@ -267,6 +375,7 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
       agentName={session.agentNameOf}
       agentAccent={session.agentAccentOf}
       answeringId={session.answeringDecisionId}
+      updating={updatingKeys}
       error={session.decisionError}
     />
   );
