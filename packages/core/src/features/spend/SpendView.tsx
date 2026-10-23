@@ -1,6 +1,6 @@
 import type { SpendFilters, SpendGroup, SpendResult } from '@/services/spend/spend';
 import { useTranslations } from 'next-intl';
-import { Column, ListRow, ListRows } from '@/components/patterns';
+import { Column, ListRow, ListRows } from '@/components/patterns/ListRow';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 
