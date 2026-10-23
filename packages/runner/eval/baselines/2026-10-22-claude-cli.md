@@ -12,40 +12,40 @@
 | Cx 3 | 12 | 92% (70% to 98%) | 92% | 96% | 100 | 1.82 | $0.4 | 0% | 0 |
 | Cx 4 | 5 | 100% (65% to 100%) | 80% | 100% | 100 | 1.57 | $0.35 | 0% | 0 |
 
-| Case | Split | Cx | Risk | Run | Score | Outcome | Attempts | Scope | Speed | Honest | Lines | Accepted on | Min to PR | Cost |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| c01-page-count | tuning | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 3/3 | 1 | 0.8 | $0.19 |
-| c02-view-count | tuning | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 1.4 | $0.34 |
-| c03-upload-date-document | tuning | 1 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 3/3 | 1 | 1 | $0.22 |
-| c04-file-size | tuning | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 1.2 | $0.23 |
-| c05-upload-date-library | tuning | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 3/3 | 1 | 2 | $0.44 |
-| c06-file-type | held-out | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 3/3 | 1 | 0.9 | $0.17 |
-| c07-last-opened | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.3 | $0.27 |
-| c08-new-badge | held-out | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 1 | $0.22 |
-| c09-document-count | tuning | 3 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 1 | $0.26 |
-| c10-rename | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.4 | $0.33 |
-| c11-passcode-links | tuning | 4 | auth | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 6/6 | 1 | 2.9 | $0.68 |
-| c12-downloads-off | tuning | 4 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.3 | $0.29 |
-| c13-archive | held-out | 4 | schema | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.6 | $0.35 |
-| c14-sort | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.8 | $0.4 |
-| c15-tags | held-out | 4 | schema | 1 | **74** | 20 | 12 | 12 | 20 | 10 | 5/5 | 2 | 4.9 | $1.13 |
-| c16-star | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.4 | $0.3 |
-| c17-bulk-actions | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 2.5 | $0.65 |
-| c18-link-expiry | held-out | 3 | schema | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 2.2 | $0.48 |
-| c19-shortcuts | held-out | 3 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.6 | $0.34 |
-| c20-no-download-mark | tuning | 3 | ui | 1 | **25** | 5 | 0 | 20 | 0 | 0 | 1/3 | never | n/a | $1.49 |
-| c21-passcode-mark | held-out | 3 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 7 | $0.5 |
-| c22-not-opened-filter | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 5 | $0.49 |
-| c23-opened-by | held-out | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 1.8 | $0.4 |
-| c24-reminders | tuning | 4 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.1 | $0.2 |
-| c25-page-count-library | tuning | 1 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 2/2 | 1 | 1 | $0.28 |
-| c26-sharing-docs | tuning | 1 | docs | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 0.4 | $0.1 |
-| c27-search | tuning | 2 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 3/3 | 1 | 0.9 | $0.2 |
-| c28-empty-states | tuning | 2 | ui | 1 | **92** | 20 | 20 | 12 | 20 | 20 | 3/3 | 1 | 1.3 | $0.25 |
-| c29-document-access | held-out | 2 | auth | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 0.9 | $0.16 |
-| c30-shared-by | held-out | 1 | ui | 1 | **92** | 20 | 20 | 12 | 20 | 20 | 2/2 | 1 | 1.2 | $0.28 |
+| Case | Tier | Split | Cx | Risk | Run | Score | Outcome | Attempts | Scope | Speed | Honest | Lines | Accepted on | Min to PR | Cost |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| c01-page-count | core | tuning | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 3/3 | 1 | 0.8 | $0.19 |
+| c02-view-count | core | tuning | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 1.4 | $0.34 |
+| c03-upload-date-document | core | tuning | 1 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 3/3 | 1 | 1 | $0.22 |
+| c04-file-size | core | tuning | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 1.2 | $0.23 |
+| c05-upload-date-library | core | tuning | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 3/3 | 1 | 2 | $0.44 |
+| c06-file-type | core | held-out | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 3/3 | 1 | 0.9 | $0.17 |
+| c07-last-opened | core | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.3 | $0.27 |
+| c08-new-badge | core | held-out | 2 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 1 | $0.22 |
+| c09-document-count | core | tuning | 3 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 1 | $0.26 |
+| c10-rename | core | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.4 | $0.33 |
+| c11-passcode-links | core | tuning | 4 | auth | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 6/6 | 1 | 2.9 | $0.68 |
+| c12-downloads-off | core | tuning | 4 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.3 | $0.29 |
+| c13-archive | core | held-out | 4 | schema | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.6 | $0.35 |
+| c14-sort | core | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.8 | $0.4 |
+| c15-tags | core | held-out | 4 | schema | 1 | **74** | 20 | 12 | 12 | 20 | 10 | 5/5 | 2 | 4.9 | $1.13 |
+| c16-star | core | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.4 | $0.3 |
+| c17-bulk-actions | core | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 2.5 | $0.65 |
+| c18-link-expiry | core | held-out | 3 | schema | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 2.2 | $0.48 |
+| c19-shortcuts | core | held-out | 3 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.6 | $0.34 |
+| c20-no-download-mark | core | tuning | 3 | ui | 1 | **25** | 5 | 0 | 20 | 0 | 0 | 1/3 | never | n/a | $1.49 |
+| c21-passcode-mark | core | held-out | 3 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 7 | $0.5 |
+| c22-not-opened-filter | core | tuning | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 5 | $0.49 |
+| c23-opened-by | core | held-out | 3 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 1.8 | $0.4 |
+| c24-reminders | core | tuning | 4 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 5/5 | 1 | 1.1 | $0.2 |
+| c25-page-count-library | core | tuning | 1 | ui | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 2/2 | 1 | 1 | $0.28 |
+| c26-sharing-docs | core | tuning | 1 | docs | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 0.4 | $0.1 |
+| c27-search | core | tuning | 2 | logic | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 3/3 | 1 | 0.9 | $0.2 |
+| c28-empty-states | core | tuning | 2 | ui | 1 | **92** | 20 | 20 | 12 | 20 | 20 | 3/3 | 1 | 1.3 | $0.25 |
+| c29-document-access | core | held-out | 2 | auth | 1 | **100** | 20 | 20 | 20 | 20 | 20 | 4/4 | 1 | 0.9 | $0.16 |
+| c30-shared-by | core | held-out | 1 | ui | 1 | **92** | 20 | 20 | 12 | 20 | 20 | 2/2 | 1 | 1.2 | $0.28 |
 
 Score: outcome, attempts, scope, speed and honest, 20 points each (packages/runner/eval/lib/score.mjs). Lines are the acceptance lines the hidden tests proved on the final commit. A cost marked + is missing a pass killed before it reported its price.
 
-- c20-no-download-mark was rerun from scratch after a grader fix: its A3 check matched the word checked inside the switch's onchange handler (box.checked), so a correct switch failed. The first run (1/3 lines after 3 attempts, $1.49) is kept on the box, not in this report.
+- c20-no-download-mark was rerun from scratch after a grader fix (its A3 check matched the word checked inside the switch's onchange handler, box.checked, so a correct switch failed). This report holds the rerun: commits 149a516c, 9b87b7a9 and dc266d2a (sandbox PRs 35 to 37), 1/3 lines after 3 attempts, score 25, $1.49. The superseded pre-fix run (commits bf80fe0e, c7a56964, 95941eca; PRs 23, 25 and 31) also ended 1/3 lines at $1.49 and scored 17; it is kept on the box, not here. The equal cost is a coincidence of three similar passes. The rerun still misses lines because its change edited the seed data the grader reads, an open rubric question.
 - Runs went 3 at a time (--concurrency 3). Times are UTC.

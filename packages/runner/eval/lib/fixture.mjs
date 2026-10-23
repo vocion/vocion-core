@@ -1,6 +1,8 @@
 // The fixture repository: eval/fixture/library-app is v1; v1 plus fixture/v2.patch is v2 (the
-// features later walks built on had shipped). Built as a git repository with fixed authors and
-// dates, so both commits have the same sha on every machine and a base_sha means one thing.
+// features later walks built on had shipped); eval/fixture/dataroom-app, a larger product in
+// layers, is a commit on v1 that replaces the tree (so its pull requests share main's history).
+// Built as a git repository with fixed authors and dates, so every commit has the same sha on
+// every machine and a base_sha means one thing.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,6 +11,8 @@ import { EVAL_DIR } from './cases.mjs';
 export const FIXTURE_SRC = path.join(EVAL_DIR, 'fixture', 'library-app');
 export const V2_PATCH = path.join(EVAL_DIR, 'fixture', 'v2.patch');
 export const V2_BRANCH = 'eval-fixture-v2';
+export const DATAROOM_SRC = path.join(EVAL_DIR, 'fixture', 'dataroom-app');
+export const DATAROOM_BRANCH = 'eval-fixture-dataroom';
 
 const IDENTITY = {
   GIT_AUTHOR_NAME: 'Vocion Eval',
@@ -66,8 +70,14 @@ export function materializeFixture(dir) {
   git(dir, ['add', '-A']);
   git(dir, ['commit', '-q', '-m', 'fixture v2: passcodes, downloads switch, archive and stars shipped']);
   const v2 = git(dir, ['rev-parse', 'HEAD']);
+  git(dir, ['checkout', '-q', '-b', DATAROOM_BRANCH, v1]);
+  git(dir, ['rm', '-q', '-r', '.']);
+  copyTree(DATAROOM_SRC, dir);
+  git(dir, ['add', '-A']);
+  git(dir, ['commit', '-q', '-m', 'fixture dataroom: the larger product']);
+  const dataroom = git(dir, ['rev-parse', 'HEAD']);
   git(dir, ['checkout', '-q', 'main']);
-  return { dir, refs: { v1, v2 } };
+  return { dir, refs: { v1, v2, dataroom } };
 }
 
 /**
@@ -77,7 +87,7 @@ export function materializeFixture(dir) {
  */
 export function publishFixture(fixture, remoteUrl, env = process.env) {
   try {
-    git(fixture.dir, [...tokenAuth(env), 'push', '-q', remoteUrl, `${fixture.refs.v1}:refs/heads/main`, `${fixture.refs.v2}:refs/heads/${V2_BRANCH}`], { timeoutSeconds: 300, env: { GIT_TERMINAL_PROMPT: '0', GITHUB_TOKEN: env.GITHUB_TOKEN || '' } });
+    git(fixture.dir, [...tokenAuth(env), 'push', '-q', remoteUrl, `${fixture.refs.v1}:refs/heads/main`, `${fixture.refs.v2}:refs/heads/${V2_BRANCH}`, `${fixture.refs.dataroom}:refs/heads/${DATAROOM_BRANCH}`], { timeoutSeconds: 300, env: { GIT_TERMINAL_PROMPT: '0', GITHUB_TOKEN: env.GITHUB_TOKEN || '' } });
   } catch (e) {
     throw new Error(`could not publish the fixture to ${remoteUrl}: ${String(e.stderr || e.message).trim().slice(-400)}. Use an empty sandbox repository, or one this tool published before.`);
   }

@@ -1,0 +1,26 @@
+{
+  "id": "h03-owner-preview-counted",
+  "tier": "hard",
+  "split": "held-out",
+  "complexity": 4,
+  "risk_class": "logic",
+  "origin": {
+    "walk": 26,
+    "kind": "walk-derived",
+    "note": "The owner-open defect walks 26 and 27 found live, given as the support ticket that would have reported it, with no file pointers."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Bug: links show as opened that the recipient never opened",
+  "objective": "Support ticket from Olivia, a library owner: \"I shared the Q3 board deck with board@kestrel.example on Sep 30 and clicked the link once myself to check it worked. Since then the library says the deck was opened, the activity page says board@kestrel opened it, and they never got a reminder. They swear they have not opened it. My teammate Tom says the same happens to him.\" Find the cause and fix it, with a regression test. Recipients and other visitors opening a link must keep counting exactly as they do now, and the people who shared a document must still be able to open its links.",
+  "acceptance": [
+    "A library member opening a link is not counted as the recipient opening it, on the library page, the activity page or the analytics API",
+    "After a member opens it, the recipient is still reminded",
+    "A real visitor's open still counts and still stops reminders",
+    "Members can still open the link and see the document"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**"
+  ],
+  "plan_summary": "openLink stops recording a view when the visitor is a member of the document's library; a regression test."
+}

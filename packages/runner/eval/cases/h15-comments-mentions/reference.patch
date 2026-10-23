@@ -1,0 +1,250 @@
+diff --git a/docs/notifications.md b/docs/notifications.md
+index c9b4dd4..69978da 100644
+--- a/docs/notifications.md
++++ b/docs/notifications.md
+@@ -8,6 +8,7 @@ the user preference that turns each off; a person who turned a type off never ge
+ | `link.shared` | a link is created for a recipient | `shares` |
+ | `reminder` | a recipient has not opened a link | `reminders` |
+ | `digest` | weekly, to each library owner | `digest` |
++| `comment.mention` | a library member is @mentioned (by email) in a comment | `mentions` |
+ 
+ ## Reminders
+ 
+diff --git a/src/app.mjs b/src/app.mjs
+index 8da4b30..3b168fa 100644
+--- a/src/app.mjs
++++ b/src/app.mjs
+@@ -8,6 +8,7 @@ import { createIds } from './lib/ids.mjs';
+ import { createRepos } from './repos/index.mjs';
+ import { createAccess } from './services/access.mjs';
+ import { createAnalytics } from './services/analytics.mjs';
++import { createComments } from './services/comments.mjs';
+ import { createDigest } from './services/digest.mjs';
+ import { createEvents } from './services/events.mjs';
+ import { createNotifier } from './services/notifications.mjs';
+@@ -40,6 +41,7 @@ export function createApp({ db, now, seed = true } = {}) {
+   const services = { events, access, notifier, analytics, search, sharing };
+   services.reminders = createReminders({ repos, notifier, clock });
+   services.digest = createDigest({ repos, analytics, notifier, clock });
++  services.comments = createComments({ repos, access, notifier, clock });
+   const app = { db: database, clock, ids, repos, services };
+   const route = createRouter(ROUTES);
+   return {
+diff --git a/src/config.mjs b/src/config.mjs
+index 4f13618..32396da 100644
+--- a/src/config.mjs
++++ b/src/config.mjs
+@@ -7,3 +7,4 @@ export const DIGEST_DAY = 1; // Monday, UTC
+ export const NEW_BADGE_HOURS = 24;
+ export const TITLE_MAX = 120;
+ export const SEARCH_LIMIT = 50;
++export const COMMENT_MAX = 2000;
+diff --git a/src/db/migrations/004_comments.mjs b/src/db/migrations/004_comments.mjs
+new file mode 100644
+index 0000000..6714caa
+--- /dev/null
++++ b/src/db/migrations/004_comments.mjs
+@@ -0,0 +1,8 @@
++// Comments on documents.
++export default {
++  version: 4,
++  name: 'comments',
++  up(db) {
++    db.createTable('comments', { id: null, docId: null, authorId: null, body: null, createdAt: null });
++  },
++};
+diff --git a/src/db/migrations/index.mjs b/src/db/migrations/index.mjs
+index 25aaf29..2484f81 100644
+--- a/src/db/migrations/index.mjs
++++ b/src/db/migrations/index.mjs
+@@ -1,8 +1,9 @@
+ import init from './001_init.mjs';
+ import linkControls from './002_link_controls.mjs';
+ import archive from './003_archive.mjs';
++import comments from './004_comments.mjs';
+ 
+-export const MIGRATIONS = [init, linkControls, archive];
++export const MIGRATIONS = [init, linkControls, archive, comments];
+ 
+ /** Runs every migration above the database's version, up to `to` (all of them by default). */
+ export function migrate(db, { to = Infinity } = {}) {
+diff --git a/src/http/routes/comments.mjs b/src/http/routes/comments.mjs
+new file mode 100644
+index 0000000..2156040
+--- /dev/null
++++ b/src/http/routes/comments.mjs
+@@ -0,0 +1,10 @@
++const view = c => ({ id: c.id, docId: c.docId, authorId: c.authorId, body: c.body, createdAt: c.createdAt });
++
++export const commentRoutes = [
++  ['GET', '/api/documents/:id/comments', ({ user, params, services }) => ({ json: { comments: services.comments.list(user.id, params.id).map(view) } })],
++
++  ['POST', '/api/documents/:id/comments', ({ user, params, body, services }) => {
++    const comment = services.comments.add(user.id, params.id, body.body);
++    return { status: 201, json: { comment: view(comment) } };
++  }],
++];
+diff --git a/src/http/routes/index.mjs b/src/http/routes/index.mjs
+index fcab921..fb3ed0e 100644
+--- a/src/http/routes/index.mjs
++++ b/src/http/routes/index.mjs
+@@ -1,9 +1,10 @@
+ import { adminRoutes } from './admin.mjs';
+ import { analyticsRoutes } from './analytics.mjs';
++import { commentRoutes } from './comments.mjs';
+ import { documentRoutes } from './documents.mjs';
+ import { linkRoutes } from './links.mjs';
+ import { pageRoutes } from './pages.mjs';
+ import { userRoutes } from './users.mjs';
+ import { visitorRoutes } from './visitor.mjs';
+ 
+-export const ROUTES = [...documentRoutes, ...linkRoutes, ...visitorRoutes, ...analyticsRoutes, ...adminRoutes, ...pageRoutes, ...userRoutes];
++export const ROUTES = [...documentRoutes, ...linkRoutes, ...visitorRoutes, ...analyticsRoutes, ...commentRoutes, ...adminRoutes, ...pageRoutes, ...userRoutes];
+diff --git a/src/http/routes/pages.mjs b/src/http/routes/pages.mjs
+index e9fccfd..716f9f5 100644
+--- a/src/http/routes/pages.mjs
++++ b/src/http/routes/pages.mjs
+@@ -17,6 +17,7 @@ export const pageRoutes = [
+ 
+   ['GET', '/documents/:id', ({ user, params, repos, services }) => {
+     const doc = services.access.visibleDocument(user.id, params.id);
+-    return { html: documentPage({ doc, links: repos.links.forDocument(doc.id) }) };
++    const comments = repos.comments.forDocument(doc.id).map(c => ({ ...c, authorName: repos.users.find(c.authorId)?.name || 'Former member' }));
++    return { html: documentPage({ doc, links: repos.links.forDocument(doc.id), comments }) };
+   }, { auth: true }],
+ ];
+diff --git a/src/repos/comments.mjs b/src/repos/comments.mjs
+new file mode 100644
+index 0000000..b0cea28
+--- /dev/null
++++ b/src/repos/comments.mjs
+@@ -0,0 +1,6 @@
++export function commentsRepo(db, ids) {
++  return {
++    forDocument: docId => db.where('comments', c => c.docId === docId).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)),
++    create: comment => db.insert('comments', { id: ids.next('cmt'), ...comment }),
++  };
++}
+diff --git a/src/repos/index.mjs b/src/repos/index.mjs
+index 94fd886..59499e4 100644
+--- a/src/repos/index.mjs
++++ b/src/repos/index.mjs
+@@ -1,4 +1,5 @@
+ import { auditRepo } from './audit.mjs';
++import { commentsRepo } from './comments.mjs';
+ import { documentsRepo } from './documents.mjs';
+ import { librariesRepo } from './libraries.mjs';
+ import { linksRepo } from './links.mjs';
+@@ -14,6 +15,7 @@ export function createRepos(db, ids) {
+     links: linksRepo(db, ids),
+     views: viewsRepo(db, ids),
+     audit: auditRepo(db, ids),
++    comments: commentsRepo(db, ids),
+     outbox: outboxRepo(db, ids),
+   };
+ }
+diff --git a/src/services/comments.mjs b/src/services/comments.mjs
+new file mode 100644
+index 0000000..3fc3b9b
+--- /dev/null
++++ b/src/services/comments.mjs
+@@ -0,0 +1,41 @@
++import { COMMENT_MAX } from '../config.mjs';
++import { badRequest } from '../lib/validate.mjs';
++
++const MENTION = /@([^\s@]+@[^\s@]+\.[a-z]{2,})/gi;
++
++/** The distinct email addresses @mentioned in a comment, lower-cased, trailing punctuation dropped. */
++export function mentionedEmails(body) {
++  return [...new Set([...String(body).matchAll(MENTION)].map(m => m[1].toLowerCase().replace(/[.,;:!?)]+$/, '')))];
++}
++
++export function createComments({ repos, access, notifier, clock }) {
++  return {
++    add(userId, docId, body) {
++      const doc = access.visibleDocument(userId, docId);
++      const text = typeof body === 'string' ? body.trim() : '';
++      if (!text || text.length > COMMENT_MAX) {
++        throw badRequest('invalid_body');
++      }
++      const comment = repos.comments.create({ docId: doc.id, authorId: userId, body: text, createdAt: clock.now() });
++      const author = repos.users.find(userId);
++      // Only members of the library hear about it: a mention must not show the document to anyone else.
++      for (const email of mentionedEmails(text)) {
++        const user = repos.users.byEmail(email);
++        if (!user || user.id === userId || !access.canSee(user.id, doc)) {
++          continue;
++        }
++        notifier.send('comment.mention', {
++          to: user.email,
++          subject: `${author.name} mentioned you on "${doc.title}"`,
++          body: `${author.name} mentioned you in a comment on "${doc.title}":\n\n${text}\n\nOpen it: https://dataroom.northwind.example/documents/${doc.id}\n`,
++          key: `mention:${comment.id}:${user.id}`,
++        });
++      }
++      return comment;
++    },
++    list(userId, docId) {
++      const doc = access.visibleDocument(userId, docId);
++      return repos.comments.forDocument(doc.id);
++    },
++  };
++}
+diff --git a/src/services/notifications.mjs b/src/services/notifications.mjs
+index cbce965..f4315f3 100644
+--- a/src/services/notifications.mjs
++++ b/src/services/notifications.mjs
+@@ -4,6 +4,7 @@ export const TYPES = {
+   'link.shared': { preference: 'shares' },
+   'reminder': { preference: 'reminders' },
+   'digest': { preference: 'digest' },
++  'comment.mention': { preference: 'mentions' },
+ };
+ 
+ export function createNotifier({ repos, clock }) {
+diff --git a/src/views/document.mjs b/src/views/document.mjs
+index 9a360b7..27c47ab 100644
+--- a/src/views/document.mjs
++++ b/src/views/document.mjs
+@@ -2,11 +2,12 @@ import { escapeHtml, layout } from '../lib/html.mjs';
+ import { format } from '../lib/legacyDate.mjs';
+ import { fileSize, fileType, mark, plural } from './components.mjs';
+ 
+-export function documentPage({ doc, links }) {
++export function documentPage({ doc, links, comments = [] }) {
+   const rows = links.map((l) => {
+     const marks = `${l.passcodeHash ? mark('mark-passcode', 'Passcode') : ''}${l.allowDownload === false ? mark('mark-no-download', 'No download') : ''}`;
+     return `<li data-testid="link-row" data-id="${l.id}"><span data-testid="recipient">${escapeHtml(l.recipientEmail)}</span> <span data-testid="link-created">${format(l.createdAt, 'MMM D')}</span> ${marks}</li>`;
+   }).join('');
++  const notes = comments.map(c => `<li data-testid="comment" data-id="${c.id}"><span data-testid="comment-author">${escapeHtml(c.authorName)}</span> <span data-testid="comment-body">${escapeHtml(c.body)}</span></li>`).join('');
+   const meta = `${plural(doc.pageCount, 'page')} · ${fileType(doc.mimeType)} · ${fileSize(doc.sizeBytes)} · uploaded ${format(doc.uploadedAt, 'MMM D, YYYY')}`;
+-  return layout(doc.title, `<a data-testid="back" href="/">Library</a><h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta">${meta}</p><section data-testid="links"><h2>Links</h2><ul>${rows}</ul></section><a data-testid="analytics-link" href="/documents/${doc.id}/analytics">Activity</a>`);
++  return layout(doc.title, `<a data-testid="back" href="/">Library</a><h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta">${meta}</p><section data-testid="links"><h2>Links</h2><ul>${rows}</ul></section><a data-testid="analytics-link" href="/documents/${doc.id}/analytics">Activity</a><section data-testid="comments"><h2>Comments</h2><ul>${notes}</ul></section>`);
+ }
+diff --git a/test/comments.test.mjs b/test/comments.test.mjs
+new file mode 100644
+index 0000000..f14d5ac
+--- /dev/null
++++ b/test/comments.test.mjs
+@@ -0,0 +1,21 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { createApp, request } from './helpers.mjs';
++
++const post = (app, body, user = 'u_owner') => request(app, { method: 'POST', path: '/api/documents/d1/comments', user, body: { body } });
++
++test('members comment; @mentioned members are notified, outsiders are not', async () => {
++  const app = createApp();
++  assert.equal((await post(app, 'See @tom@northwind.example and @ana@acme.example')).status, 201);
++  const sent = app.repos.outbox.all().filter(o => o.type === 'comment.mention');
++  assert.deepEqual(sent.map(o => o.to), ['tom@northwind.example']);
++  assert.equal((await post(app, 'x', 'u_other')).status, 404);
++  assert.equal((await post(app, '')).body.error, 'invalid_body');
++});
++
++test('comments are escaped on the document page', async () => {
++  const app = createApp();
++  await post(app, '<i>hi</i>');
++  const html = (await request(app, { path: '/documents/d1', user: 'u_owner' })).body;
++  assert.ok(html.includes('&lt;i&gt;hi&lt;/i&gt;'));
++});

@@ -16,7 +16,7 @@
       "model": "claude-opus-5-5"
     },
     "concurrency": 3,
-    "fixtureRepo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+    "fixtureRepo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
     "runnerImage": "vocion-runner:sha-ed1e5f2afd0a06d1b40cb2486a36afd86ad377ba"
   },
   "summary": {
@@ -164,7 +164,7 @@
           "status": "pr",
           "sha": "283d547afab28eb7f3b23c505f4bba9ab59b376a",
           "branch": "factory/eval-c01-page-count-r1-show-how-many-pages-the-document",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/3",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/3",
           "elapsedS": 47,
           "checks": [
             {
@@ -226,7 +226,7 @@
           "contract": {
             "task_id": "eval-c01-page-count-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Show how many pages the document has",
             "objective": "Show how many pages the document has on the document page, in the document's meta line (data-testid=\"doc-meta\"), like \"18 pages\".\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -367,7 +367,7 @@
           "status": "pr",
           "sha": "4f05a69c406d28aede6e9404df01a2e9104950ce",
           "branch": "factory/eval-c02-view-count-r1-on-the-document-page-show-how-ma",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/5",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/5",
           "elapsedS": 82,
           "checks": [
             {
@@ -429,7 +429,7 @@
           "contract": {
             "task_id": "eval-c02-view-count-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Show how many times the document has been viewed",
             "objective": "On the document page, show how many times the document has been viewed, next to its title, like \"Viewed 4 times\", in an element with data-testid=\"view-count\". Every open counts, the owner's included.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -580,7 +580,7 @@
           "status": "pr",
           "sha": "2ae7fb29b8217445307b8ea22b3c2d4d065ac9b7",
           "branch": "factory/eval-c03-upload-date-document-r1-on-the-document-page-show-when-t",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/4",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/4",
           "elapsedS": 57,
           "checks": [
             {
@@ -642,7 +642,7 @@
           "contract": {
             "task_id": "eval-c03-upload-date-document-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Show when the document was uploaded, under its title",
             "objective": "On the document page, show when the document was uploaded, under its title, like \"Uploaded Sep 30\", in an element with data-testid=\"uploaded\". Dates are UTC. A document uploaded in an earlier year than the store's clock shows the year: \"Uploaded Sep 30, 2025\".\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -787,7 +787,7 @@
           "status": "pr",
           "sha": "7b6664010e680cd4af3ffecb22964cb2fead5389",
           "branch": "factory/eval-c04-file-size-r1-on-the-document-page-s-meta-line",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/6",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/6",
           "elapsedS": 71,
           "checks": [
             {
@@ -849,7 +849,7 @@
           "contract": {
             "task_id": "eval-c04-file-size-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Show the file size next to the page count",
             "objective": "On the document page's meta line (data-testid=\"doc-meta\"), show the page count and the file size, like \"18 pages · 2.4 MB\". Sizes under 1 MB show whole KB (\"48 KB\"); 1 MB and over show MB with one decimal. 1 KB is 1000 bytes.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -1000,7 +1000,7 @@
           "status": "pr",
           "sha": "42c0d9a925af22df06f131a5893aa34cab428054",
           "branch": "factory/eval-c05-upload-date-library-r1-on-the-library-list-show-each-do",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/8",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/8",
           "elapsedS": 117,
           "checks": [
             {
@@ -1062,7 +1062,7 @@
           "contract": {
             "task_id": "eval-c05-upload-date-library-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Show the upload date under each title on the library list",
             "objective": "On the library list, show each document's upload date under its title, like \"Uploaded Sep 30\", in the row's meta (an element with data-testid=\"uploaded\" inside each data-testid=\"doc-row\"). Dates are UTC; an earlier year shows the year.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -1211,7 +1211,7 @@
           "status": "pr",
           "sha": "03fa280d30cd613832a5bebc0e5e51b97060ba74",
           "branch": "factory/eval-c06-file-type-r1-on-the-document-page-s-meta-line",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/7",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/7",
           "elapsedS": 51,
           "checks": [
             {
@@ -1273,7 +1273,7 @@
           "contract": {
             "task_id": "eval-c06-file-type-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Show the file type next to the page count",
             "objective": "On the document page's meta line (data-testid=\"doc-meta\"), show the page count and the file type, like \"18 pages · PDF\". Types: application/pdf is PDF, a Word document (.docx) is Word, an Excel sheet (.xlsx) is Excel, a PowerPoint deck (.pptx) is PowerPoint, anything else is File.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -1414,7 +1414,7 @@
           "status": "pr",
           "sha": "864356d0951ec1af8448e17e3ec624ba7deb8466",
           "branch": "factory/eval-c07-last-opened-r1-on-the-library-list-show-when-ea",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/10",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/10",
           "elapsedS": 80,
           "checks": [
             {
@@ -1476,7 +1476,7 @@
           "contract": {
             "task_id": "eval-c07-last-opened-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Show when each document was last opened on the library list",
             "objective": "On the library list, show when each document was last opened under its title, in an element with data-testid=\"last-opened\" inside each row, like \"Last opened 2 days ago\", or \"Not opened yet\" when nobody has opened it. Any open counts. Relative to the store clock: under an hour reads \"N minutes ago\" (\"just now\" under a minute), under a day \"N hours ago\", otherwise \"N days ago\", whole units rounded down, singular for 1. Also return lastOpenedAt (ISO or null) on each document in GET /api/documents.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -1615,7 +1615,7 @@
           "status": "pr",
           "sha": "4ccc672b3036376b1b1995739297e871d947e3d6",
           "branch": "factory/eval-c08-new-badge-r1-on-the-library-list-put-a-small",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/9",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/9",
           "elapsedS": 57,
           "checks": [
             {
@@ -1677,7 +1677,7 @@
           "contract": {
             "task_id": "eval-c08-new-badge-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "A New badge on documents uploaded in the last 24 hours",
             "objective": "On the library list, put a small \"New\" badge (an element with data-testid=\"badge-new\" reading New) next to the title of any document uploaded less than 24 hours before the store's clock (store.now()).\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -1820,7 +1820,7 @@
           "status": "pr",
           "sha": "edf7756af39de81a6464340d0d4aac385cd55662",
           "branch": "factory/eval-c09-document-count-r1-show-how-many-documents-are-in-t",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/11",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/11",
           "elapsedS": 61,
           "checks": [
             {
@@ -1882,7 +1882,7 @@
           "contract": {
             "task_id": "eval-c09-document-count-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Show how many documents are in the library at the top of the list",
             "objective": "Show how many documents are in the library at the top of the list, like \"5 documents\", in an element with data-testid=\"doc-count\" above the list. Under a search it reads \"2 of 5 documents\" (matches of all). One document reads \"1 document\". An empty library keeps its empty state and shows no count.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -2025,7 +2025,7 @@
           "status": "pr",
           "sha": "a279e72c760d7d10dae84c9bf695f8436c23af2d",
           "branch": "factory/eval-c10-rename-r1-let-the-document-s-owner-rename",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/12",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/12",
           "elapsedS": 85,
           "checks": [
             {
@@ -2087,7 +2087,7 @@
           "contract": {
             "task_id": "eval-c10-rename-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Let the owner rename a document",
             "objective": "Let the document's owner rename it. PATCH /api/documents/:id with { title } renames it: the title is trimmed; a blank title is refused with 400 { error: 'title_required' } and nothing changes; over 120 characters is refused with 400 { error: 'title_too_long' }; anyone but the owner gets 403 { error: 'owner_only' }. The new name shows everywhere the document is listed (library list, document page, API). On the document page, the owner's title carries data-editable=\"true\" (inline edit: Enter saves, Escape cancels); a teammate's does not.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -2222,7 +2222,7 @@
           "status": "pr",
           "sha": "3fe217d246d1e3c77cb5a91fa8f27b9adf43cfb1",
           "branch": "factory/eval-c11-passcode-links-r1-let-the-people-in-a-library-prot",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/14",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/14",
           "elapsedS": 171,
           "checks": [
             {
@@ -2284,7 +2284,7 @@
           "contract": {
             "task_id": "eval-c11-passcode-links-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Passcode-protected share links",
             "objective": "Let the people in a library protect a share link with a passcode. PUT /api/documents/:id/links/:linkId/passcode with { passcode } sets it (4 to 32 characters, else 400 { error: 'invalid_passcode' }); DELETE on the same path removes it. Only library members may set or remove one (404 not_found otherwise, like a missing document). The passcode is stored only as a salted hash (never in plain text, never returned); GET /api/documents/:id/links shows hasPasscode: true|false per link. A visitor opening a protected link (GET /l/:linkId) without the passcode gets 401 { error: 'passcode_required' } and nothing about the document; a wrong one (query.passcode) gets 401 { error: 'passcode_invalid' }; the right one opens it. The open is counted only after unlock. The download (GET /l/:linkId/download) follows the same rule. The visitor page (linkPage(store, linkId, { viewer, passcode })) shows a passcode form (data-testid=\"passcode-form\") and not the title until unlocked.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -2429,7 +2429,7 @@
           "status": "pr",
           "sha": "3954aacd3ff83c4f4c548e8fd695cb94593e5655",
           "branch": "factory/eval-c12-downloads-off-r1-let-the-people-in-a-library-turn",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/13",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/13",
           "elapsedS": 80,
           "checks": [
             {
@@ -2491,7 +2491,7 @@
           "contract": {
             "task_id": "eval-c12-downloads-off-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Turn off downloads for a share link",
             "objective": "Let the people in a library turn downloading off for a share link. PATCH /api/documents/:id/links/:linkId with { allowDownload: true | false } sets it (members only, 404 otherwise; a non-boolean is 400 { error: 'invalid_allow_download' }). Links allow downloads unless turned off, including the links that exist today. When it is off, GET /l/:linkId/download answers 403 { error: 'download_disabled' }; GET /l/:linkId still opens the document and returns link.allowDownload; the visitor page shows no download button and says \"Downloads are turned off for this link\" (data-testid=\"download-off\"). The links list returns allowDownload per link.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -2630,7 +2630,7 @@
           "status": "pr",
           "sha": "80bb5bc0dda9e0eb5b8ed95ef40755a411df367f",
           "branch": "factory/eval-c13-archive-r1-let-the-owner-archive-a-document",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/15",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/15",
           "elapsedS": 94,
           "checks": [
             {
@@ -2692,7 +2692,7 @@
           "contract": {
             "task_id": "eval-c13-archive-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Archive a document",
             "objective": "Let the owner archive a document and unarchive it. POST /api/documents/:id/archive and POST /api/documents/:id/unarchive (owner only: a teammate gets 403 { error: 'owner_only' }, a non-member 404). An archived document carries archivedAt and leaves the library list and GET /api/documents, unless asked to show archived (libraryPage(store, userId, { showArchived: true }) or ?archived=1), where its row carries an \"Archived\" mark (data-testid=\"mark-archived\"). Its share links stop working: GET /l/:linkId and the download answer 410 { error: 'archived' } with nothing about the document and no open counted, and the visitor page reads \"This document is no longer available\" (data-testid=\"unavailable\"). Unarchiving restores it and its links as they were. Views stay readable on the document page.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -2831,7 +2831,7 @@
           "status": "pr",
           "sha": "e80363a830cc1c0815c8cff3b375e336be37cddb",
           "branch": "factory/eval-c14-sort-r1-let-a-person-sort-the-library-by",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/16",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/16",
           "elapsedS": 109,
           "checks": [
             {
@@ -2893,7 +2893,7 @@
           "contract": {
             "task_id": "eval-c14-sort-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Sort the library by name, upload date or last opened, and remember the choice",
             "objective": "Let a person sort the library by name, upload date or last opened. libraryPage(store, userId, { sort }) and GET /api/documents?sort= accept 'name' (A to Z, ignoring case), 'uploaded' (newest first, the default) and 'opened' (most recently opened first, never-opened documents last, then newest upload). The choice is remembered per person: a later call without sort uses that person's last choice (kept in store.db.prefs). An unknown sort value is ignored. The page shows the current sort in an element with data-testid=\"sort\" naming it (Name, Uploaded or Last opened).\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -3032,7 +3032,7 @@
           "status": "pr",
           "sha": "2e5edfbc1aad2b80e1d8d703b8ce854e850531c7",
           "branch": "factory/eval-c15-tags-r1-let-people-tag-documents-put-api",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/18",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/18",
           "elapsedS": 118,
           "checks": [
             {
@@ -3094,7 +3094,7 @@
           "contract": {
             "task_id": "eval-c15-tags-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Tag documents and filter the library by tag",
             "objective": "Let people tag documents. PUT /api/documents/:id/tags with { tags: [...] } replaces a document's tags (library members only, 404 otherwise). Tags are trimmed, 1 to 24 characters (else 400 { error: 'invalid_tag' }), at most 10 (else 400 { error: 'too_many_tags' }), and duplicates that differ only in case are dropped, keeping the first spelling. Tags belong to the library, so teammates see the same tags. GET /api/documents returns tags ([] when none). Each library row shows its tags as chips under the title (data-testid=\"tag-chip\"). libraryPage(store, userId, { tag }) and ?tag= filter the library to one tag, ignoring case, and show a link to clear the filter (data-testid=\"clear-tag\", href=\"/\") only while filtering.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -3203,7 +3203,7 @@
           "status": "pr",
           "sha": "2de12272132d71ae28e6f4fc7715f3102fee1379",
           "branch": "factory/eval-c15-tags-r1-let-people-tag-documents-put-api-a2",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/21",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/21",
           "elapsedS": 174,
           "checks": [
             {
@@ -3265,7 +3265,7 @@
           "contract": {
             "task_id": "eval-c15-tags-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "factory/eval-c15-tags-r1-let-people-tag-documents-put-api",
             "title": "Tag documents and filter the library by tag",
             "objective": "Let people tag documents. PUT /api/documents/:id/tags with { tags: [...] } replaces a document's tags (library members only, 404 otherwise). Tags are trimmed, 1 to 24 characters (else 400 { error: 'invalid_tag' }), at most 10 (else 400 { error: 'too_many_tags' }), and duplicates that differ only in case are dropped, keeping the first spelling. Tags belong to the library, so teammates see the same tags. GET /api/documents returns tags ([] when none). Each library row shows its tags as chips under the title (data-testid=\"tag-chip\"). libraryPage(store, userId, { tag }) and ?tag= filter the library to one tag, ignoring case, and show a link to clear the filter (data-testid=\"clear-tag\", href=\"/\") only while filtering.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -3420,7 +3420,7 @@
           "status": "pr",
           "sha": "ae86cf4e155b63761a4e5c5ff246fb24825965c8",
           "branch": "factory/eval-c16-star-r1-let-a-person-star-the-documents",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/17",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/17",
           "elapsedS": 81,
           "checks": [
             {
@@ -3482,7 +3482,7 @@
           "contract": {
             "task_id": "eval-c16-star-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Star documents and keep them at the top of the library",
             "objective": "Let a person star the documents they care about. PUT /api/documents/:id/star with { starred: true | false } stars or unstars (one control, same click). Stars are per person (store.db.stars). Starred documents sit at the top of that person's library under a Starred heading (an element with data-testid=\"starred-heading\"), in the order they were starred, and the rest follow as today. Each row has a star control (data-testid=\"star\", aria-pressed=\"true\" when starred). GET /api/documents returns starred: true|false for the person, and libraryPage(store, userId, { starred: true }) or ?starred=1 shows only starred documents.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -3621,7 +3621,7 @@
           "status": "pr",
           "sha": "6ed430dd17cb4febc449c7d423186f517c2475ee",
           "branch": "factory/eval-c17-bulk-actions-r1-let-a-person-select-several-libr",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/19",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/19",
           "elapsedS": 152,
           "checks": [
             {
@@ -3683,7 +3683,7 @@
           "contract": {
             "task_id": "eval-c17-bulk-actions-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "2fd9f8a8b68b71fd115500a8c5b7db535d7023ab",
             "title": "Select several documents and act on them at once",
             "objective": "Let a person select several library documents and star, archive or copy all their share links in one move, with Undo. Each library row gets a selection checkbox (data-testid=\"select\", value the document id). POST /api/documents/bulk with { ids, action } where action is star, unstar, archive, unarchive or copy-links applies it to each id the person may act on, using the existing single-document rules (archiving stays owner-only); ids the person cannot see or act on are reported and left alone. It answers 200 { results: [{ id, ok, error? }], undo } where undo is { action, ids } reversing exactly what changed (star to unstar, archive to unarchive; null for copy-links or when nothing changed). copy-links also returns text: one line per share link, \"<title>: /l/<link id>\", in the order of ids.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -3818,7 +3818,7 @@
           "status": "pr",
           "sha": "b525ed54fb9c0c9cec5decd52543d32be827c300",
           "branch": "factory/eval-c18-link-expiry-r1-add-expiry-controls-to-share-lin",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/20",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/20",
           "elapsedS": 132,
           "checks": [
             {
@@ -3880,7 +3880,7 @@
           "contract": {
             "task_id": "eval-c18-link-expiry-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Link expiry controls",
             "objective": "Add expiry controls to share links. PATCH /api/documents/:id/links/:linkId accepts expiresAt (an ISO time after the store clock, or null to clear; anything else is 400 { error: 'invalid_expiry' }) and maxOpens (a whole number of at least 1, or null; anything else is 400 { error: 'invalid_max_opens' }); members only (404 otherwise). From expiresAt on, or once the link has been opened maxOpens times, GET /l/:linkId and its download answer 410 { error: 'expired' } with nothing about the document and no open counted; the visitor page reads \"This link has expired\" (data-testid=\"expired\"). With maxOpens 2, two opens work and the third is refused. On the document page each link row shows its limits, like \"Expires Oct 5\" and \"1 of 5 opens\".\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -4027,7 +4027,7 @@
           "status": "pr",
           "sha": "1e6d093e62985754072bd557d68eee32b7bca45d",
           "branch": "factory/eval-c19-shortcuts-r1-add-keyboard-shortcuts-to-the-li",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/22",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/22",
           "elapsedS": 97,
           "checks": [
             {
@@ -4089,7 +4089,7 @@
           "contract": {
             "task_id": "eval-c19-shortcuts-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Keyboard shortcuts in the library",
             "objective": "Add keyboard shortcuts to the library as a pure function in src/web/shortcuts.mjs: export libraryKey(state, event), where state is { ids: [document ids in row order], highlight: index or -1 } and event is { key, target: { tagName } }. It returns { highlight, action } (action null or { type, id }): ArrowDown and j move the highlight down one row (from -1 to 0; it stops at the last row), ArrowUp and k move it up (it stops at 0), Enter opens the highlighted document (type 'open'), s stars it ('star'), a archives it ('archive'), c copies its link ('copy-link'), ? shows the shortcut sheet ({ type: 'help' }, no id). A key that needs a row does nothing with no highlight. Nothing fires while typing: when target.tagName is INPUT, TEXTAREA or SELECT it returns null. The library page lists the shortcuts in a sheet with data-testid=\"shortcut-help\".\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -4242,7 +4242,7 @@
           "status": "pr",
           "sha": "149a516ccf1536774e2bb99b96e2f79188844678",
           "branch": "factory/eval-c20-no-download-mark-r1-downloads-can-already-be-turned-rlocal-2026102223",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/35",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/35",
           "elapsedS": 139,
           "checks": [
             {
@@ -4304,7 +4304,7 @@
           "contract": {
             "task_id": "eval-c20-no-download-mark-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "2fd9f8a8b68b71fd115500a8c5b7db535d7023ab",
             "title": "A \"No download\" mark, and the switch beside each link",
             "objective": "Downloads can already be turned off per link (PATCH /api/documents/:id/links/:linkId { allowDownload }). Make it visible. On the library list, a row whose document has any link with downloads off shows a \"No download\" mark (data-testid=\"mark-no-download\"). On the document page, each link row carries a switch for it beside the link: an <input type=\"checkbox\" data-testid=\"allow-download\"> that is checked when downloads are allowed, labelled \"Allow downloads\".\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -4419,7 +4419,7 @@
           "status": "pr",
           "sha": "9b87b7a90730bfb5c85a978d28443e9b8059a220",
           "branch": "factory/eval-c20-no-download-mark-r1-downloads-can-already-be-turned-a2-rlocal-2026102223",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/36",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/36",
           "elapsedS": 137,
           "checks": [
             {
@@ -4481,7 +4481,7 @@
           "contract": {
             "task_id": "eval-c20-no-download-mark-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "factory/eval-c20-no-download-mark-r1-downloads-can-already-be-turned-rlocal-2026102223",
             "title": "A \"No download\" mark, and the switch beside each link",
             "objective": "Downloads can already be turned off per link (PATCH /api/documents/:id/links/:linkId { allowDownload }). Make it visible. On the library list, a row whose document has any link with downloads off shows a \"No download\" mark (data-testid=\"mark-no-download\"). On the document page, each link row carries a switch for it beside the link: an <input type=\"checkbox\" data-testid=\"allow-download\"> that is checked when downloads are allowed, labelled \"Allow downloads\".\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -4601,7 +4601,7 @@
           "status": "pr",
           "sha": "dc266d2a42dacf5f314a88e01818c5299dfb626a",
           "branch": "factory/eval-c20-no-download-mark-r1-downloads-can-already-be-turned-a3-rlocal-2026102223",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/37",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/37",
           "elapsedS": 72,
           "checks": [
             {
@@ -4663,7 +4663,7 @@
           "contract": {
             "task_id": "eval-c20-no-download-mark-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "factory/eval-c20-no-download-mark-r1-downloads-can-already-be-turned-a2-rlocal-2026102223",
             "title": "A \"No download\" mark, and the switch beside each link",
             "objective": "Downloads can already be turned off per link (PATCH /api/documents/:id/links/:linkId { allowDownload }). Make it visible. On the library list, a row whose document has any link with downloads off shows a \"No download\" mark (data-testid=\"mark-no-download\"). On the document page, each link row carries a switch for it beside the link: an <input type=\"checkbox\" data-testid=\"allow-download\"> that is checked when downloads are allowed, labelled \"Allow downloads\".\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -4813,7 +4813,7 @@
           "status": "pr",
           "sha": "0f15aff2e53ea6910eace935be323856876c3122",
           "branch": "factory/eval-c21-passcode-mark-r1-passcodes-can-already-be-set-per",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/26",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/26",
           "elapsedS": 420,
           "checks": [
             {
@@ -4875,7 +4875,7 @@
           "contract": {
             "task_id": "eval-c21-passcode-mark-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "2fd9f8a8b68b71fd115500a8c5b7db535d7023ab",
             "title": "A passcode switch beside access, with a Passcode mark, and members never asked",
             "objective": "Passcodes can already be set per link. Make them visible and fix who is asked. On the library list, a row whose document has any passcode-protected link shows a \"Passcode\" mark (data-testid=\"mark-passcode\"); on the document page, a protected link row reads \"Passcode\" too. The people in the document's library are never asked for a passcode: signed in (userId on GET /l/:linkId, or linkPage(store, linkId, { userId })) they open a protected link directly, and their open is counted as theirs. Anyone else is still asked.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -5038,7 +5038,7 @@
           "status": "pr",
           "sha": "437c113a106a7af30f40132154304edd2175f9d7",
           "branch": "factory/eval-c22-not-opened-filter-r1-add-a-not-opened-yet-filter-to-t",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/24",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/24",
           "elapsedS": 297,
           "checks": [
             {
@@ -5100,7 +5100,7 @@
           "contract": {
             "task_id": "eval-c22-not-opened-filter-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "A \"Not opened yet\" filter on the library",
             "objective": "Add a \"Not opened yet\" filter to the library: libraryPage(store, userId, { notOpened: true }) and GET /api/documents?notOpened=1 show only documents that have been sent (at least one share link) and never opened by anyone but the document's owner. The owner's own opens never count, through a link or not. A chip (data-testid=\"filter-not-opened\") on the library page reads \"Not opened yet (N)\" with the count. When the filter is on and nothing matches, the page reads \"Every document you sent has been opened\" (data-testid=\"empty\").\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -5247,7 +5247,7 @@
           "status": "pr",
           "sha": "eadf18c02ecd74c9d46cc19c3269f1ba0a1f1215",
           "branch": "factory/eval-c23-opened-by-r1-under-each-library-document-show",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/27",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/27",
           "elapsedS": 110,
           "checks": [
             {
@@ -5309,7 +5309,7 @@
           "contract": {
             "task_id": "eval-c23-opened-by-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "\"Opened by N\" on each library row",
             "objective": "Under each library document, show how many different people opened it, like \"Opened by 2\", in an element with data-testid=\"opened-by\". The same person twice counts once; the document owner's own opens never count; a document nobody else opened reads \"Not opened\". Also return openedBy (the number) on each document in GET /api/documents.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -5450,7 +5450,7 @@
           "status": "pr",
           "sha": "94a1bec13b128139da40682614de7ca3a1663cd0",
           "branch": "factory/eval-c24-reminders-r1-let-the-people-in-a-library-remi",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/29",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/29",
           "elapsedS": 63,
           "checks": [
             {
@@ -5512,7 +5512,7 @@
           "contract": {
             "task_id": "eval-c24-reminders-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Remind recipients who have not opened",
             "objective": "Let the people in a library remind the recipients who have not opened a document. POST /api/documents/:id/reminders (members only, 404 otherwise) queues one reminder for each of the document's links that nobody but the owner has opened: a row { to, linkId, docId, at } in store.db.outbox (at is the store clock). A link already reminded less than 72 hours ago is skipped. It answers 200 { queued: [emails], skipped: [emails] }. Nothing is sent here; the outbox is the record.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -5647,7 +5647,7 @@
           "status": "pr",
           "sha": "1baebda5502d48dcc90ba38a277d62e6443a41ff",
           "branch": "factory/eval-c25-page-count-library-r1-on-the-library-list-show-each-do",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/2",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/2",
           "elapsedS": 58,
           "checks": [
             {
@@ -5709,7 +5709,7 @@
           "contract": {
             "task_id": "eval-c25-page-count-library-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Show the page count on each library row",
             "objective": "On the library list, show each document's page count in the row's meta (an element with data-testid=\"pages\" inside each data-testid=\"doc-row\"), like \"18 pages\" or \"1 page\".\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -5844,7 +5844,7 @@
           "status": "pr",
           "sha": "7ff5563d1d33fa8f2a217c8487b3b00fe844c562",
           "branch": "factory/eval-c26-sharing-docs-r1-write-docs-sharing-md-for-people",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/28",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/28",
           "elapsedS": 21,
           "checks": [
             {
@@ -5906,7 +5906,7 @@
           "contract": {
             "task_id": "eval-c26-sharing-docs-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Write the sharing guide",
             "objective": "Write docs/sharing.md for people new to the library: what a share link is, who can open one, and what a visitor sees. Use exactly these three second-level headings, in this order: \"## Share links\", \"## Who can open a link\", \"## What a visitor sees\", each followed by at least one line of prose. Say that a link's address is /l/<link id> and that a visitor needs no account. Keep it under 80 lines. Change no other file.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -6022,7 +6022,7 @@
           "status": "pr",
           "sha": "b3c7ae933bfba54703fbb6052dcb868e7dd2d3ba",
           "branch": "factory/eval-c27-search-r1-make-the-library-search-forgivin",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/30",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/30",
           "elapsedS": 54,
           "checks": [
             {
@@ -6084,7 +6084,7 @@
           "contract": {
             "task_id": "eval-c27-search-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Search ignores case, extra spaces and word order, and matches whole words from their start",
             "objective": "Make the library search forgiving, on both libraryPage(store, userId, { q }) and GET /api/documents?q=: it ignores case and surrounding spaces, and a document matches when every search word is the start of a word in its title, in any order (\"board\" finds \"Q3 Board Deck\" but not \"Onboarding Guide\"). An empty or all-space search shows everything.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -6203,7 +6203,7 @@
           "status": "pr",
           "sha": "1c95f074b834f79612933a3093612f4b808eba79",
           "branch": "factory/eval-c28-empty-states-r1-give-the-library-friendly-empty",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/33",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/33",
           "elapsedS": 78,
           "checks": [
             {
@@ -6265,7 +6265,7 @@
           "contract": {
             "task_id": "eval-c28-empty-states-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Friendly empty states on the library",
             "objective": "Give the library friendly empty states (data-testid=\"empty\"). An empty library reads \"Your library is empty. Upload a document to share it.\" A search with no matches reads 'No documents match \"<search>\"' with a link to clear the search (data-testid=\"clear-search\", href=\"/\"). The search text is escaped.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -6408,7 +6408,7 @@
           "status": "pr",
           "sha": "7ebfe5d410e836a2609f962e70b410c2a989488f",
           "branch": "factory/eval-c29-document-access-r1-close-an-access-gap-in-the-api-g",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/32",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/32",
           "elapsedS": 54,
           "checks": [
             {
@@ -6470,7 +6470,7 @@
           "contract": {
             "task_id": "eval-c29-document-access-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "A document in another library is not reachable by id",
             "objective": "Close an access gap in the API: GET /api/documents/:id returns another library's document to anyone signed in. A document is reachable only by members of its library. For anyone else, GET /api/documents/:id, GET and POST /api/documents/:id/links answer exactly like a missing document: 404 { error: 'not_found' }, with no title in the body. Signed-out calls stay 401.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -6591,7 +6591,7 @@
           "status": "pr",
           "sha": "ecda98a49878bcf7b28a3c8872071f156b1ed218",
           "branch": "factory/eval-c30-shared-by-r1-on-the-visitor-s-link-page-linkp",
-          "prUrl": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox/pull/34",
+          "prUrl": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox/pull/34",
           "elapsedS": 69,
           "checks": [
             {
@@ -6653,7 +6653,7 @@
           "contract": {
             "task_id": "eval-c30-shared-by-r1",
             "product": "northwind-library",
-            "repo": "https://github.com/Meta-CTO/vocion-factory-eval-sandbox.git",
+            "repo": "https://github.com/<sandbox-owner>/vocion-factory-eval-sandbox.git",
             "base_sha": "c08db6ba9dd020369ea86067bdff83abc3dab978",
             "title": "Say who shared the document on the visitor page",
             "objective": "On the visitor's link page (linkPage), show \"Shared by <owner name>\" under the title, in an element with data-testid=\"shared-by\". When the owner's user record no longer exists, show \"Shared with you\" instead.\n\nWork in this repository as its CLAUDE.md describes, and add tests for every rule you add.",
@@ -6785,7 +6785,7 @@
   ],
   "label": "baseline, runner image sha-ed1e5f2, claude-opus-5-5",
   "notes": [
-    "c20-no-download-mark was rerun from scratch after a grader fix: its A3 check matched the word checked inside the switch's onchange handler (box.checked), so a correct switch failed. The first run (1/3 lines after 3 attempts, $1.49) is kept on the box, not in this report.",
+    "c20-no-download-mark was rerun from scratch after a grader fix (its A3 check matched the word checked inside the switch's onchange handler, box.checked, so a correct switch failed). This report holds the rerun: commits 149a516c, 9b87b7a9 and dc266d2a (sandbox PRs 35 to 37), 1/3 lines after 3 attempts, score 25, $1.49. The superseded pre-fix run (commits bf80fe0e, c7a56964, 95941eca; PRs 23, 25 and 31) also ended 1/3 lines at $1.49 and scored 17; it is kept on the box, not here. The equal cost is a coincidence of three similar passes. The rerun still misses lines because its change edited the seed data the grader reads, an open rubric question.",
     "Runs went 3 at a time (--concurrency 3). Times are UTC."
   ]
 }

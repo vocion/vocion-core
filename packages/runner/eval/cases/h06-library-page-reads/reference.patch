@@ -1,0 +1,66 @@
+diff --git a/src/repos/views.mjs b/src/repos/views.mjs
+index faa2d9e..31ff6fe 100644
+--- a/src/repos/views.mjs
++++ b/src/repos/views.mjs
+@@ -2,6 +2,11 @@ export function viewsRepo(db, ids) {
+   return {
+     all: () => db.all('views'),
+     forDocument: docId => db.where('views', v => v.docId === docId),
++    /** The views of many documents in one read. */
++    forDocuments(docIds) {
++      const wanted = new Set(docIds);
++      return db.where('views', v => wanted.has(v.docId));
++    },
+     forLink: linkId => db.where('views', v => v.linkId === linkId),
+     record: view => db.insert('views', { id: ids.next('view'), ...view }),
+   };
+diff --git a/src/services/analytics.mjs b/src/services/analytics.mjs
+index 3e3dfbb..2d2b5d4 100644
+--- a/src/services/analytics.mjs
++++ b/src/services/analytics.mjs
+@@ -4,11 +4,20 @@ export function createAnalytics({ repos }) {
+   return {
+     /** Per document: how often it was opened, when last, and by how many people. */
+     documentStats(documents) {
++      // One read for all the documents' views, not one per document: the library page showed
++      // every document, so its reads grew with the library.
++      const byDoc = new Map(documents.map(d => [d.id, { opens: 0, lastOpenedAt: null, viewers: new Set() }]));
++      for (const v of repos.views.forDocuments([...byDoc.keys()])) {
++        const s = byDoc.get(v.docId);
++        s.opens++;
++        if (!s.lastOpenedAt || v.at > s.lastOpenedAt) {
++          s.lastOpenedAt = v.at;
++        }
++        s.viewers.add(v.viewerEmail);
++      }
+       const out = {};
+-      for (const doc of documents) {
+-        const views = repos.views.forDocument(doc.id);
+-        const last = views.reduce((m, v) => (m && m > v.at ? m : v.at), null);
+-        out[doc.id] = { opens: views.length, lastOpenedAt: last, openedBy: new Set(views.map(v => v.viewerEmail)).size };
++      for (const [id, s] of byDoc) {
++        out[id] = { opens: s.opens, lastOpenedAt: s.lastOpenedAt, openedBy: s.viewers.size };
+       }
+       return out;
+     },
+diff --git a/test/pages.test.mjs b/test/pages.test.mjs
+index cb3686c..940ca20 100644
+--- a/test/pages.test.mjs
++++ b/test/pages.test.mjs
+@@ -46,3 +46,16 @@ test('the audit export is for library owners', async () => {
+   assert.equal((await request(app, { path: '/api/libraries/lib_team/audit.csv', user: 'u_teammate' })).status, 403);
+   assert.equal((await request(app, { path: '/api/libraries/lib_team/audit.csv', user: 'u_other' })).status, 404);
+ });
++
++test('the library page reads the database a fixed number of times', async () => {
++  const reads = async (extra) => {
++    const app = createApp();
++    for (let i = 0; i < extra; i++) {
++      app.db.insert('documents', { id: `x${i}`, libraryId: 'lib_team', ownerId: 'u_owner', title: `X ${i}`, mimeType: 'application/pdf', sizeBytes: 1, pageCount: 1, uploadedAt: '2026-09-01T00:00:00.000Z' });
++    }
++    const before = app.db.stats.reads;
++    await request(app, { path: '/', user: 'u_owner' });
++    return app.db.stats.reads - before;
++  };
++  assert.equal(await reads(100), await reads(0));
++});

@@ -9,6 +9,7 @@
 //        [--runner-image <image>] [--fixture-repo <https url>] [--out <dir>]
 //        [--concurrency 3] [--max-spend 400] [--max-infra-streak 5] [--resume <results dir>]
 //   node packages/runner/eval/run.mjs report --resume <results dir> [--engine claude-cli]
+//   node packages/runner/eval/run.mjs export --resume <results dir> --name <baseline name>
 //
 // See packages/runner/eval/README.md.
 import fs from 'node:fs';
@@ -19,19 +20,20 @@ import { engine } from './lib/engines.mjs';
 import { materializeFixture } from './lib/fixture.mjs';
 import { gradeCommit } from './lib/grade.mjs';
 import { reportFor, runEval } from './lib/harness.mjs';
-import { scoreboard } from './lib/report.mjs';
+import { publicCopy, scoreboard } from './lib/report.mjs';
 
 const DEFAULT_MODEL = 'claude-opus-5-5'; // the engineering seat's pinned model (task-engineer.yaml)
 
 export function parseArgs(argv) {
   const [command = 'help', ...rest] = argv;
-  const opts = { command, engine: 'claude-cli', split: 'all', cases: [], runs: 1, maxAttempts: 3, model: DEFAULT_MODEL, effort: '', runnerImage: '', fixtureRepo: '', out: '', concurrency: 1, maxSpendUsd: Infinity, maxInfraStreak: Infinity, resume: '' };
+  const opts = { command, engine: 'claude-cli', split: 'all', tier: 'all', cases: [], runs: 1, maxAttempts: 3, model: DEFAULT_MODEL, effort: '', runnerImage: '', fixtureRepo: '', out: '', concurrency: 1, maxSpendUsd: Infinity, maxInfraStreak: Infinity, resume: '', name: '' };
   for (let i = 0; i < rest.length; i++) {
     const [flag, inline] = rest[i].split('=');
     const value = () => inline ?? rest[++i];
     switch (flag) {
       case '--engine': opts.engine = value(); break;
       case '--split': opts.split = value(); break;
+      case '--tier': opts.tier = value(); break;
       case '--cases': opts.cases = value().split(',').map(s => s.trim()).filter(Boolean); break;
       case '--runs': opts.runs = Number(value()); break;
       case '--max-attempts': opts.maxAttempts = Number(value()); break;
@@ -44,6 +46,7 @@ export function parseArgs(argv) {
       case '--max-spend': opts.maxSpendUsd = Number(value()); break;
       case '--max-infra-streak': opts.maxInfraStreak = Number(value()); break;
       case '--resume': opts.resume = value(); break;
+      case '--name': opts.name = value(); break;
       default: throw new Error(`unknown flag ${flag}`);
     }
   }
@@ -92,7 +95,7 @@ export function checkCases(cases) {
         problems.push(`${c.id}: the reference change does not apply: ${ref.error}`);
         continue;
       }
-      const after = gradeCommit({ repo: fixture.dir, sha: ref.sha, baseSha: base, c });
+      const after = gradeCommit({ repo: fixture.dir, sha: ref.sha, baseSha: base, c, report: ref.agentReport });
       if (after.passed !== after.total || !after.suitePassed) {
         problems.push(`${c.id}: the reference change passes ${after.passed} of ${after.total} lines${after.suitePassed ? '' : ' and breaks the fixture suite'}`);
       }
@@ -107,7 +110,8 @@ function describe(cases) {
   const by = (k, v) => cases.filter(c => c[k] === v).length;
   return [
     `${cases.length} cases: ${by('split', 'tuning')} tuning, ${by('split', 'held-out')} held out`,
-    `complexity: ${[1, 2, 3, 4].map(cx => `Cx ${cx} ${by('complexity', cx)}`).join(', ')}`,
+    `tiers: ${['core', 'hard'].map(t => `${t} ${by('tier', t)}`).join(', ')}`,
+    `complexity: ${[1, 2, 3, 4, 5].map(cx => `Cx ${cx} ${by('complexity', cx)}`).join(', ')}`,
     `risk: ${[...new Set(cases.map(c => c.risk_class))].sort().map(r => `${r} ${by('risk_class', r)}`).join(', ')}`,
   ].join('\n');
 }
@@ -115,13 +119,13 @@ function describe(cases) {
 async function main(argv) {
   const opts = parseArgs(argv);
   const all = loadCases();
-  const cases = selectCases(all, { split: opts.split, ids: opts.cases });
+  const cases = selectCases(all, { split: opts.split, ids: opts.cases, tier: opts.tier });
   const modelPolicy = { model: opts.model, ...(opts.effort ? { effort: opts.effort } : {}) };
 
   if (opts.command === 'list') {
     console.log(describe(cases));
     for (const c of cases) {
-      console.log(`${c.id.padEnd(28)} ${c.split.padEnd(9)} Cx ${c.complexity} ${c.risk_class.padEnd(7)} ${c.fixture_ref} walk ${c.origin.walk} (${c.origin.kind}) ${c.title}`);
+      console.log(`${c.id.padEnd(28)} ${c.tier.padEnd(5)} ${c.split.padEnd(9)} Cx ${c.complexity} ${c.risk_class.padEnd(7)} ${c.fixture_ref} walk ${c.origin.walk} (${c.origin.kind}) ${c.title}`);
     }
     return 0;
   }
@@ -162,6 +166,18 @@ async function main(argv) {
     console.log(`rebuilt ${dir}/${opts.engine}.json and .md from ${runsFile.length} runs`);
     return 0;
   }
+  if (opts.command === 'export') {
+    // Copies a results directory's report into baselines/, with repository owners redacted.
+    if (!opts.resume || !/^[\w.-]+$/.test(opts.name)) {
+      throw new Error('export needs --resume <results dir> and --name <baseline name>');
+    }
+    const report = publicCopy(JSON.parse(fs.readFileSync(path.join(opts.resume, `${opts.engine}.json`), 'utf8')));
+    const dir = path.join(EVAL_DIR, 'baselines');
+    fs.mkdirSync(dir, { recursive: true });
+    writeReport(dir, opts.name, report);
+    console.log(`wrote ${dir}/${opts.name}.json and .md`);
+    return 0;
+  }
   if (opts.command === 'run') {
     const dir = opts.resume || outDir(opts, opts.engine);
     fs.mkdirSync(dir, { recursive: true });
@@ -195,7 +211,7 @@ async function main(argv) {
     console.log(`reports in ${dir}`);
     return report.ran ? (report.stopped ? 3 : 0) : 2;
   }
-  console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 12).map(l => l.replace(/^\/\/ ?/, '')).join('\n'));
+  console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 13).map(l => l.replace(/^\/\/ ?/, '')).join('\n'));
   return opts.command === 'help' ? 0 : 1;
 }
 

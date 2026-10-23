@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { contractFor, contractProblems, sendBackNotes } from './cases.mjs';
 import { engine as engineFor } from './engines.mjs';
-import { git, materializeFixture, publishFixture, tokenAuth, V2_BRANCH } from './fixture.mjs';
+import { DATAROOM_BRANCH, git, materializeFixture, publishFixture, tokenAuth, V2_BRANCH } from './fixture.mjs';
 import { gradeCommit } from './grade.mjs';
 import { scoreRun, summarize } from './score.mjs';
 
@@ -60,7 +60,7 @@ export async function runCase({ c, run, engine, fixture, options }) {
         }
       }
       if (sha) {
-        attempt.grade = gradeCommit({ repo: fixture.dir, sha, baseSha, c });
+        attempt.grade = gradeCommit({ repo: fixture.dir, sha, baseSha, c, report: result.agentReport || '' });
       }
     });
     attempts.push(attempt);
@@ -71,7 +71,7 @@ export async function runCase({ c, run, engine, fixture, options }) {
     resumeFrom = result.branch || result.sha;
     notes = attempt.grade ? sendBackNotes(c, attempt.grade.lines) : `The previous attempt stopped: ${attempt.error || 'no reason given'}. Continue from the kept branch.`;
   }
-  return { case: c.id, split: c.split, complexity: c.complexity, risk_class: c.risk_class, run, attempts, score: scoreRun(attempts) };
+  return { case: c.id, tier: c.tier || 'core', split: c.split, complexity: c.complexity, risk_class: c.risk_class, run, attempts, score: scoreRun(attempts) };
 }
 
 /**
@@ -141,16 +141,21 @@ export function reportFor({ engineId, results, cases, stopped = null, startedAt,
   const order = new Map(cases.map((c, i) => [c.id, i]));
   results.sort((a, b) => (order.get(a.case) ?? 0) - (order.get(b.case) ?? 0) || a.run - b.run);
   const bySplit = Object.fromEntries(['tuning', 'held-out'].map(s => [s, summarize(results.filter(r => r.split === s))]));
-  const byComplexity = Object.fromEntries([1, 2, 3, 4].map(cx => [cx, summarize(results.filter(r => r.complexity === cx))]));
+  const tiers = [...new Set(results.map(r => r.tier || 'core'))];
+  const byTier = Object.fromEntries(tiers.map(t => [t, {
+    all: summarize(results.filter(r => (r.tier || 'core') === t)),
+    bySplit: Object.fromEntries(['tuning', 'held-out'].map(s => [s, summarize(results.filter(r => (r.tier || 'core') === t && r.split === s))])),
+  }]));
+  const byComplexity = Object.fromEntries([1, 2, 3, 4, 5].map(cx => [cx, summarize(results.filter(r => r.complexity === cx))]));
   return {
     engine: engineId,
     ran: true,
     stopped,
     startedAt,
     finishedAt,
-    fixture: { v1: fixture.v1, v2: fixture.v2, v2Branch: V2_BRANCH },
+    fixture: { v1: fixture.v1, v2: fixture.v2, v2Branch: V2_BRANCH, ...(fixture.dataroom ? { dataroom: fixture.dataroom, dataroomBranch: DATAROOM_BRANCH } : {}) },
     options,
-    summary: { all: summarize(results), bySplit, byComplexity },
+    summary: { all: summarize(results), bySplit, byComplexity, byTier },
     results,
   };
 }

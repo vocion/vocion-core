@@ -74,7 +74,7 @@ export function parseRunnerLog(text) {
         out.tokenUsage = e.result?.token_usage || null;
         out.model = e.result?.token_usage?.model || out.model;
         out.checks = e.result?.checks || out.checks;
-        out.agentReport = String(e.result?.agent_report || '').slice(0, 600);
+        out.agentReport = String(e.result?.agent_report || '').slice(0, 4000);
         break;
       case 'fail.local':
         out.status = 'failed';
@@ -188,7 +188,9 @@ const oracle = {
       git(dir, ['apply', '--whitespace=nowarn', c.reference]);
       git(dir, ['add', '-A']);
       git(dir, ['commit', '-q', '-m', `${c.risk_class}: ${c.title}`]);
-      return { status: 'pr', sha: git(dir, ['rev-parse', 'HEAD']), branch, prUrl: null, elapsedS: Math.round((Date.now() - started) / 1000), costUsd: 0, checks: [] };
+      const reportFile = path.join(c.dir, 'reference.report.md');
+      const agentReport = fs.existsSync(reportFile) ? fs.readFileSync(reportFile, 'utf8') : '';
+      return { status: 'pr', sha: git(dir, ['rev-parse', 'HEAD']), branch, prUrl: null, agentReport, elapsedS: Math.round((Date.now() - started) / 1000), costUsd: 0, checks: [] };
     } catch (e) {
       return { status: 'failed', error: String(e.stderr || e.message).slice(0, 400), elapsedS: Math.round((Date.now() - started) / 1000), costUsd: 0 };
     } finally {

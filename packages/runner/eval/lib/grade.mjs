@@ -53,21 +53,34 @@ function run(cmd, args, cwd, env = {}) {
 }
 
 /**
+ * The lines a case grades from the run's own report instead of a test (an ask whose right answer
+ * is partly to say what could not be done): each passes when the report matches its pattern.
+ */
+export function reportLines(c, report) {
+  return (c.report_lines || []).map(r => ({ index: r.line - 1, passed: new RegExp(r.pattern, r.flags ?? 'i').test(String(report || '')), reported: true, from: 'report' }));
+}
+
+const HELPERS = { dataroom: 'grader-helpers-dataroom.mjs' };
+
+/**
  * Grades `sha` in the fixture repository `repo` against case `c`, whose work started at `baseSha`.
  * Returns the line results, the fixture suite's result and the scope findings.
  */
-export function gradeCommit({ repo, sha, baseSha, c }) {
+export function gradeCommit({ repo, sha, baseSha, c, report = '' }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `eval-grade-${c.id}-`));
   fs.rmSync(dir, { recursive: true, force: true });
   git(repo, ['worktree', 'add', '-q', '--detach', dir, sha]);
   try {
     const graderDir = path.join(dir, '.eval-grader');
     fs.mkdirSync(graderDir, { recursive: true });
-    fs.copyFileSync(path.join(CASES_DIR, 'grader-helpers.mjs'), path.join(graderDir, 'helpers.mjs'));
+    fs.copyFileSync(path.join(CASES_DIR, HELPERS[c.fixture_ref] || 'grader-helpers.mjs'), path.join(graderDir, 'helpers.mjs'));
     fs.copyFileSync(c.grader, path.join(graderDir, `${c.id}.test.mjs`));
     const env = { EVAL_BASE_SHA: baseSha, NODE_OPTIONS: '' };
     const grader = run(process.execPath, ['--test', '--test-reporter=tap', path.join('.eval-grader', `${c.id}.test.mjs`)], dir, env);
     const lines = parseTap(grader.out, c.acceptance.length);
+    for (const r of reportLines(c, report)) {
+      lines[r.index] = r;
+    }
     const suite = run('npm', ['test', '--silent'], dir, env);
     const changes = changedFiles(repo, baseSha, sha);
     return {

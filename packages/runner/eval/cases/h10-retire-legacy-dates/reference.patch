@@ -1,0 +1,196 @@
+diff --git a/docs/architecture.md b/docs/architecture.md
+index e1cd0d7..09429a4 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -23,5 +23,5 @@ src/lib/                 small shared helpers (html, time, csv, crypto, bots, id
+   itself current from them.
+ - Notifications go through `src/services/notifications.mjs`, which knows every type and the
+   preference that turns it off. Nothing writes to the outbox directly.
+-- `src/lib/legacyDate.mjs` is deprecated in favour of `src/lib/time.mjs`; a few callers remain.
++- Dates are formatted and keyed with `src/lib/time.mjs`, always in UTC.
+ - Audit entries are written for every change a person makes to sharing or access.
+diff --git a/src/http/routes/admin.mjs b/src/http/routes/admin.mjs
+index 1b733b7..ddc10be 100644
+--- a/src/http/routes/admin.mjs
++++ b/src/http/routes/admin.mjs
+@@ -1,5 +1,5 @@
+ import { csvResponse } from '../../lib/csv.mjs';
+-import { format } from '../../lib/legacyDate.mjs';
++import { isoMinute } from '../../lib/time.mjs';
+ import { forbidden, notFound } from '../../lib/validate.mjs';
+ 
+ export const adminRoutes = [
+@@ -16,7 +16,7 @@ export const adminRoutes = [
+     const docIds = new Set(repos.documents.inLibrary(library.id, { archived: true }).map(d => d.id));
+     const linkIds = new Set(repos.links.all().filter(l => docIds.has(l.docId)).map(l => l.id));
+     const entries = repos.audit.all().filter(a => docIds.has(a.targetId) || linkIds.has(a.targetId) || docIds.has(a.detail?.docId));
+-    const rows = entries.map(a => [format(a.at, 'YYYY-MM-DD HH:mm'), repos.users.find(a.actorId)?.email || a.actorId, a.action, a.targetId, a.detail?.recipientEmail || '']);
++    const rows = entries.map(a => [isoMinute(a.at), repos.users.find(a.actorId)?.email || a.actorId, a.action, a.targetId, a.detail?.recipientEmail || '']);
+     return csvResponse(`audit-${library.id}.csv`, ['When (UTC)', 'Who', 'Action', 'Target', 'Recipient'], rows);
+   }],
+ ];
+diff --git a/src/lib/legacyDate.mjs b/src/lib/legacyDate.mjs
+deleted file mode 100644
+index 3f466ac..0000000
+--- a/src/lib/legacyDate.mjs
++++ /dev/null
+@@ -1,23 +0,0 @@
+-// Deprecated: use ./time.mjs. This reads and writes dates in the server's local time zone, which
+-// is why its output changes with TZ. Kept until the last callers move.
+-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+-const pad = n => String(n).padStart(2, '0');
+-
+-export function parse(value) {
+-  return value instanceof Date ? new Date(value.getTime()) : new Date(value);
+-}
+-
+-/** Tokens: YYYY, MMM (Oct), MM, DD, D, HH, mm. */
+-export function format(value, pattern) {
+-  const d = parse(value);
+-  const parts = { YYYY: d.getFullYear(), MMM: MONTHS[d.getMonth()], MM: pad(d.getMonth() + 1), DD: pad(d.getDate()), D: d.getDate(), HH: pad(d.getHours()), mm: pad(d.getMinutes()) };
+-  return pattern.replace(/YYYY|MMM|MM|DD|D|HH|mm/g, t => String(parts[t]));
+-}
+-
+-export function daysBetween(a, b) {
+-  return Math.floor((parse(b) - parse(a)) / 86400000);
+-}
+-
+-export function addDays(value, n) {
+-  return new Date(parse(value).getTime() + n * 86400000);
+-}
+diff --git a/src/services/digest.mjs b/src/services/digest.mjs
+index e55cc7e..21ebcd4 100644
+--- a/src/services/digest.mjs
++++ b/src/services/digest.mjs
+@@ -1,5 +1,5 @@
+ import { DIGEST_DAY } from '../config.mjs';
+-import { addDays, format } from '../lib/legacyDate.mjs';
++import { addDays, formatShortDay, isoDay } from '../lib/time.mjs';
+ 
+ /** The weekly digest to each library owner, sent on Mondays. */
+ export function createDigest({ repos, analytics, notifier, clock }) {
+@@ -21,8 +21,8 @@ export function createDigest({ repos, analytics, notifier, clock }) {
+           const message = notifier.send('digest', {
+             to: user.email,
+             subject: `Your week in ${library.name}`,
+-            body: `Week of ${format(weekStart, 'MMM D')}\n\n${lines}\n`,
+-            key: `digest:${library.id}:${format(now, 'YYYY-MM-DD')}:${user.id}`,
++            body: `Week of ${formatShortDay(weekStart)}\n\n${lines}\n`,
++            key: `digest:${library.id}:${isoDay(now)}:${user.id}`,
+           });
+           if (message) {
+             sent.push(message);
+diff --git a/src/services/reminders.mjs b/src/services/reminders.mjs
+index e331431..3fff907 100644
+--- a/src/services/reminders.mjs
++++ b/src/services/reminders.mjs
+@@ -1,5 +1,5 @@
+ import { REMINDER_AFTER_DAYS, REMINDER_MAX } from '../config.mjs';
+-import { daysBetween, format } from '../lib/legacyDate.mjs';
++import { daysBetween, formatShortDay, isoDay } from '../lib/time.mjs';
+ 
+ /** The hourly reminder job. See docs/notifications.md for the rules. */
+ export function createReminders({ repos, notifier, clock }) {
+@@ -22,7 +22,7 @@ export function createReminders({ repos, notifier, clock }) {
+         if (earlier.length >= REMINDER_MAX) {
+           continue;
+         }
+-        const key = `reminder:${link.id}:${format(now, 'YYYY-MM-DD')}`;
++        const key = `reminder:${link.id}:${isoDay(now)}`;
+         if (earlier.some(o => o.key === key)) {
+           continue;
+         }
+@@ -30,7 +30,7 @@ export function createReminders({ repos, notifier, clock }) {
+         const message = notifier.send('reminder', {
+           to: link.recipientEmail,
+           subject: `Reminder: ${owner.name} shared "${doc.title}" with you`,
+-          body: `${owner.name} shared "${doc.title}" with you on ${format(link.createdAt, 'MMM D')} and it has not been opened yet.\n\nOpen it: https://dataroom.northwind.example/l/${link.id}\n`,
++          body: `${owner.name} shared "${doc.title}" with you on ${formatShortDay(link.createdAt)} and it has not been opened yet.\n\nOpen it: https://dataroom.northwind.example/l/${link.id}\n`,
+           key,
+         });
+         if (message) {
+diff --git a/src/views/document.mjs b/src/views/document.mjs
+index 9a360b7..bd24baa 100644
+--- a/src/views/document.mjs
++++ b/src/views/document.mjs
+@@ -1,12 +1,12 @@
+ import { escapeHtml, layout } from '../lib/html.mjs';
+-import { format } from '../lib/legacyDate.mjs';
++import { formatDay, formatShortDay } from '../lib/time.mjs';
+ import { fileSize, fileType, mark, plural } from './components.mjs';
+ 
+ export function documentPage({ doc, links }) {
+   const rows = links.map((l) => {
+     const marks = `${l.passcodeHash ? mark('mark-passcode', 'Passcode') : ''}${l.allowDownload === false ? mark('mark-no-download', 'No download') : ''}`;
+-    return `<li data-testid="link-row" data-id="${l.id}"><span data-testid="recipient">${escapeHtml(l.recipientEmail)}</span> <span data-testid="link-created">${format(l.createdAt, 'MMM D')}</span> ${marks}</li>`;
++    return `<li data-testid="link-row" data-id="${l.id}"><span data-testid="recipient">${escapeHtml(l.recipientEmail)}</span> <span data-testid="link-created">${formatShortDay(l.createdAt)}</span> ${marks}</li>`;
+   }).join('');
+-  const meta = `${plural(doc.pageCount, 'page')} · ${fileType(doc.mimeType)} · ${fileSize(doc.sizeBytes)} · uploaded ${format(doc.uploadedAt, 'MMM D, YYYY')}`;
++  const meta = `${plural(doc.pageCount, 'page')} · ${fileType(doc.mimeType)} · ${fileSize(doc.sizeBytes)} · uploaded ${formatDay(doc.uploadedAt)}`;
+   return layout(doc.title, `<a data-testid="back" href="/">Library</a><h1 data-testid="title">${escapeHtml(doc.title)}</h1><p data-testid="doc-meta">${meta}</p><section data-testid="links"><h2>Links</h2><ul>${rows}</ul></section><a data-testid="analytics-link" href="/documents/${doc.id}/analytics">Activity</a>`);
+ }
+diff --git a/src/views/library.mjs b/src/views/library.mjs
+index 1ca16af..46cd74c 100644
+--- a/src/views/library.mjs
++++ b/src/views/library.mjs
+@@ -1,5 +1,5 @@
+ import { escapeHtml, layout } from '../lib/html.mjs';
+-import { format } from '../lib/legacyDate.mjs';
++import { formatDay } from '../lib/time.mjs';
+ import { fileType, mark, plural } from './components.mjs';
+ 
+ function activity(s) {
+@@ -11,7 +11,7 @@ function activity(s) {
+ 
+ /** The library list. `stats` is analytics.documentStats for these documents. */
+ export function libraryPage({ library, documents, stats, q = '' }) {
+-  const rows = documents.map(d => `<li data-testid="doc-row" data-id="${d.id}"><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta"><span data-testid="uploaded">${format(d.uploadedAt, 'MMM D, YYYY')}</span> · <span data-testid="pages">${plural(d.pageCount, 'page')}</span> · <span data-testid="type">${fileType(d.mimeType)}</span>${d.archivedAt ? ` ${mark('mark-archived', 'Archived')}` : ''}</div><div class="activity">${activity(stats[d.id])}</div></li>`).join('');
++  const rows = documents.map(d => `<li data-testid="doc-row" data-id="${d.id}"><a class="title" href="/documents/${d.id}">${escapeHtml(d.title)}</a><div class="meta"><span data-testid="uploaded">${formatDay(d.uploadedAt)}</span> · <span data-testid="pages">${plural(d.pageCount, 'page')}</span> · <span data-testid="type">${fileType(d.mimeType)}</span>${d.archivedAt ? ` ${mark('mark-archived', 'Archived')}` : ''}</div><div class="activity">${activity(stats[d.id])}</div></li>`).join('');
+   const search = `<form data-testid="search" action="/" method="get"><input name="q" value="${escapeHtml(q)}" aria-label="Search"></form>`;
+   const empty = documents.length ? '' : `<p data-testid="empty">${q ? 'No documents match your search.' : 'No documents yet.'}</p>`;
+   return layout(library.name, `<h1 data-testid="library-name">${escapeHtml(library.name)}</h1>${search}<p data-testid="count">${plural(documents.length, 'document')}</p><ul data-testid="documents">${rows}</ul>${empty}`);
+diff --git a/test/dates.test.mjs b/test/dates.test.mjs
+new file mode 100644
+index 0000000..abaf655
+--- /dev/null
++++ b/test/dates.test.mjs
+@@ -0,0 +1,25 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { createApp, request } from './helpers.mjs';
++
++async function dates(tz) {
++  const saved = process.env.TZ;
++  process.env.TZ = tz;
++  try {
++    const app = createApp();
++    const library = (await request(app, { path: '/', user: 'u_owner' })).body;
++    const audit = (await request(app, { path: '/api/libraries/lib_team/audit.csv', user: 'u_owner' })).body;
++    app.clock.set('2026-10-03T23:30:00.000Z');
++    const keys = app.runJob('reminders').map(m => m.key);
++    return { library, audit, keys };
++  } finally {
++    process.env.TZ = saved;
++  }
++}
++
++test('dates read the same whatever the server time zone', async () => {
++  const utc = await dates('UTC');
++  assert.deepEqual(await dates('Pacific/Auckland'), utc);
++  assert.deepEqual(await dates('America/Los_Angeles'), utc);
++  assert.ok(utc.keys.includes('reminder:l2:2026-10-03'));
++});
+diff --git a/test/helpers.mjs b/test/helpers.mjs
+index 0004b18..17dc908 100644
+--- a/test/helpers.mjs
++++ b/test/helpers.mjs
+@@ -1,8 +1,6 @@
+-// The product's dates are UTC, but lib/legacyDate.mjs reads local time; tests pin the zone.
++// The product's dates are UTC whatever the server's zone; tests/dates.test.mjs checks other zones.
+ import { createApp } from '../src/app.mjs';
+ 
+-process.env.TZ = 'UTC';
+-
+ export { createApp };
+ 
+ export function request(app, { method = 'GET', path, user = null, query = {}, body = {}, headers = {} }) {

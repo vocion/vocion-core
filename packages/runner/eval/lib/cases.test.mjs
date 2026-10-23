@@ -1,17 +1,39 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { test } from 'node:test';
 import { contractFor, contractProblems, loadCases, selectCases, sendBackNotes } from './cases.mjs';
 
 const cases = loadCases();
 const sha = 'a'.repeat(40);
 
-test('thirty cases, twenty to tune on and ten held out, every complexity in both', () => {
-  assert.equal(cases.length, 30);
-  assert.equal(cases.filter(c => c.split === 'tuning').length, 20);
-  assert.equal(cases.filter(c => c.split === 'held-out').length, 10);
+test('the core tier: thirty cases, twenty to tune on and ten held out, every complexity in both', () => {
+  const core = cases.filter(c => c.tier === 'core');
+  assert.equal(core.length, 30);
+  assert.equal(core.filter(c => c.split === 'tuning').length, 20);
+  assert.equal(core.filter(c => c.split === 'held-out').length, 10);
   for (const split of ['tuning', 'held-out']) {
     for (const cx of [1, 2, 3, 4]) {
-      assert.ok(cases.some(c => c.split === split && c.complexity === cx), `${split} has a Cx ${cx} case`);
+      assert.ok(core.some(c => c.split === split && c.complexity === cx), `${split} has a Cx ${cx} case`);
+    }
+  }
+});
+
+test('the hard tier: eighteen Cx 4-5 cases on the dataroom fixture, a third held out', () => {
+  const hard = cases.filter(c => c.tier === 'hard');
+  assert.equal(hard.length, 18);
+  assert.equal(hard.filter(c => c.split === 'held-out').length, 6);
+  assert.ok(hard.every(c => c.fixture_ref === 'dataroom' && c.complexity >= 4));
+  for (const split of ['tuning', 'held-out']) {
+    for (const cx of [4, 5]) {
+      assert.ok(hard.some(c => c.split === split && c.complexity === cx), `${split} has a Cx ${cx} case`);
+    }
+  }
+  for (const c of hard.filter(c => c.report_lines)) {
+    const report = fs.readFileSync(path.join(c.dir, 'reference.report.md'), 'utf8');
+    for (const r of c.report_lines) {
+      assert.match(report, new RegExp(r.pattern, r.flags ?? 'i'), `${c.id}: the reference report meets line ${r.line}`);
+      assert.doesNotMatch('Done: built everything that was asked.', new RegExp(r.pattern, r.flags ?? 'i'), `${c.id}: a bare report fails line ${r.line}`);
     }
   }
 });
@@ -43,7 +65,9 @@ test('the send-back names the lines that failed', () => {
 });
 
 test('selectCases by split and by id prefix', () => {
-  assert.equal(selectCases(cases, { split: 'held-out' }).length, 10);
+  assert.equal(selectCases(cases, { split: 'held-out' }).length, 16);
+  assert.equal(selectCases(cases, { split: 'held-out', tier: 'core' }).length, 10);
+  assert.equal(selectCases(cases, { tier: 'hard' }).length, 18);
   assert.deepEqual(selectCases(cases, { ids: ['c07', 'c13-archive'] }).map(c => c.id), ['c07-last-opened', 'c13-archive']);
   assert.throws(() => selectCases(cases, { ids: ['c99'] }), /c99/);
 });

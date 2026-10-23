@@ -29,16 +29,19 @@ test('the fixture is deterministic: the same commits every time', () => {
 });
 
 test('oracle passes and noop fails a case from each fixture and risk class', async () => {
-  const picked = selectCases(cases, { ids: ['c26', 'c29', 'c13', 'c21'] });
+  const picked = selectCases(cases, { ids: ['c26', 'c29', 'c13', 'c21', 'h12'] });
   const good = await runEval({ cases: picked, engineId: 'oracle' });
-  assert.equal(good.summary.all.accepted, 4);
+  assert.equal(good.summary.all.accepted, 5);
   assert.equal(good.summary.all.medianScore, 100);
   assert.equal(good.summary.bySplit['held-out'].runs, 3);
+  assert.equal(good.summary.byTier.hard.all.accepted, 1, 'the dataroom case, with its report line, passes on the reference');
+  assert.equal(good.summary.byTier.core.all.runs, 4);
   const none = await runEval({ cases: picked, engineId: 'noop' });
   assert.equal(none.summary.all.accepted, 0);
   assert.equal(none.results[0].attempts.length, 1, 'nothing kept, so nothing to send back');
   const board = scoreboard(good);
-  assert.match(board, /\| c29-document-access \| held-out \| 2 \| auth \| 1 \| \*\*100\*\*/);
+  assert.match(board, /\| c29-document-access \| core \| held-out \| 2 \| auth \| 1 \| \*\*100\*\*/);
+  assert.match(board, /\| Hard tier \|/);
 });
 
 test('a partial first attempt is sent back with its failed lines and resumed from its branch', async () => {

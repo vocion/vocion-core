@@ -1,0 +1,172 @@
+diff --git a/src/app.mjs b/src/app.mjs
+index 8da4b30..41da989 100644
+--- a/src/app.mjs
++++ b/src/app.mjs
+@@ -9,6 +9,7 @@ import { createRepos } from './repos/index.mjs';
+ import { createAccess } from './services/access.mjs';
+ import { createAnalytics } from './services/analytics.mjs';
+ import { createDigest } from './services/digest.mjs';
++import { createErasure } from './services/erasure.mjs';
+ import { createEvents } from './services/events.mjs';
+ import { createNotifier } from './services/notifications.mjs';
+ import { createReminders } from './services/reminders.mjs';
+@@ -40,6 +41,7 @@ export function createApp({ db, now, seed = true } = {}) {
+   const services = { events, access, notifier, analytics, search, sharing };
+   services.reminders = createReminders({ repos, notifier, clock });
+   services.digest = createDigest({ repos, analytics, notifier, clock });
++  services.erasure = createErasure({ repos, events, clock });
+   const app = { db: database, clock, ids, repos, services };
+   const route = createRouter(ROUTES);
+   return {
+diff --git a/src/http/routes/users.mjs b/src/http/routes/users.mjs
+index da2b441..1b306e8 100644
+--- a/src/http/routes/users.mjs
++++ b/src/http/routes/users.mjs
+@@ -6,6 +6,12 @@ const PREFS = new Set(Object.values(TYPES).map(t => t.preference));
+ export const userRoutes = [
+   ['GET', '/api/me', ({ user, repos }) => ({ json: { user: { id: user.id, email: user.email, name: user.name, prefs: user.prefs }, libraries: repos.libraries.forUser(user.id) } })],
+ 
++  // Erasure on request (docs/policy.md): the person's data goes, the audit log stays, pseudonymized.
++  ['DELETE', '/api/me', ({ user, services }) => {
++    services.erasure.erase(user.id);
++    return { status: 204, json: {} };
++  }],
++
+   ['PATCH', '/api/me/prefs', ({ user, body, repos }) => {
+     for (const [k, v] of Object.entries(body)) {
+       if (!PREFS.has(k) || typeof v !== 'boolean') {
+diff --git a/src/repos/audit.mjs b/src/repos/audit.mjs
+index 2abb519..9441691 100644
+--- a/src/repos/audit.mjs
++++ b/src/repos/audit.mjs
+@@ -3,5 +3,7 @@ export function auditRepo(db, ids) {
+     all: () => db.all('audit'),
+     forTarget: targetId => db.where('audit', a => a.targetId === targetId),
+     write: entry => db.insert('audit', { id: ids.next('aud'), ...entry }),
++    /** Rewrites entries in place; for erasure only: entries are never deleted (docs/policy.md). */
++    rewrite: (id, patch) => db.update('audit', id, patch),
+   };
+ }
+diff --git a/src/repos/libraries.mjs b/src/repos/libraries.mjs
+index d4724fd..3ba205f 100644
+--- a/src/repos/libraries.mjs
++++ b/src/repos/libraries.mjs
+@@ -7,6 +7,7 @@ export function librariesRepo(db) {
+     isMember(libraryId, userId) {
+       return Boolean(userId) && db.where('memberships', m => m.libraryId === libraryId && m.userId === userId).length > 0;
+     },
++    removeMemberships: userId => db.remove('memberships', m => m.userId === userId),
+     forUser: userId => db.where('memberships', m => m.userId === userId).map(m => m.libraryId),
+   };
+ }
+diff --git a/src/repos/users.mjs b/src/repos/users.mjs
+index cd671aa..f280fbf 100644
+--- a/src/repos/users.mjs
++++ b/src/repos/users.mjs
+@@ -3,6 +3,7 @@ export function usersRepo(db) {
+     find: id => db.find('users', id),
+     byEmail: email => db.where('users', u => u.email.toLowerCase() === String(email || '').toLowerCase())[0] || null,
+     all: () => db.all('users'),
++    remove: id => db.remove('users', u => u.id === id),
+     setPrefs(id, prefs) {
+       const u = db.find('users', id);
+       return u ? db.update('users', id, { prefs: { ...u.prefs, ...prefs } }) : null;
+diff --git a/src/repos/views.mjs b/src/repos/views.mjs
+index faa2d9e..29e4801 100644
+--- a/src/repos/views.mjs
++++ b/src/repos/views.mjs
+@@ -4,5 +4,6 @@ export function viewsRepo(db, ids) {
+     forDocument: docId => db.where('views', v => v.docId === docId),
+     forLink: linkId => db.where('views', v => v.linkId === linkId),
+     record: view => db.insert('views', { id: ids.next('view'), ...view }),
++    removeWhere: predicate => db.remove('views', predicate),
+   };
+ }
+diff --git a/src/services/erasure.mjs b/src/services/erasure.mjs
+new file mode 100644
+index 0000000..a000ae7
+--- /dev/null
++++ b/src/services/erasure.mjs
+@@ -0,0 +1,61 @@
++import { sha256 } from '../lib/crypto.mjs';
++
++/**
++ * Erasing a person on request (docs/policy.md). Their documents, the links on them and the links
++ * they made, the views recorded against them and their memberships are removed. The audit log is
++ * kept for 7 years and never deleted, so their entries stay, but keep no more about them than they
++ * need: their id becomes one stable pseudonym, and their email and name are blanked wherever an
++ * entry carries them.
++ */
++export function createErasure({ repos, events, clock }) {
++  const scrub = (value, secrets) => {
++    if (typeof value === 'string') {
++      return secrets.some(s => value.toLowerCase() === s.toLowerCase()) ? '[erased]' : value;
++    }
++    if (Array.isArray(value)) {
++      return value.map(v => scrub(v, secrets));
++    }
++    if (value && typeof value === 'object') {
++      return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, scrub(v, secrets)]));
++    }
++    return value;
++  };
++
++  return {
++    erase(userId) {
++      const user = repos.users.find(userId);
++      if (!user) {
++        return null;
++      }
++      const pseudonym = `erased_${sha256(`${user.id}:${user.email}`).slice(0, 12)}`;
++      const email = user.email.toLowerCase();
++
++      const docs = repos.documents.all().filter(d => d.ownerId === userId);
++      const docIds = new Set(docs.map(d => d.id));
++      const links = repos.links.all().filter(l => docIds.has(l.docId) || l.createdBy === userId);
++      const linkIds = new Set(links.map(l => l.id));
++      repos.views.removeWhere(v => docIds.has(v.docId) || linkIds.has(v.linkId) || v.userId === userId || String(v.viewerEmail).toLowerCase() === email);
++      for (const link of links) {
++        repos.links.remove(link.id);
++      }
++      for (const doc of docs) {
++        repos.documents.remove(doc.id);
++        events.emit('document.deleted', { doc });
++      }
++      repos.libraries.removeMemberships(userId);
++
++      const secrets = [user.id, user.email, user.name];
++      for (const entry of repos.audit.all()) {
++        const actorId = entry.actorId === userId ? pseudonym : entry.actorId;
++        const detail = scrub(entry.detail, secrets);
++        const targetId = entry.targetId === userId ? pseudonym : entry.targetId;
++        if (actorId !== entry.actorId || targetId !== entry.targetId || JSON.stringify(detail) !== JSON.stringify(entry.detail)) {
++          repos.audit.rewrite(entry.id, { actorId, targetId, detail });
++        }
++      }
++      repos.users.remove(userId);
++      repos.audit.write({ at: clock.now(), actorId: pseudonym, action: 'user.erased', targetId: pseudonym, detail: { documents: docs.length, links: links.length } });
++      return pseudonym;
++    },
++  };
++}
+diff --git a/test/erasure.test.mjs b/test/erasure.test.mjs
+new file mode 100644
+index 0000000..aa3526b
+--- /dev/null
++++ b/test/erasure.test.mjs
+@@ -0,0 +1,15 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { createApp, request } from './helpers.mjs';
++
++test('erasure removes a person\'s data but keeps the audit log, pseudonymized', async () => {
++  const app = createApp();
++  await request(app, { method: 'POST', path: '/api/documents/d6/links', user: 'u_other', body: { recipientEmail: 'x@y.example' } });
++  const entries = app.repos.audit.all().length;
++  assert.equal((await request(app, { method: 'DELETE', path: '/api/me', user: 'u_other' })).status, 204);
++  assert.equal(app.repos.users.find('u_other'), null);
++  assert.equal(app.repos.documents.find('d6'), null);
++  const audit = app.repos.audit.all();
++  assert.equal(audit.length, entries + 1);
++  assert.doesNotMatch(JSON.stringify(audit), /u_other|ana@acme\.example/);
++});

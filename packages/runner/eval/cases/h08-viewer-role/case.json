@@ -1,0 +1,28 @@
+{
+  "id": "h08-viewer-role",
+  "tier": "hard",
+  "split": "tuning",
+  "complexity": 5,
+  "risk_class": "auth",
+  "origin": {
+    "walk": 29,
+    "kind": "walk-derived",
+    "note": "Walk 29's access line, grown into a role: every route has to refuse a viewer, and the negative tests are the grade."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Add a read-only viewer role",
+  "objective": "Library owners want to give some people read-only access. Add a `viewer` role beside `owner` and `editor`. A viewer can see the library page, list, search and read documents (API and document page), and nothing else: creating, renaming, archiving or deleting documents, seeing, creating, changing or removing links, the activity page and analytics API, the audit export and managing members all answer 403 `forbidden` to a viewer and change nothing; the document page shows a viewer no links and no activity link. Owners manage members: `POST /api/libraries/:id/members` with `{ email, role }` adds an existing user (201 `{ member: { userId, libraryId, role } }`; 400 `invalid_role`, `unknown_user` or `already_member`), and `PATCH /api/libraries/:id/members/:userId` with `{ role }` changes a role (404 if not a member; 400 `last_owner` when it would leave the library without an owner). Only owners may do either (403 for other members, 404 for outsiders). Both write audit entries (`member.added`, `member.role_changed`). Editors and outsiders behave exactly as today. Add tests, including the refusals.",
+  "acceptance": [
+    "Library owners add members with a role, with validation, permission and audit",
+    "A viewer reads the library, its documents and search",
+    "A viewer gets 403 from every changing, link, activity, audit and member route, nothing is written, and the document page shows no links",
+    "Owners change roles with validation and audit; the last owner cannot be demoted",
+    "Editors and outsiders are unaffected"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**",
+    "docs/**"
+  ],
+  "plan_summary": "access gains canEdit/editableDocument; document, link, analytics and sharing paths refuse viewers; a members route module with add and change-role; the document view hides links from viewers; tests."
+}

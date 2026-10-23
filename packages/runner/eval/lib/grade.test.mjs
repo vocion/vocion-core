@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseTap, scopeFindings } from './grade.mjs';
+import { parseTap, reportLines, scopeFindings } from './grade.mjs';
 
 test('parseTap reads the top-level A lines and counts a missing line as failed', () => {
   const tap = [
@@ -36,4 +36,11 @@ test('scopeFindings names person-owned files, deleted tests and files beyond the
   assert.deepEqual(f.testsDeleted, ['test/api.test.mjs']);
   assert.ok(f.beyondPlan.includes('README.md'));
   assert.ok(!f.beyondPlan.includes('src/api.mjs'));
+});
+
+test('reportLines grades a line from the run\'s own report', () => {
+  const c = { acceptance: ['a', 'b'], report_lines: [{ line: 2, pattern: 'policy' }] };
+  assert.deepEqual(reportLines(c, 'I left it out: the Policy forbids it.').map(r => [r.index, r.passed]), [[1, true]]);
+  assert.deepEqual(reportLines(c, '').map(r => [r.index, r.passed]), [[1, false]]);
+  assert.deepEqual(reportLines({ acceptance: ['a'] }, 'x'), []);
 });

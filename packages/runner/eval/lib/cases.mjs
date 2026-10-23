@@ -9,12 +9,13 @@ import { validateContract } from '../../src/contract.mjs';
 export const EVAL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CASES_DIR = path.join(EVAL_DIR, 'cases');
 export const SPLITS = ['tuning', 'held-out'];
-export const FIXTURE_REFS = ['v1', 'v2'];
+export const FIXTURE_REFS = ['v1', 'v2', 'dataroom'];
+export const TIERS = ['core', 'hard'];
 
 // What a case gets by complexity: the runner's budget and wall clock (the factory sizes neither by
 // complexity yet; walk 20 lost 40 minutes to one number for every task).
-export const BUDGET_USD = { 1: 3, 2: 4, 3: 8, 4: 12 };
-export const WALL_CLOCK_MINUTES = { 1: 20, 2: 25, 3: 40, 4: 45 };
+export const BUDGET_USD = { 1: 3, 2: 4, 3: 8, 4: 12, 5: 20 };
+export const WALL_CLOCK_MINUTES = { 1: 20, 2: 25, 3: 40, 4: 45, 5: 60 };
 
 // The fixture's files a person owns: its own instructions and scripts, and CI.
 export const HUMAN_OWNED = ['CLAUDE.md', 'package.json', 'package-lock.json', '.github/**'];
@@ -43,8 +44,16 @@ export function caseProblems(c, dir) {
   if (!SPLITS.includes(c.split)) {
     out.push(`${c.id}: split must be one of ${SPLITS.join(', ')}`);
   }
-  if (![1, 2, 3, 4].includes(c.complexity)) {
-    out.push(`${c.id}: complexity must be 1 to 4`);
+  if (![1, 2, 3, 4, 5].includes(c.complexity)) {
+    out.push(`${c.id}: complexity must be 1 to 5`);
+  }
+  if (c.tier !== undefined && !TIERS.includes(c.tier)) {
+    out.push(`${c.id}: tier must be one of ${TIERS.join(', ')}`);
+  }
+  for (const r of c.report_lines || []) {
+    if (!(r.line >= 1 && r.line <= (c.acceptance || []).length) || typeof r.pattern !== 'string') {
+      out.push(`${c.id}: report_lines need a line within acceptance and a pattern`);
+    }
   }
   if (!FIXTURE_REFS.includes(c.fixture_ref)) {
     out.push(`${c.id}: fixture_ref must be one of ${FIXTURE_REFS.join(', ')}`);
@@ -71,7 +80,7 @@ export function loadCases(dir = CASES_DIR) {
         problems.push(`${c.id}: ${f} is missing`);
       }
     }
-    cases.push({ ...c, dir: caseDir, grader: path.join(caseDir, 'grader.test.mjs'), reference: path.join(caseDir, 'reference.patch') });
+    cases.push({ tier: 'core', ...c, dir: caseDir, grader: path.join(caseDir, 'grader.test.mjs'), reference: path.join(caseDir, 'reference.patch') });
   }
   const ids = cases.map(c => c.id);
   for (const id of new Set(ids.filter((id, i) => ids.indexOf(id) !== i))) {
@@ -84,13 +93,13 @@ export function loadCases(dir = CASES_DIR) {
 }
 
 /** The cases a run asks for: a split ('tuning', 'held-out' or 'all') and an optional id list. */
-export function selectCases(cases, { split = 'all', ids = [] } = {}) {
+export function selectCases(cases, { split = 'all', ids = [], tier = 'all' } = {}) {
   const named = id => c => c.id === id || c.id.startsWith(`${id}-`);
   const unknown = ids.filter(id => !cases.some(named(id)));
   if (unknown.length) {
     throw new Error(`no case ${unknown.join(', ')}`);
   }
-  return cases.filter(c => (split === 'all' || c.split === split) && (!ids.length || ids.some(id => named(id)(c))));
+  return cases.filter(c => (split === 'all' || c.split === split) && (tier === 'all' || c.tier === tier) && (!ids.length || ids.some(id => named(id)(c))));
 }
 
 /**
@@ -101,7 +110,7 @@ export function selectCases(cases, { split = 'all', ids = [] } = {}) {
 export function contractFor(c, { repo, baseSha, attempt = 1, run = 1, notes = '', modelPolicy = {} }) {
   const contract = {
     task_id: `eval-${c.id}-r${run}`,
-    product: 'northwind-library',
+    product: c.fixture_ref === 'dataroom' ? 'northwind-dataroom' : 'northwind-library',
     repo,
     base_sha: baseSha,
     title: c.title,

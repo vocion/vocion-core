@@ -33,17 +33,26 @@ and is the starting point of the `v2` cases. The fixture's git history is fixed 
 its commits are the same on every machine: v1 `c08db6ba9dd0`, v2 `2fd9f8a8b68b`. No case needs
 DeliveryStack or a Vocion installation.
 
+The hard tier runs on `fixture/dataroom-app`, a larger product in layers (about 60 files: an
+in-memory database with real migrations, repositories, services, routes, views, jobs, docs with the
+product rules and a test suite), so finding the right code and the rule that governs it is part of
+the work. Its commit, `dataroom` `f7992e316e83` on the `eval-fixture-dataroom` branch, sits on v1
+and replaces the tree, so its pull requests share the sandbox's `main` history.
+
 ## Cases
 
-30 cases: 20 to tune on, 10 held out. Tune prompts, settings and routing on the tuning split only;
-the held-out split is read when an engine is judged, never while it is being tuned.
+48 cases in two tiers, reported separately: the core tier (30 cases, 20 to tune on, 10 held out)
+and the hard tier (18 cases, 12 tuning, 6 held out). Tune prompts, settings and routing on the
+tuning split only; the held-out split is read when an engine is judged, never while it is being
+tuned.
 
-Complexity is the walk scale (1 a line of copy, 4 a feature with a schema or security edge). Every
-complexity is in both splits. Risk classes: ui 14, logic 10, schema 3, auth 2, docs 1.
+Complexity is the walk scale (1 a line of copy, 4 a feature with a schema or security edge, 5 a
+change across schema, API, UI, jobs and docs). Every complexity is in both splits of its tier.
+Core risk classes: ui 14, logic 10, schema 3, auth 2, docs 1.
 "walk" cases are the walk's ask as asked; "walk-adapted" changes a detail the fixture lacks;
 "walk-derived" is a smaller ask drawn from what a walk found.
 
-### Tuning (20)
+### Core tier, tuning (20)
 
 | Case | Cx | Risk | Fixture | From walk | Lines | Ask |
 |---|---|---|---|---|---|---|
@@ -68,7 +77,7 @@ complexity is in both splits. Risk classes: ui 14, logic 10, schema 3, auth 2, d
 | `c27-search` | 2 | logic | v1 | 13 (walk-derived) | 3 | Search ignores case, extra spaces and word order, and matches whole words from their start |
 | `c28-empty-states` | 2 | ui | v1 | 26 (walk-derived) | 3 | Friendly empty states on the library |
 
-### Held out (10)
+### Core tier, held out (10)
 
 | Case | Cx | Risk | Fixture | From walk | Lines | Ask |
 |---|---|---|---|---|---|---|
@@ -83,9 +92,50 @@ complexity is in both splits. Risk classes: ui 14, logic 10, schema 3, auth 2, d
 | `c29-document-access` | 2 | auth | v1 | 13 (walk-derived) | 4 | A document in another library is not reachable by id |
 | `c30-shared-by` | 1 | ui | v1 | 17 (walk-derived) | 2 | Say who shared the document on the visitor page |
 
+### Hard tier
+
+Multi-file, multi-layer work on the dataroom fixture, each graded by hidden tests and checked
+against a known-good reference. The mix: cross-cutting features (migration, API, UI, jobs, docs),
+behaviour-preserving refactors graded by byte-identical output or a full access matrix, bug hunts
+from a support ticket with no file pointers, performance fixes with a measured bar (database reads,
+a time ratio), permission changes graded mostly by refusals, an API migration, a retrieval case
+whose rules are all in the codebase already, and two asks that collide with the product's data
+policy, where the right result is to build the honest part and say why the rest was not built.
+Those two grade one line from the run's own report (`report_lines` in `case.json`, a pattern over
+the runner's agent report; the oracle reads `reference.report.md`).
+
+#### Hard tier, tuning (12)
+
+| Case | Cx | Risk | Kind | From walk | Lines | Ask |
+|---|---|---|---|---|---|---|
+| `h01-document-expiry` | 5 | schema | cross-cutting | 22 (walk-derived) | 6 | Let documents expire |
+| `h02-access-refactor` | 4 | auth | refactor | 17 (walk-derived) | 4 | Centralize the access checks |
+| `h04-duplicate-reminders` | 4 | logic | bug hunt | 5 (walk-derived) | 4 | Bug: recipients get two reminders an hour apart |
+| `h05-search-stale-after-rename` | 4 | logic | bug hunt | 14 (walk-derived) | 3 | Bug: search cannot find a document I renamed |
+| `h06-library-page-reads` | 4 | logic | performance | 23 (walk-derived) | 4 | Make the library page fast for big libraries |
+| `h08-viewer-role` | 5 | auth | auth | 29 (walk-derived) | 5 | Add a read-only viewer role |
+| `h10-retire-legacy-dates` | 4 | logic | API migration | 3 (walk-derived) | 3 | Retire the legacy date helper |
+| `h12-visitor-city` | 4 | logic | ambiguous | 27 (walk-derived) | 4 | Show each visitor's browser and city on the activity page |
+| `h14-activity-export` | 4 | logic | retrieval | 11 (walk-derived) | 4 | Export a document's activity as CSV |
+| `h15-comments-mentions` | 5 | schema | cross-cutting | 19 (walk-derived) | 5 | Comments on documents, with @mentions |
+| `h17-preview-bots-counted` | 4 | logic | bug hunt | 23 (walk-derived) | 4 | Bug: links count as opened the moment we paste them in chat |
+| `h20-api-tokens` | 5 | auth | auth | synthetic | 5 | Personal API tokens with read and write scopes |
+
+#### Hard tier, held out (6)
+
+| Case | Cx | Risk | Kind | From walk | Lines | Ask |
+|---|---|---|---|---|---|---|
+| `h03-owner-preview-counted` | 4 | logic | bug hunt | 26 (walk-derived) | 4 | Bug: links show as opened that the recipient never opened |
+| `h07-search-at-scale` | 4 | logic | performance | 13 (walk-derived) | 3 | Make search fast on 20,000 documents |
+| `h09-passcode-lockout` | 4 | auth | auth | 25 (walk-derived) | 4 | Lock a link after repeated wrong passcodes |
+| `h13-erasure-vs-retention` | 5 | logic | ambiguous | synthetic | 5 | Let people delete their account and all their data |
+| `h16-multiple-recipients` | 5 | schema | cross-cutting | 22 (walk-derived) | 5 | Share one link with several recipients |
+| `h19-email-templates` | 4 | logic | refactor | 5 (walk-derived) | 4 | Move email copy into templates |
+
 Each case directory holds `case.json` (the ask, its acceptance lines, the paths it may touch and
 the approved plan summary), `grader.test.mjs` (the hidden tests, titled `A1:` to `An:`, one per
-acceptance line) and `reference.patch`.
+acceptance line) and `reference.patch`. Dataroom graders import `cases/grader-helpers-dataroom.mjs`
+(the product's stable entry points only), core graders `cases/grader-helpers.mjs`.
 
 ## The score
 
@@ -103,7 +153,7 @@ read through an engine run, where there is no person and no chat. The exact step
 
 An attempt the hidden tests do not fully pass is sent back the way QA sends work back: the next
 attempt's contract carries notes naming the lines that failed and resumes from the kept branch,
-up to three attempts. The report gives, overall, per split and per complexity: accepted rate with a
+up to three attempts. The report gives, overall, per split, per complexity and per tier: accepted rate with a
 90% interval, first-attempt rate, lines passed, median score, median minutes to pull request,
 median and total cost (from the runner's `claude.finished` lines), infrastructure failures and
 guard violations. The live check is not part of a fixture run and is recorded as absent.
@@ -122,14 +172,15 @@ node packages/runner/eval/run.mjs run \
 
 `run` writes `results/<time>-<engine>/<engine>.json` and `.md` (the scoreboard), plus each
 attempt's runner log and `runs.jsonl`, one line per finished run. Flags: `--split
-tuning|held-out|all`, `--cases c07,c13`, `--runs`, `--max-attempts` (3), `--model` (the engineering
+tuning|held-out|all`, `--tier core|hard|all`, `--cases c07,c13`, `--runs`, `--max-attempts` (3), `--model` (the engineering
 seat's pin, `claude-opus-5-5`), `--effort`, `--out`, and for long runs `--concurrency` (runs at
 once), `--max-spend <usd>` and `--max-infra-streak <n>` (stop starting work, and stop the running
 containers, past either), and `--resume <results dir>` (skip the runs already in its `runs.jsonl`).
 `report --resume <results dir>` rebuilds the report from `runs.jsonl`.
 
-`results/` stays out of git: it holds the runner logs. A baseline worth keeping is copied to
-`baselines/` (report JSON and scoreboard only), after checking it carries no credentials.
+`results/` stays out of git: it holds the runner logs. A baseline worth keeping goes to
+`baselines/` with `export --resume <results dir> --name <name>` (report JSON and scoreboard only,
+repository owners replaced by `<sandbox-owner>`), after checking it carries no credentials.
 
 ## Baselines
 
@@ -153,12 +204,13 @@ refuse to run until they are built (Phases 3 and 4).
   the baseline reaches the model with an Anthropic key, not Bedrock.
 - **`GITHUB_TOKEN`** that can push branches and open pull requests on the sandbox repository.
 - **A sandbox GitHub repository** (`--fixture-repo` or `EVAL_FIXTURE_REPO`, an https URL; the
-  contract accepts nothing else). The eval pushes the fixture to its `main` and `eval-fixture-v2`
-  (never forcing), the runner opens its pull requests there, and the eval fetches each commit back
+  contract accepts nothing else). The eval pushes the fixture to its `main`, `eval-fixture-v2` and
+  `eval-fixture-dataroom` (never forcing), the runner opens its pull requests there, and the eval fetches each commit back
   to grade it. Use a repository nothing else depends on.
 
-Budget: the runner's cost cap per attempt is $3 to $12 by complexity (`lib/cases.mjs`), so one
-pass over all 30 cases is at most about $610 with every retry, far less in practice.
+Budget: the runner's cost cap per attempt is $3 to $20 by complexity (`lib/cases.mjs`; Cx 5 also
+gets 60 minutes of wall clock), so one pass over the 30 core cases is at most about $610 with
+every retry and the 18 hard cases about $790, far less in practice; use `--max-spend`.
 
 ## Changing a case
 

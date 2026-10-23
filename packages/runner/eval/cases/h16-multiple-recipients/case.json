@@ -1,0 +1,28 @@
+{
+  "id": "h16-multiple-recipients",
+  "tier": "hard",
+  "split": "held-out",
+  "complexity": 5,
+  "risk_class": "schema",
+  "origin": {
+    "walk": 22,
+    "kind": "walk-derived",
+    "note": "Walk 22's link lines assumed one recipient per link; sharing with a deal team needs several. A data-model change with a backfill and a compatibility promise, through every layer that reads a link."
+  },
+  "fixture_ref": "dataroom",
+  "title": "Share one link with several recipients",
+  "objective": "Owners share the same document with a whole deal team and are tired of making one link per person. Let a link have several recipients. `POST /api/documents/:id/links` accepts `{ recipients: [emails] }` (trimmed, lower-cased, de-duplicated, 1 to 20 addresses; 400 `invalid_email` if any is not an email or the list is empty, 400 `too_many_recipients` above 20) and still accepts the old `{ recipientEmail }`. Link responses carry `recipients` and keep `recipientEmail` as the first recipient, so existing clients keep working. Existing links must get their recipient as a one-item list through a new migration. Each recipient gets their own share email whose address is `/l/<link id>?to=<url-encoded email>`; an open through that address is recorded against that recipient, and any other open against the first recipient. Reminders go to each recipient who has not opened the link yet, under the existing rules per recipient. The document page and the activity page show all of a link's recipients, comma-separated. Existing single-recipient links must behave exactly as before. Add tests.",
+  "acceptance": [
+    "A new migration backfills recipients for existing links; migrations 1 to 3 are unchanged; the API returns recipients and recipientEmail",
+    "Links take a validated list of recipients and still take recipientEmail",
+    "Each recipient gets their own share email with their own ?to= address",
+    "Opens are recorded against the recipient who opened, and only recipients who have not opened are reminded",
+    "Existing single-recipient links behave as before; the document and activity pages list every recipient"
+  ],
+  "allowed_paths": [
+    "src/**",
+    "test/**",
+    "docs/**"
+  ],
+  "plan_summary": "Migration 004 adds links.recipients with a backfill; sharing normalizes recipients, emails each with a personal address and attributes opens; reminders run per recipient; link API, analytics and both pages show every recipient; tests."
+}
