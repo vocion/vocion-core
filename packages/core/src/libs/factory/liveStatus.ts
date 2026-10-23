@@ -328,4 +328,9 @@ export type TurnRecord = {
   change: { fields: string[]; version: number; historyRef: string } | null;
   /** Whether its type has a report page, and so a status to read. */
   hasStatus: boolean;
+  /**
+   * The record's own lifecycle, when its type moves the row (`libs/objects/rowLifecycle`): its type
+   * slug and where it is, so the microcard can offer Done with Undo. Absent for a type with its own status.
+   */
+  lifecycle?: { objectType: string; status: string };
 };

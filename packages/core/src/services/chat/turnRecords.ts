@@ -3,6 +3,7 @@ import type { WrittenVersion } from '@/libs/versions/versionRef';
 import type { RecordRef } from '@/services/chat/pageContext';
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { offersOwedVerbs } from '@/libs/objects/rowLifecycle';
 import { historyRefId } from '@/libs/versions/versionRef';
 import { hasReportPage, recordCodeFrom, recordHrefFrom } from '@/libs/workspace/recordHref';
 import { actionRunSchema, businessObjectSchema, businessObjectTypeSchema, conversationMessageSchema, conversationSchema, toolCallSchema } from '@/models/Schema';
@@ -87,7 +88,7 @@ async function describeRecords(orgId: string, ids: readonly number[], opts: { fi
     return [];
   }
   const rows = await db
-    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, type: businessObjectTypeSchema.slug })
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, status: businessObjectSchema.status, type: businessObjectTypeSchema.slug, schema: businessObjectTypeSchema.schema })
     .from(businessObjectSchema)
     .leftJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.id, [...ids])));
@@ -107,6 +108,7 @@ async function describeRecords(orgId: string, ids: readonly number[], opts: { fi
       filed: made,
       change: made ? null : opts.changes?.get(id) ?? null,
       hasStatus: hasReportPage(links, row.type),
+      ...(row.type && offersOwedVerbs(row.schema) ? { lifecycle: { objectType: row.type, status: row.status ?? 'open' } } : {}),
     }];
   });
 }

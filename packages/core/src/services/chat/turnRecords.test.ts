@@ -36,6 +36,16 @@ describe('turnRecordsOf', () => {
     ]);
   });
 
+  it('carries the verbs of a thing owed — its type and where it stands — so the microcard can offer Done', async () => {
+    const [owed] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'follow-up', label: 'Follow-Up', schema: { 'type': 'object', 'x-owed': true, 'properties': { owed_action: { type: 'string' } } } } as never).returning({ id: businessObjectTypeSchema.id });
+    const [open] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: owed!.id, title: 'Send Dana the deck', status: 'active', metadata: {} } as never).returning({ id: businessObjectSchema.id });
+    const [done] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: owed!.id, title: 'Thank Contoso for the intro', status: 'done', metadata: {} } as never).returning({ id: businessObjectSchema.id });
+
+    const out = await turnRecordsOf(ORG, { created: [{ type: 'object', id: String(open!.id) }, { type: 'object', id: String(done!.id) }], written: [], fields: new Map() });
+
+    expect(out.map(r => r.lifecycle)).toEqual([{ objectType: 'follow-up', status: 'active' }, { objectType: 'follow-up', status: 'done' }]);
+  });
+
   it('is nothing for a turn that filed and changed nothing', async () => {
     expect(await turnRecordsOf(ORG, { created: [], written: [], fields: new Map() })).toEqual([]);
   });
