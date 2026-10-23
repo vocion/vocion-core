@@ -167,6 +167,9 @@ for (const [device, viewport] of [['phone', { width: 390, height: 844 }], ['desk
       const panel = page.getByTestId('running-work-panel');
 
       await expect(panel).toBeVisible();
+      // In the one preview pane, addressed like every other preview: no sheet of its own.
+      await expect(page.getByTestId('preview-panel').getByTestId('running-work-panel')).toBeVisible();
+      await expect(page).toHaveURL(/[?&]preview=conversation(?::|%3A)\d+\.work/);
       await expect(panel.getByTestId('work-item')).toHaveCount(1);
       await expect(panel).toContainText('Reconcile the Northwind invoices');
 

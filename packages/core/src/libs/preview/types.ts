@@ -76,6 +76,12 @@ export type PreviewDoc = {
    */
   routineBatch?: import('@/libs/routines/types').RoutineBatchView;
   /**
+   * The background work behind a conversation (`libs/preview/workRef.ts`): what runs now, with
+   * Stop, and what finished since it began (`features/dashboard/chat/work/RunningWork`, re-read
+   * while anything runs). When set, the pane draws this in place of the facts and the body.
+   */
+  work?: { conversationId: number; view: import('@/services/work/WorkService').WorkView };
+  /**
    * A feature's Timeline, drawn by the component its page draws it with, at
    * full density (`FeatureTimeline`), after the subtitle and in place of the
    * body (Chris, 2026-10-02: one list, two densities).
@@ -93,6 +99,12 @@ export type PreviewDoc = {
    * the pane and kept current while something runs.
    */
   status?: import('@/libs/factory/liveStatus').RecordStatus;
+  /**
+   * A record that moves through its own lifecycle (`libs/objects/rowLifecycle`):
+   * its type and where it is, so the pane offers Do it, Done and Drop with Undo
+   * (`features/dashboard/objects/RecordLifecycle`).
+   */
+  lifecycle?: { objectType: string; status: string };
   /** In-app full detail page. Relative only. */
   href?: string;
   /**

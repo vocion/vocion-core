@@ -100,9 +100,11 @@ import type { TokenUsage } from '@/libs/pricing';
 import { and, eq, inArray, notLike, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { budgetGuards, chargeObservers } from '@/libs/extensions';
+import { providerOfModel } from '@/libs/llm/usage';
 import { tokenCostMicroCents, totalTokens } from '@/libs/pricing';
 import { agentBudgetSchema, agentSchema } from '@/models/Schema';
 import { noteRunCost } from '@/services/budget/runCost';
+import { recordModelCall } from '@/services/spend/ledger';
 
 export type BudgetPeriod = 'daily' | 'monthly';
 
@@ -645,6 +647,8 @@ function withAgentDefaultCaps(opts: {
  * @param opts.model - Resolved model id, as `libs/pricing` keys them.
  * @param opts.usage - Tokens the provider reported.
  * @param opts.period - Which period to charge (default daily).
+ * @param opts.latencyMs - How long the call took, when the caller timed it (the ledger keeps it).
+ * @param opts.traceId - The trace the call is in, when there is one (the ledger keeps it).
  */
 export async function chargeUsage(opts: {
   orgId: string;
@@ -653,6 +657,8 @@ export async function chargeUsage(opts: {
   model: string;
   usage: TokenUsage;
   period?: BudgetPeriod;
+  latencyMs?: number;
+  traceId?: string;
 }): Promise<void> {
   const period: BudgetPeriod = opts.period ?? 'daily';
   // Micro-cents straight from the price table, not cents multiplied back up:
@@ -678,6 +684,23 @@ export async function chargeUsage(opts: {
   // write lands: a run's cost is what it spent, not what the counters saw
   // (`services/budget/runCost.ts`).
   await noteRunCost(tokens, microCents);
+  // One ledger row per call, whatever counters it lands on: an agent row and a
+  // feature row are two counters for the same call, never two calls
+  // (`services/spend/ledger.ts`).
+  await recordModelCall({
+    orgId: opts.orgId,
+    agentSlug: opts.agentSlug,
+    feature: opts.feature,
+    model: opts.model,
+    provider: providerOfModel(opts.model),
+    inputTokens: opts.usage.inputTokens ?? 0,
+    outputTokens: opts.usage.outputTokens ?? 0,
+    cacheReadTokens: opts.usage.cacheReadTokens ?? 0,
+    cacheWriteTokens: opts.usage.cacheWriteTokens ?? 0,
+    microCents,
+    latencyMs: opts.latencyMs,
+    traceId: opts.traceId,
+  });
   await writeChargeWithRetry(rows, period, tokens, microCents);
   await notifyChargeObservers({ orgId: opts.orgId, agentSlug: opts.agentSlug, feature: opts.feature, tokens, microCents, at: new Date() });
 }

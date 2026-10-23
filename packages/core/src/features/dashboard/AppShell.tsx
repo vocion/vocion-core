@@ -5,6 +5,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { cookies } from 'next/headers';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AgentBudgetBanner } from '@/features/dashboard/AgentBudgetBanner';
+import { appsElsewhere } from '@/features/dashboard/appsElsewhere';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
@@ -12,6 +13,7 @@ import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey
 import { PageDock } from '@/features/dashboard/chat/PageDock';
 import { PageContextProvider } from '@/features/dashboard/context/PageContextProvider';
 import { PageSelectionAsk } from '@/features/dashboard/context/PageSelectionAsk';
+import { AppNotHereNotice } from '@/features/dashboard/nav/AppNotHereNotice';
 import { PageWidth } from '@/features/dashboard/PageWidth';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { workspaceAppNav } from '@/features/dashboard/workspaceAppNav';
@@ -141,6 +143,9 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // apps for this workspace, and the core app (Workforce) keeps the rest, in
   // the shape the sidebar always drew.
   const byApp = await appNavRead;
+  // The apps this workspace lacks, with what each owns: a deep link into one
+  // moves to this workspace's home and says where the app is.
+  const elsewhere = appsElsewhere(enabledPlugins, enabledSurfaces);
   // This workspace's spend vs cap this period — the header avatar's ring and
   // the menu's usage row. Hidden entirely when no budget exists.
   //
@@ -191,6 +196,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         goalsCount={goalsCount}
         workspacePages={byApp.core.pages}
         apps={byApp.apps}
+        elsewhere={elsewhere}
         gettingStarted={gettingStarted}
         personalWorkspace={personalWorkspace}
       />
@@ -203,6 +209,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
               page down instead of covering the first line of it. */}
           {pause && <WorkspacePausedBanner pause={pause} canResume={isAdmin} />}
           <AgentBudgetBanner blocked={blockedAgents} />
+          <AppNotHereNotice apps={byApp.apps} elsewhere={elsewhere} />
 
           {/* The page, full width, and the one conversation surface (058) as
               an overlay on its right edge — collapsed to an edge tab until

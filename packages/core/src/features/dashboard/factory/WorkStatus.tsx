@@ -5,6 +5,7 @@ import type { LiveRun, RecordStatus, TurnRecord } from '@/libs/factory/liveStatu
 import { ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StatusDot } from '@/components/patterns';
+import { RecordLifecycle } from '@/features/dashboard/objects/RecordLifecycle';
 import { useVersionWritten } from '@/features/dashboard/versions/versionEvents';
 import { useLive } from '@/hooks/useLive';
 import { elapsedLabel } from '@/libs/factory/liveStatus';
@@ -292,7 +293,7 @@ export function RecordMicrocard({ record }: { record: TurnRecord }) {
   const now = useTick(live !== null);
   const changed = !record.filed && record.change;
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-[13px]" data-testid="record-microcard" data-record-id={record.id} data-live={live ? 'true' : undefined}>
+    <div className="group/microcard flex min-w-0 items-center gap-1.5 text-[13px]" data-testid="record-microcard" data-record-id={record.id} data-live={live ? 'true' : undefined}>
       <PreviewOpen recordRef={{ type: 'object', id: String(record.id) }} look="row" className="min-w-0 flex-1" testId="record-microcard-open">
         <span className="flex min-w-0 items-center gap-1.5 px-2 py-1">
           <StatusDot tone={live ? 'amber' : status ? TONE[status.stage.tone] : 'neutral'} pulse={live !== null} label={<span className="text-foreground/70 tabular-nums">{record.code ?? `#${record.id}`}</span>} />
@@ -306,6 +307,8 @@ export function RecordMicrocard({ record }: { record: TurnRecord }) {
           {!changed && <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
         </span>
       </PreviewOpen>
+      {/* Done from the list, without opening it: the record's own lifecycle, with Undo. */}
+      {record.lifecycle && !changed && <RecordLifecycle record={{ type: 'object', id: String(record.id), label: record.title }} objectType={record.lifecycle.objectType} status={record.lifecycle.status} look="inline" />}
       {status?.duplicate?.undoRunId != null && <UndoRun recordId={record.id} runId={status.duplicate.undoRunId} testId="work-status-duplicate-undo" />}
       {changed && (
         <PreviewOpen recordRef={{ type: 'record_history', id: record.change!.historyRef }} className="shrink-0 text-muted-foreground" testId="record-microcard-change">

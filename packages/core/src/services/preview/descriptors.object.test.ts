@@ -78,8 +78,34 @@ describe('a record\'s preview reads the record (journey 4, 2026-09-28: "No text 
     expect(doc.facts).toEqual(expect.arrayContaining([{ label: 'State', value: 'triaged' }, { label: 'Status', value: 'approved' }]));
     // Its versions, the way an artifact's preview shows them (backlog 035).
     expect(doc.facts).toEqual(expect.arrayContaining([{ label: 'Version', value: 'v1' }]));
-    expect(doc.body).toContain(`[History — v1](?preview=record_history%3A${row!.id})`);
+    // A first version has no history worth a link; the version fact says it.
+    expect(doc.body).not.toContain('History —');
     expect(doc.href).toBe(`/w/northwind/dashboard/p/feature/${row!.id}`);
     expect(doc.hrefLabel).toBe('Open feature');
+    // A request is not a thing owed: no verbs.
+    expect(doc.lifecycle).toBeUndefined();
+  });
+
+  it('gives a thing owed its verbs and its age, and drops the bare "Open record" the header already offers (2026-10-23)', async () => {
+    const schema = { 'type': 'object', 'x-owed': true, 'properties': { owed_action: { type: 'string', description: 'The touch owed' }, channel: { type: 'string' } } };
+    const [type] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'follow-up', label: 'Follow-Up', schema } as never).returning({ id: businessObjectTypeSchema.id });
+    const [row] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: type!.id, title: 'Send a note to Dana at Kestrel Capital', status: 'active', metadata: { owed_action: 'A short note with the deck we promised and a 30-minute ask.', channel: 'email' }, createdAt: new Date('2026-07-16T12:00:00Z') } as never).returning({ id: businessObjectSchema.id });
+    const doc = await resolvePreview({ type: 'object', id: String(row!.id) }, { orgId: ORG, userId: null });
+
+    expect(doc.lifecycle).toEqual({ objectType: 'follow-up', status: 'active' });
+    expect(doc.facts?.[0]?.label).toBe('Opened');
+    expect(doc.facts?.[0]?.value).toMatch(/^opened on /);
+    // The row's status is the verbs' to show, not a fact.
+    expect(doc.facts?.map(f => f.label)).not.toContain('Status');
+    expect(doc.hrefLabel).toBeUndefined();
+    expect(doc.href).toBe(`/w/northwind/dashboard/objects/${row!.id}`);
+  });
+
+  it('offers no verbs on a type that did not say its records are owed', async () => {
+    const [type] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'company', label: 'Company', schema: { type: 'object', properties: { domain: { type: 'string' } } } } as never).returning({ id: businessObjectTypeSchema.id });
+    const [row] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: type!.id, title: 'Contoso Supply', metadata: { domain: 'contoso.example' } } as never).returning({ id: businessObjectSchema.id });
+    const doc = await resolvePreview({ type: 'object', id: String(row!.id) }, { orgId: ORG, userId: null });
+
+    expect(doc.lifecycle).toBeUndefined();
   });
 });

@@ -339,6 +339,8 @@ export async function composeArtifactWithModel(ctx: {
     [new SystemMessage(sys), new HumanMessage(human)],
     { signal: AbortSignal.timeout(45_000) },
   );
+  const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
+  await chargeModelCall({ orgId: ctx.orgId, feature: 'chat.deliverable', role: 'main', response: res });
   const raw = typeof res.content === 'string'
     ? res.content
     : (res.content as Array<{ type?: string; text?: string }>)

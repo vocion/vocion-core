@@ -32,7 +32,7 @@ const THEMES: { value: 'light' | 'dark' | 'system'; icon: LucideIcon }[] = [
 export function ThemeSegmentedControl() {
   const { theme, setTheme } = useTheme();
   const t = useTranslations('ThemeSwitcher');
-  const current = THEMES.some(o => o.value === theme) ? theme : 'light';
+  const current = THEMES.some(o => o.value === theme) ? theme : 'system';
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const labelId = useId();
   const labels = { light: t('theme_light_label'), dark: t('theme_dark_label'), system: t('theme_system_label') };

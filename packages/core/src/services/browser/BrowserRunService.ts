@@ -587,7 +587,13 @@ async function drive(row: Row, l: Live, continuing: boolean, resume: Resume | nu
       void checkpoint(l);
     },
     charge: async (response) => {
-      await chargeModelCall({ orgId: row.orgId, agentSlug: row.agentSlug ?? undefined, feature: 'browser.run', role: 'main', response });
+      // Filed in the spend ledger under the run a person can open: the routine run for a routine's row, else this browser run.
+      const { withCallContext } = await import('@/services/spend/callContext');
+      await withCallContext({
+        userId: row.userId,
+        ...(row.conversationId ? { conversationId: row.conversationId } : {}),
+        ...(row.routineRunId ? { runKind: 'routine_run' as const, runId: row.routineRunId } : { runKind: 'browser_run' as const, runId: row.id }),
+      }, () => chargeModelCall({ orgId: row.orgId, agentSlug: row.agentSlug ?? undefined, feature: 'browser.run', role: 'main', response }));
       const usage = tokenUsageOf(response);
       if (usage) {
         micro += tokenCostMicroCents(modelIdOf(response) ?? resolvedModelId('main'), usage);

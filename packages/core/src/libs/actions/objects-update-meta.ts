@@ -37,6 +37,7 @@
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
 import { evaluateGates, gateRefusal, gatesOf } from '@/libs/gates/handoffGate';
+import { ROW_STATUSES } from '@/libs/objects/rowLifecycle';
 import { readStatusModel, withFollowedStatus } from '@/libs/objects/statusModel';
 import { bookkeepingPaths, changedFields } from '@/libs/workspace/bookkeeping';
 import { describeSchemaProblems, displayValue, humanise, loadObjectType } from './objects-propose-candidate';
@@ -116,7 +117,7 @@ async function readRow(orgId: string, typeId: number, id: number): Promise<Row |
  * finished, with Undo, instead of leaving it open and saying it closed it (2026-10-23: fifteen
  * Gauge follow-ups the agent could not close, and said it had).
  */
-export const ROW_STATUSES = ['open', 'active', 'done', 'closed', 'dropped', 'archived'] as const;
+export { ROW_STATUSES };
 
 /**
  * The row status a write asks for, when it may: `status` in `set`, on a type with no `status`

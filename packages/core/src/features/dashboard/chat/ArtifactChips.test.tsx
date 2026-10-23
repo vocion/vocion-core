@@ -13,6 +13,7 @@ vi.mock('@/libs/Orpc', () => ({ client: { preview: { status } } }));
 const workspaceIntake = vi.fn((): { typeSlug: string; label: string; ownerSlug: string | null } | null => null);
 vi.mock('./useWorkspaceIntake', () => ({ useWorkspaceIntake: () => workspaceIntake(), loadWorkspaceIntake: async () => workspaceIntake() }));
 vi.mock('@/libs/I18nNavigation', () => ({
+  useRouter: () => ({ push: () => {}, replace: () => {} }),
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));
 

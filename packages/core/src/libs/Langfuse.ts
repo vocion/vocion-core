@@ -7,7 +7,7 @@ import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { Langfuse } from 'langfuse';
 import { resolveLangfuseConfig } from './Langfuse/config';
 import { stopReasonOfMessage } from './llm/stopReason';
-import { tokenUsageOf } from './llm/usage';
+import { markCharged, tokenUsageOf } from './llm/usage';
 
 /* ------------------------------------------------------------------ */
 /* Client — created on first use, never at import time                */
@@ -348,6 +348,8 @@ export type LangfuseTurnUsage = {
   cacheWriteTokens?: number;
   /** How many of `cacheWriteTokens` were one-hour writes (`libs/llm/promptCache.ts` `prefixCacheTtl`), priced at 2x. */
   cacheWrite1hTokens?: number;
+  /** How long the call took, from its start to its end. */
+  latencyMs?: number;
   /**
    * Whether the call ended by asking for tools, so the turn goes on to run
    * them and call the model again; false for a final answer. Undefined when
@@ -395,6 +397,7 @@ export function createLangfuseCallback(
   // goes in as model "unknown", which prices at zero and never counts
   // against a budget (#272).
   const modelsByRun = new Map<string, string>();
+  const startedAt = new Map<string, number>();
   const spans = new Map<string, SpanLike>();
 
   const messagesToInput = (msgs: BaseMessage[][] | BaseMessage[]): unknown => {
@@ -431,6 +434,7 @@ export function createLangfuseCallback(
         ?? (llm.id?.[llm.id.length - 1] as string | undefined)
         ?? 'unknown';
       modelsByRun.set(runId, model);
+      startedAt.set(runId, Date.now());
       const gen = trace.generation({
         name: `chat:${model}`,
         model,
@@ -509,7 +513,12 @@ export function createLangfuseCallback(
       generations.delete(runId);
       const startedOnModel = modelsByRun.get(runId);
       modelsByRun.delete(runId);
+      const began = startedAt.get(runId);
+      startedAt.delete(runId);
       if (opts.onTurnEnd) {
+        // The hook charges this call, so a call site that charges the same
+        // response itself (a classifier inside a tool) skips it.
+        markCharged(firstGen?.message);
         try {
           await opts.onTurnEnd({
             model: llmOutput.model ?? startedOnModel ?? 'unknown',
@@ -519,6 +528,7 @@ export function createLangfuseCallback(
             cacheWriteTokens: normalised?.cacheWriteTokens ?? anthropicUsage?.cache_creation_input_tokens,
             cacheWrite1hTokens: normalised?.cacheWrite1hTokens,
             askedForTools: askedForToolsOf(firstGen),
+            ...(began !== undefined ? { latencyMs: Date.now() - began } : {}),
           });
         } catch {
           /* never let the budget hook break the agent run */
@@ -537,6 +547,7 @@ export function createLangfuseCallback(
       });
       generations.delete(runId);
       modelsByRun.delete(runId);
+      startedAt.delete(runId);
     }
 
     override async handleToolStart(

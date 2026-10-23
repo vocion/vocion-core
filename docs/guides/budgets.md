@@ -214,6 +214,8 @@ writes the previous caps back.
 
 ## Related
 
+- [Spend: every model call in one ledger](./spend.md): the history behind these counters, by person, run and model.
+
 [Agent](../entities/agent.md#budget) · [Workspace](../workspace.md) ·
 `packages/core/src/services/BudgetService.ts` (the rules, in its module
 docstring) · `packages/core/src/services/agents/budgetStop.ts` (the mid-turn

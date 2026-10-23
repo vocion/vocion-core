@@ -3,16 +3,30 @@
 import type { TeamMember } from './emptyChat';
 import { useTranslations } from 'next-intl';
 import { AgentDot } from '@/components/ui/agent-dot';
+import { AgentStackItem, AgentStackMore } from '@/components/ui/agent-stack';
+import { SparkOrb } from '@/components/ui/spark-orb';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { TEAM_SHOWN } from './emptyChat';
 
+/** The stack's entrance; a hovered item's span rises above its neighbours. */
+const ENTER = 'relative rounded-full hover:!z-30 focus-within:!z-30 motion-safe:animate-in motion-safe:duration-300 motion-safe:fade-in';
+
+/**
+ * An agent's profile, from its slug.
+ * @param slug - The agent's slug.
+ */
+function agentHref(slug: string) {
+  return `/dashboard/agents/${encodeURIComponent(slug)}`;
+}
+
 /**
  * YOUR TEAM IS HERE: the centre of an empty conversation is the workspace's
  * agents, not a logo (founder, 2026-10-09: the calm start "looks too much
- * like Claude"). A small overlapping cluster of their `AgentDot`s, the lead
- * in front and a size larger, wearing the Org's accent as its ring; at most
- * four, then "+N". Under it, a quiet caption ("Ava · Revenue lead · 3 agents")
+ * like Claude"). A small overlapping cluster: the lead in front as the
+ * spark at rest, its teammates as smaller `AgentDot`s; at most four, then
+ * "+N". Each comes forward on hover with its name and opens its profile; the
+ * "+N" opens the team. Under it, a quiet caption ("Ava · Revenue lead · 3 agents")
  * that opens the team. Only the lead when it is alone; a personal workspace's
  * assistant the same way. The dots settle in once, and not at all with
  * reduced motion; nothing loops.
@@ -32,24 +46,35 @@ export function TeamCluster({ members, href = '/dashboard/teams' }: { members: r
   const caption = members.length === 1 ? leadLabel : t('team_caption', { lead: leadLabel, count: members.length });
   return (
     <div data-testid="team-cluster" className="flex flex-col items-center [@media(max-height:480px)]:hidden">
-      <div className="flex items-center" aria-hidden>
-        {/* The lead in front: drawn last among siblings would hide it, so it sits first with the highest z. */}
-        <span className="relative z-10 rounded-full ring-2 ring-[var(--org-accent,var(--brand-amber))] ring-offset-2 ring-offset-background motion-safe:animate-in motion-safe:duration-300 motion-safe:zoom-in-90 motion-safe:fade-in" data-testid="team-lead">
-          <AgentDot name={lead.name} accent={lead.accent} size="xl" decorative className="size-12 text-lg" />
+      {/* Every agent here comes forward on hover, says who it is and opens
+          its profile; the "+N" opens the whole team (`AgentStackItem`). The
+          entrance animation sits on an outer span and the hover on the item,
+          so a held animation transform never pins the item in place. */}
+      <div className="group/stack flex items-center">
+        {/* The lead in front: drawn last among siblings would hide it, so it
+            sits first with the highest z. It is the spark at rest
+            (`SparkOrb`), the mark of the agent who answers, still until a
+            turn runs; colour now means "at work" (2026-10-23). */}
+        <span className={cn(ENTER, 'z-10 motion-safe:zoom-in-90')} data-testid="team-lead">
+          <AgentStackItem label={leadLabel} href={agentHref(lead.slug)} className="ring-4">
+            <SparkOrb size="xl" working={false} className="size-14" />
+          </AgentStackItem>
         </span>
         {rest.map((m, i) => (
           <span
             key={m.slug}
-            className={cn(i === 0 ? '-ml-1' : '-ml-2.5', 'rounded-full ring-2 ring-background motion-safe:animate-in motion-safe:duration-300 motion-safe:fill-mode-both motion-safe:fade-in motion-safe:slide-in-from-left-2')}
+            className={cn(ENTER, i === 0 ? 'ml-1' : '-ml-2', 'motion-safe:fill-mode-both motion-safe:slide-in-from-left-2')}
             style={{ zIndex: 9 - i, animationDelay: `${80 + i * 60}ms` }}
             data-testid="team-member"
           >
-            <AgentDot name={m.name} accent={m.accent} size="lg" decorative className="size-9" />
+            <AgentStackItem label={m.name} href={agentHref(m.slug)}>
+              <AgentDot name={m.name} accent={m.accent} size="md" decorative className="size-7 text-[10px]" />
+            </AgentStackItem>
           </span>
         ))}
         {more > 0 && (
-          <span className="-ml-2.5 grid size-9 place-items-center rounded-full bg-surface-soft text-[12px] font-medium text-muted-foreground ring-2 ring-background" data-testid="team-more">
-            {`+${more}`}
+          <span className={cn(ENTER, '-ml-2')}>
+            <AgentStackMore count={more} href={href} label={t('team_more_label', { count: members.length })} className="size-7 text-[11px]" testId="team-more" />
           </span>
         )}
       </div>

@@ -95,7 +95,7 @@ describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', ()
     expect(page.getByTestId('speaker-opener').query()).toBeNull();
   });
 
-  it('says who is writing, with their avatar', async () => {
+  it('says who is writing, with the working orb and their name on hover', async () => {
     await render(
       <AgentMessage
         agentName="Revenue"
@@ -106,7 +106,9 @@ describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', ()
     );
 
     await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Dana is writing…');
-    expect(document.querySelector('[data-testid="streaming-indicator"] [data-slot="agent-dot"]')).not.toBeNull();
+    // While it writes, the mark is the spark orb (2026-10-23), the writer named on hover.
+    expect(document.querySelector('[data-testid="streaming-indicator"] [data-slot="spark-orb"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="streaming-indicator"] [title="Dana"]')).not.toBeNull();
   });
 });
 

@@ -4,7 +4,7 @@ import type { PreviewFailure } from './previewFetch';
 import type { PreviewDoc } from '@/libs/preview/types';
 import type { RunStep } from '@/libs/worker/runLog';
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
-import { ArrowLeft, Bot, ExternalLink, FileText, History, Inbox, LayoutGrid, ListTree, MessageSquareText, Newspaper, Play, Repeat, Rocket, RotateCw, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
+import { Activity, ArrowLeft, Bot, ChevronLeft, ExternalLink, FileText, History, Inbox, LayoutGrid, ListTree, MessageSquareText, Newspaper, Play, Repeat, Rocket, RotateCw, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -14,11 +14,13 @@ import { BrowserRunView } from '@/features/browser/BrowserRunView';
 import { ARTIFACT_KIND_ICON } from '@/features/dashboard/artifacts/kinds';
 import { SharePicker } from '@/features/dashboard/artifacts/SharePicker';
 import { requestAgentSurface, stashChatAbout } from '@/features/dashboard/chat/agentSurface';
+import { ConversationWorkPane } from '@/features/dashboard/chat/work/RunningWork';
 import { FeatureTimeline } from '@/features/dashboard/factory/FeatureTimeline';
 import { RunStepList } from '@/features/dashboard/factory/RunDetail';
 import { RunGlanceView } from '@/features/dashboard/factory/RunGlanceView';
 import { LiveWorkStatus } from '@/features/dashboard/factory/WorkStatus';
 import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
+import { RecordLifecycle } from '@/features/dashboard/objects/RecordLifecycle';
 import { useVersionRefresh } from '@/features/dashboard/versions/VersionWatch';
 import { RoutineBatchView } from '@/features/routines/RoutineBatchView';
 import { RoutineView } from '@/features/routines/RoutineView';
@@ -28,10 +30,11 @@ import { describeRef } from '@/libs/preview/describeRef';
 import { useLiveSources } from '@/libs/preview/liveSources';
 import { parseSourcesRefId, sourcesMarkdown } from '@/libs/preview/sourcesRef';
 import { parsePreviewKey, PREVIEW_PARAM, previewKey } from '@/libs/preview/types';
+import { parseWorkRefId } from '@/libs/preview/workRef';
 import { parseHistoryRefId } from '@/libs/versions/versionRef';
 import { RECORD_TYPES } from '@/services/chat/pageContext';
 import { classifyPreviewError, FAILURE_REASON, RETRY_DELAYS_MS } from './previewFetch';
-import { closePreview, openPreview } from './previewState';
+import { closePreview, openPreview, previewBack, previewTitle, rememberPreviewTitle, usePreviewStack } from './previewState';
 
 /**
  * The preview PANE — the content, with no geometry of its own.
@@ -46,7 +49,9 @@ import { closePreview, openPreview } from './previewState';
  *
  * A preview never carries actions that belong to the detail page — it answers
  * "is this the right thing, and what does it say", and the link is how you
- * make it the task.
+ * make it the task. The one exception is a record's own lifecycle (Do it,
+ * Done, Drop, with Undo): finishing an owed thing is the answer to reading
+ * it, and sending a person to a page to press Done is a step for nothing.
  *
  * It renders no `Section`, deliberately. `Section` is a commentable region
  * (`patterns/DetailPage`), and a comment anchored in a peek would be filed
@@ -85,12 +90,13 @@ const RECORD_ICON: Partial<Record<RecordType, typeof FileText>> = {
  * the title, in place of a chip. The source's name stays for a screen reader.
  * @param props
  * @param props.type - The record type.
+ * @param props.id - The ref's id — the pane's own, since a doc handed in may not echo its ref.
  * @param props.doc - The resolved preview.
  */
-function PreviewIcon({ type, doc }: { type: RecordType; doc: PreviewDoc }) {
+function PreviewIcon({ type, id, doc }: { type: RecordType; id: string; doc: PreviewDoc }) {
   const Icon = type === 'artifact' && doc.kind && doc.kind in ARTIFACT_KIND_ICON
     ? ARTIFACT_KIND_ICON[doc.kind as keyof typeof ARTIFACT_KIND_ICON]
-    : (RECORD_ICON[type] ?? FileText);
+    : doc.work || (type === 'conversation' && parseWorkRefId(id)) ? Activity : (RECORD_ICON[type] ?? FileText);
   return (
     <>
       <Icon className="mr-1 size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -245,6 +251,10 @@ function Body(props: { doc: PreviewDoc }) {
         <FeatureTimeline rows={doc.timeline.rows} cost={doc.timeline.cost} density="full" />
       </div>
     );
+  }
+  // The work behind a conversation draws as the thread's panel did: what runs, with Stop, and what finished.
+  if (doc.work) {
+    return <ConversationWorkPane key={doc.work.conversationId} conversationId={doc.work.conversationId} initial={doc.work.view} />;
   }
   // A browser run draws live: the browser as it works, its steps, what it waits on.
   if (doc.browserRun) {
@@ -452,6 +462,19 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
   };
   const iconButton = 'flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground';
   const dismiss = props.onClose ?? closePreview;
+  // What this pane stands on top of (`previewState`'s stack). Only the global
+  // peek has one: a pane with its own close or its own content is someone
+  // else's, and its history is theirs.
+  const stacked = usePreviewStack();
+  const underneath = !props.onClose && !props.doc ? stacked.at(-1) : undefined;
+  const below = underneath ? parsePreviewKey(underneath, isRecordType) : null;
+  const belowLabel = below && underneath ? previewTitle(underneath) ?? describeRef(below).label : null;
+  const resolvedTitle = doc && !doc.unresolved ? doc.title : null;
+  useEffect(() => {
+    if (resolvedTitle) {
+      rememberPreviewTitle(`${recordRef.type}:${recordRef.id}`, resolvedTitle);
+    }
+  }, [recordRef.type, recordRef.id, resolvedTitle]);
 
   return (
     <section
@@ -463,8 +486,13 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
       {/* One line: the kind's icon, the title, then the controls — open the
           full page, share, chat, close — as 32px round ghosts like every other
           panel header. No chip, no underlined link. */}
-      <header className="sticky top-0 flex h-12 shrink-0 items-center gap-1 border-b border-border bg-background pr-1.5 pl-3">
-        <PreviewIcon type={recordRef.type} doc={shown} />
+      <header className={`sticky top-0 flex h-12 shrink-0 items-center gap-1 border-b border-border bg-background pr-1.5 ${belowLabel ? 'pl-1.5' : 'pl-3'}`}>
+        {belowLabel && (
+          <button type="button" onClick={previewBack} data-testid="preview-stack-back" aria-label={`Back to ${belowLabel}`} title={`Back to ${belowLabel}`} className={`${iconButton} max-md:size-11`}>
+            <ChevronLeft className="size-4" aria-hidden />
+          </button>
+        )}
+        <PreviewIcon type={recordRef.type} id={recordRef.id} doc={shown} />
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" title={shown.title}>{shown.title}</h2>
         {shown.href
           ? (
@@ -482,18 +510,28 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
         {!props.compact && recordRef.type === 'artifact' && /^\d+$/.test(recordRef.id) && (
           <SharePicker artifactId={Number(recordRef.id)} title={shown.title} dashboardHref={shown.href ?? `/dashboard/artifacts/${recordRef.id}`} />
         )}
-        {!props.compact && (
+        {/* The work is the conversation's own, so "chat about it" would open a thread about this thread. */}
+        {!props.compact && !shown.work && (
           <button type="button" onClick={discuss} data-testid="preview-discuss" aria-label={`Chat about ${shown.title}`} title="Chat about this" className={iconButton}>
             <MessageSquareText className="size-4" aria-hidden />
           </button>
         )}
-        <PanelCloseButton onClick={dismiss} label={props.back ? props.backLabel ?? 'Back to chat' : 'Close preview'} icon={props.back ? <ArrowLeft className="size-4" aria-hidden /> : undefined} testId="preview-close" />
+        {/* With something underneath, the left control goes back through the
+            stack, so this one is always the close: X, never a second arrow. */}
+        <PanelCloseButton onClick={dismiss} label={props.back ? props.backLabel ?? 'Back to chat' : 'Close preview'} icon={props.back && !belowLabel ? <ArrowLeft className="size-4" aria-hidden /> : undefined} testId="preview-close" />
       </header>
       {restarting
         ? <Restarting retrying={retrying} onRetry={retryNow} />
         : !doc && !failure
             ? <p className="px-4 py-3 text-sm text-muted-foreground" role="status">Loading…</p>
-            : <Body doc={shown} />}
+            : (
+                <>
+                  {doc?.lifecycle && !props.compact && (
+                    <RecordLifecycle key={`${recordRef.id}:${doc.lifecycle.status}`} record={record} objectType={doc.lifecycle.objectType} status={doc.lifecycle.status} />
+                  )}
+                  <Body doc={shown} />
+                </>
+              )}
     </section>
   );
 }

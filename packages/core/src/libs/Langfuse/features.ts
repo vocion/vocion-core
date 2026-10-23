@@ -100,6 +100,22 @@ export const FEATURES = {
   TEAM_THREAD_READ: 'team.thread_read',
   /** A declared action gate's critic reading what an agent would publish (`services/gates/actionGate.ts`). */
   ACTION_GATE: 'gate.action',
+  /** A handoff gate's judge reading a seat's work before it moves on (`services/gates/handoffJudge.ts`). */
+  GATE_HANDOFF: 'gate.handoff',
+  /** The turn judge's typed reads of a person's words: intent, consent, a decision's answer (`services/agents/turnJudge.ts`). */
+  CHAT_JUDGE: 'chat.judge',
+  /** A tool step's short label on the live rail (`services/agents/stepLabeler.ts`). */
+  CHAT_STEP_LABEL: 'chat.step-label',
+  /** The deliverable backstop composing the artifact a turn owed (`services/agents/deliverableBackstop.ts`). */
+  CHAT_DELIVERABLE: 'chat.deliverable',
+  /** A person's correction drafted into a rule candidate (`services/chat/correctionReflector.ts`, `workCorrections.ts`). */
+  CHAT_CORRECTION: 'chat.correction',
+  /** A brand kit's images read by a vision model (`services/agents/tools/kitVision.ts`). */
+  TOOL_VISION: 'tool.vision',
+  /** A document's pages looked at by a vision model (`services/documents/look.ts`). */
+  DOCUMENT_LOOK: 'document.look',
+  /** A document read as a skeptical buyer would (`services/documents/redTeam.ts`). */
+  DOCUMENT_RED_TEAM: 'document.red-team',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

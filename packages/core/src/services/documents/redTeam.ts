@@ -305,6 +305,8 @@ export async function redTeamDocument(orgId: string, input: { html?: string; uni
     tools: [FINDINGS_TOOL],
     tool_choice: { type: 'tool', name: FINDINGS_TOOL.name },
   });
+  const { chargeAnthropicCall } = await import('@/services/budget/chargeModelCall');
+  await chargeAnthropicCall({ orgId, feature: 'document.red-team', response: res });
   const call = res.content.find(b => b.type === 'tool_use' && b.name === FINDINGS_TOOL.name);
   const text = call
     ? JSON.stringify((call as { input: unknown }).input)

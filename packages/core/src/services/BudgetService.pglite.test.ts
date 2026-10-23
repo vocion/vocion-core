@@ -373,6 +373,10 @@ describe('a charge that hits database trouble', () => {
     const realInsert = db.insert.bind(db);
     let attempts = 0;
     const insert = vi.spyOn(db, 'insert').mockImplementation((table: Parameters<typeof realInsert>[0]) => {
+      // Only the budget write is under test; the spend ledger's row goes through.
+      if (table !== agentBudgetSchema) {
+        return realInsert(table);
+      }
       attempts += 1;
       if (attempts === 1) {
         throw new Error('connection terminated unexpectedly');
@@ -399,7 +403,12 @@ describe('a charge that hits database trouble', () => {
   });
 
   it('gives up after a bounded number of attempts and leaves the counters alone', async () => {
-    const insert = vi.spyOn(db, 'insert').mockImplementation(() => {
+    const realInsert = db.insert.bind(db);
+    const insert = vi.spyOn(db, 'insert').mockImplementation((table: Parameters<typeof realInsert>[0]) => {
+      // Only the budget write is under test; the spend ledger's row goes through.
+      if (table !== agentBudgetSchema) {
+        return realInsert(table);
+      }
       throw new Error('connection terminated unexpectedly');
     });
 
@@ -410,7 +419,7 @@ describe('a charge that hits database trouble', () => {
       usage: { inputTokens: 1_000_000, outputTokens: 0 },
     })).rejects.toThrow('connection terminated unexpectedly');
 
-    expect(insert).toHaveBeenCalledTimes(3);
+    expect(insert.mock.calls.filter(([table]) => table === agentBudgetSchema)).toHaveLength(3);
 
     insert.mockRestore();
 

@@ -2,6 +2,7 @@ import type { RecordRef } from '@/services/chat/pageContext';
 import { nounCode } from '@/libs/codes';
 import { evidenceRef } from './evidenceRef';
 import { parseSourcesRefId } from './sourcesRef';
+import { parseWorkRefId } from './workRef';
 
 /**
  * WHAT A REFERENCE IS, IN WORDS, BEFORE ANYTHING IS LOADED.
@@ -81,6 +82,11 @@ function describe(type: RecordRef['type'], rawId: string): RefDescription {
       const sources = parseSourcesRefId(id);
       if (sources) {
         return { label: 'Sources', href: `/dashboard/chat?c=${sources.conversationId}` };
+      }
+      // The work behind a conversation (`workRef.ts`) opens on its conversation too.
+      const work = parseWorkRefId(id);
+      if (work) {
+        return { label: 'Background work', href: `/dashboard/chat?c=${work.conversationId}` };
       }
       return n ? { label: nounCode('conversation', n), href: `/dashboard/chat?c=${n}` } : { label: 'Conversation', href: null };
     }

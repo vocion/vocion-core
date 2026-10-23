@@ -5840,3 +5840,56 @@ export const engineRunSchema = pgTable(
     index('engine_run_org_engine_started_idx').on(table.orgId, table.engine, table.startedAt),
   ],
 );
+
+/**
+ * One row per paid model call — the spend LEDGER (`services/spend/ledger.ts`).
+ *
+ * `agent_budget` keeps running per-period counters for caps; it never knew the
+ * person, the run, the conversation or the model, and a period rollover
+ * overwrote its history. Every charge already lands in `chargeUsage`, so that
+ * one function also writes this row, filled from the call context the run that
+ * made the call opened (`services/spend/callContext.ts`). Spend is then read by
+ * workspace, Org, agent, person, feature, model, run or day (`services/spend/spend.ts`).
+ *
+ * A call is one row whatever it is counted against: a charge with both an agent
+ * and a feature is two budget counters, never two ledger rows.
+ */
+export const modelCallSchema = pgTable(
+  'model_call',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    /** The workspace (`project.id`). */
+    orgId: text('org_id').notNull(),
+    /** The Org (`tenant_account.id`); null when the workspace could not be read. */
+    accountId: text('account_id'),
+    agentSlug: text('agent_slug'),
+    /** The surface (`libs/Langfuse/features`); `agent.turn` when only an agent is known. */
+    feature: text('feature').notNull(),
+    userId: text('user_id'),
+    conversationId: integer('conversation_id'),
+    messageId: integer('message_id'),
+    /** `mission_run` | `browser_run` | `routine_run` | `workflow_run` | `eval_run` | `worker_run`. */
+    runKind: text('run_kind'),
+    runId: text('run_id'),
+    provider: text('provider'),
+    /** The model id the response reported (what `libs/pricing` priced). */
+    model: text('model').notNull(),
+    /** `quick` | `standard` | `deep` for a chat turn. */
+    effortLevel: text('effort_level'),
+    inputTokens: integer('input_tokens').default(0).notNull(),
+    outputTokens: integer('output_tokens').default(0).notNull(),
+    cacheReadTokens: integer('cache_read_tokens').default(0).notNull(),
+    cacheWriteTokens: integer('cache_write_tokens').default(0).notNull(),
+    microCents: bigint('micro_cents', { mode: 'number' }).default(0).notNull(),
+    latencyMs: integer('latency_ms'),
+    traceId: text('trace_id'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('model_call_org_created_idx').on(table.orgId, table.createdAt),
+    index('model_call_account_created_idx').on(table.accountId, table.createdAt),
+    index('model_call_agent_created_idx').on(table.agentSlug, table.createdAt),
+    index('model_call_user_created_idx').on(table.userId, table.createdAt),
+    index('model_call_run_idx').on(table.runKind, table.runId),
+  ],
+);

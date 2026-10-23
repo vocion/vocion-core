@@ -8,6 +8,7 @@ import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { inspectDocument } from '@/libs/documents/sheets';
 import { parseSourcesRefId, sourcesMarkdown } from '@/libs/preview/sourcesRef';
+import { parseWorkRefId } from '@/libs/preview/workRef';
 import { canOpenArtifact } from '@/libs/share/audience';
 import { agentSchema, artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
 import { findDocumentForCitation } from './documentRef';
@@ -215,21 +216,34 @@ async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: strin
       // the version as a fact, the history one click away in this pane.
       const { recordBody } = await import('@/services/objects/recordBody');
       const bodyRow = await recordBody(ctx.orgId, obj.id).catch(() => null);
-      const historyLink = bodyRow ? `[History — v${bodyRow.currentVersion}](?preview=${encodeURIComponent(`record_history:${obj.id}`)})` : '';
+      // A first version has no history worth a link: the version fact is enough.
+      const historyLink = bodyRow && bodyRow.currentVersion > 1 ? `[History — v${bodyRow.currentVersion}](?preview=${encodeURIComponent(`record_history:${obj.id}`)})` : '';
       // WHERE IT IS, at the top — the same three lines its page draws, for
       // a record whose type has a report page. A status that cannot be read
       // leaves the preview as it was rather than failing it.
       const { loadRecordStatus } = await import('@/services/objects/recordStatus');
       const status = await loadRecordStatus(ctx.orgId, obj.id).catch(() => null);
+      // A record that moves through its own lifecycle carries its verbs
+      // (`RecordLifecycle`): what is owed reads as something to do, not only
+      // to read. Its age leads the facts — a three-month-old owed touch is a
+      // different decision from yesterday's.
+      const { offersOwedVerbs } = await import('@/libs/objects/rowLifecycle');
+      const { timeAgo } = await import('@/libs/timeAgo');
+      const lifecycle = typeSlug && offersOwedVerbs(obj.type?.schema ?? null) ? { objectType: typeSlug, status: obj.status ?? 'open' } : null;
+      const opened = lifecycle && obj.createdAt ? { label: 'Opened', value: `opened ${timeAgo(new Date(obj.createdAt), Date.now())}` } : null;
+      const hrefLabel = openRecordLabel(href);
       return {
         ref,
         ...(status?.ok ? { status: status.status } : {}),
+        ...(lifecycle ? { lifecycle } : {}),
         title: obj.title,
         sourceLabel: obj.type?.label ?? 'Record',
-        facts: facts(...parts.facts, obj.status && { label: 'Status', value: obj.status }, bodyRow && { label: 'Version', value: `v${bodyRow.currentVersion}` }),
+        facts: facts(opened, ...parts.facts, !lifecycle && obj.status && { label: 'Status', value: obj.status }, bodyRow && { label: 'Version', value: `v${bodyRow.currentVersion}` }),
         ...body([summary, parts.body, historyLink].filter(Boolean).join('\n\n')),
         href,
-        hrefLabel: openRecordLabel(href),
+        // The header's icon already opens the record; a link under the body
+        // is worth its words only when it names a page ("Open feature").
+        ...(hrefLabel === 'Open record' ? {} : { hrefLabel }),
       };
     }
   }
@@ -383,12 +397,17 @@ registerPreview('briefing', {
 
 registerPreview('conversation', {
   sourceLabel: 'Conversation',
-  href: ref => `/dashboard/chat?c=${encodeURIComponent(String(parseSourcesRefId(ref.id)?.conversationId ?? ref.id))}`,
+  href: ref => `/dashboard/chat?c=${encodeURIComponent(String(parseSourcesRefId(ref.id)?.conversationId ?? parseWorkRefId(ref.id)?.conversationId ?? ref.id))}`,
   resolve: async (ref, ctx) => {
     // A turn's sources — the rail's "Sources · N" chip (`libs/preview/sourcesRef`).
     const sources = parseSourcesRefId(ref.id);
     if (sources) {
       return resolveSources(ref, ctx, sources);
+    }
+    // The work behind it — the thread's "N finished ›" chip (`libs/preview/workRef`).
+    const work = parseWorkRefId(ref.id);
+    if (work) {
+      return resolveWork(ref, ctx, work.conversationId);
     }
     const id = Number.parseInt(ref.id, 10);
     if (!Number.isSafeInteger(id)) {
@@ -452,6 +471,31 @@ registerPreview('conversation', {
  * @param which.conversationId - The conversation.
  * @param which.messageId - The one turn, or null for every turn.
  */
+/**
+ * The background work behind a conversation, read the way the work router reads it: what runs in
+ * this workspace now, and what finished since the conversation began. Only a conversation the
+ * viewer can open has work to show.
+ * @param ref - The preview ref.
+ * @param ctx - The workspace and viewer.
+ * @param ctx.orgId
+ * @param ctx.userId
+ * @param conversationId - The conversation.
+ */
+async function resolveWork(ref: RecordRef, ctx: { orgId: string; userId: string | null }, conversationId: number): Promise<PreviewDoc | null> {
+  if (!ctx.userId) {
+    return null;
+  }
+  const { getConversation } = await import('@/services/ConversationService');
+  const conversation = await getConversation({ orgId: ctx.orgId, id: conversationId, viewerId: ctx.userId });
+  if (!conversation) {
+    return null;
+  }
+  const { workSince } = await import('@/services/work/WorkService');
+  const since = (conversation as { createdAt?: Date | string }).createdAt;
+  const view = await workSince(ctx.orgId, since ? new Date(since) : new Date(Date.now() - 60 * 60 * 1000));
+  return { ref, title: 'Background work', sourceLabel: 'Background work', href: `/dashboard/chat?c=${conversationId}`, work: { conversationId, view } };
+}
+
 async function resolveSources(ref: RecordRef, ctx: { orgId: string }, which: { conversationId: number; messageId: number | null }): Promise<PreviewDoc | null> {
   const [convo] = await db
     .select({ id: conversationSchema.id, title: conversationSchema.title })

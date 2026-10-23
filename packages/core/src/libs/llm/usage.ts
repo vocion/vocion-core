@@ -125,3 +125,53 @@ export function modelIdOf(response: unknown): string | null {
   }
   return null;
 }
+
+/**
+ * Responses already charged by an agent's own callback (`libs/Langfuse.ts`).
+ *
+ * LangChain hands a graph's callbacks down to every model call made inside it,
+ * a classifier inside a tool included, so the agent's per-turn hook charges
+ * that call too. A call site that then charged the same response itself would
+ * count it twice. The hook marks what it charged; `chargeModelCall` skips a
+ * response that carries the mark. Weak, so nothing is kept alive.
+ */
+const charged = new WeakSet<object>();
+
+/**
+ * Mark a model response as charged.
+ * @param response - The message the call returned.
+ */
+export function markCharged(response: unknown): void {
+  if (response && typeof response === 'object') {
+    charged.add(response);
+  }
+}
+
+/**
+ * Whether a response was already charged.
+ * @param response - Whatever `model.invoke()` returned.
+ */
+export function wasCharged(response: unknown): boolean {
+  return Boolean(response && typeof response === 'object' && charged.has(response));
+}
+
+/**
+ * The vendor a model id is billed by, read from the id's shape.
+ * @param model - The model id.
+ */
+export function providerOfModel(model: string): string | null {
+  const m = model.toLowerCase();
+  if (/^(?:us|eu|apac|global)\.|^anthropic\.|^amazon\.|^arn:aws:bedrock/.test(m)) {
+    return 'bedrock';
+  }
+  if (m.startsWith('claude')) {
+    return 'anthropic';
+  }
+  if (/^(?:gpt|o\d|text-embedding|dall-e|chatgpt)/.test(m)) {
+    return 'openai';
+  }
+  if (m.startsWith('eleven')) {
+    return 'elevenlabs';
+  }
+  return null;
+}

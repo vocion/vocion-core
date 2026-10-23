@@ -3,12 +3,16 @@ import { setRequestLocale } from 'next-intl/server';
 import { Button } from '@/components/ui/button';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { ExtensionSlot } from '@/features/extensions/ExtensionSlot';
+import { SpendView, spendViewState } from '@/features/spend/SpendView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { langfuseConfig } from '@/libs/Langfuse';
 import { browserProjectId } from '@/libs/Langfuse/config';
 import { listAgentBudgets, listPlatformBudgets, ORG_SCOPE_SLUG, orgUsageTotals } from '@/services/BudgetService';
 import { countRunsLast24h } from '@/services/ObservabilityService';
+import { periodRange, spendBy } from '@/services/spend/spend';
+import { effectiveRole } from '@/services/WorkspaceAccessService';
+import { ORG_ROLE } from '@/types/Auth';
 
 /**
  * /dashboard/observability — Langfuse-fronted spend + run-volume index.
@@ -30,10 +34,11 @@ const FILTER_ENCODE = (params: Record<string, string>) => {
 
 export default async function ObservabilityPage(props: {
   params: Promise<{ locale: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, userId, accountId, has } = await auth();
 
   // These links open in the operator's browser, so they need the
   // externally reachable Langfuse URL. On a self-hosted box the app
@@ -60,12 +65,26 @@ export default async function ObservabilityPage(props: {
     );
   }
 
-  const [budgets, platformBudgets, orgTotals, runCounts] = await Promise.all([
+  // Spend from the ledger: an Org admin reads the whole Org or this workspace,
+  // a workspace admin this workspace, anyone else nothing.
+  const canReadOrg = Boolean(accountId) && has({ role: ORG_ROLE.ADMIN });
+  const canReadSpend = canReadOrg || (userId ? await effectiveRole(userId, orgId).catch(() => null) === 'admin' : false);
+  const spendState = spendViewState((await props.searchParams) ?? {}, canReadOrg);
+  const spendRead = canReadSpend
+    ? (() => {
+        const { from, to } = periodRange(spendState.period);
+        return spendBy({ scope: spendState.scope === 'org' ? { accountId: accountId! } : { orgId }, groupBy: spendState.group, from, to, filters: spendState.filters }).catch(() => null);
+      })()
+    : Promise.resolve(null);
+
+  const [budgets, platformBudgets, orgTotals, runCounts, spend] = await Promise.all([
     listAgentBudgets(orgId).catch(() => []),
     listPlatformBudgets(orgId).catch(() => []),
     orgUsageTotals({ orgId }).catch(() => ({ spentCents: 0, tokens: 0, hardCentsLimit: null, hardTokenLimit: null })),
     countRunsLast24h(orgId).catch(() => ({ toolCalls: 0, workflowRuns: 0 })),
+    spendRead,
   ]);
+  const filterLabel = Object.values(spendState.filters).filter(v => v !== undefined).map(String).join(' · ') || null;
 
   // The workspace's whole spend, read off the `platform:all` row rather than
   // summed over the agent rows. Summing the agents was the number this page
@@ -164,6 +183,8 @@ export default async function ObservabilityPage(props: {
           />
           <ExtensionSlot name="spend.stats" locale={locale} />
         </div>
+
+        {spend && <SpendView state={spendState} result={spend} canReadOrg={canReadOrg} filterLabel={filterLabel} />}
 
         {platformSurfaces.length > 0 && (
           <div>

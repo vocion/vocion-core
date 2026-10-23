@@ -73,9 +73,14 @@ jobs:
       # page from one catch-all route and reading the live picture without the
       # browser engine (liveFrames.ts). What is left is the feature's own
       # modules (~8.7k lines). Vocion's image builds on CodeBuild XLARGE.
+      # 11750 → 12000 (v7, the spend ledger, #1394): the build peaked at
+      # 11,807 MB. What grew is one new route, GET /api/v1/spend, which reaches
+      # the same ~1,084 modules every /api/v1 route reaches through `_shared`;
+      # nothing light started reaching the server (check:route-graph: +2
+      # modules elsewhere, the ledger writer beside chargeUsage).
       - name: Build memory
         env:
-          BUILD_PEAK_RSS_BUDGET_MB: '11750'
+          BUILD_PEAK_RSS_BUDGET_MB: '12000'
         run: |
           set -euo pipefail
           peak_mb=$(( $(awk -F': ' '/Maximum resident set size/{print $2}' "$RUNNER_TEMP/build-time.txt") / 1024 ))
