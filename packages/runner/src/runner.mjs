@@ -33,6 +33,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa, shotsDirFor, taskShotsDir } from './contract.mjs';
+import { parseNumstat } from './diffstat.mjs';
 import { engineFor, engineId } from './engines/index.mjs';
 import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown, usageFromMessages } from './events.mjs';
 import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, matchingTests, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, stageablePaths, taskHeadline, testResultsOf, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
@@ -1000,6 +1001,8 @@ function runClaude(task, runId, opts = {}) {
       state.model = model || state.model;
       state.counts.turns = (label === 'engineer' ? 0 : (state.counts.turns || 0)) + (Number(result?.num_turns) || 0);
       state.counts.permissionDenials = Array.isArray(result?.permission_denials) ? result.permission_denials.length : 0;
+      // Every pass's, summed: the scoreboard's guard count (core: services/factory/engineRun.ts).
+      state.counts.guardDenials = (label === 'engineer' ? 0 : (state.counts.guardDenials || 0)) + state.counts.permissionDenials;
       if (model) {
         state.pendingUsage = withUsage(state.pendingUsage, {
           model,
@@ -1084,6 +1087,20 @@ function mergeClaude(a, b) {
     sessionCostUsd: b.result ? b.sessionCostUsd : a.sessionCostUsd,
     sessionModelUsage: b.result ? b.sessionModelUsage : a.sessionModelUsage,
   };
+}
+
+/**
+ * Lines added and removed between two commits, or null when git cannot say.
+ * @param {string} base - The commit the work started from.
+ * @param {string} head - The commit that landed.
+ * @returns {{ files: number, insertions: number, deletions: number } | null} The change's size.
+ */
+function diffStat(base, head) {
+  if (!base || !head) {
+    return null;
+  }
+  const r = sh('git', ['diff', '--numstat', base, head]);
+  return r.code === 0 ? parseNumstat(r.stdout) : null;
 }
 
 function changedFiles() {
@@ -2183,6 +2200,9 @@ async function main() {
     commit_sha: landed.commitSha,
     pr_url: landed.prUrl,
     files_changed: verification.files,
+    // The engine that did the work and the change's size, for the engine scoreboard.
+    engine: engineId(task),
+    diff_stat: diffStat(prepared.baseSha, landed.commitSha),
     checks: verification.checks,
     tests_attempted: verification.checks.filter(c => c.status !== 'skipped').length,
     tests_passed: verification.checks.filter(c => c.status === 'passed').length,

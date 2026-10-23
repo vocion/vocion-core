@@ -49,6 +49,10 @@
       "description": "Endpoints under /api/v1/conversations."
     },
     {
+      "name": "engine-runs",
+      "description": "Endpoints under /api/v1/engine-runs."
+    },
+    {
       "name": "evals",
       "description": "Endpoints under /api/v1/evals."
     },
@@ -1997,6 +2001,148 @@
             "description": "The id from the URL.",
             "schema": {
               "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engine-runs": {
+      "get": {
+        "operationId": "get_engine_runs",
+        "summary": "The engine scoreboard's rows for the caller's org, newest first: one per engineering run, whichever engine did it (ADR 0005).",
+        "tags": [
+          "engine-runs"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "The engine scoreboard's rows for the caller's org, newest first: one per\nengineering run, whichever engine did it (ADR 0005). Auth: tenant API token\nor dashboard session.\n\nQuery parameters:\n- `engine` — one engine's runs (`claude-cli`, `openhands`).\n- `source` — `factory` (real work) or `eval` (the runner's eval harness).",
+        "parameters": [
+          {
+            "name": "engine",
+            "in": "query",
+            "required": false,
+            "description": "one engine's runs (`claude-cli`, `openhands`).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "description": "`factory` (real work) or `eval` (the runner's eval harness).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "How many records to return. Defaults to 50, capped at 200.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "How many records to skip. Defaults to 0.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engine-runs/scoreboard": {
+      "get": {
+        "operationId": "get_engine_runs_scoreboard",
+        "summary": "The engine scoreboard for the caller's org: one line per engine (and source), with its runs, pull request rate, QA pass rate, acceptance rate, median time, spe…",
+        "tags": [
+          "engine-runs"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "The engine scoreboard for the caller's org: one line per engine (and\nsource), with its runs, pull request rate, QA pass rate, acceptance rate,\nmedian time, spend, cost per landed change, guard violations and retries\n(ADR 0005). Brought up to date from the runs before it is read. Auth: tenant\nAPI token or dashboard session.\n\nQuery parameters:\n- `days` — the window, 1 to 365 (default 30).\n- `source` — `factory` or `eval`; both when omitted.",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "description": "the window, 1 to 365 (default 30).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "description": "`factory` or `eval`; both when omitted.",
+            "schema": {
+              "type": "string"
             }
           }
         ]

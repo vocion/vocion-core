@@ -484,6 +484,8 @@ export async function completeWorkerRun(opts: { orgId: string; id: number; worke
     updatedAt: now,
   }).where(eq(workerRunSchema.id, run.id)).returning();
   await writeBackRunCost(updated!, now);
+  // The engine scoreboard's row (ADR 0005); never fails the run's end.
+  await import('@/services/factory/engineRun').then(m => m.recordEngineRun(updated!)).catch(() => undefined);
   await announceEnded(updated!, 'worker_run.completed', updated!.summary ?? '');
   return updated!;
 }
@@ -526,6 +528,8 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
   // A failed attempt still cost money, and the record's actual is the honest
   // sum over every attempt it took.
   await writeBackRunCost(updated!, now);
+  // The engine scoreboard's row (ADR 0005); never fails the run's end.
+  await import('@/services/factory/engineRun').then(m => m.recordEngineRun(updated!)).catch(() => undefined);
   await announceEnded(updated!, cancelled ? 'worker_run.completed' : 'worker_run.failed', opts.error);
   return updated!;
 }

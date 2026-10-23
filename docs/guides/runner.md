@@ -107,6 +107,35 @@ heartbeat, verify, land, keep and the kept-branch retry. An engine is a process 
 brief on stdin and prints Claude Code's stream-json, so the events, the transcript and the cost
 come from the same reader. A runner refuses, before the clone, an engine its image does not carry.
 
+### The router and the fence
+
+The factory asks `routeEngine` (`services/factory/engineRouter.ts`) at dispatch. Today it is
+static: the task's engine, else the seat's, else `claude-cli`. Which policy chose the engine, and
+why, rides the run's input as `route`. An installation fences the engines with
+`VOCION_ALLOWED_ENGINES` (a comma list; a client installation sets `openhands`): a choice outside
+the fence becomes the first engine inside it. A dynamic policy (by complexity or cost) goes in
+front of the static one in `ROUTE_POLICIES`. See ADR 0005.
+
+### The engine scoreboard
+
+Every engineering run gets one `engine_run` row (`services/factory/engineRun.ts`): engine, model,
+seat, task and feature, repo, time, tokens, cost, checks, QA's verdict, accepted, merged,
+reverted, an `outcome`, retries, guard violations, and the change's size (files, lines, a
+`small` / `medium` / `large` bucket). Rows are derived from the worker run and its task, when the
+run ends and again before the board is read, so later outcomes appear on their own.
+
+```
+GET /api/v1/engine-runs/scoreboard?days=30&source=factory   # one line per engine
+GET /api/v1/engine-runs?engine=openhands&limit=50          # the rows, newest first
+```
+
+An eval run goes on the board in the same shape, `source: eval`:
+
+```
+npx tsx src/scripts/import-eval-runs.ts --org <org id> --engine openhands \
+  --file ../runner/eval/results/<label>/runs.jsonl
+```
+
 ### OpenHands
 
 The SDK runs in the runner container, not as an agent-server sidecar. The container is already
