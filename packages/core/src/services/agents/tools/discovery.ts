@@ -21,6 +21,7 @@ import { and, desc, eq, gte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { actionRunSchema, discoveryCandidateSchema } from '@/models/Schema';
+import { transcriptReleased } from '@/services/discovery/release';
 import {
   classifyCall,
   ClassifyCallError,
@@ -185,12 +186,14 @@ export function reconcileDiscoveryWindowTool(ctx: RuntimeContext) {
   );
 }
 
+export { transcriptReleased } from '@/services/discovery/release';
+
 export function readDiscoveryTranscriptTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
       // The gate is structural: only a candidate whose review action a HUMAN
-      // approved (status done, route generate/confirm) releases its
-      // transcript. This mirrors what the retired discovery_followup workflow
+      // approved (approved, executing or done, route generate/confirm as the
+      // person approved it — `transcriptReleased`) releases its transcript. This mirrors what the retired discovery_followup workflow
       // received on approval; the exposure is identical, the reader moved.
       const [candidate] = await db
         .select({
@@ -200,6 +203,7 @@ export function readDiscoveryTranscriptTool(ctx: RuntimeContext) {
           route: discoveryCandidateSchema.route,
           reviewActionRunId: discoveryCandidateSchema.reviewActionRunId,
           reviewStatus: actionRunSchema.status,
+          reviewInput: actionRunSchema.input,
         })
         .from(discoveryCandidateSchema)
         .leftJoin(actionRunSchema, eq(actionRunSchema.id, discoveryCandidateSchema.reviewActionRunId))
@@ -211,7 +215,8 @@ export function readDiscoveryTranscriptTool(ctx: RuntimeContext) {
       if (!candidate) {
         return JSON.stringify({ error: 'no_candidate', message: `no discovery_candidate ${args.candidate_id} in this org` });
       }
-      if (candidate.route === 'drop' || candidate.reviewStatus !== 'done') {
+      const reviewRoute = typeof candidate.reviewInput?.route === 'string' ? candidate.reviewInput.route : null;
+      if (!transcriptReleased({ route: candidate.route, reviewStatus: candidate.reviewStatus, reviewRoute })) {
         return JSON.stringify({
           error: 'not_approved',
           message: `candidate ${candidate.id} has no approved review (route ${candidate.route ?? 'none'}, review ${candidate.reviewStatus ?? 'none'}) — a human must approve the discovery.review_proposal item first`,

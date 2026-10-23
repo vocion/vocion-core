@@ -81,6 +81,7 @@ import { liveBrowserTools } from './liveBrowser';
 import { lookupObjectsTool } from './lookupObjects';
 import { lookupPersonTools } from './lookupPerson';
 import { mcpTools } from './mcpDirect';
+import { readMeetingRecordTool } from './meetingRecord';
 import { updateMissionNotesTool } from './missionNotes';
 import { offerConnectionTool } from './offerConnection';
 import { pageContextTool } from './pageContext';
@@ -340,6 +341,10 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Present while the `data-rooms` plugin is on (an older context with no
     // plugin list keeps them, so nothing already running loses a tool).
     ...(ctx.enabledPlugins === undefined || ctx.enabledPlugins.includes('data-rooms') ? dataRoomTools(ctx) : []),
+    // A released call's record, for the meeting follow-up writer. Present
+    // while the `meeting-followup` plugin is on; the tool itself refuses a
+    // call nobody released (`meetingRecord.ts`).
+    ...(ctx.enabledPlugins?.includes('meeting-followup') ? [readMeetingRecordTool(ctx)] : []),
     // The workspace wiki — long-term context. Present while the `wiki` plugin is on.
     ...wikiTools(ctx),
     // Missions and playbooks edit like artifacts: read the file, write it back

@@ -376,6 +376,8 @@ async function proposeActionInTurn(input: {
     labels?: string[];
     scores?: Record<string, number>;
     matchedRules?: Array<{ id: string; title?: string; text: string; evidence?: string }>;
+    /** The mission run that proposed it, when a run did. */
+    missionRunId?: number;
   };
   /**
    * Upsert key for agent-suggested actions — (object type + id + action slug).

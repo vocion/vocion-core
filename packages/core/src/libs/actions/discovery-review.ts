@@ -38,6 +38,16 @@ export const discoveryReviewProposalAction: Action<typeof discoveryReviewInput> 
   // One queue item per meeting, however the proposal was made: the hourly
   // agent check re-proposing the same call updates the pending item in place.
   dedupKeyFor: input => `discovery.review_proposal:${input.meetingExternalId}`,
+  // ONE DECISION PER CALL: a call that already has its meeting follow-up card
+  // (`meeting.draft_followup`, the same call by owner and start) gets no
+  // second card here. That card is the release of the call's record; the
+  // classification stays on the ledger either way.
+  async underway(ctx, input) {
+    const { followupCardFor, meetingKeyForExternalId } = await import('@/services/meetings/followupCards');
+    const meeting = await meetingKeyForExternalId(ctx.orgId, input.meetingExternalId).catch(() => null);
+    const card = meeting ? await followupCardFor(ctx.orgId, meeting.key).catch(() => null) : null;
+    return card ? { line: `this call's follow-up card (proposal-${card.id}, ${card.status}) already asks for the approval that releases it`, href: `/dashboard/inbox/proposal-${card.id}` } : null;
+  },
   // Back-link the queue item onto the ledger row so "what happened to this
   // assessed call" is one query — status flips to routed the moment it is
   // in front of a human.
@@ -187,6 +197,24 @@ export const discoveryReviewProposalAction: Action<typeof discoveryReviewInput> 
     };
   },
   async execute(ctx, input) {
+    // A PERSON'S WORD RUNS: the route they approved — the proposal's, or the
+    // one they edited it to — becomes the ledger's route, over whatever the
+    // classifier said (an existing client's proposal review, 2026-10-23: approved as `generate`,
+    // left at `drop`, and its transcript stayed locked). The gate reads the
+    // same route off this item (`transcriptReleased`); the ledger says it too,
+    // so the Discovery page shows what was decided.
+    {
+      const { and, eq } = await import('drizzle-orm');
+      const { db } = await import('@/libs/DB');
+      const { discoveryCandidateSchema } = await import('@/models/Schema');
+      await db
+        .update(discoveryCandidateSchema)
+        .set({ route: input.route, ...(ctx.runId ? { reviewActionRunId: ctx.runId } : {}) })
+        .where(and(
+          eq(discoveryCandidateSchema.orgId, ctx.orgId),
+          eq(discoveryCandidateSchema.id, input.candidateId),
+        ));
+    }
     // `drop` is a human saying "not a discovery call". Record the correction
     // (calibration data for 020) and start nothing.
     if (input.route === 'drop') {

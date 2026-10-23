@@ -2,10 +2,10 @@
  * Artifacts that go WITH an email: what the review card shows before approval,
  * and the bytes the send carries after it.
  *
- * An email proposal names its attachments by artifact id. A document goes as
- * the PDF the document engine prints (`exportDocumentPdf`, which also files
- * the PDF beside the document, so what was sent is itself an artifact); a file
- * artifact goes as the stored file. The card reads the same rows, so the
+ * An email proposal names its attachments by artifact id. A document or a
+ * deck goes as its PDF — a document printed by the document engine
+ * (`exportDocumentPdf`), a deck as the PDF its last write printed — each filed
+ * beside its source, so what was sent is itself an artifact; a file artifact goes as the stored file. The card reads the same rows, so the
  * approver sees each attachment's title, its size or page count, and can open
  * it in the preview panel — and an attachment that cannot go is said on the
  * card before anyone approves, never discovered by the send.
@@ -54,6 +54,17 @@ export function sizeLabel(bytes: number): string {
 }
 
 /**
+ * The PDF a deck's last write printed and stored (`verification.pdf`): every
+ * deck write renders and prints, so the current deck already has one, and the
+ * send attaches it rather than rendering again.
+ * @param spec - The deck's spec.
+ */
+function deckPdfUrl(spec: Record<string, unknown>): string | null {
+  const v = spec.verification as { pdf?: unknown } | undefined;
+  return typeof v?.pdf === 'string' && v.pdf ? v.pdf : null;
+}
+
+/**
  * What the card shows for one artifact: its title, what it goes as, and why
  * it cannot go when it cannot. Pure, so the card and a test read the same rule.
  * @param ref - The artifact the proposal named.
@@ -73,6 +84,16 @@ export function describeAttachment(ref: AttachmentRef, row: ArtifactLike | null)
     }
     return { artifactId: row.id, title: row.title, href, meta: pages > 0 ? `PDF · ${pages} page${pages === 1 ? '' : 's'}` : 'PDF' };
   }
+  if (row.kind === 'deck') {
+    const order = Array.isArray(spec.order) ? spec.order.length : 0;
+    if (order === 0) {
+      return { artifactId: row.id, title: row.title, href, problem: 'This deck has no slides to print.' };
+    }
+    if (!deckPdfUrl(spec)) {
+      return { artifactId: row.id, title: row.title, href, problem: 'This deck has no printed PDF yet. Verify it, then attach it.' };
+    }
+    return { artifactId: row.id, title: row.title, href, meta: `PDF · ${order} slide${order === 1 ? '' : 's'}` };
+  }
   if (row.kind === 'file') {
     const bytes = typeof spec.bytes === 'number' ? spec.bytes : null;
     if (!storedFilename(spec, row.url)) {
@@ -83,7 +104,7 @@ export function describeAttachment(ref: AttachmentRef, row: ArtifactLike | null)
     }
     return { artifactId: row.id, title: row.title, href, ...(bytes !== null ? { meta: sizeLabel(bytes) } : {}) };
   }
-  return { artifactId: row.id, title: row.title, href, problem: `A ${row.kind} cannot be attached; only documents and files can. Link to it instead.` };
+  return { artifactId: row.id, title: row.title, href, problem: `A ${row.kind} cannot be attached; only documents, decks and files can. Link to it instead.` };
 }
 
 /**
@@ -128,6 +149,17 @@ export async function resolveAttachments(orgId: string, refs: readonly Attachmen
       const printed = await exportDocumentPdf({ orgId, id: row.id, author, visibility: 'system' });
       file = printed.file as ArtifactLike;
       filename = printed.filename;
+    } else if (row.kind === 'deck') {
+      // The PDF the deck's last write printed, filed beside the deck as what was sent.
+      const { filePdf, pdfFilename, readStoredFile } = await import('@/services/deliverables/files');
+      const spec = (row.spec ?? {}) as Record<string, unknown>;
+      const stored = await readStoredFile(orgId, deckPdfUrl(spec) ?? '');
+      if (!stored) {
+        throw new Error(`Attachment "${row.title}": its printed PDF is missing. Verify the deck, then send again.`);
+      }
+      filename = pdfFilename(typeof spec.title === 'string' && spec.title ? spec.title : row.title);
+      const filed = await filePdf({ orgId, source: row, pdf: stored.body, filename, author, visibility: 'system' });
+      file = filed.file as ArtifactLike;
     }
     const spec = (file.spec ?? {}) as Record<string, unknown>;
     const stored = storedFilename(spec, file.url);

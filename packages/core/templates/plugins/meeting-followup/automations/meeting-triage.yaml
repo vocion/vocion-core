@@ -1,0 +1,22 @@
+# A SETTLED CALL IS READ, AND ONE OWED A FOLLOW-UP BECOMES ONE CARD (core job
+# `meeting-followup`, phase triage). Metadata first — an all-internal call is
+# never read; then the classifier's typed read (client or prospect, follow-up
+# owed). The card is `meeting.draft_followup`, filed for the writer below, and
+# its owner is told (`followup-awaiting`).
+slug: meeting-triage
+name: A client call becomes its follow-up card
+description: >-
+  When a call's transcript or note settles, read whether it was with a client
+  or prospect and owes a follow-up; if so, put one card in front of its owner.
+status: active
+agent: followup-writer
+when:
+  event: meeting.transcript_ready
+  # A first sync after turning this on can announce several days of calls at
+  # once; each is one cheap read, so none is held back.
+  maxFiresPer10m: 40
+do:
+  job: meeting-followup
+  input:
+    phase: triage
+    agent: followup-writer

@@ -35,6 +35,7 @@ import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { mcpCallAction } from './mcp';
 import { meSetPhoneAction } from './me-set-phone';
+import { meetingFollowupAction } from './meeting-followup';
 import { membersInviteAction } from './members-invite';
 import { missionUpdateNotesAction } from './mission-update-notes';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
@@ -137,6 +138,7 @@ registerAction(slackPostMessageAction);
 registerAction(chatReplyInThreadAction);
 registerAction(chatAddReactionAction);
 registerAction(discoveryReviewProposalAction);
+registerAction(meetingFollowupAction);
 registerAction(personalizationEnrollAction);
 registerAction(objectProposeCandidateAction);
 // An agent writes declared fields on a record that exists — reversible (the
