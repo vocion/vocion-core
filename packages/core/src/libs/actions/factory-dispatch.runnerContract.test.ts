@@ -70,6 +70,16 @@ describe('the runner contract from the records (backlog 052)', () => {
     expect((contract.qa as { surfaces: Record<string, { live_url?: string }> }).surfaces.app?.live_url).toBe('https://app.northwind.example');
   });
 
+  it('stays a contract the runner accepts with an engine and a default branch (engine plan, Phase 2)', () => {
+    const meta = deriveContract({ given: {}, request, plan: null, repo: { ...repo, defaultBranch: 'dev' }, environments });
+    const contract = contractFromTask({ id: 41, title: String(meta.title), meta: { ...meta, requestId: 12 } }, { product: 'portal', modelPolicy: { model: 'claude-opus-5-5' }, engine: { id: 'openhands' } });
+
+    expect(contract.engine).toEqual({ id: 'openhands' });
+    expect(contract.base_branch).toBe('dev');
+    expect(contract.base_sha).toBe('origin/dev');
+    expect(validateContract(contract)).toEqual({ ok: true, errors: [] });
+  });
+
   it('stays a contract the runner accepts when the request is titled with a whole long ask (Walk 18, FE-419)', () => {
     const meta = deriveContract({ given: {}, request, plan: null, repo, environments });
     const long = 'On the portal\'s room list, let me sort the rooms by name, created date or last visited, newest first by default, and remember my choice next time I open the list';

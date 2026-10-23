@@ -1200,6 +1200,21 @@ export const AgentManifestSchema = z.object({
      * `model_policy`); without this key the applier dropped it silently.
      */
     effort: z.enum(['low', 'medium', 'high', 'max']).optional(),
+    /**
+     * Which engine an external worker runs this seat's engineering pass on:
+     * `claude-cli` (headless Claude Code, the runner's default) or `openhands`
+     * (the OpenHands Software Agent SDK). `seatEngine` puts it on the
+     * contract's `engine`; the runner's guard hooks, checks, budget and cost
+     * reporting hold for every engine. Absent: the runner's default, and the
+     * contract carries no `engine` at all.
+     */
+    engine: z.enum(['claude-cli', 'openhands']).optional(),
+    /**
+     * The engine's own model id, when it differs from `model` (openhands takes
+     * a LiteLLM id: `anthropic/<model>` or `bedrock/<inference profile id>`).
+     * Absent: the engine derives it from `model`.
+     */
+    engineModel: z.string().min(1).optional(),
     modelProvider: z.enum(['anthropic', 'openai', 'bedrock']).optional(),
     /**
      * Ask the vendor to cache this agent's prompt prefix, or forbid it.
