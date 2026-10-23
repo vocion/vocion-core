@@ -26,8 +26,11 @@ Auto also reports typed facts about the request, and code applies the rules on t
 | `systems`: how many systems it needs checked | 2 or more is never Quick |
 | `changes`: how many records it changes or decides | 2 or more is never Quick |
 | `teams`: how many teams' work the answer brings together | 2 or more runs **Deep** when the agent is a lead with teammates (`synthesisLevel`) |
+| `owed`: it asks what is owed, open or pending on a client, account, person or deal | never Quick |
 
-The last one is for the workspace lead's status questions ("how's my GTM work this week?"): the lead weighs its teammates' answers into one picture, which is Deep's job. Its line reads **Deep · synthesizing 3 teams**. The teammates it consults inside the turn are not raised. An agent with no teammates, a one-team question, or a person's own choice on the gauge is left as it was.
+`owed` is there because what is owed on an account lives in several places at once: Review items any agent raised, approved Gmail drafts not yet sent, tracker rows, the data room and the last call. "What do I owe on <client>?" once ran Quick, counted one system and missed the approved follow-up email in Review. Such a question is answered with `owed_on_account`, which joins all of them by the account's domains, addresses and data room (`services/accounts/owedOnAccount.ts`).
+
+The `teams` rule is for the workspace lead's status questions ("how's my GTM work this week?"): the lead weighs its teammates' answers into one picture, which is Deep's job. Its line reads **Deep · synthesizing 3 teams**. The teammates it consults inside the turn are not raised. An agent with no teammates, a one-team question, or a person's own choice on the gauge is left as it was.
 
 **Dig deeper** on an answer asks the same question again one level up. A Standard answer on the agent's own model re-runs on the strongest one.
 

@@ -110,8 +110,8 @@ export const INFER_SYSTEM = [
   'standard — gather from a few places and synthesise: what do I owe replies to, prepare me for this meeting, what changed on this deal, draft a reply.',
   'deep — research or analysis across many sources or a long period, a plan, a document, a comparison, or ranking, prioritising or weighing risk across many items: research everything on an account since July, audit the pipeline, write a proposal, rank every open thread by revenue risk and say what to tell each.',
   'When unsure between two, pick the lower one: the person can always ask to dig deeper.',
-  'Also say four facts about the request: "drafts" is true when it asks to write, revise or soften something a person will send or read (an email, a note, a reply, a draft already proposed); "systems" is how many distinct systems or sources it needs checked (Gmail and HubSpot is 2; "confirm with the company knowledge base" after an earlier answer adds one); "changes" is how many records it asks to change, decide, dismiss, approve or delete (0 for a question; "approve this one" is 1; "clear out everything older than a week" or "decline all of these" is many, so say 10 or more); "teams" is how many different teams\' or functions\' work the answer has to bring together (a status across pipeline, pitches and referrals is 3; how my go-to-market is going, across founder outreach and pipeline, is 2; one team\'s queue, one deal or one person is 1).',
-  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>, "changes": <number>, "teams": <number>}.',
+  'Also say five facts about the request: "drafts" is true when it asks to write, revise or soften something a person will send or read (an email, a note, a reply, a draft already proposed); "systems" is how many distinct systems or sources it needs checked (Gmail and HubSpot is 2; "confirm with the company knowledge base" after an earlier answer adds one); "changes" is how many records it asks to change, decide, dismiss, approve or delete (0 for a question; "approve this one" is 1; "clear out everything older than a week" or "decline all of these" is many, so say 10 or more); "teams" is how many different teams\' or functions\' work the answer has to bring together (a status across pipeline, pitches and referrals is 3; how my go-to-market is going, across founder outreach and pipeline, is 2; one team\'s queue, one deal or one person is 1); "owed" is true when it asks what is owed, open, pending or left to do on a client, account, person, deal or project ("what do I owe on Kestrel", "where are we with Dana", "anything open for the Northwind deal").',
+  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>, "changes": <number>, "teams": <number>, "owed": true | false}.',
 ].join(' ');
 
 /** Test seam: one small-model call returning its text. */
@@ -137,12 +137,19 @@ export type AutoRead = { level: EffortLevel; reason: string; teams?: number };
  * The same day "can we kill all these old GTM recommendations? anything
  * older than 5 days?" ran on Quick, read the queue backwards and asked the
  * person for ids: a request that changes many records is never Quick either.
+ *
+ * And "what do I owe on <client>?" ran Quick, counted one system, read the
+ * calendar and asked whether to read the meeting notes; the approved
+ * follow-up email in Review never came up. What is owed on an account lives
+ * in Review, Gmail drafts, tracker rows, the data room and the last call: a
+ * question about open work on an account, person or deal is never Quick.
  * @param facts - What the read said about the request.
  * @param facts.drafts - It writes or revises something a person will send.
  * @param facts.systems - How many systems it needs checked.
  * @param facts.changes - How many records it asks to change or decide.
+ * @param facts.owed - It asks what is owed or open on an account, person or deal.
  */
-export function autoFloor(facts: { drafts: boolean; systems: number; changes?: number }): { level: EffortLevel; reason: string } | null {
+export function autoFloor(facts: { drafts: boolean; systems: number; changes?: number; owed?: boolean }): { level: EffortLevel; reason: string } | null {
   if (facts.drafts) {
     return { level: 'standard', reason: 'drafting something you will send' };
   }
@@ -151,6 +158,9 @@ export function autoFloor(facts: { drafts: boolean; systems: number; changes?: n
   }
   if (facts.systems >= 2) {
     return { level: 'standard', reason: `checking ${facts.systems} systems` };
+  }
+  if (facts.owed) {
+    return { level: 'standard', reason: 'reading everything open on it' };
   }
   return null;
 }
@@ -190,8 +200,8 @@ export function parseEffort(raw: string): AutoRead | null {
       return null;
     }
     const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 80) : '';
-    const facts = parsed as { drafts?: unknown; systems?: unknown; changes?: unknown; teams?: unknown };
-    const floor = autoFloor({ drafts: facts.drafts === true, systems: typeof facts.systems === 'number' ? facts.systems : 1, changes: typeof facts.changes === 'number' ? facts.changes : 0 });
+    const facts = parsed as { drafts?: unknown; systems?: unknown; changes?: unknown; teams?: unknown; owed?: unknown };
+    const floor = autoFloor({ drafts: facts.drafts === true, systems: typeof facts.systems === 'number' ? facts.systems : 1, changes: typeof facts.changes === 'number' ? facts.changes : 0, owed: facts.owed === true });
     const teams = typeof facts.teams === 'number' && Number.isFinite(facts.teams) ? { teams: Math.max(0, Math.round(facts.teams)) } : {};
     if (floor && EFFORT_LEVELS.indexOf(parsed.level as EffortLevel) < EFFORT_LEVELS.indexOf(floor.level)) {
       return { level: floor.level, reason: floor.reason, ...teams };
@@ -239,7 +249,7 @@ export async function inferEffort(opts: { orgId: string; message: string; previo
 
 async function defaultModel(orgId: string): Promise<EffortModel> {
   const { buildChatModelForOrg } = await import('@/libs/llm/langchain');
-  const model = await buildChatModelForOrg('classifier', orgId, { temperature: 0, maxTokens: 60, streaming: false });
+  const model = await buildChatModelForOrg('classifier', orgId, { temperature: 0, maxTokens: 90, streaming: false });
   return async (system, user) => {
     const response = await model.invoke([{ role: 'system', content: system }, { role: 'user', content: user }]);
     const c = response.content;

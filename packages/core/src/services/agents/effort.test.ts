@@ -56,6 +56,12 @@ describe('the Auto floor', () => {
     expect(parseEffort('{"level":"deep","reason":"audit","drafts":false,"systems":1,"changes":40}')).toEqual({ level: 'deep', reason: 'audit' });
     expect(autoFloor({ drafts: false, systems: 1, changes: 0 })).toBeNull();
   });
+
+  it('never puts a question about open work on an account on Quick, even when it counts one system (2026-10-23)', () => {
+    expect(parseEffort('{"level":"quick","reason":"owed items lookup","drafts":false,"systems":1,"changes":0,"teams":1,"owed":true}')).toEqual({ level: 'standard', reason: 'reading everything open on it', teams: 1 });
+    expect(parseEffort('{"level":"deep","reason":"account audit","drafts":false,"systems":4,"owed":true}')).toEqual({ level: 'deep', reason: 'account audit' });
+    expect(parseEffort('{"level":"quick","reason":"calendar","drafts":false,"systems":1,"owed":false}')).toEqual({ level: 'quick', reason: 'calendar' });
+  });
 });
 
 describe('a lead synthesising teams', () => {

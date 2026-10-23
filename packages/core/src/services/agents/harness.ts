@@ -60,6 +60,7 @@ import { operatingIntentForOrg } from '@/services/workspace/OperatingIntentServi
 import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createLegworkThinkingMiddleware, legworkConfig, stepThinkingDiffers } from './effort';
+import { FINISH_THE_READ } from './finishTheRead';
 import { createHandOffMiddleware } from './handOff';
 import { createMemoryDigestMiddleware } from './memoryDigest';
 import { agentScope, createEvidenceHandoffMiddleware, createLookupMemoMiddleware, runtimeContextFromScope } from './runtimeContext';
@@ -425,6 +426,9 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   // `runAgentDeep`), in the person's own zone.
   const CLOCK = CLOCK_RULES;
   systemPrompt = [systemPrompt, CLOCK].filter(Boolean).join('\n\n');
+  // An answer that offers to read what the agent could read is an unfinished
+  // turn (2026-10-23: "do you want me to dig into the notes?"). `finishTheRead.ts`.
+  systemPrompt = `${systemPrompt}\n\n${FINISH_THE_READ}`;
   // A place in Vocion is a link, not a description (2026-09-18: eight paragraphs of Zoom scope steps, no link). The tool holds the table; this line makes the call.
   systemPrompt = `${systemPrompt}\n\nWhen a person has to do something in Vocion themselves (connect or re-authorise a system, fix a credential, approve a proposal, adopt a learning), call where_to first and put the link it returns inline in your reply — never describe where to click without the link.`;
 

@@ -84,6 +84,7 @@ import { mcpTools } from './mcpDirect';
 import { readMeetingRecordTool } from './meetingRecord';
 import { updateMissionNotesTool } from './missionNotes';
 import { offerConnectionTool } from './offerConnection';
+import { owedOnAccountTools } from './owedOnAccount';
 import { pageContextTool } from './pageContext';
 import { peopleTools } from './peopleTools';
 import { personalConnectionTools } from './personalConnections';
@@ -383,6 +384,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // queue, asks and notifications — in this workspace, or in a personal
     // workspace across all of theirs. Never a search.
     ...waitingOnMeTools(ctx),
+    // Every agent: what is owed on one account, joined across Review, Gmail
+    // drafts, follow-up rows, the data room and the last call (2026-10-23).
+    ...owedOnAccountTools(ctx),
     queryStateTool(ctx),
     // Whenever a person is in the turn: the Review queue as the page shows it,
     // and many of its decisions declined on one card (`reviewQueue.ts`).
