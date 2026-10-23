@@ -77,6 +77,27 @@ alike. Menus and popovers are one surface too: `rounded-xl`, one hairline,
 `--shadow-pop`, rows highlighted with `--surface-hover`, never the amber
 `--accent`.
 
+### Status, notices, counts and icon buttons
+
+**Status by meaning.** `pass`, `warn` and `fail` each have a text colour
+(`text-pass`), a soft fill (`bg-pass-soft`) and a dark value; `waiting`
+(`text-waiting`, `bg-waiting-soft`) is amber's one meaning outside the brand,
+something that waits on a person. Never a raw palette hue (`emerald-700`,
+`red-500/30`) for a state. `StatusPill` and `StatusBadge` are borderless soft
+fills.
+
+**`Notice`** (`components/ui/notice.tsx`) is the one inline message: a soft
+fill in its tone, an icon, the words and at most one action; `edge` for the
+full-width form at the top of a page. No hand-made red or amber boxes.
+
+**`CountBadge`** (`components/ui/count-badge.tsx`) is the one count beside a
+nav row, a workspace or the bell: `waiting` in amber or `quiet` in muted ink.
+
+**Icon buttons** are ghost rounded squares, never circles (the avatar is the
+only round thing in a bar): `BAR_ICON_BUTTON` in a bar, `size="icon-sm"` in
+a row or panel header, `CLOSE_BUTTON` for every close (panels, Dialog,
+Sheet). **Focus** is one recipe everywhere: `ring-2 ring-ring/50`.
+
 ### The spark
 
 Vocion has one AI colour, the **spark**: Metacto amber into rose, violet and

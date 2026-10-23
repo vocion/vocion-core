@@ -101,10 +101,8 @@ const LINK_ICON: Record<DashboardLinkKind, typeof Bot> = {
  * Falls back to plain `content` when no `runs` array is present
  * (older persisted messages from before Phase 5).
  *
- * Citation rendering, document preview clicks, and skill-result
- * cards (EmailDraftCard / ProposalCard) are not handled here yet —
- * they'll wire in via the parent `<ChatShell />` so this component
- * stays a dumb renderer.
+ * Citation rendering and document preview clicks wire in via the parent
+ * `<ChatShell />`, so this component stays a dumb renderer.
  */
 
 export type AgentMessageProps = {
