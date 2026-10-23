@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { personEffortChoice } from '@/services/AgentService';
-import { CONSULT_TOOL, createEffortMiddleware, decideEffort, EffortCeilings, effortNote, envelopeFor, inferEffort, nextLevel, parseEffort } from './effort';
+import { autoFloor, CONSULT_TOOL, createEffortMiddleware, decideEffort, EffortCeilings, effortNote, envelopeFor, inferEffort, nextLevel, parseEffort } from './effort';
 
 describe('choosing the level', () => {
   const auto = async () => ({ level: 'deep' as const, reason: 'research across months' });
@@ -38,6 +38,16 @@ describe('choosing the level', () => {
       throw new Error('no key');
     } })).level).toBe('standard');
     expect(parseEffort('{"level":"enormous"}')).toBeNull();
+  });
+});
+
+describe('the Auto floor', () => {
+  it('never puts drafting or a check across systems on Quick, from the typed facts', () => {
+    expect(parseEffort('{"level":"quick","reason":"revise a draft","drafts":true,"systems":0}')).toEqual({ level: 'standard', reason: 'drafting something you will send' });
+    expect(parseEffort('{"level":"quick","reason":"contact lookup","drafts":false,"systems":2}')).toEqual({ level: 'standard', reason: 'checking 2 systems' });
+    expect(parseEffort('{"level":"deep","reason":"plan","drafts":true,"systems":4}')).toEqual({ level: 'deep', reason: 'plan' });
+    expect(parseEffort('{"level":"quick","reason":"calendar"}')).toEqual({ level: 'quick', reason: 'calendar' });
+    expect(autoFloor({ drafts: false, systems: 1 })).toBeNull();
   });
 });
 

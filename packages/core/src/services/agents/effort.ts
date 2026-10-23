@@ -110,11 +110,33 @@ export const INFER_SYSTEM = [
   'standard — gather from a few places and synthesise: what do I owe replies to, prepare me for this meeting, what changed on this deal, draft a reply.',
   'deep — research or analysis across many sources or a long period, a plan, a document, a comparison, or ranking, prioritising or weighing risk across many items: research everything on an account since July, audit the pipeline, write a proposal, rank every open thread by revenue risk and say what to tell each.',
   'When unsure between two, pick the lower one: the person can always ask to dig deeper.',
-  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>"}.',
+  'Also say two facts about the request: "drafts" is true when it asks to write, revise or soften something a person will send or read (an email, a note, a reply, a draft already proposed); "systems" is how many distinct systems or sources it needs checked (Gmail and HubSpot is 2; "confirm with the company knowledge base" after an earlier answer adds one).',
+  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>}.',
 ].join(' ');
 
 /** Test seam: one small-model call returning its text. */
 export type EffortModel = (system: string, user: string) => Promise<{ text: string; response?: unknown }>;
+
+/**
+ * The least Auto may pick, from the two facts the read reports: writing
+ * something a person will send, or checking more than one system, is never
+ * Quick. On 2026-10-23 Auto put "have I had contact with him (gmail,
+ * hubspot?)" and "can we soften the ask" on Quick, and both answers fell
+ * short: one checked a single system, the other revised a draft on the fast
+ * model. Code routes on the typed facts; the words are never matched.
+ * @param facts - What the read said about the request.
+ * @param facts.drafts - It writes or revises something a person will send.
+ * @param facts.systems - How many systems it needs checked.
+ */
+export function autoFloor(facts: { drafts: boolean; systems: number }): { level: EffortLevel; reason: string } | null {
+  if (facts.drafts) {
+    return { level: 'standard', reason: 'drafting something you will send' };
+  }
+  if (facts.systems >= 2) {
+    return { level: 'standard', reason: `checking ${facts.systems} systems` };
+  }
+  return null;
+}
 
 /**
  * Parse the model's answer, or null.
@@ -131,7 +153,13 @@ export function parseEffort(raw: string): { level: EffortLevel; reason: string }
     if (!EFFORT_LEVELS.includes(parsed.level as EffortLevel)) {
       return null;
     }
-    return { level: parsed.level as EffortLevel, reason: typeof parsed.reason === 'string' ? parsed.reason.slice(0, 80) : '' };
+    const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 80) : '';
+    const facts = parsed as { drafts?: unknown; systems?: unknown };
+    const floor = autoFloor({ drafts: facts.drafts === true, systems: typeof facts.systems === 'number' ? facts.systems : 1 });
+    if (floor && EFFORT_LEVELS.indexOf(parsed.level as EffortLevel) < EFFORT_LEVELS.indexOf(floor.level)) {
+      return { level: floor.level, reason: floor.reason };
+    }
+    return { level: parsed.level as EffortLevel, reason };
   } catch {
     return null;
   }
