@@ -10,9 +10,10 @@ describe('describeAttachment', () => {
   });
 
   it('a deck goes as its PDF, with its slide count', () => {
-    expect(describeAttachment({ artifactId: 13 }, { id: 13, kind: 'deck', title: 'Northwind proposal', url: null, spec: { order: ['a', 'b', 'c'], slides: { a: '<section id="a"></section>', b: '<section id="b"></section>', c: '<section id="c"></section>' } } }))
+    expect(describeAttachment({ artifactId: 13 }, { id: 13, kind: 'deck', title: 'Northwind proposal', url: null, spec: { order: ['a', 'b', 'c'], slides: { a: '<section id="a"></section>', b: '<section id="b"></section>', c: '<section id="c"></section>' }, verification: { ok: true, pdf: '/api/artifacts/org-ab12cd34ef56ab78/org-ab12cd34ef56ab78.pdf' } } }))
       .toEqual({ artifactId: 13, title: 'Northwind proposal', href: '/dashboard/artifacts/13', meta: 'PDF · 3 slides' });
     expect(describeAttachment({ artifactId: 14 }, { id: 14, kind: 'deck', title: 'Empty deck', url: null, spec: { order: [], slides: {} } }).problem).toMatch(/no slides/);
+    expect(describeAttachment({ artifactId: 15 }, { id: 15, kind: 'deck', title: 'Unprinted', url: null, spec: { order: ['a'], slides: { a: '<section id="a"></section>' } } }).problem).toMatch(/no printed PDF/);
   });
 
   it('a file goes as stored, with its size', () => {

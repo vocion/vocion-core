@@ -40,9 +40,7 @@
  */
 
 import type { MeetingCapture } from '@/services/meetings/captures';
-import { meetingKey } from '@/services/meetings/captures';
-
-export { meetingKey };
+import { meetingKey } from '@/services/meetings/meetingKey';
 
 export const MEETING_FOLLOWUP_JOB = 'meeting-followup';
 

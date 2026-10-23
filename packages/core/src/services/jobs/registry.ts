@@ -64,7 +64,6 @@ import { ERROR_WATCH_JOB, runErrorWatch } from './errorWatch';
 import { factoryCarryJobs } from './factoryCarry';
 import { INDEX_ARTIFACT_JOB, runIndexArtifactJob } from './indexArtifact';
 import { liveCheckJobs } from './liveCheck';
-import { MEETING_FOLLOWUP_JOB, runMeetingFollowupJob } from './meetingFollowup';
 import { mockupDefaultJobs } from './mockupDefault';
 import { NARRATE_RECORDING_JOB, runNarrateRecordingJob } from './narrateRecording';
 import { NOTIFY_ASKS_JOB, runNotifyAsksJob } from './notifyAsks';
@@ -88,7 +87,8 @@ const JOBS: Record<string, BuiltInJob> = {
   [ASKER_FOLLOW_JOB]: (orgId, input) => runAskerFollowJob(orgId, input),
   [ASKER_RECORDING_JOB]: (orgId, input) => runAskerRecordingJob(orgId, input),
   [TEAM_THREAD_JOB]: (orgId, input) => runTeamThreadJob(orgId, input),
-  [MEETING_FOLLOWUP_JOB]: (orgId, input) => runMeetingFollowupJob(orgId, input),
+  // Loaded when it runs: the registry is on many routes, and the job is not.
+  'meeting-followup': async (orgId, input) => (await import('./meetingFollowup')).runMeetingFollowupJob(orgId, input),
   // A workspace whose old automation still names these hears nothing from them: asker-follow says it.
   ...Object.fromEntries(RETIRED_FOLLOW_JOBS.map(name => [name, async () => ({ said: false, reason: `${name} is retired; asker-follow tells the asker` })])),
 };

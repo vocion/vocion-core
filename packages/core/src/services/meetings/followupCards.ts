@@ -20,7 +20,8 @@
 import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { actionRunSchema, discoveryCandidateSchema, knowledgeDocumentSchema } from '@/models/Schema';
-import { captureOf, meetingKey as keyOf } from './captures';
+import { captureOf } from './captures';
+import { meetingKey as keyOf } from './meetingKey';
 
 export const FOLLOWUP_ACTION = 'meeting.draft_followup';
 const DISCOVERY_ACTION = 'discovery.review_proposal';

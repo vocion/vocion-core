@@ -13,10 +13,7 @@
 
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
-import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { db } from '@/libs/DB';
-import { knowledgeChunkSchema } from '@/models/Schema';
 
 /** The most of a record handed back in one read. */
 export const RECORD_MAX_CHARS = 80_000;
@@ -33,6 +30,9 @@ export function readMeetingRecordTool(ctx: RuntimeContext) {
       if (!(await recordReleased(ctx.orgId, args.document_id))) {
         return JSON.stringify({ error: 'not_released', message: `nobody has released "${capture.title ?? 'this call'}" yet — its follow-up card waits on its owner. Do not read it another way.` });
       }
+      const { and, eq } = await import('drizzle-orm');
+      const { db } = await import('@/libs/DB');
+      const { knowledgeChunkSchema } = await import('@/models/Schema');
       const chunks = await db
         .select({ content: knowledgeChunkSchema.content })
         .from(knowledgeChunkSchema)
