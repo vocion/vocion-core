@@ -38,13 +38,11 @@ const DETAILS = {
   'p-kc-ops': { leadName: 'Dispatcher', lastActiveAt: new Date(Date.now() - 0.5 * HOUR).toISOString(), waiting: 0 },
 };
 
-// What the sidebar says under each row: its apps and where it opens.
+// What the sidebar says under each row: the apps it adds beyond the core one.
 const LINES: Record<string, string> = {
-  'p-personal': 'Workforce · opens on Chat',
-  'p-nw': 'opens in Finance',
-  'p-kc-deals': 'GTM · Routines · opens on Review',
-  'p-kc-ops': 'opens in Software Factory',
-  'p-kc-empty': 'opens in Workforce',
+  'p-nw': 'Finance',
+  'p-kc-deals': 'GTM · Routines',
+  'p-kc-ops': 'Software Factory',
 };
 
 function renderPicker(navigate: (href: string) => void) {
@@ -52,7 +50,7 @@ function renderPicker(navigate: (href: string) => void) {
     <NextIntlClientProvider locale="en" messages={en}>
       <SidebarProvider>
         <div className="w-full p-3">
-          <WorkspaceSwitcher account={ACCOUNTS[0]!} accounts={ACCOUNTS} projects={PROJECTS} activeId="p-nw" defaultOpen side="bottom" orgsMode="multi" navigate={navigate} details={DETAILS} rowLine={p => LINES[p.id] ?? null} />
+          <WorkspaceSwitcher account={ACCOUNTS[0]!} accounts={ACCOUNTS} projects={PROJECTS} activeId="p-nw" defaultOpen side="bottom" orgsMode="multi" navigate={navigate} details={DETAILS} rowLine={p => LINES[p.id] ?? ''} />
         </div>
       </SidebarProvider>
     </NextIntlClientProvider>,
@@ -70,11 +68,11 @@ describe('the picker on a phone, several Orgs', () => {
 
     expect(headings).toEqual(['You', 'Northwind', 'Kestrel Capital']);
 
-    // Recent first; the empty one last. Each row says its apps and where it opens.
+    // Recent first; the empty one last. Each row says the apps it adds.
     const kestrel = page.getByRole('group', { name: 'Kestrel Capital' }).getByTestId('switcher-workspace').elements().map(e => e.textContent ?? '');
 
-    expect(kestrel.map(r => r.replace(/^./, '').split(/opens|GTM ·/)[0])).toEqual(['Kestrel Ops', 'Deal Desk', 'Pilot']);
-    expect(kestrel[1]).toMatch(/GTM · Routines · opens on Review/);
+    expect(kestrel.map(r => r.replace(/^./, '').split(/Software Factory|GTM ·/)[0])).toEqual(['Kestrel Ops', 'Deal Desk', 'Pilot']);
+    expect(kestrel[1]).toMatch(/GTM · Routines/);
 
     if (shots) {
       await new Promise(r => setTimeout(r, 300));

@@ -237,8 +237,10 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   // never on this page (`workspaceLanding`).
   const switchTarget: WorkspaceSwitcherTargetPath = p => landingOf(p).path;
   // Under each workspace: only what it adds beyond the core app ("Finance",
-  // "Software Factory"). Where it opens is not said; the row just goes there.
-  const rowLine = (p: SwitcherProject) => appsLine(appsOfProject(p.id));
+  // "Software Factory"), and nothing at all for one with only the core app
+  // (an empty line, so the picker's lead-and-agents fallback stays out too).
+  // Where it opens is not said; the row just goes there.
+  const rowLine = (p: SwitcherProject) => appsLine(appsOfProject(p.id)) ?? '';
   // ONE control for where you are: the Org and the workspace together, one
   // list of every workspace, never a second switcher above it.
   const shownApp = view === 'manage' ? coreAppNav : activeApp;

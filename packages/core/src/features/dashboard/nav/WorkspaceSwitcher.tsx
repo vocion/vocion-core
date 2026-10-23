@@ -294,7 +294,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     (props.navigate ?? (h => window.location.assign(h)))(href);
   };
 
-  // What a row says under its name: its apps and where it opens, when the
+  // What a row says under its name: the apps it adds, when the
   // sidebar knows; else what it is ("Atlas · 7 agents · active 2h ago").
   const line = (p: SwitcherProject) => props.rowLine?.(p) ?? pickerLine(p, details[p.id], {
     agents: n => t('picker_agents', { count: n }),
@@ -462,7 +462,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
  * The live switcher: the directory the sidebar loaded, the active project from the session.
  * @param props - The switcher's inputs.
  * @param props.directory - What `useWorkspaceDirectory` loaded; null while loading.
- * @param props.rowLine - The line under each workspace: its apps and where it opens.
+ * @param props.rowLine - The line under each workspace: the apps it adds.
  * @param props.onManage - The "Workspace settings" row's action.
  * @param props.targetPath - The page a switch lands on.
  * @param props.tint - The selected app's tint, worn by the chip.
