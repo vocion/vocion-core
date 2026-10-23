@@ -243,7 +243,9 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     const page = landing.restored ? DASHBOARD_ROUTES.find(r => r.url === landing.path) : undefined;
     const app = target.find(a => a.id === landing.app);
     const opens = page ? t('picker_opens_on', { page: page.i18nKey ? t(page.i18nKey) : page.title }) : app ? t('picker_opens_in', { app: app.name }) : null;
-    return [appsLine(target), opens].filter(Boolean).join(' · ') || null;
+    const has = appsLine(target);
+    // "Finance · opens in Finance" says one thing twice: say where it opens.
+    return (opens && has === app?.name ? opens : [has, opens].filter(Boolean).join(' · ')) || null;
   };
   // ONE control for where you are: the Org and the workspace together, one
   // list of every workspace, never a second switcher above it.

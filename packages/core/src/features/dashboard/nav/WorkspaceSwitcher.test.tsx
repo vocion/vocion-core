@@ -183,6 +183,6 @@ describe('WorkspaceSwitcher, where each workspace opens', () => {
 
     expect(navigate).toHaveBeenCalledWith('/w/finance/dashboard/p/account-rules');
     // The chip names the workspace alone; the rail beside it shows the app.
-    await expect.element(page.getByRole('button', { name: 'Switch workspace' })).toHaveTextContent(/^.?Larkfield Revenue/);
+    expect(page.getByTestId('workspace-switcher-where').element().textContent).toBe('Larkfield Revenue');
   });
 });

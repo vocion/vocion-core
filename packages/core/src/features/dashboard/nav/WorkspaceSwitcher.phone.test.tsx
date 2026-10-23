@@ -38,12 +38,21 @@ const DETAILS = {
   'p-kc-ops': { leadName: 'Dispatcher', lastActiveAt: new Date(Date.now() - 0.5 * HOUR).toISOString(), waiting: 0 },
 };
 
+// What the sidebar says under each row: its apps and where it opens.
+const LINES: Record<string, string> = {
+  'p-personal': 'Workforce · opens on Chat',
+  'p-nw': 'opens in Finance',
+  'p-kc-deals': 'GTM · Routines · opens on Review',
+  'p-kc-ops': 'opens in Software Factory',
+  'p-kc-empty': 'opens in Workforce',
+};
+
 function renderPicker(navigate: (href: string) => void) {
   return render(
     <NextIntlClientProvider locale="en" messages={en}>
       <SidebarProvider>
         <div className="w-full p-3">
-          <WorkspaceSwitcher account={ACCOUNTS[0]!} accounts={ACCOUNTS} projects={PROJECTS} activeId="p-nw" defaultOpen side="bottom" orgsMode="multi" navigate={navigate} details={DETAILS} />
+          <WorkspaceSwitcher account={ACCOUNTS[0]!} accounts={ACCOUNTS} projects={PROJECTS} activeId="p-nw" defaultOpen side="bottom" orgsMode="multi" navigate={navigate} details={DETAILS} rowLine={p => LINES[p.id] ?? null} />
         </div>
       </SidebarProvider>
     </NextIntlClientProvider>,
@@ -61,10 +70,11 @@ describe('the picker on a phone, several Orgs', () => {
 
     expect(headings).toEqual(['You', 'Northwind', 'Kestrel Capital']);
 
-    // Recent first; the empty one last.
+    // Recent first; the empty one last. Each row says its apps and where it opens.
     const kestrel = page.getByRole('group', { name: 'Kestrel Capital' }).getByTestId('switcher-workspace').elements().map(e => e.textContent ?? '');
 
-    expect(kestrel.map(r => r.replace(/^./, '').split(/[A-Z][a-z]+ ·|\d/)[0])).toEqual(['Kestrel Ops', 'Deal Desk', 'Pilot']);
+    expect(kestrel.map(r => r.replace(/^./, '').split(/opens|GTM ·/)[0])).toEqual(['Kestrel Ops', 'Deal Desk', 'Pilot']);
+    expect(kestrel[1]).toMatch(/GTM · Routines · opens on Review/);
 
     if (shots) {
       await new Promise(r => setTimeout(r, 300));

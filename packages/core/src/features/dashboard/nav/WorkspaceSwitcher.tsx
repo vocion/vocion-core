@@ -21,7 +21,7 @@ import { client } from '@/libs/Orpc';
 import { relativeLabel } from '@/libs/timeAgo';
 import { TINT_BG } from '@/libs/tints';
 import { cn } from '@/utils/Helpers';
-import { pickerLine, pickerOrgs } from './pickerModel';
+import { orderForPicker, pickerLine, pickerOrgs } from './pickerModel';
 import { ALL_WORKSPACES_HREF, crossAccountSlug, filterProjects, projectAccent, WORKSPACE_HOME, workspaceSwitchHref } from './workspaceSwitch';
 
 /**
@@ -387,10 +387,15 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     // One list of every workspace (founder, 2026-10-23, workspace first):
     // Personal under "You", then each Org's workspaces under its name, by
     // recent use. A single-Org install names no Org: one "Workspaces" group.
+    // A workspace whose Org is not in the list still shows, under "Workspaces".
+    const shared = live.filter(p => p.kind !== 'personal');
+    const grouped = new Set(multiOrg ? groups.orgs.flatMap(o => o.workspaces.map(w => w.id)) : []);
+    const ungrouped = orderForPicker(shared.filter(p => !grouped.has(p.id)), details);
     body = (
       <>
         {groups.personal.length > 0 && group('you', t('picker_you'), groups.personal)}
-        {groups.orgs.map(o => group(o.account.id, multiOrg ? o.account.name : t('picker_workspaces_heading'), o.workspaces))}
+        {multiOrg && groups.orgs.map(o => group(o.account.id, o.account.name, o.workspaces))}
+        {ungrouped.length > 0 && group('workspaces', t('picker_workspaces_heading'), ungrouped)}
       </>
     );
   }
