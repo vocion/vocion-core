@@ -4,10 +4,20 @@ import { documentPage, libraryPage } from '../src/web/pages.mjs';
 import { api, byTestId, rowsById, storeAt, text } from './helpers.mjs';
 
 const off = (store, link = 'l1', doc = 'd1', allowDownload = false) => api(store, { method: 'PATCH', path: `/api/documents/${doc}/links/${link}`, body: { allowDownload }, userId: 'u_owner' });
+// Start every link with downloads on, so a seed edit in src/data.mjs cannot decide the result.
+const fresh = () => {
+  const store = storeAt();
+  for (const doc of ['d1', 'd2', 'd3', 'd4', 'd5']) {
+    for (const l of store.linksFor(doc)) {
+      off(store, l.id, doc, true);
+    }
+  }
+  return store;
+};
 const marks = store => Object.fromEntries(Object.entries(rowsById(libraryPage(store, 'u_owner'))).map(([id, r]) => [id, byTestId(r, 'mark-no-download').map(text)]));
 
 test('A1: the mark', () => {
-  const store = storeAt();
+  const store = fresh();
   off(store);
   const m = marks(store);
   assert.deepEqual(m.d1, ['No download']);
@@ -17,14 +27,14 @@ test('A1: the mark', () => {
 });
 
 test('A2: back on, no mark', () => {
-  const store = storeAt();
+  const store = fresh();
   off(store);
   off(store, 'l1', 'd1', true);
   assert.deepEqual(marks(store).d1, []);
 });
 
 test('A3: the switch', () => {
-  const store = storeAt();
+  const store = fresh();
   off(store);
   const rows = byTestId(documentPage(store, 'u_owner', 'd1'), 'link-row');
   const l1 = rows.find(r => r.includes('data-id="l1"'));
