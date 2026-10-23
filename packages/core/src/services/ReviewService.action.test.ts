@@ -27,7 +27,7 @@ registerAction({
   external: true,
   execute: async () => {
     executed += 1;
-    return { ok: true };
+    return { ok: true, link: 'https://mail.example.test/drafts/d-1', draftId: 'd-1' };
   },
 });
 
@@ -69,6 +69,13 @@ describe('ReviewService × actions', () => {
     const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, id));
 
     expect(row!.status).toBe('done');
+  });
+
+  it('approve → the execution\'s result rides back, so the receipt can link to what it made', async () => {
+    const id = await pendingAction();
+    const outcome = await decide({ kind: 'action', id }, 'approve', ORG);
+
+    expect(outcome.execution).toMatchObject({ status: 'done', error: null, result: { link: 'https://mail.example.test/drafts/d-1', draftId: 'd-1' } });
   });
 
   it('reject → never executes', async () => {

@@ -5,7 +5,7 @@ vi.mock('@/libs/DB');
 const env: Record<string, string | undefined> = {};
 vi.mock('@/libs/Env', () => ({ Env: env }));
 
-const { googleProvider, GOOGLE_LOGIN_SCOPES } = await import('./google');
+const { googleProvider, GOOGLE_EXTRA_ACCESS, GOOGLE_LOGIN_SCOPES } = await import('./google');
 
 const CALLBACK = 'https://v.example/api/connect/google/callback';
 
@@ -103,6 +103,22 @@ describe('google connect provider', () => {
     expect(googleProvider.missingAccessFor!(driveOnly, 'gmail')).toBe(
       'This Google login doesn\'t include Gmail. Press Replace and log in with Google again to add it.',
     );
+  });
+});
+
+describe('google connect provider — whether a login holds the extra access a reconnect asks for', () => {
+  const READONLY = GOOGLE_LOGIN_SCOPES.gmail!.join(' ');
+  const COMPOSE = GOOGLE_EXTRA_ACCESS.gmail!.compose!.join(' ');
+
+  it('is false on a read-only Gmail login and true once it holds compose', () => {
+    expect(googleProvider.hasAccess!({ scope: `openid email ${READONLY}` }, 'gmail', 'compose')).toBe(false);
+    expect(googleProvider.hasAccess!({ scope: `openid email ${READONLY} ${COMPOSE}` }, 'gmail', 'compose')).toBe(true);
+  });
+
+  it('cannot tell for a bag that records no scopes, or an access it does not know', () => {
+    expect(googleProvider.hasAccess!({ refreshToken: '1//r' }, 'gmail', 'compose')).toBeNull();
+    expect(googleProvider.hasAccess!({ scope: READONLY }, 'gmail', 'teleport')).toBeNull();
+    expect(googleProvider.hasAccess!({ scope: READONLY }, 'drive', 'compose')).toBeNull();
   });
 });
 

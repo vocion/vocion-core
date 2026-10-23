@@ -319,6 +319,7 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
         to: input.to,
         ...(attached.length > 0 ? { attachments: attached } : {}),
         link: gmailLink(mailbox, messageId ? `#drafts?compose=${messageId}` : '#drafts'),
+        linkLabel: 'Open in Gmail',
       };
     }
 
@@ -339,6 +340,7 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
       to: input.to,
       ...(attached.length > 0 ? { attachments: attached } : {}),
       link: gmailLink(mailbox, body.threadId ? `#all/${body.threadId}` : '#sent'),
+      linkLabel: 'Open in Gmail',
     };
   },
   // A draft is deleted; nothing else here can be taken back.

@@ -180,7 +180,7 @@ export type ActionOrigin = { conversationId?: number | null; userId?: string | n
  * @param action - The registered action.
  * @param input - The run's input, as parsed or as stored.
  */
-function sourceSlugOf(action: Action, input: Record<string, unknown> | null | undefined): string | null {
+export function sourceSlugOf(action: Action, input: Record<string, unknown> | null | undefined): string | null {
   try {
     const perInput = action.sourceSlugFor?.(input ?? {});
     if (typeof perInput === 'string' && perInput.trim()) {

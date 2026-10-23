@@ -21,6 +21,9 @@ import { learnedFromDecision } from './learnedFromDecision';
  */
 export function showLearnedToast(input: DecisionLearningInput): void {
   const learned = learnedFromDecision(input);
+  if (!learned) {
+    return;
+  }
   const runId = learned.undoRunId;
   toast.info(learned.title, {
     description: learned.description,

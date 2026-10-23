@@ -202,6 +202,26 @@ describe('a refused approval', () => {
     expect(visibleText()).toMatch(/ACCESS_TOKEN_SCOPE_INSUFFICIENT/);
   });
 
+  it('once the person has reconnected, says the access is in place and drops the reconnect', async () => {
+    await render(<ReviewSurface run={replyDraft({ status: 'failed', error: SCOPE_ERROR, accessGranted: true })} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('execution-failed-sentence')).toHaveTextContent('Gmail now lets Vocion create drafts.');
+    await expect.element(page.getByTestId('execution-failed-banner')).toHaveTextContent('Press Create draft in Gmail to try again.');
+    expect(page.getByTestId('execution-failed-banner').element().getAttribute('data-kind')).toBe('access-granted');
+    expect(page.getByTestId('execution-failed-fix').elements()).toHaveLength(0);
+
+    // What failed is still there, folded.
+    await page.getByTestId('execution-failed-details').getByText('Details', { exact: true }).click();
+
+    expect(visibleText()).toMatch(/ACCESS_TOKEN_SCOPE_INSUFFICIENT/);
+  });
+
+  it('keeps the reconnect while the grant still lacks the access', async () => {
+    await render(<ReviewSurface run={replyDraft({ status: 'failed', error: SCOPE_ERROR, accessGranted: false })} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('execution-failed-fix')).toHaveTextContent('Reconnect Gmail to allow drafts →');
+  });
+
   it('reads any other failure in its own words, with the payload still behind Details', async () => {
     await render(<ReviewSurface run={replyDraft({ status: 'failed', error: 'Gmail send failed: 500 {"error":{"code":500,"message":"Backend Error"}}' })} crumbs={CRUMBS} />);
 

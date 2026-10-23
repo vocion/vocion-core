@@ -222,6 +222,14 @@ Pressing the button again works. It approves with the card's choices (draft or s
 
 Each failure a retry sets aside is kept in the run's `result.failedAttempts` (when, and the error), so the run's history still shows it failed. Any other failure keeps the refusal, and the message says why: Vocion cannot tell it is safe to repeat, so it may already have changed something. Decline it and ask for a fresh one.
 
+Once the person has reconnected, the run's banner says so. The loader reads the stored grant the run will spend (`services/review/accessGranted.ts`, through the provider's `hasAccess`), never the vendor. When the grant now holds the access the failure lacked, the banner reads "Gmail now lets Vocion create drafts. The last try failed before you reconnected. Press Create draft in Gmail to try again." and drops the reconnect. The failure stays under Details.
+
+## What a decision says when it lands (2026-10-23)
+
+An approve's execution result rides back with the decision (`ReviewService.decide` → `execution.result`). The receipt toast can then point at what it made: "Draft created · Open in Gmail →" with Undo while the draft exists. A decided run's page shows the same link (`resultLinks` reads a result's `link`, labelled by its `linkLabel`). A Gmail draft opens at `mail.google.com/mail/u/<mailbox>/#drafts?compose=<message id>` and a sent message at its thread, both in the mailbox it was written from.
+
+The "Learned from this" toast speaks only when it has news, in plain words: a decline ("This kind of work keeps coming to you for approval."), a written reason ("Your reason will be suggested as a rule if it is new."), or a change to the agent's own prompt or wiki, with Undo. A plain approval still counts toward the kind running without asking, but it raises no second toast.
+
 ## Where it lives
 
 - **Chat** — the latest item IN the conversation on every surface that has one

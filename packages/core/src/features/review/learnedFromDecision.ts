@@ -13,7 +13,8 @@
  * Every sentence here is true of what actually happens. A decision with a
  * note becomes a proposed rule through the feedback worker; a decision
  * without one is still counted as agreement or disagreement on the autonomy
- * ladder. Neither is described as more than it is.
+ * ladder. Neither is described as more than it is, and neither in the
+ * ladder's own words: the person reads what it means for them.
  */
 
 import { selfUpdateKind } from '@/libs/actions/selfUpdate';
@@ -38,24 +39,33 @@ export type DecisionLearningInput = {
 };
 
 /**
- * The line a decision surface says once the decision has landed.
+ * The line a decision surface says once the decision has landed, or null
+ * when there is nothing to say beyond what the decision's own receipt said.
+ *
+ * A plain approval is still counted toward the kind running without asking,
+ * but saying so after every approve was a second toast in jargon ("Agreement
+ * recorded — evidence this kind climbs the ladder on", Chris, 2026-10-23)
+ * stacked on the one that mattered ("Draft created · Open in Gmail"). It is
+ * said when it is news: a reason that may become a rule, a decline that keeps
+ * the kind asking, or a self-update with its Undo.
  * @param input - What was decided.
  */
-export function learnedFromDecision(input: DecisionLearningInput): DecisionLearning {
+export function learnedFromDecision(input: DecisionLearningInput): DecisionLearning | null {
   const agreed = input.decision === 'approve';
-  const ladder = agreed
-    ? 'Agreement recorded — evidence this kind climbs the ladder on.'
-    : 'Disagreement recorded — this kind keeps asking.';
-  const note = input.hasNote
-    ? ' Your reason is queued to become a rule if nobody has said it before.'
-    : '';
   // A self-update names itself, because "the agent rewrote its own
   // instructions" is the one decision a person will want to recognise later.
   const kind = selfUpdateKind(input.actionId);
-  const self = kind ? `A self-update to the ${kind.noun}. ` : '';
+  if (agreed && !input.hasNote && !kind) {
+    return null;
+  }
+  const self = kind ? `A change to the agent's own ${kind.noun}. ` : '';
+  const counted = agreed
+    ? 'Approvals like this one count toward it doing this kind of work without asking you.'
+    : 'This kind of work keeps coming to you for approval.';
+  const note = input.hasNote ? ' Your reason will be suggested as a rule if it is new.' : '';
   return {
     title: 'Learned from this',
-    description: `${self}${ladder}${note}`,
+    description: `${self}${counted}${note}`,
     ...(agreed && input.undoable ? { undoRunId: input.runId } : {}),
   };
 }

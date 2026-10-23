@@ -33,43 +33,59 @@ export function failureSummary(error: string): string {
   return /[.!?…]$/.test(sentence) ? sentence : `${sentence}.`;
 }
 
-export function ExecutionFailure(props: { error: string; actionId: string; approveVerb: string }) {
+/**
+ * @param props - The failure.
+ * @param props.error - What the run recorded.
+ * @param props.actionId - The action that failed, for its connector.
+ * @param props.approveVerb - The bar's primary, named in the next step.
+ * @param props.accessGranted - On a permission failure, whether the
+ * connection holds the missing access now (the person reconnected since). True
+ * drops the reconnect: the access is in place, and the next step is to press
+ * the primary again.
+ */
+export function ExecutionFailure(props: { error: string; actionId: string; approveVerb: string; accessGranted?: boolean | null }) {
   const problem = explainPermissionError(props.error, props.actionId);
+  // The access the run lacked, when the connection holds it now.
+  const granted = problem?.kind === 'scope' && props.accessGranted === true ? problem : null;
   const [copied, setCopied] = useState(false);
   const raw = props.error;
   // Details only when there is more to see than the summary already says.
   const hasDetails = problem !== null || failureSummary(raw).replace(/\.$/, '') !== raw.trim().replace(/\.$/, '');
 
   return (
-    <div data-testid="execution-failed-banner" data-kind={problem?.kind ?? 'other'} className="flex items-start gap-2.5 border-l-2 border-brand-fail py-1 pl-3 text-sm">
-      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-brand-fail" aria-hidden />
+    <div data-testid="execution-failed-banner" data-kind={granted ? 'access-granted' : problem?.kind ?? 'other'} className={`flex items-start gap-2.5 border-l-2 py-1 pl-3 text-sm ${granted ? 'border-border' : 'border-brand-fail'}`}>
+      {granted
+        ? <Check className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+        : <TriangleAlert className="mt-0.5 size-4 shrink-0 text-brand-fail" aria-hidden />}
       <div className="min-w-0 flex-1">
         <p className="font-medium text-foreground" data-testid="execution-failed-sentence">
-          {problem ? problem.sentence : 'This did not go through.'}
+          {granted ? `${granted.system} now lets Vocion ${granted.needs}.` : problem ? problem.sentence : 'This did not go through.'}
         </p>
         {!problem && <p className="mt-0.5 text-[13px] break-words text-muted-foreground" data-testid="execution-failed-summary">{failureSummary(raw)}</p>}
         <p className="mt-1 text-[13px] text-muted-foreground">
-          {problem
-            ? (
-                <>
-                  <a
-                    href={reconnectHref(problem)}
-                    // Back to this page after the reconnect. Added on the
-                    // press, not in render: the server render has no
-                    // location, and a link that differed between the two
-                    // would be a hydration warning.
-                    onClick={(e) => {
-                      e.currentTarget.href = reconnectHref(problem, `${window.location.pathname}${window.location.search}`);
-                    }}
-                    data-testid="execution-failed-fix"
-                    className="font-medium text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground"
-                  >
-                    {`${problem.fixLabel} →`}
-                  </a>
-                  {` Then press ${props.approveVerb} again.`}
-                </>
-              )
-            : `Fix what it names, then press ${props.approveVerb} again.`}
+          {granted
+            ? `The last try failed before you reconnected. Press ${props.approveVerb} to try again.`
+            : problem
+              ? (
+                  <>
+                    <a
+                      href={reconnectHref(problem)}
+                      // Back to this page after the reconnect. Added on the
+                      // press, not in render: the server render has no
+                      // location, and a link that differed between the two
+                      // would be a hydration warning.
+                      onClick={(e) => {
+                        e.currentTarget.href = reconnectHref(problem, `${window.location.pathname}${window.location.search}`);
+                      }}
+                      data-testid="execution-failed-fix"
+                      className="font-medium text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground"
+                    >
+                      {`${problem.fixLabel} →`}
+                    </a>
+                    {` Then press ${props.approveVerb} again.`}
+                  </>
+                )
+              : `Fix what it names, then press ${props.approveVerb} again.`}
         </p>
         {hasDetails && (
           <details className="mt-1.5 text-[12px] text-muted-foreground" data-testid="execution-failed-details">

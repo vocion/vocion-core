@@ -91,6 +91,15 @@ export type ConnectProvider = {
    */
   missingAccessFor?: (credentials: RawCredentials, connectorSlug: string, audience?: ConnectAudience) => string | null;
   /**
+   * Whether a stored login of this provider now holds the extra access a
+   * reconnect asks for (`?access=compose`), read from what `exchange` stored
+   * beside the token: true or false, or null when the bag does not say (a
+   * pasted token, an older grant) or the provider names no such access. Lets a
+   * run that failed for want of that access say the access is now in place,
+   * without calling the vendor. Absent: the provider cannot tell.
+   */
+  hasAccess?: (credentials: RawCredentials, connectorSlug: string, access: string) => boolean | null;
+  /**
    * Whether this provider can make a person's OWN login (`audience:
    * 'personal'`). Absent: it cannot, and the personal gate refuses it.
    */

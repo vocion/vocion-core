@@ -52,6 +52,13 @@ export type ActionRun = {
   /** The per-item history: what was proposed, what was asked, what was approved. */
   revisions?: ActionRevision[] | null;
   error?: string | null;
+  /**
+   * On a run that failed for want of access: whether the connection it runs
+   * on holds that access now (the person reconnected since), read from the
+   * stored grant by the loader (`services/review/accessGranted.ts`). True
+   * turns the reconnect banner into "the access is in place, press it again".
+   */
+  accessGranted?: boolean | null;
   card?: ReviewCard;
   /** Alignment beside the confidence meter (server-computed, 30d) — earned autonomy (0099). */
   alignment?: { agreementRate: number | null; n: number; window: string } | null;
