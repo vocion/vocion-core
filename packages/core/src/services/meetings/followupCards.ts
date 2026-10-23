@@ -141,7 +141,7 @@ export async function recordReleased(orgId: string, documentId: number): Promise
   if (card) {
     return true;
   }
-  const { transcriptReleased } = await import('@/services/agents/tools/discovery');
+  const { transcriptReleased } = await import('@/services/discovery/release');
   const candidates = await db
     .select({ route: discoveryCandidateSchema.route, reviewStatus: actionRunSchema.status, reviewInput: actionRunSchema.input })
     .from(discoveryCandidateSchema)
