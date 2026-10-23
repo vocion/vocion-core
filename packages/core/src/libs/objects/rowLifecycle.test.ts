@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasRowLifecycle, isFinishedStatus, isOwedStatus, offersOwedVerbs } from './rowLifecycle';
+import { hasRowLifecycle, isFinishedStatus, isOwedStatus, offersOwedVerbs, recordStateLine } from './rowLifecycle';
 
 describe('a record\'s own lifecycle', () => {
   it('belongs to a type that declares no status field of its own', () => {
@@ -22,5 +22,12 @@ describe('a record\'s own lifecycle', () => {
   it('reads open, active and no status as owed, and a candidate or a rejected record as neither owed nor finished', () => {
     expect(['open', 'active', null, ''].map(isOwedStatus)).toEqual([true, true, true, true]);
     expect(['candidate', 'rejected'].map(s => isOwedStatus(s) || isFinishedStatus(s))).toEqual([false, false]);
+  });
+
+  it('says a record\'s own state in words, so a field that sounds like a status is not read as one', () => {
+    expect(recordStateLine('candidate')).toMatch(/^proposed: waiting for a person/);
+    expect(recordStateLine('rejected')).toMatch(/^dismissed in Review/);
+    expect(recordStateLine('dropped')).toBe('finished (dropped)');
+    expect(['open', 'active', 'approved', null].map(recordStateLine)).toEqual(['open', 'open', 'open', 'open']);
   });
 });

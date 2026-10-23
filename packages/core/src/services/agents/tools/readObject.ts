@@ -25,6 +25,7 @@ import type { WorkFacts } from '@/libs/factory/workFacts';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { nowLine } from '@/libs/factory/liveStatus';
+import { recordStateLine } from '@/libs/objects/rowLifecycle';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 import { codeForRecord } from '@/services/codes';
 import { readRecovery } from '@/services/factory/recovery';
@@ -162,6 +163,8 @@ export function readObjectTool(ctx: RuntimeContext) {
         code,
         title: row.title,
         status: row.status,
+        // The record's own lifecycle in words, beside fields that may sound like one.
+        record_state: recordStateLine(row.status),
         ...(live ? { liveStatus: live } : {}),
         ...(summary ? { recoverySummary: summary } : {}),
         ...meta,

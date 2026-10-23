@@ -77,3 +77,25 @@ export function isFinishedStatus(status: string | null | undefined): boolean {
 export function finishedLabel(status: string): string {
   return status === 'dropped' ? 'Dropped' : status === 'archived' ? 'Archived' : status === 'closed' ? 'Closed' : 'Done';
 }
+
+/**
+ * The record's own lifecycle in words, for an agent reading it beside the
+ * type's fields — so a field that sounds like a status (`relationship_status:
+ * to contact`) is never read as the record's. 2026-10-23: an answer called
+ * three follow-ups "to contact" when all three were still proposals waiting
+ * in Review, and the person could not find a way to act on them.
+ * @param status - The row's status (null reads as open).
+ */
+export function recordStateLine(status: string | null | undefined): string {
+  const s = String(status ?? '').toLowerCase();
+  if (s === CANDIDATE) {
+    return 'proposed: waiting for a person to approve or dismiss it in Review; not yet a record they stand behind';
+  }
+  if (s === 'rejected') {
+    return 'dismissed in Review: a proposal a person turned down';
+  }
+  if (isFinishedStatus(s)) {
+    return `finished (${finishedLabel(s).toLowerCase()})`;
+  }
+  return isOwedStatus(s) ? 'open' : s;
+}
