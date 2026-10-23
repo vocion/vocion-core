@@ -25,3 +25,11 @@ pre-commit:
       glob: '*'
       run: npm run check:deps
       priority: 3
+
+# The repo is public: a real customer, prospect or contact name must never
+# reach GitHub. CI's realDataGuard test caught three today, but only after the
+# push, when the commit was already public by its SHA. Run it before the push.
+pre-push:
+  commands:
+    real-data:
+      run: npm run --workspace @vocion/core check:real-data
