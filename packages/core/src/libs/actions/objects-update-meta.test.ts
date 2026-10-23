@@ -130,7 +130,9 @@ describe('what may be written — the type is the contract', () => {
     // `title` is both a column and, in this type, a declared field: the
     // column wins, because the row's identity has its own path.
     await expect(update({ title: 'Renamed' })).rejects.toThrow(/title is not a field of the record but the row itself/);
-    await expect(update({ status: 'approved', id: 4 })).rejects.toThrow(/id, status are not a field/);
+    await expect(update({ id: 4 })).rejects.toThrow(/id is not a field/);
+    // status is the record's lifecycle: only a lifecycle value moves it.
+    await expect(update({ status: 'approved' })).rejects.toThrow(/the record's lifecycle: one of open, active, done/);
 
     // And a type that states its order is listed in it.
     await db.update(businessObjectTypeSchema).set({ schema: { ...REQUEST_SCHEMA, propertyOrder: ['title', 'kind', 'state'] } }).where(eq(businessObjectTypeSchema.id, requestTypeId));
@@ -301,6 +303,26 @@ describe('undo — the record goes back exactly', () => {
   });
 });
 
+describe('the record\'s lifecycle — closing a finished record', () => {
+  async function rowStatus(): Promise<string | null> {
+    const [row] = await db.select({ status: businessObjectSchema.status }).from(businessObjectSchema).where(eq(businessObjectSchema.id, requestId));
+    return row?.status ?? null;
+  }
+
+  it('moves the row to done with a field beside it, and Undo puts both back', async () => {
+    const res = await update({ status: 'done', priority: 10 });
+
+    expect(await rowStatus()).toBe('done');
+    expect((await readMeta()).priority).toBe(10);
+    expect((await readMeta()).status).toBeUndefined();
+
+    await undoAction(res.runId, ORG, { by: 'user_chris' });
+
+    expect(await rowStatus()).toBe('active');
+    expect((await readMeta()).priority).toBeUndefined();
+  });
+});
+
 describe('machine bookkeeping never fans out (#269)', () => {
   async function updatedEvents(): Promise<Array<Record<string, unknown>>> {
     const rows = await db.select({ type: eventLogSchema.type, payload: eventLogSchema.payload }).from(eventLogSchema).where(eq(eventLogSchema.orgId, ORG));
@@ -361,5 +383,20 @@ describe('the status rides with the write (Chris, 2026-10-02)', () => {
     await update({ state: 'in_scope' });
 
     expect((await readMeta()).status).toBeUndefined();
+  });
+});
+
+describe('a record moved through its lifecycle', () => {
+  it('takes status on a type with no status field, to a lifecycle value only', async () => {
+    const { rowStatusOf } = await import('./objects-update-meta');
+    const followUp = { type: 'object', properties: { contact: { type: 'string' } } };
+
+    expect(rowStatusOf(followUp, { status: 'Done' })).toBe('done');
+    expect(rowStatusOf(followUp, { status: 'shipped' })).toBeNull();
+    expect(rowStatusOf(followUp, { contact: 'x' })).toBeNull();
+
+    const request = { type: 'object', properties: { status: { 'type': 'string', 'x-groups': [] } } };
+
+    expect(rowStatusOf(request, { status: 'done' })).toBeNull();
   });
 });

@@ -109,6 +109,37 @@ async function readRow(orgId: string, typeId: number, id: number): Promise<Row |
   return row ? { ...row, metadata: (row.metadata ?? {}) as Record<string, unknown> } : null;
 }
 
+/**
+ * The lifecycle a record's row may be moved through by this action, for a type that declares no
+ * `status` field of its own (one that does — the factory's request — moves it by its transitions).
+ * Closing an owed touch, dropping a stale row, reopening one: the agent's way to say a record is
+ * finished, with Undo, instead of leaving it open and saying it closed it (2026-10-23: fifteen
+ * Gauge follow-ups the agent could not close, and said it had).
+ */
+export const ROW_STATUSES = ['open', 'active', 'done', 'closed', 'dropped', 'archived'] as const;
+
+/**
+ * The row status a write asks for, when it may: `status` in `set`, on a type with no `status`
+ * field of its own, to one of `ROW_STATUSES`.
+ * @param schema - The type's schema.
+ * @param set - The write.
+ */
+export function rowStatusOf(schema: Record<string, unknown> | null, set: Record<string, unknown>): string | null {
+  const properties = (schema?.properties ?? {}) as Record<string, unknown>;
+  if (!('status' in set) || 'status' in properties) {
+    return null;
+  }
+  const v = String(set.status ?? '').trim().toLowerCase();
+  return (ROW_STATUSES as readonly string[]).includes(v) ? v : null;
+}
+
+async function writeRowStatus(orgId: string, id: number, status: string): Promise<void> {
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  await db.update(businessObjectSchema).set({ status, updatedAt: new Date() }).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)));
+}
+
 async function writeMetadata(orgId: string, id: number, metadata: Record<string, unknown>): Promise<void> {
   const { and, eq } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
@@ -242,7 +273,11 @@ async function refuseWrite(schema: Record<string, unknown> | null, typeSlug: str
     return `Object type "${typeSlug}" declares no fields in its schema, so nothing can be written on it. Add the fields to the type first.`;
   }
   const declared = declaredFieldOrder(schema, properties);
-  const keys = Object.keys(set).sort();
+  // The record's lifecycle is the one row column a write may move (`rowStatusOf`).
+  if ('status' in set && !('status' in properties) && !rowStatusOf(schema, set)) {
+    return `status on "${typeSlug}" is the record's lifecycle: one of ${ROW_STATUSES.join(', ')}.`;
+  }
+  const keys = Object.keys(set).filter(k => !(k === 'status' && rowStatusOf(schema, set))).sort();
   const reserved = keys.filter(k => RESERVED_OBJECT_KEYS.has(k));
   if (reserved.length > 0) {
     return `${reserved.join(', ')} ${reserved.length === 1 ? 'is' : 'are'} not a field of the record but the row itself and cannot be written here. Fields on "${typeSlug}": ${declared.join(', ')}.`;
@@ -254,6 +289,9 @@ async function refuseWrite(schema: Record<string, unknown> | null, typeSlug: str
   // Each value against its own field's schema, and only the fields being
   // set: the type's `required` list is about the whole record, and a record
   // already missing one must still accept a write to another.
+  if (keys.length === 0) {
+    return undefined;
+  }
   const touched = Object.fromEntries(keys.filter(k => set[k] !== null).map(k => [k, set[k]]));
   if (Object.keys(touched).length === 0) {
     return undefined;
@@ -269,7 +307,7 @@ async function refuseWrite(schema: Record<string, unknown> | null, typeSlug: str
 export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
   id: UPDATE_ACTION_ID,
   name: 'Update a record\'s fields',
-  description: 'Write one or more declared fields on an existing record of a workspace object type — a priority, a state, a link to what answered it. Only fields the type declares, checked against its schema; never the title or the lifecycle status. Reversible: the previous values are one Undo away, and every write is on the record\'s run history with who, why and what was there before.',
+  description: 'Write one or more declared fields on an existing record of a workspace object type — a priority, a state, a link to what answered it — or move the record itself through its lifecycle with status: open, active, done, closed, dropped or archived (closing a finished follow-up). Only fields the type declares, checked against its schema; never the title. Reversible: the previous values are one Undo away, and every write is on the record\'s run history with who, why and what was there before.',
   inputSchema: updateMetaInput,
   grant: 'update_object',
   external: false,
@@ -340,7 +378,14 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     const fields: ReviewCard['fields'] = [
       { label: 'Record', value: row ? `${row.title} (#${input.id})` : `${typeLabel} #${input.id}`, href: await recordHref(ctx.orgId, { objectType: input.objectType, id: input.id }) },
     ];
+    const rowStatus = rowStatusOf(objectType?.schema ?? null, input.set as Record<string, unknown>);
+    if (rowStatus) {
+      fields.push({ label: 'Status', value: `${row?.status ?? 'open'} → ${rowStatus}` });
+    }
     for (const [key, value] of Object.entries(input.set)) {
+      if (rowStatus && key === 'status') {
+        continue;
+      }
       const before = row && key in row.metadata ? displayValue(row.metadata[key]) : '';
       const after = value === null ? '' : displayValue(value);
       fields.push({
@@ -377,7 +422,10 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // that declares one says which writes carry it (`state: triaged`, a
     // person's Dismiss), so the record's one status moves with its fields and
     // Undo puts both back.
-    const written = withFollowedStatus(readStatusModel(objectType.schema), input.set as Record<string, unknown>);
+    // The record's own lifecycle, when the write moves it, goes on the row; the rest are fields.
+    const rowStatus = rowStatusOf(objectType.schema, input.set as Record<string, unknown>);
+    const fieldSet = rowStatus ? Object.fromEntries(Object.entries(input.set).filter(([k]) => k !== 'status')) : input.set;
+    const written = withFollowedStatus(readStatusModel(objectType.schema), fieldSet as Record<string, unknown>);
     // Sorted: the input comes back from jsonb in no particular order, and the
     // history should read the same however it was stored.
     const keys = Object.keys(written).sort();
@@ -389,6 +437,9 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     const next = applySet(row.metadata, crossed && 'returnedTo' in row.metadata ? { ...written, returnedTo: null, gate: null } : written);
     await bodyBefore(ctx.orgId, row.id);
     await writeMetadata(ctx.orgId, row.id, next);
+    if (rowStatus && rowStatus !== row.status) {
+      await writeRowStatus(ctx.orgId, row.id, rowStatus);
+    }
     // The row is written exactly as before; the body's version rides beside
     // it and can never fail it.
     const body = await bodyAfter({ orgId: ctx.orgId, id: row.id, reason: input.reason, written: keys, invokedBy: ctx.invokedBy, reviewedBy: ctx.reviewedBy, runId: ctx.runId });
@@ -441,9 +492,10 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
       objectId: row.id,
       objectType: input.objectType,
       title: row.title,
-      updated: keys,
+      updated: rowStatus ? [...keys, 'status'] : keys,
       set: input.set,
       previous,
+      ...(rowStatus ? { rowStatus, previousRowStatus: row.status ?? null } : {}),
       ...(visual === null ? {} : { visual }),
       ...(body.status === 'written' || body.status === 'unchanged' ? { bodyVersion: body.version } : {}),
       // Which version this write made, from which — what a page showing the
@@ -469,6 +521,9 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
       throw new Error(`No ${objectType?.label.toLowerCase() ?? input.objectType} #${input.id} in this workspace to restore.`);
     }
     await writeMetadata(ctx.orgId, row.id, applySet(row.metadata, previous));
+    if (typeof result.rowStatus === 'string') {
+      await writeRowStatus(ctx.orgId, row.id, typeof result.previousRowStatus === 'string' ? result.previousRowStatus : 'open');
+    }
     // Undo is a write too, so it is a version: history never shows a record
     // saying something its body does not.
     const body = await bodyAfter({ orgId: ctx.orgId, id: row.id, reason: `Undid run #${ctx.runId ?? '?'}: ${input.reason}`.slice(0, 500), written: Object.keys(previous).sort(), invokedBy: ctx.reviewedBy ?? ctx.invokedBy, runId: ctx.runId });
