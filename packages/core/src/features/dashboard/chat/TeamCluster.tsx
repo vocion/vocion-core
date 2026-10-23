@@ -4,6 +4,7 @@ import type { TeamMember } from './emptyChat';
 import { useTranslations } from 'next-intl';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { AgentStackItem, AgentStackMore } from '@/components/ui/agent-stack';
+import { SparkOrb } from '@/components/ui/spark-orb';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { TEAM_SHOWN } from './emptyChat';
@@ -45,18 +46,24 @@ export function TeamCluster({ members, href = '/dashboard/teams' }: { members: r
   const caption = members.length === 1 ? leadLabel : t('team_caption', { lead: leadLabel, count: members.length });
   return (
     <div data-testid="team-cluster" className="flex flex-col items-center [@media(max-height:480px)]:hidden">
+      {/* The big spark, still: Vocion, ready to work (Chris, 2026-10-24: "I
+          loved the big spark ball on the empty state"). The team sits under
+          it, each agent in its own colour. */}
+      <span className={cn(ENTER, 'mb-5 motion-safe:zoom-in-90')}>
+        <SparkOrb size="xl" working={false} className="size-16" />
+      </span>
       {/* Every agent here comes forward on hover, says who it is and opens
           its profile; the "+N" opens the whole team (`AgentStackItem`). The
           entrance animation sits on an outer span and the hover on the item,
           so a held animation transform never pins the item in place. */}
       <div className="group/stack flex items-center">
         {/* The lead in front: drawn last among siblings would hide it, so it
-            sits first with the highest z. It wears its own colour at rest,
-            like everywhere else it appears (Chris, 2026-10-23: one face per
-            agent); the spark is for its turns. */}
+            sits first with the highest z, a step larger than its teammates.
+            It wears its own colour at rest, like everywhere else it appears
+            (Chris, 2026-10-23: one face per agent); the spark is for its turns. */}
         <span className={cn(ENTER, 'z-10 motion-safe:zoom-in-90')} data-testid="team-lead">
-          <AgentStackItem label={leadLabel} href={agentHref(lead.slug)} className="ring-4">
-            <AgentDot name={lead.name} accent={lead.accent} size="xl" decorative className="size-14 text-lg" />
+          <AgentStackItem label={leadLabel} href={agentHref(lead.slug)}>
+            <AgentDot name={lead.name} accent={lead.accent} size="lg" decorative className="size-9 text-[13px]" />
           </AgentStackItem>
         </span>
         {rest.map((m, i) => (

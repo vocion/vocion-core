@@ -35,6 +35,7 @@ export function SparkOrb({ size = 'xs', working = true, label, className }: {
       role={label ? 'img' : undefined}
       aria-label={label}
       aria-hidden={label ? undefined : true}
+      data-flat={size === 'xs' || size === 'sm' || undefined}
       className={cn('spark-orb', SIZE[size], className)}
     />
   );

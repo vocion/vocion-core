@@ -73,6 +73,7 @@ export function AgentDot({ name, accent, icon: Icon, size = 'md', decorative = f
       title={decorative ? undefined : name}
       data-working={working || undefined}
       data-settling={(settling && !working) || undefined}
+      data-flat={size === 'xs' || size === 'sm' || undefined}
       className={cn('relative inline-flex shrink-0 items-center justify-center rounded-full leading-none font-semibold text-white select-none', SIZE[size], className)}
       style={{
         background: `radial-gradient(circle at 30% 25%, oklch(1 0 0 / 38%), oklch(1 0 0 / 0%) 55%), linear-gradient(135deg, color-mix(in oklch, ${dot} 78%, white), ${dot} 60%)`,
