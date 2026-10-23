@@ -27,6 +27,8 @@ const RULES: Array<[RegExp, DashboardLinkKind]> = [
   [/^\/dashboard\/inbox\/(?:g\/)?([^/?#]+)/, 'ask'],
   [/^\/dashboard\/briefings(?:\/([^/?#]+))?/, 'briefing'],
   [/^\/dashboard\/objects\/(?!type(?:\/|$))([^/?#]+)/, 'object'],
+  // A record at the page its type opens it at (`/dashboard/p/feature/214`).
+  [/^\/dashboard\/p\/[\w-]+\/(\d+)(?:[/?#]|$)/, 'object'],
   [/^\/dashboard\/rooms\/(\d+)/, 'room'],
   [/^\/dashboard\/goals\/(\d+)/, 'goal'],
   [/^\/dashboard\/review/, 'review'],
@@ -63,11 +65,16 @@ export function classifyDashboardLink(href: string | undefined, origin?: string)
     return null;
   }
   // Locale prefix (`/en/dashboard/...`) reads the same as the bare route.
-  const bare = path.replace(/^\/[a-z]{2}(?:-[A-Z]{2})?(?=\/)/, '');
+  const local = path.replace(/^\/[a-z]{2}(?:-[A-Z]{2})?(?=\/)/, '');
+  // So does the workspace prefix (`/w/<slug>/dashboard/...`), which is how
+  // every record link is written (`workspaceUrl`). It is matched without it
+  // and navigates with it, so the link still names its workspace. Before
+  // 2026-10-23 a workspace link matched nothing and opened in a new tab.
+  const bare = local.replace(/^\/w\/[^/?#]+(?=\/dashboard(?:[/?#]|$))/, '');
   for (const [re, kind] of RULES) {
     const m = bare.match(re);
     if (m) {
-      return { href: bare, kind, ...(m[1] ? { id: decodeURIComponent(m[1]) } : {}) };
+      return { href: local, kind, ...(m[1] ? { id: decodeURIComponent(m[1]) } : {}) };
     }
   }
   return null;
@@ -102,5 +109,22 @@ export function previewRefFor(link: DashboardLink): { type: 'object' | 'record_h
   if (link.kind === 'routine-batch' && link.id) {
     return { type: 'routine_batch', id: link.id };
   }
-  return link.kind === 'room' && link.id ? { type: 'object', id: link.id } : null;
+  // Any record peeks, whatever its type: an inline reference in an answer
+  // opens beside the conversation, where its verbs are (Chris, 2026-10-23).
+  return (link.kind === 'room' || link.kind === 'object') && link.id ? { type: 'object', id: link.id } : null;
+}
+
+/**
+ * Whether a click is the plain one a peek takes over: the primary button with
+ * no modifier. ⌘ / Ctrl / Shift / Alt and the middle button are the browser's
+ * own (a new tab, a new window, a download), and stay so.
+ * @param e - The click.
+ * @param e.button - Which button.
+ * @param e.metaKey - ⌘ held.
+ * @param e.ctrlKey - Ctrl held.
+ * @param e.shiftKey - Shift held.
+ * @param e.altKey - Alt held.
+ */
+export function isPlainClick(e: { button: number; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }): boolean {
+  return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 }
