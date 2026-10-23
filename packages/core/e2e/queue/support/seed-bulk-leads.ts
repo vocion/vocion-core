@@ -42,6 +42,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const orgId = await orgOf(values.email);
+  // The bulk page belongs to the GTM app, and since #1388 a deep link into an
+  // app the workspace lacks is moved to the workspace's home (AppNotHereNotice).
+  // A workspace with the personalization surface off is exactly that, so the
+  // page loaded and then bounced to Chat about a second later: the spec only
+  // passed when its assertions finished first. A person who opens this page has
+  // the surface on; the fixture says so.
+  const [project] = await db.select({ surfaces: projectSchema.enabledSurfaces }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
+  await db.update(projectSchema).set({ enabledSurfaces: [...new Set([...(project?.surfaces ?? []), 'personalization'])] }).where(eq(projectSchema.id, orgId));
   await db.delete(leadBriefSchema).where(and(eq(leadBriefSchema.orgId, orgId), like(leadBriefSchema.contactRef, `${REF_PREFIX}%`)));
   const briefedAt = new Date(Date.now() - 2 * 60 * 60 * 1000);
   await db.insert(leadBriefSchema).values([
