@@ -283,8 +283,11 @@ DetailPage ───────────────────────
   [Select → talk](#select--talk). `commentField` renames it (a composed
   eyebrow, or two sections that would collide); `commentField={null}` opts
   out.
-- `FactList` — label/value pairs as hairline `rows` (content column) or a
-  stacked `column` (right column).
+- `FactList` — label/value pairs as hairline `rows` (content column), a
+  stacked `column` (right column), or `inline` (label over value, wrapping
+  along one line: a meta row, a short strip of readings). A fact's `region`
+  names it for version marking. A `<dl>` of label/value pairs is this
+  component, not a hand-rolled grid.
 - `EvidenceList` — one claim per row with a `SourceChip` (`Fact` green,
   `Inference` amber, anything else as written) and the citation shortened to
   host/path (`evidence.ts`).
