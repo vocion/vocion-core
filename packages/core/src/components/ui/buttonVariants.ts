@@ -38,3 +38,12 @@ export const buttonVariants = cva(
     },
   },
 );
+
+/**
+ * The one icon button of a bar (polish pass, 2026-10-23): the top bar's
+ * agent, bell and sidebar toggle, and the chat header's new chat, history and
+ * expand. Ghost, a rounded square (never a circle: the avatar is the only
+ * round thing in a bar), 44px on a phone and 32px from `sm`, a soft fill on
+ * hover and while its menu is open. No colour of its own.
+ */
+export const BAR_ICON_BUTTON = 'relative flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-foreground/10 data-[state=open]:bg-surface-hover data-[state=open]:text-foreground sm:size-8 [&_svg]:size-4';

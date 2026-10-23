@@ -4,9 +4,12 @@ import { History, MessagesSquare, Search } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AgentDot } from '@/components/ui/agent-dot';
+import { BAR_ICON_BUTTON } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { nounCode } from '@/libs/codes';
 import { Link } from '@/libs/I18nNavigation';
+import { cn } from '@/utils/Helpers';
 import { chatHotkeyLabel } from './chatHotkeys';
 
 export type HistoryHit = {
@@ -25,12 +28,15 @@ export type HistoryHit = {
  * 2026-09-18: "history and all conversations should be combined"); New chat
  * is a top-level icon beside this one, not a row in here.
  * @param props
+ * @param props.agents
  * @param props.recent - The recent threads for the current agent.
  * @param props.currentId - The thread this surface is in, if any.
  * @param props.onPick - Load a thread into the surface.
  * @param props.search - Search threads by title or content.
  */
-export function HistoryPopover({ recent, currentId, onPick, search }: {
+export function HistoryPopover({ recent, currentId, onPick, search, agents = [] }: {
+  /** The surface's agents, so a row shows who it was with. */
+  agents?: ReadonlyArray<{ slug: string; name: string; accent?: string | null }>;
   recent: HistoryHit[];
   currentId: number | null;
   onPick: (id: number) => void;
@@ -83,7 +89,7 @@ export function HistoryPopover({ recent, currentId, onPick, search }: {
         <TooltipTrigger asChild>
           <PopoverPrimitive.Trigger
             aria-label={t('conversations')}
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground"
+            className={BAR_ICON_BUTTON}
           >
             <History className="size-4" aria-hidden />
           </PopoverPrimitive.Trigger>
@@ -105,7 +111,7 @@ export function HistoryPopover({ recent, currentId, onPick, search }: {
           }}
           className="z-50 w-[min(20rem,calc(100vw-1rem))] rounded-xl border border-border bg-background p-2 shadow-(--shadow-pop) outline-none"
         >
-          <label className="flex items-center gap-2 rounded-lg bg-muted/50 px-2.5 py-1.5 text-sm">
+          <label className="flex items-center gap-2 rounded-lg bg-surface-soft px-2.5 py-1.5 text-sm">
             <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
             <input
               ref={inputRef}
@@ -130,10 +136,19 @@ export function HistoryPopover({ recent, currentId, onPick, search }: {
                     type="button"
                     onClick={() => pick(r.id)}
                     aria-current={r.id === currentId ? 'true' : undefined}
-                    className={`flex w-full flex-col items-start rounded-lg px-2.5 py-1.5 text-left transition hover:bg-muted ${r.id === currentId ? 'bg-muted/60' : ''}`}
+                    // One menu row (polish pass, 2026-10-23): who it was with,
+                    // the title, and when, on the right.
+                    className={cn('flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-surface-hover', r.id === currentId && 'bg-surface-hover')}
                   >
-                    <span className="w-full truncate text-sm">{r.title || nounCode('conversation', r.id)}</span>
-                    {r.snippet && <span className="w-full truncate text-[11px] text-muted-foreground">{r.snippet}</span>}
+                    {(() => {
+                      const who = agents.find(a => a.slug === r.agentSlug);
+                      return who ? <AgentDot name={who.name} accent={who.accent} size="xs" decorative /> : <span className="size-4 shrink-0" aria-hidden />;
+                    })()}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm">{r.title || nounCode('conversation', r.id)}</span>
+                      {r.snippet && <span className="block truncate text-[11px] text-muted-foreground">{r.snippet}</span>}
+                    </span>
+                    {r.updatedAt && <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{shortAgo(new Date(r.updatedAt), Date.now())}</span>}
                   </button>
                 ))}
               </div>
@@ -143,7 +158,7 @@ export function HistoryPopover({ recent, currentId, onPick, search }: {
             href="/dashboard/conversations"
             onClick={() => setOpen(false)}
             data-testid="all-conversations"
-            className="mt-1 flex items-center gap-2 rounded-lg border-t border-border/60 px-2.5 pt-2 pb-1.5 text-sm text-foreground/85 transition hover:bg-muted"
+            className="mt-1 flex items-center gap-2 rounded-lg border-t border-border/60 px-2.5 pt-2 pb-1.5 text-sm text-foreground/85 transition-colors hover:bg-surface-hover"
           >
             <MessagesSquare className="size-4 text-muted-foreground" aria-hidden />
             <span className="flex-1">{t('all_conversations')}</span>
@@ -177,4 +192,28 @@ export function groupByDay(rows: HistoryHit[]): Array<{ key: 'today' | 'yesterda
     }
   }
   return (['today', 'yesterday', 'older'] as const).filter(k => buckets[k].length > 0).map(k => ({ key: k, rows: buckets[k] }));
+}
+
+/**
+ * When, as short as a menu row allows: "now", "5m", "3h", then the weekday
+ * within a week, then the date.
+ * @param at - When the conversation last moved.
+ * @param now - The clock, in ms.
+ */
+export function shortAgo(at: Date, now: number): string {
+  const minutes = Math.max(0, Math.round((now - at.getTime()) / 60000));
+  if (minutes < 1) {
+    return 'now';
+  }
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h`;
+  }
+  if (hours < 24 * 7) {
+    return at.toLocaleDateString(undefined, { weekday: 'short' });
+  }
+  return at.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }

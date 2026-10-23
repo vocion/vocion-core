@@ -4,9 +4,8 @@ import type { KeyboardEvent, ReactNode } from 'react';
 import type { PickerDetail } from './pickerModel';
 import type { WorkspaceDirectory } from './useWorkspaceDirectory';
 import type { SwitcherAccount, SwitcherProject, WorkspaceSwitcherTargetPath } from './workspaceSwitch';
-import type { Tint } from '@/libs/tints';
 import type { OrgsMode } from '@/services/OrgPolicy';
-import { ArrowLeftRight, ArrowRight, Check, ChevronRight, Search, Settings2 } from 'lucide-react';
+import { ArrowRight, Check, ChevronRight, ChevronsUpDown, Search, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useMemo, useState } from 'react';
@@ -19,7 +18,6 @@ import { Link, usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
 import { client } from '@/libs/Orpc';
 import { relativeLabel } from '@/libs/timeAgo';
-import { TINT_BG } from '@/libs/tints';
 import { cn } from '@/utils/Helpers';
 import { orderForPicker, pickerLine, pickerOrgs } from './pickerModel';
 import { ALL_WORKSPACES_HREF, crossAccountSlug, filterProjects, projectAccent, WORKSPACE_HOME, workspaceSwitchHref } from './workspaceSwitch';
@@ -90,8 +88,6 @@ export type WorkspaceSwitcherProps = {
   rowLine?: (p: SwitcherProject) => string | null;
   /** Which way the list opens. Default: up, as it did from the bottom of the sidebar. */
   side?: 'top' | 'bottom';
-  /** The app this picker belongs to: the chip wears its tint (front doors, `libs/tints.ts`). */
-  tint?: Tint;
   /**
    * The Org's square MARK, when its brand has one: the chip's avatar on every
    * install, Cloud included (one brand per region, `libs/branding/chrome.ts`).
@@ -356,11 +352,11 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     : (
         <PopoverTrigger
           aria-label={t('switch_workspace')}
-          data-tint={props.tint}
-          className={cn(
-            'group/ws flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-sidebar-ring',
-            props.tint ? [TINT_BG[props.tint], 'hover:brightness-[0.98] dark:hover:brightness-110'] : 'hover:bg-surface-hover data-[state=open]:bg-surface-hover',
-          )}
+          // A plain row (polish pass, 2026-10-23): the workspace's mark, its
+          // name and an up-down chevron. The tinted pill and its "Switch" chip
+          // went: the row is the control, and the mark already carries the
+          // workspace's colour.
+          className="group/ws flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left outline-hidden transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[state=open]:bg-sidebar-accent"
         >
           {avatar}
           <span className="min-w-0 flex-1" data-testid="workspace-switcher-where">
@@ -368,10 +364,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
               ? <span className="block h-3.5 w-28 animate-pulse rounded bg-muted" />
               : <span className="block truncate text-[13px] leading-tight font-medium text-foreground">{name}</span>}
           </span>
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors group-hover/ws:bg-background group-hover/ws:text-foreground">
-            <ArrowLeftRight className="size-3.5" aria-hidden />
-            {t('switch')}
-          </span>
+          <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover/ws:text-foreground" aria-hidden />
         </PopoverTrigger>
       );
 
@@ -465,14 +458,12 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
  * @param props.rowLine - The line under each workspace: the apps it adds.
  * @param props.onManage - The "Workspace settings" row's action.
  * @param props.targetPath - The page a switch lands on.
- * @param props.tint - The selected app's tint, worn by the chip.
  */
 export function WorkspaceSwitcherLive(props: {
   directory: WorkspaceDirectory | null;
   rowLine?: (p: SwitcherProject) => string | null;
   onManage?: () => void;
   targetPath?: WorkspaceSwitcherTargetPath;
-  tint?: Tint;
 }) {
   const { data: session } = useSession();
   const { state } = useSidebar();
@@ -523,7 +514,6 @@ export function WorkspaceSwitcherLive(props: {
       targetPath={props.targetPath}
       rowLine={props.rowLine}
       side="bottom"
-      tint={props.tint}
       logo={brand?.mark.light ? { light: brand.mark.light, dark: brand.mark.dark } : null}
     />
   );

@@ -479,7 +479,7 @@ export function useChatSession({
   // Recent conversations for the current agent — powers the history pickers
   // (the ⋯ menu on the page, the history panel in the bubble). Refreshed on
   // agent switch and when the list could be stale.
-  const [recentChats, setRecentChats] = useState<Array<{ id: number; title: string; titleSource?: ConversationTitleSource }>>([]);
+  const [recentChats, setRecentChats] = useState<Array<{ id: number; title: string; titleSource?: ConversationTitleSource; agentSlug?: string; updatedAt?: Date | string }>>([]);
   // The open thread's name as last read from the server (resume, pick) or
   // written here (first send, rename). The recent list wins when it holds the
   // thread, since it is refetched after every turn; this covers a thread too
@@ -2190,10 +2190,13 @@ export function useChatSession({
     void client.conversations.list({ agentSlug: agentSlugForChats, limit: 12 })
       .then((rows) => {
         if (!cancelled) {
-          setRecentChats((rows as Array<{ id: number; title: string | null; titleSource?: ConversationTitleSource }>).map(row => ({
+          setRecentChats((rows as Array<{ id: number; title: string | null; titleSource?: ConversationTitleSource; agentSlug?: string | null; updatedAt?: Date | string | null }>).map(row => ({
             id: row.id,
             title: row.title || nounCode('conversation', row.id),
             ...(row.titleSource ? { titleSource: row.titleSource } : {}),
+            // Who it was with and when it last moved, for the history rows.
+            ...(row.agentSlug ? { agentSlug: row.agentSlug } : {}),
+            ...(row.updatedAt ? { updatedAt: row.updatedAt } : {}),
           })));
         }
       })

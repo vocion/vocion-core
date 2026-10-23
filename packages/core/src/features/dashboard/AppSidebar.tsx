@@ -243,13 +243,11 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   const rowLine = (p: SwitcherProject) => appsLine(appsOfProject(p.id)) ?? '';
   // ONE control for where you are: the Org and the workspace together, one
   // list of every workspace, never a second switcher above it.
-  const shownApp = view === 'manage' ? coreAppNav : activeApp;
   const picker = (
     <WorkspaceSwitcherLive
       directory={directory}
       rowLine={directory ? rowLine : undefined}
       onManage={() => pick('manage')}
-      tint={shownApp?.tint}
       targetPath={switchTarget}
     />
   );

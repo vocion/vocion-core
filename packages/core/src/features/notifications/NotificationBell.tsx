@@ -4,6 +4,7 @@ import type { ClientNotification } from './notificationClient';
 import type { DevicePushState } from './webPushClient';
 import { Bell, BellRing, Settings2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { BAR_ICON_BUTTON } from '@/components/ui/buttonVariants';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast } from '@/components/ui/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -90,7 +91,7 @@ export function NotificationBell({ label }: { label: string }) {
               type="button"
               aria-label={count > 0 ? `${label}: ${count} unread` : label}
               data-testid="notification-bell"
-              className="relative flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:text-foreground sm:size-9"
+              className={BAR_ICON_BUTTON}
             >
               <Bell className="size-4" aria-hidden />
               {count > 0 && (

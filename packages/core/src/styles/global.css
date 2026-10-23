@@ -175,9 +175,8 @@
   --org-accent-ink-foreground: oklch(1 0 0);
 
   /* Shadcn surface tokens — light mode, neutral surfaces with warm accent */
-  /* Warm stays (2026-10-23): the page is a brighter warm paper and the
-     sidebar a deeper warm stone, so the work reads as a sheet on its chrome
-     — they were one cream, and nothing separated. */
+  /* Warm, as a whisper (2026-10-23): one warm paper for the page and the
+     sidebar, split by a hairline. */
   --background: #fefcf9; /* warm paper */
   --foreground: var(--ink);
   --card: oklch(1 0 0);
@@ -201,15 +200,18 @@
   --chart-3: var(--brand-pass);
   --chart-4: var(--brand-borderline);
   --chart-5: var(--brand-fail);
-  --sidebar: #f4f0e9; /* warm stone, a step below the page */
+  /* One surface (polish pass, 2026-10-23): the sidebar is the page's warm
+     white, split from it by a hairline (--sidebar-border); the stone step
+     read as beige. Selection is one soft warm fill, rail and nav alike. */
+  --sidebar: var(--background);
   /* Inactive labels are dark grey; the active pill is the darkest grey (8%)
      with ink text; hover is lighter (--surface-hover, 3%). Focus ring subtle. */
   --sidebar-foreground: var(--ink-muted);
   --sidebar-primary: var(--org-accent-ink);
   --sidebar-primary-foreground: var(--org-accent-ink-foreground);
-  --sidebar-accent: oklch(0 0 0 / 8%);
+  --sidebar-accent: oklch(0.3 0.02 60 / 7%);
   --sidebar-accent-foreground: var(--foreground);
-  --sidebar-border: var(--rule);
+  --sidebar-border: oklch(0.3 0.02 60 / 10%);
   --sidebar-ring: oklch(0 0 0 / 15%);
 }
 

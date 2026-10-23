@@ -3,6 +3,7 @@
 import { Check, ClipboardCopy, MessagesSquare, MoreHorizontal } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
+import { BAR_ICON_BUTTON } from '@/components/ui/buttonVariants';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,7 +67,7 @@ export function ChatMenu({ onCopy }: ChatMenuProps) {
         <TooltipTrigger asChild>
           <DropdownMenuTrigger
             aria-label={t('chat_options')}
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground"
+            className={BAR_ICON_BUTTON}
           >
             <MoreHorizontal className="size-4" aria-hidden="true" />
           </DropdownMenuTrigger>
