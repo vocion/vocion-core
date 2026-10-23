@@ -98,4 +98,31 @@ describe('a record\'s verbs', () => {
 
     expect(chip.container.querySelector('[data-testid^="record-lifecycle"]')).toBeNull();
   });
+
+  it('on a candidate, makes its pending Review decision in place: Approve, and the owed verbs follow', async () => {
+    const view = await render(<RecordLifecycle record={record} objectType="follow-up" status="candidate" decideRunId={88} />);
+
+    expect(view.container.querySelector('[data-testid="record-lifecycle-done"]')).toBeNull();
+
+    await view.getByTestId('record-lifecycle-approve').click();
+
+    await expect.poll(() => decideAction.mock.calls.length).toBe(1);
+    expect(decideAction).toHaveBeenCalledWith({ id: 88, decision: 'approve' });
+    await expect.poll(() => view.container.querySelector('[data-testid="record-lifecycle-do"]')).not.toBeNull();
+  });
+
+  it('on a candidate, Dismiss rejects its Review item and says so', async () => {
+    const view = await render(<RecordLifecycle record={record} objectType="follow-up" status="candidate" decideRunId={88} />);
+
+    await view.getByTestId('record-lifecycle-dismiss').click();
+
+    await expect.poll(() => view.container.querySelector('[data-testid="record-lifecycle-dismissed"]')).not.toBeNull();
+    expect(decideAction).toHaveBeenCalledWith(expect.objectContaining({ id: 88, decision: 'reject' }));
+  });
+
+  it('sits where the page puts it', async () => {
+    const view = await render(<RecordLifecycle record={record} objectType="follow-up" status="active" className="mb-6" />);
+
+    expect(view.container.querySelector('[data-testid="record-lifecycle"]')?.className).toContain('mb-6');
+  });
 });

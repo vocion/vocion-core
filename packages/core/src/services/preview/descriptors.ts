@@ -227,9 +227,9 @@ async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: strin
       // (`RecordLifecycle`): what is owed reads as something to do, not only
       // to read. Its age leads the facts — a three-month-old owed touch is a
       // different decision from yesterday's.
-      const { offersOwedVerbs } = await import('@/libs/objects/rowLifecycle');
+      const { recordActionsOf } = await import('@/services/objects/recordActions');
       const { timeAgo } = await import('@/libs/timeAgo');
-      const lifecycle = typeSlug && offersOwedVerbs(obj.type?.schema ?? null) ? { objectType: typeSlug, status: obj.status ?? 'open' } : null;
+      const lifecycle = await recordActionsOf(ctx.orgId, obj).catch(() => null);
       const opened = lifecycle && obj.createdAt ? { label: 'Opened', value: `opened ${timeAgo(new Date(obj.createdAt), Date.now())}` } : null;
       const hrefLabel = openRecordLabel(href);
       return {
