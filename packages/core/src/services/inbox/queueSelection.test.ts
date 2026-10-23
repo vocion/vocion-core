@@ -36,8 +36,8 @@ describe('picking the decisions a request means', () => {
 
   it('ages each row and each member of a sheet on its own, longest waiting first', () => {
     const members = new Map<string, QueueTarget[]>([['review-sheet:deal-9', [
-      { ref: 'proposal:31', kind: 'proposal', title: 'Close Catalyst deal', at: daysAgo(51), agentSlug: 'sdr-coordinator', href: '/r/31' },
-      { ref: 'proposal:32', kind: 'proposal', title: 'Email Catalyst', at: daysAgo(1), agentSlug: 'sdr-coordinator', href: '/r/32' },
+      { ref: 'proposal:31', kind: 'proposal', title: 'Close Corvid Mills deal', at: daysAgo(51), agentSlug: 'sdr-coordinator', href: '/r/31' },
+      { ref: 'proposal:32', kind: 'proposal', title: 'Email Corvid Mills', at: daysAgo(1), agentSlug: 'sdr-coordinator', href: '/r/32' },
     ]]]);
     const items = [
       row({ key: 'proposal:12', reviewId: 12, at: daysAgo(50) }),
@@ -67,7 +67,7 @@ describe('picking the decisions a request means', () => {
   it('takes a suggested rule and a failed run, and everything folded into a row, so the row does not come back', () => {
     const items = [
       row({ key: 'learning:5', kind: 'learning', ref: { kind: 'learning', id: 5 }, title: 'Never write "Worth a look" in outbound', at: daysAgo(37) }),
-      row({ key: 'proposal:44', reviewId: 44, status: 'failed', title: 'Send the Spinwheel follow-up', at: daysAgo(44) }),
+      row({ key: 'proposal:44', reviewId: 44, status: 'failed', title: 'Send the Bramblewood follow-up', at: daysAgo(44) }),
       row({ key: 'ask:7', kind: 'approval', askId: 7, status: 'open', at: daysAgo(39), chases: [8, 9] }),
       row({ key: 'proposal:12', reviewId: 12, at: daysAgo(51) }),
     ];
@@ -84,8 +84,8 @@ describe('picking the decisions a request means', () => {
 
   it('counts what a decline cannot take by kind and why, and never drops it', () => {
     const members = new Map<string, Array<QueueTarget & { status?: string }>>([['review-sheet:deal-3', [
-      { ref: 'proposal:61', kind: 'proposal', title: 'Close Armorock deal', at: daysAgo(40), agentSlug: null, href: '/r/61', status: 'awaiting_execution' },
-      { ref: 'proposal:62', kind: 'proposal', title: 'Update Armorock owner', at: daysAgo(40), agentSlug: null, href: '/r/62', status: 'pending' },
+      { ref: 'proposal:61', kind: 'proposal', title: 'Close Harbor Kiln deal', at: daysAgo(40), agentSlug: null, href: '/r/61', status: 'awaiting_execution' },
+      { ref: 'proposal:62', kind: 'proposal', title: 'Update Harbor Kiln owner', at: daysAgo(40), agentSlug: null, href: '/r/62', status: 'pending' },
     ]]]);
     const items = [
       row({ key: 'review-sheet:deal-3', shape: 'sheet', groupKey: 'deal-3', at: daysAgo(40) }),
