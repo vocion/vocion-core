@@ -77,8 +77,6 @@
     "lead_mark_home": "Accueil {brand}",
     "picker_you": "Vous",
     "picker_workspaces_heading": "Espaces",
-    "picker_opens_in": "s’ouvre dans {app}",
-    "picker_opens_on": "s’ouvre sur {page}",
     "app_not_here": "{app} n’est pas dans cet espace.",
     "app_not_here_open": "L’ouvrir dans",
     "app_not_here_dismiss": "Fermer",

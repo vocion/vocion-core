@@ -77,8 +77,6 @@
     "lead_mark_home": "{brand} home",
     "picker_you": "You",
     "picker_workspaces_heading": "Workspaces",
-    "picker_opens_in": "opens in {app}",
-    "picker_opens_on": "opens on {page}",
     "app_not_here": "{app} isn’t in this workspace.",
     "app_not_here_open": "Open it in",
     "app_not_here_dismiss": "Dismiss",

@@ -80,14 +80,11 @@ export function pickerLine(p: SwitcherProject, d: PickerDetail | undefined, word
 
 /**
  * What a workspace has, for the line under it in the picker: its apps
- * beyond the core one ("GTM · Routines"), or the core app's name when it has
- * nothing else.
+ * beyond the core one ("GTM · Routines"). A workspace with only the core app
+ * has no line: every workspace has that one.
  * @param apps - The workspace's apps, core included, in rail order.
  */
 export function appsLine(apps: ReadonlyArray<{ name: string; core: boolean }>): string | null {
   const others = apps.filter(a => !a.core).map(a => a.name);
-  if (others.length > 0) {
-    return others.join(' · ');
-  }
-  return apps.find(a => a.core)?.name ?? null;
+  return others.length > 0 ? others.join(' · ') : null;
 }

@@ -236,17 +236,11 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   // A switch lands where the person left the target, or on its home app,
   // never on this page (`workspaceLanding`).
   const switchTarget: WorkspaceSwitcherTargetPath = p => landingOf(p).path;
-  // Under each workspace: what it has, and where it will open.
-  const rowLine = (p: SwitcherProject) => {
-    const target = appsOfProject(p.id);
-    const landing = landingOf(p);
-    const page = landing.restored ? DASHBOARD_ROUTES.find(r => r.url === landing.path) : undefined;
-    const app = target.find(a => a.id === landing.app);
-    const opens = page ? t('picker_opens_on', { page: page.i18nKey ? t(page.i18nKey) : page.title }) : app ? t('picker_opens_in', { app: app.name }) : null;
-    const has = appsLine(target);
-    // "Finance · opens in Finance" says one thing twice: say where it opens.
-    return (opens && has === app?.name ? opens : [has, opens].filter(Boolean).join(' · ')) || null;
-  };
+  // Under each workspace: only what it adds beyond the core app ("Finance",
+  // "Software Factory"), and nothing at all for one with only the core app
+  // (an empty line, so the picker's lead-and-agents fallback stays out too).
+  // Where it opens is not said; the row just goes there.
+  const rowLine = (p: SwitcherProject) => appsLine(appsOfProject(p.id)) ?? '';
   // ONE control for where you are: the Org and the workspace together, one
   // list of every workspace, never a second switcher above it.
   const shownApp = view === 'manage' ? coreAppNav : activeApp;
