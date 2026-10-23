@@ -2415,6 +2415,8 @@ export function useChatSession({
     attachFiles,
     removeAttachment,
     isStreaming,
+    /** The running turn's answer has started to stream in (past thinking and tools). */
+    isAnswering: phase === 'answering',
     activity,
     /** The Decisions this conversation waits on, oldest first; the first is docked above the composer. */
     openDecisions,
