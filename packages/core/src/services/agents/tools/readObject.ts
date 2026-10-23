@@ -164,7 +164,7 @@ export function readObjectTool(ctx: RuntimeContext) {
         title: row.title,
         status: row.status,
         // The record's own lifecycle in words, beside fields that may sound like one.
-        record_state: recordStateLine(row.status),
+        record_state: recordStateLine(row.status, row.snoozedUntil),
         ...(live ? { liveStatus: live } : {}),
         ...(summary ? { recoverySummary: summary } : {}),
         ...meta,

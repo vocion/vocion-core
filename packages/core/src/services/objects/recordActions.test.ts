@@ -35,4 +35,11 @@ describe('recordActionsOf', () => {
     expect(await recordActionsOf(ORG, { status: 'candidate', reviewActionRunId: pending, type: OWED })).toEqual({ objectType: 'follow-up', status: 'candidate', decideRunId: pending });
     expect(await recordActionsOf(ORG, { status: 'candidate', reviewActionRunId: decided, type: OWED })).toEqual({ objectType: 'follow-up', status: 'candidate' });
   });
+
+  it('carries a snooze that is still ahead, and drops one that has passed', async () => {
+    const ahead = new Date(Date.now() + 86_400_000);
+
+    expect(await recordActionsOf(ORG, { status: 'active', snoozedUntil: ahead, type: OWED })).toEqual({ objectType: 'follow-up', status: 'active', snoozedUntil: ahead.toISOString() });
+    expect(await recordActionsOf(ORG, { status: 'active', snoozedUntil: new Date(Date.now() - 1000), type: OWED })).toEqual({ objectType: 'follow-up', status: 'active' });
+  });
 });

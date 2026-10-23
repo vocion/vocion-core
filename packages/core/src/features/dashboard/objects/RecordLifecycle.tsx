@@ -1,8 +1,9 @@
 'use client';
 
 import type { RecordRef } from '@/services/chat/pageContext';
-import { Check, Loader2, RotateCcw, Sparkles, X } from 'lucide-react';
+import { AlarmClock, Check, Loader2, RotateCcw, Sparkles, X } from 'lucide-react';
 import { useState } from 'react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { useRouter } from '@/libs/I18nNavigation';
 import { CANDIDATE, finishedLabel, isFinishedStatus, isOwedStatus } from '@/libs/objects/rowLifecycle';
@@ -31,24 +32,28 @@ import { client } from '@/libs/Orpc';
  * @param props.decideRunId - For a candidate, the pending Review item that proposed it: Approve and
  * Dismiss decide it here (Chris, 2026-10-23, on a candidate's page: "how do I act from this?").
  * @param props.className - Where the bar sits: the preview's edge-to-edge row by default.
+ * @param props.snoozedUntil - The date it is put off to, while that is still ahead.
  */
-export function RecordLifecycle({ record, objectType, status, look = 'bar', decideRunId, className }: { record: RecordRef; objectType: string; status: string; look?: 'bar' | 'inline'; decideRunId?: number; className?: string }) {
+export function RecordLifecycle({ record, objectType, status, look = 'bar', decideRunId, className, snoozedUntil }: { record: RecordRef; objectType: string; status: string; look?: 'bar' | 'inline'; decideRunId?: number; className?: string; snoozedUntil?: string }) {
   const router = useRouter();
   const [now, setNow] = useState(status);
-  const [phase, setPhase] = useState<{ s: 'idle' } | { s: 'working' } | { s: 'moved'; runId: number; from: string } | { s: 'error'; message: string }>({ s: 'idle' });
+  const [until, setUntil] = useState<string | null>(snoozedUntil ?? null);
+  const [phase, setPhase] = useState<{ s: 'idle' } | { s: 'working' } | { s: 'moved'; runId: number; from: string; untilFrom: string | null; said: string } | { s: 'error'; message: string }>({ s: 'idle' });
   const finished = isFinishedStatus(now);
   // A record in any other state (a candidate waiting in Review, a rejected
   // one) is not owed and not finished: it carries no verbs here.
   const owed = isOwedStatus(now);
 
-  const move = async (to: string) => {
+  // One write for every verb that only moves the record — its status or the
+  // date it is put off to — through the agent's own rail, with Undo.
+  const write = async (set: { status?: string; snoozedUntil?: string | null }, why: string, said: string) => {
     const from = now;
+    const untilFrom = until;
     setPhase({ s: 'working' });
     try {
-      const why = `${finishedLabel(to)} from the record, by a person.`;
       const res = await client.review.propose({
         actionId: 'objects.update_meta',
-        input: { objectType, id: Number(record.id), set: { status: to }, reason: isFinishedStatus(to) ? why : 'Reopened from the record, by a person.' },
+        input: { objectType, id: Number(record.id), set, reason: why },
         rationale: why,
         confidence: 0.95,
         suggestedDecision: null,
@@ -57,12 +62,29 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar', deci
       if (res.status !== 'done') {
         await client.review.decideAction({ id: res.runId, decision: 'approve' });
       }
-      setNow(to);
-      setPhase({ s: 'moved', runId: res.runId, from });
+      if (set.status) {
+        setNow(set.status);
+      }
+      if ('snoozedUntil' in set) {
+        setUntil(set.snoozedUntil ?? null);
+      }
+      setPhase({ s: 'moved', runId: res.runId, from, untilFrom, said });
     } catch (err) {
       setPhase({ s: 'error', message: (err as Error).message });
     }
   };
+
+  const move = (to: string) => write(
+    { status: to },
+    isFinishedStatus(to) ? `${finishedLabel(to)} from the record, by a person.` : 'Reopened from the record, by a person.',
+    isFinishedStatus(to) ? `${finishedLabel(to)}.` : 'Reopened.',
+  );
+
+  const snooze = (to: Date | null) => write(
+    { snoozedUntil: to ? to.toISOString() : null },
+    to ? `Snoozed to ${to.toISOString().slice(0, 10)} from the record, by a person.` : 'Woken from the record, by a person.',
+    to ? `Snoozed until ${dayLabel(to)}.` : 'Back on the list.',
+  );
 
   // A candidate's one pending decision, made where the record is read: the
   // same decision its Review item makes. Approved, it is a thing owed and its
@@ -81,11 +103,12 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar', deci
     }
   };
 
-  const undo = async (runId: number, from: string) => {
+  const undo = async (runId: number, from: string, untilFrom: string | null = until) => {
     setPhase({ s: 'working' });
     try {
       await client.review.undoAction({ id: runId });
       setNow(from);
+      setUntil(untilFrom);
       setPhase({ s: 'idle' });
     } catch (err) {
       setPhase({ s: 'error', message: (err as Error).message });
@@ -161,8 +184,8 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar', deci
       {phase.s === 'moved'
         ? (
             <p className="flex items-center gap-2 text-[13px] text-muted-foreground" data-testid="record-lifecycle-moved">
-              {isFinishedStatus(now) ? `${finishedLabel(now)}.` : 'Reopened.'}
-              <button type="button" onClick={() => void undo(phase.runId, phase.from)} data-testid="record-lifecycle-undo" className="inline-flex items-center gap-1 text-foreground underline underline-offset-2">
+              {phase.said}
+              <button type="button" onClick={() => void undo(phase.runId, phase.from, phase.untilFrom)} data-testid="record-lifecycle-undo" className="inline-flex items-center gap-1 text-foreground underline underline-offset-2">
                 <RotateCcw className="size-3.5" aria-hidden />
                 Undo
               </button>
@@ -177,6 +200,13 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar', deci
             )
           : (
               <>
+                {until && (
+                  <span className="mr-1 flex items-center gap-1 text-[13px] text-muted-foreground" data-testid="record-lifecycle-snoozed">
+                    <AlarmClock className="size-3.5" aria-hidden />
+                    {`Snoozed until ${dayLabel(new Date(until))}`}
+                    <button type="button" onClick={() => void snooze(null)} disabled={working} data-testid="record-lifecycle-wake" className="ml-1 text-foreground underline underline-offset-2">Wake</button>
+                  </span>
+                )}
                 <button type="button" onClick={doIt} data-testid="record-lifecycle-do" className="inline-flex h-7 items-center gap-1.5 rounded-full bg-foreground px-3 text-[12.5px] font-medium text-background transition-opacity hover:opacity-90">
                   <Sparkles className="size-3.5" aria-hidden />
                   Do it
@@ -189,9 +219,51 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar', deci
                   <X className="size-3.5" aria-hidden />
                   Drop
                 </button>
+                {!until && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" disabled={working} data-testid="record-lifecycle-snooze" title="Put it off" className={quiet}>
+                        <AlarmClock className="size-3.5" aria-hidden />
+                        Snooze
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {snoozeChoices(new Date()).map(c => (
+                        <DropdownMenuItem key={c.label} onSelect={() => void snooze(c.at)} data-testid="record-lifecycle-snooze-choice">
+                          <span>{c.label}</span>
+                          <span className="ml-auto pl-4 text-xs text-muted-foreground">{dayLabel(c.at)}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </>
             )}
       {phase.s === 'error' && <p className="w-full text-xs text-[var(--brand-fail)]" role="alert">{phase.message}</p>}
     </div>
   );
+}
+
+/**
+ * When a person can put a record off to, at nine in the morning their time:
+ * tomorrow, next Monday, and two weeks out.
+ * @param now - The clock.
+ */
+export function snoozeChoices(now: Date): Array<{ label: string; at: Date }> {
+  const at = (days: number) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() + days);
+    d.setHours(9, 0, 0, 0);
+    return d;
+  };
+  const toMonday = ((8 - now.getDay()) % 7) || 7;
+  return [
+    { label: 'Tomorrow', at: at(1) },
+    { label: 'Next Monday', at: at(toMonday) },
+    { label: 'In 2 weeks', at: at(14) },
+  ];
+}
+
+function dayLabel(d: Date): string {
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }

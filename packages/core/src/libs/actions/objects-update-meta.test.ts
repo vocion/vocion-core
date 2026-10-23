@@ -323,6 +323,32 @@ describe('the record\'s lifecycle — closing a finished record', () => {
   });
 });
 
+describe('putting a record off — snooze', () => {
+  async function snoozedUntil(): Promise<Date | null> {
+    const [row] = await db.select({ at: businessObjectSchema.snoozedUntil }).from(businessObjectSchema).where(eq(businessObjectSchema.id, requestId));
+    return row?.at ?? null;
+  }
+
+  it('writes the date on the row, never as a field, and Undo takes it back off', async () => {
+    const res = await update({ snoozedUntil: '2026-11-02T17:00:00.000Z' });
+
+    expect((await snoozedUntil())?.toISOString()).toBe('2026-11-02T17:00:00.000Z');
+    expect((await readMeta()).snoozedUntil).toBeUndefined();
+
+    await undoAction(res.runId, ORG, { by: 'user_chris' });
+
+    expect(await snoozedUntil()).toBeNull();
+  });
+
+  it('wakes on null, and refuses something that is not a date', async () => {
+    await update({ snoozedUntil: '2026-11-02T17:00:00.000Z' });
+    await update({ snoozedUntil: null });
+
+    expect(await snoozedUntil()).toBeNull();
+    await expect(update({ snoozedUntil: 'next week sometime' })).rejects.toThrow(/date to put the record off to/);
+  });
+});
+
 describe('machine bookkeeping never fans out (#269)', () => {
   async function updatedEvents(): Promise<Array<Record<string, unknown>>> {
     const rows = await db.select({ type: eventLogSchema.type, payload: eventLogSchema.payload }).from(eventLogSchema).where(eq(eventLogSchema.orgId, ORG));
@@ -330,6 +356,16 @@ describe('machine bookkeeping never fans out (#269)', () => {
   }
 
   it('raises object.updated with the fields that changed, and nothing for a write that changed nothing a person reads', async () => {
+    // Earlier writes raise their events after they return; let them land
+    // before clearing, or one arrives mid-test and is counted here.
+    let seen = -1;
+    await vi.waitFor(async () => {
+      const n = (await updatedEvents()).length;
+      const settled = n === seen;
+      seen = n;
+
+      expect(settled).toBe(true);
+    }, { timeout: 3000, interval: 150 });
     await db.delete(eventLogSchema);
     await db.update(businessObjectTypeSchema)
       .set({ schema: { ...REQUEST_SCHEMA, 'x-bookkeeping': ['rankedAt'] } })

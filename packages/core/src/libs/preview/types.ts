@@ -26,9 +26,10 @@ import type { RecordRef, RecordType } from '@/services/chat/pageContext';
 
 /**
  * A record's own verbs (`services/objects/recordActions`): its type, where it
- * stands, and — for a candidate — the pending Review item Approve and Dismiss decide.
+ * stands, and — for a candidate — the pending Review item Approve and Dismiss decide; the date it is
+ * put off to, while that is still ahead.
  */
-export type RecordActions = { objectType: string; status: string; decideRunId?: number };
+export type RecordActions = { objectType: string; status: string; decideRunId?: number; snoozedUntil?: string };
 
 /** One `label: value` line in the panel header block. */
 export type PreviewFact = { label: string; value: string };

@@ -18,15 +18,18 @@ import { actionRunSchema } from '@/models/Schema';
  * @param obj - The record, with its type.
  * @param obj.status - Its row status.
  * @param obj.reviewActionRunId - The Review item that proposed it, if it was proposed.
+ * @param obj.snoozedUntil - The date it is put off to, if any.
  * @param obj.type - Its type's slug and schema.
  */
-export async function recordActionsOf(orgId: string, obj: { status: string | null; reviewActionRunId?: number | null; type?: { slug: string; schema: unknown } | null }): Promise<RecordActions | null> {
+export async function recordActionsOf(orgId: string, obj: { status: string | null; reviewActionRunId?: number | null; snoozedUntil?: Date | null; type?: { slug: string; schema: unknown } | null }): Promise<RecordActions | null> {
   if (!obj.type || !offersOwedVerbs(obj.type.schema)) {
     return null;
   }
   const status = obj.status ?? 'open';
+  // A snooze that has passed is simply over: the record is open again.
+  const snoozed = obj.snoozedUntil && obj.snoozedUntil.getTime() > Date.now() ? { snoozedUntil: obj.snoozedUntil.toISOString() } : {};
   if (status !== CANDIDATE || !obj.reviewActionRunId) {
-    return { objectType: obj.type.slug, status };
+    return { objectType: obj.type.slug, status, ...snoozed };
   }
   const [run] = await db
     .select({ status: actionRunSchema.status })

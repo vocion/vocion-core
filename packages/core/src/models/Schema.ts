@@ -784,6 +784,12 @@ export const businessObjectSchema = pgTable('business_object', {
   typeId: integer('type_id').notNull().references(() => businessObjectTypeSchema.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   status: text('status').default('active'),
+  /**
+   * Out of the way until then (`objects.update_meta` with `snoozedUntil`):
+   * a person or an agent puts an owed record off to a date, and it is simply
+   * open again once the date passes. No state, so nothing has to wake it.
+   */
+  snoozedUntil: timestamp('snoozed_until', { mode: 'date', withTimezone: true }),
   /** Type-specific structured data (e.g. prospect_company, deal_stage, budget) */
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
   /**

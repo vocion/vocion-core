@@ -164,7 +164,7 @@ export default async function ObjectDetailPage(props: {
         )}
       />
       {actions && (
-        <RecordLifecycle record={recordRef('object', obj.id, obj.title)} objectType={actions.objectType} status={actions.status} decideRunId={actions.decideRunId} className="-mt-2 mb-6" />
+        <RecordLifecycle record={recordRef('object', obj.id, obj.title)} objectType={actions.objectType} status={actions.status} decideRunId={actions.decideRunId} snoozedUntil={actions.snoozedUntil} className="-mt-2 mb-6" />
       )}
       <RecordContext record={recordRef('object', obj.id, obj.title)} />
       {/* A version written from chat (or anywhere on this page) refreshes the

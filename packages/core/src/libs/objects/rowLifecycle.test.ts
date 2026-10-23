@@ -28,6 +28,11 @@ describe('a record\'s own lifecycle', () => {
     expect(recordStateLine('candidate')).toMatch(/^proposed: waiting for a person/);
     expect(recordStateLine('rejected')).toMatch(/^dismissed in Review/);
     expect(recordStateLine('dropped')).toBe('finished (dropped)');
-    expect(['open', 'active', 'approved', null].map(recordStateLine)).toEqual(['open', 'open', 'open', 'open']);
+    expect(['open', 'active', 'approved', null].map(s => recordStateLine(s))).toEqual(['open', 'open', 'open', 'open']);
+
+    const now = Date.parse('2026-10-23T12:00:00Z');
+
+    expect(recordStateLine('active', new Date('2026-11-02T17:00:00Z'), now)).toMatch(/^open, snoozed until 2026-11-02/);
+    expect(recordStateLine('active', new Date('2026-10-01T17:00:00Z'), now)).toBe('open');
   });
 });
