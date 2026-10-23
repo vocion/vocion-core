@@ -76,7 +76,30 @@ exactly as before the field existed. `packages/runner/src/engines/` holds the re
 | Engine | What runs | Image |
 |---|---|---|
 | `claude-cli` (default) | headless Claude Code, the arguments the runner always passed | the default (`internal`) target |
-| `openhands` | the OpenHands Software Agent SDK (MIT), through `openhands_driver.py` | `docker build --target open` |
+| `openhands` | the OpenHands Software Agent SDK (MIT), through `openhands_driver.py` | both targets: `internal` (what CI publishes) and `docker build --target open` (no Claude Code) |
+
+The published (`internal`) image carries both engines. An installation's runners claim across
+every workspace, oldest run first, so every runner must be able to take every run: a runner that
+claims an engine its image lacks fails the run. The `open` target, with no Claude Code, is the
+image for an installation that allows only open engines.
+
+### Picking the engine for a workspace
+
+The factory sends the engineer seat's engine. A workspace sets it with an `extends: core` patch on
+`task-engineer`, beside the model:
+
+```yaml
+extends: core
+slug: task-engineer
+harness:
+  engine: openhands            # claude-cli (the default) | openhands
+  # engineModel: bedrock/us.anthropic.claude-opus-5-5   # optional; else anthropic/<harness.model>
+```
+
+`seatEngine` puts it on each contract as `engine` (a task's own `engine` wins). `claude-cli` with no
+`engineModel` is never written, so a contract without a chosen engine is exactly what it was. The
+repo record's `defaultBranch`, when it is not `main`, goes on the contract as `base_branch` (and
+`base_sha` defaults to `origin/<that branch>`), so the work starts from and lands on that branch.
 
 Everything else is the runner's and the same for every engine: the contract, the guard hooks and
 the files a person owns, the required checks, the budget and wall clock, cost and usage on the

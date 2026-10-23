@@ -259,6 +259,51 @@ export async function seatModelPolicy(orgId: string, slug: string): Promise<{ mo
   return { model, ...(effort ? { effort } : {}) };
 }
 
+/** The engines a runner knows (packages/runner/src/engines/), as the contract's `engine.id`. */
+const ENGINE_IDS = ['claude-cli', 'openhands'] as const;
+export type EnginePolicy = { id: (typeof ENGINE_IDS)[number]; model?: string };
+
+/**
+ * The engine a contract asks for, or null when it should say nothing (the
+ * runner's default, claude-cli, with no model of its own). Null keeps the
+ * contract byte-for-byte what it was before `engine` existed, so a runner
+ * image older than the field still accepts it.
+ * @param raw - `{ id, model }` from a task, or a seat's `harness.engine` / `harness.engineModel`.
+ */
+export function enginePolicy(raw: unknown): EnginePolicy | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const r = raw as { id?: unknown; model?: unknown };
+  const id = typeof r.id === 'string' && (ENGINE_IDS as readonly string[]).includes(r.id) ? r.id as EnginePolicy['id'] : null;
+  const model = typeof r.model === 'string' && r.model.trim() ? r.model.trim() : null;
+  if (!id || (id === 'claude-cli' && !model)) {
+    return null;
+  }
+  return { id, ...(model ? { model } : {}) };
+}
+
+/**
+ * THE SEAT'S ENGINE IS THE RUN'S ENGINE (engine plan, Phase 2): the engineer
+ * seat's `harness.engine` (and `harness.engineModel`) go on the contract as
+ * `engine`, the same way `seatModelPolicy` carries its model. A workspace
+ * picks the engine with an `extends: core` patch on its `task-engineer`.
+ * @param orgId - The workspace.
+ * @param slug - The engineer seat that will claim the run.
+ * @returns The engine, or null when the seat names none (the runner's default).
+ */
+export async function seatEngine(orgId: string, slug: string): Promise<EnginePolicy | null> {
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { agentSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ harness: agentSchema.harnessConfig }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, slug))).limit(1);
+  const h = (row?.harness ?? {}) as { engine?: unknown; engineModel?: unknown };
+  return enginePolicy({ id: h.engine, model: h.engineModel });
+}
+
+/** A branch name the runner's contract accepts as `base_branch` (packages/runner/contract/schema.json). */
+const BASE_BRANCH = /^[\w.][\w./-]{0,199}$/;
+
 /** How much of the plan's approach a contract carries (`contractFromTask`). */
 const CONTRACT_PLAN_CHARS = 2000;
 
@@ -408,23 +453,31 @@ export function contractTitle(title: string): string {
  * @param opts.product
  * @param opts.plan
  * @param opts.modelPolicy - The engineer seat's model (`seatModelPolicy`), used when the task names none.
+ * @param opts.engine - The engineer seat's engine (`seatEngine`), used when the task names none.
  * @param opts.plan.id
  * @param opts.plan.approach
  * @param opts.plan.approvedBy
  * @param opts.plan.approvedAt
  */
-export function contractFromTask(task: { id: number; title: string; meta: Meta }, opts: { product: string | null; plan?: { id: number; approach: string | null; approvedBy: string; approvedAt: string }; modelPolicy?: { model: string; effort?: string } | null }): Record<string, unknown> {
+export function contractFromTask(task: { id: number; title: string; meta: Meta }, opts: { product: string | null; plan?: { id: number; approach: string | null; approvedBy: string; approvedAt: string }; modelPolicy?: { model: string; effort?: string } | null; engine?: EnginePolicy | null }): Record<string, unknown> {
   const m = task.meta;
   // Only a clone URL or `owner/name` becomes the repo: a free-text name never does.
   const repoSlug = str(m, 'repoSlug');
   const given = str(m, 'repo');
   const repo = (given && CLONE_URL.test(given) ? given : null) ?? (repoSlug && OWNER_NAME.test(repoSlug) ? `https://github.com/${repoSlug}.git` : null);
   const product = str(m, 'productSlug') ?? opts.product ?? 'product';
+  // THE BRANCH THE WORK LANDS ON is the repo record's defaultBranch
+  // (`deriveContract` carries it as baseBranch): DeliveryStack builds on `dev`,
+  // and a pull request into `main` there is a Production deploy on merge. Only
+  // a branch other than main is sent, so every main-based contract stays what
+  // it was before the field.
+  const baseBranchRaw = str(m, 'baseBranch');
+  const baseBranch = baseBranchRaw && baseBranchRaw !== 'main' && BASE_BRANCH.test(baseBranchRaw) ? baseBranchRaw : null;
   const out: Record<string, unknown> = {
     task_id: str(m, 'taskId') ?? `${product}-t${task.id}`,
     product,
     repo,
-    base_sha: str(m, 'baseSha') ?? 'origin/main',
+    base_sha: str(m, 'baseSha') ?? `origin/${baseBranch ?? 'main'}`,
     objective: str(m, 'objective'),
     title: contractTitle(recordName(task.title, m)),
     acceptance_contract: list(m, 'acceptanceContract'),
@@ -444,6 +497,16 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
     out.model_policy = m.modelPolicy;
   } else if (opts.modelPolicy) {
     out.model_policy = opts.modelPolicy;
+  }
+  if (baseBranch) {
+    out.base_branch = baseBranch;
+  }
+  // A task's own engine wins; otherwise the engineer seat's (`seatEngine`).
+  // The runner's default (claude-cli) is never written, so the contract an old
+  // runner image reads is unchanged.
+  const engine = enginePolicy(m.engine) ?? enginePolicy(opts.engine);
+  if (engine) {
+    out.engine = engine;
   }
   if (m.environment && typeof m.environment === 'object') {
     out.environment = m.environment;
@@ -802,6 +865,9 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     riskClass: risk,
     repoSlug,
     repo: repoSlug ? cloneUrl : null,
+    // The repo record's defaultBranch (a card's own baseBranch wins): where the
+    // pull request lands and, with no baseSha, where the work starts.
+    ...(str(g, 'baseBranch') ?? str(repo, 'defaultBranch') ? { baseBranch: str(g, 'baseBranch') ?? str(repo, 'defaultBranch') } : {}),
     ...(checksDropped.length > 0 ? { checksDropped } : {}),
     contractSources,
   };
@@ -1647,6 +1713,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       product: request ? str(request.meta, 'product') : null,
       plan: plan ? { id: plan.id, approach: str(plan.meta, 'approach'), approvedBy, approvedAt } : undefined,
       modelPolicy: await seatModelPolicy(ctx.orgId, agentSlug),
+      engine: await seatEngine(ctx.orgId, agentSlug),
     });
     const capCents = typeof task.meta.tokenBudget === 'number' ? Math.round(task.meta.tokenBudget * 100) : null;
     const run = await createWorkerRun({ orgId: ctx.orgId, agentSlug, input: { task: contract, record: { id: task.id, type: task.typeSlug } }, capCents, createdBy: approvedBy });
