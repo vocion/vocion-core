@@ -84,6 +84,8 @@ export async function runTurnAgain(row: TurnRow, onEvent: (event: AgentEvent) =>
   const write = (event: AgentEvent) => {
     if (event.type === 'response_delta') {
       collector.onTextDelta(event.delta);
+    } else if (event.type === 'passage_end') {
+      collector.onPassageEnd(event.then);
     } else if (event.type === 'tool_start') {
       collector.onToolStart(event.tool, event.input);
     } else if (event.type === 'tool_end') {

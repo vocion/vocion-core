@@ -315,6 +315,9 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
       case 'response_delta':
         collector.onTextDelta(event.delta);
         break;
+      case 'passage_end':
+        collector.onPassageEnd(event.then);
+        break;
       case 'tool_start':
         collector.onToolStart(event.tool, event.input);
         break;

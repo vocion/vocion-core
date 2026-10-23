@@ -127,6 +127,22 @@ export class RunCollector {
     this.currentText = (this.currentText ?? '') + delta;
   }
 
+  /**
+   * The model message that wrote the passage so far has ended
+   * (`passage_end`). A passage the agent followed with work is kept as
+   * narration, so a reload folds it into the steps as the live turn did; any
+   * text after it starts a passage of its own.
+   * @param then - What the message ended on.
+   */
+  onPassageEnd(then: 'work' | 'answer'): void {
+    if (then === 'work' && this.currentText !== null && this.currentText.trim()) {
+      this.runs.push({ type: 'text', text: this.currentText, narration: true });
+      this.currentText = null;
+      return;
+    }
+    this.flushText();
+  }
+
   onToolStart(name: string, input: Record<string, unknown>): void {
     this.flushText();
     this.runs.push({ type: 'tool', name, input });

@@ -152,7 +152,7 @@ export const NarrationFolded: Story = {
         role: 'assistant',
         content: 'I will check the deal and its thread.\n\nNorthwind is still at Proposal Sent, and Devon has not replied since the governance call.',
         runs: [
-          { type: 'text', text: 'I will check the deal and its thread.' },
+          { type: 'text', text: 'I will check the deal and its thread.', narration: true },
           { type: 'tool', name: 'lookup_objects', state: 'done' },
           { type: 'text', text: 'Northwind is still at Proposal Sent, and Devon has not replied since the governance call.' },
         ],
@@ -160,6 +160,32 @@ export const NarrationFolded: Story = {
           { ...lookup, anchor: 1 },
           { ...delegate, status: 'done', label: 'Delegated to Pipeline Analyst', result: 'stage confirmed', anchor: 1 },
         ],
+      }}
+    />
+  ),
+};
+
+/**
+ * While the turn runs: what the agent is saying is the thinking line, its
+ * newest line moving along it, and the body stays empty until a passage's
+ * message ends without calling a tool (Chris, 2026-10-23: "chain of thought
+ * thinking should be visually scoped to the thinking line, not look like
+ * streaming text").
+ */
+export const NarrationLive: Story = {
+  render: () => (
+    <AgentMessage
+      agentName="Founder GTM Lead"
+      streaming
+      writer={{ name: 'Founder GTM Lead', accent: 'violet' }}
+      message={{
+        role: 'assistant',
+        content: '',
+        runs: [
+          { type: 'tool', name: 'lookup_objects', state: 'done' },
+          { type: 'text', text: 'The meeting was yesterday.\nLet me read the notes from it.' },
+        ],
+        trace: [{ ...lookup, status: 'done', anchor: 0 }],
       }}
     />
   ),

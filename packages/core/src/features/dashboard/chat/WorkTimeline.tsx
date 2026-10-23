@@ -494,12 +494,19 @@ function NoteRow({ note }: { note: WorkNote }) {
 
 /**
  * The newest thing the agent said while working, as one line for the live
- * status when no step is running.
+ * status when no step is running: the newest line of it, so a passage still
+ * streaming moves along the thinking line instead of filling the answer
+ * (`interleave.ts` `foldNarration`). Markdown markers at the line's start
+ * ("- ", "## ", "> ") and bold stars are dropped; the line is plain words.
  * @param notes - The group's notes.
  */
-function latestNoteLine(notes: readonly WorkNote[] = []): string | null {
+export function latestNoteLine(notes: readonly WorkNote[] = []): string | null {
   const last = [...notes].reverse().map(n => splitScratch(n.text).filter(p => p.kind !== 'scratch').map(p => p.text).join('').trim()).find(Boolean);
-  return last ? last.split('\n')[0]!.trim() : null;
+  if (!last) {
+    return null;
+  }
+  const line = last.split('\n').map(l => l.replace(/^\s*(?:[-*+>]|#{1,6}|\d+[.)])\s+/, '').replaceAll('**', '').trim()).filter(Boolean).pop();
+  return line ?? null;
 }
 
 /**

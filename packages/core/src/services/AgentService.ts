@@ -35,6 +35,7 @@ import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { HandOffGateCallback, HandOffGuard, handsOff } from './agents/handOff';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
+import { endedOnToolCall } from './agents/passage';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
@@ -1046,6 +1047,9 @@ async function runAgentDeepInScope(opts: {
 
   let finalText = '';
   let answerRunId: string | undefined;
+  // The lead's model message that is streaming a passage right now, closed by
+  // a `passage_end` when that message ends (`endedOnToolCall`).
+  let passageRunId: string | undefined;
 
   // Typed hierarchical trace: consume the RAW LangChain `streamEvents(v2)`
   // stream (not the flat deepagents v3 projection) so a specialist's own
@@ -1320,10 +1324,22 @@ async function runAgentDeepInScope(opts: {
                 const runId = (ev as { run_id?: string }).run_id;
                 const sep = runId && runId !== answerRunId ? messageBreak(finalText, answer) : '';
                 answerRunId = runId ?? answerRunId;
+                passageRunId = runId ?? passageRunId;
                 finalText += sep + answer;
                 emit({ type: 'response_delta', delta: sep + answer });
               }
             }
+          }
+          break;
+        }
+        case 'on_chat_model_end': {
+          // The passage this message wrote has ended. A message that went on
+          // to call tools wrote what the agent is about to do: narration, for
+          // the thinking line. One that called none wrote the answer.
+          const runId = (ev as { run_id?: string }).run_id;
+          if (isLead && passageRunId !== undefined && runId === passageRunId) {
+            passageRunId = undefined;
+            emit({ type: 'passage_end', then: endedOnToolCall(ev.data?.output) ? 'work' : 'answer' });
           }
           break;
         }

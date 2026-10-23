@@ -10,6 +10,22 @@ import { RunCollector } from './runCollector';
  * and the emitter never produced a terminal node for it to merge.
  */
 describe('RunCollector', () => {
+  it('keeps a passage the agent followed with work as narration, and starts the next passage as its own run (2026-10-23)', () => {
+    const c = new RunCollector();
+    c.onTextDelta('Let me get the full notes.');
+    c.onPassageEnd('work');
+    // Its call drew no step (a plumbing read): only the break separates them.
+    c.onTextDelta('\n\nYou owe Dana the revised scope.');
+    c.onPassageEnd('answer');
+
+    const { runs } = c.finalise();
+
+    expect(runs).toEqual([
+      { type: 'text', text: 'Let me get the full notes.', narration: true },
+      { type: 'text', text: '\n\nYou owe Dana the revised scope.' },
+    ]);
+  });
+
   it('merges a trace node by id, so the persisted trace ends where the live one did', () => {
     const c = new RunCollector();
     c.onTraceNode({ type: 'trace_node', id: 'task-1', kind: 'delegate', status: 'start', label: 'Delegating to Pipeline Analyst', detail: 'Full pipeline read' });

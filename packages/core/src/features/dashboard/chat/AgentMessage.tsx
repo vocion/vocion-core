@@ -36,7 +36,7 @@ import { SelfUpdateChips } from './SelfUpdateChips';
 import { SuggestionPills } from './SuggestionPills';
 import { turnFailure } from './turnFailure';
 import { useElapsed } from './useElapsed';
-import { hasLiveDetail, LiveLine, WorkTimeline } from './WorkTimeline';
+import { hasLiveDetail, latestNoteLine, LiveLine, WorkTimeline } from './WorkTimeline';
 
 /** One glyph per dashboard entity family, so a chip reads before its label does. */
 /** The abstract levels' words for the turn footer — the same words the composer's control shows; never a vendor or a model id. */
@@ -331,9 +331,11 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // delegation and once flat.
   const typed = (message.trace?.length ?? 0) > 0;
   // The agent's between-step lines ("Let me check the tracker…") fold into
-  // the work they introduced; the turn's last passage is the answer
-  // (`foldNarration`).
-  const segments = foldNarration(segmentTurn(runs, message.trace).filter(seg => seg.kind === 'text' || !typed || seg.trace.length > 0));
+  // the work they introduced; the turn's last passage is the answer. While
+  // the turn runs, a passage stays on the thinking line until its message
+  // ends without calling a tool, so the body is never written and then taken
+  // back (`foldNarration`).
+  const segments = foldNarration(segmentTurn(runs, message.trace).filter(seg => seg.kind === 'text' || !typed || seg.trace.length > 0), { live: streaming });
   // Legacy reasoning text has no anchor; it belongs at the top like it always did.
   if (message.thinkingText && !segments.some(seg => seg.kind === 'work')) {
     segments.unshift({ kind: 'work', runs: [], trace: [], index: 0 });
@@ -351,12 +353,17 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // has happened yet — it sits at the bottom of the turn. Either way it is
   // there for the whole turn and carries the turn's clock.
   const liveSeg = segments.find(seg => seg.kind === 'work' && seg.index === liveIndex);
-  const lineOnGroup = liveSeg?.kind === 'work'
+  // A live group that is only what the agent is saying (no step yet) has
+  // nothing to open: its words are the bottom line, with the writer's dot.
+  const notesOnly = liveSeg?.kind === 'work' && liveSeg.runs.length === 0 && liveSeg.trace.length === 0;
+  const lineOnGroup = liveSeg?.kind === 'work' && !notesOnly
     && hasLiveDetail({ runs: liveSeg.runs, trace: liveSeg.trace, notes: liveSeg.notes, thinkingText: liveSeg.index === firstWork ? message.thinkingText : undefined });
+  // What the agent is saying right now, on the thinking line (`foldNarration` live).
+  const liveNote = liveSeg?.kind === 'work' ? latestNoteLine(liveSeg.notes) : null;
   // What the bottom line says when no step is running: the agent is writing
   // once its words are the newest thing in the turn, thinking before that.
   // The writing agent's own avatar and name, not a bare "Writing…".
-  const bottomLine = activity ?? (segments[segments.length - 1]?.kind === 'text' ? (writer ? `${writer.name} is writing…` : 'Writing…') : 'Thinking…');
+  const bottomLine = activity ?? liveNote ?? (segments[segments.length - 1]?.kind === 'text' ? (writer ? `${writer.name} is writing…` : 'Writing…') : 'Thinking…');
 
   // A small brand mark carries the speaker (2026-09-18) — the uppercase name
   // on every turn was the same two words a hundred times; the surface's
