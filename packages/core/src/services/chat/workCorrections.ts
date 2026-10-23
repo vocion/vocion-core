@@ -274,6 +274,8 @@ export function draftWithModel(orgId: string): DraftFn {
       },
       { role: 'user', content: directives.map(d => `- ${d.text}`).join('\n') },
     ]);
+    const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
+    await chargeModelCall({ orgId, feature: 'chat.correction', role: 'classifier', response: res });
     const text = typeof res.content === 'string' ? res.content : JSON.stringify(res.content);
     return parseDraftedRules(text);
   };

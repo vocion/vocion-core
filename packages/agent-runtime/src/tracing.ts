@@ -62,7 +62,29 @@ export type TurnUsage = {
    * folding it into `inputTokens` undercharges the first turn of every run.
    */
   cacheWriteTokens?: number;
+  /**
+   * How many of `cacheWriteTokens` were one-hour writes, priced at 2x rather
+   * than 1.25x. Anthropic splits them on the raw usage
+   * (`cache_creation.ephemeral_1h_input_tokens`); LangChain folds them into one
+   * count, so they are read off the raw usage when it is there. Absent when
+   * the vendor reported no split.
+   */
+  cacheWrite1hTokens?: number;
 };
+
+/**
+ * One-hour cache writes off a response, from Anthropic's raw usage wherever it
+ * landed (the result's `llmOutput.usage`, or the message's `response_metadata`).
+ * @param llmUsage - `llmOutput.usage`.
+ * @param message - The generation's message.
+ */
+export function oneHourWritesOf(llmUsage: unknown, message: unknown): number | undefined {
+  type Raw = { cache_creation?: { ephemeral_1h_input_tokens?: number } } | undefined;
+  const fromOutput = (llmUsage as Raw)?.cache_creation?.ephemeral_1h_input_tokens;
+  const fromMessage = ((message as { response_metadata?: { usage?: Raw } } | undefined)?.response_metadata?.usage)?.cache_creation?.ephemeral_1h_input_tokens;
+  const n = fromOutput ?? fromMessage;
+  return typeof n === 'number' && n > 0 ? n : undefined;
+}
 
 /**
  * Usage as LangChain normalises it onto a model response message.
@@ -213,6 +235,10 @@ export function createRuntimeTrace(opts: {
           outputTokens: normalised?.outputTokens ?? usage?.completionTokens ?? anthropicUsage?.output_tokens,
           cacheReadTokens: normalised?.cacheReadTokens ?? anthropicUsage?.cache_read_input_tokens,
           cacheWriteTokens: normalised?.cacheWriteTokens ?? anthropicUsage?.cache_creation_input_tokens,
+          ...(() => {
+            const oneHour = oneHourWritesOf(anthropicUsage, firstGen?.message);
+            return oneHour ? { cacheWrite1hTokens: oneHour } : {};
+          })(),
         });
       } catch {
         /* usage forwarding must never break the run */

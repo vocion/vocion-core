@@ -43,6 +43,7 @@ import { asksForAct, NO_INTENT, readIntent } from './agents/turnJudge';
 import { TurnRefusedError } from './agents/turnRefusal';
 import { inTurn } from './agents/turnScope';
 import { writeLanded } from './agents/writeClaim';
+import { noteCallContext, withCallContext } from './spend/callContext';
 
 /**
  * A tool call the tool itself refused for its arguments — retryable, not fatal.
@@ -545,7 +546,7 @@ async function runOutOfProcess(
  * @param opts.onEvent
  */
 
-export async function runAgentDeep(opts: {
+async function runAgentDeepInScope(opts: {
   orgId: string;
   agentSlug: string;
   message: string;
@@ -914,6 +915,8 @@ export async function runAgentDeep(opts: {
     slug: compiled.agentRow.slug,
     orgId: opts.orgId,
     userId: opts.userId ?? 'system',
+    // The conversation is the session, so every turn of a thread reads as one in Langfuse.
+    ...(opts.conversationId ? { sessionId: String(opts.conversationId) } : opts.sessionId ? { sessionId: opts.sessionId } : {}),
     input: { message: opts.message },
     metadata: { agentId: compiled.agentRow.id, runtime: 'deepagents' },
     onTurnEnd: async (turn) => {
@@ -931,6 +934,8 @@ export async function runAgentDeep(opts: {
             cacheWriteTokens: turn.cacheWriteTokens,
             cacheWrite1hTokens: turn.cacheWrite1hTokens,
           },
+          ...(turn.latencyMs !== undefined ? { latencyMs: turn.latencyMs } : {}),
+          traceId: trace.id,
         });
       } finally {
         // Even when the charge could not be written (it logs the lost spend
@@ -945,6 +950,8 @@ export async function runAgentDeep(opts: {
 
   // Link tool_call rows to this turn's trace — cost and latency are read there.
   boundCtx.traceId = trace.id;
+  // And every model call the turn makes to its trace and level, in the spend ledger.
+  noteCallContext({ traceId: trace.id, ...(effortDecision ? { effortLevel: effortDecision.level } : {}) });
 
   emit({ type: 'thinking' });
   {
@@ -1968,4 +1975,31 @@ function modelOverrideForPrefs(
   const envModel = prefs.strength === 'balanced' ? undefined : process.env[`VOCION_MODEL_${prefs.strength.toUpperCase()}_${provider.toUpperCase()}`]?.trim();
   const model = envModel || modelForStrength(provider, prefs.strength) || env.defaults.model || env.modelFor('main', provider);
   return { model, provider, thinking: prefs.effort };
+}
+
+/**
+ * Run one agent turn, filing every model call it makes under the person, the
+ * conversation, the agent and the run it belongs to (`services/spend/callContext.ts`).
+ * The turn itself is {@link runAgentDeepInScope}.
+ * @param opts - The turn, as `runAgentDeepInScope` takes it.
+ */
+export async function runAgentDeep(opts: Parameters<typeof runAgentDeepInScope>[0]): ReturnType<typeof runAgentDeepInScope> {
+  return withCallContext({
+    userId: personIdOf(opts.userId),
+    agentSlug: opts.agentSlug,
+    ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+    ...(opts.missionRunId ? { runKind: 'mission_run' as const, runId: opts.missionRunId } : {}),
+  }, () => runAgentDeepInScope(opts));
+}
+
+/**
+ * The person a turn is for, or null for the stand-ins non-person callers pass
+ * as a user (`system`, `eval-runner`, `workflow:<slug>:<run>`, `mission:…`).
+ * @param userId - What the caller passed.
+ */
+export function personIdOf(userId: string | undefined): string | null {
+  if (!userId || userId === 'system' || userId === 'eval-runner' || userId.includes(':')) {
+    return null;
+  }
+  return userId;
 }

@@ -332,12 +332,13 @@ export async function advanceWorkflowRun(runId: number): Promise<WorkflowRunSumm
         const { runAgentDeep } = await import('@/services/AgentService');
         const resolved = interpolateString(legacy.prompt, scope);
         const prompt = typeof resolved === 'string' ? resolved : JSON.stringify(resolved);
-        const result = await runAgentDeep({
+        const { withCallContext } = await import('@/services/spend/callContext');
+        const result = await withCallContext({ runKind: 'workflow_run', runId }, () => runAgentDeep({
           orgId: run.orgId,
           agentSlug: legacy.agent,
           message: prompt,
           userId: `workflow:${workflow.slug}:${runId}`,
-        });
+        }));
         const output = result.response;
         stepResults[name] = {
           status: 'completed',

@@ -183,6 +183,8 @@ export async function realJudgeDeps(orgId: string, objectId: number, producedBy:
     compose: async ({ system, human }) => {
       const model = await buildChatModelForOrg('main', orgId, { temperature: 0, streaming: false, maxTokens: 600 });
       const res = await model.invoke([new SystemMessage(system), new HumanMessage(human)], { signal: AbortSignal.timeout(60_000) });
+      const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
+      await chargeModelCall({ orgId, agentSlug: producedBy || undefined, feature: 'gate.handoff', role: 'main', response: res });
       return typeof res.content === 'string' ? res.content : (res.content as Array<{ type?: string; text?: string }>).map(c => (c.type === 'text' ? c.text ?? '' : '')).join('');
     },
     rubric: async (slug) => {

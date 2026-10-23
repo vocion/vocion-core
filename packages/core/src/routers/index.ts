@@ -161,6 +161,7 @@ import { actOnRoutineRoute, answerRoutineFindingRoute, answerRoutineRunRoute, ge
 import { glanceRoute as runGlanceRoute, logRoute as runLogRoute } from './Runs';
 import { scorecardAgentsRoute } from './Scorecard';
 import { reset as resetSetupRoute, state as setupStateRoute } from './Setup';
+import { by as spendBy } from './Spend';
 import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
 import { stopRoute as stopWorkRoute, forConversationRoute as workForConversationRoute } from './Work';
@@ -465,6 +466,9 @@ export const router = {
   budgets: {
     get: getBudget,
     upsert: upsertBudget,
+  },
+  spend: {
+    by: spendBy,
   },
   chatWidget: {
     getState: getChatWidgetState,

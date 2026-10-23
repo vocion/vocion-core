@@ -41,6 +41,7 @@ import {
   setConversationContextIfEmpty,
   toHistoryTurns,
 } from '@/services/ConversationService';
+import { withCallContext } from '@/services/spend/callContext';
 
 const KEEPALIVE_INTERVAL_MS = 15_000;
 
@@ -365,12 +366,13 @@ export async function POST(request: Request): Promise<Response> {
     // delegated to — is counted while it runs and written with the
     // answer (`services/budget/runCost.ts`).
     const id = conversationId;
-    return id === null
+    // And every call it makes is filed under this person and thread in the spend ledger.
+    return withCallContext({ userId, ...(id === null ? {} : { conversationId: id }) }, () => id === null
       ? turn()
       : withRunCost({ conversationId: id }, (scope) => {
           turnCost.cost = scope;
           return turn();
-        });
+        }));
   };
 
   // A HEAD START. While the router reads (about a second on a small model),

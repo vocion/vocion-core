@@ -99,6 +99,8 @@ function draftWithModel(orgId: string): (c: Correction) => Promise<{ rule: strin
       { role: 'system', content: 'An AI agent told a person something could not be found; the person then supplied it. Write ONE operating rule (imperative, under 40 words) that would have avoided the miss, and name the tooling gap in under 25 words. Return STRICT JSON: {"rule":"…","gap":"…"}.' },
       { role: 'user', content: `Agent said: ${c.claim}\nPerson replied: ${c.supplied}` },
     ]);
+    const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
+    await chargeModelCall({ orgId, feature: 'chat.correction', role: 'classifier', response: res });
     const text = typeof res.content === 'string' ? res.content : JSON.stringify(res.content);
     const a = text.indexOf('{');
     const b = text.lastIndexOf('}');

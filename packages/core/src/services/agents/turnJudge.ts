@@ -61,12 +61,14 @@ export function asksForAct(intent: Pick<TurnIntent, 'asks'>): boolean {
 
 type Model = Pick<BaseChatModel, 'bindTools'>;
 
-async function ask<T>(model: Model, schema: z.ZodType<T>, name: string, description: string, system: string, human: string): Promise<T | null> {
+async function ask<T>(orgId: string, model: Model, schema: z.ZodType<T>, name: string, description: string, system: string, human: string): Promise<T | null> {
   const { tool } = await import('@langchain/core/tools');
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
   const report = tool(async () => 'recorded', { name, description, schema: schema as never });
   const bound = model.bindTools!([report], { tool_choice: name } as never);
   const res = await bound.invoke([new SystemMessage(system), new HumanMessage(human)]) as { tool_calls?: Array<{ name: string; args: unknown }> };
+  const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
+  await chargeModelCall({ orgId, feature: 'chat.judge', role: 'classifier', response: res });
   const call = (res.tool_calls ?? []).find(c => c.name === name);
   const parsed = call ? schema.safeParse(call.args) : null;
   return parsed?.success ? parsed.data : null;
@@ -92,7 +94,7 @@ async function classifier(orgId: string): Promise<Model> {
  */
 export async function readIntent(input: { orgId: string; message: string; previous?: { person?: string; agent?: string }; page?: string | null; waiting?: string; recordTypes?: string[] }, model?: Model): Promise<TurnIntent & { unread?: true }> {
   try {
-    const out = await ask(model ?? await classifier(input.orgId), TurnIntentSchema, 'report_intent', 'Report what the person wants from this turn.', 'You read one message a person sent to an agent in a work app and report, as typed fields, what they want. Judge the meaning, not the wording. Answer only through the tool.', [
+    const out = await ask(input.orgId, model ?? await classifier(input.orgId), TurnIntentSchema, 'report_intent', 'Report what the person wants from this turn.', 'You read one message a person sent to an agent in a work app and report, as typed fields, what they want. Judge the meaning, not the wording. Answer only through the tool.', [
       input.page ? `The person is on the page of ${input.page}.` : 'The person is not on a record\'s page.',
       input.waiting ? `Waiting on them here:\n${input.waiting}` : '',
       input.recordTypes && input.recordTypes.length > 0 ? `Record types this agent can file: ${input.recordTypes.join(', ')}` : '',
@@ -131,7 +133,7 @@ export async function saidToDecide(input: { orgId: string; messages: string[]; d
     return { said: false, quote: null };
   }
   try {
-    const out = await ask(model ?? await classifier(input.orgId), SaidToDecideSchema, 'report_consent', 'Report whether the person said to take this decision.', 'An agent is about to take a decision on a person\'s behalf. You decide from the person\'s own words only whether they told it to take exactly this decision: this action, on this target, with this effect. A question about it, a maybe, a different decision, or a decision about something else is not consent. Consent to one action is never consent to another on the same work: a person who asked to defer, close, file or change a record has not asked for a revert, a merge, a deploy, a delete or any other change to production unless they named that action themselves. Answer only through the tool.', [
+    const out = await ask(input.orgId, model ?? await classifier(input.orgId), SaidToDecideSchema, 'report_consent', 'Report whether the person said to take this decision.', 'An agent is about to take a decision on a person\'s behalf. You decide from the person\'s own words only whether they told it to take exactly this decision: this action, on this target, with this effect. A question about it, a maybe, a different decision, or a decision about something else is not consent. Consent to one action is never consent to another on the same work: a person who asked to defer, close, file or change a record has not asked for a revert, a merge, a deploy, a delete or any other change to production unless they named that action themselves. Answer only through the tool.', [
       input.page ? `The person is on the page of ${input.page}; "this" or "it" in their words means that record.` : '',
       `The decision: ${input.decision}`,
       `The person, latest message: ${input.messages[0]!.slice(0, 2_000)}`,
@@ -184,7 +186,7 @@ export const NO_DECISION_ANSWER: DecisionAnswerReading = { kind: 'none', option_
 export async function readDecisionAnswer(input: { orgId: string; message: string; decision: { question: string; options: ReadonlyArray<{ id: string; label: string; consequence?: string }>; allowOther: boolean; multiple: boolean } }, model?: Model): Promise<DecisionAnswerReading> {
   try {
     const d = input.decision;
-    const out = await ask(model ?? await classifier(input.orgId), DecisionAnswerReadSchema, 'report_decision_answer', 'Report whether the message answers the open decision.', 'An agent asked a person one question in a work app, shown as a card with numbered options. You read the person\'s next message and report, as typed fields, whether it answers that question. Judge the meaning, not the wording. Answer only through the tool.', [
+    const out = await ask(input.orgId, model ?? await classifier(input.orgId), DecisionAnswerReadSchema, 'report_decision_answer', 'Report whether the message answers the open decision.', 'An agent asked a person one question in a work app, shown as a card with numbered options. You read the person\'s next message and report, as typed fields, whether it answers that question. Judge the meaning, not the wording. Answer only through the tool.', [
       `Open decision: ${d.question}`,
       d.options.length > 0 ? `Options, numbered as the card shows them:\n${d.options.map((o, i) => `${i + 1}. [id ${o.id}] ${o.label}${o.consequence ? ` — ${o.consequence}` : ''}`).join('\n')}` : 'It has no options: it is answered in words.',
       d.multiple ? 'Several options may be chosen together.' : 'Exactly one option may be chosen.',

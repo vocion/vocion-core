@@ -26,6 +26,7 @@ import { mapWithConcurrency } from '@/libs/concurrency';
 import { db } from '@/libs/DB';
 import { evalCaseResultSchema } from '@/models/Schema';
 import { runAgentDeep } from '../AgentService';
+import { withCallContext } from '../spend/callContext';
 import { evalCaseSessionId } from './sessionIds';
 
 /**
@@ -107,7 +108,8 @@ export type ProduceTranscriptsOptions = {
 async function runCase(job: CaseJob): Promise<CaseTranscript> {
   const startedAt = Date.now();
   try {
-    const result = await runAgentDeep({
+    // Filed in the spend ledger as eval spend, apart from the agent's live use.
+    const result = await withCallContext({ runKind: 'eval_run', runId: job.datasetSlug }, () => runAgentDeep({
       orgId: job.orgId,
       agentSlug: job.agentSlug,
       message: job.item.input,
@@ -117,7 +119,7 @@ async function runCase(job: CaseJob): Promise<CaseTranscript> {
       // address its expected answer to the same session the on-demand path
       // synthesizes. Without it every case in the dataset shares one session.
       sessionId: evalCaseSessionId(job.datasetSlug, job.itemIndex),
-    });
+    }));
     const toolCalls = result.toolCalls ?? [];
     return {
       itemIndex: job.itemIndex,

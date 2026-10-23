@@ -317,6 +317,15 @@ Still never auto-committed: a person adopts or rejects every candidate at `/dash
 - **Usage is recorded even with no cap set.** A charge creates the row it lands
   on, so "what did this workspace spend" is answerable; budgets stay opt-in in
   the sense that matters, which is that nothing is refused without a limit.
+- **The ledger (`model_call`, `services/spend/`).** `chargeUsage` also files one row per call:
+  workspace, Org, agent, feature, person, conversation, run (`run_kind` + `run_id`), model,
+  effort, tokens, micro-cents, latency, trace. The person, run and effort ride an
+  AsyncLocalStorage call context (`withCallContext`) opened where work starts, so call sites pass
+  nothing new. One call is one row even when it lands on two counters. `spendBy` reads it by any
+  grouping, fenced to an Org or a workspace (Observability → Spend, `spend.by`,
+  `GET /api/v1/spend`). A response the agent's own callback charged is marked (`markCharged`) and
+  `chargeModelCall` skips it, so a classifier inside a tool is not counted twice. See
+  `docs/guides/spend.md`.
 - Spend accumulates in `current_micro_cents` and floors into `current_cents`.
   An embedding batch costs a fraction of a cent, and rounding each one up
   billed a $1 sync as $10.

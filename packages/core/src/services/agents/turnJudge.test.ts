@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { NO_INTENT, readIntent } from './turnJudge';
 
 /**
@@ -97,5 +97,29 @@ describe('answers first: does the message answer the open Decision?', () => {
     const { answeredIntent, asksForAct } = await import('./turnJudge');
 
     expect(asksForAct(answeredIntent('Chose Exports'))).toBe(true);
+  });
+});
+
+describe('what a read costs', () => {
+  it('charges the read once, to the workspace, as the turn judge', async () => {
+    vi.resetModules();
+    const charged: Array<{ orgId: string; feature?: string }> = [];
+    vi.doMock('@/services/BudgetService', () => ({ chargeUsage: async (opts: { orgId: string; feature?: string }) => {
+      charged.push(opts);
+    } }));
+    const { readIntent: read } = await import('./turnJudge');
+    const model = {
+      bindTools: (tools: Array<{ name: string }>) => ({ invoke: async () => ({
+        tool_calls: [{ name: tools[0]!.name, args: { asks: 'answer', changed_record_type: null, record_type: null, summary: 'a question' } }],
+        usage_metadata: { input_tokens: 300, output_tokens: 20 },
+        response_metadata: { model_name: 'claude-haiku-4-5-20251001' },
+      }) }),
+    } as never;
+
+    await read({ orgId: 'org_judge', message: 'what changed this week?' }, model);
+
+    expect(charged).toEqual([expect.objectContaining({ orgId: 'org_judge', feature: 'chat.judge', model: 'claude-haiku-4-5-20251001' })]);
+
+    vi.doUnmock('@/services/BudgetService');
   });
 });

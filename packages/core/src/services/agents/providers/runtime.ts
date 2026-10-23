@@ -268,15 +268,18 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
           outputTokens: event.outputTokens,
           cacheReadTokens: event.cacheReadTokens,
           cacheWriteTokens: event.cacheWriteTokens,
+          ...(event.cacheWrite1hTokens ? { cacheWrite1hTokens: event.cacheWrite1hTokens } : {}),
         },
+        ...(traceId ? { traceId } : {}),
       }).catch((err) => {
         // Charging is best-effort against the event stream — we never want a
         // billing hiccup to abort someone's chat turn — but a swallowed
         // failure here means budget enforcement silently stops working for
-        // this org, with nothing in production logs to say so. Log it.
-        console.error(
-          `runtime provider: budget charge failed for org ${opts.orgId} agent ${opts.agentSlug} (usage NOT recorded): ${(err as Error).message}`,
-        );
+        // this org. Logged as an error, with its cause, where production reads.
+        const error = err instanceof Error ? err : new Error(String(err));
+        import('@/libs/Logger')
+          .then(({ logger }) => logger.error('runtime provider: a model call was not charged (usage NOT recorded)', { orgId: opts.orgId, agentSlug: opts.agentSlug, model: event.model, error: error.message, cause: error.cause ? String(error.cause) : undefined }))
+          .catch(() => console.error(`runtime provider: budget charge failed for org ${opts.orgId} agent ${opts.agentSlug} (usage NOT recorded): ${error.message}`));
       });
       await budgetGuard.afterModelCall();
       return;
