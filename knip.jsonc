@@ -56,6 +56,12 @@
         "src/routers/**"
       ],
       "ignoreDependencies": [
+        // The PPTX/DOCX adapters (libs/decks/pptx, libs/documents/docx) land on
+        // feat/deck-adapters, merged after feat/decks; drop these four then.
+        "docx",
+        "fast-xml-parser",
+        "jszip",
+        "pptxgenjs",
 
         "@radix-ui/react-accordion",
         "react-hook-form",
