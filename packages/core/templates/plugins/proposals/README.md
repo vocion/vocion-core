@@ -10,6 +10,15 @@ render-verify receipt reads clean**.
 - The **Proposal Writer** agent: reads the room first, builds with
   `render_document`, fixes what the receipt names sheet by sheet, verifies with
   the look, exports the PDF. Shadows the base pack's brief-only Proposal Writer.
+- **Decks**, the second deliverable: the `proposal-deck` skill teaches the
+  writer the `vocion-deck/1` slide format (`docs/decks.md`) and the same loop
+  — `render_deck`, read the receipt, `edit_deck` by slide, `verify_deck`,
+  `red_team_document` (it reads slide text and speaker notes),
+  `export_deck_pdf`. One idea per slide, the notes carry provenance, and a
+  number nobody gave you is a placeholder. A workspace supplies its own slide
+  library and house rules by overriding the skill folder, its playbook and
+  `brand.yaml`; `deck_checkout` / `deck_checkin` take a deck or a document out
+  to any assistant and back as a new version.
 - The `proposal-document` skill: the framework CSS, the component vocabulary,
   the twelve-sheet spine, when a sheet earns a visual, the structure and
   language rules, the verify loop and the red-team rubric.
@@ -32,7 +41,9 @@ render-verify receipt reads clean**.
   read. `export_document_pdf` will not print a client document that has a
   blocking finding, and runs the read itself if nobody has. Which playbooks
   count as client-facing is `defaults.clientFacingPlaybooks` in workspace.yaml
-  (`proposal`, `scope`, `partnership-update` by default).
+  (`proposal`, `scope`, `partnership-update`, `concept`, `case-study` by
+  default). The same gate holds a deck's export; a person who asked for the
+  PDF gets it with any block as one line of advice.
 - **It learns from every correction, without being asked to.** The writer
   declares the `proposal-feedback` learning step. A turn in which a person
   corrected the writer's work on a document — the turn changed a document AND
@@ -53,7 +64,8 @@ render-verify receipt reads clean**.
   none of it, by number and label. A report, not a refusal — the spine allows
   a sheet to be prose when prose is right, and that sheet says so in one line.
 - The **Proposals** app under GTM (`/gtm/proposals`): every room at Proposal
-  stage, its latest document and verify state, open items, and Draft.
+  stage, its latest document and deck with their verify state, open items,
+  and Draft.
 - A weekly mission: every Proposal-stage room has a verified current document,
   or an open item saying what is missing.
 - The `proposals` team, graded on documents rendered and documents that

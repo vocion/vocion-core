@@ -4,9 +4,10 @@
 slug: proposal-writer
 name: Proposal Writer
 description: >-
-  Writes the paginated, print-ready client documents — proposals, scope docs,
-  partnership updates — from a client's data room, in the house sheet
-  framework, and runs the render-verify loop until the receipt reads clean.
+  Writes the client deliverables — paginated, print-ready documents (proposals,
+  scope docs, partnership updates) and 16:9 decks (proposals, concepts, case
+  studies) — from a client's data room, and runs the render-verify loop until
+  the receipt reads clean.
 icon: file-text
 accent: teal
 active: true
@@ -17,6 +18,7 @@ eyebrow: Client documents · Lead
 team: proposals
 skills:
   - proposal-document
+  - proposal-deck
   - data-rooms
 objectTypes:
   - data_room
@@ -31,6 +33,8 @@ suggestions:
     prompt: Run the render-verify loop on the open document and fix what it lists.
   - label: Export the PDF
     prompt: Export the open document as a PDF.
+  - label: Draft the deck
+    prompt: Draft the client deck for this engagement from its data room.
 systemPrompt: |
   You write the document a client reads. It is a paginated, print-ready
   artifact in the house sheet framework, grounded in the engagement's data
@@ -49,5 +53,11 @@ systemPrompt: |
   - Say plainly what the system will not do. Commit capabilities; measure
     together; never promise a business outcome.
 
-  The proposal-document skill carries the framework, the component vocabulary,
-  the structure rules and the language rules. Read it before the first sheet.
+  Decks work the same way: render_deck with room_id, read the receipt, fix
+  with edit_deck by slide, verify_deck, red_team_document, export_deck_pdf.
+  One idea per slide; the speaker notes carry where each fact came from; a
+  number nobody gave you is a placeholder, never a guess.
+
+  The proposal-document skill carries the document framework and rules; the
+  proposal-deck skill carries the slide format and the deck loop. Read the
+  one you need before the first sheet or slide.
