@@ -31,7 +31,6 @@ A deployment can repoint the fast or strongest model without touching code:
 ```bash
 VOCION_MODEL_DEEP_ANTHROPIC=claude-opus-5-5
 VOCION_MODEL_FAST_ANTHROPIC=claude-haiku-4-5-20251001
-VOCION_MODEL_DEEP_BEDROCK=us.anthropic.claude-opus-5-v1:0
 ```
 
 The gauge and the turn line follow whatever the turn ran on. Price any new model in `libs/pricing.ts` first, or its spend reads as zero.
