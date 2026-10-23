@@ -35,7 +35,7 @@ export type ConversationAutonomy = typeof CONVERSATION_AUTONOMY[number];
 export type MessageFeedbackRating = 'up' | 'down';
 
 export type ConversationRun
-  = | { type: 'text'; text: string }
+  = | { type: 'text'; text: string; narration?: true }
     /**
      * One tool step. `state` is persisted so a RELOADED transcript can still
      * tell a step that worked from one that failed — a hydrate that assumed

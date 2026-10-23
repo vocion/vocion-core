@@ -252,6 +252,14 @@ export type AgentEvent
     /** What the turn is doing right now, in words, for the live status line ("Writing the decision cards"). */
     | { type: 'status'; label: string }
     | { type: 'response_delta'; delta: string }
+    /**
+     * The lead's model message that streamed the passage just written has
+     * ended: `work` when it ended by calling tools (the passage was the agent
+     * saying what it is about to do, so it belongs to the thinking line),
+     * `answer` when it ended without one (the passage is the answer). Read off
+     * the message's structure, never its words.
+     */
+    | { type: 'passage_end'; then: 'work' | 'answer' }
     | { type: 'documents'; documents: SearchDocument[] }
     | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }

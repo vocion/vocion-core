@@ -507,11 +507,18 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
       assistantBlocks.push({ text: currentText } as SdkContentBlock);
     }
 
+    const roundWrote = assistantBlocks.some(b => typeof (b as { text?: unknown }).text === 'string');
     const pendingUses = assistantBlocks
       .map(b => (b as { toolUse?: { toolUseId: string; name: string; input: Record<string, unknown> } }).toolUse)
       .filter((tu): tu is { toolUseId: string; name: string; input: Record<string, unknown> } => !!tu);
 
-    if (stopReason !== 'tool_use' || pendingUses.length === 0) {
+    const endsOnWork = stopReason === 'tool_use' && pendingUses.length > 0;
+    // The passage this round wrote: narration when the round goes on to
+    // call tools, the answer when it does not (`passage_end`).
+    if (roundWrote) {
+      emit({ type: 'passage_end', then: endsOnWork ? 'work' : 'answer' });
+    }
+    if (!endsOnWork) {
       finished = true;
       break;
     }

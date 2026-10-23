@@ -612,7 +612,10 @@ export function useChatSession({
     pendingResponseRef.current = '';
     pendingThinkingRef.current = '';
     traceDirtyRef.current = false;
-    if (responseText && !lastRunIsTextRef.current) {
+    // A passage that ended (`passage_end`) or a step closes the text run:
+    // what streams next is a run of its own, never appended to the last.
+    const startsRun = Boolean(responseText) && !lastRunIsTextRef.current;
+    if (startsRun) {
       textRunsRef.current += 1;
       lastRunIsTextRef.current = true;
     }
@@ -628,8 +631,8 @@ export function useChatSession({
       if (responseText) {
         const runs = next.runs ?? [];
         const last = runs[runs.length - 1];
-        next = last && last.type === 'text'
-          ? { ...next, runs: [...runs.slice(0, -1), { type: 'text', text: last.text + responseText }] }
+        next = last && last.type === 'text' && !startsRun
+          ? { ...next, runs: [...runs.slice(0, -1), { ...last, text: last.text + responseText }] }
           : { ...next, runs: [...runs, { type: 'text', text: responseText }] };
       }
       return next;
@@ -777,6 +780,24 @@ export function useChatSession({
         setActivity(null);
         pendingResponseRef.current += String(evt.delta ?? '');
         scheduleFlush();
+        return;
+      }
+      case 'passage_end': {
+        // The passage just written has ended (`AgentEvent` `passage_end`): it
+        // is narration when its message went on to call tools, the answer
+        // when it did not. Either way, more text starts a passage of its own.
+        flushDeltas();
+        const then = evt.then === 'work' ? 'work' : 'answer';
+        lastRunIsTextRef.current = false;
+        appendToLatestAgent((m) => {
+          const runs = m.runs ?? [];
+          const last = runs[runs.length - 1];
+          if (!last || last.type !== 'text') {
+            return m;
+          }
+          const marked: AgentRun = then === 'work' ? { ...last, narration: true } : { ...last, answer: true };
+          return { ...m, runs: [...runs.slice(0, -1), marked] };
+        });
         return;
       }
       case 'tool_start': {

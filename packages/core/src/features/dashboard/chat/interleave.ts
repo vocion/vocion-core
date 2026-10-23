@@ -37,7 +37,7 @@ export type ToolRun = Extract<AgentRun, { type: 'tool' }>;
 export type WorkNote = { text: string; at: number };
 
 export type TurnSegment
-  = | { kind: 'text'; text: string; index: number }
+  = | { kind: 'text'; text: string; index: number; narration?: true; answer?: true }
     | { kind: 'work'; runs: ToolRun[]; trace: TraceNode[]; index: number; notes?: WorkNote[] };
 
 /**
@@ -89,7 +89,8 @@ export function segmentTurn(runs: AgentRun[], trace: TraceNode[] = []): TurnSegm
       out.push({ kind: 'work', runs: workRuns, trace: workTrace, index: i });
     }
     if (i < texts.length) {
-      out.push({ kind: 'text', text: texts[i]!.text, index: i });
+      const run = texts[i]!;
+      out.push({ kind: 'text', text: run.text, index: i, ...(run.narration ? { narration: true as const } : {}), ...(run.answer ? { answer: true as const } : {}) });
     }
   }
   return out;
@@ -116,32 +117,84 @@ export function liveWorkIndex(segments: TurnSegment[]): number | null {
  * they read as part of the answer (Chris, 2026-10-23: "are we spilling
  * thought/metadata onto the chat flow, that should be hidden behind an
  * expand/thinking chip?"). The rule is structural, never a reading of the
- * words: a passage the agent followed with more work, and that is not the
- * turn's last passage, is narration. It moves into the work group after it,
- * as a note, and groups that only narration separated become one. The last
- * passage is the answer and stays the body, also when work follows it (a
- * card raised, a record written after the answer). While a turn streams, the
- * newest passage is the last one and stays in view as what the agent is
- * doing; once the agent writes past the next step, it folds.
+ * words. A passage is narration when:
+ *
+ *   - the model message that wrote it went on to call tools (`narration`,
+ *     from the server's `passage_end`) — also when those tools draw no step
+ *     of their own, which is how "Let me get the full notes…" stayed in the
+ *     answer of a turn whose next call was a plumbing read; or
+ *   - for a turn stored before passages were marked: the agent followed it
+ *     with more work and it is not the turn's last passage.
+ *
+ * Narration moves into the work group after it, as a note (the group before
+ * it when no work follows), and groups that only narration separated become
+ * one. The last passage is the answer and stays the body, also when work
+ * follows it (a card raised, a record written after the answer).
+ *
+ * WHILE A TURN RUNS (`live`), nothing reaches the body until it is known to
+ * be the answer (Chris, 2026-10-23: "chain of thought thinking should be
+ * visually scoped to the thinking line, not look like streaming text"). A
+ * passage still being written is a note on the live group, its newest line
+ * the turn's live line, and moves into the body the moment its message ends
+ * without calling a tool (`answer`). So the body is never written and then
+ * taken back.
  * @param segments - The folded turn, from {@link segmentTurn}.
+ * @param opts - How the turn stands.
+ * @param opts.live - The turn is still streaming.
  */
-export function foldNarration(segments: TurnSegment[]): TurnSegment[] {
+export function foldNarration(segments: TurnSegment[], opts: { live?: boolean } = {}): TurnSegment[] {
   let lastText = -1;
   segments.forEach((seg, i) => {
     if (seg.kind === 'text') {
       lastText = i;
     }
   });
+  const marked = segments.some(seg => seg.kind === 'text' && (seg.narration || seg.answer));
+  const isNarration = (seg: Extract<TurnSegment, { kind: 'text' }>, i: number): boolean => {
+    if (seg.answer) {
+      return false;
+    }
+    if (seg.narration) {
+      return true;
+    }
+    // Still being written: the thinking line's until its message says it is the answer.
+    if (opts.live && i === lastText) {
+      return true;
+    }
+    // A stored turn from before passages were marked, or a passage the
+    // server could not mark (a guarantee sentence appended after the loop).
+    return !marked && i < lastText && segments[i + 1]?.kind === 'work';
+  };
   const out: TurnSegment[] = [];
   let pending: WorkNote[] = [];
+  const mergeInto = (at: number, seg: Extract<TurnSegment, { kind: 'work' }>, notes: WorkNote[]) => {
+    const prev = out[at] as Extract<TurnSegment, { kind: 'work' }>;
+    out[at] = { ...prev, runs: [...prev.runs, ...seg.runs], trace: [...prev.trace, ...seg.trace], notes: [...(prev.notes ?? []), ...notes, ...(seg.notes ?? [])] };
+  };
+  // Narration no step followed (its tools draw none, or the turn is writing
+  // it now) stays where it was said: with the work before it, or as a group
+  // of its own ahead of what comes next.
+  const settlePending = () => {
+    if (pending.length === 0) {
+      return;
+    }
+    const prev = out[out.length - 1];
+    if (prev?.kind === 'work') {
+      mergeInto(out.length - 1, { kind: 'work', runs: [], trace: [], index: prev.index }, pending);
+    } else {
+      out.push({ kind: 'work', runs: [], trace: [], index: pending[pending.length - 1]!.at + 1, notes: pending });
+    }
+    pending = [];
+  };
   segments.forEach((seg, i) => {
     if (seg.kind === 'text') {
-      if (i < lastText && segments[i + 1]?.kind === 'work') {
+      if (isNarration(seg, i)) {
         if (seg.text.trim()) {
           pending.push({ text: seg.text, at: seg.index });
         }
         return;
       }
+      settlePending();
       out.push(seg);
       return;
     }
@@ -149,11 +202,12 @@ export function foldNarration(segments: TurnSegment[]): TurnSegment[] {
     pending = [];
     const prev = out[out.length - 1];
     if (prev?.kind === 'work') {
-      out[out.length - 1] = { ...prev, runs: [...prev.runs, ...seg.runs], trace: [...prev.trace, ...seg.trace], notes: [...(prev.notes ?? []), ...notes, ...(seg.notes ?? [])] };
+      mergeInto(out.length - 1, seg, notes);
       return;
     }
     out.push(notes.length > 0 ? { ...seg, notes: [...notes, ...(seg.notes ?? [])] } : seg);
   });
+  settlePending();
   return out;
 }
 

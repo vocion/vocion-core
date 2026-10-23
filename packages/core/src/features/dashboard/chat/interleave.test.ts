@@ -121,20 +121,76 @@ describe('foldNarration — what the agent said while working stays with the wor
     expect(answer).toEqual({ kind: 'text', text: 'Three of five weekly targets are met.', index: 2 });
   });
 
-  it('while streaming, the newest passage stays in the body, and folds once the agent writes past the next step', () => {
+  it('while streaming, a passage stays on the thinking line until its message ends without a tool, then it is the answer (Chris, 2026-10-23)', () => {
     const live: AgentRun[] = [
       { type: 'tool', name: 'freshen_source', state: 'done' },
       { type: 'text', text: 'Let me find the goal.' },
-      { type: 'tool', name: 'goal_list', state: 'pending' },
     ];
 
-    // Narration and an answer followed by a card look the same until more
-    // prose comes, so the newest passage shows: it is the live line of what
-    // the agent is doing.
-    expect(foldNarration(segmentTurn(live)).map(s => s.kind)).toEqual(['work', 'text', 'work']);
+    // Being written: a note on the live group, nothing in the body.
+    let folded = foldNarration(segmentTurn(live), { live: true });
 
+    expect(folded.map(s => s.kind)).toEqual(['work']);
+    expect(folded[0]!.kind === 'work' && folded[0]!.notes?.map(n => n.text)).toEqual(['Let me find the goal.']);
+
+    // Its message called a tool: narration, still with the work.
+    live[1] = { type: 'text', text: 'Let me find the goal.', narration: true };
+    live.push({ type: 'tool', name: 'goal_list', state: 'pending' });
+    folded = foldNarration(segmentTurn(live), { live: true });
+
+    expect(folded.map(s => s.kind)).toEqual(['work']);
+
+    // The next passage streams on the line too…
     live.push({ type: 'text', text: 'Week 1 of 13: 3 of 9 targets met.' });
-    const folded = foldNarration(segmentTurn(live));
+    folded = foldNarration(segmentTurn(live), { live: true });
+
+    expect(folded.map(s => s.kind)).toEqual(['work']);
+    expect(folded[0]!.kind === 'work' && folded[0]!.notes?.map(n => n.text)).toEqual(['Let me find the goal.', 'Week 1 of 13: 3 of 9 targets met.']);
+
+    // …and is the body the moment its message ends without a tool.
+    live[3] = { type: 'text', text: 'Week 1 of 13: 3 of 9 targets met.', answer: true };
+    folded = foldNarration(segmentTurn(live), { live: true });
+
+    expect(folded.map(s => s.kind)).toEqual(['work', 'text']);
+    expect(folded[1]).toMatchObject({ kind: 'text', text: 'Week 1 of 13: 3 of 9 targets met.' });
+  });
+
+  it('folds a marked passage whose tools drew no step (a plumbing read), so the answer does not open with it', () => {
+    // A Founder GTM turn of 2026-10-23: "…Let me get the full notes" stayed in
+    // the answer because the call after it drew no step, so nothing
+    // separated it from the answer.
+    const runs: AgentRun[] = [
+      { type: 'tool', name: 'lookup_objects', state: 'done' },
+      { type: 'text', text: 'The meeting was yesterday. Let me get the full notes.', narration: true },
+      { type: 'text', text: 'You owe Dana the revised scope by Friday.' },
+    ];
+
+    const folded = foldNarration(segmentTurn(runs));
+
+    expect(folded.map(s => s.kind)).toEqual(['work', 'text']);
+    expect(folded[0]!.kind === 'work' && folded[0]!.notes?.map(n => n.text)).toEqual(['The meeting was yesterday. Let me get the full notes.']);
+    expect(folded[1]).toMatchObject({ kind: 'text', text: 'You owe Dana the revised scope by Friday.' });
+  });
+
+  it('narration with no work at all stands as a group of its own, never the body', () => {
+    const folded = foldNarration(segmentTurn([
+      { type: 'text', text: 'Let me check the tracker.', narration: true },
+      { type: 'text', text: 'Nothing is owed.' },
+    ]));
+
+    expect(folded.map(s => s.kind)).toEqual(['work', 'text']);
+    expect(folded[0]).toMatchObject({ kind: 'work', runs: [], trace: [], notes: [{ text: 'Let me check the tracker.', at: 0 }] });
+  });
+
+  it('a turn stored before passages were marked folds as before: what work followed, short of the last passage', () => {
+    const runs: AgentRun[] = [
+      { type: 'tool', name: 'freshen_source', state: 'done' },
+      { type: 'text', text: 'Let me find the goal.' },
+      { type: 'tool', name: 'goal_list', state: 'done' },
+      { type: 'text', text: 'Week 1 of 13: 3 of 9 targets met.' },
+    ];
+
+    const folded = foldNarration(segmentTurn(runs));
 
     expect(folded.map(s => s.kind)).toEqual(['work', 'text']);
     expect(folded[0]!.kind === 'work' && folded[0]!.notes?.map(n => n.text)).toEqual(['Let me find the goal.']);

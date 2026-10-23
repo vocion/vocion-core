@@ -255,6 +255,37 @@ step. Only the trailing group is live, and it shows its rows without a
 "Working…" bar of its own — the indicator at the bottom of the turn (§2)
 names the activity once.
 
+## What the agent says while it works is the thinking line (2026-10-23)
+
+A turn reads "Let me check the tracker" → steps → "Let me get the notes" →
+steps → the answer. The between-step lines are the agent saying what it is
+about to do; they belong with the work, not in the answer (Chris: "chain of
+thought thinking should be visually scoped to the thinking line, not look
+like streaming text").
+
+- **The server marks each passage by structure.** When a lead model message
+  that streamed text ends, `AgentService` sends `passage_end`: `work` if the
+  message went on to call tools (any tool, a plumbing read included), `answer`
+  if it called none (`services/agents/passage.ts` `endedOnToolCall`). The
+  AgentCore path sends the same at the end of each round. No words are read.
+- **Stored the same way.** `RunCollector` keeps a `work` passage as a text run
+  with `narration: true`, and starts the next passage as a run of its own, so
+  a reload folds exactly as the live turn did. Turns stored before this fold
+  by position: a passage followed by work, short of the last.
+- **Live, nothing reaches the body until it is the answer.** While the turn
+  runs, a passage still being written is a note on the live group; its newest
+  line is the turn's live line (muted, one clipped line, the writer's dot).
+  The passage moves into the body the moment its message ends without a tool
+  (`answer`). The final answer is therefore revealed whole when its message
+  ends, rather than streamed into the body: streaming it would mean showing
+  text that might still turn out to be narration, which is exactly the
+  write-then-take-back Chris saw. Its words still stream, on the live line.
+- **After the turn**, narration sits among the steps where it was said
+  (`stepsWithNotes`), behind the group's one line. A passage whose tools drew
+  no step stays with the work before it, or stands as a group of its own
+  ahead of the answer, never at the top of the answer
+  (`interleave.ts` `foldNarration`).
+
 ## §12 — The composer never locks (2026-09-15)
 
 The box used to go `disabled` for the whole turn. That is the wrong default:

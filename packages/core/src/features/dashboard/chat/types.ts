@@ -41,9 +41,14 @@ export type SkillResult = {
   prospectCompany?: string;
 };
 
-/** One run inside an assistant message: either a text chunk or an inline tool breadcrumb. */
+/**
+ * One run inside an assistant message: either a text chunk or an inline tool breadcrumb.
+ * A text run the agent followed with work is `narration` (it belongs to the
+ * thinking line); one whose model message ended without calling a tool is
+ * `answer` (live only: the body shows it while the turn still runs).
+ */
 export type AgentRun
-  = | { type: 'text'; text: string }
+  = | { type: 'text'; text: string; narration?: true; answer?: true }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
     /** A card the turn put up (backlog 025) — rendered from the row after a reload. */
     | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; actionLabel?: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: CardField[]; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; brand?: string; decision?: CardDecision; draft?: { prompt: string; missing: string } }
