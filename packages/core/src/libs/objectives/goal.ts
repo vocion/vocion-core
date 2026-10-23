@@ -17,6 +17,10 @@
  *   is done when that work is (a record closed, an artifact or wiki page
  *   written, a view emptied); the agent may mark one done with evidence; the
  *   person's own tick or untick always wins and is never undone by a check.
+ * - **sprint** — 2 to 10 weekly targets from a start date to the horizon
+ *   ("Discovery calls · 3 a week"), and a scorecard: one number per target
+ *   per week. The agent logs a week with evidence; the person's own number
+ *   wins and holds. Progress is the weekly targets met of those logged.
  *
  * Pure: the service, the agent's tools, the goal page, the brief and the
  * tests read one answer from here.
@@ -67,10 +71,49 @@ export type GoalMeasure
     /** What a done row is called: "contacted". */
     unit?: string;
   }
-  | { kind: 'milestones'; milestones: Milestone[] };
+  | { kind: 'milestones'; milestones: Milestone[] }
+  | SprintMeasure;
 
 export const MIN_MILESTONES = 3;
 export const MAX_MILESTONES = 7;
+
+/** One weekly target of a sprint: "Discovery calls", 3 a week. */
+export type SprintTarget = {
+  /** `t1`…, kept when the targets are re-planned, so logged weeks stay put. */
+  key: string;
+  label: string;
+  perWeek: number;
+  /** What one is called: "calls". */
+  unit?: string;
+};
+
+/** One logged number on the scorecard. */
+export type SprintValue = {
+  value: number;
+  /** `agent`, or the person's id. */
+  by: string;
+  /** What the agent counted it from. */
+  evidence?: string;
+  /** The person wrote it: no agent moves it again. */
+  locked?: boolean;
+};
+
+/** One week of the scorecard, keyed by its Monday. */
+export type SprintWeek = {
+  /** The week's Monday, `YYYY-MM-DD`. */
+  week: string;
+  /** By target key. */
+  values: Record<string, SprintValue>;
+  /** One line on the week: what worked, what did not. */
+  note?: string;
+};
+
+export type SprintMeasure = { kind: 'sprint'; starts: string; targets: SprintTarget[]; weeks: SprintWeek[] };
+
+export const MIN_SPRINT_TARGETS = 2;
+export const MAX_SPRINT_TARGETS = 10;
+/** A sprint runs at most a year of weeks. */
+export const MAX_SPRINT_WEEKS = 53;
 
 /** One line of "what moved". */
 export type GoalActivity = { at: string; what: string; by: string };
@@ -294,8 +337,9 @@ export function milestonesFrom(items: ReadonlyArray<{ label: string; link?: Goal
 /**
  * Why a measure cannot be kept, or null.
  * @param measure - The measure.
+ * @param horizon - The goal's horizon, which a sprint ends on.
  */
-export function measureProblem(measure: GoalMeasure): string | null {
+export function measureProblem(measure: GoalMeasure, horizon?: GoalHorizon): string | null {
   if (measure.kind === 'milestones') {
     const n = measure.milestones.length;
     if (n < MIN_MILESTONES || n > MAX_MILESTONES) {
@@ -305,6 +349,9 @@ export function measureProblem(measure: GoalMeasure): string | null {
       return 'Every milestone needs a label.';
     }
     return null;
+  }
+  if (measure.kind === 'sprint') {
+    return sprintProblem(measure, horizon);
   }
   if (!measure.view.trim()) {
     return 'A view measure names a saved view.';
@@ -316,6 +363,262 @@ export function measureProblem(measure: GoalMeasure): string | null {
     return 'A target is a whole number above zero.';
   }
   return null;
+}
+
+/**
+ * Why a sprint cannot be kept, or null.
+ * @param m - The sprint.
+ * @param horizon - Where it ends.
+ */
+function sprintProblem(m: SprintMeasure, horizon?: GoalHorizon): string | null {
+  const n = m.targets.length;
+  if (n < MIN_SPRINT_TARGETS || n > MAX_SPRINT_TARGETS) {
+    return `A sprint has ${MIN_SPRINT_TARGETS} to ${MAX_SPRINT_TARGETS} weekly targets; this has ${n}.`;
+  }
+  if (m.targets.some(t => !t.label.trim())) {
+    return 'Every weekly target needs a label.';
+  }
+  if (m.targets.some(t => !Number.isInteger(t.perWeek) || t.perWeek < 1)) {
+    return 'A weekly target is a whole number above zero.';
+  }
+  if (new Set(m.targets.map(t => t.label.trim().toLowerCase())).size < n) {
+    return 'Two weekly targets have the same label; name each once.';
+  }
+  if (!isDate(m.starts)) {
+    return `"${m.starts}" is not a start date: give one as 2026-10-26.`;
+  }
+  if (horizon) {
+    const end = isoDay(quarterEnd(horizon));
+    if (end < m.starts) {
+      return `The sprint starts ${m.starts}, after it ends (${end}).`;
+    }
+    if (sprintWeeks(m.starts, horizon).length > MAX_SPRINT_WEEKS) {
+      return `A sprint runs at most ${MAX_SPRINT_WEEKS} weeks; set a nearer horizon.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether a string is a real calendar date, `YYYY-MM-DD`.
+ * @param text - The string.
+ */
+function isDate(text: string): boolean {
+  return DATE.test(text) && !Number.isNaN(Date.parse(`${text}T00:00:00Z`)) && isoDay(new Date(`${text}T00:00:00Z`)) === text;
+}
+
+/**
+ * A moment's calendar day, `YYYY-MM-DD`, in UTC.
+ * @param d - The moment.
+ */
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The Monday of the week a day falls in, `YYYY-MM-DD`. A string is read as
+ * the calendar day it names, so a week never moves with the server's zone;
+ * a Date is read in UTC (pass the person's local day as a string).
+ * @param day - The day.
+ */
+export function weekOf(day: string | Date): string {
+  const d = typeof day === 'string' ? new Date(`${day.slice(0, 10)}T00:00:00Z`) : new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate()));
+  const back = (d.getUTCDay() + 6) % 7;
+  return isoDay(new Date(d.getTime() - back * DAY));
+}
+
+/**
+ * The person's calendar day now, in their time zone (UTC when unknown).
+ * @param now - The clock.
+ * @param timeZone - Theirs.
+ */
+export function localDay(now: Date, timeZone?: string): string {
+  if (!timeZone) {
+    return isoDay(now);
+  }
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  } catch {
+    return isoDay(now);
+  }
+}
+
+/**
+ * Every week of a sprint, by its Monday, from the start to the horizon.
+ * @param starts - The start date.
+ * @param horizon - The end.
+ */
+export function sprintWeeks(starts: string, horizon: GoalHorizon): string[] {
+  const first = weekOf(starts);
+  const last = weekOf(quarterEnd(horizon));
+  const out: string[] = [];
+  for (let t = Date.parse(`${first}T00:00:00Z`); t <= Date.parse(`${last}T00:00:00Z`) && out.length <= MAX_SPRINT_WEEKS; t += 7 * DAY) {
+    out.push(isoDay(new Date(t)));
+  }
+  return out;
+}
+
+/**
+ * Whether a logged number meets its target.
+ * @param target - The target.
+ * @param value - The number, if logged.
+ */
+export function targetMet(target: Pick<SprintTarget, 'perWeek'>, value: number | undefined): boolean | null {
+  return value === undefined ? null : value >= target.perWeek;
+}
+
+/**
+ * Where a sprint stands: which week it is, and how many of the logged weekly
+ * targets were met. A week nobody logged is not counted as missed — it is
+ * said as not logged, so a gap reads as a gap.
+ * @param m - The sprint.
+ * @param horizon - Where it ends.
+ * @param today - The person's day (`localDay`), or a moment.
+ */
+export function sprintProgress(m: SprintMeasure, horizon: GoalHorizon, today: string | Date): GoalProgress & { week: number; weeks: number } {
+  const weeks = sprintWeeks(m.starts, horizon);
+  const now = weekOf(today);
+  const at = now < weeks[0]! ? 0 : now > weeks.at(-1)! ? weeks.length : weeks.indexOf(now) + 1;
+  let done = 0;
+  let total = 0;
+  for (const w of m.weeks) {
+    for (const t of m.targets) {
+      const v = w.values[t.key];
+      if (v) {
+        total += 1;
+        done += v.value >= t.perWeek ? 1 : 0;
+      }
+    }
+  }
+  const when = at === 0 ? `Starts ${horizonLabel({ kind: 'date', due: m.starts }).replace(/^by /, '')}` : at > weeks.length ? `Ended after ${weeks.length} weeks` : `Week ${at} of ${weeks.length}`;
+  const label = total === 0 ? `${when} · nothing logged yet` : `${when} · ${done} of ${total} weekly targets met`;
+  return { done, total, ratio: total > 0 ? done / total : null, label, week: at, weeks: weeks.length };
+}
+
+/**
+ * A weekly target from what the model or a person wrote: its key (`t2`) or
+ * its label, any case. Null when it names none.
+ * @param targets - The sprint's targets.
+ * @param ref - The key or label.
+ */
+export function targetOf(targets: readonly SprintTarget[], ref: string): SprintTarget | null {
+  const r = ref.trim().toLowerCase();
+  return targets.find(t => t.key === r) ?? targets.find(t => t.label.trim().toLowerCase() === r) ?? null;
+}
+
+/**
+ * Log one number on the scorecard. Same rule as a milestone: the agent says
+ * what it counted from and never moves a number the person wrote; the
+ * person's number locks, and their clear (a null) unlocks it. A future week
+ * or one outside the sprint is refused by name.
+ * @param m - The sprint.
+ * @param horizon - Where it ends.
+ * @param week - Any day of the week.
+ * @param key - The target's key.
+ * @param value - The number, or null (the person's clear).
+ * @param by - `agent`, or the person's id.
+ * @param today - The person's day.
+ * @param evidence - The agent's source.
+ * @returns The sprint, and whether anything changed (or why not).
+ */
+export function setSprintValue(m: SprintMeasure, horizon: GoalHorizon, week: string, key: string, value: number | null, by: string, today: string, evidence?: string): { measure: SprintMeasure; changed: boolean; refused?: string } {
+  const target = m.targets.find(t => t.key === key);
+  if (!target) {
+    return { measure: m, changed: false, refused: `No weekly target "${key}". Targets: ${m.targets.map(t => `${t.key} ${t.label}`).join(', ')}.` };
+  }
+  const monday = weekOf(week);
+  const weeks = sprintWeeks(m.starts, horizon);
+  if (!weeks.includes(monday)) {
+    return { measure: m, changed: false, refused: `The week of ${monday} is outside the sprint (${weeks[0]} to ${weeks.at(-1)}).` };
+  }
+  if (monday > weekOf(today)) {
+    return { measure: m, changed: false, refused: `The week of ${monday} has not started; log a week once it has.` };
+  }
+  const agent = by === 'agent';
+  if (value !== null && (!Number.isFinite(value) || value < 0)) {
+    return { measure: m, changed: false, refused: 'A logged number is zero or more.' };
+  }
+  if (agent && value === null) {
+    return { measure: m, changed: false, refused: 'Only the person clears a number on the scorecard.' };
+  }
+  const row = m.weeks.find(w => w.week === monday);
+  const was = row?.values[key];
+  if (agent && was?.locked) {
+    return { measure: m, changed: false, refused: `The person wrote ${target.label} for the week of ${monday} themselves (${was.value}); leave it as they set it.` };
+  }
+  if (agent && !evidence?.trim()) {
+    return { measure: m, changed: false, refused: `Say what ${target.label} was counted from (evidence), so the person can check it.` };
+  }
+  if (value === null ? !was : was?.value === value && (agent || was.locked)) {
+    return { measure: m, changed: false };
+  }
+  const values = { ...row?.values };
+  if (value === null) {
+    delete values[key];
+  } else {
+    values[key] = { value, by, ...(agent && evidence ? { evidence: evidence.trim().slice(0, 300) } : {}), ...(agent ? {} : { locked: true }) };
+  }
+  const next: SprintWeek = { week: monday, values, ...(row?.note ? { note: row.note } : {}) };
+  const out = [...m.weeks.filter(w => w.week !== monday), next].filter(w => Object.keys(w.values).length > 0 || w.note).sort((a, b) => a.week.localeCompare(b.week));
+  return { measure: { ...m, weeks: out }, changed: true };
+}
+
+/**
+ * Set a week's one-line note.
+ * @param m - The sprint.
+ * @param week - Any day of the week.
+ * @param note - The note; empty clears it.
+ */
+export function setSprintNote(m: SprintMeasure, week: string, note: string): SprintMeasure {
+  const monday = weekOf(week);
+  const row = m.weeks.find(w => w.week === monday) ?? { week: monday, values: {} };
+  const text = note.trim().slice(0, 400);
+  const { note: _was, ...rest } = row;
+  const next: SprintWeek = text ? { ...rest, note: text } : rest;
+  return { ...m, weeks: [...m.weeks.filter(w => w.week !== monday), next].filter(w => Object.keys(w.values).length > 0 || w.note).sort((a, b) => a.week.localeCompare(b.week)) };
+}
+
+/**
+ * Weekly targets from labels the agent proposed, keyed `t1`…; on a re-plan
+ * a target whose label is kept keeps its key, so its logged weeks stay put.
+ * @param items - The targets.
+ * @param was - The targets before, on a re-plan.
+ */
+export function sprintTargetsFrom(items: ReadonlyArray<{ label: string; perWeek: number; unit?: string }>, was: readonly SprintTarget[] = []): SprintTarget[] {
+  const kept = new Map(was.map(t => [t.label.trim().toLowerCase(), t.key]));
+  let next = Math.max(0, ...was.map(t => Number(t.key.slice(1)) || 0));
+  return items.map((t) => {
+    const key = kept.get(t.label.trim().toLowerCase()) ?? `t${++next}`;
+    return { key, label: t.label.trim(), perWeek: t.perWeek, ...(t.unit?.trim() ? { unit: t.unit.trim() } : {}) };
+  });
+}
+
+/**
+ * The weakest weekly target so far: the lowest share of its target across
+ * the weeks logged. Null before anything is logged.
+ * @param m - The sprint.
+ */
+export function weakestTarget(m: SprintMeasure): SprintTarget | null {
+  let worst: { t: SprintTarget; share: number } | null = null;
+  for (const t of m.targets) {
+    const logged = m.weeks.map(w => w.values[t.key]?.value).filter((v): v is number => v !== undefined);
+    if (logged.length === 0) {
+      continue;
+    }
+    const share = logged.reduce((a, v) => a + Math.min(v / t.perWeek, 1), 0) / logged.length;
+    if (share < 1 && (!worst || share < worst.share)) {
+      worst = { t, share };
+    }
+  }
+  return worst?.t ?? null;
+}
+
+/**
+ * A weekly target as a person reads it: "Discovery calls · 3/wk".
+ * @param t - The target.
+ */
+export function targetLine(t: Pick<SprintTarget, 'label' | 'perWeek'>): string {
+  return `${t.label} · ${t.perWeek}/wk`;
 }
 
 /**
@@ -348,8 +651,9 @@ export function stalledFor(goal: Pick<Goal, 'status' | 'progressAt' | 'createdAt
  * @param goal.status - Its status.
  * @param progress - Where it stands.
  * @param viewName - The view's name, for a view measure.
+ * @param today
  */
-export function nextStepsFor(goal: Pick<Goal, 'title' | 'measure' | 'nextSteps' | 'status'>, progress: GoalProgress, viewName?: string): NextStep[] {
+export function nextStepsFor(goal: Pick<Goal, 'title' | 'measure' | 'nextSteps' | 'status'>, progress: GoalProgress, viewName?: string, today: string | Date = new Date()): NextStep[] {
   if (goal.status === 'done' || goal.status === 'dropped') {
     return [];
   }
@@ -357,7 +661,17 @@ export function nextStepsFor(goal: Pick<Goal, 'title' | 'measure' | 'nextSteps' 
     return goal.nextSteps.slice(0, 3);
   }
   const out: NextStep[] = [];
-  if (goal.measure.kind === 'milestones') {
+  if (goal.measure.kind === 'sprint') {
+    const week = goal.measure.weeks.find(w => w.week === weekOf(today));
+    const open = goal.measure.targets.filter(t => !week?.values[t.key]);
+    if (open.length > 0) {
+      out.push({ label: 'Log this week\'s numbers', prompt: `For my goal "${goal.title}": log this week's numbers on the scorecard. Count what you can from the records, with what you counted from, and ask me for the rest: ${open.map(t => t.label).join(', ')}.` });
+    }
+    const weak = weakestTarget(goal.measure);
+    if (weak) {
+      out.push({ label: `What would move ${weak.label}?`, prompt: `For my goal "${goal.title}": ${weak.label} is the target I miss most (${weak.perWeek} a week). What would move it this week?` });
+    }
+  } else if (goal.measure.kind === 'milestones') {
     const open = goal.measure.milestones.filter(m => !m.done);
     for (const m of open.slice(0, 2)) {
       out.push({ label: `Work on “${m.label}”`, prompt: `For my goal "${goal.title}": help me with the next milestone, "${m.label}".` });

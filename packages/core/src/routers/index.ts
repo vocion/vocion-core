@@ -86,7 +86,7 @@ import {
   onlineTearDown as onlineEvalTearDown,
   run as runEval,
 } from './Evals';
-import { setMilestoneRoute as setGoalMilestoneRoute, setStatusRoute as setGoalStatusRoute, unlinkRoute as unlinkGoalRoute } from './Goals';
+import { setMilestoneRoute as setGoalMilestoneRoute, setSprintValueRoute as setGoalSprintValueRoute, setStatusRoute as setGoalStatusRoute, unlinkRoute as unlinkGoalRoute } from './Goals';
 import {
   create as createGroupRoute,
   overview as groupsOverviewRoute,
@@ -435,6 +435,7 @@ export const router = {
   goals: {
     setStatus: setGoalStatusRoute,
     setMilestone: setGoalMilestoneRoute,
+    setSprintValue: setGoalSprintValueRoute,
     unlink: unlinkGoalRoute,
   },
   learnings: {

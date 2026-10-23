@@ -5,13 +5,13 @@
  * `features/goals/types.ts`; the reads in `GoalService.ts`.
  */
 
-import type { GoalDetail, GoalRow } from '@/features/goals/types';
-import type { Goal } from '@/libs/objectives/goal';
+import type { GoalDetail, GoalRow, GoalScorecard } from '@/features/goals/types';
+import type { Goal, SprintMeasure } from '@/libs/objectives/goal';
 import { eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { daysLeft, horizonLabel, linkKey, nextStepsFor, stalledFor } from '@/libs/objectives/goal';
+import { daysLeft, horizonLabel, linkKey, localDay, nextStepsFor, sprintProgress, sprintWeeks, stalledFor, weekOf } from '@/libs/objectives/goal';
 import { projectSchema, userSchema } from '@/models/Schema';
-import { getGoal, listGoals, measureGoal, personalGoals, resolveGoalLinks } from './GoalService';
+import { getGoal, listGoals, measureGoal, personalGoals, resolveGoalLinks, workspaceToday } from './GoalService';
 
 /**
  * People's names by id.
@@ -32,11 +32,54 @@ async function namesOf(ids: readonly string[]): Promise<Map<string, string>> {
  * @param g - The goal.
  */
 function lastReading(g: Goal): { label: string; ratio: number | null } {
+  if (g.measure.kind === 'sprint') {
+    const p = sprintProgress(g.measure, g.horizon, localDay(new Date()));
+    return p.total > 0 ? { label: `${p.done} of ${p.total} met`, ratio: p.ratio } : { label: p.week > 0 ? `week ${p.week} of ${p.weeks}` : 'not started', ratio: null };
+  }
   if (g.measure.kind === 'milestones') {
     const done = g.measure.milestones.filter(m => m.done).length;
     return { label: `${done} of ${g.measure.milestones.length}`, ratio: done / g.measure.milestones.length };
   }
   return g.lastTotal ? { label: `${g.lastDone ?? 0} of ${g.lastTotal}`, ratio: (g.lastDone ?? 0) / g.lastTotal } : { label: 'not measured', ratio: null };
+}
+
+/** How many weeks the scorecard shows: enough for a trend, narrow enough for a phone. */
+const SCORECARD_WEEKS = 6;
+
+/**
+ * A sprint's scorecard: the latest weeks up to this one (the first weeks,
+ * before it starts), a row per weekly target.
+ * @param m - The sprint.
+ * @param goal - Its goal.
+ * @param today - The day.
+ */
+export function scorecardOf(m: SprintMeasure, goal: Pick<Goal, 'horizon'>, today: string): GoalScorecard {
+  const all = sprintWeeks(m.starts, goal.horizon);
+  const now = weekOf(today);
+  const upTo = all.filter(w => w <= now);
+  const shown = upTo.length > 0 ? upTo.slice(-SCORECARD_WEEKS) : all.slice(0, 1);
+  const p = sprintProgress(m, goal.horizon, today);
+  const byWeek = new Map(m.weeks.map(w => [w.week, w]));
+  return {
+    week: p.week,
+    weeks: p.weeks,
+    columns: shown.map((w) => {
+      const note = byWeek.get(w)?.note;
+      return { week: w, label: new Date(`${w}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }), current: w === now, ...(note ? { note } : {}) };
+    }),
+    rows: m.targets.map(t => ({
+      key: t.key,
+      label: t.label,
+      perWeek: t.perWeek,
+      ...(t.unit ? { unit: t.unit } : {}),
+      cells: shown.map((w) => {
+        const v = byWeek.get(w)?.values[t.key];
+        return v
+          ? { value: v.value, met: v.value >= t.perWeek, by: v.by === 'agent' ? 'agent' as const : 'person' as const, ...(v.evidence ? { evidence: v.evidence } : {}) }
+          : { value: null, met: null, by: null };
+      }),
+    })),
+  };
 }
 
 /**
@@ -98,7 +141,9 @@ export async function goalDetailFor(input: { orgId: string; userId: string; goal
   if (!found) {
     return null;
   }
-  const { goal, progress, viewName } = await measureGoal(found, { now });
+  // A sprint's week is the workspace's week, not the server's.
+  const today = await workspaceToday(found.orgId, now);
+  const { goal, progress, viewName } = await measureGoal(found, { now, today });
   const milestoneLinks = goal.measure.kind === 'milestones' ? goal.measure.milestones.flatMap(m => (m.link ? [m.link] : [])) : [];
   const viewLink = goal.measure.kind === 'view' ? [{ kind: 'view' as const, id: goal.measure.view }] : [];
   const [resolved, names, [project]] = await Promise.all([
@@ -121,7 +166,8 @@ export async function goalDetailFor(input: { orgId: string; userId: string; goal
     progress: { label: progress.label, ratio: progress.ratio, ...(progress.unmeasured ? { unmeasured: progress.unmeasured } : {}) },
     measure: goal.measure.kind === 'view'
       ? { kind: 'view', viewName: viewName ?? goal.measure.view, href: byKey.get(`view:${goal.measure.view}`)?.href ?? null }
-      : { kind: 'milestones' },
+      : { kind: goal.measure.kind },
+    scorecard: goal.measure.kind === 'sprint' ? scorecardOf(goal.measure, goal, today) : null,
     milestones: goal.measure.kind === 'milestones'
       ? goal.measure.milestones.map((m) => {
           const l = m.link ? byKey.get(linkKey(m.link)) : null;
@@ -129,7 +175,7 @@ export async function goalDetailFor(input: { orgId: string; userId: string; goal
         })
       : [],
     links: goal.links.map(l => byKey.get(linkKey(l))).filter((l): l is NonNullable<typeof l> => !!l).map(l => ({ kind: l.kind, id: l.id, title: l.label ?? l.title, href: l.href })),
-    nextSteps: nextStepsFor(goal, progress, viewName ?? undefined),
+    nextSteps: nextStepsFor(goal, progress, viewName ?? undefined, today),
     activity: [...goal.activity].reverse(),
     stalledDays: stalledFor(goal, now),
   };

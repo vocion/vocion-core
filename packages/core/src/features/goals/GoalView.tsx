@@ -14,12 +14,13 @@ import { goalPinTarget } from '@/libs/objectives/goal';
 import { client } from '@/libs/Orpc';
 import { recordRef } from '@/services/chat/recordContext';
 import { GoalProgressBar } from './GoalProgressBar';
+import { GoalScorecard } from './GoalScorecard';
 
 const LINK_NOUN: Record<string, string> = { room: 'Data room', wiki: 'Wiki', artifact: 'Artifact', view: 'View', conversation: 'Chat', record: 'Record' };
 
 /**
  * ONE GOAL — a calm page: the title and horizon, where it stands (a bar and
- * its words), its milestones, what it links to, a short line of what moved,
+ * its words), its milestones or a sprint's scorecard, what it links to, a short line of what moved,
  * and "Next step": up to three prompts the assistant proposes, each a pill
  * that starts a turn (#1296), never a card. Pause, Done and Drop are the
  * owner's, and so is ticking a milestone by hand, which then holds against
@@ -91,7 +92,9 @@ export function GoalView({ goal, listHref }: { goal: GoalDetail; listHref: strin
                   , never ticked by hand.
                 </>
               )
-            : 'Milestones are done when their linked work is, or when you say so.'}
+            : goal.measure.kind === 'sprint'
+              ? 'Each week is logged on the scorecard: the assistant counts what it can and says from what; a number you write holds.'
+              : 'Milestones are done when their linked work is, or when you say so.'}
           {goal.progress.unmeasured ? ` ${goal.progress.unmeasured}` : ''}
         </p>
       </Section>
@@ -106,6 +109,17 @@ export function GoalView({ goal, listHref }: { goal: GoalDetail; listHref: strin
               </button>
             ))}
           </div>
+        </Section>
+      )}
+
+      {goal.scorecard && (
+        <Section eyebrow="Scorecard" data-testid="goal-scorecard-section">
+          <GoalScorecard
+            scorecard={goal.scorecard}
+            editable={goal.isOwner && !closed}
+            pending={pending}
+            onSet={(week, key, value) => act(() => client.goals.setSprintValue({ goalId: goal.id, week, key, value }))}
+          />
         </Section>
       )}
 
