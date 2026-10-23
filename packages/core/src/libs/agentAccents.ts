@@ -18,13 +18,16 @@ export type AgentAccent = { stripe: string; tint: string; ink: string; dot: stri
  * Every accent name a workspace authors today. An unknown or absent name falls
  * back to amber, the brand accent.
  */
+// Three accents sat exactly on the spark's hues (violet dot #7c3cff, rose and
+// blue stripes), so a resting agent could read as one at work; they moved a
+// step off (design foundations, 2026-10-23).
 const PALETTE: Record<string, AgentAccent> = {
   amber: { stripe: 'var(--brand-amber)', tint: 'var(--brand-amber-tint)', ink: 'var(--brand-amber-deep)', dot: '#a35700' },
   teal: { stripe: 'var(--brand-teal)', tint: 'var(--brand-teal-tint)', ink: 'var(--brand-teal-deep)', dot: '#0b7c79' },
-  violet: { stripe: '#7C5CFC', tint: '#F1EEFE', ink: '#5B3FD6', dot: '#7c3cff' },
+  violet: { stripe: '#7C5CFC', tint: '#F1EEFE', ink: '#5B3FD6', dot: '#6a46e0' },
   indigo: { stripe: '#5B6EF5', tint: '#EEF1FE', ink: '#3F4FD6', dot: '#4d63ff' },
-  rose: { stripe: '#F0567A', tint: '#FDEEF2', ink: '#D63A60', dot: '#c2335f' },
-  blue: { stripe: '#168BFF', tint: '#E9F3FF', ink: '#0E6FD1', dot: '#0b6fd6' },
+  rose: { stripe: '#E25A82', tint: '#FDEEF2', ink: '#D63A60', dot: '#c2335f' },
+  blue: { stripe: '#2F84EE', tint: '#E9F3FF', ink: '#0E6FD1', dot: '#0b6fd6' },
   sky: { stripe: '#0EA5E9', tint: '#E0F2FE', ink: '#0369A1', dot: '#0369a1' },
   cyan: { stripe: '#06B6D4', tint: '#E0F7FA', ink: '#0A7490', dot: '#0a7490' },
   emerald: { stripe: '#1F9D57', tint: '#DCF4E8', ink: '#187A45', dot: '#187a45' },

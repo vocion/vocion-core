@@ -935,7 +935,7 @@ export default async function WorkspacePage(props: {
                         change.good === null
                           ? 'text-muted-foreground'
                           : change.good
-                            ? 'text-[var(--brand-ok,#15803d)]'
+                            ? 'text-pass'
                             : 'text-[var(--brand-fail,#b91c1c)]'
                       }`}
                     >

@@ -84,7 +84,7 @@ export function TrendChart(props: {
         </span>
         {(props.markers?.length ?? 0) > 0 && (
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block size-2 rotate-45 bg-[var(--brand-accent,theme(colors.amber.500))]" />
+            <span className="inline-block size-2 rotate-45 bg-[var(--chart-1)]" />
             {props.markers![0]!.label}
           </span>
         )}
@@ -149,11 +149,11 @@ export function TrendChart(props: {
             <g key={`marker-${d.day}`}>
               <path
                 d={`M ${x(i)} ${pad.top - 2} l 4 5 l -4 5 l -4 -5 Z`}
-                style={{ fill: 'var(--brand-accent, #f59e0b)' }}
+                style={{ fill: 'var(--chart-1)' }}
               >
                 <title>{`${d.day} — ${marker.label}`}</title>
               </path>
-              <line x1={x(i)} y1={pad.top + 8} x2={x(i)} y2={pad.top + innerH} stroke="var(--brand-accent, #f59e0b)" strokeOpacity="0.25" strokeDasharray="2 3" />
+              <line x1={x(i)} y1={pad.top + 8} x2={x(i)} y2={pad.top + innerH} stroke="var(--chart-1)" strokeOpacity="0.25" strokeDasharray="2 3" />
             </g>
           );
         })}

@@ -1,6 +1,7 @@
 'use client';
 
 import { X } from 'lucide-react';
+import { CLOSE_BUTTON } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/utils/Helpers';
 
@@ -30,7 +31,7 @@ export function PanelCloseButton({ onClick, label, tooltip, icon, className, tes
           onClick={onClick}
           aria-label={label}
           data-testid={testId}
-          className={cn('flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground', className)}
+          className={cn(CLOSE_BUTTON, className)}
         >
           {icon ?? <X className="size-4" aria-hidden />}
         </button>

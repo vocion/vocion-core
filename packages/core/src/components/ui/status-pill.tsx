@@ -29,32 +29,15 @@ type ToneSpec = {
 };
 
 /** The token sets a status is drawn in — shared with `StatusBadge`, so the two never drift. */
+// Borderless soft fills (design foundations, 2026-10-23): the tone is the
+// fill and the text; `border` stays a key so callers that add a hairline keep
+// one, but it is transparent, and StatusPill and StatusBadge now read alike.
 export const TONE: Record<Tone, ToneSpec> = {
-  pass: {
-    bg: 'bg-[var(--brand-pass-bg)]',
-    border: 'border-[var(--brand-pass)]/30',
-    fg: 'text-[var(--brand-pass)]',
-  },
-  amber: {
-    bg: 'bg-[var(--brand-borderline-bg)]',
-    border: 'border-[var(--brand-borderline)]/30',
-    fg: 'text-[var(--brand-borderline)]',
-  },
-  fail: {
-    bg: 'bg-[var(--brand-fail-bg)]',
-    border: 'border-[var(--brand-fail)]/30',
-    fg: 'text-[var(--brand-fail)]',
-  },
-  neutral: {
-    bg: 'bg-muted/50',
-    border: 'border-border',
-    fg: 'text-muted-foreground',
-  },
-  teal: {
-    bg: 'bg-[var(--brand-teal-tint)]',
-    border: 'border-[var(--brand-teal)]/30',
-    fg: 'text-[var(--brand-teal-deep)]',
-  },
+  pass: { bg: 'bg-pass-soft', border: 'border-transparent', fg: 'text-pass' },
+  amber: { bg: 'bg-warn-soft', border: 'border-transparent', fg: 'text-warn' },
+  fail: { bg: 'bg-fail-soft', border: 'border-transparent', fg: 'text-fail' },
+  neutral: { bg: 'bg-surface-soft', border: 'border-transparent', fg: 'text-muted-foreground' },
+  teal: { bg: 'bg-[var(--brand-teal-tint)]', border: 'border-transparent', fg: 'text-[var(--brand-teal-deep)]' },
 };
 
 function specFor(status: Status): { tone: Tone; label: string } {
