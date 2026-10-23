@@ -22,6 +22,7 @@ import process from 'node:process';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { DOCUMENT_FINDING_SEVERITIES, documentRedTeamFindingSchema } from '@/libs/cards/specs';
+import { slideText } from '@/libs/decks/slides';
 import { parseSheets, sheetLabel, textOf } from '@/libs/documents/sheets';
 import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
 
@@ -37,6 +38,11 @@ const MAX_SHEETS = 20;
  */
 export const SEVERITIES = DOCUMENT_FINDING_SEVERITIES;
 export type Severity = typeof SEVERITIES[number];
+
+/** Slides read per deck; a deck past this is read up to it, and the receipt says how many were read. */
+const MAX_SLIDES = 60;
+/** Speaker notes per slide — the provenance the house style puts there is part of what the buyer is checked against. */
+const MAX_NOTES_CHARS = 4_000;
 
 const FindingsSchema = z.object({
   findings: z.array(documentRedTeamFindingSchema).max(40),
@@ -71,7 +77,7 @@ const FINDINGS_TOOL = {
         items: {
           type: 'object',
           properties: {
-            sheet: { type: 'integer', description: 'The sheet number the finding is on.' },
+            sheet: { type: 'integer', description: 'The sheet (or slide) number the finding is on.' },
             severity: { type: 'string', enum: [...SEVERITIES] },
             rule: { type: 'string', description: 'The rubric rule it breaks, in a few words.' },
             finding: { type: 'string', description: 'What a buyer reads, in one or two sentences. Quote briefly where it helps.' },
@@ -117,6 +123,26 @@ export function prepareSheetsText(html: string): Array<{ n: number; label: strin
     text: textOf(s.html).slice(0, MAX_CHARS_PER_SHEET),
   }));
 }
+
+/**
+ * A deck as the reviewer reads it: one block per slide with its visible text
+ * AND its speaker notes, because the notes carry the provenance (who said it,
+ * on which call, which figures are drafts) a finding is judged against. Pure;
+ * exported for tests.
+ * @param spec - The deck's order and slides.
+ * @param spec.order
+ * @param spec.slides
+ */
+export function prepareSlidesText(spec: { order: string[]; slides: Record<string, string> }): ReviewUnit[] {
+  return spec.order.slice(0, MAX_SLIDES).map((id, i) => {
+    const t = slideText(spec.slides[id] ?? '');
+    const notes = t.notes ? `\n[speaker notes] ${t.notes.slice(0, MAX_NOTES_CHARS)}` : '\n[no speaker notes]';
+    return { n: i + 1, label: t.label, text: `${t.text.slice(0, MAX_CHARS_PER_SHEET)}${notes}` };
+  });
+}
+
+/** One numbered unit the reviewer reads: a sheet or a slide. */
+export type ReviewUnit = { n: number; label: string; text: string };
 
 /**
  * Parse the model's answer into findings, or null when it is not the shape
@@ -195,8 +221,11 @@ export function redTeamRecord(outcome: Extract<RedTeamOutcome, { status: 'review
  * The receipt the agent reads: findings by severity, each with sheet, rule
  * and fix, then what to do with them. Pure; exported for tests.
  * @param outcome - The review.
+ * @param unit - Sheets and edit_document (default), or slides and edit_deck.
+ * @param unit.noun
+ * @param unit.edit
  */
-export function redTeamReceipt(outcome: RedTeamOutcome): string {
+export function redTeamReceipt(outcome: RedTeamOutcome, unit: { noun: 'sheet' | 'slide'; edit: string } = { noun: 'sheet', edit: 'edit_document' }): string {
   if (outcome.status === 'skipped') {
     return `Red team skipped: ${outcome.reason}.`;
   }
@@ -204,18 +233,18 @@ export function redTeamReceipt(outcome: RedTeamOutcome): string {
   const blocks = sorted.filter(f => f.severity === 'block').length;
   const fixes = sorted.filter(f => f.severity === 'fix').length;
   const lines = [
-    `Red team (${outcome.model}, ${outcome.sheets} sheets): ${sorted.length === 0 ? 'no findings — a sceptical buyer would sign this as written.' : `${blocks} blocking · ${fixes} to fix · ${sorted.length - blocks - fixes} to consider.`}`,
+    `Red team (${outcome.model}, ${outcome.sheets} ${unit.noun}s): ${sorted.length === 0 ? 'no findings — a sceptical buyer would sign this as written.' : `${blocks} blocking · ${fixes} to fix · ${sorted.length - blocks - fixes} to consider.`}`,
   ];
   sorted.forEach((f, i) => {
-    lines.push(`${i + 1}. [${f.severity.toUpperCase()}] sheet ${f.sheet} · ${f.rule}: ${f.finding} → ${f.fix}`);
+    lines.push(`${i + 1}. [${f.severity.toUpperCase()}] ${unit.noun} ${f.sheet} · ${f.rule}: ${f.finding} → ${f.fix}`);
   });
   if (outcome.keeps) {
     lines.push('', `Keep: ${outcome.keeps}`);
   }
   if (blocks > 0) {
-    lines.push('', 'A BLOCK is not sent. Fix each with edit_document by sheet, then run red_team_document again; a finding that appears on a second document is a rule — add it as a learning so the next proposal starts without it.');
+    lines.push('', `A BLOCK is not sent. Fix each with ${unit.edit} by ${unit.noun}, then run red_team_document again; a finding that appears on a second ${unit.noun === 'sheet' ? 'document' : 'deck'} is a rule — add it as a learning so the next ${unit.noun === 'sheet' ? 'proposal' : 'deck'} starts without it.`);
   } else if (fixes > 0) {
-    lines.push('', 'Fix these with edit_document by sheet, then verify. Anything you decide to leave, say why in one line.');
+    lines.push('', `Fix these with ${unit.edit} by ${unit.noun}, then verify. Anything you decide to leave, say why in one line.`);
   }
   return lines.join('\n');
 }
@@ -225,37 +254,42 @@ export function redTeamReceipt(outcome: RedTeamOutcome): string {
  * @param orgId - The workspace, for the key.
  * @param input
  * @param input.html - The whole document.
+ * @param input.units - Or the units already prepared — a deck's slides with their notes (`prepareSlidesText`).
+ * @param input.noun - What a unit is called in the prompt and the receipt: `sheet` (default) or `slide`.
  * @param input.rubric - Rules to read against, appended to the generic rubric.
  * @param input.context - What the seller actually knows (the room's starred sources, in brief), so "unsourced" is judged against it.
  * @param input.bannedPhrases - The workspace's voice bans; any occurrence is a finding.
  * @param input.onProgress - Where the pass has got to, as a phrase for the running step line. The review is ONE model call over the whole document, so the only honest note is that it has started and on how many sheets — there is no sheet-by-sheet progress to report and none is invented.
  */
-export async function redTeamDocument(orgId: string, input: { html: string; rubric?: string | null; context?: string | null; bannedPhrases?: string[]; onProgress?: (note: string) => void }): Promise<RedTeamOutcome> {
+export async function redTeamDocument(orgId: string, input: { html?: string; units?: ReviewUnit[]; noun?: 'sheet' | 'slide'; rubric?: string | null; context?: string | null; bannedPhrases?: string[]; onProgress?: (note: string) => void }): Promise<RedTeamOutcome> {
   const apiKey = (await resolveOrgProviderKey('anthropic', orgId)) ?? process.env.ANTHROPIC_API_KEY ?? null;
   if (!apiKey) {
     return { status: 'skipped', reason: 'no Anthropic key is configured for this workspace or the server' };
   }
-  const sheets = prepareSheetsText(input.html);
+  const noun = input.noun ?? 'sheet';
+  const Noun = noun === 'sheet' ? 'Sheet' : 'Slide';
+  const sheets = input.units ?? prepareSheetsText(input.html ?? '');
   if (sheets.length === 0) {
-    return { status: 'skipped', reason: 'no sheets to read' };
+    return { status: 'skipped', reason: `no ${noun}s to read` };
   }
   try {
-    input.onProgress?.(`reading ${sheets.length} ${sheets.length === 1 ? 'sheet' : 'sheets'}`);
+    input.onProgress?.(`reading ${sheets.length} ${sheets.length === 1 ? noun : `${noun}s`}`);
   } catch {
     // Telling someone what is happening may never break the thing happening.
   }
   const system = [
     'You are the sceptical buyer on the other side of a B2B proposal: an operations lead who has to carry this into an internal business case and be right. You read for what would make you hesitate, push back, or quietly lose confidence.',
-    'Report findings ONLY — never praise per sheet, never restate the document. Each finding names the sheet number, the rule it breaks, what you read (quote briefly when it helps), and the edit that would answer it.',
+    `Report findings ONLY — never praise per ${noun}, never restate the ${noun === 'sheet' ? 'document' : 'deck'}. Each finding names the ${noun} number (in the \`sheet\` field), the rule it breaks, what you read (quote briefly when it helps), and the edit that would answer it.`,
+    ...(noun === 'slide' ? ['This is a presentation deck: each slide carries one idea, and its speaker notes say where its facts came from. Judge a figure against its notes and the seller\'s record; a figure on a slide whose notes mark it as a draft or a placeholder is honest, a figure with no source anywhere is not.'] : []),
     'Severity: `block` = must change before this is sent (an unsourced number, a promised outcome, a contradiction in price or scope); `fix` = a buyer would notice and it costs trust; `consider` = a judgement call worth a look.',
     'Answer by calling report_findings exactly once, with nothing before it. Fewer, sharper findings beat many small ones: at most fifteen, and keep each finding under sixty words so they all fit.',
   ].join(' ');
   const rubric = [DEFAULT_RUBRIC, input.rubric?.trim() ? `HOUSE RULES (from the seller's own skill):\n${input.rubric.trim()}` : '', input.bannedPhrases?.length ? `BANNED PHRASES (any occurrence is a fix): ${input.bannedPhrases.join(' · ')}` : ''].filter(Boolean).join('\n\n');
-  const body = sheets.map(s => `--- Sheet ${s.n}${s.label ? ` · ${s.label}` : ''} ---\n${s.text}`).join('\n\n');
+  const body = sheets.map(s => `--- ${Noun} ${s.n}${s.label ? ` · ${s.label}` : ''} ---\n${s.text}`).join('\n\n');
   const user = [
     `RUBRIC\n${rubric}`,
     input.context?.trim() ? `WHAT THE SELLER ACTUALLY KNOWS (judge "unsourced" against this)\n${input.context.trim().slice(0, 8_000)}` : 'WHAT THE SELLER ACTUALLY KNOWS: not supplied — treat any specific figure as unsourced unless the sheet itself marks its source. Say so in the finding rather than implying the seller has no record.',
-    `THE DOCUMENT (${sheets.length} sheets)\n${body}`,
+    `THE ${noun === 'sheet' ? 'DOCUMENT' : 'DECK'} (${sheets.length} ${noun}s)\n${body}`,
     'Return the JSON now.',
   ].join('\n\n');
   const client = new Anthropic({ apiKey });

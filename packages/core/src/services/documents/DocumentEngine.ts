@@ -27,9 +27,9 @@ import { applyDocumentOps } from '@/libs/documents/edit';
 import { stripFramework } from '@/libs/documents/framework';
 import { renderAvailable, renderDocument, renderNote } from '@/libs/documents/render';
 import { inspectDocument, outlineText, parseSheets, stripDocumentChrome } from '@/libs/documents/sheets';
-import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { voiceRulesFor } from '@/libs/writing/loadVoiceRules';
 import { ArtifactError, createArtifact, getArtifact, updateArtifact } from '@/services/ArtifactService';
+import { filePdf, pdfFilename, storePdf, storeScreenshot } from '@/services/deliverables/files';
 import { withFramework } from './framework';
 import { lookAtSheets } from './look';
 import { redTeamDocument, redTeamRecord } from './redTeam';
@@ -100,14 +100,8 @@ export function documentTitle(spec: Partial<DocumentSpec>, fallback: string): st
   return (fromHtml || spec.title || fallback).trim();
 }
 
-/**
- * A filename Chrome would produce from the title: no path separators, no control characters.
- * @param title
- */
-export function pdfFilename(title: string): string {
-  const base = title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'document';
-  return `${base}.pdf`;
-}
+/** Shared with decks (`services/deliverables/files.ts`); re-exported so existing imports hold. */
+export { pdfFilename };
 
 /**
  * Render and audit HTML, storing the sheet PNGs and the PDF as served files.
@@ -164,12 +158,11 @@ export async function verifyHtml(orgId: string, rawHtml: string, opts: VerifyOpt
     if (!png) {
       return rest;
     }
-    const saved = await saveArtifact({ orgId, data: png, ext: 'png', contentType: 'image/png' });
-    return { ...rest, image: saved.url };
+    return { ...rest, image: await storeScreenshot(orgId, png) };
   }));
   let pdfUrl: string | undefined;
   if (rendered.pdf) {
-    pdfUrl = (await saveArtifact({ orgId, data: rendered.pdf, ext: 'pdf', contentType: 'application/pdf' })).url;
+    pdfUrl = (await storePdf(orgId, rendered.pdf)).url;
   }
   const verification = evaluateDocument({ sheets, pdfPages: rendered.pdfPages, ...(pdfUrl ? { pdf: pdfUrl } : {}), unresolvedAssets: rendered.unresolvedAssets, undefinedClasses: undefinedClasses(html), proseSheets: proseSheets(html) });
   if (opts.look) {
@@ -414,21 +407,9 @@ export async function exportDocumentPdf(input: { orgId: string; id: number; auth
   if (!rendered.pdf) {
     throw new ArtifactError('INVALID_SPEC', 'the PDF could not be printed');
   }
-  const saved = await saveArtifact({ orgId: input.orgId, data: rendered.pdf, ext: 'pdf', contentType: 'application/pdf' });
   const filename = pdfFilename(documentTitle(spec, existing.title));
-  const { artifact: file } = await createArtifact({
-    orgId: input.orgId,
-    conversationId: input.conversationId ?? null,
-    kind: 'file',
-    title: filename,
-    spec: { filename: saved.filename, contentType: 'application/pdf', bytes: saved.bytes, url: saved.url },
-    url: saved.url,
-    record: existing.recordType && existing.recordId ? { type: existing.recordType, id: existing.recordId, role: 'pdf' } : null,
-    author: input.author,
-    visibility: input.visibility ?? 'user',
-    changeSummary: `Printed from "${existing.title}" v${existing.currentVersion}`,
-  });
-  return { file, url: saved.url, filename, pages: rendered.pdfPages, bytes: saved.bytes };
+  const { file, url, bytes } = await filePdf({ orgId: input.orgId, source: existing, pdf: rendered.pdf, filename, author: input.author, conversationId: input.conversationId ?? null, visibility: input.visibility ?? 'user' });
+  return { file, url, filename, pages: rendered.pdfPages, bytes };
 }
 
 /**

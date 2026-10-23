@@ -8,6 +8,7 @@
  */
 
 import type { ArtifactRow } from '@/services/ArtifactService';
+import type { DeckInput } from '@/services/decks/DeckEngine';
 import { os } from '@orpc/server';
 import { z } from 'zod';
 import { exportArtifactAsPage } from '@/libs/artifacts/exportPage';
@@ -17,6 +18,7 @@ import { SOURCE_ARTIFACT_KINDS, sourceContentOf, sourceKindOf } from '@/libs/wor
 import { track } from '@/services/adoption/track';
 import { ArtifactError, deleteArtifact, getArtifact, getArtifactVersion, listArtifactFolders, listArtifacts, listArtifactsForConversation, listArtifactVersions, restoreArtifactVersion, setArtifactFolder, setArtifactShare, toPayload, toVersionPayload, updateArtifact } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
+import { reviseDeck } from '@/services/decks/DeckEngine';
 import { reviseDocument } from '@/services/documents/DocumentEngine';
 import { featureShareOf, setFeatureShare as writeFeatureShare } from '@/services/factory/featureShareData';
 import { isRecordBodyArtifact, restoreRecordBodyAsPerson, saveRecordBodyAsPerson } from '@/services/objects/recordBody';
@@ -159,6 +161,23 @@ export const update = os
             title: input.title ?? null,
             author: { kind: 'human', id: auth.userId },
             changeSummary: input.changeSummary ?? 'Edited HTML by hand',
+            ...(input.ifVersion ? { ifVersion: input.ifVersion } : {}),
+          });
+          void track(auth, 'artifact.edited', { resource: ['artifact', artifact.id], meta: { kind: artifact.kind, action: 'edited', version: version.version } });
+          return { artifact: toPayload(artifact), version: toVersionPayload(version), collapsed: false };
+        }
+      }
+      // A person's edit to a deck goes through the deck engine the same way:
+      // re-rendered, re-audited, and a slide change drops the buyer's read.
+      if (input.spec && typeof input.spec.slides === 'object' && input.spec.slides !== null) {
+        const existing = await getArtifact({ orgId: auth.orgId, id: input.id });
+        if (existing?.kind === 'deck') {
+          const { artifact, version } = await reviseDeck({
+            orgId: auth.orgId,
+            id: input.id,
+            deck: { ...(input.spec as unknown as DeckInput), ...(input.title ? { title: input.title } : {}) },
+            author: { kind: 'human', id: auth.userId },
+            changeSummary: input.changeSummary ?? 'Edited by hand',
             ...(input.ifVersion ? { ifVersion: input.ifVersion } : {}),
           });
           void track(auth, 'artifact.edited', { resource: ['artifact', artifact.id], meta: { kind: artifact.kind, action: 'edited', version: version.version } });

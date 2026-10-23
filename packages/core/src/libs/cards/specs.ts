@@ -154,6 +154,17 @@ export const fileSpecSchema = z.object({
    * feature page's carousel reads it rather than making one up.
    */
   caption: z.string().max(300).optional(),
+  /**
+   * Where a deliverable WENT: the deck or document this file was exported
+   * from, at which version, as what (`pdf`, `pptx`, `docx`). Recorded on the
+   * file, not the deliverable, so a download never writes a fake edit.
+   */
+  exportedFrom: z.object({
+    artifactId: z.number().int().positive(),
+    version: z.number().int().positive(),
+    format: z.string().max(20),
+    at: z.string().max(40),
+  }).optional(),
   /** Who or what made it, and where: `{by, drawnFrom, missionRunId, conversationId, workerRunId}`. */
   provenance: z.record(z.string(), z.unknown()).optional(),
   /** For a capture of the running product: the page it was taken from. */
@@ -340,6 +351,126 @@ export const documentSpecSchema = z.object({
 });
 export type DocumentSpec = z.infer<typeof documentSpecSchema>;
 
+/** A slide id: the key in `slides`, the `<section id>` and the entry in `order`. */
+export const DECK_SLIDE_ID = /^[\w-]{1,64}$/;
+/** An asset id: the `<id>` in `src="asset:<id>"`. */
+export const DECK_ASSET_ID = /^[\w.-]{1,80}$/;
+export const DECK_FORMAT = 'vocion-deck/1';
+
+/**
+ * One rendered slide of a `deck` artifact, as the engine measured it — DOM
+ * facts, not pixel scans (`libs/decks/audit.ts`). Every list is the evidence
+ * for one audit, capped so a spec stays a spec; `image` is the served URL of
+ * this slide's screenshot (the same field a document sheet carries).
+ */
+export const deckSlideAuditSchema = z.object({
+  id: z.string().max(64),
+  n: z.number().int().positive(),
+  label: z.string().max(200).optional(),
+  /** How far content runs past the 1920×1080 canvas, px (0 when it fits). */
+  overflowPx: z.number(),
+  /** Elements that run past the canvas edge, each with how far. */
+  clipped: z.array(z.string().max(200)).max(12).default([]),
+  /** Text set under 24px, each with its size. */
+  smallText: z.array(z.string().max(200)).max(12).default([]),
+  /** Content below y 920 that is not the footer band (a report). */
+  belowFooter: z.array(z.string().max(200)).max(12).default([]),
+  /** Elements the author wrote (Vocion's generated SVG not counted). */
+  elementCount: z.number().int().nonnegative(),
+  /** `element:<tag>`, `icon:<name>`, `shape:<kind>`, `connector:<why>`. */
+  unknownElements: z.array(z.string().max(120)).max(20).default([]),
+  unresolvedAssets: z.array(z.string().max(300)).max(20).default([]),
+  /** `[$__]`, `[__]`, `[date]` and the like, as written (a report). */
+  placeholders: z.array(z.string().max(120)).max(20).default([]),
+  hasNotes: z.boolean(),
+  /** Served URL of this slide's PNG, when screenshots were taken. */
+  image: z.string().optional(),
+});
+export type DeckSlideAudit = z.infer<typeof deckSlideAuditSchema>;
+
+/**
+ * The verification a deck carries with each version, written by the engine
+ * the way a document's is. `issues` are the blocking findings and decide
+ * `ok`; `reports` (content under the footer line, placeholders, missing
+ * notes) are listed and never flip it.
+ */
+export const deckVerificationSchema = z.object({
+  at: z.string(),
+  slides: z.array(deckSlideAuditSchema).max(120),
+  pdfPages: z.number().int().nullable(),
+  /** Served URL of the PDF the verification printed, when one was. */
+  pdf: z.string().optional(),
+  issues: z.array(z.string().max(300)).max(40).default([]),
+  reports: z.array(z.string().max(300)).max(40).default([]),
+  ok: z.boolean(),
+});
+export type DeckVerification = z.infer<typeof deckVerificationSchema>;
+
+export const deckAssetSchema = z.object({
+  /** A Vocion-served URL (`/api/artifacts/…`), never a remote one. */
+  url: z.string().min(1).max(2000),
+  contentType: z.string().min(1).max(120),
+  bytes: z.number().int().nonnegative().optional(),
+  name: z.string().max(200).optional(),
+});
+export type DeckAsset = z.infer<typeof deckAssetSchema>;
+
+/**
+ * A 16:9 presentation — `vocion-deck/1` (`docs/decks.md`). Each slide is one
+ * `<section id>` on a fixed 1920×1080 canvas, styled inline, with its speaker
+ * notes in a trailing `<aside>`. The engine (`services/decks/DeckEngine.ts`)
+ * renders, audits and prints it; `verification` and `redTeam` are written
+ * per version exactly as a document's are.
+ */
+export const deckSpecSchema = z.object({
+  format: z.literal(DECK_FORMAT),
+  title: z.string().min(1).max(200),
+  order: z.array(z.string().regex(DECK_SLIDE_ID, 'slide ids are letters, digits, _ and -, at most 64')).min(1).max(120),
+  slides: z.record(z.string(), z.string().min(1).max(200_000)),
+  sections: z.record(z.string(), z.object({ description: z.string().max(400), start: z.string() })).optional(),
+  faces: z.record(z.string(), z.object({
+    family: z.string().min(1).max(120),
+    href: z.string().regex(/^https:\/\/fonts\.googleapis\.com\/css2\?/, 'faces are Google Fonts css2 links'),
+  })).optional(),
+  assets: z.record(z.string().regex(DECK_ASSET_ID), deckAssetSchema).optional(),
+  /** The client-facing test, the same tag a document carries: `proposal`, `concept`, `case-study`… */
+  playbook: z.string().max(60).optional(),
+  origin: z.object({
+    kind: z.enum(['import', 'checkout']),
+    tool: z.string().max(80).optional(),
+    ref: z.string().max(400).optional(),
+    baseVersion: z.number().int().nonnegative().optional(),
+  }).optional(),
+  verification: deckVerificationSchema.optional(),
+  redTeam: documentRedTeamSchema.optional(),
+}).superRefine((spec, ctx) => {
+  const seen = new Set<string>();
+  for (const [i, id] of spec.order.entries()) {
+    if (seen.has(id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['order', i], message: `slide "${id}" is in the order twice` });
+    }
+    seen.add(id);
+    if (spec.slides[id] === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['order', i], message: `slide "${id}" is in the order but has no HTML in slides` });
+    }
+  }
+  for (const id of Object.keys(spec.slides)) {
+    if (!seen.has(id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['slides', id], message: `slide "${id}" has HTML but is not in the order` });
+    }
+  }
+  for (const [key, s] of Object.entries(spec.sections ?? {})) {
+    if (!seen.has(s.start)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['sections', key, 'start'], message: `section "${key}" starts at "${s.start}", which is not a slide` });
+    }
+  }
+  const total = Object.values(spec.slides).reduce((n, html) => n + html.length, 0);
+  if (total > 2_000_000) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['slides'], message: `the slides total ${total} characters; the limit is 2,000,000` });
+  }
+});
+export type DeckSpec = z.infer<typeof deckSpecSchema>;
+
 /**
  * A workspace mission's YAML, mirrored from its file so it edits like an
  * artifact (`libs/workspace/source.ts`). The file is the source of truth; the
@@ -362,7 +493,7 @@ export const playbookSpecSchema = z.object({
 });
 export type PlaybookSourceSpec = z.infer<typeof playbookSpecSchema>;
 
-export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'sequence', 'document', 'mission', 'playbook'] as const;
+export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'sequence', 'document', 'deck', 'mission', 'playbook'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /** Card slug per artifact kind — the `__card` the canvas/chat resolve with. */
@@ -375,6 +506,7 @@ export const CARD_SLUG_FOR_KIND: Record<ArtifactKind, string> = {
   file: 'link',
   sequence: 'sequence',
   document: 'document',
+  deck: 'deck',
   mission: 'mission',
   playbook: 'playbook',
 };
@@ -388,6 +520,7 @@ export const SPEC_SCHEMA_FOR_KIND = {
   file: fileSpecSchema,
   sequence: sequenceSpecSchema,
   document: documentSpecSchema,
+  deck: deckSpecSchema,
   mission: missionSpecSchema,
   playbook: playbookSpecSchema,
 } as const;
@@ -400,7 +533,7 @@ export const SPEC_SCHEMA_FOR_KIND = {
  * @param artifactId - The row id, when the payload is for a stored artifact.
  */
 export function cardPayloadFor(kind: ArtifactKind, spec: Record<string, unknown>, artifactId?: number): Record<string, unknown> {
-  if (kind === 'document') {
+  if (kind === 'document' || kind === 'deck') {
     // The frame needs to know which artifact a selection is about; the row
     // id is not part of the spec, so it rides in under a reserved key.
     return { __card: CARD_SLUG_FOR_KIND[kind], ...spec, ...(artifactId ? { __artifactId: artifactId } : {}) };

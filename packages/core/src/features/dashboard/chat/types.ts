@@ -223,7 +223,7 @@ export type ContextRef = {
 export type ChatMessageArtifact = {
   id: number;
   title: string;
-  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document' | 'mission' | 'playbook';
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document' | 'deck' | 'mission' | 'playbook';
   version: number;
 };
 

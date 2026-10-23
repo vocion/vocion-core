@@ -56,7 +56,6 @@
         "src/routers/**"
       ],
       "ignoreDependencies": [
-
         "@radix-ui/react-accordion",
         "react-hook-form",
         "@swc/helpers",

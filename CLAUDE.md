@@ -258,6 +258,27 @@ watched by `startRoutineKeeper`. Practice: **Try the practice routine** on `/das
 (the practice training console, `services/browser/practiceConsole.ts`). Tools are on with the plugin,
 `VOCION_ROUTINES=on`, or `harness.grantTools: [routines]`.
 
+## Decks (the second client deliverable)
+
+A `deck` artifact is a 16:9 presentation in Vocion's own format, `vocion-deck/1`: an
+order of slide ids, each slide one `<section id>` on a 1920×1080 canvas, styled inline,
+with its speaker notes in a trailing `<aside>`, images as `asset:<id>`, and three Vocion
+elements (`x-icon`, `x-shape`, `x-connector`) drawn by `libs/decks/runtime.ts`. **The
+contract is `docs/decks.md`; change it in the same PR as the behaviour.** The engine
+(`services/decks/DeckEngine.ts`) is the twin of `DocumentEngine`: every write renders in the
+shared Chromium, audits DOM facts (`libs/decks/audit.ts`), stores the screenshots and the
+PDF, and writes the verdict on the version. Decks and documents share
+`services/deliverables/` (file store, PDF filing, the export gate, check-out/check-in) and
+the red team, which reads slide text and notes. Tools: `render_deck`, `read_deck`,
+`edit_deck`, `verify_deck`, `export_deck_pdf`, `deck_checkout`, `deck_checkin` (the last two
+work for documents too), and the office adapters `export_pptx` / `import_pptx` /
+`export_docx` / `import_docx`. Every outside editor is an optional adapter (`claudeSlides.ts`;
+the PPTX/DOCX libraries under `libs/decks/pptx/` and `libs/documents/docx/`, wired by
+`services/deliverables/adapters.ts` and served to the pane at
+`/api/deliverables/<id>/{export,import}`); none is on the path from draft to PDF, and no core
+prompt names one. An export never versions the deliverable: it is recorded on the filed
+file's `exportedFrom`.
+
 ## Background worker
 
 The comment-feedback loop ships as a separate process (Next.js doesn't host long-lived workers):

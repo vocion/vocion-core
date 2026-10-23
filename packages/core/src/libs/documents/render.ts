@@ -94,7 +94,8 @@ export type RenderOptions = {
   onProgress?: (progress: RenderProgress) => void;
 };
 
-const ALLOWED_HOSTS = /(?:^|\.)(?:fonts\.googleapis\.com|fonts\.gstatic\.com|cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|rsms\.me)$/;
+/** Hosts a render may reach: fonts and well-known style CDNs. Shared with the deck renderer. */
+export const ALLOWED_HOSTS = /(?:^|\.)(?:fonts\.googleapis\.com|fonts\.gstatic\.com|cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|rsms\.me)$/;
 
 let browserPromise: Promise<Browser> | null = null;
 

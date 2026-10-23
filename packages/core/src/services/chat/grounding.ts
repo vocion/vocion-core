@@ -33,9 +33,12 @@
  */
 
 import type { PageContext, RecordRef } from './pageContext';
+import type { DeckSpec } from '@/libs/cards/specs';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { deckVerificationReceipt } from '@/libs/decks/audit';
+import { deckOutline } from '@/libs/decks/outline';
 import { verificationReceipt } from '@/libs/documents/audit';
 import { inspectDocument, outlineText } from '@/libs/documents/sheets';
 import { artifactSchema } from '@/models/Schema';
@@ -93,6 +96,12 @@ export function artifactText(row: Pick<ArtifactRow, 'kind' | 'title' | 'spec'>):
     // reads a sheet's markup with read_document when it means to change one.
     const v = spec.verification as Parameters<typeof verificationReceipt>[0] | undefined;
     return [outlineText(inspectDocument(spec.html)), v ? `Last render-verify: ${verificationReceipt(v)}` : 'Not render-verified yet.'].join('\n');
+  }
+  if (row.kind === 'deck' && Array.isArray(spec.order)) {
+    // The index, never the slides' HTML — the same rule as a document; the
+    // agent reads a slide with read_deck when it means to change one.
+    const deck = spec as unknown as DeckSpec;
+    return [deckOutline(deck), deck.verification ? `Last render-verify: ${deckVerificationReceipt(deck.verification)}` : 'Not render-verified yet.'].join('\n');
   }
   if (row.kind === 'link' && typeof spec.href === 'string') {
     return `${String(spec.title ?? row.title)} — ${spec.href}`;
