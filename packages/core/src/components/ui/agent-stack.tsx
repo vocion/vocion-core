@@ -1,6 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import type { AgentDotSize } from '@/components/ui/agent-dot';
+import { AGENT_DOT_SIZE, AgentDot } from '@/components/ui/agent-dot';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
@@ -76,5 +78,38 @@ export function AgentStackMore({ count, href, label, className, testId }: {
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/**
+ * AgentStack — a small overlapping stack of agents that a person can open:
+ * each lifts, names itself and opens its profile, and "+N" opens `moreHref`
+ * (the team). `AgentDots` is the same picture for a stack inside another
+ * control, where a link would nest.
+ * @param props - The stack.
+ * @param props.agents - The agents, front first.
+ * @param props.max - How many to draw before "+N".
+ * @param props.size - Dot size.
+ * @param props.moreHref - Where "+N" goes. Default: the teams page.
+ * @param props.className - Extra classes on the stack.
+ */
+export function AgentStack({ agents, max = 4, size = 'sm', moreHref = '/dashboard/teams', className }: {
+  agents: ReadonlyArray<{ name: string; accent?: string | null; slug?: string }>;
+  max?: number;
+  size?: AgentDotSize;
+  moreHref?: string;
+  className?: string;
+}) {
+  const shown = agents.slice(0, max);
+  const more = agents.length - shown.length;
+  return (
+    <span data-slot="agent-stack" className={cn('group/stack inline-flex items-center -space-x-1.5', className)}>
+      {shown.map((a, i) => (
+        <AgentStackItem key={a.name} label={a.name} href={a.slug ? `/dashboard/agents/${encodeURIComponent(a.slug)}` : undefined} z={shown.length - i}>
+          <AgentDot name={a.name} accent={a.accent} size={size} decorative />
+        </AgentStackItem>
+      ))}
+      {more > 0 && <AgentStackMore count={more} href={moreHref} label={`See all ${agents.length} agents`} className={cn(AGENT_DOT_SIZE[size], 'ml-0.5 text-[10px]')} />}
+    </span>
   );
 }

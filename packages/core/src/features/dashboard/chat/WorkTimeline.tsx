@@ -625,7 +625,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], failureCont
         {solo
           ? (delegateOf(solo) ? <AgentDot name={delegateOf(solo)!.name} accent={delegateOf(solo)!.accent} size="xs" decorative /> : <TraceMarker node={solo} />)
           : asked.length > 1
-            ? <AgentDots agents={asked} size="sm" max={4} inert className="shrink-0" />
+            ? <AgentDots agents={asked} size="sm" max={4} className="shrink-0" />
             : <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}
         <span className="min-w-0 flex-1 truncate">
           {solo

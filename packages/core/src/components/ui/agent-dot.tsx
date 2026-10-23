@@ -1,5 +1,4 @@
 import type { LucideIcon } from 'lucide-react';
-import { AgentStackItem, AgentStackMore } from '@/components/ui/agent-stack';
 import { agentAccent } from '@/libs/agentAccents';
 import { cn } from '@/utils/Helpers';
 
@@ -70,45 +69,31 @@ export function AgentDot({ name, accent, icon: Icon, size = 'md', decorative = f
 }
 
 /**
- * AgentDots — a small overlapping stack of agents. When the agents carry
- * their slugs, each comes forward on hover with its name and opens its
- * profile, and the "+N" opens `moreHref` (the team) — the same behaviour as
- * every other stack (`AgentStackItem`). `inert` keeps it a picture, for a
- * stack drawn inside another control (a button row), where a link would nest.
+ * AgentDots — a small overlapping stack of agents, as a picture: for a stack
+ * drawn inside another control (the timeline's step row). Where the stack is
+ * its own thing, use `AgentStack` (`agent-stack.tsx`), which lifts, names and
+ * opens each agent.
  * @param props - The stack.
  * @param props.agents - The agents, front first.
  * @param props.max - How many to draw before "+N".
  * @param props.size - Dot size.
- * @param props.moreHref - Where "+N" goes. Default: the teams page.
- * @param props.inert - Draw only; no hover, tooltip or links.
  * @param props.className - Extra classes on the stack.
  */
-export function AgentDots({ agents, max = 4, size = 'sm', moreHref = '/dashboard/teams', inert = false, className }: {
-  agents: ReadonlyArray<{ name: string; accent?: string | null; slug?: string }>;
+export function AgentDots({ agents, max = 4, size = 'sm', className }: {
+  agents: ReadonlyArray<{ name: string; accent?: string | null }>;
   max?: number;
   size?: AgentDotSize;
-  moreHref?: string;
-  inert?: boolean;
   className?: string;
 }) {
   const shown = agents.slice(0, max);
   const more = agents.length - shown.length;
-  if (inert) {
-    return (
-      <span data-slot="agent-dots" className={cn('inline-flex items-center -space-x-1.5', className)} aria-label={agents.map(a => a.name).join(', ')} role="img">
-        {shown.map(a => <AgentDot key={a.name} name={a.name} accent={a.accent} size={size} decorative className="ring-2 ring-background" />)}
-        {more > 0 && <span aria-hidden className="pl-2.5 text-[11px] text-muted-foreground">{`+${more}`}</span>}
-      </span>
-    );
-  }
   return (
-    <span data-slot="agent-dots" className={cn('group/stack inline-flex items-center -space-x-1.5', className)}>
-      {shown.map((a, i) => (
-        <AgentStackItem key={a.name} label={a.name} href={a.slug ? `/dashboard/agents/${encodeURIComponent(a.slug)}` : undefined} z={shown.length - i}>
-          <AgentDot name={a.name} accent={a.accent} size={size} decorative />
-        </AgentStackItem>
-      ))}
-      {more > 0 && <AgentStackMore count={more} href={moreHref} label={`See all ${agents.length} agents`} className={cn(SIZE[size], 'ml-0.5 text-[10px]')} />}
+    <span data-slot="agent-dots" className={cn('inline-flex items-center -space-x-1.5', className)} aria-label={agents.map(a => a.name).join(', ')} role="img">
+      {shown.map(a => <AgentDot key={a.name} name={a.name} accent={a.accent} size={size} decorative className="ring-2 ring-background" />)}
+      {more > 0 && <span aria-hidden className="pl-2.5 text-[11px] text-muted-foreground">{`+${more}`}</span>}
     </span>
   );
 }
+
+/** The dot sizes, for a stack drawn around `AgentDot`. */
+export const AGENT_DOT_SIZE = SIZE;
