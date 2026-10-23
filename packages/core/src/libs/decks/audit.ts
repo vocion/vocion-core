@@ -144,22 +144,46 @@ export function mergeSlideFacts(facts: StaticSlideFacts, dom?: MeasuredSlideDom 
   return {
     id: facts.id,
     n: facts.n,
-    ...(facts.label ? { label: facts.label } : {}),
+    ...(facts.label ? { label: clip(facts.label, 200) } : {}),
     overflowPx: dom?.overflowPx ?? 0,
-    clipped: dom?.clipped ?? [],
-    smallText: dom?.smallText ?? [],
-    belowFooter: dom?.belowFooter ?? [],
+    clipped: fit(dom?.clipped ?? [], 12, 200),
+    smallText: fit(dom?.smallText ?? [], 12, 200),
+    belowFooter: fit(dom?.belowFooter ?? [], 12, 200),
     elementCount: dom?.elementCount ?? facts.elementCount,
-    unknownElements: [...new Set([...facts.unknownElements, ...(dom?.unknownElements ?? [])])].slice(0, 20),
-    unresolvedAssets: [...new Set([...facts.unresolvedAssets, ...(dom?.brokenImages ?? []).map(s => `${s} (did not load)`)])].slice(0, 20),
-    placeholders: facts.placeholders,
+    unknownElements: fit([...new Set([...facts.unknownElements, ...(dom?.unknownElements ?? [])])], 20, 120),
+    unresolvedAssets: fit([...new Set([...facts.unresolvedAssets, ...(dom?.brokenImages ?? []).map(s => `${s} (did not load)`)])], 20, 300),
+    placeholders: fit(facts.placeholders, 20, 120),
     hasNotes: facts.hasNotes,
     ...(image ? { image } : {}),
   };
 }
 
+/**
+ * A fact list cut to what the version stores (`deckSlideAuditSchema`): what a
+ * slide holds decides the length, never whether the write lands.
+ * @param items - The facts.
+ * @param count - At most this many.
+ * @param len - Each at most this long.
+ */
+function fit(items: string[], count: number, len: number): string[] {
+  return items.slice(0, count).map(i => clip(i, len));
+}
+
 function list(items: string[], max = 3): string {
-  return `${items.slice(0, max).join('; ')}${items.length > max ? ` and ${items.length - max} more` : ''}`;
+  return `${items.slice(0, max).map(i => clip(i, 80)).join('; ')}${items.length > max ? ` and ${items.length - max} more` : ''}`;
+}
+
+/** The longest line a verification may store (`deckVerificationSchema`). */
+const MAX_LINE = 300;
+
+/**
+ * A finding cut to fit what the version stores. A long element description must
+ * shorten the line, never reject the write it describes.
+ * @param text - The line.
+ * @param max - Its longest length.
+ */
+function clip(text: string, max = MAX_LINE): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
 /**
@@ -213,8 +237,8 @@ export function evaluateDeck(input: { slides: MeasuredSlide[]; pdfPages: number 
     slides: input.slides,
     pdfPages: input.pdfPages,
     ...(input.pdf ? { pdf: input.pdf } : {}),
-    issues: issues.slice(0, 40),
-    reports: reports.slice(0, 40),
+    issues: issues.slice(0, 40).map(i => clip(i)),
+    reports: reports.slice(0, 40).map(r => clip(r)),
     ok: issues.length === 0,
   };
 }

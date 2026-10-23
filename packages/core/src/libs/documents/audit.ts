@@ -117,7 +117,8 @@ export function evaluateDocument(input: AuditInput): DocumentVerification {
     ...(input.pdf ? { pdf: input.pdf } : {}),
     unresolvedAssets: input.unresolvedAssets.slice(0, 20),
     undefinedClasses,
-    issues: issues.slice(0, 40),
+    // A long asset URL shortens the line, never rejects the write (`documentVerificationSchema` stores 300).
+    issues: issues.slice(0, 40).map(i => (i.length <= 300 ? i : `${i.slice(0, 299).trimEnd()}…`)),
     ok: issues.length === 0,
   };
 }

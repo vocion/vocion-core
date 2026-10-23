@@ -53,4 +53,26 @@ describe('the deck audit', () => {
     expect(evaluateDeck({ slides: [{ ...clean, elementCount: 201 }], pdfPages: null }).issues[0]).toMatch(/201 elements/);
     expect(deckVerificationChip(undefined, 3)).toBe('3 slides · not verified');
   });
+
+  it('a long element description shortens the finding, never rejects the write', () => {
+    const long = `p "${'Every lead reaches a ninety percent estimate while the client is still deciding. '.repeat(8)}" (+12px)`;
+    const v = evaluateDeck({
+      slides: [{ id: 'a', n: 1, label: 'x'.repeat(200), overflowPx: 12, clipped: [long, long, long], smallText: [long], belowFooter: [long], elementCount: 3, unknownElements: [], unresolvedAssets: [], placeholders: [], hasNotes: true }],
+      pdfPages: 1,
+    });
+
+    expect([...v.issues, ...v.reports].every(line => line.length <= 300)).toBe(true);
+    expect(v.issues[0]).toMatch(/…/);
+  });
+
+  it('a slide with long, many facts still fits what a version stores', () => {
+    const [one] = staticSlideFacts(deck);
+    const many = Array.from({ length: 30 }, (_, i) => `p "${'word '.repeat(80)}${i}"`);
+    const merged = mergeSlideFacts(one!, { id: 'one', n: 1, overflowPx: 1, clipped: many, smallText: many, belowFooter: many, elementCount: 4, unknownElements: many, brokenImages: many });
+
+    expect(merged.clipped).toHaveLength(12);
+    expect(merged.clipped.every(c => c.length <= 200)).toBe(true);
+    expect(merged.unknownElements.every(c => c.length <= 120)).toBe(true);
+    expect(merged.unresolvedAssets.every(c => c.length <= 300)).toBe(true);
+  });
 });
