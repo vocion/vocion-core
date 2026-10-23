@@ -88,4 +88,14 @@ describe('a record\'s verbs', () => {
 
     expect(finished.container.querySelector('[data-testid="record-lifecycle-state"]')?.textContent).toBe('Dropped');
   });
+
+  it('offers nothing on a record that is neither owed nor finished — a candidate is judged in Review', async () => {
+    const bar = await render(<RecordLifecycle record={record} objectType="follow-up" status="candidate" />);
+
+    expect(bar.container.querySelector('[data-testid="record-lifecycle"]')).toBeNull();
+
+    const chip = await render(<RecordLifecycle record={record} objectType="follow-up" status="rejected" look="inline" />);
+
+    expect(chip.container.querySelector('[data-testid^="record-lifecycle"]')).toBeNull();
+  });
 });

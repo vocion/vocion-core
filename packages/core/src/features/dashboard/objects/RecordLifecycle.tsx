@@ -5,7 +5,7 @@ import { Check, Loader2, RotateCcw, Sparkles, X } from 'lucide-react';
 import { useState } from 'react';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { useRouter } from '@/libs/I18nNavigation';
-import { finishedLabel, isFinishedStatus } from '@/libs/objects/rowLifecycle';
+import { finishedLabel, isFinishedStatus, isOwedStatus } from '@/libs/objects/rowLifecycle';
 import { client } from '@/libs/Orpc';
 
 /**
@@ -34,6 +34,9 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar' }: { 
   const [now, setNow] = useState(status);
   const [phase, setPhase] = useState<{ s: 'idle' } | { s: 'working' } | { s: 'moved'; runId: number; from: string } | { s: 'error'; message: string }>({ s: 'idle' });
   const finished = isFinishedStatus(now);
+  // A record in any other state (a candidate waiting in Review, a rejected
+  // one) is not owed and not finished: it carries no verbs here.
+  const owed = isOwedStatus(now);
 
   const move = async (to: string) => {
     const from = now;
@@ -79,6 +82,10 @@ export function RecordLifecycle({ record, objectType, status, look = 'bar' }: { 
 
   const working = phase.s === 'working';
   const quiet = 'inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[12.5px] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground disabled:opacity-60';
+
+  if (!owed && !finished && phase.s !== 'moved') {
+    return null;
+  }
 
   if (look === 'inline') {
     if (phase.s === 'moved') {

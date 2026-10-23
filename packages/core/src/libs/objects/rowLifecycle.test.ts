@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasRowLifecycle, isFinishedStatus, offersOwedVerbs } from './rowLifecycle';
+import { hasRowLifecycle, isFinishedStatus, isOwedStatus, offersOwedVerbs } from './rowLifecycle';
 
 describe('a record\'s own lifecycle', () => {
   it('belongs to a type that declares no status field of its own', () => {
@@ -17,5 +17,10 @@ describe('a record\'s own lifecycle', () => {
   it('reads done, closed, dropped and archived as finished, and anything else as still owed', () => {
     expect(['done', 'closed', 'dropped', 'archived'].map(isFinishedStatus)).toEqual([true, true, true, true]);
     expect(['open', 'active', null, ''].map(isFinishedStatus)).toEqual([false, false, false, false]);
+  });
+
+  it('reads open, active and no status as owed, and a candidate or a rejected record as neither owed nor finished', () => {
+    expect(['open', 'active', null, ''].map(isOwedStatus)).toEqual([true, true, true, true]);
+    expect(['candidate', 'rejected'].map(s => isOwedStatus(s) || isFinishedStatus(s))).toEqual([false, false]);
   });
 });
