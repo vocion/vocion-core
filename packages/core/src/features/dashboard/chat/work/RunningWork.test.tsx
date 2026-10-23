@@ -9,9 +9,11 @@ vi.mock('@/libs/I18nNavigation', () => ({
 vi.mock('@/libs/Orpc', () => ({
   client: { work: { forConversation: vi.fn(), stop: vi.fn() } },
 }));
+vi.mock('@/features/preview/previewState', () => ({ openPreview: vi.fn() }));
 
 const { client } = await import('@/libs/Orpc');
-const { chipLine, ConversationWork, RunningWorkChip, RunningWorkPanel } = await import('./RunningWork');
+const { openPreview } = await import('@/features/preview/previewState');
+const { chipLine, ConversationWork, ConversationWorkPane, RunningWorkChip, RunningWorkPanel } = await import('./RunningWork');
 
 const now = Date.now();
 const item = (over: Partial<WorkItem>): WorkItem => ({
@@ -40,6 +42,7 @@ const VIEW: WorkView = {
 beforeEach(() => {
   vi.mocked(client.work.forConversation).mockReset();
   vi.mocked(client.work.stop).mockReset();
+  vi.mocked(openPreview).mockReset();
 });
 
 describe('what the chip says', () => {
@@ -84,27 +87,35 @@ describe('the panel', () => {
 
 describe('the chip', () => {
   it('draws nothing when no work is behind the conversation', async () => {
-    const screen = await render(<RunningWorkChip view={{ running: [], finished: [] }} onChanged={vi.fn()} />);
+    const screen = await render(<RunningWorkChip view={{ running: [], finished: [] }} conversationId={12} />);
 
     expect(screen.container.querySelector('[data-testid="running-work-chip"]')).toBeNull();
   });
 
-  it('opens the panel, and a Stop reads the work again', async () => {
-    vi.mocked(client.work.stop).mockResolvedValue({ stopped: true });
-    const onChanged = vi.fn();
-    await render(<RunningWorkChip view={VIEW} onChanged={onChanged} />);
+  it('opens the work in the preview pane, never a sheet of its own', async () => {
+    await render(<RunningWorkChip view={VIEW} conversationId={12} />);
 
     await expect.element(page.getByTestId('running-work-chip')).toHaveTextContent('1 finished, 2 running');
 
     await userEvent.click(page.getByTestId('running-work-chip'));
 
+    expect(openPreview).toHaveBeenCalledWith({ type: 'conversation', id: '12.work' }, expect.any(HTMLElement));
+    expect(page.getByTestId('running-work-panel').elements()).toHaveLength(0);
+  });
+
+  it('in the pane, a Stop stops the run and reads the work again', async () => {
+    vi.mocked(client.work.stop).mockResolvedValue({ stopped: true });
+    vi.mocked(client.work.forConversation).mockResolvedValue(VIEW);
+    await render(<ConversationWorkPane conversationId={12} initial={VIEW} />);
+
     await expect.element(page.getByTestId('running-work-panel')).toBeVisible();
 
+    vi.mocked(client.work.forConversation).mockClear();
     await userEvent.click(page.getByTestId('work-item-stop').first());
 
-    await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
-
     expect(client.work.stop).toHaveBeenCalledWith({ key: 'mission:1' });
+
+    await vi.waitFor(() => expect(client.work.forConversation).toHaveBeenCalledWith({ conversationId: 12 }));
   });
 
   it('reads the conversation\'s work, and nothing for a new conversation', async () => {
