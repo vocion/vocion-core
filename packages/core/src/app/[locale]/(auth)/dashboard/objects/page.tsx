@@ -1,10 +1,9 @@
 import { Database, Link2 } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
+import { ListPage, ListRow, ListRows, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { Link } from '@/libs/I18nNavigation';
 import { listBusinessObjects, listObjectTypes } from '@/services/BusinessObjectService';
 
 export default async function ObjectsPage(props: {
@@ -23,12 +22,10 @@ export default async function ObjectsPage(props: {
   }
 
   return (
-    <>
-      <TitleBar
-        title="Objects"
-        description="The things your business tracks, like accounts and transcripts, with every document and run that mentions them."
-      />
-
+    <ListPage
+      title="Objects"
+      description="The things your business tracks, like accounts and transcripts, with every document and run that mentions them."
+    >
       <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-5">
         <Stat label="Types" value={objectTypes.length} />
         <Stat label="Instances" value={objects.length} />
@@ -62,33 +59,35 @@ export default async function ObjectsPage(props: {
               />
             )
           : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <ListRows>
                 {objectTypes.map((t) => {
                   const configured = !!t.classificationPrompt?.trim();
+                  const instances = countByType[t.id] ?? 0;
                   return (
-                    <Link
+                    <ListRow
                       key={t.id}
                       href={`/dashboard/objects/type/${t.slug}`}
-                      className="rounded-lg border border-border bg-background p-4 transition hover:bg-surface-hover"
-                    >
-                      <div className="mb-2 flex items-center gap-2">
-                        <Database className="size-4 text-primary" />
-                        <span className="text-sm font-medium">{t.label}</span>
-                        <Badge variant={configured ? 'default' : 'outline'} className="ml-auto">
+                      icon={Database}
+                      title={t.label}
+                      subline={(
+                        <Subline
+                          separator="·"
+                          segments={[
+                            <span key="slug" className="font-mono">{t.slug}</span>,
+                            t.description,
+                            `${instances} ${instances === 1 ? 'instance' : 'instances'}`,
+                          ]}
+                        />
+                      )}
+                      chip={(
+                        <Badge variant={configured ? 'default' : 'outline'}>
                           {configured ? 'configured' : 'unconfigured'}
                         </Badge>
-                      </div>
-                      <div className="mb-2 font-mono text-[11px] text-muted-foreground">{t.slug}</div>
-                      {t.description && <p className="text-xs leading-relaxed text-muted-foreground">{t.description}</p>}
-                      <div className="mt-3 text-[11px] text-muted-foreground">
-                        {countByType[t.id] ?? 0}
-                        {' '}
-                        {(countByType[t.id] ?? 0) === 1 ? 'instance' : 'instances'}
-                      </div>
-                    </Link>
+                      )}
+                    />
                   );
                 })}
-              </div>
+              </ListRows>
             )}
       </section>
 
@@ -104,53 +103,48 @@ export default async function ObjectsPage(props: {
               />
             )
           : (
-              <div className="space-y-2">
+              <ListRows>
                 {objects.map((obj) => {
                   const sources = [...new Set(obj.documentLinks.map(l => l.sourceType))];
+                  const external = obj.externalSystem && obj.externalId
+                    ? <span className="font-mono">{`${obj.externalSystem}/${obj.externalId}`}</span>
+                    : null;
+                  const sourceList = sources.length > 0 ? <span className="font-mono">{sources.join(', ')}</span> : null;
                   return (
-                    <Link
+                    <ListRow
                       key={obj.id}
                       href={`/dashboard/objects/${obj.id}`}
-                      className="flex items-center gap-3 rounded-lg border border-border bg-background p-3 transition hover:bg-surface-hover"
-                    >
-                      <Database className="size-4 shrink-0 text-primary" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">{obj.title}</div>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                          <span className="font-mono">{obj.type.slug}</span>
-                          {obj.status && (
+                      icon={Database}
+                      title={obj.title}
+                      subline={(
+                        <Subline
+                          separator="·"
+                          segments={[
+                            <span key="type" className="font-mono">{obj.type.slug}</span>,
+                            obj.status === 'approved' && !obj.externalId && 'not published yet',
+                            external,
+                            sourceList,
+                            <span key="links" className="inline-flex items-center gap-1">
+                              <Link2 className="size-3" />
+                              {obj.documentLinks.length}
+                            </span>,
+                          ]}
+                        />
+                      )}
+                      chip={obj.status
+                        ? (
                             <Badge variant={badgeVariantForStatus(obj.status)} className="text-[10px]">
                               {labelForStatus(obj.status)}
                             </Badge>
-                          )}
-                          {obj.status === 'approved' && !obj.externalId && (
-                            <span>not published yet</span>
-                          )}
-                          {obj.externalSystem && obj.externalId && (
-                            <span className="font-mono">
-                              {obj.externalSystem}
-                              /
-                              {obj.externalId}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-[11px] text-muted-foreground">
-                        {sources.length > 0 && (
-                          <span className="mr-2 font-mono">{sources.join(', ')}</span>
-                        )}
-                        <span className="inline-flex items-center gap-1">
-                          <Link2 className="size-3" />
-                          {obj.documentLinks.length}
-                        </span>
-                      </div>
-                    </Link>
+                          )
+                        : undefined}
+                    />
                   );
                 })}
-              </div>
+              </ListRows>
             )}
       </section>
-    </>
+    </ListPage>
   );
 }
 
