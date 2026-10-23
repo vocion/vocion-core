@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { contractFor, contractProblems, loadCases, selectCases, sendBackNotes } from './cases.mjs';
+import { contractFor, contractProblems, FIXTURE_BRANCH, loadCases, selectCases, sendBackNotes } from './cases.mjs';
+import { DATAROOM_BRANCH, V2_BRANCH } from './fixture.mjs';
 
 const cases = loadCases();
 const sha = 'a'.repeat(40);
@@ -70,4 +71,13 @@ test('selectCases by split and by id prefix', () => {
   assert.equal(selectCases(cases, { tier: 'hard' }).length, 18);
   assert.deepEqual(selectCases(cases, { ids: ['c07', 'c13-archive'] }).map(c => c.id), ['c07-last-opened', 'c13-archive']);
   assert.throws(() => selectCases(cases, { ids: ['c99'] }), /c99/);
+});
+
+test('a case lands on its own fixture\'s branch, so a retry is not rebased on another fixture', () => {
+  assert.deepEqual(FIXTURE_BRANCH, { v1: 'main', v2: V2_BRANCH, dataroom: DATAROOM_BRANCH });
+  const byRef = Object.fromEntries(loadCases().map(c => [c.fixture_ref, c]));
+  const repo = 'https://github.com/example/northwind-library.git';
+  assert.equal(contractFor(byRef.v1, { repo, baseSha: 'x' }).base_branch, undefined);
+  assert.equal(contractFor(byRef.v2, { repo, baseSha: 'x' }).base_branch, V2_BRANCH);
+  assert.equal(contractFor(byRef.dataroom, { repo, baseSha: 'factory/eval-h12-r1-wip-1', attempt: 2 }).base_branch, DATAROOM_BRANCH);
 });

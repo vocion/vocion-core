@@ -10,6 +10,8 @@ export const EVAL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 export const CASES_DIR = path.join(EVAL_DIR, 'cases');
 export const SPLITS = ['tuning', 'held-out'];
 export const FIXTURE_REFS = ['v1', 'v2', 'dataroom'];
+/** The sandbox branch each fixture is published to (fixture.mjs publishFixture). */
+export const FIXTURE_BRANCH = { v1: 'main', v2: 'eval-fixture-v2', dataroom: 'eval-fixture-dataroom' };
 export const TIERS = ['core', 'hard'];
 
 // What a case gets by complexity: the runner's budget and wall clock (the factory sizes neither by
@@ -127,6 +129,11 @@ export function contractFor(c, { repo, baseSha, attempt = 1, run = 1, notes = ''
     attempt,
     human_owned: HUMAN_OWNED,
   };
+  // A case on a later fixture lands on that fixture's branch, so a retry is rebased on (and its
+  // kept work folded against) the case's own fixture, not the sandbox's main (the v1 app).
+  if (FIXTURE_BRANCH[c.fixture_ref] !== 'main') {
+    contract.base_branch = FIXTURE_BRANCH[c.fixture_ref];
+  }
   if (notes) {
     contract.notes = notes;
   }

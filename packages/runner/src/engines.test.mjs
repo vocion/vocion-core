@@ -161,3 +161,11 @@ describe('claude-cli availability', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('base_branch', () => {
+  it('is optional, names a branch, and is not defaulted into the contract', () => {
+    assert.equal(validateContract({ ...example, base_branch: 'eval-fixture-dataroom' }).ok, true);
+    assert.equal(validateContract({ ...example, base_branch: '-x' }).ok, false);
+    assert.equal(validateContract({ ...example, base_branch: 'a b' }).ok, false);
+  });
+});

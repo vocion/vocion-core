@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { engine, ENGINE_IDS, parseRunnerLog } from './engines.mjs';
+import { engine, ENGINE_IDS, parseRunnerLog, withEngine } from './engines.mjs';
 
 const line = o => JSON.stringify({ ts: '2026-10-01T12:00:00Z', ...o });
 
@@ -60,9 +60,10 @@ test('a log without an outcome is an infrastructure failure', () => {
 });
 
 test('the engine registry: built engines resolve, planned ones say when', () => {
-  assert.deepEqual(ENGINE_IDS, ['claude-cli', 'oracle', 'noop', 'openhands', 'codex', 'claude-sdk']);
+  assert.deepEqual(ENGINE_IDS, ['claude-cli', 'openhands', 'oracle', 'noop', 'codex', 'claude-sdk']);
   assert.equal(engine('oracle').id, 'oracle');
-  assert.throws(() => engine('openhands'), /not built yet \(Phase 3/);
+  assert.equal(engine('openhands').id, 'openhands');
+  assert.throws(() => engine('codex'), /not built yet \(Phase 4/);
   assert.throws(() => engine('gpt'), /unknown engine/);
 });
 
@@ -73,4 +74,10 @@ test('claude-cli preflight names every missing prerequisite', () => {
   for (const need of ['EVAL_RUNNER_IMAGE', 'ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'EVAL_FIXTURE_REPO']) {
     assert.ok(needs.includes(need), needs);
   }
+});
+
+test('openhands sends the same contract with its engine block, which the runner accepts', () => {
+  const contract = { task_id: 't', attempt: 1 };
+  assert.deepEqual(withEngine(contract, 'openhands'), { task_id: 't', attempt: 1, engine: { id: 'openhands' } });
+  assert.equal(withEngine(contract, 'claude-cli'), contract);
 });

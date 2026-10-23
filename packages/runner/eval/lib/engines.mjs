@@ -7,14 +7,15 @@
 // claude-cli is today's engine: the runner image, which runs headless Claude Code under the guard
 // hooks, given the contract exactly as dispatch sends it. oracle applies the case's reference
 // change and noop changes nothing; both prove the harness and the graders without a model.
-// openhands, codex and claude-sdk are named so a run asking for one says it is not built yet.
+// openhands runs the same runner image's open target with the contract's engine set to openhands.
+// codex and claude-sdk are named so a run asking for one says it is not built yet.
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { git } from './fixture.mjs';
 
-const PLANNED = { 'openhands': 'Phase 3', 'codex': 'Phase 4', 'claude-sdk': 'the internal track' };
+const PLANNED = { 'codex': 'Phase 4', 'claude-sdk': 'the internal track' };
 
 function which(bin) {
   return spawnSync('sh', ['-c', `command -v ${bin}`], { encoding: 'utf8' }).status === 0;
@@ -207,7 +208,25 @@ const noop = {
   attempt: () => ({ status: 'failed', error: 'the engineer produced no changes', elapsedS: 0, costUsd: 0 }),
 };
 
-const ENGINES = { 'claude-cli': claudeCli, oracle, noop };
+/**
+ * The OpenHands engine: the same runner, contract and guard as claude-cli, in the runner image's
+ * open target (docker build --target open), with the contract's engine block set to openhands.
+ * Only the engine differs, so a comparison with claude-cli on the same model is a harness one.
+ */
+const openhands = {
+  ...claudeCli,
+  id: 'openhands',
+  attempt(ctx) {
+    return claudeCli.attempt({ ...ctx, contract: withEngine(ctx.contract, 'openhands') });
+  },
+};
+
+/** The contract with the runner engine named; claude-cli is the runner's default and adds nothing. */
+export function withEngine(contract, id) {
+  return id === 'claude-cli' ? contract : { ...contract, engine: { id } };
+}
+
+const ENGINES = { 'claude-cli': claudeCli, openhands, oracle, noop };
 
 export const ENGINE_IDS = [...Object.keys(ENGINES), ...Object.keys(PLANNED)];
 

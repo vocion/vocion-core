@@ -758,10 +758,11 @@ function prepareRepo(task, run) {
   // and the feature waited on a person): the branch stays as it was and the brief names the files.
   let resumedFrom = null;
   if (base.resume) {
-    must('git', ['fetch', '--quiet', 'origin', 'main']);
-    const mainSha = must('git', ['rev-parse', 'origin/main']).trim();
-    const ahead = Number(must('git', ['rev-list', '--count', `origin/main..${baseSha}`]).trim()) || 0;
-    const rebase = sh('git', ['rebase', '--quiet', 'origin/main'], { timeoutSeconds: 300 });
+    const target = landingBranch(task);
+    must('git', ['fetch', '--quiet', 'origin', target]);
+    const mainSha = must('git', ['rev-parse', `origin/${target}`]).trim();
+    const ahead = Number(must('git', ['rev-list', '--count', `origin/${target}..${baseSha}`]).trim()) || 0;
+    const rebase = sh('git', ['rebase', '--quiet', `origin/${target}`], { timeoutSeconds: 300 });
     if (rebase.code !== 0) {
       const conflicts = sh('git', ['diff', '--name-only', '--diff-filter=U']).stdout.trim().split('\n').filter(Boolean);
       sh('git', ['rebase', '--abort']);
@@ -882,6 +883,11 @@ async function startServices(task) {
     }
   }
   log('services_started', { services_started: state.services });
+}
+
+/** The branch the work lands on: the contract's base_branch, else main (as before the field). */
+function landingBranch(task) {
+  return task.base_branch || 'main';
 }
 
 /** The run's model budget in dollars: the contract's, never above the worker's (or the run's cap). */
@@ -1380,7 +1386,7 @@ function land(task, runId, verification, claude, prepared, evidence = null, test
   fs.writeFileSync(path.join(SCRATCH_DIR, 'pr-body.md'), body);
   const pullRequestTitle = prTitle({ task });
   let prUrl = '';
-  const create = sh('gh', ['pr', 'create', '--base', 'main', '--head', prepared.branch, '--title', pullRequestTitle, '--body-file', path.join(SCRATCH_DIR, 'pr-body.md')], { timeoutSeconds: 120 });
+  const create = sh('gh', ['pr', 'create', '--base', landingBranch(task), '--head', prepared.branch, '--title', pullRequestTitle, '--body-file', path.join(SCRATCH_DIR, 'pr-body.md')], { timeoutSeconds: 120 });
   if (create.code === 0) {
     prUrl = (create.stdout.match(/https:\/\/github\.com\/\S+\/pull\/\d+/) || [''])[0];
   } else {
@@ -1459,7 +1465,7 @@ function keepWork(task, runId, prepared, claude, verification, reason) {
     const title = wipPrTitle({ task, reason, runId });
     ensureLabel('checks-failed', 'D93F0B', 'Factory run kept unverified work as a draft PR');
     let prUrl = '';
-    const create = sh('gh', ['pr', 'create', '--draft', '--base', 'main', '--head', branch, '--title', title, '--label', 'checks-failed', '--body-file', path.join(SCRATCH_DIR, 'wip-pr-body.md')], { timeoutSeconds: 120 });
+    const create = sh('gh', ['pr', 'create', '--draft', '--base', landingBranch(task), '--head', branch, '--title', title, '--label', 'checks-failed', '--body-file', path.join(SCRATCH_DIR, 'wip-pr-body.md')], { timeoutSeconds: 120 });
     if (create.code === 0) {
       prUrl = (create.stdout.match(/https:\/\/github\.com\/\S+\/pull\/\d+/) || [''])[0];
     } else {
