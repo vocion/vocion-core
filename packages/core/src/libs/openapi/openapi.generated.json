@@ -137,6 +137,10 @@
       "description": "Endpoints under /api/v1/sources."
     },
     {
+      "name": "spend",
+      "description": "Endpoints under /api/v1/spend."
+    },
+    {
       "name": "vision",
       "description": "Endpoints under /api/v1/vision."
     },
@@ -7560,6 +7564,56 @@
             }
           }
         ],
+        "x-required-capability": [
+          "manage_sources"
+        ]
+      }
+    },
+    "/api/v1/spend": {
+      "get": {
+        "operationId": "get_spend",
+        "summary": "What this workspace's model calls cost, from the spend ledger (`model_call`), grouped one way: `workspace`, `agent`, `user`, `feature`, `model`, `run`, `conver…",
+        "tags": [
+          "spend"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "What this workspace's model calls cost, from the spend ledger (`model_call`),\ngrouped one way: `workspace`, `agent`, `user`, `feature`, `model`, `run`,\n`conversation` or `day`. `from` is inclusive and `to` exclusive (ISO dates or\ntimes); without them, `period` (`today`, `7d`, `30d`, `90d`; default `30d`).\nFilters: `agent`, `user`, `feature`, `model`, `run_kind`, `run_id`, `conversation`.\n\nMoney is in micro-cents (millionths of a cent), as the ledger keeps it.\nA token is scoped to its workspace, so this never reads another one.\n\nRequires the `manage_sources` capability, like the budget rows.\nAuth: tenant API token or dashboard session.\n\n**Requires the `manage_sources` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "x-required-capability": [
           "manage_sources"
         ]
