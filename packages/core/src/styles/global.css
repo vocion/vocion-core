@@ -574,6 +574,45 @@
 }
 
 /*
+ * The spark at inline size (`data-flat`: SparkOrb and AgentDot at xs/sm, the
+ * live line's 14px mark). A sphere's highlight, a turning conic and a glow
+ * halo turn to mud at that size (Chris, 2026-10-24), so a small spark is a
+ * flat disc of the gradient that softly pulses. Larger orbs keep the sphere.
+ */
+@keyframes spark-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(0.86);
+  }
+}
+.spark-orb[data-flat],
+[data-slot='agent-dot'][data-flat] > .agent-dot-spark::before {
+  background: linear-gradient(135deg, var(--spark-1), var(--spark-2) 38%, var(--spark-3) 66%, var(--spark-4));
+}
+.spark-orb[data-flat]::after,
+[data-slot='agent-dot'][data-flat] > .agent-dot-spark::after {
+  display: none;
+}
+[data-slot='agent-dot'][data-flat] > .agent-dot-spark::before {
+  animation: none;
+}
+.spark-orb[data-flat][data-state='working'],
+[data-slot='agent-dot'][data-flat][data-working] {
+  animation: spark-dot-pulse 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spark-orb[data-flat][data-state='working'],
+  [data-slot='agent-dot'][data-flat][data-working] {
+    animation: none;
+  }
+}
+
+/*
  * The composer while a turn runs (`ChatComposer`): its hairline becomes the
  * spark, drifting slowly. The bar's shape does not change (it stays one
  * control tall, patterns.md); only its edge says the agent is at work.
