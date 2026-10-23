@@ -554,7 +554,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                                   onClick={() => onCitationClick?.(n, message.id)}
                                   // Neutral until pointed at, and `leading-none` so a
                                   // marker never opens a gap in the line above it.
-                                  className="ml-0.5 inline-flex min-w-[1.1em] items-baseline justify-center rounded-sm bg-muted px-[0.3em] py-px align-super text-[10px] leading-none font-medium text-muted-foreground no-underline transition hover:bg-brand-amber/15 hover:text-brand-amber-deep"
+                                  className="ml-0.5 inline-flex min-w-[1.1em] items-baseline justify-center rounded-sm bg-muted px-[0.3em] py-px align-super text-[10px] leading-none font-medium text-muted-foreground no-underline transition hover:bg-surface-hover hover:text-foreground"
                                   aria-label={`Open source ${n}`}
                                 >
                                   {n}
@@ -689,13 +689,13 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             data-testid="incomplete-turn-notice"
             role="status"
             data-ending={message.status}
-            // A refusal is a setting to change, not a fault: amber, where a
-            // turn that broke is red.
+            // A refusal is a setting to change, not a fault: warn, where a turn
+            // that broke is fail. The Notice look: a soft fill, no border.
             className={message.status === 'refused'
-              ? 'mt-2 flex items-start gap-1.5 rounded-md border border-[var(--brand-amber)]/40 bg-[var(--brand-amber-tint)]/40 px-3 py-2 text-[12px] text-foreground/90'
-              : 'mt-2 flex items-start gap-1.5 rounded-md border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30 px-3 py-2 text-[12px] text-foreground/90'}
+              ? 'mt-2 flex items-start gap-1.5 rounded-lg bg-warn-soft px-3 py-2 text-[12px] text-foreground/90'
+              : 'mt-2 flex items-start gap-1.5 rounded-lg bg-fail-soft px-3 py-2 text-[12px] text-foreground/90'}
           >
-            <AlertCircle className={`mt-0.5 size-3 shrink-0 ${message.status === 'refused' ? 'text-[var(--brand-amber-deep)]' : 'text-[var(--brand-fail)]'}`} aria-hidden />
+            <AlertCircle className={`mt-0.5 size-3 shrink-0 ${message.status === 'refused' ? 'text-warn' : 'text-fail'}`} aria-hidden />
             <span>
               {endingNotice}
               {message.statusReason && (

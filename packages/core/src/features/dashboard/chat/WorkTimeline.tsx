@@ -215,12 +215,12 @@ function toNode(run: Extract<AgentRun, { type: 'tool' }>): Node {
 }
 
 function Marker({ node }: { node: Node }) {
-  const cls = node.state === 'error' ? 'text-[var(--brand-fail)]' : node.state === 'pending' ? 'text-brand-amber-deep' : 'text-[var(--brand-pass)]';
+  const cls = node.state === 'error' ? 'text-fail' : node.state === 'pending' ? 'text-muted-foreground' : 'text-pass';
   if (node.state === 'pending') {
     return <Loader2 className={`size-3.5 shrink-0 animate-spin ${cls}`} aria-hidden />;
   }
   const Icon = node.icon;
-  return <Icon className={`size-3.5 shrink-0 ${node.kind === 'delegation' ? 'text-brand-amber-deep' : cls}`} aria-hidden />;
+  return <Icon className={`size-3.5 shrink-0 ${node.kind === 'delegation' ? 'text-muted-foreground' : cls}`} aria-hidden />;
 }
 
 function Citation({ doc }: { doc: IndexedDocument }) {
@@ -254,13 +254,14 @@ const TRACE_ICON: Record<TraceNode['kind'], LucideIcon> = {
 
 function TraceMarker({ node }: { node: TraceNode }) {
   if (node.status !== 'done' && node.status !== 'error') {
-    return <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />;
+    // A step at work is the agent at work: the spark, not an amber spinner (design sweep, 2026-10-23).
+    return <SparkOrb size="xs" className="size-3.5" />;
   }
   if (node.status === 'error') {
     return <CircleAlert className="size-3.5 shrink-0 text-[var(--brand-fail)]" aria-hidden />;
   }
   const Icon = TRACE_ICON[node.kind] ?? Sparkles;
-  return <Icon className={`size-3.5 shrink-0 ${node.kind === 'delegate' ? 'text-brand-amber-deep' : 'text-[var(--brand-pass)]'}`} aria-hidden />;
+  return <Icon className={`size-3.5 shrink-0 ${node.kind === 'delegate' ? 'text-muted-foreground' : 'text-pass'}`} aria-hidden />;
 }
 
 function TraceCitations({ node }: { node: TraceNode }) {
@@ -338,7 +339,7 @@ function FailureDetail({ node, context }: { node: TraceNode; context?: FailureRe
             setCopied(true);
             setTimeout(() => setCopied(false), 1600);
           }}
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-brand-amber-deep transition hover:bg-muted"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
         >
           {copied ? <Check className="size-3" aria-hidden /> : <ClipboardCopy className="size-3" aria-hidden />}
           {copied ? 'Copied' : 'Copy details'}
@@ -860,7 +861,7 @@ function StepList({ reasons, actions, childrenOf, thoughtLabel, openIds, toggle,
       {reasons.length > 0 && (
         <ClaimLine
           id="__reasoning__"
-          icon={<Brain className="size-3.5 text-brand-amber-deep" aria-hidden />}
+          icon={<Brain className="size-3.5 text-muted-foreground/70" aria-hidden />}
           label={thoughtLabel}
           open={openIds.has('__reasoning__')}
           onToggle={reasonText ? () => toggle('__reasoning__') : undefined}
@@ -1016,11 +1017,8 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
               <span className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">Activity</span>
               {streaming
                 ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-amber-deep">
-                      <span className="relative flex size-2">
-                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" />
-                        <span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" />
-                      </span>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <SparkOrb size="xs" className="size-2.5" />
                       live
                     </span>
                   )
@@ -1036,7 +1034,7 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
               {notes.map(note => <NoteRow key={`note-${note.at}`} note={note} />)}
               {hasReasoning && (
                 <li className="relative py-2 pl-7">
-                  <span className="absolute top-2.5 left-0"><Brain className="size-3.5 text-brand-amber-deep" aria-hidden /></span>
+                  <span className="absolute top-2.5 left-0"><Brain className="size-3.5 text-muted-foreground/70" aria-hidden /></span>
                   <button type="button" onClick={() => setReasoningOpen(v => !v)} className="inline-flex items-center gap-1 text-[13px] font-semibold text-foreground/90 transition hover:text-foreground">
                     Reasoning &amp; data reviewed
                     <ChevronRight className={`size-3 transition ${reasoningOpen ? 'rotate-90' : ''}`} aria-hidden />
@@ -1050,14 +1048,14 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
                 <li key={i} className="relative py-2 pl-7">
                   <span className="absolute top-2.5 left-0"><Marker node={n} /></span>
                   <div className="text-[13px] leading-snug">
-                    <span className={`font-semibold ${n.state === 'error' ? 'text-[var(--brand-fail)]' : n.kind === 'delegation' ? 'text-brand-amber-deep' : 'text-foreground/90'}`}>{n.state === 'error' ? failureHeadline(n.label) : n.label}</span>
+                    <span className={`font-semibold ${n.state === 'error' ? 'text-fail' : 'text-foreground/90'}`}>{n.state === 'error' ? failureHeadline(n.label) : n.label}</span>
                     {n.detail && <span className="ml-1.5 text-muted-foreground">{n.detail}</span>}
                   </div>
                   {n.drill && (
                     n.drillLabel
                       ? (
                           <>
-                            <button type="button" onClick={() => setDrillOpen(o => (o === i ? null : i))} className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-brand-amber-deep">
+                            <button type="button" onClick={() => setDrillOpen(o => (o === i ? null : i))} className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground">
                               {n.drillLabel}
                               <ChevronRight className={`size-3 transition ${drillOpen === i ? 'rotate-90' : ''}`} aria-hidden />
                             </button>
