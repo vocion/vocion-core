@@ -68,7 +68,7 @@ export function WorkforceSetup({ report, isAdmin }: { report: TeamReport; isAdmi
               <Link href={`/dashboard/teams/${t.slug}`} className="text-sm font-medium hover:text-primary">{t.name}</Link>
               <span className="text-xs text-muted-foreground">{t.mission ?? 'No mission yet'}</span>
               <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
-                <AgentDots agents={t.members} size="sm" />
+                <AgentDots agents={t.members} size="sm" moreHref={`/dashboard/teams/${t.slug}`} />
                 <span>
                   {t.members.length}
                   {t.members.length === 1 ? ' agent' : ' agents'}
