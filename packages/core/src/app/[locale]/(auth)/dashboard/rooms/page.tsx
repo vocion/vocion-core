@@ -1,15 +1,24 @@
+import type { RoomRow } from '@/features/dashboard/rooms/roomRows';
 import { FolderOpen } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { Column, ListEmpty, ListPage, ListRow, ListRows, Subline } from '@/components/patterns';
+import { ListEmpty, ListPage } from '@/components/patterns';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
+import { lastChangedAt } from '@/features/dashboard/rooms/roomRows';
+import { RoomsTable } from '@/features/dashboard/rooms/RoomsTable';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { askInChatHref } from '@/libs/links';
 import { listDataRooms, roomAnchor, roomHref } from '@/services/DataRoomService';
 
+/** Now, read once per render: `Date.now()` counts as impure inside a render. */
+function readNow(): number {
+  return Date.now();
+}
+
 /**
- * Data rooms — one per client engagement, newest first. Each row is a door to
- * the room; the room is where the documents are written from.
+ * Data rooms — one per client engagement, as a table: titled columns, sorted
+ * by title until the person sorts by another (`RoomsTable`). Each row is a
+ * door to the room; the room is where the documents are written from.
  * @param props
  * @param props.params
  */
@@ -21,6 +30,21 @@ export default async function DataRoomsPage(props: { params: Promise<{ locale: s
     return notFound();
   }
   const rooms = await listDataRooms(orgId);
+  const now = readNow();
+  const rows: RoomRow[] = rooms.map((r) => {
+    const m = r.meta;
+    const anchor = roomAnchor(m);
+    // The stage has its own column now, so the subline drops it.
+    return {
+      id: r.id,
+      title: r.title,
+      segments: [m.client ?? null, anchor ? `${anchor.system ? `${anchor.system} ` : ''}${anchor.type}` : null, m.status ? `${m.status.slice(0, 90)}${m.status.length > 90 ? '…' : ''}` : null],
+      sources: m.sources?.length ?? 0,
+      mustRead: (m.sources ?? []).filter(s => s.rating === 3).length,
+      updatedAt: lastChangedAt(r, now),
+      stage: r.status === 'closed' ? 'Closed' : (m.stage ?? 'Active'),
+    };
+  });
 
   return (
     <ListPage title="Data rooms" description="One room per deal, project or engagement, holding everything known about it.">
@@ -28,32 +52,7 @@ export default async function DataRoomsPage(props: { params: Promise<{ locale: s
 
       {rooms.length === 0
         ? <ListEmpty variant="page" icon={FolderOpen} title="No data rooms yet" description="A room collects everything about one engagement, and a deal reaching Proposal stage opens its own." action={{ label: 'Ask to open a room', href: askInChatHref('Open a data room for ') }} />
-        : (
-            <ListRows>
-              {rooms.map((r) => {
-                const m = r.meta;
-                const stars = (m.sources ?? []).filter(s => s.rating === 3).length;
-                const anchor = roomAnchor(m);
-                return (
-                  <ListRow
-                    key={r.id}
-                    href={roomHref(r.id)}
-                    icon={FolderOpen}
-                    title={r.title}
-                    subline={<Subline segments={[m.client, anchor ? `${anchor.system ? `${anchor.system} ` : ''}${anchor.type}` : null, m.stage, m.status ? `${m.status.slice(0, 90)}${m.status.length > 90 ? '…' : ''}` : null]} />}
-                    columns={(
-                      <>
-                        <Column kind="number">{m.sources?.length ?? 0}</Column>
-                        <Column kind="number">{stars}</Column>
-                        <Column kind="date">{(m.statusAt ?? r.updatedAt?.toISOString() ?? r.createdAt.toISOString()).slice(0, 10)}</Column>
-                      </>
-                    )}
-                    chip={r.status === 'closed' ? 'Closed' : (m.stage ?? 'Active')}
-                  />
-                );
-              })}
-            </ListRows>
-          )}
+        : <RoomsTable rows={rows} hrefs={Object.fromEntries(rooms.map(r => [r.id, roomHref(r.id)]))} now={now} />}
     </ListPage>
   );
 }
