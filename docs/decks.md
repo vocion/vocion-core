@@ -50,6 +50,14 @@ styling is inline. The section sets `background`, the text defaults
 alignment). Children flow inside it; `position:absolute` pins a child to the
 slide. Later children paint over earlier ones.
 
+**Defaults** (what a slide means when it does not say, as in the Claude Slides
+subset this format follows): margins are always 0 (`margin` is a no-op); a
+`<section>` or `<div>` with no `display` of its own is a flex column; `h1` /
+`h2` / `h3` / `p` default to 96 / 64 / 44 / 32px, weights 600 / 600 / 600 /
+400, line heights 1.1 / 1.15 / 1.2 / 1.4, and headings never inherit a size or
+weight. The renderer applies these (`libs/decks/page.ts`), so a deck renders the
+same in Vocion as in the editor it came from.
+
 Allowed elements: `h1 h2 h3 p ul ol li br b i u a span div img table tr th td
 svg hr aside` (plus `thead tbody tfoot`, which every HTML parser inserts, and
 the synonyms `strong em sup sub`; SVG children are allowed inside `<svg>`) and
