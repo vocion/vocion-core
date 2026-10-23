@@ -7,6 +7,7 @@
 import type { RecordSpec } from '../specs';
 import { defineCard } from '@vocion/sdk';
 import { ArrowUpRight } from 'lucide-react';
+import { FactList } from '@/components/patterns';
 import { cn } from '@/utils/Helpers';
 import { recordSpecSchema } from '../specs';
 
@@ -33,14 +34,10 @@ export function RecordCardView({ data, surface }: { data: RecordSpec; surface: s
         {data.status && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] leading-4 text-foreground/80">{data.status}</span>}
       </div>
       {data.fields.length > 0 && (
-        <dl className={cn('mt-3 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4', dense ? 'gap-y-1' : 'gap-y-1.5')}>
-          {data.fields.map(f => (
-            <div key={f.k} className="contents">
-              <dt className="text-muted-foreground">{f.k}</dt>
-              <dd className="truncate text-foreground">{f.v === null ? '—' : String(f.v)}</dd>
-            </div>
-          ))}
-        </dl>
+        <FactList
+          className={cn('mt-3', dense && 'text-xs')}
+          facts={data.fields.map(f => ({ key: f.k, label: f.k, value: f.v === null ? '—' : String(f.v) }))}
+        />
       )}
     </div>
   );

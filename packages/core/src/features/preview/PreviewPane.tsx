@@ -8,7 +8,7 @@ import { Activity, ArrowLeft, Bot, ChevronLeft, ExternalLink, FileText, History,
 import { useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Accordion } from '@/components/patterns';
+import { Accordion, FactList } from '@/components/patterns';
 import { BAR_ICON_BUTTON } from '@/components/ui/buttonVariants';
 import { PanelCloseButton } from '@/components/ui/panel-close-button';
 import { BrowserRunView } from '@/features/browser/BrowserRunView';
@@ -299,14 +299,10 @@ function Body(props: { doc: PreviewDoc }) {
         // glance away, not a block above the words.
         <details className="mb-3 text-[12px]">
           <summary className="cursor-pointer list-none text-muted-foreground hover:text-foreground">{doc.facts.map(f => f.value).slice(0, 3).join(' · ')}</summary>
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-            {doc.facts.map(f => (
-              <div key={f.label} className="contents">
-                <dt className="text-muted-foreground">{f.label}</dt>
-                <dd className="min-w-0 break-words text-foreground">{f.value}</dd>
-              </div>
-            ))}
-          </dl>
+          <FactList
+            className="mt-2"
+            facts={doc.facts.map(f => ({ key: f.label, label: f.label, value: f.value }))}
+          />
         </details>
       )}
       {doc.body

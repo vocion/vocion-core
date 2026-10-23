@@ -3,6 +3,7 @@
 import { BookOpen, Check, CheckCircle2, Circle, Loader2, Maximize2, MessageSquareWarning, Minus, Plus, ScanSearch, ThumbsDown, ThumbsUp, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { FactList } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { SparkOrb } from '@/components/ui/spark-orb';
@@ -790,16 +791,15 @@ export function InspectionPhoto(props: Props) {
           <div className="mt-4 space-y-5 px-4 pb-6 text-sm">
             <section>
               <h3 className="text-xs font-medium text-muted-foreground">Last check</h3>
-              <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
-                <dt className="text-muted-foreground">Model</dt>
-                <dd className="font-mono">{props.checks?.reference?.model ?? '—'}</dd>
-                <dt className="text-muted-foreground">When</dt>
-                <dd>{props.checks?.reference?.at ? new Date(props.checks.reference.at).toLocaleString() : '—'}</dd>
-                <dt className="text-muted-foreground">Tokens</dt>
-                <dd className="font-mono">{usage ? `${String(usage.input_tokens ?? '?')} in · ${String(usage.output_tokens ?? '?')} out` : '—'}</dd>
-                <dt className="text-muted-foreground">Temperature</dt>
-                <dd className="font-mono">0</dd>
-              </dl>
+              <FactList
+                className="mt-1"
+                facts={[
+                  { label: 'Model', value: <span className="font-mono">{props.checks?.reference?.model ?? '—'}</span> },
+                  { label: 'When', value: props.checks?.reference?.at ? new Date(props.checks.reference.at).toLocaleString() : '—' },
+                  { label: 'Tokens', value: <span className="font-mono">{usage ? `${String(usage.input_tokens ?? '?')} in · ${String(usage.output_tokens ?? '?')} out` : '—'}</span> },
+                  { label: 'Temperature', value: <span className="font-mono">0</span> },
+                ]}
+              />
             </section>
             {refs.length > 0 && (
               <section>

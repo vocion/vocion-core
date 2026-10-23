@@ -8,14 +8,7 @@ import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { ReviewCard, ReviewContent, ReviewContentEdit } from '@/libs/actions/types';
 import { AlarmClock, Ban, Check, FilePen, Loader2, Pencil, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import {
-  ConfidenceMeter,
-  DetailPage,
-  FactList,
-  Section,
-  StatusDot,
-  StickyActionBar,
-} from '@/components/patterns';
+import { ConfidenceMeter, DetailPage, FactList, Section, StatusDot, StickyActionBar } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
@@ -261,28 +254,33 @@ function MetaRow(props: {
     return null;
   }
   return (
-    <dl data-testid="review-meta" data-pattern="detail-meta" className="mt-3 flex flex-wrap gap-x-10 gap-y-3 border-b border-rule pb-4">
-      {props.cells.map(c => (
-        <div key={c.label} className="min-w-[104px]">
-          <dt className="text-[12px] text-muted-foreground">{c.label}</dt>
-          <dd className="mt-0.5 text-sm break-words">{c.value}</dd>
-        </div>
-      ))}
-      {props.recommendation && (
-        <div className="min-w-[104px]" data-testid="meta-recommendation">
-          <dt className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
-            <Sparkles className="size-3.5 text-muted-foreground" aria-hidden />
-            {props.recommendation.label}
-          </dt>
-          <dd className="mt-0.5 flex flex-wrap items-baseline gap-x-3 text-sm">
-            <span className="font-medium break-words text-foreground">{props.recommendation.headline}</span>
-            {props.confidence !== undefined && (
-              <ConfidenceMeter value={props.confidence} label={props.confidenceSubject} readingHidden />
-            )}
-          </dd>
-        </div>
-      )}
-    </dl>
+    <div data-pattern="detail-meta" className="mt-3 border-b border-rule pb-4">
+      <FactList
+        layout="inline"
+        data-testid="review-meta"
+        className="gap-x-10"
+        facts={[
+          ...props.cells.map(c => ({ key: c.label, label: c.label, value: c.value })),
+          props.recommendation && {
+            key: 'recommendation',
+            label: (
+              <span className="inline-flex items-center gap-1.5" data-testid="meta-recommendation">
+                <Sparkles className="size-3.5 text-muted-foreground" aria-hidden />
+                {props.recommendation.label}
+              </span>
+            ),
+            value: (
+              <span className="flex flex-wrap items-baseline gap-x-3">
+                <span className="font-medium break-words text-foreground">{props.recommendation.headline}</span>
+                {props.confidence !== undefined && (
+                  <ConfidenceMeter value={props.confidence} label={props.confidenceSubject} readingHidden />
+                )}
+              </span>
+            ),
+          },
+        ]}
+      />
+    </div>
   );
 }
 
@@ -1401,19 +1399,17 @@ export function ReviewSurface(props: {
       {/* A sequence names what it queues before its steps: which sequence,
           for whom, from which inbox. */}
       {sequence && (
-        <dl data-testid="sequence-enrolment" className="flex flex-wrap gap-x-10 gap-y-3 border-b border-rule py-4">
-          {[
+        <FactList
+          layout="inline"
+          data-testid="sequence-enrolment"
+          className="gap-x-10 border-b border-rule py-4"
+          facts={[
             { label: 'Sequence', value: sequence.name },
             { label: 'Contact', value: sequence.contact },
             { label: 'Sender inbox', value: sequence.sender },
             { label: 'Queued in', value: sequence.system },
-          ].map(f => (
-            <div key={f.label} className="min-w-[104px]">
-              <dt className="text-[12px] text-muted-foreground">{f.label}</dt>
-              <dd className="mt-0.5 text-sm break-words">{f.value}</dd>
-            </div>
-          ))}
-        </dl>
+          ]}
+        />
       )}
 
       {/* First thing on the card: what approving does, the facts that settle

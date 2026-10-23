@@ -1,6 +1,6 @@
 import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
 import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from '@/libs/workspace/pageFields';
-import { RecordCode } from '@/components/patterns';
+import { FactList, RecordCode } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { LinkRow } from '@/features/dashboard/LinkRow';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
@@ -66,16 +66,15 @@ function RowDetails({ row, details, now, links }: { row: PageRow; details: PageF
         <span className="group-open/details:hidden">Evidence</span>
         <span className="hidden group-open/details:inline">Hide evidence</span>
       </summary>
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-l-2 border-border pl-3 text-xs">
-        {present.map(f => (
-          <div key={f.key} className="contents">
-            <dt className="text-muted-foreground">{f.label ?? f.key}</dt>
-            <dd className="min-w-0 break-words text-foreground">
-              <FieldValue row={row} field={f} now={now} links={links} />
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <FactList
+        layout="column"
+        className="mt-2 border-l-2 border-border pl-3"
+        facts={present.map(f => ({
+          key: f.key,
+          label: f.label ?? f.key,
+          value: <FieldValue row={row} field={f} now={now} links={links} />,
+        }))}
+      />
     </details>
   );
 }

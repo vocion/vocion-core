@@ -1,5 +1,6 @@
 import type { CatalogAgent, CatalogTool, RestActionEntry, ToolFamily } from '@/libs/tools/orgCatalog';
 import { ArrowLeft, Bot, Globe } from 'lucide-react';
+import { FactList } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Notice } from '@/components/ui/notice';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -88,40 +89,46 @@ function RestEndpoint({ tool }: { tool: CatalogTool }) {
         {' '}
         {rest.path}
       </div>
-      <dl className="grid gap-2 text-xs sm:grid-cols-[8rem_1fr]">
-        <dt className="text-muted-foreground">Source</dt>
-        <dd>
-          {rest.sourceName}
-          {' '}
-          <code className="font-mono text-[11px] text-muted-foreground">{rest.sourceSlug}</code>
-        </dd>
-        <dt className="text-muted-foreground">Query</dt>
-        <dd>
-          {query.length === 0
-            ? <span className="text-muted-foreground">none</span>
-            : (
-                <div className="flex flex-col gap-1 font-mono text-[11px]">
-                  {query.map(([name, template]) => (
-                    <div key={name}>
-                      {name}
-                      <span className="text-muted-foreground"> = </span>
-                      {template}
-                    </div>
-                  ))}
-                </div>
-              )}
-        </dd>
-        {rest.pick && (
-          <>
-            <dt className="text-muted-foreground">Returns</dt>
-            <dd>
-              <code className="font-mono text-[11px]">{rest.pick}</code>
-              {' '}
-              out of the answer
-            </dd>
-          </>
-        )}
-      </dl>
+      <FactList
+        facts={[
+          {
+            label: 'Source',
+            value: (
+              <>
+                {rest.sourceName}
+                {' '}
+                <code className="font-mono text-[11px] text-muted-foreground">{rest.sourceSlug}</code>
+              </>
+            ),
+          },
+          {
+            label: 'Query',
+            value: query.length === 0
+              ? <span className="text-muted-foreground">none</span>
+              : (
+                  <div className="flex flex-col gap-1 font-mono text-[11px]">
+                    {query.map(([name, template]) => (
+                      <div key={name}>
+                        {name}
+                        <span className="text-muted-foreground"> = </span>
+                        {template}
+                      </div>
+                    ))}
+                  </div>
+                ),
+          },
+          rest.pick && {
+            label: 'Returns',
+            value: (
+              <>
+                <code className="font-mono text-[11px]">{rest.pick}</code>
+                {' '}
+                out of the answer
+              </>
+            ),
+          },
+        ]}
+      />
       <p className="mt-3 text-xs text-muted-foreground">
         Path segments in braces come from the arguments; a query parameter whose template resolves to nothing is left out. Built-in dates such as
         {' '}

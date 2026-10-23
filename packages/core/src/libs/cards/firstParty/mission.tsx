@@ -12,6 +12,7 @@
 import type { MissionSourceSpec } from '../specs';
 import { defineCard } from '@vocion/sdk';
 import { parse as parseYaml } from 'yaml';
+import { FactList } from '@/components/patterns';
 import { cn } from '@/utils/Helpers';
 import { missionSpecSchema } from '../specs';
 
@@ -113,26 +114,13 @@ export function MissionCardView({ data, surface }: { data: MissionSourceSpec; su
           </ul>
         </section>
       )}
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-        {charter.agent && (
-          <>
-            <dt className="text-muted-foreground">Owner</dt>
-            <dd className="font-mono text-foreground">{charter.agent}</dd>
-          </>
-        )}
-        <dt className="text-muted-foreground">Autonomy</dt>
-        <dd className="text-foreground">
-          level
-          {' '}
-          {charter.autonomy ?? 1}
-        </dd>
-        {charter.schedule && (
-          <>
-            <dt className="text-muted-foreground">Schedule</dt>
-            <dd className="font-mono text-foreground">{charter.schedule}</dd>
-          </>
-        )}
-      </dl>
+      <FactList
+        facts={[
+          charter.agent && { label: 'Owner', value: <span className="font-mono">{charter.agent}</span> },
+          { label: 'Autonomy', value: `level ${charter.autonomy ?? 1}` },
+          charter.schedule && { label: 'Schedule', value: <span className="font-mono">{charter.schedule}</span> },
+        ]}
+      />
     </article>
   );
 }

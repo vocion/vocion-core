@@ -1,6 +1,6 @@
 import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
 import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from '@/libs/workspace/pageFields';
-import { RecordCode } from '@/components/patterns';
+import { FactList, RecordCode } from '@/components/patterns';
 import { StatusDot } from '@/components/patterns/DetailPage';
 import { PendingIcon } from '@/components/patterns/PendingIcon';
 import { RowMenu } from '@/components/patterns/RowMenu';
@@ -308,16 +308,15 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
         </div>
       )}
       {facts.length > 0 && (
-        <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-2">
-          {facts.map(f => (
-            <div key={f.key} className="min-w-0">
-              <dt className="text-[0.6875rem] tracking-wide text-muted-foreground uppercase">{f.label ?? f.key}</dt>
-              <dd className="mt-0.5 text-sm">
-                <FieldValue row={row} field={f} now={now} links={links} />
-              </dd>
-            </div>
-          ))}
-        </dl>
+        <FactList
+          layout="inline"
+          className="mt-3 gap-y-2"
+          facts={facts.map(f => ({
+            key: f.key,
+            label: f.label ?? f.key,
+            value: <FieldValue row={row} field={f} now={now} links={links} />,
+          }))}
+        />
       )}
       {!menu && rowActions.length > 0 && (
         <p className="mt-3 flex flex-wrap gap-x-4 text-xs">

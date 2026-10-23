@@ -21,7 +21,7 @@
 import type { BrowserStep, BrowserRunView as Run } from '@/libs/browser/run';
 import { Check, Globe, Play, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StatusDot } from '@/components/patterns';
+import { FactList, StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { announceConversationAppended } from '@/features/dashboard/chat/conversationAppended';
 import { client } from '@/libs/Orpc';
@@ -322,20 +322,13 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
       {(inputs.length > 0 || run.outputs.length > 0) && (
         <details className="border-t border-border/60 pt-3 text-[12px]">
           <summary className="cursor-pointer list-none text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Inputs and outputs</summary>
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-            {inputs.map(([k, v]) => (
-              <div key={k} className="contents">
-                <dt className="text-muted-foreground">{k.replace(/_/g, ' ')}</dt>
-                <dd className="min-w-0 break-words text-foreground">{v.value}</dd>
-              </div>
-            ))}
-            {run.outputs.map(o => (
-              <div key={o.name} className="contents">
-                <dt className="text-muted-foreground">{`→ ${o.name.replace(/_/g, ' ')}`}</dt>
-                <dd className="min-w-0 text-foreground">{o.description}</dd>
-              </div>
-            ))}
-          </dl>
+          <FactList
+            className="mt-2"
+            facts={[
+              ...inputs.map(([k, v]) => ({ key: `in-${k}`, label: k.replace(/_/g, ' '), value: v.value })),
+              ...run.outputs.map(o => ({ key: `out-${o.name}`, label: `→ ${o.name.replace(/_/g, ' ')}`, value: o.description })),
+            ]}
+          />
         </details>
       )}
     </div>

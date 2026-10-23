@@ -2,7 +2,7 @@ import type { DotTone } from '@/components/patterns';
 import type { CheckOutcome, CheckTarget } from '@/libs/automations/checkResult';
 import type { PageBlock } from '@/libs/workspace/pageFields';
 import type { CheckLogRow, MonitorRow } from '@/services/workspace/monitors';
-import { LedgerEntry, LedgerGroup, ListRow, ListRows, StatusDot, Subline } from '@/components/patterns';
+import { FactList, LedgerEntry, LedgerGroup, ListRow, ListRows, StatusDot, Subline } from '@/components/patterns';
 import { StatusPill } from '@/components/ui/status-pill';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AutomationPauseControl } from '@/features/dashboard/AutomationPauseControl';
@@ -128,14 +128,10 @@ function TargetDetail({ target }: { target: CheckTarget }) {
       </div>
       <div>{target.outcome === 'unchecked' && target.why ? `Could not check: ${target.why}` : target.summary}</div>
       {facts.length > 0 && (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 font-mono text-[11px]">
-          {facts.map(([k, v]) => (
-            <div key={k} className="contents">
-              <dt className="text-muted-foreground/70">{k}</dt>
-              <dd className="min-w-0 break-words">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</dd>
-            </div>
-          ))}
-        </dl>
+        <FactList
+          className="font-mono"
+          facts={facts.map(([k, v]) => ({ key: k, label: k, value: typeof v === 'object' ? JSON.stringify(v) : String(v) }))}
+        />
       )}
     </div>
   );

@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useMemo, useState } from 'react';
-import { firstSentence, IntegrationLogo, ListRows, RowMenu } from '@/components/patterns';
+import { FactList, firstSentence, IntegrationLogo, ListRows, RowMenu } from '@/components/patterns';
 import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { Link } from '@/libs/I18nNavigation';
 import { CONNECTOR_CATEGORIES } from '@/libs/sources/types';
@@ -463,37 +463,40 @@ function SourceDetail({ source, row }: { source: Source; row: ConnectionRow }) {
     : null;
   return (
     <div className="grid gap-4 rounded-lg border border-rule p-3 text-[13px] sm:grid-cols-2" data-testid={`connector-detail-${source.slug}`}>
-      <dl className="space-y-1">
-        <Fact label={t('detail_name')} value={source.slug} mono />
-        <Fact label={t('detail_reads')} value={describeSourceConfig(source.config)} />
-        <Fact label={t('detail_documents')} value={source.documentCount.toLocaleString()} />
-        {typeof source.chunkCount === 'number' && <Fact label={t('detail_chunks')} value={source.chunkCount.toLocaleString()} />}
-        <Fact label={t('detail_added')} value={fmt(source.createdAt) ?? '—'} />
-        {source.credentialUpdatedAt && <Fact label={t('detail_credential_stored')} value={fmt(source.credentialUpdatedAt)!} />}
+      <div className="space-y-1">
+        <FactList
+          facts={[
+            { label: t('detail_name'), value: <span className="font-mono text-xs">{source.slug}</span> },
+            { label: t('detail_reads'), value: describeSourceConfig(source.config) },
+            { label: t('detail_documents'), value: source.documentCount.toLocaleString() },
+            typeof source.chunkCount === 'number' && { label: t('detail_chunks'), value: source.chunkCount.toLocaleString() },
+            { label: t('detail_added'), value: fmt(source.createdAt) ?? '—' },
+            source.credentialUpdatedAt && { label: t('detail_credential_stored'), value: fmt(source.credentialUpdatedAt)! },
+          ]}
+        />
         <div className="pt-1">
           <Link href={`/dashboard/connectors/${source.slug}`} className="inline-flex items-center gap-1 text-xs text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
             {t('detail_configuration')}
             <ExternalLink className="size-3" aria-hidden />
           </Link>
         </div>
-      </dl>
-      <dl className="space-y-1">
+      </div>
+      <div className="space-y-1">
         {sync
           ? (
               <>
-                <Fact label={t('detail_last_run')} value={`${sync.status} · ${fmt(sync.startedAt)}${sync.completedAt ? ` → ${fmt(sync.completedAt)}` : ''}`} />
-                {counts.length > 0 && <Fact label={t('detail_counts')} value={counts.map(([k, v]) => `${k} ${v}`).join(' · ')} mono />}
-                {sync.error && (
-                  <div className="text-destructive">
-                    <dt className="inline">{`${t('detail_error')}: `}</dt>
-                    <dd className="inline break-words">{sync.error}</dd>
-                  </div>
-                )}
+                <FactList
+                  facts={[
+                    { label: t('detail_last_run'), value: `${sync.status} · ${fmt(sync.startedAt)}${sync.completedAt ? ` → ${fmt(sync.completedAt)}` : ''}` },
+                    counts.length > 0 && { label: t('detail_counts'), value: <span className="font-mono text-xs">{counts.map(([k, v]) => `${k} ${v}`).join(' · ')}</span> },
+                    sync.error && { label: t('detail_error'), value: <span className="text-fail">{sync.error}</span> },
+                  ]}
+                />
                 {skipped && <p className="text-warn" data-testid="sync-skipped-line">{t('detail_kept_none', { reason: skipped })}</p>}
               </>
             )
           : <p className="text-muted-foreground">{t('never_synced')}</p>}
-      </dl>
+      </div>
       {source.grant && <GrantDetail source={source} grant={source.grant} />}
       {scopes.length + row.missingScopes.length > 0 && (
         <div className="sm:col-span-2" data-testid="connector-scopes">
@@ -510,15 +513,6 @@ function SourceDetail({ source, row }: { source: Source; row: ConnectionRow }) {
           {missing.size > 0 && <p className="mt-2 text-xs text-muted-foreground">{t('detail_scopes_fix')}</p>}
         </div>
       )}
-    </div>
-  );
-}
-
-function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <dt className="inline text-muted-foreground">{`${label}: `}</dt>
-      <dd className={cn('inline break-words', mono && 'font-mono text-xs')}>{value}</dd>
     </div>
   );
 }
@@ -549,7 +543,7 @@ function GrantDetail({ source, grant }: { source: Source; grant: GrantSummary })
   const missing = rows.filter(r => r.state === 'not-granted').length;
   return (
     <div className="sm:col-span-2" data-testid="connector-grant">
-      <Fact label={t('detail_account')} value={grant.account ?? '—'} />
+      <FactList facts={[{ label: t('detail_account'), value: grant.account ?? '—' }]} />
       {granted && (
         <div className="mt-1">
           <div className="text-muted-foreground">{granted.label}</div>
