@@ -1,5 +1,6 @@
 import type { MetricSummary, PeriodMetric } from '@/services/metrics/periodMetrics';
 import type { Period, PeriodUnit } from '@/services/metrics/periods';
+import { FactList } from '@/components/patterns';
 import { ChartCardView } from '@/libs/cards/firstParty/chart';
 import { summarize } from '@/services/metrics/periodMetrics';
 import { MetricsFrame } from './MetricsFrame';
@@ -25,15 +26,6 @@ function figure(v: number | null, format: 'number' | 'money'): string {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(v);
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-[11px] tracking-wide text-muted-foreground uppercase">{label}</dt>
-      <dd className="font-mono text-sm tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
 function MetricCard({ f, unit }: { f: PeriodMetric; unit: PeriodUnit }) {
   const s: MetricSummary = summarize(f.points);
   const fmt = (v: number | null) => figure(v, f.metric.format);
@@ -47,11 +39,15 @@ function MetricCard({ f, unit }: { f: PeriodMetric; unit: PeriodUnit }) {
           <div className="font-mono text-3xl font-semibold tabular-nums">{fmt(s.current)}</div>
           <div className="text-[11px] text-muted-foreground">{w.current}</div>
         </div>
-        <dl className="flex flex-wrap gap-x-6 gap-y-1">
-          <Fact label={w.previous} value={fmt(s.previous)} />
-          <Fact label={w.usual} value={fmt(s.usual)} />
-          <Fact label={`${f.points.length} ${w.plural}`} value={fmt(s.total)} />
-        </dl>
+        <FactList
+          layout="inline"
+          className="gap-x-6 gap-y-1"
+          facts={[
+            { label: w.previous, value: <span className="font-mono tabular-nums">{fmt(s.previous)}</span> },
+            { label: w.usual, value: <span className="font-mono tabular-nums">{fmt(s.usual)}</span> },
+            { label: `${f.points.length} ${w.plural}`, value: <span className="font-mono tabular-nums">{fmt(s.total)}</span> },
+          ]}
+        />
       </div>
       {f.unavailable
         ? <p className="mt-3 text-[13px] text-muted-foreground">{f.unavailable.reason}</p>

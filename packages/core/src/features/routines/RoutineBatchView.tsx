@@ -23,7 +23,7 @@ import type { BrowserRunView as BrowserRun } from '@/libs/browser/run';
 import type { RoutineBatchView as RoutineBatch, RoutineFinding, RoutineReceipt, RoutineRunView } from '@/libs/routines/types';
 import { Check, CircleAlert, Clock, Coins, Eye, FileText, Globe, Inbox, Loader2, Timer, User, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DetailMeta, DetailPage, StatusDot } from '@/components/patterns';
+import { DetailMeta, DetailPage, FactList, Stat, StatRow, StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -317,17 +317,20 @@ function Numbers({ batch, now, compact }: { batch: RoutineBatch; now: number; co
     byHand ? { icon: Clock, label: 'By hand', value: `≈ ${minutesLong(byHand)}` } : null,
   ].filter(Boolean) as Array<{ icon: typeof Timer; label: string; value: string }>;
   return (
-    <dl className={cn('grid gap-px overflow-hidden rounded-xl border border-border bg-border', compact ? 'grid-cols-2 @sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-4')} data-routine-numbers>
+    <StatRow className={cn(compact && 'gap-y-3 py-3')}>
       {items.map(i => (
-        <div key={i.label} className={cn('bg-card', compact ? 'px-2.5 py-2' : 'px-3 py-2.5')}>
-          <dt className={cn('flex items-center gap-1.5 font-medium tracking-wide whitespace-nowrap text-muted-foreground uppercase', compact ? 'text-[10px]' : 'text-[11px]')}>
-            <i.icon className="size-3 shrink-0" aria-hidden />
-            {i.label}
-          </dt>
-          <dd className={cn('mt-0.5 font-semibold whitespace-nowrap text-foreground tabular-nums', compact ? 'text-[14px]' : 'text-lg')}>{i.value}</dd>
-        </div>
+        <Stat
+          key={i.label}
+          label={(
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <i.icon className="size-3 shrink-0" aria-hidden />
+              {i.label}
+            </span>
+          )}
+          value={i.value}
+        />
       ))}
-    </dl>
+    </StatRow>
   );
 }
 
@@ -703,14 +706,9 @@ function RunSheet({ run, onClose }: { run: RoutineRunView | null; onClose: () =>
               {inputs.length > 0 && (
                 <section>
                   <h3 className="mb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">This row</h3>
-                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-                    {inputs.map(([k, v]) => (
-                      <div key={k} className="contents">
-                        <dt className="font-mono text-muted-foreground">{k}</dt>
-                        <dd className="min-w-0 break-words text-foreground">{v}</dd>
-                      </div>
-                    ))}
-                  </dl>
+                  <FactList
+                    facts={inputs.map(([k, v]) => ({ key: k, label: <span className="font-mono">{k}</span>, value: v }))}
+                  />
                 </section>
               )}
               {(run.cents > 0 || run.humanMs > 0) && (

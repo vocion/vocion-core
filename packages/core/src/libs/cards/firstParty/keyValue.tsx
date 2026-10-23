@@ -1,3 +1,4 @@
+import { defineCard } from '@vocion/sdk';
 /**
  * Generic key-value Card. Renders a list of `{ key, value }` pairs as a
  * two-column grid; the kind of thing you'd otherwise reach for `<dl>` for.
@@ -8,8 +9,8 @@
  * `pairs` array.
  */
 
-import { defineCard } from '@vocion/sdk';
 import { z } from 'zod';
+import { FactList } from '@/components/patterns';
 
 export const KEY_VALUE_SLUG = 'key-value';
 
@@ -36,14 +37,14 @@ export const keyValueCard = defineCard({
             {data.title}
           </div>
         )}
-        <dl className={dense ? 'grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs' : 'grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-sm'}>
-          {data.pairs.map(({ key, value }) => (
-            <div key={key} className="contents">
-              <dt className="font-mono text-muted-foreground">{key}</dt>
-              <dd className="break-words">{value === null ? <span className="text-muted-foreground italic">null</span> : String(value)}</dd>
-            </div>
-          ))}
-        </dl>
+        <FactList
+          className={dense ? 'text-xs' : undefined}
+          facts={data.pairs.map(({ key, value }) => ({
+            key,
+            label: <span className="font-mono">{key}</span>,
+            value: value === null ? <span className="text-muted-foreground italic">null</span> : String(value),
+          }))}
+        />
       </div>
     );
   },

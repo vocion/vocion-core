@@ -2,7 +2,7 @@ import { and, count, eq } from 'drizzle-orm';
 import { ArrowLeft, CalendarClock, FileText, Plug, RefreshCw } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { IntegrationLogo } from '@/components/patterns';
+import { FactList, IntegrationLogo } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
 import { connectorIcon } from '@/features/dashboard/connectors/connectorIcon';
@@ -163,26 +163,14 @@ export default async function SourceDetailPage(props: {
             <Plug className="size-4 text-primary" />
             Connector
           </h2>
-          <dl className="space-y-1.5 text-sm">
-            <div>
-              <dt className="inline text-muted-foreground">Kind: </dt>
-              <dd className="inline font-mono text-xs">{connectorSlug}</dd>
-            </div>
-            {connector && (
-              <div>
-                <dt className="inline text-muted-foreground">Auth: </dt>
-                <dd className="inline">{connector.authKind === 'none' ? 'None required' : connector.authKind === 'oauth' ? 'OAuth' : 'API key'}</dd>
-              </div>
-            )}
-            <div>
-              <dt className="inline text-muted-foreground">Documents ingested: </dt>
-              <dd className="inline font-medium">{documents.toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt className="inline text-muted-foreground">Added: </dt>
-              <dd className="inline">{fmt(source.createdAt) ?? '—'}</dd>
-            </div>
-          </dl>
+          <FactList
+            facts={[
+              { label: 'Kind', value: <span className="font-mono text-xs">{connectorSlug}</span> },
+              connector && { label: 'Auth', value: connector.authKind === 'none' ? 'None required' : connector.authKind === 'oauth' ? 'OAuth' : 'API key' },
+              { label: 'Documents ingested', value: <span className="font-medium">{documents.toLocaleString()}</span> },
+              { label: 'Added', value: fmt(source.createdAt) ?? '—' },
+            ]}
+          />
         </section>
 
         <section className="rounded-md border border-border p-5">
@@ -190,108 +178,78 @@ export default async function SourceDetailPage(props: {
             <RefreshCw className="size-4 text-primary" />
             Sync
           </h2>
-          <dl className="space-y-1.5 text-sm">
-            <div>
-              <dt className="inline text-muted-foreground">Last synced: </dt>
-              <dd className="inline">{fmt(source.lastSyncedAt) ?? 'never'}</dd>
-            </div>
-            {schedule && (
-              <div>
-                <dt className="inline text-muted-foreground">Schedule: </dt>
-                <dd className="inline">
+          <FactList
+            facts={[
+              { label: 'Last synced', value: fmt(source.lastSyncedAt) ?? 'never' },
+              schedule && {
+                label: 'Schedule',
+                value: (
                   <span className="inline-flex items-center gap-1" title={schedule}>
                     <CalendarClock className="size-3.5 text-muted-foreground" />
                     {cronToText(schedule)}
                   </span>
-                </dd>
-              </div>
-            )}
-            {checkpoint
-              ? (
+                ),
+              },
+              checkpoint && {
+                label: 'Checkpoint',
+                value: (
                   <>
-                    <div>
-                      <dt className="inline text-muted-foreground">Checkpoint: </dt>
-                      <dd className="inline">
-                        <Badge variant="outline" className="text-[10px]">{checkpoint.status}</Badge>
-                        {' '}
-                        started
-                        {' '}
-                        {fmt(checkpoint.startedAt)}
-                        {checkpoint.completedAt ? ` · completed ${fmt(checkpoint.completedAt)}` : ''}
-                      </dd>
-                    </div>
-                    {checkpoint.since && (
-                      <div>
-                        <dt className="inline text-muted-foreground">Incremental watermark: </dt>
-                        <dd className="inline">{fmt(checkpoint.since)}</dd>
-                      </div>
-                    )}
-                    {Object.keys(checkpoint.counts ?? {}).length > 0 && (
-                      <div>
-                        <dt className="inline text-muted-foreground">Counts: </dt>
-                        <dd className="inline font-mono text-xs">
-                          {Object.entries(checkpoint.counts).map(([k, v]) => `${k}: ${v}`).join(' · ')}
-                        </dd>
-                      </div>
-                    )}
-                    {checkpoint.error && (
-                      <div className="text-destructive">
-                        <dt className="inline">Error: </dt>
-                        <dd className="inline">{checkpoint.error}</dd>
-                      </div>
-                    )}
-                    {(checkpoint.failures?.length ?? 0) > 0 && (
-                      <div>
-                        <dt className="text-muted-foreground">
-                          {describeFailed(
-                            checkpoint.failures.length,
-                            (checkpoint.counts?.errors ?? 0) + (checkpoint.counts?.processorErrors ?? 0),
-                          )}
-                        </dt>
-                        <dd className="mt-1">
-                          {/* What the run carried on past, rather than what ended it — a
-                              collection that would not load, a document that would not
-                              save. Without this the only trace is a lower document count. */}
-                          <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs text-destructive">
-                            {checkpoint.failures.map(failure => (
-                              <li key={`${failure.at}-${failure.uri ?? failure.message}`}>
-                                <span className="text-muted-foreground">
-                                  {failure.scope === 'connector' ? '[connector] ' : '[document] '}
-                                </span>
-                                {failure.uri ? `${failure.uri} — ` : ''}
-                                {failure.message}
-                              </li>
-                            ))}
-                          </ul>
-                        </dd>
-                      </div>
-                    )}
-                    {(checkpoint.skipped?.length ?? 0) > 0 && (
-                      <div>
-                        <dt className="text-muted-foreground">
-                          {describeSkipped(checkpoint.skipped.length, checkpoint.counts?.skipped)}
-                        </dt>
-                        <dd className="mt-1">
-                          {/* What the run saw and a rule set aside — a pull request outside the
-                              branch prefix, a document yielded twice. Not failures: nothing went
-                              wrong. Without this a run that kept nothing looks like an empty source. */}
-                          <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs text-muted-foreground">
-                            {checkpoint.skipped.map(skip => (
-                              <li key={`${skip.at}-${skip.uri ?? skip.message}`}>
-                                {skip.uri ? `${skip.uri} — ` : ''}
-                                {skip.message}
-                              </li>
-                            ))}
-                          </ul>
-                        </dd>
-                      </div>
-                    )}
+                    <Badge variant="outline" className="text-[10px]">{checkpoint.status}</Badge>
+                    {' '}
+                    started
+                    {' '}
+                    {fmt(checkpoint.startedAt)}
+                    {checkpoint.completedAt ? ` · completed ${fmt(checkpoint.completedAt)}` : ''}
                   </>
-                )
-              : (
-                  <p className="text-xs text-muted-foreground">No sync checkpoint yet — the first sync writes one.</p>
-                )}
-          </dl>
+                ),
+              },
+              checkpoint?.since && { label: 'Incremental watermark', value: fmt(checkpoint.since) },
+              checkpoint && Object.keys(checkpoint.counts ?? {}).length > 0 && {
+                label: 'Counts',
+                value: <span className="font-mono text-xs">{Object.entries(checkpoint.counts).map(([k, v]) => `${k}: ${v}`).join(' · ')}</span>,
+              },
+              checkpoint?.error && { label: 'Error', value: <span className="text-fail">{checkpoint.error}</span> },
+              checkpoint && (checkpoint.failures?.length ?? 0) > 0 && {
+                label: describeFailed(
+                  checkpoint.failures.length,
+                  (checkpoint.counts?.errors ?? 0) + (checkpoint.counts?.processorErrors ?? 0),
+                ),
+                value: (
+                  /* What the run carried on past, rather than what ended it — a
+                     collection that would not load, a document that would not
+                     save. Without this the only trace is a lower document count. */
+                  <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs text-fail">
+                    {checkpoint.failures.map(failure => (
+                      <li key={`${failure.at}-${failure.uri ?? failure.message}`}>
+                        <span className="text-muted-foreground">
+                          {failure.scope === 'connector' ? '[connector] ' : '[document] '}
+                        </span>
+                        {failure.uri ? `${failure.uri} — ` : ''}
+                        {failure.message}
+                      </li>
+                    ))}
+                  </ul>
+                ),
+              },
+              checkpoint && (checkpoint.skipped?.length ?? 0) > 0 && {
+                label: describeSkipped(checkpoint.skipped.length, checkpoint.counts?.skipped),
+                value: (
+                  /* What the run saw and a rule set aside — a pull request outside the
+                     branch prefix, a document yielded twice. Not failures: nothing went
+                     wrong. Without this a run that kept nothing looks like an empty source. */
+                  <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs text-muted-foreground">
+                    {checkpoint.skipped.map(skip => (
+                      <li key={`${skip.at}-${skip.uri ?? skip.message}`}>
+                        {skip.uri ? `${skip.uri} — ` : ''}
+                        {skip.message}
+                      </li>
+                    ))}
+                  </ul>
+                ),
+              },
+            ]}
+          />
+          {!checkpoint && <p className="text-xs text-muted-foreground">No sync checkpoint yet — the first sync writes one.</p>}
         </section>
       </div>
 

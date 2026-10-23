@@ -1,6 +1,7 @@
 import { ArrowLeft, CheckCircle2, Loader2, OctagonAlert, TestTube } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { Stat, StatRow } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Notice } from '@/components/ui/notice';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -222,16 +223,16 @@ export default async function EvalRunDetailPage(props: Props) {
 
       <section className="mb-8">
         <h2 className="mb-3 font-display text-sm font-semibold">Metrics</h2>
-        <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <Metric label="Pass rate" value={typeof passRate === 'number' ? formatPassRate(passRate) : '—'} />
-          <Metric label="Cases" value={String(sortedResults.length)} />
-          <Metric label="Failed" value={String(run.metrics?.failed ?? sortedResults.filter(r => r.verdict === 'fail' || r.verdict === 'error').length)} />
-          <Metric label="Median latency" value={typeof run.metrics?.medianLatencyMs === 'number' ? `${run.metrics.medianLatencyMs}ms` : '—'} />
-          <Metric label="Total cost" value={typeof run.metrics?.totalCents === 'number' ? usd(run.metrics.totalCents) : '—'} />
-          <Metric label="Cost per passed case" value={typeof run.metrics?.costPerPassedCaseCents === 'number' ? usd(run.metrics.costPerPassedCaseCents) : '—'} />
-          <Metric label="Mean turns per case" value={typeof run.metrics?.meanTurns === 'number' ? run.metrics.meanTurns.toFixed(2) : '—'} />
-          <Metric label="Tokens in / out" value={typeof run.metrics?.totalInputTokens === 'number' ? `${run.metrics.totalInputTokens.toLocaleString('en-US')} / ${(run.metrics.totalOutputTokens ?? 0).toLocaleString('en-US')}` : '—'} />
-        </dl>
+        <StatRow>
+          <Stat label="Pass rate" value={typeof passRate === 'number' ? formatPassRate(passRate) : '—'} />
+          <Stat label="Cases" value={String(sortedResults.length)} />
+          <Stat label="Failed" value={String(run.metrics?.failed ?? sortedResults.filter(r => r.verdict === 'fail' || r.verdict === 'error').length)} />
+          <Stat label="Median latency" value={typeof run.metrics?.medianLatencyMs === 'number' ? `${run.metrics.medianLatencyMs}ms` : '—'} />
+          <Stat label="Total cost" value={typeof run.metrics?.totalCents === 'number' ? usd(run.metrics.totalCents) : '—'} />
+          <Stat label="Cost per passed case" value={typeof run.metrics?.costPerPassedCaseCents === 'number' ? usd(run.metrics.costPerPassedCaseCents) : '—'} />
+          <Stat label="Mean turns per case" value={typeof run.metrics?.meanTurns === 'number' ? run.metrics.meanTurns.toFixed(2) : '—'} />
+          <Stat label="Tokens in / out" value={typeof run.metrics?.totalInputTokens === 'number' ? `${run.metrics.totalInputTokens.toLocaleString('en-US')} / ${(run.metrics.totalOutputTokens ?? 0).toLocaleString('en-US')}` : '—'} />
+        </StatRow>
       </section>
 
       <section>
@@ -395,15 +396,6 @@ function ScoreChip(props: { name: string; label: string | null; value: number | 
         <span className="text-xs text-muted-foreground">{props.errorMessage}</span>
       )}
     </span>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-background px-4 py-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 font-mono text-lg">{value}</div>
-    </div>
   );
 }
 

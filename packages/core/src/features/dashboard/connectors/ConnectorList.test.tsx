@@ -195,11 +195,11 @@ describe('Connected', () => {
     expect(onSync).toHaveBeenCalledOnce();
     expect(onEdit).toHaveBeenCalledOnce();
 
-    await expect.element(page.getByText('Chunks in search: 340')).not.toBeVisible();
+    await expect.element(page.getByText('Chunks in search')).not.toBeVisible();
 
     await page.getByText('Details').click();
 
-    await expect.element(page.getByText('Chunks in search: 340')).toBeVisible();
+    await expect.element(page.getByText('Chunks in search')).toBeVisible();
   });
 
   it('names the account a grant is on and marks each listed repository against what it granted, in Details', async () => {

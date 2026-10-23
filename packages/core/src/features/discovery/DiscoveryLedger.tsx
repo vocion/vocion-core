@@ -3,7 +3,7 @@
 import type { ToolbarFacet } from '@/components/patterns';
 import type { DiscoveryLedgerEntry } from '@/services/discovery/ledger';
 import { useMemo } from 'react';
-import { LedgerEntry, LedgerGroup, ListEmpty, ListToolbar, ProvenanceLine, useListUrlState } from '@/components/patterns';
+import { FactList, LedgerEntry, LedgerGroup, ListEmpty, ListToolbar, ProvenanceLine, useListUrlState } from '@/components/patterns';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { Link } from '@/libs/I18nNavigation';
@@ -247,50 +247,30 @@ function Entry({ e }: { e: DiscoveryEntry }) {
       )}
       details={(
         <>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-            <dt className="text-muted-foreground/70">Matched</dt>
-            <dd>{e.matchReason ?? '—'}</dd>
-            {e.entities.opportunity && (
-              <>
-                <dt className="text-muted-foreground/70">Opportunity</dt>
-                <dd>{e.entities.opportunity.label}</dd>
-              </>
-            )}
-            <dt className="text-muted-foreground/70">Account</dt>
-            <dd>
-              {e.entities.accountResolved && e.entities.account
-                ? e.entities.account.label
-                : `Account not resolved${e.entities.unresolvedKnown ? ` — ${e.entities.unresolvedKnown}` : ''}`}
-            </dd>
-            {external.length > 0 && (
-              <>
-                <dt className="text-muted-foreground/70">Attendees</dt>
-                <dd>{[...external, ...internal].map(a => a.email).join(' · ')}</dd>
-              </>
-            )}
-            {e.thresholds && (
-              <>
-                <dt className="text-muted-foreground/70">Thresholds</dt>
-                <dd className="tabular-nums">{`class ≥ ${e.thresholds.discovery} · readiness ≥ ${e.thresholds.ready}`}</dd>
-              </>
-            )}
-            {cls && (
-              <>
-                <dt className="text-muted-foreground/70">Confidence means</dt>
-                <dd>
-                  {legacy
-                    ? 'Unknown — written under the v1 prompt, which never defined it. Carried, never converted.'
-                    : 'Confidence in the class stated beside it.'}
-                </dd>
-              </>
-            )}
-            {legacy && cls?.legacyScores && (
-              <>
-                <dt className="text-muted-foreground/70">Raw v1 numbers</dt>
-                <dd className="font-mono tabular-nums">{`is_discovery_confidence ${cls.legacyScores.isDiscoveryConfidence} · proposal_ready_confidence ${cls.legacyScores.proposalReadyConfidence}`}</dd>
-              </>
-            )}
-          </dl>
+          <FactList
+            facts={[
+              { label: 'Matched', value: e.matchReason ?? '—' },
+              e.entities.opportunity && { label: 'Opportunity', value: e.entities.opportunity.label },
+              {
+                label: 'Account',
+                value: e.entities.accountResolved && e.entities.account
+                  ? e.entities.account.label
+                  : `Account not resolved${e.entities.unresolvedKnown ? ` — ${e.entities.unresolvedKnown}` : ''}`,
+              },
+              external.length > 0 && { label: 'Attendees', value: [...external, ...internal].map(a => a.email).join(' · ') },
+              e.thresholds && { label: 'Thresholds', value: `class ≥ ${e.thresholds.discovery} · readiness ≥ ${e.thresholds.ready}` },
+              cls && {
+                label: 'Confidence means',
+                value: legacy
+                  ? 'Unknown — written under the v1 prompt, which never defined it. Carried, never converted.'
+                  : 'Confidence in the class stated beside it.',
+              },
+              legacy && cls?.legacyScores && {
+                label: 'Raw v1 numbers',
+                value: <span className="font-mono">{`is_discovery_confidence ${cls.legacyScores.isDiscoveryConfidence} · proposal_ready_confidence ${cls.legacyScores.proposalReadyConfidence}`}</span>,
+              },
+            ]}
+          />
           {cls?.reasoning && <p className="max-w-3xl leading-relaxed">{cls.reasoning}</p>}
           {/* The meeting this verdict was read from, openable in the SHARED
               preview panel rather than a second panel of this page's own —

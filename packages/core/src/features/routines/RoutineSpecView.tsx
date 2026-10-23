@@ -1,5 +1,6 @@
 import type { RoutineSpec } from '@/libs/routines/types';
 import { ArrowRight, Ban, CircleCheck, KeyRound, Lock, MousePointerClick } from 'lucide-react';
+import { FactList } from '@/components/patterns';
 import { minutesLong } from '@/libs/routines/display';
 import { MomentLink } from './RoutineChips';
 import { SubHead } from './RoutineParts';
@@ -30,28 +31,15 @@ export function RoutineSpecView({ spec, sourceUrl, expert }: { spec: RoutineSpec
     <div className="text-sm" data-routine-spec>
       <p className="leading-relaxed text-foreground">{spec.summary}</p>
       {(spec.startUrl || spec.systems.length > 0 || spec.manualMinutes) && (
-        <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-[12px]">
-          {spec.startUrl && (
-            <div className="flex gap-1.5">
-              <dt className="text-muted-foreground">Starts at</dt>
-              <dd><a href={spec.startUrl} target="_blank" rel="noopener noreferrer" className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground">{host(spec.startUrl)}</a></dd>
-            </div>
-          )}
-          {spec.systems.length > 0 && (
-            <div className="flex gap-1.5">
-              <dt className="text-muted-foreground">Uses</dt>
-              <dd className="text-foreground">{spec.systems.join(', ')}</dd>
-            </div>
-          )}
-          {spec.manualMinutes
-            ? (
-                <div className="flex gap-1.5">
-                  <dt className="text-muted-foreground">By hand</dt>
-                  <dd className="text-foreground">{`${minutesLong(spec.manualMinutes)} a run`}</dd>
-                </div>
-              )
-            : null}
-        </dl>
+        <FactList
+          layout="inline"
+          className="mt-3 gap-x-6 gap-y-1"
+          facts={[
+            spec.startUrl && { label: 'Starts at', value: host(spec.startUrl), href: spec.startUrl },
+            spec.systems.length > 0 && { label: 'Uses', value: spec.systems.join(', ') },
+            spec.manualMinutes ? { label: 'By hand', value: `${minutesLong(spec.manualMinutes)} a run` } : null,
+          ]}
+        />
       )}
 
       {spec.preconditions.length > 0 && (

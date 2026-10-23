@@ -4,7 +4,7 @@ import type { RecordField, RecordSections } from '@/libs/workspace/records';
 import type { RelatedItem } from '@/libs/workspace/related';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Related } from '@/components/patterns';
+import { FactList, Related } from '@/components/patterns';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
 import { resolveField } from '@/libs/workspace/pageFields';
 
@@ -84,16 +84,13 @@ export function RecordBody({ row, sections, now, links, aside, children, related
         {!related && linkFields.length > 0 && (
           <section className="rounded-lg border border-border p-5">
             <h2 className="mb-3 text-sm font-semibold">Links</h2>
-            <dl className="divide-y divide-border">
-              {linkFields.map(f => (
-                <div key={f.key} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2">
-                  <dt className="w-40 shrink-0 text-xs font-medium text-muted-foreground">{f.label ?? f.key}</dt>
-                  <dd className="min-w-0 break-words">
-                    <FieldValue row={row} field={f} now={now} links={links} />
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            <FactList
+              facts={linkFields.map(f => ({
+                key: f.key,
+                label: f.label ?? f.key,
+                value: <FieldValue row={row} field={f} now={now} links={links} />,
+              }))}
+            />
           </section>
         )}
 
@@ -107,16 +104,14 @@ export function RecordBody({ row, sections, now, links, aside, children, related
                 this type does not declare
               </span>
             </summary>
-            <dl className="mt-3 divide-y divide-border">
-              {otherKeys.map(k => (
-                <div key={k} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2">
-                  <dt className="w-40 shrink-0 font-mono text-xs text-muted-foreground">{k}</dt>
-                  <dd className="min-w-0 font-mono text-xs break-words">
-                    {typeof row.meta[k] === 'object' ? JSON.stringify(row.meta[k]) : String(row.meta[k])}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            <FactList
+              className="mt-3"
+              facts={otherKeys.map(k => ({
+                key: k,
+                label: <span className="font-mono">{k}</span>,
+                value: <span className="font-mono text-xs">{typeof row.meta[k] === 'object' ? JSON.stringify(row.meta[k]) : String(row.meta[k])}</span>,
+              }))}
+            />
           </details>
         )}
       </div>
@@ -125,31 +120,30 @@ export function RecordBody({ row, sections, now, links, aside, children, related
         {facts.map(group => (
           <section key={group.group} className="rounded-lg border border-border p-5">
             <h2 className="mb-2 text-sm font-semibold">{group.group}</h2>
-            <dl className="divide-y divide-border">
-              {group.fields.map(f => (
-                // Named, so a version that changed this fact marks it (`versions/VersionWatch`).
-                <div key={f.key} className="py-2" data-version-section={f.key}>
-                  <dt className="text-xs font-medium text-muted-foreground" title={f.hint}>{f.label ?? f.key}</dt>
-                  <dd className="mt-0.5 min-w-0 text-sm break-words">
-                    <FieldValue row={row} field={f} now={now} links={links} />
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            <FactList
+              layout="column"
+              className="gap-0 divide-y divide-rule [&>div]:py-2"
+              facts={group.fields.map(f => ({
+                key: f.key,
+                // Named, so a version that changed this fact marks it.
+                region: f.key,
+                label: <span title={f.hint}>{f.label ?? f.key}</span>,
+                value: <FieldValue row={row} field={f} now={now} links={links} />,
+              }))}
+            />
           </section>
         ))}
 
         {timestamps.length > 0 && (
           <section className="rounded-lg border border-border p-5">
             <h2 className="mb-2 text-sm font-semibold">When</h2>
-            <dl className="divide-y divide-border">
-              {timestamps.map(f => (
-                <div key={f.key} className="flex items-baseline justify-between gap-3 py-2">
-                  <dt className="text-xs font-medium text-muted-foreground">{f.label ?? f.key}</dt>
-                  <dd className="text-sm"><FieldValue row={row} field={f} now={now} links={links} /></dd>
-                </div>
-              ))}
-            </dl>
+            <FactList
+              facts={timestamps.map(f => ({
+                key: f.key,
+                label: f.label ?? f.key,
+                value: <FieldValue row={row} field={f} now={now} links={links} />,
+              }))}
+            />
           </section>
         )}
 

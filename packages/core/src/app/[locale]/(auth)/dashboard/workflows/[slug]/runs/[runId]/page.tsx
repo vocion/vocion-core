@@ -1,6 +1,7 @@
 import { ArrowLeft, CheckCircle2, Circle, Loader2, OctagonAlert, ShieldCheck } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { FactList } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Notice } from '@/components/ui/notice';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -191,14 +192,13 @@ export default async function WorkflowRunDetailPage(props: Props) {
 
       <section className="mt-10">
         <h2 className="mb-3 font-display text-sm font-semibold">Run metadata</h2>
-        <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
-          <dt className="text-muted-foreground">Run ID</dt>
-          <dd className="font-mono">{run.id}</dd>
-          <dt className="text-muted-foreground">Status</dt>
-          <dd>{run.status}</dd>
-          <dt className="text-muted-foreground">Current step</dt>
-          <dd>{run.currentStep ?? '—'}</dd>
-        </dl>
+        <FactList
+          facts={[
+            { label: 'Run ID', value: <span className="font-mono">{run.id}</span> },
+            { label: 'Status', value: run.status },
+            { label: 'Current step', value: run.currentStep ?? '—' },
+          ]}
+        />
       </section>
     </>
   );

@@ -4,6 +4,7 @@ import type { AutomationCheckResult } from '@/services/automations/checkSummary'
 import { ExternalLink, FlaskConical, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { FactList } from '@/components/patterns';
 import { Notice } from '@/components/ui/notice';
 import { formatDuration, summarizeResult } from './automationResult';
 
@@ -416,30 +417,39 @@ function TestRunResult({ result, status }: { result: unknown; status: string | n
 function CheckResult({ result, status }: { result: AutomationCheckResult; status: string | null }) {
   return (
     <div className="mt-2 space-y-2 rounded-md border border-border bg-background p-2.5">
-      <dl className="grid gap-x-6 gap-y-1.5 text-[11px] sm:grid-cols-2">
-        <Row label="Time period evaluated">
-          {result.window?.since
-            ? `${result.window.since.slice(0, 16).replace('T', ' ')} → ${result.window.until.slice(0, 16).replace('T', ' ')} UTC`
-            : <span className="text-muted-foreground">no window applied — the pass made no in-window CRM read</span>}
-        </Row>
-        <Row label="Run status">
-          {status === 'error' ? 'the run failed' : result.missionRunStatus}
-          {result.tasks.total > 0 && ` · ${result.tasks.ok}/${result.tasks.total} tasks ok`}
-          {result.tasks.failed > 0 && ` · ${result.tasks.failed} failed`}
-          {formatDuration(result.durationMs) && ` · ${formatDuration(result.durationMs)}`}
-        </Row>
-        <Row label="Contacts found">
-          {result.counts.contactsInWindow === null
-            ? <span className="text-muted-foreground">not counted — no stage-filtered CRM read in this pass</span>
-            : `${result.counts.contactsInWindow} in the window at the stage filter`}
-        </Row>
-        <Row label="MQLs sent to agent">
-          {result.counts.queued}
-          {' queued this run · '}
-          {result.counts.queueTotal}
-          {' on the queue'}
-        </Row>
-      </dl>
+      <FactList
+        layout="column"
+        className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2"
+        facts={[
+          {
+            label: 'Time period evaluated',
+            value: result.window?.since
+              ? `${result.window.since.slice(0, 16).replace('T', ' ')} → ${result.window.until.slice(0, 16).replace('T', ' ')} UTC`
+              : <span className="text-muted-foreground">no window applied — the pass made no in-window CRM read</span>,
+          },
+          {
+            label: 'Run status',
+            value: (
+              <>
+                {status === 'error' ? 'the run failed' : result.missionRunStatus}
+                {result.tasks.total > 0 && ` · ${result.tasks.ok}/${result.tasks.total} tasks ok`}
+                {result.tasks.failed > 0 && ` · ${result.tasks.failed} failed`}
+                {formatDuration(result.durationMs) && ` · ${formatDuration(result.durationMs)}`}
+              </>
+            ),
+          },
+          {
+            label: 'Contacts found',
+            value: result.counts.contactsInWindow === null
+              ? <span className="text-muted-foreground">not counted — no stage-filtered CRM read in this pass</span>
+              : `${result.counts.contactsInWindow} in the window at the stage filter`,
+          },
+          {
+            label: 'MQLs sent to agent',
+            value: `${result.counts.queued} queued this run · ${result.counts.queueTotal} on the queue`,
+          },
+        ]}
+      />
 
       {(result.counts.briefed > 0 || result.counts.drafted > 0) && (
         <p className="text-[11px] text-muted-foreground">
@@ -471,15 +481,6 @@ function CheckResult({ result, status }: { result: AutomationCheckResult; status
         Full report
         <ExternalLink className="size-3" />
       </a>
-    </div>
-  );
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <dt className="text-[12px] font-medium text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5">{children}</dd>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import type { OverviewMeasure } from '@/libs/workspace/productOverview';
+import { Stat, StatRow } from '@/components/patterns';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 const CHANGE: Record<'ok' | 'bad' | 'muted', string> = { ok: 'text-brand-pass', bad: 'text-brand-fail', muted: 'text-muted-foreground' };
@@ -17,21 +18,23 @@ export function ProductMeasures({ measures }: { measures: readonly OverviewMeasu
     return null;
   }
   return (
-    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4" data-testid="product-measures">
+    <StatRow data-testid="product-measures" className="border-y-0 py-0">
       {measures.map(m => (
-        <div key={m.key} className="min-w-0" data-measure={m.key}>
-          <dt className="text-[12px] text-muted-foreground">
+        <Stat
+          key={m.key}
+          id={m.key}
+          label={(
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="cursor-default">{m.label}</span>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">{m.hint}</TooltipContent>
             </Tooltip>
-          </dt>
-          <dd className="text-[20px] leading-tight font-semibold tabular-nums">{m.value}</dd>
-          {m.change && <dd className={`text-[12px] ${CHANGE[m.change.tone]}`} data-testid="product-measure-change">{m.change.line}</dd>}
-        </div>
+          )}
+          value={m.value}
+          note={m.change && <span className={CHANGE[m.change.tone]} data-testid="product-measure-change">{m.change.line}</span>}
+        />
       ))}
-    </dl>
+    </StatRow>
   );
 }

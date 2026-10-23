@@ -3,6 +3,7 @@
 import type { RecordHistory as History, RecordVersion } from '@/services/objects/recordBody';
 import { Loader2, RotateCcw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { FactList } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { announceVersionWritten, useVersionWritten } from '@/features/dashboard/versions/versionEvents';
@@ -78,18 +79,20 @@ function VersionRow({ v, current, busy, focused, onRestore }: { v: RecordVersion
         )}
       </div>
       {v.changes.length > 0 && (
-        <dl className="mt-1.5 space-y-1 text-[12px]">
-          {v.changes.map(c => (
-            <div key={c.key} className="grid grid-cols-[minmax(0,7rem)_1fr] gap-x-2">
-              <dt className="truncate text-muted-foreground">{c.label}</dt>
-              <dd className="min-w-0 break-words">
+        <FactList
+          className="mt-1.5"
+          facts={v.changes.map(c => ({
+            key: c.key,
+            label: c.label,
+            value: (
+              <>
                 <span className="text-muted-foreground line-through decoration-muted-foreground/50">{show(c.before)}</span>
                 <span className="mx-1 text-muted-foreground" aria-hidden>→</span>
                 <span className="text-foreground">{show(c.after)}</span>
-              </dd>
-            </div>
-          ))}
-        </dl>
+              </>
+            ),
+          }))}
+        />
       )}
       {v.drift.length > 0 && (
         <p className="mt-1 text-[11px] text-muted-foreground">

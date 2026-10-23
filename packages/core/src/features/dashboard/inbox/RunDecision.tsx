@@ -4,6 +4,7 @@ import type { InboxRefKind } from '@/services/inbox/inboxRef';
 import { ArrowLeft, ArrowUpRight, Play, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { FactList } from '@/components/patterns';
 import { Notice } from '@/components/ui/notice';
 import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
@@ -114,14 +115,11 @@ export function RunDecision({ run }: { run: RunSummary }) {
       )}
 
       <section className="border-b border-rule py-6">
-        <dl className="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
-          {run.facts.map(f => (
-            <div key={f.label} className="flex justify-between gap-4 border-b border-rule/60 py-1.5 last:border-0 sm:border-0 sm:py-0">
-              <dt className="text-muted-foreground">{f.label}</dt>
-              <dd className="text-right tabular-nums">{f.value}</dd>
-            </div>
-          ))}
-        </dl>
+        <FactList
+          layout="rows"
+          className="grid gap-x-8 sm:grid-cols-2"
+          facts={run.facts.map((f, i) => ({ label: f.label, value: f.value, key: `${i}-${f.label}` }))}
+        />
         <Link href={run.openHref} className="mt-4 inline-flex items-center gap-1 text-sm font-medium underline decoration-border underline-offset-4 transition hover:decoration-foreground">
           {run.openLabel}
           <ArrowUpRight className="size-3.5" aria-hidden />

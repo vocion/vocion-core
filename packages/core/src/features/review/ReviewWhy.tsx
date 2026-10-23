@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import type { ReviewWhy as ReviewWhyModel } from './reviewSheetModel';
 import { ChevronRight, Sparkles } from 'lucide-react';
 import { useSyncExternalStore } from 'react';
+import { FactList } from '@/components/patterns';
 import { cn } from '@/utils/Helpers';
 
 /**
@@ -93,14 +94,11 @@ export function ReviewWhy({ why, children }: { why: ReviewWhyModel; children?: R
       <div hidden={!open} data-testid="review-why-body" className="pb-5">
         {why.reason && <p className="max-w-3xl text-[15px] leading-relaxed break-words text-foreground/90">{why.reason}</p>}
         {why.facts.length > 0 && (
-          <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-[12px] text-muted-foreground tabular-nums">
-            {why.facts.map(f => (
-              <div key={f.label} className="flex gap-1.5">
-                <dt>{f.label}</dt>
-                <dd className="text-foreground/80">{f.value}</dd>
-              </div>
-            ))}
-          </dl>
+          <FactList
+            layout="inline"
+            className="mt-3 gap-x-6 gap-y-1 tabular-nums"
+            facts={why.facts.map(f => ({ key: f.label, label: f.label, value: f.value }))}
+          />
         )}
         {children}
       </div>

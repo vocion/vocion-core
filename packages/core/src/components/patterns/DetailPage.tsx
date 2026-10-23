@@ -352,6 +352,11 @@ export type Fact = {
   href?: string;
   key?: string;
   /**
+   * Names the row as a region of the page, so a version that changed it can
+   * mark it (`versions/VersionWatch`, `data-version-section`).
+   */
+  region?: string;
+  /**
    * The record the row names, when the preview pane can show it: the row
    * then carries an "Open in preview" action at its right end
    * (`OpenInPreview`), revealed on hover, always there on touch. The value's
@@ -364,6 +369,8 @@ export type Fact = {
  * FactList — label/value pairs. `rows`: label left in a fixed column, value
  * right, hairlines between (the content column). `column`: label over value,
  * stacked (the right column, where there is no width for two columns).
+ * `inline`: label over value, the pairs wrapping along one line (a meta row
+ * under a title, a short strip of readings).
  * @param props
  * @param props.facts
  * @param props.layout
@@ -372,7 +379,7 @@ export type Fact = {
 /** Anything falsy is skipped, so `cond && { label, value }` reads naturally. */
 export type Maybe<T> = T | null | undefined | false | '' | 0;
 
-export function FactList(props: { facts: ReadonlyArray<Maybe<Fact>>; layout?: 'rows' | 'column'; className?: string }) {
+export function FactList(props: { 'facts': ReadonlyArray<Maybe<Fact>>; 'layout'?: 'rows' | 'column' | 'inline'; 'className'?: string; 'data-testid'?: string }) {
   const facts = props.facts.filter((f): f is Fact => Boolean(f));
   if (facts.length === 0) {
     return null;
@@ -380,11 +387,23 @@ export function FactList(props: { facts: ReadonlyArray<Maybe<Fact>>; layout?: 'r
   const value = (f: Fact) => f.href
     ? <a href={f.href} target="_blank" rel="noopener noreferrer" className="underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground">{f.value}</a>
     : f.value;
+  if (props.layout === 'inline') {
+    return (
+      <dl data-pattern="fact-list" data-testid={props['data-testid']} className={cn('flex flex-wrap gap-x-8 gap-y-3', props.className)}>
+        {facts.map((f, i) => (
+          <div key={f.key ?? (typeof f.label === 'string' ? f.label : i)} className="min-w-0" data-fact={f.key} data-version-section={f.region}>
+            <dt className="text-[12px] text-muted-foreground">{f.label}</dt>
+            <dd className="mt-0.5 text-sm break-words text-foreground">{value(f)}</dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
   if (props.layout === 'column') {
     return (
-      <dl data-pattern="fact-list" className={cn('flex flex-col gap-2.5', props.className)}>
+      <dl data-pattern="fact-list" data-testid={props['data-testid']} className={cn('flex flex-col gap-2.5', props.className)}>
         {facts.map((f, i) => (
-          <div key={f.key ?? (typeof f.label === 'string' ? f.label : i)} className="group/row" data-fact={f.key}>
+          <div key={f.key ?? (typeof f.label === 'string' ? f.label : i)} className="group/row" data-fact={f.key} data-version-section={f.region}>
             <dt className="text-[12px] text-muted-foreground">{f.label}</dt>
             <dd className="flex items-start gap-2 text-sm break-words text-foreground">
               <span className="min-w-0 flex-1">{value(f)}</span>
@@ -396,11 +415,11 @@ export function FactList(props: { facts: ReadonlyArray<Maybe<Fact>>; layout?: 'r
     );
   }
   return (
-    <dl data-pattern="fact-list" className={cn('divide-y divide-rule', props.className)}>
+    <dl data-pattern="fact-list" data-testid={props['data-testid']} className={cn('divide-y divide-rule', props.className)}>
       {facts.map((f, i) => (
         // On a phone the label sits above its value, so the value gets the
         // whole width instead of wrapping in a narrow column (Chris, 2026-10-02).
-        <div key={f.key ?? (typeof f.label === 'string' ? f.label : i)} className="group/row grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-0.5 py-2 text-sm sm:flex sm:gap-4" data-fact={f.key}>
+        <div key={f.key ?? (typeof f.label === 'string' ? f.label : i)} className="group/row grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-0.5 py-2 text-sm sm:flex sm:gap-4" data-fact={f.key} data-version-section={f.region}>
           <dt className="col-span-2 text-[12px] leading-5 text-muted-foreground sm:w-32 sm:shrink-0">{f.label}</dt>
           <dd className="min-w-0 break-words text-foreground tabular-nums sm:flex-1">{value(f)}</dd>
           {f.preview && <OpenInPreview recordRef={f.preview} className="-my-0.5" />}
