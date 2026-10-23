@@ -506,7 +506,8 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
         {!props.compact && recordRef.type === 'artifact' && /^\d+$/.test(recordRef.id) && (
           <SharePicker artifactId={Number(recordRef.id)} title={shown.title} dashboardHref={shown.href ?? `/dashboard/artifacts/${recordRef.id}`} />
         )}
-        {!props.compact && (
+        {/* The work is the conversation's own, so "chat about it" would open a thread about this thread. */}
+        {!props.compact && !shown.work && (
           <button type="button" onClick={discuss} data-testid="preview-discuss" aria-label={`Chat about ${shown.title}`} title="Chat about this" className={iconButton}>
             <MessageSquareText className="size-4" aria-hidden />
           </button>
