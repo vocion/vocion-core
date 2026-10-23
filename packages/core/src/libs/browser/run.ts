@@ -52,6 +52,10 @@ export type BrowserWaiting = {
   kind: 'approval' | 'question';
   /** What the browser wants to do, or what it asks. */
   text: string;
+  /** A routine's escalation: a rule sent it to the routine's expert. */
+  escalation?: boolean;
+  /** For a question: the answers offered, recommended first. */
+  options?: string[];
   /** For an approval: the step it will take when approved. */
   step?: string;
   /** A screenshot of the page as it stood when it stopped. */
@@ -126,7 +130,7 @@ export const SECRET_MASK = '••••';
  * submit, send, pay, delete. Enforced by the engine, outside the model, so a
  * page that talks the model into "click Pay" still stops here.
  */
-const CONSEQUENTIAL = /\b(?:submit|send|pay|pay now|purchase|buy|place order|checkout|check out|confirm|delete|remove|transfer|publish|post|approve|save|update|sign contract)\b/i;
+const CONSEQUENTIAL = /\b(?:submit|send|pay|pay now|purchase|buy|place order|checkout|check out|confirm|delete|remove|transfer|publish|post|approve|save|update|sign contract|launch|activate|deactivate|enroll|invite|create|add user|add users|add member|archive)\b/i;
 
 /**
  * Whether a step on this element needs the person's approval first: a button

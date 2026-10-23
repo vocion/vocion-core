@@ -101,6 +101,18 @@ export function turnFollowups(runs: readonly TurnToolStep[] | undefined, opts: {
     if (r.type !== 'tool' || r.state === 'error' || typeof r.output !== 'string') {
       continue;
     }
+    // A routine a tool taught or changed, or a batch of its runs it started: its JSON names them
+    // (`"routineBatchId"`, `"routineId"`), whichever tool said so.
+    const routineBatch = /"routineBatchId"\s*:\s*(\d+)/.exec(r.output)?.[1];
+    const routine = /"routineId"\s*:\s*(\d+)/.exec(r.output)?.[1];
+    if (routineBatch || routine) {
+      if (routineBatch) {
+        push({ label: `Routine batch ${routineBatch}`, href: `/dashboard/routines/batches/${routineBatch}`, ref: { type: 'routine_batch', id: routineBatch } });
+      } else if (routine) {
+        push({ label: `Routine #${routine}`, href: `/dashboard/routines/${routine}`, ref: { type: 'routine', id: routine } });
+      }
+      continue;
+    }
     if (r.name === 'propose_action') {
       const result = proposeResultOf(r.output);
       const actionId = typeof r.input?.action_id === 'string' ? r.input.action_id : '';

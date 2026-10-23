@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { Activity, AlertTriangle, BarChart, BarChart3, BookOpen, Bot, Box, Bug, Building2, Calculator, Calendar, CircleHelp, Coins, Compass, Cpu, Database, Ear, FileClock, FileDiff, FileText, FolderOpen, Gauge, GitBranch, Globe, Hammer, Handshake, Inbox, Layers, LayoutDashboard, LifeBuoy, Lightbulb, LineChart, ListChecks, Mail, Megaphone, Package, PackageCheck, Palette, PanelsTopLeft, PenLine, PenTool, Puzzle, Radar, Radio, Receipt, Rocket, Route, Search, Send, Server, Settings, Shapes, Share2, Shield, ShieldCheck, Siren, Sparkles, Swords, Tags, Target, TrendingUp, UserCheck, Users, Video, Wand, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart, BarChart3, BookOpen, Bot, Box, Bug, Building2, Calculator, Calendar, CircleHelp, Coins, Compass, Cpu, Database, Ear, FileClock, FileDiff, FileText, FolderOpen, Gauge, GitBranch, Globe, Hammer, Handshake, Inbox, Layers, LayoutDashboard, LifeBuoy, Lightbulb, LineChart, ListChecks, Mail, Megaphone, Package, PackageCheck, Palette, PanelsTopLeft, PenLine, PenTool, Puzzle, Radar, Radio, Receipt, Repeat, Rocket, Route, Search, Send, Server, Settings, Shapes, Share2, Shield, ShieldCheck, Siren, Sparkles, Swords, Tags, Target, TrendingUp, UserCheck, Users, Video, Wand, Zap } from 'lucide-react';
 
 /**
  * lucide icon NAMES a workspace row may carry — a plugin, a page, a product,
@@ -54,6 +54,7 @@ export const ICONS_BY_NAME: Record<string, LucideIcon> = {
   'radar': Radar,
   'radio': Radio,
   'receipt': Receipt,
+  'repeat': Repeat,
   'rocket': Rocket,
   'route': Route,
   'search': Search,

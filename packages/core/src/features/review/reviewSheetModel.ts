@@ -69,6 +69,9 @@ export function consequenceOf(actionId: string, input: Record<string, unknown>, 
   if (actionId === 'hubspot.update') {
     return 'Approving writes these values to the CRM.';
   }
+  if (actionId === 'hubspot.create') {
+    return 'Approving creates this record in the CRM.';
+  }
   if (actionId === 'personalization.enroll') {
     return 'Approving enrolls the contact and starts the sequence.';
   }

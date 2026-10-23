@@ -55,6 +55,7 @@
  * |---|---|
  * | `Northwind` | customer with a live retainer deal in the revenue pipeline |
  * | `Fernhill Supply` | supplier whose portal has no API: the browser runs' practice site |
+ * | `Lumen Awareness` | security-awareness-training vendor whose console has no API: the browser runs' second practice site, where `Larkfield Logistics` (ACC-2291) adds users and enrolls them in campaigns (`practiceConsole.ts`) |
  * | `Kestrel Capital` (contact `Dana Reyes`) | investor / referral source / sponsor account |
  * | `Radley Manufacturing` | manufacturing client whose photo kits go through vision QC |
  * | `Larkfield Systems` | the fictional client tenant that runs its own parent deployment |

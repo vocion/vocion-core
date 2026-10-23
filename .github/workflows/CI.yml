@@ -68,9 +68,14 @@ jobs:
       # the build peaked at 10,760 MB when the budget was set (#1300); the
       # budget leaves about 7%. Raise it deliberately, with a reason, after
       # looking for what grew.
+      # 11500 → 11750 (v6, Routines, #1376): main peaked at 11,445 MB; the
+      # Routines plugin added 290 MB, cut to 157 MB by serving every Routines
+      # page from one catch-all route and reading the live picture without the
+      # browser engine (liveFrames.ts). What is left is the feature's own
+      # modules (~8.7k lines). Vocion's image builds on CodeBuild XLARGE.
       - name: Build memory
         env:
-          BUILD_PEAK_RSS_BUDGET_MB: '11500'
+          BUILD_PEAK_RSS_BUDGET_MB: '11750'
         run: |
           set -euo pipefail
           peak_mb=$(( $(awk -F': ' '/Maximum resident set size/{print $2}' "$RUNNER_TEMP/build-time.txt") / 1024 ))

@@ -4,7 +4,7 @@ import type { PreviewFailure } from './previewFetch';
 import type { PreviewDoc } from '@/libs/preview/types';
 import type { RunStep } from '@/libs/worker/runLog';
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
-import { ArrowLeft, Bot, ExternalLink, FileText, History, Inbox, ListTree, MessageSquareText, Newspaper, Play, Rocket, RotateCw, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
+import { ArrowLeft, Bot, ExternalLink, FileText, History, Inbox, LayoutGrid, ListTree, MessageSquareText, Newspaper, Play, Repeat, Rocket, RotateCw, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -20,6 +20,8 @@ import { RunGlanceView } from '@/features/dashboard/factory/RunGlanceView';
 import { LiveWorkStatus } from '@/features/dashboard/factory/WorkStatus';
 import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
 import { useVersionRefresh } from '@/features/dashboard/versions/VersionWatch';
+import { RoutineBatchView } from '@/features/routines/RoutineBatchView';
+import { RoutineView } from '@/features/routines/RoutineView';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { describeRef } from '@/libs/preview/describeRef';
@@ -65,6 +67,8 @@ const RECORD_ICON: Partial<Record<RecordType, typeof FileText>> = {
   mission: Target,
   mission_run: Rocket,
   worker_run: Play,
+  routine: Repeat,
+  routine_batch: LayoutGrid,
   lead: User,
   conversation: MessageSquareText,
   record_history: History,
@@ -247,6 +251,21 @@ function Body(props: { doc: PreviewDoc }) {
     return (
       <div className="px-4 py-3">
         <BrowserRunView key={doc.browserRun.id} initial={doc.browserRun} compact />
+      </div>
+    );
+  }
+  // A routine and a batch of its runs draw as their pages do, compact: one view, two densities.
+  if (doc.routine) {
+    return (
+      <div className="px-4 py-3">
+        <RoutineView key={doc.routine.routine.id} initial={doc.routine.routine} batches={doc.routine.batches} compact />
+      </div>
+    );
+  }
+  if (doc.routineBatch) {
+    return (
+      <div className="px-4 py-3">
+        <RoutineBatchView key={doc.routineBatch.id} initial={doc.routineBatch} compact />
       </div>
     );
   }

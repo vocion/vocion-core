@@ -15,3 +15,13 @@ describe('a secret input', () => {
     expect(maskSecrets('textbox "Password": fixture-pass-42', secrets)).toBe('textbox "Password": {{password}}');
   });
 });
+
+describe('goingInCircles', () => {
+  it('sees two pages visited in turn three times', async () => {
+    const { goingInCircles } = await import('./browserLoop');
+
+    expect(goingInCircles(['click:/users', 'click:/users/new', 'click:/users', 'click:/users/new', 'click:/users', 'click:/users/new'])).toBe(true);
+    expect(goingInCircles(['click:/users', 'click:/users/new', 'type:/users/new', 'click:/users/new', 'click:/users', 'click:/users/new'])).toBe(false);
+    expect(goingInCircles(['open:/a', 'open:/a', 'open:/a', 'open:/a', 'open:/a', 'open:/a'])).toBe(false);
+  });
+});

@@ -1230,7 +1230,7 @@ export type TeamKpi = {
 export type TeamMeasureSource
   = | { kind: 'verified'; connector: 'hubspot'; query: { object: 'deals' | 'contacts' | 'companies'; filter: { dealStages?: string[]; pipelines?: string[]; dealStatus?: 'open' | 'closed'; lifecycleStages?: string[]; industries?: string[]; ownerIds?: string[] }; aggregate: string; dateField?: 'createdAt' | 'mqlEnteredAt' | 'sqlEnteredAt' | 'opportunityEnteredAt' | 'customerEnteredAt' | 'closeDate' } }
     | { kind: 'verified'; connector: 'web-analytics'; query: { metric: 'sessions' | 'users' | 'conversions' | 'signups'; filter: { pathPrefix?: string; channel?: string; event?: string } } }
-    | { kind: 'observed'; actions?: string[]; counts?: string; rows?: 'workspace-members' | 'artifacts' | 'data-rooms' | 'data-room-sources'; where?: { kind?: string; folder?: string; playbook?: string; verified?: boolean } }
+    | { kind: 'observed'; actions?: string[]; counts?: string; rows?: 'workspace-members' | 'artifacts' | 'data-rooms' | 'data-room-sources' | 'routine-runs'; where?: { kind?: string; folder?: string; playbook?: string; verified?: boolean } }
     | { kind: 'human-confirmed'; actions?: string[]; askKinds?: string[] }
     | { kind: 'agent-reported'; counts: string };
 
@@ -5620,6 +5620,11 @@ export const browserRunSchema = pgTable(
     /** `person` (they asked for it) or `agent:<slug>` (suggested, started by the person's click). */
     proposedBy: text('proposed_by').notNull(),
     microCents: bigint('micro_cents', { mode: 'number' }).default(0).notNull(),
+    /**
+     * A run of a routine (migration 0211): it runs in a browser of its own, beside the routine's
+     * other runs, under the routine's version and trust level (`services/routines/`).
+     */
+    routineRunId: integer('routine_run_id'),
     startedAt: timestamp('started_at', { mode: 'date' }),
     endedAt: timestamp('ended_at', { mode: 'date' }),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
@@ -5627,5 +5632,134 @@ export const browserRunSchema = pgTable(
   },
   table => [
     index('browser_run_org_user_status_idx').on(table.orgId, table.userId, table.status),
+  ],
+);
+
+/**
+ * A ROUTINE (`services/routines/RoutineService.ts`, migration 0211): repeatable
+ * work a specialist taught once from a recording, that Vocion runs in a
+ * browser, escalates to its named expert when a rule says so, and improves
+ * from every correction. `libs/routines/types.ts` is the shape every surface
+ * reads.
+ */
+export const routineSchema = pgTable(
+  'routine',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    status: text('status').$type<import('@/libs/routines/types').RoutineStatus>().default('teaching').notNull(),
+    trust: text('trust').$type<import('@/libs/routines/types').RoutineTrust>().default('drafted').notNull(),
+    /** The person responsible for its exceptions: escalations and held steps go to them. */
+    expertUserId: text('expert_user_id'),
+    /** Where it was taught from. */
+    source: jsonb('source').$type<import('@/libs/routines/types').RoutineSource>(),
+    /** A teaching session in progress: waiting for the recording, reading it, drafting. Null once drafted. */
+    teaching: jsonb('teaching').$type<import('@/libs/routines/types').RoutineTeaching & { note?: string | null; userId: string }>(),
+    /** Teaching failed: why. */
+    error: text('error'),
+    /** Inputs every run shares, saved by the expert (migration 0212): names in the clear, values sealed. */
+    savedInputs: jsonb('saved_inputs').$type<{ names: string[]; sealed: import('@/libs/crypto/credentialVault').EncryptResult }>(),
+    createdBy: text('created_by').notNull(),
+    conversationId: integer('conversation_id'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('routine_org_slug_uq').on(table.orgId, table.slug),
+  ],
+);
+
+/** One version of a routine: the spec its expert approves, compiled into what every run is told. */
+export const routineVersionSchema = pgTable(
+  'routine_version',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+    routineId: integer('routine_id').notNull().references(() => routineSchema.id, { onDelete: 'cascade' }),
+    n: integer('n').notNull(),
+    status: text('status').$type<import('@/libs/routines/types').RoutineVersionStatus>().default('draft').notNull(),
+    /** json, not jsonb: the steps keep the order the analyst wrote them in. */
+    spec: json('spec').$type<import('@/libs/routines/types').RoutineSpec>().notNull(),
+    task: text('task').notNull(),
+    workflowYaml: text('workflow_yaml').notNull(),
+    change: text('change'),
+    approvedBy: text('approved_by'),
+    approvedAt: timestamp('approved_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('routine_version_routine_n_uq').on(table.routineId, table.n),
+  ],
+);
+
+/** One request to run a routine for many rows. */
+export const routineBatchSchema = pgTable(
+  'routine_batch',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+    routineId: integer('routine_id').notNull().references(() => routineSchema.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    requestedBy: text('requested_by').notNull(),
+    conversationId: integer('conversation_id'),
+    status: text('status').$type<'running' | 'done'>().default('running').notNull(),
+    /** Inputs every row shares (the campaign, the sign-in email). */
+    shared: jsonb('shared').$type<Record<string, string>>().default({}).notNull(),
+    /** The batch's secret inputs (the sign-in password), sealed under the workspace's key. */
+    secrets: jsonb('secrets').$type<import('@/libs/crypto/credentialVault').EncryptResult>(),
+    /** What the batch found beyond its rows, and the decisions it put to the expert. */
+    findings: json('findings').$type<import('@/libs/routines/types').RoutineFinding[]>().default([]).notNull(),
+    /** A change a finding's answer asked for: its own task and writes, under the same routine. */
+    followUp: jsonb('follow_up').$type<{ parentBatchId: number; findingId: string; task: string; writes: import('@/libs/routines/types').RoutineWrite[]; outputs: import('@/libs/routines/types').RoutineOutputSpec[]; approvedBy: string }>(),
+    reportArtifactId: integer('report_artifact_id'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    endedAt: timestamp('ended_at', { mode: 'date' }),
+  },
+  table => [
+    index('routine_batch_org_routine_idx').on(table.orgId, table.routineId),
+  ],
+);
+
+/** One run of a routine, for one input row: its browser run, what it waits on, and its receipt. */
+export const routineRunSchema = pgTable(
+  'routine_run',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+    routineId: integer('routine_id').notNull().references(() => routineSchema.id, { onDelete: 'cascade' }),
+    batchId: integer('batch_id').notNull().references(() => routineBatchSchema.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    n: integer('n').notNull(),
+    label: text('label').notNull(),
+    status: text('status').$type<import('@/libs/routines/types').RoutineRunStatus>().default('queued').notNull(),
+    /** The row's plain inputs. A secret's value is never here. */
+    input: jsonb('input').$type<Record<string, string>>().default({}).notNull(),
+    /** The row's secret inputs, sealed under the workspace's key until its browser run takes them. */
+    secrets: jsonb('secrets').$type<import('@/libs/crypto/credentialVault').EncryptResult>(),
+    /** The dedupe ledger: the routine's key inputs, joined. */
+    idemKey: text('idem_key'),
+    /** A run with its own task instead of the version's: a reconciliation, a follow-up. */
+    task: text('task'),
+    outputs: jsonb('outputs').$type<import('@/libs/routines/types').RoutineOutputSpec[]>(),
+    browserRunId: integer('browser_run_id'),
+    waiting: jsonb('waiting').$type<NonNullable<import('@/libs/routines/types').RoutineRunView['waiting']> & { at: string; answer?: { kind: 'approve' } | { kind: 'deny'; note?: string } | { kind: 'answer'; text: string } }>(),
+    /** The Needs you item it waits on, when one. */
+    askId: integer('ask_id'),
+    receipt: json('receipt').$type<import('@/libs/routines/types').RoutineReceipt>(),
+    summary: text('summary'),
+    error: text('error'),
+    humanMs: bigint('human_ms', { mode: 'number' }).default(0).notNull(),
+    startedAt: timestamp('started_at', { mode: 'date' }),
+    endedAt: timestamp('ended_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('routine_run_batch_idx').on(table.batchId),
+    index('routine_run_org_status_idx').on(table.orgId, table.status),
+    index('routine_run_ledger_idx').on(table.orgId, table.routineId, table.idemKey),
   ],
 );

@@ -5,8 +5,8 @@
  *
  * Slate ingests nothing into Vocion. What registering it buys is everything
  * around the token: a Slate tile on Connections, a place in the encrypted
- * vault, and — through `inspect` — a Test connection that says whose account
- * the token is. The factory's recordings stay in Vocion's media store and
+ * vault, a Test connection (`inspect`) that says whose account the token is,
+ * and the credential Routines read a recording with (`libs/slate/recording.ts`). The factory's recordings stay in Vocion's media store and
  * play in Vocion's own player, with or without Slate connected.
  */
 
@@ -56,7 +56,7 @@ export async function inspectSlate(input: { config: Record<string, unknown>; cre
 export const slateConnector: SourceConnector<typeof slateConfigSchema> = {
   slug: 'slate',
   name: 'Slate',
-  description: 'Screen recordings with a player, transcript and sharing. Connecting keeps the account\'s session token in the workspace vault and verifies it; nothing is synced.',
+  description: 'Screen recordings with a player, transcript and sharing. Connecting keeps the account\'s session token in the workspace vault and verifies it; routines read a recording you hand them (transcript, what was on screen, frames) through it. Nothing is synced.',
   icon: 'Video',
   category: 'chat-meetings',
   brand: 'slate',

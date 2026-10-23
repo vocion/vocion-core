@@ -88,4 +88,14 @@ describe('what a turn set moving, to watch (Chris, 2026-09-29, request #201)', (
       { type: 'tool', name: 'web_search', output: done },
     ])).toEqual([12]);
   });
+
+  it('a routine a tool taught, and the batch it started, are chips from their JSON whatever the tool', () => {
+    expect(turnFollowups([
+      { type: 'tool', name: 'teach_routine', output: '{"routineId":7,"status":"teaching"}' },
+      { type: 'tool', name: 'run_routine', output: '{"routineId":7,"routineBatchId":3,"total":20}' },
+    ]).map(f => [f.label, f.ref.type, f.ref.id])).toEqual([
+      ['Routine #7', 'routine', '7'],
+      ['Routine batch 3', 'routine_batch', '3'],
+    ]);
+  });
 });
