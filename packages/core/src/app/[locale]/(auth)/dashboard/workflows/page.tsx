@@ -1,11 +1,10 @@
 import { Compass, GitBranch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
+import { ListPage, ListRow, ListRows, Stat, StatRow, Subline } from '@/components/patterns';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
-import { TitleBar } from '@/features/dashboard/TitleBar';
 import { TriggerBadge } from '@/features/dashboard/TriggerBadge';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { Link } from '@/libs/I18nNavigation';
 import { listAgents } from '@/services/AgentService';
 import { listWorkflows } from '@/services/WorkflowService';
 import { isEntityStatus } from '@/types/Status';
@@ -23,17 +22,17 @@ export default async function WorkflowsPage(props: {
   const active = workflows.filter(w => w.status === 'active');
 
   return (
-    <>
-      <TitleBar
-        title="Workflows"
-        description="Repeatable work in set steps, with a person's approval where it matters."
-      />
-
-      <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4">
-        <Stat label="Total" value={workflows.length} />
-        <Stat label="Active" value={active.length} />
-        <Stat label="Inactive" value={workflows.length - active.length} />
-      </div>
+    <ListPage
+      title="Workflows"
+      description="Repeatable work in set steps, with a person's approval where it matters."
+    >
+      {workflows.length > 0 && (
+        <StatRow className="mb-6 grid-cols-3">
+          <Stat label="Total" value={workflows.length} />
+          <Stat label="Active" value={active.length} />
+          <Stat label="Inactive" value={workflows.length - active.length} />
+        </StatRow>
+      )}
 
       {workflows.length === 0
         ? (
@@ -55,54 +54,41 @@ export default async function WorkflowsPage(props: {
             />
           )
         : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <ListRows>
               {workflows.map((w) => {
                 const steps = Array.isArray(w.steps) ? w.steps.length : 0;
+                const owner = w.ownerAgentSlug
+                  ? (
+                      <span className="inline-flex items-center gap-1" title="Owning agent">
+                        <Compass className="size-3" />
+                        {agentNameBySlug.get(w.ownerAgentSlug) ?? w.ownerAgentSlug}
+                      </span>
+                    )
+                  : null;
                 return (
-                  <Link
+                  <ListRow
                     key={w.id}
                     href={`/dashboard/workflows/${w.slug}`}
-                    className="rounded-lg border border-border bg-background p-4 transition hover:bg-surface-hover"
-                  >
-                    <div className="mb-2 flex items-center gap-2">
-                      <GitBranch className="size-4 text-primary" />
-                      <span className="text-sm font-medium">{w.name}</span>
-                      <span className="ml-auto">
-                        <StatusPill status={w.status && isEntityStatus(w.status) ? w.status : 'inactive'} />
-                      </span>
-                    </div>
-                    <div className="mb-2 font-mono text-[11px] text-muted-foreground">{w.slug}</div>
-                    {w.description && <p className="text-xs leading-relaxed text-muted-foreground">{w.description}</p>}
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                      <TriggerBadge trigger={w.trigger} />
-                      <span>
-                        {steps}
-                        {' '}
-                        {steps === 1 ? 'step' : 'steps'}
-                        {' · v'}
-                        {w.version ?? 1}
-                      </span>
-                      {w.ownerAgentSlug && (
-                        <span className="inline-flex items-center gap-1" title="Owning agent">
-                          <Compass className="size-3" />
-                          {agentNameBySlug.get(w.ownerAgentSlug) ?? w.ownerAgentSlug}
-                        </span>
-                      )}
-                    </div>
-                  </Link>
+                    icon={GitBranch}
+                    title={w.name}
+                    subline={(
+                      <Subline
+                        separator="·"
+                        segments={[
+                          <span key="slug" className="font-mono">{w.slug}</span>,
+                          w.description,
+                          <TriggerBadge key="trigger" trigger={w.trigger} />,
+                          `${steps} ${steps === 1 ? 'step' : 'steps'} · v${w.version ?? 1}`,
+                          owner,
+                        ]}
+                      />
+                    )}
+                    chip={<StatusPill status={w.status && isEntityStatus(w.status) ? w.status : 'inactive'} />}
+                  />
                 );
               })}
-            </div>
+            </ListRows>
           )}
-    </>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-border p-3 text-center">
-      <div className="text-xl font-bold">{value}</div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-    </div>
+    </ListPage>
   );
 }

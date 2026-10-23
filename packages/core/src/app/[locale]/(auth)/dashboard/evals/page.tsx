@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
-import { ArrowRight, Search, TestTube } from 'lucide-react';
+import { Search, TestTube } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { ListPage, ListRow, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { TitleBar } from '@/features/dashboard/TitleBar';
 import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { formatPassRate } from '@/libs/evals/formatPassRate';
@@ -53,12 +53,10 @@ export default async function EvalsPage(props: Props) {
   const searching = search.length > 0;
 
   return (
-    <>
-      <TitleBar
-        title="Evals"
-        description="Checks that an agent still does its job, run on demand or on a schedule, with every run kept."
-      />
-
+    <ListPage
+      title="Evals"
+      description="Checks that an agent still does its job, run on demand or on a schedule, with every run kept."
+    >
       <form action="/dashboard/evals" className="mb-4 flex items-center gap-2">
         <div className="relative min-w-0 flex-1 sm:flex-none">
           <Search className="pointer-events-none absolute top-2.5 left-2.5 size-3.5 text-muted-foreground" aria-hidden />
@@ -114,7 +112,7 @@ export default async function EvalsPage(props: Props) {
           )
         : (
             <>
-              <ul aria-label="Eval datasets" className="grid gap-3 sm:grid-cols-2">
+              <ul aria-label="Eval datasets" data-pattern="list-rows" className="divide-y divide-border/70">
                 {datasets.map((dataset) => {
                   const facts = runFacts.get(dataset.id);
                   // Answers "is this measured recently enough to trust?"
@@ -128,53 +126,57 @@ export default async function EvalsPage(props: Props) {
                   const grader = dataset.provider;
                   return (
                     <li key={dataset.id}>
-                      <Link
+                      <ListRow
                         href={`/dashboard/evals/${dataset.slug}`}
-                        className="block rounded-xl border border-border bg-background p-5 transition hover:border-primary/30"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <h3 className="truncate text-base font-semibold">{dataset.name}</h3>
-                            <code className="font-mono text-xs text-muted-foreground">{dataset.slug}</code>
-                          </div>
-                          <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
-                        </div>
-                        {dataset.description && (
-                          <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{dataset.description}</p>
-                        )}
-                        <dl className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-                          <Fact label="Agent" value={dataset.agentSlug} mono />
-                          <Fact label="Cases" value={String(dataset.items.length)} mono />
-                          <Fact label="Runs" value={String(facts?.runCount ?? 0)} mono />
-                          <Fact
-                            label="Pass rate"
-                            value={typeof passRate === 'number' ? formatPassRate(passRate) : 'not scored yet'}
-                            mono={typeof passRate === 'number'}
-                            tone={typeof passRate === 'number' && passRate < passThresholdFor(dataset.passThreshold) ? 'warn' : undefined}
-                          />
-                          <Fact
-                            label="Last run"
-                            value={lastRun.text}
-                            title={lastRun.exactTime ?? undefined}
-                            tone={lastRun.warning ? 'warn' : undefined}
-                          />
-                          <div>
-                            <dt className="text-[10px] tracking-wide text-muted-foreground/70 uppercase">Graded by</dt>
+                        title={dataset.name}
+                        subline={(
+                          <>
+                            <Subline
+                              separator="·"
+                              segments={[<code key="slug" className="font-mono text-xs">{dataset.slug}</code>, dataset.description]}
+                            />
                             {/*
-                              A plain badge with a native tooltip, not the hover
-                              card the dataset page uses: the whole card is one
-                              link, and a focusable tooltip trigger inside a link
-                              is a keyboard trap for the sake of a sentence that
-                              page already carries.
+                              Labelled facts, wrapping to two lines rather than
+                              clipping: a number without its label is not a fact.
+                              A plain badge with a native tooltip for the grader,
+                              not the hover card the dataset page uses: the whole
+                              row is one link, and a focusable tooltip trigger
+                              inside a link is a keyboard trap for the sake of a
+                              sentence that page already carries.
                             */}
-                            <dd className="mt-0.5">
-                              <Badge variant="outline" title={describeProvider(grader).explanation}>
-                                {describeProvider(grader).label}
-                              </Badge>
-                            </dd>
-                          </div>
-                        </dl>
-                      </Link>
+                            <Subline
+                              separator="·"
+                              className="sm:line-clamp-2"
+                              segments={[
+                                <Fact key="agent" label="Agent" value={dataset.agentSlug} mono />,
+                                <Fact key="cases" label="Cases" value={String(dataset.items.length)} mono />,
+                                <Fact key="runs" label="Runs" value={String(facts?.runCount ?? 0)} mono />,
+                                <Fact
+                                  key="pass"
+                                  label="Pass rate"
+                                  value={typeof passRate === 'number' ? formatPassRate(passRate) : 'not scored yet'}
+                                  mono={typeof passRate === 'number'}
+                                  tone={typeof passRate === 'number' && passRate < passThresholdFor(dataset.passThreshold) ? 'warn' : undefined}
+                                />,
+                                <Fact
+                                  key="last"
+                                  label="Last run"
+                                  value={lastRun.text}
+                                  title={lastRun.exactTime ?? undefined}
+                                  tone={lastRun.warning ? 'warn' : undefined}
+                                />,
+                                <span key="grader">
+                                  <span className="text-[10px] tracking-wide text-muted-foreground/70 uppercase">Graded by</span>
+                                  {' '}
+                                  <Badge variant="outline" title={describeProvider(grader).explanation}>
+                                    {describeProvider(grader).label}
+                                  </Badge>
+                                </span>,
+                              ]}
+                            />
+                          </>
+                        )}
+                      />
                     </li>
                   );
                 })}
@@ -184,7 +186,7 @@ export default async function EvalsPage(props: Props) {
               )}
             </>
           )}
-    </>
+    </ListPage>
   );
 }
 
@@ -203,18 +205,13 @@ export default async function EvalsPage(props: Props) {
  */
 function Fact(props: { label: string; value: string; mono?: boolean; tone?: 'warn'; title?: string }) {
   return (
-    <div title={props.title}>
-      <dt className="text-[10px] tracking-wide text-muted-foreground/70 uppercase">{props.label}</dt>
-      <dd
-        className={[
-          'mt-0.5',
-          props.mono ? 'font-mono' : '',
-          props.tone === 'warn' ? 'text-warn' : 'text-foreground',
-        ].filter(Boolean).join(' ')}
-      >
+    <span title={props.title}>
+      <span className="text-[10px] tracking-wide text-muted-foreground/70 uppercase">{props.label}</span>
+      {' '}
+      <span className={[props.mono ? 'font-mono' : '', props.tone === 'warn' ? 'text-warn' : 'text-foreground'].filter(Boolean).join(' ')}>
         {props.value}
-      </dd>
-    </div>
+      </span>
+    </span>
   );
 }
 
