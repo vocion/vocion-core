@@ -92,7 +92,7 @@ describe('the product overview', () => {
     await draw();
     const measures = document.querySelector('[data-testid="product-measures"]')!;
 
-    expect(measures.querySelector('[data-measure="releases"]')?.textContent).toContain('vs prior 30 days');
+    expect(measures.querySelector('[data-stat="releases"]')?.textContent).toContain('vs prior 30 days');
   });
 
   it('says the decision once under Needs you, and lists the proposal compactly with Build and Dismiss', async () => {

@@ -1,5 +1,6 @@
 import type { MeasureReading } from '@/services/team-report';
 import type { TeamReportTeam } from '@/services/TeamReportService';
+import { Stat, StatRow } from '@/components/patterns';
 import { windowPhrase } from '@/services/team-report';
 import { durationMs, measureValue, pct, usd } from './format';
 import { ProvenanceChip } from './ProvenanceChip';
@@ -20,7 +21,7 @@ export function DimensionStrip({ team, now = new Date() }: { team: TeamReportTea
   const primaryUnit = team.primary?.measure.unit;
   const perUnit = team.primary ? (primaryUnit && primaryUnit !== '$' && primaryUnit !== '%' ? primaryUnit.replace(/s$/, '') : team.primary.measure.label.toLowerCase().replace(/s$/, '')) : 'outcome';
   return (
-    <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-border pt-4 lg:grid-cols-4">
+    <StatRow className="border-b-0 pt-4 pb-0">
       <Cell
         label="Quality"
         declared={team.quality.measure}
@@ -53,7 +54,7 @@ export function DimensionStrip({ team, now = new Date() }: { team: TeamReportTea
           ? (hl.workItems === 0 ? 'No work in the window' : 'no interventions')
           : `decision latency · ${hl.interventions} intervention${hl.interventions === 1 ? '' : 's'}${hl.interventionRate !== null ? ` · ${pct(hl.interventionRate)} needed a person` : ''}`}
       />
-    </dl>
+    </StatRow>
   );
 }
 
@@ -61,31 +62,29 @@ function Cell({ label, declared, value, note, now }: { label: string; declared: 
   if (declared) {
     const m = declared.measure;
     return (
-      <div className="min-w-0">
-        <dt className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{label}</dt>
-        <dd className="mt-0.5 text-lg leading-tight font-semibold tabular-nums">
-          {declared.value === null ? '—' : measureValue(declared.value, m.unit)}
-          <span className="text-sm font-normal text-muted-foreground">
-            {' · target '}
-            {m.direction === 'lower' ? '≤' : '≥'}
-            {measureValue(m.target, m.unit)}
+      <Stat
+        label={label}
+        value={(
+          <>
+            {declared.value === null ? '—' : measureValue(declared.value, m.unit)}
+            <span className="text-sm font-normal text-muted-foreground">
+              {' · target '}
+              {m.direction === 'lower' ? '≤' : '≥'}
+              {measureValue(m.target, m.unit)}
+            </span>
+          </>
+        )}
+        note={(
+          <span className="flex flex-wrap items-center gap-x-2">
+            <span className={declared.met ? 'text-pass' : ''}>
+              {m.label}
+              {declared.met ? ' · on target' : ''}
+            </span>
+            <ProvenanceChip reading={declared} now={now} />
           </span>
-        </dd>
-        <dd className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-          <span className={declared.met ? 'text-pass' : ''}>
-            {m.label}
-            {declared.met ? ' · on target' : ''}
-          </span>
-          <ProvenanceChip reading={declared} now={now} />
-        </dd>
-      </div>
+        )}
+      />
     );
   }
-  return (
-    <div className="min-w-0">
-      <dt className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{label}</dt>
-      <dd className={`mt-0.5 text-lg leading-tight font-semibold tabular-nums ${value === null ? 'text-muted-foreground' : ''}`}>{value ?? '—'}</dd>
-      <dd className="mt-0.5 text-xs text-muted-foreground">{note}</dd>
-    </div>
-  );
+  return <Stat label={label} value={value ?? <span className="text-muted-foreground">—</span>} note={note} />;
 }
