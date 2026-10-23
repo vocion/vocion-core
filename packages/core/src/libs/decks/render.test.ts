@@ -22,7 +22,7 @@ const deck: DeckSpec = {
   order: ['cover', 'crowded', 'parts'],
   slides: {
     cover: `<section id="cover" style="background:#0b1f2a;color:#fff;font-family:sans-serif;display:flex;flex-direction:column;justify-content:center;padding:120px;gap:32px"><h1 style="font-size:96px;margin:0">One record</h1><p style="font-size:36px;margin:0">Every order in one place.</p><img src="asset:logo" style="width:120px;height:120px">${FOOT}<aside>From the 2026-09-12 discovery call.</aside></section>`,
-    crowded: `<section id="crowded" style="background:#fff;font-family:sans-serif;padding:120px"><h2 style="font-size:64px">Too much</h2><p style="font-size:14px">fine print nobody reads</p><div style="position:absolute;left:1700px;top:200px;width:400px;height:100px;background:#c00">wide</div><p style="margin:640px 0 0;font-size:30px">late line</p><img src="asset:missing"></section>`,
+    crowded: `<section id="crowded" style="background:#fff;font-family:sans-serif;padding:120px"><h2 style="font-size:64px">Too much</h2><p style="font-size:14px">fine print nobody reads</p><div style="position:absolute;left:1700px;top:200px;width:400px;height:100px;background:#c00">wide</div><p style="position:absolute;left:128px;top:930px;width:900px;height:120px;font-size:30px">late line</p><img src="asset:missing"></section>`,
     parts: `<section id="parts" style="background:#fafafa;font-family:sans-serif;padding:120px;color:#123"><x-icon name="Lock" style="width:96px;height:96px;color:#1c6d69"></x-icon><x-icon name="Unicorn"></x-icon><x-shape kind="arrow-right" style="width:300px;height:120px;background:#f18700;border:4px solid #123"><span style="font-size:28px">Next</span></x-shape><x-shape kind="hexagon" style="width:100px;height:100px"></x-shape><div style="margin-left:400px"><x-connector x1="200" y1="700" x2="900" y2="900" route="hv" head="both" style="color:#1c6d69;border-width:6px;border-style:dashed"></x-connector></div><aside>Diagram from the Larkfield Systems workshop.</aside></section>`,
   },
   assets: { logo: { url: '/api/artifacts/org-x/org-x-logo.png', contentType: 'image/png' } },
@@ -83,4 +83,30 @@ describe.skipIf(!available.ok)('renderDeck (real Chromium)', () => {
       await close();
     }
   }, 60_000);
+
+  it('a slide means the format\'s defaults: no margins, a bare div is a column, headings carry their sizes', async () => {
+    const lines = Array.from({ length: 14 }, (_, i) => `<p style="font-size:28px">Kestrel Capital line ${i + 1}</p>`).join('');
+    const spec: DeckSpec = {
+      format: 'vocion-deck/1',
+      title: 'Defaults',
+      order: ['dense'],
+      slides: { dense: `<section id="dense" style="background:#fff;padding:128px;gap:8px"><h2>Fits the canvas</h2><div style="gap:4px">${lines}</div><aside>Fictional.</aside></section>` },
+    };
+    const { page, close } = await openDeckPage(spec, { loadAsset });
+    try {
+      const facts = await page.evaluate(() => {
+        const h2 = document.querySelector('section h2')!;
+        const ps = [...document.querySelectorAll('section div p')].map(p => p.getBoundingClientRect());
+        return { h2Size: getComputedStyle(h2).fontSize, h2Margin: getComputedStyle(h2).marginTop, pMargin: getComputedStyle(document.querySelector('section p')!).marginTop, stacked: ps.every((r, i) => i === 0 || r.top > ps[i - 1]!.top), lastBottom: ps.at(-1)!.bottom - document.querySelector('.vocion-slide')!.getBoundingClientRect().top };
+      });
+
+      expect(facts.h2Size).toBe('64px');
+      expect(facts.h2Margin).toBe('0px');
+      expect(facts.pMargin).toBe('0px');
+      expect(facts.stacked).toBe(true);
+      expect(facts.lastBottom).toBeLessThanOrEqual(1080);
+    } finally {
+      await close();
+    }
+  });
 });

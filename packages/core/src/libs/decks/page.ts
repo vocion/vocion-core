@@ -56,6 +56,20 @@ function frameCss(opts: { gap: number; backdrop: string }): string {
     '.vocion-slide:last-child { margin-bottom: 0; break-after: auto; page-break-after: auto }',
     `.vocion-slide > section { position: relative; width: ${SLIDE_WIDTH}px; height: ${SLIDE_HEIGHT}px; margin: 0; overflow: visible }`,
     '.vocion-slide aside { display: none !important }',
+    // The deck format's own defaults (docs/decks.md, "A slide"): what a slide
+    // means when it does not say. Margins are always 0; a section or div with
+    // no display of its own is a column; headings and paragraphs carry their
+    // format sizes, weights and line heights, and headings never inherit a
+    // size or weight. Inline styles win over all of these.
+    '.vocion-slide section, .vocion-slide section * { margin: 0 }',
+    '.vocion-slide section:not([style*="display"]), .vocion-slide section div:not([style*="display"]) { display: flex; flex-direction: column }',
+    '.vocion-slide section { font-size: 32px; line-height: 1.4 }',
+    '.vocion-slide section h1 { font-size: 96px; font-weight: 600; line-height: 1.1 }',
+    '.vocion-slide section h2 { font-size: 64px; font-weight: 600; line-height: 1.15 }',
+    '.vocion-slide section h3 { font-size: 44px; font-weight: 600; line-height: 1.2 }',
+    '.vocion-slide section p { line-height: 1.4 }',
+    '.vocion-slide section :is(ul, ol) { padding-left: 1.2em }',
+    '.vocion-slide section img { display: block }',
     'x-icon { display: inline-block; line-height: 0 } x-shape { display: block } x-connector { display: block }',
     'img { max-width: none }',
     '@media print { html, body { background: none } .vocion-slide { margin: 0 } }',
