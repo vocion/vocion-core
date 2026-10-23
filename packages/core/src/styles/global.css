@@ -120,16 +120,16 @@
 :root {
   --radius: 0.75rem;
 
-  /* The spark (design refresh, 2026-10-23): Vocion's one AI colour, Metacto
-     amber into rose, violet and the mark's blue. It means "an agent is at
+  /* The spark (design refresh, 2026-10-23; brand colours 2026-10-24): Vocion's
+     one AI colour, the mark's own rail — violet, indigo, blue, teal. It means "an agent is at
      work" and nothing else — the working orb, the thinking line, the composer
      while a turn runs, the flash on what a turn changed. Never a button, a
      card, a row or a header (docs/design/patterns.md § The spark). It stays
      Vocion's on a branded Org; the Org's colour is its logo, links and focus. */
-  --spark-1: #f18700;
-  --spark-2: #f0567a;
-  --spark-3: #7c3cff;
-  --spark-4: #168bff;
+  --spark-1: #7c3cff;
+  --spark-2: #4d63ff;
+  --spark-3: #168bff;
+  --spark-4: #16d6d2;
   --spark: linear-gradient(90deg, var(--spark-1), var(--spark-2) 35%, var(--spark-3) 70%, var(--spark-4));
   --spark-conic: conic-gradient(
     from 0deg,
@@ -140,10 +140,10 @@
     var(--spark-1)
   );
   /* The spark as text: each stop deepened so a word stays legible mid-sweep. */
-  --shimmer-1: #c46a00;
-  --shimmer-2: #c8446a;
-  --shimmer-3: #6a3ad6;
-  --shimmer-4: #1a6fd0;
+  --shimmer-1: #6a3ad6;
+  --shimmer-2: #3d4fd6;
+  --shimmer-3: #1a6fd0;
+  --shimmer-4: #0b7c79;
 
   /* Brand palette — warm, port from rev-ai */
   --brand-amber: oklch(0.74 0.17 65); /* ≈ #F18700 */
@@ -272,10 +272,10 @@
   --action-foreground: #141217;
   --shadow-pop: 0 8px 30px oklch(0 0 0 / 40%);
   --shadow-composer: 0 1px 2px oklch(0 0 0 / 30%), 0 8px 28px oklch(0 0 0 / 35%);
-  --shimmer-1: #ffa733;
-  --shimmer-2: #ff7a9c;
-  --shimmer-3: #a98bff;
-  --shimmer-4: #5aa9ff;
+  --shimmer-1: #a98bff;
+  --shimmer-2: #8c9bff;
+  --shimmer-3: #5aa9ff;
+  --shimmer-4: #4fd8d4;
 
   --org-accent: var(--brand-amber);
   --org-accent-foreground: #141217;
@@ -409,8 +409,9 @@
  * muted text — so "working" is visible without a spinner fighting the prose
  * (`WorkTimeline`). Text only, never a box. The band's stops are the spark
  * deepened for text (`--shimmer-1..4`, brighter in dark), so a word stays
- * legible as the band passes: the stops of the plan's mock (2026-10-23).
- * Off when the person asked for reduced motion: the line reads in the muted
+ * legible as the band passes. Slow and quiet (2026-10-24): each stop is
+ * blended a third of the way back to the muted tone and the band is wide and
+ * feathered, so the line glows rather than flashes. Off when the person asked for reduced motion: the line reads in the muted
  * tone.
  */
 @keyframes work-shimmer {
@@ -425,19 +426,19 @@
   background-image: linear-gradient(
     90deg,
     var(--muted-foreground) 0%,
-    var(--muted-foreground) 30%,
-    var(--shimmer-1) 40%,
-    var(--shimmer-2) 48%,
-    var(--shimmer-3) 56%,
-    var(--shimmer-4) 63%,
-    var(--muted-foreground) 72%,
+    var(--muted-foreground) 25%,
+    color-mix(in oklch, var(--shimmer-1) 65%, var(--muted-foreground)) 38%,
+    color-mix(in oklch, var(--shimmer-2) 65%, var(--muted-foreground)) 46%,
+    color-mix(in oklch, var(--shimmer-3) 65%, var(--muted-foreground)) 54%,
+    color-mix(in oklch, var(--shimmer-4) 65%, var(--muted-foreground)) 62%,
+    var(--muted-foreground) 75%,
     var(--muted-foreground) 100%
   );
   background-size: 250% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: work-shimmer 2.4s linear infinite;
+  animation: work-shimmer 4.8s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .work-shimmer {

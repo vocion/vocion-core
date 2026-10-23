@@ -1,7 +1,8 @@
 # The spark
 
-Vocion has one AI colour, the **spark**: Metacto amber into rose, violet and
-blue (`--spark-1…4` = `#F18700`, `#F0567A`, `#7C3CFF`, `#168BFF`; `--spark`,
+Vocion has one AI colour, the **spark**: the Vocion mark's own rail, violet
+into indigo, blue and teal (`--spark-1…4` = `#7C3CFF`, `#4D63FF`, `#168BFF`,
+`#16D6D2`; `--spark`,
 `--spark-conic`; as text, `--shimmer-1…4`, deepened in light and brightened
 in dark). It means **an agent is at work**, and it appears only where that is
 true:
@@ -11,8 +12,9 @@ true:
   `AgentDot settling` lets it go when the work ends (900ms). The live line
   blooms; the turn header settles. One face per agent: its own colour at rest
   everywhere, the chat landing included.
-- **The thinking line** (`.work-shimmer`), a spark band sweeping muted text,
-  13px semibold on the live line.
+- **The thinking line** (`.work-shimmer`), a soft spark band sweeping muted
+  text, 13px semibold on the live line: slow (4.8s, eased) and quiet (each stop
+  blended a third back to the muted tone), so it glows rather than flashes.
 - **The composer's edge** while a turn runs (`.composer-working`).
 - **The flash** on what a turn just changed (`[data-version-changed]`).
 - **`SparkOrb`**, the bare orb, only where no agent is known.

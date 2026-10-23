@@ -8,8 +8,8 @@ code.
 ## The 60-second version
 
 - **A calm app with an agent that comes alive.** The chrome is warm paper,
-  ink and hairlines. Colour has one job: the **spark** (amber, rose, violet,
-  blue) appears only while an agent is working. See [the spark](./foundations/spark.md).
+  ink and hairlines. Colour has one job: the **spark** (the mark's violet,
+  indigo, blue and teal) appears only while an agent is working. See [the spark](./foundations/spark.md).
 - **One surface.** The page and the sidebar are the same warm paper, split by
   a hairline. Hairlines, not boxes; a bordered surface never holds another.
 - **One primary.** Each screen has one ink primary action (`Button`, default
