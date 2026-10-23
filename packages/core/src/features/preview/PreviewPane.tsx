@@ -87,12 +87,13 @@ const RECORD_ICON: Partial<Record<RecordType, typeof FileText>> = {
  * the title, in place of a chip. The source's name stays for a screen reader.
  * @param props
  * @param props.type - The record type.
+ * @param props.id - The ref's id — the pane's own, since a doc handed in may not echo its ref.
  * @param props.doc - The resolved preview.
  */
-function PreviewIcon({ type, doc }: { type: RecordType; doc: PreviewDoc }) {
+function PreviewIcon({ type, id, doc }: { type: RecordType; id: string; doc: PreviewDoc }) {
   const Icon = type === 'artifact' && doc.kind && doc.kind in ARTIFACT_KIND_ICON
     ? ARTIFACT_KIND_ICON[doc.kind as keyof typeof ARTIFACT_KIND_ICON]
-    : doc.work || (type === 'conversation' && parseWorkRefId(doc.ref.id)) ? Activity : (RECORD_ICON[type] ?? FileText);
+    : doc.work || (type === 'conversation' && parseWorkRefId(id)) ? Activity : (RECORD_ICON[type] ?? FileText);
   return (
     <>
       <Icon className="mr-1 size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -488,7 +489,7 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
             <ChevronLeft className="size-4" aria-hidden />
           </button>
         )}
-        <PreviewIcon type={recordRef.type} doc={shown} />
+        <PreviewIcon type={recordRef.type} id={recordRef.id} doc={shown} />
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" title={shown.title}>{shown.title}</h2>
         {shown.href
           ? (
