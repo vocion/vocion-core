@@ -5763,3 +5763,80 @@ export const routineRunSchema = pgTable(
     index('routine_run_ledger_idx').on(table.orgId, table.routineId, table.idemKey),
   ],
 );
+
+/**
+ * The engine scoreboard (migration 0213, `services/factory/engineRun.ts`, ADR 0005): one row per
+ * engineering run in one shape, whichever engine did it, so engines can be compared on the same
+ * work. `source` is `factory` (from a worker_run, kept up to date as QA, merge and revert come in)
+ * or `eval` (imported from the runner's eval harness). Facts only.
+ */
+export const engineRunSchema = pgTable(
+  'engine_run',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** `factory` | `eval`. */
+    source: text('source').default('factory').notNull(),
+    /** The worker_run a factory row is read from; one row per run. */
+    workerRunId: integer('worker_run_id'),
+    /** An eval row's identity (`<label>:<case>:<run>`), so a re-import replaces it. */
+    evalKey: text('eval_key'),
+    /** `claude-cli` | `openhands` | … (packages/runner/src/engines). */
+    engine: text('engine').notNull(),
+    model: text('model'),
+    /** The seat (agent slug) that ran it. */
+    seat: text('seat'),
+    /** The router policy that chose the engine (`engineRouter.ts`), and its reason. */
+    routePolicy: text('route_policy'),
+    routeReason: text('route_reason'),
+    /** The engineering task record, and the feature (request) it serves. */
+    taskId: integer('task_id'),
+    requestId: integer('request_id'),
+    repo: text('repo'),
+    baseBranch: text('base_branch'),
+    riskClass: text('risk_class'),
+    /** The worker_run's status: `running` | `completed` | `failed` | `cancelled` | `lost`. */
+    status: text('status').notNull(),
+    startedAt: timestamp('started_at', { mode: 'date' }),
+    endedAt: timestamp('ended_at', { mode: 'date' }),
+    durationS: integer('duration_s'),
+    inputTokens: bigint('input_tokens', { mode: 'number' }).default(0).notNull(),
+    outputTokens: bigint('output_tokens', { mode: 'number' }).default(0).notNull(),
+    cacheReadTokens: bigint('cache_read_tokens', { mode: 'number' }).default(0).notNull(),
+    /** What the run cost, the worker's final account (`libs/worker/runCost.ts`). */
+    cents: integer('cents').default(0).notNull(),
+    prUrl: text('pr_url'),
+    checksPassed: integer('checks_passed'),
+    checksTotal: integer('checks_total'),
+    /** QA's verdict on the work: `approve` | `changes` | `reject`, null until there is one. */
+    qaVerdict: text('qa_verdict'),
+    /** A person accepted the work (the task settled `accepted`); null while it is open. */
+    accepted: boolean('accepted'),
+    merged: boolean('merged').default(false).notNull(),
+    reverted: boolean('reverted').default(false).notNull(),
+    /**
+     * Where the run's work ended up, the scoreboard's one word (`engineRun.ts` `outcomeOf`):
+     * `running` | `failed` | `cancelled` | `no_pr` | `pr_opened` | `qa_failed` | `qa_passed` |
+     * `accepted` | `rejected` | `merged` | `reverted` | `superseded`.
+     */
+    outcome: text('outcome').notNull(),
+    /** Which attempt at its task this was (1 = first), and how many more the task took after it. */
+    attempt: integer('attempt').default(1).notNull(),
+    retries: integer('retries').default(0).notNull(),
+    /** Tool calls the guard hooks refused, every pass summed. */
+    guardViolations: integer('guard_violations').default(0).notNull(),
+    /** The change's size: the complexity hint a dynamic router will read. */
+    filesTouched: integer('files_touched'),
+    linesAdded: integer('lines_added'),
+    linesRemoved: integer('lines_removed'),
+    /** `small` | `medium` | `large`, from files and lines (`complexityOf`). */
+    complexity: text('complexity'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('engine_run_worker_run_idx').on(table.workerRunId),
+    uniqueIndex('engine_run_eval_key_idx').on(table.evalKey),
+    index('engine_run_org_engine_started_idx').on(table.orgId, table.engine, table.startedAt),
+  ],
+);

@@ -1709,14 +1709,36 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     if (plan) {
       await writeMeta(ctx.orgId, plan.id, { status: 'approved', approvedBy, approvedAt });
     }
+    const capCents = typeof task.meta.tokenBudget === 'number' ? Math.round(task.meta.tokenBudget * 100) : null;
+    // THE ROUTER PICKS THE ENGINE (ADR 0005): static today (the task's, else
+    // the seat's, else the default), inside the installation's fence. Its
+    // answer is the contract's engine, and rides the run's input as `route`
+    // so the scoreboard can say how each run's engine was chosen.
+    const { complexityOf, engineIdOf, routeEngine } = await import('@/services/factory/engineRouter');
+    const plannedPaths = list(task.meta, 'allowedPaths').length;
+    const route = routeEngine({
+      seat: agentSlug,
+      taskEngine: enginePolicy(task.meta.engine),
+      seatEngine: await seatEngine(ctx.orgId, agentSlug),
+      riskClass: str(task.meta, 'riskClass'),
+      repo: str(task.meta, 'repoSlug') ?? str(task.meta, 'repo'),
+      plannedPaths,
+      complexity: complexityOf(plannedPaths),
+      estimatedCents: capCents,
+    });
     const contract = contractFromTask(task, {
       product: request ? str(request.meta, 'product') : null,
       plan: plan ? { id: plan.id, approach: str(plan.meta, 'approach'), approvedBy, approvedAt } : undefined,
       modelPolicy: await seatModelPolicy(ctx.orgId, agentSlug),
-      engine: await seatEngine(ctx.orgId, agentSlug),
+      engine: route.engine,
     });
-    const capCents = typeof task.meta.tokenBudget === 'number' ? Math.round(task.meta.tokenBudget * 100) : null;
-    const run = await createWorkerRun({ orgId: ctx.orgId, agentSlug, input: { task: contract, record: { id: task.id, type: task.typeSlug } }, capCents, createdBy: approvedBy });
+    if (route.engine) {
+      contract.engine = route.engine;
+    } else {
+      delete contract.engine;
+    }
+    const routeNote = { engine: engineIdOf(route.engine), policy: route.policy, reason: route.reason };
+    const run = await createWorkerRun({ orgId: ctx.orgId, agentSlug, input: { task: contract, record: { id: task.id, type: task.typeSlug }, route: routeNote, ...(request ? { requestId: request.id } : {}) }, capCents, createdBy: approvedBy });
     const previousTask = { status: task.meta.status ?? null, workerRunId: task.meta.workerRunId ?? null };
     await writeMeta(ctx.orgId, task.id, { status: 'dispatched', workerRunId: run.id, ...(plan ? { planId: plan.id } : {}) });
     let previousRecovery: unknown = null;
