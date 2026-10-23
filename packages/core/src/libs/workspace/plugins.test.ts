@@ -73,7 +73,7 @@ describe('the shipped catalogue', () => {
   });
 
   it('refuses an unknown slug and names the catalogue', () => {
-    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: company, data-rooms, finance, growth-loop, production-watch, proposals, red-team, routines, software-factory, wiki/);
+    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: company, data-rooms, finance, growth-loop, meeting-followup, production-watch, proposals, red-team, routines, software-factory, wiki/);
   });
 
   it('counts what the finance plugin ships: five roles, the jobs each owns as skills, and setup by family', () => {
@@ -646,5 +646,23 @@ describe('plugin settings', () => {
     const files = { 'automations/mine.yaml': 'slug: mine\nsetting: narrateRecordings\nwhen:\n  event: recording.filed\ndo:\n  job: narrate-recording\n' };
 
     expect(() => loadWorkspace(makeWorkspace('plugins: [software-factory]\n', files))).toThrow(/setting: is for a plugin's automations/);
+  });
+});
+
+// Chris, 2026-10-23: two client calls in a week and nothing followed up.
+describe('the meeting-followup plugin', () => {
+  it('turns on with data rooms: the triage, the approval, the writer, and two moments its owner hears about', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [meeting-followup]\naccountableUser: ops@northwind.example\n'));
+    const auto = (slug: string) => ws.automations.find(a => a.slug === slug);
+
+    expect(ws.enabledPlugins).toEqual(['data-rooms', 'meeting-followup']);
+    expect(auto('meeting-triage')).toMatchObject({ when: { event: 'meeting.transcript_ready' }, do: { job: 'meeting-followup', input: { phase: 'triage', agent: 'followup-writer' } } });
+    expect(auto('meeting-followup-approved')).toMatchObject({ when: { event: 'meeting.followup_approved' }, do: { job: 'meeting-followup', input: { phase: 'draft' } } });
+    expect(auto('meeting-followup-write')).toMatchObject({ when: { event: 'meeting.followup_owed' }, do: { checkMission: 'meetings-followed-up', requireTool: 'propose_action:gmail.send' } });
+    expect(ws.agents.map(a => a.slug)).toContain('followup-writer');
+    expect(ws.notifications.map(n => [n.kind, n.event])).toEqual(expect.arrayContaining([
+      ['followup-awaiting', 'meeting.followup_awaiting'],
+      ['followup-ready', 'meeting.followup_ready'],
+    ]));
   });
 });

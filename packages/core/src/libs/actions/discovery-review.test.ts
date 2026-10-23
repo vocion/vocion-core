@@ -296,3 +296,71 @@ describe('"Approving will" states the effect, not the scores', () => {
     expect(card.confidenceSubject).toBe('Not discovery');
   });
 });
+
+// An existing client's proposal review (2026-10-23): the classifier said `drop`, a person
+// approved the item with route `generate`, and the ledger kept `drop`, so the
+// gate refused the transcript. A person's approval is the route.
+describe('a person\'s approval is the route', () => {
+  async function seedDroppedCandidate() {
+    const [source] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'zoom', kind: 'plugin' }).returning({ id: knowledgeSourceSchema.id });
+    const [meeting] = await db.insert(knowledgeDocumentSchema).values({
+      orgId: ORG,
+      sourceId: source!.id,
+      externalId: 'zoom:abc',
+      title: 'Northwind proposal review',
+      contentHash: 'h1',
+      metadata: { kind: 'zoom-recording', host: 'seller@vocion.example', hasTranscript: true },
+    }).returning({ id: knowledgeDocumentSchema.id });
+    const [candidate] = await db.insert(discoveryCandidateSchema).values({
+      orgId: ORG,
+      meetingExternalId: 'zoom:abc',
+      meetingDocId: meeting!.id,
+      meetingTitle: 'Northwind proposal review',
+      matchType: 'hubspot-deal',
+      status: 'classified',
+      route: 'drop',
+    }).returning({ id: discoveryCandidateSchema.id });
+    return candidate!.id;
+  }
+
+  it('writes the approved route on the ledger, over the classifier\'s drop', async () => {
+    const candidateId = await seedDroppedCandidate();
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'discovery.review_proposal',
+      principal: detector(),
+      input: proposalInput({ candidateId, route: 'generate' }),
+      proposal: { confidence: 0.4, rationale: 'existing client', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded for this test.' },
+    });
+    await executeAction(proposed.runId!, ORG);
+    const [row] = await db.select().from(discoveryCandidateSchema).where(eq(discoveryCandidateSchema.id, candidateId));
+
+    expect(row?.route).toBe('generate');
+    expect(row?.reviewActionRunId).toBe(proposed.runId);
+  });
+
+  it('releases the transcript to read_discovery_transcript once approved, and while the approval is still running', async () => {
+    const candidateId = await seedDroppedCandidate();
+    const { readDiscoveryTranscriptTool, transcriptReleased } = await import('@/services/agents/tools/discovery');
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'discovery.review_proposal',
+      principal: detector(),
+      input: proposalInput({ candidateId, route: 'generate' }),
+      proposal: { confidence: 0.4, rationale: 'existing client', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded for this test.' },
+    });
+    const read = readDiscoveryTranscriptTool({ orgId: ORG } as never);
+
+    expect(JSON.parse(await read.invoke({ candidate_id: candidateId }) as string).error).toBe('not_approved');
+
+    await executeAction(proposed.runId!, ORG);
+
+    expect(JSON.parse(await read.invoke({ candidate_id: candidateId }) as string)).toMatchObject({ candidateId, transcript: '' });
+    // The approval's own run reads `executing` while the follow-up it started asks for the transcript.
+    expect(transcriptReleased({ route: 'drop', reviewStatus: 'executing', reviewRoute: 'generate' })).toBe(true);
+    // The approved item's route wins over the ledger's, either way.
+    expect(transcriptReleased({ route: 'generate', reviewStatus: 'done', reviewRoute: 'drop' })).toBe(false);
+    expect(transcriptReleased({ route: 'confirm', reviewStatus: 'done', reviewRoute: null })).toBe(true);
+    expect(transcriptReleased({ route: 'generate', reviewStatus: 'pending', reviewRoute: 'generate' })).toBe(false);
+  });
+});

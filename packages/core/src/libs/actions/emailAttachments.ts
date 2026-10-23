@@ -2,10 +2,10 @@
  * Artifacts that go WITH an email: what the review card shows before approval,
  * and the bytes the send carries after it.
  *
- * An email proposal names its attachments by artifact id. A document goes as
- * the PDF the document engine prints (`exportDocumentPdf`, which also files
- * the PDF beside the document, so what was sent is itself an artifact); a file
- * artifact goes as the stored file. The card reads the same rows, so the
+ * An email proposal names its attachments by artifact id. A document or a
+ * deck goes as the PDF its engine prints (`exportDocumentPdf`,
+ * `exportDeckPdf`; each also files the PDF beside its source, so what was sent
+ * is itself an artifact); a file artifact goes as the stored file. The card reads the same rows, so the
  * approver sees each attachment's title, its size or page count, and can open
  * it in the preview panel — and an attachment that cannot go is said on the
  * card before anyone approves, never discovered by the send.
@@ -73,6 +73,13 @@ export function describeAttachment(ref: AttachmentRef, row: ArtifactLike | null)
     }
     return { artifactId: row.id, title: row.title, href, meta: pages > 0 ? `PDF · ${pages} page${pages === 1 ? '' : 's'}` : 'PDF' };
   }
+  if (row.kind === 'deck') {
+    const order = Array.isArray(spec.order) ? spec.order.length : 0;
+    if (order === 0) {
+      return { artifactId: row.id, title: row.title, href, problem: 'This deck has no slides to print.' };
+    }
+    return { artifactId: row.id, title: row.title, href, meta: `PDF · ${order} slide${order === 1 ? '' : 's'}` };
+  }
   if (row.kind === 'file') {
     const bytes = typeof spec.bytes === 'number' ? spec.bytes : null;
     if (!storedFilename(spec, row.url)) {
@@ -83,7 +90,7 @@ export function describeAttachment(ref: AttachmentRef, row: ArtifactLike | null)
     }
     return { artifactId: row.id, title: row.title, href, ...(bytes !== null ? { meta: sizeLabel(bytes) } : {}) };
   }
-  return { artifactId: row.id, title: row.title, href, problem: `A ${row.kind} cannot be attached; only documents and files can. Link to it instead.` };
+  return { artifactId: row.id, title: row.title, href, problem: `A ${row.kind} cannot be attached; only documents, decks and files can. Link to it instead.` };
 }
 
 /**
@@ -126,6 +133,11 @@ export async function resolveAttachments(orgId: string, refs: readonly Attachmen
     if (row.kind === 'document') {
       const { exportDocumentPdf } = await import('@/services/documents/DocumentEngine');
       const printed = await exportDocumentPdf({ orgId, id: row.id, author, visibility: 'system' });
+      file = printed.file as ArtifactLike;
+      filename = printed.filename;
+    } else if (row.kind === 'deck') {
+      const { exportDeckPdf } = await import('@/services/decks/DeckEngine');
+      const printed = await exportDeckPdf({ orgId, id: row.id, author, visibility: 'system' });
       file = printed.file as ArtifactLike;
       filename = printed.filename;
     }

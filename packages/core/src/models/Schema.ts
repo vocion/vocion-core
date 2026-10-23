@@ -3888,6 +3888,8 @@ export const actionRunSchema = pgTable(
        * drops out of every per-agent metric and learning attribution.
        */
       agentSlug?: string;
+      /** The mission run that proposed it, when a run did (`tools/proposeAction.ts`). */
+      missionRunId?: number;
       /**
        * What the agent thinks the reviewer should DO with this item, as
        * opposed to how sure it is that its payload is right. Confidence

@@ -1,0 +1,17 @@
+# THE CARD'S APPROVAL STARTS THE DRAFT (core job `meeting-followup`, phase
+# draft): it raises `meeting.followup_owed` for the writer below, waits for its
+# run, and tells the owner when the draft is in Review (`followup-ready`).
+slug: meeting-followup-approved
+name: An approved follow-up is drafted
+description: >-
+  When a person approves a call's follow-up card, run the writer and tell them
+  when the draft is waiting in Review.
+status: active
+agent: followup-writer
+when:
+  event: meeting.followup_approved
+  maxFiresPer10m: 20
+do:
+  job: meeting-followup
+  input:
+    phase: draft

@@ -1,0 +1,51 @@
+# Meeting follow-up — after every call with a client or prospect, the
+# follow-up a good chief of staff would have ready: one card while the call is
+# fresh ("Approve to draft the <meeting> follow-up"), and on approval a draft
+# in Review from the meeting's owner to the people outside, with the room's
+# deck or document attached as a PDF, and what changed on the call written
+# back to the room.
+#
+# Core ships the MECHANISM: `meeting.transcript_ready` after a sync
+# (`services/meetings/captures.ts`), the `meeting-followup` job with its typed
+# read of the call (`services/jobs/meetingFollowup.ts`), the one review item a
+# call becomes (`meeting.draft_followup`, never-auto: approving it is the
+# person releasing the call's record), the gated `read_meeting_record`, and
+# deck and document attachments on `gmail.send`. This plugin ships the
+# MEANING: which automations listen, the writer and the skill it follows, the
+# mission it is held to, and the two moments its owner hears about.
+#
+# 1.0.0 — the first version.
+slug: meeting-followup
+name: Meeting follow-up
+version: 1.0.0
+description: After every call with a client or prospect, the follow-up is ready while the call is fresh. One card per call — approve it and the follow-up email is drafted from what was said, from the meeting's owner to the people outside, with the room's deck or document attached as a PDF, the next step already on the calendar confirmed, and what changed on the call written back to the data room. The owner hears when the card is waiting and when the draft is ready.
+depends: [data-rooms]
+nav: {section: GTM}
+recommend:
+  when:
+    - a person asks why nothing followed up after a client call
+    - a person drafts a recap email after a sales call by hand
+    - calls are recorded or noted and follow-ups go out late or not at all
+  connectors: [zoom, granola, gmail, google-calendar]
+notifications:
+  - kind: followup-awaiting
+    label: Follow-up to approve
+    description: A call with a client or prospect left a follow-up owed; approve it to have it drafted.
+    event: meeting.followup_awaiting
+    who: {field: owner}
+    title: 'Approve to draft the {meetingTitle} follow-up'
+    body: '{why}'
+    link: '/dashboard/inbox/proposal-{actionRunId}'
+    dedupe: 'followup-card:{actionRunId}'
+  - kind: followup-ready
+    label: Follow-up ready for review
+    description: The follow-up after your call is drafted and waiting in Review.
+    event: meeting.followup_ready
+    who: {field: owner}
+    title: 'Follow-up ready: {meetingTitle}'
+    body: 'To {to} — "{subject}". Waiting in Review; nothing is sent until you do.'
+    link: '/dashboard/inbox/proposal-{actionRunId}'
+    dedupe: 'followup-draft:{actionRunId}'
+
+starters:
+  - label: Which of this week's client calls still owe a follow-up?

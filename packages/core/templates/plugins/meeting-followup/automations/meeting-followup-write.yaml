@@ -1,0 +1,33 @@
+# THE WRITER. One run per approved call; done means a gmail.send proposal
+# (`requireTool`), so a run that ended without one is an error on the fire,
+# never a quiet "completed".
+slug: meeting-followup-write
+name: Write a call's follow-up
+description: >-
+  The Follow-up writer reads the released call, drafts the follow-up from its
+  owner to the people outside, attaches the deliverable, and writes what
+  changed back to the room.
+status: active
+agent: followup-writer
+when:
+  event: meeting.followup_owed
+  maxFiresPer10m: 20
+do:
+  checkMission: meetings-followed-up
+  requireTool: propose_action:gmail.send
+  prompt: >-
+    A person approved the follow-up for "{{title}}" ({{start}}), a
+    {{counterpart}} call owned by {{owner}}. Captured document
+    {{documentId}}. People outside: {{externalAttendees}}. Why a follow-up is
+    owed: {{why}}. Data room: #{{roomId}} {{roomTitle}} (0 means none).
+    Deck on the room: #{{deckArtifactId}} {{deckTitle}}; document on the
+    room: #{{documentArtifactId}} {{documentTitle}} (0 means none). Next on
+    the calendar with them: {{nextMeetingTitle}} {{nextMeetingStart}}.
+
+    Follow the meeting-followup skill (/skills/meeting-followup/SKILL.md),
+    reading it now. Read the call with read_meeting_record
+    (document_id {{documentId}}). Propose exactly one gmail.send with
+    draft: true to the people outside, with the deliverable in attachments
+    when the call presented it or was about it. Then write the room back as
+    the skill says. Report in three lines: the draft's action id and who it
+    goes to, what was attached, and what you wrote to the room.

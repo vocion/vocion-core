@@ -47,6 +47,12 @@
  *     voice, off the event's path, when a voice is connected. Subscribed by
  *     the software-factory plugin when its `narrateRecordings` setting is on.
  *     `services/jobs/narrateRecording.ts`.
+ *   - `meeting-followup` — a captured meeting (`meeting.transcript_ready`) is
+ *     read by the classifier; one with a client or prospect after which a
+ *     follow-up is owed raises `meeting.followup_owed` (its drafting runs
+ *     inline), and each email that run proposed raises
+ *     `meeting.followup_ready` for the meeting's owner. Subscribed by the
+ *     meeting-followup plugin. `services/jobs/meetingFollowup.ts`.
  *
  * (Discovery-call detection, the job that used to live here, became
  * agent-driven — an hourly `checkMission` automation.)
@@ -58,6 +64,7 @@ import { ERROR_WATCH_JOB, runErrorWatch } from './errorWatch';
 import { factoryCarryJobs } from './factoryCarry';
 import { INDEX_ARTIFACT_JOB, runIndexArtifactJob } from './indexArtifact';
 import { liveCheckJobs } from './liveCheck';
+import { MEETING_FOLLOWUP_JOB, runMeetingFollowupJob } from './meetingFollowup';
 import { mockupDefaultJobs } from './mockupDefault';
 import { NARRATE_RECORDING_JOB, runNarrateRecordingJob } from './narrateRecording';
 import { NOTIFY_ASKS_JOB, runNotifyAsksJob } from './notifyAsks';
@@ -81,6 +88,7 @@ const JOBS: Record<string, BuiltInJob> = {
   [ASKER_FOLLOW_JOB]: (orgId, input) => runAskerFollowJob(orgId, input),
   [ASKER_RECORDING_JOB]: (orgId, input) => runAskerRecordingJob(orgId, input),
   [TEAM_THREAD_JOB]: (orgId, input) => runTeamThreadJob(orgId, input),
+  [MEETING_FOLLOWUP_JOB]: (orgId, input) => runMeetingFollowupJob(orgId, input),
   // A workspace whose old automation still names these hears nothing from them: asker-follow says it.
   ...Object.fromEntries(RETIRED_FOLLOW_JOBS.map(name => [name, async () => ({ said: false, reason: `${name} is retired; asker-follow tells the asker` })])),
 };

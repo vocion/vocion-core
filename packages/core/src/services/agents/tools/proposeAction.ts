@@ -273,6 +273,9 @@ async function runProposalInner(
         suggestedDecision: suggested_decision,
         suggestedDecisionReason: reason,
         suggestedSnoozeUntil: suggested_snooze_until,
+        // The run that proposed it, so work that started the run can find
+        // what it proposed (a meeting's follow-up, `jobs/meetingFollowup.ts`).
+        ...(typeof ctx.missionRunId === 'number' ? { missionRunId: ctx.missionRunId } : {}),
       },
     });
     gateAdvice.push(...(res.advice ?? []));

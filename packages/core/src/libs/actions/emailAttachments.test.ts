@@ -9,6 +9,12 @@ describe('describeAttachment', () => {
       .toEqual({ artifactId: 7, title: 'Monthly report', href: '/dashboard/artifacts/7', meta: 'PDF · 2 pages' });
   });
 
+  it('a deck goes as its PDF, with its slide count', () => {
+    expect(describeAttachment({ artifactId: 13 }, { id: 13, kind: 'deck', title: 'Northwind proposal', url: null, spec: { order: ['a', 'b', 'c'], slides: { a: '<section id="a"></section>', b: '<section id="b"></section>', c: '<section id="c"></section>' } } }))
+      .toEqual({ artifactId: 13, title: 'Northwind proposal', href: '/dashboard/artifacts/13', meta: 'PDF · 3 slides' });
+    expect(describeAttachment({ artifactId: 14 }, { id: 14, kind: 'deck', title: 'Empty deck', url: null, spec: { order: [], slides: {} } }).problem).toMatch(/no slides/);
+  });
+
   it('a file goes as stored, with its size', () => {
     expect(describeAttachment({ artifactId: 8 }, { id: 8, kind: 'file', title: 'Report.pdf', url: '/api/artifacts/org-ab12cd34ef56ab78/org-ab12cd34ef56ab78.pdf', spec: { filename: 'org-ab12cd34ef56ab78.pdf', bytes: 44_042, contentType: 'application/pdf' } }))
       .toEqual({ artifactId: 8, title: 'Report.pdf', href: '/dashboard/artifacts/8', meta: '43 KB' });

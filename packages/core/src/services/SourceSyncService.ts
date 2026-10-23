@@ -1364,6 +1364,14 @@ export async function runSync(opts: {
         log('error', 'data room collection failed after the sync', { sourceId: opts.sourceId, error: err instanceof Error ? err.message : String(err) });
       }
     }
+    // A meeting source's settled captures are announced once each
+    // (`meeting.transcript_ready`), after the collector so a capture it filed
+    // is already in its room. Metadata only, deduped per document, and it
+    // never fails the sync (`services/meetings/captures.ts`).
+    if (connectorSlug === 'zoom' || connectorSlug === 'granola') {
+      const { announceMeetingCaptures } = await import('@/services/meetings/captures');
+      await announceMeetingCaptures(opts.orgId, opts.sourceId);
+    }
     return result;
   } catch (err) {
     // Wait here too, for the same reason.

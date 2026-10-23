@@ -185,12 +185,40 @@ export function reconcileDiscoveryWindowTool(ctx: RuntimeContext) {
   );
 }
 
+/** Review statuses that mean a person approved the item: approved, running its approval, or done. */
+const APPROVED_REVIEW = new Set(['approved', 'executing', 'done']);
+
+/**
+ * Whether a candidate's transcript is released — the content gate's rule, pure.
+ *
+ * A PERSON'S WORD RUNS (2026-10-23, a client's proposal review: the classifier said
+ * `drop`, a person approved the review item with route `generate`, and the
+ * gate kept refusing because it read the classifier's route off the ledger).
+ * The route a person approved is on the review item's own input — edits
+ * included — and that is the route that counts; the ledger's route is the
+ * classifier's and only stands when no review carries one. And the approval
+ * releases while it is still running: the follow-up it starts runs inside the
+ * approval, so the item reads `executing` while the writer asks for the
+ * transcript.
+ * @param c - The candidate.
+ * @param c.route - The ledger's route (the classifier's, or the last approval's).
+ * @param c.reviewStatus - The review item's status.
+ * @param c.reviewRoute - The route on the review item's input.
+ */
+export function transcriptReleased(c: { route: string | null; reviewStatus: string | null; reviewRoute: string | null }): boolean {
+  if (!c.reviewStatus || !APPROVED_REVIEW.has(c.reviewStatus)) {
+    return false;
+  }
+  const route = c.reviewRoute ?? c.route;
+  return route === 'generate' || route === 'confirm';
+}
+
 export function readDiscoveryTranscriptTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
       // The gate is structural: only a candidate whose review action a HUMAN
-      // approved (status done, route generate/confirm) releases its
-      // transcript. This mirrors what the retired discovery_followup workflow
+      // approved (approved, executing or done, route generate/confirm as the
+      // person approved it — `transcriptReleased`) releases its transcript. This mirrors what the retired discovery_followup workflow
       // received on approval; the exposure is identical, the reader moved.
       const [candidate] = await db
         .select({
@@ -200,6 +228,7 @@ export function readDiscoveryTranscriptTool(ctx: RuntimeContext) {
           route: discoveryCandidateSchema.route,
           reviewActionRunId: discoveryCandidateSchema.reviewActionRunId,
           reviewStatus: actionRunSchema.status,
+          reviewInput: actionRunSchema.input,
         })
         .from(discoveryCandidateSchema)
         .leftJoin(actionRunSchema, eq(actionRunSchema.id, discoveryCandidateSchema.reviewActionRunId))
@@ -211,7 +240,8 @@ export function readDiscoveryTranscriptTool(ctx: RuntimeContext) {
       if (!candidate) {
         return JSON.stringify({ error: 'no_candidate', message: `no discovery_candidate ${args.candidate_id} in this org` });
       }
-      if (candidate.route === 'drop' || candidate.reviewStatus !== 'done') {
+      const reviewRoute = typeof candidate.reviewInput?.route === 'string' ? candidate.reviewInput.route : null;
+      if (!transcriptReleased({ route: candidate.route, reviewStatus: candidate.reviewStatus, reviewRoute })) {
         return JSON.stringify({
           error: 'not_approved',
           message: `candidate ${candidate.id} has no approved review (route ${candidate.route ?? 'none'}, review ${candidate.reviewStatus ?? 'none'}) — a human must approve the discovery.review_proposal item first`,

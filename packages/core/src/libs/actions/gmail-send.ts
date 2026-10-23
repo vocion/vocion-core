@@ -26,7 +26,7 @@
  * `draft` on the input that runs. A draft stays undoable; a send does not.
  *
  * ATTACHMENTS are artifacts, named by id (`emailAttachments.ts`): a document
- * goes as its printed PDF, a file as stored. The card lists each one, openable
+ * or deck goes as its printed PDF, a file as stored. The card lists each one, openable
  * before approval, and says so when one cannot go.
  */
 
@@ -51,8 +51,8 @@ const gmailSendInput = z.object({
   signature: z.string().max(2000).optional().describe('The sender\'s signature as they sign their own mail in this thread, when known'),
   /** Create a draft instead of sending. The approver can change it at approval. */
   draft: z.boolean().default(false),
-  /** Artifacts to attach: a document goes as its PDF, a file as stored. */
-  attachments: z.array(z.object({ artifactId: z.number().int().positive() })).max(MAX_ATTACHMENTS).optional().describe('Reports or files to attach, by artifact id. A document (a report, a reconciliation) goes as its PDF. Attach the artifact instead of mentioning its number in the body.'),
+  /** Artifacts to attach: a document or deck goes as its PDF, a file as stored. */
+  attachments: z.array(z.object({ artifactId: z.number().int().positive() })).max(MAX_ATTACHMENTS).optional().describe('Reports, decks or files to attach, by artifact id. A document (a report, a proposal) or a deck goes as its PDF. Attach the artifact instead of mentioning its number in the body.'),
   baseUrl: z.string().url().default('https://gmail.googleapis.com/gmail/v1'),
 });
 
@@ -210,7 +210,7 @@ async function replyHeaders(baseUrl: string, headers: Record<string, string>, th
 export const gmailSendAction: Action<typeof gmailSendInput> = {
   id: 'gmail.send',
   name: 'Send email',
-  description: 'A one-to-one email as the connected Gmail user — a reply in an existing thread (pass threadId so it threads) or a follow-up to someone already in conversation; a draft by default (draft: true), sent only when asked, and the approver can switch between the two on the card. Fill to and cc as the thread has them, the subject as "Re: <thread subject>", and the sender\'s signature when you know it. To send a report or document with it, put its artifact id in `attachments` (a document goes as its PDF) — never write "artifact 123" in the body. Not for multi-touch outbound to a prospect who is not in a conversation: that is a sequence.',
+  description: 'A one-to-one email as the connected Gmail user — a reply in an existing thread (pass threadId so it threads) or a follow-up to someone already in conversation; a draft by default (draft: true), sent only when asked, and the approver can switch between the two on the card. Fill to and cc as the thread has them, the subject as "Re: <thread subject>", and the sender\'s signature when you know it. To send a report or document with it, put its artifact id in `attachments` (a document or deck goes as its PDF) — never write "artifact 123" in the body. Not for multi-touch outbound to a prospect who is not in a conversation: that is a sequence.',
   inputSchema: gmailSendInput,
   grant: 'send_email',
   external: true,

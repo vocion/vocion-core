@@ -14,6 +14,9 @@
  *     workflow, which drafts an email in the seller's voice. Supervised v1
  *     means a human confirms every detected discovery call, and that is the
  *     calibration data the loop is built on.
+ *   - `meeting.draft_followup` — approving it releases a call's record to an
+ *     agent and starts a draft in the seller's voice. The release is the
+ *     person's, the same privacy rule the discovery lane keeps.
  *   - `personalization.enroll` — approving it enrolls a real lead into a
  *     HubSpot sequence that sends real email.
  *   - `objects.propose_candidate` — approving an extracted record is what lets
@@ -30,6 +33,7 @@
 export const NEVER_AUTO_ACTION_IDS: ReadonlySet<string> = new Set([
   'gmail.send',
   'discovery.review_proposal',
+  'meeting.draft_followup',
   'personalization.enroll',
   'objects.propose_candidate',
   'source.connect',
