@@ -2,6 +2,7 @@
 
 import type { LucideIcon } from 'lucide-react';
 import { MoreHorizontal } from 'lucide-react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -38,7 +39,7 @@ export function RowMenu({ items, label = 'More' }: { items: RowMenuItem[]; label
               type="button"
               aria-label={label}
               data-testid="row-menu"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+              className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
             >
               <MoreHorizontal className="size-4" aria-hidden />
             </button>

@@ -108,7 +108,7 @@ function DocLink({ entry, currentSlug, publicBasePath }: { entry: DocEntry; curr
       href={entry.slug === '' ? publicBasePath : `${publicBasePath}/${entry.slug}`}
       className={
         entry.slug === currentSlug
-          ? 'block rounded bg-accent px-2 py-1 font-medium text-accent-foreground'
+          ? 'block rounded bg-surface-hover px-2 py-1 font-medium text-foreground'
           : 'block rounded px-2 py-1 text-foreground/80 hover:bg-muted hover:text-foreground'
       }
     >

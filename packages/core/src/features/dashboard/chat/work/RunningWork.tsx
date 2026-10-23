@@ -3,6 +3,7 @@
 import type { WorkItem, WorkView } from '@/services/work/WorkService';
 import { ChevronDown, ChevronRight, Loader2, Square } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { openPreview } from '@/features/preview/previewState';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
@@ -112,7 +113,7 @@ function WorkRow({ item, onStop, now }: { item: WorkItem; onStop?: (item: WorkIt
           onClick={() => onStop(item)}
           aria-label={`Stop ${item.title}`}
           data-testid="work-item-stop"
-          className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-surface-hover hover:text-foreground max-md:size-11"
+          className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
         >
           <Square className="size-3.5 fill-current" aria-hidden />
         </button>

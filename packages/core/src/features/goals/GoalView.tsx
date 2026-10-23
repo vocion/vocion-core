@@ -6,6 +6,7 @@ import { ArrowRight, Check, Link2, X } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { DetailMeta, DetailPage, MetaChip, Section, StatusDot } from '@/components/patterns';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { PROMPT_PILL_CLASS } from '@/features/dashboard/chat/SuggestionPills';
 import { useRecordContext } from '@/features/dashboard/context/useRecordContext';
@@ -13,6 +14,7 @@ import { Link } from '@/libs/I18nNavigation';
 import { goalPinTarget } from '@/libs/objectives/goal';
 import { client } from '@/libs/Orpc';
 import { recordRef } from '@/services/chat/recordContext';
+import { cn } from '@/utils/Helpers';
 import { GoalProgressBar } from './GoalProgressBar';
 import { GoalScorecard } from './GoalScorecard';
 
@@ -170,7 +172,7 @@ export function GoalView({ goal, listHref }: { goal: GoalDetail; listHref: strin
                     <Link href={l.href} className="min-w-0 truncate hover:underline">{l.title}</Link>
                     <span className="shrink-0 text-[12px] text-muted-foreground">{LINK_NOUN[l.kind] ?? l.kind}</span>
                     {goal.isOwner && (
-                      <button type="button" onClick={() => act(() => client.goals.unlink({ goalId: goal.id, kind: l.kind as never, id: l.id }))} aria-label={`Unlink ${l.title}`} className="ml-auto grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 max-md:opacity-100">
+                      <button type="button" onClick={() => act(() => client.goals.unlink({ goalId: goal.id, kind: l.kind as never, id: l.id }))} aria-label={`Unlink ${l.title}`} className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'ml-auto opacity-0 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100' })}>
                         <X className="size-3.5" aria-hidden />
                       </button>
                     )}
@@ -204,7 +206,7 @@ function GoalButton(props: { onClick: () => void; disabled?: boolean; quiet?: bo
       onClick={props.onClick}
       disabled={props.disabled}
       data-testid={props.testId}
-      className={`rounded-md px-2.5 py-1 text-[13px] font-medium transition-colors max-md:min-h-11 ${props.quiet ? 'text-muted-foreground hover:text-foreground' : 'border border-border text-foreground hover:bg-surface-hover'} disabled:opacity-60`}
+      className={cn(buttonVariants({ variant: props.quiet ? 'ghost' : 'outline', size: 'sm' }), 'max-md:min-h-11')}
     >
       {props.children}
     </button>

@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Accordion } from '@/components/patterns';
+import { BAR_ICON_BUTTON } from '@/components/ui/buttonVariants';
 import { PanelCloseButton } from '@/components/ui/panel-close-button';
 import { BrowserRunView } from '@/features/browser/BrowserRunView';
 import { ARTIFACT_KIND_ICON } from '@/features/dashboard/artifacts/kinds';
@@ -460,7 +461,8 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
     const params = new URLSearchParams({ new: '1', [PREVIEW_PARAM]: previewKey(recordRef) });
     router.push(`/dashboard/chat?${params.toString()}`);
   };
-  const iconButton = 'flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground';
+  // Design sweep, 2026-10-23: the bar's icon button, a rounded square (it was a circle).
+  const iconButton = BAR_ICON_BUTTON;
   const dismiss = props.onClose ?? closePreview;
   // What this pane stands on top of (`previewState`'s stack). Only the global
   // peek has one: a pane with its own close or its own content is someone
@@ -488,7 +490,7 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
           panel header. No chip, no underlined link. */}
       <header className={`sticky top-0 flex h-12 shrink-0 items-center gap-1 border-b border-border bg-background pr-1.5 ${belowLabel ? 'pl-1.5' : 'pl-3'}`}>
         {belowLabel && (
-          <button type="button" onClick={previewBack} data-testid="preview-stack-back" aria-label={`Back to ${belowLabel}`} title={`Back to ${belowLabel}`} className={`${iconButton} max-md:size-11`}>
+          <button type="button" onClick={previewBack} data-testid="preview-stack-back" aria-label={`Back to ${belowLabel}`} title={`Back to ${belowLabel}`} className={iconButton}>
             <ChevronLeft className="size-4" aria-hidden />
           </button>
         )}

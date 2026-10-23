@@ -5,6 +5,7 @@ import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import { MessageSquareText, Pencil, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { changeRef } from '@/features/dashboard/chat/composerTags';
 import { SelectionToolbar } from '@/features/dashboard/chat/SelectionToolbar';
@@ -119,9 +120,9 @@ export function AskAboutThis(props: {
           type="button"
           onClick={() => open()}
           data-ask-about-this={props.record?.type ?? 'page'}
-          className={`inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition hover:border-brand-amber/50 hover:text-foreground ${props.className ?? ''}`}
+          className={`inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-surface-hover hover:text-foreground ${props.className ?? ''}`}
         >
-          <Sparkles className="size-3.5 text-brand-amber" aria-hidden />
+          <Sparkles className="size-3.5 text-muted-foreground" aria-hidden />
           {label}
         </button>
       )}
@@ -132,7 +133,7 @@ export function AskAboutThis(props: {
           data-ask-about-this={props.record?.type ?? 'page'}
           aria-label={label}
           title={label}
-          className={`inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground ${props.className ?? ''}`}
+          className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: props.className })}
         >
           <Sparkles className="size-3.5" aria-hidden />
         </button>

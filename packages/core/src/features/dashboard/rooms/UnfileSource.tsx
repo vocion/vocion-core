@@ -9,6 +9,7 @@
 
 import { X } from 'lucide-react';
 import { useState, useTransition } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useRouter } from '@/libs/I18nNavigation';
 
@@ -33,7 +34,7 @@ export function UnfileSource({ roomId, documentId, artifactId, title }: { roomId
             }
             router.refresh();
           })}
-          className={`inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-50 ${failed ? 'text-destructive' : ''}`}
+          className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: failed ? 'text-destructive' : undefined })}
         >
           <X className="size-3.5" aria-hidden />
         </button>

@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 
-const PLAIN_LOGIN_BUTTON = 'inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60';
+// Design sweep, 2026-10-23: the product's own login is the one ink primary.
+const PLAIN_LOGIN_BUTTON = buttonVariants();
 const BRANDED_SHAPE = 'inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition hover:opacity-90 disabled:opacity-60';
 const MARK = 'size-4 shrink-0';
 

@@ -1,6 +1,7 @@
 import type { FlowStepView, TeamBlockView, TeamMemberView } from '@/services/workspace/teamFlow';
-import { Bot, FileText, UserCheck } from 'lucide-react';
+import { FileText, UserCheck } from 'lucide-react';
 import { IntegrationLogo } from '@/components/patterns';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { Link } from '@/libs/I18nNavigation';
 import { timeAgo } from '@/libs/timeAgo';
 import { cn } from '@/utils/Helpers';
@@ -25,10 +26,6 @@ function brandKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-function initials(name: string): string {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('');
-}
-
 function MonthStat({ n, label }: { n: number; label: string }) {
   return (
     <div className="flex flex-col">
@@ -45,24 +42,16 @@ function AgentCard({ m, monthLabel }: { m: TeamMemberView; monthLabel: string })
       href={`/dashboard/agents/${m.slug}`}
       data-testid={`team-agent-${m.slug}`}
       className={cn(
-        'group relative flex h-full flex-col gap-3 rounded-xl border bg-card p-4 text-left transition-colors hover:border-foreground/30',
-        m.lead ? 'border-[var(--brand-amber)]/60' : 'border-border',
+        'group relative flex h-full flex-col gap-3 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-surface-hover',
       )}
     >
       <div className="flex items-start gap-3">
-        <span
-          aria-hidden
-          className={cn(
-            'flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
-            m.lead ? 'bg-[var(--brand-amber-tint)] text-[var(--brand-amber-deep)]' : 'bg-[var(--brand-teal-tint)] text-[var(--brand-teal-deep)]',
-          )}
-        >
-          {initials(m.name)}
-        </span>
+        {/* Design sweep, 2026-10-23: an agent is its AgentDot, never an amber or teal initials circle. */}
+        <AgentDot name={m.name} accent={m.accent} size="lg" decorative className="size-10 text-sm" />
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold">{m.name}</span>
-            {m.lead && <span className="rounded-full bg-[var(--brand-amber-tint)] px-2 py-0.5 text-[11px] font-medium text-[var(--brand-amber-deep)]">Lead</span>}
+            {m.lead && <span className="rounded-full bg-surface-soft px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Lead</span>}
           </div>
           {m.eyebrow && <div className="truncate text-xs text-muted-foreground">{m.eyebrow}</div>}
         </div>
@@ -173,7 +162,7 @@ function StepNode({ s, n, now, timeZone }: { s: FlowStepView; n: number; now: nu
       data-testid={`flow-step-${n}`}
       className={cn(
         'flex min-w-0 flex-1 flex-col gap-2 self-stretch rounded-xl border bg-card p-4 max-lg:w-full',
-        human ? 'border-[var(--brand-teal)]/50 bg-[var(--brand-teal-tint)]/40' : 'border-border',
+        'border-border',
       )}
     >
       <div className="flex items-center gap-2">
@@ -181,7 +170,7 @@ function StepNode({ s, n, now, timeZone }: { s: FlowStepView; n: number; now: nu
           aria-hidden
           className={cn(
             'flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
-            human ? 'bg-[var(--brand-teal)] text-white' : 'bg-[var(--brand-amber)] text-white',
+            'bg-surface-soft text-foreground',
           )}
         >
           {n}
@@ -190,9 +179,9 @@ function StepNode({ s, n, now, timeZone }: { s: FlowStepView; n: number; now: nu
       </div>
       <div className="flex items-center gap-1.5 text-xs">
         {human
-          ? <UserCheck className="size-3.5 text-[var(--brand-teal-deep)]" aria-hidden />
-          : <Bot className="size-3.5 text-[var(--brand-amber-deep)]" aria-hidden />}
-        <span className={human ? 'font-medium text-[var(--brand-teal-deep)]' : 'font-medium'}>
+          ? <UserCheck className="size-3.5 text-muted-foreground" aria-hidden />
+          : <AgentDot name={s.agentName ?? s.agent ?? 'An agent'} size="xs" decorative />}
+        <span className="font-medium">
           {human ? `${s.person} · approves` : (s.agentName ?? s.agent ?? 'An agent')}
         </span>
       </div>
@@ -232,11 +221,11 @@ export function FlowBlock({ title, steps, now, timeZone }: { title: string; step
       <h2 className="mb-1 text-sm font-semibold">{title}</h2>
       <p className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden className="size-2.5 rounded-full bg-[var(--brand-amber)]" />
+          <AgentDot name="Agent" size="xs" decorative />
           An agent does it
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden className="size-2.5 rounded-full bg-[var(--brand-teal)]" />
+          <UserCheck className="size-3.5" aria-hidden />
           A person decides
         </span>
       </p>

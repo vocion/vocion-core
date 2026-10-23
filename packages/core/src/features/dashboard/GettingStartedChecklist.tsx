@@ -3,6 +3,7 @@
 import { Check, ChevronRight, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useState } from 'react';
+import { CLOSE_BUTTON } from '@/components/ui/buttonVariants';
 import { SETUP_CHANGED_EVENT } from '@/features/dashboard/setupChanged';
 import { chatAskHref } from '@/libs/chat/ask';
 import { Link, usePathname } from '@/libs/I18nNavigation';
@@ -133,7 +134,7 @@ export function GettingStartedChecklist({ initial, onDismiss, live = true }: Get
           type="button"
           onClick={onDismiss}
           aria-label={t('checklist_dismiss')}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
+          className={CLOSE_BUTTON}
           data-testid="getting-started-dismiss"
         >
           <X className="size-3.5" aria-hidden />

@@ -1,5 +1,5 @@
 import type { StepperStep } from '@/components/ui/stepper';
-import { Activity, ArrowLeft, Compass, GitBranch, PlayCircle } from 'lucide-react';
+import { Activity, ArrowLeft, Compass, PlayCircle } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -51,9 +51,6 @@ export default async function WorkflowDetailPage(props: {
       <TitleBar
         title={(
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <GitBranch className="size-5" />
-            </div>
             <div>
               <div>{workflow.name}</div>
               <div className="flex items-center gap-2 text-sm font-normal">
@@ -66,7 +63,7 @@ export default async function WorkflowDetailPage(props: {
                 {workflow.agent && (
                   <Link
                     href={`/dashboard/agents/${workflow.agent}`}
-                    className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                    className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
                     title="The agent this workflow belongs to"
                   >
                     <Compass className="size-3" />

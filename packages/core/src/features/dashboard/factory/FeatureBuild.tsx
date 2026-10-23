@@ -5,6 +5,7 @@ import type { DotTone } from '@/components/patterns';
 import { Hammer, Loader2, RotateCcw } from 'lucide-react';
 import { useState, useSyncExternalStore } from 'react';
 import { StatusDot } from '@/components/patterns';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client } from '@/libs/Orpc';
 
@@ -146,7 +147,7 @@ export function FeatureBuild({ requestId, planId, children, label = 'Build it', 
         <Tooltip>
           <TooltipTrigger asChild>
             {/* aria-disabled, not disabled: a disabled button takes no pointer or focus, so its tooltip could never show. */}
-            <button type="button" aria-disabled="true" onClick={e => e.preventDefault()} data-testid="feature-build-disabled" className="inline-flex h-9 cursor-not-allowed items-center gap-2 self-start rounded-md bg-foreground px-4 text-sm font-medium text-background opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+            <button type="button" aria-disabled="true" onClick={e => e.preventDefault()} data-testid="feature-build-disabled" className={buttonVariants({ className: 'cursor-not-allowed self-start opacity-50' })}>
               <Hammer className="size-4" aria-hidden />
               {label}
             </button>
@@ -164,7 +165,7 @@ export function FeatureBuild({ requestId, planId, children, label = 'Build it', 
         onClick={() => void build()}
         disabled={phase.s === 'working'}
         data-testid="feature-build"
-        className="inline-flex h-9 items-center gap-2 self-start rounded-md bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-60"
+        className={buttonVariants({ className: 'self-start' })}
       >
         {phase.s === 'working' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Hammer className="size-4" aria-hidden />}
         {phase.s === 'working' ? 'Starting…' : label}

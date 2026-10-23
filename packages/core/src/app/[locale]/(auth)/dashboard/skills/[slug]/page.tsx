@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { ArrowLeft, ScrollText, Zap } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -168,9 +168,6 @@ export default async function SkillDetailPage(props: Props) {
       <TitleBar
         title={(
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              {row.kind === 'skill' ? <Zap className="size-5" /> : <ScrollText className="size-5" />}
-            </div>
             <div>
               <div>{row.name}</div>
               <div className="flex items-center gap-2 text-sm font-normal">

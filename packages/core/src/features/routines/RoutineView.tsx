@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DetailMeta, DetailPage, StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SparkOrb } from '@/components/ui/spark-orb';
 import { openPreview } from '@/features/preview/previewState';
 import { useLive } from '@/hooks/useLive';
 import { Link, useRouter } from '@/libs/I18nNavigation';
@@ -164,7 +165,7 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
         ? <TeachingPanel routine={routine} now={now} compact={compact} busy={busy} onAttach={link => act({ action: 'attach_recording', answer: link })} />
         : routine.error && <p className="mt-4 text-[13px] text-brand-fail">{routine.error}</p>}
       {!teaching && pending && (
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-brand-amber/40 bg-brand-amber/5 px-3 py-2.5" data-routine-review>
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg bg-waiting-soft px-3 py-2.5" data-routine-review>
           <p className="min-w-0 flex-1 text-[13px] text-foreground">
             {`Version ${pending.n} is drafted and waits for ${expert ?? 'its expert'}.`}
             {open > 0 && <span className="text-muted-foreground">{` ${open} open question${open === 1 ? '' : 's'} below.`}</span>}
@@ -305,10 +306,13 @@ function TeachingPanel({ routine, now, compact, busy, onAttach }: { routine: Rou
   const [link, setLink] = useState('');
   const at = TEACH_STEPS.findIndex(s => s.state === state);
   return (
-    <section className={cn('mt-5 rounded-xl border p-4 sm:p-5', failed ? 'border-brand-fail/30 bg-brand-fail-bg/40' : 'border-brand-amber/40 bg-brand-amber/5')} data-routine-teaching={state}>
+    <section className={cn('mt-5 rounded-xl border p-4 sm:p-5', failed ? 'border-brand-fail/30 bg-brand-fail-bg/40' : state === 'waiting_for_recording' ? 'border-transparent bg-waiting-soft' : 'border-transparent bg-surface-soft')} data-routine-teaching={state}>
       <p className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">Teaching</p>
       <div className="mt-2 flex items-center gap-2">
-        {!failed && <span className="size-2 shrink-0 rounded-full bg-brand-amber motion-safe:animate-pulse" aria-hidden />}
+        {/* Design sweep, 2026-10-23: the agent working is the spark; a wait on a person is amber. */}
+        {!failed && (state === 'waiting_for_recording'
+          ? <span className="size-2 shrink-0 rounded-full bg-waiting" aria-hidden />
+          : <SparkOrb working className="shrink-0" />)}
         <h2 className={cn('text-[17px] leading-snug font-semibold', failed ? 'text-brand-fail' : 'text-foreground')}>
           {TEACHING_WORD[state]}
           {!failed && state !== 'waiting_for_recording' && '…'}
@@ -317,7 +321,7 @@ function TeachingPanel({ routine, now, compact, busy, onAttach }: { routine: Rou
       <p className="mt-1.5 max-w-prose text-[13px] leading-relaxed text-muted-foreground">{failed ? (routine.error ?? 'Teaching stopped before a spec was drafted.') : TEACH_LINE[state]}</p>
       {state === 'waiting_for_recording' && t?.instruction && (
         <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-border bg-background px-3 py-2.5" data-routine-teaching-instruction>
-          <Video className="mt-0.5 size-4 shrink-0 text-brand-amber" aria-hidden />
+          <Video className="mt-0.5 size-4 shrink-0 text-waiting" aria-hidden />
           <p className="text-[13px] leading-relaxed text-foreground">{t.instruction}</p>
         </div>
       )}
@@ -326,9 +330,9 @@ function TeachingPanel({ routine, now, compact, busy, onAttach }: { routine: Rou
         <ol className="mt-4 flex items-center gap-2" aria-label="Teaching steps">
           {TEACH_STEPS.map((s, i) => (
             <li key={s.state} className="flex items-center gap-2">
-              {i > 0 && <span className={cn('h-px w-6 sm:w-10', i <= at ? 'bg-brand-amber' : 'bg-border')} aria-hidden />}
+              {i > 0 && <span className={cn('h-px w-6 sm:w-10', i <= at ? 'bg-foreground/40' : 'bg-border')} aria-hidden />}
               <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[12px]', i < at ? 'text-foreground' : i === at ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground')}>
-                {i < at ? <Check className="size-3 text-brand-pass" aria-hidden /> : <CircleDot className={cn('size-3', i === at ? 'text-brand-amber' : 'text-muted-foreground/60')} aria-hidden />}
+                {i < at ? <Check className="size-3 text-brand-pass" aria-hidden /> : <CircleDot className={cn('size-3', i === at ? 'text-foreground' : 'text-muted-foreground/60')} aria-hidden />}
                 {s.label}
               </span>
             </li>
@@ -396,7 +400,7 @@ function Questions({ questions, sourceUrl, busy, onAnswer }: { questions: Routin
   return (
     <ul className="space-y-3">
       {ordered.map(q => (
-        <li key={q.id} className={cn('rounded-lg border px-3 py-2.5', q.answer ? 'border-border/60' : 'border-brand-amber/40 bg-brand-amber/5')} data-routine-question={q.id} data-answered={q.answer ? 'true' : undefined}>
+        <li key={q.id} className={cn('rounded-lg border px-3 py-2.5', q.answer ? 'border-border/60' : 'border-transparent bg-waiting-soft')} data-routine-question={q.id} data-answered={q.answer ? 'true' : undefined}>
           <div className="flex items-start gap-2">
             <p className="min-w-0 flex-1 text-[13px] leading-snug font-medium text-foreground">{q.question}</p>
             <MomentLink url={sourceUrl} at={q.at} />

@@ -13,6 +13,7 @@ import { useState, useTransition } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Section } from '@/components/patterns';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { useRouter } from '@/libs/I18nNavigation';
 
 type Props = { roomId: number; notes: string; rules: string[] };
@@ -54,7 +55,7 @@ function Editor({ value, onChange, onSave, onCancel, busy, placeholder, mono }: 
         className={`min-h-40 w-full resize-y rounded-lg border border-border bg-background p-3 text-[13px] leading-6 text-foreground focus:border-foreground/30 focus:outline-none ${mono ? 'font-mono' : ''}`}
       />
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-        <button type="button" onClick={onSave} disabled={busy} className="inline-flex h-7 items-center rounded-md bg-foreground px-2.5 text-xs font-medium text-background disabled:opacity-50">{busy ? 'Saving…' : 'Save'}</button>
+        <button type="button" onClick={onSave} disabled={busy} className={buttonVariants({ size: 'sm' })}>{busy ? 'Saving…' : 'Save'}</button>
         <button type="button" onClick={onCancel} disabled={busy} className="inline-flex h-7 items-center rounded-md px-2 text-xs hover:bg-surface-hover">Cancel</button>
         <span>⌘S saves · Esc discards</span>
       </div>

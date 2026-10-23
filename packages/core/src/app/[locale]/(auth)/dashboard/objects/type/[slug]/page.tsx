@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { ArrowLeft, Database } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -50,9 +50,6 @@ export default async function ObjectTypeDetailPage(props: {
       <TitleBar
         title={(
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Database className="size-5" />
-            </div>
             <div>
               <div>{objType.label}</div>
               <div className="flex items-center gap-2 text-sm font-normal">
@@ -86,8 +83,8 @@ export default async function ObjectTypeDetailPage(props: {
                         x
                       </span>
                     </div>
-                    <div className="mt-1 h-1 w-full rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+                    <div className="mt-1 h-1 w-full rounded-full bg-surface-soft">
+                      <div className="h-full rounded-full bg-foreground/70" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                 );
@@ -108,7 +105,7 @@ export default async function ObjectTypeDetailPage(props: {
               <Link
                 key={obj.id}
                 href={`/dashboard/objects/${obj.id}`}
-                className="flex items-center justify-between rounded-md border border-border bg-background p-3 transition hover:border-primary/30"
+                className="flex items-center justify-between rounded-md border border-border bg-background p-3 transition hover:bg-surface-hover"
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm">{obj.title}</div>

@@ -3,6 +3,7 @@ import type { SurfaceId } from '@/features/navigation/surfaces';
 import { eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
 import { cookies } from 'next/headers';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AgentBudgetBanner } from '@/features/dashboard/AgentBudgetBanner';
 import { appsElsewhere } from '@/features/dashboard/appsElsewhere';
@@ -96,7 +97,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
           { }
           <a
             href="/api/auth/signout"
-            className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90"
+            className={buttonVariants()}
           >
             Sign out and sign back in
           </a>

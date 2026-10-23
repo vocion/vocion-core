@@ -84,7 +84,7 @@ export function ReviewWhy({ why, children }: { why: ReviewWhyModel; children?: R
         className="flex min-h-10 w-full items-center gap-1.5 py-2 text-left text-[13px] text-muted-foreground transition hover:text-foreground"
       >
         <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-90')} aria-hidden />
-        <Sparkles className="size-3.5 shrink-0 text-brand-amber-deep" aria-hidden />
+        <Sparkles className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
         <span className="font-medium">Why this?</span>
         <span className="truncate text-muted-foreground/70">
           {open ? '' : why.facts.map(f => `${f.label} ${f.value}`).join(' · ')}

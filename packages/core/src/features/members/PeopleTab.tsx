@@ -4,6 +4,7 @@ import type { InviteRow as InviteRowData, PersonRow } from './access';
 import { MoreHorizontal, Users } from 'lucide-react';
 import { Column, ListEmpty, ListRow, ListRows, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -125,7 +126,7 @@ export function PeopleTab(props: {
                     <DropdownMenuTrigger
                       aria-label={`Actions for ${p.email}`}
                       disabled={props.pending}
-                      className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-50"
+                      className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'disabled:opacity-50' })}
                     >
                       <MoreHorizontal className="size-4" aria-hidden />
                     </DropdownMenuTrigger>

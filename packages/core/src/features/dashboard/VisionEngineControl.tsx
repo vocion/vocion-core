@@ -2,6 +2,7 @@
 
 import { Loader2, Power, PowerOff } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Link } from '@/libs/I18nNavigation';
 
 /**
@@ -108,13 +109,13 @@ export function VisionEngineControl({ compact = false }: { compact?: boolean }) 
           <Link href="/dashboard/models" className="text-xs underline-offset-2 hover:underline">Model details</Link>
           {running || status === 'STARTING'
             ? (
-                <button type="button" disabled={busy || status === 'STARTING'} onClick={() => flip('stop')} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium transition hover:bg-red-500/10 hover:text-red-600 disabled:opacity-50">
+                <button type="button" disabled={busy || status === 'STARTING'} onClick={() => flip('stop')} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
                   {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <PowerOff className="size-3.5" aria-hidden />}
                   Stop classifier
                 </button>
               )
             : (
-                <button type="button" disabled={busy || !canStart} onClick={() => flip('start')} title={canStart ? 'Start the Rekognition endpoint (~10 min to come up; bills per hour)' : `Cannot start from ${status}`} className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:bg-foreground/90 disabled:opacity-50">
+                <button type="button" disabled={busy || !canStart} onClick={() => flip('start')} title={canStart ? 'Start the Rekognition endpoint (~10 min to come up; bills per hour)' : `Cannot start from ${status}`} className={buttonVariants({ size: 'sm' })}>
                   {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Power className="size-3.5" aria-hidden />}
                   Start classifier
                 </button>

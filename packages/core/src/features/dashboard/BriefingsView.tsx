@@ -6,6 +6,7 @@ import { Check, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { CompactFilters, ListEmpty, ListRow, ListRows } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
+import { SparkOrb } from '@/components/ui/spark-orb';
 import { Surface } from '@/components/ui/surface';
 import { CommentLayerProvider } from '@/features/comments/CommentLayer';
 import { BriefingView } from '@/features/dashboard/briefings/BriefingView';
@@ -160,7 +161,7 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
               setActive(i);
               setRegen('idle');
             }}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${i === active ? 'bg-brand-amber/15 text-brand-amber-deep' : 'text-muted-foreground hover:text-foreground'}`}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${i === active ? 'bg-action text-action-foreground' : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground'}`}
           >
             {grp.teamName}
           </button>
@@ -196,11 +197,8 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
         </Button>
       </div>
       {regen === 'assembling' && (
-        <p className="mt-1 flex items-center gap-1.5 text-xs text-brand-amber-deep">
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" />
-            <span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" />
-          </span>
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <SparkOrb working />
           {g.teamName}
           {' '}
           lead is bringing the brief up to date — it will appear here automatically (usually 1–2 min).

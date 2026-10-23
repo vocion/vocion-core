@@ -212,7 +212,7 @@ function WindowChips({ active }: { active: ReportWindow }) {
           href={`/dashboard/team-report?window=${w}`}
           role="tab"
           aria-selected={w === active}
-          className={`rounded-md border px-2.5 py-1 text-xs font-medium transition ${w === active ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+          className={`rounded-md border px-2.5 py-1 text-xs font-medium transition ${w === active ? 'border-transparent bg-action text-action-foreground' : 'border-border text-muted-foreground hover:bg-surface-hover hover:text-foreground'}`}
         >
           {w}
         </Link>

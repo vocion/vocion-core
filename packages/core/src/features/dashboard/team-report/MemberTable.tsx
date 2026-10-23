@@ -82,8 +82,8 @@ export function MemberTable({ members, window }: { members: MemberReport[]; wind
  * @param root0.tone
  */
 function ShareCell({ share, tone }: { share: number; tone: 'emerald' | 'primary' }) {
-  const fill = tone === 'emerald' ? 'bg-emerald-600 dark:bg-emerald-500' : 'bg-primary';
-  const track = tone === 'emerald' ? 'bg-emerald-600/15' : 'bg-primary/15';
+  const fill = tone === 'emerald' ? 'bg-emerald-600 dark:bg-emerald-500' : 'bg-foreground/70';
+  const track = tone === 'emerald' ? 'bg-emerald-600/15' : 'bg-muted';
   return (
     <div className="flex items-center gap-2">
       <span className={`h-1 w-16 rounded-full ${track}`} aria-hidden>

@@ -1,5 +1,6 @@
 import { Activity, Compass, Plus } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { TriggerBadge } from '@/features/dashboard/TriggerBadge';
@@ -22,11 +23,11 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
       />
 
       <div className="mb-4 flex items-center gap-2 sm:mb-6 sm:gap-3">
-        <Link href="/dashboard/missions/new" className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition hover:opacity-90 sm:px-4">
+        <Link href="/dashboard/missions/new" className={buttonVariants({ className: 'shrink-0' })}>
           <Plus className="size-4" />
           Start a mission
         </Link>
-        <Link href="/dashboard/activity?kind=mission" className="inline-flex h-9 min-w-0 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-muted-foreground transition hover:text-foreground sm:px-4">
+        <Link href="/dashboard/activity?kind=mission" className={buttonVariants({ variant: 'outline', className: 'min-w-0' })}>
           <Activity className="size-4 shrink-0" />
           <span className="truncate">Recent mission activity</span>
         </Link>
@@ -52,7 +53,7 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
                   <Link
                     key={t.id}
                     href={`/dashboard/missions/${t.slug}`}
-                    className="rounded-lg border border-border bg-background p-4 transition hover:border-primary/30"
+                    className="rounded-lg border border-border bg-background p-4 transition hover:bg-surface-hover"
                   >
                     <div className="text-sm font-medium">{t.name}</div>
                     {t.description && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{t.description}</p>}

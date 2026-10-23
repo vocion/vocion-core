@@ -3,6 +3,7 @@
 import { ArrowUpRight, Check, Globe, Link2, UserRound } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useCallback, useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client } from '@/libs/Orpc';
@@ -77,7 +78,7 @@ export function FeatureShare({ requestId, title }: { requestId: number; title: s
           <PopoverPrimitive.Trigger
             aria-label={`Share “${title}”`}
             data-testid="feature-share"
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground"
+            className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'data-[state=open]:bg-surface-hover data-[state=open]:text-foreground' })}
           >
             <Link2 className="size-4" aria-hidden />
           </PopoverPrimitive.Trigger>

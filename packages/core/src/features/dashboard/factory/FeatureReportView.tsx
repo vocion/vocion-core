@@ -565,7 +565,7 @@ function StickyAction({ report }: { report: FeatureReport }) {
       <span>{a.label}</span>
     </>
   );
-  const look = 'pointer-events-auto inline-flex h-11 items-center gap-2 rounded-full bg-brand-amber px-5 text-sm font-medium text-white shadow-(--shadow-pop)';
+  const look = buttonVariants({ size: 'lg', className: 'pointer-events-auto h-11 rounded-full shadow-(--shadow-pop)' });
   return (
     <div className="pointer-events-none sticky bottom-3 z-30 -mx-1 flex justify-center sm:hidden" data-testid="report-sticky-action">
       {a.kind === 'drawer'

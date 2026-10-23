@@ -4,7 +4,9 @@ import { ArrowRight, X } from 'lucide-react';
 import { SessionContext } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
 import { use, useState } from 'react';
+import { CLOSE_BUTTON } from '@/components/ui/buttonVariants';
 import { Link } from '@/libs/I18nNavigation';
+import { cn } from '@/utils/Helpers';
 import { firstNameOf, waitingNudgeCount } from './emptyChat';
 
 /** Session-storage key: the person waved the nudge away in this browser session. */
@@ -49,7 +51,7 @@ export function WaitingNudge({ count, href = '/dashboard/inbox', onOpen }: { cou
   }
   const label = (
     <>
-      <span className="size-1.5 shrink-0 rounded-full bg-brand-amber" aria-hidden />
+      <span className="size-1.5 shrink-0 rounded-full bg-waiting" aria-hidden />
       <span className="truncate">{t('waiting_nudge', { count: shown })}</span>
       <ArrowRight className="size-3.5 shrink-0" aria-hidden />
     </>
@@ -71,7 +73,7 @@ export function WaitingNudge({ count, href = '/dashboard/inbox', onOpen }: { cou
         }}
         aria-label={t('waiting_nudge_dismiss')}
         data-testid="waiting-nudge-dismiss"
-        className="mr-1 grid size-6 shrink-0 place-items-center rounded-full transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none max-md:size-11"
+        className={cn(CLOSE_BUTTON, 'mr-1 max-md:size-11')}
       >
         <X className="size-3" aria-hidden />
       </button>

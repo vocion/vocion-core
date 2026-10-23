@@ -3,6 +3,7 @@
 import type { RecordHistory as History, RecordVersion } from '@/services/objects/recordBody';
 import { Loader2, RotateCcw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { announceVersionWritten, useVersionWritten } from '@/features/dashboard/versions/versionEvents';
 import { client } from '@/libs/Orpc';
@@ -47,7 +48,7 @@ type Receipt = { kind: 'done'; runId: number; version: number | null } | { kind:
 function VersionRow({ v, current, busy, focused, onRestore }: { v: RecordVersion; current: number; busy: boolean; focused: boolean; onRestore: (version: number) => void }) {
   const at = new Date(v.createdAt);
   return (
-    <li className={`py-3 ${focused ? '-mx-2 rounded-md bg-brand-amber/10 px-2' : ''}`} data-testid="record-version" data-version={v.version} data-version-section={`v${v.version}`} {...(focused ? { 'aria-current': 'true' as const } : {})}>
+    <li className={`py-3 ${focused ? '-mx-2 rounded-md px-2' : ''}`} data-version-changed={focused ? 'fade' : undefined} data-testid="record-version" data-version={v.version} data-version-section={`v${v.version}`} {...(focused ? { 'aria-current': 'true' as const } : {})}>
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-[13px] text-foreground">
@@ -67,7 +68,7 @@ function VersionRow({ v, current, busy, focused, onRestore }: { v: RecordVersion
                 disabled={busy}
                 aria-label={`Restore version ${v.version}`}
                 data-testid="record-version-restore"
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50"
+                className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'disabled:opacity-50' })}
               >
                 <RotateCcw className="size-3.5" aria-hidden />
               </button>

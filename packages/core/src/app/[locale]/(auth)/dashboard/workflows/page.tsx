@@ -62,7 +62,7 @@ export default async function WorkflowsPage(props: {
                   <Link
                     key={w.id}
                     href={`/dashboard/workflows/${w.slug}`}
-                    className="rounded-lg border border-border bg-background p-4 transition hover:border-primary/30"
+                    className="rounded-lg border border-border bg-background p-4 transition hover:bg-surface-hover"
                   >
                     <div className="mb-2 flex items-center gap-2">
                       <GitBranch className="size-4 text-primary" />

@@ -64,7 +64,7 @@ export function ModelControl({ value, onChange }: { value: ModelPrefs; onChange:
             className={cn(
               COMPOSER_CONTROL,
               'hover:bg-surface-hover data-[state=open]:bg-surface-hover data-[state=open]:text-foreground',
-              raised ? 'text-brand-amber-deep' : 'text-muted-foreground/70 hover:text-foreground',
+              raised ? 'text-foreground' : 'text-muted-foreground/70 hover:text-foreground',
             )}
           >
             <Gauge className="size-4" aria-hidden />

@@ -3,6 +3,8 @@
 import type { ObjectiveView } from '@/libs/objectives/objective';
 import { Check, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useId, useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
+import { SparkOrb } from '@/components/ui/spark-orb';
 import { progressLine } from '@/libs/objectives/objective';
 import { useObjective } from './useObjective';
 
@@ -77,7 +79,9 @@ export function ObjectiveStrip({ view, onStop, onResume }: { view: ObjectiveView
         >
           {done
             ? <Check className="size-3.5 shrink-0 text-[var(--brand-pass)]" aria-hidden />
-            : <span className={`size-1.5 shrink-0 rounded-full ${stopped ? 'bg-muted-foreground/50' : 'bg-brand-amber'}`} aria-hidden />}
+            : stopped
+              ? <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" aria-hidden />
+              : <SparkOrb working className="shrink-0" />}
           <span className="min-w-0 truncate">
             <span className="text-foreground">{what}</span>
             {where && (
@@ -92,7 +96,7 @@ export function ObjectiveStrip({ view, onStop, onResume }: { view: ObjectiveView
         </button>
         {done
           ? (
-              <button type="button" onClick={() => setPutAway(true)} aria-label="Put this away" data-testid="objective-dismiss" className="grid size-7 shrink-0 place-items-center rounded-full transition-colors hover:bg-surface-hover hover:text-foreground max-md:size-11">
+              <button type="button" onClick={() => setPutAway(true)} aria-label="Put this away" data-testid="objective-dismiss" className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}>
                 <X className="size-3.5" aria-hidden />
               </button>
             )

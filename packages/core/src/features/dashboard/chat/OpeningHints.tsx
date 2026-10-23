@@ -3,9 +3,11 @@
 import type { OpeningHint } from '@/libs/chat/openingHints';
 import { ArrowRight, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { CLOSE_BUTTON } from '@/components/ui/buttonVariants';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { cn } from '@/utils/Helpers';
 import { PROMPT_PILL_CLASS } from './SuggestionPills';
 
 /**
@@ -101,7 +103,7 @@ export function OpeningHints({ hints, onSend }: { hints: readonly OpeningHint[];
               onClick={() => dismiss(h, i)}
               aria-label={`Not now: ${h.label.replace(/ →$/, '')}`}
               data-testid="opening-hint-dismiss"
-              className="grid size-7 shrink-0 place-items-center rounded-full transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none max-md:size-11"
+              className={cn(CLOSE_BUTTON, 'max-md:size-11')}
             >
               <X className="size-3" aria-hidden />
             </button>

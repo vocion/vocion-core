@@ -1,3 +1,4 @@
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { auth } from '@/libs/Auth';
 import { pendingRequest } from '@/services/OAuthService';
 
@@ -34,8 +35,8 @@ export default async function ConnectPage(props: { searchParams: Promise<{ reque
         : (
             <form method="post" action="/oauth/consent" className="mt-6 flex gap-2">
               <input type="hidden" name="request" value={pending.id} />
-              <button type="submit" name="decision" value="approve" className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background">Allow</button>
-              <button type="submit" name="decision" value="deny" className="rounded-full border border-border px-4 py-2 text-sm text-muted-foreground">Not now</button>
+              <button type="submit" name="decision" value="approve" className={buttonVariants()}>Allow</button>
+              <button type="submit" name="decision" value="deny" className={buttonVariants({ variant: 'outline' })}>Not now</button>
             </form>
           )}
     </main>

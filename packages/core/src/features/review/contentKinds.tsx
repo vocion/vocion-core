@@ -4,7 +4,7 @@ import type { ComponentType } from 'react';
 import type { ReviewContent } from '@/libs/actions/types';
 import { Check, Copy, ExternalLink, FileText } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { cn } from '@/utils/Helpers';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { RichEmailBody } from './RichEmailBody';
 
 /**
@@ -132,14 +132,12 @@ function EmailContent({ item, edit, onEdit, disabled, changed }: ContentRenderPr
   return (
     <div
       data-changed={changed ? 'true' : undefined}
+      // A rewrite that landed while you were reading says where it landed,
+      // then gets out of the way: the shared change flash (design sweep,
+      // 2026-10-23; it was an amber tint with its own transition).
+      data-version-changed={changed ? 'fade' : undefined}
       data-testid={`email-pane-${item.id}`}
-      className={cn(
-        // A rewrite that landed while you were reading says where it landed,
-        // then gets out of the way. Long transition, no animation on the way
-        // in: the tint IS the arrival, the fade is the part you watch.
-        'rounded-sm transition-colors duration-[2000ms]',
-        changed && 'bg-brand-amber-tint duration-0',
-      )}
+      className="rounded-sm"
     >
       {/* Nothing to edit here — a guided review, or a run already decided.
           The body still renders through the editor, read-only: it may carry a
@@ -206,8 +204,9 @@ function MessageContent({ item, edit, onEdit, disabled, changed }: ContentRender
   return (
     <div
       data-changed={changed ? 'true' : undefined}
+      data-version-changed={changed ? 'fade' : undefined}
       data-testid={`message-pane-${item.id}`}
-      className={cn('rounded-sm transition-colors duration-[2000ms]', changed && 'bg-brand-amber-tint duration-0')}
+      className="rounded-sm"
     >
       {!onEdit && <p className="mt-2 text-sm leading-relaxed whitespace-pre-line text-foreground/85">{body}</p>}
       {onEdit && (
@@ -377,7 +376,7 @@ function CommandBlock({ command, label }: { command: string; label: string }) {
         aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
         title={copied ? 'Copied' : 'Copy'}
         data-testid="copy-command"
-        className="absolute top-1.5 right-1.5 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
+        className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'absolute top-1.5 right-1.5' })}
       >
         {copied ? <Check className="size-4 text-brand-pass" aria-hidden /> : <Copy className="size-4" aria-hidden />}
       </button>

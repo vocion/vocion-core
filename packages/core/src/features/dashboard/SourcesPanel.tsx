@@ -19,6 +19,8 @@ import {
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { firstSentence, IntegrationLogo } from '@/components/patterns';
+import { buttonVariants } from '@/components/ui/buttonVariants';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { toast } from '@/components/ui/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -847,14 +849,14 @@ function ConnectCredentialDialog({ source, name, returnTo, onClose, onConnected 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border bg-background shadow-xl">
+    <Dialog open onOpenChange={next => !next && onClose()}>
+      <DialogContent className="max-h-[90vh] max-w-xl gap-0 overflow-y-auto p-0 sm:max-w-xl" showCloseButton={false}>
         <form onSubmit={submit}>
           <div className="flex items-center gap-2 border-b px-4 py-3">
             <KeyRound className="size-4 text-muted-foreground" />
-            <h3 className="font-display text-lg">
+            <DialogTitle className="font-display text-lg">
               {`Connect ${name}`}
-            </h3>
+            </DialogTitle>
           </div>
           <div className="space-y-4 p-4">
             {connect?.configured
@@ -869,7 +871,7 @@ function ConnectCredentialDialog({ source, name, returnTo, onClose, onConnected 
                     </p>
                     <a
                       href={connectStartHref({ provider: connect.provider, source: source.slug, returnTo })}
-                      className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
+                      className={buttonVariants({ size: 'sm' })}
                     >
                       <KeyRound className="size-3" />
                       Connect with
@@ -1003,7 +1005,7 @@ function ConnectCredentialDialog({ source, name, returnTo, onClose, onConnected 
               : null}
           </div>
           <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-            <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
+            <button type="button" onClick={onClose} className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
               Cancel
             </button>
             {connect?.configured || (!pasteable && !usingStored)
@@ -1012,7 +1014,7 @@ function ConnectCredentialDialog({ source, name, returnTo, onClose, onConnected 
                   <button
                     type="submit"
                     disabled={submitting || !complete}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
+                    className={buttonVariants({ size: 'sm' })}
                   >
                     {submitting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
                     {usingStored ? 'Use this credential' : 'Save credential'}
@@ -1020,8 +1022,8 @@ function ConnectCredentialDialog({ source, name, returnTo, onClose, onConnected 
                 )}
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1040,15 +1042,15 @@ function ConnectCredentialDialog({ source, name, returnTo, onClose, onConnected 
  */
 function TestSourceDialog({ source, onClose }: { source: Source; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-xl rounded-xl border bg-background shadow-xl">
+    <Dialog open onOpenChange={next => !next && onClose()}>
+      <DialogContent className="max-w-xl gap-0 p-0 sm:max-w-xl" showCloseButton={false}>
         <div className="flex items-center gap-2 border-b px-4 py-3">
           <Plug className="size-4 text-muted-foreground" />
-          <h3 className="font-display text-lg">
+          <DialogTitle className="font-display text-lg">
             Test
             {' '}
             {source.slug}
-          </h3>
+          </DialogTitle>
         </div>
         <div className="space-y-3 p-4">
           <p className="text-xs text-muted-foreground">
@@ -1061,12 +1063,12 @@ function TestSourceDialog({ source, onClose }: { source: Source; onClose: () => 
           />
         </div>
         <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-          <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <button type="button" onClick={onClose} className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
             Close
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1248,15 +1250,15 @@ function AddSourceDialogFrame({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <Dialog open onOpenChange={next => !next && onClose()}>
       {/* Header and footer are pinned and only the fields scroll, so a validation
           error — which lands in the footer, next to the button that triggered it —
           is visible wherever the operator has scrolled to. */}
-      <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border bg-background shadow-xl">
+      <DialogContent className="flex max-h-[85vh] max-w-xl flex-col gap-0 p-0 sm:max-w-xl" showCloseButton={false}>
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex items-center gap-3 border-b px-4 py-3">
             {lead}
-            <h3 className="font-display text-lg">{title}</h3>
+            <DialogTitle className="font-display text-lg">{title}</DialogTitle>
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
             {notice
@@ -1296,7 +1298,7 @@ function AddSourceDialogFrame({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+                  className={buttonVariants({ variant: 'ghost', size: 'sm' })}
                 >
                   Cancel
                 </button>
@@ -1306,7 +1308,7 @@ function AddSourceDialogFrame({
                   <button
                     type="submit"
                     disabled={submitting || !canSubmit}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
+                    className={buttonVariants({ size: 'sm' })}
                   >
                     {submitting
                       ? (
@@ -1322,8 +1324,8 @@ function AddSourceDialogFrame({
             </div>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

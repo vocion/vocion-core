@@ -5,6 +5,7 @@ import type { AppNav } from '@/features/navigation/apps';
 import { X } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
+import { CLOSE_BUTTON } from '@/components/ui/buttonVariants';
 import { appMissingHere } from '@/features/navigation/apps';
 import { usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
@@ -91,7 +92,7 @@ export function AppNotHereNotice(props: { apps: readonly AppNav[]; elsewhere: re
           </>
         )}
       </p>
-      <button type="button" onClick={() => setNotice(null)} aria-label={t('app_not_here_dismiss')} className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground">
+      <button type="button" onClick={() => setNotice(null)} aria-label={t('app_not_here_dismiss')} className={CLOSE_BUTTON}>
         <X className="size-3.5" aria-hidden />
       </button>
     </div>

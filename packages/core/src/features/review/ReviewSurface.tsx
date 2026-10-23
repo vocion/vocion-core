@@ -271,7 +271,7 @@ function MetaRow(props: {
       {props.recommendation && (
         <div className="min-w-[104px]" data-testid="meta-recommendation">
           <dt className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
-            <Sparkles className="size-3.5 text-brand-amber-deep" aria-hidden />
+            <Sparkles className="size-3.5 text-muted-foreground" aria-hidden />
             {props.recommendation.label}
           </dt>
           <dd className="mt-0.5 flex flex-wrap items-baseline gap-x-3 text-sm">
@@ -560,7 +560,7 @@ function DecisionHeader(props: { headline: string; badges: NonNullable<ReviewCar
       )}
       {props.recommendation && (
         <p className="mt-2.5 inline-flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground" data-testid="decision-recommendation">
-          <Sparkles className="size-3.5 shrink-0 text-brand-amber-deep" aria-hidden />
+          <Sparkles className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
           {props.recommendation}
         </p>
       )}
@@ -1170,7 +1170,7 @@ export function ReviewSurface(props: {
               {detail && <p className="mt-3 max-w-3xl leading-relaxed break-words text-foreground/85">{detail}</p>}
               {whyLine && (
                 <p className="mt-3 inline-flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground" data-testid="why-suggestion">
-                  <Sparkles className="size-3.5 shrink-0 text-brand-amber-deep" aria-hidden />
+                  <Sparkles className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                   {whyLine}
                 </p>
               )}
@@ -1464,7 +1464,7 @@ export function ReviewSurface(props: {
         const edit = d.contentEdits[item.id];
         const why = outboundWhy && (
           <section data-testid="outbound-why" aria-label="Why" className="flex items-start gap-2.5 border-b border-rule pb-3">
-            <Sparkles className="mt-0.5 size-3.5 shrink-0 text-brand-amber-deep" aria-hidden />
+            <Sparkles className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
             <div className="min-w-0 flex-1">
               {outboundWhy.lines.length > 0 && (
                 <p className="max-w-3xl text-[14px] leading-relaxed break-words text-foreground/85">

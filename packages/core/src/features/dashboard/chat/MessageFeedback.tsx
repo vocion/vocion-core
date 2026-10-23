@@ -3,6 +3,7 @@
 import { Check, MessageSquareText, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 
 /**
  * A thumb and an optional note under an assistant turn (0094). Quiet by
@@ -51,8 +52,9 @@ export function MessageFeedback({ messageId, rating, note, onFeedback }: {
     setNoteOpen(false);
   };
 
-  const btn = 'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground/70 transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-amber/40';
-  const active = 'text-brand-amber-deep bg-brand-amber-tint hover:text-brand-amber-deep';
+  // Design sweep, 2026-10-23: the shared ghost icon button; a chosen thumb is ink on a soft fill, not amber.
+  const btn = buttonVariants({ variant: 'ghost', size: 'icon-sm' });
+  const active = 'bg-surface-hover text-foreground';
 
   return (
     <div data-testid="message-feedback" className="mt-1.5 flex flex-wrap items-center gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
@@ -90,7 +92,7 @@ export function MessageFeedback({ messageId, rating, note, onFeedback }: {
             ref={noteRef}
             className="min-h-14 flex-1 resize-none rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs leading-relaxed outline-none placeholder:text-muted-foreground/60 focus:border-brand-amber"
           />
-          <button type="submit" className="rounded-lg bg-foreground px-2.5 py-1.5 text-xs font-medium text-background transition hover:bg-foreground/90">
+          <button type="submit" className={buttonVariants({ size: 'sm' })}>
             {t('feedback_save')}
           </button>
         </form>

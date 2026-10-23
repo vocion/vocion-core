@@ -16,7 +16,7 @@ export function ToolInputFields({ fields }: { fields: InputField[] }) {
     <div className="flex flex-col" data-testid="tool-input-fields">
       {fields.map(p => (
         <div key={p.name} className="flex items-start gap-3 border-b border-border py-2.5 last:border-0">
-          <code className="shrink-0 rounded bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary">{p.name}</code>
+          <code className="shrink-0 rounded bg-surface-soft px-2 py-0.5 font-mono text-xs text-foreground">{p.name}</code>
           <div className="min-w-0 flex-1 text-xs">
             <div>{p.description || <span className="text-muted-foreground">No description declared.</span>}</div>
             <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">

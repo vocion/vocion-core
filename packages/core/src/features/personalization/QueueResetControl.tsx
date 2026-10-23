@@ -2,6 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { buttonVariants } from '@/components/ui/buttonVariants';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 
 /**
@@ -12,8 +14,9 @@ import { Input } from '@/components/ui/input';
  * `VOCION_ALLOW_QUEUE_RESET` is set and the viewer is an org admin; the route
  * behind it enforces both again.
  *
- * The confirm dialog is inline rather than a Radix AlertDialog because there
- * is no AlertDialog in `components/ui/` and this control is coming back out.
+ * The confirm is the shared `Dialog` (design sweep, 2026-10-23: it was a
+ * hand-made `fixed inset-0` overlay; there is still no AlertDialog in
+ * `components/ui/` and this control is coming back out).
  * The operator has to type the row count, so the number they are destroying
  * is something they read rather than something they clicked past.
  * @param props
@@ -59,16 +62,16 @@ export const QueueResetControl = (props: { rowCount: number }) => {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        className={buttonVariants({ variant: 'outline', size: 'sm' })}
       >
         Delete queue
       </button>
 
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-xl border bg-background shadow-xl">
+      <Dialog open={open} onOpenChange={next => !next && close()}>
+        <DialogContent className="max-w-md gap-0 p-0" showCloseButton={false}>
+          <div className="w-full">
             <div className="border-b px-4 py-3">
-              <h3 className="font-display text-lg">Delete the personalization queue</h3>
+              <DialogTitle className="font-display text-lg">Delete the personalization queue</DialogTitle>
             </div>
             <div className="space-y-4 p-4 text-sm">
               <p>
@@ -103,7 +106,7 @@ export const QueueResetControl = (props: { rowCount: number }) => {
               <button
                 type="button"
                 onClick={close}
-                className="rounded-md border border-border px-3 py-1.5 text-sm transition hover:bg-muted"
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
               >
                 Cancel
               </button>
@@ -111,14 +114,14 @@ export const QueueResetControl = (props: { rowCount: number }) => {
                 type="button"
                 disabled={!armed}
                 onClick={submit}
-                className="rounded-md bg-destructive px-3 py-1.5 text-sm text-white transition disabled:opacity-40"
+                className={buttonVariants({ variant: 'destructive', size: 'sm' })}
               >
                 {submitting ? 'Deleting…' : 'Delete queue'}
               </button>
             </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
