@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowUpRight, Play, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { FactList } from '@/components/patterns';
+import { Notice } from '@/components/ui/notice';
 import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { ReviewHeader } from '@/features/review/ReviewHeader';

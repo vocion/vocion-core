@@ -5,6 +5,7 @@ import { ExternalLink, FlaskConical, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FactList } from '@/components/patterns';
+import { Notice } from '@/components/ui/notice';
 import { formatDuration, summarizeResult } from './automationResult';
 
 /**
