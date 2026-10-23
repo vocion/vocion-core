@@ -21,6 +21,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { decideExecution } from '@/libs/actions/autoAccept';
 import { decidedByMachine } from '@/libs/actions/decider';
+import { failedAttemptsOf, failureRecovery, withFailedAttempt } from '@/libs/actions/failureRecovery';
 import { isManualAction } from '@/libs/actions/manual';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { policyKeyForRun } from '@/libs/actions/policyKey';
@@ -975,9 +976,13 @@ export async function executeAction(
     return { runId, status: 'awaiting_execution', result };
   }
 
+  // A retry of a failed run keeps the failure it is retrying: set aside in
+  // `result.failedAttempts`, and carried onto whatever this attempt records.
+  const carried = run.status === 'failed' ? withFailedAttempt(run.result, run.error, run.executedAt) : run.result;
+  const earlierFailures = failedAttemptsOf(carried);
   await db
     .update(actionRunSchema)
-    .set({ status: 'executing', ...decision })
+    .set({ status: 'executing', ...decision, ...(run.status === 'failed' ? { result: carried, error: null } : {}) })
     .where(eq(actionRunSchema.id, runId));
   const credentialSource = sourceSlugOf(action, run.input);
   const credentials = credentialSource ? await getCredentialsForSource(orgId, credentialSource) : undefined;
@@ -992,9 +997,10 @@ export async function executeAction(
       externalRef: opts?.externalRef,
       origin: ((run.proposal ?? {}) as { origin?: ActionOrigin }).origin,
     }, run.input);
+    const kept = earlierFailures.length > 0 ? { ...result, failedAttempts: earlierFailures } : result;
     await db
       .update(actionRunSchema)
-      .set({ status: 'done', result, error: null, executedAt: new Date() })
+      .set({ status: 'done', result: kept, error: null, executedAt: new Date() })
       .where(eq(actionRunSchema.id, runId));
     // Every self-update, from the one place every self-update lands. A new
     // noun in the class (`libs/actions/selfUpdate.ts`) is therefore in the
@@ -1076,6 +1082,13 @@ export async function completeAction(
  * review queue before approving (edit-then-approve). Re-validates against the
  * action's own input schema so an edit can never smuggle a malformed payload
  * into execution. No-op-safe: only touches rows still `pending` for this org.
+ *
+ * A `failed` run takes an edit too when its failure is recoverable
+ * (`libs/actions/failureRecovery.ts`: a connection granted too little, a
+ * missing login, a vendor briefly down). The edit puts it back to `pending`,
+ * with the failure kept in `result.failedAttempts`, so the approve that
+ * follows runs it the ordinary way. Any other failure keeps the refusal and
+ * says why.
  * @param runId
  * @param orgId
  * @param input - The edited payload (same shape the action expects).
@@ -1085,14 +1098,22 @@ export async function updateActionInput(runId: number, orgId: string, input: Rec
   if (!run) {
     throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);
   }
-  if (run.status !== 'pending') {
+  if (run.status === 'failed') {
+    const recovery = failureRecovery(run.actionId, run.error);
+    if (!recovery.retryable) {
+      throw new ActionError('INVALID_STATE', `action_run ${runId} failed and cannot be edited and run again: ${recovery.why}`);
+    }
+  } else if (run.status !== 'pending') {
     throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status}, not pending — cannot edit`);
   }
   const action = getAction(run.actionId);
   const parsed = action ? action.inputSchema.parse(input) : input;
   await db
     .update(actionRunSchema)
-    .set({ input: parsed as Record<string, unknown> })
+    .set({
+      input: parsed as Record<string, unknown>,
+      ...(run.status === 'failed' ? { status: 'pending', error: null, result: withFailedAttempt(run.result, run.error, run.executedAt) } : {}),
+    })
     .where(eq(actionRunSchema.id, runId));
 
   // The edit has to reach the action's own domain row too. Without this an

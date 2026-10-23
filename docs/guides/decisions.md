@@ -214,6 +214,14 @@ Beside the Review queue a person asked "can we kill all these old GTM recommenda
 - **Declining many.** `decline_review_items` takes the same selection, or refs it listed, and raises ONE Decision card, `review.decline` (`libs/actions/review-decline.ts`): "Decline 64 decisions: Recommendations waiting 5 days or more", with the count and a sample. Nothing is declined until the person approves it (`approvalRequired`), and execution refuses a run no person decided. Approving declines each as its own row's verb does: an ask is answered `reject` (`decideAsk`, `via: chat`), a recommended action is rejected (`ReviewService.decide`, `learn: false`, since a clear-out by age is no verdict on what each said), with the person's reason as the note. Anything decided since the card was drafted is skipped and said so. A card takes 100; more matches say how many are left. Runs, exceptions and suggested rules have their own verbs and are counted, not declined. Like a row's Decline, it has no Undo.
 - **While on the queue** both tools stay loaded, never behind the tool search.
 
+## When an approved run fails (2026-10-23)
+
+A run that fails after approval stays in the queue as `failed`, with the reason in words (`libs/connect/permissionError.ts`): "Vocion can read this Gmail but isn't allowed to create drafts. Reconnect Gmail to allow drafts, then press Create draft in Gmail again."
+
+Pressing the button again works. It approves with the card's choices (draft or send, an edited body), which is an edit, and a failed run takes an edit when its failure is recoverable (`libs/actions/failureRecovery.ts`): the connection was granted too little or stopped working, no connection was there, or the vendor was briefly down (a 429 or 502 to 504). The edit puts the run back to `pending` and the approve runs it the ordinary way. A plain retry with no edit runs it again from `failed`, as before.
+
+Each failure a retry sets aside is kept in the run's `result.failedAttempts` (when, and the error), so the run's history still shows it failed. Any other failure keeps the refusal, and the message says why: Vocion cannot tell it is safe to repeat, so it may already have changed something. Decline it and ask for a fresh one.
+
 ## Where it lives
 
 - **Chat** — the latest item IN the conversation on every surface that has one
