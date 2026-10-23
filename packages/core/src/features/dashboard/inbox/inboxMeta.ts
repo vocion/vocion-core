@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import type { InboxKind, InboxTab } from '@/services/InboxService';
 import { AlertTriangle, CheckSquare, ClipboardCheck, DoorOpen, Gavel, GitMerge, KeyRound, Lightbulb, MessageSquareText, PlayCircle, Sparkles } from 'lucide-react';
+import { openCountLine } from '@/services/inbox/openCount';
 
 /** How each kind is named and drawn. Order here is the order of the chips. */
 export const INBOX_KIND_META: Record<InboxKind, { label: string; plural: string; blurb: string; icon: LucideIcon }> = {
@@ -114,12 +115,19 @@ export function decisionCrumbs(kind: InboxKind, record?: string | null, section?
 
 /**
  * "136 decisions, oldest waiting 53d." — or, on the other tabs, what the tab holds.
+ *
+ * The open tab also holds failed runs to retry or dismiss, which the sidebar
+ * badge does not count (`needsYouCount`). Said apart ("24 decisions and 11
+ * failed runs to retry or dismiss"), the header and the badge agree, and a
+ * chat answer that quotes either is quoting the same thing (2026-10-23: the
+ * header read 35 beside a badge of 24).
  * @param tab
  * @param open - Open rows, unfiltered.
  * @param oldest - The oldest open row's timestamp, when there is one.
  * @param shown - Rows on this tab after filters.
+ * @param failed - Of the open rows, the failed runs to retry or dismiss.
  */
-export function contextLine(tab: InboxTab, open: number, oldest: Date | undefined, shown: number): string {
+export function contextLine(tab: InboxTab, open: number, oldest: Date | undefined, shown: number, failed = 0): string {
   if (tab === 'decided') {
     return shown === 0 ? 'No decisions yet.' : `${shown} decided, newest first.`;
   }
@@ -129,5 +137,5 @@ export function contextLine(tab: InboxTab, open: number, oldest: Date | undefine
   if (open === 0) {
     return 'Nothing right now — the team keeps working; new decisions land here.';
   }
-  return `${open} ${open === 1 ? 'decision' : 'decisions'}${oldest ? `, oldest waiting ${waitingFor(oldest)}` : ''}.`;
+  return `${openCountLine(open, failed)}${oldest ? `, oldest waiting ${waitingFor(oldest)}` : ''}.`;
 }

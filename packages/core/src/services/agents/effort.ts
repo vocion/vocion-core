@@ -156,6 +156,23 @@ export function autoFloor(facts: { drafts: boolean; systems: number; changes?: n
 }
 
 /**
+ * A turn that reports an approved card changing many records is never Quick.
+ * On 2026-10-23 the person typed "approve" on a card that declined 100
+ * decisions; Auto read one word, ran Quick on the fast model, and the reply
+ * said "Done. Cleared 100" when the action's own result held more. The read
+ * never sees the card, so the card's record count comes in typed
+ * (`Action.recordCount`, through the answered Decision's effect). Raises, never lowers.
+ * @param read - What Auto read from the request.
+ * @param records - How many records the answered card changed, when it said.
+ */
+export function answerFloor(read: AutoRead, records: number | undefined): AutoRead {
+  if (read.level !== 'quick' || (records ?? 0) < BULK_CHANGES) {
+    return read;
+  }
+  return { ...read, level: 'standard', reason: `reporting a change to ${records} records` };
+}
+
+/**
  * A lead's answer that brings together two or more teams' work runs Deep.
  * On 2026-10-23 "how's my GTM work this week?" read as Standard and the
  * Revenue Director synthesised four teams on its Standard model: the answer

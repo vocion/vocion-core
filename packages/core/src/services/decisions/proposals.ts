@@ -150,6 +150,23 @@ export async function proposalById(orgId: string, id: number): Promise<RunRow | 
  * @param opts.answer - What they answered.
  * @param opts.by - The person.
  */
+/**
+ * How many records a run changes, when its action says (`Action.recordCount`).
+ * @param action - The run's action.
+ * @param input - The run's input.
+ */
+function recordsOf(action: { recordCount?: (input: never) => number } | undefined, input: unknown): number | null {
+  if (!action?.recordCount || !input || typeof input !== 'object') {
+    return null;
+  }
+  try {
+    const n = action.recordCount(input as never);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function answerProposal(opts: { orgId: string; id: number; conversationId: number | null; answer: DecisionAnswer; by: string }): Promise<AnsweredDecision> {
   const { DecisionError } = await import('./DecisionService');
   const run = await proposalById(opts.orgId, opts.id);
@@ -185,10 +202,24 @@ export async function answerProposal(opts: { orgId: string; id: number; conversa
     const verb = opts.answer.optionIds[0] === ALLOW_ONCE_ID ? 'approve' : 'reject';
     const result = await decide(item, verb, opts.orgId, { reviewedBy: opts.by });
     if (verb === 'approve') {
-      const execution = (result as { execution?: { status?: string; error?: string | null } } | null)?.execution;
+      const execution = (result as { execution?: { status?: string; error?: string | null; result?: Record<string, unknown> | null } } | null)?.execution;
       const status = execution?.status ?? 'approved';
-      const { actionIsUndoable, actionLabel } = await import('@/libs/actions/undoable');
-      effect = { runId: opts.id, actionId: run.actionId, status, error: execution?.error ?? null, undoable: status === 'done' && actionIsUndoable(run.actionId, run.input as Record<string, unknown> | null), label: asked.question || actionLabel(run.actionId), ...(run.actionId === 'mcp.call' && status === 'done' ? { executedInput: run.input as Record<string, unknown> } : {}) };
+      const [{ actionIsUndoable, actionLabel }, { getAction }] = await Promise.all([import('@/libs/actions/undoable'), import('@/libs/actions/registry')]);
+      // What the action says it did, in its own words and numbers: the agent
+      // reports that line, not "done" (a bulk decline that left rows open).
+      const line = execution?.result?.line;
+      const records = recordsOf(getAction(run.actionId), run.input);
+      effect = {
+        runId: opts.id,
+        actionId: run.actionId,
+        status,
+        error: execution?.error ?? null,
+        undoable: status === 'done' && actionIsUndoable(run.actionId, run.input as Record<string, unknown> | null),
+        label: asked.question || actionLabel(run.actionId),
+        ...(run.actionId === 'mcp.call' && status === 'done' ? { executedInput: run.input as Record<string, unknown> } : {}),
+        ...(typeof line === 'string' && line.trim() ? { resultLine: line.trim().slice(0, 600) } : {}),
+        ...(records !== null ? { records } : {}),
+      };
     }
   }
   const after = (await proposalById(opts.orgId, opts.id)) ?? run;

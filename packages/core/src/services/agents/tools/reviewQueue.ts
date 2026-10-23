@@ -18,6 +18,9 @@
  *   puts ONE Decision card in front of the person (`review.decline`): what,
  *   how many, a sample. Nothing is declined until they approve it.
  *
+ * The counts are the page's: "N decisions and M failed runs to retry or
+ * dismiss", the header's own words, so a reply quotes what the person sees.
+ *
  * Both need a person in the turn. While the person is on the Review queue
  * both stay loaded, never behind the tool search.
  */
@@ -28,6 +31,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { workspaceWidePage } from '@/libs/chat/workspacePages';
 import { INBOX_KINDS } from '@/services/inbox/kinds';
+import { openCountLine } from '@/services/inbox/openCount';
 
 /** How each kind reads on the page, for the model: the stored kind is not always the page's word. */
 const KIND_WORDS: Record<InboxKind, string> = {
@@ -84,17 +88,17 @@ export function filterOf(args: { older_than_days?: number; newer_than_days?: num
  * @param top - Rows to name.
  */
 export function renderQueue(sel: QueueSelection, words: string, now: Date, top = LIST_TOP): string {
-  const left = Object.entries(sel.notDeclinable).filter(([, n]) => (n ?? 0) > 0).map(([k, n]) => `${n} ${PLURAL[k as InboxKind] ?? k}`);
-  const head = `Review queue, this workspace: ${sel.targets.length} of ${sel.open} open ${sel.open === 1 ? 'decision' : 'decisions'} match (${words}).`;
+  const left = sel.leftOpen.map(l => `${l.count} ${(PLURAL[l.kind] ?? l.kind).toLowerCase()} (${l.why})`);
+  const head = `Review queue, this workspace: ${openCountLine(sel.open, sel.failed)}, as the page header says. ${words}: ${sel.targets.length} ${sel.targets.length === 1 ? 'decision' : 'decisions'} a decline can take, from ${sel.rows} ${sel.rows === 1 ? 'row' : 'rows'} (a row can stand for several: a sheet, a question asked again, related decisions folded into it).`;
   if (sel.targets.length === 0) {
-    return [head, left.length ? `Also matching but decided on their own screens, not declined from a row: ${left.join(', ')}.` : '', 'Nothing to decline. Say what the queue holds instead (the open count), never that it is empty when it is not.'].filter(Boolean).join('\n');
+    return [head, left.length ? `Also matching, which a decline cannot take: ${left.join('; ')}.` : '', 'Nothing to decline. Say what the queue holds instead (the open count), never that it is empty when it is not.'].filter(Boolean).join('\n');
   }
   const days = (at: Date) => Math.floor((now.getTime() - at.getTime()) / 86_400_000);
   return [
     head,
     `Longest waiting first${sel.targets.length > top ? `; the first ${top} named` : ''}:`,
     ...sel.targets.slice(0, top).map(t => `- ${t.ref} · ${PLURAL[t.kind] ?? t.kind} · ${t.title.slice(0, 120)} · waited ${days(t.at)}d${t.agentSlug ? ` · from ${t.agentSlug}` : ''}`),
-    ...(left.length ? [`Also matching but decided on their own screens (a run, an exception or a suggested rule has its own verbs): ${left.join(', ')}.`] : []),
+    ...(left.length ? [`Also matching, which a decline cannot take: ${left.join('; ')}.`] : []),
     'To decline these, call decline_review_items with the same selection: it puts one card in front of the person. Never ask the person for ids.',
   ].join('\n');
 }
@@ -123,7 +127,7 @@ export function reviewQueueTools(ctx: RuntimeContext) {
     {
       name: 'list_review_queue',
       metadata,
-      description: 'Read this workspace\'s Review queue (the page at /dashboard/inbox): the open decisions waiting on a person, as the page shows them, filtered by how long they have waited, their kind, the agent that raised them, or a search. Returns the total and each decision\'s ref (ask:<id> or proposal:<id>), longest waiting first. Use it for any question about what is on the Review queue or "these" decisions on it; call the page the Review queue.',
+      description: 'Read this workspace\'s Review queue (the page at /dashboard/inbox): the open decisions waiting on a person, as the page shows them, filtered by how long they have waited, their kind, the agent that raised them, or a search. Returns the page\'s counts, the total a decline can take and each decision\'s ref (ask:<id>, proposal:<id>, learning:<id>), longest waiting first, and what a decline cannot take, by kind and why. Use it for any question about what is on the Review queue or "these" decisions on it; call the page the Review queue.',
       schema: z.object({ ...filterShape, limit: z.number().int().min(1).max(50).optional() }),
     },
   );
@@ -145,12 +149,17 @@ export function reviewQueueTools(ctx: RuntimeContext) {
         return `Nothing to decline: ${renderQueue(sel, words, now, 5)}`;
       }
       const chosen = targets.slice(0, MAX_DECLINE);
+      const folded = chosen.filter(t => t.folded).length;
       const input = {
         refs: chosen.map(t => t.ref),
         selection: wanted ? `${chosen.length} you named (${words})` : words,
-        sample: chosen.slice(0, 5).map(t => ({ title: t.title.slice(0, 200), days: waitedDays(t.at, now) })),
+        sample: chosen.filter(t => !t.folded).slice(0, 5).map(t => ({ title: t.title.slice(0, 200), days: waitedDays(t.at, now) })),
         ...(targets.length > chosen.length ? { beyond: targets.length - chosen.length } : {}),
         ...(args.reason?.trim() ? { reason: args.reason.trim().slice(0, 300) } : {}),
+        // The selection, so the result can say what is still open in it.
+        ...(wanted ? {} : { filter: { ...(args.older_than_days !== undefined ? { older_than_days: args.older_than_days } : {}), ...(args.newer_than_days !== undefined ? { newer_than_days: args.newer_than_days } : {}), ...(args.kinds?.length ? { kinds: args.kinds } : {}), ...(args.agents?.length ? { agents: args.agents } : {}), ...(args.q?.trim() ? { q: args.q.trim() } : {}) } }),
+        ...(sel.leftOpen.length > 0 ? { left_open: sel.leftOpen.slice(0, 12).map(l => ({ label: (PLURAL[l.kind] ?? l.kind).toLowerCase(), count: l.count, why: l.why })) } : {}),
+        ...(folded > 0 ? { folded } : {}),
       };
       const parsed = reviewDeclineAction.inputSchema.safeParse(input);
       if (!parsed.success) {
@@ -162,7 +171,7 @@ export function reviewQueueTools(ctx: RuntimeContext) {
           actionId: REVIEW_DECLINE_ACTION_ID,
           input: parsed.data,
           label: declineTitle(parsed.data),
-          rationale: `You asked to clear these from the Review queue: ${parsed.data.refs.length} of ${sel.open} open decisions.`,
+          rationale: `You asked to clear these from the Review queue: ${parsed.data.refs.length} ${parsed.data.refs.length === 1 ? 'decision' : 'decisions'} from ${sel.rows} of its rows (${openCountLine(sel.open, sel.failed)} in all).`,
           confidence: 0.9,
           agentSlug: ctx.agentSlug,
           suggestedDecision: 'approve',
@@ -172,6 +181,7 @@ export function reviewQueueTools(ctx: RuntimeContext) {
       return [
         `Put one card in front of ${userId.startsWith('token:') ? 'the caller' : 'the person'}: "${declineTitle(parsed.data)}". Nothing is declined until they approve it.`,
         ...(input.beyond ? [`${input.beyond} more match; a card takes ${MAX_DECLINE}. Say so, and offer the next card after this one is decided.`] : []),
+        ...(sel.leftOpen.length > 0 ? [`Not on the card, and said on it: ${sel.leftOpen.map(l => `${l.count} ${(PLURAL[l.kind] ?? l.kind).toLowerCase()} (${l.why})`).join('; ')}. Say so in your sentence.`] : []),
         'Your turn ends there: say in one sentence what the card covers. Do not list the decisions as text.',
       ].join('\n');
     },
@@ -181,7 +191,7 @@ export function reviewQueueTools(ctx: RuntimeContext) {
       description: 'Decline many open decisions on this workspace\'s Review queue at once, when the person asks to clear, dismiss, decline, reject or "kill" them: choose them by how long they have waited, their kind, the agent that raised them or a search (the same selection as list_review_queue), or by refs it listed. Puts ONE Decision card in front of the person with the count and a sample; each is declined, as its own row\'s Decline would, only when they approve. Never ask the person for ids.',
       schema: z.object({
         ...filterShape,
-        refs: z.array(z.string().regex(/^(?:ask|proposal):\d+$/)).max(100).optional().describe('Only these, from list_review_queue (ask:<id>, proposal:<id>), when the person picked particular ones.'),
+        refs: z.array(z.string().regex(/^(?:ask|proposal|learning):\d+$/)).max(1000).optional().describe('Only these, from list_review_queue (ask:<id>, proposal:<id>, learning:<id>), when the person picked particular ones.'),
         reason: z.string().max(300).optional().describe('Why, in the person\'s words: written on each as the decision note.'),
       }),
     },

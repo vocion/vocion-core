@@ -365,6 +365,7 @@ export async function POST(request: Request): Promise<Response> {
       // An answer is a typed record: the turn is not read again, and the
       // decision it carried has already landed.
       ...(answerRun ? { intent: answeredIntent(answerRun.line), landedWrites: 1 } : {}),
+      ...(answered?.answered.effect?.records ? { answeredRecords: answered.answered.effect.records } : {}),
     });
     // What this turn cost — its own model calls and every specialist it
     // delegated to — is counted while it runs and written with the

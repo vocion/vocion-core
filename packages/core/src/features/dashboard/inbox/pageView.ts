@@ -1,4 +1,5 @@
 import type { InboxKind, InboxTab } from '@/services/InboxService';
+import { openCountLine } from '@/services/inbox/openCount';
 import { INBOX_KIND_META } from './inboxMeta';
 
 /**
@@ -13,6 +14,7 @@ import { INBOX_KIND_META } from './inboxMeta';
  * @param v.tab - The tab that is open.
  * @param v.shown - Rows in view, after filters.
  * @param v.tabs - Rows per tab.
+ * @param v.failed - Of the open rows, the failed runs to retry or dismiss (the rest are the badge's decisions).
  * @param v.oldest - When the oldest open row started waiting, when the open tab is shown.
  * @param v.kinds - Kind chips that are on.
  * @param v.agents - Agent filters that are on.
@@ -27,6 +29,7 @@ export function reviewPageView(v: {
   tab: InboxTab;
   shown: number;
   tabs?: Partial<Record<InboxTab, number>>;
+  failed?: number;
   oldest?: Date;
   kinds?: readonly InboxKind[];
   agents?: readonly string[];
@@ -42,7 +45,7 @@ export function reviewPageView(v: {
     { label: 'Scope', value: v.scope === 'all' ? 'All workspaces' : 'This workspace' },
     { label: 'Tab', value: v.tab === 'open' ? 'Open' : v.tab === 'decided' ? 'Decided' : 'Snoozed' },
     { label: 'Shown', value: `${v.shown} ${v.shown === 1 ? 'decision' : 'decisions'}` },
-    ...(v.tabs ? [{ label: 'Tabs', value: `Open ${v.tabs.open ?? 0} · Decided ${v.tabs.decided ?? 0} · Snoozed ${v.tabs.snoozed ?? 0}` }] : []),
+    ...(v.tabs ? [{ label: 'Tabs', value: `Open ${v.tabs.open ?? 0}${v.failed ? ` (${openCountLine(v.tabs.open ?? 0, v.failed)})` : ''} · Decided ${v.tabs.decided ?? 0} · Snoozed ${v.tabs.snoozed ?? 0}` }] : []),
     ...(v.oldest ? [{ label: 'Oldest waiting', value: `${Math.floor((now.getTime() - v.oldest.getTime()) / 86_400_000)}d` }] : []),
     { label: 'Filters', value: filters.length > 0 ? filters.join(', ') : 'none' },
     ...(v.batch ? [{ label: 'On top', value: `${v.batch.count} recommend "${v.batch.label}" (Accept all ${v.batch.count})` }] : []),

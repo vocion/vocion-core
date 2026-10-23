@@ -491,6 +491,13 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    */
   dedupKeyFor?: (input: z.infer<S>) => string | undefined;
   /**
+   * How many records approving this changes, when it changes more than one
+   * (a bulk decline: its refs). The turn that reports the approval reads it,
+   * so Auto never answers "approve" on a hundred records at Quick
+   * (`agents/effort.ts` `answerFloor`).
+   */
+  recordCount?: (input: z.infer<S>) => number;
+  /**
    * `dedupKeyFor` names the ONE thing this action is about, so it wins over a
    * key the caller passed — a chat card's own `card:` key included. Without
    * it a card proposes under its label's hash, and two cards for the same

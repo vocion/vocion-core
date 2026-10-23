@@ -7,9 +7,11 @@ import { InboxControls } from '@/features/dashboard/inbox/InboxControls';
 import { InboxList } from '@/features/dashboard/inbox/InboxList';
 import { contextLine } from '@/features/dashboard/inbox/inboxMeta';
 import { InboxScope } from '@/features/dashboard/inbox/InboxScope';
+import { REVIEW_LIVE_EVERY_MS, REVIEW_LIVE_TOPICS } from '@/features/dashboard/inbox/live';
 import { reviewPageView } from '@/features/dashboard/inbox/pageView';
 import { RecommendationBatches } from '@/features/dashboard/inbox/RecommendationBatches';
 import { defaultSortFor } from '@/features/dashboard/inbox/searchParams';
+import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listInboxForUser } from '@/services/inbox/acrossWorkspaces';
@@ -78,12 +80,13 @@ export default async function InboxPage(props: {
   const oldest = tab === 'open' ? inbox.items.reduce<Date | undefined>((m, i) => (m === undefined || i.at < m ? i.at : m), undefined) : undefined;
   const filtered = Boolean(q || kinds.length || actionKinds.length || agents.length);
   // What is on screen, for the chat beside the queue: "these" binds to it.
-  const view = reviewPageView({ scope: 'here', tab, shown: inbox.total, tabs: inbox.tabs, oldest, kinds, agents, q, batch: batches[0] ? { label: batches[0].label, count: batches[0].count } : null });
+  const view = reviewPageView({ scope: 'here', tab, shown: inbox.total, tabs: inbox.tabs, failed: inbox.failedOpen, oldest, kinds, agents, q, batch: batches[0] ? { label: batches[0].label, count: batches[0].count } : null });
 
   return (
     <div className="mx-auto w-full max-w-5xl">
       <PageViewContext title={view.title} state={view.state} />
-      <TitleBar title="Review queue" description={<span data-testid="inbox-context">{contextLine(tab, open, oldest, inbox.total)}</span>} />
+      {/* Live: a decline from chat, a teammate's answer or a new proposal re-reads the page in place (`LiveRefresh`). */}
+      <TitleBar title="Review queue" description={<span data-testid="inbox-context">{contextLine(tab, open, oldest, inbox.total, inbox.failedOpen)}</span>} actions={<LiveRefresh everyMs={REVIEW_LIVE_EVERY_MS} follow={REVIEW_LIVE_TOPICS} />} />
 
       <div className="mb-4 space-y-3">
         <InboxScope scope="here" />

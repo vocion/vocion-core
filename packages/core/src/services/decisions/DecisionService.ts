@@ -284,7 +284,19 @@ export type AnsweredDecision = {
   view: DecisionView;
   answer: DecisionAnswer;
   /** The action the chosen option started, when it started one. */
-  effect: { runId: number; actionId: string; status: string; undoable: boolean; label: string; error?: string | null; executedInput?: Record<string, unknown> } | null;
+  effect: {
+    runId: number;
+    actionId: string;
+    status: string;
+    undoable: boolean;
+    label: string;
+    error?: string | null;
+    executedInput?: Record<string, unknown>;
+    /** The action's own one-line account of what it did (`result.line`), which the asking agent reports. */
+    resultLine?: string;
+    /** How many records it changed, when more than one (`Action.recordCount`): Auto reads it for the reporting turn. */
+    records?: number;
+  } | null;
 };
 
 /**

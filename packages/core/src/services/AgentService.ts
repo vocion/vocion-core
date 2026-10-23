@@ -636,6 +636,12 @@ async function runAgentDeepInScope(opts: {
    * the act the turn was "asked for" has already happened — no owed-act pass.
    */
   landedWrites?: number;
+  /**
+   * How many records the Decision this turn answers changed, when its action
+   * says (`Action.recordCount`): a turn reporting a bulk change is never Quick
+   * (`effort.ts` `answerFloor`).
+   */
+  answeredRecords?: number;
 }): Promise<{
   response: string;
   /** The words after the last tool call, for a surface with no trace (`lastAnswerOf`); the harnesses that cannot tell leave it out. */
@@ -767,7 +773,7 @@ async function runAgentDeepInScope(opts: {
   const readRequest = (previous?: string) => Promise.all([
     effortMod.inferEffort({ orgId: opts.orgId, message: opts.message, ...(previous ? { previous } : {}) }),
     leadsTeammates(),
-  ]).then(([read, leads]) => effortMod.synthesisLevel(read, { leadsTeammates: leads }));
+  ]).then(([read, leads]) => effortMod.answerFloor(effortMod.synthesisLevel(read, { leadsTeammates: leads }), opts.answeredRecords));
   const autoEffort = effortApplies && personEffort === 'auto'
     ? readRequest([...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'assistant')?.content)
     : null;

@@ -152,3 +152,16 @@ describe('connected action approval context', () => {
     expect(decisionForModel(view, out.answer, out.effect)).toContain('"expected_account_id":"64"');
   });
 });
+
+// 2026-10-23: "approve" on a bulk decline was reported as "Done. Cleared 100"
+// from a bare "done". The effect now carries the action's own line and how
+// many records it changed, which Auto reads for the reporting turn.
+it('carries the action\'s own result line and its record count on the effect', async () => {
+  const input = { refs: ['ask:7', 'proposal:12', 'learning:5'], selection: 'Open decisions waiting 7 days or more' };
+  const run = await pending({ actionId: 'review.decline', input });
+  decide.mockResolvedValueOnce({ execution: { status: 'done', error: null, result: { line: 'Declined 3 of the 3 on the card. Nothing in that selection is still open.' } } } as never);
+
+  const out = await answerProposal({ orgId: ORG, id: run.id, conversationId: 392, answer: { kind: 'option', optionIds: ['approve'] }, by: DANA });
+
+  expect(out.effect).toMatchObject({ status: 'done', resultLine: 'Declined 3 of the 3 on the card. Nothing in that selection is still open.', records: 3 });
+});

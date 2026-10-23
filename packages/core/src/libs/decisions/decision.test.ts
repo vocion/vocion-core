@@ -221,3 +221,12 @@ it('does not execute a completed approved action again', () => {
   expect(text).toContain('already executed');
   expect(text).toContain('do not submit or propose it again');
 });
+
+// 2026-10-23: a bulk decline read only "done", and the reply said "Done.
+// Cleared 100" beside a queue still holding rows it was asked to clear.
+it('hands the continuation the action\'s own account, and forbids "done" while it says something is open', () => {
+  const text = decisionForModel({ id: 9, subject: 'proposal', question: 'Decline 112 decisions: Open decisions waiting 7 days or more', options: [{ id: 'approve', label: 'Allow once', consequence: 'Runs it as you.' }] }, { kind: 'option', optionIds: ['approve'] }, { runId: 9, status: 'done', resultLine: 'Declined 112 of the 112 on the card. Still open in that selection: 6 runs (a paused run is resumed or cancelled on its own page).' });
+
+  expect(text).toContain('What it did, in its own words: Declined 112 of the 112 on the card. Still open in that selection: 6 runs');
+  expect(text).toContain('never call it done or cleared');
+});
