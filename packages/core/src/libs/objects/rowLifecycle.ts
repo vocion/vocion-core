@@ -43,6 +43,19 @@ export function offersOwedVerbs(schema: unknown): boolean {
   return Boolean(schema) && typeof schema === 'object' && hasRowLifecycle(schema) && (schema as Record<string, unknown>)['x-owed'] === true;
 }
 
+/** The states a record is still owed in: its verbs are Do it, Done and Drop. */
+const OWED: ReadonlySet<string> = new Set(['', 'open', 'active']);
+
+/**
+ * Whether a row status means the record is still owed. Any other state that
+ * is not finished — a `candidate` waiting for a person's judgment, a
+ * `rejected` one — has its own path (Review) and offers no verbs here.
+ * @param status - The row's status (null reads as open).
+ */
+export function isOwedStatus(status: string | null | undefined): boolean {
+  return OWED.has(String(status ?? '').toLowerCase());
+}
+
 /**
  * Whether a row status means the record is finished.
  * @param status - The row's status (null reads as open).
