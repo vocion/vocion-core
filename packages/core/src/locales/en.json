@@ -259,6 +259,7 @@
     "named_team_on_it": "The {workspace} is on it.",
     "agent_on_it": "{name} is on it.",
     "team_caption": "{lead} · {count, plural, one {# agent} other {# agents}}",
+    "team_more_label": "See all {count} agents",
     "ask_team": "Ask the team…",
     "ask_agent": "Ask {name}…",
     "named_lead_and_team_on_it": "{name} and the team are on it.",

@@ -766,9 +766,13 @@ export function ChatComposer({
           // Focus is the hairline darkening, nothing more. The ring token is
           // amber, and an amber ring plus a ground shift plus a drop shadow
           // made the box the heaviest thing on the screen (Chris, 2026-10-08:
-          // "a little more lightness"). A file held over the chat is the
-          // whole pane's moment (`ChatDropZone`), not the box's.
-          className={`${COMPOSER_ROW} rounded-2xl border border-foreground/10 bg-background px-3 py-2 transition-colors focus-within:border-foreground/20`}
+          // "a little more lightness"). At rest it floats on one shadow too
+          // soft to read as a box (`--shadow-composer`); while a turn runs its
+          // hairline is the spark (`.composer-working`), the bar's only sign
+          // that an agent is at work. A file held over the chat is the whole
+          // pane's moment (`ChatDropZone`), not the box's.
+          data-working={streaming || undefined}
+          className={`${COMPOSER_ROW} rounded-[22px] border border-foreground/10 bg-background px-3 py-2 shadow-composer transition-colors focus-within:border-foreground/20 ${streaming ? 'composer-working' : ''}`}
         >
           {/* The file input behind the (+) menu's "Attach a file" row; a drop on the pane and a paste are the other paths. */}
           {canAttach && (

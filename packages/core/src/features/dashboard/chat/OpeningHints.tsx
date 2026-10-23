@@ -90,7 +90,6 @@ export function OpeningHints({ hints, onSend }: { hints: readonly OpeningHint[];
                   aria-describedby={`hint-why-${i}`}
                   className={`${PROMPT_PILL_CLASS} [-webkit-touch-callout:none]`}
                 >
-                  <span className="size-1.5 shrink-0 rounded-full bg-brand-amber" aria-hidden />
                   <span className="min-w-0 break-words" data-testid="opening-hint-label">{h.label.replace(/ →$/, '')}</span>
                   <ArrowRight className="size-3.5 shrink-0" aria-hidden />
                 </button>

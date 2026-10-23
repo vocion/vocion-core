@@ -42,6 +42,18 @@ describe('EmptyState, your team is here (founder, 2026-10-09)', () => {
     expect(page.getByTestId('chat-empty-mark').elements()).toHaveLength(0);
   });
 
+  it('opens each agent in the stack on its profile and the +N on the whole team, and names each on hover', async () => {
+    await renderIt(<EmptyState firstName="Sam" hour={20} returning={false} team={TEAM} />);
+
+    await expect.element(page.getByRole('link', { name: 'Revenue lead', exact: true })).toHaveAttribute('href', '/dashboard/agents/a0');
+    await expect.element(page.getByRole('link', { name: 'Deal Desk' })).toHaveAttribute('href', '/dashboard/agents/a2');
+    await expect.element(page.getByRole('link', { name: 'See all 6 agents' })).toHaveAttribute('href', '/dashboard/teams');
+
+    await page.getByRole('link', { name: 'Deal Desk' }).hover();
+
+    await expect.element(page.getByRole('tooltip')).toHaveTextContent('Deal Desk');
+  });
+
   it('shows only the lead when it is alone, captioned by its name', async () => {
     await renderIt(<EmptyState hour={9} returning={false} team={TEAM.slice(0, 1)} />);
 
