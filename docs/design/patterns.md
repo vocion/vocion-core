@@ -63,11 +63,34 @@ meanings. No hard-coded Tailwind colours.
 
 The neutrals are warm (from the marketing site, 2026-10): ink `#15131A`,
 secondary `#625D66` on a `#FCFAF6` background — 17.7:1 and 6.2:1 — with warm
-dark equivalents (`#F4F1EC` / `#A8A2AB` on `#141217`, 16.5:1 and 7.5:1).
+dark equivalents (`#F4F1EC` / `#A8A2AB` on `#121015`, 17:1 and 7.8:1).
 Front doors add six tints, `--tint-violet|sky|mint|peach|butter|rose`
 (`bg-tint-*`, names in `libs/tints.ts`), with dark variants; secondary ink on
 every tint is ≥ 5.3:1 in light and ≥ 5.4:1 in dark. Tints belong to front
 doors only — never to a row, a section or a record.
+
+The page (`--background`, `#FEFCF9`) is a step brighter than the sidebar
+(`--sidebar`, `#F4F0E9`) so the work reads as a sheet on its chrome; in dark
+the sidebar is the darker of the two (`#0D0B10` under `#121015`).
+
+### The spark
+
+Vocion has one AI colour, the **spark**: Metacto amber into rose, violet and
+the mark's blue (`--spark-1…4`, `--spark`, `--spark-conic`). It means *an
+agent is at work*, and it appears only where that is true:
+
+- the **spark orb** (`components/ui/spark-orb.tsx`), the mark of a working
+  agent on the live line, turning and breathing; still, at rest, as the lead
+  on the empty chat;
+- the **thinking line** (`.work-shimmer`), a spark band sweeping muted text;
+- the **composer's edge** while a turn runs (`.composer-working`);
+- the **flash** on what a turn just changed (`[data-version-changed]`).
+
+Never a button, card, row, section, header or chip, and never on a surface
+when nothing is working. It stays Vocion's on a branded Org: the Org's colour
+is its logo, links and focus ring (`--org-accent*`). Reduced motion keeps the
+colour and drops the movement. Agents keep their own accents, drawn as lit
+orbs by `AgentDot`; only the spark says *working*.
 
 ## List
 

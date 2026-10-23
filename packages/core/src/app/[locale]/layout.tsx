@@ -89,7 +89,9 @@ export default async function RootLayout(props: {
       <body>
         <ThemeProvider
           attribute="class"
-          defaultTheme="light"
+          // A person who never picked follows their device (2026-10-23):
+          // Light, Dark and System are one click in the account menu.
+          defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >

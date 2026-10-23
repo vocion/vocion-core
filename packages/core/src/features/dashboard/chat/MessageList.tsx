@@ -207,7 +207,8 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
           <div className="space-y-8">
             {blocksAfter(-1)}
             {messages.map((msg, i) => (
-              <div key={i} className={`space-y-8 ${gapAfter(i)}`}>
+              // A turn arrives by fading in and rising 4px (`.turn-enter`).
+              <div key={i} className={`turn-enter space-y-8 ${gapAfter(i)}`}>
                 {msg.role === 'user'
                   ? (
                 // A card's answer has no words: it is drawn as the receipt

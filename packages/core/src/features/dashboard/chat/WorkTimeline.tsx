@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { AgentDot, AgentDots } from '@/components/ui/agent-dot';
+import { SparkOrb } from '@/components/ui/spark-orb';
 import { failureHeadline, failureOneLiner, failureReport } from '@/libs/chat/redact';
 import { stepHeadline } from '@/libs/chat/stepHeadline';
 import { fallbackStepLabels } from '@/libs/chat/stepLabels';
@@ -653,7 +654,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], failureCont
             {reasons.length > 0 && (
               <ClaimLine
                 id="__reasoning__"
-                icon={<Brain className="size-3.5 text-brand-amber-deep" aria-hidden />}
+                icon={<Brain className="size-3.5 text-muted-foreground/70" aria-hidden />}
                 label={thoughtLabel}
                 open={openIds.has('__reasoning__')}
                 onToggle={() => toggle('__reasoning__')}
@@ -741,8 +742,11 @@ export function LiveLine({ text, steps = 0, elapsed, expanded = false, onToggle,
   const meta = [count, elapsed >= 1 ? formatElapsed(elapsed) : null].filter(Boolean).join(' · ');
   const line = (
     <>
-      {/* The writing agent's own avatar, the same dot as the team (`speakers.ts`). */}
-      {agent ? <AgentDot name={agent.name} accent={agent.accent} size="xs" decorative /> : <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}
+      {/* The spark orb: the one mark of an agent at work (`SparkOrb`). The
+          writing agent is named on hover; the turn's header says who it is. */}
+      <span className="inline-flex shrink-0" title={agent?.name}>
+        <SparkOrb size="xs" className="size-3.5" />
+      </span>
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
         <span className="work-shimmer min-w-0 truncate font-medium">{text}</span>
         {meta && (

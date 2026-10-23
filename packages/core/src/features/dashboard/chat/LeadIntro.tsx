@@ -93,7 +93,6 @@ export function LeadIntro({ firstName, team, onPick, disabled = false, hint = nu
             data-testid="lead-intro-setup"
             className="inline-flex animate-in items-center gap-1.5 rounded-full border border-border/70 bg-background py-1.5 pr-2.5 pl-3 text-[12.5px] text-muted-foreground transition-colors fade-in hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <span className="size-1.5 shrink-0 rounded-full bg-brand-amber" aria-hidden />
             {t('setup_chip')}
             <ArrowRight className="size-3.5 shrink-0" aria-hidden />
           </button>

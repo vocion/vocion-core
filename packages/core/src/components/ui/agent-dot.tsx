@@ -17,6 +17,11 @@ import { cn } from '@/utils/Helpers';
  * instead of its initial. The profile — where the agent is the whole page —
  * passes it; rosters and chat keep the initial, which reads at 16px where a
  * glyph does not.
+ *
+ * Drawn as a soft orb (design refresh, 2026-10-23): the accent lit from the
+ * top left and deepening to its AA `dot` shade at the bottom right, where
+ * the initial's contrast is measured. Colour, not a flat disc, is what made
+ * the old roster read as a row of mismatched stickers.
  */
 
 const SIZE = {
@@ -44,6 +49,7 @@ export function AgentDot({ name, accent, icon: Icon, size = 'md', decorative = f
   className?: string;
 }) {
   const initial = name.trim().charAt(0).toUpperCase() || '?';
+  const { dot } = agentAccent(accent);
   return (
     <span
       data-slot="agent-dot"
@@ -52,7 +58,10 @@ export function AgentDot({ name, accent, icon: Icon, size = 'md', decorative = f
       aria-hidden={decorative || undefined}
       title={decorative ? undefined : name}
       className={cn('inline-flex shrink-0 items-center justify-center rounded-full leading-none font-semibold text-white select-none', SIZE[size], className)}
-      style={{ background: agentAccent(accent).dot }}
+      style={{
+        background: `radial-gradient(circle at 30% 25%, oklch(1 0 0 / 38%), oklch(1 0 0 / 0%) 55%), linear-gradient(135deg, color-mix(in oklch, ${dot} 78%, white), ${dot} 60%)`,
+        textShadow: `0 1px 1px color-mix(in oklch, ${dot} 70%, black)`,
+      }}
     >
       {Icon ? <Icon className={GLYPH[size]} strokeWidth={2} aria-hidden /> : initial}
     </span>

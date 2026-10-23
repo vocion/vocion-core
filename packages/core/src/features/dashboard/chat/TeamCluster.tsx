@@ -3,6 +3,7 @@
 import type { TeamMember } from './emptyChat';
 import { useTranslations } from 'next-intl';
 import { AgentDot } from '@/components/ui/agent-dot';
+import { SparkOrb } from '@/components/ui/spark-orb';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { TEAM_SHOWN } from './emptyChat';
@@ -34,21 +35,24 @@ export function TeamCluster({ members, href = '/dashboard/teams' }: { members: r
     <div data-testid="team-cluster" className="flex flex-col items-center [@media(max-height:480px)]:hidden">
       <div className="flex items-center" aria-hidden>
         {/* The lead in front: drawn last among siblings would hide it, so it sits first with the highest z. */}
-        <span className="relative z-10 rounded-full ring-2 ring-[var(--org-accent,var(--brand-amber))] ring-offset-2 ring-offset-background motion-safe:animate-in motion-safe:duration-300 motion-safe:zoom-in-90 motion-safe:fade-in" data-testid="team-lead">
-          <AgentDot name={lead.name} accent={lead.accent} size="xl" decorative className="size-12 text-lg" />
+        {/* The lead is the spark at rest (`SparkOrb`): the one mark of the
+            agent who answers, still until a turn runs. The amber ring went
+            with the refresh (2026-10-23) — colour now means "at work". */}
+        <span className="relative z-10 rounded-full ring-4 ring-background motion-safe:animate-in motion-safe:duration-300 motion-safe:zoom-in-90 motion-safe:fade-in" data-testid="team-lead">
+          <SparkOrb size="xl" working={false} className="size-14" />
         </span>
         {rest.map((m, i) => (
           <span
             key={m.slug}
-            className={cn(i === 0 ? '-ml-1' : '-ml-2.5', 'rounded-full ring-2 ring-background motion-safe:animate-in motion-safe:duration-300 motion-safe:fill-mode-both motion-safe:fade-in motion-safe:slide-in-from-left-2')}
+            className={cn(i === 0 ? '-ml-2' : '-ml-2', 'rounded-full ring-2 ring-background motion-safe:animate-in motion-safe:duration-300 motion-safe:fill-mode-both motion-safe:fade-in motion-safe:slide-in-from-left-2')}
             style={{ zIndex: 9 - i, animationDelay: `${80 + i * 60}ms` }}
             data-testid="team-member"
           >
-            <AgentDot name={m.name} accent={m.accent} size="lg" decorative className="size-9" />
+            <AgentDot name={m.name} accent={m.accent} size="md" decorative className="size-7 text-[10px]" />
           </span>
         ))}
         {more > 0 && (
-          <span className="-ml-2.5 grid size-9 place-items-center rounded-full bg-surface-soft text-[12px] font-medium text-muted-foreground ring-2 ring-background" data-testid="team-more">
+          <span className="-ml-2 grid size-7 place-items-center rounded-full bg-surface-soft text-[11px] font-medium text-muted-foreground ring-2 ring-background" data-testid="team-more">
             {`+${more}`}
           </span>
         )}

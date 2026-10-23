@@ -93,6 +93,7 @@
   --color-action: var(--action);
   --color-action-foreground: var(--action-foreground);
   --shadow-pop: var(--shadow-pop);
+  --shadow-composer: var(--shadow-composer);
 
   /* Typography stack — the self-hosted faces of styles/fonts.css. */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -104,6 +105,26 @@
 
 :root {
   --radius: 0.75rem;
+
+  /* The spark (design refresh, 2026-10-23): Vocion's one AI colour, Metacto
+     amber into rose, violet and the mark's blue. It means "an agent is at
+     work" and nothing else — the working orb, the thinking line, the composer
+     while a turn runs, the flash on what a turn changed. Never a button, a
+     card, a row or a header (docs/design/patterns.md § The spark). It stays
+     Vocion's on a branded Org; the Org's colour is its logo, links and focus. */
+  --spark-1: #f18700;
+  --spark-2: #f0567a;
+  --spark-3: #7c3cff;
+  --spark-4: #168bff;
+  --spark: linear-gradient(90deg, var(--spark-1), var(--spark-2) 35%, var(--spark-3) 70%, var(--spark-4));
+  --spark-conic: conic-gradient(
+    from 0deg,
+    var(--spark-1),
+    var(--spark-2),
+    var(--spark-3),
+    var(--spark-4),
+    var(--spark-1)
+  );
 
   /* Brand palette — warm, port from rev-ai */
   --brand-amber: oklch(0.74 0.17 65); /* ≈ #F18700 */
@@ -128,7 +149,7 @@
   --ink-muted: #4a4550; /* inactive nav labels — dark warm grey, not ink */
   --rule: oklch(0.3 0.02 60 / 9%);
   --surface-hover: oklch(0.3 0.02 60 / 4%);
-  --surface-soft: #f4f1ec;
+  --surface-soft: #f3efe8;
 
   --tint-violet: #eee8ff;
   --tint-sky: #e2efff;
@@ -139,6 +160,9 @@
   --action: var(--ink);
   --action-foreground: oklch(1 0 0);
   --shadow-pop: 0 8px 30px oklch(0 0 0 / 8%);
+  /* The composer floats on the page rather than sitting in it (ElevenLabs,
+     Breeze): a hairline plus a shadow too soft to read as a box. */
+  --shadow-composer: 0 1px 2px oklch(0.3 0.02 60 / 4%), 0 6px 24px oklch(0.3 0.02 60 / 6%);
 
   /* Org brand — overridden per Org by a <style data-org-brand> after this
      sheet (features/branding/OrgBrandStyle.tsx). `--org-accent` is the brand
@@ -151,7 +175,10 @@
   --org-accent-ink-foreground: oklch(1 0 0);
 
   /* Shadcn surface tokens — light mode, neutral surfaces with warm accent */
-  --background: #fcfaf6; /* warm white */
+  /* Warm stays (2026-10-23): the page is a brighter warm paper and the
+     sidebar a deeper warm stone, so the work reads as a sheet on its chrome
+     — they were one cream, and nothing separated. */
+  --background: #fefcf9; /* warm paper */
   --foreground: var(--ink);
   --card: oklch(1 0 0);
   --card-foreground: var(--ink);
@@ -159,9 +186,9 @@
   --popover-foreground: var(--ink);
   --primary: var(--org-accent-ink);
   --primary-foreground: var(--org-accent-ink-foreground);
-  --secondary: #f4f1ec;
+  --secondary: #f3efe8;
   --secondary-foreground: var(--ink-title);
-  --muted: #f4f1ec;
+  --muted: #f3efe8;
   --muted-foreground: var(--ink-secondary);
   --accent: var(--brand-amber-tint);
   --accent-foreground: var(--brand-amber-deep);
@@ -174,7 +201,7 @@
   --chart-3: var(--brand-pass);
   --chart-4: var(--brand-borderline);
   --chart-5: var(--brand-fail);
-  --sidebar: #f9f7f3;
+  --sidebar: #f4f0e9; /* warm stone, a step below the page */
   /* Inactive labels are dark grey; the active pill is the darkest grey (8%)
      with ink text; hover is lighter (--surface-hover, 3%). Focus ring subtle. */
   --sidebar-foreground: var(--ink-muted);
@@ -189,7 +216,7 @@
 .dark {
   /* Dark mode keeps the warm accent but inverts surfaces.
      Rev-ai is light-only — this is for the theme switcher that already
-     ships on /dashboard. Designer pass for dark is a follow-up. */
+     ships on /dashboard. The designer pass landed with the spark (below). */
   /* Warm dark: ink 16.5:1 on the background, secondary 7.5:1 on it and
      ≥ 5.4:1 on every dark tint. */
   --ink: #f4f1ec;
@@ -209,13 +236,17 @@
   --action: var(--ink);
   --action-foreground: #141217;
   --shadow-pop: 0 8px 30px oklch(0 0 0 / 40%);
+  --shadow-composer: 0 1px 2px oklch(0 0 0 / 30%), 0 8px 28px oklch(0 0 0 / 35%);
 
   --org-accent: var(--brand-amber);
   --org-accent-foreground: #141217;
   --org-accent-ink: var(--brand-amber);
   --org-accent-ink-foreground: #141217;
 
-  --background: #141217;
+  /* Designer pass (2026-10-23): a deeper warm near-black where the spark
+     glows, the sidebar a step darker than the page so the page reads as a
+     sheet, as in light. Ink 17:1 and secondary 7.8:1 on the background. */
+  --background: #121015;
   --foreground: var(--ink);
   --card: #1c1a20;
   --card-foreground: var(--ink);
@@ -233,7 +264,7 @@
   --border: var(--rule);
   --input: oklch(1 0 0 / 15%);
   --ring: var(--org-accent-ink);
-  --sidebar: #1a181e;
+  --sidebar: #0d0b10;
   --sidebar-foreground: var(--ink-title);
   --sidebar-primary: var(--org-accent-ink);
   --sidebar-primary-foreground: var(--org-accent-ink-foreground);
@@ -336,33 +367,38 @@
 }
 
 /*
- * The running step's line shimmers — a soft sweep of lighter grey through the
- * text — so "working" is visible without a spinner fighting the prose
- * (`WorkTimeline`). Text only, never a box. Off when the person asked for
- * reduced motion: the line just reads in the muted tone.
+ * The running step's line shimmers — a band of the spark sweeping through
+ * muted text — so "working" is visible without a spinner fighting the prose
+ * (`WorkTimeline`). Text only, never a box. The band's stops are the spark
+ * pulled a quarter toward the ink, so the words stay legible as it passes.
+ * Off when the person asked for reduced motion: the line reads in the muted
+ * tone.
  */
 @keyframes work-shimmer {
   0% {
     background-position: 200% 0;
   }
   100% {
-    background-position: -200% 0;
+    background-position: -50% 0;
   }
 }
 .work-shimmer {
   background-image: linear-gradient(
     90deg,
     var(--muted-foreground) 0%,
-    var(--muted-foreground) 35%,
-    var(--foreground) 50%,
-    var(--muted-foreground) 65%,
+    var(--muted-foreground) 30%,
+    color-mix(in oklch, var(--spark-1) 75%, var(--foreground)) 40%,
+    color-mix(in oklch, var(--spark-2) 75%, var(--foreground)) 47%,
+    color-mix(in oklch, var(--spark-3) 75%, var(--foreground)) 54%,
+    color-mix(in oklch, var(--spark-4) 75%, var(--foreground)) 61%,
+    var(--muted-foreground) 71%,
     var(--muted-foreground) 100%
   );
-  background-size: 200% 100%;
+  background-size: 250% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: work-shimmer 2.2s linear infinite;
+  animation: work-shimmer 2.4s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .work-shimmer {
@@ -373,14 +409,119 @@
 }
 
 /*
+ * The spark orb (`components/ui/spark-orb.tsx`): the agent's mark while it
+ * works — the spark as a turning sphere with a soft highlight, breathing a
+ * glow. At rest (`data-state='idle'`, the empty chat) it holds still and
+ * keeps the colour, no glow. Reduced motion: still in both states.
+ */
+@keyframes spark-orb-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes spark-orb-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 10px 1px color-mix(in oklch, var(--spark-3) 30%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 18px 4px color-mix(in oklch, var(--spark-2) 38%, transparent);
+  }
+}
+.spark-orb {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: var(--spark-conic);
+}
+.spark-orb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 32% 28%, oklch(1 0 0 / 80%), oklch(1 0 0 / 0%) 48%);
+}
+.spark-orb[data-state='working'] {
+  animation:
+    spark-orb-turn 3.2s linear infinite,
+    spark-orb-breathe 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spark-orb[data-state='working'] {
+    animation: none;
+  }
+}
+
+/*
+ * The composer while a turn runs (`ChatComposer`): its hairline becomes the
+ * spark, drifting slowly. The bar's shape does not change (it stays one
+ * control tall, patterns.md); only its edge says the agent is at work.
+ */
+@keyframes composer-working-drift {
+  0% {
+    background-position:
+      0 0,
+      0% 0;
+  }
+  100% {
+    background-position:
+      0 0,
+      200% 0;
+  }
+}
+.composer-working {
+  border-color: transparent !important;
+  background:
+    linear-gradient(var(--background), var(--background)) padding-box,
+    linear-gradient(90deg, var(--spark-1), var(--spark-2), var(--spark-3), var(--spark-4), var(--spark-1)) border-box;
+  background-size:
+    100% 100%,
+    200% 100%;
+  animation: composer-working-drift 4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-working {
+    animation: none;
+  }
+}
+
+/*
+ * A turn arriving (`MessageList`): it fades in and rises 4px over 180ms.
+ * Nothing bounces; reduced motion shows it in place.
+ */
+@keyframes turn-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.turn-enter {
+  animation: turn-enter 180ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-enter {
+    animation: none;
+  }
+}
+
+/*
  * A region that a new version just changed (`features/dashboard/versions`):
- * an amber wash that fades over two seconds, so the eye lands on what the
- * chat changed without a reload. Reduced motion: a still outline, removed
- * when the mark is (the signal survives the preference, the motion does not).
+ * a spark wash — rose into violet — that fades over two seconds, so the eye
+ * lands on what the chat changed without a reload. Reduced motion: a still
+ * outline, removed when the mark is (the signal survives the preference, the
+ * motion does not).
  */
 @keyframes version-changed-fade {
   0% {
-    background-color: color-mix(in oklch, var(--brand-amber) 22%, transparent);
+    background-color: color-mix(in oklch, var(--spark-2) 20%, transparent);
+  }
+  45% {
+    background-color: color-mix(in oklch, var(--spark-3) 12%, transparent);
   }
   100% {
     background-color: transparent;
@@ -390,13 +531,13 @@
   animation: version-changed-fade 2s ease-out 1;
 }
 [data-version-changed='still'] {
-  outline: 2px solid color-mix(in oklch, var(--brand-amber) 60%, transparent);
+  outline: 2px solid color-mix(in oklch, var(--spark-3) 60%, transparent);
   outline-offset: 2px;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-version-changed='fade'] {
     animation: none;
-    outline: 2px solid color-mix(in oklch, var(--brand-amber) 60%, transparent);
+    outline: 2px solid color-mix(in oklch, var(--spark-3) 60%, transparent);
     outline-offset: 2px;
   }
 }
