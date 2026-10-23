@@ -22,6 +22,7 @@ import { splitScratch } from '@/libs/chat/scratch';
 import { stripSuggestBlocks } from '@/libs/chat/suggestions';
 import { browserRunsDone, turnFollowups } from '@/libs/chat/turnFollowups';
 import { Link } from '@/libs/I18nNavigation';
+import { modelName } from '@/libs/llm/modelPrefs';
 import { isFailure } from '@/services/chat/turnStatus';
 import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
@@ -408,11 +409,12 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                   data-testid="turn-effort"
                   disabled={!message.effort.next || !onDigDeeper}
                   onClick={() => message.effort?.next && onDigDeeper?.(message.effort.next)}
-                  aria-label={`Ran at ${EFFORT_WORDS[message.effort.level]}${message.effort.next && onDigDeeper ? `; dig deeper at ${EFFORT_WORDS[message.effort.next]}` : ''}`}
+                  aria-label={`Ran at ${EFFORT_WORDS[message.effort.level]}${message.model ? ` on ${modelName(message.model.model)}` : ''}${message.effort.next && onDigDeeper ? `; dig deeper at ${EFFORT_WORDS[message.effort.next]}` : ''}`}
                   className="-mx-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] tracking-normal text-muted-foreground/70 normal-case tabular-nums transition enabled:hover:bg-surface-hover enabled:hover:text-foreground"
                 >
                   <Gauge className="size-2.5" aria-hidden />
-                  {`${EFFORT_WORDS[message.effort.level]}${message.effort.elapsedMs !== undefined ? ` · ${turnDuration(message.effort.elapsedMs)}` : ''}`}
+                  {/* The level, the model it ran on and how long: "Deep · Opus 5.5 · 44s". */}
+                  {`${EFFORT_WORDS[message.effort.level]}${message.model?.model ? ` · ${modelName(message.model.model)}` : ''}${message.effort.elapsedMs !== undefined ? ` · ${turnDuration(message.effort.elapsedMs)}` : ''}`}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="top" collisionPadding={8}>

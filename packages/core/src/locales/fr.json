@@ -184,6 +184,7 @@
     "effort_standard_hint": "Rassemble plusieurs sources, peut consulter un coéquipier",
     "effort_deep": "Approfondi",
     "effort_deep_hint": "Réfléchit longuement, consulte plusieurs coéquipiers — recherche et plans",
+    "effort_model_own": "Le modèle de cet agent",
     "model_control": "Modèle",
     "model_strength": "Puissance du modèle",
     "model_fast": "Rapide",

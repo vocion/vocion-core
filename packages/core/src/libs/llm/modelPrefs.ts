@@ -51,7 +51,7 @@ export const DEFAULT_MODEL_PREFS: ModelPrefs = { strength: 'balanced', effort: '
 
 /** The vendor's small and large models. `balanced` is deliberately absent: it means "the agent's own". */
 const STRENGTH_MODELS: Record<Exclude<PrefsProvider, 'scripted'>, { fast: string; deep: string }> = {
-  anthropic: { fast: 'claude-haiku-4-5-20251001', deep: 'claude-opus-5' },
+  anthropic: { fast: 'claude-haiku-4-5-20251001', deep: 'claude-opus-5-5' },
   openai: { fast: 'gpt-4o-mini', deep: 'gpt-4o' },
   bedrock: { fast: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', deep: 'us.anthropic.claude-opus-5' },
 };
@@ -70,6 +70,32 @@ export function modelForStrength(provider: PrefsProvider, strength: ModelStrengt
     return undefined;
   }
   return STRENGTH_MODELS[provider][strength];
+}
+
+/**
+ * A model as a person reads it: its family and version ("Opus 5.5", "Sonnet 5.5", "Haiku 4.5"),
+ * never the vendor's id. Anything not recognised reads as given, trimmed of its date.
+ * @param modelId - The model the turn ran on.
+ */
+export function modelName(modelId: string | null | undefined): string {
+  if (!modelId) {
+    return '';
+  }
+  const claude = /claude-([a-z]+)-(\d+)(?:-(\d))?(?=$|-|:|\b)/i.exec(modelId);
+  if (claude) {
+    const family = claude[1]!.charAt(0).toUpperCase() + claude[1]!.slice(1);
+    return `${family} ${claude[2]}${claude[3] ? `.${claude[3]}` : ''}`;
+  }
+  return modelId.replace(/^(?:us|eu|apac|global)\./, '').replace(/-\d{8}$/, '').replace(/^gpt-/i, 'GPT-');
+}
+
+/**
+ * The model each level leads with on a provider, as a person reads it: Quick's fast model, Deep's
+ * strongest, and null for Standard (the agent's own, which the turn's line names).
+ * @param provider - The deployment's provider.
+ */
+export function levelModelNames(provider: PrefsProvider = 'anthropic'): Record<EffortLevel, string | null> {
+  return { quick: modelName(modelForStrength(provider, 'fast')), standard: null, deep: modelName(modelForStrength(provider, 'deep')) };
 }
 
 /**

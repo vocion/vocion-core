@@ -17,7 +17,9 @@ import type { LangChainProvider } from '@/libs/llm';
  * or, by default, read from the request by a small model (`inferEffort`,
  * Auto). A level sets an ENVELOPE, never a step count:
  *
- *   - how strong a model leads and how much it thinks (`strength`, `thinking`);
+ *   - how strong a model leads and how much it thinks (`strength`, `thinking`): Quick the
+ *     vendor's fast model, Standard the agent's own, Deep the vendor's strongest (Opus 5.5 on
+ *     Anthropic) — so work that deserves the strongest model gets it, by the same choice;
  *   - whether it may consult teammates (`consults`) and how wide to fan out;
  *   - a soft time target the agent is told, so it stops when it has enough;
  *   - two outer CEILINGS — wall clock and spend — the only hard limits.
@@ -37,7 +39,7 @@ export type { EffortChoice, EffortLevel };
 
 export type EffortEnvelope = {
   level: EffortLevel;
-  /** The lead's model: `fast` is the vendor's small model, `balanced` the agent's own. */
+  /** The lead's model: `fast` the vendor's small model, `balanced` the agent's own, `deep` the vendor's strongest. */
   strength: ModelStrength;
   /** Extended thinking for the turn; `agent` leaves the agent's own setting alone. */
   thinking: ThinkingEffort | 'agent';
@@ -63,7 +65,7 @@ export type EffortEnvelope = {
 export const ENVELOPES: Record<EffortLevel, EffortEnvelope> = {
   quick: { level: 'quick', strength: 'fast', thinking: 'off', consults: 'none', fanOut: 3, targetSeconds: 8, ceilingSeconds: 40, ceilingCents: 15, evidenceBudget: 8 },
   standard: { level: 'standard', strength: 'balanced', thinking: 'agent', consults: 'one', fanOut: 5, targetSeconds: 20, ceilingSeconds: 90, ceilingCents: 75, evidenceBudget: 12 },
-  deep: { level: 'deep', strength: 'balanced', thinking: 'high', consults: 'parallel', fanOut: 8, targetSeconds: 150, ceilingSeconds: 600, ceilingCents: 500, evidenceBudget: 40 },
+  deep: { level: 'deep', strength: 'deep', thinking: 'high', consults: 'parallel', fanOut: 8, targetSeconds: 150, ceilingSeconds: 600, ceilingCents: 500, evidenceBudget: 40 },
 };
 
 /**
