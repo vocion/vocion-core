@@ -445,7 +445,12 @@ name: Software factory
 #   `model_policy` on every task contract; before this the seat named no model
 #   and the runner used its own default. A workspace that pins its own seat
 #   still wins.
-version: 3.32.0
+# 3.33.0 — an Engines page under More (Jamie, 2026-10-23: see the engine
+#   scoreboard in the platform, not only the API). Every engine that builds
+#   the factory's tasks side by side on the same figures, for 7, 30 or 90 days,
+#   real work or eval, then the runs behind them with why each engine was
+#   picked (vocion-core ADR 0005).
+version: 3.33.0
 description: Requests become approved work, verified changes and releases. A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
