@@ -78,9 +78,20 @@ jobs:
       # the same ~1,084 modules every /api/v1 route reaches through `_shared`;
       # nothing light started reaching the server (check:route-graph: +2
       # modules elsewhere, the ledger writer beside chargeUsage).
+      # 12000 → 12500 (2026-10-23, v7.4): main went from 11,670–11,770 MB at
+      # #1394 to 11,874–11,970 MB seventeen merges later, and #1414's run hit
+      # 12,090. What grew is feature code joining the server every dashboard
+      # route reaches through the agent tools: decks and deliverables (#1395,
+      # the deliverable pane, pptx/docx import and export, ~40 modules), the
+      # ask dock (#1399), connections that follow you (#1402) and the Review
+      # queue tools (#1414). The two new routes (api/deliverables/*/import,
+      # export) reach that same server through ArtifactService → EventService,
+      # so they share its chunks; pptxgenjs, docx, jszip and fast-xml-parser
+      # are server externals and no client module reaches them. Nothing light
+      # started reaching the server, so there was nothing cheap to cut.
       - name: Build memory
         env:
-          BUILD_PEAK_RSS_BUDGET_MB: '12000'
+          BUILD_PEAK_RSS_BUDGET_MB: '12500'
         run: |
           set -euo pipefail
           peak_mb=$(( $(awk -F': ' '/Maximum resident set size/{print $2}' "$RUNNER_TEMP/build-time.txt") / 1024 ))
