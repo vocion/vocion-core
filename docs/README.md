@@ -2,7 +2,7 @@
 
 ## Start here
 
-- [**Product Design Manifesto**](./DESIGN-PRINCIPLES.md) — why Vocion exists and the bar every product decision is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth. Ends with the twelve-question test.
+- [**Product Design Manifesto**](./DESIGN-PRINCIPLES.md) — why Vocion exists and the bar every product decision is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth. Ends with the five-question test.
 - [**Getting started in a new workspace**](./guides/getting-started-in-a-workspace.md) — what a person meets first: the workspace's lead core seeds into every new shared workspace, its one-sentence introduction and three starters, the short interview, the setup plan as one-click cards that run as the person's own action with Undo, and the sidebar's Getting started · N of 5 checklist read from what is really there.
 - [**Branding: your Org's logo and colours**](./guides/branding.md) — the Org's logo, mark, accent, heading font and mail sender, worn by the sidebar, sign-in, the browser tab and outbound mail: "Make it yours" from chat (a preview card drafted from the company's site), Brand settings, or a workspace `brand.yaml` adopted once; accents checked for AA in both themes; workspaces' documents inherit it. White-label is an enterprise extension.
 - [**Goals and sprints**](./guides/goals.md) — an outcome a person owns past one conversation, measured by a saved view counted live, by milestones, or as a sprint: 2 to 10 weekly targets with a scorecard the agent logs with evidence and the person's own number always wins.
@@ -18,6 +18,7 @@
 - [**Object model**](./object-model.md) — the lookup table: where each object is authored, its schema symbol, its table, its runtime, its UI surface. Includes runtime-only objects (tool calls, runs, events).
 - [**Artifacts — one live thing beside the conversation**](./artifacts.md) — `render_*` / `read_artifact` / `update_artifact`, the `artifact` + `artifact_version` tables, the pane a person and an agent both edit, the version rules (restore never rewrites, human saves collapse), the log at `/dashboard/artifacts`, and exporting one as a workspace page.
 - [**Routing — the workspace in the URL**](./routing.md) — why `/w/<slug>/…` exists, what the entry route does, and the phase-2 design for `/{account}/{workspace}/…` as the canonical URL.
+- [**Design system**](./design/README.md) — the one place to start for anything visual: the 60-second version, colour and status tokens, the spark (the AI colour), type, shape, motion, and the one component per job.
 - [**Dashboard patterns — List, Detail, Ledger**](./design/patterns.md) — the UI pattern library every dashboard page composes from: which archetype for which page, anatomy, do/don't, and the migration checklist for the remaining pages.
 - [**The API reference — generated from the handlers**](./api-reference.md) — how the OpenAPI document is read out of `/api/v1`, how to regenerate it, and how to write a route's doc comment so it reads well.
 - [**Review operations in the base pack**](./review-ops.md) — the review-queue agents and approval-drafting skills that ship in `core@2.1.0`, how to activate them, and how to override one.

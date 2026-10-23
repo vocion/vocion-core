@@ -221,7 +221,7 @@ person's own request, and nothing silent.
 
 # The test
 
-Four questions, before shipping anything.
+Five questions, before shipping anything.
 
 1. **Is this an outcome, or an activity?** And who owns it?
 2. **Is this one obvious path, or another option?** A default beats a setting; one shape beats a pattern per screen.
