@@ -3,8 +3,8 @@
 import type { RecordRef } from '@/services/chat/pageContext';
 import { AlarmClock, Check, Loader2, RotateCcw, Sparkles, X } from 'lucide-react';
 import { useState } from 'react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { buttonVariants } from '@/components/ui/buttonVariants';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { useRouter } from '@/libs/I18nNavigation';
 import { CANDIDATE, finishedLabel, isFinishedStatus, isOwedStatus } from '@/libs/objects/rowLifecycle';
