@@ -304,3 +304,28 @@ First-message picks are kept on `conversation_message.routing_json`. With no key
 - Each turn makes one key lookup (a database read) before deciding. With no key, that is all it
   costs.
 - Rollback is the same: remove the key.
+
+## Roadmap: Jev beyond routing (2026-10-23)
+
+Jev is a typed decision model: a yes/no, a choice or a score, each with a calibrated probability.
+These are where else it earns its place in Vocion. Each follows the same rules as routing: off
+without a key, opt-in per workspace, the existing behaviour on any error, timeout or low
+confidence, numbers and dates compared in code, and a person decides what changes.
+
+| Use | Jev decides | Outcome that measures it | Status |
+|---|---|---|---|
+| Duplicate check on incoming records | Is this record the same as candidate X? (one yes/no per candidate) | Duplicate link kept or undone | Building now (ADR 0007) |
+| Rule-learning triage | Should this reviewer edit or correction become a rule? Is it already one? | Learning candidate approved or rejected | Next |
+| Review queue suggestion and risk score | Suggest approve, changes or reject, plus a risk score. Never approves on its own | The reviewer's decision and edits | Planned |
+| Factory QA pre-check | Does the change meet each acceptance line? (one yes/no per line) | QA verdict; the eval harness's hidden tests | Planned |
+| Outbound personal or confidential data check | Does this draft carry personal or client-confidential data? Flags for the approver, in addition to the existing filters | Approver overrides; a seeded test set | Planned |
+| Intent and priority classification | Does the person want an answer, a draft or a human? How urgent or actionable is a flag? | Escalations, re-asks, flags acted on or dismissed | Planned |
+
+**Later, paused (2026-10-23): measuring Jev as a whole.**
+
+- One decision ledger of every Jev call: decision type, question type, answer, confidence,
+  latency, cost, key scope and the outcome label filled in later.
+- About 10% held out per decision type: Jev is asked and logged, but today's behaviour acts.
+- Per decision type: accuracy against outcomes, calibration, the risk-coverage curve (abstention),
+  net value (value created minus Jev's cost) and drift alerts.
+- One Observability → Jev view, with a tab per decision type, routing first.
