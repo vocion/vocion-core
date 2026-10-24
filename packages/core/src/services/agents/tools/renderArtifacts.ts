@@ -19,7 +19,8 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { lintChart, lintText } from '@/libs/charts/lint';
+import { checkChart, refusalText } from '@/libs/charts/checks';
+import { reviewChart } from '@/libs/charts/review';
 import { CHART_TYPES, chartSpecSchema } from '@/libs/charts/spec';
 import { artifactTitle } from '@/services/artifacts/title';
 import { ArtifactError, createArtifact, toPayload } from '@/services/ArtifactService';
@@ -167,16 +168,21 @@ export function renderMarkdownTool(ctx: RuntimeContext) {
 }
 
 /**
- * What `render_chart` tells the model about charting — the analyst rules in
- * brief, because every agent with the tool reads its description on every
- * turn (the full method is the `data-analysis` skill; docs/guides/charts.md).
+ * What `render_chart` tells the model about charting — the method and how to
+ * choose the form, by worked example. It stands on its own: every agent with
+ * the tool reads it on every turn, and a workspace that cannot mount the base
+ * pack's `data-analysis` skill (the full version) points its prompts here.
+ * The library lays the chart out; the model picks the form, the series and
+ * the finding (Chris, 2026-10-24). See docs/guides/charts.md.
  */
 export const RENDER_CHART_DESCRIPTION = [
-  'Create a chart artifact with Vocion\'s chart engine. NEVER hand-write chart HTML or SVG — here or inside a document (in a document use a chart block: <figure class="vocion-chart"><script type="application/json">{spec}</script></figure>).',
-  'Pick the form from the question: amounts over time → bar with each period\'s own amount (aggregation "period"); composition over time → stacked bars by period (stack "stack"); shares over time → stack "percent"; comparing a few categories → grouped bars; a trend or rate → line; how a start became an end → waterfall (waterfallTotals names the start, subtotals and end). Never a pie.',
-  'x holds ONE kind of thing: all periods (Jan…Dec, 2026-07, Q3) or all categories. A scenario or forecast is a SERIES, not an x label: mark it forecast: true on the series, or forecastFrom: "<first forecast x>"; actuals and forecast are never one unmarked bar. Running totals are a line, not bars.',
-  'Always say the format (currency with currency code, percent, number, or a unit), source and asOf. The title states the finding ("On pace for $5.1M, carried by Q4 renewals"), not the axes. totals, when given, must equal the stack.',
-  'The chart is linted before it renders (mixed axes, cumulative bars, too many series or categories for a phone, overlapping labels, missing format, dual axes, stacks that do not sum): an error refuses the chart and says what to fix; fix it and call again. To change a chart afterwards use update_artifact.',
+  'Create a chart artifact with Vocion\'s chart engine. Never hand-write chart HTML or SVG (in a document, use a chart block: <figure class="vocion-chart"><script type="application/json">{spec}</script></figure>).',
+  'Choose the form from the question, title it with the finding, and let the library lay it out: it turns bars horizontal when names are long, wraps labels, puts values on the bars, folds series past eight into "Other", and splits a waterfall whose last steps would be slivers.',
+  'Examples (numbers invented). Revenue by month with forecast months: type "bar", x ["Jan"…"Dec"], series Invoiced and Weighted pipeline (forecast: true), stack "stack", aggregation "period", forecastFrom "Nov", format "currency", title "On pace for $4.4M, December carried by pipeline".',
+  'A P&L bridge: type "waterfall", x ["Revenue","Delivery cost","Gross profit","Operating expenses","Operating profit","Interest","Tax","Net income"], one series, waterfallTotals ["Revenue","Gross profit","Operating profit","Net income"]; full names, never codes. When the question is about the last steps (what took profit from $110K to $46K), start there: waterfallStart "Operating profit".',
+  'Year-end scenarios: a small bar chart of the scenarios (x ["Low","Base","High"]), not extra bars on a monthly axis. Comparing many named things (customers, vendors): type "bar" with their full names; it draws them horizontally. A trend or a rate: "line". Shares over time: stack "percent". Never a pie.',
+  'Read the numbers once: a whole range in one call split by period (a ledger report with a monthly split, e.g. summarize_by "Month"), never one call per month; every figure ties to a read you made. Keep actuals apart from forecast (pipeline, plan, run-rate are forecast). Always give format (currency with its code, percent, number, or a unit), source and asOf. totals, when given, must equal the stack.',
+  'Only data that cannot be drawn honestly is refused (values that are not numbers, a stack that does not sum to its stated totals, two units on one axis). Otherwise the chart renders, and the receipt reviews it as drawn on a phone: judge it, and revise once with update_artifact if it does not answer the question.',
 ].join(' ');
 
 export function renderChartTool(ctx: RuntimeContext) {
@@ -195,13 +201,13 @@ export function renderChartTool(ctx: RuntimeContext) {
       if (!parsed.success) {
         return `render_chart rejected: invalid chart spec — ${parsed.error.issues.map(i => `${i.path.join('.') || 'spec'}: ${i.message}`).join('; ')}. Fix the payload and call again.`;
       }
-      const lint = lintChart(parsed.data);
-      if (lint.errors.length) {
-        return `render_chart refused: the chart would mislead or not read on a phone.\n${lintText(lint)}\nFix the spec and call render_chart again.`;
+      const checks = checkChart(parsed.data);
+      if (checks.refusals.length) {
+        return `render_chart refused.\n${refusalText(checks)}\nFix the data and call render_chart again.`;
       }
       const n = parsed.data.series.length;
       const receipt = await persistAndEmit(ctx, 'chart', args.title, parsed.data, `${n} series × ${parsed.data.x.length} points`, folder);
-      return lint.warnings.length ? `${receipt}\n\n${lintText(lint)}` : receipt;
+      return receipt.startsWith('Rendered') ? `${receipt}\n\n${reviewChart(parsed.data).text}` : receipt;
     },
     {
       name: 'render_chart',
@@ -224,6 +230,8 @@ export function renderChartTool(ctx: RuntimeContext) {
         targets: z.union([z.array(z.object({ value: z.number(), label: z.string() })), z.string()]).optional().describe('Up to 3 reference lines, e.g. the plan'),
         marker: z.union([z.object({ x: z.string(), label: z.string() }), z.string()]).optional().describe('A vertical marker at one x, e.g. {x: "Oct", label: "Today"}'),
         waterfallTotals: z.array(z.string()).optional().describe('Waterfall: the x labels drawn as full bars (start, subtotals, end)'),
+        waterfallStart: z.string().optional().describe('Waterfall: start the bridge at this subtotal, leaving out the bars before it'),
+        orientation: z.enum(['auto', 'vertical', 'horizontal']).optional().describe('auto (default) lets the layout turn bars horizontal when names are long'),
         trend: z.boolean().optional(),
         source: z.string().optional().describe('Where the numbers came from, e.g. "QuickBooks P&L by month"'),
         asOf: z.string().optional().describe('YYYY-MM-DD the numbers are as of'),

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { checkChart } from './checks';
 import { expandChartBlocks } from './documentBlocks';
 import { niceTicks } from './format';
-import { layoutChart, placeXLabels, trendLine } from './layout';
-import { lintChart } from './lint';
+import { foldSeries, layoutChart, placeXLabels, trendLine } from './layout';
 import { VIZ_DARK, VIZ_LIGHT, VIZ_VARS } from './palette';
 import { axisKindOf, isPeriodLabel } from './periods';
+import { reviewChart } from './review';
 import { chartSpecSchema } from './spec';
 import { renderChartSvg } from './svg';
 
@@ -71,7 +72,20 @@ const STACKED_BY_MONTH = {
 };
 
 const spec = (s: unknown) => chartSpecSchema.parse(s);
-const rules = (r: { errors: Array<{ rule: string }>; warnings: Array<{ rule: string }> }) => ({ errors: r.errors.map(e => e.rule), warnings: r.warnings.map(w => w.rule) });
+const rules = (r: { refusals: Array<{ rule: string }>; signals: Array<{ rule: string }> }) => ({ refusals: r.refusals.map(e => e.rule), signals: r.signals.map(w => w.rule) });
+
+/** A P&L bridge from $5.1M revenue to $46K net income, as Chris was shown it on 2026-10-24 (fictional numbers, full names). */
+const PNL_BRIDGE = {
+  title: 'Base case: the year ends about $46K net profit on $5.11M revenue',
+  type: 'waterfall' as const,
+  x: ['Revenue', 'Delivery cost', 'Gross profit', 'Operating expenses', 'Operating profit', 'Interest', 'Bonus pool', 'Tax', 'Net income'],
+  series: [{ name: 'FY2026 base case', values: [5110000, -2520000, null, -2478000, null, -38000, -4600, -23400, null], forecast: true }],
+  waterfallTotals: ['Revenue', 'Gross profit', 'Operating profit', 'Net income'],
+  format: 'currency' as const,
+  currency: 'USD',
+  source: 'Ledger P&L, year to date plus base case',
+  asOf: '2026-10-24',
+};
 
 describe('the chart spec', () => {
   it('still takes the original card spec as written', () => {
@@ -104,55 +118,149 @@ describe('reading x labels as periods', () => {
   });
 });
 
-describe('the chart lint', () => {
-  it('refuses the chart Chris was shown: a mixed axis and cumulative bars', () => {
-    expect(rules(lintChart(spec(MISLEADING))).errors).toEqual(expect.arrayContaining(['mixed-axis', 'cumulative-bars']));
+describe('the chart checks: few refusals, the rest for the model to judge (2026-10-24)', () => {
+  it('draws the chart Chris was shown, and tells the model what an analyst would say about it', () => {
+    const r = rules(checkChart(spec(MISLEADING)));
+
+    expect(r.refusals).toEqual([]);
+    expect(r.signals).toEqual(expect.arrayContaining(['mixed-axis', 'cumulative-bars']));
   });
 
   it('flags rising bars as a likely running total when nobody said what they are', () => {
     const { aggregation: _, ...unsaid } = { ...MISLEADING, x: ['Jul', 'Aug', 'Sep', 'Oct'], series: [{ name: 'Revenue', values: [1, 2, 3, 4] }] };
 
-    expect(rules(lintChart(spec(unsaid))).warnings).toContain('running-total');
+    expect(rules(checkChart(spec(unsaid))).signals).toContain('running-total');
   });
 
-  it('passes the stacked-by-month version clean', () => {
-    const r = lintChart(spec(STACKED_BY_MONTH));
+  it('passes the stacked-by-month version with nothing to say about its title', () => {
+    const r = checkChart(spec(STACKED_BY_MONTH));
 
-    expect(r.errors).toEqual([]);
-    expect(rules(r).warnings).not.toContain('title-restates-axes');
+    expect(r.refusals).toEqual([]);
+    expect(rules(r).signals).not.toContain('title-restates-axes');
   });
 
-  it('refuses a stack that does not sum to its stated totals', () => {
-    const s = spec({ ...STACKED_BY_MONTH, totals: STACKED_BY_MONTH.x.map((_, i) => (i === 0 ? 999 : null)) });
-
-    expect(rules(lintChart(s)).errors).toContain('stack-total');
+  it('refuses only data that cannot be drawn honestly: a stack off its totals, a value that is not a number, two units, a waterfall of two series', () => {
+    expect(rules(checkChart(spec({ ...STACKED_BY_MONTH, totals: STACKED_BY_MONTH.x.map((_, i) => (i === 0 ? 999 : null)) }))).refusals).toContain('stack-total');
+    expect(rules(checkChart({ ...spec({ type: 'bar', x: ['Jan', 'Feb'], series: [{ name: 'A', values: [1, 2] }], format: 'number' }), series: [{ name: 'A', values: [1, Number.POSITIVE_INFINITY] }] })).refusals).toContain('non-finite');
+    expect(rules(checkChart(spec({ type: 'line', x: ['Jan', 'Feb'], series: [{ name: 'A', values: [1, 2] }, { name: 'B', values: [1, 2], axis: 'right' }], format: 'number' }))).refusals).toContain('mixed-units');
+    expect(rules(checkChart(spec({ type: 'waterfall', x: ['A', 'B'], series: [{ name: 'A', values: [1, 2] }, { name: 'B', values: [1, 2] }], format: 'number' }))).refusals).toContain('waterfall-series');
   });
 
-  it('refuses a second y axis, a missing format, and (in the spec) more than eight series', () => {
-    expect(rules(lintChart(spec({ type: 'line', x: ['Jan', 'Feb'], series: [{ name: 'A', values: [1, 2] }, { name: 'B', values: [1, 2], axis: 'right' }], format: 'number' }))).errors).toContain('dual-axis');
-    expect(rules(lintChart(spec({ type: 'line', x: ['Jan', 'Feb'], series: [{ name: 'A', values: [1, 2] }] }))).errors).toContain('missing-format');
-
-    const nine = Array.from({ length: 9 }, (_, i) => ({ name: `S${i}`, values: [1, 2] }));
-    const tooMany = chartSpecSchema.safeParse({ type: 'line', x: ['Jan', 'Feb'], series: nine, format: 'number' });
-
-    expect(tooMany.success).toBe(false);
-    expect(tooMany.error?.issues[0]?.message).toContain('fold the rest into "Other"');
-  });
-
-  it('refuses category labels that cannot be drawn apart on a phone', () => {
+  it('leaves a missing format, long names, thin bars and many series to the library and the model', () => {
     const names = Array.from({ length: 10 }, (_, i) => `Northwind Regional Holdings ${i}`);
+    const many = Array.from({ length: 90 }, (_, i) => `Item ${i}`);
+    const nine = Array.from({ length: 9 }, (_, i) => ({ name: `S${i}`, values: [1, 2] }));
 
-    expect(rules(lintChart(spec({ type: 'bar', x: names, series: [{ name: 'Spend', values: names.map(() => 1) }], format: 'number' }))).errors).toContain('label-collision');
-  });
-
-  it('refuses bars too thin to see on a phone', () => {
-    const x = Array.from({ length: 90 }, (_, i) => `Item ${i}`);
-
-    expect(rules(lintChart(spec({ type: 'bar', x, series: [{ name: 'A', values: x.map(() => 1) }, { name: 'B', values: x.map(() => 1) }], format: 'number' }))).errors).toContain('too-many-categories');
+    expect(rules(checkChart(spec({ type: 'line', x: ['Jan', 'Feb'], series: [{ name: 'A', values: [1, 2] }] }))).signals).toContain('no-format');
+    expect(checkChart(spec({ type: 'bar', x: names, series: [{ name: 'Spend', values: names.map(() => 1) }], format: 'number' })).refusals).toEqual([]);
+    expect(checkChart(spec({ type: 'bar', x: many, series: [{ name: 'A', values: many.map(() => 1) }], format: 'number' })).refusals).toEqual([]);
+    expect(chartSpecSchema.safeParse({ type: 'line', x: ['Jan', 'Feb'], series: nine, format: 'number' }).success).toBe(true);
   });
 
   it('asks for a finding when the title only names the axes', () => {
-    expect(rules(lintChart(spec({ title: 'Revenue by month', type: 'bar', x: ['Jan', 'Feb'], series: [{ name: 'Revenue', values: [1, 2] }], format: 'currency', aggregation: 'period' }))).warnings).toContain('title-restates-axes');
+    expect(rules(checkChart(spec({ title: 'Revenue by month', type: 'bar', x: ['Jan', 'Feb'], series: [{ name: 'Revenue', values: [1, 2] }], format: 'currency', aggregation: 'period' }))).signals).toContain('title-restates-axes');
+  });
+});
+
+describe('the library lays good charts out by default (2026-10-24)', () => {
+  it('turns bars over long names horizontal on a phone, names in full and each value on its bar', () => {
+    const names = ['Northwind Regional Holdings', 'Kestrel Capital Partners', 'Larkfield Construction Group', 'Other customers'];
+    const s = spec({ title: 'Three customers carry half the year', type: 'bar', x: names, series: [{ name: 'Revenue', values: [1310000, 820000, 540000, 2440000] }], format: 'currency' });
+    const phone = layoutChart(s, { width: 390 });
+
+    expect(phone.facts.orientation).toBe('horizontal');
+    expect(phone.facts.autoHorizontal).toBe(true);
+    expect(phone.facts.shortened).toEqual([]);
+    expect(phone.facts.directLabels).toBe(true);
+
+    const texts = phone.marks.flatMap(m => (m.kind === 'text' ? [m.text] : []));
+
+    expect(texts.join(' ')).toContain('Northwind');
+    expect(texts).toContain('$1.31M');
+    expect(phone.legend).toEqual([]);
+  });
+
+  it('wraps a name onto two lines before it cuts one short', () => {
+    const s = spec({ title: 'Delivery leads, support trails', type: 'bar', x: ['Delivery team', 'Support desk', 'Sales team', 'Finance'], series: [{ name: 'Hours', values: [420, 120, 260, 90] }], unit: 'hours' });
+    const scene = layoutChart(s, { width: 360 });
+
+    expect(scene.facts.orientation).toBe('vertical');
+    expect(scene.facts.wrapped.length).toBeGreaterThan(0);
+    expect(scene.facts.shortened).toEqual([]);
+  });
+
+  it('keeps time on the x axis, thinning months rather than turning a period chart on its side', () => {
+    const scene = layoutChart(spec(STACKED_BY_MONTH), { width: 320 });
+
+    expect(scene.facts.orientation).toBe('vertical');
+  });
+
+  it('draws the P&L bridge Chris was shown as its summary plus a rescaled detail, every step readable', () => {
+    const scene = layoutChart(spec(PNL_BRIDGE), { width: 390 });
+
+    expect(scene.facts.split).toEqual({ from: 'Operating profit', to: 'Net income', steps: 4 });
+    expect(scene.facts.illegible).toEqual([]);
+    expect(scene.facts.shortened).toEqual([]);
+
+    const texts = scene.marks.flatMap(m => (m.kind === 'text' ? [m.text] : []));
+
+    expect(texts).toEqual(expect.arrayContaining(['−$4.6k', '$46k', 'Detail, rescaled: Operating profit to Net income']));
+    // Values on every bar say increase and decrease by their sign: no color key.
+    expect(scene.legend.map(l => l.label)).not.toContain('Increase');
+  });
+
+  it('adds up a subtotal the model left empty, and starts the bridge where asked', () => {
+    const s = spec(PNL_BRIDGE);
+    const whole = layoutChart(s, { width: 960 });
+
+    expect(whole.marks.some(m => m.kind === 'text' && m.text === '$2.59M')).toBe(true);
+
+    const tail = layoutChart(spec({ ...PNL_BRIDGE, waterfallStart: 'Operating profit' }), { width: 390 });
+
+    expect(tail.facts.split).toBeNull();
+    expect(tail.facts.illegible).toEqual([]);
+    expect(tail.marks.some(m => m.kind === 'text' && m.text === '$112k')).toBe(true);
+  });
+
+  it('keeps the seven largest series and folds the rest into "Other"', () => {
+    const ten = Array.from({ length: 10 }, (_, i) => ({ name: `Product ${i}`, values: [i + 1, i + 2] }));
+    const { spec: folded, folded: names } = foldSeries(spec({ type: 'bar', x: ['Q1', 'Q2'], series: ten, stack: 'stack', format: 'number' }));
+
+    expect(folded.series).toHaveLength(8);
+    expect(folded.series.at(-1)).toMatchObject({ name: 'Other (3)', values: [6, 9] });
+    expect(names).toEqual(['Product 0', 'Product 1', 'Product 2']);
+  });
+
+  it('names a few lines at their ends instead of in a legend', () => {
+    const scene = layoutChart(spec({ title: 'Support time falls as self-serve grows', type: 'line', x: ['Jan', 'Feb', 'Mar', 'Apr'], series: [{ name: 'Self-serve', values: [10, 14, 19, 25] }, { name: 'Support', values: [30, 27, 22, 18] }], format: 'percent' }), { width: 640 });
+
+    expect(scene.legend).toEqual([]);
+    expect(scene.marks.filter(m => m.kind === 'text' && (m.text === 'Self-serve' || m.text === 'Support'))).toHaveLength(2);
+  });
+});
+
+describe('the chart review the model reads (2026-10-24)', () => {
+  it('says what the layout did at a phone\'s width and asks the model to judge it', () => {
+    const r = reviewChart(spec(PNL_BRIDGE));
+
+    expect(r.width).toBe(390);
+    expect(r.text).toContain('390px');
+    expect(r.text).toContain('rescaled (Operating profit to Net income)');
+    expect(r.text).toContain('revise it once with update_artifact');
+  });
+
+  it('names values too small to read, and the analyst\'s notes', () => {
+    const x = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
+    const tiny = spec({ title: 'One account dwarfs the rest', type: 'bar', x, series: [{ name: 'Amount', values: x.map((_, i) => (i === 0 ? 5000000 : 300)) }], format: 'currency', orientation: 'vertical' });
+    const r = reviewChart(tiny);
+
+    expect(r.facts.illegible.map(v => v.label)).toEqual(expect.arrayContaining(['B']));
+    expect(r.text).toContain('Too small to read, with no label: B ($300');
+    expect(reviewChart(spec(MISLEADING)).text).toContain('[mixed-axis]');
+  });
+
+  it('tells a revision it is the one revision', () => {
+    expect(reviewChart(spec(STACKED_BY_MONTH), { revised: true }).text).toContain('This is your revision');
   });
 });
 
@@ -177,7 +285,7 @@ describe('the layout at a phone\'s width', () => {
 
   it('thins a long period axis rather than shrinking the text', () => {
     const x = Array.from({ length: 36 }, (_, i) => `2026-${String((i % 12) + 1).padStart(2, '0')}`);
-    const drawn = placeXLabels(x, 300 / 36, 11, true).drawn;
+    const drawn = placeXLabels(x, 300 / 36, 11).drawn;
 
     expect(drawn.length).toBeLessThan(36);
     expect(drawn.at(-1)?.i).toBe(35);
@@ -248,10 +356,15 @@ describe('chart blocks in documents', () => {
     expect(expandChartBlocks(once.html).html).toBe(once.html);
   });
 
-  it('refuses a block that fails the lint, by block', () => {
-    const r = expandChartBlocks(doc(block(MISLEADING)));
+  it('draws a block an analyst would question, with the note; refuses only data it cannot draw honestly', () => {
+    const drawn = expandChartBlocks(doc(block(MISLEADING)));
 
-    expect(r.errors.join('\n')).toContain('chart block 1 [mixed-axis]');
+    expect(drawn.errors).toEqual([]);
+    expect(drawn.warnings.join('\n')).toContain('chart block 1 [mixed-axis]');
+
+    const refused = expandChartBlocks(doc(block({ ...STACKED_BY_MONTH, totals: STACKED_BY_MONTH.x.map((_, i) => (i === 0 ? 999 : null)) })));
+
+    expect(refused.errors.join('\n')).toContain('chart block 1 [stack-total]');
   });
 
   it('leaves everything outside the blocks byte for byte, and notices a hand-drawn chart', () => {

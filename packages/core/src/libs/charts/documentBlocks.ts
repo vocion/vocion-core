@@ -8,17 +8,20 @@
  *   </figure>
  *
  * Before a document is verified and stored, every block is validated
- * (`chartSpecSchema`), linted (`lintChart`), and drawn from its spec at the
+ * (`chartSpecSchema`), checked (`checkChart`), and drawn from its spec at the
  * sheet's content width: the title, the SVG, the legend, the caption and a
  * hidden data table. The spec stays in the block, so the next edit — or the
- * next engine — redraws it from the spec, never from the old drawing. A block
- * that fails the lint fails the write, with what to fix.
+ * next engine — redraws it from the spec, never from the old drawing. Only a
+ * block whose data cannot be drawn honestly fails the write; what an analyst
+ * would mention, and what the layout had to do, comes back as notes.
  *
  * It is a pass over the HTML with patterns for these blocks only: everything
  * else the author wrote passes through byte for byte.
  */
 
-import { lintChart } from './lint';
+import { checkChart } from './checks';
+import { layoutChart } from './layout';
+import { factNotes } from './review';
 import { chartSpecSchema } from './spec';
 import { chartFigureInner } from './svg';
 
@@ -40,8 +43,9 @@ export type ChartBlockResult = {
   html: string;
   /** How many chart blocks the document has. */
   count: number;
-  /** Lint and schema errors, by block: the write is refused while any remain. */
+  /** Schema errors and refusals, by block: the write is refused while any remain. */
   errors: string[];
+  /** The analyst's signals and what the layout did, by block: for the model to judge. */
   warnings: string[];
 };
 
@@ -56,7 +60,7 @@ function handDrawnCharts(html: string): number {
 }
 
 /**
- * Validate, lint and draw every chart block in a document.
+ * Validate, check and draw every chart block in a document.
  * @param html - The document as the author wrote it.
  * @param width - The content width to lay charts out at.
  */
@@ -84,16 +88,17 @@ export function expandChartBlocks(html: string, width = DOCUMENT_CHART_WIDTH): C
       errors.push(`${which}: ${parsed.error.issues.map(i => `${i.path.join('.') || 'spec'}: ${i.message}`).join('; ')}`);
       return whole;
     }
-    const lint = lintChart(parsed.data);
-    errors.push(...lint.errors.map(e => `${which} [${e.rule}]: ${e.message}`));
-    warnings.push(...lint.warnings.map(w => `${which} [${w.rule}]: ${w.message}`));
+    const checks = checkChart(parsed.data);
+    errors.push(...checks.refusals.map(e => `${which} [${e.rule}]: ${e.message}`));
+    warnings.push(...checks.signals.map(w => `${which} [${w.rule}]: ${w.message}`));
+    warnings.push(...factNotes(layoutChart(parsed.data, { width }).facts, { brief: true }).map(note => `${which}: ${note}`));
     const keep = attrs.replace(/\sdata-vocion-chart\s*=\s*["'][^"']*["']/i, '');
     const spec = JSON.stringify(parsed.data).replace(/<\//g, '<\\/');
     return `<figure${keep} data-vocion-chart="${n}"><script type="application/json">${spec}</script>${chartFigureInner(parsed.data, width, `vc${n}`)}</figure>`;
   });
   const hand = handDrawnCharts(out);
   if (hand > 0) {
-    warnings.push(`${hand} chart${hand === 1 ? ' is' : 's are'} drawn by hand as inline SVG. Use a chart block (<figure class="vocion-chart"> with the spec), so it is linted, reads on a phone and redraws when the numbers change.`);
+    warnings.push(`${hand} chart${hand === 1 ? ' is' : 's are'} drawn by hand as inline SVG. Use a chart block (<figure class="vocion-chart"> with the spec), so the library lays it out, it reads on a phone and it redraws when the numbers change.`);
   }
   if (n === 0) {
     return { html: out, count: 0, errors, warnings };

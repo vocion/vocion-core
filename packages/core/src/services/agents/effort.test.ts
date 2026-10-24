@@ -53,6 +53,14 @@ describe('a turn reporting an approved card', () => {
 });
 
 describe('the Auto floor', () => {
+  it('never puts a chart on Quick, and runs an analysis across statements or scenarios Deep, from the typed fact (2026-10-24)', () => {
+    expect(parseEffort('{"level":"quick","reason":"chart that","drafts":false,"systems":1,"analysis":"chart"}')).toEqual({ level: 'standard', reason: 'building a chart' });
+    expect(parseEffort('{"level":"standard","reason":"base low high","drafts":false,"systems":1,"analysis":"multi"}')).toEqual({ level: 'deep', reason: 'analysis across statements or scenarios' });
+    expect(parseEffort('{"level":"deep","reason":"bridge","drafts":false,"systems":1,"analysis":"chart"}')).toEqual({ level: 'deep', reason: 'bridge' });
+    expect(parseEffort('{"level":"quick","reason":"calendar","drafts":false,"systems":1,"analysis":"pie"}')).toEqual({ level: 'quick', reason: 'calendar' });
+    expect(autoFloor({ drafts: false, systems: 1, analysis: 'none' })).toBeNull();
+  });
+
   it('never puts drafting or a check across systems on Quick, from the typed facts', () => {
     expect(parseEffort('{"level":"quick","reason":"revise a draft","drafts":true,"systems":0}')).toEqual({ level: 'standard', reason: 'drafting something you will send' });
     expect(parseEffort('{"level":"quick","reason":"contact lookup","drafts":false,"systems":2}')).toEqual({ level: 'standard', reason: 'checking 2 systems' });

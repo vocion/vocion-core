@@ -68,15 +68,27 @@ describe('render_* tools', () => {
     expect(events).toHaveLength(0);
   });
 
-  it('render_chart refuses a chart that would mislead, says what to fix, and emits nothing (2026-10-23)', async () => {
+  it('render_chart refuses only data it cannot draw honestly, says what to fix, and emits nothing', async () => {
     const events: AgentEvent[] = [];
     const t = renderChartTool(ctxFor(undefined, events));
-    const out = String(await t.invoke({ title: '2026 Revenue', type: 'bar', x: ['Jul', 'Aug', 'Sep', 'EOY: booked'], series: [{ name: 'Revenue', values: [1, 2, 3, 4] }], aggregation: 'cumulative', format: 'currency' }));
+    const out = String(await t.invoke({ title: 'Booked and pipeline by month', type: 'bar', x: ['Sep', 'Oct'], series: [{ name: 'Booked', values: [1, 2] }, { name: 'Pipeline', values: [1, 1] }], stack: 'stack', totals: [2, 9], format: 'currency' }));
 
     expect(out).toMatch(/render_chart refused/);
-    expect(out).toContain('[mixed-axis]');
-    expect(out).toContain('[cumulative-bars]');
+    expect(out).toContain('[stack-total]');
     expect(events).toHaveLength(0);
+  });
+
+  it('render_chart draws a chart an analyst would question, and hands the model the review to judge (2026-10-24)', async () => {
+    const c = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', initialTitle: 't-chart-review', createdBy: 'u' });
+    const events: AgentEvent[] = [];
+    const t = renderChartTool(ctxFor(c.id, events));
+    const out = String(await t.invoke({ title: '2026 Revenue', type: 'bar', x: ['Jul', 'Aug', 'Sep', 'EOY: booked'], series: [{ name: 'Revenue', values: [1, 2, 3, 4] }], aggregation: 'cumulative', format: 'currency' }));
+
+    expect(out).toMatch(/Rendered chart/);
+    expect(out).toContain('Review at a phone\'s width (390px');
+    expect(out).toContain('[mixed-axis]');
+    expect(out).toContain('revise it once with update_artifact');
+    expect(events.some(e => e.type === 'artifact')).toBe(true);
   });
 
   it('render_chart draws a stacked-by-month chart with its forecast marked', async () => {

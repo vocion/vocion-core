@@ -19,7 +19,8 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { lintChart, lintText } from '@/libs/charts/lint';
+import { checkChart, refusalText } from '@/libs/charts/checks';
+import { reviewChart } from '@/libs/charts/review';
 import { chartSpecSchema } from '@/libs/charts/spec';
 import { SOURCE_ARTIFACT_KINDS } from '@/libs/workspace/source';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload, updateArtifact } from '@/services/ArtifactService';
@@ -180,13 +181,17 @@ export function updateArtifactTool(ctx: RuntimeContext) {
               : `This artifact is ${row.spec.kind === 'skill' ? 'skill' : 'playbook'} "${slug}" — its SKILL.md. Use read_playbook then write_playbook (the change is reviewed and applied); the title follows the frontmatter's name.`;
           }
         }
-        // A chart edit passes the same lint a new chart does: an edit is not
-        // a way around it.
+        // A chart edit is held to the same refusals a new chart is, and is
+        // reviewed as drawn: as the model's one revision, not a loop.
+        let chartReview = '';
         if (target?.kind === 'chart' && spec !== undefined) {
           const parsed = chartSpecSchema.safeParse(spec);
-          const lint = parsed.success ? lintChart(parsed.data) : null;
-          if (lint && lint.errors.length) {
-            return `update_artifact refused: the chart would mislead or not read on a phone.\n${lintText(lint)}\nFix the spec and call again.`;
+          const checks = parsed.success ? checkChart(parsed.data) : null;
+          if (checks && checks.refusals.length) {
+            return `update_artifact refused.\n${refusalText(checks)}\nFix the data and call again.`;
+          }
+          if (parsed.success) {
+            chartReview = `\n\n${reviewChart(parsed.data, { revised: true }).text}`;
           }
         }
         if (spec === undefined && args.content_markdown === undefined && args.title === undefined && args.folder === undefined) {
@@ -206,7 +211,7 @@ export function updateArtifactTool(ctx: RuntimeContext) {
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
         // The page or pane showing this artifact refreshes and marks the change.
         ctx.emit({ type: 'version_written', ref: { type: 'artifact', id: String(artifact.id), label: artifact.title }, artifactId: artifact.id, from: version.version > 1 ? version.version - 1 : null, to: version.version });
-        return `Updated "${artifact.title}" to v${version.version} (${args.change_summary}). The person sees it live in the pane — do NOT repeat the content as text.`;
+        return `Updated "${artifact.title}" to v${version.version} (${args.change_summary}). The person sees it live in the pane — do NOT repeat the content as text.${chartReview}`;
       } catch (err) {
         if (err instanceof ArtifactError) {
           return `update_artifact rejected: ${err.message}. Read the artifact, fix the payload, and call again.`;

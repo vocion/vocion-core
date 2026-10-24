@@ -4,8 +4,9 @@ import { ChartView } from './ChartView';
 
 /**
  * Each chart kind the engine draws, at a phone's width and a desktop pane's.
- * The phone column is laid out at 360px (labels thinned and shortened, never
- * overlapping); the desktop one at 960px. Fictional numbers throughout.
+ * The phone column is laid out at 360px (labels thinned, wrapped, or the
+ * bars turned horizontal; never overlapping); the desktop one at 960px.
+ * Fictional numbers throughout.
  */
 const meta: Meta = {
   title: 'Charts/Kinds',
@@ -83,6 +84,30 @@ const waterfall: ChartSpec = {
   format: 'currency',
 };
 
+/** The P&L bridge Chris was shown on 2026-10-24, rebuilt with fictional numbers: the library draws its summary and a rescaled detail. */
+const pnlBridge: ChartSpec = {
+  title: 'Base case: the year ends about $46K net profit on $5.11M revenue',
+  type: 'waterfall',
+  x: ['Revenue', 'Delivery cost', 'Gross profit', 'Operating expenses', 'Operating profit', 'Interest', 'Bonus pool', 'Tax', 'Net income'],
+  series: [{ name: 'FY2026 base case', values: [5_110_000, -2_520_000, null, -2_478_000, null, -38_000, -4_600, -23_400, null], forecast: true }],
+  waterfallTotals: ['Revenue', 'Gross profit', 'Operating profit', 'Net income'],
+  format: 'currency',
+  currency: 'USD',
+  source: 'Ledger P&L, year to date plus base case',
+  asOf: '2026-10-24',
+};
+
+/** Long names: the library turns the bars horizontal rather than cutting them to codes. */
+const longNames: ChartSpec = {
+  title: 'Three customers carry half of this year\'s revenue',
+  type: 'bar',
+  x: ['Northwind Regional Holdings', 'Kestrel Capital Partners', 'Larkfield Construction Group', 'Other customers'],
+  series: [{ name: 'Revenue', values: [1_310_000, 820_000, 540_000, 2_440_000] }],
+  format: 'currency',
+  source: 'Ledger, invoices by customer',
+  asOf: '2026-10-24',
+};
+
 function Both({ spec }: { spec: ChartSpec }) {
   return (
     <div className="flex flex-wrap items-start gap-8">
@@ -98,4 +123,6 @@ export const PercentStacked: Story = { render: () => <Both spec={percent} /> };
 export const LineWithForecast: Story = { render: () => <Both spec={lineForecast} /> };
 export const StackedArea: Story = { render: () => <Both spec={area} /> };
 export const Waterfall: Story = { render: () => <Both spec={waterfall} /> };
+export const PnlBridgeSplit: Story = { render: () => <Both spec={pnlBridge} /> };
+export const LongNamesHorizontal: Story = { render: () => <Both spec={longNames} /> };
 export const InChat: Story = { render: () => <div className="max-w-md"><ChartView spec={stackedByMonth} dense /></div> };

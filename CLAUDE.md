@@ -287,13 +287,15 @@ Every chart Vocion draws comes from one spec and one engine (`libs/charts`): the
 chart artifact (`render_chart`), a chart block inside a document
 (`<figure class="vocion-chart"><script type="application/json">{spec}</script></figure>`, drawn by
 `DocumentEngine` before verify), and a deck slide (`renderChartSvg`, the embed point for
-`libs/decks`). The layout (`layout.ts`) is pure and done at the width it is drawn at, so a phone
-thins and shortens labels rather than shrinking them; React (`ChartView.tsx`) and the SVG string
-(`svg.ts`) are two serializers of the same scene. **Every chart is linted before it renders**
-(`lint.ts`: mixed period/scenario axis, cumulative bars, label collisions at 360 and 960px, bars
-too thin for a phone, missing format, dual axes, stacks that do not sum to their stated totals);
-an error refuses `render_chart`, `update_artifact` on a chart, and a document write. The analyst
-method is the base-pack skill `data-analysis`. Never hand-write chart SVG. See
+`libs/decks`). Good charts come from model choice, prompting and the library, not from refusals
+(Chris, 2026-10-24). The layout (`layout.ts`) makes the decisions at the width it draws at: bars
+turn horizontal for long names, names wrap before they are cut, a waterfall whose last steps would
+be slivers is split into its summary and a rescaled detail, values sit on their bars, series past
+eight fold into "Other". `checks.ts` refuses only data that cannot be drawn honestly (non-finite
+values, a stack off its stated totals, two units on one axis, a multi-series waterfall); everything
+else is a signal. `render_chart`'s receipt carries `reviewChart` (the chart as laid out at 390px)
+for the model to judge and revise once. The analyst method is the base-pack skill `data-analysis`,
+and Auto's `analysis` fact keeps chart turns off Quick. Never hand-write chart SVG. See
 `docs/guides/charts.md`.
 
 ## Background worker

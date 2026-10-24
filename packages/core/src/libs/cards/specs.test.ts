@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { layoutChart } from '@/libs/charts/layout';
 import { cardPayloadFor, chartSpecSchema, dataTableSpecSchema, recordSpecSchema } from './specs';
 
 describe('card specs', () => {
@@ -20,10 +21,13 @@ describe('card specs', () => {
     expect(good.success).toBe(true);
   });
 
-  it('caps chart series at eight — categorical hues are fixed, never cycled', () => {
-    const series = Array.from({ length: 9 }, (_, i) => ({ name: `s${i}`, values: [1] }));
+  it('draws at most eight series — categorical hues are fixed, never cycled; the rest fold into "Other"', () => {
+    const series = Array.from({ length: 9 }, (_, i) => ({ name: `s${i}`, values: [i + 1] }));
+    const scene = layoutChart(chartSpecSchema.parse({ type: 'line', x: ['a'], series, format: 'number' }), { width: 640 });
+    const slots = new Set(scene.marks.flatMap(m => (m.kind === 'circle' && typeof m.paint === 'object' ? [m.paint.slot] : [])));
 
-    expect(chartSpecSchema.safeParse({ type: 'line', x: ['a'], series }).success).toBe(false);
+    expect(Math.max(...slots)).toBe(7);
+    expect(scene.facts.folded).toEqual(['s0', 's1']);
   });
 
   it('defaults record fields to an empty list', () => {
