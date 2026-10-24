@@ -1,6 +1,8 @@
+import type { JevDecisionHealth, JevOutcomes } from '@/services/routing/health';
 import type { RoutingSummary } from '@/services/spend/routing';
 import { dollars } from '@/features/spend/SpendView';
 import { Link } from '@/libs/I18nNavigation';
+import { JevHealth } from './JevHealth';
 import { share } from './routingStatus';
 
 /**
@@ -11,7 +13,7 @@ import { share } from './routingStatus';
  * was chosen. The factory's engines have their own page.
  */
 
-export function RoutingSection(props: { summary: RoutingSummary; status: string; periodLabel: string }) {
+export function RoutingSection(props: { summary: RoutingSummary; status: string; periodLabel: string; health?: { decisions: JevDecisionHealth[]; outcomes: JevOutcomes; canCheck: boolean } | null }) {
   const { summary } = props;
   const total = summary.turns.jev + summary.turns.configured;
   return (
@@ -28,6 +30,8 @@ export function RoutingSection(props: { summary: RoutingSummary; status: string;
           page.
         </p>
       </div>
+
+      {props.health && <JevHealth health={props.health.decisions} outcomes={props.health.outcomes} canCheck={props.health.canCheck} />}
 
       <div className="grid gap-6 border-y border-border/70 px-2 py-4 sm:grid-cols-4">
         <Figure label={`Turns Jev routed (${props.periodLabel})`} value={String(summary.turns.jev)} hint={`${share(summary.turns.jev, total)} of routed turns`} />

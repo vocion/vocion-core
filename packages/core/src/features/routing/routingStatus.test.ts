@@ -17,3 +17,14 @@ describe('the routing status line', () => {
     expect(share(0, 0)).toBe('—');
   });
 });
+
+describe('Jev health cells (ADR 0006, health)', () => {
+  it('names the commonest failure, and latency as p50 / p95', async () => {
+    const { failuresCell, latencyCell } = await import('./routingStatus');
+
+    expect(failuresCell({ failed: 0, byOutcome: {} })).toBe('0');
+    expect(failuresCell({ failed: 5, byOutcome: { auth: 4, timeout: 1 } })).toBe('5 · key rejected');
+    expect(latencyCell(null, null)).toBe('—');
+    expect(latencyCell(96.4, 310)).toBe('96 / 310 ms');
+  });
+});

@@ -67,6 +67,20 @@ export const saveKey = os
     return saveJevKey({ scope: input.scope, orgId: ctx.orgId, key: input.key, by: ctx.userId });
   });
 
+/**
+ * Ask Jev one yes/no question now with the key this workspace spends (ADR
+ * 0006, health): proves the key and the service work. Admins only (it spends
+ * a fraction of a cent); at most once every 30 seconds per workspace.
+ */
+export const checkNow = os.handler(async () => {
+  const ctx = await guardAuth();
+  if (!ctx.has({ role: ORG_ROLE.ADMIN })) {
+    throw ApiError.forbidden();
+  }
+  const { checkJevNow } = await import('@/services/routing/health');
+  return checkJevNow(ctx.orgId);
+});
+
 export const removeKey = os
   .input(z.object({ scope: scopeSchema }))
   .handler(async ({ input }) => {
