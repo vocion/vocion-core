@@ -65,6 +65,7 @@ import { createHandOffMiddleware } from './handOff';
 import { createMemoryDigestMiddleware } from './memoryDigest';
 import { agentScope, createEvidenceHandoffMiddleware, createLookupMemoMiddleware, runtimeContextFromScope } from './runtimeContext';
 import { NO_SCREEN_CLAIMS } from './screenClaims';
+import { createSeenImagesMiddleware, takesToolResultImages } from './toolResultImages';
 import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
@@ -671,6 +672,9 @@ export async function compileAgentForRequest(
         })
     : undefined;
   const ctx = buildRequestContext(orgId, blueprint, request, followingMcp);
+  // A tool may show this turn's model a picture (a chart's review) only where
+  // the model's API takes an image in a tool result (`toolResultImages.ts`).
+  ctx.toolResultImages = takesToolResultImages(blueprint.model);
 
   // Tools: built-ins from createDeepAgent (ls/read_file/.../task/write_todos)
   // plus our domain-specific tools below.
@@ -692,7 +696,7 @@ export async function compileAgentForRequest(
   // asked.
   // A lookup repeated by the lead or a teammate is answered from the first
   // (`runtimeContext.ts`, turn evidence); every model call of the turn shares the one ledger.
-  const turnMiddleware = [...(ctx.evidence ? [createLookupMemoMiddleware(ctx.evidence)] : []), ...(opts.turnMiddleware ?? [])];
+  const turnMiddleware = [...(ctx.evidence ? [createLookupMemoMiddleware(ctx.evidence)] : []), ...(ctx.toolResultImages ? [createSeenImagesMiddleware()] : []), ...(opts.turnMiddleware ?? [])];
   //
   // On the fast model a teammate gets the tools in full rather than behind
   // tool search, which the fast model may not take (`effort.ts`).

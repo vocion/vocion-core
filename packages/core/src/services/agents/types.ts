@@ -516,6 +516,13 @@ export type RuntimeContext = {
   defaultTimeZone?: string;
   /** Which harness runs the loop — stamped on tool_call rows. */
   provider?: 'local' | 'agentcore' | 'runtime';
+  /**
+   * The turn's model takes an image inside a tool result
+   * (`toolResultImages.ts`), so a tool may show it what it drew — a chart's
+   * review carries its picture. Set at compile time on the in-process loop
+   * only; the AgentCore container and the tool endpoint leave it unset.
+   */
+  toolResultImages?: boolean;
   /** Langfuse trace id of the current turn — links tool_call rows to cost/latency. */
   traceId?: string;
   /**

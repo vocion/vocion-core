@@ -25,6 +25,7 @@ import { chartSpecSchema } from '@/libs/charts/spec';
 import { SOURCE_ARTIFACT_KINDS } from '@/libs/workspace/source';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload, updateArtifact } from '@/services/ArtifactService';
 import { isRecordBodyArtifact as isRecordBody } from '@/services/objects/recordBody';
+import { chartReviewImage, withImage } from '../toolResultImages';
 import { pageRecordIds, reviseRecordBody } from './recordWrite';
 import { authorOf } from './renderArtifacts';
 
@@ -184,6 +185,7 @@ export function updateArtifactTool(ctx: RuntimeContext) {
         // A chart edit is held to the same refusals a new chart is, and is
         // reviewed as drawn: as the model's one revision, not a loop.
         let chartReview = '';
+        let chartImage: Awaited<ReturnType<typeof chartReviewImage>> = null;
         if (target?.kind === 'chart' && spec !== undefined) {
           const parsed = chartSpecSchema.safeParse(spec);
           const checks = parsed.success ? checkChart(parsed.data) : null;
@@ -191,7 +193,8 @@ export function updateArtifactTool(ctx: RuntimeContext) {
             return `update_artifact refused.\n${refusalText(checks)}\nFix the data and call again.`;
           }
           if (parsed.success) {
-            chartReview = `\n\n${reviewChart(parsed.data, { revised: true }).text}`;
+            chartImage = await chartReviewImage(ctx, parsed.data);
+            chartReview = `\n\n${reviewChart(parsed.data, { revised: true, withImage: chartImage !== null }).text}`;
           }
         }
         if (spec === undefined && args.content_markdown === undefined && args.title === undefined && args.folder === undefined) {
@@ -211,7 +214,7 @@ export function updateArtifactTool(ctx: RuntimeContext) {
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
         // The page or pane showing this artifact refreshes and marks the change.
         ctx.emit({ type: 'version_written', ref: { type: 'artifact', id: String(artifact.id), label: artifact.title }, artifactId: artifact.id, from: version.version > 1 ? version.version - 1 : null, to: version.version });
-        return `Updated "${artifact.title}" to v${version.version} (${args.change_summary}). The person sees it live in the pane — do NOT repeat the content as text.${chartReview}`;
+        return withImage(`Updated "${artifact.title}" to v${version.version} (${args.change_summary}). The person sees it live in the pane — do NOT repeat the content as text.${chartReview}`, chartImage);
       } catch (err) {
         if (err instanceof ArtifactError) {
           return `update_artifact rejected: ${err.message}. Read the artifact, fix the payload, and call again.`;

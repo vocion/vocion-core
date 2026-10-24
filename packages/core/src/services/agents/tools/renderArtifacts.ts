@@ -24,6 +24,7 @@ import { reviewChart } from '@/libs/charts/review';
 import { CHART_TYPES, chartSpecSchema } from '@/libs/charts/spec';
 import { artifactTitle } from '@/services/artifacts/title';
 import { ArtifactError, createArtifact, toPayload } from '@/services/ArtifactService';
+import { chartReviewImage, withImage } from '../toolResultImages';
 
 /**
  * Models often stringify nested tool args — parse JSON strings back to objects.
@@ -207,7 +208,12 @@ export function renderChartTool(ctx: RuntimeContext) {
       }
       const n = parsed.data.series.length;
       const receipt = await persistAndEmit(ctx, 'chart', args.title, parsed.data, `${n} series × ${parsed.data.x.length} points`, folder);
-      return receipt.startsWith('Rendered') ? `${receipt}\n\n${reviewChart(parsed.data).text}` : receipt;
+      if (!receipt.startsWith('Rendered')) {
+        return receipt;
+      }
+      // The model judges what it drew: the picture where its API takes one.
+      const image = await chartReviewImage(ctx, parsed.data);
+      return withImage(`${receipt}\n\n${reviewChart(parsed.data, { withImage: image !== null }).text}`, image);
     },
     {
       name: 'render_chart',

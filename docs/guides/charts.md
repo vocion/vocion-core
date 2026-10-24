@@ -7,6 +7,7 @@ Code: `packages/core/src/libs/charts/`
 - `layout.ts`: the geometry, and the layout decisions
 - `checks.ts`: the refusals and the analyst's signals
 - `review.ts`: the chart as drawn on a phone, for the model to judge
+- `raster.ts`: the chart as a picture at a phone's width, for the review
 - `ChartView.tsx`: the React drawing
 - `svg.ts`: the SVG string drawing
 - `documentBlocks.ts`: chart blocks in documents
@@ -109,7 +110,12 @@ What the first engine refused for layout (labels that collide, bars too thin, mo
 
 After `render_chart` draws a chart, its receipt carries `reviewChart(spec)`: the chart laid out at a phone's width (390px), in short lines. The form it took (split, turned horizontal), the narrowest bar, what was wrapped, cut or folded, any value left as a sliver with no label (with its px), and the signals. Then one question: does it answer what you were asked, do the numbers that matter read, is it the right form? The model revises once with `update_artifact` if it judges it should. The edit's receipt reviews the revision and says it is the one revision, so there is no loop.
 
-It is a summary of the layout, not an image. Tool results are text on every provider and on the AgentCore path, and traces keep them; what an image would show (a bar too small to see, a name cut short) the layout measures, so the review says it in px. Server-side rasterizing is possible with `sharp` (librsvg), which the server already has, if images in tool results are added to the harness later.
+**The picture.** Where the turn's model takes an image in a tool result, the review carries the chart itself: laid out at 390px, rasterized with `sharp` at up to 2x as WebP (`libs/charts/raster.ts`), under 150 KB (past that it is redrawn at 1x, and past that it is left out). The receipt is then two content blocks, the text first and the image after it (`services/agents/toolResultImages.ts`). The same goes for an `update_artifact` that re-renders a chart, as the one revision.
+
+- **Who gets it.** The capability is read off the turn's chat model at compile time (`takesToolResultImages`, by the model's LangChain type), never by provider names in the tools: Anthropic models (Haiku, Sonnet, Opus) get the picture. OpenAI's tool messages take text only, Bedrock is not wired yet, and the AgentCore container and the out-of-process tool endpoint build their own context without the capability. All of those keep the text review, which still names every measured problem in px.
+- **Seen once.** A middleware (`createSeenImagesMiddleware`) leaves the picture in for the model call right after the tool that drew it, and replaces it with one line of text on every later step of the turn, so it is paid for once.
+- **Never stored.** The trace, the tool_call log and the live stream read a tool result's text blocks only (`toolOutputContent`), so the picture is not stored in conversation history or tool_call rows; the artifact itself is the record. Conversation history between turns is text, so the picture never comes back on a later turn.
+- **Cost.** An image costs about width × height / 750 input tokens on Anthropic. A typical review picture is 780×520 px (390px at 2x), about 540 tokens, once per chart drawn and once more for a revision: well under a cent on any current model.
 
 A document's chart blocks get the same notes on the `render_document` / `edit_document` receipt, briefer: the signals, plus anything the layout changed or left unreadable.
 
