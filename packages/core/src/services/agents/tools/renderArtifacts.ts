@@ -19,6 +19,8 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { lintChart, lintText } from '@/libs/charts/lint';
+import { CHART_TYPES, chartSpecSchema } from '@/libs/charts/spec';
 import { artifactTitle } from '@/services/artifacts/title';
 import { ArtifactError, createArtifact, toPayload } from '@/services/ArtifactService';
 
@@ -164,25 +166,67 @@ export function renderMarkdownTool(ctx: RuntimeContext) {
   );
 }
 
+/**
+ * What `render_chart` tells the model about charting — the analyst rules in
+ * brief, because every agent with the tool reads its description on every
+ * turn (the full method is the `data-analysis` skill; docs/guides/charts.md).
+ */
+export const RENDER_CHART_DESCRIPTION = [
+  'Create a chart artifact with Vocion\'s chart engine. NEVER hand-write chart HTML or SVG — here or inside a document (in a document use a chart block: <figure class="vocion-chart"><script type="application/json">{spec}</script></figure>).',
+  'Pick the form from the question: amounts over time → bar with each period\'s own amount (aggregation "period"); composition over time → stacked bars by period (stack "stack"); shares over time → stack "percent"; comparing a few categories → grouped bars; a trend or rate → line; how a start became an end → waterfall (waterfallTotals names the start, subtotals and end). Never a pie.',
+  'x holds ONE kind of thing: all periods (Jan…Dec, 2026-07, Q3) or all categories. A scenario or forecast is a SERIES, not an x label: mark it forecast: true on the series, or forecastFrom: "<first forecast x>"; actuals and forecast are never one unmarked bar. Running totals are a line, not bars.',
+  'Always say the format (currency with currency code, percent, number, or a unit), source and asOf. The title states the finding ("On pace for $5.1M, carried by Q4 renewals"), not the axes. totals, when given, must equal the stack.',
+  'The chart is linted before it renders (mixed axes, cumulative bars, too many series or categories for a phone, overlapping labels, missing format, dual axes, stacks that do not sum): an error refuses the chart and says what to fix; fix it and call again. To change a chart afterwards use update_artifact.',
+].join(' ');
+
 export function renderChartTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
-      const series = coerceJson(args.series);
-      const x = coerceJson(args.x);
-      const spec = { title: args.title, type: args.type, x, series, unit: args.unit, stacked: args.stacked };
-      const n = Array.isArray(series) ? series.length : 0;
-      return persistAndEmit(ctx, 'chart', args.title, spec, `${n} series × ${Array.isArray(x) ? x.length : 0} points`, args.folder);
+      const { folder, ...rest } = args;
+      const spec = Object.fromEntries(Object.entries({
+        ...rest,
+        x: coerceJson(args.x),
+        series: coerceJson(args.series),
+        totals: coerceJson(args.totals),
+        targets: coerceJson(args.targets),
+        marker: coerceJson(args.marker),
+      }).filter(([, v]) => v !== undefined));
+      const parsed = chartSpecSchema.safeParse(spec);
+      if (!parsed.success) {
+        return `render_chart rejected: invalid chart spec — ${parsed.error.issues.map(i => `${i.path.join('.') || 'spec'}: ${i.message}`).join('; ')}. Fix the payload and call again.`;
+      }
+      const lint = lintChart(parsed.data);
+      if (lint.errors.length) {
+        return `render_chart refused: the chart would mislead or not read on a phone.\n${lintText(lint)}\nFix the spec and call render_chart again.`;
+      }
+      const n = parsed.data.series.length;
+      const receipt = await persistAndEmit(ctx, 'chart', args.title, parsed.data, `${n} series × ${parsed.data.x.length} points`, folder);
+      return lint.warnings.length ? `${receipt}\n\n${lintText(lint)}` : receipt;
     },
     {
       name: 'render_chart',
-      description: 'Create a line, bar, or area chart artifact (one y axis, up to 8 series). Use for change over time or magnitude across categories. Every series must have exactly one value per x label (null for missing).',
+      description: RENDER_CHART_DESCRIPTION,
       schema: z.object({
-        title: z.string(),
-        type: z.enum(['line', 'bar', 'area']),
-        x: z.union([z.array(z.string()), z.string()]).describe('x labels in order (array; a JSON string is tolerated)'),
-        series: z.union([z.array(z.object({ name: z.string(), values: z.array(z.number().nullable()) })), z.string()]).describe('[{name, values}] aligned with x (array; a JSON string is tolerated)'),
-        unit: z.string().optional().describe('"$", "%", or a noun like "deals"'),
-        stacked: z.boolean().optional(),
+        title: z.string().describe('The finding, as a short sentence — not the axes'),
+        subtitle: z.string().optional(),
+        type: z.enum(CHART_TYPES),
+        x: z.union([z.array(z.string()), z.string()]).describe('x labels in order: all periods or all categories (array; a JSON string is tolerated)'),
+        series: z.union([z.array(z.object({ name: z.string(), values: z.array(z.number().nullable()), forecast: z.boolean().optional() })), z.string()]).describe('[{name, values, forecast?}] aligned with x, null for a gap (array; a JSON string is tolerated)'),
+        format: z.enum(['currency', 'percent', 'number']).optional(),
+        currency: z.string().length(3).optional().describe('ISO code for format currency, e.g. USD'),
+        unit: z.string().optional().describe('A noun unit when not currency or percent, e.g. "deals"'),
+        compact: z.boolean().optional().describe('$4.3M rather than $4,297,436 (default true)'),
+        stack: z.enum(['none', 'stack', 'percent']).optional(),
+        stacked: z.boolean().optional().describe('Legacy: same as stack "stack"'),
+        aggregation: z.enum(['period', 'cumulative', 'snapshot']).optional().describe('What one value is: the period\'s own amount, a running total, or a balance'),
+        forecastFrom: z.string().optional().describe('The first x label that is forecast'),
+        totals: z.union([z.array(z.number().nullable()), z.string()]).optional().describe('The stated total per x; the stack must sum to it'),
+        targets: z.union([z.array(z.object({ value: z.number(), label: z.string() })), z.string()]).optional().describe('Up to 3 reference lines, e.g. the plan'),
+        marker: z.union([z.object({ x: z.string(), label: z.string() }), z.string()]).optional().describe('A vertical marker at one x, e.g. {x: "Oct", label: "Today"}'),
+        waterfallTotals: z.array(z.string()).optional().describe('Waterfall: the x labels drawn as full bars (start, subtotals, end)'),
+        trend: z.boolean().optional(),
+        source: z.string().optional().describe('Where the numbers came from, e.g. "QuickBooks P&L by month"'),
+        asOf: z.string().optional().describe('YYYY-MM-DD the numbers are as of'),
         ...folderArg,
       }),
     },

@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import { chartSpecSchema } from '@/libs/charts/spec';
 import { formatBytes, formatOf } from '@/libs/chat/attachmentFormats';
 import { artifactHref } from '@/libs/tools/artifacts/url';
 
@@ -84,32 +85,10 @@ export const markdownSpecSchema = z.object({
 });
 export type MarkdownSpec = z.infer<typeof markdownSpecSchema>;
 
-export const chartSpecSchema = z.object({
-  title: z.string().optional(),
-  type: z.enum(['line', 'bar', 'area']),
-  /** Category / time labels along x, in order. */
-  x: z.array(z.string()).min(1).max(400),
-  /** One entry per series; `values` aligns with `x`. At most 8 (fixed categorical order). */
-  series: z.array(z.object({
-    name: z.string().min(1),
-    values: z.array(z.number().nullable()),
-  })).min(1).max(8),
-  /** Unit rendered on the y axis and tooltips, e.g. "$", "%", "deals". */
-  unit: z.string().optional(),
-  /** Stack bars/areas instead of grouping. */
-  stacked: z.boolean().optional(),
-  /** A quiet least-squares line through the first series, for which way it is heading. */
-  trend: z.boolean().optional(),
-  /** The last x is a period still in progress: drawn lighter, and left out of the trend. */
-  partialLast: z.boolean().optional(),
-}).superRefine((spec, ctx) => {
-  for (const [i, s] of spec.series.entries()) {
-    if (s.values.length !== spec.x.length) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['series', i, 'values'], message: `series "${s.name}" has ${s.values.length} values for ${spec.x.length} x labels` });
-    }
-  }
-});
-export type ChartSpec = z.infer<typeof chartSpecSchema>;
+// The chart spec lives with the chart engine (`libs/charts`): one spec for the
+// card, the chart artifact, a document's chart block and a deck slide.
+export { chartSpecSchema } from '@/libs/charts/spec';
+export type { ChartSpec } from '@/libs/charts/spec';
 
 export const recordSpecSchema = z.object({
   /** Entity type label, e.g. "Deal", "Contact", "Agent", "Mission". */
