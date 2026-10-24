@@ -3,6 +3,8 @@
  * No I/O — callers pass the result to `saveArtifact`.
  */
 
+import { renderChartSvg } from '@/libs/charts/svg';
+
 export type CsvRow = Record<string, string | number>;
 
 export function toCsv(rows: CsvRow[]): string {
@@ -30,45 +32,26 @@ export type ChartPoint = { label: string; value: number };
 export type ChartSpec = { type: 'bar' | 'line'; points: ChartPoint[]; title?: string };
 
 /**
- * Minimal, dependency-free SVG bar/line chart.
+ * A one-series bar or line chart as a standalone SVG file, drawn by the
+ * chart engine (`libs/charts`) on a white ground — the same layout the chat
+ * card and a document's chart block use.
  * @param spec
  */
 export function toChartSvg(spec: ChartSpec): string {
-  const w = 720;
-  const h = 360;
-  const pad = { top: 48, right: 24, bottom: 56, left: 48 };
-  const plotW = w - pad.left - pad.right;
-  const plotH = h - pad.top - pad.bottom;
   const points = spec.points.length ? spec.points : [{ label: '—', value: 0 }];
-  const max = Math.max(1, ...points.map(p => p.value));
-  const x = (i: number) => pad.left + (points.length === 1 ? plotW / 2 : (i * plotW) / (points.length - 1));
-  const y = (v: number) => pad.top + plotH - (v / max) * plotH;
-
-  const axis = `<line x1="${pad.left}" y1="${pad.top + plotH}" x2="${pad.left + plotW}" y2="${pad.top + plotH}" stroke="#cbd5e1"/>`;
+  const svg = renderChartSvg({
+    type: spec.type,
+    ...(spec.title ? { title: spec.title } : {}),
+    x: points.map(p => p.label),
+    series: [{ name: spec.title ?? 'Value', values: points.map(p => p.value) }],
+    format: 'number',
+  }, { width: 720, height: 360 }, 'vcfile');
+  const w = 720;
+  const h = 360 + (spec.title ? 28 : 0);
   const title = spec.title
-    ? `<text x="${w / 2}" y="28" text-anchor="middle" font-family="system-ui,sans-serif" font-size="18" font-weight="600" fill="#0f172a">${escapeXml(spec.title)}</text>`
+    ? `<text x="${w / 2}" y="20" text-anchor="middle" font-family="system-ui,sans-serif" font-size="16" font-weight="600" fill="#0f172a">${escapeXml(spec.title)}</text>`
     : '';
-  const labels = points
-    .map((p, i) => `<text x="${x(i).toFixed(1)}" y="${h - 20}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#475569">${escapeXml(p.label)}</text>`)
-    .join('');
-
-  let body: string;
-  if (spec.type === 'line') {
-    const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)} ${y(p.value).toFixed(1)}`).join(' ');
-    const dots = points.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="3.5" fill="#4f46e5"/>`).join('');
-    body = `<path d="${d}" fill="none" stroke="#4f46e5" stroke-width="2.5"/>${dots}`;
-  } else {
-    const bw = Math.max(8, (plotW / points.length) * 0.6);
-    body = points
-      .map((p, i) => {
-        const bx = x(i) - bw / 2;
-        const by = y(p.value);
-        return `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${(pad.top + plotH - by).toFixed(1)}" rx="3" fill="#4f46e5"/>`;
-      })
-      .join('');
-  }
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="#ffffff"/>${title}${axis}${body}${labels}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="#ffffff"/>${title}<g transform="translate(0 ${spec.title ? 28 : 0})">${svg.replace('width="100%"', `width="${w}" height="360"`)}</g></svg>`;
 }
 
 function escapeXml(s: string): string {

@@ -17,9 +17,11 @@
 import type { Buffer } from 'node:buffer';
 import type { RedTeamOutcome } from './redTeam';
 import type { DocumentRedTeam, DocumentSpec, DocumentVerification } from '@/libs/cards/specs';
+import type { ChartBlockResult } from '@/libs/charts/documentBlocks';
 import type { DocumentOp } from '@/libs/documents/edit';
 import type { DocumentOutline } from '@/libs/documents/sheets';
 import type { ArtifactRecordScope, ArtifactRow, ArtifactVersionRow, Author } from '@/services/ArtifactService';
+import { expandChartBlocks } from '@/libs/charts/documentBlocks';
 import { evaluateDocument, verificationReceipt } from '@/libs/documents/audit';
 import { undefinedClasses } from '@/libs/documents/classAudit';
 import { proseSheets } from '@/libs/documents/componentAudit';
@@ -204,15 +206,35 @@ export type CreateDocumentInput = {
   verify?: VerifyOptions;
 };
 
+/** What the chart blocks in a write came to: how many, and what the lint would change. */
+export type ChartNotes = { count: number; warnings: string[] };
+
+/**
+ * Draw a document's chart blocks from their specs. A block that fails its
+ * schema or the chart lint fails the write with what to fix — the same rule
+ * `render_chart` keeps, so a chart is never worse for being inside a document.
+ * @param html - The document as its author wrote it.
+ */
+function drawCharts(html: string): ChartBlockResult {
+  const charts = expandChartBlocks(html);
+  if (charts.errors.length) {
+    throw new ArtifactError('INVALID_SPEC', `a chart would mislead or not read on a phone — fix it and write again:\n${charts.errors.map(e => `- ${e}`).join('\n')}`);
+  }
+  return charts;
+}
+
 /**
  * Create a document artifact: verify first, then persist v1 carrying the
  * verification. One version, one verdict.
  * @param input
  */
-export async function createDocument(input: CreateDocumentInput): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow; outcome: VerifyOutcome }> {
+export async function createDocument(input: CreateDocumentInput): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow; outcome: VerifyOutcome; charts: ChartNotes }> {
+  // Chart blocks are drawn from their specs, and linted, before anything
+  // reads the HTML (`libs/charts/documentBlocks.ts`).
+  const charts = drawCharts(input.html);
   // What is verified is what is stored is what is printed — so the framework
   // goes in HERE, once, ahead of everything that reads the HTML.
-  const html = await withFramework(input.orgId, input.html);
+  const html = await withFramework(input.orgId, charts.html);
   const outcome = await verifyHtml(input.orgId, html, input.verify);
   const spec = documentSpec(html, input.title, outcome.verification, input.playbook);
   const title = input.title?.trim() || spec.title || 'Document';
@@ -228,7 +250,7 @@ export async function createDocument(input: CreateDocumentInput): Promise<{ arti
     visibility: input.visibility ?? 'user',
     changeSummary: `Created · ${outcome.verification.sheets.length || spec.sheets || 0} sheets`,
   });
-  return { artifact, version, outcome };
+  return { artifact, version, outcome, charts: { count: charts.count, warnings: charts.warnings } };
 }
 
 export type ReviseDocumentInput = {
@@ -252,7 +274,7 @@ export type ReviseDocumentInput = {
  * missing artifact or a version conflict, `DocumentEditError` for a bad op.
  * @param input
  */
-export async function reviseDocument(input: ReviseDocumentInput): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow; outcome: VerifyOutcome; applied: string[] }> {
+export async function reviseDocument(input: ReviseDocumentInput): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow; outcome: VerifyOutcome; applied: string[]; charts: ChartNotes }> {
   const existing = await getArtifact({ orgId: input.orgId, id: input.id });
   if (!existing) {
     throw new ArtifactError('NOT_FOUND', `artifact #${input.id} not found`);
@@ -270,7 +292,8 @@ export async function reviseDocument(input: ReviseDocumentInput): Promise<{ arti
     html = edited.html;
     applied = [...applied, ...edited.applied];
   }
-  html = await withFramework(input.orgId, html);
+  const charts = drawCharts(html);
+  html = await withFramework(input.orgId, charts.html);
   const outcome = await verifyHtml(input.orgId, html, input.verify);
   const prior = existing.spec as Partial<DocumentSpec>;
   const spec = documentSpec(html, input.title ?? prior.title, outcome.verification, prior.playbook);
@@ -287,7 +310,7 @@ export async function reviseDocument(input: ReviseDocumentInput): Promise<{ arti
     // revision is one version even when they come seconds apart.
     noCollapse: true,
   });
-  return { artifact, version, outcome, applied };
+  return { artifact, version, outcome, applied, charts: { count: charts.count, warnings: charts.warnings } };
 }
 
 /**

@@ -281,6 +281,21 @@ the PPTX/DOCX libraries under `libs/decks/pptx/` and `libs/documents/docx/`, wir
 prompt names one. An export never versions the deliverable: it is recorded on the filed
 file's `exportedFrom`.
 
+## Charts (one engine)
+
+Every chart Vocion draws comes from one spec and one engine (`libs/charts`): the chat card and
+chart artifact (`render_chart`), a chart block inside a document
+(`<figure class="vocion-chart"><script type="application/json">{spec}</script></figure>`, drawn by
+`DocumentEngine` before verify), and a deck slide (`renderChartSvg`, the embed point for
+`libs/decks`). The layout (`layout.ts`) is pure and done at the width it is drawn at, so a phone
+thins and shortens labels rather than shrinking them; React (`ChartView.tsx`) and the SVG string
+(`svg.ts`) are two serializers of the same scene. **Every chart is linted before it renders**
+(`lint.ts`: mixed period/scenario axis, cumulative bars, label collisions at 360 and 960px, bars
+too thin for a phone, missing format, dual axes, stacks that do not sum to their stated totals);
+an error refuses `render_chart`, `update_artifact` on a chart, and a document write. The analyst
+method is the base-pack skill `data-analysis`. Never hand-write chart SVG. See
+`docs/guides/charts.md`.
+
 ## Background worker
 
 The comment-feedback loop ships as a separate process (Next.js doesn't host long-lived workers):

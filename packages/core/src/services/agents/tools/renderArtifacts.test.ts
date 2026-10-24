@@ -68,6 +68,40 @@ describe('render_* tools', () => {
     expect(events).toHaveLength(0);
   });
 
+  it('render_chart refuses a chart that would mislead, says what to fix, and emits nothing (2026-10-23)', async () => {
+    const events: AgentEvent[] = [];
+    const t = renderChartTool(ctxFor(undefined, events));
+    const out = String(await t.invoke({ title: '2026 Revenue', type: 'bar', x: ['Jul', 'Aug', 'Sep', 'EOY: booked'], series: [{ name: 'Revenue', values: [1, 2, 3, 4] }], aggregation: 'cumulative', format: 'currency' }));
+
+    expect(out).toMatch(/render_chart refused/);
+    expect(out).toContain('[mixed-axis]');
+    expect(out).toContain('[cumulative-bars]');
+    expect(events).toHaveLength(0);
+  });
+
+  it('render_chart draws a stacked-by-month chart with its forecast marked', async () => {
+    const c = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', initialTitle: 't-chart', createdBy: 'u' });
+    const events: AgentEvent[] = [];
+    const t = renderChartTool(ctxFor(c.id, events));
+    const out = String(await t.invoke({
+      title: 'On pace for $1.6M, the last month carried by pipeline',
+      type: 'bar',
+      x: ['Sep', 'Oct', 'Nov', 'Dec'],
+      series: [{ name: 'Invoiced', values: [400, 410, 300, 120] }, { name: 'Weighted pipeline', values: [null, null, 100, 280], forecast: true }],
+      stack: 'stack',
+      aggregation: 'period',
+      forecastFrom: 'Nov',
+      format: 'currency',
+      asOf: '2026-10-23',
+    }));
+
+    expect(out).toMatch(/Rendered chart/);
+
+    const ev = events.find(e => e.type === 'artifact');
+
+    expect(ev && ev.type === 'artifact' ? ev.artifact.spec : null).toMatchObject({ stack: 'stack', forecastFrom: 'Nov' });
+  });
+
   it('no render_* tool takes a tile placement any more — there is no grid to place on', () => {
     const schemas = [renderTableTool, renderMarkdownTool, renderChartTool].map(f => Object.keys((f(ctxFor(1, [])) as unknown as { schema: { shape: Record<string, unknown> } }).schema.shape));
 

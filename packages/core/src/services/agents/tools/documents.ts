@@ -24,6 +24,7 @@
 import type { RuntimeContext } from '../types';
 import type { DocumentSpec } from '@/libs/cards/specs';
 import type { GateDecision } from '@/services/deliverables/gate';
+import type { ChartNotes } from '@/services/documents/DocumentEngine';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { DocumentEditError, documentOpSchema } from '@/libs/documents/edit';
@@ -116,6 +117,17 @@ function recordScope(ctx: RuntimeContext): { type: string; id: string; role: str
   return { type: rec.type, id: rec.id, role: 'document' };
 }
 
+/**
+ * The chart blocks' lint warnings, for the receipt.
+ * @param charts - What the write's chart blocks came to.
+ */
+function chartNotes(charts: ChartNotes): string {
+  if (!charts.warnings.length) {
+    return charts.count ? `\n\nCharts: ${charts.count} drawn from their specs.` : '';
+  }
+  return `\n\nCharts${charts.count ? ` (${charts.count})` : ''} — consider:\n${charts.warnings.map(w => `- ${w}`).join('\n')}`;
+}
+
 export function renderDocumentTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -145,7 +157,7 @@ export function renderDocumentTool(ctx: RuntimeContext) {
             },
           });
         }
-        const { artifact, outcome } = await createDocument({
+        const { artifact, outcome, charts } = await createDocument({
           orgId: ctx.orgId,
           conversationId: ctx.conversationId ?? null,
           author: authorOf(ctx),
@@ -160,7 +172,7 @@ export function renderDocumentTool(ctx: RuntimeContext) {
         });
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
         const where = ctx.conversationId ? `open beside the conversation as artifact #${artifact.id}` : `saved as artifact #${artifact.id}`;
-        return `Rendered document "${artifact.title}" — ${where}, v1.\n\n${documentReceipt(outcome)}\n\nThe artifact carries the content — do NOT repeat it as text; refer to it by title. Change it with edit_document(${artifact.id}, ops) — never render a second one.`;
+        return `Rendered document "${artifact.title}" — ${where}, v1.\n\n${documentReceipt(outcome)}${chartNotes(charts)}\n\nThe artifact carries the content — do NOT repeat it as text; refer to it by title. Change it with edit_document(${artifact.id}, ops) — never render a second one.`;
       } catch (err) {
         if (err instanceof ArtifactError) {
           return `render_document rejected: ${err.message}. Fix the payload and call again.`;
@@ -170,7 +182,7 @@ export function renderDocumentTool(ctx: RuntimeContext) {
     },
     {
       name: 'render_document',
-      description: 'Create a PAGINATED, PRINT-READY document artifact — a proposal, scope doc, partnership update — from self-contained HTML in the house sheet framework (US-Letter `.sheet`s, pinned `.foot`, inline <style>, logos as data URIs). It renders in real Chrome, audits every sheet (footer alignment, overflow, clipping, PDF page count, unresolved assets) and returns the receipt with a screenshot URL per sheet. Fix anything the receipt lists with edit_document before you say the document is done. For prose that is not a paginated document use render_markdown.',
+      description: 'Create a PAGINATED, PRINT-READY document artifact — a proposal, scope doc, partnership update — from self-contained HTML in the house sheet framework (US-Letter `.sheet`s, pinned `.foot`, inline <style>, logos as data URIs). It renders in real Chrome, audits every sheet (footer alignment, overflow, clipping, PDF page count, unresolved assets) and returns the receipt with a screenshot URL per sheet. Fix anything the receipt lists with edit_document before you say the document is done. Charts go in as chart blocks — <figure class="vocion-chart"><script type="application/json">{the render_chart spec}</script></figure> — which the engine lints and draws; never hand-write chart SVG or HTML. For prose that is not a paginated document use render_markdown.',
       schema: z.object({
         room_id: z.number().int().positive().optional().describe('The data room this document belongs to. Pass it whenever you are writing from a room — the document then shows on the room and on the Proposals board. Defaults to the room the person has open.'),
         title: z.string().max(200).optional().describe('Artifact title. Defaults to the <title>, which is also the PDF filename — use "<Subject> - <What it is> (<Firm>) v<N.N>".'),
@@ -247,7 +259,7 @@ export function editDocumentTool(ctx: RuntimeContext) {
         return `edit_document rejected: ops did not validate — ${parsedOps.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}.`;
       }
       try {
-        const { artifact, version, outcome, applied } = await reviseDocument({
+        const { artifact, version, outcome, applied, charts } = await reviseDocument({
           orgId: ctx.orgId,
           id: found.id,
           author: authorOf(ctx),
@@ -258,7 +270,7 @@ export function editDocumentTool(ctx: RuntimeContext) {
           verify: { look: args.look ?? false, onProgress: progressTo(ctx, 'edit_document') },
         });
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
-        return `Updated "${artifact.title}" to v${version.version} (${applied.join('; ')}). The person sees it live in the pane — do NOT repeat the content as text.\n\n${documentReceipt(outcome)}`;
+        return `Updated "${artifact.title}" to v${version.version} (${applied.join('; ')}). The person sees it live in the pane — do NOT repeat the content as text.\n\n${documentReceipt(outcome)}${chartNotes(charts)}`;
       } catch (err) {
         if (err instanceof DocumentEditError) {
           return `edit_document rejected: ${err.message}`;

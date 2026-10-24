@@ -19,6 +19,8 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { lintChart, lintText } from '@/libs/charts/lint';
+import { chartSpecSchema } from '@/libs/charts/spec';
 import { SOURCE_ARTIFACT_KINDS } from '@/libs/workspace/source';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload, updateArtifact } from '@/services/ArtifactService';
 import { isRecordBodyArtifact as isRecordBody } from '@/services/objects/recordBody';
@@ -176,6 +178,15 @@ export function updateArtifactTool(ctx: RuntimeContext) {
             return row.kind === 'mission'
               ? `This artifact is mission "${slug}" — its YAML file. Use read_mission then write_mission (the change is reviewed and applied); the title follows the file's name.`
               : `This artifact is ${row.spec.kind === 'skill' ? 'skill' : 'playbook'} "${slug}" — its SKILL.md. Use read_playbook then write_playbook (the change is reviewed and applied); the title follows the frontmatter's name.`;
+          }
+        }
+        // A chart edit passes the same lint a new chart does: an edit is not
+        // a way around it.
+        if (target?.kind === 'chart' && spec !== undefined) {
+          const parsed = chartSpecSchema.safeParse(spec);
+          const lint = parsed.success ? lintChart(parsed.data) : null;
+          if (lint && lint.errors.length) {
+            return `update_artifact refused: the chart would mislead or not read on a phone.\n${lintText(lint)}\nFix the spec and call again.`;
           }
         }
         if (spec === undefined && args.content_markdown === undefined && args.title === undefined && args.folder === undefined) {
