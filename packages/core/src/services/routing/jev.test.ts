@@ -4,7 +4,7 @@
  * throw, with no key in it. Jev itself is never called: fetch is a fake.
  */
 import { describe, expect, it } from 'vitest';
-import { askYesNo, decide, DEFAULT_JEV_MODEL, jevEndpoint, jevProviderOf, jevRequestBody, jevSettings, openRouterModel, readJevResponse } from './jev';
+import { askYesNo, decide, DEFAULT_JEV_MODEL, jevEndpoint, jevProviderOf, jevRequestBody, jevSettings, openRouterModel, questionVersion, readJevResponse, versionOf } from './jev';
 
 const KEY = 'ts-FAKE-not-a-real-typesafe-key-000000';
 const OR_KEY = 'sk-or-v1-FAKE-not-a-real-key-000000';
@@ -205,5 +205,14 @@ describe('yes/no questions (Noul, ADR 0007)', () => {
 
     expect(r).toMatchObject({ failed: true, kind: 'http', status: 500 });
     expect(JSON.stringify(r)).not.toContain(KEY);
+  });
+});
+
+describe('question versions (ADR 0006, health)', () => {
+  it('names each purpose\'s wording, stably, and changes when the words do', () => {
+    expect(questionVersion('turn')).toMatch(/^turn-[0-9a-f]{8}$/);
+    expect(questionVersion('turn')).toBe(questionVersion('turn'));
+    expect(new Set([questionVersion('turn'), questionVersion('agent'), questionVersion('engineering')]).size).toBe(3);
+    expect(versionOf('x', { q: 'a' })).not.toBe(versionOf('x', { q: 'b' }));
   });
 });

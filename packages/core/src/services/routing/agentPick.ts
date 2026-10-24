@@ -21,7 +21,7 @@ import type { KeyScope } from './jevKey';
 import type { JevAgentPick, RoutableAgent } from '@/services/agents/router';
 import process from 'node:process';
 import { chatTimeoutMs, jevBreakerOpen, noteJevOutcome } from './agentRoute';
-import { decide, isJevFailure, jevEndpoint, jevSettings, NONE } from './jev';
+import { decide, isJevFailure, jevEndpoint, jevSettings, NONE, questionVersion } from './jev';
 
 export type AgentPickDeps = {
   resolveKey?: (orgId: string) => Promise<{ key: string; scope: KeyScope } | null>;
@@ -55,7 +55,7 @@ export async function pickAgent(input: { orgId: string; message: string; agents:
   const settings = deps.settings ?? jevSettings(env);
   const endpoint = jevEndpoint(resolved.key, settings);
   const seats = input.agents.filter(a => a.slug !== NONE);
-  const base = { selector: 'model', asked: false, candidates: seats.length, choice: null as string | null, confidence: null as number | null, jevModel: null as string | null, latencyMs: null as number | null, keyScope: resolved.scope, provider: endpoint.provider, fallback: null as string | null };
+  const base = { selector: 'model', asked: false, candidates: seats.length, choice: null as string | null, confidence: null as number | null, jevModel: null as string | null, latencyMs: null as number | null, keyScope: resolved.scope, provider: endpoint.provider, fallback: null as string | null, questionVersion: questionVersion('agent') };
   const skip = (detail: typeof base, why: string): JevAgentPick => ({ chosen: null, confidence: 0, reason: '', detail: { ...detail, fallback: why } });
   if (seats.length < 2) {
     return skip(base, 'fewer than two seats to choose between');
