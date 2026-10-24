@@ -28,6 +28,10 @@ export type CallContext = {
   runKind?: RunKind | null;
   runId?: string | number | null;
   effortLevel?: string | null;
+  /** How the turn's model was chosen (ADR 0006): `jev` | `configured`. Unset when no Jev key is configured. */
+  routeSelector?: string | null;
+  /** The routing decision, filed on every call the turn makes. */
+  routeDetail?: Record<string, unknown> | null;
   /** The agent whose work this is, when a call site does not name it. */
   agentSlug?: string | null;
   traceId?: string | null;

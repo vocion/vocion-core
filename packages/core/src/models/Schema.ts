@@ -1076,6 +1076,8 @@ export const agentSchema = pgTable(
       turnEffort?: 'auto' | 'quick' | 'standard' | 'deep';
       /** Per-level ceilings, moving the built-in wall-clock and spend ceilings (`effort.ts` ENVELOPES). */
       turnCeilings?: Partial<Record<'quick' | 'standard' | 'deep', { seconds?: number; cents?: number }>>;
+      /** What dynamic routing may pick from (ADR 0006, `libs/workspace/schemas.ts` `RouteModelSchema`). */
+      routeModels?: Array<{ engine?: 'claude-cli' | 'openhands'; model?: string; provider?: 'anthropic' | 'openai' | 'bedrock'; about?: string; cost?: 'low' | 'medium' | 'high' }>;
       /** Where teammates do their legwork: the fast model (default) or this agent's own (`services/agents/effort.ts`). */
       legworkModel?: 'fast' | 'main';
       /** Whether calls that read tool results think: off (default) or as the agent always does (`services/agents/effort.ts`). */
@@ -5940,6 +5942,10 @@ export const modelCallSchema = pgTable(
     model: text('model').notNull(),
     /** `quick` | `standard` | `deep` for a chat turn. */
     effortLevel: text('effort_level'),
+    /** How the turn's model was chosen (ADR 0006): `jev` | `configured`; null when no Jev key is configured. */
+    routeSelector: text('route_selector'),
+    /** The routing decision (`services/routing/agentRoute.ts` `AgentRouteDetail`); never a key. */
+    routeDetail: jsonb('route_detail').$type<Record<string, unknown>>(),
     inputTokens: integer('input_tokens').default(0).notNull(),
     outputTokens: integer('output_tokens').default(0).notNull(),
     cacheReadTokens: integer('cache_read_tokens').default(0).notNull(),
