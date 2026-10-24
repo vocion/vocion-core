@@ -45,7 +45,7 @@ import { asksForAct, NO_INTENT, readIntent } from './agents/turnJudge';
 import { TurnRefusedError } from './agents/turnRefusal';
 import { inTurn } from './agents/turnScope';
 import { writeLanded } from './agents/writeClaim';
-import { noteCallContext, withCallContext } from './spend/callContext';
+import { currentCallContext, noteCallContext, withCallContext } from './spend/callContext';
 
 /**
  * A tool call the tool itself refused for its arguments — retryable, not fatal.
@@ -763,13 +763,17 @@ async function runAgentDeepInScope(opts: {
   const personEffort = personEffortChoice(opts.modelPrefs);
   // A lead weighing two or more teams' answers runs Deep (`synthesisLevel`);
   // whether this agent leads anyone comes from the blueprint the turn compiles from.
-  const leadsTeammates = async () => {
-    try {
-      const { teammatesOf } = await import('./agents/harness');
-      return Object.keys(await teammatesOf(opts.orgId, opts.agentSlug)).length > 0;
-    } catch {
-      return false;
-    }
+  let leads: Promise<boolean> | null = null;
+  const leadsTeammates = () => {
+    leads ??= (async () => {
+      try {
+        const { teammatesOf } = await import('./agents/harness');
+        return Object.keys(await teammatesOf(opts.orgId, opts.agentSlug)).length > 0;
+      } catch {
+        return false;
+      }
+    })();
+    return leads;
   };
   const readRequest = (previous?: string) => Promise.all([
     effortMod.inferEffort({ orgId: opts.orgId, message: opts.message, ...(previous ? { previous } : {}) }),
@@ -858,21 +862,50 @@ async function runAgentDeepInScope(opts: {
   // this file and must never statically load the LLM module.
   const { chatModelOptionsFor, chatModelOptionsWithOverride } = await import('./agents/harness');
   const { resolvedModelId, resolvedModelIdFor, resolveProvider } = await import('@/libs/llm/langchain');
+  // The thread's older, finer setting (strength + thinking) still wins when a
+  // person set it; otherwise the level's envelope chooses the model and thinking.
+  const legacyPrefs = opts.modelPrefs && (opts.modelPrefs.strength !== 'balanced' || opts.modelPrefs.effort !== 'off') ? opts.modelPrefs : undefined;
+  // DYNAMIC ROUTING (ADR 0006, `routing/agentRoute.ts`): with a Jev key, Jev
+  // picks this turn's model from the agent's candidates and its effort. Asked
+  // beside Auto's read so a chat is not held for it. Never when a person chose
+  // a model or a level, a caller named a model, or the run is an eval; with
+  // no key `routeAgentTurn` answers null and nothing below changes.
+  const configuredOpts = chatModelOptionsFor(harness ?? {});
+  const configuredProvider = configuredOpts.provider ?? resolveProvider('main');
+  const turnKind = jevTurnKind(currentCallContext().runKind, opts, effortApplies);
+  const jevRoute = !opts.modelOverride && turnKind && configuredProvider !== 'scripted' && (!effortApplies || (personEffort === 'auto' && !legacyPrefs))
+    ? import('./routing/agentRoute').then(m => m.routeAgentTurn({
+        orgId: opts.orgId,
+        agentSlug: opts.agentSlug,
+        kind: turnKind,
+        message: opts.message,
+        conversationId: opts.conversationId ?? null,
+        routeModels: harness?.routeModels,
+        configured: { model: configuredOpts.model ?? resolvedModelIdFor('main', configuredProvider), provider: configuredProvider },
+      })).catch(() => null)
+    : Promise.resolve(null);
   const effortDecision = effortApplies
     ? await effortMod.decideEffort({
         person: personEffort,
         agent: harness?.turnEffort,
-        auto: () => autoEffort ?? readRequest(),
+        auto: async () => {
+          const [read, route] = await Promise.all([autoEffort ?? readRequest(), jevRoute]);
+          if (route?.selector !== 'jev' || !route.effort) {
+            return read;
+          }
+          // Jev sets the level; the facts' floors and the lead's synthesis rule still hold.
+          return effortMod.answerFloor(effortMod.synthesisLevel(effortMod.withJevEffort(read, route.effort, route.detail.reason.slice(0, 80)), { leadsTeammates: await leadsTeammates() }), opts.answeredRecords);
+        },
       })
     : null;
   const envelope = effortDecision ? effortMod.envelopeFor(effortDecision.level, harness?.turnCeilings) : null;
-  // The thread's older, finer setting (strength + thinking) still wins when a
-  // person set it; otherwise the level's envelope chooses the model and thinking.
-  const legacyPrefs = opts.modelPrefs && (opts.modelPrefs.strength !== 'balanced' || opts.modelPrefs.effort !== 'off') ? opts.modelPrefs : undefined;
   const turnPrefs = legacyPrefs ?? (envelope
     ? { strength: envelope.strength, effort: envelope.thinking === 'agent' ? 'off' as const : envelope.thinking, level: envelope.level }
     : { strength: 'balanced' as const, effort: 'off' as const, level: 'auto' as const });
-  const modelOverride = opts.modelOverride ?? modelOverrideForPrefs(harness ?? {}, turnPrefs, { provider: resolveProvider('main'), defaults: chatModelOptionsFor(harness ?? {}), modelFor: resolvedModelIdFor });
+  const route = await jevRoute;
+  const modelOverride = opts.modelOverride
+    ?? routedModelOverride(route, envelope, { model: configuredOpts.model ?? resolvedModelIdFor('main', configuredProvider), provider: configuredProvider })
+    ?? modelOverrideForPrefs(harness ?? {}, turnPrefs, { provider: resolveProvider('main'), defaults: chatModelOptionsFor(harness ?? {}), modelFor: resolvedModelIdFor });
   const ceilings = envelope ? new effortMod.EffortCeilings(envelope) : null;
   const turnMiddleware = envelope && ceilings ? [effortMod.createEffortMiddleware({ ceilings, consults: envelope.consults !== 'none' })] : [];
   // Thinking returns for the likely synthesis: past the soft target, a ceiling
@@ -981,7 +1014,7 @@ async function runAgentDeepInScope(opts: {
   // Link tool_call rows to this turn's trace — cost and latency are read there.
   boundCtx.traceId = trace.id;
   // And every model call the turn makes to its trace and level, in the spend ledger.
-  noteCallContext({ traceId: trace.id, ...(effortDecision ? { effortLevel: effortDecision.level } : {}) });
+  noteCallContext({ traceId: trace.id, ...(effortDecision ? { effortLevel: effortDecision.level } : {}), ...(route ? { routeSelector: route.selector, routeDetail: route.detail } : {}) });
 
   emit({ type: 'thinking' });
   {
@@ -2025,6 +2058,61 @@ export function personEffortChoice(prefs: import('@/libs/llm/modelPrefs').ModelP
     return 'deep';
   }
   return prefs.effort === 'low' ? 'standard' : 'auto';
+}
+
+/**
+ * What kind of run a turn is, for dynamic routing (ADR 0006), or null for a
+ * run that is never routed (an eval: its model is the thing under test).
+ * @param runKind - The open call context's run.
+ * @param opts - The turn.
+ * @param opts.missionRunId - The mission run driving it.
+ * @param opts.missionSlug - The mission it belongs to.
+ * @param opts.userId - Who it is for.
+ * @param personTurn - The effort envelope applies: a person's turn.
+ */
+export function jevTurnKind(runKind: string | null | undefined, opts: { missionRunId?: number; missionSlug?: string; userId?: string }, personTurn: boolean): import('./routing/agentRoute').TurnKind | null {
+  if (runKind === 'eval_run' || opts.userId === 'eval-runner') {
+    return null;
+  }
+  if (runKind === 'mission_run' || opts.missionRunId || opts.missionSlug) {
+    return 'mission';
+  }
+  if (runKind === 'workflow_run' || runKind === 'routine_run' || opts.userId?.startsWith('workflow:')) {
+    return 'automation';
+  }
+  return personTurn ? 'chat' : 'other';
+}
+
+/**
+ * The model a routed turn runs on, or undefined to leave the turn as the
+ * person's level (or the agent's own) would have it. A person's turn takes
+ * Jev's model with the level's thinking; any other run takes Jev's model (or
+ * the configured one) with Jev's thinking effort, which `routeAgentTurn`
+ * only sets on a model that thinks.
+ * @param route - The decision, or null when routing is off.
+ * @param envelope - The turn's effort envelope (a person's turn), or null.
+ * @param configured - The model that runs when nothing routes.
+ * @param configured.model - Its id.
+ * @param configured.provider - Its vendor.
+ */
+export function routedModelOverride(
+  route: import('./routing/agentRoute').AgentRoute | null,
+  envelope: { thinking: import('@/libs/llm/modelPrefs').ThinkingEffort | 'agent' } | null,
+  configured: { model: string; provider: import('@/libs/llm/langchain').LangChainProvider },
+): import('./agents/harness').ModelOverride | undefined {
+  if (!route || route.selector !== 'jev') {
+    return undefined;
+  }
+  if (envelope) {
+    return route.model
+      ? { model: route.model.model, provider: route.model.provider, ...(envelope.thinking !== 'agent' ? { thinking: envelope.thinking } : {}) }
+      : undefined;
+  }
+  if (!route.model && !route.effort) {
+    return undefined;
+  }
+  const target = route.model ?? configured;
+  return { model: target.model, provider: target.provider, ...(route.effort ? { thinking: route.effort } : {}) };
 }
 
 function modelOverrideForPrefs(

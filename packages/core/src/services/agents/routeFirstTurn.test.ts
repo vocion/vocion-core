@@ -195,3 +195,46 @@ describe.skipIf(!LIVE_KEY)('the reference case, live', () => {
     expect(decision).toMatchObject({ chosen: 'product-manager', decidedBy: 'model' });
   });
 });
+
+describe('Jev choosing the seat (ADR 0006, phase 2)', () => {
+  const input = { orgId: 'org_route', agents: ROSTER, message: MESSAGE, leadSlug: lead.slug, surface: 'chat' as const };
+
+  it('routes on a sure pick from Jev and stops waiting for the model read', async () => {
+    let aborted = false;
+    const decision = await routeFirstTurn(input, {
+      owners: async () => OWNERS,
+      intake: async () => null,
+      read: async (i: { signal?: AbortSignal }) => new Promise((_, reject) => i.signal?.addEventListener('abort', () => {
+        aborted = true;
+        reject(new Error('aborted'));
+      })),
+      jev: async () => ({ chosen: 'product-manager', confidence: 0.81, reason: 'Jev picked product-manager (confidence 0.81)', detail: { selector: 'jev', choice: 'product-manager' } }),
+    } as never);
+
+    expect(decision).toMatchObject({ chosen: 'product-manager', decidedBy: 'jev', confidence: 0.81, jev: { choice: 'product-manager' } });
+    expect(aborted).toBe(true);
+  });
+
+  it('leaves it to the model read when Jev has no sure pick, and keeps what Jev said', async () => {
+    const decision = await routeFirstTurn(input, {
+      owners: async () => OWNERS,
+      intake: async () => null,
+      read: input2 => readRoute(input2, modelSaying({ chosen: 'product-manager', confidence: 0.9, reason: 'owns requests' })),
+      jev: async () => ({ chosen: null, confidence: 0.3, reason: 'unsure', detail: { selector: 'configured', fallback: 'confidence 0.30 is below 0.6' } }),
+    });
+
+    expect(decision).toMatchObject({ chosen: 'product-manager', decidedBy: 'model', jev: { fallback: expect.stringMatching(/below/) } });
+  });
+
+  it('with no key, routes exactly as before and records nothing about Jev', async () => {
+    const decision = await routeFirstTurn(input, {
+      owners: async () => OWNERS,
+      intake: async () => null,
+      read: input2 => readRoute(input2, modelSaying({ chosen: 'product-manager', confidence: 0.9, reason: 'owns requests' })),
+      jev: async () => null,
+    });
+
+    expect(decision).toMatchObject({ chosen: 'product-manager', decidedBy: 'model' });
+    expect(decision).not.toHaveProperty('jev');
+  });
+});

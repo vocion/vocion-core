@@ -743,6 +743,7 @@ async function upsertAgent(
     agentProposals?: { openMax?: number; weeklyMax?: number };
     turnEffort?: 'auto' | 'quick' | 'standard' | 'deep';
     turnCeilings?: Partial<Record<'quick' | 'standard' | 'deep', { seconds?: number; cents?: number }>>;
+    routeModels?: Array<{ engine?: 'claude-cli' | 'openhands'; model?: string; provider?: 'anthropic' | 'openai' | 'bedrock'; about?: string; cost?: 'low' | 'medium' | 'high' }>;
   },
   mode: ApplyMode,
   teams: LoadedTeam[] = [],
@@ -774,6 +775,8 @@ async function upsertAgent(
       ...agent.harness,
       ...(agent.harness?.turnEffort === undefined && defaults.turnEffort ? { turnEffort: defaults.turnEffort } : {}),
       ...(agent.harness?.turnCeilings === undefined && defaults.turnCeilings ? { turnCeilings: defaults.turnCeilings } : {}),
+      // The workspace's routing menu (ADR 0006) reaches an agent that lists none.
+      ...(agent.harness?.routeModels === undefined && defaults.routeModels?.length ? { routeModels: defaults.routeModels } : {}),
     },
     fewShotExamples: agent.fewShotExamples,
     subagents: agent.resolvedSubagents,

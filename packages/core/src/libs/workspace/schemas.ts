@@ -29,6 +29,27 @@ export const AgentSkillSlugSchema = SlugSchema.superRefine((slug, ctx) => {
   }
 });
 
+/**
+ * One option dynamic routing may pick (ADR 0006), described by what it is good
+ * at and its relative cost. Two kinds share the shape:
+ *   - a factory seat's entry names an `engine` (claude-cli, openhands) and the
+ *     model that engine runs;
+ *   - an agent's (or `defaults.routeModels`) entry names a chat `model`, and
+ *     `provider` when the id's shape does not say (`claude-*` is Anthropic,
+ *     `gpt-*` OpenAI, `us.anthropic.*` Bedrock).
+ * Each reader takes its own kind and ignores the other. Only read when a Jev
+ * (TypeSafe) API key is configured.
+ */
+export const RouteModelSchema = z.object({
+  engine: z.enum(['claude-cli', 'openhands']).optional(),
+  model: z.string().min(1).max(200).optional(),
+  provider: z.enum(['anthropic', 'openai', 'bedrock']).optional(),
+  about: z.string().max(400).optional(),
+  cost: z.enum(['low', 'medium', 'high']).optional(),
+}).refine(m => m.engine !== undefined || m.model !== undefined, { message: 'a route model names an engine (factory seats) or a model (agents)' });
+
+export const RouteModelsSchema = z.array(RouteModelSchema).max(12);
+
 const FewShotExampleSchema = z.object({
   input: z.string(),
   output: z.string(),
@@ -236,6 +257,12 @@ export const WorkspaceManifestSchema = z.object({
       standard: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
       deep: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
     }).optional(),
+    /**
+     * The chat models dynamic routing (ADR 0006) may pick from for every agent
+     * whose own `harness.routeModels` says nothing. Applied onto each such
+     * agent at apply time, like `turnEffort`. Model entries only.
+     */
+    routeModels: RouteModelsSchema.optional(),
     /**
      * The proposal budget every agent in this workspace is held to when its
      * own YAML sets no `proposals:` — how many undecided items it may hold in
@@ -1216,18 +1243,14 @@ export const AgentManifestSchema = z.object({
      */
     engineModel: z.string().min(1).optional(),
     /**
-     * What dynamic routing may pick from for this seat (ADR 0006): each entry
-     * an engine, its model, what it is good at and its relative cost. Only
-     * read when a Jev key is configured; Jev picks one entry and an effort,
-     * inside the installation's engine fence. Absent: the seat's own engine
-     * and model are the one candidate, and Jev picks the effort only.
+     * What dynamic routing may pick from (ADR 0006), see `RouteModelSchema`.
+     * A factory seat lists engines and their models; any other agent lists
+     * chat models (and inherits `defaults.routeModels` when it lists none).
+     * Only read when a Jev (TypeSafe) API key is configured; Jev picks one
+     * entry and an effort, inside the installation's fences. Absent: the
+     * agent's own model is the one candidate, and Jev picks the effort only.
      */
-    routeModels: z.array(z.object({
-      engine: z.enum(['claude-cli', 'openhands']),
-      model: z.string().min(1).optional(),
-      about: z.string().max(400).optional(),
-      cost: z.enum(['low', 'medium', 'high']).optional(),
-    })).max(12).optional(),
+    routeModels: RouteModelsSchema.optional(),
     modelProvider: z.enum(['anthropic', 'openai', 'bedrock']).optional(),
     /**
      * Ask the vendor to cache this agent's prompt prefix, or forbid it.
