@@ -217,6 +217,16 @@ export const WorkspaceManifestSchema = z.object({
      */
     learningEagerness: z.number().int().min(0).max(10).optional(),
     /**
+     * Which decisions Jev, TypeSafe's decision model, may make here (ADR 0007).
+     * Each runs only when a Jev key is configured too; any error, timeout or
+     * unsure answer falls back to what runs without it.
+     *
+     * `duplicateCheck`: Jev answers "is this new record the same as that one?"
+     * first, and the model is asked only when Jev is unsure. It sends the
+     * record's title and compared fields, shortened, to TypeSafe.
+     */
+    jev: z.object({ duplicateCheck: z.boolean().optional() }).strict().optional(),
+    /**
      * The weekly org review (`services/orgReview`): when it runs and what it
      * calls idle or stale. It reads the evidence core already stores and files
      * proposals on Needs you to retire, re-scope or hire agents, or adopt a

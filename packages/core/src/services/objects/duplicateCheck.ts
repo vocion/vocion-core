@@ -1,3 +1,4 @@
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 /**
  * IS THIS NEW RECORD ONE WE ALREADY HAVE? — read by a model, never matched
  * (backlog 044). On 2026-09-30 the same request was filed twice from chat a
@@ -28,8 +29,14 @@
  * model invented, or a link a person has undone before all end in "not a
  * duplicate": a duplicate left open is one tap to close, a request closed by
  * mistake is an ask nobody works.
+ *
+ * JEV FIRST, WHEN THE WORKSPACE SAYS SO (ADR 0007). With
+ * `defaults.jev.duplicateCheck` and a Jev key, an exact match and then Jev's
+ * yes/no per candidate decide before the classifier is asked
+ * (`./jevDuplicate.ts`); the classifier decides whatever they leave unsure.
+ * Without both, this runs exactly as it always has.
  */
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { DuplicateCheckRow, JevDuplicateDeps, JevGate } from './jevDuplicate';
 import type { RecordStatus } from '@/libs/factory/liveStatus';
 import { z } from 'zod';
 import { DEFAULT_AUTO_ACCEPT_CONFIDENCE } from '@/libs/actions/autoAccept';
@@ -310,8 +317,12 @@ async function linkWasUndone(orgId: string, key: string): Promise<boolean> {
  * @param opts - Options.
  * @param opts.model - The judge's model, injected in tests.
  * @param opts.now - The clock.
+ * @param opts.jev - The Jev gate, injected in tests (undefined reads the workspace's).
+ * @param opts.jevDeps - Jev's seams, injected in tests.
  */
-export async function checkNewRecordForDuplicate(orgId: string, payload: { objectId?: unknown; conversationId?: unknown; byPerson?: unknown }, opts: { model?: Model; now?: Date } = {}): Promise<DuplicateFinding> {
+export async function checkNewRecordForDuplicate(orgId: string, payload: { objectId?: unknown; conversationId?: unknown; byPerson?: unknown }, opts: { model?: Model; now?: Date; jev?: JevGate | null; jevDeps?: JevDuplicateDeps } = {}): Promise<DuplicateFinding> {
+  let kept: { record: { objectType: string; objectId: number }; candidates: number; rows: DuplicateCheckRow[]; by: DuplicateCheckRow['judge'] } | null = null;
+  let linked = false;
   try {
     const id = Number(payload.objectId);
     if (!Number.isInteger(id) || id <= 0) {
@@ -338,7 +349,17 @@ export async function checkNewRecordForDuplicate(orgId: string, payload: { objec
     }
     const record = { id, title: read.row.title, text: comparedText(read.row.metadata, spec.compare) };
     const shortlist = shortlistDuplicates(record, candidates);
-    const verdict = await judgeDuplicate({ orgId, label: read.type.label, record, shortlist }, opts.model);
+    const classify = () => judgeDuplicate({ orgId, label: read.type.label, record, shortlist }, opts.model);
+    const jev = await import('./jevDuplicate');
+    const gate = opts.jev === undefined ? await jev.jevDuplicateGate(orgId) : opts.jev;
+    let verdict: DuplicateJudgement | null;
+    if (gate) {
+      const judged = await jev.judgeWithJev({ orgId, gate, label: read.type.label, record, shortlist, bar: spec.bar }, classify, opts.jevDeps);
+      kept = { record: { objectType: read.type.slug, objectId: id }, candidates: shortlist.length, rows: judged.rows, by: judged.by };
+      verdict = judged.verdict;
+    } else {
+      verdict = await classify();
+    }
     if (!verdict) {
       return none('the read failed');
     }
@@ -353,10 +374,17 @@ export async function checkNewRecordForDuplicate(orgId: string, payload: { objec
       // something a person should have to dismiss.
       return { ...judged, did: 'below the bar', linked: false, runId: null, line: null };
     }
-    return await link(orgId, { type: read.type, id, title: read.row.title, spec, key, match, verdict, origin: payload });
+    const finding = await link(orgId, { type: read.type, id, title: read.row.title, spec, key, match, verdict, origin: payload });
+    linked = finding.linked;
+    return finding;
   } catch (err) {
     console.warn('duplicate check failed; the record stands as filed', { orgId, objectId: payload.objectId, message: (err as Error).message });
     return none('the check failed');
+  } finally {
+    if (kept) {
+      const { noteDuplicateChecks } = await import('./jevDuplicate');
+      await noteDuplicateChecks(orgId, kept.record, kept.candidates, kept.rows, linked ? kept.by : null);
+    }
   }
 }
 

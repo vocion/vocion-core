@@ -29,6 +29,11 @@
  *     drawn hands-off, and a drawing that drew nothing is tried once more or
  *     written down. Subscribed by the software-factory plugin.
  *     `services/jobs/mockupDefault.ts`.
+ *   - `record-duplicate-check` — on `object.created` for a type with
+ *     `x-duplicate-check`: is the new record one already on file? Linked with
+ *     Undo above the type's bar (ADR 0007: Jev first when the workspace says
+ *     so). Not for a factory request, whose intake already checks.
+ *     `services/objects/duplicateCheck.ts`.
  *   - `error-watch` — production errors from the error tracker become records
  *     of the type the automation names, opened or updated past a threshold,
  *     each with its cause read by the classifier, and the events it names
@@ -89,6 +94,9 @@ const JOBS: Record<string, BuiltInJob> = {
   [TEAM_THREAD_JOB]: (orgId, input) => runTeamThreadJob(orgId, input),
   // Loaded when it runs: the registry is on many routes, and the job is not.
   'meeting-followup': async (orgId, input) => (await import('./meetingFollowup')).runMeetingFollowupJob(orgId, input),
+  // `object.created` for a type with `x-duplicate-check` whose intake does not
+  // already run it (a factory request's does): is this one we already have?
+  'record-duplicate-check': async (orgId, input) => (await import('@/services/objects/duplicateCheck')).checkNewRecordForDuplicate(orgId, input),
   // A workspace whose old automation still names these hears nothing from them: asker-follow says it.
   ...Object.fromEntries(RETIRED_FOLLOW_JOBS.map(name => [name, async () => ({ said: false, reason: `${name} is retired; asker-follow tells the asker` })])),
 };

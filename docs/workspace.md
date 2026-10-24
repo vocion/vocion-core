@@ -198,6 +198,19 @@ workspace that manages spend with its provider's limits instead. Per-agent caps,
 what happens at the cap, and how this compares with AWS and Anthropic limits:
 [budgets guide](./guides/budgets.md).
 
+## Decisions Jev may make (`defaults.jev`)
+
+```yaml
+# workspace.yaml
+defaults:
+  jev:
+    duplicateCheck: true # Jev judges new records for duplicates first
+```
+
+Each use also needs a Jev key, and any error, timeout or unsure answer falls back to what runs
+without Jev. The duplicate check sends a new record's title and compared fields, shortened, to
+TypeSafe. See [ADR 0007](./adr/0007-jev-duplicate-check.md).
+
 ## How eager the system is to improve itself (`defaults.learningEagerness`)
 
 ```yaml

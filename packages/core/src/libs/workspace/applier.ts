@@ -1184,6 +1184,8 @@ async function applyWorkspaceLeadConfig(
   // nothing", which reads as the shipped default of 7 — a stored 7 is a
   // workspace that chose it, and the two must stay tellable apart.
   const learningEagerness = loaded.manifest.defaults?.learningEagerness ?? null;
+  // Which decisions Jev may make (ADR 0007); omitted clears the column, which is none.
+  const jev = loaded.manifest.defaults?.jev ?? null;
   // The weekly org review's settings, declarative like the rest: the authored
   // block lands whole and an omitted one clears the column, which reads as the
   // shipped defaults (`libs/orgReview/config.ts`).
@@ -1216,6 +1218,7 @@ async function applyWorkspaceLeadConfig(
           regenerateSkills: projectSchema.regenerateSkills,
           clientFacingPlaybooks: projectSchema.clientFacingPlaybooks,
           learningEagerness: projectSchema.learningEagerness,
+          jev: projectSchema.jev,
           orgReview: projectSchema.orgReview,
           voiceRules: projectSchema.voiceRules,
           operatingIntent: projectSchema.operatingIntent,
@@ -1258,7 +1261,7 @@ async function applyWorkspaceLeadConfig(
     if (mode.offline) {
       return;
     }
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || orgReview !== null || voiceRules !== null || operatingIntent !== null || goal !== null || mailboxEnabled) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || jev !== null || orgReview !== null || voiceRules !== null || operatingIntent !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -1298,6 +1301,7 @@ async function applyWorkspaceLeadConfig(
     && regenerateUnchanged
     && clientFacingUnchanged
     && (project.learningEagerness ?? null) === learningEagerness
+    && JSON.stringify(project.jev ?? null) === JSON.stringify(jev)
     && orgReviewUnchanged
     && voiceUnchanged
     && operatingIntentUnchanged
@@ -1311,7 +1315,7 @@ async function applyWorkspaceLeadConfig(
   if (!mode.dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, orgReview, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, jev, orgReview, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }
