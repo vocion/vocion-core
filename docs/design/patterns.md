@@ -1034,7 +1034,7 @@ component.
     which wears its own header).
   - **Phone (below the breakpoint): `PaneDrawer`, always.** A drawer over the
     lower part of the chat, which stays underneath. It rests at **three
-    heights** (`drawerSnap.ts`): folded to its bar, half the screen, and the
+    heights** (`drawerSnap.ts`): folded to its bar, about two thirds of the screen (70%), and the
     whole screen under a 12px gap. The handle, the tabs and the pane's own
     header drag it; the content drags it too once it is scrolled to its top,
     and scrolls otherwise; a drag settles on the rest it was heading for, so

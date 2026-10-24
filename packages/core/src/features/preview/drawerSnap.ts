@@ -15,8 +15,12 @@ export const PEEK_HEIGHT = 56;
 /** Air left above the drawer at full height, px. */
 export const FULL_GAP = 12;
 
-/** Half of the host's height, as a share. */
-const HALF = 0.6;
+/**
+ * The resting height a drawer opens at, as a share of the host: most of the
+ * screen, so a document reads at all (`phoneTranscript.layout.test`), with the
+ * conversation's top still showing above it.
+ */
+const HALF = 0.7;
 
 /** How far a flick carries the drawer past where the finger let go, ms of travel. */
 const PROJECTION_MS = 180;

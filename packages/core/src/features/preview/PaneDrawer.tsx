@@ -467,7 +467,7 @@ export function PaneDrawer({ children, position = 'absolute', className }: { chi
           ? 'inset-x-3'
           : 'inset-x-0 bottom-0 flex min-h-0 flex-col overflow-hidden rounded-t-2xl border-t border-border bg-background shadow-(--shadow-pop)',
         !folded && live === null && 'transition-[height] duration-200 ease-out motion-reduce:transition-none',
-        !folded && !measured && (position === 'fixed' ? 'h-[60dvh]' : 'h-[60%]'),
+        !folded && !measured && (position === 'fixed' ? 'h-[70dvh]' : 'h-[70%]'),
         className,
       )}
       style={folded

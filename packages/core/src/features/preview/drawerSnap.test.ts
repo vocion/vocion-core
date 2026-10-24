@@ -7,7 +7,7 @@ describe('where the phone drawer rests', () => {
 
   it('rests folded, at half, and at the full height under a small gap', () => {
     expect(h.peek).toBe(PEEK_HEIGHT);
-    expect(h.half).toBe(480);
+    expect(h.half).toBe(560);
     expect(h.full).toBe(800 - FULL_GAP);
   });
 
