@@ -1363,7 +1363,7 @@ export const automationSchema = pgTable(
      * event-when's ceiling (default 6, `services/automations/fireGuards.ts`):
      * fires beyond it in a ten-minute window are held and coalesced into one.
      */
-    whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number }>().notNull(),
+    whenConfig: jsonb('when_config').$type<{ schedule?: string; timezone?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number }>().notNull(),
     /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>', prompt?}` (prompt = the authored execution orders for each check) | `{job: '<name>', input?}` (built-in server job). */
     /** Also the run's words from the YAML — `label` ("Checked it live") and `doing` ("Checking it live") — which lists title its runs with (`libs/factory/runTitle.ts`). */
     doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown>; label?: string; doing?: string }>().notNull(),
@@ -1564,6 +1564,8 @@ export const missionSchema = pgTable(
      * does only what's needed) on this cadence. Null = brief-only.
      */
     schedule: text('schedule'),
+    /** Where a check's result goes when it finishes (`deliver:` in the manifest, ADR 0008). */
+    deliver: jsonb('deliver').$type<{ email: true | string[] }>(),
     /**
      * Working memory across checks: open threads (with how many checks
      * they've been open), commitments + due dates, escalation state.

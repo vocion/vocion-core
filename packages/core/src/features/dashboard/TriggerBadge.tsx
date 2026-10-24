@@ -6,9 +6,9 @@ import { CalendarClock, Hand, Zap } from 'lucide-react';
  * Falls back to the raw expression when cronstrue can't parse it.
  * @param cron
  */
-export function cronToText(cron: string): string {
+export function cronToText(cron: string, zone?: string | null): string {
   try {
-    return `${cronstrue.toString(cron, { verbose: false }).replace(/^At /, '')} (UTC)`;
+    return `${cronstrue.toString(cron, { verbose: false }).replace(/^At /, '')} (${zone || 'UTC'})`;
   } catch {
     return cron;
   }

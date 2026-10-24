@@ -185,10 +185,11 @@ async function fetchNeedsYou(orgId: string): Promise<NeedsYou> {
  * latest workspace rollup (team_slug NULL), excerpted by the renderer. Either
  * way, never a previous copy of this very report.
  * @param orgId - Project id.
+ * @param since - The report window's start: a selected briefing older than it is marked `stale`.
  * @param until - Upper bound on `created_at`.
  * @param selector - Team and/or agent slug to match.
  */
-async function fetchBriefing(orgId: string, until: Date, selector?: BriefingSelector): Promise<DailyTeamReportData['rollup']> {
+async function fetchBriefing(orgId: string, since: Date, until: Date, selector?: BriefingSelector): Promise<DailyTeamReportData['rollup']> {
   const notOurs = sql`${briefingSchema.agentSlug} is distinct from ${DAILY_TEAM_REPORT_PUBLISHER}`;
   const cols = { id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt, document: briefingSchema.document };
   if (selector && (selector.teamSlug || selector.agentSlug)) {
@@ -205,7 +206,12 @@ async function fetchBriefing(orgId: string, until: Date, selector?: BriefingSele
       .orderBy(desc(briefingSchema.createdAt))
       .limit(1);
     if (row) {
-      return { ...row, document: parseStoredDocument(row.document), href: briefingHref(row.id), full: true, label: selector.teamSlug ? `${selector.teamSlug} briefing` : `${selector.agentSlug} briefing` };
+      // A briefing from before the window is the last one there is, not
+      // today's: the mail says so instead of sending it as new (ADR 0008 —
+      // a timed mail after a check that failed or ran late sent Friday's
+      // update on Monday as Monday's).
+      const stale = row.createdAt.getTime() < since.getTime();
+      return { ...row, document: parseStoredDocument(row.document), href: briefingHref(row.id), full: true, label: selector.teamSlug ? `${selector.teamSlug} briefing` : `${selector.agentSlug} briefing`, ...(stale ? { stale: true } : {}) };
     }
   }
   const [row] = await db
@@ -258,7 +264,7 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
       .where(and(eq(agentBudgetSchema.orgId, orgId), agentScopedOnly())),
     fetchWorkerRuns(orgId, w),
     fetchNeedsYou(orgId),
-    fetchBriefing(orgId, until, opts.briefing),
+    fetchBriefing(orgId, since, until, opts.briefing),
     fetchPerformance(orgId, until),
   ]);
   const rollup = rollupRows;

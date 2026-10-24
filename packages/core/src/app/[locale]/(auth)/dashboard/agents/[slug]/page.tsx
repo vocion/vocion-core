@@ -350,7 +350,7 @@ export default async function AgentDetailPage(props: {
                             ? `checks mission: ${auto.doConfig.checkMission}`
                             : `runs workflow: ${auto.doConfig.workflow}`;
                         const cadence = auto.whenConfig.schedule
-                          ? cronToText(auto.whenConfig.schedule)
+                          ? cronToText(auto.whenConfig.schedule, auto.whenConfig.timezone)
                           : `on ${auto.whenConfig.event}`;
                         const viaMission = !auto.ownerAgentSlug;
                         return (

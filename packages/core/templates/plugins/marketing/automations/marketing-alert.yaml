@@ -1,0 +1,20 @@
+# What the guard raised, explained by the Marketing lead between mornings.
+# Each event rings once (the guard's dedupe key); the result is mailed when
+# the check finishes, like the daily update.
+slug: marketing-alert
+name: Marketing alert
+description: When an ad is limited, spend runs off budget or a campaign's first conversion lands, the Marketing lead says what happened and proposes the fix.
+status: active
+agent: marketing-lead
+when:
+  event: [ads.ad_limited, ads.pacing_off, ads.first_conversion]
+do:
+  checkMission: daily-marketing-update
+  prompt: >-
+    Something changed in the ad account: the event below. Say what happened in
+    three lines at most, with the numbers from a report you read now
+    (ads_report ads, budget_pacing or campaigns), and propose the fix as a card
+    when one is needed (google_ads.*), never applying it yourself. A first
+    conversion needs no fix: say which campaign and search term it came from.
+    Publish via publish_briefing, title 'Marketing alert — <what happened>'.
+    Do not repeat the daily update.

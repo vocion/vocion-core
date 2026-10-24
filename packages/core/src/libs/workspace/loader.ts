@@ -1,3 +1,4 @@
+import type { Deprecation } from './missionSchedules';
 import type { ZodType } from 'zod';
 import type { ActivatedPack, ComposedEntry, FolderEntry, PackRaw, RawEntry } from './compose';
 import type { Origin } from './merge';
@@ -16,6 +17,7 @@ import { assertEvalCheckPaths } from './evalCheckPaths';
 import { assertAgentHierarchy } from './hierarchy';
 import { EXTENDS_CORE } from './merge';
 import { assertDoTargets, assertOwnership } from './ownership';
+import { scheduledChecksFromMissions } from './missionSchedules';
 import { resolvePlugins } from './plugins';
 import {
   AgentManifestSchema,
@@ -171,6 +173,8 @@ export type LoadedWorkspace = {
   workflows: LoadedWorkflow[];
   missions: LoadedMission[];
   automations: LoadedAutomation[];
+  /** Manifests written the old way that still load; workspace:check lists them as warnings. */
+  deprecations?: Deprecation[];
   /** Declared notification kinds, plugins' and the workspace's (`composeNotifications`). */
   notifications: LoadedNotification[];
   trust: TrustManifest | null;
@@ -309,7 +313,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   // Automations, teams and learning steps are not composable kinds (no deep
   // merge): a plugin's file is appended, and a workspace file with the same
   // slug replaces it outright — the same whole-file rule SKILL.md folders use.
-  const automations = inheritBy(
+  const authoredAutomations = inheritBy(
     walkDir(join(abs, 'automations'))
       .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
       .map((file) => {
@@ -323,6 +327,8 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     extras.automations,
     a => a.slug,
   );
+  // A mission's own `schedule:` runs as an automation, with every guard one has (ADR 0008).
+  const { automations, deprecations } = scheduledChecksFromMissions(missions, authoredAutomations);
 
   const playbooks = composeFolders('playbook', join(abs, 'playbooks'), layer?.active.playbooks, layer?.full.playbooks, files);
 
@@ -431,6 +437,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     workflows,
     missions,
     automations,
+    deprecations,
     notifications: composeNotifications(plugins, manifest),
     trust,
     voice,

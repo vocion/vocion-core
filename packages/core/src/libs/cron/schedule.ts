@@ -7,9 +7,10 @@
  * is the difference between a card that says "last run 7:00 PM" whether the
  * schedule is twelve days healthy or nineteen hours dead.
  *
- * Pure and UTC. Durable schedules are evaluated in UTC unless a
- * timezone is set, and none of ours set one, so every field is read against
- * `getUTC*`.
+ * Pure. A schedule is read in UTC unless it names an IANA zone
+ * (`when.timezone`), the zone the durable engine fires it in; then every field
+ * is read against that zone's wall clock, so "30 6 * * 1-5" in
+ * America/Los_Angeles stays 6:30am across daylight saving.
  */
 
 /** Standard 5-field cron: minute hour day-of-month month day-of-week. */
@@ -34,6 +35,52 @@ const FIELD_RANGES: [number, number][] = [
 ];
 
 const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+
+const OFFSET_FORMATS = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * The zone's offset from UTC at `at`, in minutes (Pacific daylight time is -420).
+ * @param at - The instant.
+ * @param zone - IANA zone.
+ */
+export function zoneOffsetMinutes(at: Date, zone: string): number {
+  let f = OFFSET_FORMATS.get(zone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' });
+    OFFSET_FORMATS.set(zone, f);
+  }
+  const p: Record<string, number> = {};
+  for (const part of f.formatToParts(at)) {
+    if (part.type !== 'literal') {
+      p[part.type] = Number(part.value);
+    }
+  }
+  const wall = Date.UTC(p.year!, p.month! - 1, p.day!, p.hour! % 24, p.minute!);
+  return Math.round((wall - Math.floor(at.getTime() / MINUTE_MS) * MINUTE_MS) / MINUTE_MS);
+}
+
+/**
+ * Reads `at` as a wall-clock time: a Date whose UTC fields are the zone's
+ * local fields. With no zone, `at` itself. The offset is looked up once per
+ * hour, so a walk over many minutes stays cheap.
+ * @param zone - IANA zone, or none for UTC.
+ */
+function wallClockReader(zone: string | null | undefined): (at: Date) => Date {
+  if (!zone) {
+    return at => at;
+  }
+  let hourKey = Number.NaN;
+  let offset = 0;
+  return (at) => {
+    const key = Math.floor(at.getTime() / HOUR_MS);
+    if (key !== hourKey) {
+      hourKey = key;
+      offset = zoneOffsetMinutes(at, zone);
+    }
+    return new Date(at.getTime() + offset * MINUTE_MS);
+  };
+}
 
 /** How far back a search walks before giving up. A schedule quieter than this reads as "never fired". */
 const MAX_LOOKBACK_MINUTES = 45 * 24 * 60;
@@ -154,18 +201,20 @@ function matches(m: Matcher, at: Date): boolean {
  * @param expr - The cron expression.
  * @param now - Evaluation time.
  * @param count - How many fires to collect.
+ * @param zone - IANA zone the schedule fires in; UTC when absent.
  */
-export function previousFires(expr: string, now: Date, count = 1): Date[] {
+export function previousFires(expr: string, now: Date, count = 1, zone?: string | null): Date[] {
   const m = parseCron(expr);
   if (!m || count < 1) {
     return [];
   }
+  const wall = wallClockReader(zone);
   const out: Date[] = [];
   // Truncate to the minute: a fire at 19:00:00 is "at or before" 19:00:42.
   let cursor = Math.floor(now.getTime() / MINUTE_MS) * MINUTE_MS;
   for (let i = 0; i <= MAX_LOOKBACK_MINUTES; i += 1) {
     const at = new Date(cursor);
-    if (matches(m, at)) {
+    if (matches(m, wall(at))) {
       out.push(at);
       if (out.length >= count) {
         return out;
@@ -181,9 +230,37 @@ export function previousFires(expr: string, now: Date, count = 1): Date[] {
  * expression is unparseable or nothing matched inside the lookback window.
  * @param expr - The cron expression.
  * @param now - Evaluation time.
+ * @param zone - IANA zone the schedule fires in; UTC when absent.
  */
-export function previousFire(expr: string, now: Date): Date | null {
-  return previousFires(expr, now, 1)[0] ?? null;
+export function previousFire(expr: string, now: Date, zone?: string | null): Date | null {
+  return previousFires(expr, now, 1, zone)[0] ?? null;
+}
+
+/** How far forward a search walks: a schedule that does not fire within a year reads as "not scheduled". */
+const MAX_LOOKAHEAD_MINUTES = 366 * 24 * 60;
+
+/**
+ * The next fire strictly after `from`, read in the schedule's zone. Null when
+ * the expression is unparseable or nothing matches within a year.
+ * @param expr - The cron expression.
+ * @param from - Evaluation time.
+ * @param zone - IANA zone the schedule fires in; UTC when absent.
+ */
+export function nextFire(expr: string, from: Date, zone?: string | null): Date | null {
+  const m = parseCron(expr);
+  if (!m) {
+    return null;
+  }
+  const wall = wallClockReader(zone);
+  let cursor = Math.floor(from.getTime() / MINUTE_MS) * MINUTE_MS + MINUTE_MS;
+  for (let i = 0; i <= MAX_LOOKAHEAD_MINUTES; i += 1) {
+    const at = new Date(cursor);
+    if (matches(m, wall(at))) {
+      return at;
+    }
+    cursor += MINUTE_MS;
+  }
+  return null;
 }
 
 /**
@@ -192,9 +269,10 @@ export function previousFire(expr: string, now: Date): Date | null {
  * daily sync two hours old is fine, an hourly one is not.
  * @param expr - The cron expression.
  * @param now - Evaluation time.
+ * @param zone - IANA zone the schedule fires in; UTC when absent.
  */
-export function cronIntervalMs(expr: string, now: Date): number | null {
-  const fires = previousFires(expr, now, 2);
+export function cronIntervalMs(expr: string, now: Date, zone?: string | null): number | null {
+  const fires = previousFires(expr, now, 2, zone);
   if (fires.length < 2) {
     return null;
   }

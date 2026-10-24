@@ -152,19 +152,20 @@ export async function loadMonitors(orgId: string, slugs: string[], now: Date = n
     const run = last.get(slug) ?? null;
     const logged = run ? checkLogRow(run, r.name) : null;
     const schedule = (r.whenConfig as { schedule?: unknown } | null)?.schedule;
+    const zone = (r.whenConfig as { timezone?: string } | null)?.timezone ?? null;
     const pause = pauses.get(slug);
     const counts = day.find(d => d.slug === slug);
     return [{
       slug,
       name: r.name,
-      every: typeof schedule === 'string' ? cronToText(schedule) : null,
+      every: typeof schedule === 'string' ? cronToText(schedule, zone) : null,
       state: r.pausedAt ? 'paused' : r.status === 'disabled' ? 'off' : 'active',
       pause: r.pausedAt ? { byName: pause?.by.name ?? r.pausedBy ?? 'someone', when: pausedSince(r.pausedAt.toISOString()), note: r.pausedNote } : null,
       targets: logged?.check?.targets.map(t => t.label) ?? [],
       kind: logged?.check?.kind ?? null,
       lastCheck: logged ? { at: logged.at, outcome: logged.outcome, line: logged.line, failed: logged.status === 'error' } : null,
       day: { checks: Number(counts?.checks ?? 0), opened: Number(counts?.opened ?? 0) },
-      nextRun: typeof schedule === 'string' && !r.pausedAt && r.status !== 'disabled' ? nextCronRun(schedule, new Date()) : null,
+      nextRun: typeof schedule === 'string' && !r.pausedAt && r.status !== 'disabled' ? nextCronRun(schedule, new Date(), zone) : null,
     }];
   });
 }

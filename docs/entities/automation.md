@@ -29,13 +29,20 @@ pure procedures, and neither carries its own schedule.
 
 | Field | Type | What it does |
 |---|---|---|
-| `schedule` | 5-field cron, UTC | Fire on a cadence. |
+| `schedule` | 5-field cron | Fire on a cadence, read in `timezone`. |
+| `timezone` | IANA zone, e.g. `America/Los_Angeles` | The clock the schedule is read in, so 6:30am stays 6:30am across daylight saving. UTC when absent. Schedule triggers only. |
 | `event` | string or string[], e.g. `prospect.reply` or `[worker_run.completed, pr.merged]` | Fire when this event type — any of these types — is emitted. |
 | `filter` | object | For event triggers: every key must equal the payload's value — or, for a key ending in `Prefix`, the field it names must start with the value; for a key ending in `Any` with a list, the field it names (an array, or comma-joined like `fields`) must share an item with it (`fieldsAny: [acceptance, outcome]`). |
 | `maxFiresPer10m` | integer ≥ 1 | For event triggers: the most fires in a rolling ten-minute window. Default **6**. Beyond it the fires are held and coalesced into one run after the window (below). Workspace-overridable like any field — `extends: core` on the automation's slug. |
 
 `schedule` and `event` are mutually exclusive — exactly one is required.
 `maxFiresPer10m` is only allowed with `event`; a schedule fires on its cron.
+`timezone` is only allowed with `schedule`.
+
+Automations are the one place time lives (ADR 0008). A mission's legacy
+`schedule:` loads as the automation `<mission>-check`; where a result goes
+when a check finishes is the mission's `deliver:`, never a second automation
+timed to fire after the first.
 
 **An automation never fires on its own run's event.** Every fire stamps
 itself on the work it starts — `mission_run.caused_by` carries the chain of

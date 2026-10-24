@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { missionScheduleSpec } from './MissionScheduleService';
 import { workflowScheduleSpec } from './WorkflowScheduleService';
 
 describe('workflowScheduleSpec', () => {
@@ -19,26 +18,6 @@ describe('workflowScheduleSpec', () => {
   });
 });
 
-describe('missionScheduleSpec', () => {
-  const spec = { orgId: 'org_northwind', missionSlug: 'crm-email-sweep', cron: '0 13,17,21 * * 1-5' };
-
-  it('runs the mission-check job', () => {
-    expect(missionScheduleSpec(spec)).toEqual({
-      name: 'mission-schedule-org_northwind-crm-email-sweep',
-      cron: '0 13,17,21 * * 1-5',
-      job: 'mission.check',
-      input: { orgId: 'org_northwind', missionSlug: 'crm-email-sweep' },
-    });
-  });
-
-  it('does not collide with workflow schedules for the same slug', () => {
-    const mission = missionScheduleSpec({ ...spec, missionSlug: 'shared-slug' });
-    const workflow = workflowScheduleSpec({ orgId: 'org_northwind', workflowSlug: 'shared-slug', cron: '0 6 * * *' });
-
-    expect(mission.name).not.toBe(workflow.name);
-  });
-});
-
 describe('automationScheduleSpec', () => {
   it('runs the automation-fire job', async () => {
     const { automationScheduleSpec } = await import('./AutomationService');
@@ -48,5 +27,12 @@ describe('automationScheduleSpec', () => {
       job: 'automation.fire',
       input: { orgId: 'org_northwind', slug: 'morning-briefing' },
     });
+  });
+
+  it('hands the zone to the engine, so a local-time schedule survives daylight saving (ADR 0008)', async () => {
+    const { automationScheduleSpec } = await import('./AutomationService');
+
+    expect(automationScheduleSpec({ orgId: 'org_northwind', slug: 'morning-briefing', cron: '30 6 * * 1-5', timezone: 'America/Los_Angeles' })).toMatchObject({ cron: '30 6 * * 1-5', timezone: 'America/Los_Angeles' });
+    expect(automationScheduleSpec({ orgId: 'org_northwind', slug: 'morning-briefing', cron: '30 6 * * 1-5' })).not.toHaveProperty('timezone');
   });
 });

@@ -12,7 +12,7 @@ import { parseRunLogQuery } from '@/features/dashboard/runLogQuery';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { cronToText } from '@/features/dashboard/TriggerBadge';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { cronIntervalMs } from '@/libs/cron/schedule';
+import { cronIntervalMs, nextFire } from '@/libs/cron/schedule';
 import { Link } from '@/libs/I18nNavigation';
 import {
   automationRunFacets,
@@ -92,9 +92,15 @@ export default async function AutomationDetailPage(props: {
     null,
   );
   const freshness = await automationSourceFreshness(orgId, checkResultOf(lastRun?.result)?.mirror?.sources ?? []);
-  const health = scheduleHealth({ cron, lastFireAt: lastRun?.startedAt ?? null, paused: pause !== null, now });
-  const interval = cron ? cronIntervalMs(cron, now) : null;
+  const zone = automation.whenConfig.timezone ?? null;
+  const health = scheduleHealth({ cron, timezone: zone, lastFireAt: lastRun?.startedAt ?? null, paused: pause !== null, now });
+  const interval = cron ? cronIntervalMs(cron, now, zone) : null;
   const runsEveryHour = interval !== null && interval <= 3_600_000;
+  // The next tick, on the clock it fires on — none while paused or off.
+  const next = cron && !pause && automation.status !== 'disabled' ? nextFire(cron, now, zone) : null;
+  const nextText = next
+    ? new Intl.DateTimeFormat('en-US', { timeZone: zone ?? 'UTC', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(next)
+    : null;
 
   return (
     <>
@@ -119,7 +125,7 @@ export default async function AutomationDetailPage(props: {
             <span className="font-medium text-foreground">When:</span>
             {' '}
             {cron
-              ? <span title={cron}>{cronToText(cron)}</span>
+              ? <span title={cron}>{cronToText(cron, zone)}</span>
               : (
                   <code className="font-mono">
                     on
@@ -127,6 +133,13 @@ export default async function AutomationDetailPage(props: {
                   </code>
                 )}
           </div>
+          {cron && (
+            <div>
+              <span className="font-medium text-foreground">Next run:</span>
+              {' '}
+              {nextText ?? (pause ? 'paused' : automation.status === 'disabled' ? 'off' : 'not within a year')}
+            </div>
+          )}
           <div>
             <span className="font-medium text-foreground">Does:</span>
             {' '}

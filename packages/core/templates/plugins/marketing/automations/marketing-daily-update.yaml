@@ -1,9 +1,13 @@
+# Weekday mornings at 6:30 Pacific, all year: the timezone keeps it on the
+# local clock across daylight saving. The mail is the mission's `deliver:`,
+# sent when this check finishes (ADR 0008).
 slug: marketing-daily-update
 name: Daily marketing update
 description: Weekday mornings the Marketing lead reads the ad account and publishes the update.
 status: active
 agent: marketing-lead
 when:
-  schedule: '30 13 * * 1-5' # 13:30 UTC, about 6:30am Pacific
+  schedule: '30 6 * * 1-5'
+  timezone: America/Los_Angeles
 do:
   checkMission: daily-marketing-update

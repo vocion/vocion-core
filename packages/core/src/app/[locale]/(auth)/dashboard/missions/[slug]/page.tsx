@@ -162,7 +162,7 @@ export default async function MissionDetailPage(props: {
                   <div key={a.slug} className="flex items-center gap-2 border-b border-border py-1.5 text-sm last:border-0">
                     <Link href="/dashboard/automation" className="font-medium hover:underline">{a.name}</Link>
                     {a.whenConfig.schedule && (
-                      <span className="text-xs text-muted-foreground" title={a.whenConfig.schedule}>{cronToText(a.whenConfig.schedule)}</span>
+                      <span className="text-xs text-muted-foreground" title={a.whenConfig.schedule}>{cronToText(a.whenConfig.schedule, a.whenConfig.timezone)}</span>
                     )}
                     {a.whenConfig.event && (
                       <code className="font-mono text-xs text-muted-foreground">

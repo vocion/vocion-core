@@ -1,0 +1,19 @@
+# Saturday morning: a short read on the week, so Monday's update is not the
+# first anyone hears of a quiet or runaway weekend. Delivered like the daily one.
+slug: marketing-weekend-summary
+name: Weekend marketing summary
+description: Saturday morning, a short read on the week's paid search.
+status: active
+agent: marketing-lead
+when:
+  schedule: '0 9 * * 6'
+  timezone: America/Los_Angeles
+do:
+  checkMission: daily-marketing-update
+  prompt: >-
+    Weekend summary. Read the last 7 days (ads_report campaigns, budget_pacing,
+    search_terms) and write five lines at most: spend against budget, what it
+    bought, cost per conversion against the week before, the search terms that
+    wasted the most, and anything that needs a person before Monday. Propose a
+    change only if it cannot wait. Publish via publish_briefing, title
+    'Marketing week — <date>'.
