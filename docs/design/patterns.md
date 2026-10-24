@@ -1033,13 +1033,22 @@ component.
     the top entry, a back control names it (`StackBack` above an artifact,
     which wears its own header).
   - **Phone (below the breakpoint): `PaneDrawer`, always.** A drawer over the
-    lower part of the chat, which stays underneath. With two or more entries
-    open it shows **a tab per entry**, each with its own X
-    (`closePreviewEntry`: the top gives way to what was under it; the last
-    one closes the drawer). The handle folds it, on a tap or a swipe down, to
-    **one bar above the composer**, *"Cumulative revenue · 2 open"*, and the
-    bar unfolds it. Folding closes nothing (`setPaneCollapsed`), and anything
-    newly opened unfolds it.
+    lower part of the chat, which stays underneath. It rests at **three
+    heights** (`drawerSnap.ts`): folded to its bar, about two thirds of the screen (70%), and the
+    whole screen under a 12px gap. The handle, the tabs and the pane's own
+    header drag it; the content drags it too once it is scrolled to its top,
+    and scrolls otherwise; a drag settles on the rest it was heading for, so
+    a flick carries past the nearest. A tap on the handle steps
+    half → full → folded. With two or more entries open it shows **a tab
+    per entry**, each with its own X (`closePreviewEntry`: the top gives way
+    to what was under it; the last one closes the drawer), **in the order
+    they opened** (`tabsInOrder`): picking a tab moves no tab, and the
+    picked one is scrolled into view. Folded, it is **one bar above the
+    composer** with its own grab handle, *"Cumulative revenue · 2 open"*;
+    a tap or a drag up opens it again. The bar re-measures the composer on
+    every change that can move it and never sits higher than the host has
+    room for. Folding closes nothing (`setPaneCollapsed`), and anything newly
+    opened unfolds it.
 - **Same keyboard.** Escape closes and returns focus to whatever opened it.
   The page's own shortcuts — the decision verbs, `j`/`k` — keep working
   underneath, because the panel never takes focus: a reviewer must still be

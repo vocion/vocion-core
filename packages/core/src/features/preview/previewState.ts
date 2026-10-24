@@ -145,6 +145,48 @@ export function previewTitle(key: string): string | null {
   return titles.get(key) ?? null;
 }
 
+/**
+ * THE TABS' ORDER — the order the pane's entries were opened in.
+ *
+ * Chris, 2026-10-24: "Switching active drawer tab changes tab order and moves
+ * what I clicked on." The stack above is for going BACK, so the entry on top
+ * is always last in it; tabs drawn from it jumped every time one was picked.
+ * Tabs keep this order instead: an entry joins at the end the first time it
+ * opens, and picking it again moves nothing.
+ */
+let order: readonly string[] = [];
+
+/**
+ * Pure: the open entries in tab order — those `order` knows, in its order,
+ * then any it does not (an entry the page arrived with), as they come.
+ * @param tabOrder - The order entries were opened in.
+ * @param present - What the pane holds now: the stack and the entry on top.
+ */
+export function tabsInOrder(tabOrder: readonly string[], present: readonly string[]): string[] {
+  const here = new Set(present);
+  const known = tabOrder.filter(k => here.has(k));
+  const seen = new Set(known);
+  const rest: string[] = [];
+  for (const k of present) {
+    if (!seen.has(k)) {
+      seen.add(k);
+      rest.push(k);
+    }
+  }
+  return [...known, ...rest];
+}
+
+function readOrder(): readonly string[] {
+  return order;
+}
+
+const NO_ORDER: readonly string[] = [];
+
+/** The order the pane's entries were opened in (`tabsInOrder` draws the tabs from it). */
+export function usePaneOrder(): readonly string[] {
+  return useSyncExternalStore(subscribe, readOrder, () => NO_ORDER);
+}
+
 function writeParam(value: string | null, mode: 'push' | 'replace' = 'push'): void {
   const params = new URLSearchParams(window.location.search);
   if (value === null) {
@@ -209,7 +251,11 @@ export function openPreview(ref: Pick<RecordRef, 'type' | 'id'>, from: HTMLEleme
   dismissSelectionControl();
   collapsed = false;
   const key = previewKey(ref);
-  stack = stackAfterOpen(readStack(), currentKey(), key);
+  const current = currentKey();
+  const known = window.location.pathname === stackPath ? order : [];
+  const withCurrent = current && !known.includes(current) ? [...known, current] : known;
+  order = withCurrent.includes(key) ? withCurrent : [...withCurrent, key];
+  stack = stackAfterOpen(readStack(), current, key);
   stackPath = window.location.pathname;
   writeParam(key);
 }
@@ -225,6 +271,7 @@ export function openPreview(ref: Pick<RecordRef, 'type' | 'id'>, from: HTMLEleme
 export function replacePreview(ref: Pick<RecordRef, 'type' | 'id'>, drop: readonly string[] = []): void {
   collapsed = false;
   stack = [];
+  order = [previewKey(ref)];
   stackPath = window.location.pathname;
   if (drop.length > 0) {
     const params = new URLSearchParams(window.location.search);
@@ -288,6 +335,7 @@ export function stackAfterClose(stack: readonly string[], current: string | null
  * @param key - Its `<type>:<id>`.
  */
 export function closePreviewEntry(key: string): void {
+  order = order.filter(k => k !== key);
   const next = stackAfterClose(readStack(), currentKey(), key);
   if (next.current === null) {
     closePreview();
@@ -304,7 +352,8 @@ export function closePreviewEntry(key: string): void {
 
 /**
  * Put an entry already in the pane on top (a tab on a phone). It is an
- * opening like any other, so Back walks it.
+ * opening like any other, so Back walks it; its tab stays where it is
+ * (`order`).
  * @param key - Its `<type>:<id>`.
  */
 export function showPreviewEntry(key: string): void {
@@ -356,6 +405,7 @@ export function closePreview(): void {
   const back = opener;
   opener = null;
   collapsed = false;
+  order = [];
   writeParam(null);
   back?.focus();
 }
