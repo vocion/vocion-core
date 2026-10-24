@@ -5,8 +5,12 @@ import { closePreview, openPreview, rememberPreviewTitle, setPaneCollapsed, useO
 
 /**
  * The pane on a phone: one drawer for everything the pane holds, a tab per
- * entry once two are open, and a bar above the composer when folded (Chris,
- * 2026-10-23). The entries are fictional; the URL holds them, as in the app.
+ * entry once two are open (in the order they opened; picking one moves none),
+ * and a bar with its own grab handle above the composer when folded (Chris,
+ * 2026-10-23 and 10-24). Drag the handle, the tabs or the pane's header
+ * between the bar, half and full height; a tap on the handle steps
+ * half → full → folded. The entries are fictional; the URL holds them, as in
+ * the app.
  */
 const meta: Meta<typeof PaneDrawer> = {
   title: 'Preview/PaneDrawer',
@@ -51,4 +55,16 @@ export const TwoEntriesAsTabs: Story = {
 
 export const FoldedAboveTheComposer: Story = {
   render: () => <Phone folded entries={[{ type: 'artifact', id: '41', title: 'Cumulative revenue' }, { type: 'object', id: '16', title: 'Larkfield renewal' }]} />,
+};
+
+export const ManyTabsScrolledToTheActive: Story = {
+  render: () => (
+    <Phone entries={[
+      { type: 'artifact', id: '41', title: 'Costs have outrun revenue since the summer' },
+      { type: 'artifact', id: '42', title: 'Base case: the year ends near break-even' },
+      { type: 'artifact', id: '43', title: 'Cash runway at the current burn' },
+      { type: 'object', id: '16', title: 'Larkfield renewal' },
+    ]}
+    />
+  ),
 };

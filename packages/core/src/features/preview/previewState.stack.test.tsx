@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
-import { closePreview, closePreviewEntry, openPreview, previewBack, replacePreview, setPaneCollapsed, stackAfterClose, stackAfterOpen, stackAfterUrl, useOpenPreviewRef, usePaneCollapsed, usePreviewStack } from './previewState';
+import { closePreview, closePreviewEntry, openPreview, previewBack, replacePreview, setPaneCollapsed, stackAfterClose, stackAfterOpen, stackAfterUrl, tabsInOrder, useOpenPreviewRef, usePaneCollapsed, usePreviewStack } from './previewState';
 
 /**
  * THE PANE STACKS WHAT YOU OPEN (Chris, 2026-10-23: the thread's background
@@ -51,6 +51,19 @@ function Probe() {
     </div>
   );
 }
+
+describe('the tabs\' order (2026-10-24: picking a tab moved it)', () => {
+  it('keeps the order entries opened in, whichever is on top', () => {
+    // The stack puts what is on top last; the tabs do not follow it.
+    expect(tabsInOrder(['a', 'b', 'c'], ['b', 'c', 'a'])).toEqual(['a', 'b', 'c']);
+    expect(tabsInOrder(['a', 'b', 'c'], ['a', 'c', 'b'])).toEqual(['a', 'b', 'c']);
+  });
+
+  it('drops what closed and appends what it never saw, once', () => {
+    expect(tabsInOrder(['a', 'b', 'c'], ['c', 'a'])).toEqual(['a', 'c']);
+    expect(tabsInOrder(['a'], ['a', 'z', 'z'])).toEqual(['a', 'z']);
+  });
+});
 
 describe('the stack in the URL', () => {
   const start = window.location.href;
