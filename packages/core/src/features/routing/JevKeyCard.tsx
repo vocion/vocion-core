@@ -94,11 +94,11 @@ export function JevKeyCard(props: JevKeyCardProps) {
           }}
         >
           <div className="grid min-w-64 flex-1 gap-1">
-            <Label htmlFor={`jev-key-${props.scope}-input`} className="text-xs">{saved ? 'Replace the key' : 'OpenRouter API key'}</Label>
+            <Label htmlFor={`jev-key-${props.scope}-input`} className="text-xs">{saved ? 'New OpenRouter API key for Jev' : 'OpenRouter API key for Jev'}</Label>
             <Input id={`jev-key-${props.scope}-input`} type="password" autoComplete="off" spellCheck={false} placeholder="sk-or-…" value={key} onChange={e => setKey(e.target.value)} />
           </div>
-          <Button type="submit" size="sm" disabled={busy || !key.trim()}>{saved ? 'Replace' : 'Save key'}</Button>
-          {saved && <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act('remove')}>Remove</Button>}
+          <Button type="submit" size="sm" disabled={busy || !key.trim()}>{saved ? 'Replace Jev key' : 'Save Jev key'}</Button>
+          {saved && <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act('remove')}>Remove Jev key</Button>}
         </form>
       )}
       {!props.canEdit && !props.lock && <p className="mt-3 text-[13px] text-muted-foreground">An admin sets this key.</p>}
