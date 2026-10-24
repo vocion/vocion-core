@@ -1,0 +1,13 @@
+slug: marketing-update-email
+name: Daily marketing update — email
+description: Twenty minutes after the update is published, mail it to the accountable person.
+status: active
+agent: marketing-lead
+when:
+  schedule: '50 13 * * 1-5' # 13:50 UTC, about 6:50am Pacific
+do:
+  job: daily-team-report
+  input:
+    hours: 24
+    briefing:
+      agentSlug: marketing-lead

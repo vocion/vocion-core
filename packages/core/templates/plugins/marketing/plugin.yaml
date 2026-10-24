@@ -1,0 +1,40 @@
+# The marketing plugin — paid search run by an agent, approved by a person.
+#
+# Core ships the MECHANISM: the Google Ads connection (one Google login with
+# the adwords scope; developer tokens were retired on 2026-09-09, so access
+# follows the Cloud project that owns the OAuth client), the ads family's reads
+# (`ads_campaigns`, `ads_performance`, `ads_report`) and its writes, each a
+# proposal a person approves (`ads.set_status`, `google_ads.*`), and the
+# Marketing app's pages at /dashboard/marketing.
+#
+# This plugin ships the MEANING: a Marketing lead who reads the account every
+# morning, says what was spent and what it bought, finds the searches that
+# wasted money, and proposes the change rather than making it; a daily update
+# that lands as a briefing and in the accountable person's inbox; and two
+# skills, reviewing search terms and launching a search campaign from a
+# landing page.
+#
+# The workspace ships the CONCRETION: which ad account, which landing pages,
+# what a conversion is worth, and who approves.
+slug: marketing
+name: Marketing
+version: 1.0.0
+description: Paid search run by an agent and approved by you. A Marketing lead reads the Google Ads account every morning and sends a short update — spend against budget, what it bought, the searches that wasted money, ads Google limited — then proposes each change (negatives, keywords, budgets, ad text, a new campaign from a landing page) as a card you approve. Nothing that spends changes without you.
+depends: []
+surfaces: []
+nav: {section: Marketing}
+recommend:
+  when:
+    - a person runs Google Ads campaigns and checks them by hand, or not at all
+    - ad spend goes out every day and nobody can say what it bought this week
+    - a person asks to launch, pause or change an ad campaign
+    - search terms are never reviewed and budget leaks to searches nobody meant to buy
+  connectors: [google-ads]
+
+starters:
+  - label: How did the ads do this week?
+    prompt: How did our Google Ads do this week? Spend against budget, clicks, conversions and cost per conversion by campaign, and the one change you'd make.
+  - label: Find wasted spend
+    prompt: Review the last 14 days of search terms. Which ones spent with nothing to show, and which should be negatives? Propose them.
+  - label: Launch a campaign for a page
+    prompt: 'Build and launch a Google Search campaign for this landing page at $50 a day: '

@@ -29,13 +29,16 @@ const IDENTITY_SCOPES = ['openid', 'email'] as const;
 
 /**
  * The vendor scopes each connector needs, without the identity scopes.
- * Read-only everywhere: no source in this app sends mail or writes files.
+ * Read-only everywhere except Google Ads, whose one scope (`adwords`) both
+ * reads and writes: Google offers no read-only Ads scope. Vocion still writes
+ * to Ads only through an approved proposal (`libs/actions/google-ads.ts`).
  */
 export const GOOGLE_LOGIN_SCOPES: Record<string, readonly string[]> = {
   'gmail': ['https://www.googleapis.com/auth/gmail.readonly'],
   'drive': ['https://www.googleapis.com/auth/drive.readonly'],
   'google-calendar': ['https://www.googleapis.com/auth/calendar.events.readonly'],
   'ga4': ['https://www.googleapis.com/auth/analytics.readonly'],
+  'google-ads': ['https://www.googleapis.com/auth/adwords'],
 };
 
 /**
@@ -132,7 +135,7 @@ function hasEveryScope(granted: string, required: readonly string[]): boolean {
 
 export const googleProvider: ConnectProvider = {
   id: 'google',
-  connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4'],
+  connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'],
   label: 'Google',
   requiredEnv: ['GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET'],
   configured: () => googleClient() !== null,

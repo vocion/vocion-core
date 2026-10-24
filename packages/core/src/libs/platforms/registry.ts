@@ -1233,16 +1233,20 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // Mail hosted here says the workspace lives in this suite: offer its mail, calendar and files.
     discovery: { mailHosts: ['google.com', 'googlemail.com'], connectors: ['gmail', 'google-calendar', 'drive'] },
     howToConnect: {
-      // Each connector asks Google for its own read scope. A login also
-      // carries the scopes the person granted this app before
+      // Each connector asks Google for its own scope. A login also carries
+      // the scopes the person granted this app before
       // (`include_granted_scopes`), so logging in for Gmail after Drive adds
-      // Gmail rather than replacing Drive. Google Ads has no login: its API
-      // also needs a developer token, which no login can issue.
+      // Gmail rather than replacing Drive. Google Ads logs in like the rest
+      // since Google retired developer tokens (2026-09-09): API access now
+      // follows the Cloud project that owns the OAuth client, which needs
+      // Explorer access or above for real accounts. `adwords` is Google's one
+      // Ads scope (read and write); every write still goes through a proposal.
       loginByConnector: {
         'gmail': { provider: 'google', access: ['https://www.googleapis.com/auth/gmail.readonly'], settingsAfterLogin: [] },
         'drive': { provider: 'google', access: ['https://www.googleapis.com/auth/drive.readonly'], settingsAfterLogin: [] },
         'google-calendar': { provider: 'google', access: ['https://www.googleapis.com/auth/calendar.events.readonly'], settingsAfterLogin: [] },
         'ga4': { provider: 'google', access: ['https://www.googleapis.com/auth/analytics.readonly'], settingsAfterLogin: [{ key: 'propertyId', label: 'Analytics property' }] },
+        'google-ads': { provider: 'google', access: ['https://www.googleapis.com/auth/adwords'], settingsAfterLogin: [{ key: 'customerId', label: 'Ads account' }] },
       },
       paste: {
         credential: 'OAuth client and refresh token',
@@ -1256,7 +1260,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     llmProvider: null,
     keyPattern: null,
     keyShapeHint: 'an OAuth client id and secret plus the refresh token they minted',
-    helpText: 'A Google OAuth client and the refresh token it minted, from `npm run google:oauth`. Gmail, Drive, Calendar, Analytics and Ads all authenticate with it. A refresh token keeps working; a bare access token expires in about an hour.',
+    helpText: 'A Google OAuth client and the refresh token it minted, from `npm run google:oauth`. Gmail, Drive, Calendar, Analytics and Ads all authenticate with it. A refresh token keeps working; a bare access token expires in about an hour. For Google Ads, the client\'s Cloud project needs Explorer access or above (Cloud Console → Google Ads API Overview); no developer token is needed.',
     fields: [
       {
         name: 'clientId',
@@ -1284,12 +1288,13 @@ const PLATFORMS: readonly CredentialPlatform[] = [
       },
       {
         name: 'developerToken',
-        label: 'Google Ads developer token',
+        label: 'Google Ads developer token (retired)',
         pattern: null,
-        shapeHint: 'is the developer token from the Google Ads manager account',
+        shapeHint: 'is an old developer token; Google ignores it since 2026-09-09, so leave it blank',
         secret: true,
-        // Only the Ads connector sends it. Leaving it blank is right for a
-        // workspace syncing Gmail, Drive, Calendar or Analytics.
+        // Google retired developer tokens on 2026-09-09: API access follows
+        // the Cloud project that owns the OAuth client. Kept so a credential
+        // that still carries one reads back; never required.
         optional: true,
       },
     ],

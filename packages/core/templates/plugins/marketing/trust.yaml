@@ -1,0 +1,3 @@
+# Empty on purpose: every change to an ad account moves money, so every one
+# waits in Review for a person (`approvalRequired` on each google_ads action).
+rules: []

@@ -28,16 +28,31 @@ function baseCtx(config: Record<string, unknown>, credentials: Record<string, un
 afterEach(() => vi.unstubAllGlobals());
 
 describe('googleAdsConnector', () => {
-  const cfg = { customerId: '123' };
-  const creds = { token: 't', developerToken: 'dev' };
+  const cfg = { customerId: '1234567890' };
+  const creds = { token: 't' };
 
-  it('yields a campaign/day doc; refuses without tokens', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => res({ results: [{ campaign: { id: '7', name: 'Brand' }, metrics: { clicks: '10' }, segments: { date: '2026-06-01' } }] })));
+  it('yields a campaign/day doc, with no developer token (retired 2026-09-09); refuses without a login', async () => {
+    const f = vi.fn(async () => res({ results: [{ campaign: { id: '7', name: 'Brand' }, metrics: { clicks: '10' }, segments: { date: '2026-06-01' } }] }));
+    vi.stubGlobal('fetch', f);
     const docs = await collect(googleAdsConnector.sync(baseCtx(cfg, creds)));
 
     expect(docs[0]!.externalId).toBe('campaign:7:2026-06-01');
     expect(docs[0]!.content).toContain('clicks: 10');
-    await expect(collect(googleAdsConnector.sync(baseCtx(cfg, { token: 't' })))).rejects.toThrow(/developerToken/);
+
+    const headers = (f.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
+
+    expect(headers['developer-token']).toBeUndefined();
+    expect((f.mock.calls[0] as unknown as [string])[0]).toContain('/v23/customers/1234567890/googleAds:search');
+
+    await expect(collect(googleAdsConnector.sync(baseCtx(cfg, {})))).rejects.toThrow(/credentials missing/i);
+  });
+
+  it('still sends a developer token a credential carries', async () => {
+    const f = vi.fn(async () => res({ results: [] }));
+    vi.stubGlobal('fetch', f);
+    await collect(googleAdsConnector.sync(baseCtx(cfg, { token: 't', developerToken: 'dev' })));
+
+    expect(((f.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>)['developer-token']).toBe('dev');
   });
 
   it('filters by date when incremental', async () => {

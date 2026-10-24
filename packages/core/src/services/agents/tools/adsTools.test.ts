@@ -40,7 +40,8 @@ function ctxFor(sources: string[], kinds?: Record<string, string>): RuntimeConte
 
 describe('the ads reads', () => {
   it('exist only for an agent with an ads source, and can be bound to a model', () => {
-    expect(adsTools(ctxFor(['google-ads']))).toHaveLength(0);
+    expect(adsTools(ctxFor(['crm']))).toHaveLength(0);
+    expect((adsTools(ctxFor(['google-ads'])) as unknown as Invokable[]).map(t => t.name)).toEqual(['ads_campaigns', 'ads_performance', 'ads_report']);
 
     const tools = adsTools(ctxFor(['brand-linkedin'], { 'brand-linkedin': 'linkedin-ads' })) as unknown as Invokable[];
 

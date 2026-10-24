@@ -66,12 +66,12 @@ describe('howToConnect declarations', () => {
     }
   });
 
-  it('each Google connector logs in for its own scope only, and Google Ads, which also needs a developer token, has no login', () => {
-    for (const slug of ['gmail', 'drive', 'google-calendar', 'ga4']) {
+  it('each Google connector logs in for its own scope only, Google Ads included now that developer tokens are retired (2026-09-09)', () => {
+    for (const slug of ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads']) {
       expect(howToConnectFor(slug)?.login?.access, slug).toEqual([...GOOGLE_LOGIN_SCOPES[slug]!]);
     }
 
-    expect(howToConnectFor('google-ads')?.login).toBeUndefined();
+    expect(howToConnectFor('google-ads')?.login?.access).toEqual(['https://www.googleapis.com/auth/adwords']);
     expect(howToConnectFor('google-ads')?.paste?.credential).toBe('OAuth client and refresh token');
   });
 

@@ -30,6 +30,7 @@ import { githubRerunFailedJobsAction } from './github-rerun';
 import { githubRevertPullAction } from './github-revert';
 import { gmailSendAction } from './gmail-send';
 import { goalCreateAction } from './goal-create';
+import { GOOGLE_ADS_ACTIONS } from './google-ads';
 import { hubspotCreateAction } from './hubspot-create';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
@@ -248,6 +249,11 @@ registerAction(workspaceWriteOperatingIntentAction);
 // Pause or resume a campaign or ad set on the connected ad platform — the ads
 // family's one write; Undo puts it back (`libs/actions/ads-set-status.ts`).
 registerAction(adsSetStatusAction);
+// Google Ads beyond pause/resume: budgets, negatives, keywords, ad text and a
+// whole search campaign, each a proposal a person approves (`./google-ads.ts`).
+for (const action of GOOGLE_ADS_ACTIONS) {
+  registerAction(action);
+}
 // Kit / assembly verification decisions + the training-set loop (granted per workspace via trust + agents).
 for (const a of qcActions) {
   registerAction(a as Action);

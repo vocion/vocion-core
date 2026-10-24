@@ -1,0 +1,23 @@
+# A standing GOAL: every weekday morning the accountable person knows what the
+# ads spent and what it bought. The cadence is automations/marketing-daily-update.yaml;
+# the mail is automations/marketing-update-email.yaml.
+slug: daily-marketing-update
+name: Daily marketing update
+description: Every weekday morning, one short read on paid search — what was spent, what it bought, what was wasted, and the one change to make.
+status: active
+version: 1
+goal: Every weekday the accountable person has a two-minute read on paid search, built from the live account, that ends in the change to approve.
+agent: marketing-lead
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - "SPEND: yesterday and the last 7 days by campaign (ads_report campaigns), with clicks, CTR, CPC, conversions and cost per conversion, and month-to-date against budget (ads_report budget_pacing). Say when a campaign counts no conversions."
+  - "WASTE: search terms from the last 7 days that spent with no conversion and do not match what the landing page offers (ads_report search_terms), with their spend. Propose them as negatives with google_ads.add_negatives; never add them yourself."
+  - "ADS: every ad Google disapproved or limited (ads_report ads), with the policy topic and the fix."
+  - "WAITING: the ad proposals still waiting on a person, oldest first."
+  - "ONE RECOMMENDATION with the numbers behind it, offered as a proposal."
+  - "NEVER INVENT: a number comes from a report read this morning, with its date range. Missing data is said plainly."
+  - "PUBLISH via publish_briefing, title 'Marketing update — <weekday, date>'."
+desiredArtifacts:
+  - The daily marketing update as a briefing
+  - Negative-keyword proposals for this week's wasted search terms
