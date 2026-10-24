@@ -2,7 +2,8 @@ import type { EnginesQuery } from './engineBoard';
 import type { EngineRunRow, EngineScore } from '@/services/factory/engineRun';
 import { StatusPill } from '@/components/ui/status-pill';
 import { Link } from '@/libs/I18nNavigation';
-import { BOARD_LINES, boardColumns, duration, emptyColumn, emptyLine, enginesHref, money, OUTCOMES, runLinks, WINDOWS } from './engineBoard';
+import type { RoutingState } from './engineBoard';
+import { BOARD_LINES, boardColumns, duration, emptyColumn, emptyLine, enginesHref, money, OUTCOMES, routingLine, runLinks, whyLine, WINDOWS } from './engineBoard';
 import { EnginesControls } from './EnginesControls';
 
 function Board({ columns, factory }: { columns: EngineScore[]; factory: boolean }) {
@@ -72,6 +73,7 @@ function Runs({ rows, empty, timezone }: { rows: EngineRunRow[]; empty: string |
         <tbody>
           {rows.map((r) => {
             const links = runLinks(r);
+            const why = whyLine(r);
             const outcome = OUTCOMES[r.outcome] ?? { label: r.outcome, pill: 'inactive' as const };
             const when = r.startedAt ?? r.createdAt;
             return (
@@ -89,7 +91,11 @@ function Runs({ rows, empty, timezone }: { rows: EngineRunRow[]; empty: string |
                 <td className="px-3 py-1.5"><StatusPill status={outcome.pill} label={outcome.label} size="sm" /></td>
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums">{duration(r.durationS)}</td>
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums">{money(r.cents)}</td>
-                <td className="max-w-xs px-3 py-1.5 text-[13px] text-muted-foreground">{r.routeReason ?? (r.routePolicy ? r.routePolicy : 'not recorded')}</td>
+                <td className="max-w-xs px-3 py-1.5 text-[13px] text-muted-foreground" title={why.detail ?? undefined}>
+                  {why.selector && <span className={`mr-1.5 rounded border px-1 py-px font-mono text-[10px] uppercase ${why.selector === 'jev' ? 'border-pass/40 text-pass' : 'border-border'}`}>{why.selector}</span>}
+                  {why.text}
+                  {why.detail && <div className="text-[11px]">{why.detail}</div>}
+                </td>
                 <td className="px-3 py-1.5 text-[13px] whitespace-nowrap">
                   <span className="flex gap-3">
                     {links.pr && <a href={links.pr} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">PR</a>}
@@ -118,8 +124,9 @@ function Runs({ rows, empty, timezone }: { rows: EngineRunRow[]; empty: string |
  * @param props.rows - The runs (`listEngineRuns`), newest first.
  * @param props.since - Where the window starts.
  * @param props.timezone - The workspace's zone, for the run times.
+ * @param props.routing - Whether dynamic routing (ADR 0006) is on here, and on whose key.
  */
-export function EnginesView({ slug, query, engines, rows, since, timezone }: { slug: string; query: EnginesQuery; engines: EngineScore[]; rows: EngineRunRow[]; since: Date; timezone: string }) {
+export function EnginesView({ slug, query, engines, rows, since, timezone, routing }: { slug: string; query: EnginesQuery; engines: EngineScore[]; rows: EngineRunRow[]; since: Date; timezone: string; routing?: RoutingState }) {
   const columns = boardColumns(engines, query.source);
   const groups = [
     { label: 'Window', choices: WINDOWS.map(d => ({ key: String(d), label: `${d} days`, href: enginesHref(slug, query, { days: d }), chosen: query.days === d })) },
@@ -132,6 +139,7 @@ export function EnginesView({ slug, query, engines, rows, since, timezone }: { s
   const filters = [{ key: 'all', label: 'All engines', engine: null as string | null }, ...columns.map(c => ({ key: c.engine, label: c.engine, engine: c.engine }))];
   return (
     <EnginesControls groups={groups} note={note}>
+      {routing && <p className="mb-4 text-[13px] text-muted-foreground" data-testid="engines-routing">{routingLine(routing)}</p>}
       <h2 className="mb-2 text-base font-semibold">Side by side</h2>
       <Board columns={columns} factory={query.source === 'factory'} />
       <div className="mt-10 mb-2 flex flex-wrap items-center justify-between gap-3">

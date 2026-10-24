@@ -145,6 +145,8 @@ export function engineRunFromWorkerRun(run: Pick<WorkerRun, 'id' | 'orgId' | 'ag
     seat: run.agentSlug,
     routePolicy: text(route.policy),
     routeReason: text(route.reason),
+    routeSelector: text(route.selector) ?? (text(route.policy) ? 'static' : null),
+    routeDetail: Object.keys(obj(route.jev)).length > 0 ? obj(route.jev) : null,
     taskId,
     requestId,
     repo: repoName(contract.repo),
@@ -317,6 +319,11 @@ export type EngineScore = {
   retries: number;
   models: string[];
   byComplexity: Record<string, number>;
+  /**
+   * Who chose this engine's runs (ADR 0006): `jev`, `static`, and of the
+   * static ones, how many were a Jev fallback (asked, or keyed, but not used).
+   */
+  selectors: { jev: number; static: number; fallback: number };
 };
 
 const rate = (n: number, d: number): number | null => (d > 0 ? Math.round((n / d) * 1000) / 1000 : null);
@@ -325,7 +332,7 @@ const rate = (n: number, d: number): number | null => (d > 0 ? Math.round((n / d
  * The board: one line per engine and source, from its rows. Pure.
  * @param rows - The rows.
  */
-export function scoreboardOf(rows: ReadonlyArray<Pick<EngineRunRow, 'engine' | 'source' | 'model' | 'outcome' | 'prUrl' | 'durationS' | 'cents' | 'guardViolations' | 'retries' | 'complexity' | 'attempt'>>): EngineScore[] {
+export function scoreboardOf(rows: ReadonlyArray<Pick<EngineRunRow, 'engine' | 'source' | 'model' | 'outcome' | 'prUrl' | 'durationS' | 'cents' | 'guardViolations' | 'retries' | 'complexity' | 'attempt'> & Partial<Pick<EngineRunRow, 'routeSelector' | 'routeDetail'>>>): EngineScore[] {
   const groups = new Map<string, typeof rows[number][]>();
   for (const r of rows) {
     const k = `${r.engine}\u0000${r.source}`;
@@ -367,6 +374,11 @@ export function scoreboardOf(rows: ReadonlyArray<Pick<EngineRunRow, 'engine' | '
       retries: list.filter(r => r.attempt > 1).length,
       models: [...new Set(list.map(r => r.model).filter((m): m is string => Boolean(m)))].sort(),
       byComplexity,
+      selectors: {
+        jev: list.filter(r => r.routeSelector === 'jev').length,
+        static: list.filter(r => r.routeSelector !== 'jev').length,
+        fallback: list.filter(r => r.routeSelector !== 'jev' && typeof r.routeDetail?.fallback === 'string').length,
+      },
     });
   }
   return out.sort((a, b) => a.source.localeCompare(b.source) || b.runs - a.runs);

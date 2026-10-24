@@ -5,6 +5,7 @@ import { FactList } from '@/components/patterns';
 import { ApiTokensPanel } from '@/features/api-tokens/ApiTokensPanel';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { JevRoutingSection } from '@/features/routing/JevRoutingSection';
 import { Link } from '@/libs/I18nNavigation';
 import { appBaseUrl } from '@/libs/links';
 import { ORG_ROLE } from '@/types/Auth';
@@ -41,7 +42,7 @@ async function publicOrigin(): Promise<string> {
 }
 
 export default async function DevelopersPage() {
-  const { has } = await requireOrganization();
+  const { orgId, has } = await requireOrganization();
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
   const origin = await publicOrigin();
   const mcpUrl = `${origin}/api/mcp`;
@@ -123,6 +124,8 @@ export default async function DevelopersPage() {
       >
         {isAdmin && <ApiTokensPanel />}
       </DashboardSection>
+
+      <JevRoutingSection scope="workspace" orgId={orgId} isAdmin={isAdmin} />
 
       <DashboardSection
         title="Docs"

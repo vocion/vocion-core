@@ -5856,6 +5856,19 @@ export const engineRunSchema = pgTable(
     linesRemoved: integer('lines_removed'),
     /** `small` | `medium` | `large`, from files and lines (`complexityOf`). */
     complexity: text('complexity'),
+    /**
+     * Who chose the run's engine, model and effort (ADR 0006): `static` (the
+     * ADR 0005 chain) or `jev`. A run Jev was asked about but could not decide
+     * is `static`, with `routeDetail.fallback` saying why.
+     */
+    routeSelector: text('route_selector'),
+    /**
+     * What Jev answered, when it was asked (`services/routing/route.ts`
+     * `RouteDetail`): its choice, confidence, effort, model build, latency,
+     * cost, the key's scope (`instance` | `workspace`, never the key), and
+     * whether it fell back and why.
+     */
+    routeDetail: jsonb('route_detail').$type<Record<string, unknown>>(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
   },
@@ -5865,6 +5878,29 @@ export const engineRunSchema = pgTable(
     index('engine_run_org_engine_started_idx').on(table.orgId, table.engine, table.startedAt),
   ],
 );
+
+/**
+ * THE KEY THAT TURNS DYNAMIC ROUTING ON (ADR 0006): an OpenRouter key for Jev,
+ * TypeSafe's decision model. `holder` is `instance` (the installation's key,
+ * set on System) or `workspace:<orgId>` (a workspace's own, so its Jev calls
+ * bill and track on its own account). The key is encrypted with the
+ * credential vault, under the scope `instance` or the workspace's id; only the
+ * last four characters are kept in the clear, for the settings card.
+ */
+export const routingKeySchema = pgTable('routing_key', {
+  holder: text('holder').primaryKey(),
+  /** The workspace for a `workspace:` holder; null for the instance key. */
+  orgId: text('org_id'),
+  dekId: integer('dek_id').notNull().references(() => sourceDekSchema.id, { onDelete: 'restrict' }),
+  ciphertext: text('ciphertext').notNull(),
+  nonce: text('nonce').notNull(),
+  authTag: text('auth_tag').notNull(),
+  /** `…abcd`: what the card shows. */
+  keyHint: text('key_hint').notNull(),
+  setBy: text('set_by'),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+});
 
 /**
  * One row per paid model call — the spend LEDGER (`services/spend/ledger.ts`).

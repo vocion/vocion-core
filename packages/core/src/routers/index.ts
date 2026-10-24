@@ -37,6 +37,7 @@ import {
 import { pause as pauseAutomationRoute, resume as resumeAutomationRoute } from './Automations';
 import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
 import { get as getBrandRoute, restore as restoreBrandRoute, save as saveBrandRoute, uploadLogo as uploadBrandLogoRoute } from './Branding';
+import { removeKey as removeRoutingKeyRoute, saveKey as saveRoutingKeyRoute, status as routingStatusRoute } from './Routing';
 import { audioRoute as briefingsAudioRoute, latestRoute as briefingsLatestRoute, personalRoute as briefingsPersonalRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { actOnBrowserRunRoute, getBrowserRunRoute, practiceBrowserRunRoute } from './Browser';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
@@ -339,6 +340,12 @@ export const router = {
     setMember: setGroupMemberRoute,
     setGrant: setGroupGrantRoute,
     removeDirect: removeDirectGrantRoute,
+  },
+  // The Jev key that turns dynamic routing on (ADR 0006): System and Developers.
+  routing: {
+    status: routingStatusRoute,
+    saveKey: saveRoutingKeyRoute,
+    removeKey: removeRoutingKeyRoute,
   },
   // The Org's brand — Brand settings (admins of the caller's Org only).
   branding: {
