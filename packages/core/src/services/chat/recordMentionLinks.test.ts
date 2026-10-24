@@ -6,7 +6,7 @@ vi.mock('@/services/objects/recordHref', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+const { artifactSchema, businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
 const { recordMentionLinks } = await import('./recordMentionLinks');
 
 const ORG = 'org_mention_links';
@@ -35,6 +35,18 @@ describe('the answer\'s record mentions, resolved against the workspace', () => 
     expect(byText['#999999']).toBeUndefined();
     // A bare #id below ten is left alone (a rank more often than a record).
     expect(byText[`#${req}`]).toBe(req >= 10 ? feature : undefined);
+  });
+
+  it('links an artifact the answer names when it is this workspace\'s, and never as a record of the same number', async () => {
+    const [mine] = await db.insert(artifactSchema).values({ orgId: ORG, kind: 'chart', title: 'Cumulative revenue' }).returning({ id: artifactSchema.id });
+    const [theirs] = await db.insert(artifactSchema).values({ orgId: 'org_someone_else', kind: 'chart', title: 'Not yours' }).returning({ id: artifactSchema.id });
+    const text = `The chart is artifact #${mine!.id}. Artifact ${theirs!.id} is another workspace's.`;
+
+    const byText = Object.fromEntries((await recordMentionLinks(ORG, text)).map(l => [l.text, l.href]));
+
+    expect(byText[`artifact #${mine!.id}`]).toBe(`/w/kestrel/dashboard/artifacts/${mine!.id}`);
+    expect(byText[`Artifact ${theirs!.id}`]).toBeUndefined();
+    expect(byText[`#${mine!.id}`]).toBeUndefined();
   });
 
   it('says nothing, and throws nothing, for an answer with no numbers', async () => {

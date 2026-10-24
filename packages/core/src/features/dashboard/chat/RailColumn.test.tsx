@@ -162,7 +162,7 @@ describe('the right column', () => {
     await expect.element(divider).toHaveAttribute('aria-valuenow', '20');
   });
 
-  it('opens the preview in a drawer over the chat on a small screen, with a way back', async () => {
+  it('opens the preview in the phone drawer over the chat on a small screen, which folds and closes', async () => {
     render(<Column chat={CHAT} narrow />);
     openPreview(REF, null);
 
@@ -171,7 +171,17 @@ describe('the right column', () => {
     expect(page.getByTestId('chat-pane').elements()).toHaveLength(1);
     expect(page.getByTestId('preview-drawer').elements()).toHaveLength(1);
     expect(page.getByTestId('rail-divider').elements()).toHaveLength(0);
-    await expect.element(page.getByTestId('preview-close')).toHaveAttribute('aria-label', 'Back to chat');
+    // The drawer's handle is the way back to the chat; the pane's X closes the entry (2026-10-23).
+    await expect.element(page.getByTestId('pane-handle')).toBeInTheDocument();
+    await expect.element(page.getByTestId('preview-close')).toHaveAttribute('aria-label', 'Close preview');
+  });
+
+  it('draws the phone drawer over the page where no chat shares the column', async () => {
+    render(<RailColumn priority="preview" chat={null} narrow width={390} aria-label="Preview" />);
+    openPreview(REF, null);
+
+    await expect.element(page.getByTestId('preview-drawer')).toBeVisible();
+    expect(page.getByTestId('agent-rail').elements()).toHaveLength(0);
   });
 });
 

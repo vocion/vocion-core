@@ -230,6 +230,8 @@ export type ChatMessageArtifact = {
   title: string;
   kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document' | 'deck' | 'mission' | 'playbook';
   version: number;
+  /** The answer named it without writing it (`libs/chat/artifactRefs.ts`): the chip says its version, not "updated". */
+  referenced?: true;
 };
 
 /**

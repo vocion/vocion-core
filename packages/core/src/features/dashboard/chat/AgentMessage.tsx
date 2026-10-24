@@ -18,6 +18,7 @@ import { BriefAudioPlayer } from '@/features/dashboard/briefings/BriefAudioPlaye
 import { RecordMicrocard } from '@/features/dashboard/factory/WorkStatus';
 import { openPreview } from '@/features/preview/previewState';
 import { normalizeAnswerHtml, stripCardNotes } from '@/libs/chat/answerText';
+import { linkedArtifactIds, mergeArtifactChips } from '@/libs/chat/artifactRefs';
 import { splitScratch } from '@/libs/chat/scratch';
 import { stripSuggestBlocks } from '@/libs/chat/suggestions';
 import { browserRunsDone, turnFollowups } from '@/libs/chat/turnFollowups';
@@ -36,6 +37,7 @@ import { SelfUpdateChips } from './SelfUpdateChips';
 import { SuggestionPills } from './SuggestionPills';
 import { turnFailure } from './turnFailure';
 import { useElapsed } from './useElapsed';
+import { useReferencedArtifacts } from './useReferencedArtifacts';
 import { hasLiveDetail, latestNoteLine, LiveLine, WorkTimeline } from './WorkTimeline';
 
 /** One glyph per dashboard entity family, so a chip reads before its label does. */
@@ -88,6 +90,7 @@ const LINK_ICON: Record<DashboardLinkKind, typeof Bot> = {
   'browser': Globe,
   'routine': Repeat,
   'routine-batch': LayoutGrid,
+  'artifact': FileText,
   'page': ArrowUpRight,
 };
 
@@ -297,11 +300,19 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // The turn's own records come first (they carry what a change wrote), then
   // the thread's — one per record, at most three.
   const microcards = useMemo(() => (latest && !streaming ? microcardsOf(message.records ?? [], threadRecords ?? [], pageRecord) : []), [latest, streaming, message.records, threadRecords, pageRecord]);
+  // THE ARTIFACTS THIS ANSWER WROTE AND THE ONES IT ONLY NAMED, one chip each
+  // (2026-10-23: an answer that pointed at an existing chart had nothing to
+  // tap). The named ones come from the links the server resolved.
+  const linkedIds = useMemo(() => (streaming
+    ? []
+    : linkedArtifactIds(message.content ?? '').filter(id => !(message.artifacts ?? []).some(a => a.id === id))), [streaming, message.content, message.artifacts]);
+  const referencedArtifacts = useReferencedArtifacts(linkedIds);
+  const chips = useMemo(() => mergeArtifactChips(message.artifacts ?? [], referencedArtifacts), [message.artifacts, referencedArtifacts]);
   // What the turn set moving, less the page's own record, the artifacts the
   // row already shows and the records a microcard already draws.
   const follow = useMemo(() => turnFollowups(message.runs as TurnToolStep[] | undefined, {
-    exclude: [...(pageRecord ? [pageRecord] : []), ...(message.artifacts ?? []).map(a => ({ type: 'artifact', id: String(a.id) })), ...microcards.map(r => ({ type: 'object', id: String(r.id) }))],
-  }), [message.runs, message.artifacts, pageRecord, microcards]);
+    exclude: [...(pageRecord ? [pageRecord] : []), ...chips.map(a => ({ type: 'artifact', id: String(a.id) })), ...microcards.map(r => ({ type: 'object', id: String(r.id) }))],
+  }), [message.runs, chips, pageRecord, microcards]);
   // The browser runs this turn handed back done, with outputs for the run to draw (`BrowserRunResult`).
   const doneBrowserRuns = useMemo(() => browserRunsDone(message.runs as TurnToolStep[] | undefined), [message.runs]);
   // A failure is a failure whether it arrived as a legacy run or as a typed
@@ -577,7 +588,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                             // link to its page, and a plain click that opens it in the
                             // preview pane beside the conversation. ⌘ / Ctrl / middle
                             // click and Copy link stay the browser's (Chris, 2026-10-23).
-                            const record = inApp && inApp.kind === 'object' ? previewRefFor(inApp) : null;
+                            const record = inApp && (inApp.kind === 'object' || inApp.kind === 'artifact') ? previewRefFor(inApp) : null;
                             if (inApp && record) {
                               return (
                                 <Link
@@ -674,8 +685,8 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               {microcards.map(r => <RecordMicrocard key={r.id} record={r} />)}
             </div>
           )}
-          {((message.artifacts?.length ?? 0) > 0 || (!streaming && follow.length > 0)) && (
-            <ArtifactChips artifacts={message.artifacts ?? []} follow={streaming ? [] : follow} onOpen={onOpenArtifact} onBuild={streaming ? undefined : onBuildCard} />
+          {(chips.length > 0 || (!streaming && follow.length > 0)) && (
+            <ArtifactChips artifacts={chips} follow={streaming ? [] : follow} onOpen={onOpenArtifact} onBuild={streaming ? undefined : onBuildCard} />
           )}
           {(message.selfUpdates?.length ?? 0) > 0 && (
             <SelfUpdateChips updates={message.selfUpdates!} />

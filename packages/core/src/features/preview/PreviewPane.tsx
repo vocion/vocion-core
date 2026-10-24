@@ -5,7 +5,7 @@ import type { PreviewDoc } from '@/libs/preview/types';
 import type { RunStep } from '@/libs/worker/runLog';
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
 import { Activity, ArrowLeft, Bot, ChevronLeft, ExternalLink, FileText, History, Inbox, LayoutGrid, ListTree, MessageSquareText, Newspaper, Play, Repeat, Rocket, RotateCw, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Accordion, FactList } from '@/components/patterns';
@@ -35,7 +35,7 @@ import { parseWorkRefId } from '@/libs/preview/workRef';
 import { parseHistoryRefId } from '@/libs/versions/versionRef';
 import { RECORD_TYPES } from '@/services/chat/pageContext';
 import { classifyPreviewError, FAILURE_REASON, RETRY_DELAYS_MS } from './previewFetch';
-import { closePreview, openPreview, previewBack, previewTitle, rememberPreviewTitle, usePreviewStack } from './previewState';
+import { closePreview, closePreviewEntry, openPreview, previewBack, previewTitle, rememberPreviewTitle, usePreviewStack } from './previewState';
 
 /**
  * The preview PANE — the content, with no geometry of its own.
@@ -64,6 +64,13 @@ import { closePreview, openPreview, previewBack, previewTitle, rememberPreviewTi
  * closes it and hands focus back to whatever opened it, and the page's own
  * shortcuts keep working while it is open.
  */
+
+/**
+ * The artifact pane, loaded when an artifact is first opened in the pane: it
+ * carries the document, deck and table editors, which a pane that only ever
+ * shows records never needs.
+ */
+const ArtifactPreview = lazy(() => import('./ArtifactPreview').then(m => ({ default: m.ArtifactPreview })));
 
 const RECORD_ICON: Partial<Record<RecordType, typeof FileText>> = {
   briefing: Newspaper,
@@ -338,8 +345,25 @@ function Body(props: { doc: PreviewDoc }) {
  * @param props.compact - Drop the controls that do not fit a narrow in-page
  * column: Share, and "Chat about this" (which would take the reader off the
  * decision they are standing on). The link out always stays.
+ * @param props.inDrawer - The pane is in the phone drawer (`PaneDrawer`): its
+ * X closes this entry only, and the drawer's tabs, not a back arrow, move
+ * between entries.
  */
-export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; back?: boolean; backLabel?: string; doc?: PreviewDoc; onClose?: () => void; compact?: boolean }) {
+export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; back?: boolean; backLabel?: string; doc?: PreviewDoc; onClose?: () => void; compact?: boolean; inDrawer?: boolean }) {
+  // AN ARTIFACT IS AN ENTRY LIKE ANY OTHER (Chris, 2026-10-23: "one sidebar and
+  // panes UX for all use cases"): it opens in this pane, as itself — the
+  // artifact's own header, its tabs, versions and downloads (`ArtifactPreview`).
+  if (props.recordRef.type === 'artifact' && /^\d+$/.test(props.recordRef.id) && !props.doc && !props.compact) {
+    return (
+      <Suspense fallback={<p className="px-4 py-3 text-sm text-muted-foreground" role="status">Loading…</p>}>
+        <ArtifactPreview id={Number(props.recordRef.id)} onClose={props.onClose} inDrawer={props.inDrawer} />
+      </Suspense>
+    );
+  }
+  return <RecordPreview {...props} />;
+}
+
+function RecordPreview(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; back?: boolean; backLabel?: string; doc?: PreviewDoc; onClose?: () => void; compact?: boolean; inDrawer?: boolean }) {
   const { recordRef } = props;
   const [fetched, setFetched] = useState<PreviewDoc | null>(null);
   const [failure, setFailure] = useState<PreviewFailure | null>(null);
@@ -459,12 +483,12 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
   };
   // Design sweep, 2026-10-23: the bar's icon button, a rounded square (it was a circle).
   const iconButton = BAR_ICON_BUTTON;
-  const dismiss = props.onClose ?? closePreview;
+  const dismiss = props.onClose ?? (props.inDrawer ? () => closePreviewEntry(`${recordRef.type}:${recordRef.id}`) : closePreview);
   // What this pane stands on top of (`previewState`'s stack). Only the global
   // peek has one: a pane with its own close or its own content is someone
   // else's, and its history is theirs.
   const stacked = usePreviewStack();
-  const underneath = !props.onClose && !props.doc ? stacked.at(-1) : undefined;
+  const underneath = !props.onClose && !props.doc && !props.inDrawer ? stacked.at(-1) : undefined;
   const below = underneath ? parsePreviewKey(underneath, isRecordType) : null;
   const belowLabel = below && underneath ? previewTitle(underneath) ?? describeRef(below).label : null;
   const resolvedTitle = doc && !doc.unresolved ? doc.title : null;

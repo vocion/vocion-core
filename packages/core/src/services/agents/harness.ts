@@ -64,6 +64,7 @@ import { FINISH_THE_READ } from './finishTheRead';
 import { createHandOffMiddleware } from './handOff';
 import { createMemoryDigestMiddleware } from './memoryDigest';
 import { agentScope, createEvidenceHandoffMiddleware, createLookupMemoMiddleware, runtimeContextFromScope } from './runtimeContext';
+import { NO_SCREEN_CLAIMS } from './screenClaims';
 import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
@@ -429,6 +430,9 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   // An answer that offers to read what the agent could read is an unfinished
   // turn (2026-10-23: "do you want me to dig into the notes?"). `finishTheRead.ts`.
   systemPrompt = `${systemPrompt}\n\n${FINISH_THE_READ}`;
+  // It cannot see the screen (2026-10-23: "already rendered and open as
+  // artifact #5261" to a person who had closed it). `screenClaims.ts`.
+  systemPrompt = `${systemPrompt}\n\n${NO_SCREEN_CLAIMS}`;
   // A place in Vocion is a link, not a description (2026-09-18: eight paragraphs of Zoom scope steps, no link). The tool holds the table; this line makes the call.
   systemPrompt = `${systemPrompt}\n\nWhen a person has to do something in Vocion themselves (connect or re-authorise a system, fix a credential, approve a proposal, adopt a learning), call where_to first and put the link it returns inline in your reply — never describe where to click without the link.`;
 

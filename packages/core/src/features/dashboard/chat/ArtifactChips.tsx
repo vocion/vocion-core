@@ -36,6 +36,7 @@ import { CHIP } from '@/components/ui/chip';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL } from '@/features/dashboard/artifacts/kinds';
 import { openPreview } from '@/features/preview/previewState';
+import { mergeArtifactChips } from '@/libs/chat/artifactRefs';
 import { Link } from '@/libs/I18nNavigation';
 import { useFollowStatus } from './useFollowStatus';
 import { useWorkspaceIntake } from './useWorkspaceIntake';
@@ -75,9 +76,10 @@ export function ArtifactChips({ artifacts, follow = [], onOpen, onBuild }: {
   }
   return (
     <ul className="mt-3 flex flex-wrap gap-1.5" data-artifact-chips>
-      {artifacts.map((a) => {
+      {mergeArtifactChips(artifacts).map((a) => {
         const Icon = ARTIFACT_KIND_ICON[a.kind];
-        const label = `v${a.version} ${a.version > 1 ? 'updated' : 'created'}`;
+        // Named, not written: its version, never a claim the turn changed it.
+        const label = a.referenced ? `v${a.version}` : `v${a.version} ${a.version > 1 ? 'updated' : 'created'}`;
         return (
           // `min-w-0` twice, and both are load-bearing: the chip's `truncate`
           // span is `white-space: nowrap`, so its min-content is the whole

@@ -211,6 +211,17 @@ agent is doing, and able to be talked back to.
    transcript without editing the hook — that is how a turn that made or
    changed an artifact gets its chip (`ArtifactChips`) and how the pane beside
    the conversation opens on it. See [artifacts.md](./artifacts.md).
+   **An answer that only names an artifact carries its chip too** (2026-10-23:
+   *"the chart is already rendered and open as artifact #5261"* with nothing
+   to tap on a phone). The server links an "artifact #N" mention only when it
+   is the workspace's (`services/chat/recordMentionLinks.ts`). The chip row
+   reads the artifact links back out (`libs/chat/artifactRefs.ts`) and shows
+   each once: a re-render is one chip at its newest version, and one only
+   named reads "v3" rather than "v3 updated". A chip opens the artifact in the
+   one pane (the drawer on a phone), and opens it again after its X. The
+   agent never claims what is on the screen: every system prompt carries
+   `NO_SCREEN_CLAIMS` (`services/agents/screenClaims.ts`), so it names the
+   artifact and the chat gives the chip.
 10. **One workspace agent — routing is delegation** (Chris, 2026-09-15:
     "let's get rid of this 'choose an agent'. We should always just be
     chatting with the Vocion agent, scoped/named to the current Workspace").

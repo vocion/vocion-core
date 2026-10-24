@@ -4,6 +4,11 @@
  * opens (`services/objects/recordHref.ts`). A mention that names nothing, or
  * names a record by the wrong kind ("deal 201" when 201 is a request), is
  * left as the answer wrote it — a wrong link is worse than none.
+ *
+ * An ARTIFACT the answer names ("artifact #5261") links to the artifact when
+ * it is this workspace's, so the chat can open it in the pane and hang its
+ * chip under the answer (2026-10-23: "the chart is already rendered and open
+ * as artifact #5261", with nothing to tap on a phone).
  */
 
 import type { RecordMentionLink } from '@/libs/chat/recordMentions';
@@ -12,13 +17,16 @@ import { findRecordMentions } from '@/libs/chat/recordMentions';
 import { CORE_NOUN_CODES, coreNounOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { recordHrefFrom } from '@/libs/workspace/recordHref';
-import { businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
+import { artifactSchema, businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
 import { hrefForCode } from '@/services/codeLinks';
 import { resolveCode } from '@/services/codes';
 import { recordLinksForOrg } from '@/services/objects/recordHref';
 
 /** Never more than this many links per answer — an answer that names more is a list, not prose. */
 const MAX_LINKS = 40;
+
+/** What an answer calls an artifact ("artifact #5261"). */
+const ARTIFACT_WORD = 'artifact';
 
 /**
  * The links for an answer's record mentions. Never throws: an answer without
@@ -52,11 +60,17 @@ export async function recordMentionLinks(orgId: string, text: string): Promise<R
     // Codes too — FE-201, RUN-439 (`libs/codes.ts`): the type codes and core's.
     const typeCodes = links.codes ?? new Map<string, string>();
     const prefixes = [...typeCodes.values(), ...Object.values(CORE_NOUN_CODES)];
-    const mentions = findRecordMentions(text, words, prefixes).slice(0, MAX_LINKS * 2);
+    // `artifact` is a word too, so "artifact #5261" is read as one mention and
+    // its `#5261` is never taken for a record of the same number.
+    const mentions = findRecordMentions(text, [...words, ARTIFACT_WORD], prefixes).slice(0, MAX_LINKS * 2);
     if (mentions.length === 0) {
       return [];
     }
-    const ids = [...new Set(mentions.filter(m => !m.code || !coreNounOf(m.code)).map(m => m.id))];
+    const named = [...new Set(mentions.filter(m => m.word === ARTIFACT_WORD).map(m => m.id))];
+    const artifacts = named.length === 0
+      ? new Set<number>()
+      : new Set((await db.select({ id: artifactSchema.id }).from(artifactSchema).where(and(eq(artifactSchema.orgId, orgId), inArray(artifactSchema.id, named)))).map(r => r.id));
+    const ids = [...new Set(mentions.filter(m => m.word !== ARTIFACT_WORD && (!m.code || !coreNounOf(m.code))).map(m => m.id))];
     const rows = await db
       .select({ id: businessObjectSchema.id, type: businessObjectTypeSchema.slug })
       .from(businessObjectSchema)
@@ -65,6 +79,12 @@ export async function recordMentionLinks(orgId: string, text: string): Promise<R
     const typeOf = new Map(rows.map(r => [r.id, r.type]));
     const out = new Map<string, RecordMentionLink>();
     for (const m of mentions) {
+      if (m.word === ARTIFACT_WORD) {
+        if (artifacts.has(m.id) && !out.has(m.text.toLowerCase())) {
+          out.set(m.text.toLowerCase(), { text: m.text, href: `${links.workspaceSlug ? `/w/${links.workspaceSlug}` : ''}/dashboard/artifacts/${m.id}` });
+        }
+        continue;
+      }
       if (m.code && coreNounOf(m.code)) {
         // A run, an ask, a conversation: linked only when it is this workspace's.
         const resolved = out.has(m.text.toLowerCase()) ? null : await resolveCode(orgId, m.text);

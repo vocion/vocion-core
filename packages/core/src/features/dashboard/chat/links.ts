@@ -7,7 +7,7 @@
 
 export type DashboardLinkKind
   = 'agent' | 'team' | 'mission' | 'mission-run' | 'ask' | 'briefing' | 'object' | 'room' | 'goal' | 'review' | 'learning'
-    | 'eval' | 'connector' | 'workflow' | 'team-report' | 'chat' | 'browser' | 'routine' | 'routine-batch' | 'page';
+    | 'eval' | 'connector' | 'workflow' | 'team-report' | 'chat' | 'browser' | 'routine' | 'routine-batch' | 'artifact' | 'page';
 
 export type DashboardLink = {
   /** The path to navigate to (locale prefix stripped, same origin). */
@@ -41,6 +41,8 @@ const RULES: Array<[RegExp, DashboardLinkKind]> = [
   [/^\/dashboard\/browser\/(\d+)/, 'browser'],
   [/^\/dashboard\/routines\/batches\/(\d+)/, 'routine-batch'],
   [/^\/dashboard\/routines\/(\d+)/, 'routine'],
+  // An artifact, at its own page or its full-screen view.
+  [/^\/dashboard\/artifacts\/(\d+)(?:\/open)?(?:[/?#]|$)/, 'artifact'],
   [/^\/dashboard(?:\/|$)/, 'page'],
 ];
 
@@ -87,7 +89,7 @@ export function classifyDashboardLink(href: string | undefined, origin?: string)
  * resolver; everything else navigates as before.
  * @param link - A classified dashboard link.
  */
-export function previewRefFor(link: DashboardLink): { type: 'object' | 'record_history' | 'goal' | 'browser_run' | 'routine' | 'routine_batch'; id: string } | null {
+export function previewRefFor(link: DashboardLink): { type: 'object' | 'record_history' | 'goal' | 'browser_run' | 'routine' | 'routine_batch' | 'artifact'; id: string } | null {
   // A version in a record's history (`libs/versions/versionRef.ts`): the
   // "Changed …" line peeks the history at that version beside the chat.
   const history = /[?&]preview=record_history(?::|%3A)([\d@%]+)(?:&|#|$)/i.exec(link.href);
@@ -108,6 +110,10 @@ export function previewRefFor(link: DashboardLink): { type: 'object' | 'record_h
   }
   if (link.kind === 'routine-batch' && link.id) {
     return { type: 'routine_batch', id: link.id };
+  }
+  // An artifact opens in the pane as itself (2026-10-23: one pane for everything).
+  if (link.kind === 'artifact' && link.id) {
+    return { type: 'artifact', id: link.id };
   }
   // Any record peeks, whatever its type: an inline reference in an answer
   // opens beside the conversation, where its verbs are (Chris, 2026-10-23).
