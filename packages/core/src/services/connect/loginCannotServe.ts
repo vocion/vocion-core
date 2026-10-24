@@ -1,7 +1,7 @@
 /**
  * Whether a saved login can serve a connector (#1080). One platform can hold
  * logins for several connectors with different access: a Google login made for
- * Drive has no Gmail scope, and Google Ads cannot use a Google login at all.
+ * Drive has no Gmail scope, and none for Google Ads (`adwords`) either.
  * The add form, the chat card and the Connectors page all ask here before
  * treating a saved login as good for a connector.
  */
@@ -17,8 +17,8 @@ import { getCredentialsForConnector } from '@/services/SourceCredentialService';
  * Why a saved login cannot serve this connector, or null when it can (or the
  * credential is a pasted key, which this never judges).
  *
- * - A connector with no login of its own (Google Ads) cannot use another
- *   connector's login: its API needs what a login does not carry.
+ * - A connector with no login of its own cannot use another connector's
+ *   login: its API needs what a login does not carry.
  * - A provider that serves several connectors with different access (Google)
  *   says whether the login holds this connector's scope.
  *

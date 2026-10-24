@@ -11,12 +11,12 @@ agent: marketing-lead
 autonomyPolicy:
   level: 2
 successCriteria:
-  - "SPEND: yesterday and the last 7 days by campaign (ads_report campaigns), with clicks, CTR, CPC, conversions and cost per conversion, and month-to-date against budget (ads_report budget_pacing). Say when a campaign counts no conversions."
-  - "WASTE: search terms from the last 7 days that spent with no conversion and do not match what the landing page offers (ads_report search_terms), with their spend. Propose them as negatives with google_ads.add_negatives; never add them yourself."
-  - "ADS: every ad Google disapproved or limited (ads_report ads), with the policy topic and the fix."
-  - "WAITING: the ad proposals still waiting on a person, oldest first."
-  - "ONE RECOMMENDATION with the numbers behind it, offered as a proposal."
-  - "NEVER INVENT: a number comes from a report read this morning, with its date range. Missing data is said plainly."
+  - 'SPEND: yesterday and the last 7 days by campaign (ads_report campaigns), with clicks, CTR, CPC, conversions and cost per conversion, and month-to-date against budget (ads_report budget_pacing). Say when a campaign counts no conversions.'
+  - 'WASTE: search terms from the last 7 days that spent with no conversion and do not match what the landing page offers (ads_report search_terms), with their spend. Propose them as negatives with google_ads.add_negatives; never add them yourself.'
+  - 'ADS: every ad Google disapproved or limited (ads_report ads), with the policy topic and the fix.'
+  - 'WAITING: the ad proposals still waiting on a person, oldest first.'
+  - 'ONE RECOMMENDATION with the numbers behind it, offered as a proposal.'
+  - 'NEVER INVENT: a number comes from a report read this morning, with its date range. Missing data is said plainly.'
   - "PUBLISH via publish_briefing, title 'Marketing update — <weekday, date>'."
 desiredArtifacts:
   - The daily marketing update as a briefing

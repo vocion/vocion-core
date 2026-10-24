@@ -137,12 +137,20 @@ describe('createSourceWithCredential', () => {
     expect(await sources()).toHaveLength(0);
   });
 
-  it('Google Ads never keeps a Google login, whose token cannot call the Ads API, and nothing is created', async () => {
+  it('Google Ads keeps a Google login only when it holds the adwords scope (developer tokens retired 2026-09-09); a Drive login is refused and nothing is created', async () => {
     await seedGoogleLogin('openid email https://www.googleapis.com/auth/drive.readonly');
+    const refused = await createSourceWithCredential({ orgId: ORG, actorUserId: ADMIN, connector: 'google-ads', config: { customerId: '1234567890' }, credential: { keepStored: true } });
+
+    expect(refused).toMatchObject({ ok: false });
+    expect(await sources()).toHaveLength(0);
+  });
+
+  it('a Google login that holds the adwords scope is kept for Google Ads', async () => {
+    const loginId = await seedGoogleLogin('openid email https://www.googleapis.com/auth/adwords');
     const result = await createSourceWithCredential({ orgId: ORG, actorUserId: ADMIN, connector: 'google-ads', config: { customerId: '1234567890' }, credential: { keepStored: true } });
 
-    expect(result).toEqual({ ok: false, reason: 'Google Ads can\'t use a Google login. Press Replace and paste its key.' });
-    expect(await sources()).toHaveLength(0);
+    expect(result).toMatchObject({ ok: true });
+    expect((await sources())[0]).toMatchObject({ apiTokenId: loginId });
   });
 
   it('a Google login that already holds Gmail\'s scope is kept for Gmail', async () => {
