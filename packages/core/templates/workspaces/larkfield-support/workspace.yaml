@@ -1,4 +1,4 @@
-version: 1
+version: 2
 # Placeholder — `workspace:apply --project <id>` resolves this to the live
 # project id at apply time.
 orgId: proj_larkfield_support

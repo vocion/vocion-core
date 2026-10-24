@@ -18,4 +18,3 @@ successCriteria:
 desiredArtifacts:
   - A one-paragraph status per active room, dated
   - Highlights filed on each room as they occur
-schedule: '0 14 * * 1-5'

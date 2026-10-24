@@ -9,6 +9,7 @@ status: active
 agent: growth-analyst
 when:
   schedule: '0 13 * * 1-5'
+  timezone: UTC
 do:
   checkMission: every-brief-measured
   prompt: >-

@@ -10,6 +10,7 @@ status: active
 agent: growth-lead
 when:
   schedule: '0 15 * * 1'
+  timezone: UTC
 do:
   checkMission: the-team-inside-its-budget
   prompt: >-

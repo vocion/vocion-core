@@ -27,4 +27,3 @@ desiredArtifacts:
   - The weekly gap list — briefs with no owner, how long, what it cost
   - One hire proposal per genuine gap, naming the role, the allowance, the reasoning and the headroom it fits inside
   - The standing record of rejected hires with the date and the reason, so the same case is not re-made on the same evidence
-schedule: '0 15 * * 1'

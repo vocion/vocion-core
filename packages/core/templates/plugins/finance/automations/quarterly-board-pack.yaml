@@ -6,6 +6,7 @@ setting: quarterlyBoardPack
 agent: financial-analyst
 when:
   schedule: '0 17 10 1,4,7,10 *'
+  timezone: UTC
 do:
   checkMission: statements-delivered
   prompt: >-

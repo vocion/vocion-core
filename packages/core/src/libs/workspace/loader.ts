@@ -1,7 +1,7 @@
-import type { Deprecation } from './missionSchedules';
 import type { ZodType } from 'zod';
 import type { ActivatedPack, ComposedEntry, FolderEntry, PackRaw, RawEntry } from './compose';
 import type { Origin } from './merge';
+import type { Deprecation } from './missionSchedules';
 import type { LoadedPlugin } from './plugins';
 import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, NotificationRuleManifest, ObjectTypeManifest, OperatingIntentManifest, PackManifest, PlaybookManifest, SourceManifest, TeamManifest, TrustManifest, VoiceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import type { LoadedWikiPage } from './wiki-pages';
@@ -16,8 +16,8 @@ import { composeKind, resolveActivation } from './compose';
 import { assertEvalCheckPaths } from './evalCheckPaths';
 import { assertAgentHierarchy } from './hierarchy';
 import { EXTENDS_CORE } from './merge';
+import { resolveAutomations } from './missionSchedules';
 import { assertDoTargets, assertOwnership } from './ownership';
-import { scheduledChecksFromMissions } from './missionSchedules';
 import { resolvePlugins } from './plugins';
 import {
   AgentManifestSchema,
@@ -327,8 +327,12 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     extras.automations,
     a => a.slug,
   );
-  // A mission's own `schedule:` runs as an automation, with every guard one has (ADR 0008).
-  const { automations, deprecations } = scheduledChecksFromMissions(missions, authoredAutomations);
+  // Every schedule names its zone, and a mission's own `schedule:` is an automation (ADR 0008).
+  const { automations, deprecations } = resolveAutomations(missions, authoredAutomations, {
+    manifestVersion: manifest.version,
+    workspaceZone: manifest.defaults?.timezone ?? null,
+    workspaceDir: abs,
+  });
 
   const playbooks = composeFolders('playbook', join(abs, 'playbooks'), layer?.active.playbooks, layer?.full.playbooks, files);
 

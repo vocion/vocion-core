@@ -18,4 +18,3 @@ successCriteria:
   - No ask sits unwritten for more than a business day
 desiredArtifacts:
   - The intake list — each ask, its client, and where it went
-schedule: '0 14 * * 1-5'

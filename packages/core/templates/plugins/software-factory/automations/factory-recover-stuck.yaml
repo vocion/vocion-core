@@ -14,6 +14,7 @@ status: active
 agent: product-manager
 when:
   schedule: '5 * * * *'
+  timezone: UTC
 do:
   job: factory-sweep
   input:

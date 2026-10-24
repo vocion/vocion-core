@@ -25,4 +25,3 @@ desiredArtifacts:
   - A release-readiness report walking the checklist item by item with evidence
   - A list of drafts waiting on a human, with how long each has waited
   - The oldest open pull request and the reason it is stuck
-schedule: '0 14 * * 1-5'

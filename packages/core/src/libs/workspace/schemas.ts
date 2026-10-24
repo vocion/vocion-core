@@ -124,7 +124,12 @@ const NotificationListSchema = z.array(NotificationRuleManifestSchema).default([
 });
 
 export const WorkspaceManifestSchema = z.object({
-  version: z.literal(1).describe('manifest format version'),
+  /**
+   * Manifest format. 2 (8.0): schedules are read in `defaults.timezone`, and a
+   * mission carries no `schedule:` (ADR 0008). 1 loads with warnings until 9.0,
+   * its own schedules read in UTC; `npm run migrate:automations` moves it to 2.
+   */
+  version: z.union([z.literal(1), z.literal(2)]).describe('manifest format version'),
   orgId: z.string().min(1).describe('Clerk organization id'),
   name: z.string().min(1),
   description: z.string().optional(),
@@ -1627,11 +1632,13 @@ export const AutomationManifestSchema = z.object({
     /** 5-field cron, read in `timezone` (UTC when absent). */
     schedule: z.string().regex(/^\S+ \S+ \S+ \S+ \S+$/, 'schedule must be a 5-field cron').optional(),
     /**
-     * The IANA zone the schedule is read in, e.g. `America/Los_Angeles`, so
-     * "30 6 * * 1-5" stays 6:30am local across daylight saving. UTC when
-     * absent. Schedule-whens only.
+     * The clock the schedule is read in, so "30 6 * * 1-5" stays 6:30am across
+     * daylight saving: an IANA zone (`America/Los_Angeles`), or `workspace` for
+     * the workspace's `defaults.timezone`. Absent: the workspace's zone in a
+     * version-2 workspace and in a plugin, UTC in a version-1 workspace
+     * (ADR 0008). Schedule-whens only.
      */
-    timezone: z.string().refine(isValidTimeZone, 'timezone must be an IANA zone, e.g. America/Los_Angeles').optional(),
+    timezone: z.string().refine(v => v === 'workspace' || isValidTimeZone(v), 'timezone must be an IANA zone, e.g. America/Los_Angeles, or workspace').optional(),
     /** Event type, e.g. `prospect.reply`. */
     /** One event type, or several — the automation fires on any of them. */
     event: z.union([z.string(), z.array(z.string().min(1)).min(1)]).optional(),

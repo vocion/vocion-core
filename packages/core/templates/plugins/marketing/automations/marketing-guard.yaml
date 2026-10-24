@@ -9,6 +9,6 @@ status: active
 agent: marketing-lead
 when:
   schedule: '15 */4 * * *'
-  timezone: America/Los_Angeles
+  timezone: workspace
 do:
   job: ads-guard

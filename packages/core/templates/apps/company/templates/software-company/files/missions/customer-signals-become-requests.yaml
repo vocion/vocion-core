@@ -16,4 +16,3 @@ successCriteria:
   - Nothing is promised to a customer
 desiredArtifacts:
   - Requests filed or strengthened this week, each with its quotes
-schedule: '0 15 * * 1-5'

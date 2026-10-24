@@ -15,6 +15,7 @@ status: active
 agent: on-call-engineer
 when:
   schedule: '*/10 * * * *'
+  timezone: UTC
 do:
   job: error-watch
   input:

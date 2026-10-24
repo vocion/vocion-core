@@ -6,6 +6,7 @@ status: active
 agent: support-lead
 when:
   schedule: '0 20 * * 5'
+  timezone: UTC
 do:
   checkMission: support-quality-review
   prompt: >-

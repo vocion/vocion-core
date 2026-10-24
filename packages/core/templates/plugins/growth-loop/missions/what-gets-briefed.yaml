@@ -32,4 +32,3 @@ desiredArtifacts:
   - The ranked list per theme, with the reason and the date on each record
   - The five-line plan per check — promoted, waiting and on which limit, stuck and on whom, stopped and why, what needs a person
   - The standing gap list — briefs with no owner, how long, and what the wait has cost
-schedule: '0 14 * * 1'

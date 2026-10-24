@@ -1,23 +1,28 @@
 import type { LoadedAutomation, LoadedMission } from './loader';
 import { describe, expect, it } from 'vitest';
-import { scheduledChecksFromMissions } from './missionSchedules';
+import { resolveAutomations } from './missionSchedules';
 import { AutomationManifestSchema, MissionManifestSchema } from './schemas';
 
 function mission(slug: string, extra: Record<string, unknown> = {}): LoadedMission {
   return { ...MissionManifestSchema.parse({ slug, name: `The ${slug}`, goal: 'Keep it current.', agent: 'kestrel-lead', ...extra }), sourceFile: `missions/${slug}.yaml`, origin: 'workspace' } as LoadedMission;
 }
 
-function automation(slug: string, when: Record<string, unknown>, doCfg: Record<string, unknown>, extra: Record<string, unknown> = {}): LoadedAutomation {
-  return { ...AutomationManifestSchema.parse({ slug, when, do: doCfg, ...extra }), sourceFile: `automations/${slug}.yaml` };
+const WS = '/ws/kestrel';
+const V1 = { manifestVersion: 1 as const, workspaceZone: 'America/Los_Angeles', workspaceDir: WS };
+const V2 = { ...V1, manifestVersion: 2 as const };
+
+function automation(slug: string, when: Record<string, unknown>, doCfg: Record<string, unknown>, extra: Record<string, unknown> = {}, dir = WS): LoadedAutomation {
+  return { ...AutomationManifestSchema.parse({ slug, when, do: doCfg, ...extra }), sourceFile: `${dir}/automations/${slug}.yaml` };
 }
+
+const scheduledChecksFromMissions = (missions: LoadedMission[], authored: LoadedAutomation[]) => resolveAutomations(missions, authored, V1);
 
 describe('a mission\'s schedule runs as an automation (ADR 0008)', () => {
   it('turns schedule: into the automation a person would write, same cron, read in UTC as before', () => {
     const { automations, deprecations } = scheduledChecksFromMissions([mission('weekly-review', { schedule: '0 15 * * 1,5' })], []);
 
     expect(automations).toHaveLength(1);
-    expect(automations[0]).toMatchObject({ slug: 'weekly-review-check', status: 'active', agent: 'kestrel-lead', when: { schedule: '0 15 * * 1,5' }, do: { checkMission: 'weekly-review' } });
-    expect(automations[0]!.when.timezone).toBeUndefined();
+    expect(automations[0]).toMatchObject({ slug: 'weekly-review-check', status: 'active', agent: 'kestrel-lead', when: { schedule: '0 15 * * 1,5', timezone: 'UTC' }, do: { checkMission: 'weekly-review' } });
     expect(deprecations).toEqual([expect.objectContaining({ resource: 'mission', slug: 'weekly-review', message: expect.stringContaining('automation "weekly-review-check"') })]);
   });
 
@@ -25,8 +30,8 @@ describe('a mission\'s schedule runs as an automation (ADR 0008)', () => {
     const authored = [automation('morning-pass', { schedule: '30 13 * * 1-5' }, { checkMission: 'daily-touch' })];
     const { automations, deprecations } = scheduledChecksFromMissions([mission('daily-touch', { schedule: '30 14 * * 1-5' })], authored);
 
-    expect(automations.map(a => a.slug)).toEqual(['morning-pass']);
-    expect(deprecations[0]!.message).toContain('automation "morning-pass" already checks this mission');
+    expect(automations.map((a: LoadedAutomation) => a.slug)).toEqual(['morning-pass']);
+    expect(deprecations.find(d => d.resource === 'mission')!.message).toContain('automation "morning-pass" already checks this mission');
   });
 
   it('still translates when the only automation checking it is an event, or is disabled', () => {
@@ -36,7 +41,7 @@ describe('a mission\'s schedule runs as an automation (ADR 0008)', () => {
     ];
     const { automations } = scheduledChecksFromMissions([mission('daily-touch', { schedule: '30 14 * * 1-5' })], authored);
 
-    expect(automations.map(a => a.slug)).toEqual(['on-reply', 'old-pass', 'daily-touch-check']);
+    expect(automations.map((a: LoadedAutomation) => a.slug)).toEqual(['on-reply', 'old-pass', 'daily-touch-check']);
   });
 
   it('takes the next free slug, and a disabled mission gets a disabled automation', () => {
@@ -46,12 +51,37 @@ describe('a mission\'s schedule runs as an automation (ADR 0008)', () => {
     expect(automations[1]).toMatchObject({ slug: 'rooms-scheduled-check', status: 'disabled' });
   });
 
-  it('leaves a workspace with no mission schedules exactly as authored, with nothing to warn about', () => {
-    const authored = [automation('morning', { schedule: '0 13 * * 1-5', timezone: 'America/Los_Angeles' }, { checkMission: 'daily' })];
-    const result = scheduledChecksFromMissions([mission('daily')], authored);
+  it('reads a version-1 workspace\'s own schedules in UTC, as they always were, and says how to move on', () => {
+    const authored = [automation('morning', { schedule: '0 13 * * 1-5' }, { checkMission: 'daily' })];
+    const result = resolveAutomations([mission('daily')], authored, V1);
 
-    expect(result.automations).toEqual(authored);
-    expect(result.deprecations).toEqual([]);
+    expect(result.automations[0]!.when.timezone).toBe('UTC');
+    expect(result.deprecations).toEqual([expect.objectContaining({ resource: 'workspace', message: expect.stringContaining('migrate:automations') })]);
+  });
+
+  it('reads a version-2 workspace\'s schedules, and every plugin\'s, in the workspace zone unless one names its own', () => {
+    const authored = [
+      automation('morning', { schedule: '30 6 * * 1-5' }, { checkMission: 'daily' }),
+      automation('nightly', { schedule: '0 2 * * *', timezone: 'UTC' }, { checkMission: 'daily' }),
+      automation('plugin-morning', { schedule: '0 7 * * 1' }, { checkMission: 'daily' }, {}, '/core/templates/plugins/marketing'),
+    ];
+
+    expect(resolveAutomations([mission('daily')], authored, V2).automations.map(a => a.when.timezone)).toEqual(['America/Los_Angeles', 'UTC', 'America/Los_Angeles']);
+    expect(resolveAutomations([mission('daily')], authored, V1).automations.map(a => a.when.timezone)).toEqual(['UTC', 'UTC', 'America/Los_Angeles']);
+    expect(resolveAutomations([mission('daily')], authored, { ...V2, workspaceZone: null }).automations[0]!.when.timezone).toBe('UTC');
+  });
+
+  it('refuses a mission schedule: in a version-2 workspace', () => {
+    expect(() => resolveAutomations([mission('daily', { schedule: '0 13 * * 1-5' })], [], V2)).toThrow(/schedule: was removed in version 2/);
+  });
+
+  it('lets a workspace\'s changed cadence on a plugin mission set the plugin\'s automation, not run beside it', () => {
+    const plugin = [automation('rooms-check', { schedule: '0 14 * * 1-5' }, { checkMission: 'rooms' }, {}, '/core/templates/plugins/data-rooms')];
+    const overridden = { ...mission('rooms', { schedule: '0 16 * * 1-5' }), origin: 'merged' } as LoadedMission;
+    const { automations } = resolveAutomations([overridden], plugin, V1);
+
+    expect(automations).toHaveLength(1);
+    expect(automations[0]!.when).toEqual({ schedule: '0 16 * * 1-5', timezone: 'UTC' });
   });
 });
 

@@ -1,4 +1,4 @@
-# Weekday mornings at 6:30 Pacific, all year: the timezone keeps it on the
+# Weekday mornings at 6:30 in the workspace's zone, all year: the zone keeps it on the
 # local clock across daylight saving. The mail is the mission's `deliver:`,
 # sent when this check finishes (ADR 0008).
 slug: marketing-daily-update
@@ -8,6 +8,6 @@ status: active
 agent: marketing-lead
 when:
   schedule: '30 6 * * 1-5'
-  timezone: America/Los_Angeles
+  timezone: workspace
 do:
   checkMission: daily-marketing-update

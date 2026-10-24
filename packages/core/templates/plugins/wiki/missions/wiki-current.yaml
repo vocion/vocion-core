@@ -18,4 +18,3 @@ successCriteria:
 desiredArtifacts:
   - The five-line curation report per check
   - Wiki pages, each short, each with a summary
-schedule: '0 15 * * 5'

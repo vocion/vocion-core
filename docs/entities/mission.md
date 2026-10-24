@@ -28,7 +28,7 @@ in a workflow.
 | `autonomyPolicy.level` | int 1–5 | `1` | How much a **planned** run may do without asking: 1 draft only, 2 ask before action, 3 act within rules, 4 manage a goal, 5 improve itself. Levels 1–2 gate every external task a planner made; 3+ let them run unless the task flags approval. A check (a scheduled or automation pass) is one analysis task and is never gated by the level: what it may do unattended is the trust ladder's (`trust.yaml`, an action's `approvalRequired`). |
 | `successCriteria` | string[] | `[]` | How to tell the mission is being met. |
 | `desiredArtifacts` | string[] | `[]` | What the mission should produce — a brief, a list, a draft. |
-| `schedule` | 5-field cron, UTC | — | **Deprecated** (ADR 0008). Loads as the automation `<slug>-check` (same cron, UTC) with a workspace:check warning; dropped when an active automation already checks the mission on a schedule. Write the cadence as an automation, with `when.timezone`. |
+| `schedule` | 5-field cron, UTC | — | **Removed in 8.0** (ADR 0008): an error in a version-2 workspace. A version-1 workspace still loads it as the automation `<slug>-check` (same cron, UTC), with a warning, and drops it when an active automation already checks the mission on a schedule. `npm run migrate:automations` writes it as an automation. |
 | `deliver` | `{email: true \| [addresses]}` | — | Where a check's result goes when the check **finishes**: the briefing it published is mailed (`true` = the workspace's accountable person). Nothing published sends nothing; a failed check sends a short note with the reason and the run, never an older briefing. |
 
 ## Example
@@ -94,7 +94,7 @@ it again.
 
 - Slugs are unique across missions.
 - `agent` must resolve to an agent in this workspace.
-- `schedule` must be a 5-field cron expression, interpreted as UTC (deprecated; see above).
+- `schedule` (version 1 only) must be a 5-field cron expression, read in UTC.
 - An automation's `do.checkMission` must name a mission in this workspace.
 
 ## Related

@@ -7,7 +7,7 @@ status: active
 agent: marketing-lead
 when:
   schedule: '0 9 * * 6'
-  timezone: America/Los_Angeles
+  timezone: workspace
 do:
   checkMission: daily-marketing-update
   prompt: >-

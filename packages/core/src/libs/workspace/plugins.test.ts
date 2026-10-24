@@ -44,8 +44,9 @@ describe('the shipped catalogue', () => {
     expect(wiki.agents).toEqual(['wiki-curator', 'wiki-researcher']);
     expect(wiki.skills).toEqual(['wiki-context', 'wiki-curation', 'wiki-research']);
     expect(wiki.pages).toEqual(['wiki', 'wiki-guide']);
-    // 2.0.0: no automations; the four it shipped were paused everywhere.
-    expect(wiki.automations).toEqual([]);
+    // 2.0.0: the four it shipped were paused everywhere. 8.0: the mission's own
+    // weekly cadence is an automation (ADR 0008).
+    expect(wiki.automations).toEqual(['wiki-current-check']);
     expect(wiki.missions).toEqual(['wiki-current']);
     expect(wiki.hasTrust).toBe(true);
   });
@@ -66,7 +67,7 @@ describe('the shipped catalogue', () => {
     // Plus two standing responsibilities around the loop (3.31.0): the factory
     // is connected to what it builds (PM), and what it builds is mapped (Release).
     expect(factory.missions).toEqual(['close-the-gap', 'keep-the-pipeline-answered', 'map-the-codebase', 'prove-the-contract', 'set-up-the-factory', 'show-it-first', 'tell-the-requester']);
-    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'design-mockup', 'design-mockup-default', 'design-mockup-ended', 'design-mockup-sweep', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'incident-deploy-caused', 'map-codebase', 'map-codebase-sweep', 'narrate-recording', 'pipeline-fix', 'pipeline-fix-ended', 'release-announcement-draft', 'release-feature-demo', 'release-live-check', 'release-live-check-ended', 'slack-thread-recording', 'tell-the-asker-in-chat', 'tell-the-requester-check']);
+    expect(factory.automations).toEqual(['close-the-gap-check', 'contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'design-mockup', 'design-mockup-default', 'design-mockup-ended', 'design-mockup-sweep', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'incident-deploy-caused', 'map-codebase', 'map-codebase-sweep', 'narrate-recording', 'pipeline-fix', 'pipeline-fix-ended', 'release-announcement-draft', 'release-feature-demo', 'release-live-check', 'release-live-check-ended', 'slack-thread-recording', 'tell-the-asker-in-chat', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
     expect(factory.pages).toEqual(['configure', 'engines', 'feature', 'products', 'releases', 'runs', 'work']);
     expect(factory.hasTrust).toBe(true);
@@ -137,8 +138,9 @@ describe('loadWorkspace with plugins', () => {
     expect(ws.skills.map(s => s.slug)).toEqual(expect.arrayContaining(['wiki-curation', 'wiki-context']));
     expect(ws.skills.find(s => s.slug === 'wiki-curation')?.origin).toBe('core');
     expect(ws.missions.map(m => m.slug)).toContain('wiki-current');
-    // The mission's own weekly cadence runs as an automation (ADR 0008).
+    // The mission's weekly cadence is the plugin's automation (ADR 0008).
     expect(ws.automations.map(a => a.slug)).toEqual(['wiki-current-check']);
+    expect(ws.automations[0]!.when).toEqual({ schedule: '0 15 * * 5', timezone: 'UTC' });
     expect(ws.teams.map(t => t.slug)).toContain('wiki');
     expect(ws.trust?.rules.find(r => r.action === 'wiki.write_page')?.autoApproveAbove).toBe(0.6);
     expect(ws.sha).toContain('+wiki@2.0.0');
@@ -469,8 +471,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.missions.find(m => m.slug === 'close-the-gap')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'tell-the-requester')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'prove-the-contract')?.agent).toBe('change-reviewer');
-    // close-the-gap's own cadence runs as an automation (ADR 0008); tell-the-requester's
-    // is already `tell-the-requester-check`, so it is not added a second time.
+    // close-the-gap's cadence is an automation now (ADR 0008).
     expect(ws.automations.filter(a => a.agent === 'product-manager').map(a => a.slug).sort()).toEqual(['close-the-gap-check', 'factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'release-announcement-draft', 'tell-the-requester-check']);
     // The decision landing is what makes the card the commitment: approve freezes and queues, defer parks.
     expect(ws.automations.find(a => a.slug === 'factory-decision-landed')?.when).toEqual({ event: 'ask.decided', filter: { agentSlug: 'product-manager', kind: 'recommendation' } });
@@ -672,11 +673,12 @@ describe('the meeting-followup plugin', () => {
 
 describe('the marketing plugin (ADR 0008)', () => {
   it('runs on local time, delivers when the check finishes, and wakes between mornings only when the guard raises something', () => {
-    const ws = loadWorkspace(makeWorkspace('plugins: [marketing]\n'));
+    const ws = loadWorkspace(makeWorkspace('plugins: [marketing]\ndefaults:\n  timezone: America/New_York\n'));
     const bySlug = new Map(ws.automations.map(a => [a.slug, a]));
 
     expect([...bySlug.keys()].sort()).toEqual(['marketing-alert', 'marketing-daily-update', 'marketing-guard', 'marketing-weekend-summary']);
-    expect(bySlug.get('marketing-daily-update')?.when).toEqual({ schedule: '30 6 * * 1-5', timezone: 'America/Los_Angeles' });
+    // `timezone: workspace` — 6:30 on the workspace's own clock, whatever zone that is.
+    expect(bySlug.get('marketing-daily-update')?.when).toEqual({ schedule: '30 6 * * 1-5', timezone: 'America/New_York' });
     expect(bySlug.get('marketing-guard')?.do).toMatchObject({ job: 'ads-guard' });
     expect(bySlug.get('marketing-alert')?.when.event).toEqual(['ads.ad_limited', 'ads.pacing_off', 'ads.first_conversion']);
     expect(ws.missions.find(m => m.slug === 'daily-marketing-update')?.deliver).toEqual({ email: true });

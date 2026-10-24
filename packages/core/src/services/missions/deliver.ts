@@ -20,10 +20,10 @@ import { workspaceFrom } from '@/services/mail/workspaceFrom';
 
 export type MissionDelivery = { email: true | string[] };
 
-export type DeliveryOutcome =
-  | { delivered: 'briefing'; mail: { sent: boolean; reason?: string } }
-  | { delivered: 'failure-note'; mail: { sent: boolean; reason?: string } }
-  | { delivered: 'nothing'; reason: string };
+export type DeliveryOutcome
+  = | { delivered: 'briefing'; mail: { sent: boolean; reason?: string } }
+    | { delivered: 'failure-note'; mail: { sent: boolean; reason?: string } }
+    | { delivered: 'nothing'; reason: string };
 
 /**
  * Deliver what one check of a mission produced.

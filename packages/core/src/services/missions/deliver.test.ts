@@ -29,7 +29,8 @@ describe('a check delivers when it finishes (ADR 0008)', () => {
     job.run.mockResolvedValue({ mail: { sent: false, reason: 'no briefing was published in this window' } });
 
     await expect(deliverCheckResult({ orgId: 'org_kestrel', mission: MISSION, runId: 7, failed: null, startedAt: STARTED }))
-      .resolves.toEqual({ delivered: 'nothing', reason: 'the check published no briefing' });
+      .resolves
+      .toEqual({ delivered: 'nothing', reason: 'the check published no briefing' });
   });
 
   it('never mails an older briefing for a failed check: it sends the failure note instead', async () => {
@@ -41,7 +42,8 @@ describe('a check delivers when it finishes (ADR 0008)', () => {
 
   it('does nothing for a mission that delivers nowhere', async () => {
     await expect(deliverCheckResult({ orgId: 'org_kestrel', mission: { ...MISSION, deliver: null }, runId: 7, failed: null, startedAt: STARTED }))
-      .resolves.toEqual({ delivered: 'nothing', reason: 'the mission delivers nowhere' });
+      .resolves
+      .toEqual({ delivered: 'nothing', reason: 'the mission delivers nowhere' });
     expect(job.run).not.toHaveBeenCalled();
   });
 

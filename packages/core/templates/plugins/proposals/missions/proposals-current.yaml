@@ -21,4 +21,3 @@ successCriteria:
 desiredArtifacts:
   - The proposal document per Proposal-stage room, verified
   - One line per room in the check report — verified, issues, or missing
-schedule: '0 15 * * 1-5'

@@ -44,13 +44,13 @@ Every Google Ads write is `approvalRequired`: whoever proposes it, it waits in R
 
 ## The daily update
 
-`missions/daily-marketing-update.yaml`, run at 6:30am Pacific on weekdays by `automations/marketing-daily-update.yaml` (`when.timezone: America/Los_Angeles`, so it stays at 6:30 across daylight saving) and published with `publish_briefing`, so it is on the Briefings page. It covers spend yesterday and this week against budget, what it bought, wasted search terms, ads Google limited, the proposals waiting, and one recommendation.
+`missions/daily-marketing-update.yaml`, run at 6:30am on weekdays by `automations/marketing-daily-update.yaml` (`when.timezone: workspace`: 6:30 on the workspace's own clock, across daylight saving) and published with `publish_briefing`, so it is on the Briefings page. It covers spend yesterday and this week against budget, what it bought, wasted search terms, ads Google limited, the proposals waiting, and one recommendation.
 
 The mission's `deliver: {email: true}` mails the briefing to the workspace's accountable person when the check finishes (ADR 0008; mail needs `VOCION_MAIL_ENABLED=1`). A check that published nothing sends nothing; one that failed sends a short note with the reason and the run, never an older update.
 
 Between mornings:
 
-- **Saturday 9am Pacific** — `marketing-weekend-summary.yaml` checks the same mission with a five-line brief on the week.
+- **Saturday 9am** — `marketing-weekend-summary.yaml` checks the same mission with a five-line brief on the week.
 - **Every four hours** — `marketing-guard.yaml` runs the `ads-guard` job: three GAQL reads, no model. It raises `ads.ad_limited` (an enabled ad disapproved or limited), `ads.pacing_off` (yesterday under a quarter or over 1.5× the daily budget, or today already over 1.5×) and `ads.first_conversion` (a campaign younger than 60 days records its first conversion). Each rings once (its dedupe key).
 - **On those events** — `marketing-alert.yaml` has the lead say what happened in three lines and propose the fix as a card; the alert is mailed when that check finishes.
 
