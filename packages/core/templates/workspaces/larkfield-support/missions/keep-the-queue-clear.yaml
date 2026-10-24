@@ -21,4 +21,3 @@ successCriteria:
 desiredArtifacts:
   - A queue health report naming the oldest untouched ticket and every SLA breach
   - A list of drafts waiting on a human, with how long each has waited
-schedule: '0 13 * * 1-5'

@@ -18,4 +18,3 @@ successCriteria:
 desiredArtifacts:
   - One draft report per active client, proposed for a person to send
   - A list of clients with nothing to report and why
-schedule: '0 19 * * 5'

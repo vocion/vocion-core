@@ -163,6 +163,9 @@ function kindBadges(m: MemberStats): string {
 }
 
 export function subjectFor(data: DailyTeamReportData): string {
+  if (data.rollup?.full && data.rollup.stale) {
+    return `No new ${data.rollup.label} since ${WEEKDAY_FMT.format(data.rollup.createdAt)} — ${data.rollup.title}`;
+  }
   if (data.rollup?.full) {
     return data.rollup.title;
   }
@@ -188,7 +191,7 @@ export type ReportSections = {
   /** What happens next. */
   next: string[];
   /** The workspace briefing, excerpted; `truncated` says a link is owed. */
-  rollup: { title: string; publishedAt: string; excerpt: string; truncated: boolean; label: string; href: string } | null;
+  rollup: { title: string; publishedAt: string; excerpt: string; truncated: boolean; label: string; href: string; stale?: boolean } | null;
   /** Evidence — the counts everything above is derived from. */
   evidence: { label: string; value: string }[];
 };
@@ -345,13 +348,14 @@ export function reportSections(data: DailyTeamReportData): ReportSections {
       truncated: false,
       label: data.rollup.label,
       href,
+      ...(data.rollup.stale ? { stale: true } : {}),
     };
   } else if (data.rollup) {
     const content = data.rollup.content.trim();
     // A briefing the job was pointed at rides in full; the rollup is excerpted.
     const truncated = !data.rollup.full && content.length > ROLLUP_EXCERPT_CHARS;
     const excerpt = truncated ? `${content.slice(0, ROLLUP_EXCERPT_CHARS).replace(/\s+\S*$/, '')}…` : content;
-    rollup = { title: data.rollup.title, publishedAt: `${STAMP_FMT.format(data.rollup.createdAt)} UTC`, excerpt, truncated, label: data.rollup.label, href: data.rollup.href ?? data.links.briefings };
+    rollup = { title: data.rollup.title, publishedAt: `${STAMP_FMT.format(data.rollup.createdAt)} UTC`, excerpt, truncated, label: data.rollup.label, href: data.rollup.href ?? data.links.briefings, ...(data.rollup.stale ? { stale: true } : {}) };
   }
 
   // --- Evidence -----------------------------------------------------------
@@ -430,7 +434,7 @@ export function reportMarkdown(data: DailyTeamReportData): string {
   if (s.rollup) {
     lines.push(`## From the ${s.rollup.label}`);
     lines.push('');
-    lines.push(`_${s.rollup.title} — ${s.rollup.publishedAt}_`);
+    lines.push(s.rollup.stale ? `_No new ${s.rollup.label} in this window. The last one: ${s.rollup.title} — ${s.rollup.publishedAt}_` : `_${s.rollup.title} — ${s.rollup.publishedAt}_`);
     lines.push('');
     // Demote the briefing's own headings so they nest under this section.
     lines.push(s.rollup.excerpt.replace(/^(#{1,4})\s/gm, (_m, h: string) => `${'#'.repeat(Math.min(h.length + 2, 6))} `));
@@ -552,7 +556,7 @@ export function renderDailyTeamReport(data: DailyTeamReportData): RenderedReport
 
     s.rollup
       ? `${h2('From the workspace briefing')
-      }<p style="${ST.p}${MUTED}font-size:12px;">${escapeHtml(s.rollup.title)} — ${escapeHtml(s.rollup.publishedAt)}</p>`
+      }<p style="${ST.p}${MUTED}font-size:12px;">${s.rollup.stale ? `No new ${escapeHtml(s.rollup.label)} in this window. The last one: ` : ''}${escapeHtml(s.rollup.title)} — ${escapeHtml(s.rollup.publishedAt)}</p>`
       + `<div style="padding:10px 14px;${BORDER}border-radius:6px;">${markdownToEmailHtml(s.rollup.excerpt, { ...ST, h1: ST.h3, h2: ST.h3, h3: ST.h3 })}${
         s.rollup.truncated ? `<p style="${ST.p}margin:6px 0 0;"><a href="${escapeHtml(s.rollup.href)}" style="${ST.a}">Read the full briefing</a></p>` : ''
       }</div>`

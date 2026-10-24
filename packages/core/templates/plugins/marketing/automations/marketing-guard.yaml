@@ -1,0 +1,14 @@
+# Every four hours, a cheap read of the ad account: three queries and no model.
+# It raises an event only when something changed — an ad disapproved or
+# limited, spend running off its budget, a young campaign's first conversion —
+# and marketing-alert answers it (ADR 0008).
+slug: marketing-guard
+name: Ad account guard
+description: Every four hours, checks ad approvals, budget pacing and first conversions, and raises an alert only when something changed.
+status: active
+agent: marketing-lead
+when:
+  schedule: '15 */4 * * *'
+  timezone: workspace
+do:
+  job: ads-guard

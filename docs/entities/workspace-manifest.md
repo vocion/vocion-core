@@ -15,7 +15,7 @@ which base pack (if any) the workspace builds on.
 
 | Field | Type | Required | What it does |
 |---|---|---|---|
-| `version` | `1` | yes | Manifest format version. Only `1` is valid. |
+| `version` | `2` | yes | Manifest format version. `2` (8.0): schedules are read in `defaults.timezone` unless they name a zone, and a mission carries no `schedule:` (ADR 0008). `1` still loads in 8.x with warnings, its own schedules read in UTC, and is removed in 9.0; `npm run migrate:automations` moves a workspace to `2`. |
 | `orgId` | string | yes | Id of the project (tenant) the workspace belongs to — auth.js (next-auth v5) session/org scoping, not Clerk. Templates ship a placeholder; `workspace:apply --project` resolves it to the live project. |
 | `name` | string | yes | Display name of the workspace. |
 | `description` | string | no | One-paragraph summary, shown in the dashboard. |
@@ -39,7 +39,7 @@ A selector is `{agents: [...], skills: [...], playbooks: [...]}`; every key is o
 ## Example
 
 ```yaml
-version: 1
+version: 2
 orgId: proj_meridian_revenue
 name: Meridian Outdoor — Revenue
 description: >-

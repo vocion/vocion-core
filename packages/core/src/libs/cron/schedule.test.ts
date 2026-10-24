@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cronIntervalMs, humanizeAge, previousFire, previousFires } from './schedule';
+import { cronIntervalMs, humanizeAge, nextFire, previousFire, previousFires, zoneOffsetMinutes } from './schedule';
 
 const HOUR = 3_600_000;
 
@@ -83,5 +83,32 @@ describe('humanizeAge', () => {
     expect(humanizeAge(45 * 60_000)).toBe('45 minutes');
     expect(humanizeAge(19.3 * HOUR)).toBe('19.3 hours');
     expect(humanizeAge(3 * 24 * HOUR)).toBe('3.0 days');
+  });
+});
+
+describe('a schedule read in its own zone (ADR 0008)', () => {
+  const LA = 'America/Los_Angeles';
+  const WEEKDAYS_630 = '30 6 * * 1-5';
+
+  it('reads the zone\'s offset on both sides of daylight saving', () => {
+    expect(zoneOffsetMinutes(new Date('2026-10-30T12:00:00Z'), LA)).toBe(-420);
+    expect(zoneOffsetMinutes(new Date('2026-11-02T12:00:00Z'), LA)).toBe(-480);
+  });
+
+  it('keeps 6:30am local across the November change, where UTC moves an hour', () => {
+    // Friday before the change: 6:30 PDT is 13:30 UTC.
+    expect(previousFire(WEEKDAYS_630, new Date('2026-10-30T20:00:00Z'), LA)?.toISOString()).toBe('2026-10-30T13:30:00.000Z');
+    // Monday after it: 6:30 PST is 14:30 UTC.
+    expect(previousFire(WEEKDAYS_630, new Date('2026-11-02T20:00:00Z'), LA)?.toISOString()).toBe('2026-11-02T14:30:00.000Z');
+    expect(nextFire(WEEKDAYS_630, new Date('2026-10-30T20:00:00Z'), LA)?.toISOString()).toBe('2026-11-02T14:30:00.000Z');
+  });
+
+  it('reads the same cron in UTC when no zone is named, as before', () => {
+    expect(previousFire(WEEKDAYS_630, new Date('2026-11-02T20:00:00Z'))?.toISOString()).toBe('2026-11-02T06:30:00.000Z');
+    expect(nextFire(WEEKDAYS_630, new Date('2026-10-30T20:00:00Z'))?.toISOString()).toBe('2026-11-02T06:30:00.000Z');
+  });
+
+  it('measures the cadence in local days, so a weekday schedule is daily on both sides', () => {
+    expect(cronIntervalMs(WEEKDAYS_630, new Date('2026-11-04T20:00:00Z'), LA)).toBe(24 * HOUR);
   });
 });

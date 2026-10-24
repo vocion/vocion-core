@@ -512,7 +512,19 @@ async function dispatchDo(
   // What runs after the check — the recording pass, the summary — is the
   // check's spend too (`budget/runCost.ts`).
   const checked = run;
+  // THE RESULT GOES OUT WHEN THE CHECK FINISHES (ADR 0008): the mission's
+  // `deliver:` mails the briefing this check published, or a short note when
+  // it failed — never an older briefing, which a second automation timed to
+  // fire twenty minutes later could not tell apart.
+  const deliver = (failed: string | null) => deliverOnce(orgId, slug, template, checked, failed, startedAt);
   return withRunCost({ missionRunId: checked.id }, () => afterCheck(orgId, slug, doCfg, template, checked, triggerInput, invokedBy, before, startedAt))
+    .then(async (out) => {
+      const delivery = await deliver(checked.status === 'failed' ? runFailureReason(checked.plan) : null);
+      return delivery === null ? out : { ...out, result: { ...(out.result as object | undefined), delivery } };
+    }, async (err: unknown) => {
+      await deliver((err as Error).message ?? String(err));
+      throw err;
+    })
     .finally(() => {
       void import('@/services/factory/featureSpend').then(m => m.scheduleFeatureSpendRefresh(orgId)).catch(() => {});
       // The run's browser (the live check's `browser_*` tools) closes with its check, after the
@@ -522,6 +534,46 @@ async function dispatchDo(
       // the completed event ran first, found no demo yet, and a second demo was recorded.
       return import('@/services/factory/liveBrowser').then(m => Promise.all(runIds.map(id => m.closeBrowserSession(m.browserSessionKey({ orgId, missionRunId: id }))))).catch(() => {});
     });
+}
+
+/**
+ * Deliver a check's result per its mission's `deliver:`. Best-effort: a fire
+ * whose work succeeded is never recorded as failed because its mail did not
+ * go, and a mission that delivers nowhere costs nothing here.
+ * @param orgId - Tenant.
+ * @param slug - The automation, for the log.
+ * @param template - The mission checked.
+ * @param run - The check's run.
+ * @param failed - Why the check did not finish, or null when it did.
+ * @param startedAt - When the check started.
+ */
+async function deliverOnce(
+  orgId: string,
+  slug: string,
+  template: { name: string; agentSlug: string; deliver?: { email: true | string[] } | null },
+  run: { id: number },
+  failed: string | null,
+  startedAt: Date,
+): Promise<unknown> {
+  if (!template.deliver) {
+    return null;
+  }
+  const { deliverCheckResult } = await import('@/services/missions/deliver');
+  return deliverCheckResult({ orgId, mission: { name: template.name, agentSlug: template.agentSlug, deliver: template.deliver }, runId: run.id, failed, startedAt })
+    .catch((err) => {
+      console.warn('[automation] could not deliver the check result', { slug, missionRunId: run.id, error: (err as Error).message });
+      return { delivered: 'nothing', reason: `delivery failed: ${(err as Error).message}` };
+    });
+}
+
+/**
+ * What stopped a failed run, from its plan's failed task. Pure.
+ * @param plan - The run's plan.
+ */
+export function runFailureReason(plan: unknown): string {
+  const tasks = ((plan ?? {}) as { tasks?: Array<{ status?: string; error?: unknown }> }).tasks ?? [];
+  const failedTask = tasks.find(t => t.status === 'failed' || t.error);
+  return failedTask?.error ? String(failedTask.error) : 'the check failed';
 }
 
 /**
@@ -926,6 +978,8 @@ export type ScheduleHealth = {
  */
 export function scheduleHealth(opts: {
   cron?: string | null;
+  /** IANA zone the cron fires in (`when.timezone`); UTC when absent. */
+  timezone?: string | null;
   lastFireAt?: Date | null;
   paused?: boolean;
   now?: Date;
@@ -937,8 +991,8 @@ export function scheduleHealth(opts: {
   if (!cron || opts.paused) {
     return base;
   }
-  const expectedAt = previousFire(cron, now);
-  const intervalMs = cronIntervalMs(cron, now);
+  const expectedAt = previousFire(cron, now, opts.timezone);
+  const intervalMs = cronIntervalMs(cron, now, opts.timezone);
   if (!expectedAt || intervalMs === null) {
     return base;
   }
@@ -1307,6 +1361,8 @@ export type AutomationScheduleSpec = {
   orgId: string;
   slug: string;
   cron: string;
+  /** IANA zone the cron is read in (`when.timezone`); UTC when absent. */
+  timezone?: string | null;
   /**
    * A person's standing pause, from the automation row. When set, the
    * schedule is re-asserted paused after the upsert — a workspace apply never
@@ -1328,6 +1384,7 @@ export function automationScheduleSpec(spec: AutomationScheduleSpec): ScheduleSp
     cron: spec.cron,
     job: JOB.automationFire,
     input: { orgId: spec.orgId, slug: spec.slug },
+    ...(spec.timezone ? { timezone: spec.timezone } : {}),
   };
 }
 

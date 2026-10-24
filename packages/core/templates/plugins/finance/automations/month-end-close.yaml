@@ -6,6 +6,7 @@ setting: monthEndClose
 agent: controller
 when:
   schedule: '0 16 2 * *'
+  timezone: UTC
 do:
   checkMission: close-the-month
   prompt: >-

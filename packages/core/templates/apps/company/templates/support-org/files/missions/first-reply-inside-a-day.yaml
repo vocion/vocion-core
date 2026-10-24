@@ -20,4 +20,3 @@ successCriteria:
 desiredArtifacts:
   - The queue report naming the oldest ticket without a reply and every one about to miss a business day
   - The list of drafts waiting on a person, with how long each has waited
-schedule: '0 13 * * 1-5'

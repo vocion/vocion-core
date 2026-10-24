@@ -8,7 +8,7 @@ export type PlanAutomation = {
   slug: string;
   name: string;
   status: string | null;
-  whenConfig: { schedule?: string; event?: string | string[] };
+  whenConfig: { schedule?: string; timezone?: string; event?: string | string[] };
   pausedAt: Date | null;
   pausedNote: string | null;
 };
@@ -23,11 +23,12 @@ export const WORKSPACE_GROUP = 'workspace';
  * What an automation reacts to, in words: its schedule, or the events it is on.
  * @param when - `automation.when_config`.
  * @param when.schedule - A cron.
+ * @param when.timezone - The zone the cron is read in; UTC when absent.
  * @param when.event - The event, or events, it answers.
  */
-export function triggerWords(when: { schedule?: string; event?: string | string[] }): string {
+export function triggerWords(when: { schedule?: string; timezone?: string; event?: string | string[] }): string {
   if (when.schedule) {
-    return cronToText(when.schedule);
+    return cronToText(when.schedule, when.timezone);
   }
   const events = (Array.isArray(when.event) ? when.event : when.event ? [when.event] : []).map(e => e.replace(/[._]+/g, ' ').trim());
   return events.length > 0 ? `On ${events.join(', ')}` : 'By hand';

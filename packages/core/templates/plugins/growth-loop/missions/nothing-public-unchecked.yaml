@@ -29,4 +29,3 @@ desiredArtifacts:
   - A grade on every deliverable, with verdict, round, fixes and unsupported claims quoted
   - The weekly pattern line — what pieces failed on most, and which brief field would have prevented it
   - The list of acceptance lines that could not be checked, for the strategist
-schedule: '0 12 * * 1-5'

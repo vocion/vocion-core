@@ -6,6 +6,7 @@ status: active
 agent: support-lead
 when:
   schedule: '0 13 * * 1-5'
+  timezone: UTC
 do:
   checkMission: first-reply-inside-a-day
   prompt: >-

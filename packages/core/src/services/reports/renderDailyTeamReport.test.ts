@@ -137,6 +137,14 @@ describe('renderDailyTeamReport', () => {
     expect(subjectFor(fixture())).toBe('Team report — Vocion Workforce — Tuesday, Sep 15');
   });
 
+  it('says a carried briefing is the last one, not today\'s, when none was published in the window (ADR 0008)', () => {
+    const d = fixture();
+    d.rollup = { ...d.rollup!, title: 'Marketing update — Fri, Oct 30', full: true, label: 'marketing-lead briefing', stale: true, createdAt: new Date('2026-10-30T13:40:00Z') };
+
+    expect(subjectFor(d)).toBe('No new marketing-lead briefing since Friday, Oct 30 — Marketing update — Fri, Oct 30');
+    expect(renderDailyTeamReport(d).markdown).toContain('No new marketing-lead briefing in this window. The last one: Marketing update — Fri, Oct 30');
+  });
+
   it('leads with performance, then answers the manifesto\'s four questions, before the table and the evidence', () => {
     const r = renderDailyTeamReport(fixture());
     const order = ['Performance', 'What changed', 'What needs me', 'Are we on track', 'What happens next', 'From the workspace briefing', 'Teams and members', 'Evidence']

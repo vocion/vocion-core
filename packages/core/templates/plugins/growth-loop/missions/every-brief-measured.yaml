@@ -30,4 +30,3 @@ desiredArtifacts:
   - The overdue line per check — which briefs, how many days, and on what
   - The standing missing-instrument list, with what each would unlock
   - The cost-against-return read by theme and channel, with the readings that could not be taken named
-schedule: '0 13 * * 1-5'

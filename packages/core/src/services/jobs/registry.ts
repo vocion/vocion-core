@@ -97,6 +97,8 @@ const JOBS: Record<string, BuiltInJob> = {
   // `object.created` for a type with `x-duplicate-check` whose intake does not
   // already run it (a factory request's does): is this one we already have?
   'record-duplicate-check': async (orgId, input) => (await import('@/services/objects/duplicateCheck')).checkNewRecordForDuplicate(orgId, input),
+  // The Marketing plugin's four-hourly read of the ad account: raises an event only when something changed (ADR 0008).
+  'ads-guard': async (orgId, input) => (await import('./adsGuard')).runAdsGuardJob(orgId, input),
   // A workspace whose old automation still names these hears nothing from them: asker-follow says it.
   ...Object.fromEntries(RETIRED_FOLLOW_JOBS.map(name => [name, async () => ({ said: false, reason: `${name} is retired; asker-follow tells the asker` })])),
 };

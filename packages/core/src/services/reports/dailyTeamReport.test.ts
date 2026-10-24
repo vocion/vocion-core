@@ -163,7 +163,7 @@ describe('daily-team-report job', () => {
   });
 
   it('input.briefing carries a team briefing in full and uses its title as the subject', async () => {
-    const r = await runDailyTeamReportJob(ORG, { briefing: { teamSlug: 'content' }, publish: false });
+    const r = await runDailyTeamReportJob(ORG, { briefing: { teamSlug: 'content' }, since: '2026-09-15T00:00:00Z', publish: false });
 
     expect(r.subject).toBe('Content brief');
 
@@ -175,6 +175,20 @@ describe('daily-team-report job', () => {
     const fallback = await collectDailyTeamReport(ORG, undefined, { briefing: { teamSlug: 'nope' } });
 
     expect(fallback.rollup).toMatchObject({ title: 'Workspace rollup — Mon', full: false, label: 'workspace briefing' });
+  });
+
+  it('says a team briefing from before the window is the last one, and a fresh-only delivery mails nothing (ADR 0008)', async () => {
+    const stale = await runDailyTeamReportJob(ORG, { briefing: { teamSlug: 'content' }, publish: false, mail: false });
+
+    expect(stale.subject).toBe('No new content briefing since Tuesday, Sep 15 — Content brief');
+
+    process.env.VOCION_MAIL_ENABLED = '1';
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const fresh = await runDailyTeamReportJob(ORG, { briefing: { teamSlug: 'content' }, requireFresh: true, publish: false });
+
+    expect(fresh.mail).toEqual({ sent: false, reason: 'no briefing was published in this window' });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('input.mail=false skips mail even when enabled', async () => {

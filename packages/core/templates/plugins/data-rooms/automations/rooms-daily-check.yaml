@@ -8,6 +8,7 @@ status: active
 agent: room-keeper
 when:
   schedule: '0 14 * * 1-5'
+  timezone: UTC
 do:
   checkMission: rooms-current
   prompt: >-

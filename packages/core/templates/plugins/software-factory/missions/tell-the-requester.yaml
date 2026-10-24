@@ -50,4 +50,3 @@ desiredArtifacts:
   - An announcement proposed per release with owned notes and no announcement
   - A proposed reply per closed request, on its channel, for a person to release
   - The two-hourly line — replies proposed, released, still waiting
-schedule: '0 */2 * * *'
