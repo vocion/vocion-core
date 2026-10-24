@@ -1,10 +1,10 @@
 import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { describe, expect, it } from 'vitest';
-import { REVIEW_IMAGE_MAX_BYTES, rasterizeChart } from '@/libs/charts/raster';
+import { rasterizeChart, REVIEW_IMAGE_MAX_BYTES } from '@/libs/charts/raster';
 import { reviewChart } from '@/libs/charts/review';
 import { chartSpecSchema } from '@/libs/charts/spec';
-import { toolOutputContent } from './traceEmitter';
 import { chartReviewImage, dropSeenImages, takesToolResultImages, withImage } from './toolResultImages';
+import { toolOutputContent } from './traceEmitter';
 
 /** Monthly revenue with two forecast months (fictional numbers). */
 const MONTHLY = chartSpecSchema.parse({
