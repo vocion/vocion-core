@@ -74,13 +74,16 @@ export function factNotes(facts: LayoutFacts, opts: { brief?: boolean } = {}): s
  * @param opts - Options.
  * @param opts.width - The width to review at (a phone's, by default).
  * @param opts.revised - This is the model's revision: say so, and that one is enough.
+ * @param opts.withImage - The picture goes with this review (`toolResultImages.ts`).
  */
-export function reviewChart(spec: ChartSpec, opts: { width?: number; revised?: boolean } = {}): ChartReview {
+export function reviewChart(spec: ChartSpec, opts: { width?: number; revised?: boolean; withImage?: boolean } = {}): ChartReview {
   const width = opts.width ?? REVIEW_WIDTH;
   const scene = layoutChart(spec, { width });
   const { signals } = checkChart(spec);
   const lines = [
-    `Review at a phone's width (${width}px; a summary of the layout, not an image): ${scene.width}×${scene.height}px.`,
+    opts.withImage
+      ? `Review at a phone's width (${width}px): the image below is the chart as drawn there, ${scene.width}×${scene.height}px. Look at it.`
+      : `Review at a phone's width (${width}px; a summary of the layout, not an image): ${scene.width}×${scene.height}px.`,
     ...factNotes(scene.facts).map(n => `- ${n}`),
     ...signals.map(s => `- [${s.rule}] ${s.message}`),
     opts.revised

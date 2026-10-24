@@ -158,6 +158,11 @@ export function toolOutputContent(output: unknown): string {
   if (o && typeof o.content === 'string') {
     return o.content;
   }
+  // A result with a picture (`toolResultImages.ts`) is its text: the picture
+  // is for the model's eyes in this turn, never stored or streamed.
+  if (o && Array.isArray(o.content)) {
+    return o.content.filter((b): b is { type: 'text'; text: string } => (b as { type?: string })?.type === 'text' && typeof (b as { text?: unknown }).text === 'string').map(b => b.text).join('\n');
+  }
   return '';
 }
 
