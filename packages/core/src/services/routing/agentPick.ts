@@ -16,11 +16,11 @@
  * Null means no key: the router behaves exactly as before. Never throws.
  */
 
-import type { JevAgentPick, RoutableAgent } from '@/services/agents/router';
 import type { JevAnswer, JevDeps, JevFailure, JevQuestion, JevSettings } from './jev';
 import type { KeyScope } from './jevKey';
+import type { JevAgentPick, RoutableAgent } from '@/services/agents/router';
 import process from 'node:process';
-import { jevBreakerOpen, noteJevOutcome, chatTimeoutMs } from './agentRoute';
+import { chatTimeoutMs, jevBreakerOpen, noteJevOutcome } from './agentRoute';
 import { decide, isJevFailure, jevEndpoint, jevSettings, NONE } from './jev';
 
 export type AgentPickDeps = {

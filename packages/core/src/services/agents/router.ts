@@ -603,6 +603,7 @@ export const ROUTE_READ_TIMEOUT_MS = 2_500;
  * @param deps.owners - The workspace's type owners; defaults to {@link typeOwners}.
  * @param deps.intake
  * @param deps.timeoutMs - How long to wait for the read.
+ * @param deps.jev - Jev's pick of the seat; defaults to `pickAgent` (null with no key).
  */
 export async function routeFirstTurn(
   opts: { orgId: string; agents: RoutableAgent[]; message: string; leadSlug?: string | null; surface: string },

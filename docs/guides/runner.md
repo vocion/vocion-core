@@ -148,6 +148,11 @@ or low-confidence answer takes the static route above.
   `VOCION_JEV_MIN_CONFIDENCE` (default 0.6), `VOCION_JEV_TIMEOUT_MS` (default 3000). The fence
   still applies first.
 - Each run records who routed it and Jev's answer; the Engines page shows it.
+- **Agent turns too (phase 2):** the same key routes chat, missions and automations. Give
+  candidates with `defaults.routeModels` in `workspace.yaml` or `harness.routeModels` on an agent
+  (entries with `model:`; `engine:` entries stay the factory's). Chat waits at most
+  `VOCION_JEV_CHAT_TIMEOUT_MS` (default 1500); `VOCION_ALLOWED_MODELS` fences which models may be
+  picked. Observability → Routing shows Jev vs configured turns, fallbacks and spend by model.
 
 ### The engine scoreboard
 

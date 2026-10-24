@@ -192,3 +192,115 @@ calls Jev (fetch is faked).
 
 Remove the key (System and/or Developers; unset `TYPESAFE_API_KEY`). Routing is static at the
 next dispatch. Nothing else needs undoing; the recorded routes stay on the board as history.
+
+## Phase 2: every agent turn (2026-10-23)
+
+Phase 1 routed only the Software Factory's dispatch. Phase 2 routes every agent turn: chat
+(full page and in app), missions, scheduled automations and any other agent run. The rules above
+still hold: the same key (workspace, then instance, then off), the same pinned Jev model, hard
+limits first, and every failure runs the configured model.
+
+### 9. One hook, where the turn's model and effort are chosen
+
+The decision is made in `runAgentDeepInScope` (`services/AgentService.ts`), where the in-process
+agent loop picks its model, thinking and effort. That one place covers chat, missions,
+automations and other runs, so they share one rule (`services/routing/agentRoute.ts`). With no
+key, `routeAgentTurn` returns null before it does anything else: no candidates are read, no
+request is made, and the turn, its model, its effort and its ledger rows are the same as before.
+
+Not routed: evals (they measure a fixed configuration), a caller that already pins a model
+(`modelOverride`), scripted test providers, and a person's turn where the person set the level
+or a model themselves.
+
+**Not covered:** agents running out of process (`agentcore-container` with the runtime on,
+`aws-managed-harness`) build their model from the agent row and are not routed. Production runs
+agents in process (`VOCION_DISABLE_RUNTIME=1`), so this covers production today. `external-worker`
+is the factory and is routed by phase 1.
+
+### 10. Candidates: `routeModels`, at workspace level and per agent
+
+The candidate list has the same shape as phase 1: `defaults.routeModels` in `workspace.yaml`,
+and `harness.routeModels` per agent (the agent's own list wins). Agent turns read entries with a
+`model` (and optional `provider`, `about`, `cost`). Entries with an `engine` belong to the
+factory and are ignored here. Jev picks only from the list, plus an effort. The configured model
+is always a candidate, so Jev can keep today's choice.
+
+With no list, the configured model is the only candidate and Jev sets only the effort. Outside
+chat, the effort becomes thinking, so Jev is asked only when the model thinks (Claude on
+Anthropic or Bedrock).
+
+### 11. How the answer is used
+
+- **Chat (a person's turn on Auto):** Jev's effort (low/medium/high → quick/standard/deep) takes
+  the place of the Auto read. The Auto read still runs in parallel, so its floors still apply
+  (drafting something to send, checking two or more systems, bulk changes, what is owed), along
+  with the synthesis rule and the answer floor. Jev's model, if it moved, replaces the
+  level's model, with the level's thinking. If the agent pins `turnEffort`, its effort is kept and
+  Jev picks only the model.
+- **Missions, automations, other runs:** Jev's model and, on a model that thinks, Jev's effort as
+  its thinking.
+- Jev's answer is used only at or above `VOCION_JEV_MIN_CONFIDENCE` (default 0.6). Below that, or
+  for `none`, a choice outside the list, a timeout or an error, the configured model runs and the
+  reason is recorded.
+
+### 12. Hard limits before Jev
+
+A candidate is dropped before Jev sees it if:
+
+- its vendor has no credential in that workspace (workspace key, environment key, or AWS for
+  Bedrock);
+- its vendor can't be told from the id;
+- it is outside `VOCION_ALLOWED_MODELS` (an optional comma-separated fence, with a trailing `*`
+  wildcard).
+
+Budgets, turn ceilings and approvals are enforced afterwards by the same guards as any turn. Jev
+changes only the model and the effort, never the tools, trust or approval rules.
+
+### 13. Latency
+
+A chat waits at most `VOCION_JEV_CHAT_TIMEOUT_MS` (default 1500, range 250–5000). Other runs wait
+at most `VOCION_JEV_TIMEOUT_MS`. In chat, Jev runs in parallel with the Auto read, which already
+sits on the turn's path. Decisions are cached by agent, candidates, request and conversation
+(10 minutes for chat, 6 hours for scheduled runs). After three failures in a row Jev is skipped
+for a minute. A chat is never blocked and never fails because of Jev.
+
+### 14. Who answers a first message
+
+The workspace router (`services/agents/router.ts`) asks Jev which seat owns a first message, in
+parallel with the model read it already makes. A confident pick of a seat on the roster routes
+the message (`decidedBy: 'jev'`). Otherwise the model read decides as before, and what Jev said is
+kept on the decision. This only chooses who answers. That agent's trust, tools and approvals are
+unchanged.
+
+**Deferred (phase 3):** lead → specialist delegation inside a turn. There the lead's own model
+decides delegation while it works, and replacing that would need a delegation hook. That needs
+its own review of how approvals and trust carry across delegation.
+
+### 15. Records and the Routing view
+
+Every model call a routed turn makes records the decision on its `model_call` row (migration
+0218):
+
+- `route_selector`: `jev` or `configured`;
+- `route_detail`: kind, candidates, choice, confidence, effort, reason, Jev model, latency, cost,
+  key scope, provider (TypeSafe or OpenRouter), fallback reason, and whether it was cached.
+
+First-message picks are kept on `conversation_message.routing_json`. With no key both stay null
+(byte-identical rows). **Observability → Routing** shows:
+
+- whether routing is on, and on whose key;
+- Jev vs configured turns, and by kind of run;
+- the most common fallback reasons;
+- first messages Jev assigned;
+- spend by model and how the model was chosen.
+
+### 16. Consequences of phase 2
+
+- With a key, each routed turn sends the person's request (first 2000 characters), the agent's
+  description and the candidate descriptions to TypeSafe (or OpenRouter). That makes TypeSafe a
+  subprocessor for chat content. Turning routing on for a workspace is a data-sharing decision.
+- A routed turn's model differs from the agent's default, so the turn's compiled blueprint is not
+  served from cache.
+- Each turn makes one key lookup (a database read) before deciding. With no key, that is all it
+  costs.
+- Rollback is the same: remove the key.

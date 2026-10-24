@@ -3,6 +3,8 @@ import { setRequestLocale } from 'next-intl/server';
 import { Button } from '@/components/ui/button';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { ExtensionSlot } from '@/features/extensions/ExtensionSlot';
+import { RoutingSection } from '@/features/routing/RoutingSection';
+import { routingStatusLine } from '@/features/routing/routingStatus';
 import { SpendView, spendViewState } from '@/features/spend/SpendView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
@@ -10,6 +12,7 @@ import { langfuseConfig } from '@/libs/Langfuse';
 import { browserProjectId } from '@/libs/Langfuse/config';
 import { listAgentBudgets, listPlatformBudgets, ORG_SCOPE_SLUG, orgUsageTotals } from '@/services/BudgetService';
 import { countRunsLast24h } from '@/services/ObservabilityService';
+import { routingSummary } from '@/services/spend/routing';
 import { periodRange, spendBy } from '@/services/spend/spend';
 import { effectiveRole } from '@/services/WorkspaceAccessService';
 import { ORG_ROLE } from '@/types/Auth';
@@ -77,12 +80,27 @@ export default async function ObservabilityPage(props: {
       })()
     : Promise.resolve(null);
 
-  const [budgets, platformBudgets, orgTotals, runCounts, spend] = await Promise.all([
+  // Dynamic routing (ADR 0006): same reader, same scope and period as spend.
+  const routingRead = canReadSpend
+    ? (async () => {
+        const { from, to } = periodRange(spendState.period);
+        const { jevKeyStatus } = await import('@/services/routing/jevKey');
+        const [summary, keys] = await Promise.all([
+          routingSummary({ scope: spendState.scope === 'org' ? { accountId: accountId! } : { orgId }, from, to }),
+          jevKeyStatus(orgId).catch(() => null),
+        ]);
+        const hint = keys?.effective === 'workspace' ? keys.workspace?.hint ?? null : keys?.instance?.hint ?? null;
+        return { summary, status: routingStatusLine(keys ? { effective: keys.effective, hint } : null) };
+      })().catch(() => null)
+    : Promise.resolve(null);
+
+  const [budgets, platformBudgets, orgTotals, runCounts, spend, routing] = await Promise.all([
     listAgentBudgets(orgId).catch(() => []),
     listPlatformBudgets(orgId).catch(() => []),
     orgUsageTotals({ orgId }).catch(() => ({ spentCents: 0, tokens: 0, hardCentsLimit: null, hardTokenLimit: null })),
     countRunsLast24h(orgId).catch(() => ({ toolCalls: 0, workflowRuns: 0 })),
     spendRead,
+    routingRead,
   ]);
   const filterLabel = Object.values(spendState.filters).filter(v => v !== undefined).map(String).join(' · ') || null;
 
@@ -185,6 +203,8 @@ export default async function ObservabilityPage(props: {
         </div>
 
         {spend && <SpendView state={spendState} result={spend} canReadOrg={canReadOrg} filterLabel={filterLabel} />}
+
+        {routing && <RoutingSection summary={routing.summary} status={routing.status} periodLabel={spendState.period === 'today' ? 'today' : `last ${spendState.period.replace('d', ' days')}`} />}
 
         {platformSurfaces.length > 0 && (
           <div>

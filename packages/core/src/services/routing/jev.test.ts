@@ -154,3 +154,21 @@ describe('calling Jev', () => {
     expect(await decide(KEY, TWO, TS, { fetch: garbage })).toMatchObject({ failed: true, kind: 'bad_response' });
   });
 });
+
+describe('the purpose of a question (phase 2)', () => {
+  it('words an agent turn\'s question about the reply, and still asks its effort', () => {
+    const body = jevRequestBody({ ...TWO, purpose: 'turn' }, 'jev-1.13.0') as { questions: Record<string, { instructions: string }> };
+
+    expect(Object.keys(body.questions).sort()).toEqual(['candidate', 'effort']);
+    expect(body.questions.candidate!.instructions).not.toEqual((jevRequestBody(TWO, 'jev-1.13.0') as typeof body).questions.candidate!.instructions);
+  });
+
+  it('asks who answers as a choice only, even over one seat, and reads it with no effort', () => {
+    const q = { ...ONE, purpose: 'agent' as const };
+    const body = jevRequestBody(q, 'jev-1.13.0') as { questions: Record<string, unknown> };
+    const read = readJevResponse({ model: 'jev-1.13.0', answers: { candidate: { type: 'choice', choice: 'c1', confidence: 0.7 } }, usage: { input_tokens: 90 } }, q, 40);
+
+    expect(Object.keys(body.questions)).toEqual(['candidate']);
+    expect(read).toMatchObject({ choice: 'c1', confidence: 0.7, effort: null, effortConfidence: null });
+  });
+});
