@@ -261,6 +261,27 @@ function recordNames(content: string): string | undefined {
 }
 
 /**
+ * The data inside an MCP tool reply, as JSON text: its `structuredContent`,
+ * else the JSON its text blocks carry. `null` for an envelope with nothing
+ * countable in it; `undefined` when the value is not an MCP envelope at all.
+ * @param value - A parsed tool result.
+ */
+function mcpPayload(value: Record<string, unknown>): string | null | undefined {
+  const blocks = value.content;
+  const isEnvelope = Array.isArray(blocks)
+    && blocks.every(b => b !== null && typeof b === 'object' && typeof (b as { type?: unknown }).type === 'string')
+    && Object.keys(value).every(k => k === 'content' || k === 'structuredContent' || k === 'isError' || k === '_meta');
+  if (!isEnvelope) {
+    return undefined;
+  }
+  if (value.structuredContent && typeof value.structuredContent === 'object') {
+    return JSON.stringify(value.structuredContent);
+  }
+  const text = (blocks as Array<{ type: string; text?: unknown }>).filter(b => b.type === 'text' && typeof b.text === 'string').map(b => b.text as string).join('');
+  return text.trim().startsWith('{') || text.trim().startsWith('[') ? text : null;
+}
+
+/**
  * Generic count summary for any JSON tool result — the "records found" line the
  * trace shows for every tool, not just the few with bespoke parsers. Reads the
  * result's own shape: top-level numbers ("total 16344"), array lengths
@@ -281,6 +302,13 @@ export function summarizeCounts(content: string): { result?: string; resultDetai
   }
   if (!parsed || typeof parsed !== 'object') {
     return {};
+  }
+  // An MCP tool's reply is an envelope ({ content: [...], structuredContent })
+  // around the data: count the data, never the envelope ("content 0" on every
+  // Finance MCP step, 2026-10-23).
+  const inner = mcpPayload(parsed as Record<string, unknown>);
+  if (inner !== undefined) {
+    return inner === null ? {} : summarizeCounts(inner);
   }
   const parts: string[] = [];
   for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {

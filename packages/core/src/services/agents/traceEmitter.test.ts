@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractChunk, parseCitations, TraceEmitter } from './traceEmitter';
+import { extractChunk, parseCitations, summarizeCounts, TraceEmitter } from './traceEmitter';
 
 /**
  * Event shapes below are copied from a real `streamEvents(v2)` capture
@@ -351,5 +351,21 @@ describe('every step is stamped with when it started and landed (2026-10-09)', (
     expect(end?.endedAt).toBeGreaterThanOrEqual(start!.startedAt!);
     // The landing does not re-stamp the start: the merge keeps the first one.
     expect(end?.startedAt).toBeUndefined();
+  });
+});
+
+describe('summarizeCounts on an MCP reply', () => {
+  it('counts the data inside the envelope, never "content 0" (2026-10-23)', () => {
+    expect(summarizeCounts(JSON.stringify({ content: [], structuredContent: { invoices: [1, 2, 3], total: 3 } })).result).toBe('invoices 3 · total 3');
+    expect(summarizeCounts(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify({ rows: [1, 2] }) }] })).result).toBe('rows 2');
+  });
+
+  it('says nothing for an envelope with nothing countable in it', () => {
+    expect(summarizeCounts(JSON.stringify({ content: [] }))).toEqual({});
+    expect(summarizeCounts(JSON.stringify({ content: [{ type: 'text', text: 'Report ready.' }] }))).toEqual({});
+  });
+
+  it('leaves a payload that only happens to have a content field alone', () => {
+    expect(summarizeCounts(JSON.stringify({ content: ['a', 'b'], pages: 4 })).result).toBe('content 2 · pages 4');
   });
 });
