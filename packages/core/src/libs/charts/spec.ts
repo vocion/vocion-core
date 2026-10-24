@@ -20,8 +20,11 @@ import { z } from 'zod';
 export const CHART_TYPES = ['bar', 'line', 'area', 'waterfall'] as const;
 export type ChartType = (typeof CHART_TYPES)[number];
 
-/** The most series a chart may carry: the categorical palette has eight fixed slots. */
+/** The most series a chart draws apart: the categorical palette has eight fixed slots. More are folded into "Other" at layout. */
 export const MAX_SERIES = 8;
+
+/** The most series a spec may carry; past {@link MAX_SERIES} the layout keeps the largest and folds the rest into "Other". */
+export const MAX_INPUT_SERIES = 40;
 
 export const chartSeriesSchema = z.object({
   name: z.string().min(1).max(80),
@@ -29,7 +32,7 @@ export const chartSeriesSchema = z.object({
   values: z.array(z.number().nullable()),
   /** The whole series is a forecast (pipeline, plan): drawn hatched and labelled so in the legend. */
   forecast: z.boolean().optional(),
-  /** A second y axis. Accepted only so the lint can refuse it by name: split it into two charts. */
+  /** A second y axis. Accepted only so the check can refuse it by name: two units on one axis; split it into two charts. */
   axis: z.enum(['left', 'right']).optional(),
 });
 export type ChartSeries = z.infer<typeof chartSeriesSchema>;
@@ -41,8 +44,8 @@ export const chartSpecSchema = z.object({
   type: z.enum(CHART_TYPES),
   /** Category or period labels along x, in order. */
   x: z.array(z.string()).min(1).max(400),
-  /** One per series, at most {@link MAX_SERIES}: the palette's fixed slots, never cycled. */
-  series: z.array(chartSeriesSchema).min(1).max(MAX_SERIES, `at most ${MAX_SERIES} series can be told apart — keep the top ${MAX_SERIES - 1} and fold the rest into "Other", or split the chart`),
+  /** One per series. Past {@link MAX_SERIES} the layout draws the largest and folds the rest into "Other". */
+  series: z.array(chartSeriesSchema).min(1).max(MAX_INPUT_SERIES),
   /** Legacy unit: "$", "%", or a noun ("deals"). `format` is the precise form. */
   unit: z.string().max(24).optional(),
   format: z.enum(['currency', 'percent', 'number']).optional(),
@@ -70,6 +73,10 @@ export const chartSpecSchema = z.object({
   totals: z.array(z.number().nullable()).optional(),
   /** Waterfall only: the x labels drawn as full bars from zero (the start, subtotals, the end). */
   waterfallTotals: z.array(z.string()).optional(),
+  /** Waterfall only: start the bridge at this subtotal (one of `waterfallTotals`); the bars before it are left out. */
+  waterfallStart: z.string().optional(),
+  /** Bars along x (vertical), along y (horizontal), or chosen at layout from the labels and the width (auto, the default). */
+  orientation: z.enum(['auto', 'vertical', 'horizontal']).optional(),
   /** Where the numbers came from, for the caption ("QuickBooks P&L, by month"). */
   source: z.string().max(160).optional(),
   /** The date the numbers are as of (ISO, YYYY-MM-DD). */
@@ -85,6 +92,9 @@ export const chartSpecSchema = z.object({
   }
   if (spec.forecastFrom !== undefined && !spec.x.includes(spec.forecastFrom)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['forecastFrom'], message: `forecastFrom "${spec.forecastFrom}" is not one of the x labels` });
+  }
+  if (spec.waterfallStart !== undefined && !spec.x.includes(spec.waterfallStart)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['waterfallStart'], message: `waterfallStart "${spec.waterfallStart}" is not one of the x labels` });
   }
   if (spec.marker && !spec.x.includes(spec.marker.x)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['marker', 'x'], message: `marker x "${spec.marker.x}" is not one of the x labels` });

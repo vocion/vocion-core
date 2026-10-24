@@ -206,19 +206,19 @@ export type CreateDocumentInput = {
   verify?: VerifyOptions;
 };
 
-/** What the chart blocks in a write came to: how many, and what the lint would change. */
+/** What the chart blocks in a write came to: how many, and the notes for the model to judge. */
 export type ChartNotes = { count: number; warnings: string[] };
 
 /**
  * Draw a document's chart blocks from their specs. A block that fails its
- * schema or the chart lint fails the write with what to fix — the same rule
- * `render_chart` keeps, so a chart is never worse for being inside a document.
+ * schema, or whose data cannot be drawn honestly (`checkChart` refusals),
+ * fails the write with what to fix — the same rule `render_chart` keeps.
  * @param html - The document as its author wrote it.
  */
 function drawCharts(html: string): ChartBlockResult {
   const charts = expandChartBlocks(html);
   if (charts.errors.length) {
-    throw new ArtifactError('INVALID_SPEC', `a chart would mislead or not read on a phone — fix it and write again:\n${charts.errors.map(e => `- ${e}`).join('\n')}`);
+    throw new ArtifactError('INVALID_SPEC', `a chart's data cannot be drawn honestly — fix it and write again:\n${charts.errors.map(e => `- ${e}`).join('\n')}`);
   }
   return charts;
 }

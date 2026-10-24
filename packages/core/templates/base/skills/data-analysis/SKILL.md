@@ -2,14 +2,20 @@
 slug: data-analysis
 name: Data Analysis
 description: >-
-  Turn a question about numbers into a grounded answer and the right chart: read the ranges in one call, keep actuals apart from forecast, pick the chart form from the question, and render it with render_chart (or a chart block in a document). Read when asked for a trend, a breakdown, a forecast, a comparison, a variance or "chart that".
-version: 1
+  Turn a question about numbers into a grounded answer and the right chart: read the ranges in one call, keep actuals apart from forecast, choose the chart's form from the question, title it with the finding, and let render_chart (or a chart block in a document) lay it out. Read when asked for a trend, a breakdown, a forecast, a bridge, a comparison, a variance or "chart that".
+version: 2
 ---
 
 # Data Analysis
 
 You are answering a question with numbers. The person will act on what you
 show, so every figure is traceable and every chart says one thing.
+
+You choose the form, the series and the finding. The chart library does the
+layout: it turns bars horizontal when names are long, wraps labels, puts each
+value on its bar, folds series past eight into "Other", and draws a waterfall
+whose last steps would be slivers as its summary plus a rescaled detail. Do
+not shorten names to make them fit; write them in full and let it lay them out.
 
 ## 1. Read the numbers once, from the source
 
@@ -20,66 +26,19 @@ show, so every figure is traceable and every chart says one thing.
   period in the query.
 - Every figure you show ties to a read you made in this turn: name the source
   and the as-of date. Never sum records yourself when the system has the
-  report; never fill a gap with a guess (a gap is `null`, said as a gap).
+  report; a gap is `null`, said as a gap, never a guess.
 - Keep ACTUALS apart from FORECAST. Booked and invoiced is actual; pipeline,
   weighted pipeline, plan and run-rate are forecast. They are never one
   number and never one unmarked bar.
 
-## 2. Pick the chart from the question
+## 2. Choose the form from the question
 
-| The question | The chart |
-|---|---|
-| How much each period ("revenue by month") | Bars, each period's own amount (`aggregation: "period"`) |
-| What it is made of, over time ("revenue by month by source", "actual plus pipeline") | Stacked bars by period (`stack: "stack"`), the forecast series marked |
-| Shares over time ("mix by month") | 100% stacked bars (`stack: "percent"`) |
-| Which is bigger, a few categories | Grouped bars, or sorted single bars |
-| Which way it is heading, a rate or a balance | Line (`aggregation: "snapshot"` for balances); the forecast as `forecastFrom` (dashed) |
-| How a start became an end ("bridge", "what moved margin") | Waterfall, with `waterfallTotals` naming the start, subtotals and end |
-| Parts of a whole at one moment | 100% bar or a sorted bar — never a pie |
+Ask what the person will do with the answer, then pick the chart that makes
+that one thing obvious. The examples below use invented numbers.
 
-Rules the lint enforces (a violation refuses the chart and says what to fix):
+### "What's revenue doing this year?" — stacked bars by month, forecast marked
 
-- x holds one kind of thing: all periods (Jan…Dec, 2026-07, Q3) or all
-  categories. A scenario ("year-end booked", "+ weighted pipeline") is a
-  SERIES, never an x label.
-- A running total is a line, never bars.
-- One y axis. Two measures on different scales are two charts.
-- At most eight series; fold the tail into "Other".
-- Labels must read at a phone's width: shorten category labels, or chart fewer.
-- Say the format: currency (with the code), percent, number, or a unit.
-- If you give `totals`, the stack must sum to them.
-
-## 3. Write it
-
-- The TITLE is the finding, as a sentence: "On pace for $5.1M, carried by Q4
-  renewals", not "Revenue by month".
-- One message per chart. If there are two findings, make two charts.
-- `source` and `asOf` on every chart; `forecastFrom` (or `forecast: true` on
-  the series) on anything not yet actual; a `marker` at today when the chart
-  runs past it; a `target` line for the plan when there is one.
-- In chat, one or two sentences on what to notice; the chart carries the
-  numbers, so do not repeat them as a table in text.
-
-## 4. Render it with the engine
-
-- `render_chart` for a chart on its own. Change it with `update_artifact`.
-- Inside a document (`render_document`, `edit_document`), a chart block:
-
-  ```html
-  <figure class="vocion-chart">
-    <script type="application/json">{ "title": "…", "type": "bar", "x": [...], "series": [...], "stack": "stack", "format": "currency", "source": "…", "asOf": "2026-10-23" }</script>
-  </figure>
-  ```
-
-  The engine lints it, draws it at the sheet's width and redraws it from the
-  spec on every edit.
-- Never hand-write chart SVG or HTML: it is not linted, it does not reread on
-  a phone, and it does not redraw when the numbers change.
-
-## Example: "chart our revenue for the year"
-
-Read the P&L once for Jan 1 to today by month, and open deals with close
-dates this year at stage probability. Then:
+Composition over time, with the months still to come drawn as forecast:
 
 ```json
 {
@@ -101,5 +60,101 @@ dates this year at stage probability. Then:
 }
 ```
 
-Then say the finding and the year-end range in one or two sentences: booked
-only, and booked plus weighted pipeline.
+### "How does revenue become profit?" — a P&L bridge with full names
+
+Name every step in full and give the subtotals, so the reader can follow the
+money. Include an operating-profit subtotal: when the last steps are small
+next to revenue, the library draws them as a rescaled detail starting there.
+
+```json
+{
+  "title": "$5.1M of revenue leaves $46K of net income",
+  "type": "waterfall",
+  "x": ["Revenue", "Delivery cost", "Gross profit", "Operating expenses", "Operating profit", "Interest", "Bonus pool", "Tax", "Net income"],
+  "series": [{ "name": "FY2026 base case", "values": [5110000, -2520000, null, -2478000, null, -38000, -4600, -23400, null], "forecast": true }],
+  "waterfallTotals": ["Revenue", "Gross profit", "Operating profit", "Net income"],
+  "format": "currency",
+  "currency": "USD",
+  "source": "Ledger P&L, year to date plus base case",
+  "asOf": "2026-10-24"
+}
+```
+
+(A total's value is drawn from the running sum; `null` there is fine.) When
+the question is only about the last steps ("what takes profit down to $46K?"),
+start the bridge there with `"waterfallStart": "Operating profit"`.
+
+### "Where does the year land?" — scenarios as their own small chart
+
+Scenarios are not periods. Never add "EOY" bars to a monthly axis:
+
+```json
+{
+  "title": "The year lands between $4.9M and $5.3M",
+  "type": "bar",
+  "x": ["Low", "Base", "High"],
+  "series": [{ "name": "Year-end revenue", "values": [4900000, 5110000, 5260000], "forecast": true }],
+  "format": "currency",
+  "currency": "USD",
+  "source": "Ledger plus open pipeline",
+  "asOf": "2026-10-24"
+}
+```
+
+### "Who are our biggest customers?" — names in full
+
+```json
+{
+  "title": "Three customers carry half of this year's revenue",
+  "type": "bar",
+  "x": ["Northwind Regional Holdings", "Kestrel Capital Partners", "Larkfield Construction Group", "Other customers"],
+  "series": [{ "name": "Revenue", "values": [1310000, 820000, 540000, 2440000] }],
+  "format": "currency",
+  "currency": "USD",
+  "source": "Ledger, invoices by customer",
+  "asOf": "2026-10-24"
+}
+```
+
+The library draws these horizontally on a phone, names down the side.
+
+### The rest
+
+| The question | The chart |
+|---|---|
+| How much each period | Bars of each period's own amount (`aggregation: "period"`) |
+| Shares over time ("mix by month") | `stack: "percent"` |
+| Which way it is heading, a rate or a balance | `line` (`aggregation: "snapshot"` for balances), forecast via `forecastFrom` |
+| A few categories side by side | Grouped bars |
+| Parts of a whole at one moment | A sorted bar or a 100% bar, never a pie |
+
+A running total reads better as a line than as bars; two measures on
+different scales are two charts.
+
+## 3. Write it
+
+- The TITLE is the finding, as a sentence, not the axes.
+- One message per chart. Two findings, two charts.
+- `format` (currency with its code, percent, number, or a unit), `source` and
+  `asOf` on every chart.
+- In chat, one or two sentences on what to notice; the chart carries the
+  numbers, so do not repeat them as a table in text.
+
+## 4. Render, then look
+
+- `render_chart` for a chart on its own; inside a document, a chart block:
+
+  ```html
+  <figure class="vocion-chart">
+    <script type="application/json">{ "title": "…", "type": "bar", "x": [...], "series": [...], "format": "currency", "source": "…", "asOf": "2026-10-24" }</script>
+  </figure>
+  ```
+
+- Never hand-write chart SVG or HTML.
+- Only data that cannot be drawn honestly is refused: a value that is not a
+  number, a stack that does not sum to its stated `totals`, two units on one
+  axis.
+- The receipt reviews the chart as drawn at a phone's width: what the layout
+  did, anything too small to read, and an analyst's notes. Judge it against
+  the question. If it does not answer it, revise once with `update_artifact`
+  (a different form, fewer series, a better title). If it does, move on.

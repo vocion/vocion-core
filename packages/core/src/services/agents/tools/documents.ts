@@ -118,14 +118,15 @@ function recordScope(ctx: RuntimeContext): { type: string; id: string; role: str
 }
 
 /**
- * The chart blocks' lint warnings, for the receipt.
+ * What the chart blocks came to, for the receipt: the analyst's signals and
+ * what the layout did, for the model to judge (one revision if it should).
  * @param charts - What the write's chart blocks came to.
  */
 function chartNotes(charts: ChartNotes): string {
   if (!charts.warnings.length) {
     return charts.count ? `\n\nCharts: ${charts.count} drawn from their specs.` : '';
   }
-  return `\n\nCharts${charts.count ? ` (${charts.count})` : ''} — consider:\n${charts.warnings.map(w => `- ${w}`).join('\n')}`;
+  return `\n\nCharts${charts.count ? ` (${charts.count})` : ''}, as drawn — judge whether each answers what was asked and its numbers read; revise a block once if not:\n${charts.warnings.map(w => `- ${w}`).join('\n')}`;
 }
 
 export function renderDocumentTool(ctx: RuntimeContext) {
@@ -182,7 +183,7 @@ export function renderDocumentTool(ctx: RuntimeContext) {
     },
     {
       name: 'render_document',
-      description: 'Create a PAGINATED, PRINT-READY document artifact — a proposal, scope doc, partnership update — from self-contained HTML in the house sheet framework (US-Letter `.sheet`s, pinned `.foot`, inline <style>, logos as data URIs). It renders in real Chrome, audits every sheet (footer alignment, overflow, clipping, PDF page count, unresolved assets) and returns the receipt with a screenshot URL per sheet. Fix anything the receipt lists with edit_document before you say the document is done. Charts go in as chart blocks — <figure class="vocion-chart"><script type="application/json">{the render_chart spec}</script></figure> — which the engine lints and draws; never hand-write chart SVG or HTML. For prose that is not a paginated document use render_markdown.',
+      description: 'Create a PAGINATED, PRINT-READY document artifact — a proposal, scope doc, partnership update — from self-contained HTML in the house sheet framework (US-Letter `.sheet`s, pinned `.foot`, inline <style>, logos as data URIs). It renders in real Chrome, audits every sheet (footer alignment, overflow, clipping, PDF page count, unresolved assets) and returns the receipt with a screenshot URL per sheet. Fix anything the receipt lists with edit_document before you say the document is done. Charts go in as chart blocks — <figure class="vocion-chart"><script type="application/json">{the render_chart spec}</script></figure> — which the library lays out and draws (long names turn bars horizontal, values sit on bars, a waterfall whose last steps are small gets a rescaled detail); never hand-write chart SVG or HTML. Follow the method in render_chart\'s description: read a range in one call split by period, keep actuals apart from forecast, choose the form from the question (a breakdown over time is stacked bars by period with forecast marked, e.g. {"type":"bar","x":["Sep","Oct","Nov"],"series":[{"name":"Invoiced","values":[410000,395000,205000]},{"name":"Pipeline","values":[null,null,140000],"forecast":true}],"stack":"stack","forecastFrom":"Nov"}; a bridge is a waterfall with full step names and subtotals in waterfallTotals; scenarios are their own small chart), title it with the finding, and give format, source and asOf. For prose that is not a paginated document use render_markdown.',
       schema: z.object({
         room_id: z.number().int().positive().optional().describe('The data room this document belongs to. Pass it whenever you are writing from a room — the document then shows on the room and on the Proposals board. Defaults to the room the person has open.'),
         title: z.string().max(200).optional().describe('Artifact title. Defaults to the <title>, which is also the PDF filename — use "<Subject> - <What it is> (<Firm>) v<N.N>".'),
