@@ -1011,12 +1011,35 @@ component.
   transcript and its composer. Either pane closes on its own — closing the
   preview gives the column back to chat, closing chat leaves the preview full
   height, closing both closes the column to its edge tab. One width for the
-  column, never one per pane. Below `RAIL_SHEET_BREAKPOINT` the column is a
-  sheet and shows one pane at a time: the preview replaces its content and its
-  close control becomes *Back to chat*, because halving a phone helps nobody.
+  column, never one per pane. Halving a phone helps nobody, so below the
+  breakpoint the pane is **the phone drawer**, whoever hosts it (below).
   Opening a preview also stands the selection control down
   (`dismissSelectionControl()`). The column publishes `--rail-inset` while it
   stands beside the page, so the peek never covers the record it is about.
+- **One pane system: everything is an entry in one stack** (Chris, 2026-10-23:
+  *"We should only have one sidebar and panes UX for all use cases. On mobile
+  it should render as a drawer and (when >=2) tabs."*). A record, a run, the
+  thread's background work and an **artifact** all open the same way:
+  `openPreview(ref)` writes `?preview=<type>:<id>`, what was showing goes
+  underneath (`previewState`'s stack), the back control and the browser's
+  Back walk it down, X closes the pane. An artifact is not a second system any
+  more. It opens as itself (`ArtifactPreview`: its own header, tabs, versions
+  and downloads), and the expanded conversation route
+  (`/dashboard/chat/<id>`) is just a wider host of the same stack. Its side
+  column is `ConversationSplit`, sized for a US-Letter sheet, and it reads the
+  same `?preview=`. An old `?artifact=<id>` link is rewritten to it on arrival.
+  - **Desktop:** the side pane. In the rail it is stacked above chat; on the
+    conversation route it is the resizable right half. With something under
+    the top entry, a back control names it (`StackBack` above an artifact,
+    which wears its own header).
+  - **Phone (below the breakpoint): `PaneDrawer`, always.** A drawer over the
+    lower part of the chat, which stays underneath. With two or more entries
+    open it shows **a tab per entry**, each with its own X
+    (`closePreviewEntry`: the top gives way to what was under it; the last
+    one closes the drawer). The handle folds it, on a tap or a swipe down, to
+    **one bar above the composer**, *"Cumulative revenue · 2 open"*, and the
+    bar unfolds it. Folding closes nothing (`setPaneCollapsed`), and anything
+    newly opened unfolds it.
 - **Same keyboard.** Escape closes and returns focus to whatever opened it.
   The page's own shortcuts — the decision verbs, `j`/`k` — keep working
   underneath, because the panel never takes focus: a reviewer must still be

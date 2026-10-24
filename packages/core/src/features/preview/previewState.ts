@@ -54,6 +54,14 @@ function readSearch(): string {
 let opener: HTMLElement | null = null;
 
 /**
+ * THE PANE FOLDED ON A PHONE (Chris, 2026-10-23: "if 'open' but collapsed on
+ * mobile, I should have a way to see that and expand the drawer"). Folding
+ * keeps every entry and the URL; the drawer shrinks to a bar above the
+ * composer that says what is open. Anything newly opened unfolds it.
+ */
+let collapsed = false;
+
+/**
  * THE PANE'S STACK — what was open in it before the preview on top.
  *
  * Chris, 2026-10-23: open a record, then the thread's background work, and
@@ -199,10 +207,34 @@ export function openPreview(ref: Pick<RecordRef, 'type' | 'id'>, from: HTMLEleme
   }
   opener = from;
   dismissSelectionControl();
+  collapsed = false;
   const key = previewKey(ref);
   stack = stackAfterOpen(readStack(), currentKey(), key);
   stackPath = window.location.pathname;
   writeParam(key);
+}
+
+/**
+ * Open a preview IN PLACE of the current history entry, with nothing
+ * underneath — what a page does when it arrives already showing something
+ * (the conversation route opening its newest artifact), so Back leaves the
+ * page instead of closing what it arrived with.
+ * @param ref - What opens.
+ * @param drop - Older query params this one replaces (`artifact`), removed in the same write.
+ */
+export function replacePreview(ref: Pick<RecordRef, 'type' | 'id'>, drop: readonly string[] = []): void {
+  collapsed = false;
+  stack = [];
+  stackPath = window.location.pathname;
+  if (drop.length > 0) {
+    const params = new URLSearchParams(window.location.search);
+    for (const name of drop) {
+      params.delete(name);
+    }
+    const search = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`);
+  }
+  writeParam(previewKey(ref), 'replace');
 }
 
 /**
@@ -233,6 +265,75 @@ export function previewBack(): void {
   window.history.back();
 }
 
+/**
+ * Pure: the stack and the URL's key once `key` closes. Closing what is on top
+ * shows what was under it; closing something underneath only takes it out of
+ * the stack. Null `current` afterwards means the pane is empty and goes away.
+ * @param stack - What was underneath.
+ * @param current - What the pane shows now.
+ * @param key - The entry to close.
+ */
+export function stackAfterClose(stack: readonly string[], current: string | null, key: string): { stack: readonly string[]; current: string | null } {
+  if (key !== current) {
+    return { stack: stack.filter(k => k !== key), current };
+  }
+  const below = stack.at(-1) ?? null;
+  return { stack: below === null ? [] : stack.slice(0, -1), current: below };
+}
+
+/**
+ * Close ONE entry of the pane (a tab's X on a phone, an artifact's close):
+ * the one on top gives the pane to what was under it, one underneath just
+ * leaves. The last one closes the pane.
+ * @param key - Its `<type>:<id>`.
+ */
+export function closePreviewEntry(key: string): void {
+  const next = stackAfterClose(readStack(), currentKey(), key);
+  if (next.current === null) {
+    closePreview();
+    return;
+  }
+  stack = next.stack;
+  stackPath = window.location.pathname;
+  if (next.current === currentKey()) {
+    emit();
+    return;
+  }
+  writeParam(next.current, 'replace');
+}
+
+/**
+ * Put an entry already in the pane on top (a tab on a phone). It is an
+ * opening like any other, so Back walks it.
+ * @param key - Its `<type>:<id>`.
+ */
+export function showPreviewEntry(key: string): void {
+  const ref = parsePreviewKey(key, isRecordType);
+  if (ref) {
+    openPreview(ref, null);
+  }
+}
+
+function readCollapsed(): boolean {
+  return collapsed;
+}
+
+/**
+ * Fold or unfold the phone drawer.
+ * @param next - Folded.
+ */
+export function setPaneCollapsed(next: boolean): void {
+  if (collapsed !== next) {
+    collapsed = next;
+    emit();
+  }
+}
+
+/** Whether the phone drawer is folded to its bar. */
+export function usePaneCollapsed(): boolean {
+  return useSyncExternalStore(subscribe, readCollapsed, () => false);
+}
+
 /** Ref types that name one `business_object` by id — one record, two spellings. */
 const RECORD_REF_TYPES: ReadonlySet<string> = new Set(['object', 'request']);
 
@@ -254,6 +355,7 @@ export function isPageRecord(ref: Pick<RecordRef, 'type' | 'id'>, path: string):
 export function closePreview(): void {
   const back = opener;
   opener = null;
+  collapsed = false;
   writeParam(null);
   back?.focus();
 }

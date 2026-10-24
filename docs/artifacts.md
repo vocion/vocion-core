@@ -42,7 +42,8 @@ The artifact model fixes that with three ideas:
 | Service | `services/ArtifactService.ts` | create / update / restore / list / versions / folders — the ONE door for agent and human writes |
 | API | `routers/Artifacts.ts` → `client.artifacts.*` | `listForConversation`, `get`, `list`, `folders`, `update`, `setFolder`, `versions`, `version`, `restore`, `remove`, `exportPage` |
 | Pane | `features/dashboard/artifacts/` | `ArtifactPane`, `artifactReducer`, the markdown + table editors, `VersionMenu` |
-| Beside a chat | `/dashboard/chat/[id]?artifact=<id>` | transcript left, one artifact right |
+| Beside a chat | `/dashboard/chat/[id]?preview=artifact:<id>` | transcript left, the one pane right (an old `?artifact=<id>` is rewritten to it) |
+| In the pane, anywhere | `?preview=artifact:<id>` on any page | the artifact as an entry in the one pane stack (`features/preview/ArtifactPreview`); a drawer with tabs on a phone (`PaneDrawer`) |
 | On its own | `/dashboard/artifacts/[id]` | the same pane, no conversation — where a "Copy link" lands |
 | The log | `/dashboard/artifacts` | every artifact, newest edit first. `/dashboard/canvases` 308s here |
 

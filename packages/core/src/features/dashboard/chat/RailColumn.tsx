@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { MessageSquare } from 'lucide-react';
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { SplitDivider } from '@/components/ui/split-divider';
+import { PaneDrawer } from '@/features/preview/PaneDrawer';
 import { PreviewPane } from '@/features/preview/PreviewPane';
 import { useOpenPreviewRef } from '@/features/preview/previewState';
 import { cn } from '@/utils/Helpers';
@@ -58,28 +59,6 @@ export type RailColumnProps = {
 };
 
 /**
- * THE PREVIEW ON A PHONE: a drawer over the lower part of the chat, which
- * stays underneath and in view above it. The same drawer for every preview —
- * a goal, an artifact, a data room, an uploaded file. Exported for the
- * conversation's own artifact pane, which opens the same way.
- * @param props - The drawer.
- * @param props.children - The preview.
- * @param props.className - Extra classes (the conversation's pane applies it only below `lg`).
- */
-export function PreviewDrawer({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <div
-      role="region"
-      aria-label="Preview"
-      data-testid="preview-drawer"
-      className={cn('absolute inset-x-0 bottom-0 z-20 flex h-[70%] min-h-0 flex-col overflow-hidden rounded-t-2xl border-t border-border bg-background shadow-(--shadow-pop)', className)}
-    >
-      {children}
-    </div>
-  );
-}
-
-/**
  * Whether this component instance is the one that should draw the column.
  * @param priority
  */
@@ -118,7 +97,10 @@ export function RailColumn(props: RailColumnProps) {
   // 2026-10-10: every goal, artifact, data room and upload took the whole
   // screen). Its close control is "back", which closes the drawer.
   const stacked = hasChat && hasPreview && !props.narrow;
-  const drawer = hasChat && hasPreview && Boolean(props.narrow);
+  // ONE pane UX on a phone (Chris, 2026-10-23): whatever hosts the pane, below
+  // the breakpoint it is the drawer — with the chat underneath when this
+  // column holds it, over the page when the page is the chat (`PaneDrawer`).
+  const drawer = hasPreview && Boolean(props.narrow);
 
   // The column never covers the record it is about: the shell's page gutter
   // pads by exactly this much while it stands beside the page.
@@ -144,16 +126,24 @@ export function RailColumn(props: RailColumnProps) {
   }
 
   const preview = hasPreview && (
-    <PreviewPane key={`${previewRef.type}:${previewRef.id}`} recordRef={previewRef} back={props.narrow && hasChat} />
+    // In the drawer the pane's own X closes its entry; the drawer's tabs and
+    // its handle are how you move between entries and back to the chat.
+    <PreviewPane key={`${previewRef.type}:${previewRef.id}`} recordRef={previewRef} inDrawer={drawer} />
   );
+
+  // The page itself is the chat (the full chat page, a decision sheet): the
+  // drawer stands over it on its own, with no column around it.
+  if (drawer && !hasChat && !props.frame) {
+    return <PaneDrawer position="fixed">{preview}</PaneDrawer>;
+  }
 
   const content = (
     <div ref={column} data-testid="rail-column" className="relative flex min-h-0 flex-1 flex-col">
       {drawer
         ? (
             <>
-              <div className="flex min-h-0 flex-1 flex-col">{props.chat}</div>
-              <PreviewDrawer>{preview}</PreviewDrawer>
+              {hasChat && <div className="flex min-h-0 flex-1 flex-col">{props.chat}</div>}
+              <PaneDrawer>{preview}</PaneDrawer>
             </>
           )
         : stacked

@@ -56,14 +56,16 @@
 import type { ReactNode } from 'react';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { SplitDivider } from '@/components/ui/split-divider';
-import { PreviewDrawer } from '@/features/dashboard/chat/RailColumn';
+import { useViewportBelow } from '@/components/ui/useMobile';
 import { READING_WIDTH_CLASS } from '@/features/navigation/pageWidth';
+import { PaneDrawer } from '@/features/preview/PaneDrawer';
 import { cn } from '@/utils/Helpers';
 import {
   clampConversationSplit,
   clearStoredConversationSplit,
   defaultConversationSplit,
   readStoredConversationSplit,
+  SPLIT_STACK_BREAKPOINT,
   SPLIT_STEP,
   writeStoredConversationSplit,
 } from './splitState';
@@ -86,6 +88,10 @@ export function ConversationSplit(props: ConversationSplitProps) {
   const [stored, setStored] = useState<number | null>(null);
 
   const open = props.pane !== null;
+  // Below `lg` the pane is the phone drawer every host uses (`PaneDrawer`):
+  // tabs when two or more entries are open, and it folds to a bar above the
+  // composer without closing anything.
+  const phone = useViewportBelow(SPLIT_STACK_BREAKPOINT);
 
   // Geometry is the browser's to know. Measured in a LAYOUT effect, before
   // the first paint, so the server's fallback ratio is corrected without the
@@ -141,8 +147,7 @@ export function ConversationSplit(props: ConversationSplitProps) {
     >
       {/* Below `lg` the conversation stays: the pane opens in a drawer over
           its lower part, the chat still underneath (a phone walk, 2026-10-10:
-          an artifact or an uploaded file took the whole screen). The pane's
-          back control closes the drawer. */}
+          an artifact or an uploaded file took the whole screen). */}
       <div className="flex min-h-0 min-w-0 flex-col" data-conversation-column>{props.conversation}</div>
       {/* Stacked panes have no split to drag, so below `lg` the divider is not
           in the page at all — `hidden` keeps it out of the accessibility tree
@@ -163,7 +168,9 @@ export function ConversationSplit(props: ConversationSplitProps) {
           setStored(null);
         }}
       />
-      <PreviewDrawer className="lg:contents">{props.pane}</PreviewDrawer>
+      {phone
+        ? <PaneDrawer>{props.pane}</PaneDrawer>
+        : <div className="flex min-h-0 min-w-0 flex-col" data-pane-column>{props.pane}</div>}
     </div>
   );
 }

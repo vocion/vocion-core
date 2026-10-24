@@ -1,8 +1,12 @@
 'use client';
 
 /**
- * One conversation, expanded: the transcript on the left, ONE artifact on the
- * right (`?artifact=<id>`).
+ * One conversation, expanded: the transcript on the left, the PANE on the
+ * right — the same pane stack every surface uses (`features/preview`), so an
+ * artifact, a record, a run or the thread's background work open here as
+ * entries in one column, with back, and `?preview=artifact:<id>` names what is
+ * open (Chris, 2026-10-23: "one sidebar and panes UX for all use cases").
+ * An old `?artifact=<id>` link is read once and rewritten to it.
  *
  * The pane is not a dashboard. Whatever the agent last created or changed is
  * what is open, unless the person opened something else from a chip or the
@@ -44,8 +48,11 @@ import { useChatCommands } from '@/features/dashboard/chat/useChatCommands';
 import { useChatSession } from '@/features/dashboard/chat/useChatSession';
 import { workBlock } from '@/features/dashboard/chat/work/RunningWork';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
+import { StackBack } from '@/features/preview/ArtifactPreview';
+import { PreviewPane } from '@/features/preview/PreviewPane';
+import { closePreview, closePreviewEntry, openPreview, replacePreview, useEscapeToClose, useOpenPreviewRef } from '@/features/preview/previewState';
 import { ArtifactPane } from './ArtifactPane';
-import { artifactReducer, initialArtifactPaneState, openArtifact } from './artifactReducer';
+import { artifactReducer, initialArtifactPaneState } from './artifactReducer';
 import { ConversationPageActions } from './ConversationPageActions';
 import { ConversationSplit } from './ConversationSplit';
 import { SPLIT_STACK_BREAKPOINT } from './splitState';
@@ -57,11 +64,19 @@ export type ConversationArtifactViewProps = {
   conversationTitle: string;
   agentSlug: string;
   initialArtifacts: ArtifactPayload[];
-  /** `?artifact=<id>`; null opens the newest. */
+  /** An old `?artifact=<id>` link's artifact; null opens the newest unless the URL already names a preview. */
   initialArtifactId: number | null;
   selfId?: string | null;
   workspaceSlug?: string | null;
 };
+
+/**
+ * Whether the URL already shows this entry on top.
+ * @param key - `<type>:<id>`.
+ */
+function isOpenKey(key: string): boolean {
+  return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === key;
+}
 
 function chipOf(a: ArtifactPayload): ChatMessageArtifact {
   return { id: a.id, title: a.title, kind: a.kind, version: a.version };
@@ -69,15 +84,39 @@ function chipOf(a: ArtifactPayload): ChatMessageArtifact {
 
 export function ConversationArtifactView(props: ConversationArtifactViewProps) {
   const router = useRouter();
+  // The conversation's artifacts, live (and the edit-under-an-agent-write
+  // case). WHICH entry is open is not here: it is the URL, the same as on
+  // every other surface (`previewState`).
   const [pane, dispatch] = useReducer(artifactReducer, {
     ...initialArtifactPaneState,
     artifacts: props.initialArtifacts as ArtifactEntry[],
-    openId: props.initialArtifactId ?? props.initialArtifacts.at(-1)?.id ?? null,
   });
 
-  const open = openArtifact(pane);
+  const openRef = useOpenPreviewRef();
+  const openKey = openRef ? `${openRef.type}:${openRef.id}` : null;
+  const openArtifactId = openRef?.type === 'artifact' && /^\d+$/.test(openRef.id) ? Number(openRef.id) : null;
+  const open = openArtifactId === null ? null : pane.artifacts.find(a => a.id === openArtifactId) ?? null;
   const openId = open?.id ?? null;
   const openTitle = open?.title ?? '';
+  useEscapeToClose(openRef !== null);
+
+  // Arriving: an old `?artifact=` link becomes the pane's own key, and a
+  // conversation with artifacts and nothing named opens its newest — in place,
+  // so Back leaves the page rather than closing what it arrived with.
+  useEffect(() => {
+    const legacy = props.initialArtifactId;
+    if (legacy !== null) {
+      replacePreview({ type: 'artifact', id: String(legacy) }, ['artifact']);
+      return;
+    }
+    // Read the URL itself: during hydration the store still reports the
+    // server's empty search, and a named preview must not be replaced.
+    const named = new URLSearchParams(window.location.search).get('preview');
+    const newest = props.initialArtifacts.at(-1);
+    if (!named && newest) {
+      replacePreview({ type: 'artifact', id: String(newest.id) });
+    }
+  }, []);
 
   // What the agent is told "this" means. Rebuilt whenever the open artifact
   // changes so a turn sent right after switching panes is about the new one.
@@ -120,8 +159,12 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
       if (merged.conversationId !== null && merged.conversationId !== props.conversationId) {
         return undefined;
       }
-      // After an upload the pane does not open by itself: the chip is the way in (`autoOpen.ts`).
-      dispatch({ type: 'upsert', artifact: merged, focus: !merged.pending && opensPreviewOnItsOwn({ fromUpload: api.fromUpload }) });
+      dispatch({ type: 'upsert', artifact: merged });
+      // A finished write opens in the pane, on top of whatever was there; after
+      // an upload it does not open by itself: the chip is the way in (`autoOpen.ts`).
+      if (!merged.pending && merged.id > 0 && opensPreviewOnItsOwn({ fromUpload: api.fromUpload }) && !isOpenKey(`artifact:${merged.id}`)) {
+        openPreview({ type: 'artifact', id: String(merged.id) }, null);
+      }
       api.setActivity(merged.pending ? `Writing ${merged.title}…` : `Updated ${merged.title}`);
       if (!merged.pending) {
         // The transcript chip is set by the shared reducer in `useChatSession`
@@ -196,13 +239,7 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
   }, [turnCount]);
   const quoted = intent?.context?.selection?.text;
 
-  // The URL names the open artifact, so a link is a link to what you saw.
-  useEffect(() => {
-    const qs = pane.openId ? `?artifact=${pane.openId}` : '';
-    router.replace(`/dashboard/chat/${props.conversationId}${qs}`, { scroll: false });
-  }, [pane.openId, props.conversationId, router]);
-
-  const openById = useCallback((id: number) => dispatch({ type: 'open', id }), []);
+  const openById = useCallback((id: number) => openPreview({ type: 'artifact', id: String(id) }, null), []);
 
   // Below `lg` the two panes do not stand side by side: `ConversationSplit`
   // shows ONE, and while an artifact is open that one is the artifact. The
@@ -244,8 +281,8 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
       <ShellBarActionsPortal>
         <ConversationPageActions
           artifactCount={pane.artifacts.length}
-          artifactsOpen={pane.openId !== null}
-          onOpenArtifacts={() => dispatch({ type: 'open', id: pane.artifacts.at(-1)!.id })}
+          artifactsOpen={openRef !== null}
+          onOpenArtifacts={() => openById(pane.artifacts.at(-1)!.id)}
           onBack={() => router.push('/dashboard/chat')}
         />
       </ShellBarActionsPortal>
@@ -318,26 +355,37 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
             </div>
           </>
         )}
-        pane={open
-          ? (
-              <ArtifactPane
-                key={open.id}
-                artifact={open}
-                selfId={props.selfId}
-                workspaceSlug={props.workspaceSlug}
-                conflict={pane.conflict}
-                onBeginEdit={() => dispatch({ type: 'beginEdit' })}
-                onEndEdit={() => dispatch({ type: 'endEdit' })}
-                onDismissConflict={() => dispatch({ type: 'dismissConflict' })}
-                onUpdated={a => dispatch({ type: 'upsert', artifact: a, focus: true })}
-                // Below `lg` the transcript is not on screen beside this
-                // (`ConversationSplit`), so closing the pane IS the way back
-                // to it and the control says so.
-                back={stacked}
-                onClose={() => dispatch({ type: 'close' })}
-              />
-            )
-          : null}
+        pane={openRef === null
+          ? null
+          : (
+              <div className="flex min-h-0 flex-1 flex-col" data-pane-key={openKey}>
+                {!stacked && <StackBack />}
+                {open
+                  ? (
+                      // This conversation's own artifact: the live entry, so a
+                      // write streams into what is on screen.
+                      <ArtifactPane
+                        key={open.id}
+                        artifact={open}
+                        selfId={props.selfId}
+                        workspaceSlug={props.workspaceSlug}
+                        conflict={pane.conflict}
+                        onBeginEdit={() => dispatch({ type: 'beginEdit' })}
+                        onEndEdit={() => dispatch({ type: 'endEdit' })}
+                        onDismissConflict={() => dispatch({ type: 'dismissConflict' })}
+                        onUpdated={a => dispatch({ type: 'upsert', artifact: a })}
+                        // On a phone the X closes this entry and the drawer's
+                        // tabs move between entries; on a desktop it closes
+                        // the pane and the strip above goes back.
+                        onClose={stacked ? () => closePreviewEntry(openKey!) : closePreview}
+                      />
+                    )
+                  // Anything else — an artifact from another thread, a record,
+                  // a run, the background work — is the same pane every
+                  // surface draws.
+                  : <PreviewPane key={openKey} recordRef={openRef} inDrawer={stacked} />}
+              </div>
+            )}
       />
     </div>
   );
