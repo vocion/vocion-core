@@ -1,0 +1,17 @@
+name: Marketing
+description: >-
+  Paid search that a person can see working. The Marketing lead reads the ad
+  account every morning, says what was spent and what it bought, and proposes
+  every change for a person to approve. Graded on wasted spend cut and on
+  changes a person approved, never on how much was spent.
+goal: Every dollar of ad spend is accounted for each morning, and money stops going to searches nobody meant to buy.
+lead: marketing-lead
+measures:
+  - key: changes_approved
+    label: Ad changes approved
+    dimension: outcome
+    target: 5
+    unit: changes
+    window: 7d
+    source: {kind: human-confirmed, actions: [google_ads.add_negatives, google_ads.add_keywords, google_ads.set_budget, google_ads.set_keyword_status, google_ads.edit_ad_text, google_ads.create_search_campaign, ads.set_status]}
+rules: []

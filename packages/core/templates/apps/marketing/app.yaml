@@ -1,0 +1,11 @@
+# Paid search run by an agent and approved by a person: the Marketing lead,
+# the daily update, and the pages for campaigns and search terms.
+id: marketing
+name: Marketing
+icon: megaphone
+tint: peach
+order: 7
+description: Paid search run by an agent and approved by you — what the ads spent, what it bought, and every change as a card.
+plugins: [marketing]
+entry: /dashboard/marketing
+nav: [Marketing]

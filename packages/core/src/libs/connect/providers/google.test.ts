@@ -45,9 +45,12 @@ describe('google connect provider', () => {
     expect(url.searchParams.get('include_granted_scopes')).toBe('true');
   });
 
-  it('never offers Google Ads or an unknown connector a login', () => {
-    expect(() => googleProvider.authorizeUrl({ state: 's', redirectUri: CALLBACK, connector: 'google-ads' })).toThrow(/does not serve/);
-    expect(googleProvider.connectorSlugs).not.toContain('google-ads');
+  it('logs Google Ads in with the adwords scope (developer tokens retired 2026-09-09), and refuses an unknown connector', () => {
+    const url = new URL(googleProvider.authorizeUrl({ state: 's', redirectUri: CALLBACK, connector: 'google-ads' }));
+
+    expect(url.searchParams.get('scope')).toContain('https://www.googleapis.com/auth/adwords');
+    expect(googleProvider.connectorSlugs).toContain('google-ads');
+    expect(() => googleProvider.authorizeUrl({ state: 's', redirectUri: CALLBACK, connector: 'not-a-google-connector' })).toThrow(/does not serve/);
   });
 
   it('stores the tokens, the granted scope and the account email from a successful login', async () => {

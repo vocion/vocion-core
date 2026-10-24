@@ -1,0 +1,52 @@
+# Marketing — paid search run by an agent, approved by you
+
+**Marketing** is a prebuilt app: a Marketing lead who reads the Google Ads account every morning, says what was spent and what it bought, and proposes every change as a card a person approves. Nothing that spends changes without a person.
+
+| | |
+|---|---|
+| **App manifest** | `packages/core/templates/apps/marketing/app.yaml` |
+| **Plugin** | `marketing` (`packages/core/templates/plugins/marketing/`): the Marketing lead, the team, the daily update mission, its two automations, two skills |
+| **Pages** | `/dashboard/marketing` (campaigns), `/dashboard/marketing/<campaign id>` (one campaign), `/dashboard/marketing/search-terms` — one route, `app/[locale]/(auth)/dashboard/marketing/[[...path]]` |
+| **Reads** | `services/marketing/marketingReads.ts` → `services/ads/googleReports.ts`, live on every load; nothing stored |
+| **Connection** | the `google-ads` source on the `google` platform (`libs/sources/googleAds.ts`, `services/ads/providers/google.ts`, `libs/googleAds/client.ts`) |
+| **Writes** | `libs/actions/google-ads.ts`, plus the ads family's `ads.set_status` |
+
+## Connecting Google Ads
+
+One Google login, on the Connectors page, with the `adwords` scope (Google's only Ads scope; it reads and writes). After the login, set the source's **Customer ID** (the ten digits at the top of Google Ads) and, only if the login reaches the account through a manager account, the **Manager account ID**.
+
+**Developer tokens are retired.** Since 2026-09-09 the Google Ads API decides access by the Google Cloud project that owns the OAuth client, not by a token from a manager account's API Center. The project needs **Explorer** access (automatic in most cases, about 2,880 operations a day on real accounts) or **Basic / Standard** (brand verification, then a review), applied for in Cloud Console → *Google Ads API Overview*. A project still on Test access is refused on a real account; the refusal says so and names that page. A `developerToken` a credential still carries is sent and ignored.
+
+A pasted credential (OAuth client ID, secret and refresh token) works too, and authenticates every Google connector at once.
+
+## What the Marketing lead reads
+
+| Tool | What it answers |
+|---|---|
+| `ads_campaigns`, `ads_performance` | The ads family's shared pair: campaigns and ad groups with status and budget; impressions, clicks, spend and conversions over a range |
+| `ads_report` | Named Google Ads reports with typed dates, never model-written GAQL: `campaigns`, `campaign_daily`, `keywords`, `search_terms` (with whether each is already a keyword or a negative), `ads` (approval and policy topics), `conversions` (by action, and which actions exist), `budget_pacing` (month to date against budget) |
+
+## What it changes, and only with you
+
+Every Google Ads write is `approvalRequired`: whoever proposes it, it waits in Review. A person's own tap on the Marketing pages (Exclude, Add keyword) is that approval and runs at once (`review.actAsPerson`). Each execute asks Google to validate the whole batch first, applies it atomically, reads the result back, and records what Undo needs.
+
+| Action | Undo |
+|---|---|
+| `google_ads.set_budget` | the old budget back (refused for a shared budget) |
+| `google_ads.add_negatives` | removes exactly the negatives added |
+| `google_ads.add_keywords` | removes exactly the keywords added |
+| `google_ads.set_keyword_status` | the keyword's old status |
+| `google_ads.edit_ad_text` | the old headlines and descriptions (Google reviews either) |
+| `google_ads.create_search_campaign` | removes the campaign |
+| `ads.set_status` (campaign or ad group) | the old status |
+
+`google_ads.create_search_campaign` builds a whole Search campaign in one atomic batch: budget, campaign (Google Search only, Maximize clicks with an optional bid ceiling), locations and language, negatives, one ad group with its keywords and one responsive search ad, callouts and sitelinks. With `conversion_action_ids` it also gives the campaign its own goal, so an account whose default goals count another product's leads does not judge it by them.
+
+## The daily update
+
+`missions/daily-marketing-update.yaml`, run on weekday mornings by `automations/marketing-daily-update.yaml` (13:30 UTC) and published with `publish_briefing`, so it is on the Briefings page. `automations/marketing-update-email.yaml` mails it to the workspace's accountable person twenty minutes later (`daily-team-report`, `briefing.agentSlug: marketing-lead`; mail needs `VOCION_MAIL_ENABLED=1`). It covers spend yesterday and this week against budget, what it bought, wasted search terms, ads Google limited, the proposals waiting, and one recommendation.
+
+## The skills
+
+- `search-terms-review`: waste becomes negatives on its campaign (phrase match on the shortest words that catch it); winners become exact keywords; every proposal carries its clicks, spend and conversions.
+- `launch-search-campaign`: a landing page becomes one `google_ads.create_search_campaign` card — keywords, negatives, an ad whose every claim is on the page, tracking, and the conversion action the page is for.

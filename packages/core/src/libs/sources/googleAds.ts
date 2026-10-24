@@ -1,9 +1,11 @@
 /**
  * Google Ads connector — ingest campaign performance as retrievable documents.
- * The marquee integration for the Daylyte PPC reporting deployment.
  *
- * Auth: OAuth access token in `ctx.credentials.token` + a `developerToken`
- * (Google Ads API requires both). Incremental: when `ctx.since` is set the GAQL
+ * Auth: a Google login with the `adwords` scope, or a pasted OAuth client and
+ * refresh token, through `resolveGoogleAccessToken`. Developer tokens were
+ * retired on 2026-09-09 (access follows the Google Cloud project that owns the
+ * OAuth client), so `developerToken` is optional and only sent when a
+ * credential still carries one. Incremental: when `ctx.since` is set the GAQL
  * `WHERE segments.date >= <since>`; otherwise the last 30 days. Paginates the
  * `nextPageToken`. One IngestDoc per campaign/day row.
  */
@@ -11,12 +13,14 @@
 import type { SourceConnector, SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
+import { adsSearch, GOOGLE_ADS_API_VERSION, GOOGLE_ADS_BASE } from '@/libs/googleAds/client';
+import { resolveGoogleAccessToken } from './googleAuth';
 
-const googleAdsConfigSchema = z.object({
+export const googleAdsConfigSchema = z.object({
   customerId: z.string().min(1),
-  /** Manager (MCC) account id, when the token authenticates through one. */
+  /** Manager (MCC) account id, when the login reaches the account through one. */
   loginCustomerId: z.string().optional(),
-  baseUrl: z.string().url().default('https://googleads.googleapis.com/v17'),
+  baseUrl: z.string().url().default(`${GOOGLE_ADS_BASE}/${GOOGLE_ADS_API_VERSION}`),
 });
 
 const SELECT = 'campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, segments.date';
@@ -26,7 +30,6 @@ type AdsRow = {
   metrics?: Record<string, string | number>;
   segments?: { date?: string };
 };
-type AdsPage = { results?: AdsRow[]; nextPageToken?: string };
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -43,53 +46,28 @@ export const googleAdsConnector: SourceConnector<typeof googleAdsConfigSchema> =
   configSchema: googleAdsConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = googleAdsConfigSchema.parse(ctx.config);
-    const token = ctx.credentials?.token as string | undefined;
-    const developerToken = ctx.credentials?.developerToken as string | undefined;
-    if (!token || !developerToken) {
-      throw new Error('Google Ads connector requires credentials.token + credentials.developerToken');
-    }
+    const accessToken = await resolveGoogleAccessToken(ctx.credentials, ctx.orgId);
+    const developerToken = typeof ctx.credentials?.developerToken === 'string' ? ctx.credentials.developerToken : null;
     const dateClause = ctx.since
       ? `segments.date >= '${isoDate(ctx.since)}'`
       : 'segments.date DURING LAST_30_DAYS';
-    const query = `SELECT ${SELECT} FROM campaign WHERE ${dateClause}`;
-    const headers: Record<string, string> = {
-      'authorization': `Bearer ${token}`,
-      'developer-token': developerToken,
-      'content-type': 'application/json',
-    };
-    if (cfg.loginCustomerId) {
-      headers['login-customer-id'] = cfg.loginCustomerId;
+    const rows = await adsSearch<AdsRow>({ accessToken, customerId: cfg.customerId, loginCustomerId: cfg.loginCustomerId, developerToken, baseUrl: cfg.baseUrl }, `SELECT ${SELECT} FROM campaign WHERE ${dateClause}`);
+    for (const row of rows) {
+      const date = row.segments?.date ?? '';
+      const campaignId = row.campaign?.id ?? 'unknown';
+      const content = [
+        `campaign: ${row.campaign?.name ?? campaignId}`,
+        `date: ${date}`,
+        ...Object.entries(row.metrics ?? {}).map(([k, v]) => `${k}: ${v}`),
+      ].join('\n');
+      ctx.onProgress?.({ kind: 'fetched', uri: `${campaignId}:${date}` });
+      yield {
+        externalId: `campaign:${campaignId}:${date}`,
+        title: `${row.campaign?.name ?? campaignId} — ${date}`,
+        content,
+        lastModifiedAt: date ? new Date(date) : null,
+        metadata: { campaignId, date, kind: 'google-ads-campaign-day' },
+      };
     }
-
-    let pageToken = ctx.cursor ?? undefined;
-    do {
-      const res = await fetch(`${cfg.baseUrl}/customers/${cfg.customerId}/googleAds:search`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ query, ...(pageToken ? { pageToken } : {}) }),
-      });
-      if (!res.ok) {
-        throw new Error(`Google Ads search failed: ${res.status} ${await res.text().catch(() => '')}`);
-      }
-      const page = (await res.json()) as AdsPage;
-      for (const row of page.results ?? []) {
-        const date = row.segments?.date ?? '';
-        const campaignId = row.campaign?.id ?? 'unknown';
-        const content = [
-          `campaign: ${row.campaign?.name ?? campaignId}`,
-          `date: ${date}`,
-          ...Object.entries(row.metrics ?? {}).map(([k, v]) => `${k}: ${v}`),
-        ].join('\n');
-        ctx.onProgress?.({ kind: 'fetched', uri: `${campaignId}:${date}` });
-        yield {
-          externalId: `campaign:${campaignId}:${date}`,
-          title: `${row.campaign?.name ?? campaignId} — ${date}`,
-          content,
-          lastModifiedAt: date ? new Date(date) : null,
-          metadata: { campaignId, date, kind: 'google-ads-campaign-day' },
-        };
-      }
-      pageToken = page.nextPageToken;
-    } while (pageToken);
   },
 };

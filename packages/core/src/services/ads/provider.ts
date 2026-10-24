@@ -100,7 +100,7 @@ export type AdsProvider = {
 export async function adsProviderFor(orgId: string, opts: { sourceSlug?: string | null; slugs?: readonly string[] } = {}): Promise<AdsProvider> {
   const sources = await familySourcesForOrg(orgId, 'ads', opts.slugs);
   if (sources.length === 0) {
-    throw new Error('No ad platform is connected for this agent. Connect one (LinkedIn Ads or Meta Ads) at /dashboard/connectors and give this agent the source.');
+    throw new Error('No ad platform is connected for this agent. Connect one (Google Ads, LinkedIn Ads or Meta Ads) at /dashboard/connectors and give this agent the source.');
   }
   let chosen: FamilySource | undefined;
   if (opts.sourceSlug) {
@@ -114,6 +114,8 @@ export async function adsProviderFor(orgId: string, opts: { sourceSlug?: string 
     chosen = sources[0]!;
   }
   switch (chosen.kind) {
+    case 'google-ads':
+      return (await import('./providers/google')).googleAdsProvider(orgId, chosen);
     case 'linkedin-ads':
       return (await import('./providers/linkedin')).linkedinAdsProvider(orgId, chosen);
     case 'meta-ads':
@@ -138,4 +140,32 @@ export function ratesOf(row: { impressions: number; clicks: number; spend: numbe
     cpc: row.clicks > 0 ? round(row.spend / row.clicks, 4) : null,
     cpm: row.impressions > 0 ? round(row.spend / row.impressions * 1000, 4) : null,
   };
+}
+
+/**
+ * The Google Ads source an agent or page works on: the one named, else the
+ * only one. Google Ads has reads and writes beyond the family's shared pair
+ * (search terms, keywords, budgets), so those resolve here rather than through
+ * a vendor-blind provider.
+ * @param orgId - The workspace.
+ * @param opts - What to resolve by.
+ * @param opts.sourceSlug - The source to use, when the caller names one.
+ * @param opts.slugs - Only these sources: an agent's own.
+ */
+export async function googleAdsSourceFor(orgId: string, opts: { sourceSlug?: string | null; slugs?: readonly string[] } = {}): Promise<FamilySource> {
+  const sources = (await familySourcesForOrg(orgId, 'ads', opts.slugs)).filter(s => s.kind === 'google-ads');
+  if (sources.length === 0) {
+    throw new Error('No Google Ads account is connected here. Connect Google Ads at /dashboard/connectors (one Google login) and give this agent the source.');
+  }
+  if (opts.sourceSlug) {
+    const named = sources.find(s => s.slug === opts.sourceSlug);
+    if (!named) {
+      throw new Error(`No Google Ads source named ${opts.sourceSlug}. Connected: ${sources.map(s => s.slug).join(', ')}.`);
+    }
+    return named;
+  }
+  if (sources.length > 1) {
+    throw new Error(`There are ${sources.length} Google Ads sources; name one (source): ${sources.map(s => s.slug).join(', ')}.`);
+  }
+  return sources[0]!;
 }

@@ -16,7 +16,7 @@
  * Three more families read a business's numbers the same way: a `warehouse`
  * (Snowflake, BigQuery, Databricks, Redshift) answers one read-only SQL tool,
  * `analytics` (Mixpanel, Amplitude) answers events, funnels and cohorts, and
- * `ads` (LinkedIn Ads, Meta Ads) answers campaigns and what they spent.
+ * `ads` (Google Ads, LinkedIn Ads, Meta Ads) answers campaigns and what they spent.
  *
  * The family of a source is read off its connector kind
  * (`knowledge_source.kind`, or `config._connector` for a source cloned from a
@@ -55,7 +55,7 @@ export const FAMILY_KINDS: Record<ConnectorFamily, readonly string[]> = {
   // Product analytics — events, funnels, cohorts (`services/productAnalytics/provider.ts`).
   analytics: ['mixpanel', 'amplitude'],
   // An ad platform: campaigns, ad sets and what they spent (`services/ads/provider.ts`).
-  ads: ['linkedin-ads', 'meta-ads'],
+  ads: ['google-ads', 'linkedin-ads', 'meta-ads'],
 };
 
 /** How each family and its constructs are named to a person. */

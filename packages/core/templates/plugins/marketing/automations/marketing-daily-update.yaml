@@ -1,0 +1,9 @@
+slug: marketing-daily-update
+name: Daily marketing update
+description: Weekday mornings the Marketing lead reads the ad account and publishes the update.
+status: active
+agent: marketing-lead
+when:
+  schedule: '30 13 * * 1-5' # 13:30 UTC, about 6:30am Pacific
+do:
+  checkMission: daily-marketing-update

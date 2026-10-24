@@ -180,11 +180,11 @@ describe('offer_connection', () => {
     expect(emit.mock.calls[0]![0].card.body).toMatch(/^Paste an API key\. It needs: Text to Speech; /);
   });
 
-  it('Google Ads, on the same platform as Gmail, gets the token form, because its API also needs a developer token no login can issue', async () => {
+  it('Google Ads, on the same platform as Gmail, logs in with Google now that developer tokens are retired', async () => {
     const emit = vi.fn();
     await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'google-ads', why: 'x' });
 
-    expect(emit.mock.calls[0]![0].card.href).toBe(pasteHref('google-ads', 7));
+    expect(emit.mock.calls[0]![0].card.href).toMatch(/^\/api\/connect\/google\/start\?connector=google-ads/);
   });
 
   it('a connector with no connect declaration falls back to the plain Connectors link', async () => {

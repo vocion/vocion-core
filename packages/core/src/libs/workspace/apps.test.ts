@@ -9,10 +9,10 @@ import { AppManifestSchema } from './schemas';
 // a broken app.yaml fails here and not in the sidebar.
 
 describe('the shipped apps', () => {
-  it('ships Workforce as the one core app, the four prebuilt apps, and the Assistants slot', () => {
-    expect(listAppIds()).toEqual(['assistants', 'company', 'finance', 'gtm', 'routines', 'software-factory', 'workforce']);
+  it('ships Workforce as the one core app, the prebuilt apps, and the Assistants slot', () => {
+    expect(listAppIds()).toEqual(['assistants', 'company', 'finance', 'gtm', 'marketing', 'routines', 'software-factory', 'workforce']);
     expect(listApps().filter(a => a.core).map(a => a.id)).toEqual(['workforce']);
-    expect(listApps().map(a => a.id)).toEqual(['workforce', 'assistants', 'software-factory', 'gtm', 'company', 'finance', 'routines']);
+    expect(listApps().map(a => a.id)).toEqual(['workforce', 'assistants', 'software-factory', 'gtm', 'company', 'finance', 'routines', 'marketing']);
   });
 
   it('starts the Company app on its templates, behind its own plugin', () => {
@@ -65,7 +65,7 @@ describe('the shipped apps', () => {
   });
 
   it('refuses an unknown id and names the catalogue', () => {
-    expect(() => loadApp('nope')).toThrow(/unknown app "nope" — this core ships: assistants, company, finance, gtm, routines, software-factory, workforce/);
+    expect(() => loadApp('nope')).toThrow(/unknown app "nope" — this core ships: assistants, company, finance, gtm, marketing, routines, software-factory, workforce/);
   });
 });
 

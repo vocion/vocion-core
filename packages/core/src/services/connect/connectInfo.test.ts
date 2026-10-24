@@ -72,7 +72,7 @@ describe('connectInfoForOrg', () => {
 
     expect(info.drive).toMatchObject({ loggedInAs: 'ops@northwind.example', stored: { kind: 'login' } });
     expect(info.gmail).toMatchObject({ loggedInAs: null, stored: null });
-    expect(info['google-ads']).toBeUndefined();
+    expect(info['google-ads']).toMatchObject({ loggedInAs: null, stored: null });
   });
 
   it('does not call a pasted key a login', async () => {

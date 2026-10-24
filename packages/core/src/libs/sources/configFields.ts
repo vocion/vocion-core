@@ -208,7 +208,7 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       type: 'text',
       required: true,
       placeholder: '1234567890',
-      help: 'The account whose campaigns sync. Digits only, no dashes.',
+      help: 'The account Vocion reads and manages: the ten digits at the top of Google Ads (dashes are fine).',
     },
     {
       key: 'loginCustomerId',
@@ -222,7 +222,7 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       label: 'API base URL',
       type: 'url',
       advanced: true,
-      defaultValue: 'https://googleads.googleapis.com/v17',
+      defaultValue: 'https://googleads.googleapis.com/v23',
     },
   ],
 
