@@ -5,7 +5,7 @@ import type { PreviewDoc } from '@/libs/preview/types';
 import type { RunStep } from '@/libs/worker/runLog';
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
 import { Activity, ArrowLeft, Bot, ChevronLeft, ExternalLink, FileText, History, Inbox, LayoutGrid, ListTree, MessageSquareText, Newspaper, Play, Repeat, Rocket, RotateCw, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Accordion, FactList } from '@/components/patterns';
@@ -34,7 +34,6 @@ import { parsePreviewKey, PREVIEW_PARAM, previewKey } from '@/libs/preview/types
 import { parseWorkRefId } from '@/libs/preview/workRef';
 import { parseHistoryRefId } from '@/libs/versions/versionRef';
 import { RECORD_TYPES } from '@/services/chat/pageContext';
-import { ArtifactPreview } from './ArtifactPreview';
 import { classifyPreviewError, FAILURE_REASON, RETRY_DELAYS_MS } from './previewFetch';
 import { closePreview, closePreviewEntry, openPreview, previewBack, previewTitle, rememberPreviewTitle, usePreviewStack } from './previewState';
 
@@ -65,6 +64,13 @@ import { closePreview, closePreviewEntry, openPreview, previewBack, previewTitle
  * closes it and hands focus back to whatever opened it, and the page's own
  * shortcuts keep working while it is open.
  */
+
+/**
+ * The artifact pane, loaded when an artifact is first opened in the pane: it
+ * carries the document, deck and table editors, which a pane that only ever
+ * shows records never needs.
+ */
+const ArtifactPreview = lazy(() => import('./ArtifactPreview').then(m => ({ default: m.ArtifactPreview })));
 
 const RECORD_ICON: Partial<Record<RecordType, typeof FileText>> = {
   briefing: Newspaper,
@@ -348,7 +354,11 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
   // panes UX for all use cases"): it opens in this pane, as itself — the
   // artifact's own header, its tabs, versions and downloads (`ArtifactPreview`).
   if (props.recordRef.type === 'artifact' && /^\d+$/.test(props.recordRef.id) && !props.doc && !props.compact) {
-    return <ArtifactPreview id={Number(props.recordRef.id)} onClose={props.onClose} inDrawer={props.inDrawer} />;
+    return (
+      <Suspense fallback={<p className="px-4 py-3 text-sm text-muted-foreground" role="status">Loading…</p>}>
+        <ArtifactPreview id={Number(props.recordRef.id)} onClose={props.onClose} inDrawer={props.inDrawer} />
+      </Suspense>
+    );
   }
   return <RecordPreview {...props} />;
 }
