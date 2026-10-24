@@ -612,10 +612,13 @@ export default async function WorkspacePage(props: {
     const [board, timezone] = await Promise.all([loadEngineScoreboard(orgId, { days: query.days, source: query.source }), workspaceTimeZone(orgId)]);
     const since = new Date(board.since);
     const rows = await listEngineRuns(orgId, { source: query.source, engine: query.engine ?? undefined, since, limit: 200 });
+    const { jevKeyStatus } = await import('@/services/routing/jevKey');
+    const keys = await jevKeyStatus(orgId).catch(() => null);
+    const routing = { effective: keys?.effective ?? null, hint: keys?.effective === 'workspace' ? keys.workspace?.hint ?? null : keys?.instance?.hint ?? null };
     return (
       <>
         <TitleBar title={manifest.title} description={manifest.description} />
-        <EnginesView slug={manifest.slug} query={query} engines={board.engines} rows={rows} since={since} timezone={timezone} />
+        <EnginesView slug={manifest.slug} query={query} engines={board.engines} rows={rows} since={since} timezone={timezone} routing={routing} />
       </>
     );
   }

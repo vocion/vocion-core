@@ -1215,6 +1215,19 @@ export const AgentManifestSchema = z.object({
      * Absent: the engine derives it from `model`.
      */
     engineModel: z.string().min(1).optional(),
+    /**
+     * What dynamic routing may pick from for this seat (ADR 0006): each entry
+     * an engine, its model, what it is good at and its relative cost. Only
+     * read when a Jev key is configured; Jev picks one entry and an effort,
+     * inside the installation's engine fence. Absent: the seat's own engine
+     * and model are the one candidate, and Jev picks the effort only.
+     */
+    routeModels: z.array(z.object({
+      engine: z.enum(['claude-cli', 'openhands']),
+      model: z.string().min(1).optional(),
+      about: z.string().max(400).optional(),
+      cost: z.enum(['low', 'medium', 'high']).optional(),
+    })).max(12).optional(),
     modelProvider: z.enum(['anthropic', 'openai', 'bedrock']).optional(),
     /**
      * Ask the vendor to cache this agent's prompt prefix, or forbid it.
