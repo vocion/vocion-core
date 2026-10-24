@@ -32,6 +32,9 @@ export type LedgerCharge = {
 };
 
 export type ModelCallRow = {
+  /** Only present when the turn was routed (ADR 0006): a row with no Jev key is the row it always was. */
+  routeSelector?: string;
+  routeDetail?: Record<string, unknown>;
   orgId: string;
   accountId: string | null;
   agentSlug: string | null;
@@ -89,6 +92,7 @@ export function ledgerRowOf(charge: LedgerCharge, context: CallContext, run: Run
     microCents: charge.microCents,
     latencyMs: charge.latencyMs ?? null,
     traceId: charge.traceId ?? context.traceId ?? null,
+    ...(context.routeSelector ? { routeSelector: context.routeSelector, ...(context.routeDetail ? { routeDetail: context.routeDetail } : {}) } : {}),
   };
 }
 

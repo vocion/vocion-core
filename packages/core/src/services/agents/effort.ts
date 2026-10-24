@@ -127,6 +127,28 @@ export const SYNTHESIS_TEAMS = 2;
 export type AutoRead = { level: EffortLevel; reason: string; teams?: number };
 
 /**
+ * The least the facts allowed for a read (`autoFloor`), kept beside the read
+ * rather than on it so a read is the same object it always was; another
+ * reader's level (Jev, ADR 0006) is held to it too.
+ */
+const floors = new WeakMap<AutoRead, { level: EffortLevel; reason: string }>();
+
+/**
+ * The floor the facts set on a read, when they set one.
+ * @param read - A read from `parseEffort` (or one derived from it by `synthesisLevel` / `answerFloor`).
+ */
+export function floorOf(read: AutoRead): { level: EffortLevel; reason: string } | null {
+  return floors.get(read) ?? null;
+}
+
+function keepFloor(read: AutoRead, floor: { level: EffortLevel; reason: string } | null): AutoRead {
+  if (floor) {
+    floors.set(read, floor);
+  }
+  return read;
+}
+
+/**
  * The least Auto may pick, from the facts the read reports: writing
  * something a person will send, or checking more than one system, is never
  * Quick. On 2026-10-23 Auto put "have I had contact with him (gmail,
@@ -179,7 +201,7 @@ export function answerFloor(read: AutoRead, records: number | undefined): AutoRe
   if (read.level !== 'quick' || (records ?? 0) < BULK_CHANGES) {
     return read;
   }
-  return { ...read, level: 'standard', reason: `reporting a change to ${records} records` };
+  return keepFloor({ ...read, level: 'standard', reason: `reporting a change to ${records} records` }, floorOf(read));
 }
 
 /**
@@ -198,7 +220,30 @@ export function synthesisLevel(read: AutoRead, agent: { leadsTeammates: boolean 
   if (!agent.leadsTeammates || teams < SYNTHESIS_TEAMS || read.level === 'deep') {
     return read;
   }
-  return { ...read, level: 'deep', reason: `synthesizing ${teams} teams` };
+  return keepFloor({ ...read, level: 'deep', reason: `synthesizing ${teams} teams` }, floorOf(read));
+}
+
+/** Jev's effort (ADR 0006) as a turn level. */
+const JEV_LEVELS = { low: 'quick', medium: 'standard', high: 'deep' } as const satisfies Record<'high' | 'low' | 'medium', EffortLevel>;
+
+/**
+ * Auto's read with Jev's effort as the level (dynamic routing, ADR 0006).
+ * Jev replaces the small model's judgement of the level, never the rules:
+ * the facts' floor (`autoFloor`) still holds, and the caller applies
+ * `synthesisLevel` and `answerFloor` after, as for any read. Raises to the
+ * floor, never past Jev otherwise.
+ * @param read - What Auto read (for its facts).
+ * @param effort - Jev's effort.
+ * @param why - Jev's reason, in a few words.
+ */
+export function withJevEffort(read: AutoRead, effort: 'high' | 'low' | 'medium', why: string): AutoRead {
+  const level: EffortLevel = JEV_LEVELS[effort];
+  const teams = read.teams !== undefined ? { teams: read.teams } : {};
+  const floor = floorOf(read);
+  if (floor && EFFORT_LEVELS.indexOf(level) < EFFORT_LEVELS.indexOf(floor.level)) {
+    return keepFloor({ level: floor.level, reason: floor.reason, ...teams }, floor);
+  }
+  return keepFloor({ level, reason: why, ...teams }, floor);
 }
 
 /**
@@ -221,9 +266,9 @@ export function parseEffort(raw: string): AutoRead | null {
     const floor = autoFloor({ drafts: facts.drafts === true, systems: typeof facts.systems === 'number' ? facts.systems : 1, changes: typeof facts.changes === 'number' ? facts.changes : 0, owed: facts.owed === true });
     const teams = typeof facts.teams === 'number' && Number.isFinite(facts.teams) ? { teams: Math.max(0, Math.round(facts.teams)) } : {};
     if (floor && EFFORT_LEVELS.indexOf(parsed.level as EffortLevel) < EFFORT_LEVELS.indexOf(floor.level)) {
-      return { level: floor.level, reason: floor.reason, ...teams };
+      return keepFloor({ level: floor.level, reason: floor.reason, ...teams }, floor);
     }
-    return { level: parsed.level as EffortLevel, reason, ...teams };
+    return keepFloor({ level: parsed.level as EffortLevel, reason, ...teams }, floor);
   } catch {
     return null;
   }

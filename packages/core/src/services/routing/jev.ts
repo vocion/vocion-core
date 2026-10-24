@@ -117,9 +117,16 @@ export type JevQuestion = {
   state: Record<string, unknown>;
   /** The candidates. One candidate means Jev is asked for the effort only. */
   candidates: readonly JevCandidate[];
+  /**
+   * What is being decided (ADR 0006): a factory task's engine and model
+   * (`engineering`, the default), an agent turn's model and effort (`turn`),
+   * or which agent answers a message (`agent`: a choice only, no effort).
+   */
+  purpose?: JevPurpose;
 };
 
-/** Jev's answer, read. */
+export type JevPurpose = 'agent' | 'engineering' | 'turn';
+
 export type JevAnswer = {
   /** The candidate picked, `none`, or null when only the effort was asked. */
   choice: string | null;
@@ -139,11 +146,35 @@ export type JevAnswer = {
 /** Why there is no answer. `reason` is a short phrase with no secret in it. */
 export type JevFailure = { failed: true; kind: 'bad_response' | 'http' | 'network' | 'timeout'; reason: string; status?: number; latencyMs: number };
 
-const EFFORT_SCALE = [
-  'low: a small, well-specified change with one obvious approach; little reasoning needed',
-  'medium: a routine change across a few files, or one needing some care to get right',
-  'high: a large, ambiguous, cross-cutting or risky change; deep reasoning pays for itself',
-];
+/** How each purpose's questions are worded. The effort scale is low, medium, high in that order. */
+const WORDING: Record<JevPurpose, { effort: string | null; scale: string[]; choice: string; none: string }> = {
+  engineering: {
+    effort: 'How much reasoning effort does the engineering work described in state need?',
+    scale: [
+      'low: a small, well-specified change with one obvious approach; little reasoning needed',
+      'medium: a routine change across a few files, or one needing some care to get right',
+      'high: a large, ambiguous, cross-cutting or risky change; deep reasoning pays for itself',
+    ],
+    choice: 'Which candidate should do the engineering work described in state? Prefer the cheapest candidate whose description covers the work.',
+    none: 'None of the candidates above fits this work.',
+  },
+  turn: {
+    effort: 'How much effort does the request described in state deserve from the assistant answering it?',
+    scale: [
+      'low: a lookup, a short factual answer from one place, a yes/no or a greeting',
+      'medium: gather from a few places and synthesise, prepare for a meeting, draft or revise a reply',
+      'high: research or analysis across many sources or a long period, a plan, a document, a comparison or a ranking across many items',
+    ],
+    choice: 'Which model should handle the request described in state? Prefer the cheapest candidate whose description covers the request.',
+    none: 'None of the candidates above fits this request.',
+  },
+  agent: {
+    effort: null,
+    scale: [],
+    choice: 'Which agent on the roster should answer the message described in state? Judge what the person wants done, then which agent owns that work.',
+    none: 'No agent on the roster clearly owns this; the lead should answer.',
+  },
+};
 
 /**
  * The request body. Pure.
@@ -151,20 +182,18 @@ const EFFORT_SCALE = [
  * @param model - The Jev model.
  */
 export function jevRequestBody(q: JevQuestion, model: string): Record<string, unknown> {
-  const questions: Record<string, unknown> = {
-    effort: {
-      type: 'score',
-      instructions: 'How much reasoning effort does the engineering work described in state need?',
-      criteria: EFFORT_SCALE,
-    },
-  };
-  if (q.candidates.length > 1) {
+  const words = WORDING[q.purpose ?? 'engineering'];
+  const questions: Record<string, unknown> = {};
+  if (words.effort) {
+    questions.effort = { type: 'score', instructions: words.effort, criteria: words.scale };
+  }
+  if (q.candidates.length > 1 || !words.effort) {
     questions.candidate = {
       type: 'choice',
-      instructions: 'Which candidate should do the engineering work described in state? Prefer the cheapest candidate whose description covers the work.',
+      instructions: words.choice,
       criteria: {
         ...Object.fromEntries(q.candidates.map(c => [c.id, c.text])),
-        [NONE]: 'None of the candidates above fits this work.',
+        [NONE]: words.none,
       },
     };
   }
@@ -191,7 +220,8 @@ export function readJevResponse(body: unknown, q: JevQuestion, latencyMs: number
   let choice: string | null = null;
   let confidence: number | null = null;
   let probabilities: Record<string, number> = {};
-  if (q.candidates.length > 1) {
+  const asksEffort = WORDING[q.purpose ?? 'engineering'].effort !== null;
+  if (q.candidates.length > 1 || !asksEffort) {
     const c = answers.candidate;
     if (!isObj(c) || c.type !== 'choice' || typeof c.choice !== 'string') {
       return bad('the candidate answer was missing or not a choice');
@@ -200,18 +230,23 @@ export function readJevResponse(body: unknown, q: JevQuestion, latencyMs: number
     confidence = numOrNull(c.confidence);
     probabilities = isObj(c.probabilities) ? Object.fromEntries(Object.entries(c.probabilities).filter(([, v]) => typeof v === 'number')) as Record<string, number> : {};
   }
-  const e = answers.effort;
-  if (!isObj(e) || e.type !== 'score' || numOrNull(e.score) === null) {
-    return bad('the effort answer was missing or not a score');
+  let effort: Effort | null = null;
+  let effortConfidence: number | null = null;
+  if (asksEffort) {
+    const e = answers.effort;
+    if (!isObj(e) || e.type !== 'score' || numOrNull(e.score) === null) {
+      return bad('the effort answer was missing or not a score');
+    }
+    effort = EFFORTS[Math.min(2, Math.max(0, Math.round(e.score as number)))]!;
+    effortConfidence = numOrNull(e.confidence);
   }
-  const level = Math.min(2, Math.max(0, Math.round(e.score as number)));
   const usage = isObj(body.usage) ? body.usage : {};
   return {
     choice,
     confidence,
     probabilities,
-    effort: EFFORTS[level]!,
-    effortConfidence: numOrNull(e.confidence),
+    effort,
+    effortConfidence,
     model: typeof body.model === 'string' ? body.model : null,
     inputTokens: numOrNull(usage.input_tokens),
     costUsd: numOrNull(usage.cost),

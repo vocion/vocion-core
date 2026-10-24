@@ -36,6 +36,9 @@ import { getWorkspaceLead } from '@/services/TeamService';
 export type { Initiative } from '@/services/agents/initiative';
 export { INITIATIVE_RANK, readInitiative } from '@/services/agents/initiative';
 
+/** Jev's pick of the agent that answers (ADR 0006): `chosen` is null when its pick was not usable, and `detail` says why. */
+export type JevAgentPick = { chosen: string | null; confidence: number; reason: string; detail: Record<string, unknown> };
+
 /** What the router knows about one agent. A projection of the row, so a test can hand in literals. */
 export type RoutableAgent = {
   slug: string;
@@ -71,7 +74,7 @@ export type RoutableAgent = {
  *   - `keywords` — the keyword fallback, because the model read did not answer;
  *   - `roster` — one active agent, nothing to choose.
  */
-export type RoutingPath = 'named' | 'thread' | 'page' | 'model' | 'keywords' | 'roster';
+export type RoutingPath = 'named' | 'thread' | 'page' | 'model' | 'keywords' | 'roster' | 'jev';
 
 /** One agent the router weighed, in the order it ranked them. */
 export type RoutingCandidate = {
@@ -102,6 +105,12 @@ export type RoutingDecision = {
   confidence?: number;
   /** Why the model read was not used, when the keyword fallback decided. */
   fallback?: string;
+  /**
+   * Jev's pick (ADR 0006), when a Jev key is configured and Jev was asked:
+   * what it chose and how sure, the Jev version, latency, key scope, and why
+   * its pick was not used when the model read decided instead. Never a key.
+   */
+  jev?: Record<string, unknown>;
 };
 
 /** Weights. A `handles` entry is authored for exactly this purpose, so it outranks incidental overlap. */
@@ -603,6 +612,8 @@ export async function routeFirstTurn(
     /** The workspace's front door for new work (`services/chat/intake.ts`); defaults to reading it. */
     intake?: (orgId: string) => Promise<{ label: string; ownerSlug: string | null } | null>;
     timeoutMs?: number;
+    /** Jev's pick of the agent (ADR 0006); null when no Jev key is configured. Defaults to `routing/agentPick.ts`. */
+    jev?: (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string }) => Promise<JevAgentPick | null>;
   } = {},
 ): Promise<RoutingDecision | null> {
   const live = opts.agents.filter(isActive);
@@ -631,6 +642,7 @@ export async function routeFirstTurn(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
   let read: { chosen: string; confidence: number; reason: string };
+  let jevDetail: Record<string, unknown> | undefined;
   try {
     // New work has a front door when a type declares one (x-intake): the
     // read is told who files it. Conversation 474 (2026-10-04): "give the
@@ -642,8 +654,16 @@ export async function routeFirstTurn(
     ]);
     const intake = door?.ownerSlug && active.some(a => a.slug === door.ownerSlug) ? { label: door.label, ownerSlug: door.ownerSlug } : null;
     const seats = active.map(a => ({ ...a, owns: [...new Set([...(a.owns ?? []), ...(owners[a.slug] ?? [])])] }));
+    // JEV (ADR 0006), when a key turns it on: a typed choice over the same
+    // roster, the same seats, the same lead, asked beside the model read so
+    // it never adds a wait. Its pick is used only at Jev's own confidence bar;
+    // anything else (no key, no answer within the chat timeout, `none`, a
+    // seat not on this roster) leaves the model read to decide, exactly as
+    // before. It only chooses who answers: the seat's own tools, gates and
+    // approvals are the same whoever chose it.
+    const pickP = (deps.jev ?? (async input => (await import('@/services/routing/agentPick')).pickAgent(input)))({ orgId: opts.orgId, message: opts.message, agents: seats, leadSlug: lead }).catch(() => null);
     const reader: RouteReader = deps.read ?? (async input => (await import('./routeRead')).readRoute(input));
-    read = await Promise.race([
+    const readP = Promise.race([
       reader({ orgId: opts.orgId, message: opts.message, agents: seats, leadSlug: lead, intake, signal: abort.signal }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
@@ -653,6 +673,16 @@ export async function routeFirstTurn(
         }, timeoutMs);
       }),
     ]);
+    readP.catch(() => {});
+    const pick = await pickP;
+    const jevSeat = pick?.chosen ? active.find(a => a.slug === pick.chosen) : undefined;
+    if (pick && jevSeat) {
+      abort.abort();
+      const confidence = Math.round(pick.confidence * 100) / 100;
+      return { chosen: jevSeat.slug, defaulted: false, reason: pick.reason, candidates: [{ slug: jevSeat.slug, score: confidence, initiative: readInitiative(jevSeat.initiative), matched: [pick.reason] }], surface: opts.surface, at, decidedBy: 'jev', confidence, jev: pick.detail };
+    }
+    jevDetail = pick?.detail;
+    read = await readP;
   } catch (err) {
     const why = (err as Error)?.message || 'failed';
     console.warn('router: the model read did not answer; keyword fallback', { orgId: opts.orgId, surface: opts.surface, why });
@@ -679,6 +709,7 @@ export async function routeFirstTurn(
       at,
       decidedBy: 'model',
       confidence,
+      ...(jevDetail ? { jev: jevDetail } : {}),
     };
   }
   return {
@@ -690,6 +721,7 @@ export async function routeFirstTurn(
     at,
     decidedBy: 'model',
     confidence,
+    ...(jevDetail ? { jev: jevDetail } : {}),
   };
 }
 
