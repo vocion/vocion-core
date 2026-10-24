@@ -18,4 +18,3 @@ successCriteria:
   - One change for next week, stated as something a person can say yes or no to
 desiredArtifacts:
   - The weekly quality read, five lines or fewer
-schedule: '0 20 * * 5'

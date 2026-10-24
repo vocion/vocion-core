@@ -23,7 +23,7 @@ const ORG = 'proj_paused_apply';
 
 function writeFixture(status: 'active' | 'disabled' = 'active'): string {
   const dir = mkdtempSync(join(tmpdir(), 'cc-paused-apply-'));
-  writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: paused\n`);
+  writeFileSync(join(dir, 'workspace.yaml'), `version: 2\norgId: ${ORG}\nname: paused\n`);
   mkdirSync(join(dir, 'agents'));
   writeFileSync(join(dir, 'agents', 'ops.yaml'), 'slug: ops\nname: Ops\nsystemPrompt: You run ops.\n');
   mkdirSync(join(dir, 'automations'));

@@ -9,6 +9,7 @@ status: active
 agent: product-manager
 when:
   schedule: '0 */2 * * *'
+  timezone: UTC
 do:
   checkMission: tell-the-requester
   prompt: >-

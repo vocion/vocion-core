@@ -20,4 +20,3 @@ successCriteria:
 desiredArtifacts:
   - The Monday company review, one screen
   - One ask per decision that is the founder's
-schedule: '0 14 * * 1'

@@ -7,6 +7,7 @@ status: active
 agent: customer-voice
 when:
   schedule: '0 15 * * 1-5'
+  timezone: UTC
 do:
   checkMission: customer-signals-become-requests
   prompt: >-

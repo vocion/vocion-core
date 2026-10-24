@@ -29,7 +29,7 @@ export const PRIMITIVE_DIRS = [
 ] as const;
 
 export function manifestYaml(name: string): string {
-  return `version: 1
+  return `version: 2
 # Placeholder — resolved to the live project id at apply time via --project.
 orgId: proj_${name.replace(/-/g, '_')}
 name: ${name}

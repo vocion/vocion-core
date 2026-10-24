@@ -135,6 +135,12 @@ export type DailyTeamReportData = {
     full: boolean;
     label: string;
     /**
+     * The briefing the job was pointed at was not published inside the
+     * report's window: it is the last one there is, carried as that and never
+     * as today's. The subject and the section say so.
+     */
+    stale?: boolean;
+    /**
      * The typed `BriefingV2`, when the brief carries one. The mail then renders
      * its FIRST SCREEN — the same editorial layer, shorter
      * (docs/specs/briefing-v2.md) — instead of excerpting markdown at a

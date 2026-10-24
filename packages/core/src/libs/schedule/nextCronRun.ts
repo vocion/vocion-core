@@ -1,6 +1,8 @@
+import { nextFire } from '@/libs/cron/schedule';
+
 /**
- * When a five-field cron schedule next fires, in UTC — the zone automation
- * schedules run in (`cronToText` says "(UTC)").
+ * When a five-field cron schedule next fires. In UTC unless the schedule names
+ * a zone, which is handed to `nextFire` and read against that zone's clock.
  *
  * Small on purpose: numbers, `*`, lists, ranges and steps, which is every
  * schedule a workspace writes. Day-of-month and day-of-week follow cron's rule
@@ -43,8 +45,12 @@ function allowed(field: string, min: number, max: number): Set<number> | null {
  * The next time `cron` fires strictly after `from`.
  * @param cron - Five fields: minute hour day-of-month month day-of-week.
  * @param from - The clock.
+ * @param zone - IANA zone the schedule fires in (`when.timezone`); UTC when absent.
  */
-export function nextCronRun(cron: string, from: Date): Date | null {
+export function nextCronRun(cron: string, from: Date, zone?: string | null): Date | null {
+  if (zone) {
+    return nextFire(cron, from, zone);
+  }
   const fields = cron.trim().split(/\s+/);
   if (fields.length !== 5) {
     return null;

@@ -15,6 +15,7 @@ description: >-
 status: active
 when:
   schedule: '20 6 * * *'
+  timezone: UTC
 do:
   checkMission: map-the-codebase
   prompt: >-

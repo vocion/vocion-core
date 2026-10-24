@@ -38,7 +38,7 @@ describe('scaffoldWorkspace', () => {
       const raw = parseYaml(readFileSync(join(dest, 'workspace.yaml'), 'utf-8')) as unknown;
       const manifest = WorkspaceManifestSchema.parse(raw);
 
-      expect(manifest.version).toBe(1);
+      expect(manifest.version).toBe(2);
       expect(manifest.name).toBe('acme-revenue');
       // dashes become underscores in the orgId placeholder (DB slug convention)
       expect(manifest.orgId).toBe('proj_acme_revenue');

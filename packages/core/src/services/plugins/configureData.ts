@@ -84,11 +84,12 @@ function readPluginTrust(sourcePath: string): Array<{ action: string; enabled: b
  * The trigger in words: "Every hour (UTC)", "On object.created".
  * @param when - `automation.when_config`.
  * @param when.schedule - Its cron, for a schedule.
+ * @param when.timezone - The zone the cron is read in; UTC when absent.
  * @param when.event - The event type or types, for an event.
  */
-function triggerLine(when: { schedule?: string; event?: string | string[] }): string {
+function triggerLine(when: { schedule?: string; timezone?: string; event?: string | string[] }): string {
   if (when.schedule) {
-    return cronToText(when.schedule);
+    return cronToText(when.schedule, when.timezone);
   }
   const events = Array.isArray(when.event) ? when.event : when.event ? [when.event] : [];
   return events.length > 0 ? `On ${events.join(', ')}` : 'By hand';

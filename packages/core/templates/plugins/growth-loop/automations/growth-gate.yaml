@@ -9,6 +9,7 @@ status: active
 agent: standards-editor
 when:
   schedule: '0 12 * * 1-5'
+  timezone: UTC
 do:
   checkMission: nothing-public-unchecked
   prompt: >-

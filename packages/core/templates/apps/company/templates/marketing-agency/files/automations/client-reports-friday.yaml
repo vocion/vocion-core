@@ -7,6 +7,7 @@ status: active
 agent: account-director
 when:
   schedule: '0 19 * * 5'
+  timezone: UTC
 do:
   checkMission: every-client-hears-weekly
   prompt: >-

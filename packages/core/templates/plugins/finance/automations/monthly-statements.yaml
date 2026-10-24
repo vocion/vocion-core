@@ -6,6 +6,7 @@ setting: monthlyStatements
 agent: financial-analyst
 when:
   schedule: '0 17 7 * *'
+  timezone: UTC
 do:
   checkMission: statements-delivered
   prompt: >-

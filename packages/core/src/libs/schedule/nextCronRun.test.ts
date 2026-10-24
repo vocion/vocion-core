@@ -22,3 +22,10 @@ describe('nextCronRun', () => {
     expect(nextCronRun('61 * * * *', at('2026-10-20T00:00:00Z'))).toBeNull();
   });
 });
+
+describe('nextCronRun in a zone', () => {
+  it('fires at 6:30am Pacific, whichever side of daylight saving', () => {
+    expect(nextCronRun('30 6 * * 1-5', new Date('2026-10-29T20:00:00Z'), 'America/Los_Angeles')?.toISOString()).toBe('2026-10-30T13:30:00.000Z');
+    expect(nextCronRun('30 6 * * 1-5', new Date('2026-10-30T20:00:00Z'), 'America/Los_Angeles')?.toISOString()).toBe('2026-11-02T14:30:00.000Z');
+  });
+});

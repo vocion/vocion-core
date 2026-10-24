@@ -41,6 +41,13 @@ export type DailyTeamReportJobInput = {
    * revenue workspace mails its `revops` "Revenue Briefing" this way.
    */
   briefing?: { teamSlug?: string; agentSlug?: string };
+  /** The window's start, as an ISO time — overrides `hours` (a mission's delivery passes its check's start). */
+  since?: string;
+  /**
+   * Mail only a `briefing` published inside the window. A mission's delivery
+   * sets it: when the check published nothing new, nothing is mailed.
+   */
+  requireFresh?: boolean;
 };
 
 export type DailyTeamReportJobResult = {
@@ -63,7 +70,8 @@ export async function runDailyTeamReportJob(orgId: string, rawInput: Record<stri
   const input = rawInput as DailyTeamReportJobInput;
   const hours = typeof input.hours === 'number' && input.hours > 0 ? input.hours : 24;
   const until = new Date();
-  const since = new Date(until.getTime() - hours * 60 * 60 * 1000);
+  const sinceInput = typeof input.since === 'string' ? new Date(input.since) : null;
+  const since = sinceInput && !Number.isNaN(sinceInput.getTime()) ? sinceInput : new Date(until.getTime() - hours * 60 * 60 * 1000);
 
   const briefing = input.briefing && typeof input.briefing === 'object'
     ? { teamSlug: typeof input.briefing.teamSlug === 'string' ? input.briefing.teamSlug : undefined, agentSlug: typeof input.briefing.agentSlug === 'string' ? input.briefing.agentSlug : undefined }
@@ -97,7 +105,9 @@ export async function runDailyTeamReportJob(orgId: string, rawInput: Record<stri
   }
 
   let mail: DailyTeamReportJobResult['mail'];
-  if (input.mail === false) {
+  if (input.requireFresh && (!data.rollup?.full || data.rollup.stale)) {
+    mail = { sent: false, reason: 'no briefing was published in this window' };
+  } else if (input.mail === false) {
     mail = { sent: false, reason: 'input.mail=false' };
   } else if (!mailEnabled()) {
     mail = { sent: false, reason: 'VOCION_MAIL_ENABLED is not 1' };

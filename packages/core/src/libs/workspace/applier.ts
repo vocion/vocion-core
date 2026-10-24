@@ -151,7 +151,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   const defaults = loaded.manifest.defaults ?? {};
 
   const errors: ApplyResult['errors'] = [];
-  const warnings: ApplyResult['warnings'] = [];
+  const warnings: ApplyResult['warnings'] = [...(loaded.deprecations ?? [])];
   const counts: ApplyResult['counts'] = {
     agents: blank(),
     skills: blank(),
@@ -569,7 +569,7 @@ async function reconcileSchedules(
 
   const { ensureAutomationSchedule, removeAutomationSchedule } = await import('@/services/AutomationService');
   const { ensureWorkflowSchedule, removeWorkflowSchedule } = await import('@/services/WorkflowScheduleService');
-  const { ensureMissionSchedule, removeMissionSchedule } = await import('@/services/MissionScheduleService');
+  const { removeMissionSchedule } = await import('@/services/MissionScheduleService');
   const { startSourceFullSync } = await import('@/services/SourceScheduleService');
   const { knowledgeSourceSchema: srcSchema } = await import('@/models/Schema');
 
@@ -590,6 +590,7 @@ async function reconcileSchedules(
           orgId,
           slug: automation.slug,
           cron: automation.when.schedule,
+          timezone: automation.when.timezone ?? null,
           paused: pausedBySlug.get(automation.slug),
         });
       } else {
@@ -639,14 +640,13 @@ async function reconcileSchedules(
     errors.push({ resource: 'missionSchedule', slug: '(retire sweep)', message: (err as Error).message });
   }
 
+  // A mission's own cron is not a schedule any more: the loader turned it into
+  // an automation (ADR 0008), whose schedule was ensured above. What is left of
+  // the old `mission-schedule-…` durable schedules is removed, so the same
+  // check never fires twice.
   for (const mission of loaded.missions) {
     try {
-      if (mission.status === 'active' && mission.schedule) {
-        console.warn(`[workspace:apply] DEPRECATED: mission "${mission.slug}" embeds a schedule — missions are pure goals; move the cadence to an automation ({when: {schedule}, do: {checkMission}}).`);
-        await ensureMissionSchedule({ orgId, missionSlug: mission.slug, cron: mission.schedule });
-      } else {
-        await removeMissionSchedule(orgId, mission.slug);
-      }
+      await removeMissionSchedule(orgId, mission.slug);
     } catch (err) {
       errors.push({ resource: 'missionSchedule', slug: mission.slug, message: (err as Error).message });
     }
@@ -1407,6 +1407,7 @@ async function upsertMission(orgId: string, mission: LoadedMission, mode: ApplyM
     successCriteria: mission.successCriteria,
     desiredArtifacts: mission.desiredArtifacts,
     schedule: mission.schedule ?? null,
+    deliver: mission.deliver ?? null,
   };
   if (mode.offline) {
     return 'unknown';
@@ -1439,7 +1440,7 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, mod
     name: automation.name ?? automation.slug,
     description: automation.description ?? null,
     status: automation.status,
-    whenConfig: automation.when as { schedule?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number },
+    whenConfig: automation.when as { schedule?: string; timezone?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number },
     // A run's words (`label`, `doing`) ride the do-config: they describe what
     // doing it is called, and need no column of their own (`runTitle`).
     doConfig: {

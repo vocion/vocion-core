@@ -59,6 +59,7 @@
     "workspace:apply": "dotenv -c -- tsx src/scripts/apply-workspace.ts",
     "workspace:check": "dotenv -c -- tsx src/scripts/apply-workspace.ts --dry-run",
     "workspace:export": "dotenv -c -- tsx src/scripts/export-workspace.ts",
+    "migrate:automations": "tsx src/scripts/migrate-automations.ts",
     "discovery:seed": "dotenv -c -- tsx src/scripts/seed-discovery-window.ts",
     "tokens:issue": "dotenv -c -- tsx src/scripts/manage-tokens.ts issue",
     "tokens:list": "dotenv -c -- tsx src/scripts/manage-tokens.ts list",

@@ -7,6 +7,7 @@ status: active
 agent: support-director
 when:
   schedule: '0 13 * * 1-5'
+  timezone: UTC
 do:
   checkMission: keep-the-queue-clear
   prompt: >-

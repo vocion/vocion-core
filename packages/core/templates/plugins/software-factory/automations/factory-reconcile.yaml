@@ -18,6 +18,7 @@ status: active
 agent: release-engineer
 when:
   schedule: '*/5 * * * *'
+  timezone: UTC
 do:
   job: factory-reconcile
   input:

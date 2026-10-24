@@ -25,10 +25,11 @@ in a workflow.
 | `agent` | agent slug | required | The single agent that owns the mission. If it is a lead, its specialists are the team the runtime can hand off to. |
 | `status` | `active` \| `disabled` \| `draft` | `active` | Whether the mission can run. |
 | `version` | positive int | `1` | Bump when the charter changes materially. |
-| `autonomyPolicy.level` | int 1–5 | `1` | How much the mission may do without asking: 1 draft only, 2 ask before action, 3 act within rules, 4 manage a goal, 5 improve itself. Levels 1–2 gate every external action; 3+ let them run unless the task flags approval. Internal analysis and drafting are never gated. |
+| `autonomyPolicy.level` | int 1–5 | `1` | How much a **planned** run may do without asking: 1 draft only, 2 ask before action, 3 act within rules, 4 manage a goal, 5 improve itself. Levels 1–2 gate every external task a planner made; 3+ let them run unless the task flags approval. A check (a scheduled or automation pass) is one analysis task and is never gated by the level: what it may do unattended is the trust ladder's (`trust.yaml`, an action's `approvalRequired`). |
 | `successCriteria` | string[] | `[]` | How to tell the mission is being met. |
 | `desiredArtifacts` | string[] | `[]` | What the mission should produce — a brief, a list, a draft. |
-| `schedule` | 5-field cron, UTC | — | When set, the owning agent checks the charter on that cadence: review current state, do only what's needed now, report. Each check is one mission run. |
+| `schedule` | 5-field cron, UTC | — | **Removed in 8.0** (ADR 0008): an error in a version-2 workspace. A version-1 workspace still loads it as the automation `<slug>-check` (same cron, UTC), with a warning, and drops it when an active automation already checks the mission on a schedule. `npm run migrate:automations` writes it as an automation. |
+| `deliver` | `{email: true \| [addresses]}` | — | Where a check's result goes when the check **finishes**: the briefing it published is mailed (`true` = the workspace's accountable person). Nothing published sends nothing; a failed check sends a short note with the reason and the run, never an older briefing. |
 
 ## Example
 
@@ -47,7 +48,19 @@ successCriteria:
   - The weekly brief names risks with the records behind them.
 desiredArtifacts:
   - A weekly risk brief with per-deal next actions.
-schedule: '0 13 * * 1'
+deliver:
+  email: true
+```
+
+Its cadence is an automation:
+
+```yaml
+slug: quarter-pipeline-weekly
+when:
+  schedule: '0 6 * * 1'
+  timezone: America/Los_Angeles
+do:
+  checkMission: quarter-pipeline-watch
 ```
 
 ## When everything left waits on a person
@@ -75,13 +88,13 @@ it again.
 |---|---|
 | **Mission** | The work is open-ended and judgement-heavy, and the same responsibility recurs. |
 | **[Workflow](./workflow.md)** | The steps are fixed and identical every run. |
-| **[Automation](./automation.md)** | You need to say *when* something happens. Missions and workflows carry no trigger logic of their own — apart from a mission's own `schedule` for charter checks. |
+| **[Automation](./automation.md)** | You need to say *when* something happens. Missions and workflows carry no trigger logic of their own (a mission's legacy `schedule` loads as an automation). |
 
 ## Rules
 
 - Slugs are unique across missions.
 - `agent` must resolve to an agent in this workspace.
-- `schedule` must be a 5-field cron expression, interpreted as UTC.
+- `schedule` (version 1 only) must be a 5-field cron expression, read in UTC.
 - An automation's `do.checkMission` must name a mission in this workspace.
 
 ## Related

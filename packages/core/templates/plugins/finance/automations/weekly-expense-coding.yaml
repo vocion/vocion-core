@@ -6,6 +6,7 @@ setting: weeklyExpenseCoding
 agent: bookkeeper
 when:
   schedule: '0 16 * * 1'
+  timezone: UTC
 do:
   checkMission: books-coded
   prompt: >-

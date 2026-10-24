@@ -16,6 +16,7 @@ status: active
 agent: release-engineer
 when:
   schedule: '*/10 * * * *'
+  timezone: UTC
 do:
   job: factory-environment-health
   input:

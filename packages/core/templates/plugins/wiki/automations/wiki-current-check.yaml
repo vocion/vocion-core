@@ -1,0 +1,10 @@
+# The cadence of the "The wiki is true, small and read" mission (moved from its schedule: in 8.0).
+slug: wiki-current-check
+name: The wiki is true, small and read (scheduled check)
+status: active
+agent: wiki-curator
+when:
+  schedule: '0 15 * * 5'
+  timezone: UTC
+do:
+  checkMission: wiki-current

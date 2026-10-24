@@ -36,4 +36,3 @@ desiredArtifacts:
   - A task contract per request that will be built
   - A written answer per request that will not be, in the asker's own terms, proposed for a person to release
   - The five-line plan report per check, with decision minutes open against the budget
-schedule: '0 15 * * 1-5'

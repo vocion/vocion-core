@@ -12,6 +12,7 @@ status: active
 agent: designer
 when:
   schedule: '35 * * * *'
+  timezone: UTC
 do:
   job: mockup-sweep
   input:
