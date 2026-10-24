@@ -84,6 +84,7 @@ import { mcpTools } from './mcpDirect';
 import { readMeetingRecordTool } from './meetingRecord';
 import { updateMissionNotesTool } from './missionNotes';
 import { offerConnectionTool } from './offerConnection';
+import { outboundHistoryTools } from './outboundHistory';
 import { owedOnAccountTools } from './owedOnAccount';
 import { pageContextTool } from './pageContext';
 import { peopleTools } from './peopleTools';
@@ -391,6 +392,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Whenever a person is in the turn: the Review queue as the page shows it,
     // and many of its decisions declined on one card (`reviewQueue.ts`).
     ...reviewQueueTools(ctx),
+    // Granted-only: what agents proposed to send outside, decided or not, with
+    // where each landed, for a voice pass that diffs it against what was sent.
+    ...outboundHistoryTools(ctx),
     // Whenever a person is in the turn: their goals — drafted as a Decision,
     // linked, read live, moved (`services/objectives/GoalService.ts`).
     ...goalTools(ctx),
