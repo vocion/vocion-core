@@ -17,9 +17,9 @@ const { jevKeyProblem, jevKeyStatus, removeJevKey, resolveJevKey, saveJevKey } =
 const VAULT_KEY = randomBytes(32).toString('base64');
 const WS = 'ws-kestrel';
 const OTHER = 'ws-heron';
-const INSTANCE_KEY = 'sk-or-v1-FAKE-instance-key-0000aaaa';
+const INSTANCE_KEY = 'ts-FAKE-typesafe-instance-key-0000aaaa';
 const WORKSPACE_KEY = 'sk-or-v1-FAKE-workspace-key-000bbbb';
-const ENV_KEY = 'sk-or-v1-FAKE-environment-key-0cccc';
+const ENV_KEY = 'ts-FAKE-typesafe-environment-key-0cccc';
 
 beforeAll(() => {
   vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', VAULT_KEY);
@@ -42,7 +42,7 @@ describe('which key a workspace\'s Jev calls spend', () => {
   });
 
   it('is the environment\'s, then the instance\'s saved key, then the workspace\'s own', async () => {
-    const env = { VOCION_JEV_API_KEY: ENV_KEY };
+    const env = { TYPESAFE_API_KEY: ENV_KEY };
 
     expect(await resolveJevKey(WS, { env })).toEqual({ key: ENV_KEY, scope: 'instance' });
 
@@ -74,23 +74,34 @@ describe('what a settings card sees', () => {
   it('both levels by their hints, which one is in force, and never a key', async () => {
     await saveJevKey({ scope: 'instance', orgId: WS, key: INSTANCE_KEY, by: 'u-sam' });
     await saveJevKey({ scope: 'workspace', orgId: WS, key: WORKSPACE_KEY, by: 'u-ana' });
-    const status = await jevKeyStatus(WS, { env: { VOCION_JEV_API_KEY: ENV_KEY } });
+    const status = await jevKeyStatus(WS, { env: { TYPESAFE_API_KEY: ENV_KEY } });
 
     expect(status).toMatchObject({ effective: 'workspace', workspace: { hint: '…bbbb', source: 'saved', setBy: 'u-ana' }, instance: { hint: '…aaaa', source: 'saved' } });
-    expect(JSON.stringify(status)).not.toMatch(/sk-or-/);
+    expect(JSON.stringify(status)).not.toContain('FAKE');
   });
 
   it('says when the instance key comes from the environment', async () => {
-    expect((await jevKeyStatus(WS, { env: { VOCION_JEV_API_KEY: ENV_KEY } })).instance).toEqual({ hint: '…cccc', source: 'env', setBy: null, updatedAt: null });
+    expect((await jevKeyStatus(WS, { env: { TYPESAFE_API_KEY: ENV_KEY } })).instance).toEqual({ hint: '…cccc', source: 'env', provider: 'typesafe', setBy: null, updatedAt: null });
   });
 });
 
 describe('what may be saved', () => {
-  it('only something shaped like an OpenRouter key', async () => {
+  it('one unbroken string of a key\'s length, TypeSafe\'s or OpenRouter\'s', async () => {
     expect(jevKeyProblem('')).toMatch(/Paste/);
-    expect(jevKeyProblem('sk-ant-abc123abc123abc123abc')).toMatch(/sk-or-/);
+    expect(jevKeyProblem('has a space in it, not a key at all')).toMatch(/TypeSafe console/);
+    expect(jevKeyProblem('short')).toMatch(/at least 20/);
     expect(jevKeyProblem(` ${INSTANCE_KEY} `)).toBeNull();
-    await expect(saveJevKey({ scope: 'instance', orgId: WS, key: 'nope', by: 'u-sam' })).rejects.toThrow(/OpenRouter/);
+    expect(jevKeyProblem(WORKSPACE_KEY)).toBeNull();
+    await expect(saveJevKey({ scope: 'instance', orgId: WS, key: 'nope', by: 'u-sam' })).rejects.toThrow(/API key/);
     expect(await db.select().from(routingKeySchema)).toHaveLength(0);
+  });
+
+  it('records which provider a saved key belongs to', async () => {
+    await saveJevKey({ scope: 'instance', orgId: WS, key: INSTANCE_KEY, by: 'u-sam' });
+    await saveJevKey({ scope: 'workspace', orgId: WS, key: WORKSPACE_KEY, by: 'u-sam' });
+    const status = await jevKeyStatus(WS, { env: {} });
+
+    expect(status.instance?.provider).toBe('typesafe');
+    expect(status.workspace?.provider).toBe('openrouter');
   });
 });

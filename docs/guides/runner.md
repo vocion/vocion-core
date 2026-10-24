@@ -117,15 +117,16 @@ the fence becomes the first engine inside it. See ADR 0005.
 
 ### Dynamic routing with Jev (ADR 0006)
 
-An OpenRouter key turns on dynamic routing: before each run, Jev (TypeSafe's decision model,
-`POST https://openrouter.ai/api/alpha/decisions`) picks the engine, model and effort from the
+A Jev (TypeSafe) API key turns on dynamic routing: before each run, Jev (TypeSafe's decision
+model, `POST https://api.typesafe.ai/v1/systemone`) picks the engine, model and effort from the
 seat's candidates. Without a key nothing changes and Jev is never called; any Jev error, timeout
 or low-confidence answer takes the static route above.
 
-- **Instance key:** System (`/dashboard/admin`) → Dynamic routing, or `VOCION_JEV_API_KEY` in
+- **Instance key:** System (`/dashboard/admin`) → Dynamic routing, or `TYPESAFE_API_KEY` in
   the server environment. **Workspace override:** Developers (`/dashboard/developers`) →
-  Dynamic routing, so a workspace's Jev calls bill its own OpenRouter account. Both encrypted,
-  write-only.
+  Dynamic routing, so a workspace's Jev calls bill its own TypeSafe account. Both encrypted,
+  write-only. Create the key in the TypeSafe console. An OpenRouter key (`sk-or-…`) also works
+  and is sent to OpenRouter's System One API instead; each run records which provider answered.
 - **Candidates:** `harness.routeModels` on the engineer seat. Without it, the seat's own engine
   and model are the one candidate and Jev sets the effort only:
 
@@ -142,8 +143,10 @@ or low-confidence answer takes the static route above.
         about: 'Ambiguous, cross-cutting or security-sensitive work.'
   ```
 
-- **Settings:** `VOCION_JEV_MODEL` (default `typesafe/jev-1.13`), `VOCION_JEV_MIN_CONFIDENCE`
-  (default 0.6), `VOCION_JEV_TIMEOUT_MS` (default 3000). The fence still applies first.
+- **Settings:** `TYPESAFE_DEFAULT_MODEL` (default `jev-1.13.0`, pinned; not the moving
+  `jev-latest` alias), `TYPESAFE_BASE_URL` (default `https://api.typesafe.ai`),
+  `VOCION_JEV_MIN_CONFIDENCE` (default 0.6), `VOCION_JEV_TIMEOUT_MS` (default 3000). The fence
+  still applies first.
 - Each run records who routed it and Jev's answer; the Engines page shows it.
 
 ### The engine scoreboard

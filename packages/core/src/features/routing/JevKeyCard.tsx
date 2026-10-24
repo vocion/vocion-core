@@ -41,10 +41,10 @@ export function jevKeyLine(p: Pick<JevKeyCardProps, 'scope' | 'onFile' | 'otherw
     return `No ${p.scope === 'instance' ? 'instance' : 'workspace'} key. ${p.otherwise}`;
   }
   if (p.onFile.source === 'env') {
-    return `${level} comes from the server environment (VOCION_JEV_API_KEY, ${p.onFile.hint}). A key saved here takes its place.`;
+    return `${level} comes from the server environment (TYPESAFE_API_KEY, ${p.onFile.hint}). A key saved here takes its place.`;
   }
   const when = p.onFile.updatedAt ? ` on ${p.onFile.updatedAt.slice(0, 10)}` : '';
-  return `${level} is set (${p.onFile.hint}), saved${when}.`;
+  return `${level} is set (${p.onFile.hint}, ${p.onFile.provider === 'openrouter' ? 'an OpenRouter key' : 'TypeSafe'}), saved${when}.`;
 }
 
 export function JevKeyCard(props: JevKeyCardProps) {
@@ -76,11 +76,11 @@ export function JevKeyCard(props: JevKeyCardProps) {
     <div className="max-w-2xl rounded-lg border border-border p-4" data-testid={`jev-key-${props.scope}`}>
       <div className="flex items-center gap-2 text-sm font-medium">
         <KeyRound className="size-4" aria-hidden />
-        {props.scope === 'instance' ? 'Instance Jev key' : 'Workspace Jev key (override)'}
+        {props.scope === 'instance' ? 'Jev (TypeSafe) API key — instance' : 'Jev (TypeSafe) API key — this workspace (override)'}
       </div>
       <p className="mt-1 text-[13px] text-muted-foreground">{jevKeyLine(props)}</p>
       <p className="mt-1 text-[12px] text-muted-foreground">
-        An OpenRouter API key (openrouter.ai/settings/keys). Jev (
+        A Jev (TypeSafe) API key, from the TypeSafe console (an OpenRouter key, sk-or-…, also works). Jev (
         {props.jevModel}
         ) is asked before each factory run which engine, model and effort to use, from the seat&apos;s candidates. Without any key nothing calls Jev and routing is static.
       </p>
@@ -94,8 +94,8 @@ export function JevKeyCard(props: JevKeyCardProps) {
           }}
         >
           <div className="grid min-w-64 flex-1 gap-1">
-            <Label htmlFor={`jev-key-${props.scope}-input`} className="text-xs">{saved ? 'New OpenRouter API key for Jev' : 'OpenRouter API key for Jev'}</Label>
-            <Input id={`jev-key-${props.scope}-input`} type="password" autoComplete="off" spellCheck={false} placeholder="sk-or-…" value={key} onChange={e => setKey(e.target.value)} />
+            <Label htmlFor={`jev-key-${props.scope}-input`} className="text-xs">{saved ? 'New Jev (TypeSafe) API key' : 'Jev (TypeSafe) API key'}</Label>
+            <Input id={`jev-key-${props.scope}-input`} type="password" autoComplete="off" spellCheck={false} placeholder="Paste the key" value={key} onChange={e => setKey(e.target.value)} />
           </div>
           <Button type="submit" size="sm" disabled={busy || !key.trim()}>{saved ? 'Replace Jev key' : 'Save Jev key'}</Button>
           {saved && <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act('remove')}>Remove Jev key</Button>}

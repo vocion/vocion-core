@@ -10,8 +10,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { routeEngine } from '@/services/factory/engineRouter';
 import { applyRoute, readSeatRouting, routeCandidates, routeTask } from './route';
 
-const KEY = { key: 'sk-or-v1-FAKE-not-a-real-key-000000', scope: 'instance' as const };
-const SETTINGS = { model: 'typesafe/jev-1.13', minConfidence: 0.6, timeoutMs: 3000 };
+const KEY = { key: 'ts-FAKE-not-a-real-typesafe-key-000000', scope: 'instance' as const };
+const SETTINGS = { model: 'jev-1.13.0', minConfidence: 0.6, timeoutMs: 3000, baseUrl: 'https://api.typesafe.ai' };
 
 const features = (over: Partial<TaskFeatures> = {}): TaskFeatures => ({
   seat: 'task-engineer',
@@ -38,7 +38,7 @@ const input = (over: Partial<RouteTaskInput> = {}): RouteTaskInput => ({
   ...over,
 });
 
-const answer = (over: Partial<JevAnswer> = {}): JevAnswer => ({ choice: 'c2', confidence: 0.84, probabilities: {}, effort: 'low', effortConfidence: 0.9, model: 'typesafe/jev-1.13-20260917', costUsd: 0.00002, latencyMs: 140, ...over });
+const answer = (over: Partial<JevAnswer> = {}): JevAnswer => ({ choice: 'c2', confidence: 0.84, probabilities: {}, effort: 'low', effortConfidence: 0.9, model: 'jev-1.13.0', inputTokens: 400, costUsd: null, latencyMs: 140, ...over });
 
 describe('the key turns it on', () => {
   it('with no key never calls Jev, and routes exactly as the static chain does', async () => {
@@ -92,9 +92,20 @@ describe('what Jev decides', () => {
       selector: 'jev',
       model: 'bedrock/us.anthropic.claude-sonnet-5-5',
       effort: 'low',
-      detail: { asked: true, confidence: 0.84, effort: 'low', jevModel: 'typesafe/jev-1.13-20260917', latencyMs: 140, costUsd: 0.00002, keyScope: 'workspace', fallback: null },
+      detail: { asked: true, confidence: 0.84, effort: 'low', jevModel: 'jev-1.13.0', latencyMs: 140, costUsd: null, inputTokens: 400, keyScope: 'workspace', provider: 'typesafe', fallback: null },
     });
     expect(JSON.stringify(r)).not.toContain(KEY.key);
+  });
+
+  it('records OpenRouter as the provider when the key is an OpenRouter key', async () => {
+    const r = await routeTask(input(), {
+      resolveKey: async () => ({ key: 'sk-or-v1-FAKE-not-a-real-key-000000', scope: 'instance' }),
+      decide: async () => answer({ model: 'typesafe/jev-1.13-20260917', costUsd: 0.00002 }),
+      settings: SETTINGS,
+      allowed: null,
+    });
+
+    expect(r.detail).toMatchObject({ provider: 'openrouter', jevModel: 'typesafe/jev-1.13-20260917', costUsd: 0.00002 });
   });
 
   it('puts the choice on the contract: a claude-cli model on model_policy, an engine model on engine, effort on model_policy', async () => {

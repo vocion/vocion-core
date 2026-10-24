@@ -1,10 +1,10 @@
 -- Dynamic routing with Jev (ADR 0006).
 --
--- `routing_key` holds the OpenRouter key that turns it on: one row for the
+-- `routing_key` holds the Jev (TypeSafe) API key that turns it on: one row for the
 -- installation (`holder = 'instance'`) and at most one per workspace
 -- (`holder = 'workspace:<orgId>'`). Encrypted with the credential vault, the
 -- same AES-256-GCM columns `user_mfa` and `api_token` use; only the last four
--- characters are kept in the clear. No row and no `VOCION_JEV_API_KEY` means
+-- characters are kept in the clear. No row and no `TYPESAFE_API_KEY` means
 -- routing is exactly the static chain of ADR 0005 and Jev is never called.
 --
 -- `engine_run.route_selector` / `route_detail` record who chose each run's
@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS "routing_key" (
   "nonce" text NOT NULL,
   "auth_tag" text NOT NULL,
   "key_hint" text NOT NULL,
+  "provider" text DEFAULT 'typesafe' NOT NULL,
   "set_by" text,
   "created_at" timestamp DEFAULT now() NOT NULL,
   "updated_at" timestamp DEFAULT now() NOT NULL

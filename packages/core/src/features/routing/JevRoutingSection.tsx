@@ -18,7 +18,7 @@ import { JevKeyCard } from './JevKeyCard';
 export async function JevRoutingSection({ scope, orgId, isAdmin }: { scope: KeyScope; orgId: string; isAdmin: boolean }) {
   const status = await jevKeyStatus(orgId);
   const lock = scope === 'instance' && orgsMode() === 'multi'
-    ? 'This server holds several Orgs, so the instance key is set in the server environment (VOCION_JEV_API_KEY), not here.'
+    ? 'This server holds several Orgs, so the instance key is set in the server environment (TYPESAFE_API_KEY), not here.'
     : null;
   const onFile = scope === 'instance' ? status.instance : status.workspace;
   const otherwise = scope === 'instance'
@@ -30,7 +30,7 @@ export async function JevRoutingSection({ scope, orgId, isAdmin }: { scope: KeyS
   return (
     <DashboardSection
       title="Dynamic routing (Jev)"
-      description={`Jev, TypeSafe's decision model on OpenRouter, picks each factory run's engine, model and effort from the seat's candidates; anything it cannot decide takes the static route. A key turns it on. ${now}`}
+      description={`Jev, TypeSafe's decision model, picks each factory run's engine, model and effort from the seat's candidates; anything it cannot decide takes the static route. A key turns it on. ${now}`}
     >
       <JevKeyCard scope={scope} onFile={onFile} otherwise={otherwise} canEdit={isAdmin} lock={lock} jevModel={jevSettings().model} />
       <p className="mt-3 text-[12px] text-muted-foreground">

@@ -94,11 +94,13 @@ describe('how a run was routed (ADR 0006)', () => {
   const run = { routeReason: 'the task-engineer seat\'s harness.engine', routePolicy: 'static', routeSelector: null, routeDetail: null };
 
   it('says who chose and why, with Jev\'s numbers beside a Jev pick', () => {
-    expect(whyLine({ ...run, routeReason: 'Jev chose openhands (confidence 0.84), low effort', routePolicy: 'jev', routeSelector: 'jev', routeDetail: { confidence: 0.84, effort: 'low', jevModel: 'typesafe/jev-1.13-20260917', latencyMs: 140.4, costUsd: 0.00002, keyScope: 'workspace', fallback: null } })).toEqual({
+    expect(whyLine({ ...run, routeReason: 'Jev chose openhands (confidence 0.84), low effort', routePolicy: 'jev', routeSelector: 'jev', routeDetail: { confidence: 0.84, effort: 'low', jevModel: 'jev-1.13.0', latencyMs: 140.4, costUsd: null, keyScope: 'workspace', provider: 'typesafe', fallback: null } })).toEqual({
       selector: 'jev',
       text: 'Jev chose openhands (confidence 0.84), low effort',
-      detail: 'confidence 0.84 · effort low · typesafe/jev-1.13-20260917 · 140 ms · $0.000020 · workspace key',
+      detail: 'confidence 0.84 · effort low · jev-1.13.0 · 140 ms · workspace key',
     });
+    expect(whyLine({ ...run, routeSelector: 'jev', routeDetail: { confidence: 0.84, jevModel: 'typesafe/jev-1.13-20260917', costUsd: 0.00002, keyScope: 'instance', provider: 'openrouter', fallback: null } }).detail)
+      .toBe('confidence 0.84 · typesafe/jev-1.13-20260917 · $0.000020 · instance key via OpenRouter');
   });
 
   it('says when Jev fell back, and reads a run from before routing was recorded as it always did', () => {

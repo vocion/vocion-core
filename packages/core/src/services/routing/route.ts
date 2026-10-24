@@ -23,12 +23,12 @@
  * wall clock hold whatever engine or effort is chosen.
  */
 
-import type { Effort, JevAnswer, JevCandidate, JevDeps, JevFailure, JevQuestion, JevSettings } from './jev';
+import type { Effort, JevAnswer, JevCandidate, JevDeps, JevFailure, JevProvider, JevQuestion, JevSettings } from './jev';
 import type { KeyScope } from './jevKey';
 import type { EnginePolicy } from '@/libs/actions/factory-dispatch';
 import type { EngineId, EngineRoute, TaskFeatures } from '@/services/factory/engineRouter';
 import { allowedEngines, engineIdOf, routeEngine } from '@/services/factory/engineRouter';
-import { decide, isJevFailure, jevSettings } from './jev';
+import { decide, isJevFailure, jevEndpoint, jevSettings } from './jev';
 
 export type CostTier = 'high' | 'low' | 'medium';
 
@@ -57,6 +57,10 @@ export type RouteDetail = {
   costUsd: number | null;
   /** Whose key paid for the call. Never the key. */
   keyScope: KeyScope | null;
+  /** Which API answered: TypeSafe's own, or OpenRouter's. */
+  provider: JevProvider | null;
+  /** Billable input tokens, when the provider reported them. */
+  inputTokens: number | null;
   /** Why the static route was used instead, or null when Jev's was. */
   fallback: string | null;
 };
@@ -85,7 +89,7 @@ export type RouteTaskInput = {
 /** Seams for tests. */
 export type RouteDeps = {
   resolveKey?: (orgId: string) => Promise<{ key: string; scope: KeyScope } | null>;
-  decide?: (key: string, q: JevQuestion, settings: Pick<JevSettings, 'model' | 'timeoutMs'>, deps?: JevDeps) => Promise<JevAnswer | JevFailure>;
+  decide?: (key: string, q: JevQuestion, settings: Pick<JevSettings, 'model' | 'timeoutMs' | 'baseUrl'>, deps?: JevDeps) => Promise<JevAnswer | JevFailure>;
   settings?: JevSettings;
   allowed?: EngineId[] | null;
 };
@@ -187,13 +191,14 @@ export async function routeTask(input: RouteTaskInput, deps: RouteDeps = {}): Pr
     return staticRoute(null);
   }
   const settings = deps.settings ?? jevSettings();
+  const endpoint = jevEndpoint(resolved.key, settings);
   const candidates = routeCandidates(input.seat, fixed, allowed);
   if (candidates.length === 0) {
-    return staticRoute(emptyDetail({ fallback: 'no candidate is allowed on this installation', keyScope: resolved.scope, candidates: 0 }));
+    return staticRoute(emptyDetail({ fallback: 'no candidate is allowed on this installation', keyScope: resolved.scope, candidates: 0, provider: endpoint.provider }));
   }
   const answer = await (deps.decide ?? decide)(resolved.key, { state: routeState(input), candidates }, settings).catch((): JevFailure => ({ failed: true, kind: 'network', reason: 'Jev could not be reached', latencyMs: 0 }));
   if (isJevFailure(answer)) {
-    return staticRoute({ ...emptyDetail({ fallback: answer.reason, keyScope: resolved.scope, candidates: candidates.length }), asked: true, jevModel: settings.model, latencyMs: answer.latencyMs });
+    return staticRoute({ ...emptyDetail({ fallback: answer.reason, keyScope: resolved.scope, candidates: candidates.length, provider: endpoint.provider }), asked: true, jevModel: endpoint.model, latencyMs: answer.latencyMs });
   }
   const picked = candidates.length === 1 ? candidates[0]! : candidates.find(c => c.id === answer.choice) ?? null;
   const detail: RouteDetail = {
@@ -203,10 +208,12 @@ export async function routeTask(input: RouteTaskInput, deps: RouteDeps = {}): Pr
     confidence: answer.confidence,
     effort: answer.effort,
     effortConfidence: answer.effortConfidence,
-    jevModel: answer.model ?? settings.model,
+    jevModel: answer.model ?? endpoint.model,
     latencyMs: answer.latencyMs,
     costUsd: answer.costUsd,
+    inputTokens: answer.inputTokens,
     keyScope: resolved.scope,
+    provider: endpoint.provider,
     fallback: null,
   };
   const fallBack = (why: string): RoutedTask => staticRoute({ ...detail, fallback: why });
@@ -246,8 +253,8 @@ export async function routeTask(input: RouteTaskInput, deps: RouteDeps = {}): Pr
   };
 }
 
-function emptyDetail(d: { fallback: string; keyScope: KeyScope | null; candidates: number }): RouteDetail {
-  return { asked: false, candidates: d.candidates, choice: null, confidence: null, effort: null, effortConfidence: null, jevModel: null, latencyMs: null, costUsd: null, keyScope: d.keyScope, fallback: d.fallback };
+function emptyDetail(d: { fallback: string; keyScope: KeyScope | null; candidates: number; provider?: JevProvider | null }): RouteDetail {
+  return { asked: false, candidates: d.candidates, choice: null, confidence: null, effort: null, effortConfidence: null, jevModel: null, latencyMs: null, costUsd: null, inputTokens: null, keyScope: d.keyScope, provider: d.provider ?? null, fallback: d.fallback };
 }
 
 /**

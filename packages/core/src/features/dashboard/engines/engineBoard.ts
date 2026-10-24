@@ -247,7 +247,7 @@ export function whyLine(r: Pick<EngineRunRow, 'routeReason' | 'routePolicy' | 'r
     bits.push(`$${dnum(d.costUsd)!.toFixed(6)}`);
   }
   if (typeof d.keyScope === 'string') {
-    bits.push(`${d.keyScope} key`);
+    bits.push(`${d.keyScope} key${d.provider === 'openrouter' ? ' via OpenRouter' : ''}`);
   }
   const detail = bits.length ? bits.join(' · ') : null;
   if (r.routeSelector === 'jev') {
@@ -265,7 +265,7 @@ export type RoutingState = { effective: 'instance' | 'workspace' | null; hint: s
  */
 export function routingLine(r: RoutingState): string {
   if (!r.effective) {
-    return 'Dynamic routing is off: every run takes the static route. An OpenRouter key for Jev turns it on (System for the instance, Developers for this workspace).';
+    return 'Dynamic routing is off: every run takes the static route. A Jev (TypeSafe) API key turns it on (System for the instance, Developers for this workspace).';
   }
   return `Dynamic routing is on: Jev picks the engine, model and effort from each seat's candidates, on the ${r.effective} key${r.hint ? ` (${r.hint})` : ''}. Anything Jev cannot decide takes the static route.`;
 }

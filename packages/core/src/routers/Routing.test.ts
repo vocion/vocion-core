@@ -19,7 +19,7 @@ const { resetCredentialVault } = await import('@/libs/crypto/credentialVault');
 const { removeKey, saveKey, status } = await import('./Routing');
 
 const ORG = 'org_routing_test';
-const KEY = 'sk-or-v1-FAKE-router-test-key-00dddd';
+const KEY = 'ts-FAKE-typesafe-router-test-key-00dddd';
 
 function signedInAs(role: 'admin' | 'member') {
   vi.mocked(guardAuth).mockResolvedValue({
@@ -39,7 +39,7 @@ function call<T = unknown>(route: unknown, input?: unknown): Promise<T> {
 
 beforeAll(() => {
   vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', randomBytes(32).toString('base64'));
-  vi.stubEnv('VOCION_JEV_API_KEY', '');
+  vi.stubEnv('TYPESAFE_API_KEY', '');
   resetCredentialVault();
 });
 
@@ -67,10 +67,10 @@ describe('saving the key', () => {
     expect(await db.select().from(routingKeySchema)).toHaveLength(2);
   });
 
-  it('refuses something that is not an OpenRouter key, before it is stored', async () => {
+  it('refuses something that is not a key, before it is stored', async () => {
     signedInAs('admin');
 
-    await expect(call(saveKey, { scope: 'workspace', key: 'sk-ant-not-openrouter-000000' })).rejects.toMatchObject({ status: 400 });
+    await expect(call(saveKey, { scope: 'workspace', key: 'not a key, it has spaces in it' })).rejects.toMatchObject({ status: 400 });
     expect(await db.select().from(routingKeySchema)).toHaveLength(0);
   });
 

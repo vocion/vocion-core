@@ -1,14 +1,15 @@
 /**
- * THE KEY THAT TURNS DYNAMIC ROUTING ON (ADR 0006). An OpenRouter key for Jev,
- * held at two levels:
+ * THE KEY THAT TURNS DYNAMIC ROUTING ON (ADR 0006). A Jev (TypeSafe) API key,
+ * from the TypeSafe console (an OpenRouter key, `sk-or-…`, also works and is
+ * sent to OpenRouter's System One API instead). Held at two levels:
  *
  * - the INSTANCE key, for every workspace on this installation: saved on
  *   System (`/dashboard/admin`) and stored encrypted here, else the
- *   `VOCION_JEV_API_KEY` environment variable for a self-hoster who would
+ *   `TYPESAFE_API_KEY` environment variable for a self-hoster who would
  *   rather keep it in the environment;
  * - a WORKSPACE override, saved by that workspace's admin on Developers
  *   (`/dashboard/developers`), so a client workspace's Jev calls bill and
- *   track on its own OpenRouter account.
+ *   track on its own TypeSafe account.
  *
  * Resolution is workspace, then instance, then off. Off is the default and
  * means exactly ADR 0005's static routing: Jev is never called.
@@ -26,6 +27,7 @@ import { eq } from 'drizzle-orm';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
 import { routingKeySchema } from '@/models/Schema';
+import { jevProviderOf } from './jev';
 
 export type KeyScope = 'instance' | 'workspace';
 
@@ -34,8 +36,8 @@ const INSTANCE_HOLDER = 'instance';
 const holderOf = (scope: KeyScope, orgId: string): string => (scope === 'instance' ? INSTANCE_HOLDER : `workspace:${orgId}`);
 const vaultScopeOf = (scope: KeyScope, orgId: string): string => (scope === 'instance' ? INSTANCE_HOLDER : orgId);
 
-/** OpenRouter keys begin `sk-or-` (`sk-or-v1-…`). */
-const KEY_SHAPE = /^sk-or-[\w-]{16,}$/;
+/** A bearer token: no spaces, not absurdly short or long. TypeSafe does not document a prefix. */
+const KEY_SHAPE = /^\S{20,400}$/;
 
 /**
  * Why a pasted key will not do, or null when it will. Says nothing of the key.
@@ -44,10 +46,10 @@ const KEY_SHAPE = /^sk-or-[\w-]{16,}$/;
 export function jevKeyProblem(raw: string): string | null {
   const key = raw.trim();
   if (!key) {
-    return 'Paste an OpenRouter API key.';
+    return 'Paste a Jev (TypeSafe) API key.';
   }
   if (!KEY_SHAPE.test(key)) {
-    return 'That does not look like an OpenRouter API key: it starts with "sk-or-" (create one at openrouter.ai/settings/keys).';
+    return 'That does not look like an API key: it is one unbroken string of at least 20 characters, from the TypeSafe console (an OpenRouter key, sk-or-…, also works).';
   }
   return null;
 }
@@ -61,7 +63,7 @@ export function jevKeyHint(key: string): string {
 }
 
 /** A level's key, as a settings card may see it. */
-export type KeyOnFile = { hint: string; source: 'env' | 'saved'; setBy: string | null; updatedAt: string | null };
+export type KeyOnFile = { hint: string; source: 'env' | 'saved'; provider: 'openrouter' | 'typesafe'; setBy: string | null; updatedAt: string | null };
 
 /** Both levels, and which one a run in this workspace would use. */
 export type JevKeyStatus = { workspace: KeyOnFile | null; instance: KeyOnFile | null; effective: KeyScope | null };
@@ -70,7 +72,7 @@ export type JevKeyStatus = { workspace: KeyOnFile | null; instance: KeyOnFile | 
 export type JevKeyDeps = { env?: Record<string, string | undefined> };
 
 const envKey = (env: Record<string, string | undefined>): string | null => {
-  const v = (env.VOCION_JEV_API_KEY ?? '').trim();
+  const v = (env.TYPESAFE_API_KEY ?? '').trim();
   return v || null;
 };
 
@@ -105,16 +107,16 @@ export async function resolveJevKey(orgId: string, deps: JevKeyDeps = {}): Promi
  */
 export async function jevKeyStatus(orgId: string, deps: JevKeyDeps = {}): Promise<JevKeyStatus> {
   const [ws, inst] = await Promise.all([row(holderOf('workspace', orgId)), row(INSTANCE_HOLDER)]);
-  const onFile = (r: NonNullable<Awaited<ReturnType<typeof row>>>): KeyOnFile => ({ hint: r.keyHint, source: 'saved', setBy: r.setBy, updatedAt: r.updatedAt.toISOString() });
+  const onFile = (r: NonNullable<Awaited<ReturnType<typeof row>>>): KeyOnFile => ({ hint: r.keyHint, source: 'saved', provider: r.provider === 'openrouter' ? 'openrouter' : 'typesafe', setBy: r.setBy, updatedAt: r.updatedAt.toISOString() });
   const env = envKey(deps.env ?? process.env);
-  const instance = inst ? onFile(inst) : env ? { hint: jevKeyHint(env), source: 'env' as const, setBy: null, updatedAt: null } : null;
+  const instance = inst ? onFile(inst) : env ? { hint: jevKeyHint(env), source: 'env' as const, provider: jevProviderOf(env), setBy: null, updatedAt: null } : null;
   const workspace = ws ? onFile(ws) : null;
   return { workspace, instance, effective: workspace ? 'workspace' : instance ? 'instance' : null };
 }
 
 /**
- * Save a level's key, replacing any before it. Refuses a key that is not an
- * OpenRouter key's shape.
+ * Save a level's key, replacing any before it. Refuses anything that is not a
+ * key's shape.
  * @param input - What to save.
  * @param input.scope - `instance` or `workspace`.
  * @param input.orgId - The workspace (the instance key ignores it).
@@ -136,15 +138,16 @@ export async function saveJevKey(input: { scope: KeyScope; orgId: string; key: s
     nonce: sealed.nonce,
     authTag: sealed.authTag,
     keyHint: jevKeyHint(key),
+    provider: jevProviderOf(key),
     setBy: input.by,
     updatedAt: now,
   };
   await db.insert(routingKeySchema).values({ holder: holderOf(input.scope, input.orgId), ...values }).onConflictDoUpdate({ target: routingKeySchema.holder, set: values });
-  return { hint: values.keyHint, source: 'saved', setBy: input.by, updatedAt: now.toISOString() };
+  return { hint: values.keyHint, source: 'saved', provider: values.provider, setBy: input.by, updatedAt: now.toISOString() };
 }
 
 /**
- * Remove a level's saved key. The instance's `VOCION_JEV_API_KEY`, if set,
+ * Remove a level's saved key. The instance's `TYPESAFE_API_KEY`, if set,
  * stays in force: it lives in the environment, not here.
  * @param scope - `instance` or `workspace`.
  * @param orgId - The workspace.

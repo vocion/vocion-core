@@ -8,7 +8,7 @@
  * mode) the Org is the installation, so an admin may set it from System, the
  * way an admin sets the Org's brand. On a multi-Org server one customer's
  * admin must not set every customer's key, so there it comes from the
- * environment (`VOCION_JEV_API_KEY`) and the card says so.
+ * environment (`TYPESAFE_API_KEY`) and the card says so.
  */
 
 import { os } from '@orpc/server';
@@ -25,7 +25,7 @@ const scopeSchema = z.enum(['instance', 'workspace']);
 async function instanceLock(): Promise<string | null> {
   const { orgsMode } = await import('@/services/OrgPolicy');
   return orgsMode() === 'multi'
-    ? 'This server holds several Orgs, so the instance key is set in the server environment (VOCION_JEV_API_KEY), not here.'
+    ? 'This server holds several Orgs, so the instance key is set in the server environment (TYPESAFE_API_KEY), not here.'
     : null;
 }
 

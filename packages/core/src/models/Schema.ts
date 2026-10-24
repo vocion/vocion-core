@@ -5880,8 +5880,9 @@ export const engineRunSchema = pgTable(
 );
 
 /**
- * THE KEY THAT TURNS DYNAMIC ROUTING ON (ADR 0006): an OpenRouter key for Jev,
- * TypeSafe's decision model. `holder` is `instance` (the installation's key,
+ * THE KEY THAT TURNS DYNAMIC ROUTING ON (ADR 0006): a Jev (TypeSafe) API key
+ * (or an OpenRouter key, which reaches Jev through OpenRouter). `holder` is
+ * `instance` (the installation's key,
  * set on System) or `workspace:<orgId>` (a workspace's own, so its Jev calls
  * bill and track on its own account). The key is encrypted with the
  * credential vault, under the scope `instance` or the workspace's id; only the
@@ -5897,6 +5898,8 @@ export const routingKeySchema = pgTable('routing_key', {
   authTag: text('auth_tag').notNull(),
   /** `…abcd`: what the card shows. */
   keyHint: text('key_hint').notNull(),
+  /** `typesafe` | `openrouter`: where the key is sent (`jev.ts` `jevEndpoint`). */
+  provider: text('provider').default('typesafe').notNull(),
   setBy: text('set_by'),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
