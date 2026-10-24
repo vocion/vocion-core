@@ -16,7 +16,8 @@
  */
 export const DashboardSection = (props: {
   title: string;
-  description: string;
+  /** A one-line description under the title; omit for none. */
+  description?: string;
   /**
    * Let the content use the full width instead of the reading-width cap.
    * Set it for wide tables; leave it off for forms and prose.
@@ -26,11 +27,13 @@ export const DashboardSection = (props: {
 }) => (
   <section className="border-t border-border/70 pt-8 first:border-0 first:pt-0 [&+&]:mt-8">
     <div className="max-w-3xl">
-      <h2 className="text-[15px] font-semibold">{props.title}</h2>
+      <h2 className={props.description ? 'text-[15px] font-semibold' : 'mb-4 text-[15px] font-semibold'}>{props.title}</h2>
 
-      <div className="mt-1 mb-5 text-[13px] text-muted-foreground">
-        {props.description}
-      </div>
+      {props.description && (
+        <div className="mt-1 mb-5 text-[13px] text-muted-foreground">
+          {props.description}
+        </div>
+      )}
 
       {!props.fullWidthContent && props.children}
     </div>
