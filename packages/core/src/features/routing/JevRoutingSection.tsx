@@ -1,15 +1,14 @@
 import type { KeyScope } from '@/services/routing/jevKey';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
-import { Link } from '@/libs/I18nNavigation';
 import { orgsMode } from '@/services/OrgPolicy';
-import { jevSettings } from '@/services/routing/jev';
 import { jevKeyStatus } from '@/services/routing/jevKey';
 import { JevKeyCard } from './JevKeyCard';
 
 /**
- * DYNAMIC ROUTING (ADR 0006) on a settings page: the Jev key at one level,
- * and what a run in this workspace uses right now. System shows the instance
- * level; Developers shows this workspace's override.
+ * SYSTEM KEYS on a settings page: the keys that switch on optional services,
+ * one card each. Today that is the Jev key (dynamic routing, ADR 0006) at one
+ * level. System shows the instance level; Developers shows this workspace's
+ * override, under Workspace Keys.
  * @param props - Where it sits.
  * @param props.scope - `instance` (System) or `workspace` (Developers).
  * @param props.orgId - The viewer's workspace.
@@ -18,30 +17,17 @@ import { JevKeyCard } from './JevKeyCard';
 export async function JevRoutingSection({ scope, orgId, isAdmin }: { scope: KeyScope; orgId: string; isAdmin: boolean }) {
   const status = await jevKeyStatus(orgId);
   const lock = scope === 'instance' && orgsMode() === 'multi'
-    ? 'This server holds several Orgs, so the instance key is set in the server environment (TYPESAFE_API_KEY), not here.'
+    ? 'This server holds several Orgs, so this key is set in the server environment (TYPESAFE_API_KEY).'
     : null;
   const onFile = scope === 'instance' ? status.instance : status.workspace;
-  const otherwise = scope === 'instance'
-    ? (status.workspace ? 'This workspace runs on its own key (Developers).' : 'Without a key here or on a workspace, routing is static.')
-    : (status.instance ? `Runs here use the instance key (${status.instance.hint}).` : 'With no instance key either, routing here is static.');
-  const now = status.effective
-    ? `On here, on the ${status.effective} key.`
-    : 'Off here: every run takes the static route.';
+  const note = scope === 'workspace'
+    ? (status.instance && !onFile ? `Overrides the instance key (${status.instance.hint}).` : 'Overrides the instance key.')
+    : null;
   return (
-    <DashboardSection
-      title="Dynamic routing (Jev)"
-      description={`Jev, TypeSafe's decision model, picks each factory run's engine, model and effort from the seat's candidates; anything it cannot decide takes the static route. A key turns it on. ${now}`}
-    >
-      <JevKeyCard scope={scope} onFile={onFile} otherwise={otherwise} canEdit={isAdmin} lock={lock} jevModel={jevSettings().model} />
-      <p className="mt-3 text-[12px] text-muted-foreground">
-        {scope === 'instance'
-          ? 'A workspace can use its own key instead, for its own tracking: Developers → Dynamic routing. '
-          : 'The instance key is on System → Dynamic routing. '}
-        How each run was routed is on
-        {' '}
-        <Link href="/dashboard/p/engines" className="underline underline-offset-2">Engines</Link>
-        .
-      </p>
+    <DashboardSection title={scope === 'instance' ? 'System Keys' : 'Workspace Keys'}>
+      <div className="grid gap-3">
+        <JevKeyCard scope={scope} onFile={onFile} note={note} canEdit={isAdmin} lock={lock} />
+      </div>
     </DashboardSection>
   );
 }
