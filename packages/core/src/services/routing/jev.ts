@@ -265,6 +265,19 @@ export type JevDeps = { fetch?: typeof fetch; now?: () => number };
  * @param deps - Seams for tests.
  */
 export async function decide(key: string, q: JevQuestion, settings: Pick<JevSettings, 'model' | 'timeoutMs' | 'baseUrl'>, deps: JevDeps = {}): Promise<JevAnswer | JevFailure> {
+  const res = await postSystemOne(key, model => jevRequestBody(q, model), settings, deps);
+  return 'failed' in res ? res : readJevResponse(res.body, q, res.latencyMs);
+}
+
+/**
+ * One System One call: the body built for the endpoint's model, the parsed
+ * JSON back. Never throws, never logs the key.
+ * @param key - The key.
+ * @param build - The request body, given the model id the endpoint wants.
+ * @param settings - Model, base URL and timeout.
+ * @param deps - Seams for tests.
+ */
+async function postSystemOne(key: string, build: (model: string) => unknown, settings: Pick<JevSettings, 'model' | 'timeoutMs' | 'baseUrl'>, deps: JevDeps): Promise<{ body: unknown; latencyMs: number; provider: JevProvider } | JevFailure> {
   const now = deps.now ?? Date.now;
   const started = now();
   const endpoint = jevEndpoint(key, settings);
@@ -274,14 +287,14 @@ export async function decide(key: string, q: JevQuestion, settings: Pick<JevSett
     const res = await (deps.fetch ?? fetch)(endpoint.url, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(jevRequestBody(q, endpoint.model)),
+      body: JSON.stringify(build(endpoint.model)),
       signal: controller.signal,
     });
     if (!res.ok) {
       return { failed: true, kind: 'http', status: res.status, reason: `Jev (${endpoint.provider}) answered HTTP ${res.status}`, latencyMs: now() - started };
     }
     const body = await res.json().catch(() => null);
-    return readJevResponse(body, q, now() - started);
+    return { body, latencyMs: now() - started, provider: endpoint.provider };
   } catch (err) {
     const aborted = controller.signal.aborted || (err instanceof Error && err.name === 'AbortError');
     return aborted
@@ -290,6 +303,70 @@ export async function decide(key: string, q: JevQuestion, settings: Pick<JevSett
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Yes/no questions ("Noul"): each is read against the same state and
+ * answered with the probability that it is true. Ask several in one call,
+ * one per thing compared; the keys are Vocion's and Jev does not read them.
+ */
+export type JevYesNo = {
+  state: Record<string, unknown>;
+  /** Key → the question: its instructions (text or an object of facts) and what true and false mean. */
+  questions: Record<string, { instructions: string | Record<string, unknown>; criteria?: { true: string; false: string } }>;
+};
+
+export type JevYesNoAnswer = {
+  /** Key → the probability that the question is true, 0–1. A key Jev did not answer is missing. */
+  probabilities: Record<string, number>;
+  model: string | null;
+  inputTokens: number | null;
+  costUsd: number | null;
+  latencyMs: number;
+  provider: JevProvider;
+};
+
+/**
+ * The System One request body for yes/no questions. Pure.
+ * @param q - The questions.
+ * @param model - The model id the endpoint wants.
+ */
+export function jevYesNoBody(q: JevYesNo, model: string): Record<string, unknown> {
+  return {
+    model,
+    state: q.state,
+    questions: Object.fromEntries(Object.entries(q.questions).map(([k, v]) => [k, { type: 'noul', instructions: v.instructions, ...(v.criteria ? { criteria: v.criteria } : {}) }])),
+  };
+}
+
+/**
+ * Ask Jev yes/no questions. Never throws, never logs the key. An answer with
+ * none of the asked keys is a bad response.
+ * @param key - The key.
+ * @param q - The questions.
+ * @param settings - Model, base URL and timeout.
+ * @param deps - Seams for tests.
+ */
+export async function askYesNo(key: string, q: JevYesNo, settings: Pick<JevSettings, 'model' | 'timeoutMs' | 'baseUrl'>, deps: JevDeps = {}): Promise<JevYesNoAnswer | JevFailure> {
+  const res = await postSystemOne(key, model => jevYesNoBody(q, model), settings, deps);
+  if ('failed' in res) {
+    return res;
+  }
+  const body = isObj(res.body) ? res.body : {};
+  const answers = isObj(body.answers) ? body.answers : {};
+  const probabilities: Record<string, number> = {};
+  for (const k of Object.keys(q.questions)) {
+    const a = answers[k];
+    const p = isObj(a) ? numOrNull(a.noul) : null;
+    if (p !== null && p >= 0 && p <= 1) {
+      probabilities[k] = p;
+    }
+  }
+  if (Object.keys(probabilities).length === 0) {
+    return { failed: true, kind: 'bad_response', reason: 'Jev answered none of the questions', latencyMs: res.latencyMs };
+  }
+  const usage = isObj(body.usage) ? body.usage : {};
+  return { probabilities, model: typeof body.model === 'string' ? body.model : null, inputTokens: numOrNull(usage.input_tokens), costUsd: numOrNull(usage.cost), latencyMs: res.latencyMs, provider: res.provider };
 }
 
 /**

@@ -446,6 +446,12 @@ export const projectSchema = pgTable(
      */
     learningEagerness: integer('learning_eagerness'),
     /**
+     * Which decisions this workspace lets Jev make (ADR 0007), authored as
+     * `defaults.jev` in workspace.yaml: `{ duplicateCheck: true }`. A use runs
+     * only when it is on here and a Jev key resolves; NULL is none.
+     */
+    jev: jsonb('jev').$type<{ duplicateCheck?: boolean }>(),
+    /**
      * The workspace's voice rules (migration 0108) — the banned constructions
      * outbound copy is linted against before it can reach a review queue.
      * Authored as `workspace/<org>/voice.yaml`; shape is
@@ -5961,5 +5967,47 @@ export const modelCallSchema = pgTable(
     index('model_call_agent_created_idx').on(table.agentSlug, table.createdAt),
     index('model_call_user_created_idx').on(table.userId, table.createdAt),
     index('model_call_run_idx').on(table.runKind, table.runId),
+  ],
+);
+
+/**
+ * Every duplicate check a workspace that lets Jev judge duplicates ran
+ * (ADR 0007): one row per judge asked, so a Jev answer and the model that
+ * judged after it are two rows of one check. Queryable, not shown. Never a key,
+ * never the record's text: `inputs_hash` is a SHA-256 of what was asked.
+ */
+export const recordDuplicateCheckSchema = pgTable(
+  'record_duplicate_check',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    orgId: text('org_id').notNull(),
+    objectType: text('object_type').notNull(),
+    objectId: integer('object_id').notNull(),
+    /** `exact` (code matched it) | `jev` | `model` (the classifier). */
+    judge: text('judge').notNull(),
+    /** `duplicate` | `not_duplicate` | `unsure` | `failed`. */
+    verdict: text('verdict').notNull(),
+    duplicateOf: integer('duplicate_of'),
+    /** The judge's confidence in its verdict, 0–1. */
+    confidence: doublePrecision('confidence'),
+    /** How many existing records it compared. */
+    candidates: integer('candidates').notNull(),
+    inputsHash: text('inputs_hash').notNull(),
+    latencyMs: integer('latency_ms'),
+    /** The model that answered (`jev-1.13.0`, or the classifier). */
+    model: text('model'),
+    /** Jev only: whose key (`instance` | `workspace`) and which provider. */
+    keyScope: text('key_scope'),
+    provider: text('provider'),
+    inputTokens: integer('input_tokens'),
+    /** Why the next judge was asked, or why the check stopped (`timeout`, `unsure`, `breaker open`). */
+    fallback: text('fallback'),
+    /** The link was written on this verdict. */
+    linked: boolean('linked').default(false).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('record_duplicate_check_org_created_idx').on(table.orgId, table.createdAt),
+    index('record_duplicate_check_object_idx').on(table.orgId, table.objectId),
   ],
 );

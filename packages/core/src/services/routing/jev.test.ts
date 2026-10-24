@@ -4,7 +4,7 @@
  * throw, with no key in it. Jev itself is never called: fetch is a fake.
  */
 import { describe, expect, it } from 'vitest';
-import { decide, DEFAULT_JEV_MODEL, jevEndpoint, jevProviderOf, jevRequestBody, jevSettings, openRouterModel, readJevResponse } from './jev';
+import { askYesNo, decide, DEFAULT_JEV_MODEL, jevEndpoint, jevProviderOf, jevRequestBody, jevSettings, openRouterModel, readJevResponse } from './jev';
 
 const KEY = 'ts-FAKE-not-a-real-typesafe-key-000000';
 const OR_KEY = 'sk-or-v1-FAKE-not-a-real-key-000000';
@@ -170,5 +170,40 @@ describe('the purpose of a question (phase 2)', () => {
 
     expect(Object.keys(body.questions)).toEqual(['candidate']);
     expect(read).toMatchObject({ choice: 'c1', confidence: 0.7, effort: null, effortConfidence: null });
+  });
+});
+
+describe('yes/no questions (Noul, ADR 0007)', () => {
+  const Q = { state: { new_record: { title: 'Export' } }, questions: { c0: { instructions: { existing_record: { title: 'Export CSV' } }, criteria: { true: 'same', false: 'not' } }, c1: { instructions: 'Is it the same?' } } };
+
+  it('asks one noul per key and reads each probability', async () => {
+    let sent: { questions: Record<string, unknown> } | null = null;
+    const fetch = (async (_url: string, init: RequestInit) => {
+      sent = JSON.parse(String(init.body));
+      return jsonResponse({ model: 'jev-1.13.0', answers: { c0: { type: 'noul', noul: 0.91 }, c1: { type: 'noul', noul: 0.02 } }, usage: { input_tokens: 90 } });
+    }) as unknown as typeof globalThis.fetch;
+    const r = await askYesNo(KEY, Q, TS, { fetch });
+
+    expect(r).toMatchObject({ probabilities: { c0: 0.91, c1: 0.02 }, model: 'jev-1.13.0', inputTokens: 90, provider: 'typesafe' });
+    expect(sent!.questions).toEqual({
+      c0: { type: 'noul', instructions: { existing_record: { title: 'Export CSV' } }, criteria: { true: 'same', false: 'not' } },
+      c1: { type: 'noul', instructions: 'Is it the same?' },
+    });
+  });
+
+  it('drops an answer out of range, and fails when none is usable — never throws, never names the key', async () => {
+    const partial = (async () => jsonResponse({ answers: { c0: { type: 'noul', noul: 1.4 }, c1: { type: 'noul', noul: 0.2 } } })) as unknown as typeof globalThis.fetch;
+
+    expect(await askYesNo(KEY, Q, TS, { fetch: partial })).toMatchObject({ probabilities: { c1: 0.2 } });
+
+    const empty = (async () => jsonResponse({ answers: {} })) as unknown as typeof globalThis.fetch;
+
+    expect(await askYesNo(KEY, Q, TS, { fetch: empty })).toMatchObject({ failed: true, kind: 'bad_response' });
+
+    const down = (async () => jsonResponse({}, 500)) as unknown as typeof globalThis.fetch;
+    const r = await askYesNo(KEY, Q, TS, { fetch: down });
+
+    expect(r).toMatchObject({ failed: true, kind: 'http', status: 500 });
+    expect(JSON.stringify(r)).not.toContain(KEY);
   });
 });

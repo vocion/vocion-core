@@ -189,6 +189,10 @@ schema:
 ```
 
 The software factory's intake runs it before anything is built; a linked request starts nothing.
+Any other type gets it from an automation on `object.created` that runs the built-in job
+`record-duplicate-check`. A workspace that sets `defaults.jev.duplicateCheck` and has a Jev key
+gets a cheaper first read: an exact match, then Jev's yes/no per candidate, with the classifier
+asked only when Jev is unsure ([ADR 0007](../adr/0007-jev-duplicate-check.md)).
 
 ## Connected records
 
