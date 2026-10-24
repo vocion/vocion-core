@@ -37,7 +37,6 @@ import {
 import { pause as pauseAutomationRoute, resume as resumeAutomationRoute } from './Automations';
 import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
 import { get as getBrandRoute, restore as restoreBrandRoute, save as saveBrandRoute, uploadLogo as uploadBrandLogoRoute } from './Branding';
-import { removeKey as removeRoutingKeyRoute, saveKey as saveRoutingKeyRoute, status as routingStatusRoute } from './Routing';
 import { audioRoute as briefingsAudioRoute, latestRoute as briefingsLatestRoute, personalRoute as briefingsPersonalRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { actOnBrowserRunRoute, getBrowserRunRoute, practiceBrowserRunRoute } from './Browser';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
@@ -159,6 +158,7 @@ import {
   undoActionRoute,
 } from './Review';
 import { actOnRoutineRoute, answerRoutineFindingRoute, answerRoutineRunRoute, getRoutineBatchRoute, getRoutineRoute, listRoutinesRoute, practiceRoutineRoute, routineReportRoute, runRoutineRoute, teachRoutineRoute } from './Routines';
+import { removeKey as removeRoutingKeyRoute, status as routingStatusRoute, saveKey as saveRoutingKeyRoute } from './Routing';
 import { glanceRoute as runGlanceRoute, logRoute as runLogRoute } from './Runs';
 import { scorecardAgentsRoute } from './Scorecard';
 import { reset as resetSetupRoute, state as setupStateRoute } from './Setup';

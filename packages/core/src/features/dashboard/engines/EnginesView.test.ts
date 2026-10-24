@@ -27,6 +27,8 @@ const row = (over: Partial<EngineRunRow> = {}): EngineRunRow => ({
   seat: 'task-engineer',
   routePolicy: 'static',
   routeReason: 'the task-engineer seat\'s harness.engine',
+  routeSelector: null,
+  routeDetail: null,
   taskId: 9,
   requestId: 7,
   repo: 'kestrel/app',
@@ -63,7 +65,7 @@ const row = (over: Partial<EngineRunRow> = {}): EngineRunRow => ({
 const render = (params: Record<string, string>, rows: EngineRunRow[]) => renderToStaticMarkup(createElement(EnginesView, {
   slug: 'engines',
   query: readEnginesQuery(params),
-  engines: rows.length ? [{ engine: 'openhands', source: 'factory', runs: 1, running: 0, prs: 1, qaPassed: 1, qaFailed: 0, accepted: 0, merged: 1, reverted: 0, failed: 0, prRate: 1, qaPassRate: 1, acceptRate: 1, medianDurationS: 245, totalCents: 123, centsPerLanded: 123, guardViolations: 0, retries: 0, models: ['model-large'], byComplexity: { small: 1 } }] : [],
+  engines: rows.length ? [{ engine: 'openhands', source: 'factory', runs: 1, running: 0, prs: 1, qaPassed: 1, qaFailed: 0, accepted: 0, merged: 1, reverted: 0, failed: 0, prRate: 1, qaPassRate: 1, acceptRate: 1, medianDurationS: 245, totalCents: 123, centsPerLanded: 123, guardViolations: 0, retries: 0, models: ['model-large'], byComplexity: { small: 1 }, selectors: { jev: 0, static: 1, fallback: 0 } }] : [],
   rows,
   since,
   timezone: 'America/Los_Angeles',
@@ -100,6 +102,18 @@ describe('the Engines page', () => {
     expect(html).toContain('href="/dashboard/objects/9"');
     expect(html).toContain('href="/dashboard/p/runs/41"');
     expect(html).toContain('Oct 22, 10:00');
+  });
+
+  it('marks a Jev-routed run and says whether dynamic routing is on (ADR 0006)', () => {
+    const rows = [row({ routePolicy: 'jev', routeReason: 'Jev chose openhands (confidence 0.84), low effort', routeSelector: 'jev', routeDetail: { confidence: 0.84, effort: 'low', keyScope: 'workspace' } })];
+    const html = renderToStaticMarkup(createElement(EnginesView, { slug: 'engines', query: readEnginesQuery({}), engines: [], rows, since, timezone: 'America/Los_Angeles', routing: { effective: 'workspace', hint: '…bbbb' } }));
+
+    expect(html).toContain('>jev</span>');
+    expect(html).toContain('Jev chose openhands (confidence 0.84), low effort');
+    expect(html).toContain('confidence 0.84 · effort low · workspace key');
+    expect(html).toContain('data-testid="engines-routing"');
+    expect(html).toContain('on the workspace key (…bbbb)');
+    expect(html).toContain('Routed by');
   });
 
   it('says plainly when there is nothing yet', () => {

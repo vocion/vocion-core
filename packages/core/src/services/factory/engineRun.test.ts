@@ -97,6 +97,30 @@ describe('a factory run\'s row', () => {
 
     expect(row).toMatchObject({ engine: 'claude-cli', model: 'claude-x', outcome: 'failed', guardViolations: 0, filesTouched: null, complexity: null });
   });
+
+  it('records who routed it, and what Jev answered, never a key (ADR 0006)', () => {
+    const base = { id: 7, orgId: 'org_k', agentSlug: 'task-engineer', status: 'completed', model: null, result: null, counts: {}, cents: 0, claimedAt: null, createdAt: new Date(), completedAt: null };
+    const ctx = { task: null, attempt: 1, runsOfTask: 1, reverted: false };
+    const jev = { asked: true, candidates: 2, choice: { engine: 'openhands', model: 'bedrock/x' }, confidence: 0.84, effort: 'low', keyScope: 'workspace', fallback: null };
+
+    expect(engineRunFromWorkerRun({ ...base, input: { task: contract('openhands'), route: { engine: 'openhands', policy: 'jev', reason: 'Jev chose openhands', selector: 'jev', jev } } }, ctx)).toMatchObject({ routeSelector: 'jev', routeDetail: jev });
+    // A run routed before ADR 0006 reads as static, with nothing from Jev.
+    expect(engineRunFromWorkerRun({ ...base, input: { task: contract(), route: { engine: 'claude-cli', policy: 'static', reason: 'the default' } } }, ctx)).toMatchObject({ routeSelector: 'static', routeDetail: null });
+  });
+});
+
+describe('who chose, on the board', () => {
+  it('counts Jev picks, static routes, and the static ones that were a Jev fallback', () => {
+    const r = { engine: 'openhands', source: 'factory', model: null, outcome: 'pr_opened', prUrl: PR, durationS: 60, cents: 10, guardViolations: 0, retries: 0, complexity: 'small', attempt: 1 };
+    const board = scoreboardOf([
+      { ...r, routeSelector: 'jev', routeDetail: { fallback: null } },
+      { ...r, routeSelector: 'static', routeDetail: { fallback: 'no answer within 3000 ms' } },
+      { ...r, routeSelector: 'static', routeDetail: null },
+      { ...r, routeSelector: null, routeDetail: null },
+    ] as never);
+
+    expect(board[0]!.selectors).toEqual({ jev: 1, static: 3, fallback: 1 });
+  });
 });
 
 describe('the board, from the runs', () => {

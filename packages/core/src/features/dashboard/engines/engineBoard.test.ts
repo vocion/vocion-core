@@ -5,9 +5,9 @@
  */
 import type { EngineScore } from '@/services/factory/engineRun';
 import { describe, expect, it } from 'vitest';
-import { BOARD_LINES, boardColumns, duration, emptyLine, enginesHref, money, pct, readEnginesQuery, runLinks, sizeSplit } from './engineBoard';
+import { BOARD_LINES, boardColumns, duration, emptyLine, enginesHref, money, pct, readEnginesQuery, routingLine, runLinks, sizeSplit, whyLine } from './engineBoard';
 
-const score = (engine: string, over: Partial<EngineScore> = {}): EngineScore => ({ engine, source: 'factory', runs: 4, running: 1, prs: 3, qaPassed: 2, qaFailed: 1, accepted: 1, merged: 1, reverted: 0, failed: 0, prRate: 1, qaPassRate: 0.667, acceptRate: 0.5, medianDurationS: 245, totalCents: 1234, centsPerLanded: 617, guardViolations: 2, retries: 1, models: ['model-large'], byComplexity: { small: 3, large: 1 }, ...over });
+const score = (engine: string, over: Partial<EngineScore> = {}): EngineScore => ({ engine, source: 'factory', runs: 4, running: 1, prs: 3, qaPassed: 2, qaFailed: 1, accepted: 1, merged: 1, reverted: 0, failed: 0, prRate: 1, qaPassRate: 0.667, acceptRate: 0.5, medianDurationS: 245, totalCents: 1234, centsPerLanded: 617, guardViolations: 2, retries: 1, models: ['model-large'], byComplexity: { small: 3, large: 1 }, selectors: { jev: 1, static: 3, fallback: 2 }, ...over });
 
 describe('the URL', () => {
   it('reads the window, source and engine, and falls back to 30 days of real work', () => {
@@ -46,13 +46,13 @@ describe('the lines', () => {
     const line = (k: string, e: EngineScore) => BOARD_LINES.find(l => l.key === k)!.value(e);
     const e = score('openhands');
 
-    expect(BOARD_LINES.map(l => l.key)).toEqual(['runs', 'prRate', 'qaPassRate', 'acceptRate', 'medianDurationS', 'totalCents', 'centsPerLanded', 'guardViolations', 'retries', 'size']);
-    expect(['runs', 'prRate', 'qaPassRate', 'acceptRate', 'medianDurationS', 'totalCents', 'centsPerLanded', 'guardViolations', 'retries', 'size'].map(k => line(k, e)))
-      .toEqual(['4 (1 running)', '100%', '67%', '50%', '4m 05s', '$12.34', '$6.17', '2', '1', 'small 3 · large 1']);
+    expect(BOARD_LINES.map(l => l.key)).toEqual(['runs', 'prRate', 'qaPassRate', 'acceptRate', 'medianDurationS', 'totalCents', 'centsPerLanded', 'guardViolations', 'retries', 'routedBy', 'size']);
+    expect(['runs', 'prRate', 'qaPassRate', 'acceptRate', 'medianDurationS', 'totalCents', 'centsPerLanded', 'guardViolations', 'retries', 'routedBy', 'size'].map(k => line(k, e)))
+      .toEqual(['4 (1 running)', '100%', '67%', '50%', '4m 05s', '$12.34', '$6.17', '2', '1', 'Jev 1 · static 3 (2 fell back)', 'small 3 · large 1']);
 
     const none = boardColumns([], 'factory')[1]!;
 
-    expect(BOARD_LINES.map(l => l.value(none))).toEqual(['0', '—', '—', '—', '—', '—', '—', '—', '—', '—']);
+    expect(BOARD_LINES.map(l => l.value(none))).toEqual(['0', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—']);
   });
 
   it('formats', () => {
@@ -87,5 +87,31 @@ describe('the empty state', () => {
     expect(emptyLine({ ...q, engine: 'openhands' }, 0)).toContain('No openhands runs in the last 30 days');
     expect(emptyLine({ ...q, engine: 'openhands' }, 0)).toContain('harness.engine');
     expect(emptyLine({ ...q, source: 'eval' }, 0)).toContain('import-eval-runs');
+  });
+});
+
+describe('how a run was routed (ADR 0006)', () => {
+  const run = { routeReason: 'the task-engineer seat\'s harness.engine', routePolicy: 'static', routeSelector: null, routeDetail: null };
+
+  it('says who chose and why, with Jev\'s numbers beside a Jev pick', () => {
+    expect(whyLine({ ...run, routeReason: 'Jev chose openhands (confidence 0.84), low effort', routePolicy: 'jev', routeSelector: 'jev', routeDetail: { confidence: 0.84, effort: 'low', jevModel: 'typesafe/jev-1.13-20260917', latencyMs: 140.4, costUsd: 0.00002, keyScope: 'workspace', fallback: null } })).toEqual({
+      selector: 'jev',
+      text: 'Jev chose openhands (confidence 0.84), low effort',
+      detail: 'confidence 0.84 · effort low · typesafe/jev-1.13-20260917 · 140 ms · $0.000020 · workspace key',
+    });
+  });
+
+  it('says when Jev fell back, and reads a run from before routing was recorded as it always did', () => {
+    expect(whyLine({ ...run, routeSelector: 'static', routeDetail: { asked: true, fallback: 'no answer within 3000 ms', keyScope: 'instance', latencyMs: 3001 } })).toMatchObject({
+      selector: 'static',
+      text: 'the task-engineer seat\'s harness.engine. Jev fell back: no answer within 3000 ms',
+    });
+    expect(whyLine(run)).toEqual({ selector: null, text: 'the task-engineer seat\'s harness.engine', detail: null });
+    expect(whyLine({ ...run, routeReason: null, routePolicy: null })).toMatchObject({ text: 'not recorded' });
+  });
+
+  it('says whether dynamic routing is on, and on whose key', () => {
+    expect(routingLine({ effective: null, hint: null })).toMatch(/off/);
+    expect(routingLine({ effective: 'workspace', hint: '…bbbb' })).toMatch(/on the workspace key \(…bbbb\)/);
   });
 });
