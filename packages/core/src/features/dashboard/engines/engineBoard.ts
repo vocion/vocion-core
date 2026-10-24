@@ -62,7 +62,7 @@ const ORDER = ['claude-cli', 'openhands', 'codex'];
  * @param source
  */
 function emptyScore(engine: string, source: string): EngineScore {
-  return { engine, source, runs: 0, running: 0, prs: 0, qaPassed: 0, qaFailed: 0, accepted: 0, merged: 0, reverted: 0, failed: 0, prRate: null, qaPassRate: null, acceptRate: null, medianDurationS: null, totalCents: 0, centsPerLanded: null, guardViolations: 0, retries: 0, models: [], byComplexity: {} };
+  return { engine, source, runs: 0, running: 0, prs: 0, qaPassed: 0, qaFailed: 0, accepted: 0, merged: 0, reverted: 0, failed: 0, prRate: null, qaPassRate: null, acceptRate: null, medianDurationS: null, totalCents: 0, centsPerLanded: null, guardViolations: 0, retries: 0, models: [], byComplexity: {}, selectors: { jev: 0, static: 0, fallback: 0 } };
 }
 
 /**
@@ -141,6 +141,7 @@ export const BOARD_LINES: readonly BoardLine[] = [
   { key: 'centsPerLanded', label: 'Cost per landed change', hint: 'Spend over the runs accepted or merged.', value: e => money(e.centsPerLanded) },
   { key: 'guardViolations', label: 'Guard violations', hint: 'Tool calls the guard hooks refused.', value: e => (e.runs ? String(e.guardViolations) : '—') },
   { key: 'retries', label: 'Retries', hint: 'Runs that were a second or later attempt at their task.', value: e => (e.runs ? String(e.retries) : '—') },
+  { key: 'routedBy', label: 'Routed by', hint: 'Who chose each run\'s engine, model and effort: Jev (dynamic routing, ADR 0006) or the static route. Fell back: Jev was keyed but its answer was not used.', value: e => routedBy(e) },
   { key: 'size', label: 'By size', hint: 'Runs by the size of the change: small up to 3 files and 150 lines, large from 10 files or 600 lines.', value: e => sizeSplit(e.byComplexity) },
 ];
 
@@ -202,4 +203,69 @@ export function emptyLine(q: EnginesQuery, rows: number): string | null {
  */
 export function emptyColumn(e: EngineScore): string | null {
   return e.runs === 0 ? `No ${e.engine} runs yet in this window.` : null;
+}
+
+/**
+ * Who chose an engine's runs, as `Jev 3 · static 5 (2 fell back)`.
+ * @param e - The engine's line.
+ */
+export function routedBy(e: Pick<EngineScore, 'runs' | 'selectors'>): string {
+  if (!e.runs) {
+    return '—';
+  }
+  const s = e.selectors ?? { jev: 0, static: e.runs, fallback: 0 };
+  return `Jev ${s.jev} · static ${s.static}${s.fallback ? ` (${s.fallback} fell back)` : ''}`;
+}
+
+/** Why a run ran where it did: who chose, the reason, and Jev's numbers for the tooltip. */
+export type WhyLine = { selector: 'jev' | 'static' | null; text: string; detail: string | null };
+
+const dnum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * The "Why this engine" cell for a run. Pure.
+ * @param r - The run.
+ */
+export function whyLine(r: Pick<EngineRunRow, 'routeReason' | 'routePolicy' | 'routeSelector' | 'routeDetail'>): WhyLine {
+  const base = r.routeReason ?? r.routePolicy ?? 'not recorded';
+  const d = (r.routeDetail ?? {}) as Record<string, unknown>;
+  const fallback = typeof d.fallback === 'string' ? d.fallback : null;
+  const bits: string[] = [];
+  if (dnum(d.confidence) !== null) {
+    bits.push(`confidence ${dnum(d.confidence)!.toFixed(2)}`);
+  }
+  if (typeof d.effort === 'string') {
+    bits.push(`effort ${d.effort}`);
+  }
+  if (typeof d.jevModel === 'string') {
+    bits.push(d.jevModel);
+  }
+  if (dnum(d.latencyMs) !== null) {
+    bits.push(`${Math.round(dnum(d.latencyMs)!)} ms`);
+  }
+  if (dnum(d.costUsd) !== null) {
+    bits.push(`$${dnum(d.costUsd)!.toFixed(6)}`);
+  }
+  if (typeof d.keyScope === 'string') {
+    bits.push(`${d.keyScope} key`);
+  }
+  const detail = bits.length ? bits.join(' · ') : null;
+  if (r.routeSelector === 'jev') {
+    return { selector: 'jev', text: base, detail };
+  }
+  return { selector: r.routeSelector === 'static' ? 'static' : null, text: fallback ? `${base}. Jev fell back: ${fallback}` : base, detail };
+}
+
+/** Whether dynamic routing is on here, as the page header says it. */
+export type RoutingState = { effective: 'instance' | 'workspace' | null; hint: string | null };
+
+/**
+ * The header line about dynamic routing. Pure.
+ * @param r - The workspace's key status.
+ */
+export function routingLine(r: RoutingState): string {
+  if (!r.effective) {
+    return 'Dynamic routing is off: every run takes the static route. An OpenRouter key for Jev turns it on (System for the instance, Developers for this workspace).';
+  }
+  return `Dynamic routing is on: Jev picks the engine, model and effort from each seat's candidates, on the ${r.effective} key${r.hint ? ` (${r.hint})` : ''}. Anything Jev cannot decide takes the static route.`;
 }

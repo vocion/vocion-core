@@ -113,8 +113,38 @@ The factory asks `routeEngine` (`services/factory/engineRouter.ts`) at dispatch.
 static: the task's engine, else the seat's, else `claude-cli`. Which policy chose the engine, and
 why, rides the run's input as `route`. An installation fences the engines with
 `VOCION_ALLOWED_ENGINES` (a comma list; a client installation sets `openhands`): a choice outside
-the fence becomes the first engine inside it. A dynamic policy (by complexity or cost) goes in
-front of the static one in `ROUTE_POLICIES`. See ADR 0005.
+the fence becomes the first engine inside it. See ADR 0005.
+
+### Dynamic routing with Jev (ADR 0006)
+
+An OpenRouter key turns on dynamic routing: before each run, Jev (TypeSafe's decision model,
+`POST https://openrouter.ai/api/alpha/decisions`) picks the engine, model and effort from the
+seat's candidates. Without a key nothing changes and Jev is never called; any Jev error, timeout
+or low-confidence answer takes the static route above.
+
+- **Instance key:** System (`/dashboard/admin`) → Dynamic routing, or `VOCION_JEV_API_KEY` in
+  the server environment. **Workspace override:** Developers (`/dashboard/developers`) →
+  Dynamic routing, so a workspace's Jev calls bill its own OpenRouter account. Both encrypted,
+  write-only.
+- **Candidates:** `harness.routeModels` on the engineer seat. Without it, the seat's own engine
+  and model are the one candidate and Jev sets the effort only:
+
+  ```yaml
+  harness:
+    routeModels:
+      - engine: openhands
+        model: bedrock/us.anthropic.claude-sonnet-5-5
+        cost: low
+        about: Well-specified changes in one area.
+      - engine: claude-cli
+        model: claude-opus-5-5
+        cost: high
+        about: 'Ambiguous, cross-cutting or security-sensitive work.'
+  ```
+
+- **Settings:** `VOCION_JEV_MODEL` (default `typesafe/jev-1.13`), `VOCION_JEV_MIN_CONFIDENCE`
+  (default 0.6), `VOCION_JEV_TIMEOUT_MS` (default 3000). The fence still applies first.
+- Each run records who routed it and Jev's answer; the Engines page shows it.
 
 ### The engine scoreboard
 

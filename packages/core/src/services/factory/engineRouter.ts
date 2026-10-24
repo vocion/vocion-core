@@ -10,11 +10,11 @@
  * `harness.engine`, else the runner's default (claude-cli). That is the whole
  * of today's routing, on purpose: a workspace picks its engine in config.
  *
- * THE HOOK FOR DYNAMIC ROUTING: a policy that reads `complexity` or
- * `estimatedCents` (and, later, the scoreboard's own figures) goes in front of
- * `staticPolicy` in `ROUTE_POLICIES`, and passes on anything it has no opinion
- * about. Nothing else changes: the contract, the runner and the scoreboard
- * already carry what it decides.
+ * DYNAMIC ROUTING (ADR 0006) sits on top of this, in `services/routing/route.ts`:
+ * with a Jev key configured, Jev picks the engine, model and effort from the
+ * seat's candidates, and this chain's answer is what it falls back to. Jev is
+ * asynchronous and needs a key, so it is not a link of this synchronous chain;
+ * `routeEngine` stays the static answer, unchanged.
  *
  * An installation can fence the engines (`VOCION_ALLOWED_ENGINES`, a comma
  * list; a client installation sets `openhands`). A choice outside the fence is

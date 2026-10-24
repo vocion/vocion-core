@@ -111,6 +111,7 @@ about them.
 - [ADR 0002 — context execution interface](./internal/adr/0002-context-execution-interface.md)
 - [ADR 0003 — skill, playbook, operation](./internal/adr/0003-skill-playbook-operation.md)
 - [ADR 0005 — factory engines, the scoreboard, the router, rollback](./adr/0005-factory-engines-and-scoreboard.md)
+- [ADR 0006 — dynamic routing with Jev: a key turns it on](./adr/0006-dynamic-routing-with-jev.md)
 
 Internal working notes (roadmap, changelog, use cases) live in
 [`internal/`](./internal/).

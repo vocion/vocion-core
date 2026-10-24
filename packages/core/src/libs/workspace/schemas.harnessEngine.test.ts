@@ -18,3 +18,20 @@ describe('harness.engine survives the parse (engine plan, Phase 2)', () => {
     expect(AgentManifestSchema.parse({ ...base, harness: { model: 'claude-opus-5-5' } }).harness).not.toHaveProperty('engine');
   });
 });
+
+describe('harness.routeModels survives the parse (ADR 0006)', () => {
+  it('keeps the candidates a seat offers dynamic routing', () => {
+    const routeModels = [
+      { engine: 'claude-cli', model: 'claude-opus-5-5', about: 'Strong at hard debugging.', cost: 'high' },
+      { engine: 'openhands', model: 'bedrock/us.anthropic.claude-sonnet-5-5', cost: 'low' },
+    ];
+
+    expect(AgentManifestSchema.parse({ ...base, harness: { routeModels } }).harness).toMatchObject({ routeModels });
+  });
+
+  it('refuses an unknown engine or cost, and more than twelve candidates', () => {
+    expect(AgentManifestSchema.safeParse({ ...base, harness: { routeModels: [{ engine: 'devin' }] } }).success).toBe(false);
+    expect(AgentManifestSchema.safeParse({ ...base, harness: { routeModels: [{ engine: 'openhands', cost: 'pricey' }] } }).success).toBe(false);
+    expect(AgentManifestSchema.safeParse({ ...base, harness: { routeModels: Array.from({ length: 13 }, () => ({ engine: 'openhands' })) } }).success).toBe(false);
+  });
+});
