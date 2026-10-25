@@ -18,6 +18,15 @@ export type ApplyOptions = {
   appliedBy?: string;
   /** Override orgId from manifest (useful for applying MetaCTO context to a different tenant for testing) */
   orgId?: string;
+  /**
+   * Install a bundle into a workspace that has no folder of its own (an app
+   * turned on in Vocion Cloud, `services/plugins/installBundle.ts`): upsert
+   * what `loaded` ships and touch nothing else. No retire sweeps, no project
+   * config from the manifest (lead, surfaces, time zone stay as the project
+   * has them), trust rules merged by action instead of replaced, and no
+   * source mirrors (the files are core's templates, never edited from here).
+   */
+  additive?: boolean;
 };
 
 export type ResourceCounts = {
@@ -144,6 +153,7 @@ function describeConnectionError(err: unknown): string {
 export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions = {}): Promise<ApplyResult> {
   const orgId = opts.orgId ?? loaded.manifest.orgId;
   const dryRun = opts.dryRun ?? false;
+  const additive = opts.additive ?? false;
   // A real apply needs the database and fails loudly without one. A dry-run
   // does not: with no answer it still validates and reports what it would apply.
   const database: ApplyResult['database'] = dryRun ? await probeDatabase() : { reachable: true };
@@ -200,7 +210,9 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 
   // Workspace lead + workspace-default accountable human are project
   // config (workspace.yaml `lead:` / `accountableUser:`), not a team row.
-  await applyWorkspaceLeadConfig(orgId, loaded, mode, errors);
+  if (!additive) {
+    await applyWorkspaceLeadConfig(orgId, loaded, mode, errors);
+  }
 
   for (const agent of loaded.agents) {
     try {
@@ -229,7 +241,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 
   // A workflow the workspace no longer ships is retired, not left active:
   // an unauthored definition must not keep starting runs. Run history stays.
-  if (!dryRun) {
+  if (!dryRun && !additive) {
     try {
       const { ne, notInArray } = await import('drizzle-orm');
       const authored = loaded.workflows.map(w => w.slug);
@@ -288,7 +300,11 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // Scoped to this org, and to rows the applier itself wrote: an agent a
   // person hired from chat is committed to the workspace too (auto-commit),
   // so an unauthored active row is a leftover, not somebody's work.
-  if (!dryRun) {
+  //
+  // An additive apply (an app installed into a workspace with no folder)
+  // ships only that app's bundle, so everything else in the workspace is
+  // simply not its business: nothing is retired.
+  if (!dryRun && !additive) {
     const { ne, notInArray } = await import('drizzle-orm');
     // The workspace lead core seeds into a new workspace is not a leftover of
     // an earlier apply: it stays until this workspace names a lead of its own
@@ -397,7 +413,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // `system` version naming the sha, so "who changed this" has the git
   // answer beside the in-app ones. A file that is gone takes its mirror with
   // it, so nothing editable is left that could write the file back.
-  if (!dryRun) {
+  if (!dryRun && !additive) {
     await mirrorSources(orgId, loaded, warnings);
   }
 
@@ -465,8 +481,11 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // Absent file (or empty rules) = no auto-execution anywhere.
   if (!dryRun) {
     try {
-      await db.delete(trustRuleSchema).where(eq(trustRuleSchema.orgId, orgId));
       const rules = loaded.trust?.rules ?? [];
+      // Additive: the bundle's own rules replace only themselves, by action.
+      await db.delete(trustRuleSchema).where(additive
+        ? and(eq(trustRuleSchema.orgId, orgId), inArray(trustRuleSchema.actionId, rules.length > 0 ? rules.map(r => r.action) : ['']))
+        : eq(trustRuleSchema.orgId, orgId));
       if (rules.length > 0) {
         await db.insert(trustRuleSchema).values(rules.map(r => ({
           orgId,
@@ -492,7 +511,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // `schedule`, source `schedule`. A schedule that cannot be written is an
   // error on the result by name; the rest of the apply still lands.
   if (!dryRun) {
-    await reconcileSchedules(orgId, loaded, errors, configChangedSourceSlugs);
+    await reconcileSchedules(orgId, loaded, errors, configChangedSourceSlugs, additive);
   }
 
   // Compiled chat graphs bake in subagents — including the F1 team-lead
@@ -548,12 +567,14 @@ type UpsertOutcome = 'created' | 'updated' | 'unchanged' | 'unknown' | 'kept';
  * @param loaded
  * @param errors
  * @param configChangedSourceSlugs
+ * @param additive
  */
 async function reconcileSchedules(
   orgId: string,
   loaded: LoadedWorkspace,
   errors: ApplyResult['errors'],
   configChangedSourceSlugs: Set<string> = new Set(),
+  additive = false,
 ): Promise<void> {
   // Schedule-ownership guard. Reconciling schedules makes THIS
   // process the scheduler-of-record. Local dev commonly runs against the
@@ -617,27 +638,29 @@ async function reconcileSchedules(
 
   // A mission or automation the workspace no longer ships was just disabled
   // above; its schedule has to go with it, or the engine keeps firing a row
-  // whose status says it must not.
-  try {
-    const { notInArray } = await import('drizzle-orm');
-    const authoredAutomations = loaded.automations.map(a => a.slug);
-    const staleAutomations = await db
-      .select({ slug: automationSchema.slug })
-      .from(automationSchema)
-      .where(and(eq(automationSchema.orgId, orgId), eq(automationSchema.status, 'disabled'), authoredAutomations.length > 0 ? notInArray(automationSchema.slug, authoredAutomations) : undefined));
-    for (const row of staleAutomations) {
-      await removeAutomationSchedule(orgId, row.slug);
+  // whose status says it must not. (An additive apply disabled nothing.)
+  if (!additive) {
+    try {
+      const { notInArray } = await import('drizzle-orm');
+      const authoredAutomations = loaded.automations.map(a => a.slug);
+      const staleAutomations = await db
+        .select({ slug: automationSchema.slug })
+        .from(automationSchema)
+        .where(and(eq(automationSchema.orgId, orgId), eq(automationSchema.status, 'disabled'), authoredAutomations.length > 0 ? notInArray(automationSchema.slug, authoredAutomations) : undefined));
+      for (const row of staleAutomations) {
+        await removeAutomationSchedule(orgId, row.slug);
+      }
+      const authoredMissions = loaded.missions.map(m => m.slug);
+      const staleMissions = await db
+        .select({ slug: missionSchema.slug })
+        .from(missionSchema)
+        .where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.status, 'disabled'), authoredMissions.length > 0 ? notInArray(missionSchema.slug, authoredMissions) : undefined));
+      for (const row of staleMissions) {
+        await removeMissionSchedule(orgId, row.slug);
+      }
+    } catch (err) {
+      errors.push({ resource: 'missionSchedule', slug: '(retire sweep)', message: (err as Error).message });
     }
-    const authoredMissions = loaded.missions.map(m => m.slug);
-    const staleMissions = await db
-      .select({ slug: missionSchema.slug })
-      .from(missionSchema)
-      .where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.status, 'disabled'), authoredMissions.length > 0 ? notInArray(missionSchema.slug, authoredMissions) : undefined));
-    for (const row of staleMissions) {
-      await removeMissionSchedule(orgId, row.slug);
-    }
-  } catch (err) {
-    errors.push({ resource: 'missionSchedule', slug: '(retire sweep)', message: (err as Error).message });
   }
 
   // A mission's own cron is not a schedule any more: the loader turned it into
@@ -675,11 +698,13 @@ async function reconcileSchedules(
 
   // The weekly org review: on the workspace's own cron, or removed when the
   // workspace turned it off (`defaults.orgReview`, written to the project above).
-  try {
-    const { reconcileOrgReviewSchedule } = await import('@/services/orgReview/schedule');
-    await reconcileOrgReviewSchedule(orgId);
-  } catch (err) {
-    errors.push({ resource: 'orgReviewSchedule', slug: 'workspace.yaml', message: (err as Error).message });
+  if (!additive) {
+    try {
+      const { reconcileOrgReviewSchedule } = await import('@/services/orgReview/schedule');
+      await reconcileOrgReviewSchedule(orgId);
+    } catch (err) {
+      errors.push({ resource: 'orgReviewSchedule', slug: 'workspace.yaml', message: (err as Error).message });
+    }
   }
 }
 

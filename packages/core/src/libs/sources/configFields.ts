@@ -57,6 +57,14 @@ export type ConfigField = {
   defaultValue?: ConfigFieldValue;
   /** The choices, for `select` fields only. */
   options?: ConfigFieldOption[];
+  /**
+   * Choices the form reads from the vendor once a login exists, in place of
+   * a typed value: `google-ads-accounts` lists the Ads accounts the Google
+   * login can run (`connect.googleAdsAccounts`), and picking one also fills
+   * the manager it is reached through. The typed input stays as the fallback
+   * when no login is there yet.
+   */
+  optionsFrom?: 'google-ads-accounts';
   /** Lowest accepted value, for `number` fields only. */
   min?: number;
   /** Highest accepted value, for `number` fields only. */
@@ -204,18 +212,20 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
   'google-ads': [
     {
       key: 'customerId',
-      label: 'Customer ID',
+      label: 'Google Ads account',
       type: 'text',
       required: true,
+      optionsFrom: 'google-ads-accounts',
       placeholder: '1234567890',
-      help: 'The account Vocion reads and manages: the ten digits at the top of Google Ads (dashes are fine).',
+      help: 'The account Vocion reads and manages. After you log in with Google, pick it from the list.',
     },
     {
       key: 'loginCustomerId',
       label: 'Manager account ID',
       type: 'text',
       placeholder: '9876543210',
-      help: 'Only needed when the login reaches the account through a manager (MCC) account.',
+      advanced: true,
+      help: 'Filled in when you pick an account reached through a manager (MCC) account.',
     },
     {
       key: 'baseUrl',

@@ -434,6 +434,14 @@ export const PluginManifestSchema = z.object({
   description: z.string().min(1).describe('one line: what turning it on gives a person'),
   /** Other plugins this one needs; turned on with it, ordered before it. */
   depends: z.array(SlugSchema).default([]),
+  /**
+   * The plugin's own agent that leads a workspace it is installed into when
+   * that workspace has no lead of its own, or only the generic one core seeds
+   * (`workspace-lead`). Read when an app is turned on in a workspace with no
+   * folder (`services/plugins/installBundle.ts`); a workspace with a
+   * `workspace.yaml` names its lead there. Must be one of the plugin's agents.
+   */
+  lead: SlugSchema.optional(),
   /** Core-registered surfaces (`features/navigation/surfaces.ts`) this plugin switches on. */
   surfaces: z.array(z.string()).default([]),
   /**

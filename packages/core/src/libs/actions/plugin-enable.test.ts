@@ -63,7 +63,10 @@ beforeAll(async () => {
   ]);
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Squatch is applied from its folder in the workspace repo, like every
+  // project on a self-hosted box, so a toggle never sets a bundle up for it.
+  await db.insert(workspaceVersionSchema).values({ orgId: FACTORY, sha: 'repo-sha', status: 'applied', sourcePath: '/workspace/squatch-factory', appliedBy: 'deploy' });
   prevPath = process.env.WORKSPACE_PATH;
   prevMap = process.env.VOCION_WORKSPACE_MAP;
   delete process.env.VOCION_WORKSPACE_MAP;

@@ -56,7 +56,7 @@ import {
 } from './BusinessObject';
 import { hintEvent as chatHintEvent, suggestions as chatSuggestions, tagSources as chatTagSources } from './Chat';
 import { getState as getChatWidgetState, setRail as setChatWidgetRail, setState as setChatWidgetState } from './ChatWidget';
-import { addConnectorRoute, membersOwnConnectionsRoute, revealStoredCredentialRoute, saveSourceRoute as saveConnectedSourceRoute, setMembersOwnConnectionsRoute } from './Connect';
+import { addConnectorRoute, googleAdsAccountsRoute, membersOwnConnectionsRoute, revealStoredCredentialRoute, saveSourceRoute as saveConnectedSourceRoute, setMembersOwnConnectionsRoute } from './Connect';
 import { finishConnectionsRoute, planConnectionsRoute, saveConnectionKeyRoute, verifyConnectionRoute } from './ConnectSystems';
 import {
   append as appendConvMessage,
@@ -318,6 +318,7 @@ export const router = {
     revealStoredCredential: revealStoredCredentialRoute,
     membersOwnConnections: membersOwnConnectionsRoute,
     setMembersOwnConnections: setMembersOwnConnectionsRoute,
+    googleAdsAccounts: googleAdsAccountsRoute,
   },
   connectSystems: {
     plan: planConnectionsRoute,

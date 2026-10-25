@@ -35,6 +35,7 @@ import { readWorkspacePage } from '@/libs/workspace/pages';
 import { listPluginSlugs, loadPlugin, resolvePlugins } from '@/libs/workspace/plugins';
 import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
+import { appliedFromFolder, installPluginBundles, retirePluginBundles } from '@/services/plugins/installBundle';
 import { folderOwner, mountedWorkspaceIsProjects, mountOwnership, projectPagesFolder } from '@/services/WorkspaceMountService';
 
 /**
@@ -142,6 +143,12 @@ export type PluginToggleResult = {
   note?: string;
   /** For `mode: project` — the file to change in the workspace repo. */
   repoFile?: string;
+  /**
+   * For a workspace with no folder (Vocion Cloud): what turning the app on
+   * set up, or what turning it off put away. Absent when the workspace is
+   * applied from a folder, whose manifest owns its bundle.
+   */
+  installed?: { plugins: string[]; errors: number; leadAdopted: string | null } | { retired: { missions: number; automations: number; agents: number }; leadRestored: string | null };
 };
 
 /**
@@ -214,6 +221,10 @@ export async function togglePluginForProject(opts: { orgId: string; projectSlug:
   const before = await enabledPluginsForOrg(opts.orgId);
   const after = closeEnabledPlugins(opts.enabled ? [...before, opts.slug] : before.filter(s => s !== opts.slug && !loadPlugin(s).manifest.depends.includes(opts.slug)));
   await writeEnabledPlugins(opts.orgId, after);
+  if (!(await appliedFromFolder(opts.orgId))) {
+    const installed = await syncBundles({ orgId: opts.orgId, before, after, asked: [opts.slug], appliedBy: opts.appliedBy });
+    return { slug: opts.slug, enabled: opts.enabled, before, after, applied: null, mode: 'project', installed, note: installedNote(opts.slug, installed) };
+  }
   return { slug: opts.slug, enabled: opts.enabled, before, after, applied: null, mode: 'project', repoFile: target.repoFile, note: projectOnlyNote({ slug: opts.slug, enabled: opts.enabled, target }) };
 }
 
@@ -249,6 +260,9 @@ export async function addPluginsForProject(opts: { orgId: string; projectSlug: s
   const before = await enabledPluginsForOrg(opts.orgId);
   const after = closeEnabledPlugins([...before, ...opts.slugs]);
   await writeEnabledPlugins(opts.orgId, after);
+  if (!(await appliedFromFolder(opts.orgId))) {
+    return { before, after, applied: null, mode: 'project', installed: await syncBundles({ orgId: opts.orgId, before, after, asked: opts.slugs, appliedBy: opts.appliedBy }) };
+  }
   return { before, after, applied: null, mode: 'project', repoFile: target.repoFile };
 }
 
@@ -269,7 +283,12 @@ export async function restorePluginsForProject(opts: { orgId: string; projectSlu
   if (target.mode === 'workspace' && target.workspaceDir) {
     return { ...(await restorePlugins({ orgId: opts.orgId, workspaceDir: target.workspaceDir, plugins: opts.plugins, appliedBy: opts.appliedBy })), mode: 'workspace' };
   }
-  await writeEnabledPlugins(opts.orgId, closeEnabledPlugins(opts.plugins));
+  const before = await enabledPluginsForOrg(opts.orgId);
+  const after = closeEnabledPlugins(opts.plugins);
+  await writeEnabledPlugins(opts.orgId, after);
+  if (!(await appliedFromFolder(opts.orgId))) {
+    await syncBundles({ orgId: opts.orgId, before, after, asked: after.filter(s => !before.includes(s)), appliedBy: opts.appliedBy });
+  }
   return { applied: null, mode: 'project' };
 }
 
@@ -279,6 +298,40 @@ export async function restorePluginsForProject(opts: { orgId: string; projectSlu
  */
 function closeEnabledPlugins(requested: readonly string[]): string[] {
   return resolvePlugins([...new Set(requested)]).map(p => p.manifest.slug);
+}
+
+/**
+ * A workspace with no folder (Vocion Cloud): set up what was turned on and
+ * put away what was turned off (`services/plugins/installBundle.ts`).
+ * @param input
+ * @param input.orgId
+ * @param input.before - `enabled_plugins` before the change.
+ * @param input.after - After it (dependency-closed).
+ * @param input.asked - The plugins the person turned on, in their order (the lead is read from these first).
+ * @param input.appliedBy
+ */
+async function syncBundles(input: { orgId: string; before: readonly string[]; after: readonly string[]; asked: readonly string[]; appliedBy: string }): Promise<NonNullable<PluginToggleResult['installed']>> {
+  const added = input.after.filter(s => !input.before.includes(s));
+  const removed = input.before.filter(s => !input.after.includes(s));
+  // Off first, so an undo that swaps one app for another never leaves the
+  // retired one leading.
+  const retired = removed.length > 0 ? await retirePluginBundles({ orgId: input.orgId, plugins: removed, stillOn: input.after }) : null;
+  if (added.length > 0) {
+    const asked = [...input.asked.filter(s => added.includes(s)), ...added.filter(s => !input.asked.includes(s))];
+    const done = await installPluginBundles({ orgId: input.orgId, plugins: asked, appliedBy: input.appliedBy });
+    return { plugins: done.plugins, errors: done.errors.length, leadAdopted: done.leadAdopted };
+  }
+  return { retired: { missions: retired?.missions ?? 0, automations: retired?.automations ?? 0, agents: retired?.agents ?? 0 }, leadRestored: retired?.leadRestored ?? null };
+}
+
+function installedNote(slug: string, installed: NonNullable<PluginToggleResult['installed']>): string {
+  if ('retired' in installed) {
+    const { missions, automations, agents } = installed.retired;
+    return `Turned off ${slug}: ${agents} agent(s) set inactive, ${missions} mission(s) and ${automations} automation(s) disabled. Nothing was deleted; turning it on again brings them back.${installed.leadRestored ? ' The workspace lead is the general lead again.' : ''}`;
+  }
+  const lead = installed.leadAdopted ? ` ${installed.leadAdopted} now leads this workspace.` : '';
+  const problems = installed.errors > 0 ? ` ${installed.errors} part(s) could not be set up; the Workspace page lists them.` : '';
+  return `Turned on ${slug} and set up its agents, missions and automations here.${lead}${problems}`;
 }
 
 async function writeEnabledPlugins(orgId: string, enabledPlugins: string[]): Promise<void> {
