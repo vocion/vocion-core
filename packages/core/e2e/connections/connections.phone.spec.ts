@@ -131,7 +131,7 @@ test('broken, then reconnect: a revoked key says so in words, and Reconnect puts
 
   await expect(page.getByText('Connect Apollo', { exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Advanced: use an API key instead' }).click();
+  // Reconnecting a pasted key opens on the key itself.
   await page.getByLabel('API key', { exact: true }).fill('apollo-e2e-key-0002');
   await page.getByRole('button', { name: 'Save credential' }).click();
 
