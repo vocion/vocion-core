@@ -169,7 +169,7 @@ describe('the add form puts the credential inside it', () => {
 
     await expect.element(page.getByLabelText('Private-app token', { exact: true })).toBeVisible();
     await expect.element(page.getByRole('link', { name: /Log in with/ })).not.toBeInTheDocument();
-    await expect.element(page.getByRole('button', { name: /^Paste .* instead$/ })).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Advanced: use an API key instead' })).not.toBeInTheDocument();
 
     await page.getByTestId('connect-paste-guide').getByText('Details').click();
 
@@ -181,7 +181,7 @@ describe('the add form puts the credential inside it', () => {
     await page.getByRole('button', { name: 'Connect QuickBooks Online' }).click();
 
     await expect.element(page.getByRole('link', { name: 'Log in with QuickBooks' })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: /^Paste .* instead$/ })).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Advanced: use an API key instead' })).not.toBeInTheDocument();
     await expect.element(page.getByRole('textbox')).not.toBeInTheDocument();
     await expect.element(page.getByTestId('connect-after-login')).toHaveTextContent('Logging in is all it takes; the source is added for you.');
   });
@@ -189,7 +189,7 @@ describe('the add form puts the credential inside it', () => {
   it('a connector made of several inputs (Jira) asks for each one by name, with no "needs" line when the access list is empty', async () => {
     await render(<SourcesPanel connectInfo={{ jira: ATLASSIAN_NO_LOGIN }} />);
     await page.getByRole('button', { name: 'Connect Jira' }).click();
-    await page.getByRole('button', { name: /^Paste .* instead$/ }).click();
+    await page.getByRole('button', { name: 'Advanced: use an API key instead' }).click();
 
     await expect.element(page.getByLabelText('Atlassian account email', { exact: true })).toBeVisible();
     await expect.element(page.getByLabelText('API token', { exact: true })).toBeVisible();
