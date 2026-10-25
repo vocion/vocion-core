@@ -229,3 +229,78 @@ export function adsUiUrl(customerId: string, campaignId?: string | null): string
     ? `https://ads.google.com/aw/overview?__e=${ocid}&campaignId=${encodeURIComponent(campaignId)}`
     : `https://ads.google.com/aw/overview?__e=${ocid}`;
 }
+
+/** One account a login can run, for the Connectors form's picker. */
+export type AdsAccountChoice = {
+  /** Ten digits. */
+  customerId: string;
+  name: string;
+  /** The manager account it is reached through, when it is not reached directly. */
+  managerId: string | null;
+};
+
+/**
+ * The accounts a Google login can run, for a picker instead of a typed id:
+ * the ones it reaches directly, and under each manager account it reaches,
+ * that manager's own client accounts (one level, enabled only). Managers
+ * themselves are left out, because a manager runs no campaigns. An account
+ * the login cannot read yet (one still being set up) is skipped. A–Z by name.
+ * @param accessToken - A token with the adwords scope.
+ * @param baseUrl - The API base, `https://googleads.googleapis.com/v23` unless pinned.
+ */
+export async function listGoogleAdsAccounts(accessToken: string, baseUrl?: string | null): Promise<AdsAccountChoice[]> {
+  const base = (baseUrl ?? `${GOOGLE_ADS_BASE}/${GOOGLE_ADS_API_VERSION}`).replace(/\/$/, '');
+  const res = await fetch(`${base}/customers:listAccessibleCustomers`, { headers: { authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) {
+    let parsed: FailureBody | null = null;
+    try {
+      parsed = await res.json() as FailureBody;
+    } catch { /* the status alone says it */ }
+    const { message, codes } = failureMessage(res.status, parsed);
+    throw new GoogleAdsError(message, res.status, codes);
+  }
+  const body = await res.json() as { resourceNames?: string[] };
+  const ids = (body.resourceNames ?? []).map(n => n.split('/')[1]).filter((id): id is string => Boolean(id));
+  const direct: AdsAccountChoice[] = [];
+  const underManagers: AdsAccountChoice[] = [];
+  for (const id of ids) {
+    try {
+      const [row] = await adsSearch<{ customer?: { id?: string; descriptiveName?: string; manager?: boolean } }>({ accessToken, customerId: id, baseUrl: base }, 'SELECT customer.id, customer.descriptive_name, customer.manager FROM customer');
+      if (!row?.customer) {
+        continue;
+      }
+      if (!row.customer.manager) {
+        direct.push({ customerId: id, name: row.customer.descriptiveName || id, managerId: null });
+        continue;
+      }
+      const clients = await adsSearch<{ customerClient?: { id?: string; descriptiveName?: string; manager?: boolean } }>(
+        { accessToken, customerId: id, loginCustomerId: id, baseUrl: base },
+        'SELECT customer_client.id, customer_client.descriptive_name, customer_client.manager FROM customer_client WHERE customer_client.level = 1 AND customer_client.status = \'ENABLED\'',
+      );
+      for (const c of clients) {
+        if (c.customerClient?.id && !c.customerClient.manager) {
+          underManagers.push({ customerId: String(c.customerClient.id), name: c.customerClient.descriptiveName || String(c.customerClient.id), managerId: id });
+        }
+      }
+    } catch {
+      // Not enabled yet, or not readable with this login: not something to pick.
+    }
+  }
+  return mergeAccountChoices(direct, underManagers);
+}
+
+/**
+ * Direct and through-a-manager choices as one list: an account the login
+ * reaches directly is listed once, without a manager. A–Z by name.
+ * @param direct - Reached directly.
+ * @param underManagers - Reached through a manager.
+ */
+export function mergeAccountChoices(direct: readonly AdsAccountChoice[], underManagers: readonly AdsAccountChoice[]): AdsAccountChoice[] {
+  const byId = new Map<string, AdsAccountChoice>();
+  for (const a of [...direct, ...underManagers]) {
+    if (!byId.has(a.customerId)) {
+      byId.set(a.customerId, a);
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}

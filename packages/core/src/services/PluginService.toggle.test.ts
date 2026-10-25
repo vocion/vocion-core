@@ -55,7 +55,11 @@ beforeAll(async () => {
   ]);
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Squatch is applied from its folder in the workspace repo, like every
+  // project on a self-hosted box: its manifest owns what it has, so a toggle
+  // here never sets a plugin's bundle up (`services/plugins/installBundle.ts`).
+  await db.insert(workspaceVersionSchema).values({ orgId: FACTORY, sha: 'repo-sha', status: 'applied', sourcePath: '/workspace/squatch-factory', appliedBy: 'deploy' });
   prevPath = process.env.WORKSPACE_PATH;
   prevMap = process.env.VOCION_WORKSPACE_MAP;
   delete process.env.VOCION_WORKSPACE_MAP;
@@ -127,7 +131,7 @@ describe('togglePluginForProject', () => {
     expect(await enabledOf(FACTORY)).toEqual(['software-factory', 'data-rooms', 'proposals']);
     // Revenue's own list and versions are untouched — nothing was applied to anyone.
     expect(await enabledOf(REVENUE)).toEqual([]);
-    expect(await db.select().from(workspaceVersionSchema)).toEqual([]);
+    expect((await db.select().from(workspaceVersionSchema)).map(r => r.orgId)).toEqual([FACTORY]);
   });
 
   it('turning one off for another project also drops what depended on it, in the column alone', async () => {
