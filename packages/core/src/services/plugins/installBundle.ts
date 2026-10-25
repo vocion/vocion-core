@@ -66,6 +66,8 @@ export type BundleInstall = {
   errors: ApplyResult['errors'];
   /** The agent that became the workspace lead, when one did. */
   leadAdopted: string | null;
+  /** Who became accountable (the installing admin), when the workspace had no one. */
+  accountableSet: string | null;
 };
 
 /**
@@ -144,8 +146,12 @@ export async function installPluginBundles(opts: { orgId: string; plugins: reado
       leadAdopted = candidate;
     }
   }
+  // An app that mails its updates needs someone to mail them to: a workspace
+  // with no accountable person gets the admin who installed the app.
+  const { defaultAccountable } = await import('@/services/workspace/accountable');
+  const accountableSet = await defaultAccountable(opts.orgId, opts.appliedBy).catch(() => null);
   await flushRuntime();
-  return { plugins: slugs, counts: result.counts, errors: result.errors, leadAdopted };
+  return { plugins: slugs, counts: result.counts, errors: result.errors, leadAdopted, accountableSet };
 }
 
 /**

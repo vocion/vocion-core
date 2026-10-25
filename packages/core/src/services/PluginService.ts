@@ -148,7 +148,7 @@ export type PluginToggleResult = {
    * set up, or what turning it off put away. Absent when the workspace is
    * applied from a folder, whose manifest owns its bundle.
    */
-  installed?: { plugins: string[]; errors: number; leadAdopted: string | null } | { retired: { missions: number; automations: number; agents: number }; leadRestored: string | null };
+  installed?: { plugins: string[]; errors: number; leadAdopted: string | null; accountableSet?: string | null } | { retired: { missions: number; automations: number; agents: number }; leadRestored: string | null };
 };
 
 /**
@@ -319,7 +319,7 @@ async function syncBundles(input: { orgId: string; before: readonly string[]; af
   if (added.length > 0) {
     const asked = [...input.asked.filter(s => added.includes(s)), ...added.filter(s => !input.asked.includes(s))];
     const done = await installPluginBundles({ orgId: input.orgId, plugins: asked, appliedBy: input.appliedBy });
-    return { plugins: done.plugins, errors: done.errors.length, leadAdopted: done.leadAdopted };
+    return { plugins: done.plugins, errors: done.errors.length, leadAdopted: done.leadAdopted, accountableSet: done.accountableSet };
   }
   return { retired: { missions: retired?.missions ?? 0, automations: retired?.automations ?? 0, agents: retired?.agents ?? 0 }, leadRestored: retired?.leadRestored ?? null };
 }
@@ -330,8 +330,9 @@ function installedNote(slug: string, installed: NonNullable<PluginToggleResult['
     return `Turned off ${slug}: ${agents} agent(s) set inactive, ${missions} mission(s) and ${automations} automation(s) disabled. Nothing was deleted; turning it on again brings them back.${installed.leadRestored ? ' The workspace lead is the general lead again.' : ''}`;
   }
   const lead = installed.leadAdopted ? ` ${installed.leadAdopted} now leads this workspace.` : '';
+  const accountable = installed.accountableSet ? ' Its updates go to you: you are now this workspace\'s accountable person (change it on the Members page).' : '';
   const problems = installed.errors > 0 ? ` ${installed.errors} part(s) could not be set up; the Workspace page lists them.` : '';
-  return `Turned on ${slug} and set up its agents, missions and automations here.${lead}${problems}`;
+  return `Turned on ${slug} and set up its agents, missions and automations here.${lead}${accountable}${problems}`;
 }
 
 async function writeEnabledPlugins(orgId: string, enabledPlugins: string[]): Promise<void> {

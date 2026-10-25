@@ -91,6 +91,14 @@ Plugins page, the API or a chat card, sets the whole app up at once
   removed) and sets its agents inactive. Every row is kept, so history stays,
   and turning the app on again brings the same rows back. If one of its
   agents led the workspace, the generic lead takes over again.
+- **The accountable person:** an app that mails its updates needs someone to
+  mail them to. When the workspace has no accountable person
+  (`project.accountable_user_id`), the admin who turned the app on becomes
+  accountable, and the receipt says so. A person already set is never
+  replaced. Admins change it on the Members page (*Accountable person*), and a
+  shared workspace made in the app starts with its creator. If a delivery
+  still finds nobody, it files one setup ask to an admin
+  (`services/workspace/accountable.ts`) instead of failing quietly.
 - **Idempotent:** turning an app on twice changes nothing the second time.
 - **Recorded** as a `workspace_version` row whose `source_path` is
   `app:<plugins>`.
