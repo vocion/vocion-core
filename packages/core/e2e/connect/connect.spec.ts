@@ -186,8 +186,8 @@ test('GitHub from the Connectors page: log in, the credential field is filled an
   await page.goto('/dashboard/connectors');
   await openConnect(page, 'GitHub');
 
-  // The login leads; pasting a token instead is one click away, into a real input.
-  await page.getByRole('button', { name: 'Paste a Personal access token instead' }).click();
+  // The login leads; a token is behind Advanced, one click away, into a real input.
+  await page.getByRole('button', { name: 'Advanced: use an API key instead' }).click();
 
   await expect(page.getByLabel('Personal access token', { exact: true })).toBeVisible();
   await expect(page.getByText(/press Connect on its row/)).toHaveCount(0);
@@ -220,14 +220,17 @@ test('GitHub from the Connectors page: log in, the credential field is filled an
   await expect(page.getByText(/Login · northwind/)).toBeVisible();
 });
 
-test('HubSpot, with no HubSpot app set up on this server: paste only, one key in the add box and one Save make the connected source and list the key', async ({ page }) => {
+test('HubSpot, with no HubSpot app set up on this server: the login leads with what an admin sets up, and one key behind Advanced plus one Save make the connected source and list the key', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
   await openConnect(page, 'HubSpot');
 
-  // Paste only: inputs and guidance, never a login button.
+  // Click to auth, always (2026-10-25): the HubSpot login shows, disabled, with
+  // what an admin sets up; it is never a working link without an app.
   await expect(page.getByRole('link', { name: /Log in with/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Log in with HubSpot' })).toBeDisabled();
 
+  await page.getByRole('button', { name: 'Advanced: use an API key instead' }).click();
   await page.getByTestId('connect-paste-guide').getByText('Details').click();
 
   await expect(page.getByText('Needs access to: CRM object read access')).toBeVisible();
