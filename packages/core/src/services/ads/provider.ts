@@ -100,7 +100,7 @@ export type AdsProvider = {
 export async function adsProviderFor(orgId: string, opts: { sourceSlug?: string | null; slugs?: readonly string[] } = {}): Promise<AdsProvider> {
   const sources = await familySourcesForOrg(orgId, 'ads', opts.slugs);
   if (sources.length === 0) {
-    throw new Error('No ad platform is connected for this agent. Connect one (Google Ads, LinkedIn Ads or Meta Ads) at /dashboard/connectors and give this agent the source.');
+    throw new Error(await noAdsSourceMessage(orgId, opts.slugs));
   }
   let chosen: FamilySource | undefined;
   if (opts.sourceSlug) {
@@ -168,4 +168,20 @@ export async function googleAdsSourceFor(orgId: string, opts: { sourceSlug?: str
     throw new Error(`There are ${sources.length} Google Ads sources; name one (source): ${sources.map(s => s.slug).join(', ')}.`);
   }
   return sources[0]!;
+}
+
+/**
+ * Why there is no ads source for this agent, and which connection to offer:
+ * the one the workspace declares (Chris, 2026-10-25: "I got LinkedIn ads
+ * connector when I asked for 'ads'"), else Google Ads first for paid search.
+ * @param orgId - The workspace.
+ * @param slugs - The agent's own sources, when it is scoped to them.
+ */
+async function noAdsSourceMessage(orgId: string, slugs: readonly string[] | undefined): Promise<string> {
+  const declared = slugs && slugs.length > 0 ? await familySourcesForOrg(orgId, 'ads') : [];
+  if (declared.length > 0) {
+    const list = declared.map(s => `${s.slug} (${s.kind})`).join(', ');
+    return `This agent has no ad platform source, but the workspace declares ${list}. Hand the question to the agent that has it, or offer that connector with offer_connection if it is not connected yet; never offer a different ad platform instead.`;
+  }
+  return 'No ad platform is connected. Offer Google Ads with offer_connection (connector "google-ads") for paid search; offer LinkedIn Ads or Meta Ads only when the person names them (named: true).';
 }

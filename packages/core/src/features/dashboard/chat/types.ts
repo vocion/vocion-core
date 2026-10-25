@@ -172,7 +172,7 @@ export type RecommendedAction = {
   /** The sentence or two under the title. */
   body?: string;
   fields?: CardField[];
-  /** A second way in beside `href`, such as "Paste a token". */
+  /** A second way in beside `href`, such as "Use an API key instead". */
   secondaryHref?: string;
   secondaryHrefLabel?: string;
   lastAttempt?: CardLastAttempt;

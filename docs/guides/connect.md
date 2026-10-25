@@ -17,11 +17,32 @@ vendor and where its client ID and secret go.
 
 ## What a person sees
 
-On `/dashboard/sources`, a source whose connector has a provider and whose
-server is configured for it shows one button in its connect dialog, **Connect
-with <vendor>**, in place of the paste form. When the server is not configured
-for that vendor, the paste form stays and one line names the env vars the
-server is missing, so the reason is never a mystery. After the vendor sends the
+On `/dashboard/sources`, a source whose connector has a provider shows one
+button in its connect dialog, **Log in with <vendor>**. A pasted key is behind
+**Advanced: use an API key instead**, never first.
+
+**Click to auth, always** (Chris, 2026-10-25: "I want to be able to click to
+auth. Always. Any connector."):
+
+- When the server has no login app for that vendor yet, the button still shows,
+  disabled, with one line on what an admin sets up: the vendor's login app on the
+  Developers page, or the env vars the server is missing. The form never falls
+  back to a key on its own.
+- The chat's connect card (`offer_connection`) does the same. It opens the add
+  flow with the admin note, with **Use an API key instead** as its second
+  button.
+- A connector whose vendor has no login at all opens its token form. Each one
+  is listed with the reason in `libs/connect/clickToAuth.ts`
+  (`KEY_ONLY_CONNECTORS`), and `clickToAuth.test.ts` fails on a key-only
+  connector missing from that list. Entries marked `vendorHasLogin` are
+  vendors with a login Vocion has not built yet: follow-ups.
+
+**The workspace's own source first.** When the agent offers a connection for
+a family (ads, chat, tracker, ...), the source the workspace declares wins over
+the agent's pick: in a workspace that declares Google Ads, an offer of LinkedIn
+Ads becomes a Google Ads card. With several declared, no card is drawn and the
+agent asks which. A vendor the person named themselves (`named: true`) is
+offered as asked. After the vendor sends the
 person back, the sources page says in one line whether it worked, and if not,
 what to do.
 
@@ -93,10 +114,10 @@ person clicks Connect with Slack
   values typed into a form has no row to save to, so it never refreshes,
   and says to save the connector and renew from its row. Jira's Atlassian
   grant is never refreshed by a test.
-- **Only when set up.** The Connectors form and the chat card offer a login
-  only when there is an app to run it on: the server's (its client ID in the
-  env) or the workspace's own login app, saved on Developers. Otherwise they
-  offer paste alone, rather than a button that can only fail.
+- **Set up, or saying how.** The login runs on the server's app (its client ID
+  in the env) or the workspace's own login app, saved on Developers. Without
+  either, the Connectors form and the chat card still lead with the login,
+  disabled, with what an admin sets up, and keep the key as the second way in.
 - **Workspace login apps.** For Google, Slack, Atlassian, HubSpot, Notion, Zoom,
   Apollo, QuickBooks, Xero and Gusto, a workspace admin can save the vendor's client ID and secret as
   a `<provider>-login-app` credential (`libs/connect/loginClient.ts`). A new

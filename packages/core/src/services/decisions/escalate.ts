@@ -287,7 +287,7 @@ async function fromCard(card: Card, deps: EscalationDeps): Promise<AgentEvent[]>
     const connector = connectorOf(card.href) ?? 'tool';
     const options: AskOption[] = [
       { id: `connect:${connector}`, label: card.hrefLabel ?? card.title, description: 'Opens the sign-in, then brings you back here.', recommended: true, href: card.href },
-      ...(card.secondaryHref ? [{ id: `paste:${connector}`, label: card.secondaryHrefLabel ?? 'Paste a token', description: 'Opens the token form, then brings you back here.', href: card.secondaryHref }] : []),
+      ...(card.secondaryHref ? [{ id: `paste:${connector}`, label: card.secondaryHrefLabel ?? 'Use an API key instead', description: 'Opens the token form, then brings you back here.', href: card.secondaryHref }] : []),
     ];
     return raise(deps, {
       kind: 'setup',
