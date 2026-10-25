@@ -476,6 +476,7 @@
     "accountable_who": "Les mises à jour de cet espace vont à {name} quand elles ne nomment personne d'autre.",
     "accountable_none": "Personne pour l'instant. Les mises à jour qui ne nomment personne n'ont nulle part où aller : choisissez un membre.",
     "accountable_choose": "Choisir un membre",
+    "accountable_change": "Modifier",
     "accountable_failed": "Impossible d'enregistrer. Réessayez."
   },
   "SignIn": {

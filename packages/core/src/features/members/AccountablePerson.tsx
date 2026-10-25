@@ -19,6 +19,9 @@ export function AccountablePerson() {
   const [state, setState] = useState<State | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The members list renders only while an admin is choosing, so the page
+  // never shows everyone's names twice (the People list already does).
+  const [choosing, setChoosing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +45,7 @@ export function AccountablePerson() {
     try {
       const { person } = await client.members.setAccountable({ userId });
       setState({ ...state, person });
+      setChoosing(false);
     } catch {
       setError(t('accountable_failed'));
     } finally {
@@ -58,12 +62,24 @@ export function AccountablePerson() {
         </p>
         {error && <p role="status" className="text-xs text-brand-fail">{error}</p>}
       </div>
-      {state.canChange && state.members.length > 0 && (
+      {state.canChange && state.members.length > 0 && !choosing && (
+        <button
+          type="button"
+          onClick={() => setChoosing(true)}
+          className="h-8 shrink-0 rounded-md border border-border px-3 text-[13px] font-medium hover:bg-surface-soft focus:ring-2 focus:ring-ring/30 focus:outline-none"
+        >
+          {state.person ? t('accountable_change') : t('accountable_choose')}
+        </button>
+      )}
+      {state.canChange && choosing && (
         <select
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- opened by the person's own tap
+          autoFocus
           value={state.person?.userId ?? ''}
           disabled={saving}
           aria-label={t('accountable_title')}
           onChange={e => e.target.value && void change(e.target.value)}
+          onBlur={() => !saving && setChoosing(false)}
           className="h-8 max-w-full rounded-md bg-surface-soft px-2 text-[13px] text-foreground outline-none focus:ring-2 focus:ring-ring/30 disabled:opacity-60"
         >
           {!state.person && <option value="">{t('accountable_choose')}</option>}
