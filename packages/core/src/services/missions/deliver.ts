@@ -17,6 +17,7 @@ import { workspaceUrl } from '@/libs/links';
 import { mailEnabled, MailError, sendMail } from '@/libs/mail';
 import { projectSchema, tenantAccountSchema, userSchema } from '@/models/Schema';
 import { workspaceFrom } from '@/services/mail/workspaceFrom';
+import { askForAccountable, noRecipient } from '@/services/workspace/accountable';
 
 export type MissionDelivery = { email: true | string[] };
 
@@ -44,6 +45,16 @@ export async function deliverCheckResult(opts: {
   failed: string | null;
   startedAt: Date;
 }): Promise<DeliveryOutcome> {
+  const outcome = await deliverOnce(opts);
+  // Nobody to send to is a setup gap, not a quiet skip: ask an admin who
+  // should get this workspace's updates (once; re-filing refreshes it).
+  if (outcome.delivered !== 'nothing' && !outcome.mail.sent && noRecipient(outcome.mail.reason)) {
+    await askForAccountable(opts.orgId, opts.mission.name);
+  }
+  return outcome;
+}
+
+async function deliverOnce(opts: Parameters<typeof deliverCheckResult>[0]): Promise<DeliveryOutcome> {
   const { deliver } = opts.mission;
   if (!deliver?.email) {
     return { delivered: 'nothing', reason: 'the mission delivers nowhere' };

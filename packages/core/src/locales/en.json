@@ -471,7 +471,12 @@
     "personal_reach_title": "Include in members' Personal",
     "personal_reach_on": "Members see this Org's waiting items, briefs and views in their own Personal, labelled with this Org, read with their own access.",
     "personal_reach_off": "Members' Personal shows only how many items wait here, with a link in. Turn this off when a contract forbids aggregating this Org's work elsewhere.",
-    "personal_reach_failed": "Could not save that. Try again."
+    "personal_reach_failed": "Could not save that. Try again.",
+    "accountable_title": "Accountable person",
+    "accountable_who": "Updates from this workspace go to {name} when they name no one else.",
+    "accountable_none": "No one yet. Updates that name no one else have nowhere to go: choose a member.",
+    "accountable_choose": "Choose a member",
+    "accountable_failed": "Could not save that. Try again."
   },
   "SignIn": {
     "title": "Welcome back",

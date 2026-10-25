@@ -471,7 +471,12 @@
     "personal_reach_title": "Inclure dans l’espace personnel des membres",
     "personal_reach_on": "Les membres voient les éléments en attente, briefs et vues de cette Org dans leur espace personnel, étiquetés avec cette Org, lus avec leurs propres accès.",
     "personal_reach_off": "L’espace personnel des membres n’affiche que le nombre d’éléments en attente ici, avec un lien. Désactivez-le lorsqu’un contrat interdit d’agréger le travail de cette Org ailleurs.",
-    "personal_reach_failed": "Impossible d’enregistrer. Réessayez."
+    "personal_reach_failed": "Impossible d’enregistrer. Réessayez.",
+    "accountable_title": "Personne responsable",
+    "accountable_who": "Les mises à jour de cet espace vont à {name} quand elles ne nomment personne d'autre.",
+    "accountable_none": "Personne pour l'instant. Les mises à jour qui ne nomment personne n'ont nulle part où aller : choisissez un membre.",
+    "accountable_choose": "Choisir un membre",
+    "accountable_failed": "Impossible d'enregistrer. Réessayez."
   },
   "SignIn": {
     "title": "Bon retour",

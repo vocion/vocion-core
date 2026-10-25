@@ -165,3 +165,34 @@ export const resetSecondFactorRoute = os
     logger.info('two-step sign-in reset by an account admin', { accountId, actorId, userId: input.userId, hadSecondFactor: result.hadSecondFactor });
     return { ok: true, hadSecondFactor: result.hadSecondFactor };
   });
+
+/**
+ * The workspace's accountable person: who its updates are mailed to when a
+ * mission or report names no address (`services/workspace/accountable.ts`).
+ * Everyone sees who it is; admins also get the members to choose from.
+ */
+export const accountableRoute = os.handler(async () => {
+  const { orgId, accountId, has } = await guardAuth();
+  const { readAccountable } = await import('@/services/workspace/accountable');
+  const person = await readAccountable(orgId);
+  const canChange = has({ role: ORG_ROLE.ADMIN }) && Boolean(accountId);
+  const members = canChange && accountId ? (await listMembers(accountId)).map(m => ({ userId: m.userId, name: m.name, email: m.email })) : [];
+  return { person, canChange, members };
+});
+
+/** Admins name the workspace's accountable person: a member of this Org. */
+export const setAccountableRoute = os
+  .input(z.object({ userId: z.string().min(1) }))
+  .handler(async ({ input }) => {
+    await guardAdmin();
+    const { orgId } = await guardAuth();
+    const { setAccountable, AccountableError } = await import('@/services/workspace/accountable');
+    try {
+      return { person: await setAccountable({ orgId, userId: input.userId }) };
+    } catch (e) {
+      if (e instanceof AccountableError) {
+        throw ApiError.badRequest(e.message);
+      }
+      throw e;
+    }
+  });

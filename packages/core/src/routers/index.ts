@@ -105,6 +105,7 @@ import {
   update as updateLearning,
 } from './Learnings';
 import {
+  accountableRoute,
   changeRoleRoute,
   createInviteRoute,
   inviteDeliveryRoute,
@@ -114,6 +115,7 @@ import {
   resendInviteRoute,
   resetSecondFactorRoute,
   revokeInviteRoute,
+  setAccountableRoute,
 } from './Members';
 import {
   cancel as cancelMissionRoute,
@@ -365,6 +367,8 @@ export const router = {
     changeRole: changeRoleRoute,
     remove: removeMemberRoute,
     resetSecondFactor: resetSecondFactorRoute,
+    accountable: accountableRoute,
+    setAccountable: setAccountableRoute,
   },
   browser: {
     get: getBrowserRunRoute,

@@ -80,7 +80,9 @@ export async function createSharedWorkspace(input: { userId: string; accountId: 
     const inserted = await db.transaction(async (tx) => {
       const rows = await tx
         .insert(projectSchema)
-        .values({ id, accountId: input.accountId, slug, name, kind: 'shared' })
+        // The person who made it is accountable: its updates go to them until an admin
+        // names someone else (`services/workspace/accountable.ts`).
+        .values({ id, accountId: input.accountId, slug, name, kind: 'shared', accountableUserId: input.userId })
         .onConflictDoNothing()
         .returning({ id: projectSchema.id });
       if (rows.length === 0) {
