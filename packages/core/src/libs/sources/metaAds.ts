@@ -5,13 +5,17 @@
  * Read LIVE (`ads_campaigns`, `ads_performance`) through the Marketing API,
  * never mirrored. Pausing and resuming is `ads.set_status`, which needs the
  * token to carry `ads_management`; with `ads_read` alone it reads. Auth: a
- * Business Manager system user token (`meta-ads` platform) — no OAuth app.
+ * "Log in with Facebook" grant (`libs/connect/providers/meta.ts`), renewed
+ * while it is valid; a pasted Business Manager system user token is the
+ * advanced path (`meta-ads` platform).
  */
 
 import type { ConnectorCheck, ConnectorInspection } from './inspect';
 import type { SourceConnector, SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
+import { isLoginGrant, testConnectionPersistence, usableLoginGrant } from '@/libs/connect/loginGrant';
+import { refreshMetaGrant } from '@/libs/connect/providers/meta';
 import { actId, metaCall, metaTokenFrom } from '@/libs/meta/client';
 import { InspectInputError } from './inspect';
 
@@ -36,9 +40,12 @@ const ACCOUNT_STATUS: Record<number, string> = { 1: 'active', 2: 'disabled', 3: 
  * @param input - Config and credential, as typed or as vaulted.
  * @param input.config - The source config (`accountId`, `apiVersion`).
  * @param input.credentials - The credential bag.
+ * @param input.savedSource
+ * @param input.savedSource.orgId
+ * @param input.savedSource.sourceId
  * @param doFetch - The network, injected in tests.
  */
-export async function inspectMetaAds(input: { config: Record<string, unknown>; credentials: Record<string, unknown> }, doFetch?: typeof fetch): Promise<ConnectorInspection> {
+export async function inspectMetaAds(input: { config: Record<string, unknown>; credentials: Record<string, unknown>; savedSource?: { orgId: string; sourceId: number } }, doFetch?: typeof fetch): Promise<ConnectorInspection> {
   const config = metaAdsConfigSchema.safeParse(input.config);
   if (!config.success) {
     throw new InspectInputError('Enter the ad account id, act_ followed by digits, from Ads Manager\'s account menu.');
@@ -49,7 +56,15 @@ export async function inspectMetaAds(input: { config: Record<string, unknown>; c
   } catch (error) {
     throw new InspectInputError((error as Error).message);
   }
-  const token = metaTokenFrom(input.credentials);
+  let bag: Record<string, unknown> = input.credentials;
+  if (isLoginGrant(bag)) {
+    try {
+      bag = await usableLoginGrant({ vendor: 'Meta', provider: 'meta', connectorSlug: 'meta-ads', grant: bag, persistence: testConnectionPersistence('meta-ads', input.savedSource), refresh: refreshMetaGrant });
+    } catch (error) {
+      throw new InspectInputError(error instanceof Error ? error.message : String(error));
+    }
+  }
+  const token = metaTokenFrom(bag);
   if (!token.ok) {
     throw new InspectInputError(token.message);
   }
@@ -89,8 +104,8 @@ export const metaAdsConnector: SourceConnector<typeof metaAdsConfigSchema> = {
   configSchema: metaAdsConfigSchema,
   inspectNote: 'Reads the ad account, one page of campaigns and the token\'s permissions. Read-only and free. Nothing is saved.',
 
-  async inspect({ config, credentials }) {
-    return inspectMetaAds({ config, credentials });
+  async inspect({ config, credentials, savedSource }) {
+    return inspectMetaAds({ config, credentials, savedSource });
   },
 
   async* sync(_ctx: SourceContext): AsyncIterable<IngestDoc> {

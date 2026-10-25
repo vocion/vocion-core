@@ -190,6 +190,9 @@ export const Env = createEnv({
     BILL_DEV_KEY: z.string().optional(),
     LINKEDIN_CLIENT_ID: z.string().optional(),
     LINKEDIN_CLIENT_SECRET: z.string().optional(),
+    // Meta's app for "Log in with Facebook" on the Meta Ads connector.
+    META_APP_ID: z.string().optional(),
+    META_APP_SECRET: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
@@ -278,6 +281,8 @@ export const Env = createEnv({
     BILL_DEV_KEY: process.env.BILL_DEV_KEY,
     LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
     LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
+    META_APP_ID: process.env.META_APP_ID,
+    META_APP_SECRET: process.env.META_APP_SECRET,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,

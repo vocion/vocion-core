@@ -77,12 +77,15 @@ export async function refreshLinkedinGrant(refreshToken: string, client?: LoginC
   };
 }
 
+/** One ad account a login reaches: its id and its name. Not secret. */
+export type LinkedinAdAccount = { id: string; name: string };
+
 /**
- * The names of the ad accounts a fresh token reaches, for the connector card.
- * Empty when LinkedIn would not say; the login still works.
+ * The ad accounts a fresh token reaches, for the account picker and the
+ * connector card. Empty when LinkedIn would not say; the login still works.
  * @param accessToken - The access token just issued.
  */
-async function adAccountNames(accessToken: string): Promise<string[]> {
+async function adAccounts(accessToken: string): Promise<LinkedinAdAccount[]> {
   try {
     const response = await fetch(`${LINKEDIN_API_BASE}/adAccounts?q=search&pageSize=${MAX_ACCOUNT_NAMES}`, {
       headers: linkedinHeaders(accessToken),
@@ -92,8 +95,12 @@ async function adAccountNames(accessToken: string): Promise<string[]> {
       logger.warn('linkedin login could not list ad accounts', { status: response.status });
       return [];
     }
-    const body = await response.json() as { elements?: Array<{ name?: unknown }> };
-    return (body.elements ?? []).map(a => (typeof a.name === 'string' ? a.name.trim() : '')).filter(Boolean).slice(0, MAX_ACCOUNT_NAMES);
+    const body = await response.json() as { elements?: Array<{ id?: unknown; name?: unknown }> };
+    return (body.elements ?? []).flatMap((a) => {
+      const id = typeof a.id === 'number' || (typeof a.id === 'string' && /^\d+$/.test(a.id)) ? String(a.id) : '';
+      const name = typeof a.name === 'string' ? a.name.trim() : '';
+      return name ? [{ id, name }] : [];
+    }).slice(0, MAX_ACCOUNT_NAMES);
   } catch (error) {
     logger.warn('linkedin login could not list ad accounts', { errorName: error instanceof Error ? error.name : 'unknown' });
     return [];
@@ -158,7 +165,8 @@ export const linkedinProvider: ConnectProvider = {
       return { ok: false, reason: 'no_token' };
     }
     const refreshToken = typeof body.refresh_token === 'string' && body.refresh_token ? body.refresh_token : null;
-    const accounts = await adAccountNames(accessToken);
+    const reached = await adAccounts(accessToken);
+    const accounts = reached.map(a => a.name);
     return {
       ok: true,
       credentials: {
@@ -167,6 +175,8 @@ export const linkedinProvider: ConnectProvider = {
         // without it is still a working token until `expiresAt`.
         ...(refreshToken ? { refreshToken } : {}),
         expiresAt: grantExpiresAt(body.expires_in, DEFAULT_LIFETIME_SECONDS),
+        // Ids beside names, for the ad account picker after login.
+        adAccounts: reached.filter(a => a.id),
         accounts,
       },
       displayName: `LinkedIn — ${accounts.length === 1 ? accounts[0] : accounts.length > 1 ? `${accounts.length} ad accounts` : 'ad accounts'}`,

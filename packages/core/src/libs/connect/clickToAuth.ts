@@ -8,28 +8,27 @@
  */
 export const KEY_ONLY_CONNECTORS: Readonly<Record<string, { reason: string; vendorHasLogin: boolean }>> = {
   // The vendor issues keys only: a key is the way in.
-  'strapi': { reason: 'Strapi issues API tokens per installation; there is no hosted login.', vendorHasLogin: false },
-  'rest': { reason: 'A generic REST source: whatever the API takes, usually a key or a header.', vendorHasLogin: false },
-  'elevenlabs': { reason: 'ElevenLabs issues API keys only.', vendorHasLogin: false },
-  'bill': { reason: 'BILL\'s API signs in with a developer key and an API user, not OAuth.', vendorHasLogin: false },
-  'redshift': { reason: 'Redshift connects with a database user or IAM credentials.', vendorHasLogin: false },
-  'mixpanel': { reason: 'Mixpanel exports with a service account; it has no OAuth for data access.', vendorHasLogin: false },
-  'amplitude': { reason: 'Amplitude exports with an API key and secret.', vendorHasLogin: false },
-  'granola': { reason: 'Granola\'s public API takes an API key; its OAuth login belongs to its MCP server, which connects as an MCP source.', vendorHasLogin: false },
-  'mcp': { reason: 'An MCP server signs in through its own OAuth, discovered when it is added (`/api/connect/mcp/start`), or takes a header key.', vendorHasLogin: false },
+  strapi: { reason: 'Strapi issues API tokens per installation; there is no hosted login.', vendorHasLogin: false },
+  rest: { reason: 'A generic REST source: whatever the API takes, usually a key or a header.', vendorHasLogin: false },
+  elevenlabs: { reason: 'ElevenLabs issues API keys only.', vendorHasLogin: false },
+  bill: { reason: 'BILL\'s API signs in with a developer key and an API user, not OAuth.', vendorHasLogin: false },
+  redshift: { reason: 'Redshift connects with a database user or IAM credentials.', vendorHasLogin: false },
+  mixpanel: { reason: 'Mixpanel exports with a service account; it has no OAuth for data access.', vendorHasLogin: false },
+  amplitude: { reason: 'Amplitude exports with an API key and secret.', vendorHasLogin: false },
+  granola: { reason: 'Granola\'s public API takes an API key; its OAuth login belongs to its MCP server, which connects as an MCP source.', vendorHasLogin: false },
+  mcp: { reason: 'An MCP server signs in through its own OAuth, discovered when it is added (`/api/connect/mcp/start`), or takes a header key.', vendorHasLogin: false },
   // The vendor has a login Vocion has not built yet: a key works today, and
   // each of these is a follow-up to give it a login like the rest.
-  'meta-ads': { reason: 'Meta has Facebook Login for the Marketing API; Vocion has no Meta login yet.', vendorHasLogin: true },
-  'sentry': { reason: 'Sentry offers OAuth through an integration app; Vocion has no Sentry login yet.', vendorHasLogin: true },
-  'slate': { reason: 'Slate\'s MCP server signs in with OAuth; the REST connector takes a key until it gets the same login.', vendorHasLogin: true },
-  'stripe': { reason: 'Stripe Connect has OAuth for platforms; for a company\'s own account a restricted key is Stripe\'s own advice.', vendorHasLogin: true },
-  'netsuite': { reason: 'NetSuite supports OAuth 2.0; Vocion has no NetSuite login yet.', vendorHasLogin: true },
-  'ramp': { reason: 'Ramp\'s API supports OAuth; Vocion has no Ramp login yet.', vendorHasLogin: true },
-  'rippling': { reason: 'Rippling has OAuth for partner apps; Vocion has no Rippling login yet.', vendorHasLogin: true },
-  'workday': { reason: 'Workday supports OAuth API clients; Vocion connects with an integration system user today.', vendorHasLogin: true },
-  'snowflake': { reason: 'Snowflake OAuth needs a security integration in each account; Vocion connects with a key pair today.', vendorHasLogin: true },
-  'bigquery': { reason: 'BigQuery could ride the Google login (bigquery scope); Vocion connects with a service account today.', vendorHasLogin: true },
-  'databricks': { reason: 'Databricks supports OAuth; Vocion connects with a personal access token today.', vendorHasLogin: true },
+  sentry: { reason: 'Sentry offers OAuth through an integration app; Vocion has no Sentry login yet.', vendorHasLogin: true },
+  slate: { reason: 'Slate\'s MCP server signs in with OAuth; the REST connector takes a key until it gets the same login.', vendorHasLogin: true },
+  stripe: { reason: 'Stripe Connect has OAuth for platforms; for a company\'s own account a restricted key is Stripe\'s own advice.', vendorHasLogin: true },
+  netsuite: { reason: 'NetSuite supports OAuth 2.0; Vocion has no NetSuite login yet.', vendorHasLogin: true },
+  ramp: { reason: 'Ramp\'s API supports OAuth; Vocion has no Ramp login yet.', vendorHasLogin: true },
+  rippling: { reason: 'Rippling has OAuth for partner apps; Vocion has no Rippling login yet.', vendorHasLogin: true },
+  workday: { reason: 'Workday supports OAuth API clients; Vocion connects with an integration system user today.', vendorHasLogin: true },
+  snowflake: { reason: 'Snowflake OAuth needs a security integration in each account; Vocion connects with a key pair today.', vendorHasLogin: true },
+  bigquery: { reason: 'BigQuery could ride the Google login (bigquery scope); Vocion connects with a service account today.', vendorHasLogin: true },
+  databricks: { reason: 'Databricks supports OAuth; Vocion connects with a personal access token today.', vendorHasLogin: true },
 };
 
 /**

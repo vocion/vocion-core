@@ -25,7 +25,15 @@ refuses and the agent is told exactly that.
 
 ## Connecting it
 
-No OAuth app: a Business Manager **system user token**.
+**Log in with Facebook** (the default): at `/dashboard/connectors` → Meta Ads,
+or the card an agent offers in chat, sign in as someone with a role on the ad
+account and allow the ads permissions. Then pick the **Ad account** from the
+dropdown of accounts the login reaches. The login is long-lived (about 60
+days) and renews itself while it is valid. The server needs a Meta app first
+(`META_APP_ID`, `META_APP_SECRET`): see [login-apps.md](login-apps.md#meta).
+
+**Advanced: a Business Manager system user token**, behind "Advanced: use an
+API key instead":
 
 1. Business settings → Users → [System users](https://business.facebook.com/settings/system-users)
    → Add; assign it the ad account.

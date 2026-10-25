@@ -168,6 +168,7 @@ forwarded host of the request.
 | `xero` | `xero` | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | `/api/connect/xero/callback` |
 | `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | `/api/connect/gusto/callback` |
 | `linkedin` | `linkedin-ads` | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` (an app with the Advertising API product; scopes `r_ads`, `r_ads_reporting`) | `/api/connect/linkedin/callback` |
+| `meta` | `meta-ads` | `META_APP_ID`, `META_APP_SECRET` (a Business app with Facebook Login for Business and the Marketing API; scopes `ads_read`, `ads_management`, `business_management`) | `/api/connect/meta/callback` |
 
 All of them are optional. A provider with no env set is not offered, and its
 connector keeps its paste form. Step-by-step setup for each vendor's app is in
