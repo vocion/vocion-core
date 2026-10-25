@@ -31,6 +31,8 @@ a different client with its own settings:
 | `quickbooks` | `quickbooks` | `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | [QuickBooks](#quickbooks) |
 | `xero` | `xero` | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | [Xero](#xero) |
 | `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | [Gusto](#gusto) |
+| `linkedin` | `linkedin-ads` | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | [LinkedIn](#linkedin) |
+| `meta` | `meta-ads` | `META_APP_ID`, `META_APP_SECRET` | [Meta](#meta) |
 | `slack` | `slack` | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | [slack.md](slack.md#connecting-the-slack-source-with-a-click) |
 | `atlassian` | `jira` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | [jira.md](jira.md#connect-with-atlassian) |
 | `github` | `github` | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | [github.md](github.md#connect-with-github--the-app-instead-of-a-token) |
@@ -41,7 +43,8 @@ a different client with its own settings:
 A workspace admin can save the vendor's app for this workspace alone:
 
 1. Open **Developers**, add a credential, and pick **&lt;Vendor&gt; login app**
-   (Google, Slack, Atlassian, HubSpot, Notion, Zoom, Apollo, QuickBooks, Xero or Gusto).
+   (Google, Slack, Atlassian, HubSpot, Notion, Zoom, Apollo, QuickBooks, Xero,
+   Gusto, LinkedIn or Meta).
 2. The form shows the exact **redirect URL to register** at the vendor, with a
    copy button. Register it on the vendor's app.
 3. Paste the **Client ID** and **Client secret**, and save.
@@ -342,6 +345,62 @@ the next one every time. Gusto is login-only. More in [gusto.md](gusto.md).
 Access tokens last 60 days. Where LinkedIn issues a refresh token the login
 renews itself and saves the new token; where it does not, the connector says
 to log in again when the token runs out.
+
+Step by step, once per deployment:
+
+1. [linkedin.com/developers/apps](https://www.linkedin.com/developers/apps) →
+   **Create app**. It must be tied to a LinkedIn **Company Page** that you
+   admin (the page's admin approves the link).
+2. **Products** → request **Advertising API**. LinkedIn reviews it by hand,
+   usually a few business days, and may ask how the app uses ads data: Vocion
+   reads campaigns and reporting for the ad accounts the signing-in member
+   has a role on.
+3. **Auth** → **Authorized redirect URLs**: add
+   `https://app.vocion.ai/api/connect/linkedin/callback` and
+   `https://agents.metacto.com/api/connect/linkedin/callback` (one per host).
+4. Copy the **Client ID** and **Primary Client Secret** into the env as
+   `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`.
+
+After a login, the source's **Ad account** setting is a dropdown of the ad
+accounts the login reaches (`/rpc/sources/login-choices`): nobody types an id.
+
+## Meta
+
+"Log in with Facebook" for the `meta-ads` connector
+(`libs/connect/providers/meta.ts`): Facebook Login asking for `ads_read`
+(campaigns and insights), `ads_management` (an approved pause or resume) and
+`business_management` (the ad accounts a business owns, for the dropdown).
+The short-lived token is traded at once for a long-lived one (about 60 days)
+and renewed while it is valid; once it lapses, the connector says to log in
+again. A pasted system user token stays as the advanced path.
+
+1. [developers.facebook.com/apps](https://developers.facebook.com/apps) →
+   **Create app** → use case **Other** → type **Business**, connected to your
+   Business portfolio.
+2. **Add products**: **Facebook Login for Business** and **Marketing API**.
+3. **Facebook Login for Business → Settings → Valid OAuth Redirect URIs**:
+   `https://app.vocion.ai/api/connect/meta/callback` and
+   `https://agents.metacto.com/api/connect/meta/callback`.
+4. **App settings → Basic**: add the privacy policy URL
+   (`https://www.vocion.ai/privacy`) and app domains, then copy the **App ID**
+   and **App secret** into the env as `META_APP_ID` and `META_APP_SECRET`.
+5. **Access levels.** With **Standard access** (no review), only people with a
+   role on the app (admins, developers, testers) can log in, which is enough
+   for your own and your clients' accounts while you add each person as a
+   tester. To let any client log in, complete **Business Verification**
+   (Business settings → Security Center, a few days) and **App Review** for
+   **Advanced access** to `ads_read`, `ads_management` and
+   `business_management` (typically one to two weeks, with a screencast of the
+   login and the ads read).
+
+## Other ad platforms
+
+Vocion connects Google Ads, LinkedIn Ads and Meta Ads. Microsoft Advertising,
+TikTok Ads, Reddit Ads and X Ads have no connector yet. When one is built it
+gets a login like the rest: Microsoft Advertising signs in with Microsoft
+identity (an Entra app), and its API also needs a **developer token** from the
+Microsoft Advertising developer portal, which is a server setting the operator
+sets once, never a field a person fills in.
 
 ## Where it lives in the code
 

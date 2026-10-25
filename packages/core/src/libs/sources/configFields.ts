@@ -65,6 +65,12 @@ export type ConfigField = {
    * when no login is there yet.
    */
   optionsFrom?: 'google-ads-accounts';
+  /**
+   * After a login, a dropdown of what the login reaches (the ad accounts a
+   * LinkedIn or Meta login can read: `/rpc/sources/login-choices`), so no
+   * one types an id. Typed entry stays only when the login offers none.
+   */
+  choicesFromLogin?: boolean;
   /** Lowest accepted value, for `number` fields only. */
   min?: number;
   /** Highest accepted value, for `number` fields only. */
@@ -891,22 +897,24 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
   'linkedin-ads': [
     {
       key: 'accountId',
-      label: 'Ad account ID',
+      label: 'Ad account',
       type: 'number',
       required: true,
       min: 1,
+      choicesFromLogin: true,
       placeholder: '508123456',
-      help: 'The number in Campaign Manager\'s URL, after /accounts/.',
+      help: 'Pick from the ad accounts your LinkedIn login reaches; or the number in Campaign Manager\'s URL, after /accounts/.',
     },
   ],
   'meta-ads': [
     {
       key: 'accountId',
-      label: 'Ad account ID',
+      label: 'Ad account',
       type: 'text',
       required: true,
+      choicesFromLogin: true,
       placeholder: 'act_1234567890',
-      help: 'From Ads Manager\'s account menu, with or without the act_ prefix.',
+      help: 'Pick from the ad accounts your Facebook login reaches; or the act_ id from Ads Manager\'s account menu.',
     },
     {
       key: 'apiVersion',

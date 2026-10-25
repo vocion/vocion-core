@@ -11,6 +11,8 @@
 import type { AdsEntity, AdsLevel, AdsPerformanceRow, AdsProvider, AdsState } from '../provider';
 import type { FamilySource } from '@/libs/connectors/families';
 import type { MetaResult } from '@/libs/meta/client';
+import { isLoginGrant, usableLoginGrant } from '@/libs/connect/loginGrant';
+import { refreshMetaGrant } from '@/libs/connect/providers/meta';
 import { actId, budgetUnits, metaCall, metaTokenFrom } from '@/libs/meta/client';
 import { metaAdsConfigSchema } from '@/libs/sources/metaAds';
 import { familySourceCredentials, noCredentialMessage } from '@/services/connectors/familyCredentials';
@@ -211,7 +213,18 @@ export async function metaAdsProvider(orgId: string, source: FamilySource): Prom
   if (!bag) {
     throw new Error(noCredentialMessage(source, 'Meta Ads'));
   }
-  const token = metaTokenFrom(bag);
+  let usable: Record<string, unknown> = bag;
+  if (isLoginGrant(bag)) {
+    usable = await usableLoginGrant({
+      vendor: 'Meta',
+      provider: 'meta',
+      connectorSlug: source.kind,
+      grant: bag,
+      persistence: { kind: 'persist', orgId, sourceId: source.id, warn: message => console.warn('[ads/meta]', message) },
+      refresh: refreshMetaGrant,
+    });
+  }
+  const token = metaTokenFrom(usable);
   if (!token.ok) {
     throw new Error(token.message);
   }
