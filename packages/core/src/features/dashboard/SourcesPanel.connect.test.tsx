@@ -135,7 +135,7 @@ describe('the add form puts the credential inside it', () => {
 
     await expect.element(page.getByLabelText('Personal access token', { exact: true })).not.toBeInTheDocument();
 
-    await page.getByRole('button', { name: 'Paste a Personal access token instead' }).click();
+    await page.getByRole('button', { name: 'Advanced: use an API key instead' }).click();
 
     await expect.element(page.getByLabelText('Personal access token', { exact: true })).toBeVisible();
     // One sentence on where to find it; the scopes and steps wait behind Details.
@@ -289,7 +289,7 @@ describe('a stored login fills the credential, masked', () => {
     addConnector.mockResolvedValue({ ok: true, sourceId: 5 });
     window.history.replaceState(null, '', '/?add=github');
     await render(<SourcesPanel connectInfo={{ github: NO_LOGIN }} />);
-    await page.getByRole('button', { name: 'Paste a Personal access token instead' }).click();
+    await page.getByRole('button', { name: 'Advanced: use an API key instead' }).click();
     await userEvent.fill(page.getByLabelText('Personal access token', { exact: true }), 'ghp_pasted_once');
     await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
     await page.getByRole('button', { name: 'Connect', exact: true }).last().click();

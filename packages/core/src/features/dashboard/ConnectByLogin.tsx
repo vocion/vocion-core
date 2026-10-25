@@ -7,7 +7,6 @@ import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { connectStartHref } from '@/libs/connect/returnTo';
 import { client, noStoreClient } from '@/libs/Orpc';
 import { accessForDisplay, afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
-import { withArticle } from '@/utils/withArticle';
 import { ProviderLoginButton } from './ProviderLoginButton';
 
 /**
@@ -42,6 +41,13 @@ export type ConnectInfo = {
   stored: StoredCredentialInfo | null;
   /** The newest attempt, when it failed. */
   lastAttempt: FailedAttempt | null;
+  /**
+   * The vendor has a login this server has no app for yet: its name and what
+   * an admin sets up. The form still leads with the sign-in button, disabled,
+   * with this note, and keeps the key behind Advanced (Chris, 2026-10-25:
+   * "click to auth. Always."). Absent from an older server.
+   */
+  loginSetup?: { label: string; note: string } | null;
 };
 
 /**
@@ -402,6 +408,7 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
   return (
     <ConnectCredentialChoice
       login={login && href ? { href, provider: login.provider, label: `Log in with ${info?.providerLabel}`, afterLogin: afterLoginText(login.settingsAfterLogin), access: login.access } : null}
+      loginSetup={!login && how.login && info?.loginSetup ? { provider: how.login.provider, label: `Log in with ${info.loginSetup.label}`, note: info.loginSetup.note } : null}
       paste={how.paste}
       // Paste opens on its own when there is no login, when the page asked for
       // it (`?paste=1`), or after Replace on a stored credential.
@@ -415,8 +422,9 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
 }
 
 /**
- * One way in at a time: the vendor's login when there is one, with pasting a
- * key one click away; the paste form alone when there is no login.
+ * One way in at a time: the vendor's login when there is one, with a key behind
+ * "Advanced"; the login button and what an admin sets up when the vendor has a
+ * login this server lacks; the paste form alone only when the vendor has none.
  * @param props - The login, the paste declaration, and the inputs.
  * @param props.login - The login button's target and words, or null.
  * @param props.login.href - The start route.
@@ -424,6 +432,10 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
  * @param props.login.label - "Log in with GitHub".
  * @param props.login.afterLogin - What is still asked after the login.
  * @param props.login.access - What the login asks for, for Details.
+ * @param props.loginSetup - The vendor's login this server has no app for: the button's dress and words, and the admin note.
+ * @param props.loginSetup.provider - The provider, for the button's dress.
+ * @param props.loginSetup.label - "Log in with LinkedIn".
+ * @param props.loginSetup.note - What an admin sets up.
  * @param props.paste - `howToConnect.paste`, when the connector takes a key.
  * @param props.paste.credential
  * @param props.paste.access
@@ -435,12 +447,20 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
  */
 function ConnectCredentialChoice(props: {
   login: { href: string; provider: Parameters<typeof ProviderLoginButton>[0]['provider']; label: string; afterLogin: string; access: readonly string[] } | null;
+  loginSetup?: { provider: Parameters<typeof ProviderLoginButton>[0]['provider']; label: string; note: string } | null;
   paste?: { credential: string; access: readonly string[]; getItAt?: { url: string; steps: readonly string[] } };
   pasteFirst: boolean;
   children: React.ReactNode;
 }) {
-  const [pasting, setPasting] = useState(props.pasteFirst || !props.login);
+  // The key opens on its own only when the vendor has no login at all, or the
+  // page asked for it: a login not set up on this server still comes first.
+  const [pasting, setPasting] = useState(props.pasteFirst || (!props.login && !props.loginSetup));
   const showPaste = Boolean(props.paste) && pasting;
+  const advanced = props.paste && !pasting && (
+    <button type="button" onClick={() => setPasting(true)} data-testid="connect-use-key" className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+      Advanced: use an API key instead
+    </button>
+  );
   return (
     <div className="space-y-3" data-testid="connect-credential">
       {props.login && (
@@ -449,11 +469,16 @@ function ConnectCredentialChoice(props: {
             {props.login.label}
           </ProviderLoginButton>
           <p className="text-xs text-muted-foreground" data-testid="connect-after-login">{props.login.afterLogin}</p>
-          {props.paste && !pasting && (
-            <button type="button" onClick={() => setPasting(true)} className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
-              {`Paste ${withArticle(props.paste.credential)} instead`}
-            </button>
-          )}
+          {advanced}
+        </div>
+      )}
+      {!props.login && props.loginSetup && (
+        <div className="space-y-2" data-testid="connect-login-setup">
+          <ProviderLoginButton provider={props.loginSetup.provider} href={undefined} waitingTitle={props.loginSetup.note}>
+            {props.loginSetup.label}
+          </ProviderLoginButton>
+          <p className="text-xs text-muted-foreground">{props.loginSetup.note}</p>
+          {advanced}
         </div>
       )}
       {showPaste && <div className="space-y-3">{props.children}</div>}

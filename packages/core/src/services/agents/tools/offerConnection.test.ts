@@ -1,7 +1,7 @@
 import type { RuntimeContext } from '../types';
 import type { connectOptionFor } from '@/libs/connect/registry';
 import type * as RealRegistry from '@/libs/connect/registry';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -85,7 +85,7 @@ describe('offer_connection', () => {
       title: 'Connect GitHub',
       hrefLabel: 'Connect GitHub',
       secondaryHref: '/dashboard/connectors?add=github&paste=1&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7',
-      secondaryHrefLabel: 'Paste a token',
+      secondaryHrefLabel: 'Use an API key instead',
       actions: [],
       state: 'proposed',
     });
@@ -108,13 +108,19 @@ describe('offer_connection', () => {
     expect(Number.isNaN(Date.parse(card.lastAttempt.at))).toBe(false);
   });
 
-  it('a login this server has no app for is offered as paste, never as a login button that can only fail', async () => {
+  it('a login this server has no app for still leads with signing in, says what an admin sets up, and keeps the key second (Chris, 2026-10-25)', async () => {
     providerSetup.unconfigured.add('github');
     try {
       const emit = vi.fn();
-      await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'github', why: 'x' });
+      const out = await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'github', why: 'x' });
 
-      expect(emit.mock.calls[0]![0].card.href).toBe(pasteHref('github', 7));
+      const card = emit.mock.calls[0]![0].card;
+
+      expect(card.href).toBe(connectHref('github', 7));
+      expect(card.body).toContain('isn\'t set up here yet');
+      expect(card.secondaryHref).toBe(pasteHref('github', 7));
+      expect(card.secondaryHrefLabel).toBe('Use an API key instead');
+      expect(out).toContain('do not tell them to paste a key');
     } finally {
       providerSetup.unconfigured.delete('github');
     }
@@ -131,7 +137,7 @@ describe('offer_connection', () => {
     expect(card.secondaryHrefLabel).toBeUndefined();
   });
 
-  it('a connector with nothing to paste and no app on this server links to the Connectors page, not to a token form', async () => {
+  it('a connector with nothing to paste and no app on this server links to the Connectors page with the admin note, never a token form', async () => {
     providerSetup.unconfigured.add('quickbooks');
     try {
       const emit = vi.fn();
@@ -140,9 +146,55 @@ describe('offer_connection', () => {
       const card = emit.mock.calls[0]![0].card;
 
       expect(card.href).toBe(connectHref('quickbooks', 7));
-      expect(card.body).toBeUndefined();
+      expect(card.body).toContain('isn\'t set up here yet');
+      expect(card.secondaryHref).toBeUndefined();
     } finally {
       providerSetup.unconfigured.delete('quickbooks');
+    }
+  });
+
+  it('offers the ad platform the workspace declares, not another one the agent picked for "ads" (Chris, 2026-10-25)', async () => {
+    await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'paid-search', configJson: { _connector: 'google-ads' } });
+    try {
+      const emit = vi.fn();
+      const out = await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'linkedin-ads', why: 'To read the ad spend.' });
+
+      const card = emit.mock.calls[0]![0].card;
+
+      expect(card.href.startsWith('/api/connect/google/start?connector=google-ads')).toBe(true);
+      expect(out).toContain('declares Google Ads');
+    } finally {
+      await db.delete(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.slug, 'paid-search'));
+    }
+  });
+
+  it('offers the vendor the person named, even when the workspace declares another', async () => {
+    await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'paid-search', configJson: { _connector: 'google-ads' } });
+    try {
+      const emit = vi.fn();
+      await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'linkedin-ads', why: 'They asked for LinkedIn.', named: true });
+
+      expect(emit.mock.calls[0]![0].card.title).toBe('Connect LinkedIn Ads');
+    } finally {
+      await db.delete(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.slug, 'paid-search'));
+    }
+  });
+
+  it('with several ad platforms declared, shows no card and names them for the agent to ask which', async () => {
+    await db.insert(knowledgeSourceSchema).values([
+      { orgId: ORG, slug: 'paid-search', configJson: { _connector: 'google-ads' } },
+      { orgId: ORG, slug: 'paid-social', configJson: { _connector: 'meta-ads' } },
+    ]);
+    try {
+      const emit = vi.fn();
+      const out = await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'linkedin-ads', why: 'x' });
+
+      expect(emit).not.toHaveBeenCalled();
+      expect(out).toContain('google-ads');
+      expect(out).toContain('meta-ads');
+      expect(out).toContain('named: true');
+    } finally {
+      await db.delete(knowledgeSourceSchema).where(inArray(knowledgeSourceSchema.slug, ['paid-search', 'paid-social']));
     }
   });
 
