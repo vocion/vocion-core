@@ -89,9 +89,19 @@ jobs:
       # so they share its chunks; pptxgenjs, docx, jszip and fast-xml-parser
       # are server externals and no client module reaches them. Nothing light
       # started reaching the server, so there was nothing cheap to cut.
+      # 12500 → 13250 (2026-10-25, v8.0.0): main went from about 12,150 MB on
+      # Oct 23 to 12,460 MB at the Marketing app (#1453) and 12,631 MB at 8.0.0
+      # (#1454). check:route-graph against #1421 (e72aab33): the same 195
+      # routes reach the whole server, each grew by the same 91 modules
+      # (1,376 → 1,467 from the dashboard layout, +641 KB of source): the chart
+      # engine (libs/charts), the Google Ads actions, client and reports, the
+      # one pane system's artifact panes, meeting follow-ups, owed-on-account
+      # and Jev routing. One new route (dashboard/marketing) shares that server.
+      # No route's reach jumped, no forbidden edge appeared, and sharp is a
+      # server external, so again nothing cheap to cut.
       - name: Build memory
         env:
-          BUILD_PEAK_RSS_BUDGET_MB: '12500'
+          BUILD_PEAK_RSS_BUDGET_MB: '13250'
         run: |
           set -euo pipefail
           peak_mb=$(( $(awk -F': ' '/Maximum resident set size/{print $2}' "$RUNNER_TEMP/build-time.txt") / 1024 ))
