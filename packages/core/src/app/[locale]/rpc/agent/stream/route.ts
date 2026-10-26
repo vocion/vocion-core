@@ -27,7 +27,7 @@ import { isTurnRefusal } from '@/services/agents/turnRefusal';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
 import { withRunCost } from '@/services/budget/runCost';
-import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
+import { historyMarker, loadedFromArtifact, MAX_ATTACHMENTS, unansweredImages } from '@/services/chat/attachments';
 import { scheduleConversationTitle } from '@/services/chat/conversationTitle';
 import { RunCollector } from '@/services/chat/runCollector';
 import { beginTurn, finishTurn, recordTurnProgress } from '@/services/chat/turnLedger';
@@ -289,11 +289,13 @@ export async function POST(request: Request): Promise<Response> {
   const attachmentIds = Array.isArray(body.attachments)
     ? (body.attachments as unknown[]).filter((v): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0).slice(0, 10)
     : [];
-  const attachments = attachmentIds.length > 0
+  const ownAttachments = attachmentIds.length > 0
     ? (await listArtifactsByIds({ orgId, ids: attachmentIds }))
         .filter(row => row.kind === 'file' && row.lastAuthorKind === 'human')
         .map(loadedFromArtifact)
     : [];
+  // This turn's own uploads, and any picture carried from an unanswered turn (below).
+  let attachments = ownAttachments;
 
   // Authoritative history: when a conversation is attached, use the
   // persisted message log and ignore whatever the client sent. Tool
@@ -312,6 +314,11 @@ export async function POST(request: Request): Promise<Response> {
     // …and each agent turn carries its runs, replayed as the tool calls and
     // cards they were — see `services/chat/historyTools.ts`.
     conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}` })), { timeZone });
+    // A picture the agent never answered is shown again with this turn.
+    const carried = unansweredImages(msgs, uploads, new Set(attachments.map(a => a.id)), MAX_ATTACHMENTS);
+    if (carried.length > 0) {
+      attachments = [...carried.map(loadedFromArtifact), ...attachments];
+    }
   }
 
   // A correction: last turn the agent said something could not be found, and
@@ -432,8 +439,8 @@ export async function POST(request: Request): Promise<Response> {
             ...(answerRun ? { runs: [answerRun] } : {}),
           });
       userMessageId = userMsg.id;
-      if (attachments.length > 0) {
-        await claimAttachments({ orgId, artifactIds: attachments.map(a => a.id), conversationId, messageId: userMsg.id });
+      if (ownAttachments.length > 0) {
+        await claimAttachments({ orgId, artifactIds: ownAttachments.map(a => a.id), conversationId, messageId: userMsg.id });
       }
     } catch (error) {
       commit(false);

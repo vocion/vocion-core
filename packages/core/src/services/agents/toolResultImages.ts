@@ -38,7 +38,7 @@ export type ToolResultBlock = { type: 'text'; text: string } | { type: 'image_ur
  * @param text - The receipt.
  * @param image - The picture, or null for the text alone.
  */
-export function withImage(text: string, image: ChartImage | null): string | ToolResultBlock[] {
+export function withImage(text: string, image: Pick<ChartImage, 'data'> & { mimeType: string } | null): string | ToolResultBlock[] {
   if (!image) {
     return text;
   }
