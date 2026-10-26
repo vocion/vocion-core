@@ -83,7 +83,7 @@ describe('offer_connection', () => {
     expect(card).toMatchObject({
       kind: 'link',
       title: 'Connect GitHub',
-      hrefLabel: 'Connect GitHub',
+      hrefLabel: 'Log in with GitHub',
       secondaryHref: '/dashboard/connectors?add=github&paste=1&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7',
       secondaryHrefLabel: 'Use an API key instead',
       actions: [],

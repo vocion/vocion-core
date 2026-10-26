@@ -61,6 +61,15 @@ const connect: DecisionView = {
     { id: 'paste:github', label: 'Paste a token', consequence: 'Opens the token form, then brings you back here.', href: '/dashboard/connectors?add=github&paste=1' },
   ],
 };
+const oneTapLogin: DecisionView = {
+  ...repo,
+  id: 48,
+  kind: 'setup',
+  question: 'Connect Google Ads',
+  body: null,
+  options: [{ id: 'connect:google-ads', label: 'Log in with Google', consequence: 'Opens the sign-in, then brings you back here.', recommended: true, href: '/api/connect/google/start?connector=google-ads' }],
+  allowOther: true,
+};
 const setupStep: DecisionView = {
   ...repo,
   id: 47,
@@ -198,6 +207,10 @@ export const Refused: Story = { args: { decision: repo, error: 'Decision 41 was 
 export const RefusedDark: Story = { args: { decision: repo, error: 'Decision 41 was already answered in Slack.', dark: true } };
 
 /** The same component as a Needs you row. */
+/** One action is one tap: a single sign-in option is the card's button (2026-10-26). */
+export const OneTapLogin: Story = { args: { decision: oneTapLogin } };
+export const OneTapLoginDark: Story = { args: { decision: oneTapLogin, dark: true } };
+
 export const ListRow: Story = { args: { decision: repo, variant: 'list' } };
 export const ListRowDark: Story = { args: { decision: repo, variant: 'list', dark: true } };
 

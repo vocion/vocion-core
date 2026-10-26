@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { newCardId } from '@/libs/cards/card';
 import { lastConnectAttempts } from '@/libs/connect/attempts';
 import { loginSetupNote } from '@/libs/connect/clickToAuth';
-import { connectOptionFor } from '@/libs/connect/registry';
+import { connectOptionFor, providerFor } from '@/libs/connect/registry';
 import { connectStartHref } from '@/libs/connect/returnTo';
 import { FAMILY_LABEL, familyOfKind, familySourcesForOrg } from '@/libs/connectors/families';
 import { howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
@@ -175,7 +175,9 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
     actions: [],
     source,
     href,
-    hrefLabel: `Connect ${name}`,
+    // The button says what the tap does: "Log in with Google" (Chris,
+    // 2026-10-26: one tap, the sign-in, nothing else to choose).
+    hrefLabel: loginLabel(login.provider, name),
     // A connector with nothing to paste offers its login alone.
     ...(how?.paste
       ? {
@@ -274,4 +276,15 @@ export function offerConnectionTool(ctx: RuntimeContext) {
       }),
     },
   );
+}
+
+/**
+ * The words on a login card's button: "Log in with <vendor>", the vendor's own
+ * sign-in, else "Connect <name>".
+ * @param provider - The connect provider the login runs on.
+ * @param name - The connector's name.
+ */
+export function loginLabel(provider: string, name: string): string {
+  const label = providerFor(provider)?.label;
+  return label ? `Log in with ${label}` : `Connect ${name}`;
 }

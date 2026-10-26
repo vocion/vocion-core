@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
-import { ChevronDown, ChevronUp, CornerDownLeft, Loader2, X } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, ChevronUp, CornerDownLeft, Loader2, X } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { CLOSE_BUTTON } from '@/components/ui/buttonVariants';
@@ -224,6 +224,11 @@ export function DecisionCard({
   const recommendedIndex = options.findIndex(o => o.recommended);
   // An option whose effect has a picture (a drafted brand): drawn under the why.
   const lookOption = options.find(o => o.look);
+  // ONE ACTION IS ONE TAP (Chris, 2026-10-26, a phone "Connect Google Ads"
+  // card that made him pick its only option and then press Submit): an ask
+  // whose single option opens a flow (a sign-in, a walk) or runs an action
+  // is its button.
+  const oneTap = !multiple && !hasForm && options.length === 1 && (!!options[0]!.href || !!options[0]!.hasEffect) ? options[0]! : null;
 
   useLayoutEffect(() => {
     if (variant === 'dock') {
@@ -239,6 +244,28 @@ export function DecisionCard({
     const first = formRef.current?.querySelector<HTMLElement>('input, select, textarea');
     (first ?? (hasOptions ? listRef.current : otherRef.current))?.focus({ preventScroll: true });
   }, [resetKey, takeFocus, collapsed, hasOptions, hasForm, busy]);
+
+  // THE CUT WAS THE SCROLL EDGE (2026-10-26): on a phone the card caps at
+  // DOCK_PHONE_MAX_HEIGHT_VH and the region above Skip/Submit scrolls; a line
+  // that sat across that edge read as clipped text with nothing saying "more
+  // below". The region now fades its bottom edge while there is more to read.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) {
+      return;
+    }
+    const measure = () => setMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+    measure();
+    el.addEventListener('scroll', measure, { passive: true });
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener('scroll', measure);
+      ro?.disconnect();
+    };
+  }, [collapsed, resetKey, detailsOpen]);
 
   const pick = (index: number) => {
     const o = options[index];
@@ -508,7 +535,12 @@ export function DecisionCard({
       <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
       {/* On a phone, everything above the buttons scrolls inside the card's
           40vh; Skip and Submit stay pinned under it. */}
-      <div className="max-md:min-h-0 max-md:flex-1 max-md:overflow-y-auto [@media(max-height:500px)]:min-h-0 [@media(max-height:500px)]:flex-1 [@media(max-height:500px)]:overflow-y-auto" data-testid="decision-scroll">
+      <div
+        ref={scrollRef}
+        className={`max-md:min-h-0 max-md:flex-1 max-md:overflow-y-auto [@media(max-height:500px)]:min-h-0 [@media(max-height:500px)]:flex-1 [@media(max-height:500px)]:overflow-y-auto ${moreBelow ? 'max-md:[mask-image:linear-gradient(to_bottom,black_calc(100%-28px),transparent)] [@media(max-height:500px)]:[mask-image:linear-gradient(to_bottom,black_calc(100%-28px),transparent)]' : ''}`}
+        data-testid="decision-scroll"
+        data-more-below={moreBelow || undefined}
+      >
         {/* In the thread, full height: the question, every option with its
           consequence, and the buttons, all in view as the thread scrolls. */}
         <div className="flex items-start gap-2" data-testid="decision-head">
@@ -572,7 +604,32 @@ export function DecisionCard({
           </div>
         )}
 
-        {hasOptions && (
+        {oneTap && (
+          <div className="mt-3" data-testid="decision-one-tap">
+            <button
+              type="button"
+              onClick={() => {
+                if (locked) {
+                  return;
+                }
+                if (oneTap.href) {
+                  onOpen(oneTap.href);
+                } else {
+                  onAnswer({ kind: 'option', optionIds: [oneTap.id] });
+                }
+              }}
+              disabled={locked}
+              data-testid={`decision-option-${oneTap.id}`}
+              className={`inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-action px-4 py-2.5 text-[14px] font-medium text-action-foreground transition hover:opacity-90 disabled:opacity-40 sm:w-auto ${TAP}`}
+            >
+              {oneTap.label}
+              {oneTap.href && leavesConversation(oneTap.href) && <ArrowUpRight className="size-4" aria-hidden />}
+            </button>
+            {oneTap.consequence && <p className="mt-1.5 text-[12.5px] leading-snug text-muted-foreground">{oneTap.consequence}</p>}
+          </div>
+        )}
+
+        {hasOptions && !oneTap && (
           <div
             ref={listRef}
             role="listbox"
@@ -691,17 +748,19 @@ export function DecisionCard({
             {skipLabel}
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => submit(document.activeElement === otherRef.current || (!hasOptions && !hasForm) ? 'other' : 'list')}
-          onMouseDown={e => e.preventDefault()}
-          disabled={!canSubmit}
-          data-testid="decision-submit"
-          className={`inline-flex items-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-[13px] font-medium text-action-foreground transition hover:opacity-90 disabled:opacity-40 ${TAP}`}
-        >
-          {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <CornerDownLeft className="size-3.5" aria-hidden />}
-          {submitLabel}
-        </button>
+        {(!oneTap || other.trim().length > 0) && (
+          <button
+            type="button"
+            onClick={() => submit(document.activeElement === otherRef.current || (!hasOptions && !hasForm) || oneTap ? 'other' : 'list')}
+            onMouseDown={e => e.preventDefault()}
+            disabled={!canSubmit}
+            data-testid="decision-submit"
+            className={`inline-flex items-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-[13px] font-medium text-action-foreground transition hover:opacity-90 disabled:opacity-40 ${TAP}`}
+          >
+            {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <CornerDownLeft className="size-3.5" aria-hidden />}
+            {submitLabel}
+          </button>
+        )}
       </div>
     </Surface>
   );
