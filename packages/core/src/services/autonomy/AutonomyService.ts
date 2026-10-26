@@ -307,14 +307,27 @@ async function trackMove(orgId: string, by: string, type: 'autonomy.promoted' | 
  * @param orgId
  * @param actionId
  * @param by - The person promoting (user id).
+ * @param opts
+ * @param opts.personChose
  */
-export async function promote(orgId: string, actionId: string, by: string): Promise<AutonomyPolicyView> {
+export async function promote(orgId: string, actionId: string, by: string, opts: { personChose?: boolean } = {}): Promise<AutonomyPolicyView> {
   const e = await eligibility(orgId, actionId);
   if (!e.nextRung) {
     throw new AutonomyError('AT_TOP', `${actionId} is already at the top of the ladder`);
   }
-  if (!e.earned) {
+  // A PERSON'S "ALWAYS ALLOW" IS THE EVIDENCE (Jamie, 2026-10-26): an admin
+  // who says "always" on a kind every run of which keeps its Undo moves it
+  // themselves, before the ladder's count would. Scoped to the kind in this
+  // workspace, recorded as theirs, and taken back with one Demote.
+  const chosen = opts.personChose === true && !e.earned;
+  if (!e.earned && !chosen) {
     throw new AutonomyError('NOT_EARNED', `Not earned yet: ${e.reason}`);
+  }
+  if (chosen) {
+    const { actionIsUndoable } = await import('@/libs/actions/undoable');
+    if (!actionIsUndoable(actionId)) {
+      throw new AutonomyError('NOT_EARNED', `Not earned yet: ${e.reason}. Only a kind every run of which can be undone can be allowed always before it is earned.`);
+    }
   }
   await writeRung({
     orgId,
@@ -324,11 +337,11 @@ export async function promote(orgId: string, actionId: string, by: string): Prom
     minConfidence: e.effective.minConfidence,
     by,
     source: 'app',
-    evidence: { ...e.evidence, promotedFrom: e.effective.rung, at: new Date().toISOString() },
+    evidence: { ...e.evidence, promotedFrom: e.effective.rung, at: new Date().toISOString(), ...(chosen ? { allowedAlwaysBy: by } : {}) },
     flagged: false,
     flagReason: null,
   });
-  await trackMove(orgId, by, 'autonomy.promoted', { actionId, from: e.effective.rung, to: e.nextRung, automatic: false });
+  await trackMove(orgId, by, 'autonomy.promoted', { actionId, from: e.effective.rung, to: e.nextRung, automatic: false, ...(chosen ? { personChose: true } : {}) });
   return viewOf(orgId, actionId);
 }
 
