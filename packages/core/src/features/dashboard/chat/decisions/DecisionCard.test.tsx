@@ -333,6 +333,9 @@ describe('phase two: every kind of Decision on the one card', () => {
     for (const row of page.getByRole('option').elements() as HTMLElement[]) {
       expect(row.scrollHeight).toBeLessThanOrEqual(row.clientHeight + 1);
     }
+
+    // Back to the suite's desktop size: the viewport outlives the test.
+    await page.viewport(1440, 900);
   });
 
   it('a notice above the card wraps on a phone instead of cutting off (2026-10-26)', async () => {
@@ -345,6 +348,8 @@ describe('phase two: every kind of Decision on the one card', () => {
     expect(p.textContent).toBe(line);
     expect(p.scrollWidth).toBeLessThanOrEqual(p.clientWidth + 1);
     expect(getComputedStyle(p).whiteSpace).not.toBe('nowrap');
+
+    await page.viewport(1440, 900);
   });
 
   it('a proposal links its details one move away', async () => {
