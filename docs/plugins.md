@@ -68,6 +68,48 @@ come along: `plugins: [proposals]` loads `data-rooms` first. Turning a plugin
 off removes its pages, nav rows, agents, automations and team from the applied
 workspace; nothing it *wrote* (artifacts, rooms, learnings) is deleted.
 
+## Installing an app on Vocion Cloud
+
+A workspace made in the app (every Vocion Cloud workspace) has no
+`workspace.yaml`. Turning an app or plugin on there, from the Apps page, the
+Plugins page, the API or a chat card, sets the whole app up at once
+(`services/plugins/installBundle.ts`):
+
+- **What it creates:** the plugin's agents, missions, automations, teams,
+  skills, playbooks, object types, notification kinds, sources and trust
+  rules. They go through the same applier a workspace apply uses, in its
+  additive mode (`applyWorkspace(…, { additive: true })`): what the plugin
+  ships is upserted, and nothing else in the workspace is retired or
+  rewritten.
+- **Time zone:** schedules that say `timezone: workspace` run on the
+  workspace's own clock (`project.time_zone`).
+- **The lead:** when the plugin names a `lead:` and the workspace has no lead,
+  or only the generic one core seeds (`workspace-lead`), that agent becomes
+  the workspace lead, and the receipt says so. A lead a person chose is never
+  replaced.
+- **Turning it off** disables its missions and automations (schedules
+  removed) and sets its agents inactive. Every row is kept, so history stays,
+  and turning the app on again brings the same rows back. If one of its
+  agents led the workspace, the generic lead takes over again.
+- **The accountable person:** an app that mails its updates needs someone to
+  mail them to. When the workspace has no accountable person
+  (`project.accountable_user_id`), the admin who turned the app on becomes
+  accountable, and the receipt says so. A person already set is never
+  replaced. Admins change it on the Members page (*Accountable person*), and a
+  shared workspace made in the app starts with its creator. If a delivery
+  still finds nobody, it files one setup ask to an admin
+  (`services/workspace/accountable.ts`) instead of failing quietly.
+- **Idempotent:** turning an app on twice changes nothing the second time.
+- **Recorded** as a `workspace_version` row whose `source_path` is
+  `app:<plugins>`.
+
+A workspace applied from a folder (a self-hosted deployment's repo) is never
+set up this way: its manifest is the source of truth, and the next deploy
+would retire whatever an install wrote. The toggle changes that project's
+`enabled_plugins` and names the repo file, as above. Which kind a workspace
+is comes from the applier's own record: any applied version whose source is
+not an app install means a folder.
+
 ## How a plugin composes
 
 The loader treats every enabled plugin as an **inherited layer**, exactly like
@@ -206,6 +248,7 @@ name: Wiki
 version: 1.0.0
 description: One line — what turning it on gives a person.
 depends: [] # other plugin slugs, loaded first
+lead: wiki-curator # optional: the plugin's agent that leads a workspace it is installed into (Vocion Cloud)
 surfaces: [] # core-registered surfaces to switch on (features/navigation/surfaces.ts)
 nav: {section: Workspace} # where ALL its rows sit — pages, owned routes, surfaces. Default Workspace; name an app (GTM) to join it
 recommend:

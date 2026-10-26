@@ -20,6 +20,8 @@
  */
 
 export const META_GRAPH_BASE = 'https://graph.facebook.com';
+/** The Graph API version the login and new sources use (a source may pin its own). */
+export const META_GRAPH_VERSION = 'v23.0';
 
 /** Currencies whose budget values are whole units (offset 1), per Meta's currency table. */
 const OFFSET_ONE = new Set(['CLP', 'COP', 'CRC', 'HUF', 'ISK', 'IDR', 'JPY', 'KRW', 'PYG', 'TWD', 'VND']);
@@ -73,10 +75,10 @@ function failureMessage(status: number, error: GraphError | null): string {
     return 'Meta could not be reached.';
   }
   if (code === 190) {
-    return 'Meta refused the access token: it has expired, was revoked, or is not a system user token. Generate a new one in Business settings → System users.';
+    return 'Meta refused the access token: it has expired or was revoked. Log in with Facebook again on the Connectors page (or, for a pasted system user token, generate a new one in Business settings → System users).';
   }
   if (code === 10 || (code !== null && code >= 200 && code < 300)) {
-    return 'Meta says this token lacks the permission for that. Reading needs ads_read and the ad account assigned to the system user; pausing and resuming also need ads_management.';
+    return 'Meta says this login lacks the permission for that. Reading needs ads_read and a role on the ad account; pausing and resuming also need ads_management. Log in with Facebook again and allow them.';
   }
   if (isThrottle(code)) {
     return 'Meta is throttling this ad account right now (too many calls). Try again in a few minutes.';
@@ -131,10 +133,23 @@ export async function metaCall<T>(input: { token: string; version: string; path:
 }
 
 /**
- * The system user token in a stored credential, or why there is none.
+ * The token in a stored credential, or why there is none: a "Log in with
+ * Facebook" grant's `accessToken` (`libs/connect/providers/meta.ts`), else a
+ * pasted system user `token`.
  * @param bag - The decrypted credential bag.
+ * @param now - Injected for tests.
  */
-export function metaTokenFrom(bag: Record<string, unknown> | null | undefined): { ok: true; token: string } | { ok: false; message: string } {
-  const token = typeof bag?.token === 'string' ? bag.token.trim() : '';
-  return token ? { ok: true, token } : { ok: false, message: 'No Meta system user token is stored. Paste one on the Connectors page.' };
+export function metaTokenFrom(bag: Record<string, unknown> | null | undefined, now: number = Date.now()): { ok: true; token: string } | { ok: false; message: string } {
+  if (!bag) {
+    return { ok: false, message: 'No Meta login is stored. Log in with Facebook on the Connectors page.' };
+  }
+  if (typeof bag.accessToken === 'string' && bag.accessToken) {
+    const expiresAt = typeof bag.expiresAt === 'string' ? Date.parse(bag.expiresAt) : Number.NaN;
+    if (!Number.isNaN(expiresAt) && expiresAt <= now) {
+      return { ok: false, message: 'The Meta login has expired. Log in with Facebook again on the Connectors page.' };
+    }
+    return { ok: true, token: bag.accessToken };
+  }
+  const token = typeof bag.token === 'string' ? bag.token.trim() : '';
+  return token ? { ok: true, token } : { ok: false, message: 'No Meta login is stored. Log in with Facebook on the Connectors page.' };
 }

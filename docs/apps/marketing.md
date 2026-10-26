@@ -13,11 +13,15 @@
 
 ## Connecting Google Ads
 
-One Google login, on the Connectors page, with the `adwords` scope (Google's only Ads scope; it reads and writes). After the login, set the source's **Customer ID** (the ten digits at the top of Google Ads) and, only if the login reaches the account through a manager account, the **Manager account ID**.
+One Google login, on the Connectors page, with the `adwords` scope (Google's only Ads scope; it reads and writes). After the login, **pick the account** from the list of accounts the login can run (`connect.googleAdsAccounts`, `libs/googleAds/client.ts` `listGoogleAdsAccounts`): the ones it reaches directly, and the client accounts under each manager account it reaches. Picking an account under a manager fills the **Manager account ID** too. A login that runs exactly one account picks it. With no login yet, the typed Customer ID stays as the fallback.
 
 **Developer tokens are retired.** Since 2026-09-09 the Google Ads API decides access by the Google Cloud project that owns the OAuth client, not by a token from a manager account's API Center. The project needs **Explorer** access (automatic in most cases, about 2,880 operations a day on real accounts) or **Basic / Standard** (brand verification, then a review), applied for in Cloud Console → *Google Ads API Overview*. A project still on Test access is refused on a real account; the refusal says so and names that page. A `developerToken` a credential still carries is sent and ignored.
 
 A pasted credential (OAuth client ID, secret and refresh token) works too, and authenticates every Google connector at once.
+
+## Installing it on Vocion Cloud
+
+Adding Marketing to a Vocion Cloud workspace sets the whole app up: the Marketing lead (who becomes the workspace lead when the workspace has only the generic one), the team, the daily update mission and its automations in the workspace's time zone, the guard and the alerts. See `docs/plugins.md`, *Installing an app on Vocion Cloud*. Then connect Google Ads with one Google login and pick the account.
 
 ## What the Marketing lead reads
 
@@ -46,7 +50,7 @@ Every Google Ads write is `approvalRequired`: whoever proposes it, it waits in R
 
 `missions/daily-marketing-update.yaml`, run at 6:30am on weekdays by `automations/marketing-daily-update.yaml` (`when.timezone: workspace`: 6:30 on the workspace's own clock, across daylight saving) and published with `publish_briefing`, so it is on the Briefings page. It covers spend yesterday and this week against budget, what it bought, wasted search terms, ads Google limited, the proposals waiting, and one recommendation.
 
-The mission's `deliver: {email: true}` mails the briefing to the workspace's accountable person when the check finishes (ADR 0008; mail needs `VOCION_MAIL_ENABLED=1`). A check that published nothing sends nothing; one that failed sends a short note with the reason and the run, never an older update.
+The mission's `deliver: {email: true}` mails the briefing to the workspace's accountable person when the check finishes (ADR 0008; mail needs `VOCION_MAIL_ENABLED=1`). On Vocion Cloud that is the admin who installed the app, unless an admin names someone else on the Members page; with nobody set, the update asks an admin to choose instead of going nowhere. A check that published nothing sends nothing; one that failed sends a short note with the reason and the run, never an older update.
 
 Between mornings:
 

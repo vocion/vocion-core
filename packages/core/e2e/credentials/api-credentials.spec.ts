@@ -220,6 +220,7 @@ test.describe('the platform selector decides which controls exist', () => {
       'Xero login app',
       'Gusto login app',
       'LinkedIn login app',
+      'Meta login app',
       'Other platform',
     ]);
   });

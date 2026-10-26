@@ -46,7 +46,7 @@ export const CardSchema = z.object({
   /** The words on that link: "Open feature". */
   hrefLabel: z.string().min(1).optional(),
   /**
-   * A second way in, beside `href`: "Paste a token" next to "Connect with
+   * A second way in, beside `href`: "Use an API key instead" next to "Connect with
    * GitHub". Same rule as `href` — a path inside the app.
    */
   secondaryHref: z.string().min(1).optional(),

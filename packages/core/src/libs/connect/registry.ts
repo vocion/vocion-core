@@ -14,6 +14,7 @@ import { googleProvider } from './providers/google';
 import { gustoProvider } from './providers/gusto';
 import { hubspotProvider } from './providers/hubspot';
 import { linkedinProvider } from './providers/linkedin';
+import { metaProvider } from './providers/meta';
 import { notionProvider } from './providers/notion';
 import { posthogProvider } from './providers/posthog';
 import { quickbooksProvider } from './providers/quickbooks';
@@ -36,6 +37,7 @@ const realProviders: readonly ConnectProvider[] = [
   xeroProvider,
   gustoProvider,
   linkedinProvider,
+  metaProvider,
 ];
 
 /**

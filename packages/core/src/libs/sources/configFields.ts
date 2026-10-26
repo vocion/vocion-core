@@ -57,6 +57,20 @@ export type ConfigField = {
   defaultValue?: ConfigFieldValue;
   /** The choices, for `select` fields only. */
   options?: ConfigFieldOption[];
+  /**
+   * Choices the form reads from the vendor once a login exists, in place of
+   * a typed value: `google-ads-accounts` lists the Ads accounts the Google
+   * login can run (`connect.googleAdsAccounts`), and picking one also fills
+   * the manager it is reached through. The typed input stays as the fallback
+   * when no login is there yet.
+   */
+  optionsFrom?: 'google-ads-accounts';
+  /**
+   * After a login, a dropdown of what the login reaches (the ad accounts a
+   * LinkedIn or Meta login can read: `/rpc/sources/login-choices`), so no
+   * one types an id. Typed entry stays only when the login offers none.
+   */
+  choicesFromLogin?: boolean;
   /** Lowest accepted value, for `number` fields only. */
   min?: number;
   /** Highest accepted value, for `number` fields only. */
@@ -204,18 +218,20 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
   'google-ads': [
     {
       key: 'customerId',
-      label: 'Customer ID',
+      label: 'Google Ads account',
       type: 'text',
       required: true,
+      optionsFrom: 'google-ads-accounts',
       placeholder: '1234567890',
-      help: 'The account Vocion reads and manages: the ten digits at the top of Google Ads (dashes are fine).',
+      help: 'The account Vocion reads and manages. After you log in with Google, pick it from the list.',
     },
     {
       key: 'loginCustomerId',
       label: 'Manager account ID',
       type: 'text',
       placeholder: '9876543210',
-      help: 'Only needed when the login reaches the account through a manager (MCC) account.',
+      advanced: true,
+      help: 'Filled in when you pick an account reached through a manager (MCC) account.',
     },
     {
       key: 'baseUrl',
@@ -881,22 +897,24 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
   'linkedin-ads': [
     {
       key: 'accountId',
-      label: 'Ad account ID',
+      label: 'Ad account',
       type: 'number',
       required: true,
       min: 1,
+      choicesFromLogin: true,
       placeholder: '508123456',
-      help: 'The number in Campaign Manager\'s URL, after /accounts/.',
+      help: 'Pick from the ad accounts your LinkedIn login reaches; or the number in Campaign Manager\'s URL, after /accounts/.',
     },
   ],
   'meta-ads': [
     {
       key: 'accountId',
-      label: 'Ad account ID',
+      label: 'Ad account',
       type: 'text',
       required: true,
+      choicesFromLogin: true,
       placeholder: 'act_1234567890',
-      help: 'From Ads Manager\'s account menu, with or without the act_ prefix.',
+      help: 'Pick from the ad accounts your Facebook login reaches; or the act_ id from Ads Manager\'s account menu.',
     },
     {
       key: 'apiVersion',

@@ -8,6 +8,7 @@
 
 import type { ConnectInfo } from '@/features/dashboard/ConnectByLogin';
 import { lastConnectAttempts } from '@/libs/connect/attempts';
+import { loginSetupNote } from '@/libs/connect/clickToAuth';
 import { connectOptionFor, providerForConnector } from '@/libs/connect/registry';
 import { howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listConnectors } from '@/libs/sources/registry';
@@ -114,10 +115,11 @@ export async function connectInfoForOrg(orgId: string): Promise<Record<string, C
       continue;
     }
     // A login with no app to run on (no server client ID, no workspace login
-    // app) would be a button that only errors, so the page is told there is
-    // none and offers paste.
+    // app) is still the way in: the page shows its button, disabled, with what
+    // an admin sets up, and keeps the key behind Advanced.
     const option = await connectOptionOnce(orgId, slug, optionsByProvider);
-    info[slug] = { providerLabel: option?.configured ? option.label : null, loggedInAs, stored, lastAttempt: failed };
+    const loginSetup = option && !option.configured && howToConnectFor(slug)?.login ? { label: option.label, note: loginSetupNote(option) } : null;
+    info[slug] = { providerLabel: option?.configured ? option.label : null, loggedInAs, stored, lastAttempt: failed, loginSetup };
   }
   return info;
 }

@@ -96,7 +96,11 @@ export function loadPlugin(slug: string): LoadedPlugin {
   if (result.data.slug !== slug) {
     throw new Error(`plugin at ${dir} declares slug "${result.data.slug}" but lives in a directory named "${slug}" — the two must agree`);
   }
-  return { manifest: result.data, sourcePath: dir };
+  const loaded = { manifest: result.data, sourcePath: dir };
+  if (result.data.lead && !pluginContents(loaded).agents.includes(result.data.lead)) {
+    throw new Error(`plugin "${slug}" names lead "${result.data.lead}", which is not one of its agents (${pluginContents(loaded).agents.join(', ') || 'none'})`);
+  }
+  return loaded;
 }
 
 /** Slugs of every shipped plugin. */

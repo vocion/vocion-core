@@ -56,7 +56,7 @@ import {
 } from './BusinessObject';
 import { hintEvent as chatHintEvent, suggestions as chatSuggestions, tagSources as chatTagSources } from './Chat';
 import { getState as getChatWidgetState, setRail as setChatWidgetRail, setState as setChatWidgetState } from './ChatWidget';
-import { addConnectorRoute, membersOwnConnectionsRoute, revealStoredCredentialRoute, saveSourceRoute as saveConnectedSourceRoute, setMembersOwnConnectionsRoute } from './Connect';
+import { addConnectorRoute, googleAdsAccountsRoute, membersOwnConnectionsRoute, revealStoredCredentialRoute, saveSourceRoute as saveConnectedSourceRoute, setMembersOwnConnectionsRoute } from './Connect';
 import { finishConnectionsRoute, planConnectionsRoute, saveConnectionKeyRoute, verifyConnectionRoute } from './ConnectSystems';
 import {
   append as appendConvMessage,
@@ -105,6 +105,7 @@ import {
   update as updateLearning,
 } from './Learnings';
 import {
+  accountableRoute,
   changeRoleRoute,
   createInviteRoute,
   inviteDeliveryRoute,
@@ -114,6 +115,7 @@ import {
   resendInviteRoute,
   resetSecondFactorRoute,
   revokeInviteRoute,
+  setAccountableRoute,
 } from './Members';
 import {
   cancel as cancelMissionRoute,
@@ -318,6 +320,7 @@ export const router = {
     revealStoredCredential: revealStoredCredentialRoute,
     membersOwnConnections: membersOwnConnectionsRoute,
     setMembersOwnConnections: setMembersOwnConnectionsRoute,
+    googleAdsAccounts: googleAdsAccountsRoute,
   },
   connectSystems: {
     plan: planConnectionsRoute,
@@ -364,6 +367,8 @@ export const router = {
     changeRole: changeRoleRoute,
     remove: removeMemberRoute,
     resetSecondFactor: resetSecondFactorRoute,
+    accountable: accountableRoute,
+    setAccountable: setAccountableRoute,
   },
   browser: {
     get: getBrowserRunRoute,

@@ -110,6 +110,11 @@ test('connect: find it, paste its key, and it is Working', async ({ page }) => {
 
   await expect(page.getByText('Connect Apollo', { exact: true })).toBeVisible();
 
+  // Apollo has a login this server has no app for: the login leads, disabled,
+  // with what an admin sets up; the key is behind Advanced (click to auth, 2026-10-25).
+  await expect(page.getByTestId('connect-login-setup')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Advanced: use an API key instead' }).click();
   await page.getByLabel('API key', { exact: true }).fill('apollo-e2e-key-0001');
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
 
@@ -126,6 +131,7 @@ test('broken, then reconnect: a revoked key says so in words, and Reconnect puts
 
   await expect(page.getByText('Connect Apollo', { exact: true })).toBeVisible();
 
+  // Reconnecting a pasted key opens on the key itself.
   await page.getByLabel('API key', { exact: true }).fill('apollo-e2e-key-0002');
   await page.getByRole('button', { name: 'Save credential' }).click();
 

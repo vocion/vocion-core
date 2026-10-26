@@ -161,7 +161,7 @@ describe('meta ads Test connection', () => {
     const { inspectMetaAds } = await import('@/libs/sources/metaAds');
     const { doFetch } = network(() => ({ status: 400, body: { error: { message: 'Invalid OAuth access token', code: 190 } } }));
 
-    await expect(inspectMetaAds({ config: { accountId: ACT }, credentials: { token: 'tok' } }, doFetch)).resolves.toMatchObject({ authorized: false, error: expect.stringMatching(/expired, was revoked/) });
+    await expect(inspectMetaAds({ config: { accountId: ACT }, credentials: { token: 'tok' } }, doFetch)).resolves.toMatchObject({ authorized: false, error: expect.stringMatching(/expired or was revoked/) });
     await expect(inspectMetaAds({ config: { accountId: 'northwind' }, credentials: { token: 'tok' } }, doFetch)).rejects.toThrow(/not a Meta ad account id/);
   });
 });

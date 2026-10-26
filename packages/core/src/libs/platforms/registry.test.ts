@@ -669,9 +669,11 @@ describe('the numbers platforms — warehouses, product analytics, ad platforms'
     expect(() => validatePlatformCredential('redshift', { roleArn: 'vocion-redshift-read' })).toThrow(/role ARN/);
   });
 
-  it('logs in to LinkedIn for read-only ads scopes and asks for the ad account after, and takes Meta as a pasted token only', () => {
+  it('logs in to LinkedIn and to Facebook (click to auth, 2026-10-25) and asks for the ad account after; a pasted token is the advanced path', () => {
     expect(getPlatform('linkedin-ads').howToConnect?.login).toEqual({ provider: 'linkedin', access: ['r_ads', 'r_ads_reporting'], settingsAfterLogin: [{ key: 'accountId', label: 'ad account' }] });
-    expect(getPlatform('meta-ads').howToConnect?.login).toBeUndefined();
+    expect(getPlatform('meta-ads').howToConnect?.login).toMatchObject({ provider: 'meta', settingsAfterLogin: [{ key: 'accountId', label: 'ad account' }] });
+    expect(getPlatform('meta-ads').howToConnect?.paste).toBeDefined();
     expect(getPlatform('linkedin-login-app').loginAppFor).toBe('linkedin');
+    expect(getPlatform('meta-login-app').loginAppFor).toBe('meta');
   });
 });

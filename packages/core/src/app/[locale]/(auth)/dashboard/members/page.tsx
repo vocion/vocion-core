@@ -1,3 +1,4 @@
+import { AccountablePerson } from '@/features/members/AccountablePerson';
 import { MembersScreen } from '@/features/members/MembersScreen';
 import { OrgPersonalReach } from '@/features/members/OrgPersonalReach';
 import { clerkAuth } from '@/libs/Auth';
@@ -26,6 +27,8 @@ export default async function MembersPage() {
         isAdmin={has({ role: ORG_ROLE.ADMIN })}
         currentUserId={userId ?? ''}
       />
+      {/* Who this workspace's updates go to when they name no one. */}
+      <AccountablePerson />
       {/* The Org's say in its members' one Personal; admins, multi-Org only. */}
       <OrgPersonalReach />
     </>

@@ -20,6 +20,7 @@ const { atlassianProvider } = await import('./atlassian');
 const { googleProvider } = await import('./google');
 const { hubspotProvider, refreshHubspotGrant } = await import('./hubspot');
 const { linkedinProvider, refreshLinkedinGrant } = await import('./linkedin');
+const { metaProvider, refreshMetaGrant } = await import('./meta');
 const { notionProvider } = await import('./notion');
 const { quickbooksProvider, refreshQuickbooksGrant } = await import('./quickbooks');
 const { gustoProvider, refreshGustoGrant } = await import('./gusto');
@@ -46,6 +47,7 @@ const LOGIN_APP_PROVIDERS: Array<{ provider: ConnectProvider; connector: string 
   { provider: xeroProvider, connector: 'xero' },
   { provider: gustoProvider, connector: 'gusto' },
   { provider: linkedinProvider, connector: 'linkedin-ads' },
+  { provider: metaProvider, connector: 'meta-ads' },
 ];
 
 /** Each refresh that takes the login's app, by the provider it belongs to. */
@@ -58,6 +60,7 @@ const REFRESHES: Array<{ id: string; refresh: (refreshToken: string, client?: Lo
   { id: 'gusto', refresh: refreshGustoGrant },
   { id: 'atlassian', refresh: refreshAtlassianGrant },
   { id: 'linkedin', refresh: refreshLinkedinGrant },
+  { id: 'meta', refresh: refreshMetaGrant },
 ];
 
 /**
@@ -102,6 +105,8 @@ describe('a workspace\'s own login app, for every provider that takes one', () =
     }
     env.GOOGLE_OAUTH_CLIENT_ID = 'server_google';
     env.GOOGLE_OAUTH_CLIENT_SECRET = 'server_secret';
+    env.META_APP_ID = 'server_meta';
+    env.META_APP_SECRET = 'server_secret';
     vi.stubEnv('ATLASSIAN_CLIENT_ID', 'server_atlassian');
     vi.stubEnv('ATLASSIAN_CLIENT_SECRET', 'server_secret');
   });

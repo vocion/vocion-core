@@ -1,4 +1,4 @@
-import type { ChatImageFetcher, ChatInbound, ChatInboundFile, ChatJoin, ChatPostRef, ChatReplyTarget, ChatStop, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import type { ChatImageFetcher, ChatInbound, ChatInboundFile, ChatJoin, ChatMessage, ChatPostRef, ChatReplyTarget, ChatStop, ChatSurfaceAdapter } from '@/libs/surfaces/types';
 import type { LoadedAttachment } from '@/services/chat/attachments';
 import type { OwnAssistantRoute } from '@/services/chat/ownAssistant';
 import type { ThreadApproval } from '@/services/chat/slackApproval';
@@ -6,6 +6,7 @@ import type { SlackThreadContext } from '@/services/chat/slackThread';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
+import { connectOrigin } from '@/libs/connect/routes';
 import { db } from '@/libs/DB';
 import { absoluteAppLinks } from '@/libs/links';
 import { fetchSlackFile } from '@/libs/surfaces/slack';
@@ -187,6 +188,76 @@ function introductionText(binding: Pick<ChatChannelBinding, 'agentSlug' | 'displ
   return `I'm ${name}, a Vocion agent. I answer here as \`${binding.agentSlug}\` — mention me and I'll reply in the thread.`;
 }
 
+/** When each channel was last told it is not connected: a busy channel hears it once an hour. */
+const promptedAt = new Map<string, number>();
+const PROMPT_EVERY_MS = 60 * 60 * 1000;
+
+/**
+ * The page where an admin connects a channel to one of this installation's
+ * workspaces, or null when the deployment has no public origin to link to.
+ * @param surface - Adapter id.
+ * @param teamId - Platform workspace id, if any.
+ * @param channelId - Platform channel id.
+ */
+export function connectChannelUrl(surface: string, teamId: string | null, channelId: string): string | null {
+  const origin = connectOrigin();
+  if (!origin) {
+    return null;
+  }
+  const query = new URLSearchParams({ surface, channel: channelId, ...(teamId ? { team: teamId } : {}) });
+  return `${origin}/dashboard/connect-channel?${query.toString()}`;
+}
+
+/**
+ * What a channel nobody connected says instead of silence (Chris, 2026-10-26: a mention in
+ * #slate-marketing went unanswered with no word why). It names the fix and who can make it,
+ * and says plainly that a channel meant for another Vocion installation needs that one's app.
+ * @param surface - Adapter id.
+ * @param teamId - Platform workspace id, if any.
+ * @param channelId - Platform channel id.
+ */
+export function unboundPrompt(surface: string, teamId: string | null, channelId: string): ChatMessage {
+  const url = connectChannelUrl(surface, teamId, channelId);
+  const text = [
+    'This channel isn\'t connected to a Vocion workspace yet, so nobody here can answer.',
+    url ? 'A Vocion admin can connect it with the button below; anyone else, ask an admin of your Vocion workspace.' : 'A Vocion admin can connect it from Vocion.',
+    'If this channel belongs to a workspace on another Vocion installation, such as Vocion Cloud, add that installation\'s Slack app here instead.',
+  ].join(' ');
+  return url ? { text, link: { label: 'Connect this channel', url } } : { text };
+}
+
+/**
+ * Say once an hour per channel that it is not connected. Nothing else runs.
+ * @param adapter - The surface to post on.
+ * @param at - Where to post.
+ * @param at.surface - Adapter id.
+ * @param at.teamId - Platform workspace id, if any.
+ * @param at.channelId - Platform channel id.
+ * @param at.threadRef - The thread to answer in, for a mention.
+ * @param now - The time, for the hourly limit.
+ * @returns Whether the prompt was posted.
+ */
+export async function promptUnbound(adapter: ChatSurfaceAdapter, at: { surface: string; teamId: string | null; channelId: string; threadRef?: string }, now = Date.now()): Promise<boolean> {
+  const key = `${at.surface}:${at.teamId ?? ''}:${at.channelId}`;
+  const last = promptedAt.get(key);
+  if (last !== undefined && now - last < PROMPT_EVERY_MS) {
+    return false;
+  }
+  promptedAt.set(key, now);
+  try {
+    await adapter.reply({ channelId: at.channelId, ...(at.threadRef ? { threadRef: at.threadRef } : {}) }, unboundPrompt(at.surface, at.teamId, at.channelId));
+    return true;
+  } catch {
+    promptedAt.delete(key);
+    return false;
+  }
+}
+
+/** Forget the hourly limit (tests). */
+export function resetUnboundPrompts(): void {
+  promptedAt.clear();
+}
+
 /**
  * The bot was added to a channel. Introduce whoever answers there so a fresh
  * channel is never met with silence — the workspace catch-all binding is what
@@ -194,19 +265,19 @@ function introductionText(binding: Pick<ChatChannelBinding, 'agentSlug' | 'displ
  * mention would get, said out loud one message early.
  *
  * Nothing is created and nothing runs: no agent turn, no conversation, no
- * budget spend. An unbound channel (no exact binding, no catch-all) stays
- * silent rather than advertising an install that cannot answer.
+ * budget spend. An unbound channel (no exact binding, no catch-all) says it is
+ * not connected and how to connect it (`promptUnbound`), once an hour.
  * @param adapter - The surface the join came from.
  * @param join - The normalised join event.
  */
 export async function handleJoined(adapter: ChatSurfaceAdapter, join: ChatJoin): Promise<
-  | { outcome: 'unbound' }
+  | { outcome: 'unbound'; prompted?: boolean }
   | { outcome: 'introduced'; orgId: string; agentSlug: string; text: string }
   | { outcome: 'failed'; orgId: string; agentSlug: string; error: string }
 > {
   const binding = await resolveBinding(join.surface, join.teamId, join.channelId);
   if (!binding) {
-    return { outcome: 'unbound' };
+    return { outcome: 'unbound', prompted: await promptUnbound(adapter, { surface: join.surface, teamId: join.teamId, channelId: join.channelId }) };
   }
   const { orgId, agentSlug } = binding;
   const persona = resolvePersona(binding, await agentPersona(orgId, agentSlug));
@@ -369,7 +440,7 @@ const runningTurns = new Map<string, AbortController>();
  * @param overrides - Injectable collaborators; anything omitted uses the default.
  */
 export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatInbound, overrides: Partial<ChatHandlerDeps> = {}): Promise<
-  | { outcome: 'unbound' }
+  | { outcome: 'unbound'; prompted?: boolean }
   | { outcome: 'not_ours' }
   | { outcome: 'not_routed'; why: 'unknown_sender' | 'no_assistant' }
   | { outcome: 'over_budget'; agentSlug: string }
@@ -379,7 +450,11 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const deps: ChatHandlerDeps = { ...defaultDeps, ...overrides };
   const bound = await resolveBinding(inbound.surface, inbound.teamId, inbound.channelId);
   if (!bound) {
-    return { outcome: 'unbound' };
+    // A mention is never met with silence; a thread reply that mentions nobody is not ours to answer.
+    if (inbound.followUp) {
+      return { outcome: 'unbound' };
+    }
+    return { outcome: 'unbound', prompted: await promptUnbound(adapter, { surface: inbound.surface, teamId: inbound.teamId, channelId: inbound.channelId, threadRef: inbound.threadRef }) };
   }
   // A reply with no mention is answered only in a thread Vocion is already in; people talking
   // among themselves in any other thread are left alone.

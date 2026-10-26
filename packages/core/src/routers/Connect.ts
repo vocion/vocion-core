@@ -9,6 +9,7 @@ import { os } from '@orpc/server';
 import { z } from 'zod';
 import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { logger } from '@/libs/Logger';
+import { googleAdsAccountChoices } from '@/services/ads/googleAccountChoices';
 import { createSourceOnLogin } from '@/services/connect/createSourceOnLogin';
 import { createSourceWithCredential } from '@/services/connect/createSourceWithCredential';
 import { revealStoredCredential } from '@/services/connect/revealStoredCredential';
@@ -129,3 +130,15 @@ export const setMembersOwnConnectionsRoute = os
     await setMembersOwnConnections(orgId, input.on);
     return { on: input.on };
   });
+
+/**
+ * The Google Ads accounts this workspace's Google login can run: the
+ * Connectors form's Customer ID picker. Admin-only, like the save it feeds.
+ */
+export const googleAdsAccountsRoute = os.handler(async () => {
+  const { orgId, has } = await guardAuth();
+  if (!has({ role: ORG_ROLE.ADMIN })) {
+    throw ApiError.forbidden();
+  }
+  return googleAdsAccountChoices(orgId);
+});

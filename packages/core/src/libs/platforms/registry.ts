@@ -118,7 +118,8 @@ export type CredentialPlatformId
     | 'quickbooks-login-app'
     | 'xero-login-app'
     | 'gusto-login-app'
-    | 'linkedin-login-app';
+    | 'linkedin-login-app'
+    | 'meta-login-app';
 
 /**
  * A built-in tool provider whose calls are paid for with a platform key.
@@ -385,6 +386,7 @@ const LOGIN_APP_PLATFORMS: readonly CredentialPlatform[] = [
   loginAppPlatform('xero-login-app', 'xero', 'Xero', 'xero'),
   loginAppPlatform('gusto-login-app', 'gusto', 'Gusto', 'gusto'),
   loginAppPlatform('linkedin-login-app', 'linkedin', 'LinkedIn', 'linkedin'),
+  loginAppPlatform('meta-login-app', 'meta', 'Meta', 'meta'),
 ];
 
 /**
@@ -1749,6 +1751,11 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['meta-ads'],
     howToConnect: {
+      login: {
+        provider: 'meta',
+        access: ['ads_read', 'ads_management, so an approved pause or resume runs', 'business_management, to list the business\'s ad accounts'],
+        settingsAfterLogin: [{ key: 'accountId', label: 'ad account' }],
+      },
       paste: {
         credential: 'System user access token',
         access: ['ads_read', 'ads_management, only if Vocion may pause and resume', 'The ad account assigned to the system user'],
@@ -1760,7 +1767,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     toolProvider: null,
     keyPattern: null,
     keyShapeHint: 'a Meta system user access token',
-    helpText: 'A Meta Business system user token (Business settings → System users) assigned the ad account. ads_read reads campaigns and insights; add ads_management only if an agent may pause and resume — every pause is a card a person decides, with Undo. A system user token does not expire unless you set it to.',
+    helpText: 'Log in with Facebook as someone with a role on the ad account; or, as the advanced path, a Meta Business system user token (Business settings → System users) assigned the ad account. ads_read reads campaigns and insights; add ads_management only if an agent may pause and resume — every pause is a card a person decides, with Undo. A system user token does not expire unless you set it to.',
     fields: [{ name: 'token', label: 'System user access token', pattern: /^\S{16,}$/, shapeHint: 'is an access token with no spaces', secret: true }],
   },
   {

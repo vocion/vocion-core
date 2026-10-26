@@ -105,7 +105,7 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
       {notice && (
         <div className="mb-2 flex items-start gap-2 px-1 text-[12.5px] text-muted-foreground" data-testid="decision-notice" role="status">
           <div className="min-w-0 flex-1">
-            <p className="truncate">{notice.line}</p>
+            <p className="text-pretty" data-testid="decision-notice-line">{notice.line}</p>
             {notice.receipt && <DoneReceipts receipts={[notice.receipt]} />}
           </div>
           {onDismissNotice && (
@@ -345,7 +345,7 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
     <DecisionDock
       decisions={plan.own}
       waiting={plan.elsewhere}
-      notice={waitingTab ? { line: 'Finish signing in in the new tab. This card updates when you are done.' } : tabNotice ? { line: tabNotice } : session.dockNotice ?? (elsewhereLine ? { line: elsewhereLine } : null)}
+      notice={waitingTab ? { line: 'Finish signing in on the new tab. This card updates when you\'re done.' } : tabNotice ? { line: tabNotice } : session.dockNotice ?? (elsewhereLine ? { line: elsewhereLine } : null)}
       onDismissNotice={() => {
         if (waitingTab || tabNotice) {
           setWaitingTab(false);

@@ -38,6 +38,7 @@ import { addConnectorWithCredential, ConnectCredential, credentialInputsFor, fai
 import { connectorIcon } from './connectors/connectorIcon';
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnections, catalogEntries, connectorSlugFor } from './connectors/connectorRows';
+import { GoogleAdsAccountPicker } from './connectors/GoogleAdsAccountPicker';
 import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
 import { firstSyncNotice, firstSyncRunOf, firstSyncWatchAfter, firstSyncWatchAfterSave, withoutStartedNotice, withStartedNoticeExpired } from './firstSyncWatch';
 
@@ -1516,11 +1517,15 @@ function optionsIncludingCurrent(field: ConfigField, value: ConfigFieldValue | u
  * @param props.field - What to ask for.
  * @param props.value - What the input currently holds.
  * @param props.onChange - Called with the new value as it is typed.
+ * @param props.onChangeKey - Sets another field of the same form (a picked Ads account also names its manager).
+ * @param props.loginChoices - What a stored login reaches, for a `choicesFromLogin` field: a dropdown instead of a typed id.
  */
-function SourceConfigInput({ field, value, onChange }: {
+function SourceConfigInput({ field, value, onChange, onChangeKey, loginChoices }: {
   field: ConfigField;
   value: ConfigFieldValue | undefined;
   onChange: (value: ConfigFieldValue) => void;
+  onChangeKey?: (key: string, value: ConfigFieldValue) => void;
+  loginChoices?: ConfigFieldOption[];
 }) {
   // The asterisk is decoration; `required` on the input is what a screen
   // reader announces, so both are set from the same flag.
@@ -1532,6 +1537,22 @@ function SourceConfigInput({ field, value, onChange }: {
     </span>
   );
   const helpText = field.help ? <span className="mt-1 block text-xs text-muted-foreground">{field.help}</span> : null;
+
+  if (field.optionsFrom === 'google-ads-accounts') {
+    return (
+      <div>
+        <GoogleAdsAccountPicker
+          value={String(value ?? '')}
+          onChange={onChange}
+          onManager={managerId => onChangeKey?.('loginCustomerId', managerId)}
+          label={labelText}
+          required={isRequired}
+          inputClass={FIELD_CLASS}
+        />
+        {helpText}
+      </div>
+    );
+  }
 
   if (field.type === 'boolean') {
     return (
@@ -1545,6 +1566,29 @@ function SourceConfigInput({ field, value, onChange }: {
           />
           {labelText}
         </span>
+        {helpText}
+      </label>
+    );
+  }
+
+  if (loginChoices && loginChoices.length > 0) {
+    const current = String(value ?? '');
+    const choices = current === '' || loginChoices.some(choice => choice.value === current) ? loginChoices : [...loginChoices, { value: current, label: current }];
+    return (
+      <label className="block">
+        {labelText}
+        <select
+          value={current}
+          required={isRequired}
+          onChange={e => onChange(e.target.value)}
+          className={FIELD_CLASS}
+          data-testid={`login-choice-${field.key}`}
+        >
+          <option value="" disabled>Pick one</option>
+          {choices.map(choice => (
+            <option key={choice.value} value={choice.value}>{choice.label}</option>
+          ))}
+        </select>
         {helpText}
       </label>
     );
@@ -1683,6 +1727,28 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
   const everydayFields = fields.filter(field => field.advanced !== true);
   const advancedFields = fields.filter(field => field.advanced === true);
 
+  // A login that reaches accounts offers them as a dropdown, so nobody types
+  // an id (`/rpc/sources/login-choices`). Read once per dialog.
+  const wantsLoginChoices = fields.some(field => field.choicesFromLogin === true);
+  const [loginChoices, setLoginChoices] = useState<ConfigFieldOption[]>([]);
+  useEffect(() => {
+    if (!wantsLoginChoices) {
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/rpc/sources/login-choices?connector=${encodeURIComponent(kind)}`)
+      .then(response => (response.ok ? response.json() as Promise<{ choices?: ConfigFieldOption[] }> : { choices: [] }))
+      .then((body) => {
+        if (!cancelled) {
+          setLoginChoices(body.choices ?? []);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsLoginChoices, kind]);
+
   const setFieldValue = (key: string, value: ConfigFieldValue) => {
     setValues(current => ({ ...current, [key]: value }));
   };
@@ -1736,7 +1802,9 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
           key={field.key}
           field={field}
           value={values[field.key]}
+          loginChoices={field.choicesFromLogin ? loginChoices : undefined}
           onChange={value => setFieldValue(field.key, value)}
+          onChangeKey={setFieldValue}
         />
       ))}
 
