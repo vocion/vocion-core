@@ -21,6 +21,7 @@ export const FACTORY_RECONCILE_JOB = 'factory-reconcile';
 export const FACTORY_PIPELINE_FIX_ENDED_JOB = 'factory-pipeline-fix-ended';
 export const FACTORY_ENVIRONMENT_DEPLOYED_JOB = 'factory-environment-deployed';
 export const FACTORY_ENVIRONMENT_HEALTH_JOB = 'factory-environment-health';
+export const FACTORY_UNBLOCK_JOB = 'factory-unblock';
 
 type Job = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
@@ -102,6 +103,11 @@ export const factoryCarryJobs: Record<string, Job> = {
    * @param input
    */
   [FACTORY_PLANNING_ENDED_JOB]: async (orgId, input) => (await import('@/services/factory/carry')).planningRunEnded(orgId, input),
+  /**
+   * A repo record was approved, added or changed: requests blocked on a missing repo record are read again now.
+   * @param orgId
+   */
+  [FACTORY_UNBLOCK_JOB]: async orgId => (await import('@/services/factory/carry')).unblockForRecords(orgId),
   /**
    * Scheduled: the same recovery for requests that were already stuck.
    * @param orgId

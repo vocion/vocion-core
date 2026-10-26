@@ -51,13 +51,15 @@ describe('the request type declares one status', () => {
   it('tells the asker only what needs them and the end, each on a transition it declares (Chris, 2026-10-06)', () => {
     const names = new Set(MODEL.transitions.map(([name]) => name));
 
-    expect(Object.keys(MODEL.tell).sort()).toEqual(['live', 'live_seen', 'live_unchecked', 'live_unconfirmed', 'merge_waits', 'plan_waits', 'resolved', 'stopped']);
+    expect(Object.keys(MODEL.tell).sort()).toEqual(['live', 'live_seen', 'live_unchecked', 'live_unconfirmed', 'merge_waits', 'plan_waits', 'recovering', 'resolved', 'stopped']);
 
     for (const name of Object.keys(MODEL.tell)) {
       expect(names.has(name), name).toBe(true);
     }
 
-    // A send-back retries by itself; nobody is needed, so nobody is told.
+    // A send-back retries by itself; nobody is needed, so nobody is told. A
+    // worker that died is told at once (`recovering`, FE-535): the asker would
+    // otherwise see a build that never moves.
     expect(MODEL.tell.live_changes).toBeUndefined();
     expect(MODEL.tell.qa_changes).toBeUndefined();
   });

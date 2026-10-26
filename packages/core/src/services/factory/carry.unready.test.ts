@@ -195,3 +195,34 @@ describe('the repo record a contract was read from rides with it', () => {
     expect(await readRepo(ORG, 'harbor-app', null)).toMatchObject({ title: 'Acme/harbor-app', recordId: expect.any(Number), recordCode: expect.stringMatching(/\d+$/) });
   });
 });
+
+describe('a repo record unblocks at once, and a build that started is not blocked (FE-535, 2026-10-26)', () => {
+  it('approving the repo record reads the blocked request now, not at the hourly sweep', async () => {
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.product!, title: 'Ember', metadata: { slug: 'ember', name: 'Ember' } });
+    const r = await request('ember', { title: 'Ember: show the page count' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 7, byPerson: true });
+
+    expect((await meta(r.id)).blocker).toMatchObject({ cause: 'no_repo' });
+
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.repo!, title: 'Ember web app', metadata: { slug: 'ember-web', product: 'ember', url: 'https://github.com/acme-example/ember-web', checks: [{ name: 'test' }], productPaths: { ember: ['apps/ember/src/**'] } } });
+    const out = await carry.unblockForRecords(ORG, NOW);
+
+    expect(out.acted.find(a => a.requestId === r.id)?.did).toMatch(/^unblocked:start:/);
+    expect((await meta(r.id)).blocker).toBeNull();
+    expect(await dispatchesFor(r.id)).toHaveLength(1);
+  });
+
+  it('clears a missing-repo blocker the moment a run is building the request, workflow-owned or not', async () => {
+    const { workerRunSchema } = await import('@/models/Schema');
+    const r = await request('harbor', { title: 'Harbor: stale blocker', blocker: { what: 'Nothing says which repository Harbor is built in, so it cannot be built', owner: null, next: 'add a repo record', since: NOW.toISOString(), cause: 'no_repo' } });
+    const [task] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.engineering_task!, title: 'Harbor: stale blocker', metadata: { requestId: r.id, status: 'dispatched' } }).returning();
+    const [run] = await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'task-engineer', status: 'running', input: { record: { type: 'engineering_task', id: task!.id } } } as never).returning();
+
+    await carry.sweepStuckRequests(ORG, NOW, 50);
+
+    const m = await meta(r.id);
+
+    expect(m.blocker).toBeNull();
+    expect(m.recovery.log.at(-1).text).toBe(`Cleared the blocker, because RUN-${run!.id} is building it: Nothing says which repository Harbor is built in, so it cannot be built`);
+  });
+});
