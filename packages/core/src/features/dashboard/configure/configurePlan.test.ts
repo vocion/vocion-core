@@ -242,3 +242,30 @@ describe('the Setup block', () => {
     expect(view.aside).toEqual([]);
   });
 });
+
+describe('a records tab (FE-535, 2026-10-26)', () => {
+  it('lists every record of its type with where it stands, and counts what waits and what was turned down', async () => {
+    const { planConfigure, recordChip } = await import('./configurePlan');
+    const input = {
+      pluginName: 'Software factory',
+      seats: [],
+      skills: [],
+      automations: [],
+      trust: [],
+      learnings: [],
+      measures: [],
+      changes: [],
+      records: [
+        { id: 536, title: 'Harbor web app', status: 'approved', facts: ['github.com/acme-example/harbor-web', 'harbor', '2 checks'], href: '/dashboard/objects/536' },
+        { id: 530, title: 'Harbor API', status: 'rejected', facts: ['github.com/acme-example/harbor-api'], href: '/dashboard/objects/530' },
+        { id: 531, title: 'Harbor MCP', status: 'candidate', facts: [], href: '/dashboard/objects/531' },
+      ],
+    };
+    const view = planConfigure(input as never, { tabs: [{ kind: 'records', type: 'repo', label: 'Repos' }], aside: [] } as never, { now: Date.now() });
+    const tab = view.tabs[0]!;
+
+    expect(tab).toMatchObject({ key: 'records', label: 'Repos', count: 3, note: '1 waiting on review · 1 turned down' });
+    expect(tab.rows.map(r => [r.title, r.chip?.label])).toEqual([['Harbor web app', 'In use'], ['Harbor API', 'Turned down'], ['Harbor MCP', 'Waiting on review']]);
+    expect(recordChip('active')).toEqual({ label: 'In use', tone: 'ok' });
+  });
+});

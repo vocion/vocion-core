@@ -28,6 +28,7 @@ const FIGURE: Record<ConfigureTabKind, ColumnKind> = {
   trust: 'date',
   learned: 'date',
   measures: 'status',
+  records: 'status',
 };
 
 const TONE_TEXT: Record<ConfigureTone, string> = {

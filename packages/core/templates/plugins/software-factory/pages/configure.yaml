@@ -21,6 +21,10 @@ archetype: configure
 pluginPanel: false
 configure:
   tabs:
+    # Where the repositories the factory builds live, and where each stands
+    # (FE-535, 2026-10-26: four repo records were turned down and nobody
+    # could find where to see that).
+    - {kind: records, type: repo, label: Repos, facts: [url, product, checks]}
     - {kind: seats}
     - {kind: skills}
     - {kind: automations}

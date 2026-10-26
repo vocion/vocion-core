@@ -4,6 +4,7 @@ import type {
   ConfigureInput,
   ConfigureLearningInput,
   ConfigureMeasureInput,
+  ConfigureRecordInput,
   ConfigureSeatInput,
   ConfigureSkillInput,
   ConfigureTrustInput,
@@ -13,7 +14,7 @@ import type { EffectivePolicy } from '@/services/autonomy/AutonomyService';
 import type { MeasureReading } from '@/services/team-report';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { and, desc, eq, inArray, isNotNull, max, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, max, notInArray, or, sql } from 'drizzle-orm';
 import { parse as parseYaml } from 'yaml';
 import { cronToText } from '@/features/dashboard/TriggerBadge';
 import { actionForPolicyKey } from '@/libs/actions/policyKey';
@@ -133,8 +134,12 @@ function firstSentence(text: string | null): string | null {
  * @param orgId - The project.
  * @param pluginSlug - The plugin whose page this is.
  * @param now - One instant for the whole page.
+ * @param opts
+ * @param opts.records
+ * @param opts.records.type
+ * @param opts.records.facts
  */
-export async function loadConfigure(orgId: string, pluginSlug: string, now: Date = new Date()): Promise<ConfigureInput> {
+export async function loadConfigure(orgId: string, pluginSlug: string, now: Date = new Date(), opts: { records?: { type: string; facts: string[] } } = {}): Promise<ConfigureInput> {
   const plugin = loadPlugin(pluginSlug);
   const contents = pluginContents(plugin);
   const manifestTeams = readPluginTeams(plugin);
@@ -349,7 +354,8 @@ export async function loadConfigure(orgId: string, pluginSlug: string, now: Date
   const learned: ConfigureLearningInput[] = learnings.map(l => ({ id: l.id, text: l.text, status: l.status, at: l.at, step: l.step, origin: l.origin ?? null }));
 
   const setup = (await setupStateForOrg(orgId).catch(() => [])).find(p => p.plugin === pluginSlug) ?? null;
-  return { pluginName: plugin.manifest.name, pluginSlug, setup: setup ? { complete: setup.complete, steps: setup.steps } : null, seats, skills, automations, trust, learnings: learned, measures, changes };
+  const records = opts.records ? await readTabRecords(orgId, opts.records.type, opts.records.facts) : undefined;
+  return { pluginName: plugin.manifest.name, pluginSlug, setup: setup ? { complete: setup.complete, steps: setup.steps } : null, seats, skills, automations, trust, learnings: learned, measures, changes, ...(records ? { records } : {}) };
 }
 
 /**
@@ -460,4 +466,47 @@ async function readLastFires(orgId: string, slugs: readonly string[]): Promise<M
     out.set(r.slug, { at: r.startedAt, status, error: r.error, failedToStart: r.kind === SKIPPED_RUN_KIND });
   }
   return out;
+}
+
+/**
+ * One field as a fact under a record's name: a link without its scheme, a
+ * list as its count, a word as itself; nothing when the field is empty. Core
+ * names no field — the page's `facts:` does.
+ * @param field - The field's name.
+ * @param value - Its value on the record.
+ */
+export function recordFact(field: string, value: unknown): string | null {
+  if (Array.isArray(value)) {
+    return value.length === 0 ? `no ${field}` : value.length === 1 ? `1 ${field.replace(/s$/, '')}` : `${value.length} ${field}`;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return `${field} ${String(value)}`;
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
+  return value.trim().replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+}
+
+/**
+ * The records of one object type for a `records` tab, every status, by name.
+ * @param orgId - The workspace.
+ * @param type - The object type's slug.
+ * @param facts - The fields each row says.
+ */
+async function readTabRecords(orgId: string, type: string, facts: string[]): Promise<ConfigureRecordInput[]> {
+  const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  const { rawRecordPath } = await import('@/libs/workspace/recordHref');
+  const rows = await db
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, status: businessObjectSchema.status, meta: businessObjectSchema.metadata })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, type)))
+    .orderBy(asc(businessObjectSchema.title))
+    .limit(200)
+    .catch(() => []);
+  return rows.map((r) => {
+    const meta = (r.meta ?? {}) as Record<string, unknown>;
+    return { id: r.id, title: r.title, status: r.status ?? null, facts: facts.map(f => recordFact(f, meta[f])).filter((x): x is string => x !== null), href: rawRecordPath(r.id) };
+  });
 }

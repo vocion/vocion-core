@@ -131,7 +131,12 @@ export type ConfigureInput = {
   learnings: ConfigureLearningInput[];
   measures: ConfigureMeasureInput[];
   changes: ConfigureChangeInput[];
+  /** The records a `records` tab lists, every status: in use, waiting on review, turned down. */
+  records?: ConfigureRecordInput[];
 };
+
+/** One record for a `records` tab: its name, where it stands, and its facts already in words. */
+export type ConfigureRecordInput = { id: number; title: string; status: string | null; facts: string[]; href: string };
 
 /** A row, in the one shape every tab draws through `ListRow`. */
 export type ConfigureRow = {
@@ -195,6 +200,7 @@ const TAB_LABEL: Record<ConfigureTabKind, string> = {
   trust: 'Trust rules',
   learned: 'Learned',
   measures: 'Measures',
+  records: 'Records',
 };
 
 const ASIDE_LABEL: Record<ConfigureAsideKind, string> = {
@@ -428,6 +434,28 @@ function measureRows(input: ConfigureInput): ConfigureRow[] {
   }));
 }
 
+/**
+ * Where a record stands, in the words a person acts on: in use, waiting on
+ * their review, or turned down (a turned-down record is never built from, and
+ * that is what blocked FE-535 while its person thought it approved).
+ * @param status - The record's status.
+ */
+export function recordChip(status: string | null): ConfigureRow['chip'] {
+  switch (status) {
+    case null:
+    case '':
+    case 'active':
+    case 'approved': return { label: 'In use', tone: 'ok' };
+    case 'candidate': return { label: 'Waiting on review', tone: 'warn' };
+    case 'rejected': return { label: 'Turned down', tone: 'bad' };
+    default: return { label: status.replace(/_/g, ' '), tone: 'muted' };
+  }
+}
+
+function recordRows(input: ConfigureInput): ConfigureRow[] {
+  return (input.records ?? []).map(r => ({ id: String(r.id), title: r.title, facts: r.facts, figure: null, chip: recordChip(r.status), href: r.href, preview: null }));
+}
+
 function tab(kind: ConfigureTabKind, label: string | undefined, input: ConfigureInput, now: number): ConfigureTab {
   const name = label ?? TAB_LABEL[kind];
   switch (kind) {
@@ -456,6 +484,12 @@ function tab(kind: ConfigureTabKind, label: string | undefined, input: Configure
     case 'measures': {
       const unread = input.measures.filter(m => m.value === null).length;
       return { key: kind, label: name, count: input.measures.length, note: note([unread > 0 ? `${unread} not read` : null]), rows: measureRows(input), empty: 'No measures declared on this plugin\'s team.' };
+    }
+    case 'records': {
+      const records = input.records ?? [];
+      const waiting = records.filter(r => r.status === 'candidate').length;
+      const down = records.filter(r => r.status === 'rejected').length;
+      return { key: kind, label: name, count: records.length, note: note([waiting > 0 ? `${waiting} waiting on review` : null, down > 0 ? `${down} turned down` : null]), rows: recordRows(input), empty: `No ${name.toLowerCase()} yet.` };
     }
   }
 }
@@ -539,7 +573,8 @@ function aside(kind: ConfigureAsideKind, label: string | undefined, input: Confi
  * @param opts.now - Epoch ms, one instant for every relative time on the page.
  */
 export function planConfigure(input: ConfigureInput, blocks: ConfigureBlocks | undefined, opts: { tab?: string | string[]; now: number }): ConfigureView {
-  const tabsDeclared = blocks?.tabs ?? CONFIGURE_TAB_KINDS.map(kind => ({ kind, label: undefined }));
+  // A records tab names its type, so it is never one of the defaults.
+  const tabsDeclared = blocks?.tabs ?? CONFIGURE_TAB_KINDS.filter(kind => kind !== 'records').map(kind => ({ kind, label: undefined }));
   const asideDeclared = blocks?.aside ?? CONFIGURE_ASIDE_KINDS.map(kind => ({ kind, label: undefined }));
   const tabs = tabsDeclared.map(t => tab(t.kind, t.label, input, opts.now));
   return {
