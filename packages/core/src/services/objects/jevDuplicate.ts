@@ -19,12 +19,24 @@
 import type { DuplicateCandidate, DuplicateJudgement } from './duplicateCheck';
 import type { KeyScope } from '@/services/routing/jevKey';
 import { createHash } from 'node:crypto';
+import { versionOf } from '@/services/routing/jev';
 
 /** At or below this for every candidate, Jev's "none is a duplicate" stands. */
 export const JEV_NO_BAR = 0.3;
 const TITLE_CHARS = 200;
 const NEW_TEXT_CHARS = 1_000;
 const OLD_TEXT_CHARS = 400;
+const QUESTION = 'Is the new {kind} in state the same ask as this existing record, so that doing one would satisfy the other?';
+const CRITERIA = {
+  true: 'The same outcome for the same people, however it is worded; a later report of the same fault is the same.',
+  false: 'It asks for more, for less, for a different surface or a different situation, even when it shares words.',
+};
+
+/**
+ * Which wording and bands the duplicate question is (ADR 0006, health): it
+ * changes whenever the question, its criteria, what is sent or the no-band do.
+ */
+export const DUPLICATE_QUESTION_VERSION = versionOf('duplicate', { QUESTION, CRITERIA, JEV_NO_BAR, TITLE_CHARS, NEW_TEXT_CHARS, OLD_TEXT_CHARS });
 
 /** The Jev key a workspace's duplicate check spends, when it has opted in. */
 export type JevGate = { key: string; scope: KeyScope };
@@ -93,12 +105,9 @@ export function duplicateQuestions(label: string, record: { title: string; text:
     questions: Object.fromEntries(shortlist.map((c, i) => [`c${i}`, {
       instructions: {
         existing_record: { title: clip(c.title, TITLE_CHARS), details: clip(c.text, OLD_TEXT_CHARS), status: c.settled ? 'closed' : 'open' },
-        question: `Is the new ${kind} in state the same ask as this existing record, so that doing one would satisfy the other?`,
+        question: QUESTION.replace('{kind}', kind),
       },
-      criteria: {
-        true: 'The same outcome for the same people, however it is worded; a later report of the same fault is the same.',
-        false: 'It asks for more, for less, for a different surface or a different situation, even when it shares words.',
-      },
+      criteria: CRITERIA,
     }])),
   };
 }
@@ -157,6 +166,8 @@ export type DuplicateCheckRow = {
   provider?: string | null;
   inputTokens?: number | null;
   fallback?: string | null;
+  /** Jev rows: which wording was asked. */
+  questionVersion?: string | null;
 };
 
 /**
@@ -193,6 +204,7 @@ export async function noteDuplicateChecks(orgId: string, record: { objectType: s
       provider: r.provider ?? null,
       inputTokens: r.inputTokens ?? null,
       fallback: r.fallback ?? null,
+      questionVersion: r.questionVersion ?? null,
       linked: linkedBy === r.judge,
     })));
   } catch (err) {
@@ -243,16 +255,16 @@ export async function judgeWithJev(
   let why: string;
   if (jevBreakerOpen(input.orgId, now())) {
     why = 'breaker open';
-    rows.push({ judge: 'jev', verdict: 'failed', duplicateOf: null, confidence: null, inputsHash: hash, latencyMs: null, model: null, keyScope: input.gate.scope, fallback: why });
+    rows.push({ judge: 'jev', verdict: 'failed', duplicateOf: null, confidence: null, inputsHash: hash, latencyMs: null, model: null, keyScope: input.gate.scope, fallback: why, questionVersion: DUPLICATE_QUESTION_VERSION });
   } else {
     const res = await askYesNo(input.gate.key, q, settings, deps);
     noteJevOutcome(input.orgId, !('failed' in res), now());
     if ('failed' in res) {
       why = res.kind;
-      rows.push({ judge: 'jev', verdict: 'failed', duplicateOf: null, confidence: null, inputsHash: hash, latencyMs: res.latencyMs, model: null, keyScope: input.gate.scope, fallback: res.reason });
+      rows.push({ judge: 'jev', verdict: 'failed', duplicateOf: null, confidence: null, inputsHash: hash, latencyMs: res.latencyMs, model: null, keyScope: input.gate.scope, questionVersion: DUPLICATE_QUESTION_VERSION, fallback: res.reason });
     } else {
       const read = readJevDuplicate(res.probabilities, input.shortlist, input.bar);
-      const base = { judge: 'jev' as const, inputsHash: hash, latencyMs: res.latencyMs, model: res.model ?? settings.model, keyScope: input.gate.scope, provider: res.provider, inputTokens: res.inputTokens };
+      const base = { judge: 'jev' as const, questionVersion: DUPLICATE_QUESTION_VERSION, inputsHash: hash, latencyMs: res.latencyMs, model: res.model ?? settings.model, keyScope: input.gate.scope, provider: res.provider, inputTokens: res.inputTokens };
       if (read.verdict === 'duplicate') {
         rows.push({ ...base, verdict: 'duplicate', duplicateOf: read.match.id, confidence: read.p });
         return { verdict: { duplicateOf: read.match.id, confidence: read.p, reason: `Jev read them as the same ask (${Math.round(read.p * 100)}% sure).` }, rows, by: 'jev' };

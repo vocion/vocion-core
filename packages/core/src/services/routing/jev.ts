@@ -22,6 +22,7 @@
  * never returned: `decide` takes it and drops it.
  */
 
+import { createHash } from 'node:crypto';
 import process from 'node:process';
 
 export const TYPESAFE_BASE_URL = 'https://api.typesafe.ai';
@@ -175,6 +176,25 @@ const WORDING: Record<JevPurpose, { effort: string | null; scale: string[]; choi
     none: 'No agent on the roster clearly owns this; the lead should answer.',
   },
 };
+
+/**
+ * A short, stable name for a question's wording: `turn-1a2b3c4d`. It changes
+ * whenever the words do, so every logged decision says which wording it
+ * answered (ADR 0006, health). Pure.
+ * @param name - The decision.
+ * @param wording - Everything Jev reads that is not the state.
+ */
+export function versionOf(name: string, wording: unknown): string {
+  return `${name}-${createHash('sha256').update(JSON.stringify(wording)).digest('hex').slice(0, 8)}`;
+}
+
+/**
+ * The version of a purpose's questions. Pure.
+ * @param purpose - The purpose.
+ */
+export function questionVersion(purpose: JevPurpose): string {
+  return versionOf(purpose, WORDING[purpose]);
+}
 
 /**
  * The request body. Pure.

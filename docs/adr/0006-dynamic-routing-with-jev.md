@@ -305,6 +305,42 @@ First-message picks are kept on `conversation_message.routing_json`. With no key
   costs.
 - Rollback is the same: remove the key.
 
+## Health: is Jev live? (2026-10-24)
+
+### 17. One health read per decision type
+
+`services/routing/health.ts` reads each decision Jev makes from the record it already writes:
+factory routing (`engine_run.route_detail`), agent turns (`model_call.route_detail`, one per
+trace), who answers (`conversation_message.routing_json -> 'jev'`) and duplicates
+(`record_duplicate_check`, ADR 0007). Each decision is sorted from its stored reason into one
+outcome: used, unsure (Jev answered, code did not act), or a failure kept distinct by cause:
+`auth` (HTTP 401/403, a rejected key), `rate_limited`, `http_error`, `timeout`, `unreachable`,
+`bad_response`. Not asked: `breaker`, `config` (the saved key will not decrypt), `skipped`.
+Sorting from the reason means decisions logged before this read existed count too. Per type it
+reports counts, answer latency (p50, p95), the newest answer and failure, and a status from the
+newest call: live, failing or idle.
+
+### 18. Question versions
+
+Every logged decision carries `questionVersion`: the purpose plus 8 hex characters of a SHA-256
+of the wording Jev reads (`jev.ts` `versionOf`), so it changes whenever the words do. For
+duplicates it also covers the no-band and what is sent (`DUPLICATE_QUESTION_VERSION`, column
+`record_duplicate_check.question_version`, migration 0221).
+
+### 19. Outcomes already on record
+
+Counts only, split by who decided: factory runs Jev was asked about (pull requests, QA verdicts,
+merges, reverts, reruns) by whose route ran; first messages Jev was asked about, and how many
+another agent answered later in the conversation (a re-route or handoff); duplicate links by
+judge, and how many a person undid. No holdout and no calibration: those stay paused (roadmap).
+
+### 20. Where to read it
+
+`GET /api/v1/routing/health?days=` (1–90, default 7) and `POST /api/v1/routing/health/check`, a
+one-question call with the key this workspace spends, at most every 30 seconds per workspace.
+Both take a tenant API token or a dashboard session, and name the key only by scope and its last
+four characters. The Routing section on Observability shows the same read (a separate UI change).
+
 ## Roadmap: Jev beyond routing (2026-10-23)
 
 Jev is a typed decision model: a yes/no, a choice or a score, each with a calibrated probability.
@@ -314,7 +350,7 @@ confidence, numbers and dates compared in code, and a person decides what change
 
 | Use | Jev decides | Outcome that measures it | Status |
 |---|---|---|---|
-| Duplicate check on incoming records | Is this record the same as candidate X? (one yes/no per candidate) | Duplicate link kept or undone | Building now (ADR 0007) |
+| Duplicate check on incoming records | Is this record the same as candidate X? (one yes/no per candidate) | Duplicate link kept or undone | Shipped in v7.18.0 (ADR 0007) |
 | Rule-learning triage | Should this reviewer edit or correction become a rule? Is it already one? | Learning candidate approved or rejected | Next |
 | Review queue suggestion and risk score | Suggest approve, changes or reject, plus a risk score. Never approves on its own | The reviewer's decision and edits | Planned |
 | Factory QA pre-check | Does the change meet each acceptance line? (one yes/no per line) | QA verdict; the eval harness's hidden tests | Planned |

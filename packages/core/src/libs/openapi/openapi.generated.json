@@ -121,6 +121,10 @@
       "description": "Endpoints under /api/v1/rooms."
     },
     {
+      "name": "routing",
+      "description": "Endpoints under /api/v1/routing."
+    },
+    {
       "name": "runner",
       "description": "Endpoints under /api/v1/runner."
     },
@@ -6982,6 +6986,101 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/routing/health": {
+      "get": {
+        "operationId": "get_routing_health",
+        "summary": "Is Jev live here (ADR 0006, health)?",
+        "tags": [
+          "routing"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Is Jev live here (ADR 0006, health)? For each decision Jev makes —\n`factory` (a task's engine, model and effort), `turn` (an agent turn's model\nand effort), `agent` (who answers a first message), `duplicate` (is a new\nrecord one on file) — the decisions logged, how many Jev answered, used or\nwas unsure of, and how many failed and why (`auth` is a rejected key),\nanswer latency, the newest answer and failure, and the question versions\nasked. Beside it, the outcomes already on record: factory runs by whose\nroute ran, first messages another agent answered later, duplicate links\nundone. The key is named by scope and its last four characters, never more.\nAuth: tenant API token or dashboard session.\n\nQuery parameters:\n- `days` — the window, 1 to 90 (default 7).",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "description": "the window, 1 to 90 (default 7).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/routing/health/check": {
+      "post": {
+        "operationId": "post_routing_health_check",
+        "summary": "Ask Jev one yes/no question now with the key this workspace spends, and say whether it answered (ADR 0006, health): `ok`, the `outcome` (`auth` is a rejected k…",
+        "tags": [
+          "routing"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Ask Jev one yes/no question now with the key this workspace spends, and say\nwhether it answered (ADR 0006, health): `ok`, the `outcome` (`auth` is a\nrejected key, `no_key` none set), latency and the Jev build. One tiny call\nat most every 30 seconds per workspace; within that the last result comes\nback with `cached: true`. Never returns the key. Auth: tenant API token or\ndashboard session."
       }
     },
     "/api/v1/runner/claim": {

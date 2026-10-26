@@ -39,7 +39,7 @@ describe('picking the agent', () => {
 
     expect(asked!.purpose).toBe('agent');
     expect(asked!.candidates.map(c => c.id)).toEqual(['product-manager', 'designer']);
-    expect(pick).toMatchObject({ chosen: 'designer', confidence: 0.8, detail: { selector: 'jev', keyScope: 'workspace', provider: 'typesafe' } });
+    expect(pick).toMatchObject({ chosen: 'designer', confidence: 0.8, detail: { selector: 'jev', keyScope: 'workspace', provider: 'typesafe', questionVersion: expect.stringMatching(/^agent-/) } });
     expect(JSON.stringify(pick)).not.toContain(KEY.key);
   });
 

@@ -92,7 +92,7 @@ describe('what Jev decides', () => {
       selector: 'jev',
       model: 'bedrock/us.anthropic.claude-sonnet-5-5',
       effort: 'low',
-      detail: { asked: true, confidence: 0.84, effort: 'low', jevModel: 'jev-1.13.0', latencyMs: 140, costUsd: null, inputTokens: 400, keyScope: 'workspace', provider: 'typesafe', fallback: null },
+      detail: { asked: true, confidence: 0.84, effort: 'low', jevModel: 'jev-1.13.0', latencyMs: 140, costUsd: null, inputTokens: 400, keyScope: 'workspace', provider: 'typesafe', fallback: null, questionVersion: expect.stringMatching(/^engineering-/) },
     });
     expect(JSON.stringify(r)).not.toContain(KEY.key);
   });

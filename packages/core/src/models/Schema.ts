@@ -6004,6 +6004,8 @@ export const recordDuplicateCheckSchema = pgTable(
     inputTokens: integer('input_tokens'),
     /** Why the next judge was asked, or why the check stopped (`timeout`, `unsure`, `breaker open`). */
     fallback: text('fallback'),
+    /** Jev rows: which wording of the question was asked (`DUPLICATE_QUESTION_VERSION`). */
+    questionVersion: text('question_version'),
     /** The link was written on this verdict. */
     linked: boolean('linked').default(false).notNull(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),

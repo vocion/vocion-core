@@ -155,7 +155,8 @@ describe('checkNewRecordForDuplicate with Jev', () => {
 
     expect(f).toMatchObject({ checked: true, linked: false, duplicateOf: null, did: 'not a duplicate' });
     expect(cls.invoke).not.toHaveBeenCalled();
-    expect(await rowsFor(again.id)).toMatchObject([{ judge: 'jev', verdict: 'not_duplicate', linked: false }]);
+    expect(await rowsFor(again.id)).toMatchObject([{ judge: 'jev', verdict: 'not_duplicate', linked: false, questionVersion: jev.DUPLICATE_QUESTION_VERSION }]);
+    expect(jev.DUPLICATE_QUESTION_VERSION).toMatch(/^duplicate-[0-9a-f]{8}$/);
   });
 
   it('unsure goes to the classifier, which decides exactly as without Jev', async () => {

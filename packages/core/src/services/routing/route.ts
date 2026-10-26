@@ -28,7 +28,7 @@ import type { KeyScope } from './jevKey';
 import type { EnginePolicy } from '@/libs/actions/factory-dispatch';
 import type { EngineId, EngineRoute, TaskFeatures } from '@/services/factory/engineRouter';
 import { allowedEngines, engineIdOf, routeEngine } from '@/services/factory/engineRouter';
-import { decide, isJevFailure, jevEndpoint, jevSettings } from './jev';
+import { decide, isJevFailure, jevEndpoint, jevSettings, questionVersion } from './jev';
 
 export type CostTier = 'high' | 'low' | 'medium';
 
@@ -63,6 +63,8 @@ export type RouteDetail = {
   inputTokens: number | null;
   /** Why the static route was used instead, or null when Jev's was. */
   fallback: string | null;
+  /** Which wording of the question was asked (`questionVersion`). */
+  questionVersion: string;
 };
 
 /** The router's whole answer: the static shape, plus who chose and what Jev said. */
@@ -215,6 +217,7 @@ export async function routeTask(input: RouteTaskInput, deps: RouteDeps = {}): Pr
     keyScope: resolved.scope,
     provider: endpoint.provider,
     fallback: null,
+    questionVersion: questionVersion('engineering'),
   };
   const fallBack = (why: string): RoutedTask => staticRoute({ ...detail, fallback: why });
   if (candidates.length > 1) {
@@ -254,7 +257,7 @@ export async function routeTask(input: RouteTaskInput, deps: RouteDeps = {}): Pr
 }
 
 function emptyDetail(d: { fallback: string; keyScope: KeyScope | null; candidates: number; provider?: JevProvider | null }): RouteDetail {
-  return { asked: false, candidates: d.candidates, choice: null, confidence: null, effort: null, effortConfidence: null, jevModel: null, latencyMs: null, costUsd: null, inputTokens: null, keyScope: d.keyScope, provider: d.provider ?? null, fallback: d.fallback };
+  return { asked: false, candidates: d.candidates, choice: null, confidence: null, effort: null, effortConfidence: null, jevModel: null, latencyMs: null, costUsd: null, inputTokens: null, keyScope: d.keyScope, provider: d.provider ?? null, fallback: d.fallback, questionVersion: questionVersion('engineering') };
 }
 
 /**
