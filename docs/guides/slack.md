@@ -98,6 +98,14 @@ curl -X POST https://<host>/api/v1/chat-bindings \
 is bound once, to one agent in one org. Binding from workspace YAML is a follow-up; phase 1 keeps
 bindings explicit and auditable.
 
+**Or from Slack itself.** A channel nobody bound answers a mention (and the bot's arrival) with
+"This channel isn't connected to a Vocion workspace yet" and a **Connect this channel** button. It
+opens `/dashboard/connect-channel` with the channel filled in. An Org admin picks a workspace and the
+channel answers as that workspace's lead from the next mention; anyone else is told to ask an admin.
+The page refuses a workspace of another Org, a channel that already answers, and (when
+`SLACK_TEAM_ID` is set) a Slack team this installation does not serve. The button is a plain link,
+so it needs no interactivity URL on the Slack app.
+
 ## 5. Give the channel a persona (optional)
 
 A binding can carry a `displayName` and an `iconUrl`, and the reply arrives wearing them:
@@ -252,14 +260,17 @@ Writes, through `propose_action`, each with Undo:
 with exactly one message: who answers here, and that mentioning it starts a thread. It runs no
 agent, creates no conversation and spends no budget. The channel resolves the same way a mention
 would — exact binding first, then the workspace `*` catch-all — so a channel nobody bound still
-introduces the default agent. With no binding at all, it stays silent rather than advertising an
-install that cannot answer.
+introduces the default agent. With no binding at all it says the channel isn't connected yet and
+posts the **Connect this channel** button (above), once an hour per channel. A mention there gets the
+same line in its thread; nothing runs. It never goes silent: a mention nobody answers reads as a
+broken product (Chris, 2026-10-26).
 
 ## What happens on a message
 
 1. Signature verified, event classified. Bot messages, edits and reactions are ignored. A Slack
    redelivery (`x-slack-retry-num`) is acknowledged and dropped so a slow first run never answers twice.
-2. The channel resolves to a binding — exact channel first, then the team's `*` catch-all.
+2. The channel resolves to a binding — exact channel first, then the team's `*` catch-all. With
+   neither, the thread is told how to connect the channel, and nothing else happens.
 3. The agent's **period budget** is checked. Over the cap, the reply says so and nothing runs.
 4. One **conversation per thread, per sender** (`scopeRef = slack:<channel>:<thread>`), so a
    follow-up in the same thread continues with history.

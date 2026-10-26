@@ -482,6 +482,15 @@ export async function postSlackReply(
     // the notification fallback.
     payload.blocks = [{ type: 'markdown', text }];
   }
+  if (msg.link) {
+    // A link button opens its page and needs no interactivity endpoint; the URL also rides in
+    // `text`, so a client that drops blocks still has it.
+    payload.text = `${text}\n${msg.link.url}`;
+    payload.blocks = [
+      ...((payload.blocks as unknown[] | undefined) ?? [{ type: 'markdown', text }]),
+      { type: 'actions', elements: [{ type: 'button', text: { type: 'plain_text', text: msg.link.label }, url: msg.link.url, action_id: 'vocion_open_link' }] },
+    ];
+  }
   const posted = await slackApi<{ ts?: string; channel?: string }>('chat.postMessage', payload, token, baseUrl, fetchImpl);
   if (!posted.ok) {
     throw new Error(`Slack chat.postMessage failed: ${posted.error}`);

@@ -167,6 +167,24 @@ describe('postSlackReply', () => {
     return bodyOf(init);
   }
 
+  it('puts a link under the words as a button, and keeps the URL in the fallback text (2026-10-26)', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await postSlackReply({ channelId: 'C1', threadRef: '100.1' }, { text: 'Not connected yet.', link: { label: 'Connect this channel', url: 'https://app.example.test/dashboard/connect-channel?surface=slack&channel=C1' } }, 'xoxb-test', 'https://slack.test/api');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = bodyOf(init);
+
+    expect(body.text).toBe('Not connected yet.\nhttps://app.example.test/dashboard/connect-channel?surface=slack&channel=C1');
+    expect(body.blocks).toEqual([
+      { type: 'markdown', text: 'Not connected yet.' },
+      { type: 'actions', elements: [{ type: 'button', text: { type: 'plain_text', text: 'Connect this channel' }, url: 'https://app.example.test/dashboard/connect-channel?surface=slack&channel=C1', action_id: 'vocion_open_link' }] },
+    ]);
+  });
+
   it('posts as the persona when the target carries one', async () => {
     const body = await post({ channelId: 'C1', threadRef: '100.1', displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png' });
 
