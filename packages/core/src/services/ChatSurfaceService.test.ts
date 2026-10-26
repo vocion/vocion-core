@@ -61,6 +61,7 @@ beforeEach(async () => {
   await db.delete(conversationSchema);
   await db.delete(chatChannelBindingSchema);
   await db.delete(agentSchema);
+  svc.resetUnboundPrompts();
 });
 
 describe('bindings', () => {
@@ -96,12 +97,14 @@ describe('handleJoined', () => {
     expect(adapter.replies[0]!.text).toContain('revenue-lead');
   });
 
-  it('falls back to the workspace catch-all for a channel nobody bound, and stays silent with no binding at all', async () => {
+  it('falls back to the workspace catch-all for a channel nobody bound, and says how to connect one that has no binding at all', async () => {
     const adapter = fakeAdapter();
 
-    expect(await svc.handleJoined(adapter, join)).toEqual({ outcome: 'unbound' });
-    expect(adapter.replies).toEqual([]);
+    expect(await svc.handleJoined(adapter, join)).toEqual({ outcome: 'unbound', prompted: true });
+    expect(adapter.replies).toHaveLength(1);
+    expect(adapter.replies[0]!.text).toContain('isn\'t connected to a Vocion workspace');
 
+    adapter.replies.length = 0;
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: '*', agentSlug: 'vocion' });
 
     expect(await svc.handleJoined(adapter, join)).toMatchObject({ outcome: 'introduced', agentSlug: 'vocion' });
@@ -111,12 +114,42 @@ describe('handleJoined', () => {
 });
 
 describe('handleInbound', () => {
-  it('does nothing for an unbound channel', async () => {
+  it('answers a mention in an unbound channel with how to connect it, in the thread, and runs nothing (2026-10-26)', async () => {
     const adapter = fakeAdapter();
-    const out = await svc.handleInbound(adapter, inbound, { runAgent: vi.fn(), preflight: vi.fn(async () => ({ ok: true as const })) });
+    const runAgent = vi.fn();
+    const out = await svc.handleInbound(adapter, inbound, { runAgent, preflight: vi.fn(async () => ({ ok: true as const })) });
 
-    expect(out).toEqual({ outcome: 'unbound' });
+    expect(out).toEqual({ outcome: 'unbound', prompted: true });
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(adapter.replies).toHaveLength(1);
+    expect(adapter.replies[0]).toMatchObject({ channelId: 'C1', threadRef: '100.1' });
+    expect(adapter.replies[0]!.text).toContain('A Vocion admin can connect it');
+    expect(adapter.replies[0]!.text).toContain('another Vocion installation');
+  });
+
+  it('says it once an hour per channel, and not at all for a thread reply that mentions nobody', async () => {
+    const adapter = fakeAdapter();
+    const deps = { runAgent: vi.fn(), preflight: vi.fn(async () => ({ ok: true as const })) };
+
+    expect(await svc.handleInbound(adapter, { ...inbound, followUp: true }, deps)).toEqual({ outcome: 'unbound' });
     expect(adapter.replies).toEqual([]);
+
+    await svc.handleInbound(adapter, inbound, deps);
+
+    expect(await svc.handleInbound(adapter, { ...inbound, messageRef: '100.2', threadRef: '100.2' }, deps)).toEqual({ outcome: 'unbound', prompted: false });
+    expect(adapter.replies).toHaveLength(1);
+    expect(await svc.promptUnbound(adapter, { surface: 'slack', teamId: 'T1', channelId: 'C1' }, Date.now() + 61 * 60 * 1000)).toBe(true);
+  });
+
+  it('links the connect page with the channel when the deployment has a public origin', () => {
+    const url = svc.connectChannelUrl('slack', 'T1', 'C1');
+    const message = svc.unboundPrompt('slack', 'T1', 'C1');
+    if (url) {
+      expect(url).toMatch(/\/dashboard\/connect-channel\?surface=slack&channel=C1&team=T1$/);
+      expect(message.link).toEqual({ label: 'Connect this channel', url });
+    } else {
+      expect(message.link).toBeUndefined();
+    }
   });
 
   it('binds → runs the agent → replies in the thread, and keeps one conversation per thread', async () => {

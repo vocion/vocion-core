@@ -96,6 +96,8 @@ export type ChatImage = {
 export type ChatMessage = {
   text: string;
   images?: ChatImage[];
+  /** One button under the words that opens a page, such as "Connect this channel". Surfaces without buttons show the URL in the text. */
+  link?: { label: string; url: string };
 };
 
 /** Where a posted message ended up — the handle the outbound record is keyed by. */
