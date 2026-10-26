@@ -1,0 +1,17 @@
+# A REPO RECORD UNBLOCKS AT ONCE (FE-535, 2026-10-26): a request blocked on
+# "nothing says which repository" waited for the hourly sweep after its repo
+# record was approved. Approving or adding one reads the blocked requests now.
+slug: factory-repo-approved
+name: A repo record unblocks its requests
+description: >-
+  When a repo record is approved or added, read again every request that was
+  blocked on a missing repo record, and start the ones that can be built now.
+  Deterministic: a built-in job.
+status: active
+agent: product-manager
+when:
+  event: object.created
+  filter:
+    objectType: repo
+do:
+  job: factory-unblock

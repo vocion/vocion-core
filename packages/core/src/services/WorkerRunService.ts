@@ -718,6 +718,15 @@ export async function reapLostWorkerRuns(now: Date = new Date()): Promise<number
   }).where(and(
     inArray(workerRunSchema.status, ['running', 'paused']),
     lt(workerRunSchema.leaseExpiresAt, now),
-  )).returning({ id: workerRunSchema.id });
+  )).returning();
+  // A LOST RUN ENDS OUT LOUD (FE-535, 2026-10-26): RUN-526 lapsed at 2:43 PM
+  // and nothing was told. The request's flow waited eight hours for an end
+  // that never came, a Restart was queued behind that wait, and the person
+  // found out by asking. A lapse is an end like a failure: the flow wakes,
+  // recovery runs it once more or stops and says so, and the asker hears it.
+  for (const run of rows) {
+    await import('@/services/factory/engineRun').then(m => m.recordEngineRun(run)).catch(() => undefined);
+    await announceEnded(run, 'worker_run.failed', run.error ?? 'lease expired without a heartbeat');
+  }
   return rows.length;
 }

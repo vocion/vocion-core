@@ -49,6 +49,23 @@ describe('WorkerRunService — a finished run is announced', () => {
     });
   });
 
+  it('raises worker_run.failed when a lapsed lease is reaped, so the flow waiting on the run wakes (FE-535)', async () => {
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: { message: 'go', record: { type: 'engineering_task', id: 538 } }, createdBy: 'user:1' });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+
+    expect(await svc.reapLostWorkerRuns(new Date(Date.now() + 24 * 60 * 60_000))).toBe(1);
+
+    const events = await db.select().from(eventLogSchema);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'worker_run.failed', dedupeKey: `worker_run.failed:${run.id}:1` });
+    expect(events[0]!.payload).toMatchObject({ workerRunId: run.id, status: 'lost', recordType: 'engineering_task', recordId: 538 });
+    expect((events[0]!.payload as { summary: string }).summary).toMatch(/lease expired without a heartbeat/);
+    // Reaped once: a second pass finds nothing and says nothing.
+    expect(await svc.reapLostWorkerRuns(new Date(Date.now() + 24 * 60 * 60_000))).toBe(0);
+    expect(await db.select().from(eventLogSchema)).toHaveLength(1);
+  });
+
   it('raises worker_run.failed with the error, keyed on the attempt', async () => {
     const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: {}, createdBy: 'user:1' });
     await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });

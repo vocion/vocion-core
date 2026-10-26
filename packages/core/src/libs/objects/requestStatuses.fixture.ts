@@ -124,6 +124,7 @@ const REQUEST_STATUS_SCHEMA = {
         live_unconfirmed: 'Live in production: "{title}". The live check could not confirm all of it. {line}',
         live_unchecked: 'Live in production: "{title}". It could not be checked live yet. {line}',
         resolved: 'Answered: {line}',
+        recovering: 'A build stopped, and it is being retried on its own: {line}',
       },
       'x-transitions': {
         'created': 'new',
@@ -132,6 +133,7 @@ const REQUEST_STATUS_SCHEMA = {
         'starting': 'building',
         'planning': 'planning',
         'building': 'building',
+        'recovering': 'building',
         'review': 'in_qa',
         'deploying': 'deploying',
         'merged': 'deploying',
