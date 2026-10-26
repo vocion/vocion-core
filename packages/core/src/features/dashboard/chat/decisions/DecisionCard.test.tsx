@@ -310,6 +310,43 @@ describe('phase two: every kind of Decision on the one card', () => {
     expect(opened).toHaveBeenLastCalledWith('/dashboard/connectors?add=github&paste=1');
   });
 
+  it('one action is one tap: a single sign-in option is its own button, with no Submit (2026-10-26)', async () => {
+    const opened = vi.fn();
+    const { answers } = await renderCard({ kind: 'setup', question: 'Connect Google Ads', options: [{ id: 'connect:google-ads', label: 'Log in with Google', consequence: 'Opens the sign-in, then brings you back here.', href: '/api/connect/google/start?connector=google-ads', recommended: true }], allowOther: true }, { onOpen: opened });
+
+    await expect.element(page.getByTestId('decision-one-tap')).toBeInTheDocument();
+
+    expect(page.getByRole('option').elements()).toHaveLength(0);
+    expect(document.querySelector('[data-testid="decision-submit"]')).toBeNull();
+
+    await page.getByRole('button', { name: 'Log in with Google' }).click();
+
+    expect(opened).toHaveBeenCalledWith('/api/connect/google/start?connector=google-ads');
+    expect(answers).toEqual([]);
+    await expect.element(page.getByTestId('decision-skip')).toBeVisible();
+  });
+
+  it('on a phone the option rows never clip, and the scroll region says when there is more below', async () => {
+    await page.viewport(390, 844);
+    await renderCard({ options: [{ id: 'a', label: 'Northwind API', consequence: 'Builds land in the API, CI runs on every push, previews deploy per branch, and the release notes are drafted for review before anything ships.', recommended: true }, { id: 'b', label: 'Northwind Portal', consequence: 'Builds land in the customer portal.' }] });
+
+    for (const row of page.getByRole('option').elements() as HTMLElement[]) {
+      expect(row.scrollHeight).toBeLessThanOrEqual(row.clientHeight + 1);
+    }
+  });
+
+  it('a notice above the card wraps on a phone instead of cutting off (2026-10-26)', async () => {
+    await page.viewport(390, 844);
+    const line = 'Finish signing in on the new tab. This card updates when you\'re done.';
+    await render(<DecisionDock decisions={[repo]} onAnswer={vi.fn()} agentName={() => 'Product manager'} notice={{ line }} />);
+
+    const p = await page.getByTestId('decision-notice-line').element() as HTMLElement;
+
+    expect(p.textContent).toBe(line);
+    expect(p.scrollWidth).toBeLessThanOrEqual(p.clientWidth + 1);
+    expect(getComputedStyle(p).whiteSpace).not.toBe('nowrap');
+  });
+
   it('a proposal links its details one move away', async () => {
     await renderCard({ subject: 'proposal', id: 6061, kind: 'approval', question: 'Move Northwind to Negotiation', href: '/dashboard/inbox/proposal-6061', hrefLabel: 'Details', options: [{ id: 'approve', label: 'Approve', consequence: 'Deal stage → Negotiation — as you, with Undo.', recommended: true }, { id: 'reject', label: 'Reject' }] });
 
