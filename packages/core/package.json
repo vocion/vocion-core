@@ -99,6 +99,9 @@
     "personal-projects:merge": "dotenv -c -- tsx src/scripts/merge-personal-projects.ts"
   },
   "dependencies": {
+    "@amplitude/ai": "^0.24.2",
+    "@amplitude/analytics-node": "^1.5.81",
+    "@amplitude/unified": "^1.1.43",
     "@anthropic-ai/sdk": "^0.88.0",
     "@auth/drizzle-adapter": "^1.11.2",
     "@aws-sdk/client-bedrock-agentcore": "^3.1079.0",

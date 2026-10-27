@@ -289,8 +289,22 @@ export function readAttachmentTool(ctx: RuntimeContext) {
       }
       const title = row.title;
       const format = formatOf({ name: typeof spec.originalName === 'string' ? spec.originalName : title, type: typeof spec.contentType === 'string' ? spec.contentType : '' });
-      if (!format || format.kind === 'image') {
-        return `${title} is an image; it was shown to you with the message it came on. There is no text to read.`;
+      if (format?.kind === 'image') {
+        // AN IMAGE CAN BE LOOKED AT AGAIN (FE-535, 2026-10-26): the agent
+        // told the person it had no access to a screenshot they sent two
+        // turns earlier. Where the model takes a picture in a tool result,
+        // this shows it; elsewhere it says so plainly, never "no text".
+        const contentType = typeof spec.contentType === 'string' ? spec.contentType : '';
+        const { MAX_IMAGE_BYTES, readStoredFile } = await import('@/services/chat/attachments');
+        const bytes = ctx.toolResultImages ? await readStoredFile(spec.filename) : null;
+        if (bytes && bytes.length <= MAX_IMAGE_BYTES && contentType.startsWith('image/')) {
+          const { withImage } = await import('@/services/agents/toolResultImages');
+          return withImage(`${title} (file #${id}), the image as the person attached it:`, { mimeType: contentType, data: bytes.toString('base64') });
+        }
+        return `${title} (file #${id}) is an image, and it cannot be shown to you again from here. If you cannot see it in this conversation, say so and ask the person to attach it again; do not describe it from memory.`;
+      }
+      if (!format) {
+        return `${title} is not a format that can be read as text.`;
       }
       const { readStoredFile } = await import('@/services/chat/attachments');
       const filename = spec.filename;

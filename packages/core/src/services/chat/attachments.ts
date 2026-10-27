@@ -280,6 +280,49 @@ export function historyMarker(attachments: ReadonlyArray<{ title: string; id?: n
 }
 
 /**
+ * THE PICTURE STAYS UNTIL IT IS ANSWERED (FE-535, 2026-10-26): a screenshot
+ * came with the first message, that turn ran four steps and ended without
+ * answering, and the next turn replayed only "[Attached: …]" — the agent said
+ * it had no access to the image and the person attached it again. The images
+ * on the person's messages since the agent last answered (a complete turn with
+ * words) ride with this turn too, oldest first, never past the turn's limit.
+ * Documents are not carried: their text is in the replay's marker by id, and
+ * `read_attachment` reads them whole.
+ * @param msgs - The conversation's messages, oldest first.
+ * @param uploads - Each message's uploads, by message id.
+ * @param have - Ids already on this turn.
+ * @param limit - How many attachments a turn takes in all.
+ */
+export function unansweredImages<R extends ArtifactRow>(
+  msgs: ReadonlyArray<{ id: number; role: string; content: string; status?: string | null }>,
+  uploads: ReadonlyMap<number, R[]>,
+  have: ReadonlySet<number>,
+  limit: number,
+): R[] {
+  let start = 0;
+  msgs.forEach((m, i) => {
+    if (m.role === 'assistant' && (m.status ?? 'complete') === 'complete' && m.content.trim() !== '') {
+      start = i + 1;
+    }
+  });
+  const out: R[] = [];
+  for (const m of msgs.slice(start)) {
+    if (m.role !== 'user') {
+      continue;
+    }
+    for (const row of uploads.get(m.id) ?? []) {
+      if (have.size + out.length >= limit) {
+        return out;
+      }
+      if (!have.has(row.id) && attachmentFromArtifact(row).kind === 'image') {
+        out.push(row);
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * An upload's bytes, by its stored (content-addressed) filename; null when it
  * is gone or the name is not one of ours. Exported for list intake, which
  * reads a dropped image after the turn that carried it.

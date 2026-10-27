@@ -132,6 +132,7 @@ export async function recordModelCall(charge: LedgerCharge): Promise<void> {
     const row = ledgerRowOf(charge, context, run, accountId);
     const [{ db }, { modelCallSchema }] = await Promise.all([import('@/libs/DB'), import('@/models/Schema')]);
     await db.insert(modelCallSchema).values(row);
+    void import('@/libs/Amplitude').then(m => m.trackAgentModelCall(row));
   } catch (error) {
     import('@/libs/Logger')
       .then(({ logger }) => logger.error('a model call was not filed in the spend ledger', {
