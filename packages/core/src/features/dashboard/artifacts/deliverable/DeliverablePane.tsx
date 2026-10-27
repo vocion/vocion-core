@@ -55,6 +55,8 @@ export type DeliverablePaneProps = {
   select?: { key: string; nonce: number } | null;
   presenting?: boolean;
   onPresentingChange?: (presenting: boolean) => void;
+  /** The page on screen changed (1-based), so "Open in a new window" opens where the person is. */
+  onPageChange?: (n: number) => void;
   className?: string;
 };
 
@@ -87,6 +89,15 @@ export function DeliverablePane(props: DeliverablePaneProps) {
   }
   const current = pages.find(p => p.key === picked) ?? pages[0];
   const index = current ? pages.indexOf(current) : -1;
+  const onPageChange = useRef(props.onPageChange);
+  useEffect(() => {
+    onPageChange.current = props.onPageChange;
+  });
+  useEffect(() => {
+    if (index >= 0) {
+      onPageChange.current?.(index + 1);
+    }
+  }, [index]);
 
   const assetUrl = useDeckAssets(kind === 'deck' ? (spec as { assets?: Record<string, { url: string; contentType: string }> }).assets : undefined);
   const frameHtml = useCallback((key: string) => pageDocument(kind, spec, key, assetUrl), [kind, spec, assetUrl]);

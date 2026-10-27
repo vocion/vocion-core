@@ -1,14 +1,14 @@
 'use client';
 
 /**
- * The deliverable's three verbs, worn in the shared artifact header
- * (`ArtifactHeader`, `actionsFor`): **Present** (decks), **Download** (PDF,
- * and PPTX or Word) and **Upload a new version**. Same icon-button shape as
- * every other header verb.
+ * The deliverable's verbs, worn in the shared artifact header
+ * (`ArtifactHeader`, `actionsFor`): **Present** and **Open in a new window**
+ * (decks), **Download** (PDF, and PPTX or Word) and **Upload a new version**.
+ * Same icon-button shape as every other header verb.
  */
 
 import type { ExportFormat } from './transfer';
-import { Download, Presentation, Upload } from 'lucide-react';
+import { AppWindow, Download, Presentation, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -32,6 +32,17 @@ export function PresentAction(props: { onPresent: () => void }) {
     <Tip label={t('present.action')}>
       <button type="button" onClick={props.onPresent} className={ICON_BUTTON} aria-label={t('present.action')} data-deliverable-present>
         <Presentation className="size-3.5" aria-hidden />
+      </button>
+    </Tip>
+  );
+}
+
+export function WindowAction(props: { onOpenWindow: () => void }) {
+  const t = useTranslations('Deliverable');
+  return (
+    <Tip label={t('window.action')}>
+      <button type="button" onClick={props.onOpenWindow} className={ICON_BUTTON} aria-label={t('window.action')} data-deliverable-window>
+        <AppWindow className="size-3.5" aria-hidden />
       </button>
     </Tip>
   );

@@ -91,10 +91,12 @@ describe('actionsFor', () => {
     expect(actionsFor('open', { ...DOC, hasPdf: false })).not.toContain('pdf');
   });
 
-  it('gives a deck Present, Download and Upload, and no hand-edit verb', () => {
+  it('gives a deck Present, its own window, Download and Upload, and no hand-edit verb', () => {
     const actions = actionsFor('pane', { kind: 'deck', editable: true });
 
-    expect(actions).toEqual(expect.arrayContaining(['present', 'download', 'upload']));
+    expect(actions).toEqual(expect.arrayContaining(['present', 'window', 'download', 'upload']));
+    // The window sits right after Present: two ways to show the same slides.
+    expect(actions.indexOf('window')).toBe(actions.indexOf('present') + 1);
     expect(actions).not.toContain('edit');
     expect(actions).not.toContain('open');
   });
@@ -104,7 +106,14 @@ describe('actionsFor', () => {
 
     expect(actions).toContain('download');
     expect(actions).not.toContain('present');
+    expect(actions).not.toContain('window');
     expect(actions).not.toContain('upload');
+  });
+
+  it('opens only a deck in its own window, on the pane and the page, never on /open', () => {
+    expect(actionsFor('page', { kind: 'deck' })).toContain('window');
+    expect(actionsFor('pane', { kind: 'document' })).not.toContain('window');
+    expect(actionsFor('open', { kind: 'deck' })).not.toContain('window');
   });
 
   it('gives a non-document neither PDF nor the full-screen document wrapper', () => {

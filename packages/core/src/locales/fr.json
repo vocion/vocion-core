@@ -880,6 +880,13 @@
       "ended": "La présentation est terminée. Vous pouvez fermer cette fenêtre.",
       "notesBlocked": "La fenêtre des notes a été bloquée — autorisez les fenêtres pop-up pour Vocion et réessayez."
     },
+    "window": {
+      "action": "Ouvrir dans une nouvelle fenêtre",
+      "fullscreen": "Plein écran",
+      "exitFullscreen": "Quitter le plein écran",
+      "fullscreenBlocked": "Le navigateur a refusé le plein écran — la présentation reste dans sa fenêtre.",
+      "empty": "Cette présentation n’a pas encore de diapositives."
+    },
     "report": {
       "kept": "{count} conservées",
       "textEdited": "{count} texte modifié",
