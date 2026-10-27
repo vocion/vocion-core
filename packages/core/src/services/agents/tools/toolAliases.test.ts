@@ -19,6 +19,7 @@ describe('old project tool names', () => {
     const tools = new Map<string, { description: string }>(projectTools(ctx).map(t => [t.name, t]));
 
     expect([...tools.keys()]).toEqual(['list_projects', 'read_project', 'create_project', 'update_project', 'file_to_project', 'unfile_from_project', 'add_open_item']);
+
     for (const [old, now] of Object.entries(TOOL_ALIASES)) {
       expect(tools.has(now), `${old} → ${now}`).toBe(true);
       expect(tools.get(now)!.description).toContain(`Formerly ${old}`);
@@ -38,6 +39,7 @@ describe('old project tool names', () => {
     expect(canonicalToolArgs('render_document', { room_id: 4, title: 'x' })).toEqual({ project_id: 4, title: 'x' });
     expect(canonicalToolArgs('file_to_project', { room_id: 4, project_id: 9 })).toEqual({ project_id: 9 });
     expect(canonicalToolArgs('extract_records', { room: 'Expo badges' })).toEqual({ project: 'Expo badges' });
+
     const untouched = { project_id: 4 };
 
     expect(canonicalToolArgs('read_project', untouched)).toBe(untouched);
@@ -49,6 +51,7 @@ describe('old project tool names', () => {
 
     expect(canonicalToolCall(call, false)).toEqual({ name: 'update_project', args: { project_id: 3, status: 'Signed.' }, id: 'c1' });
     expect(canonicalToolCall(call, true).name).toBe('update_data_room');
+
     const current = { name: 'read_project', args: { project_id: 3 } };
 
     expect(canonicalToolCall(current, true)).toBe(current);
