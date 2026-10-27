@@ -88,10 +88,17 @@ export function PresentMode(props: PresentModeProps) {
   });
   const onClose = useCallback(() => onCloseRef.current?.(), []);
 
-  // Every move goes through reveal; its `slidechanged` sets the index the rest of the view reads.
+  // Every move goes through reveal; its `slidechanged` sets the index the rest
+  // of the view reads. A move made while reveal is still loading moves the
+  // slide it will start on, so the first keys pressed are never lost.
+  const startRef = useRef(index);
   const go = useCallback((to: number | 'next' | 'prev') => {
     const deck = deckRef.current;
     if (!deck) {
+      const from = startRef.current;
+      const next = Math.max(0, Math.min(pages.length - 1, to === 'next' ? from + 1 : to === 'prev' ? from - 1 : to));
+      startRef.current = next;
+      setIndex(next);
       return;
     }
     if (to === 'next') {
@@ -104,7 +111,6 @@ export function PresentMode(props: PresentModeProps) {
   }, [pages.length]);
 
   // reveal.js, once per present session, on the sections rendered below.
-  const startRef = useRef(index);
   useEffect(() => {
     const el = revealRef.current;
     let cancelled = false;
@@ -257,10 +263,14 @@ export function PresentMode(props: PresentModeProps) {
     }
   };
 
-  // The moving keys are reveal's (`REVEAL_KEYS`); Escape is ours.
+  // The moving keys are reveal's (`REVEAL_KEYS`) once it is up; Escape is ours.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !windowed) {
+      if (!deckRef.current && REVEAL_KEYS.has(e.key)) {
+        e.preventDefault();
+        const k = e.key;
+        go(k === 'Home' ? 0 : k === 'End' ? pages.length - 1 : k === 'ArrowLeft' || k === 'ArrowUp' || k === 'PageUp' ? 'prev' : 'next');
+      } else if (e.key === 'Escape' && !windowed) {
         // In a window, Escape is the browser's: it leaves full screen and nothing more.
         e.preventDefault();
         onClose();
@@ -268,7 +278,7 @@ export function PresentMode(props: PresentModeProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, windowed]);
+  }, [go, onClose, pages.length, windowed]);
 
   const openNotes = () => {
     const w = window.open('', `vocion-notes-${props.artifactId}`, 'popup,width=960,height=640');

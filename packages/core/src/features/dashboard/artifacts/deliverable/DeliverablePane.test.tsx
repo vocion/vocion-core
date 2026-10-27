@@ -254,7 +254,8 @@ describe('the deliverable pane', () => {
     spec.slides.plan = spec.slides.plan.replace('<section id="plan"', '<section id="plan" data-transition="zoom"');
     renderPane({ presenting: true, onPresentingChange: vi.fn(), spec });
 
-    await vi.waitFor(() => expect(document.querySelector('[data-present-reveal="ready"]')).not.toBeNull());
+    // reveal.js loads on first present; a cold CI run takes seconds.
+    await vi.waitFor(() => expect(document.querySelector('[data-present-reveal="ready"]')).not.toBeNull(), { timeout: 15_000 });
     const sections = [...document.querySelectorAll<HTMLElement>('[data-present-reveal] .slides > section')];
 
     expect(sections.map(s => s.dataset.presentSlide)).toEqual(['cover', 'plan', 'team']);
@@ -271,7 +272,8 @@ describe('the deliverable pane', () => {
     try {
       renderPane({ presenting: true, onPresentingChange: vi.fn() });
 
-      await vi.waitFor(() => expect(document.querySelector('[data-present-reveal="ready"]')).not.toBeNull());
+      // reveal.js loads on first present; a cold CI run takes seconds.
+      await vi.waitFor(() => expect(document.querySelector('[data-present-reveal="ready"]')).not.toBeNull(), { timeout: 15_000 });
       await userEvent.keyboard('{ArrowRight}');
 
       await expect.element(page.getByText('2 / 3')).toBeVisible();
