@@ -48,6 +48,11 @@ describe('what the gate reads off a page', () => {
     expect(gatePageOf({ id: 7, title: 't', meta: { ...meta, signoff: { decision: 'approve', by: 'usr-mara', at: '', askId: 1, draftArtifactId: 90, round: 1 } } }).approved).toBe(true);
   });
 
+  it('a draft the editor sent back is the writer\'s to redraft, not one waiting on a person', () => {
+    expect(gatePageOf({ id: 7, title: 't', meta: { ...meta, status: 'drafting' } }).written).toBe(false);
+    expect(gatePageOf({ id: 7, title: 't', meta: { ...meta, status: 'in_review' } }).written).toBe(true);
+  });
+
   it('reads feedback as filed only when every note says where it went', () => {
     const sent = { ...meta, status: 'changes_requested' as const, feedback: [{ at: '', by: 'usr-mara', note: 'a', filedTo: 'wiki:seo-playbook' }, { at: '', by: 'usr-mara', note: 'b', filedTo: null }] };
 

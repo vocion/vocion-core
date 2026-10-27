@@ -141,10 +141,18 @@ describe('a batch through the gate', () => {
     const pages = await listSeoPages(ORG, batchId);
     const refs: string[] = [];
     for (const page of pages.slice(0, 3)) {
+      if (page === pages[0]) {
+        // The editor sends the first draft back once; the writer may redraft it at once.
+        await call('seo_save_research', { page_id: page.id, serp_artifact_id: await markdown('SERP first') });
+        await call('seo_save_brief', { page_id: page.id, brief_artifact_id: await markdown('Brief first') });
+        await call('seo_save_draft', { page_id: page.id, draft_artifact_id: await markdown('Draft first') });
+
+        expect(await call('seo_save_review', { page_id: page.id, verdict: 'fix', notes: 'The query is answered in paragraph three.' })).toContain('drafting again');
+      }
       await call('seo_save_research', { page_id: page.id, serp_artifact_id: await markdown(`SERP ${page.meta.keyword}`) }, { agentSlug: 'serp-analyst' });
       await call('seo_save_brief', { page_id: page.id, brief_artifact_id: await markdown(`Brief ${page.meta.keyword}`) });
 
-      expect(await call('seo_save_draft', { page_id: page.id, draft_artifact_id: await markdown(`Draft ${page.meta.keyword}`) }, { agentSlug: 'seo-writer' })).toContain('round 1');
+      expect(await call('seo_save_draft', { page_id: page.id, draft_artifact_id: await markdown(`Draft ${page.meta.keyword}`) }, { agentSlug: 'seo-writer' })).toContain(page === pages[0] ? 'round 2' : 'round 1');
 
       refs.push(refIn(await call('seo_save_review', { page_id: page.id, verdict: 'pass', notes: 'Rules, brief and SERP brief checked.' }, { agentSlug: 'seo-editor', harnessConfig: { model: 'claude-sonnet-5-5' }, conversationId: 9102 })));
     }

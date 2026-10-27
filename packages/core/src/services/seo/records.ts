@@ -130,7 +130,9 @@ export function gatePageOf(page: SeoPageRecord): GatePage {
     id: page.id,
     order: typeof m.order === 'number' ? m.order : page.id,
     status: m.status,
-    written: typeof m.draftArtifactId === 'number',
+    // A draft the editor sent back (`drafting`) is the writer's again: not
+    // written until it is saved, so the gate lets it be redrafted.
+    written: typeof m.draftArtifactId === 'number' && m.status !== 'drafting',
     approved,
     changesRequested: !approved && m.status === 'changes_requested',
     feedbackFiled: feedback.every(f => Boolean(f.filedTo)),
