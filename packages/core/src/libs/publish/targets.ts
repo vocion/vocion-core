@@ -323,6 +323,32 @@ export function renderPageFile(target: GithubTarget, page: PageFields, body: { m
 }
 
 /**
+ * A target as a project stores it, before it is checked: what the Project page
+ * lists under "Publishes to". `config` is the kind's own.
+ */
+export type StoredPublishTarget = {
+  id: string;
+  kind: PublishTargetKind;
+  label?: string;
+  config?: Record<string, unknown>;
+};
+
+const PUBLISH_KIND_LABEL: Record<PublishTargetKind, string> = { github: 'GitHub', squarespace: 'Squarespace', wordpress: 'WordPress' };
+
+/**
+ * One publish target in a line: its label, its kind, and where it points
+ * when the config names it (a repo, a site). The project page, the project's
+ * bundle and the publish card all say it this way.
+ * @param t - The target, as stored or as checked.
+ */
+export function publishTargetLine(t: StoredPublishTarget | PublishTarget): string {
+  const c = (t.config ?? {}) as Record<string, unknown>;
+  const where = [c.repo, c.siteUrl, c.url].find(v => typeof v === 'string' && v.trim()) as string | undefined;
+  const kind = PUBLISH_KIND_LABEL[t.kind] ?? t.kind;
+  return [t.label && t.label !== where ? t.label : null, where ? `${kind} ${where}` : kind].filter(Boolean).join(' — ');
+}
+
+/**
  * A Squarespace blog's address: the site with its blog path.
  * @param target - The Squarespace target.
  */

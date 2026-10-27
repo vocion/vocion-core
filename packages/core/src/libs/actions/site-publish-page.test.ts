@@ -65,8 +65,6 @@ vi.mock('@/services/factory/githubChecks', () => ({
   ghFor: vi.fn(async (_org: string, repo: string) => ({ owner: repo.split('/')[0], repo: repo.split('/')[1], token: 't' })),
   call: vi.fn(async () => (pull.status === 200 ? { ok: true, status: 200, data: pull.body } : { ok: false, status: pull.status, message: 'no' })),
 }));
-// The project page's own one-line description of a target, stood in for (its module reaches the database).
-vi.mock('@/services/DataRoomService', () => ({ publishTargetLine: (t: { id: string; kind: string }) => `${t.kind} target ${t.id}` }));
 vi.mock('@/libs/net/publicUrl', () => ({ resolvesPublicly: vi.fn(async (raw: string) => ({ ok: true, url: new URL(raw) })) }));
 
 const { sitePublishPageAction: action } = await import('./site-publish-page');
@@ -121,7 +119,7 @@ describe('site.publish_page', () => {
 
     expect(card.title).toBe('Publish "How to Choose a Three-Season Tent" to example-org/northwind-site');
     expect(card.fields.map(f => `${f.label}: ${f.value}`)).toEqual([
-      'Target: github target site',
+      'Target: Northwind site — GitHub example-org/northwind-site',
       'Path: src/content/blog/three-season-tent.mdx',
       'Branch: vocion/seo-three-season-tent',
       'Title: How to Choose a Three-Season Tent',

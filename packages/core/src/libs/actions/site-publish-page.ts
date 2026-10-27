@@ -89,7 +89,7 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
       return { title: 'Publish a page', system: 'Site', headline: planned.why, fields: [] };
     }
     const { plan } = planned;
-    const { publishTargetLine } = await import('@/services/DataRoomService');
+    const { publishTargetLine } = await import('@/libs/publish/targets');
     const draftLink = { kind: 'document' as const, id: 'draft', label: plan.draft.title, tabLabel: 'Draft', href: `/dashboard/artifacts/${plan.draft.artifactId}`, version: String(plan.draft.version), summary: plan.page.description };
     const preview = { kind: 'text' as const, id: 'preview', label: plan.page.title, tabLabel: 'Preview', body: plan.draft.markdown, markdown: true };
     const descriptionField = { label: 'Meta description', value: plan.page.descriptionFrom === 'first paragraph' ? `${plan.page.description} (none was written; this is the draft's first paragraph)` : plan.page.description };
