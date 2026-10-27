@@ -1,0 +1,26 @@
+packages/core/src/services/agents/personId.ts
+  s_581d6725ee027e::t_3e6b721c44059a 1-12
+packages/core/src/services/AgentService.ts
+  s_581d6725ee027e::t_84f91c3f6e2ad2 39
+packages/core/src/libs/Amplitude.ts
+  s_581d6725ee027e::t_911e1ae76c702e 25,59-66,76,81,85-88
+packages/core/src/libs/Amplitude.test.ts
+  s_581d6725ee027e::t_ca0cac8fbb5130 81,91,96-110
+  s_581d6725ee027e::t_80a53094a66ed6 111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b9749e5a2692475741a196d692e031782c55fb63",
+  "prompts": {},
+  "sessions": {
+    "s_581d6725ee027e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "991bfb48-3fb7-43af-a80d-6ff8d6972537",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
