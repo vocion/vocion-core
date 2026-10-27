@@ -8,7 +8,7 @@
 | **Plugin** | `seo` (`packages/core/templates/plugins/seo/`): four agents, the `seo` team, seven skills, the `seo-feedback` learning step, the `seo_batch` and `seo_page` types, two pages, trust rules. Depends on `data-rooms` (projects) and `wiki` |
 | **Pages** | `/dashboard/p/seo` (every batch, its gate line, pages by status) and `/dashboard/p/seo-pages?batch=<id>` (a batch's pages) — descriptor pages over the two records |
 | **Core** | `services/seo/` — `gate.ts` (the volume gate), `records.ts` (batches and pages, the gate written back on every write), `signoff.ts` (a person's sign-off onto the page), `modelThatRan.ts`, `projects.ts`; tools in `services/agents/tools/seo.ts` |
-| **Research** | `serp_search`, `serp_compare` (files the SERP brief in `seo/serp`, then writes its synthesis with `brief_id`), `keyword_metrics`, granted with `harness.grantTools: [serp]`. See [SEO research](../guides/seo-research.md). Serper, the default provider, gives no volume: the skills carry on without it and never estimate one |
+| **Research** | `serp_search` (with the local pack), `keyword_cluster` (one page per set of keywords whose top 10s share 3+ URLs), `serp_compare` (files the SERP brief in `seo/serp`, directories flagged, the pages' text and shared terms, then writes its synthesis with `brief_id`; Google's ranking only), `keyword_metrics` (volume and keyword ideas), granted with `harness.grantTools: [serp]`. See [SEO research](../guides/seo-research.md). Serper, the default provider, gives no volume or ideas: the skills carry on without them and never estimate one |
 | **Publishing** | `site.publish_page` to a project's publish targets (a GitHub pull request, a Squarespace draft) |
 
 ## The seats and their models
@@ -26,6 +26,30 @@ Each seat pins its model (`harness.modelProvider` + `harness.model`). A teammate
 
 Each client is one project (today's data room): its **rules** (checked against every draft), its **notes** (the client wiki: voice, services, audience, competitors, content inventory), its brand, and guideline documents filed at three stars. `onboard-client` builds it from the client's site. Every `seo_batch` and `seo_page` carries `metadata.projectId`.
 
+## Page types and local search
+
+Every `seo_page` may carry a **page type** (`location`, `service`, `blog`, `landing`, `other`), a
+**location** (the city or area a location page is for), an **existing URL** (the live page a refresh
+rewrites) and a planned **slug**; `target` (published URL, else existing URL, else slug) is stamped on
+every write, and the pages list shows type, location and target. Three rules hold in code:
+
+1. **Its own city's results.** `seo_save_research` refuses, for a location page, a SERP brief whose
+   query does not name its location, and a brief already attached to another location page.
+2. **Local substance.** `seo_save_brief` refuses a location page's brief with no section headed
+   "Local substance": what is true of that place for the client, from the project.
+3. **No doorway pages.** `seo_save_review` compares a location page's draft with every other
+   location draft in the batch: plain text, both cities masked, five-word shingles, Jaccard. At 0.7
+   or more it records `fix` whatever the editor said, names the sibling and the score
+   (`review.similarTo`), and sends the page back to the writer (`services/seo/duplicates.ts`).
+
+## One keyword, one page
+
+`seo_plan_batch` refuses a page whose keyword the project already has in another open batch or on a
+published page, or whose slug or existing URL another page lives at or refreshes, and the same
+keyword twice in one plan, unless the page is marked `refresh` with the `existing_url` it rewrites
+(`planConflicts`, `services/seo/records.ts`). Plan from `keyword_cluster` so each page targets one
+cluster.
+
 ## The volume gate
 
 Enforced in code (`services/seo/gate.ts`), never by a prompt:
@@ -42,12 +66,12 @@ A page sent back with changes holds every new draft in the batch until its feedb
 
 | Tool | What it does |
 |---|---|
-| `seo_plan_batch` | A batch and its proposed pages, in writing order, for one project |
+| `seo_plan_batch` | A batch and its proposed pages, in writing order, for one project, each with its page type, location, slug or existing URL; refuses a keyword or URL the project already has unless it is a refresh |
 | `seo_next_pages` | What the gate lets be written now, each page's next step, and why the rest wait |
-| `seo_save_research` | The SERP brief `serp_compare` filed (folder `seo/serp`) on a page; refuses another artifact or a brief whose synthesis is not written yet |
-| `seo_save_brief` | The page brief on a page; records the planning model |
+| `seo_save_research` | The SERP brief `serp_compare` filed (folder `seo/serp`) on a page; refuses another artifact, a brief whose synthesis is not written yet, one built on web search results, and for a location page one not read for its own city |
+| `seo_save_brief` | The page brief on a page (a location page's needs its "Local substance" section); records the planning model |
 | `seo_save_draft` | The draft on a page (refused past the gate or without a brief); records the writing model |
-| `seo_save_review` | The editor's verdict; `pass` returns the exact sign-off ask to file |
+| `seo_save_review` | The editor's verdict; `pass` returns the exact sign-off ask to file; a location draft 70%+ the same as a sibling is sent back whatever the verdict |
 | `seo_record_feedback` | A note on a page, its scope (client or general) and where it was filed |
 
 Present while the `seo` plugin is on (`services/agents/tools/registry.ts`).
