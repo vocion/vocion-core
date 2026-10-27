@@ -168,3 +168,90 @@ export function ProjectWiki({ projectId, notes }: { projectId: number; notes: st
     </Section>
   );
 }
+
+type Target = { id: string; kind: 'github' | 'squarespace' | 'wordpress'; label?: string; config?: Record<string, unknown> };
+
+/**
+ * Where the project's pages ship and how the SEO app releases them: a
+ * person's settings, set here and nowhere else — an agent's write to either
+ * is refused (`PERSON_ONLY_FIELDS`). The same edit-in-place as Instructions
+ * and Wiki. The gate shows only where the SEO app is on.
+ * @param props
+ * @param props.projectId - The project.
+ * @param props.gate - Its `seoGate`, when set.
+ * @param props.targets - Its publish targets.
+ * @param props.lines - Each target in words, by id (`publishTargetLine`).
+ * @param props.showGate - The SEO app is on in this workspace.
+ */
+export function ProjectPublishing({ projectId, gate, targets, lines, showGate }: { projectId: number; gate: { sample?: number; tranche?: number } | null; targets: Target[]; lines: Record<string, string>; showGate: boolean }) {
+  const field = useProjectField(projectId);
+  const [sample, setSample] = useState(String(gate?.sample ?? 3));
+  const [tranche, setTranche] = useState(String(gate?.tranche ?? 10));
+  const [json, setJson] = useState(JSON.stringify(targets, null, 2));
+  const [problem, setProblem] = useState<string | null>(null);
+  if (!showGate && targets.length === 0 && !field.editing) {
+    return null;
+  }
+  const cancel = () => {
+    setSample(String(gate?.sample ?? 3));
+    setTranche(String(gate?.tranche ?? 10));
+    setJson(JSON.stringify(targets, null, 2));
+    setProblem(null);
+    field.setEditing(false);
+  };
+  const save = () => {
+    const s = Number(sample);
+    const t = Number(tranche);
+    if (showGate && (![s, t].every(n => Number.isInteger(n) && n >= 1 && n <= 100))) {
+      setProblem('Sample and tranche are whole numbers from 1 to 100.');
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = json.trim() ? JSON.parse(json) : [];
+    } catch {
+      setProblem('Publish targets are a JSON list: [{"id": "site", "kind": "github", "label": "…", "config": {…}}].');
+      return;
+    }
+    setProblem(null);
+    field.save({ ...(showGate ? { seoGate: { sample: s, tranche: t } } : {}), publishTargets: parsed });
+  };
+  const input = 'h-7 w-16 rounded-md border border-border bg-background px-2 text-sm tabular-nums focus:border-foreground/30 focus:outline-none';
+  return (
+    <Section eyebrow="Publishing" tone="quiet" action={field.editing ? null : <EditButton label="Edit publishing" onClick={() => field.setEditing(true)} />} data-testid="project-publishes-to">
+      {field.editing
+        ? (
+            <div className="flex flex-col gap-3 text-sm">
+              {showGate && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1.5">
+                    Sample
+                    <input type="number" min={1} max={100} value={sample} onChange={e => setSample(e.target.value)} className={input} aria-label="Sample size" />
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    then
+                    <input type="number" min={1} max={100} value={tranche} onChange={e => setTranche(e.target.value)} className={input} aria-label="Tranche size" />
+                    pages
+                  </label>
+                </div>
+              )}
+              <Editor value={json} onChange={setJson} onSave={save} onCancel={cancel} busy={field.busy} mono placeholder='[{"id": "site", "kind": "github", "label": "Website", "config": {"repo": "…", "branch": "main", "path": "content/"}}]' />
+            </div>
+          )
+        : (
+            <div className="space-y-1 text-sm">
+              {showGate && (
+                <p className="text-foreground">
+                  {`SEO pages: a sample of ${gate?.sample ?? 3} for your sign-off, then ${gate?.tranche ?? 10} at a time`}
+                  {gate ? null : <span className="text-muted-foreground"> (the default)</span>}
+                </p>
+              )}
+              {targets.length === 0
+                ? <p className="text-muted-foreground">Publishes nowhere yet.</p>
+                : targets.map(t => <p key={t.id}>{`${t.label ?? t.kind}: ${lines[t.id] ?? t.kind}`}</p>)}
+            </div>
+          )}
+      {(problem ?? field.error) && <p className="mt-2 text-xs text-destructive">{problem ?? field.error}</p>}
+    </Section>
+  );
+}

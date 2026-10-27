@@ -5,9 +5,9 @@ description: >-
   The check a draft passes before a person sees it, in the cheap order: the
   client's rules, adopted feedback, the brief, the SERP brief, local
   substance on a location page, then the craft. Fix or pass, at most three
-  ordered fixes, and on pass the sign-off ask. Read before reviewing any
-  draft.
-version: 2
+  ordered fixes, and on pass the sign-off is filed for a person. Read before
+  reviewing any draft.
+version: 4
 ---
 
 # Reviewing an SEO draft
@@ -18,10 +18,14 @@ is the expensive part; a draft that reaches them with a broken rule wastes it.
 ## The cheap order
 
 1. **The client's rules** (read_project). One broken rule is a `fix`.
-2. **Adopted feedback** (`/learnings/seo-feedback.md`) and the notes on this
-   batch's pages. Repeating a mistake a person already corrected is a `fix`.
+2. **Adopted feedback** (`/learnings/seo-feedback.md`, and the client's own
+   adopted rules `seo_next_pages` returns as `clientRulesFromSignoffs`) and
+   the notes on this batch's pages. Repeating a mistake a person already
+   corrected is a `fix`.
 3. **The brief**: the query answered first, the outline followed, the
-   internal links in, the meta under length.
+   internal links in. The meta title, description and slug are on the page
+   (checked in code when the draft was saved); judge their words, not their
+   length.
 4. **The SERP brief**: covers what every ranking page covers in its body
    (the synthesis and the shared terms; directories do not count), and the
    gap it was meant to own.
@@ -42,9 +46,14 @@ do not file a sign-off for that page.
 
 ## The verdict
 
-`seo_save_review` with `fix` (at most three fixes, ordered, each quoting the
-rule, note or fact it is about) or `pass` (what you checked, in a few lines).
+`seo_save_review` with `fix` and `findings`, a list of `{ issue, location,
+fix }` (the most important first, each quoting the rule, note or fact it is
+about), or `pass` with what you checked in `notes`. A long review is kept
+whole as an artifact linked from the page; never shorten a finding to fit.
 
-On `pass` the receipt gives the exact `file_ask` call for the sign-off: file
-it as given. The person approves, revises with a note, or discards; their
-answer moves the page and the gate. Never change the page's status yourself.
+On `fix` the writer's revision is queued in code with your findings, and the
+draft comes back to you; after three rounds the sign-off is filed anyway
+with the findings still open, and the person decides. On `pass` the tool
+files the sign-off itself; never file one with `file_ask`. The person approves, revises with a note, or discards; their
+answer moves the page and the gate, and the strategist picks the work up
+after it. Never change the page's status yourself.

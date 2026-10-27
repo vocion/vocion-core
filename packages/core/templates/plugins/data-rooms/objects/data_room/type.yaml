@@ -134,8 +134,8 @@ schema:
     publishTargets:
       type: array
       description: >-
-        Where this project's pages ship, shown read-only on the project page
-        under "Publishes to". `config` is the kind's own (a GitHub repo, base
+        Where this project's pages ship, under "Publishing" on the project
+        page. Set by a person there; an agent's write to it is refused. `config` is the kind's own (a GitHub repo, base
         branch, path and format; a Squarespace site URL and blog path);
         WordPress is named here and not yet wired.
       items:
@@ -157,8 +157,10 @@ schema:
       type: object
       description: >-
         How the SEO app releases this project's pages for writing: a sample a
-        person signs off on first, then a tranche, then the rest. Whole
-        numbers from 1 to 100; anything else reads as the default (3, then 10).
+        person signs off on first (at least one page of each type), then a
+        tranche, then the rest. Whole numbers from 1 to 100; anything else
+        reads as the default (3, then 10). Set by a person on the project
+        page; an agent's write to it is refused.
       properties:
         sample: {type: integer, minimum: 1, maximum: 100}
         tranche: {type: integer, minimum: 1, maximum: 100}

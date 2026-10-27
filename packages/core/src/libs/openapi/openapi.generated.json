@@ -5823,7 +5823,7 @@
       },
       "patch": {
         "operationId": "patch_projects_id",
-        "summary": "`PATCH /api/v1/projects/:id` — a person editing the project's own knowledge from its page: the wiki (`notes`), the instructions (`rules`), whether the collecto…",
+        "summary": "`PATCH /api/v1/projects/:id` — a person editing the project from its page: the wiki (`notes`), the instructions (`rules`), whether the collector may file into…",
         "tags": [
           "projects"
         ],
@@ -5854,7 +5854,7 @@
             }
           }
         },
-        "description": "`PATCH /api/v1/projects/:id` — a person editing the project's own knowledge\nfrom its page: the wiki (`notes`), the instructions (`rules`), whether the\ncollector may file into it. Everything else changes through the agent's\n`update_project`, so the page stays one obvious path per field. A\ndashboard session or a `vcn_live_` token; the caller's org must own the\nproject.",
+        "description": "`PATCH /api/v1/projects/:id` — a person editing the project from its page:\nthe wiki (`notes`), the instructions (`rules`), whether the collector may\nfile into it, and the person-only settings — the SEO gate (`seoGate`) and\nwhere pages publish (`publishTargets`), which a token may not set and no\nagent tool writes. Everything else changes through the agent's\n`update_project`, so the page stays one obvious path per field. A\ndashboard session or a `vcn_live_` token; the caller's org must own the\nproject.",
         "parameters": [
           {
             "name": "id",

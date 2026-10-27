@@ -99,9 +99,17 @@ jobs:
       # and Jev routing. One new route (dashboard/marketing) shares that server.
       # No route's reach jumped, no forbidden edge appeared, and sharp is a
       # server external, so again nothing cheap to cut.
+      # 13250 → 13600 (2026-10-27, the SEO red-team fixes, #1485): publishing
+      # (#1477) took main from 13,085 MB to 13,228 MB, 22 MB under the line;
+      # this PR and the SEO onboarding PR each measured about 13,260 MB.
+      # check:route-graph against main (cdd2ebf2): no route's reach jumped and
+      # no forbidden edge appeared; every server route grew by the same 2
+      # modules (services/seo/meta.ts and work.ts, under 10 KB), so the line
+      # was simply reached, not crossed by something that started reaching
+      # the server.
       - name: Build memory
         env:
-          BUILD_PEAK_RSS_BUDGET_MB: '13250'
+          BUILD_PEAK_RSS_BUDGET_MB: '13600'
         run: |
           set -euo pipefail
           peak_mb=$(( $(awk -F': ' '/Maximum resident set size/{print $2}' "$RUNNER_TEMP/build-time.txt") / 1024 ))

@@ -1,0 +1,24 @@
+slug: seo-batches-moving
+name: Every client's SEO pages keep moving
+description: >-
+  The SEO strategist's standing responsibility, run in the background at
+  every hand-off: the work the gate releases is written and reviewed, a draft
+  the editor sent back is revised, and the moment a person signs off a plan
+  or a page the next work is picked up, without anyone saying "carry on".
+goal: >-
+  No released page sits unwritten and no note sits unfiled after a person's
+  sign-off: approved plans are researched and briefed, released pages are
+  written and reviewed, sent-back pages have their feedback filed and are
+  redrafted, and a revised plan goes back for sign-off.
+agent: seo-strategist
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - After a plan is approved, every released page has a brief before the day ends
+  - After a page is sent back, its note is filed (to the client's project or the seo-feedback learning step) before anything else is drafted
+  - A plan sent back is revised and filed for sign-off again, answering the person's note
+  - A draft the editor sends back is revised and reviewed again without a person asking, at most three rounds
+  - Nothing past the gate is written, and every hold is said with the gate's line
+desiredArtifacts:
+  - Briefs and drafts for the pages the gate released
+  - One line per batch saying what moved and what waits on a person

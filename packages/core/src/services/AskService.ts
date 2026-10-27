@@ -602,7 +602,11 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
     ...(SYSTEM_DECIDERS.has(opts.decidedBy)
       ? []
       : [
-          proposeLearningFromDecision({ ask, decision, note, decidedBy: opts.decidedBy }),
+          // An SEO sign-off's note is routed by the SEO app itself — to the
+          // client's project or, as a candidate tagged with the project, to
+          // its learning step (`seo_record_feedback`) — so the generic path
+          // would ask twice and file a client's note for every client.
+          ...(isSeoSignoffSource(ask.sourceRef) ? [] : [proposeLearningFromDecision({ ask, decision, note, decidedBy: opts.decidedBy })]),
           recordAskAlignment({ ask, decision, note, decidedBy: opts.decidedBy }),
         ]),
   ]);
@@ -661,6 +665,14 @@ export async function skipAsk(opts: { orgId: string; id: number; by: string; via
 }
 
 /**
+ * Whether an ask is one of the SEO app's sign-offs (`seo-page:` or `seo-plan:`).
+ * @param ref - `ask.source_ref`.
+ */
+function isSeoSignoffSource(ref: string | null | undefined): boolean {
+  return Boolean(ref && (ref.startsWith('seo-page:') || ref.startsWith('seo-plan:')));
+}
+
+/**
  * A decided or withdrawn ask may be what a parked run was waiting for: tell
  * the resume gates (`services/needsYou/ResumeGateService.ts`), which resume
  * the run once nothing it waits on is open. Never throws — the answer is
@@ -676,8 +688,10 @@ async function settleWaitersOn(row: Ask): Promise<void> {
       logger.warn('a routine could not hear an answered ask', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
     });
   }
-  if (row.sourceRef?.startsWith('seo-page:')) {
-    // A drafted SEO page's sign-off: the page moves and its batch's gate is read again (`services/seo/signoff.ts`).
+  if (isSeoSignoffSource(row.sourceRef)) {
+    // An SEO sign-off — a drafted page or a batch's keyword plan: the page or
+    // batch moves, its project's gate is read again, and the strategist is
+    // queued to continue (`services/seo/signoff.ts`).
     await import('@/services/seo/signoff').then(m => m.onSeoAskSettled(row)).catch(() => undefined);
   }
   try {

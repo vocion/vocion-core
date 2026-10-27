@@ -21,9 +21,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 }
 
 /**
- * `PATCH /api/v1/projects/:id` — a person editing the project's own knowledge
- * from its page: the wiki (`notes`), the instructions (`rules`), whether the
- * collector may file into it. Everything else changes through the agent's
+ * `PATCH /api/v1/projects/:id` — a person editing the project from its page:
+ * the wiki (`notes`), the instructions (`rules`), whether the collector may
+ * file into it, and the person-only settings — the SEO gate (`seoGate`) and
+ * where pages publish (`publishTargets`), which a token may not set and no
+ * agent tool writes. Everything else changes through the agent's
  * `update_project`, so the page stays one obvious path per field. A
  * dashboard session or a `vcn_live_` token; the caller's org must own the
  * project.

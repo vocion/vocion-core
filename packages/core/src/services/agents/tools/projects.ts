@@ -228,9 +228,23 @@ export function createProjectTool(ctx: RuntimeContext) {
   );
 }
 
+/**
+ * Whether this agent works records that each name their own client project
+ * (the SEO seats: every page carries `projectId`). Such an agent names the
+ * project on every write, because "the project on screen" may be another
+ * client's.
+ * @param ctx - The turn.
+ */
+function writesForRecordProject(ctx: RuntimeContext): boolean {
+  return (ctx.enabledPlugins ?? []).includes('seo') && (ctx.objectTypeSlugs ?? []).includes('seo_page');
+}
+
 export function updateProjectTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
+      if (args.project_id === undefined && writesForRecordProject(ctx)) {
+        return 'Not updated: name project_id — the project of the page the note is about (its projectId), never the project on screen.';
+      }
       const found = await resolveRoom(ctx, args.project_id);
       if ('error' in found) {
         return found.error;

@@ -159,6 +159,7 @@ async function loadExistingRules(orgId: string, stepName: string): Promise<Exist
  * @param opts.sourceFeedbackJobId - The queued job this came from, when there was one.
  * @param opts.sourceRunId - The run being reacted to, when there was one.
  * @param opts.submittedBy - The person who gave the feedback.
+ * @param opts.sourceRef - Where it came from, when not a feedback job.
  */
 export async function recordProposedRule(opts: {
   orgId: string;
@@ -175,6 +176,8 @@ export async function recordProposedRule(opts: {
   sourceFeedbackJobId?: number | null;
   sourceRunId?: number | null;
   submittedBy?: string | null;
+  /** Where the feedback came from, when it was not a feedback job (an ask, a page): "why does this rule exist" answered with a link. */
+  sourceRef?: string | null;
 }): Promise<RecordProposedRuleResult> {
   const ruleText = opts.ruleText.trim();
   if (!ruleText) {
@@ -220,6 +223,7 @@ export async function recordProposedRule(opts: {
     scopeRef: opts.scopeRef,
     sourceFeedbackJobId: opts.sourceFeedbackJobId ?? null,
     sourceRunId: opts.sourceRunId ?? null,
+    sourceRef: opts.sourceRef ?? null,
   });
   const occurrenceId = await attachOccurrence(
     { kind: 'candidate', id: candidate.id, ruleText },

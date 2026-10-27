@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import type { ApiCaller } from '@/services/writeApi';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { publishTargetSchema } from '@/libs/publish/targets';
 import { exportDataRoom, getDataRoom, unfileFromDataRoom, updateDataRoom } from '@/services/DataRoomService';
 
 /**
@@ -29,14 +30,22 @@ export async function readProject(caller: ApiCaller, rawId: string): Promise<Res
   return room ? NextResponse.json(room) : notFound();
 }
 
+const stageSize = z.number().int().min(1).max(100);
+
 const PatchSchema = z.object({
   notes: z.string().max(60_000).optional(),
   rules: z.array(z.string().max(300)).max(60).optional(),
   autoFile: z.boolean().optional(),
+  // A person's settings: how the SEO app releases this project's pages, and
+  // where they ship. No agent tool writes these (`PERSON_ONLY_FIELDS`).
+  seoGate: z.object({ sample: stageSize, tranche: stageSize }).nullable().optional(),
+  // Each target checked by publishing's own schema (`libs/publish/targets.ts`).
+  publishTargets: z.array(publishTargetSchema).max(20).nullable().optional(),
 });
 
 /**
- * A person editing the project's wiki, instructions or auto-filing from its page.
+ * A person editing the project's wiki, instructions, auto-filing, SEO gate or
+ * publish targets from its page.
  * @param caller - The authenticated caller.
  * @param rawId - The `:id` segment.
  * @param req - The request, for its JSON body.
@@ -50,16 +59,23 @@ export async function patchProject(caller: ApiCaller, rawId: string, req: NextRe
   if (!parsed.success) {
     return NextResponse.json({ error: { code: 'BAD_REQUEST', message: parsed.error.issues.map(i => i.message).join('; ') } }, { status: 400 });
   }
+  const { notes, rules, autoFile, seoGate, publishTargets } = parsed.data;
+  // The gate and the publish targets are a person's, on the project page: a
+  // token (an outside system, or anything acting for an agent) may not set them.
+  if ((seoGate !== undefined || publishTargets !== undefined) && caller.source !== 'session') {
+    return NextResponse.json({ error: { code: 'FORBIDDEN', message: 'seoGate and publishTargets are set by a person signed in to the project page.' } }, { status: 403 });
+  }
   const current = await getDataRoom(caller.orgId, id);
   if (!current) {
     return notFound();
   }
-  const { notes, rules, autoFile } = parsed.data;
   const room = await updateDataRoom(caller.orgId, id, {
     ...(notes === undefined ? {} : { notes }),
     // Instructions are replaced as a whole from the page: the textarea is the list.
     ...(rules === undefined ? {} : { removeRules: current.meta.rules ?? [], addRules: rules }),
     ...(autoFile === undefined ? {} : { autoFile }),
+    ...(seoGate === undefined ? {} : { seoGate }),
+    ...(publishTargets === undefined ? {} : { publishTargets }),
   });
   return NextResponse.json(room);
 }

@@ -171,8 +171,10 @@ export type RoomMeta = {
   brand?: RoomBrand;
   /** `false` keeps the collector out of this room; filings then come only from tools and people. */
   autoFile?: boolean;
-  /** Where this project's pages ship (`PublishTarget`). */
+  /** Where this project's pages ship (`PublishTarget`). Set by a person on the project page. */
   publishTargets?: StoredPublishTarget[];
+  /** How the SEO app releases this project's pages: the sample, then each tranche. Set by a person on the project page. */
+  seoGate?: { sample?: number; tranche?: number };
   /** Knowledge documents a person or agent took back out — the collector never re-files these on its own. */
   unfiled?: number[];
 };
@@ -512,6 +514,12 @@ export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & 
   /** The client's logo or mark, fetched and verified — replaces whatever that slot held. */
   brandImage?: { slot: RoomBrandSlot; image: RoomImage };
   autoFile?: boolean;
+  /**
+   * A PERSON's settings, from the project page only (`PATCH
+   * /api/v1/projects/:id`); no agent tool passes them. Null clears one.
+   */
+  seoGate?: { sample: number; tranche: number } | null;
+  publishTargets?: StoredPublishTarget[] | null;
 };
 
 /**
@@ -585,6 +593,20 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
   }
   if (patch.autoFile !== undefined) {
     meta.autoFile = patch.autoFile;
+  }
+  if (patch.seoGate !== undefined) {
+    if (patch.seoGate === null) {
+      delete meta.seoGate;
+    } else {
+      meta.seoGate = patch.seoGate;
+    }
+  }
+  if (patch.publishTargets !== undefined) {
+    if (patch.publishTargets === null) {
+      delete meta.publishTargets;
+    } else {
+      meta.publishTargets = patch.publishTargets;
+    }
   }
   if (patch.domains) {
     meta.domains = clean([...(meta.domains ?? []), ...patch.domains]);

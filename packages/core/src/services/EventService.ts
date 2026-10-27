@@ -326,6 +326,18 @@ export type AskDecidedPayload = {
 };
 
 /**
+ * SEO work queued for the strategist's background run (`services/seo/work.ts`),
+ * so writing and reviewing never run inside a person's chat turn. The SEO
+ * plugin's `seo-continue` automation runs its standing mission on it.
+ * Payload: `reason` — `write` (a person asked for the released pages),
+ * `revise` (the editor sent a draft back: `pageId`, `round`, `findings`) or
+ * `signoff` (a person answered: `askId`, `decision`, `kind` page | plan,
+ * `signoff` or `plan`, `note`) — plus `batchId`, `projectId`, `writable`
+ * and `line`. Deduped per hand-off.
+ */
+export const SEO_WORK_QUEUED = 'seo.work_queued';
+
+/**
  * A release record was linked to what it shipped — the requests, tasks and
  * QA verdicts its pull requests carried (`services/factory/releasePack.ts`
  * `linkRelease`, run when a deploy posts the release). The moment a release

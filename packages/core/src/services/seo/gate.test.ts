@@ -1,6 +1,6 @@
 import type { GatePage } from './gate';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SEO_GATE, evaluateGate, gateConfigFrom, whyNotWritable } from './gate';
+import { batchView, DEFAULT_SEO_GATE, evaluateGate, gateConfigFrom, whyNotWritable } from './gate';
 
 /**
  * A batch of `n` pages, each fresh (proposed, nothing written) unless `patch` says otherwise.
@@ -43,7 +43,7 @@ describe('the sample', () => {
     expect(g.stage).toBe('sample');
     expect(g.writable).toEqual([]);
     expect(g.waitingOnSignoff).toEqual([1, 2, 3]);
-    expect(g.line).toBe('3 of 40 written · waiting on your feedback on the first 3');
+    expect(g.line).toBe('3 of 40 written · waiting on your feedback on the sample of 3');
     expect(whyNotWritable(g, 4)).toContain('past the sample');
     expect(whyNotWritable(g, 2)).toContain('waiting on a person');
   });
@@ -54,7 +54,7 @@ describe('the sample', () => {
     expect(g.stage).toBe('sample');
     expect(g.allowed).toBe(3);
     expect(g.writable).toEqual([]);
-    expect(g.line).toBe('3 of 40 written · waiting on your feedback on the first 3');
+    expect(g.line).toBe('3 of 40 written · waiting on your feedback on the sample of 3');
   });
 
   it('a sample page an agent marked approved without a person\'s sign-off does not count', () => {
@@ -181,5 +181,81 @@ describe('the gate sizes', () => {
     expect(evaluateGate(batch(10), cfg).released).toEqual([1]);
     expect(evaluateGate(batch(10, approvedThrough(1)), cfg).released).toEqual([1, 2, 3]);
     expect(evaluateGate(batch(10, approvedThrough(3)), cfg).stage).toBe('open');
+  });
+});
+
+describe('the sample covers one page of each type', () => {
+  /**
+   * A plan of typed pages, in order.
+   * @param types - Each page's type.
+   */
+  function typed(types: Array<string | undefined>): GatePage[] {
+    return types.map((pageType, i) => ({ id: i + 1, order: i + 1, pageType, status: 'proposed', written: false, approved: false, changesRequested: false, feedbackFiled: true }));
+  }
+
+  it('takes the first of each page type, not the first three in order', () => {
+    const g = evaluateGate(typed(['location', 'location', 'location', 'location', 'service', 'blog']));
+
+    expect(g.sample).toEqual([1, 5, 6]);
+    expect(g.released).toEqual([1, 5, 6]);
+    expect(whyNotWritable(g, 2)).toContain('one of each page type');
+  });
+
+  it('samples more than three when the plan has more kinds of page', () => {
+    const g = evaluateGate(typed(['location', 'service', 'blog', 'landing', 'other', 'blog']));
+
+    expect(g.sample).toEqual([1, 2, 3, 4, 5]);
+    expect(g.line).toBe('0 of 6 written · writing a sample of 5 for your feedback first');
+  });
+
+  it('fills up to the project\'s size in planned order when there are fewer kinds', () => {
+    expect(evaluateGate(typed(['blog', 'blog', 'blog', 'service', 'blog'])).sample).toEqual([1, 2, 4]);
+  });
+
+  it('tolerates a plan with no page types yet: the first pages in order', () => {
+    expect(evaluateGate(typed([undefined, undefined, undefined, undefined])).sample).toEqual([1, 2, 3]);
+  });
+});
+
+describe('the gate is the project\'s, across its batches', () => {
+  /**
+   * Two batches of one project: batch 10's pages 1–5, batch 20's pages 6–10.
+   * @param patch - Per page id, what is true of it.
+   */
+  function project(patch: Record<number, Partial<GatePage>> = {}): GatePage[] {
+    return Array.from({ length: 10 }, (_, i) => {
+      const id = i + 1;
+      return { id, batchId: id <= 5 ? 10 : 20, order: id <= 5 ? id : id - 5, status: 'proposed', written: false, approved: false, changesRequested: false, feedbackFiled: true, ...patch[id] };
+    });
+  }
+
+  it('a second batch writes nothing until the project\'s first sample is signed off', () => {
+    const g = evaluateGate(project());
+    const second = batchView(g, project().filter(p => p.batchId === 20));
+
+    expect(g.released).toEqual([1, 2, 3]);
+    expect(second.writable).toEqual([]);
+    expect(second.line).toBe('0 of 5 written · nothing released until the project\'s sample is signed off');
+    expect(whyNotWritable(g, 6)).toContain('past the sample');
+  });
+
+  it('says the second batch waits on the sample once it is written', () => {
+    const g = evaluateGate(project({ 1: written, 2: written, 3: written }));
+
+    expect(batchView(g, project().filter(p => p.batchId === 20)).line).toBe('0 of 5 written · waiting on your feedback on the project\'s sample');
+  });
+
+  it('releases the tranche across batches, in the order they were planned, once the sample is approved', () => {
+    const g = evaluateGate(project(approvedThrough(3)), { sample: 3, tranche: 4 });
+
+    expect(g.writable).toEqual([4, 5, 6, 7]);
+  });
+
+  it('a note waiting to be filed in one batch holds every batch of the project', () => {
+    const g = evaluateGate(project({ ...approvedThrough(2), 3: sentBack }));
+
+    expect(g.writable).toEqual([]);
+    expect(whyNotWritable(g, 6)).toContain('page #3');
+    expect(batchView(g, project().filter(p => p.batchId === 20)).line).toContain('feedback to file');
   });
 });

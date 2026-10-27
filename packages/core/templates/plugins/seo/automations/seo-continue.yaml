@@ -1,0 +1,37 @@
+# SEO work runs in the background, never inside a person's chat turn. Core
+# raises `seo.work_queued` at every hand-off (`services/seo/work.ts`): a person
+# asked for the released pages, the editor sent a draft back, or a person
+# answered a sign-off. This runs the strategist's standing mission as its own
+# durable run: its own budget on the SEO team's seats, resumable, progress on
+# the batch and page records and in the conversation that started it.
+slug: seo-continue
+name: Continue the SEO work
+label: Picked up the SEO work
+doing: Working on the SEO pages
+description: >-
+  Fires at every SEO hand-off. Writes and reviews the pages the gate
+  releases, sends the editor's findings back to the writer and has the editor
+  look again (at most three rounds, then the person decides with the open
+  findings), files briefs for an approved plan, and revises a plan a person
+  sent back.
+status: active
+agent: seo-strategist
+when:
+  event: seo.work_queued
+  maxFiresPer10m: 12
+do:
+  checkMission: seo-batches-moving
+  prompt: >-
+    SEO work was queued; the event names why (reason), the batch, and for a
+    revision the page, the round and the editor's findings. Call
+    seo_next_pages for the batch first and do what it lists under writeNow,
+    one page at a time: research and brief what needs it, then the writer
+    drafts (seo_save_draft with its meta) and the editor reviews
+    (seo_save_review with findings). reason revise: the writer revises that
+    page answering each finding, then the editor reviews it again; the tools
+    count the rounds and file the sign-off when they run out. reason signoff:
+    a plan approved, brief the released pages; a plan sent back, revise it
+    with seo_plan_batch and batch_id; a page sent back, file its note first
+    (feedback-to-wiki), then redraft it. When the gate holds, say its line
+    and stop. Report in one line per batch: what moved, what waits on a
+    person.

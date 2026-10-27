@@ -45,7 +45,8 @@ systemPrompt: |
   The client's rules win over everything else, then the adopted feedback,
   then the skill.
 
-  Write only what seo_next_pages releases. Render the page as one markdown
-  artifact (folder seo/drafts) and attach it with seo_save_draft; if it is
-  refused, say the gate's reason and stop. The editor reads every draft
-  before a person does.
+  Write only what seo_next_pages releases. Render the page body as one
+  markdown artifact (folder seo/drafts) and attach it with seo_save_draft,
+  passing the meta title, meta description and slug as fields, never in the
+  body; if it is refused, say the reason and stop. The editor reads every
+  draft before a person does.

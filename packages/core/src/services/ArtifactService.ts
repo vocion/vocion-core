@@ -284,6 +284,11 @@ export async function createArtifact(input: CreateArtifactInput): Promise<{ arti
 function announceSaved(row: ArtifactRow, change: 'created' | 'revised', author: Author): void {
   void (async () => {
     try {
+      // A drafted SEO page's sign-off is bound to its words: an edit puts the
+      // page back to review with a new ask (`services/seo/signoff.ts`).
+      if (change === 'revised' && (row.recordType === 'object' || row.folder?.startsWith('seo/'))) {
+        await import('@/services/seo/signoff').then(m => m.onSeoDraftRevised(row.orgId, row.id));
+      }
       const { ARTIFACT_SAVED, emitEvent } = await import('@/services/EventService');
       await emitEvent({
         orgId: row.orgId,
