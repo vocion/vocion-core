@@ -16,8 +16,8 @@ beforeEach(() => {
 
 describe('FeatureSwitch', () => {
   it('is a plain On/Off switch named for the feature, and a flip switches it and reloads', async () => {
-    await render(<FeatureSwitch slug="data-rooms" name="Data rooms" on={false} canToggle />);
-    const sw = page.getByRole('switch', { name: 'Data rooms: off' });
+    await render(<FeatureSwitch slug="data-rooms" name="Projects" on={false} canToggle />);
+    const sw = page.getByRole('switch', { name: 'Projects: off' });
 
     await expect.element(sw).toHaveAttribute('aria-checked', 'false');
     await expect.element(page.getByText('Off', { exact: true })).toBeVisible();

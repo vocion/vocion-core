@@ -348,7 +348,7 @@ export type AgentEvent
      */
     | { type: 'memories_mounted'; paths: string[] }
     /** Which model answers this turn, and how hard it thinks — shown on the turn (`libs/llm/modelPrefs.ts`). */
-    /** A tool made a record the person will want to open — a data room, a proposal. The client shows a chip and peeks it; the run links it in the answer. */
+    /** A tool made a record the person will want to open — a project, a proposal. The client shows a chip and peeks it; the run links it in the answer. */
     /** The model is writing a tool call — its name is known before the call completes; a long argument (a whole document) otherwise reads as 'Working'. */
     | { type: 'composing'; tool: string }
     | { type: 'record_created'; record: import('@/services/chat/pageContext').RecordRef }
@@ -564,7 +564,7 @@ export type RuntimeContext = {
   followingMcp?: import('@/services/outboundMcp/followingSources').FollowingMcp[];
   /**
    * Plugins the workspace has on (`project.enabled_plugins`), resolved once at
-   * graph build. Plugin-owned tool sets (wiki, data rooms) are present only
+   * graph build. Plugin-owned tool sets (wiki, projects) are present only
    * when their plugin is; `list_capabilities` reads it to say what is off.
    */
   enabledPlugins?: string[];

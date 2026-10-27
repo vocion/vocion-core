@@ -25,6 +25,7 @@ import { noteConnectionNeeded } from '@/services/connect/triedAndFailed';
 import { verifyClaim } from './claims';
 import { runtimeContextForAgent } from './runtimeContext';
 import { buildDomainTools } from './tools/registry';
+import { canonicalToolArgs, canonicalToolName, canonicalToolNames } from './tools/toolAliases';
 
 export type ToolCallOutcome
   = | { ok: true; output: string; events: AgentEvent[] }
@@ -80,8 +81,11 @@ export async function executeToolCall(opts: {
     emit: e => events.push(e),
   });
 
-  const excludeTools = new Set(ctx.harnessConfig.excludeTools ?? []);
-  const toolObj = buildDomainTools(ctx).find(t => t.name === opts.tool && !excludeTools.has(t.name));
+  // An old name (a renamed tool, `tools/toolAliases.ts`) runs as the tool it became.
+  const toolName = canonicalToolName(opts.tool);
+  const input = canonicalToolArgs(toolName, opts.input);
+  const excludeTools = new Set(canonicalToolNames(ctx.harnessConfig.excludeTools));
+  const toolObj = buildDomainTools(ctx).find(t => t.name === toolName && !excludeTools.has(t.name));
   if (!toolObj) {
     return { ok: false, status: 404, error: `unknown tool: ${opts.tool}` };
   }
@@ -90,7 +94,7 @@ export async function executeToolCall(opts: {
     // The ns rides in as config metadata so the tool-call record can
     // attribute a delegated specialist's call, mirroring the local loop.
     const raw = await toolObj.invoke(
-      opts.input as never,
+      input as never,
       opts.ns ? ({ metadata: { checkpoint_ns: opts.ns } } as never) : undefined,
     );
     const output = typeof raw === 'string' ? raw : JSON.stringify(raw);

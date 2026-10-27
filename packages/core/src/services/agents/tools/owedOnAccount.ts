@@ -7,7 +7,7 @@
  * Gmail, the deck it attaches, the room's open items, the last call. A lead
  * that reads only its own tracker rows answers from the calendar and asks to
  * read the notes (2026-10-23). This tool reads every one of them by the
- * account's addresses, domains and data room, and says the next move for each.
+ * account's addresses, domains and project, and says the next move for each.
  */
 
 import type { RuntimeContext } from '../types';
@@ -23,7 +23,7 @@ const SECTION: Record<string, string> = {
   draft: 'Drafts waiting for you to send',
   review: 'In Review',
   follow_up: 'Follow-ups owed',
-  room_item: 'Open items in the data room',
+  room_item: 'Open items in the project',
   meeting: 'The last call',
 };
 
@@ -36,7 +36,7 @@ const SECTION: Record<string, string> = {
 export function renderOwed(read: OwedOnAccount, zone: string, link: (path: string) => string = p => p): string {
   const { identity } = read;
   const who = [
-    identity.room ? `data room #${identity.room.id} "${identity.room.title}"${identity.matchedBy.length > 0 ? ` (matched on ${identity.matchedBy.join(', ')})` : ''}` : null,
+    identity.room ? `project #${identity.room.id} "${identity.room.title}"${identity.matchedBy.length > 0 ? ` (matched on ${identity.matchedBy.join(', ')})` : ''}` : null,
     identity.domains.length > 0 ? `domains ${identity.domains.join(', ')}` : null,
     identity.emails.length > 0 ? `addresses ${identity.emails.slice(0, 6).join(', ')}${identity.emails.length > 6 ? ` +${identity.emails.length - 6}` : ''}` : null,
   ].filter(Boolean).join('; ');
@@ -85,8 +85,8 @@ export function owedOnAccountTools(ctx: RuntimeContext) {
       name: OWED_ON_ACCOUNT_TOOL,
       metadata: { turnMemo: true },
       description: [
-        'Everything not yet finished on our side for one client, prospect or person, in one read: pending Review items any agent raised about them (follow-up emails, post-call follow-up cards, CRM updates, failed runs to press again), approved Gmail drafts not yet sent, follow-up rows still owed, the data room\'s open items and newest decks, and the last call with them — each with its status, its next move and its link.',
-        'Call it FIRST for "what do I owe on X", "what is open with X", "where are we with X", "anything pending for X". Matched by the company\'s email domain, its contacts\' addresses and its data room, never by a keyword search.',
+        'Everything not yet finished on our side for one client, prospect or person, in one read: pending Review items any agent raised about them (follow-up emails, post-call follow-up cards, CRM updates, failed runs to press again), approved Gmail drafts not yet sent, follow-up rows still owed, the project\'s open items and newest decks, and the last call with them — each with its status, its next move and its link.',
+        'Call it FIRST for "what do I owe on X", "what is open with X", "where are we with X", "anything pending for X". Matched by the company\'s email domain, its contacts\' addresses and its project, never by a keyword search.',
         'Pass the company or person as the person named them, or better their email domain or an address.',
       ].join(' '),
       schema: z.object({

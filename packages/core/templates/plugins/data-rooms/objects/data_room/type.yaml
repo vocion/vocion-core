@@ -1,11 +1,13 @@
+# A Project. The slug keeps its old name (projects were "data rooms" until
+# 2026-10-27); every label a person or a model reads says Project.
 slug: data_room
-label: Data room
+label: Project
 description: >-
-  The collection around one entity — a deal, a project, an engagement:
-  everything ingested about it (transcripts, threads, attachments, by weight)
+  The collection around one client or engagement — a deal, a retainer, a
+  piece of delivery: everything ingested about it (transcripts, threads, attachments, by weight)
   and everything written from it (decision logs, documents, working files),
-  plus the room's own knowledge — rules, notes, a dated timeline, highlights —
-  that keeps the collection growing on its own. A sales room persists into
+  plus the project's own knowledge — rules, notes, a dated timeline, highlights —
+  that keeps the collection growing on its own. A sales project persists into
   delivery; the anchor and the stage move, the collection stays.
 icon: folder-open
 schema:
@@ -28,7 +30,7 @@ schema:
       description: Engagement stage in the CRM's own words (Discovery, Proposal sent, Signed, In delivery).
     anchor:
       type: object
-      description: The entity the room is the collection around, and where it lives.
+      description: The entity the project is the collection around, and where it lives.
       properties:
         type: {type: string, description: 'deal, company, project, engagement, ticket…'}
         system: {type: string, description: 'hubspot, jira, github…'}
@@ -47,13 +49,13 @@ schema:
     rules:
       type: array
       description: >-
-        Rules for collecting and working the room, one line each — how things
-        are called, what files here, what never leaves it. The agent reads
-        them before anything else in the room.
+        The project's Instructions, one line each — how things are called,
+        the voice to write in, what files here, what never leaves it. The
+        agent reads them before anything else in the project.
       items: {type: string}
     notes:
       type: string
-      description: The room's wiki, markdown — where things are, who owns what, conventions.
+      description: The project's Wiki (the client wiki), markdown — where things are, who owns what, conventions.
     cast:
       type: array
       description: Every person on the engagement, with role and email.
@@ -103,7 +105,7 @@ schema:
     sources:
       type: array
       description: >-
-        What is filed to the room, by weight (⭐⭐⭐ = read before writing
+        What is filed to the project, by weight (⭐⭐⭐ = read before writing
         anything), with provenance — channel, date, who filed it and, for an
         automatic filing, the score and evidence.
       items:
@@ -123,15 +125,30 @@ schema:
           evidence: {type: array, items: {type: string}}
     domains:
       type: array
-      description: Email domains that identify this client's people — how a transcript or thread is matched to the room.
+      description: Email domains that identify this client's people — how a transcript or thread is matched to the project.
       items: {type: string}
     aliases:
       type: array
       description: Other names the engagement goes by in calendar titles and subjects.
       items: {type: string}
+    publishTargets:
+      type: array
+      description: >-
+        Where this project's pages ship, shown read-only on the project page
+        under "Publishes to". `config` is the kind's own (a GitHub repo, base
+        branch, path and format; a Squarespace site URL and blog path);
+        WordPress is named here and not yet wired.
+      items:
+        type: object
+        required: [id, kind]
+        properties:
+          id: {type: string}
+          kind: {type: string, enum: [github, squarespace, wordpress]}
+          label: {type: string}
+          config: {type: object}
     autoFile:
       type: boolean
-      description: false keeps the collector from filing into this room on its own.
+      description: false keeps the collector from filing into this project on its own.
     unfiled:
       type: array
       description: Knowledge documents a person took back out; never auto-filed again.
@@ -153,8 +170,8 @@ sourceRelevance:
   hubspot: 1.0
 classificationPrompt: >-
   Given a call transcript, email thread or shared document, decide which data
-  room it belongs to. Match on attendee or sender email domains first, then
+  project it belongs to. Match on attendee or sender email domains first, then
   on the client's name, codename or aliases in the title or subject, then on
-  people from the room's cast in the text. Apply the room's own rules when it
+  people from the project's cast in the text. Apply the project's own rules when it
   has any. Report a confidence from 0 to 1 and the evidence you matched on;
   below a clear match, ask rather than file.

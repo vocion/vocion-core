@@ -1,13 +1,13 @@
 # Proposals
 
-The client document, written from its data room: a proposal, a scope document,
+The client document, written from its project: a proposal, a scope document,
 a partnership update — US-Letter sheets in the house framework, self-contained
 HTML that prints to the PDF the client reads, and **not done until the
 render-verify receipt reads clean**.
 
 **What turning it on adds**
 
-- The **Proposal Writer** agent: reads the room first, builds with
+- The **Proposal Writer** agent: reads the project first, builds with
   `render_document`, fixes what the receipt names sheet by sheet, verifies with
   the look, exports the PDF. Shadows the base pack's brief-only Proposal Writer.
 - **Decks**, the second deliverable: the `proposal-deck` skill teaches the
@@ -35,9 +35,9 @@ render-verify receipt reads clean**.
   workspace invented as well as one the framework never had.
 - **The client's logo, fetched for real.** `fetch_image` takes a URL, checks
   from the BYTES that it is an image, downscales it and returns a data URI to
-  inline; with a `room_id` it lands on the data room's `brand`, so the mark is
-  fetched once and every later document written from that room uses the same
-  one. `read_data_room` prints it under **Client brand**.
+  inline; with a `project_id` it lands on the project's `brand`, so the mark is
+  fetched once and every later document written from that project uses the same
+  one. `read_project` prints it under **Client brand**.
 - **Red team before send, enforced by the export**: `red_team_document` reads
   the document as the sceptical buyer — grounding, promised outcomes,
   placeholders, the client's words, scope, commercial clarity, register — and
@@ -67,10 +67,10 @@ render-verify receipt reads clean**.
   (`.vocion-component-vocabulary`), and the receipt names every sheet carrying
   none of it, by number and label. A report, not a refusal — the spine allows
   a sheet to be prose when prose is right, and that sheet says so in one line.
-- The **Proposals** app under GTM (`/gtm/proposals`): every room at Proposal
+- The **Proposals** app under GTM (`/gtm/proposals`): every project at Proposal
   stage, its latest document and deck with their verify state, open items,
   and Draft.
-- A weekly mission: every Proposal-stage room has a verified current document,
+- A weekly mission: every Proposal-stage project has a verified current document,
   or an open item saying what is missing.
 - The `proposals` team, graded on documents rendered and documents that
   verified clean.

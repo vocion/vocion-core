@@ -35,7 +35,6 @@ import { connectSystemTool } from './connectSystems';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
-import { dataRoomTools } from './dataRooms';
 import { decideAskTool } from './decideAsk';
 import { decideProposalTool } from './decideProposal';
 import { deckTools } from './decks';
@@ -92,6 +91,7 @@ import { personalConnectionTools } from './personalConnections';
 import { personalizationTools } from './personalization';
 import { posthogCountTools } from './posthogCounts';
 import { productAccessTools } from './productAccess';
+import { projectTools } from './projects';
 import { proposeActionTool } from './proposeAction';
 import { queryStateTool } from './queryState';
 import { readAttachmentTool } from './readAttachment';
@@ -114,6 +114,7 @@ import { setupWorkspaceTools } from './setupWorkspace';
 import { setVoiceTool } from './setVoice';
 import { exportArtifactXlsxTool } from './tableExport';
 import { openTeamThreadTool } from './teamThread';
+import { canonicalToolNames } from './toolAliases';
 import { trackerTools } from './trackerTools';
 import { updateObjectTools } from './updateObject';
 import { waitForAnswersTools } from './waitForAnswers';
@@ -340,11 +341,12 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // An artifact's tables as an .xlsx file artifact, the header's
     // "Download as Excel" for an agent. Writes only a file beside it.
     exportArtifactXlsxTool(ctx),
-    // Data rooms: the source of record per engagement. Reads and filing are
-    // in-workspace writes (records, links, artifacts, asks) — nothing leaves.
-    // Present while the `data-rooms` plugin is on (an older context with no
-    // plugin list keeps them, so nothing already running loses a tool).
-    ...(ctx.enabledPlugins === undefined || ctx.enabledPlugins.includes('data-rooms') ? dataRoomTools(ctx) : []),
+    // Projects: the source of record per client or engagement. Reads and
+    // filing are in-workspace writes (records, links, artifacts, asks) —
+    // nothing leaves. A core workspace noun, so on in every workspace whatever
+    // its plugins: a project opened in one app is worked from every other.
+    // The `data-rooms` plugin adds the keeper, the skill and auto-filing.
+    ...projectTools(ctx),
     // A released call's record, for the meeting follow-up writer. Present
     // while the `meeting-followup` plugin is on; the tool itself refuses a
     // call nobody released (`meetingRecord.ts`).
@@ -438,7 +440,7 @@ export type ToolCatalogEntry = {
  * @param ctx
  */
 export function buildToolCatalog(ctx: RuntimeContext): ToolCatalogEntry[] {
-  const excludeTools = new Set(ctx.harnessConfig.excludeTools ?? []);
+  const excludeTools = new Set(canonicalToolNames(ctx.harnessConfig.excludeTools));
   return buildDomainTools(ctx)
     .filter(t => !excludeTools.has(t.name))
     .map(t => ({

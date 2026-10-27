@@ -2,12 +2,11 @@ import type { AppDefinition } from './apps';
 import type { PluginNav } from './pluginNav';
 import type { PluginManifest } from '@/libs/workspace/schemas';
 import { describe, expect, it } from 'vitest';
-import { defaultPinDismissal, resolveWorkPins } from '@/features/dashboard/nav/navPins';
 import { defaultTint } from '@/libs/tints';
 import { listApps } from '@/libs/workspace/apps';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { appForPlugin, appMissingHere, appOwningPath, groupPluginsByApp, homeAppOf, installedApps, resolveActiveApp, splitNavByApp, workspaceLanding, workspacesByApp } from './apps';
-import { DASHBOARD_ROUTES } from './dashboardNav';
+import { DASHBOARD_ROUTES, workCoreRoutes } from './dashboardNav';
 import { pluginNav } from './pluginNav';
 
 // Apps are read from their manifests; nothing here names a shipped app except
@@ -334,27 +333,30 @@ describe('the shipped apps over the shipped plugins', () => {
     expect(appOwningPath('/dashboard/evals', split.apps)).toBeUndefined();
   });
 
-  it('a workspace with only Data rooms on has the app that lists it, which owns the rooms route', () => {
+  it('Projects are core: the data-rooms plugin installs no app, and the Projects row sits in every app (2026-10-27)', () => {
     const installed = installedApps(['data-rooms'], [], apps);
     const split = splitNavByApp({ apps: installed, nav: pluginNav({ plugins: manifests(['data-rooms']), pages: [], routes: DASHBOARD_ROUTES }), surfaces: [], pages: [], coreRoutes: DASHBOARD_ROUTES });
-    const owner = split.apps.find(a => !a.core)!;
 
-    expect(apps.find(a => a.id === owner.id)!.plugins).toContain('data-rooms');
-    expect(appOwningPath('/dashboard/rooms/r-1', split.apps)).toBe(owner.id);
-    expect(owner.href).toBe('/dashboard/rooms');
+    // Turning projects on (as the SEO or proposals plugin does through
+    // `depends`) never puts GTM, or any other app, in the rail.
+    expect(installed.filter(a => !a.core)).toEqual([]);
+    expect(apps.some(a => !a.core && a.plugins.includes('data-rooms'))).toBe(false);
+    // No app owns the page, so it is shared: it keeps the app the person was in.
+    expect(appOwningPath('/dashboard/projects/1', split.apps)).toBeUndefined();
+    // It is a WORK row that is always there — the rows every app's sidebar starts with.
+    expect(workCoreRoutes({ enabledPlugins: [] }).map(r => r.url)).toContain('/dashboard/projects');
+    expect(split.core.nav.claimedRoutes).not.toContain('/dashboard/projects');
   });
 
-  it('Data rooms stays a Workforce door, pinned by default from its manifest — until the person unpins it', () => {
-    const installed = installedApps(['data-rooms'], [], apps);
-    const split = splitNavByApp({ apps: installed, nav: pluginNav({ plugins: manifests(['data-rooms']), pages: [], routes: DASHBOARD_ROUTES }), surfaces: [], pages: [], coreRoutes: DASHBOARD_ROUTES });
-    const defaults = ['/dashboard/briefings', ...split.core.nav.pinnedByDefault];
+  it('a GTM workspace still shows Projects: the app does not own it, and nothing pins it twice', () => {
+    const enabled = ['proposals', 'data-rooms'];
+    const installed = installedApps(enabled, [], apps);
+    const split = splitNavByApp({ apps: installed, nav: pluginNav({ plugins: manifests(enabled), pages: [], routes: DASHBOARD_ROUTES }), surfaces: [], pages: [], coreRoutes: DASHBOARD_ROUTES });
+    const gtm = split.apps.find(a => !a.core)!;
 
-    expect(split.core.nav.claimedRoutes).not.toContain('/dashboard/rooms');
-    expect(split.core.nav.pinnedByDefault).toEqual(['/dashboard/rooms']);
-    expect(resolveWorkPins({ pins: [], dismissed: [], defaults })).toEqual(['/dashboard/briefings', '/dashboard/rooms']);
-    // A person's choices win: unpinned stays unpinned, and their own order holds.
-    expect(resolveWorkPins({ pins: [], dismissed: [defaultPinDismissal('/dashboard/rooms')], defaults })).toEqual(['/dashboard/briefings']);
-    expect(resolveWorkPins({ pins: ['/dashboard/search', '/dashboard/rooms'], dismissed: [defaultPinDismissal('/dashboard/briefings')], defaults })).toEqual(['/dashboard/search', '/dashboard/rooms']);
+    expect(gtm.sections.flatMap(s => s.items.map(i => i.url))).not.toContain('/dashboard/projects');
+    expect(gtm.owns).not.toContain('/dashboard/projects');
+    expect(split.core.nav.pinnedByDefault).not.toContain('/dashboard/projects');
   });
 });
 

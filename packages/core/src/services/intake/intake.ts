@@ -3,7 +3,7 @@
  *
  * A person drops scanned badges, business cards, notes or a spreadsheet into
  * chat and says what they are. The agent calls `extract_records` with the
- * type to file them as and a name for the data room that keeps the files;
+ * type to file them as and a name for the project that keeps the files;
  * this is what that call does, and nothing in it knows what a badge or a lead
  * is:
  *
@@ -94,7 +94,7 @@ export type IntakeInput = {
   objectType: string;
   /** Uploads to read; this conversation's uploads not yet read when absent. */
   artifactIds?: number[];
-  /** The data room the files are kept in, named by the agent from context. */
+  /** The project the files are kept in, named by the agent from context. */
   roomTitle: string;
   /** Values every record gets, from what the person said ("met at Northwind Expo 2026", "met by Alex"). */
   set?: Record<string, unknown>;
@@ -314,14 +314,14 @@ export async function mergeIntoRecord(opts: { orgId: string; recordId: number; v
  * @param title - Its name, as the agent gave it.
  */
 async function roomFor(orgId: string, actor: string, title: string): Promise<{ id: number; title: string; href: string; created: boolean }> {
-  const { createDataRoom, listDataRooms, roomHref } = await import('@/services/DataRoomService');
+  const { createDataRoom, listDataRooms, projectHref } = await import('@/services/DataRoomService');
   const wanted = title.trim().toLowerCase();
   const held = (await listDataRooms(orgId)).find(r => r.title.trim().toLowerCase() === wanted && r.status !== 'closed');
   if (held) {
-    return { id: held.id, title: held.title, href: roomHref(held.id), created: false };
+    return { id: held.id, title: held.title, href: projectHref(held.id), created: false };
   }
   const room = await createDataRoom(orgId, actor, { title: title.trim(), rules: ['Files dropped into chat are kept here as the evidence for the records read from them.'] });
-  return { id: room.id, title: room.title, href: roomHref(room.id), created: true };
+  return { id: room.id, title: room.title, href: projectHref(room.id), created: true };
 }
 
 /**

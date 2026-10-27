@@ -330,7 +330,7 @@ async function countArtifacts(orgId: string, where: { kind?: string; folder?: st
 }
 
 /**
- * Data rooms opened in the window — `business_object` rows of the `data_room` type.
+ * Projects opened in the window — `business_object` rows of the `data_room` type.
  * @param orgId - Tenant.
  * @param range - The window.
  */
@@ -348,7 +348,7 @@ async function countDataRooms(orgId: string, range: Range): Promise<number> {
 }
 
 /**
- * Sources filed into data rooms in the window — `object_document_link` rows on
+ * Sources filed into projects in the window — `object_document_link` rows on
  * `data_room` objects.
  * @param orgId - Tenant.
  * @param range - The window.
@@ -434,7 +434,7 @@ export async function readSourceRaw(orgId: string, s: TeamMeasureSource, scope: 
           return { value: await countArtifacts(orgId, s.where, range), asOf: now, freshness: live(now), sourceLabel: 'artifacts written', unavailableReason: null, unavailableKind: null };
         }
         if (s.rows === 'data-rooms') {
-          return { value: await countDataRooms(orgId, range), asOf: now, freshness: live(now), sourceLabel: 'data rooms opened', unavailableReason: null, unavailableKind: null };
+          return { value: await countDataRooms(orgId, range), asOf: now, freshness: live(now), sourceLabel: 'projects opened', unavailableReason: null, unavailableKind: null };
         }
         if (s.rows === 'data-room-sources') {
           return { value: await countDataRoomSources(orgId, range), asOf: now, freshness: live(now), sourceLabel: 'sources filed', unavailableReason: null, unavailableKind: null };

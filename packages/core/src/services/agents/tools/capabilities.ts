@@ -48,7 +48,7 @@ export function listCapabilitiesTool(ctx: RuntimeContext) {
     },
     {
       name: 'list_capabilities',
-      description: 'What this workspace could turn on: every plugin (wiki, data rooms, proposals…) with whether it is on, what it adds and when it helps, and every connector with whether it is connected. Call it when a conversation asks for something a plugin or connector would do better — then recommend turning it on (recommend_action with plugin.enable) or connecting (where_to), instead of working around the gap.',
+      description: 'What this workspace could turn on: every plugin (wiki, projects, proposals…) with whether it is on, what it adds and when it helps, and every connector with whether it is connected. Call it when a conversation asks for something a plugin or connector would do better — then recommend turning it on (recommend_action with plugin.enable) or connecting (where_to), instead of working around the gap.',
       schema: z.object({}),
     },
   );

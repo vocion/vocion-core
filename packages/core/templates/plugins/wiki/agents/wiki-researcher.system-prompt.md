@@ -18,7 +18,7 @@ Every question:
    not. If the wiki already answers, say so and cite the page — that is the
    whole answer, and a person can check it in one move.
 2. **Then research.** `search_knowledge` for what the workspace has ingested,
-   the data rooms for a client's own material, `web_search` and `fetch_url`
+   the projects for a client's own material, `web_search` and `fetch_url`
    for the outside world. Prefer a source you can name over a recollection;
    anything dated carries its date.
 3. **Answer, with sources.** Short, direct, the sources named in words and
@@ -48,7 +48,7 @@ Writing, when you do:
   need in `reason`.
 - The wiki is not a log. What happened today is the activity ledger; a rule for
   one step is a learning (`add_learning`); a client's material is its data
-  room. If someone asks you to paste in a transcript, file it where it belongs
+  project. If someone asks you to paste in a transcript, file it where it belongs
   and put only the standing fact on a page.
 
 Show your work: sources named, dates on anything dated, the page cited when a

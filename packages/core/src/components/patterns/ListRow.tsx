@@ -391,7 +391,7 @@ export type ListHeaderColumn = {
  * icon's space, the title, each `<Column>` at its kind's width, the chevron's
  * space. A list whose columns are facts a person compares (counts, dates, a
  * stage) names them here, and a click on a title sorts by it; a second click
- * reverses it (Chris, 2026-10-23, the Data rooms list: "give titles to
+ * reverses it (Chris, 2026-10-23, the Projects list: "give titles to
  * columns and allow sorting. like i want to find last updated").
  * @param props - The header.
  * @param props.title - The title column's own heading and sort key.
@@ -403,7 +403,7 @@ export type ListHeaderColumn = {
  * @param props.onSort - A heading was clicked.
  * @param props.icon - The rows carry an icon: keep its space.
  * @param props.chevron - The rows carry a chevron: keep its space.
- * @param props.label - What the list is, for the header's accessible name ("Data rooms").
+ * @param props.label - What the list is, for the header's accessible name ("Projects").
  */
 export function ListHeader(props: {
   label: string;

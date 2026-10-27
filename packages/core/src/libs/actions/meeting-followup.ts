@@ -9,7 +9,7 @@
  * RELEASES the record to the follow-up writer (`read_meeting_record` answers
  * only for a capture whose card was approved) and STARTS the draft — the
  * approval raises `meeting.followup_approved`, the meeting-followup job runs
- * the writer, and the email lands in Review as `gmail.send` with the room's
+ * the writer, and the email lands in Review as `gmail.send` with the project's
  * deck or document attached as a PDF.
  *
  * Filed by the meeting-followup job (`services/jobs/meetingFollowup.ts`) the
@@ -79,11 +79,11 @@ export function meetingFollowupCard(input: MeetingFollowupInput): ReviewCard {
       { label: 'Meeting', value: name },
       ...(when ? [{ label: 'When', value: when }] : []),
       { label: 'To', value: to },
-      ...(input.roomId > 0 ? [{ label: 'Data room', value: input.roomTitle || `#${input.roomId}`, href: `/dashboard/rooms/${input.roomId}` }] : []),
+      ...(input.roomId > 0 ? [{ label: 'Project', value: input.roomTitle || `#${input.roomId}`, href: `/dashboard/projects/${input.roomId}` }] : []),
       ...(attach ? [{ label: 'Attach', value: `${attach} (PDF)` }] : []),
       ...(input.nextMeetingTitle ? [{ label: 'Next on the calendar', value: `${input.nextMeetingTitle}${input.nextMeetingStart ? ` · ${input.nextMeetingStart.slice(0, 16).replace('T', ' ')}` : ''}` }] : []),
     ],
-    nextAction: `Releases this call's record to the follow-up writer, who drafts the email to ${to}${attach ? ` with ${attach} attached as a PDF` : ''} into Review, and writes what changed back to the room. Nothing is sent.`,
+    nextAction: `Releases this call's record to the follow-up writer, who drafts the email to ${to}${attach ? ` with ${attach} attached as a PDF` : ''} into Review, and writes what changed back to the project. Nothing is sent.`,
     verbs: { approve: 'Draft the follow-up', reject: 'No follow-up' },
   };
 }

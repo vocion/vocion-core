@@ -1338,7 +1338,7 @@ export async function runSync(opts: {
       const { handBackRelayedOwnership } = await import('@/services/personalization/relayOwnership');
       await handBackRelayedOwnership(opts.orgId).catch((error: unknown) => log('error', 'contacts synced but the relay ownership hand-back failed', { orgId: opts.orgId, error: error instanceof Error ? error.message : String(error) }));
     }
-    // The data rooms grow from what just landed: a recording or thread that
+    // The projects grow from what just landed: a recording or thread that
     // clearly belongs to a room is filed with its score (undoable on the
     // room), a deal that reached Proposal stage gets its room. Same
     // never-fail-the-sync rule; `VOCION_DATA_ROOM_AUTOFILE=0` switches it off.
@@ -1361,7 +1361,7 @@ export async function runSync(opts: {
           completedAt: cutoff.toISOString(),
         });
       } catch (err) {
-        log('error', 'data room collection failed after the sync', { sourceId: opts.sourceId, error: err instanceof Error ? err.message : String(err) });
+        log('error', 'project collection failed after the sync', { sourceId: opts.sourceId, error: err instanceof Error ? err.message : String(err) });
       }
     }
     // A meeting source's settled captures are announced once each

@@ -129,6 +129,12 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── WORK ────────────────────────────────────────────────────────────────
   { url: '/dashboard/chat', title: 'Chat', group: 'Workspace', icon: MessageSquare, i18nKey: 'chat', keywords: ['ask', 'agent'] },
   { url: '/dashboard/inbox', title: 'Review', group: 'Workspace', icon: Inbox, i18nKey: 'inbox', keywords: ['inbox', 'decisions', 'asks', 'approvals', 'proposals', 'review', 'queue'] },
+  // One project per client or engagement — its instructions, brand, wiki,
+  // sources and the work that belongs to it (renamed from Data rooms,
+  // 2026-10-27). A core workspace noun, so a WORK row that is always there,
+  // like Chat and Review: every app of the workspace shows it, and no plugin
+  // or app owns it. `/dashboard/rooms` 308s here.
+  { url: '/dashboard/projects', title: 'Projects', group: 'Workspace', icon: FolderOpen, i18nKey: 'projects', keywords: ['project', 'projects', 'client', 'clients', 'engagement', 'deal', 'data room', 'rooms', 'brand', 'guidelines', 'wiki', 'transcripts', 'decision log'] },
   { url: '/dashboard/briefings', title: 'Briefings', group: 'Workspace', icon: Newspaper, i18nKey: 'briefings', pinnable: true, defaultPinned: true },
   // A person's goals (`libs/objectives/goal.ts`): a workspace's list, or in
   // Personal "Your goals" across their workspaces. Its row carries the count
@@ -164,11 +170,6 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── MANAGE · Knowledge — what the agents know, and about what ───────────
   { url: '/dashboard/connectors', title: 'Connectors', group: 'Knowledge', icon: Plug, i18nKey: 'sources', keywords: ['sources', 'integrations'] },
   { url: '/dashboard/objects', title: 'Objects', group: 'Knowledge', icon: Database, i18nKey: 'objects' },
-  // One room per client engagement — the source of record the documents are
-  // written from: status, cast, sources by weight, open items as asks. Under
-  // Knowledge beside Objects (a room IS a record); the WORK view keeps its
-  // five doors, and the rooms are one ⌘K away.
-  { url: '/dashboard/rooms', title: 'Data rooms', group: 'Workspace', icon: FolderOpen, pinnable: true, plugin: 'data-rooms', keywords: ['data room', 'engagement', 'client', 'deal', 'proposal', 'transcripts', 'decision log'] },
   // Repeatable work taught once from a recording, run as many browser runs at once.
   { url: '/dashboard/routines', title: 'Routines', group: 'Workspace', icon: Repeat, pinnable: true, plugin: 'routines', keywords: ['routine', 'teach', 'recording', 'repeatable', 'slate', 'process', 'batch', 'queue'] },
   { url: '/dashboard/marketing', title: 'Paid Marketing', group: 'Workspace', icon: Megaphone, pinnable: true, plugin: 'marketing', keywords: ['marketing', 'paid marketing', 'ads', 'google ads', 'campaign', 'search terms', 'ad spend', 'ppc'] },
@@ -185,7 +186,7 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // On/Off switches. It replaced the Marketplace's Plugins tab
   // (`/dashboard/marketplace/plugins` and `/dashboard/plugins` 308 here).
   // Under Build beside Skills & tools and Evals because it is capability.
-  { url: '/dashboard/apps', title: 'Apps', group: 'Build', icon: LayoutGrid, i18nKey: 'apps', keywords: ['add app', 'apps', 'features', 'feature', 'marketplace', 'plugin', 'plugins', 'module', 'modules', 'install', 'enable', 'turn on', 'turn off', 'wiki', 'data rooms', 'proposals'] },
+  { url: '/dashboard/apps', title: 'Apps', group: 'Build', icon: LayoutGrid, i18nKey: 'apps', keywords: ['add app', 'apps', 'features', 'feature', 'marketplace', 'plugin', 'plugins', 'module', 'modules', 'install', 'enable', 'turn on', 'turn off', 'wiki', 'proposals'] },
 
   // ── MANAGE · Insights — how it is going ─────────────────────────────────
   { url: '/dashboard/team-report', title: 'Team report', group: 'Insights', icon: Network, i18nKey: 'team_report', keywords: ['outcome', 'kpi', 'spend', 'members'] },

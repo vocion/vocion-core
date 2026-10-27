@@ -82,7 +82,7 @@ test.describe('the document loop, by chat', () => {
 
     await shot(page, '01-chat-empty');
 
-    await say(page, 'Draft the proposal for Northwind from its data room.', 'The proposal is open beside you');
+    await say(page, 'Draft the proposal for Northwind from its project.', 'The proposal is open beside you');
     // The turn made two tool calls (render, then the fix) and one artifact at v2.
     const chip = page.locator('[data-artifact-chip]').first();
 

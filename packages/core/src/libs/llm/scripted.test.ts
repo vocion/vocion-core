@@ -7,12 +7,12 @@ import { matchTurn, personLine, positionInTurn, resolveFileRefs, ScriptedChatMod
 const script = ScriptSchema.parse({
   turns: [
     { match: 'cut page 3', steps: [{ tool: 'edit_document', args: { ops: [{ op: 'remove_sheet', n: 3 }], change_summary: 'cut page 3' } }], reply: 'Cut it. 4 sheets now, verified.' },
-    { match: 'draft the proposal', steps: [{ tool: 'read_data_room', args: {} }, { tool: 'render_document', args: { title: 'Northwind - Proposal', html: '<html/>' } }], reply: 'The proposal is open beside you.' },
+    { match: 'draft the proposal', steps: [{ tool: 'read_project', args: {} }, { tool: 'render_document', args: { title: 'Northwind - Proposal', html: '<html/>' } }], reply: 'The proposal is open beside you.' },
   ],
   fallback: 'No line for that.',
 });
 
-const fakeTools = ['read_data_room', 'render_document', 'edit_document'].map(name => tool(async () => 'ok', { name, description: name, schema: z.object({}) }));
+const fakeTools = ['read_project', 'render_document', 'edit_document'].map(name => tool(async () => 'ok', { name, description: name, schema: z.object({}) }));
 
 describe('ScriptedChatModel', () => {
   it('plays a turn as tool calls in order, then the reply', async () => {
@@ -20,7 +20,7 @@ describe('ScriptedChatModel', () => {
     const human = new HumanMessage('Draft the proposal for Northwind');
     const first = await model.invoke([human]);
 
-    expect((first as AIMessage).tool_calls?.[0]?.name).toBe('read_data_room');
+    expect((first as AIMessage).tool_calls?.[0]?.name).toBe('read_project');
 
     const second = await model.invoke([human, first, new ToolMessage({ content: 'room…', tool_call_id: (first as AIMessage).tool_calls![0]!.id! })]);
 
@@ -36,13 +36,13 @@ describe('ScriptedChatModel', () => {
   it('holds the reply, never a tool step, for pauseBeforeReplyMs: the window in which a card is on screen but its turn is not saved', async () => {
     vi.useFakeTimers();
     try {
-      const paused = ScriptSchema.parse({ turns: [{ match: 'connect jira', steps: [{ tool: 'read_data_room' }], reply: 'The Connect Jira card is above.', pauseBeforeReplyMs: 3000 }] });
+      const paused = ScriptSchema.parse({ turns: [{ match: 'connect jira', steps: [{ tool: 'read_project' }], reply: 'The Connect Jira card is above.', pauseBeforeReplyMs: 3000 }] });
       const model = new ScriptedChatModel({ script: paused }).bindTools(fakeTools);
       const human = new HumanMessage('connect jira');
 
       const step = await model.invoke([human]);
 
-      expect((step as AIMessage).tool_calls?.[0]?.name).toBe('read_data_room');
+      expect((step as AIMessage).tool_calls?.[0]?.name).toBe('read_project');
 
       let spoken: string | null = null;
       const answer = model.invoke([human, step, new ToolMessage({ content: 'ok', tool_call_id: 'x' })]).then(message => (spoken = String(message.content)));

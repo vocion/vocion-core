@@ -36,11 +36,11 @@ export function whereToTool(_ctx: RuntimeContext) {
     },
     {
       name: 'where_to',
-      description: 'The exact Vocion page and click for something a person must do themselves — connect or re-authorise a system, fix a credential, approve a proposal, adopt a learning, open a data room. Returns a markdown link plus a one-line instruction; put the link inline in your reply. Call it BEFORE telling anyone where to go in Vocion.',
+      description: 'The exact Vocion page and click for something a person must do themselves — connect or re-authorise a system, fix a credential, approve a proposal, adopt a learning, open a project. Returns a markdown link plus a one-line instruction; put the link inline in your reply. Call it BEFORE telling anyone where to go in Vocion.',
       schema: z.object({
         intent: z.string().optional().describe(`A known intent id: ${WHERE_TO.map(w => w.intent).join(', ')}.`),
         query: z.string().optional().describe('Or the words: "zoom scopes", "approve the email", "add a firecrawl key".'),
-        id: z.string().optional().describe('A record id to fill into the link (a data room id).'),
+        id: z.string().optional().describe('A record id to fill into the link (a project id).'),
         slug: z.string().optional().describe('A slug to fill into the link (a connector slug).'),
       }),
     },

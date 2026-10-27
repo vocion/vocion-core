@@ -3,13 +3,13 @@ name: Every client call is followed up
 description: >-
   The standing responsibility of the Follow-up writer: every call with a
   client or prospect whose follow-up a person approved has its draft in
-  Review the same hour, and the room knows what the call changed.
+  Review the same hour, and the project knows what the call changed.
 goal: >-
   Within the hour of a call's follow-up being approved, a draft from the
   meeting's owner to the people outside is waiting in Review — their
   priorities in their words, the next step confirmed, the deliverable that
   was the subject attached as a PDF — and the call's decisions, promises and
-  changes are written on its data room.
+  changes are written on its project.
 agent: followup-writer
 autonomyPolicy:
   level: 2
@@ -17,8 +17,8 @@ successCriteria:
   - Every approved follow-up has a gmail.send draft in Review, from the meeting's owner, to the external attendees
   - The draft names one to three priorities in the client's own words and confirms the next step already booked, when there is one
   - No price, date or commitment appears that was not said on the call
-  - The room's deck or document is attached when it was presented or is the subject
-  - The room carries a dated decision log for the call and an open item for each promise
+  - The project's deck or document is attached when it was presented or is the subject
+  - The project carries a dated decision log for the call and an open item for each promise
 desiredArtifacts:
   - A gmail.send draft in Review per approved call
-  - A dated decision log on the call's data room
+  - A dated decision log on the call's project

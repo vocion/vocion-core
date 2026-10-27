@@ -54,7 +54,7 @@ export const SURFACES = {
     label: 'Proposals',
     section: 'GTM',
     icon: 'file-text',
-    description: 'Every engagement at Proposal stage — its data room, the latest document and its verify state, open items, and a Draft action for the Proposal Writer.',
+    description: 'Every engagement at Proposal stage — its project, the latest document and its verify state, open items, and a Draft action for the Proposal Writer.',
   },
 } as const satisfies Record<string, Surface>;
 

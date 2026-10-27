@@ -153,7 +153,7 @@ not fork one locally.
   A click on a title sorts by it and a second reverses it; the sort lives in
   the address (`useListUrlState`) and shows as `aria-sort` and an arrow. With
   a header, counts are separate numeric columns: the header labels them.
-  First used on Data rooms (Chris, 2026-10-23).
+  First used on the Projects list (then Data rooms; Chris, 2026-10-23).
 - **columnsAside** — the same columns, for a row where one of them clicks
   through to somewhere of its own (a chip that opens the document). They
   render beside the link instead of inside it. Pass a row's WHOLE set here

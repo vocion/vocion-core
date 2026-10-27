@@ -29,7 +29,7 @@ const RULES: Array<[RegExp, DashboardLinkKind]> = [
   [/^\/dashboard\/objects\/(?!type(?:\/|$))([^/?#]+)/, 'object'],
   // A record at the page its type opens it at (`/dashboard/p/feature/214`).
   [/^\/dashboard\/p\/[\w-]+\/(\d+)(?:[/?#]|$)/, 'object'],
-  [/^\/dashboard\/rooms\/(\d+)/, 'room'],
+  [/^\/dashboard\/(?:projects|rooms)\/(\d+)/, 'room'],
   [/^\/dashboard\/goals\/(\d+)/, 'goal'],
   [/^\/dashboard\/review/, 'review'],
   [/^\/dashboard\/learnings\/([^/?#]+)/, 'learning'],
@@ -83,7 +83,7 @@ export function classifyDashboardLink(href: string | undefined, origin?: string)
 }
 
 /**
- * The record a chip can PEEK instead of navigating to — a data room opens in
+ * The record a chip can PEEK instead of navigating to — a project opens in
  * the preview pane on a plain click (⌘-click still navigates), because the
  * conversation is where the person is reading. Only kinds with a preview
  * resolver; everything else navigates as before.

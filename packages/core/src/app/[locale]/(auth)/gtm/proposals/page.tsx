@@ -20,7 +20,7 @@ const INK: Record<ReadingTone, string> = {
 };
 
 /**
- * Proposals — the GTM app over data rooms and documents. **The document is
+ * Proposals — the GTM app over projects and documents. **The document is
  * the subject of a row**: its title leads, the line under it opens with
  * whether it render-verified and whether a sceptical buyer has read it — both
  * coloured — then the version, the sheets, the client and the room. The chip
@@ -55,7 +55,7 @@ export default async function ProposalsPage(props: { params: Promise<{ locale: s
   return (
     <ListPage
       title="Proposals"
-      description="The document (and deck) for every engagement at Proposal stage: what state it is in, whether it verified, whether a sceptical buyer has read it, and how long it has been sitting. A row opens the room it was written from."
+      description="The document (and deck) for every engagement at Proposal stage: what state it is in, whether it verified, whether a sceptical buyer has read it, and how long it has been sitting. A row opens the project it was written from."
     >
       <PluginPanel orgId={orgId} slug="proposals" />
 
@@ -65,8 +65,8 @@ export default async function ProposalsPage(props: { params: Promise<{ locale: s
               variant="page"
               icon={FileText}
               title="Nothing at Proposal stage"
-              description="Set an engagement's data room to the Proposal stage and it shows up here."
-              action={{ label: 'Open data rooms', href: '/dashboard/rooms' }}
+              description="Set an engagement's project to the Proposal stage and it shows up here."
+              action={{ label: 'Open projects', href: '/dashboard/projects' }}
             />
           )
         : (
@@ -101,7 +101,7 @@ export default async function ProposalsPage(props: { params: Promise<{ locale: s
                       <AskAboutThis
                         record={r.record}
                         label={nothing ? 'Draft' : 'Revise'}
-                        prompt={nothing ? 'Draft the proposal for this engagement from its data room.' : 'Revise the proposal for this engagement from its data room.'}
+                        prompt={nothing ? 'Draft the proposal for this engagement from its project.' : 'Revise the proposal for this engagement from its project.'}
                         agentSlug="proposal-writer"
                       />
                     )}

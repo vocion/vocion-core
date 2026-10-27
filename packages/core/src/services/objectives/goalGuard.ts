@@ -4,7 +4,7 @@
  * say-so.
  *
  * 1. NO OUTREACH NOBODY ASKED FOR. A goal that imports or stages data ends
- *    when the data is in ("N items in the data room — open it?"). It drafts
+ *    when the data is in ("N items in the project — open it?"). It drafts
  *    and sends nothing unless the person told the agent to (the consent
  *    read on their words, never a keyword match). A phone walk (2026-10-10): a leads import
  *    became eight "draft email to …" approvals the person never asked for.
@@ -140,7 +140,7 @@ export async function goalProposalRefusal(input: { orgId: string; conversationId
     return null;
   }
   if (!outreachAllowed({ id: input.actionId, grant: input.grant }, input.personAsked)) {
-    return 'Not proposed: nobody asked this goal for outreach. A goal drafts and sends nothing unless the person tells you to. If it imported or staged data, finish with one line — "N items in the data room — open it?" — and stop.';
+    return 'Not proposed: nobody asked this goal for outreach. A goal drafts and sends nothing unless the person tells you to. If it imported or staged data, finish with one line — "N items in the project — open it?" — and stop.';
   }
   const said = await db
     .select({ role: conversationMessageSchema.role, runs: conversationMessageSchema.runsJson, createdAt: conversationMessageSchema.createdAt })

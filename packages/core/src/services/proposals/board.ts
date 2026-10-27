@@ -23,7 +23,7 @@ import { redTeamChip, verificationChip } from '@/libs/documents/audit';
 import { ageLabel } from '@/libs/timeAgo';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { countOpenAsksByGroup } from '@/services/AskService';
-import { DATA_ROOM_TYPE, listDataRooms, roomDeliverables, roomGroupKey, roomHref } from '@/services/DataRoomService';
+import { DATA_ROOM_TYPE, listDataRooms, projectHref, roomDeliverables, roomGroupKey } from '@/services/DataRoomService';
 
 /** Where a proposal-stage engagement stands, read off the room's free-text stage. */
 export type ProposalStage = 'drafting' | 'sent';
@@ -314,8 +314,8 @@ export function proposalRows(
       document: latestDocument(artifactsByRoom.get(r.id) ?? [], r.meta.deliverables),
       deck: latestDocument(artifactsByRoom.get(r.id) ?? [], r.meta.deliverables, 'deck'),
       openItems: openByRoom.get(r.id) ?? 0,
-      href: roomHref(r.id),
-      record: { type: 'object', id: String(r.id), label: r.title, href: roomHref(r.id) },
+      href: projectHref(r.id),
+      record: { type: 'object', id: String(r.id), label: r.title, href: projectHref(r.id) },
     });
   }
   return rows.sort((a, b) => (b.statusAt ?? '').localeCompare(a.statusAt ?? ''));

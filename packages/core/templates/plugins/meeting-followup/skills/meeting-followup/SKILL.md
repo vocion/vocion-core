@@ -6,7 +6,7 @@ description: >-
   said: reflect back their one to three priorities in their own words, confirm
   the next step already on the calendar, attach the deliverable the call was
   about as a PDF, and write the call's decisions, promises and changes back to
-  its data room. Read when a call's follow-up was approved, or a person asks
+  its project. Read when a call's follow-up was approved, or a person asks
   for the follow-up after a call.
 version: 1
 ---
@@ -22,9 +22,9 @@ what they heard, what happens next, the document they were looking at.
 - `read_meeting_record` with the follow-up's `documentId`. It answers only
   for a call a person released; a refusal is the answer — say so in your
   report and stop. Never read the call another way.
-- The room, when there is one: `read_data_room`. Its rules come first (how
-  the client names things, what never leaves the room).
-- The deliverable named on the follow-up (a deck or document on the room):
+- The project, when there is one: `read_project`. Its rules come first (how
+  the client names things, what never leaves the project).
+- The deliverable named on the follow-up (a deck or document on the project):
   `read_artifact` / `read_deck` / `read_document`, so you know what they saw.
 - The next meeting with these people, when the follow-up names one; else
   `calendar_events` for the next two weeks with any of the people outside.
@@ -54,7 +54,7 @@ how they write; it wins over anything here.
 
 ## 3. Attach the deliverable
 
-When the call presented a deck or document from the room, or was about it
+When the call presented a deck or document from the project, or was about it
 (a proposal review, a scope walk-through), put its artifact id in the
 email's `attachments` — it goes as its PDF. Never write an artifact number in
 the body. Nothing to attach is fine; never attach something the call was not
@@ -74,26 +74,26 @@ about.
 One email per call. If one is already waiting for these people it is updated
 in place — that is the dedupe, not a reason to propose twice.
 
-## 5. Write the call back to the room
+## 5. Write the call back to the project
 
-When the call has a room (or opened an engagement: a next step was booked or
-a proposal was discussed — then `create_data_room` for the client first):
+When the call has a project (or opened an engagement: a next step was booked or
+a proposal was discussed — then `create_project` for the client first):
 
-- **Decision log** — `file_to_data_room` with the captured `documentId`, kind
+- **Decision log** — `file_to_project` with the captured `documentId`, kind
   transcript, a weight, the call's date, and a `decisionLog`: who was there,
   the headlines, numbered decisions and corrections, the open items created.
 - **Open items** — `add_open_item` for each thing promised, with its owner
   and `sourceRef` set to the document id and the promise, so a re-run
   updates rather than duplicates.
 - **A deliverable the call changed** — when the call changed the scope,
-  price, timeline or framing of the room's deck or document, an open item on
-  the room titled for that deliverable, saying exactly what changed and where
+  price, timeline or framing of the project's deck or document, an open item on
+  the project titled for that deliverable, saying exactly what changed and where
   in the call it was said ("Proposal v3: scope drops the Android app — said at
   the 14-minute mark"). Do not edit the deliverable here.
-- **Status** — `update_data_room` with the status paragraph dated today: what
+- **Status** — `update_project` with the status paragraph dated today: what
   happened, what is next, who owes what.
 
 ## Report
 
 Three lines: the draft's action id and who it goes to; what was attached (or
-"nothing to attach"); what was written to the room (or why nothing was).
+"nothing to attach"); what was written to the project (or why nothing was).

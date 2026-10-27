@@ -236,7 +236,7 @@ export const ADOPTION_EVENTS = {
     }),
   },
   /**
-   * A data room was opened, and a source was filed into one. `by` says who:
+   * A project was opened, and a source was filed into one. `by` says who:
    * the collector after a sync, an agent in a turn, or a person. The two
    * counts are the data-rooms plugin's outcome measures, read from here.
    */

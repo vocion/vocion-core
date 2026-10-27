@@ -28,7 +28,7 @@ describe('meeting.draft_followup — one card per call', () => {
     expect(card.nextAction).toContain('dana@northwind.example');
     expect(card.nextAction).toContain('Northwind proposal attached as a PDF');
     expect(card.nextAction).toContain('Nothing is sent');
-    expect(card.fields?.map(f => f.label)).toEqual(['Meeting', 'When', 'To', 'Data room', 'Attach', 'Next on the calendar']);
+    expect(card.fields?.map(f => f.label)).toEqual(['Meeting', 'When', 'To', 'Project', 'Attach', 'Next on the calendar']);
   });
 
   it('is one item per meeting, and only a person releases it', () => {

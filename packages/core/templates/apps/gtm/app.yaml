@@ -6,8 +6,10 @@ name: GTM
 icon: target
 tint: peach
 order: 3
-description: Engagements, their data rooms and proposals, and growth work judged on what it returned.
-plugins: [proposals, data-rooms, meeting-followup, growth-loop]
+description: Engagements and their proposals, and growth work judged on what it returned.
+# Not `data-rooms`: Projects are a core workspace noun, in every app's sidebar
+# (2026-10-27), so turning projects on never installs GTM.
+plugins: [proposals, meeting-followup, growth-loop]
 surfaces: [personalization, discovery, proposals]
 entry: /gtm/proposals
 nav: [GTM, Growth]

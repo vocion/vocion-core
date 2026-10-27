@@ -20,7 +20,7 @@
  *      (`client`, `prospect`, `partner`, …) and whether a written follow-up is
  *      owed. Code routes on those two fields, never on the words.
  *   4. **The card.** `meeting.draft_followup` is filed — "Approve to draft the
- *      <meeting> follow-up" — with what only lookups can give: the data room
+ *      <meeting> follow-up" — with what only lookups can give: the project
  *      the capture was filed in, the deck and document on it, and the next
  *      meeting already on the calendar with these people. A pending discovery
  *      card for the same call is closed in its favour. `meeting.followup_awaiting`

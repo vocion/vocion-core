@@ -18,11 +18,12 @@ describe('classifyDashboardLink', () => {
     expect(classifyDashboardLink(undefined)).toBeNull();
   });
 
-  it('knows a data room, and offers it as a preview instead of a navigation', () => {
-    const room = classifyDashboardLink('/dashboard/rooms/22');
+  it('knows a project (and the older rooms path), and offers it as a preview instead of a navigation', () => {
+    const room = classifyDashboardLink('/dashboard/projects/22');
 
-    expect(room).toEqual({ href: '/dashboard/rooms/22', kind: 'room', id: '22' });
+    expect(room).toEqual({ href: '/dashboard/projects/22', kind: 'room', id: '22' });
     expect(previewRefFor(room!)).toEqual({ type: 'object', id: '22' });
+    expect(classifyDashboardLink('/dashboard/rooms/22')).toEqual({ href: '/dashboard/rooms/22', kind: 'room', id: '22' });
     expect(previewRefFor(classifyDashboardLink('/dashboard/agents/lead')!)).toBeNull();
   });
 

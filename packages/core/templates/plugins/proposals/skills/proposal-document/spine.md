@@ -45,10 +45,10 @@ footers renumber themselves.
 
 ## Where the sheets come from
 
-Nothing on a sheet is invented. Before the first sheet, the room's newest call
+Nothing on a sheet is invented. Before the first sheet, the project's newest call
 is filed with a **numbered decision log** — the decisions and corrections a
 person actually said, with the words they used — and each sheet traces back to
 a line in it. "Managed AI" is a sheet title because the seller called it that on
 the phone; the price is the one he quoted; the three products are the three he
 named at the close. When a log line is missing for a claim, the claim is a `.ph`
-placeholder and an open item on the room, not a sentence.
+placeholder and an open item on the project, not a sentence.

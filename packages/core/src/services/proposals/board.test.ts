@@ -68,10 +68,10 @@ describe('proposalRows', () => {
     const rows = proposalRows([northwind, kestrel, contoso, closed], artifacts, open);
 
     expect(rows.map(r => r.id)).toEqual([2, 1]);
-    expect(rows[1]).toMatchObject({ client: 'Northwind Logistics', stage: 'drafting', stageLabel: 'Proposal', openItems: 2, href: '/dashboard/rooms/1' });
+    expect(rows[1]).toMatchObject({ client: 'Northwind Logistics', stage: 'drafting', stageLabel: 'Proposal', openItems: 2, href: '/dashboard/projects/1' });
     expect(rows[1]!.document).toMatchObject({ id: 20, verify: 'verified' });
     expect(rows[0]).toMatchObject({ stage: 'sent', document: null, openItems: 0 });
-    expect(rows[0]!.record).toEqual({ type: 'object', id: '2', label: 'Room 2', href: '/dashboard/rooms/2' });
+    expect(rows[0]!.record).toEqual({ type: 'object', id: '2', label: 'Room 2', href: '/dashboard/projects/2' });
   });
 });
 

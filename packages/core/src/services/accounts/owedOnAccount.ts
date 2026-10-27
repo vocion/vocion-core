@@ -11,7 +11,7 @@
  * joined an account to the work other agents raised about it.
  *
  * This read is the join. The account is resolved once, from typed facts only:
- * the email addresses and domains the person named, and the data room that
+ * the email addresses and domains the person named, and the project that
  * matches them (its declared domains, its cast's addresses, its client name,
  * codename and aliases — `scoreRooms`, the same match filing uses). Then each
  * kind of open work is read where it lives and kept when it touches the
@@ -69,7 +69,7 @@ export type AccountIdentity = {
   domains: string[];
   /** Exact addresses: a person at a personal host, or the room's cast. */
   emails: string[];
-  /** The matching data room, when one matches. */
+  /** The matching project, when one matches. */
   room: { id: number; title: string; client: string | null } | null;
   /** Why the room matched, in the match's own words. */
   matchedBy: string[];
@@ -157,7 +157,7 @@ export function addressesIn(value: unknown): string[] {
 
 /**
  * Whether a structured value is about the account: an address at one of its
- * domains, one of its exact addresses, or its data room by id. Pure.
+ * domains, one of its exact addresses, or its project by id. Pure.
  * @param value - A run's input or a row's metadata.
  * @param identity - The account.
  */
@@ -176,7 +176,7 @@ export function touchesAccount(value: unknown, identity: Pick<AccountIdentity, '
 
 /**
  * Resolve what the person asked about to typed facts: the addresses and
- * domains they named, widened by the data room those (or the name) match.
+ * domains they named, widened by the project those (or the name) match.
  * @param orgId - The workspace.
  * @param about - What they asked about, as they said it.
  */
@@ -348,7 +348,7 @@ export async function readOwedOnAccount(input: { orgId: string; about: string; n
   const items: OwedItem[] = [];
   const artifacts: OwedArtifact[] = [];
   if (identity.domains.length === 0 && identity.emails.length === 0 && !identity.room) {
-    return { identity, items, artifacts, unavailable: [`Nothing ties "${input.about}" to an address, a domain or a data room. Name the company's email domain or a contact's address.`] };
+    return { identity, items, artifacts, unavailable: [`Nothing ties "${input.about}" to an address, a domain or a project. Name the company's email domain or a contact's address.`] };
   }
 
   const since = new Date(now.getTime() - OWED_WINDOW_DAYS * 86_400_000);
@@ -447,7 +447,7 @@ export async function readOwedOnAccount(input: { orgId: string; about: string; n
         artifacts.push({ id: a.id, kind: a.kind, title: a.title, updatedAt: a.updatedAt ?? a.createdAt, href: `/dashboard/artifacts/${a.id}` });
       }
     } catch {
-      unavailable.push('The data room could not be read.');
+      unavailable.push('The project could not be read.');
     }
   }
 

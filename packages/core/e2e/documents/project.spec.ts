@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test';
 import { ADMIN, seedDocumentsWorkspace } from './support/seed';
 
 /**
- * The data room, as a person runs it — opened by chat, a transcript filed
+ * The project, as a person runs it — opened by chat, a transcript filed
  * into it by match with a decision log on top, the room page reading like the
  * README it replaces, and the proposal drafted FROM the room page so the
  * document is anchored to the engagement. Same scripted agent as
@@ -56,31 +56,31 @@ test.beforeAll(() => {
   execFileSync('npx', ['dotenv', '-c', '--', 'npx', 'tsx', 'e2e/documents/support/reset-rooms.ts'], { cwd: ROOT, stdio: ['ignore', 'inherit', 'inherit'], env: process.env });
 });
 
-test.describe('the data room, by chat', () => {
+test.describe('the project, by chat', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.setTimeout(240_000);
 
-  test('open a room, file a transcript by match, read the room', async ({ page }) => {
+  test('open a project, file a transcript by match, read the project', async ({ page }) => {
     await signIn(page);
     await page.getByRole('link', { name: 'Chat' }).first().click();
     await page.waitForURL(/\/dashboard\/chat/);
 
     await expect(page.locator('textarea[data-agent-composer]').last()).toBeEditable({ timeout: 30_000 });
 
-    await say(page, 'Open a data room for Northwind from the third call.', 'Opened the data room for Northwind');
+    await say(page, 'Open a project for Northwind from the third call.', 'Opened the project for Northwind');
     await say(page, 'File the third call transcript.', 'Filed the third call into');
     await shot(page, '11-room-by-chat');
 
-    // The rooms list (under Knowledge in the sidebar; reached by URL here), then the room.
-    await page.goto('/dashboard/rooms');
+    // The projects list (a row in every app's sidebar; reached by URL here), then the project.
+    await page.goto('/dashboard/projects');
     const row = page.getByRole('link', { name: /Northwind — Hiring agents/ }).first();
 
     await expect(row).toBeVisible();
 
     await shot(page, '12-rooms-list');
     await row.click();
-    await page.waitForURL(/\/dashboard\/rooms\/\d+$/);
+    await page.waitForURL(/\/dashboard\/projects\/\d+$/);
 
     await expect(page.getByTestId('data-room-page')).toBeVisible();
     await expect(page.getByText('volume corrected to ~20 openings a month')).toBeVisible();
@@ -101,22 +101,22 @@ test.describe('the data room, by chat', () => {
     await shot(page, '13-room-page');
   });
 
-  test('the LLM-context bundle is the room as markdown, sources by weight first', async ({ page }) => {
+  test('the LLM-context bundle is the project as markdown, sources by weight first', async ({ page }) => {
     await signIn(page);
-    await page.goto('/dashboard/rooms');
+    await page.goto('/dashboard/projects');
     const href = await page.getByRole('link', { name: /Northwind — Hiring agents/ }).first().getAttribute('href');
-    const id = /\/rooms\/(\d+)/.exec(href ?? '')?.[1];
+    const id = /\/projects\/(\d+)/.exec(href ?? '')?.[1];
 
     expect(id).toBeTruthy();
 
-    const res = await page.request.get(`/api/v1/rooms/${id}/export`);
+    const res = await page.request.get(`/api/v1/projects/${id}/export`);
 
     expect(res.ok()).toBe(true);
     expect(res.headers()['content-type']).toContain('text/markdown');
 
     const md = await res.text();
 
-    expect(md).toContain('# Northwind — Hiring agents — data room');
+    expect(md).toContain('# Northwind — Hiring agents — project');
     expect(md).toContain('> **Status as of');
     expect(md).toContain('## Cast');
     expect(md).toContain('| Amy Larkin | VP People | amy@northwind.example | client |');
@@ -127,11 +127,11 @@ test.describe('the data room, by chat', () => {
     expect(md).toContain('## Decisions and corrections');
   });
 
-  test('draft from the room page: the document is anchored to the engagement', async ({ page }) => {
+  test('draft from the project page: the document is anchored to the engagement', async ({ page }) => {
     await signIn(page);
-    await page.goto('/dashboard/rooms');
+    await page.goto('/dashboard/projects');
     await page.getByRole('link', { name: /Northwind — Hiring agents/ }).first().click();
-    await page.waitForURL(/\/dashboard\/rooms\/\d+$/);
+    await page.waitForURL(/\/dashboard\/projects\/\d+$/);
     // "Draft a document" opens the chat about the room. Nothing is typed into
     // the composer for the person (#677); the room rides as the chat's context.
     await page.getByRole('button', { name: 'Draft a document' }).click();
@@ -142,7 +142,7 @@ test.describe('the data room, by chat', () => {
 
     await expect(box).toHaveValue('');
 
-    await box.fill('Draft the proposal for this engagement from its data room.');
+    await box.fill('Draft the proposal for this engagement from its project.');
     await page.getByRole('button', { name: 'Send message' }).last().click();
 
     await expect(page.getByText('The proposal is open beside you').last()).toBeVisible({ timeout: 120_000 });

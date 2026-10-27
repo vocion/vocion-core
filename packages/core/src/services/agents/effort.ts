@@ -166,7 +166,7 @@ function keepFloor(read: AutoRead, floor: { level: EffortLevel; reason: string }
  * And "what do I owe on <client>?" ran Quick, counted one system, read the
  * calendar and asked whether to read the meeting notes; the approved
  * follow-up email in Review never came up. What is owed on an account lives
- * in Review, Gmail drafts, tracker rows, the data room and the last call: a
+ * in Review, Gmail drafts, tracker rows, the project and the last call: a
  * question about open work on an account, person or deal is never Quick.
  *
  * And on 2026-10-24 "chart that" ran Quick and drew a P&L bridge whose last

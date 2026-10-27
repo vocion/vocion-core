@@ -109,6 +109,10 @@
       "description": "Endpoints under /api/v1/products."
     },
     {
+      "name": "projects",
+      "description": "Endpoints under /api/v1/projects."
+    },
+    {
       "name": "push",
       "description": "Endpoints under /api/v1/push."
     },
@@ -5770,6 +5774,196 @@
         ]
       }
     },
+    "/api/v1/projects/{id}": {
+      "get": {
+        "operationId": "get_projects_id",
+        "summary": "`GET /api/v1/projects/:id` — the project as JSON (title, status, meta).",
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "`GET /api/v1/projects/:id` — the project as JSON (title, status, meta).\nA dashboard session or a `vcn_live_` token; the caller's org must own the\nproject. `/api/v1/rooms/:id` answers the same, for callers written before\nprojects were renamed from data rooms (2026-10-27).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patch_projects_id",
+        "summary": "`PATCH /api/v1/projects/:id` — a person editing the project's own knowledge from its page: the wiki (`notes`), the instructions (`rules`), whether the collecto…",
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "`PATCH /api/v1/projects/:id` — a person editing the project's own knowledge\nfrom its page: the wiki (`notes`), the instructions (`rules`), whether the\ncollector may file into it. Everything else changes through the agent's\n`update_project`, so the page stays one obvious path per field. A\ndashboard session or a `vcn_live_` token; the caller's org must own the\nproject.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/export": {
+      "get": {
+        "operationId": "get_projects_id_export",
+        "summary": "`GET /api/v1/projects/:id/export` — the whole project as one markdown file: the \"download context for an LLM\" bundle.",
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "`GET /api/v1/projects/:id/export` — the whole project as one markdown file:\nthe \"download context for an LLM\" bundle. Same text `read_project` hands\nthe agent, so what a person pastes into a chat is what the agent wrote from.\nA dashboard session or a `vcn_live_` token; the caller's org must own the\nproject.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/sources": {
+      "delete": {
+        "operationId": "delete_projects_id_sources",
+        "summary": "`DELETE /api/v1/projects/:id/sources?document=<id>` (or `?artifact=<id>`) — take a source out of a project: the undo of a filing, the collector's included.",
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "`DELETE /api/v1/projects/:id/sources?document=<id>` (or `?artifact=<id>`) —\ntake a source out of a project: the undo of a filing, the collector's\nincluded. The document stays in the knowledge base; the project forgets\nthe link and will not auto-file that document again. A dashboard session\nor a `vcn_live_` token; the caller's org must own the project.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/push/config": {
       "get": {
         "operationId": "get_push_config",
@@ -6784,7 +6978,7 @@
     "/api/v1/rooms/{id}": {
       "get": {
         "operationId": "get_rooms_id",
-        "summary": "`GET /api/v1/rooms/:id` — the room as JSON (title, status, meta).",
+        "summary": "`GET /api/v1/rooms/:id` — the older path for `GET /api/v1/projects/:id` (projects were called data rooms until 2026-10-27).",
         "tags": [
           "rooms"
         ],
@@ -6815,7 +7009,7 @@
             }
           }
         },
-        "description": "`GET /api/v1/rooms/:id` — the room as JSON (title, status, meta).\n`PATCH /api/v1/rooms/:id` — a person editing the room's own knowledge from\nits page: the notes (the wiki), the rules, whether the collector may file\ninto it. Everything else changes through the agent's `update_data_room`,\nso the page stays one obvious path per field. A dashboard session or a\n`vcn_live_` token; the caller's org must own the room.",
+        "description": "`GET /api/v1/rooms/:id` — the older path for `GET /api/v1/projects/:id`\n(projects were called data rooms until 2026-10-27). Kept so callers and\ntokens written against it keep working; new callers use the projects path.",
         "parameters": [
           {
             "name": "id",
@@ -6830,7 +7024,7 @@
       },
       "patch": {
         "operationId": "patch_rooms_id",
-        "summary": "PATCH /api/v1/rooms/{id}",
+        "summary": "`PATCH /api/v1/rooms/:id` — the older path for `PATCH /api/v1/projects/:id`.",
         "tags": [
           "rooms"
         ],
@@ -6861,6 +7055,7 @@
             }
           }
         },
+        "description": "`PATCH /api/v1/rooms/:id` — the older path for `PATCH /api/v1/projects/:id`.",
         "parameters": [
           {
             "name": "id",
@@ -6877,55 +7072,7 @@
     "/api/v1/rooms/{id}/export": {
       "get": {
         "operationId": "get_rooms_id_export",
-        "summary": "`GET /api/v1/rooms/:id/export` — the whole data room as one markdown file: the \"download context for an LLM\" bundle.",
-        "tags": [
-          "rooms"
-        ],
-        "security": [
-          {
-            "bearerToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success. The body is `text/markdown`, not JSON.",
-            "content": {
-              "text/markdown": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        },
-        "description": "`GET /api/v1/rooms/:id/export` — the whole data room as one markdown file:\nthe \"download context for an LLM\" bundle. Same text `read_data_room` hands\nthe agent, so what a person pastes into a chat is what the agent wrote from.\nA dashboard session or a `vcn_live_` token; the caller's org must own the room.",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "The id from the URL.",
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ]
-      }
-    },
-    "/api/v1/rooms/{id}/sources": {
-      "delete": {
-        "operationId": "delete_rooms_id_sources",
-        "summary": "`DELETE /api/v1/rooms/:id/sources?document=<id>` (or `?artifact=<id>`) — take a source out of a room: the undo of a filing, the collector's included.",
+        "summary": "`GET /api/v1/rooms/:id/export` — the older path for `GET /api/v1/projects/:id/export` (projects were called data rooms until 2026-10-27).",
         "tags": [
           "rooms"
         ],
@@ -6956,7 +7103,7 @@
             }
           }
         },
-        "description": "`DELETE /api/v1/rooms/:id/sources?document=<id>` (or `?artifact=<id>`) —\ntake a source out of a room: the undo of a filing, the collector's\nincluded. The document stays in the knowledge base; the room forgets the\nlink and will not auto-file that document again. A dashboard session or a\n`vcn_live_` token; the caller's org must own the room.",
+        "description": "`GET /api/v1/rooms/:id/export` — the older path for\n`GET /api/v1/projects/:id/export` (projects were called data rooms until\n2026-10-27). The same markdown bundle.",
         "parameters": [
           {
             "name": "id",
@@ -6966,23 +7113,53 @@
             "schema": {
               "type": "integer"
             }
-          },
+          }
+        ]
+      }
+    },
+    "/api/v1/rooms/{id}/sources": {
+      "delete": {
+        "operationId": "delete_rooms_id_sources",
+        "summary": "`DELETE /api/v1/rooms/:id/sources` — the older path for `DELETE /api/v1/projects/:id/sources` (projects were called data rooms until 2026-10-27).",
+        "tags": [
+          "rooms"
+        ],
+        "security": [
           {
-            "name": "artifact",
-            "in": "query",
-            "required": false,
-            "description": "Read from the query string. This one has no description in the handler yet.",
-            "schema": {
-              "type": "string"
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
             }
           },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "`DELETE /api/v1/rooms/:id/sources` — the older path for\n`DELETE /api/v1/projects/:id/sources` (projects were called data rooms\nuntil 2026-10-27). Same query parameters, same answer.",
+        "parameters": [
           {
-            "name": "document",
-            "in": "query",
-            "required": false,
-            "description": "Read from the query string. This one has no description in the handler yet.",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ]

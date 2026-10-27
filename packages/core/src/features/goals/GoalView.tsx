@@ -18,7 +18,7 @@ import { cn } from '@/utils/Helpers';
 import { GoalProgressBar } from './GoalProgressBar';
 import { GoalScorecard } from './GoalScorecard';
 
-const LINK_NOUN: Record<string, string> = { room: 'Data room', wiki: 'Wiki', artifact: 'Artifact', view: 'View', conversation: 'Chat', record: 'Record' };
+const LINK_NOUN: Record<string, string> = { room: 'Project', wiki: 'Wiki', artifact: 'Artifact', view: 'View', conversation: 'Chat', record: 'Record' };
 
 /**
  * ONE GOAL — a calm page: the title and horizon, where it stands (a bar and
@@ -163,7 +163,7 @@ export function GoalView({ goal, listHref }: { goal: GoalDetail; listHref: strin
 
       <Section eyebrow="Linked" data-testid="goal-links">
         {goal.links.length === 0
-          ? <p className="text-[13px] text-muted-foreground">Nothing linked yet. Ask the assistant to link a data room, a wiki page, an artifact, a view or a conversation.</p>
+          ? <p className="text-[13px] text-muted-foreground">Nothing linked yet. Ask the assistant to link a project, a wiki page, an artifact, a view or a conversation.</p>
           : (
               <ul className="flex flex-col">
                 {goal.links.map(l => (

@@ -1,6 +1,6 @@
 # Client documents — a sample workspace
 
-The client-engagement workflow as a workspace: one **data room** per
+The client-engagement workflow as a workspace: one **project** per
 engagement (a `data_room` record — status, cast, sources with their weight,
 open items as asks), and the paginated, print-ready **documents** written from
 it, each render-verified before it is called done.
@@ -19,7 +19,7 @@ Everything else comes from two **plugins** shipped in core
 | Plugin | Brings |
 |---|---|
 | `proposals` | the Proposal Writer, the `proposal-document` skill (framework, components, rules), the **Proposals** app under GTM, a weekly mission and the `proposals` team with its measures |
-| `data-rooms` (a dependency of `proposals`) | the `data_room` object type, the `data-rooms` skill, the Room keeper, a daily mission, the Data rooms sidebar row and the after-sync collector, the `data-rooms` team |
+| `data-rooms` (a dependency of `proposals`) | the `data_room` object type, the `data-rooms` skill, the Project keeper, a daily mission and the after-sync collector, the `data-rooms` team |
 
 A workspace overrides any of it by slug — `agents/proposal-writer.yaml` with
 `extends: core` to patch the writer, a same-slug `skills/…/SKILL.md` to
