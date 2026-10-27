@@ -22,6 +22,12 @@ export type PageFacts = {
   outline: OutlineHeading[];
   /** Words in the main content (scripts, navigation, header and footer left out). */
   wordCount: number;
+  /**
+   * The main content as plain text, the same text the words were counted on,
+   * capped at `TEXT_CAP` characters. What the page actually says, so gaps
+   * are judged from the body and not from headings alone.
+   */
+  text: string;
   /** schema.org types the page declares (JSON-LD and microdata), de-duplicated. */
   schemaTypes: string[];
   /** An FAQ section: `schema` when FAQPage is declared, `heading` when only a heading says so. */
@@ -35,6 +41,9 @@ export type PageFacts = {
 
 /** Headings kept per page: the outline is evidence, not the page. */
 const OUTLINE_CAP = 80;
+
+/** Characters of main text kept per page: enough for every term a page uses, never the whole site. */
+export const TEXT_CAP = 40_000;
 
 /** Everything that is chrome rather than content. */
 const CHROME = 'script, style, noscript, template, svg, nav, header, footer, aside, form, iframe, [role="navigation"], [role="banner"], [role="contentinfo"], [aria-hidden="true"]';
@@ -161,7 +170,8 @@ export function extractPageFacts(html: string, url: string): PageFacts {
   main.find('p, div, li, h1, h2, h3, h4, h5, h6, td, th, br, section, blockquote, dt, dd, figcaption, pre').each((_, el) => {
     $(el).append(' ');
   });
-  const words = clean(main.text()).split(' ').filter(w => /\w/.test(w));
+  const mainText = clean(main.text());
+  const words = mainText.split(' ').filter(w => /\w/.test(w));
 
   const own = hostOf(url);
   let internal = 0;
@@ -193,6 +203,7 @@ export function extractPageFacts(html: string, url: string): PageFacts {
     metaDescription,
     outline,
     wordCount: words.length,
+    text: mainText.slice(0, TEXT_CAP),
     schemaTypes: [...schemaTypes].sort(),
     faq,
     imagesCount: main.find('img').length,

@@ -1,0 +1,24 @@
+{
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "tasks": [
+    {
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "result": [
+        {
+          "keyword": "water heater repair fairview",
+          "language_code": "en",
+          "datetime": "2026-10-27 14:05:12 +00:00",
+          "items": [
+            { "type": "local_pack", "rank_group": 1, "rank_absolute": 1, "title": "Northwind Home Services", "description": "Plumber", "domain": "www.northwind-home.example", "phone": "(503) 555-0142", "url": "https://www.northwind-home.example/", "is_paid": false, "rating": { "rating_type": "Max5", "value": 4.8, "votes_count": 212, "rating_max": 5 } },
+            { "type": "local_pack", "rank_group": 2, "rank_absolute": 2, "title": "Lakeside Plumbing Co", "description": "Water heater installation service", "domain": "lakeside-plumbing.example", "url": "https://lakeside-plumbing.example/water-heaters", "is_paid": false, "rating": { "rating_type": "Max5", "value": 4.6, "votes_count": 1204, "rating_max": 5 } },
+            { "type": "local_pack", "rank_group": 3, "rank_absolute": 3, "title": "Fairview Rooter & Drain", "is_paid": false, "rating": null },
+            { "type": "organic", "rank_group": 1, "rank_absolute": 4, "domain": "www.yelp.com", "title": "THE BEST 10 Water Heater Repair in Fairview", "url": "https://www.yelp.com/search?find_desc=water+heater+repair&find_loc=Fairview", "description": "Top 10 best water heater repair near Fairview." },
+            { "type": "organic", "rank_group": 2, "rank_absolute": 5, "domain": "northwind-home.example", "title": "Water Heater Repair in Fairview | Northwind Home Services", "url": "https://northwind-home.example/fairview/water-heater-repair", "description": "Same-day water heater repair across Fairview." }
+          ]
+        }
+      ]
+    }
+  ]
+}

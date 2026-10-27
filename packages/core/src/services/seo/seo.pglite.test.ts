@@ -21,6 +21,7 @@ const { createDataRoom } = await import('@/services/DataRoomService');
 const { createArtifact } = await import('@/services/ArtifactService');
 const { seoTools } = await import('@/services/agents/tools/seo');
 const { getSeoBatch, getSeoPage, listSeoPages } = await import('./records');
+const { renderSerpBrief, renderSynthesis, withSynthesis } = await import('@/libs/tools/serp/brief');
 const { onSeoAskSettled } = await import('./signoff');
 
 const ORG = 'proj_seo_brightline';
@@ -227,6 +228,107 @@ describe('a batch through the gate', () => {
     const out = await call('seo_plan_batch', { project_id: room.id, topic: 'Tents', pages: [{ keyword: 'two person tent' }, { keyword: 'ultralight tent' }] });
 
     expect(out).toContain('writing a sample of 1 for your feedback first');
+  });
+});
+
+/**
+ * A SERP brief exactly as serp_compare renders it, synthesis written.
+ * @param query - What was searched.
+ * @param google - Whether it was Google's ranking.
+ */
+async function renderedBrief(query: string, google = true): Promise<number> {
+  const md = renderSerpBrief({ query, provider: google ? 'serper' : 'web_search:brave', isGoogleRanking: google, device: 'desktop', organic: [], peopleAlsoAsk: [], relatedSearches: [], adsCount: null, retrievedAt: '2026-10-27T14:05:12.000Z', billedUnits: 1 }, []);
+  return markdown(`SERP brief: ${query}`, 'seo/serp', withSynthesis(md, renderSynthesis({ intent: 'Find a plumber nearby today.', commonSubtopics: [], gaps: [] }, []))!);
+}
+
+const cityPage = (city: string) => `# Water heater repair in ${city}
+
+Northwind Home Services repairs tank and tankless water heaters across ${city}. Our licensed plumbers arrive the same day, diagnose the fault, and quote before any work starts.
+
+## Common water heater problems
+
+No hot water usually means a failed heating element or a pilot that will not stay lit. Rumbling means sediment has built up in the tank and needs a flush.`;
+
+describe('location pages', () => {
+  let home = 0;
+  let batchId = 0;
+
+  it('plans location pages with their place, and refuses one with no place', async () => {
+    home = (await createDataRoom(ORG, PERSON, { title: 'Northwind Home Services', domains: ['northwind-home.example'] })).id;
+
+    expect(await call('seo_plan_batch', { project_id: home, topic: 'Water heaters', pages: [{ keyword: 'water heater repair fairview', page_type: 'location' }] })).toMatch(/^Not planned: .*no location/);
+
+    const out = await call('seo_plan_batch', {
+      project_id: home,
+      topic: 'Water heaters',
+      pages: [
+        { keyword: 'water heater repair fairview', page_type: 'location', location: 'Fairview', slug: 'fairview/water-heater-repair' },
+        { keyword: 'water heater repair lakeside', page_type: 'location', location: 'Lakeside', slug: 'lakeside/water-heater-repair' },
+        { keyword: 'tankless water heater repair', page_type: 'service', existing_url: 'https://northwind-home.example/tankless', refresh: true },
+      ],
+    });
+    batchId = Number(/batch #(\d+)/.exec(out)![1]);
+
+    expect(out).toContain('2 location pages');
+
+    const pages = await listSeoPages(ORG, batchId);
+
+    expect(pages.map(p => [p.meta.pageType, p.meta.location, p.meta.target])).toEqual([
+      ['location', 'Fairview', 'fairview/water-heater-repair'],
+      ['location', 'Lakeside', 'lakeside/water-heater-repair'],
+      ['service', undefined, 'https://northwind-home.example/tankless'],
+    ]);
+  });
+
+  it('refuses a keyword another open batch already plans, or a URL another page targets, unless it is a refresh', async () => {
+    const again = await call('seo_plan_batch', { project_id: home, topic: 'More', pages: [{ keyword: 'Water heater repair Fairview' }] });
+
+    expect(again).toMatch(/^Not planned: "Water heater repair Fairview" is already page #\d+ \(planned in batch #\d+\)/);
+    expect(await call('seo_plan_batch', { project_id: home, topic: 'More', pages: [{ keyword: 'fairview water heaters', slug: '/fairview/water-heater-repair/' }] })).toMatch(/already targets/);
+    expect(await call('seo_plan_batch', { project_id: home, topic: 'More', pages: [{ keyword: 'water heater repair fairview', refresh: true }] })).toMatch(/^Not planned: .*no existing_url/);
+    expect(await call('seo_plan_batch', { project_id: home, topic: 'Refresh', pages: [{ keyword: 'water heater repair fairview', refresh: true, existing_url: 'https://northwind-home.example/fairview/water-heater-repair' }] })).toMatch(/^Planned batch/);
+  });
+
+  it('researches each location page on its own city\'s Google results', async () => {
+    const [fairview, lakeside] = await listSeoPages(ORG, batchId);
+
+    expect(await call('seo_save_research', { page_id: fairview!.id, serp_artifact_id: await renderedBrief('water heater repair') })).toMatch(/^Not saved: .*does not name Fairview/);
+    expect(await call('seo_save_research', { page_id: fairview!.id, serp_artifact_id: await renderedBrief('water heater repair fairview', false) })).toMatch(/^Not saved: .*web search results, not Google's ranking/);
+
+    const fairviewBrief = await renderedBrief('water heater repair fairview');
+
+    expect(await call('seo_save_research', { page_id: fairview!.id, serp_artifact_id: fairviewBrief })).toContain('(researched)');
+    expect(await call('seo_save_research', { page_id: lakeside!.id, serp_artifact_id: fairviewBrief })).toMatch(/^Not saved: .*does not name Lakeside/);
+    expect(await call('seo_save_research', { page_id: lakeside!.id, serp_artifact_id: await renderedBrief('Water heater repair in Lakeside') })).toContain('(researched)');
+  });
+
+  it('wants local substance in a location page\'s brief', async () => {
+    const [fairview, lakeside] = await listSeoPages(ORG, batchId);
+
+    expect(await call('seo_save_brief', { page_id: fairview!.id, brief_artifact_id: await markdown('Brief Fairview') })).toMatch(/^Not saved: .*no "Local substance" section/);
+
+    for (const p of [fairview!, lakeside!]) {
+      expect(await call('seo_save_brief', { page_id: p.id, brief_artifact_id: await markdown(`Brief ${p.meta.location}`, 'seo/briefs', `# Brief\n\n## 3. Local substance\n\nTwo jobs in ${p.meta.location} from the project's notes.`) })).toContain('It may be drafted now');
+    }
+  });
+
+  it('fails a location page that is its sibling with the city swapped, whatever the editor said', async () => {
+    const [fairview, lakeside] = await listSeoPages(ORG, batchId);
+    await call('seo_save_draft', { page_id: fairview!.id, draft_artifact_id: await markdown('Draft Fairview', 'seo/drafts', cityPage('Fairview')) });
+
+    // The first location page has no drafted sibling yet: the editor's pass stands.
+    expect(await call('seo_save_review', { page_id: fairview!.id, verdict: 'pass', notes: 'Checked.' })).toContain('file_ask');
+
+    await call('seo_save_draft', { page_id: lakeside!.id, draft_artifact_id: await markdown('Draft Lakeside', 'seo/drafts', cityPage('Lakeside')) });
+    const out = await call('seo_save_review', { page_id: lakeside!.id, verdict: 'pass', notes: 'Checked.' });
+
+    expect(out).toMatch(new RegExp(`^Not passed: Too similar to page #${fairview!.id} "water heater repair fairview" \\(100% the same once city names are masked\\)`));
+    expect(out).toContain('drafting again');
+
+    const after = await getSeoPage(ORG, lakeside!.id);
+
+    expect(after?.meta.status).toBe('drafting');
+    expect(after?.meta.review).toMatchObject({ verdict: 'fix', similarTo: [{ pageId: fairview!.id, similarity: 1 }] });
   });
 });
 

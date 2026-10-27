@@ -1,8 +1,8 @@
-import type { SerpProvider, SerpQuery, SerpResult } from './types';
+import type { SerpLocalResult, SerpProvider, SerpQuery, SerpResult } from './types';
 import process from 'node:process';
 import { resolveToolProviderKey } from '../orgKey';
 import { ProviderNotConfiguredError } from '../types';
-import { clampNum, domainOf } from './types';
+import { clampNum, domainOf, numberOf } from './types';
 
 /** The part of Serper's `/search` response this reads. */
 export type SerperResponse = {
@@ -11,17 +11,43 @@ export type SerperResponse = {
   organic?: Array<{ title?: string; link?: string; snippet?: string; date?: string; position?: number }>;
   peopleAlsoAsk?: Array<{ question?: string; snippet?: string; title?: string; link?: string }>;
   relatedSearches?: Array<{ query?: string }>;
+  /** The local pack, when the page shows one. */
+  places?: Array<{ position?: number; title?: string; address?: string; rating?: number | string; ratingCount?: number | string; category?: string; website?: string; phoneNumber?: string; cid?: string }>;
   ads?: unknown[];
   credits?: number;
 };
+
+/**
+ * Serper's `places` as the local pack.
+ * @param places - Serper's list.
+ */
+export function serperLocalPack(places: SerperResponse['places']): SerpLocalResult[] {
+  return (places ?? [])
+    .filter(p => typeof p.title === 'string' && p.title.trim())
+    .map((p, i) => {
+      const rating = numberOf(p.rating);
+      const reviews = numberOf(p.ratingCount);
+      const domain = p.website ? domainOf(p.website) : '';
+      return {
+        position: numberOf(p.position) ?? i + 1,
+        name: p.title!.trim(),
+        ...(rating !== undefined ? { rating } : {}),
+        ...(reviews !== undefined ? { reviews } : {}),
+        ...(p.category ? { category: p.category } : {}),
+        ...(p.website ? { website: p.website } : {}),
+        ...(domain ? { domain } : {}),
+        ...(p.address ? { address: p.address } : {}),
+      };
+    });
+}
 
 /**
  * Serper (google.serper.dev) — Google's results page as JSON, the Cloud
  * default. One key, sent as `X-API-KEY`; `gl`, `hl`, `location` and `num`
  * are Google's own parameters and pass straight through.
  *
- * What Serper does not give: search volume (no keyword data at all), ads on
- * the page, and a device switch. Those come back as null or a note rather
+ * What Serper does not give: search volume or keyword ideas (no keyword data
+ * at all), ads on the page, and a device switch. Those come back as null or a note rather
  * than a guess.
  *
  * Spends the org's own key when it stored one, else `SERPER_API_KEY`.
@@ -96,6 +122,7 @@ export function normaliseSerper(q: SerpQuery, data: SerperResponse, at: Date): S
       .filter(p => p.question)
       .map(p => ({ question: p.question!, ...(p.snippet ? { snippet: p.snippet } : {}), ...(p.link ? { url: p.link } : {}) })),
     relatedSearches: (data.relatedSearches ?? []).map(r => r.query ?? '').filter(Boolean),
+    localPack: serperLocalPack(data.places),
     adsCount: Array.isArray(data.ads) ? data.ads.length : null,
     retrievedAt: at.toISOString(),
     billedUnits: data.credits ?? 1,

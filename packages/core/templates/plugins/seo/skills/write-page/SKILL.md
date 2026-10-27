@@ -3,9 +3,10 @@ slug: write-page
 name: Writing an SEO page
 description: >-
   One page from its brief, in the client's voice and inside the client's
-  rules, answering the query better than what ranks. Only pages the volume
-  gate has released. Read before writing or redrafting any page.
-version: 1
+  rules, answering the query better than what ranks. Location pages carry
+  what is true of their own place. Only pages the volume gate has released.
+  Read before writing or redrafting any page.
+version: 2
 ---
 
 # Writing an SEO page
@@ -19,7 +20,7 @@ version: 1
    guideline documents.
 3. Read the page brief, the SERP brief, `/learnings/seo-feedback.md`, and
    every feedback note on this batch's pages. A redraft starts from the notes
-   on its own page.
+   on its own page (and the editor's review notes when it sent it back).
 
 ## The page
 
@@ -33,6 +34,20 @@ version: 1
   the SERP brief. Otherwise cut it.
 - Internal links from the brief, written into the sentences that need them.
 - End with the meta title, meta description and slug from the brief.
+
+## Location pages
+
+A location page is written for its own place, from the brief's **Local
+substance**: the jobs done there, what customers there said, the service area
+and response times, the local conditions that change the work. Put that
+substance in the body, not in one paragraph at the end.
+
+Never write a location page by copying a sibling and swapping the city. The
+editor's review compares every location draft in the batch with its siblings,
+city names masked, and sends back one that is 70% or more the same, whatever
+else it says. If the brief's local substance is empty, write the shorter,
+honest page and say in your reply what the project is missing for that
+place; never invent a job, a review or a fact about a town.
 
 ## Save it
 

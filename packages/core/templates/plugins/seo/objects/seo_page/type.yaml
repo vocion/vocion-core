@@ -39,6 +39,30 @@ schema:
     volume:
       type: integer
       description: Monthly search volume, when keyword research established it. Empty when it could not.
+    pageType:
+      type: string
+      enum: [location, service, blog, landing, other]
+      x-labels: {location: Location, service: Service, blog: Blog post, landing: Landing page, other: Other}
+      description: >-
+        What kind of page. A location page targets one city or service area:
+        it is researched on that city's own results, its brief carries the
+        client's local substance, and its draft fails review when it is a
+        sibling location page with the name swapped.
+    location:
+      type: string
+      description: The city or service area a location page is for, e.g. "Fairview".
+    existingUrl:
+      type: string
+      description: The live page this one rewrites, when it is a refresh.
+    refresh:
+      type: boolean
+      description: Planned as a rewrite of a page the client already has, so it may share that page's keyword and URL.
+    slug:
+      type: string
+      description: The URL slug planned for a new page.
+    target:
+      type: string
+      description: Where the page lives or will live — the published URL, else the page it refreshes, else its planned slug.
     status:
       type: string
       enum: [proposed, researched, briefed, drafting, in_review, changes_requested, approved, publishing, published, rejected]

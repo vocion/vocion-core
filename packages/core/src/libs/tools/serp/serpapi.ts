@@ -1,8 +1,8 @@
-import type { SerpProvider, SerpQuery, SerpResult } from './types';
+import type { SerpLocalResult, SerpProvider, SerpQuery, SerpResult } from './types';
 import process from 'node:process';
 import { resolveToolProviderKey } from '../orgKey';
 import { ProviderNotConfiguredError } from '../types';
-import { clampNum, domainOf } from './types';
+import { clampNum, domainOf, numberOf } from './types';
 
 /** The part of SerpApi's Google response this reads. */
 export type SerpApiResponse = {
@@ -13,13 +13,53 @@ export type SerpApiResponse = {
   organic_results?: Array<{ position?: number; title?: string; link?: string; snippet?: string; date?: string }>;
   related_questions?: Array<{ question?: string; snippet?: string; link?: string }>;
   related_searches?: Array<{ query?: string }>;
+  /** The local pack: `{ places: [...] }`, or the list itself on older responses. */
+  local_results?: SerpApiPlace[] | { places?: SerpApiPlace[] };
   ads?: unknown[];
 };
+
+type SerpApiPlace = {
+  position?: number;
+  title?: string;
+  rating?: number | string;
+  reviews?: number | string;
+  type?: string;
+  address?: string;
+  phone?: string;
+  website?: string;
+  links?: { website?: string; directions?: string };
+};
+
+/**
+ * SerpApi's `local_results` as the local pack.
+ * @param local - SerpApi's field.
+ */
+export function serpApiLocalPack(local: SerpApiResponse['local_results']): SerpLocalResult[] {
+  const places = Array.isArray(local) ? local : (local?.places ?? []);
+  return places
+    .filter(p => typeof p.title === 'string' && p.title.trim())
+    .map((p, i) => {
+      const rating = numberOf(p.rating);
+      const reviews = numberOf(p.reviews);
+      const website = p.links?.website ?? p.website;
+      const domain = website ? domainOf(website) : '';
+      return {
+        position: numberOf(p.position) ?? i + 1,
+        name: p.title!.trim(),
+        ...(rating !== undefined ? { rating } : {}),
+        ...(reviews !== undefined ? { reviews } : {}),
+        ...(p.type ? { category: p.type } : {}),
+        ...(website ? { website } : {}),
+        ...(domain ? { domain } : {}),
+        ...(p.address ? { address: p.address } : {}),
+      };
+    });
+}
 
 /**
  * SerpApi (serpapi.com) — Google's results page as JSON. One key, sent as
  * `api_key`; `location`, `hl`, `gl`, `num` and `device` are its parameters.
- * No keyword volume.
+ * No keyword volume or ideas.
  *
  * Spends the org's own key when it stored one, else `SERPAPI_API_KEY`.
  */
@@ -98,6 +138,7 @@ export function normaliseSerpApi(q: SerpQuery, data: SerpApiResponse, at: Date):
       .filter(p => p.question)
       .map(p => ({ question: p.question!, ...(p.snippet ? { snippet: p.snippet } : {}), ...(p.link ? { url: p.link } : {}) })),
     relatedSearches: (data.related_searches ?? []).map(r => r.query ?? '').filter(Boolean),
+    localPack: serpApiLocalPack(data.local_results),
     adsCount: Array.isArray(data.ads) ? data.ads.length : 0,
     retrievedAt: (data.search_metadata?.processed_at ? new Date(data.search_metadata.processed_at.replace(' UTC', 'Z').replace(' ', 'T')) : at).toISOString(),
     billedUnits: 1,

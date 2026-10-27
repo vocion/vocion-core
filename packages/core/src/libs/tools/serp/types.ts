@@ -49,6 +49,28 @@ export type SerpQuestion = {
   url?: string;
 };
 
+/**
+ * One business in the local pack (the map pack): the three or so listings
+ * Google shows under a map for a query with local intent. For a
+ * home-services query this is often what a searcher sees first.
+ */
+export type SerpLocalResult = {
+  /** 1-based place in the pack. */
+  position: number;
+  name: string;
+  /** Star rating as shown (out of 5), when shown. */
+  rating?: number;
+  /** How many reviews the rating rests on, when shown. */
+  reviews?: number;
+  /** The business category Google shows ("Plumber"), when shown. */
+  category?: string;
+  /** The business's own website, when the listing links one. */
+  website?: string;
+  /** That website's host without `www.`. */
+  domain?: string;
+  address?: string;
+};
+
 /** One results page, normalised. */
 export type SerpResult = {
   query: string;
@@ -66,6 +88,11 @@ export type SerpResult = {
   featuredSnippet?: SerpFeaturedSnippet;
   peopleAlsoAsk: SerpQuestion[];
   relatedSearches: string[];
+  /**
+   * The local pack, in order; empty when the page showed none. Optional only
+   * so results read before it existed still parse.
+   */
+  localPack?: SerpLocalResult[];
   /** Paid results on the page; null when the provider does not report ads. */
   adsCount: number | null;
   /** ISO time the page was read. */
@@ -97,6 +124,17 @@ export type KeywordMetricsResult = {
   billedUnits: number;
 };
 
+/** Keyword ideas: related searches Google Ads suggests for seed keywords, with their numbers. */
+export type KeywordIdeasResult = {
+  provider: SerpProviderName;
+  location: string;
+  language: string;
+  seeds: string[];
+  ideas: KeywordMetric[];
+  retrievedAt: string;
+  billedUnits: number;
+};
+
 export type SerpCallOptions = {
   /** The org the call is for: whose stored key it spends. */
   orgId?: string;
@@ -111,6 +149,8 @@ export type SerpProvider = {
   search: (q: SerpQuery, opts?: SerpCallOptions) => Promise<SerpResult>;
   /** Search volume, CPC and competition. Absent on a vendor that has none. */
   keywordMetrics?: (keywords: string[], where: { location?: string; language?: string }, opts?: SerpCallOptions) => Promise<KeywordMetricsResult>;
+  /** Related keywords with their numbers, from seeds. Absent on a vendor that has none. */
+  keywordIdeas?: (seeds: string[], where: { location?: string; language?: string }, opts?: SerpCallOptions) => Promise<KeywordIdeasResult>;
 };
 
 /**
@@ -123,6 +163,22 @@ export function domainOf(url: string): string {
   } catch {
     return '';
   }
+}
+
+/**
+ * A number from a vendor field that may be a number, a numeric string or
+ * "1,204"; undefined when it is none of those.
+ * @param v - The raw value.
+ */
+export function numberOf(v: unknown): number | undefined {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    return v;
+  }
+  if (typeof v === 'string') {
+    const n = Number(v.replace(/[,\s]/g, '').replace(/^\((.*)\)$/, '$1'));
+    return v.trim() && Number.isFinite(n) ? n : undefined;
+  }
+  return undefined;
 }
 
 /**

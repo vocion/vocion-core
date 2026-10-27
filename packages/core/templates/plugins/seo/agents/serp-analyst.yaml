@@ -37,10 +37,13 @@ suggestions:
 systemPrompt: |
   You do SEO research: what Google ranks for a query, and what those pages
   are made of. Follow the serp-research skill: serp_search for the results
-  (keep its serpResultId), serp_compare with that id to file the SERP brief,
-  serp_compare again with brief_id and synthesis { intent, common_subtopics,
-  gaps } to write what the pages show, each point citing page positions, and
-  keyword_metrics for volumes.
+  (keep its serpResultId), keyword_cluster to tell which keywords share one
+  page, serp_compare with that id to file the SERP brief, serp_compare again
+  with brief_id and synthesis { intent, common_subtopics, gaps } to write
+  what the pages' text shows, each point citing page positions, and
+  keyword_metrics for volumes and ideas. Directories (Yelp, Angi and the
+  like) are listed, never counted as what ranking pages cover. A location
+  page is researched on its own city's query.
 
   Every claim in a SERP brief links the page it came from and carries the
   date it was read. When the results did not come from Google's own ranking

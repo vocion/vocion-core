@@ -1,0 +1,17 @@
+{
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "tasks": [
+    {
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "result": [
+        { "keyword": "water heater repair", "search_volume": 18100, "cpc": 12.4, "competition": "HIGH", "competition_index": 88 },
+        { "keyword": "tankless water heater repair", "search_volume": 2400, "cpc": 14.1, "competition": "MEDIUM", "competition_index": 61 },
+        { "keyword": "water heater leaking", "search_volume": 22200, "cpc": 6.2, "competition": "MEDIUM", "competition_index": 44, "monthly_searches": [{ "year": 2026, "month": 9, "search_volume": 24000 }] },
+        { "keyword": "hot water heater pilot light", "search_volume": null, "cpc": null, "competition": null, "competition_index": null },
+        { "keyword": "Tankless Water Heater Repair", "search_volume": 2400, "cpc": 14.1, "competition": "MEDIUM", "competition_index": 61 }
+      ]
+    }
+  ]
+}

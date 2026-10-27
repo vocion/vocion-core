@@ -17,8 +17,8 @@ vi.mock('@/libs/tools/websearch/registry', () => ({
   getWebSearchProvider: () => ({ name: 'brave', search: (...a: unknown[]) => webSearch(...a) }),
 }));
 
-const { keywordMetrics, searchSerp } = await import('./registry');
-const { ToolProviderKeyUnavailableError } = await import('../types');
+const { keywordIdeas, keywordMetrics, searchSerp } = await import('./registry');
+const { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } = await import('../types');
 
 const ENV = ['VOCION_SERP_PROVIDER', 'SERPER_API_KEY', 'SERPAPI_API_KEY', 'DATAFORSEO_LOGIN', 'DATAFORSEO_PASSWORD'] as const;
 const saved: Record<string, string | undefined> = {};
@@ -72,6 +72,11 @@ describe('searchSerp', () => {
     expect((await searchSerp({ query: 'q' }, { orgId: 'org_a' })).provider).toBe('serpapi');
   });
 
+  it('refuses rather than falls back when only Google will do', async () => {
+    await expect(searchSerp({ query: 'water heater repair fairview' }, { orgId: 'org_a', googleOnly: true })).rejects.toBeInstanceOf(ProviderNotConfiguredError);
+    expect(webSearch).not.toHaveBeenCalled();
+  });
+
   it('never falls back when the org\'s key could not be read', async () => {
     process.env.VOCION_SERP_PROVIDER = 'serper';
     resolveToolProviderKey.mockRejectedValue(new ToolProviderKeyUnavailableError('serper'));
@@ -100,5 +105,27 @@ describe('keywordMetrics', () => {
     const out = await keywordMetrics(['wide hiking boots'], {});
 
     expect(out.ok && out.result.metrics[0]?.searchVolume).toBe(9900);
+  });
+});
+
+describe('keywordIdeas', () => {
+  it('says plainly that keyword ideas are not available on Serper', async () => {
+    process.env.VOCION_SERP_PROVIDER = 'serper';
+    process.env.SERPER_API_KEY = 'k';
+
+    const out = await keywordIdeas(['water heater repair'], {});
+
+    expect(out).toEqual({ ok: false, reason: expect.stringMatching(/^No keyword ideas: keyword ideas are not available on Serper, which has no keyword data\./) });
+  });
+
+  it('asks DataForSEO whenever a DataForSEO login is held', async () => {
+    process.env.SERPER_API_KEY = 'k';
+    process.env.DATAFORSEO_LOGIN = 'l';
+    process.env.DATAFORSEO_PASSWORD = 'p';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ status_code: 20000, tasks: [{ status_code: 20000, result: [{ keyword: 'tankless water heater repair', search_volume: 2400 }] }] }))));
+
+    const out = await keywordIdeas(['water heater repair'], {});
+
+    expect(out.ok && out.result.ideas.map(i => i.keyword)).toEqual(['tankless water heater repair']);
   });
 });

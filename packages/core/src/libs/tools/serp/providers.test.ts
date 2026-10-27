@@ -22,7 +22,7 @@ vi.mock('@/libs/tools/orgKey', () => ({
 
 const { normaliseSerper, serperProvider } = await import('./serper');
 const { normaliseSerpApi, serpApiProvider } = await import('./serpapi');
-const { dataForSeoProvider, dfsLocation, normaliseDataForSeo, normaliseDataForSeoVolume } = await import('./dataforseo');
+const { dataForSeoProvider, dfsLocation, normaliseDataForSeo, normaliseDataForSeoIdeas, normaliseDataForSeoVolume } = await import('./dataforseo');
 const { ProviderNotConfiguredError } = await import('../types');
 
 function fixture<T>(name: string): T {
@@ -157,5 +157,69 @@ describe('DataForSEO', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe(`Basic ${Buffer.from('org-login:org-pass').toString('base64')}`);
     expect(JSON.parse(init.body as string)).toEqual([{ keyword: 'wide hiking boots', location_name: 'United States', language_code: 'en', device: 'mobile', depth: 20 }]);
     expect(serp.billedUnits).toBe(2);
+  });
+});
+
+describe('the local pack', () => {
+  const PACK = [
+    { position: 1, name: 'Northwind Home Services', rating: 4.8, reviews: 212, category: 'Plumber', website: 'https://www.northwind-home.example/', domain: 'northwind-home.example', address: '120 Example St, Fairview' },
+    { position: 2, name: 'Lakeside Plumbing Co', rating: 4.6, reviews: 1204, category: 'Water heater installation service', website: 'https://lakeside-plumbing.example/water-heaters', domain: 'lakeside-plumbing.example', address: '45 Oak Ave, Lakeside' },
+    { position: 3, name: 'Fairview Rooter & Drain', category: 'Plumber', address: '8 Market Rd, Fairview' },
+  ];
+
+  it('reads Serper\'s places, numbers given as text included', () => {
+    const serp = normaliseSerper({ query: 'water heater repair fairview' }, fixture<SerperResponse>('serper-local.json'), AT);
+
+    expect(serp.localPack).toEqual(PACK);
+  });
+
+  it('reads SerpApi\'s local results', () => {
+    const serp = normaliseSerpApi({ query: 'water heater repair fairview' }, fixture<SerpApiResponse>('serpapi-local.json'), AT);
+
+    expect(serp.localPack).toEqual(PACK);
+    expect(normaliseSerpApi({ query: 'q' }, { local_results: [{ title: 'Northwind Home Services', rating: 4.8 }] }, AT).localPack).toEqual([{ position: 1, name: 'Northwind Home Services', rating: 4.8 }]);
+  });
+
+  it('reads DataForSEO\'s local_pack items, which carry no address or category, and keeps them out of organic', () => {
+    const data = fixture<DataForSeoResponse<DataForSeoSerpResult>>('dataforseo-local.json');
+    const serp = normaliseDataForSeo({ query: 'water heater repair fairview' }, data.tasks![0]!.result![0]!, AT, 1);
+
+    expect(serp.localPack).toEqual([
+      { position: 1, name: 'Northwind Home Services', rating: 4.8, reviews: 212, website: 'https://www.northwind-home.example/', domain: 'northwind-home.example' },
+      { position: 2, name: 'Lakeside Plumbing Co', rating: 4.6, reviews: 1204, website: 'https://lakeside-plumbing.example/water-heaters', domain: 'lakeside-plumbing.example' },
+      { position: 3, name: 'Fairview Rooter & Drain' },
+    ]);
+    expect(serp.organic.map(r => r.domain)).toEqual(['yelp.com', 'northwind-home.example']);
+  });
+
+  it('is empty, not missing, when the page shows none', () => {
+    expect(normaliseSerper({ query: 'q' }, {}, AT).localPack).toEqual([]);
+    expect(normaliseSerpApi({ query: 'q' }, {}, AT).localPack).toEqual([]);
+  });
+});
+
+describe('DataForSEO keyword ideas', () => {
+  it('reads Google Ads ideas, highest volume first, without the seeds or repeats', () => {
+    const result = normaliseDataForSeoIdeas(fixture<DataForSeoResponse<DataForSeoVolumeResult>>('dataforseo-ideas.json'), { location: 'United States', language: 'en', seeds: ['water heater repair'] }, AT);
+
+    expect(result.ideas.map(i => [i.keyword, i.searchVolume])).toEqual([['water heater leaking', 22200], ['tankless water heater repair', 2400], ['hot water heater pilot light', null]]);
+    expect(result.ideas[0]!.monthly).toEqual([{ year: 2026, month: 9, searchVolume: 24000 }]);
+  });
+
+  it('asks keywords_for_keywords with at most 20 seeds', async () => {
+    process.env.DATAFORSEO_LOGIN = 'server-login';
+    process.env.DATAFORSEO_PASSWORD = 'server-pass';
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify(fixture('dataforseo-ideas.json'))));
+    vi.stubGlobal('fetch', fetchMock);
+    const seeds = Array.from({ length: 25 }, (_, i) => `seed ${i}`);
+
+    const result = await dataForSeoProvider().keywordIdeas!(seeds, { location: 'Fairview, Oregon, United States' });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+
+    expect(url).toBe('https://api.dataforseo.com/v3/keywords_data/google_ads/keywords_for_keywords/live');
+    expect(JSON.parse(init.body as string)[0]).toMatchObject({ location_name: 'Fairview,Oregon,United States', language_code: 'en', sort_by: 'search_volume' });
+    expect(JSON.parse(init.body as string)[0].keywords).toHaveLength(20);
+    expect(result.seeds).toHaveLength(20);
   });
 });

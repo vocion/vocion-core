@@ -1,12 +1,18 @@
-import type { KeywordMetricsResult, SerpCallOptions, SerpProvider, SerpQuery, SerpResult } from './types';
+import type { KeywordIdeasResult, KeywordMetric, KeywordMetricsResult, SerpCallOptions, SerpLocalResult, SerpProvider, SerpQuery, SerpResult } from './types';
 import type { CredentialValues } from '@/libs/platforms/registry';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { resolveToolProviderCredential } from '../orgKey';
 import { ProviderNotConfiguredError } from '../types';
-import { clampNum, domainOf } from './types';
+import { clampNum, domainOf, numberOf } from './types';
 
 const API = 'https://api.dataforseo.com/v3';
+
+/** Seeds one keyword-ideas task takes (Google Ads keywords_for_keywords). */
+export const KEYWORD_IDEA_SEEDS = 20;
+
+/** Ideas kept from one call, highest volume first: evidence, not the whole long tail. */
+const KEYWORD_IDEAS_CAP = 200;
 
 /** One item on DataForSEO's advanced SERP; only the fields read here. */
 type DfsItem = {
@@ -17,6 +23,8 @@ type DfsItem = {
   title?: string;
   description?: string;
   timestamp?: string | null;
+  /** On a `local_pack` item: the stars and how many reviews. */
+  rating?: { value?: number | string | null; votes_count?: number | string | null } | null;
   items?: Array<string | { type?: string; title?: string; expanded_element?: Array<{ url?: string; description?: string }> }>;
 };
 
@@ -46,8 +54,9 @@ export type DataForSeoVolumeResult = {
 
 /**
  * DataForSEO — Google Organic "Live Advanced" for the results page, and
- * Google Ads search volume for keyword metrics: the one provider here that
- * can say how many people search a term.
+ * Google Ads search volume and keyword ideas for keyword metrics: the one
+ * provider here that can say how many people search a term, or what else
+ * they search.
  *
  * Its credential is a pair (API login + API password, Basic auth). The org's
  * stored pair wins; else `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`.
@@ -106,6 +115,23 @@ export function dataForSeoProvider(): SerpProvider {
         throw new Error(`DataForSEO search volume failed: HTTP ${res.status}`);
       }
       return normaliseDataForSeoVolume((await res.json()) as DataForSeoResponse<DataForSeoVolumeResult>, { location, language }, new Date());
+    },
+    async keywordIdeas(seeds, where, opts) {
+      const location = dfsLocation(where.location);
+      const language = (where.language ?? 'en').toLowerCase();
+      // Google Ads "keywords for keywords" (Keyword Planner's ideas) takes up
+      // to 20 seeds per task.
+      const keywords = seeds.slice(0, KEYWORD_IDEA_SEEDS);
+      const res = await fetch(`${API}/keywords_data/google_ads/keywords_for_keywords/live`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': await auth(opts) },
+        body: JSON.stringify([{ keywords, location_name: location, language_code: language, sort_by: 'search_volume' }]),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) {
+        throw new Error(`DataForSEO keyword ideas failed: HTTP ${res.status}`);
+      }
+      return normaliseDataForSeoIdeas((await res.json()) as DataForSeoResponse<DataForSeoVolumeResult>, { location, language, seeds: keywords }, new Date());
     },
   };
 }
@@ -170,6 +196,21 @@ export function normaliseDataForSeo(q: SerpQuery, result: DataForSeoSerpResult, 
       ...(i.timestamp ? { date: i.timestamp.slice(0, 10) } : {}),
     }));
   const featured = items.find(i => i.type === 'featured_snippet');
+  const localPack: SerpLocalResult[] = items
+    .filter(i => i.type === 'local_pack' && i.title)
+    .map((i, n) => {
+      const rating = numberOf(i.rating?.value);
+      const reviews = numberOf(i.rating?.votes_count);
+      const domain = (i.domain ?? (i.url ? domainOf(i.url) : '')).replace(/^www\./, '');
+      return {
+        position: n + 1,
+        name: i.title!.trim(),
+        ...(rating !== undefined ? { rating } : {}),
+        ...(reviews !== undefined ? { reviews } : {}),
+        ...(i.url ? { website: i.url } : {}),
+        ...(domain ? { domain } : {}),
+      };
+    });
   const paa = items.filter(i => i.type === 'people_also_ask').flatMap(i => i.items ?? []);
   const related = items.filter(i => i.type === 'related_searches').flatMap(i => i.items ?? []);
   return {
@@ -189,6 +230,7 @@ export function normaliseDataForSeo(q: SerpQuery, result: DataForSeoSerpResult, 
         return { question: e.title!, ...(answer?.description ? { snippet: answer.description } : {}), ...(answer?.url ? { url: answer.url } : {}) };
       }),
     relatedSearches: related.filter((r): r is string => typeof r === 'string'),
+    localPack,
     adsCount: items.filter(i => i.type === 'paid').length,
     retrievedAt: (result.datetime ? new Date(result.datetime.replace(' +00:00', 'Z').replace(' ', 'T')) : at).toISOString(),
     billedUnits: pages,
@@ -212,17 +254,57 @@ export function normaliseDataForSeoVolume(data: DataForSeoResponse<DataForSeoVol
     provider: 'dataforseo',
     location: where.location,
     language: where.language,
-    metrics: (task.result ?? []).filter(r => r.keyword).map(r => ({
-      keyword: r.keyword!,
-      searchVolume: r.search_volume ?? null,
-      cpc: r.cpc ?? null,
-      competition: r.competition ?? null,
-      competitionIndex: r.competition_index ?? null,
-      ...(r.monthly_searches?.length
-        ? { monthly: r.monthly_searches.slice(0, 12).map(m => ({ year: m.year ?? 0, month: m.month ?? 0, searchVolume: m.search_volume ?? null })) }
-        : {}),
-    })),
+    metrics: (task.result ?? []).filter(r => r.keyword).map(metricOf),
     retrievedAt: at.toISOString(),
     billedUnits: 1,
   };
+}
+
+/**
+ * One Google Ads keyword row in the one shape.
+ * @param r - DataForSEO's row.
+ */
+function metricOf(r: DataForSeoVolumeResult): KeywordMetric {
+  return {
+    keyword: r.keyword!,
+    searchVolume: r.search_volume ?? null,
+    cpc: r.cpc ?? null,
+    competition: r.competition ?? null,
+    competitionIndex: r.competition_index ?? null,
+    ...(r.monthly_searches?.length
+      ? { monthly: r.monthly_searches.slice(0, 12).map(m => ({ year: m.year ?? 0, month: m.month ?? 0, searchVolume: m.search_volume ?? null })) }
+      : {}),
+  };
+}
+
+/**
+ * DataForSEO's Google Ads keyword ideas in the one shape: highest volume
+ * first, the seeds themselves left out, capped.
+ * @param data - The envelope.
+ * @param where - What was asked.
+ * @param where.location - DataForSEO location name.
+ * @param where.language - Language code.
+ * @param where.seeds - The seed keywords.
+ * @param at - When it was read.
+ */
+export function normaliseDataForSeoIdeas(data: DataForSeoResponse<DataForSeoVolumeResult>, where: { location: string; language: string; seeds: string[] }, at: Date): KeywordIdeasResult {
+  const task = data.tasks?.[0];
+  if (data.status_code !== 20000 || !task || task.status_code !== 20000) {
+    throw new Error(`DataForSEO keyword ideas: ${task?.status_message ?? data.status_message ?? 'no task came back'}`);
+  }
+  const seeds = new Set(where.seeds.map(s => s.trim().toLowerCase()));
+  const seen = new Set<string>();
+  const ideas = (task.result ?? [])
+    .filter((r) => {
+      const k = r.keyword?.trim().toLowerCase();
+      if (!k || seeds.has(k) || seen.has(k)) {
+        return false;
+      }
+      seen.add(k);
+      return true;
+    })
+    .map(metricOf)
+    .sort((a, b) => (b.searchVolume ?? -1) - (a.searchVolume ?? -1))
+    .slice(0, KEYWORD_IDEAS_CAP);
+  return { provider: 'dataforseo', location: where.location, language: where.language, seeds: where.seeds, ideas, retrievedAt: at.toISOString(), billedUnits: 1 };
 }
