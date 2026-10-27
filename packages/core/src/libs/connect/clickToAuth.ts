@@ -16,6 +16,7 @@ export const KEY_ONLY_CONNECTORS: Readonly<Record<string, { reason: string; vend
   mixpanel: { reason: 'Mixpanel exports with a service account; it has no OAuth for data access.', vendorHasLogin: false },
   amplitude: { reason: 'Amplitude exports with an API key and secret.', vendorHasLogin: false },
   granola: { reason: 'Granola\'s public API takes an API key; its OAuth login belongs to its MCP server, which connects as an MCP source.', vendorHasLogin: false },
+  freshdesk: { reason: 'Freshdesk\'s API authenticates with an agent\'s API key; it offers no OAuth for API access.', vendorHasLogin: false },
   mcp: { reason: 'An MCP server signs in through its own OAuth, discovered when it is added (`/api/connect/mcp/start`), or takes a header key.', vendorHasLogin: false },
   // The vendor has a login Vocion has not built yet: a key works today, and
   // each of these is a follow-up to give it a login like the rest.
@@ -29,6 +30,11 @@ export const KEY_ONLY_CONNECTORS: Readonly<Record<string, { reason: string; vend
   snowflake: { reason: 'Snowflake OAuth needs a security integration in each account; Vocion connects with a key pair today.', vendorHasLogin: true },
   bigquery: { reason: 'BigQuery could ride the Google login (bigquery scope); Vocion connects with a service account today.', vendorHasLogin: true },
   databricks: { reason: 'Databricks supports OAuth; Vocion connects with a personal access token today.', vendorHasLogin: true },
+  zendesk: { reason: 'Zendesk supports OAuth through a global OAuth client; Vocion connects with an API token today.', vendorHasLogin: true },
+  intercom: { reason: 'Intercom apps can use OAuth; Vocion connects with an access token today.', vendorHasLogin: true },
+  linear: { reason: 'Linear supports OAuth 2.0 apps; Vocion connects with a personal API key today.', vendorHasLogin: true },
+  gitlab: { reason: 'GitLab supports OAuth 2.0 applications, per instance on self-managed; Vocion connects with an access token today.', vendorHasLogin: true },
+  pagerduty: { reason: 'PagerDuty supports OAuth 2.0 apps; Vocion connects with a REST API key today.', vendorHasLogin: true },
 };
 
 /**
