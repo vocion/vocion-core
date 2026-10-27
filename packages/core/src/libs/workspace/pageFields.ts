@@ -674,10 +674,12 @@ const ReportSchema = z.object({
  * What the `configure` archetype's tabs can hold — one relation of the page's
  * plugin each: its agents as seats, its skills and playbooks, its
  * automations, its trust rules, what it learned from use, and its team's
- * measures. A closed set because each is a read core owns; a plugin chooses
- * which it shows and in what order, never what they mean.
+ * measures — and the records of one object type the plugin names (`records`,
+ * with `type`: the software factory's repos, FE-535, 2026-10-26: "I don't know
+ * where to find anything"). A closed set because each is a read core owns; a
+ * plugin chooses which it shows and in what order, never what they mean.
  */
-export const CONFIGURE_TAB_KINDS = ['seats', 'skills', 'automations', 'trust', 'learned', 'measures'] as const;
+export const CONFIGURE_TAB_KINDS = ['seats', 'skills', 'automations', 'trust', 'learned', 'measures', 'records'] as const;
 export type ConfigureTabKind = typeof CONFIGURE_TAB_KINDS[number];
 
 /**
@@ -701,7 +703,11 @@ export const ConfigureBlocksSchema = z.object({
     kind: z.enum(CONFIGURE_TAB_KINDS),
     /** The tab's name, when the plugin's word for it differs ("Seats" → "Agents"). */
     label: z.string().min(1).max(40).optional(),
-  })).min(1).default(CONFIGURE_TAB_KINDS.map(kind => ({ kind }))),
+    /** For `records`: the object type whose records it lists. */
+    type: z.string().min(1).max(64).optional(),
+    /** For `records`: the fields each row says under its name, in order (`url`, `product`, `checks`). */
+    facts: z.array(z.string().min(1).max(64)).max(4).optional(),
+  }).refine(t => t.kind !== 'records' || Boolean(t.type), { message: 'A records tab names its object type (`type:`).' })).min(1).default(CONFIGURE_TAB_KINDS.filter(k => k !== 'records').map(kind => ({ kind }))),
   aside: z.array(z.object({
     kind: z.enum(CONFIGURE_ASIDE_KINDS),
     label: z.string().min(1).max(40).optional(),

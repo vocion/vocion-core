@@ -34,7 +34,8 @@ export async function ConfigurePage(props: {
       </>
     );
   }
-  const input = await loadConfigure(props.orgId, plugin, new Date(props.now));
+  const records = manifest.configure?.tabs.find(t => t.kind === 'records');
+  const input = await loadConfigure(props.orgId, plugin, new Date(props.now), records?.type ? { records: { type: records.type, facts: records.facts ?? [] } } : {});
   const view = planConfigure(input, manifest.configure, { tab: props.searchParams[CONFIGURE_TAB_PARAM], now: props.now });
   return (
     <>
