@@ -57,20 +57,59 @@ export function togglePin(pins: string[], url: string): string[] {
   return pins.includes(url) ? pins.filter(p => p !== url) : [...pins, url];
 }
 
+/** Where a dragged pin lands relative to the row it was dropped on. */
+export type PinPlace = 'before' | 'after';
+
 /**
- * Move a pin to a new index (drag-to-reorder); no-op for unknown urls.
- * @param pins
- * @param url
- * @param toIndex
+ * Move a pin next to another one: the reorder a drop or a keystroke makes.
+ *
+ * It names the TARGET PIN, never an index, because a group shows only some of
+ * the person's pins — the Pinned group holds pages and Manage rows, the main
+ * list holds the work rows, and a pin whose page is gone is kept but drawn
+ * nowhere. An index taken from what one group shows, applied to the whole
+ * list, lands one or more places off whenever a pin it does not show sits
+ * before it (a drag down by one did nothing at all). Moving next to a named
+ * pin is right whatever else the list holds. No-op when either is unknown, or
+ * when they are the same pin.
+ * @param pins - The whole pin order.
+ * @param url - The pin being moved.
+ * @param target - The pin it was dropped on.
+ * @param place - Before or after the target.
  */
-export function movePin(pins: string[], url: string, toIndex: number): string[] {
-  const from = pins.indexOf(url);
-  if (from === -1) {
-    return pins;
+export function movePinNear(pins: readonly string[], url: string, target: string, place: PinPlace): string[] {
+  if (url === target || !pins.includes(url) || !pins.includes(target)) {
+    return [...pins];
   }
   const next = pins.filter(p => p !== url);
-  next.splice(Math.max(0, Math.min(toIndex, next.length)), 0, url);
+  const at = next.indexOf(target) + (place === 'after' ? 1 : 0);
+  next.splice(at, 0, url);
   return next;
+}
+
+/**
+ * The move one step up or down a group makes (Alt+↑/↓, or Move up / Move down
+ * on a phone's long-press menu): next to the neighbour the person can SEE, so
+ * a pin the group does not show is never the thing it steps over. Null at
+ * either end.
+ * @param shown - The group's reorderable rows, in the order they are drawn.
+ * @param url - The pin being moved.
+ * @param delta - -1 up, +1 down.
+ */
+export function pinStep(shown: readonly string[], url: string, delta: -1 | 1): { target: string; place: PinPlace } | null {
+  const i = shown.indexOf(url);
+  const target = i === -1 ? undefined : shown[i + delta];
+  return target === undefined ? null : { target, place: delta < 0 ? 'before' : 'after' };
+}
+
+/**
+ * Which half of a row the pointer is over: the drop line goes there.
+ * @param pointerY - The pointer's clientY.
+ * @param rect - The row's box.
+ * @param rect.top - Its top.
+ * @param rect.height - Its height.
+ */
+export function dropPlace(pointerY: number, rect: { top: number; height: number }): PinPlace {
+  return pointerY < rect.top + rect.height / 2 ? 'before' : 'after';
 }
 
 /**

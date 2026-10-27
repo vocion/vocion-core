@@ -3,7 +3,7 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ElsewhereApp } from './nav/AppNotHereNotice';
 import type { RailApp } from './nav/AppRail';
-import type { PinnableItem } from './nav/navPins';
+import type { PinnableItem, PinPlace } from './nav/navPins';
 import type { SwitcherProject, WorkspaceSwitcherTargetPath } from './nav/workspaceSwitch';
 import type { GettingStartedState } from '@/features/dashboard/GettingStartedChecklist';
 import type { AppNav } from '@/features/navigation/apps';
@@ -299,16 +299,26 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   // including a pinnable route its app also lists. A person's own pins and
   // unpins win (`resolveWorkPins`).
   const workDefaults = useMemo(() => [...new Set([...DEFAULT_WORK_PINS, ...pluginWorkspace.map(i => i.url), ...(pluginNav?.pinnedByDefault ?? [])])], [pluginWorkspace, pluginNav]);
-  const workPins = resolveWorkPins({ pins: prefs.pins, dismissed: prefs.dismissed, defaults: workDefaults });
-  const workShown = workCore.length + applyPins(workOptional, workPins).length;
+  const workPins = useMemo(() => resolveWorkPins({ pins: prefs.pins, dismissed: prefs.dismissed, defaults: workDefaults }), [prefs.pins, prefs.dismissed, workDefaults]);
+  // The pinned work rows, in the order the main list draws them — the rows it can reorder.
+  const workPinnedShown = applyPins(workOptional, workPins);
+  const workShown = workCore.length + workPinnedShown.length;
   // Unpinning a default records the choice; everything else is a plain toggle.
+  // A default can also be in the stored pins — reordering the work rows stores
+  // their whole order — and unpinning it then takes it out of both, or it
+  // would come straight back as a default.
   const toggleWorkPin = (url: string) => {
-    if (workDefaults.includes(url) && workPins.includes(url) && !prefs.pins.includes(url)) {
+    if (workDefaults.includes(url) && workPins.includes(url)) {
       prefs.dismiss(defaultPinDismissal(url));
+      if (prefs.pins.includes(url)) {
+        prefs.togglePin(url);
+      }
       return;
     }
     prefs.togglePin(url);
   };
+  // A move among them is made in the work order (defaults included) and stored whole.
+  const moveWorkPin = (url: string, target: string, place: PinPlace) => prefs.movePin(url, target, place, workPins);
 
   // Tenant pages only. Artifacts used to join this group as "saved canvases";
   // they are a WORK row of their own now (registry), with their own log.
@@ -349,6 +359,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
 
   const pinnable = useMemo(() => [...pageItems, ...manageItems], [pageItems, manageItems]);
   const pinned = applyPins(pinnable, prefs.pins);
+  const pinnedOrder = pinned.map(i => i.url);
   const unpinnedPages = withoutPins(pageItems, prefs.pins);
   const pagesPrimaryFirst = useMemo(
     () => [...unpinnedPages].sort((a, b) => Number(secondaryUrls.has(a.url)) - Number(secondaryUrls.has(b.url))),
@@ -371,7 +382,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   // nav missing?"), so they are also rows here, above More.
   const desktopApps: PinnableItem[] = isMobile ? [] : apps.filter(a => a.id !== activeAppId && !a.core).map(a => ({ title: a.name, url: a.href, icon: iconByName(a.icon), origin: 'work' as const, pinnable: false as const }));
   const mobileApps = isMobile ? railApps.filter(a => a.id !== activeAppId).map(a => ({ title: a.name, url: a.href, icon: iconByName(a.icon), origin: 'work' as const, pinnable: false as const })) : [];
-  const mainItems = [...workCore, ...applyPins(workOptional, workPins), ...folded, ...desktopApps, ...withoutPins(workOptional, workPins), ...mobileApps];
+  const mainItems = [...workCore, ...workPinnedShown, ...folded, ...desktopApps, ...withoutPins(workOptional, workPins), ...mobileApps];
   const mainShown = workShown + folded.length + desktopApps.length;
   const mainPins = useMemo(() => [...new Set([...workPins, ...prefs.pins])], [workPins, prefs.pins]);
   const manageGroup = (section: { label: string; items: PinnableItem[] }) => (
@@ -388,7 +399,8 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     />
   );
 
-  const pinLabels = { moreLabel: t('more_pages'), pinLabel: t('pin'), unpinLabel: t('unpin') };
+  const moveLabels = { moveUpLabel: t('move_up'), moveDownLabel: t('move_down') };
+  const pinLabels = { moreLabel: t('more_pages'), pinLabel: t('pin'), unpinLabel: t('unpin'), ...moveLabels };
 
   const manageRow = (
     <div className="px-2 pb-1 group-data-[collapsible=icon]:px-0">
@@ -449,10 +461,13 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                     items={mainItems}
                     pins={mainPins}
                     onTogglePin={toggleWorkPin}
+                    onMovePin={moveWorkPin}
+                    order={workPinnedShown.map(i => i.url)}
                     max={mainShown}
                     moreLabel={t('more')}
                     pinLabel={t('pin')}
                     unpinLabel={t('unpin')}
+                    {...moveLabels}
                   />
 
                   {/* PINNED — this person's pins, in pin order, draggable. */}
@@ -463,8 +478,8 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                       pins={prefs.pins}
                       onTogglePin={prefs.togglePin}
                       onMovePin={prefs.movePin}
+                      order={pinnedOrder}
                       max={99}
-                      reorderable
                       {...pinLabels}
                     />
                   )}
@@ -533,7 +548,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                   {/* MANAGE — who works for you + the shapes their work takes.
                       Every row is pinnable into the WORK view's Pinned group. */}
                   {pinned.length > 0 && (
-                    <PinnableNav label={t('pinned')} items={pinned} pins={prefs.pins} onTogglePin={prefs.togglePin} onMovePin={prefs.movePin} max={99} reorderable {...pinLabels} />
+                    <PinnableNav label={t('pinned')} items={pinned} pins={prefs.pins} onTogglePin={prefs.togglePin} onMovePin={prefs.movePin} order={pinnedOrder} max={99} {...pinLabels} />
                   )}
                   {manageSections.map(manageGroup)}
                   <AppSidebarNav items={[{ title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText }]} />

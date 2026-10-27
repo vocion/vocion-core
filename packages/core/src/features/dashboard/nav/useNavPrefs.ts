@@ -1,8 +1,9 @@
 'use client';
 
+import type { PinPlace } from './navPins';
 import { useCallback, useEffect, useState } from 'react';
 import { client } from '@/libs/Orpc';
-import { movePin as movePinPure, togglePin as togglePinPure } from './navPins';
+import { movePinNear, togglePin as togglePinPure } from './navPins';
 
 /**
  * Per-user sidebar prefs with a localStorage fast path and the
@@ -64,7 +65,18 @@ export function useNavPrefs() {
   }, []);
 
   const togglePin = useCallback((url: string) => persistPins(togglePinPure(pins, url)), [pins, persistPins]);
-  const movePin = useCallback((url: string, toIndex: number) => persistPins(movePinPure(pins, url, toIndex)), [pins, persistPins]);
+  /**
+   * Reorder: `url` lands before or after `target`. `order` is the list the
+   * move is made in when it is not the stored pins — the main list's work
+   * rows, which start with defaults the person never pinned themselves; the
+   * whole of it is stored, so the order sticks across reloads and devices.
+   */
+  const movePin = useCallback((url: string, target: string, place: PinPlace, order: readonly string[] = pins) => {
+    const next = movePinNear(order, url, target, place);
+    if (next.some((p, i) => p !== order[i])) {
+      persistPins(next);
+    }
+  }, [pins, persistPins]);
 
   const dismiss = useCallback((id: string) => {
     const next = dismissed.includes(id) ? dismissed : [...dismissed, id];

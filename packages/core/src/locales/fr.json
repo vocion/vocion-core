@@ -34,6 +34,8 @@
     "more": "Plus",
     "pin": "Épingler",
     "unpin": "Désépingler",
+    "move_up": "Monter",
+    "move_down": "Descendre",
     "invite_title": "Inviter des collègues",
     "invite_body": "Faites venir les personnes qui relisent et décident dans cet espace.",
     "invite_cta": "Inviter",
