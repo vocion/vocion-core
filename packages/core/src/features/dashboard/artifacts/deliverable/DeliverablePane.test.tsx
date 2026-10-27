@@ -221,6 +221,32 @@ describe('the deliverable pane', () => {
 
     await vi.waitFor(() => expect(closed).toHaveBeenCalledWith(false));
   });
+
+  it('stays full screen while the slides move', async () => {
+    const request = vi.spyOn(HTMLElement.prototype, 'requestFullscreen').mockResolvedValue(undefined);
+    const exit = vi.spyOn(document, 'exitFullscreen').mockResolvedValue(undefined);
+    const fullscreen = vi.spyOn(document, 'fullscreenElement', 'get').mockImplementation(() => document.querySelector('[data-present-mode]'));
+    try {
+      renderPane({ presenting: true, onPresentingChange: vi.fn() });
+
+      await expect.element(page.getByText('1 / 3')).toBeVisible();
+
+      await userEvent.keyboard('{ArrowRight}');
+
+      await expect.element(page.getByText('2 / 3')).toBeVisible();
+
+      await page.getByRole('button', { name: 'Next slide' }).click();
+
+      await expect.element(page.getByText('3 / 3')).toBeVisible();
+
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(exit).not.toHaveBeenCalled();
+    } finally {
+      request.mockRestore();
+      exit.mockRestore();
+      fullscreen.mockRestore();
+    }
+  });
 });
 
 describe('text edits on the stored page', () => {
