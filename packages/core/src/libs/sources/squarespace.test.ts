@@ -36,7 +36,7 @@ describe('the Squarespace connector', () => {
     expect(out.error).toMatch(/The blog at \/; The API key belongs to this site; An editor login is stored for publishing: not yet\./);
   });
 
-  it('reads the blog\'s posts with their addresses on the site, and finds a published one by slug or title', async () => {
+  it('reads the blog\'s posts with their addresses on the site, and finds a published one by its slug alone', async () => {
     expect(postsFromJson(FIXTURE_BLOG_JSON, FIXTURE_SITE_URL)[0]).toEqual({
       title: 'Layering for Shoulder Season',
       url: 'https://example-site.squarespace.com/journal/layering-for-shoulder-season',
@@ -44,9 +44,10 @@ describe('the Squarespace connector', () => {
       publishedAt: new Date(1_790_000_000_000).toISOString(),
       excerpt: 'Three layers, and when to shed each one.',
     });
-    expect((await findPublishedPost(FIXTURE_SITE_URL, '/journal', { slug: 'choose-a-three-season-tent', title: 'x' })).post?.url).toBe('https://example-site.squarespace.com/journal/choose-a-three-season-tent');
-    expect((await findPublishedPost(FIXTURE_SITE_URL, '/journal', { slug: 'other', title: 'layering for shoulder season' })).post?.slug).toBe('layering-for-shoulder-season');
-    expect((await findPublishedPost(FIXTURE_SITE_URL, '/journal', { slug: 'a-draft', title: 'A Draft' })).post).toBeNull();
+    expect((await findPublishedPost(FIXTURE_SITE_URL, '/journal', { slug: 'choose-a-three-season-tent' })).post?.url).toBe('https://example-site.squarespace.com/journal/choose-a-three-season-tent');
+    // By slug alone: the same title at another slug is another post.
+    expect((await findPublishedPost(FIXTURE_SITE_URL, '/journal', { slug: 'layering-for-shoulder-season-2' })).post).toBeNull();
+    expect((await findPublishedPost(FIXTURE_SITE_URL, '/journal', { slug: 'a-draft' })).post).toBeNull();
     expect(blogUrlOf(`${FIXTURE_SITE_URL}/`, null)).toBe('https://example-site.squarespace.com/blog');
     // 7.1 names the layout after the type.
     expect(isBlogCollection({ collection: { typeName: 'blog-side-by-side' } })).toBe(true);

@@ -55,36 +55,43 @@ publishTargets:
       blogPath: /journal
 ```
 
-`site.publish_page` (`{ pageRecordId }`, or `{ projectId, publishTargetId,
-artifactId, slug, title, metaDescription }`) always waits for a person. Its
-Review card shows the site and blog, the URL the post will have, the title, the
-meta description and the page rendered. Then two browser runs, in the
-approver's browser:
+`site.publish_page` (`{ pageRecordId }`; the explicit `{ projectId,
+publishTargetId, artifactId, slug, title, metaDescription }` only for a project
+whose pages the SEO app does not track) always waits for a person's decision on
+its card, a word in chat included (`requiresReviewDecision`). It publishes only
+a page whose sign-off covers the draft as it stands: the same artifact, and the
+same version when the sign-off records one. The page's own `metaTitle`,
+`metaDescription` and `slug` fill the SEO fields; a trailing "Meta title / Meta
+description / Slug" block left in the body is kept off the page. A location,
+service or landing page is refused on a Squarespace target, which takes blog
+posts only. A post already live at the page's slug that is not this page's is
+never overwritten or claimed.
 
-1. **The draft.** Approving the card starts it and is the approval for its
-   writes: starting a post (Squarespace 7.1's **Add blog post**) and pressing
-   Save on a post that stays a draft (an exact list of button names, sealed
-   with the run's secrets: `DRAFT_SAVE_WRITES` in
-   `services/publish/squarespaceTask.ts`). The run signs in, opens the blog in
-   the Pages panel, adds a post (or reopens a draft with the same title, or an
-   untitled draft an earlier attempt left), presses Edit, types the title into
-   "Enter a post title…", pastes the article into "Write here…" as formatted
-   text (headings and lists kept), opens Blog Post Settings from the post's
-   name in the top bar and sets the Excerpt and Post URL (Content) and the SEO
-   title and description (SEO), and presses Save, never PUBLISH. The article
-   reaches the editor as `{{body_html}}`, a secret input the browser pastes, so
-   the model reads the editor rather than the whole article on every step.
-2. **Going live.** Once the draft is saved, a second run reopens it in the same
-   browser and presses Publish. Nothing is approved ahead for it, so the
-   browser holds that click for the person, with the draft on screen. Decline,
-   or no answer within 30 minutes, leaves the draft.
+1. **The draft** (`site.publish_page`). Approving the card starts a browser
+   run in the approver's browser, or queues it behind their other publish runs
+   (one at a time, oldest first, started by the job that follows them). The
+   engine enforces what the approval covers (`DRAFT_APPROVED_AHEAD` in
+   `services/publish/squarespaceTask.ts`): starting a post (**Add blog post**),
+   and Save only while the editor shows the post as `Post · Draft`, read off
+   the page at the click. Any click or choice naming Publish or Schedule, the
+   status menu's Published included, waits for the person whatever its role,
+   and Save on a post that is not a draft waits too. The run finds this page's
+   own post by its URL slug (signed in, a draft shows at its address), or adds
+   one; it never opens another post. It types the title, pastes the article
+   into "Write here…" as formatted text (headings and lists kept), sets the
+   Excerpt and Post URL (Content) and the SEO title and description (SEO) in
+   Blog Post Settings, and presses Save.
+2. **Going live** (`site.publish_live`, `{ pageRecordIds }`). One card lists
+   the drafted posts; approving it covers each run's Publish click, on its own
+   post only (allowed while that post's title is on the page). One run per
+   post, in turn.
 
-The `site.publish-settle` job follows both runs, then reads the post back from
-`<siteUrl><blogPath>?format=json` and writes on the page record:
-`status: published` and `publishedUrl` once the site lists it,
-`squarespaceDraftUrl` and the run's link while it is a draft, and the reason
-when a run could not finish. A run that says it published but a blog that does
-not list the post is recorded as exactly that, never as live.
+The `site.publish-settle` job follows each run and reads the post back from
+`<siteUrl><blogPath>?format=json` by its slug alone. The page record gets
+`squarespaceDraft` once the draft is saved, and `status: published` with
+`publishedUrl` once the site lists it live; only then does the publish count on
+the SEO team's "Pages published" (`rows: published-pages`). A run that says it
+published while the blog does not list the post is recorded as exactly that.
 
 There is no Undo: once saved, the post is the site's. Delete it in the
 Squarespace editor if it should go.

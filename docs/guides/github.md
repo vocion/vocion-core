@@ -311,19 +311,28 @@ publishTargets:
 - **`site.publish_page`** (`libs/actions/site-publish-page.ts`) always waits
   for a person. The Review card shows the target, the path, the branch, the
   title, the meta description, the page rendered, and the exact file. Approving
-  writes one commit on `vocion/seo-<slug>` and opens its pull request
-  (`services/factory/githubChange.ts`, the same path `repo.open_pull` uses).
-  Publishing the same page again adds a commit to that pull request.
+  writes one commit on `vocion/seo-<slug>-p<page record>` and opens its pull
+  request (`services/factory/githubChange.ts`, the same path `repo.open_pull`
+  uses). Publishing the same page again adds a commit to that pull request; a
+  page from another batch with the same slug gets its own.
+- **No silent overwrite.** A file already at the path on the base branch is
+  replaced only on a refresh (`refresh: true`, or the page's `existingUrl`),
+  and the card then says "replacing".
 - **Never merged from Vocion.** The client's team reviews and merges it. The
-  page record gets `pullRequestUrl` and `status: publishing`, and moves to
-  `published` when they merge it, or back to `approved` when they close it
-  (the `site.publish-merge` job follows the pull request for two weeks).
+  page record gets `pullRequestUrl` and `status: publishing`, then its checks
+  (`pullRequestChecks`) and the preview its host deployed (`previewUrl`, from a
+  Vercel or Netlify status), and moves to `published` when they merge it, or
+  back to `approved` when they close it (the `site.publish-merge` job follows
+  the pull request for two weeks). Only a merge counts on "Pages published".
 - **Undo** closes the pull request and deletes its branch, and puts the page
   record back as it was.
 
 An SEO page (`seo_page`) publishes only once a person has signed off on its
-current draft; its target is the page's `publishTargetId`, else its batch's
-destination.
+current draft, at the version published; its own `metaTitle`,
+`metaDescription` and `slug` are used (`{metaTitle}` is a frontmatter
+placeholder too), and its target is the page's `publishTargetId`, else its
+batch's destination. A project the SEO app tracks publishes by page record
+only.
 
 Input: `{ pageRecordId }`, or with no record yet `{ projectId, publishTargetId,
 artifactId, slug, title, metaDescription }`. Fields given explicitly win over

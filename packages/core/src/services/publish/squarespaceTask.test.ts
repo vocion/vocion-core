@@ -8,7 +8,7 @@ import { needsApproval } from '@/libs/browser/run';
 import { allowedWrite } from '@/services/browser/browserLoop';
 import { PRACTICE_BLOG_ORIGIN, PRACTICE_BLOG_PATH, PRACTICE_BLOG_SIGN_IN } from '@/services/browser/practiceBlog';
 import { practiceResponse } from '@/services/browser/practiceSite';
-import { DRAFT_SAVE_WRITES, draftRun, liveRun, postUrlOf, reportedStatus } from './squarespaceTask';
+import { DRAFT_SAVE_WRITES, DRAFT_START_WRITES, draftRun, isPublishTask, liveRun, postUrlOf, reportedStatus } from './squarespaceTask';
 
 const post = {
   siteUrl: `${PRACTICE_BLOG_ORIGIN}/`,
@@ -31,38 +31,44 @@ describe('the draft run', () => {
     expect(spec.task).toContain('{{password}}');
     expect(spec.task).toContain('{{body_html}}');
     expect(spec.task).not.toContain('Under 2 kg');
-    expect(spec.outputs.map(o => o.name)).toEqual(['post_url', 'editor_url', 'status']);
+    expect(spec.outputs.map(o => o.name)).toEqual(['post_url', 'editor_url', 'post_slug', 'status']);
   });
 
-  it('names every field the editor asks for, as 7.1 names them, pastes the body so headings stay, and never publishes', () => {
-    for (const words of ['Add blog post', 'Enter a post title…', 'Write here…', 'headings and lists kept', 'Blog Post Settings', 'Post URL', 'Excerpt', 'SEO title', 'SEO description', 'never press PUBLISH', 'already on the site', 'No Title']) {
+  it('finds this page\'s own post by its slug, names every field as 7.1 names them, and never publishes', () => {
+    for (const words of ['by its URL slug, whatever its title', 'Never open or change any other post', 'Add blog post', 'Enter a post title…', 'Write here…', 'headings and lists kept', 'Blog Post Settings', 'Post URL', 'Excerpt', 'SEO title', 'SEO description', 'never press PUBLISH', 'already live']) {
       expect(spec.task).toContain(words);
     }
   });
 
-  it('may press Save on the draft without stopping, and nothing that publishes', () => {
+  it('may start a post, and Save only while the editor shows a draft; never anything that publishes', () => {
     const host = 'site.northwind-outfitters.test';
 
-    expect(spec.approvedAhead?.writes).toBe(DRAFT_SAVE_WRITES);
+    expect(spec.approvedAhead?.writes).toBe(DRAFT_START_WRITES);
+    expect(spec.approvedAhead?.whilePageShows).toEqual({ text: 'Post · Draft', writes: DRAFT_SAVE_WRITES });
+    expect(spec.approvedAhead?.alwaysHold).toEqual(['publish', 'schedule']);
+    expect(allowedWrite(DRAFT_START_WRITES, { name: 'Add blog post', host })).toBe(true);
     expect(allowedWrite(DRAFT_SAVE_WRITES, { name: 'Save', host })).toBe(true);
     expect(allowedWrite(DRAFT_SAVE_WRITES, { name: 'save draft', host })).toBe(true);
 
-    for (const name of ['Publish', 'Save & Publish', 'Publish now', 'Schedule', 'Delete']) {
-      expect(allowedWrite(DRAFT_SAVE_WRITES, { name, host })).toBe(false);
+    for (const name of ['Publish', 'PUBLISH', 'Save & Publish', 'Publish now', 'Schedule', 'Delete']) {
+      expect(allowedWrite([...DRAFT_START_WRITES, ...DRAFT_SAVE_WRITES], { name, host })).toBe(false);
     }
+
+    expect(isPublishTask(spec.task)).toBe(true);
   });
 });
 
 describe('the going-live run', () => {
-  it('reopens the draft in the same browser and holds its one click for the person', () => {
-    const spec = liveRun(post, 'https://site.northwind-outfitters.test/config/pages/journal/p9');
+  it('opens this page\'s own draft by its slug, and may press Publish only while that post is on the page', () => {
+    const spec = liveRun(post);
 
-    expect(spec.startUrl).toBe('https://site.northwind-outfitters.test/config/pages/journal/p9');
-    expect(spec.approvedAhead).toBeNull();
-    expect(spec.secretNames).toEqual([]);
-    expect(spec.task).toContain('waits for the person\'s approval');
+    expect(spec.startUrl).toBe('https://site.northwind-outfitters.test/journal/choose-a-three-season-tent');
+    expect(spec.approvedAhead?.writes).toEqual([]);
+    expect(spec.approvedAhead?.whilePageShows?.text).toBe('How to Choose a Three-Season Tent');
+    expect(allowedWrite(spec.approvedAhead!.whilePageShows!.writes, { name: 'Publish', host: 'x' })).toBe(true);
+    expect(isPublishTask(spec.task)).toBe(true);
+    expect(isPublishTask('Sign in to the portal.')).toBe(false);
     expect(needsApproval({ role: 'button', name: 'Publish' })).toBe(true);
-    expect(needsApproval({ role: 'button', name: 'Save' })).toBe(true);
   });
 
   it('reads a run\'s status in one word', () => {
@@ -79,7 +85,7 @@ describe('the practice blog editor', () => {
 
     expect(page?.status).toBe(200);
 
-    for (const words of ['Log In', 'Add blog post', 'Enter a post title…', 'Write here...', 'Blog Post Settings', 'Post URL', 'Excerpt', 'SEO title', 'SEO description', '>Save<', '>PUBLISH<', 'Practice site · fictional data']) {
+    for (const words of ['Log In', 'Add blog post', 'Enter a post title…', 'Write here...', 'Blog Post Settings', 'Post URL', 'Excerpt', 'SEO title', 'SEO description', '>Save<', '>PUBLISH<', 'aria-label="Status"', 'Practice site · fictional data']) {
       expect(page?.body).toContain(words);
     }
 

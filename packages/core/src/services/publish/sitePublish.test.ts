@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstParagraph, markdownToHtml } from './sitePublish';
+import { contentHashOf, firstParagraph, markdownToHtml, signedVersionOf } from './sitePublish';
 
 describe('a page\'s pieces', () => {
   it('takes a description from the draft\'s first paragraph of prose when nobody wrote one', () => {
@@ -13,5 +13,13 @@ describe('a page\'s pieces', () => {
 
   it('renders markdown to HTML with the app\'s own renderer, tables included', async () => {
     expect(await markdownToHtml('## Weight\n\n| a | b |\n| - | - |\n| 1 | 2 |')).toBe('<h2>Weight</h2>\n<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>');
+  });
+
+  it('reads what a sign-off covered, in whichever field it was written', async () => {
+    expect(signedVersionOf({ signoff: { version: 3 } })).toEqual({ version: 3, contentHash: null });
+    expect(signedVersionOf({ signoff: { signedOffVersion: 2, contentHash: 'h' } })).toEqual({ version: 2, contentHash: 'h' });
+    expect(signedVersionOf({ signedOffVersion: 5 })).toEqual({ version: 5, contentHash: null });
+    expect(signedVersionOf({})).toEqual({ version: null, contentHash: null });
+    expect(await contentHashOf('a')).toBe('ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb');
   });
 });

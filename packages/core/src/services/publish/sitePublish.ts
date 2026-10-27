@@ -24,18 +24,24 @@ import type { PageFields, PublishTarget } from '@/libs/publish/targets';
 
 export type PublishRequest = {
   pageRecordId?: number;
+  /** The page replaces one already on the site at its path (a refresh), said so on the card. */
+  refresh?: boolean;
   projectId?: number;
   publishTargetId?: string;
   artifactId?: number;
   slug?: string;
   title?: string;
+  metaTitle?: string;
   metaDescription?: string;
 };
+
+/** Kinds of page a blog-only target cannot hold: they are pages of the site, not posts. */
+const NOT_A_POST = new Set(['location', 'service', 'landing']);
 
 export type PublishPlan = {
   project: { id: number; title: string };
   target: PublishTarget;
-  page: PageFields & { recordId: number | null; descriptionFrom: 'given' | 'record' | 'first paragraph' };
+  page: PageFields & { recordId: number | null; descriptionFrom: 'given' | 'record' | 'first paragraph'; refresh: boolean; publishedUrl: string | null; draftUrl: string | null };
   draft: { artifactId: number; title: string; version: number; markdown: string };
   /** The page record's metadata before this publish, for Undo. */
   before: { status: unknown; pullRequestUrl: unknown; publishedUrl: unknown } | null;
@@ -68,6 +74,48 @@ export function firstParagraph(markdown: string): string {
 }
 
 /**
+ * What the person signed off on, when the sign-off says: the draft's version
+ * (`signoff.version`, `signoff.signedOffVersion` or `signedOffVersion`) and its
+ * content hash. Null when the sign-off does not say, and then the sign-off's
+ * own draft and round check (`signedOff`) is what holds.
+ * @param meta - The page record's metadata.
+ */
+export function signedVersionOf(meta: Meta): { version: number | null; contentHash: string | null } {
+  const signoff = (meta.signoff ?? {}) as Meta;
+  return {
+    version: num(signoff.version) ?? num(signoff.signedOffVersion) ?? num(meta.signedOffVersion),
+    contentHash: text(signoff.contentHash),
+  };
+}
+
+/**
+ * A draft's text, hashed the way a sign-off records it: sha-256, hex.
+ * @param markdown - The text.
+ */
+export async function contentHashOf(markdown: string): Promise<string> {
+  const { createHash } = await import('node:crypto');
+  return createHash('sha256').update(markdown).digest('hex');
+}
+
+/**
+ * Whether a project has pages tracked by the SEO app.
+ * @param orgId - The workspace.
+ * @param projectId - The project.
+ */
+async function projectHasSeoPages(orgId: string, projectId: number): Promise<boolean> {
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ id: businessObjectSchema.id })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, 'seo_page'), sql`(${businessObjectSchema.metadata} ->> 'projectId')::int = ${projectId}`))
+    .limit(1)
+    .catch(() => []);
+  return Boolean(row);
+}
+
+/**
  * The page, its draft, its project and its target, read and checked; or why
  * it cannot publish, said for the person who can fix it. Explicit inputs win
  * over what the page record holds.
@@ -95,6 +143,10 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
       if (!signedOff(record.meta as Parameters<typeof signedOff>[0])) {
         return { ok: false, why: `"${record.title}" is not signed off: a person approves its current draft before it is published (it is ${String(pageMeta.status ?? 'not drafted')}).` };
       }
+      // The sign-off covers that draft and nothing else: never another artifact named in the input.
+      if (input.artifactId && input.artifactId !== num(pageMeta.draftArtifactId)) {
+        return { ok: false, why: `Artifact #${input.artifactId} is not the draft "${record.title}" was signed off on (#${String(pageMeta.draftArtifactId)}).` };
+      }
       const batchId = num(pageMeta.batchId);
       const batch = batchId ? await readRecord(orgId, batchId) : null;
       batchDestination = text(batch?.meta.destination);
@@ -104,6 +156,10 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
   const projectId = input.projectId ?? num(pageMeta.projectId);
   if (!projectId) {
     return { ok: false, why: input.pageRecordId ? `Record #${input.pageRecordId} belongs to no project (metadata.projectId), so there is nowhere it publishes to.` : 'Name the project the page belongs to (projectId).' };
+  }
+  if (!input.pageRecordId && await projectHasSeoPages(orgId, projectId)) {
+    // A project whose pages are tracked publishes them through their records, so the sign-off and the gate hold.
+    return { ok: false, why: 'This project\'s pages are tracked in the SEO app: publish one by its page record (pageRecordId), which carries the sign-off.' };
   }
   const project = await readRecord(orgId, projectId);
   if (!project || project.typeSlug !== 'data_room') {
@@ -126,9 +182,22 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
   if (!artifact) {
     return { ok: false, why: `There is no artifact #${artifactId} in this workspace.` };
   }
-  const markdown = artifact.kind === 'markdown' ? String(artifact.spec.md ?? '') : '';
-  if (!markdown.trim()) {
+  const raw = artifact.kind === 'markdown' ? String(artifact.spec.md ?? '') : '';
+  if (!raw.trim()) {
     return { ok: false, why: `Artifact #${artifactId} (${artifact.title}) is ${artifact.kind === 'markdown' ? 'empty' : `a ${artifact.kind}, not a markdown draft`}.` };
+  }
+  const signed = signedVersionOf(pageMeta);
+  if (signed.version !== null && signed.version !== artifact.currentVersion) {
+    return { ok: false, why: `The draft changed after it was signed off (signed off on version ${signed.version}, now version ${artifact.currentVersion}): a person signs off on this version first.` };
+  }
+  if (signed.contentHash && signed.contentHash !== await contentHashOf(raw)) {
+    return { ok: false, why: 'The draft\'s text is not the text that was signed off: a person signs off on it as it stands first.' };
+  }
+  const { stripMetaBlock } = await import('@/libs/publish/targets');
+  const markdown = stripMetaBlock(raw);
+  const pageType = text(pageMeta.pageType);
+  if (resolved.target.kind === 'squarespace' && pageType && NOT_A_POST.has(pageType)) {
+    return { ok: false, why: `This is a ${pageType} page, and the project's Squarespace target publishes blog posts only. Publish it to a target that takes site pages, or add it in Squarespace by hand from the approved draft.` };
   }
 
   const title = input.title ?? text(pageMeta.title) ?? pageTitle ?? artifact.title;
@@ -136,6 +205,7 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
   if (!SLUG_RE.test(slug)) {
     return { ok: false, why: `"${slug}" is not a URL slug: lower case letters and digits joined by -.` };
   }
+  const metaTitle = text(input.metaTitle) ?? text(pageMeta.metaTitle) ?? title;
   const given = text(input.metaDescription);
   const recorded = text(pageMeta.metaDescription);
   const description = given ?? recorded ?? firstParagraph(markdown);
@@ -144,7 +214,7 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
     plan: {
       project: { id: project.id, title: project.title },
       target: resolved.target,
-      page: { recordId: input.pageRecordId ?? null, title, slug, description, descriptionFrom: given ? 'given' : recorded ? 'record' : 'first paragraph', keyword: text(pageMeta.keyword), at: now },
+      page: { recordId: input.pageRecordId ?? null, title, metaTitle, slug, description, descriptionFrom: given ? 'given' : recorded ? 'record' : 'first paragraph', keyword: text(pageMeta.keyword), at: now, refresh: input.refresh === true || Boolean(text(pageMeta.existingUrl)), publishedUrl: text(pageMeta.publishedUrl), draftUrl: text(pageMeta.squarespaceDraftUrl) },
       draft: { artifactId, title: artifact.title, version: artifact.currentVersion, markdown },
       before: input.pageRecordId ? { status: pageMeta.status ?? null, pullRequestUrl: pageMeta.pullRequestUrl ?? null, publishedUrl: pageMeta.publishedUrl ?? null } : null,
     },
@@ -200,8 +270,32 @@ export async function recordOnPage(orgId: string, recordId: number | null | unde
   }
 }
 
+/**
+ * Stamp the publish run that sent a page out with when it was confirmed live
+ * (a merge, a read-back), so "pages published" counts what reached the site,
+ * never a pull request opened or a draft saved (`rows: published-pages`).
+ * @param orgId - The workspace.
+ * @param runId - The `site.publish_page` run.
+ * @param live - When, where and how it was confirmed.
+ * @param live.at - When.
+ * @param live.url - The live page or the merged pull request.
+ * @param live.how - `merged` or `read-back`.
+ */
+export async function markRunLive(orgId: string, runId: number | null | undefined, live: { at: string; url: string; how: 'merged' | 'read-back' }): Promise<void> {
+  if (!runId) {
+    return;
+  }
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  await db.update(actionRunSchema)
+    .set({ result: sql`coalesce(${actionRunSchema.result}, '{}'::jsonb) || ${JSON.stringify({ live })}::jsonb` })
+    .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.id, runId)))
+    .catch(error => console.warn('[publish] the run could not be marked live', { runId, reason: (error as Error).message }));
+}
+
 /** What the merge follower carries: the pull request a page went out in. */
-export type PullFollow = { orgId: string; repo: string; number: number; url: string; pageRecordId: number | null };
+export type PullFollow = { orgId: string; repo: string; number: number; url: string; pageRecordId: number | null; actionRunId?: number | null };
 
 /**
  * Start following a page's pull request until the client's team merges or closes it.
@@ -213,21 +307,62 @@ export async function followPull(follow: PullFollow): Promise<boolean> {
   return startJob(`site-publish-merge:${follow.repo}#${follow.number}`, { job: JOB.sitePublishMerge, input: follow }).then(() => true, () => false);
 }
 
+type CommitStatus = { state?: string; statuses?: Array<{ context?: string; state?: string; target_url?: string | null; description?: string | null }> };
+type CheckRuns = { check_runs?: Array<{ name?: string; status?: string; conclusion?: string | null; details_url?: string | null }> };
+
 /**
- * One look at a page's pull request: merged moves the page to published,
- * closed unmerged puts it back to approved, open waits. Vocion never merges it.
+ * The checks on a pull request's head and the preview its host deployed
+ * (a Vercel or Netlify status's link), in one line for the page record.
+ * @param status - The commit's combined status.
+ * @param runs - The commit's check runs.
+ */
+export function checksOf(status: CommitStatus | null, runs: CheckRuns | null): { state: 'passing' | 'failing' | 'pending' | 'none'; preview: string | null; failing: string[] } {
+  const statuses = status?.statuses ?? [];
+  const checkRuns = runs?.check_runs ?? [];
+  const failing = [
+    ...statuses.filter(s => s.state === 'failure' || s.state === 'error').map(s => s.context ?? 'a status'),
+    ...checkRuns.filter(r => r.status === 'completed' && r.conclusion && !['success', 'neutral', 'skipped'].includes(r.conclusion)).map(r => r.name ?? 'a check'),
+  ];
+  const pending = statuses.some(s => s.state === 'pending') || checkRuns.some(r => r.status !== 'completed');
+  const previewOf = (ctx: string | undefined) => /vercel|netlify|preview|deploy/i.test(ctx ?? '');
+  const preview = statuses.find(s => previewOf(s.context) && s.state === 'success' && s.target_url)?.target_url
+    ?? checkRuns.find(r => previewOf(r.name) && r.conclusion === 'success' && r.details_url)?.details_url
+    ?? null;
+  const state = failing.length > 0 ? 'failing' : pending ? 'pending' : statuses.length + checkRuns.length > 0 ? 'passing' : 'none';
+  return { state, preview, failing };
+}
+
+/**
+ * One look at a page's pull request: its checks and preview recorded on the
+ * page; merged moves the page to published, closed unmerged puts it back to
+ * approved, open waits. Vocion never merges it.
  * @param follow - The pull request and the page.
  */
 export async function settlePull(follow: PullFollow): Promise<{ done: boolean; line?: string }> {
   const { call, ghFor } = await import('@/services/factory/githubChecks');
   const gh = await ghFor(follow.orgId, follow.repo);
-  const res = await call<{ state?: string; merged?: boolean; merged_at?: string | null; closed_at?: string | null }>(gh, `/pulls/${follow.number}`);
+  const res = await call<{ state?: string; merged?: boolean; merged_at?: string | null; closed_at?: string | null; head?: { sha?: string } }>(gh, `/pulls/${follow.number}`);
   if (!res.ok) {
     return { done: false };
   }
+  const sha = res.data.head?.sha;
+  if (sha && !res.data.merged && res.data.state !== 'closed') {
+    const [status, runs] = await Promise.all([
+      call<CommitStatus>(gh, `/commits/${sha}/status`),
+      call<CheckRuns>(gh, `/commits/${sha}/check-runs`),
+    ]);
+    const checks = checksOf(status.ok ? status.data : null, runs.ok ? runs.data : null);
+    const { readRecord } = await import('@/libs/actions/factory-dispatch');
+    const prior = follow.pageRecordId ? ((await readRecord(follow.orgId, follow.pageRecordId))?.meta.pullRequestChecks ?? null) as Record<string, unknown> | null : null;
+    if (!prior || prior.state !== checks.state || prior.preview !== checks.preview || prior.sha !== sha) {
+      await recordOnPage(follow.orgId, follow.pageRecordId, { pullRequestChecks: { ...checks, sha, at: new Date().toISOString() }, ...(checks.preview ? { previewUrl: checks.preview } : {}) });
+    }
+  }
   if (res.data.merged) {
+    const at = res.data.merged_at ?? new Date().toISOString();
     const line = `Merged ${follow.url.replace('https://github.com/', '')}: the page is on the site's main branch.`;
-    await recordOnPage(follow.orgId, follow.pageRecordId, { status: 'published', publishing: { kind: 'github', url: follow.url, mergedAt: res.data.merged_at ?? new Date().toISOString(), note: line } });
+    await recordOnPage(follow.orgId, follow.pageRecordId, { status: 'published', publishing: { kind: 'github', url: follow.url, mergedAt: at, note: line } });
+    await markRunLive(follow.orgId, follow.actionRunId, { at, url: follow.url, how: 'merged' });
     return { done: true, line };
   }
   if (res.data.state === 'closed') {
@@ -236,6 +371,47 @@ export async function settlePull(follow: PullFollow): Promise<{ done: boolean; l
     return { done: true, line };
   }
   return { done: false };
+}
+
+/**
+ * The branch a page goes out on: its slug, and its record, so two batches'
+ * pages with one slug never share a pull request.
+ * @param plan - The plan.
+ */
+export function pageBranchOf(plan: Pick<PublishPlan, 'page'>): string {
+  return `vocion/seo-${plan.page.slug}${plan.page.recordId ? `-p${plan.page.recordId}` : ''}`.slice(0, 200);
+}
+
+/**
+ * What a GitHub publish would write, checked against the repository: the
+ * file, the branch, the base, and whether a file is already at that path on
+ * the base (which only a refresh may replace).
+ * @param orgId - The workspace.
+ * @param plan - The plan; its target must be github.
+ */
+export async function githubPreflight(orgId: string, plan: PublishPlan): Promise<{ file: { path: string; format: string; content: string }; branch: string; base: string; exists: boolean | null; why?: string }> {
+  if (plan.target.kind !== 'github') {
+    throw new Error('not a GitHub target');
+  }
+  const file = await pageFileFor(plan);
+  const branch = pageBranchOf(plan);
+  const { call, ghFor } = await import('@/services/factory/githubChecks');
+  const { defaultBranch } = await import('@/services/factory/githubChange');
+  const repo = plan.target.config.repo;
+  let base = plan.target.config.baseBranch ?? '';
+  let exists: boolean | null = null;
+  try {
+    base ||= await defaultBranch(orgId, repo);
+    const gh = await ghFor(orgId, repo);
+    const res = await call<unknown>(gh, `/contents/${file.path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(base)}`);
+    exists = res.ok ? true : res.status === 404 ? false : null;
+  } catch {
+    exists = null;
+  }
+  const why = exists && !plan.page.refresh
+    ? `${file.path} already exists on ${repo}@${base}. Publishing would replace it: if this page is meant to refresh it, say so (refresh: true, or the page's existingUrl); otherwise give the page another slug.`
+    : undefined;
+  return { file, branch, base: base || 'the default branch', exists, ...(why ? { why } : {}) };
 }
 
 /**
@@ -249,10 +425,15 @@ export async function publishToGithub(orgId: string, plan: PublishPlan, by: stri
     throw new Error('not a GitHub target');
   }
   const { openChangePull, PAGE_BRANCH_PREFIX } = await import('@/services/factory/githubChange');
-  const file = await pageFileFor(plan);
+  const pre = await githubPreflight(orgId, plan);
+  if (pre.why) {
+    throw new Error(pre.why);
+  }
+  const { file } = pre;
   const body = [
-    `Adds the page **${plan.page.title}** at \`${file.path}\`.`,
+    `${pre.exists ? 'Replaces' : 'Adds'} the page **${plan.page.title}** at \`${file.path}\`.`,
     '',
+    `- Meta title: ${plan.page.metaTitle ?? plan.page.title}`,
     `- Meta description: ${plan.page.description}`,
     `- Drafted in Vocion: artifact #${plan.draft.artifactId} (version ${plan.draft.version})${plan.page.recordId ? `, page record #${plan.page.recordId}` : ''}, project "${plan.project.title}".`,
     `- Approved in Vocion's Review${by ? ` by ${by}` : ''}.`,
@@ -261,47 +442,32 @@ export async function publishToGithub(orgId: string, plan: PublishPlan, by: stri
   ].join('\n');
   const opened = await openChangePull(orgId, {
     repo: plan.target.config.repo,
-    title: `Add page: ${plan.page.title}`.slice(0, 200),
+    title: `${pre.exists ? 'Refresh' : 'Add'} page: ${plan.page.title}`.slice(0, 200),
     body,
     files: [{ path: file.path, content: file.content }],
     base: plan.target.config.baseBranch ?? null,
-    branch: `${PAGE_BRANCH_PREFIX}${plan.page.slug}`.slice(0, 200),
+    branch: pre.branch,
     prefix: PAGE_BRANCH_PREFIX,
   });
-  return { ...opened, path: file.path, format: file.format };
+  return { ...opened, path: file.path, format: file.format, replaced: pre.exists === true };
 }
 
 /** Who the browser runs belong to: the person whose approval started them. */
 export type RunOwner = { userId: string; conversationId: number | null; agentSlug: string | null };
 
 /**
- * Start the Squarespace draft run, and the job that follows it.
+ * A browser run for a publish, started now when the person's browser is free,
+ * else filed to wait its turn (`proposed`): the settle job starts it when the
+ * runs filed before it are done, one at a time, oldest first, so approving
+ * several cards in a row queues their runs instead of failing.
  * @param orgId - The workspace.
- * @param plan - The plan; its target must be squarespace.
- * @param login - The editor login, from the vault.
- * @param login.email - The account's email.
- * @param login.password - Its password.
- * @param owner - Whose browser it runs in.
+ * @param owner - Whose browser.
+ * @param spec - The run.
+ * @param continuing - Carry on from the page the browser is on.
  */
-export async function startSquarespaceDraft(orgId: string, plan: PublishPlan, login: { email: string; password: string }, owner: RunOwner) {
-  if (plan.target.kind !== 'squarespace') {
-    throw new Error('not a Squarespace target');
-  }
-  const { draftRun, postUrlOf } = await import('./squarespaceTask');
-  const { createBrowserRun } = await import('@/services/browser/BrowserRunService');
-  const blogPath = plan.target.config.blogPath ?? '/blog';
-  const post = {
-    siteUrl: plan.target.config.siteUrl,
-    blogPath,
-    title: plan.page.title,
-    slug: plan.page.slug,
-    bodyHtml: await markdownToHtml(plan.draft.markdown.replace(/^\s*#\s+(?:\S[^\n]*)?\n+/, '').trim()),
-    excerpt: plan.page.description,
-    seoTitle: plan.page.title,
-    seoDescription: plan.page.description,
-  };
-  const spec = draftRun(post, login);
-  const run = await createBrowserRun({
+async function startOrQueue(orgId: string, owner: RunOwner, spec: import('./squarespaceTask').PublishRunSpec, continuing = false) {
+  const { createBrowserRun, BrowserRunBusyError } = await import('@/services/browser/BrowserRunService');
+  const make = (start: boolean) => createBrowserRun({
     orgId,
     userId: owner.userId,
     conversationId: owner.conversationId,
@@ -312,17 +478,142 @@ export async function startSquarespaceDraft(orgId: string, plan: PublishPlan, lo
     secretNames: spec.secretNames,
     outputs: spec.outputs,
     proposedBy: 'person',
-    start: true,
+    start,
+    continuing: start && continuing,
     approvedAhead: spec.approvedAhead,
   });
-  const settle: SettleInput = { orgId, phase: 'draft', browserRunId: run.id, pageRecordId: plan.page.recordId, siteUrl: plan.target.config.siteUrl, blogPath, slug: plan.page.slug, title: plan.page.title, owner };
+  const queued = await waitingPublishRuns(orgId, owner.userId);
+  if (queued.length > 0) {
+    return { run: await make(false), queued: true };
+  }
+  return make(true).then(run => ({ run, queued: false })).catch(async (error) => {
+    if (error instanceof BrowserRunBusyError) {
+      return { run: await make(false), queued: true };
+    }
+    throw error;
+  });
+}
+
+/**
+ * The person's publish runs filed to wait their turn, oldest first.
+ * @param orgId - The workspace.
+ * @param userId - The person.
+ */
+async function waitingPublishRuns(orgId: string, userId: string): Promise<number[]> {
+  const { and, asc, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { browserRunSchema } = await import('@/models/Schema');
+  const { isPublishTask } = await import('./squarespaceTask');
+  const rows = await db.select({ id: browserRunSchema.id, task: browserRunSchema.task })
+    .from(browserRunSchema)
+    .where(and(eq(browserRunSchema.orgId, orgId), eq(browserRunSchema.userId, userId), eq(browserRunSchema.status, 'proposed')))
+    .orderBy(asc(browserRunSchema.id))
+    .catch(() => []);
+  return rows.filter(r => isPublishTask(r.task)).map(r => r.id);
+}
+
+/**
+ * Start a queued publish run when it is its turn: the person's browser is
+ * free and no publish run was filed before it. True when it started.
+ * @param orgId - The workspace.
+ * @param userId - The person.
+ * @param runId - The queued run.
+ */
+async function startWhenItsTurn(orgId: string, userId: string, runId: number): Promise<boolean> {
+  const { liveRunFor, startBrowserRun } = await import('@/services/browser/BrowserRunService');
+  if (await liveRunFor(orgId, userId)) {
+    return false;
+  }
+  const waiting = await waitingPublishRuns(orgId, userId);
+  if (waiting[0] !== runId) {
+    return false;
+  }
+  return startBrowserRun(orgId, userId, runId).then(() => true, () => false);
+}
+
+/**
+ * Follow a publish run with the settle job.
+ * @param settle - What the job carries.
+ */
+async function follow(settle: SettleInput): Promise<boolean> {
   const { startJob } = await import('@/libs/durable/jobs');
   const { JOB } = await import('@/services/background/catalog');
-  const followed = await startJob(`site-publish-settle:${run.id}`, { job: JOB.sitePublishSettle, input: settle }).then(() => true, (error: Error) => {
-    console.warn('[publish] the read-back job could not start', { run: run.id, reason: error.message });
+  return startJob(`site-publish-settle:${settle.browserRunId}`, { job: JOB.sitePublishSettle, input: settle }).then(() => true, (error: Error) => {
+    console.warn('[publish] the read-back job could not start', { run: settle.browserRunId, reason: error.message });
     return false;
   });
-  return { browserRunId: run.id, postUrl: postUrlOf(post), followed };
+}
+
+/**
+ * Before a Squarespace publish: a post already live at this slug that is not
+ * this page's is someone else's, and is never overwritten or claimed.
+ * @param plan - The plan; its target must be squarespace.
+ */
+export async function squarespaceSlugCheck(plan: PublishPlan): Promise<string | null> {
+  if (plan.target.kind !== 'squarespace') {
+    return null;
+  }
+  const { findPublishedPost } = await import('@/libs/sources/squarespace');
+  const { post } = await findPublishedPost(plan.target.config.siteUrl, plan.target.config.blogPath ?? '/blog', { slug: plan.page.slug });
+  if (post && post.url !== plan.page.publishedUrl) {
+    return `A post is already live at ${post.url} ("${post.title}"), and it is not this page's. Give this page another slug, or update that post in Squarespace.`;
+  }
+  return null;
+}
+
+/**
+ * Start the Squarespace draft run, or queue it behind the person's other
+ * publish runs, and the job that follows it.
+ * @param orgId - The workspace.
+ * @param plan - The plan; its target must be squarespace.
+ * @param login - The editor login, from the vault.
+ * @param login.email - The account's email.
+ * @param login.password - Its password.
+ * @param owner - Whose browser it runs in.
+ * @param actionRunId - The publish run, stamped when the post is confirmed live.
+ */
+export async function startSquarespaceDraft(orgId: string, plan: PublishPlan, login: { email: string; password: string }, owner: RunOwner, actionRunId: number | null = null) {
+  if (plan.target.kind !== 'squarespace') {
+    throw new Error('not a Squarespace target');
+  }
+  const { draftRun, postUrlOf } = await import('./squarespaceTask');
+  const blogPath = plan.target.config.blogPath ?? '/blog';
+  const post = {
+    siteUrl: plan.target.config.siteUrl,
+    blogPath,
+    title: plan.page.title,
+    slug: plan.page.slug,
+    bodyHtml: await markdownToHtml(plan.draft.markdown.replace(/^\s*#\s+(?:\S[^\n]*)?\n+/, '').trim()),
+    excerpt: plan.page.description,
+    seoTitle: plan.page.metaTitle ?? plan.page.title,
+    seoDescription: plan.page.description,
+  };
+  const { run, queued } = await startOrQueue(orgId, owner, draftRun(post, login));
+  const followed = await follow({ orgId, phase: 'draft', browserRunId: run.id, pageRecordId: plan.page.recordId, siteUrl: plan.target.config.siteUrl, blogPath, slug: plan.page.slug, title: plan.page.title, owner, actionRunId });
+  return { browserRunId: run.id, postUrl: postUrlOf(post), followed, queued };
+}
+
+/** A drafted post to take live: its page and where it lives. */
+export type LivePost = { pageRecordId: number; siteUrl: string; blogPath: string; slug: string; title: string; actionRunId: number | null };
+
+/**
+ * Take drafted posts live, one approval for all of them: one run per post,
+ * in order, each pressing Publish on its own draft (approved ahead by the card
+ * that listed them), each followed and read back.
+ * @param orgId - The workspace.
+ * @param posts - The drafted posts.
+ * @param owner - Whose browser.
+ */
+export async function startSquarespaceLive(orgId: string, posts: LivePost[], owner: RunOwner): Promise<Array<{ pageRecordId: number; browserRunId: number; queued: boolean }>> {
+  const { liveRun } = await import('./squarespaceTask');
+  const started: Array<{ pageRecordId: number; browserRunId: number; queued: boolean }> = [];
+  for (const p of posts) {
+    const { run, queued } = await startOrQueue(orgId, owner, liveRun(p), true);
+    await follow({ orgId, phase: 'live', browserRunId: run.id, pageRecordId: p.pageRecordId, siteUrl: p.siteUrl, blogPath: p.blogPath, slug: p.slug, title: p.title, owner, actionRunId: p.actionRunId });
+    await recordOnPage(orgId, p.pageRecordId, { publishing: { kind: 'squarespace', phase: 'live', browserRunId: run.id, href: `/dashboard/browser/${run.id}`, at: new Date().toISOString(), note: queued ? 'Going live: waiting its turn in your browser.' : 'Going live.' } });
+    started.push({ pageRecordId: p.pageRecordId, browserRunId: run.id, queued });
+  }
+  return started;
 }
 
 /** What the settle job carries between passes. */
@@ -336,38 +627,44 @@ export type SettleInput = {
   slug: string;
   title: string;
   owner: RunOwner;
+  /** The `site.publish_page` run, stamped when the post is confirmed live. */
+  actionRunId?: number | null;
 };
 
 /**
- * One look at a Squarespace publish run: still going, or ended — and then
- * what it did, read back from the site's public JSON and written on the page
- * record. A draft that saved starts the going-live run in the same browser
- * (its Publish click waits for the person) and hands the job on to it.
+ * One look at a Squarespace publish run: waiting its turn (started when it
+ * is), still going, or ended — and then what it did, read back from the
+ * site's public JSON by the post's slug alone and written on the page record.
+ * A saved draft waits for the go-live card (`site.publish_live`).
  * @param input - The run and the page.
  */
-export async function settlePublishRun(input: SettleInput): Promise<{ done: boolean; next?: SettleInput; line?: string }> {
+export async function settlePublishRun(input: SettleInput): Promise<{ done: boolean; line?: string }> {
   const { getBrowserRun } = await import('@/services/browser/BrowserRunService');
   const run = await getBrowserRun(input.orgId, input.browserRunId);
   if (!run) {
     return { done: true, line: `Browser run ${input.browserRunId} is gone.` };
   }
-  if (['proposed', 'queued', 'running', 'waiting'].includes(run.status)) {
+  if (run.status === 'proposed') {
+    await startWhenItsTurn(input.orgId, input.owner.userId, run.id);
     return { done: false };
   }
-  const { reportedStatus, liveRun, postUrlOf } = await import('./squarespaceTask');
+  if (['queued', 'running', 'waiting'].includes(run.status)) {
+    return { done: false };
+  }
+  const { reportedStatus, postUrlOf } = await import('./squarespaceTask');
   const { findPublishedPost } = await import('@/libs/sources/squarespace');
   const at = new Date().toISOString();
   const runRef = { browserRunId: run.id, href: `/dashboard/browser/${run.id}` };
-  const found = await findPublishedPost(input.siteUrl, input.blogPath, { slug: input.slug, title: input.title });
+  const found = await findPublishedPost(input.siteUrl, input.blogPath, { slug: input.slug });
   const live = found.post;
-  if (live) {
-    // Live on the site, read back from its public JSON: the one source a visitor sees.
+  const editorUrl = typeof run.result?.editor_url === 'string' ? run.result.editor_url : null;
+  if (live && run.status === 'done') {
+    // Live on the site at this page's slug, read back from its public JSON: the one source a visitor sees.
     const line = input.phase === 'live'
       ? `"${input.title}" is live at ${live.url}.`
-      : run.status === 'done'
-        ? `"${input.title}" is live at ${live.url}: it went live during the draft run, which was told only to save a draft.`
-        : `"${input.title}" was already live at ${live.url}; the draft run changed nothing.`;
+      : `"${input.title}" is live at ${live.url}: it went live during the draft run, which was told only to save a draft.`;
     await recordOnPage(input.orgId, input.pageRecordId, { status: 'published', publishedUrl: live.url, publishing: { kind: 'squarespace', phase: input.phase, ...runRef, readBackAt: at, note: line } });
+    await markRunLive(input.orgId, input.actionRunId, { at, url: live.url, how: 'read-back' });
     return { done: true, line };
   }
   if (run.status !== 'done') {
@@ -375,7 +672,6 @@ export async function settlePublishRun(input: SettleInput): Promise<{ done: bool
     await recordOnPage(input.orgId, input.pageRecordId, { status: input.phase === 'draft' ? 'approved' : 'publishing', publishing: { kind: 'squarespace', phase: input.phase, ...runRef, at, error: line } });
     return { done: true, line };
   }
-  const editorUrl = typeof run.result?.editor_url === 'string' ? run.result.editor_url : null;
   if (input.phase === 'draft') {
     if (reportedStatus(run.result) === 'published') {
       // The run says live but the site does not list it yet: say both, never guess.
@@ -383,24 +679,14 @@ export async function settlePublishRun(input: SettleInput): Promise<{ done: bool
       await recordOnPage(input.orgId, input.pageRecordId, { status: 'publishing', publishing: { kind: 'squarespace', phase: 'draft', ...runRef, editorUrl, at, note: line } });
       return { done: true, line };
     }
-    await recordOnPage(input.orgId, input.pageRecordId, { status: 'publishing', squarespaceDraftUrl: editorUrl, publishing: { kind: 'squarespace', phase: 'draft', ...runRef, editorUrl, at, note: `Saved as a draft in Squarespace; going live waits for your approval.` } });
-    const { createBrowserRun, BrowserRunBusyError } = await import('@/services/browser/BrowserRunService');
-    const spec = liveRun({ siteUrl: input.siteUrl, blogPath: input.blogPath, title: input.title, slug: input.slug }, editorUrl);
-    const make = (start: boolean) => createBrowserRun({ orgId: input.orgId, userId: input.owner.userId, conversationId: input.owner.conversationId, agentSlug: input.owner.agentSlug, task: spec.task, startUrl: spec.startUrl, inputs: spec.inputs, secretNames: spec.secretNames, outputs: spec.outputs, proposedBy: 'person', start, continuing: start });
-    // The person's browser may be busy with something else by now: then it waits for their Start.
-    const next = await make(true).catch(async (error) => {
-      if (error instanceof BrowserRunBusyError) {
-        return make(false);
-      }
-      throw error;
-    });
-    const { browserRunLabel } = await import('@/libs/browser/run');
-    return { done: false, next: { ...input, phase: 'live', browserRunId: next.id }, line: `Saved "${input.title}" as a draft; ${browserRunLabel(next.id)} publishes it when you approve.` };
+    const line = `Saved "${input.title}" as a draft in Squarespace. Going live is one approval for the drafted posts (site.publish_live).`;
+    await recordOnPage(input.orgId, input.pageRecordId, { status: 'publishing', squarespaceDraftUrl: editorUrl, squarespaceDraft: { slug: input.slug, savedAt: at, browserRunId: run.id }, publishing: { kind: 'squarespace', phase: 'draft', ...runRef, editorUrl, at, note: line } });
+    return { done: true, line };
   }
   const status = reportedStatus(run.result);
   const line = status === 'published'
     ? `The run published "${input.title}", but ${input.blogPath}?format=json does not list it yet${found.why ? ` (${found.why})` : ''}; it should be at ${postUrlOf(input)}.`
-    : `"${input.title}" stays a draft in Squarespace: going live was not approved.`;
+    : `"${input.title}" stays a draft in Squarespace: it was not published.`;
   await recordOnPage(input.orgId, input.pageRecordId, { status: 'publishing', publishing: { kind: 'squarespace', phase: 'live', ...runRef, at, note: line } });
   return { done: true, line };
 }

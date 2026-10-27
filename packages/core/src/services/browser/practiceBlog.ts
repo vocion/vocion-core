@@ -9,7 +9,8 @@
  * new" dialog in the way, a Pages panel with the blog (Journal), its post list
  * with one published post, an Add blog post button, and the post editor as
  * 7.1 draws it: a top bar of PUBLISH, Save and Exit with the post's name and
- * status, a title and a body that are rich-text areas named only by their
+ * its saved status ("Post · Draft"), a status menu (the other way a post goes
+ * live: choose Published, then Save), a title and a body that are rich-text areas named only by their
  * placeholders ("Enter a post title…", "Write here..."), the body taking pasted
  * formatted text, and Blog Post Settings (Content: Excerpt, Post URL; SEO: SEO
  * title, SEO description; SAVE). A post goes live only with PUBLISH. Its "server" is the page's localStorage, so a
@@ -89,6 +90,7 @@ function editor(id) {
   const draw = () => {
     app.innerHTML = '<div class="bar" style="margin:0;padding:10px 18px;background:#fff;border-bottom:1px solid #ddd;align-items:center">'
       + '<button id="pub">PUBLISH</button><button class="ghost" id="save">Save</button><a href="/config/pages/journal">Exit</a>'
+      + '<select id="status" aria-label="Status">' + ['Draft', 'Needs Review', 'Scheduled', 'Published'].map(x => '<option' + (x === draft.status ? ' selected' : '') + '>' + x + '</option>').join('') + '</select>'
       + '<button class="ghost" id="st" style="margin:0 auto">' + esc(p.title || 'No Title') + ' · Post · ' + esc(p.status) + '</button></div>'
       + '<main class="main" style="max-width:760px;margin:0 auto">'
       + '<div id="ti" contenteditable="true" data-placeholder="Enter a post title…" style="font-size:34px;font-weight:700;min-height:44px;outline:1px dashed #ccc">' + esc(draft.title) + '</div>'
@@ -99,6 +101,7 @@ function editor(id) {
     bd.oninput = () => { draft.body = bd.innerHTML; };
     // A paste of formatted text keeps its headings and lists, as the real editor's does.
     bd.addEventListener('paste', e => { const html = e.clipboardData && e.clipboardData.getData('text/html'); if (html) { e.preventDefault(); bd.innerHTML = html; draft.body = html; } });
+    document.getElementById('status').onchange = e => { draft.status = e.target.value; };
     document.getElementById('st').onclick = settings;
     document.getElementById('save').onclick = () => persist(draft.status);
     document.getElementById('pub').onclick = () => persist('Published');

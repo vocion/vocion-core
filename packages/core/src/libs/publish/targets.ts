@@ -13,7 +13,7 @@
  *   written; `frontmatter` is the template the site's own files use, mirrored
  *   key for key from two or three existing files when the client is onboarded.
  *   Its values are literals, or placeholders a page fills in: {title},
- *   {description}, {slug}, {date}, {datetime}, {keyword}.
+ *   {metaTitle}, {description}, {slug}, {date}, {datetime}, {keyword}.
  * - `squarespace`: a draft post on the site's blog, written in the editor by a
  *   browser run, since Squarespace has no API for posts.
  * - `wordpress`: declared so a project can say so; nothing publishes there yet.
@@ -29,7 +29,7 @@ export const PAGE_FORMATS = ['mdx', 'md', 'html'] as const;
 export type PageFormat = (typeof PAGE_FORMATS)[number];
 
 /** The values a page fills a template with. */
-export const PAGE_PLACEHOLDERS = ['title', 'description', 'slug', 'date', 'datetime', 'keyword'] as const;
+export const PAGE_PLACEHOLDERS = ['title', 'metaTitle', 'description', 'slug', 'date', 'datetime', 'keyword'] as const;
 type Placeholder = (typeof PAGE_PLACEHOLDERS)[number];
 
 const PLACEHOLDER_RE = /\{(\w+)\}/g;
@@ -196,6 +196,8 @@ export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** The page being published, as templates read it. */
 export type PageFields = {
   title: string;
+  /** The title search engines show (`<title>`, the SEO title); the page's title when none was written. */
+  metaTitle?: string | null;
   description: string;
   slug: string;
   keyword?: string | null;
@@ -206,6 +208,7 @@ export type PageFields = {
 function valuesOf(page: PageFields): Record<Placeholder, string> {
   return {
     title: page.title,
+    metaTitle: page.metaTitle || page.title,
     description: page.description,
     slug: page.slug,
     date: page.at.toISOString().slice(0, 10),
@@ -266,6 +269,32 @@ export function bodyWithoutTitle(markdown: string, template: Record<string, unkn
     return markdown.trim();
   }
   return markdown.replace(/^\s*#\s+(?:\S[^\n]*)?\n+/, '').trim();
+}
+
+const META_LINE_RE = /^\s*(?:[-*]\s*)?(?:\*\*|__)?(?:meta\s*title|meta\s*description|seo\s*title|seo\s*description|url\s*slug|slug)(?:\*\*|__)?\s*:/i;
+const META_HEADING_RE = /^\s*(?:#{1,6}\s*(?:meta|seo)\b[^\n]*|-{3,}|\*{3,})$/i;
+
+/**
+ * The body without a trailing block of page metadata a writer left in it
+ * ("Meta title: …", "Meta description: …", "Slug: …", under a "## Meta"
+ * heading or a rule): those go in the page's fields, never on the page.
+ * @param markdown - The draft.
+ */
+export function stripMetaBlock(markdown: string): string {
+  const lines = markdown.replace(/\s+$/, '').split('\n');
+  let end = lines.length;
+  let stripped = false;
+  while (end > 0 && (lines[end - 1]!.trim() === '' || META_LINE_RE.test(lines[end - 1]!))) {
+    stripped ||= META_LINE_RE.test(lines[end - 1]!);
+    end -= 1;
+  }
+  if (!stripped) {
+    return markdown.trim();
+  }
+  while (end > 0 && (lines[end - 1]!.trim() === '' || META_HEADING_RE.test(lines[end - 1]!))) {
+    end -= 1;
+  }
+  return lines.slice(0, end).join('\n').trim();
 }
 
 /**

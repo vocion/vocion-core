@@ -267,6 +267,24 @@ export async function snapshot(s: BrowserSession, find?: string | null): Promise
 }
 
 /**
+ * Whether the page shows these words now, in any frame: the state a write approved ahead depends
+ * on (`ApprovedAhead.onlyWhilePageShows`). False when it cannot be read.
+ * @param s - The browser.
+ * @param text - The words.
+ */
+export async function pageShows(s: BrowserSession, text: string): Promise<boolean> {
+  for (const frame of s.page.frames()) {
+    // innerText: what is drawn, not what is hidden in the markup.
+    // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+    const found = await frame.evaluate(t => document.body?.innerText.includes(t) ?? false, text).catch(() => false);
+    if (found) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * The name of the dialog open on the page, when one is: its label, else its heading, else its first
  * line of words. Null when none is open or it cannot be read.
  * @param page - The page.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escapeForMdx, fillTemplate, formatOf, publishTargetsOf, renderPageFile, resolvePublishTarget, slugify, squarespaceBlogUrl } from './targets';
+import { escapeForMdx, fillTemplate, formatOf, publishTargetsOf, renderPageFile, resolvePublishTarget, slugify, squarespaceBlogUrl, stripMetaBlock } from './targets';
 
 const github = {
   id: 'site',
@@ -101,5 +101,13 @@ describe('the page file a GitHub target writes', () => {
   it('makes slugs and fills templates', () => {
     expect(slugify('Café & Crème: 3-Season Tents!')).toBe('cafe-and-creme-3-season-tents');
     expect(fillTemplate('{datetime}|{keyword}|{unknown}', page)).toBe('2026-10-27T15:04:00.000Z|three season tent|{unknown}');
+  });
+
+  it('keeps a writer\'s trailing meta block off the page', () => {
+    expect(stripMetaBlock('Body.\n\n## Meta\n\n**Meta title:** T\nMeta description: D\nSlug: s\n')).toBe('Body.');
+    expect(stripMetaBlock('Body.\n\n---\nURL slug: s')).toBe('Body.');
+    expect(stripMetaBlock('Body.\n\n## Meta-analysis\n\nIt holds.')).toBe('Body.\n\n## Meta-analysis\n\nIt holds.');
+    expect(fillTemplate('{metaTitle}|{title}', { ...page, metaTitle: 'Short' })).toBe('Short|How to Choose a Three-Season Tent');
+    expect(fillTemplate('{metaTitle}', page)).toBe('How to Choose a Three-Season Tent');
   });
 });

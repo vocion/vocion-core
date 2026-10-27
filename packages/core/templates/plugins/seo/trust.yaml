@@ -37,3 +37,11 @@ rules:
     enabled: false
     rung: execute-with-approval
     risk: medium
+  # Going live: drafted Squarespace posts made public. Not reversible from
+  # here (a live post is the site's), so it is asked every time and never
+  # earns its way out.
+  - action: site.publish_live
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high

@@ -140,21 +140,20 @@ export function isBlogCollection(json: Record<string, unknown>): boolean {
 }
 
 /**
- * A published post on the blog, by its slug or else its exact title: how a
- * publish run is read back once it is live. Null when it is not (yet) public.
+ * A published post on the blog, by its URL slug alone: how a publish run is
+ * read back once it is live. A title can be shared or changed, so it never
+ * identifies a post. Null when no post at that slug is public (yet).
  * @param siteUrl - The site.
  * @param blogPath - The blog's path.
  * @param want - What to look for.
  * @param want.slug - The post's URL slug.
- * @param want.title - The post's title.
  */
-export async function findPublishedPost(siteUrl: string, blogPath: string | null | undefined, want: { slug: string; title: string }): Promise<{ post: SquarespacePost | null; why?: string }> {
+export async function findPublishedPost(siteUrl: string, blogPath: string | null | undefined, want: { slug: string }): Promise<{ post: SquarespacePost | null; why?: string }> {
   const read = await readSquarespaceJson(blogUrlOf(siteUrl, blogPath));
   if (!read.ok) {
     return { post: null, why: read.why };
   }
-  const posts = postsFromJson(read.json, siteUrl);
-  return { post: posts.find(p => p.slug === want.slug) ?? posts.find(p => p.title.toLowerCase() === want.title.toLowerCase()) ?? null };
+  return { post: postsFromJson(read.json, siteUrl).find(p => p.slug === want.slug) ?? null };
 }
 
 /**

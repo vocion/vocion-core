@@ -197,23 +197,18 @@ defineJob<{ orgId: string; sourceId: number; windowDays?: number }>(JOB.mailThre
   return runThreadStateBackfill(plan, { step: ctx.step, sleep: ctx.sleep, log: line => logger.info(line) });
 }, { whole: true });
 
-/** How often a Squarespace publish run is looked at, and for how long: its 8 minutes of work and 30 waiting on the person, twice over. */
+/** How often a Squarespace publish run is looked at, and for how long: a queue of runs ahead of it, each up to 15 minutes of work. */
 const PUBLISH_POLL_MS = 20_000;
-const PUBLISH_POLL_ATTEMPTS = 240;
+const PUBLISH_POLL_ATTEMPTS = 1_080;
 
-// A page published to Squarespace (`services/publish/sitePublish.ts`): follow the draft run, start
-// the going-live run once the draft is saved, then read the post back from the site's public JSON
-// and record where it lives on the page. Each look is a step, so a deploy mid-wait carries on.
+// A page published to Squarespace (`services/publish/sitePublish.ts`): follow one run (a draft or
+// going live), start it when its turn comes if it was queued, then read the post back from the
+// site's public JSON and record it on the page. Each look is a step, so a deploy mid-wait carries on.
 defineJob<import('@/services/publish/sitePublish').SettleInput>(JOB.sitePublishSettle, async (input, ctx) => {
   const { settlePublishRun } = await import('@/services/publish/sitePublish');
-  let current = input;
   for (let attempt = 0; attempt < PUBLISH_POLL_ATTEMPTS; attempt++) {
     await ctx.sleep(PUBLISH_POLL_MS);
-    const out = await ctx.step(`look-${attempt}`, () => settlePublishRun(current), { attempts: 3, intervalSeconds: 10, backoff: 2 });
-    if (out.next) {
-      current = out.next;
-      continue;
-    }
+    const out = await ctx.step(`look-${attempt}`, () => settlePublishRun(input), { attempts: 3, intervalSeconds: 10, backoff: 2 });
     if (out.done) {
       return out;
     }
