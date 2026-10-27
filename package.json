@@ -2,7 +2,7 @@
   "name": "vocion",
   "version": "0.0.0",
   "private": true,
-  "description": "Vocion \u2014 monorepo root. See packages/core for the framework, packages/sdk for the plugin contract, packages/plugins/* for shipped plugins.",
+  "description": "Vocion — monorepo root. See packages/core for the framework, packages/sdk for the plugin contract, packages/plugins/* for shipped plugins.",
   "engines": {
     "node": ">=20.3"
   },
@@ -105,6 +105,11 @@
       "@semantic-release/release-notes-generator",
       "@semantic-release/github"
     ]
+  },
+  "overrides": {
+    "@amplitude/experiment-js-client": {
+      "@amplitude/experiment-core": "0.13.5"
+    }
   },
   "resolutions": {
     "@langchain/core": "1.2.2"
