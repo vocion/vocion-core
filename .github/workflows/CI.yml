@@ -99,9 +99,17 @@ jobs:
       # and Jev routing. One new route (dashboard/marketing) shares that server.
       # No route's reach jumped, no forbidden edge appeared, and sharp is a
       # server external, so again nothing cheap to cut.
+      # 13250 → 13750 (2026-10-27, v8.8): main went from 12,954–13,127 MB to
+      # 13,228 MB with the SEO work: SERP research (#1476), the Search Engine
+      # Optimization app (#1479), Projects (#1478), local search and keywords
+      # (#1484) and page publishing (#1477), all reached through the agent
+      # tools every dashboard route compiles. #1477 already swapped its preview
+      # renderer for the small markdown one to save memory. ubuntu-latest has
+      # 16 GB, so the next step is structural: dashboard routes should stop
+      # compiling the whole agent tool registry, not another raise.
       - name: Build memory
         env:
-          BUILD_PEAK_RSS_BUDGET_MB: '13250'
+          BUILD_PEAK_RSS_BUDGET_MB: '13750'
         run: |
           set -euo pipefail
           peak_mb=$(( $(awk -F': ' '/Maximum resident set size/{print $2}' "$RUNNER_TEMP/build-time.txt") / 1024 ))
