@@ -5,7 +5,7 @@
 # follows the Cloud project that owns the OAuth client), the ads family's reads
 # (`ads_campaigns`, `ads_performance`, `ads_report`) and its writes, each a
 # proposal a person approves (`ads.set_status`, `google_ads.*`), and the
-# Marketing app's pages at /dashboard/marketing.
+# Paid Marketing app's pages at /dashboard/marketing.
 #
 # This plugin ships the MEANING: a Marketing lead who reads the account every
 # morning, says what was spent and what it bought, finds the searches that
@@ -17,7 +17,7 @@
 # The workspace ships the CONCRETION: which ad account, which landing pages,
 # what a conversion is worth, and who approves.
 slug: marketing
-name: Marketing
+name: Paid Marketing
 version: 1.0.0
 description: Paid search run by an agent and approved by you. A Marketing lead reads the Google Ads account every morning and sends a short update — spend against budget, what it bought, the searches that wasted money, ads Google limited — then proposes each change (negatives, keywords, budgets, ad text, a new campaign from a landing page) as a card you approve. Nothing that spends changes without you.
 depends: []

@@ -1,6 +1,6 @@
-# Marketing — paid search run by an agent, approved by you
+# Paid Marketing — paid search run by an agent, approved by you
 
-**Marketing** is a prebuilt app: a Marketing lead who reads the Google Ads account every morning, says what was spent and what it bought, and proposes every change as a card a person approves. Nothing that spends changes without a person.
+**Paid Marketing** is a prebuilt app (id `marketing`), the first of two marketing apps; the second is [Search Engine Optimization](./seo.md). It is a Marketing lead who reads the Google Ads account every morning, says what was spent and what it bought, and proposes every change as a card a person approves. Nothing that spends changes without a person.
 
 | | |
 |---|---|
@@ -21,7 +21,7 @@ A pasted credential (OAuth client ID, secret and refresh token) works too, and a
 
 ## Installing it on Vocion Cloud
 
-Adding Marketing to a Vocion Cloud workspace sets the whole app up: the Marketing lead (who becomes the workspace lead when the workspace has only the generic one), the team, the daily update mission and its automations in the workspace's time zone, the guard and the alerts. See `docs/plugins.md`, *Installing an app on Vocion Cloud*. Then connect Google Ads with one Google login and pick the account.
+Adding Paid Marketing to a Vocion Cloud workspace sets the whole app up: the Marketing lead (who becomes the workspace lead when the workspace has only the generic one), the team, the daily update mission and its automations in the workspace's time zone, the guard and the alerts. See `docs/plugins.md`, *Installing an app on Vocion Cloud*. Then connect Google Ads with one Google login and pick the account.
 
 ## What the Marketing lead reads
 

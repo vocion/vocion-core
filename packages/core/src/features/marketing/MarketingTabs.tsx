@@ -22,7 +22,7 @@ export function RangeLinks(props: { days: number; base: string }) {
 }
 
 /**
- * The Marketing app's pages: campaigns and search terms.
+ * The Paid Marketing app's pages: campaigns and search terms.
  * @param props - The tabs.
  * @param props.active - Which page is showing.
  * @param props.days - The range, kept across the tabs.
@@ -34,7 +34,7 @@ export function MarketingTabs(props: { active: 'campaigns' | 'search-terms'; day
   ] as const;
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <nav aria-label="Marketing" className="flex gap-1">
+      <nav aria-label="Paid Marketing" className="flex gap-1">
         {tabs.map(t => (
           <Link key={t.key} href={t.href} aria-current={props.active === t.key ? 'page' : undefined} className={cn(TAB, props.active === t.key ? 'bg-surface-soft text-foreground' : 'text-muted-foreground hover:text-foreground')}>
             {t.label}

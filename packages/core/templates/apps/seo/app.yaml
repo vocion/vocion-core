@@ -1,0 +1,13 @@
+# The second marketing app, beside Paid Marketing: SEO pages researched
+# against what ranks, planned and written on the strongest model, signed off
+# early, and shipped to each client's site. Runs many clients from one
+# workspace: every batch and page belongs to a client's project.
+id: seo
+name: Search Engine Optimization
+icon: search
+tint: mint
+order: 8
+description: Pages that rank, researched against Google's top results, written in each client's voice, and shipped to their site with your sign-off.
+plugins: [seo]
+entry: /dashboard/p/seo
+nav: [SEO]

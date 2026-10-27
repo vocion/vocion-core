@@ -74,7 +74,7 @@ describe('the shipped catalogue', () => {
   });
 
   it('refuses an unknown slug and names the catalogue', () => {
-    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: company, data-rooms, finance, growth-loop, marketing, meeting-followup, production-watch, proposals, red-team, routines, software-factory, wiki/);
+    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: company, data-rooms, finance, growth-loop, marketing, meeting-followup, production-watch, proposals, red-team, routines, seo, software-factory, wiki/);
   });
 
   it('counts what the finance plugin ships: five roles, the jobs each owns as skills, and setup by family', () => {
@@ -103,6 +103,22 @@ describe('the shipped catalogue', () => {
     expect(growth.automations).toEqual(['growth-capability-review', 'growth-debrief', 'growth-gate', 'growth-readings-due', 'growth-weekly-plan']);
     expect(growth.pages).toEqual(['growth-briefs', 'growth-cost', 'growth-measure', 'growth-team-report']);
     expect(growth.hasTrust).toBe(true);
+  });
+});
+
+describe('the SEO plugin', () => {
+  it('counts what it ships: four seats, the two records, the skills, the learning step and the pages', () => {
+    const seo = loadPlugin('seo');
+    const contents = pluginContents(seo);
+
+    expect(seo.manifest.depends).toEqual(['data-rooms', 'wiki']);
+    expect(seo.manifest.lead).toBe('seo-strategist');
+    expect(contents.agents).toEqual(['seo-editor', 'seo-strategist', 'seo-writer', 'serp-analyst']);
+    expect(contents.objectTypes).toEqual(['seo_batch', 'seo_page']);
+    expect(contents.skills).toEqual(['feedback-to-wiki', 'onboard-client', 'page-brief', 'publish-page', 'review-page', 'serp-research', 'write-page']);
+    expect(contents.pages).toEqual(['seo', 'seo-pages']);
+    expect(contents.hasTrust).toBe(true);
+    expect(seo.manifest.starters?.map(s => s.label)).toEqual(['Onboard a new client from their website', 'Plan pages for a client', 'Show pages waiting on me']);
   });
 });
 
@@ -601,6 +617,61 @@ describe('loadWorkspace with the growth loop', () => {
     // does not restate a bar another plugin already holds.
     const actions = (ws.trust?.rules ?? []).map(r => r.action);
 
+    expect(new Set(actions).size).toBe(actions.length);
+  });
+});
+
+describe('loadWorkspace with the SEO app', () => {
+  it('composes the team on its pinned models, with projects and the wiki turned on with it', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [seo]\naccountableUser: ops@northwind.example\n'));
+    const agent = (slug: string) => ws.agents.find(a => a.slug === slug)!;
+
+    expect(ws.enabledPlugins).toEqual(['data-rooms', 'wiki', 'seo']);
+    expect(ws.teams.map(t => t.slug)).toEqual(expect.arrayContaining(['seo']));
+    expect(ws.objectTypes.map(o => o.slug)).toEqual(expect.arrayContaining(['data_room', 'seo_batch', 'seo_page']));
+    // Planning and writing on the strongest model; the legwork and the check on Sonnet.
+    expect(agent('seo-strategist').harness).toMatchObject({ modelProvider: 'anthropic', model: 'claude-opus-5-5' });
+    expect(agent('seo-writer').harness).toMatchObject({ modelProvider: 'anthropic', model: 'claude-opus-5-5' });
+    expect(agent('serp-analyst').harness).toMatchObject({ modelProvider: 'anthropic', model: 'claude-sonnet-5-5', grantTools: ['serp'] });
+    expect(agent('seo-editor').harness).toMatchObject({ modelProvider: 'anthropic', model: 'claude-sonnet-5-5' });
+    // Feedback on a sign-off becomes rules the writer and the editor read.
+    expect(agent('seo-writer').learningSteps).toEqual(['seo-feedback']);
+    expect(ws.learningSteps.find(s => s.name === 'seo-feedback')?.agents).toEqual(['seo-writer', 'seo-editor']);
+  });
+
+  it('a project carries its own gate sizes, and the page records belong to a project', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [seo]\naccountableUser: ops@northwind.example\n'));
+    const props = (slug: string) => (ws.objectTypes.find(o => o.slug === slug)!.schema as { properties: Record<string, unknown> }).properties;
+
+    expect(Object.keys(props('data_room'))).toContain('seoGate');
+    expect(Object.keys(props('seo_page'))).toEqual(expect.arrayContaining(['projectId', 'batchId', 'keyword', 'status', 'serpArtifactId', 'briefArtifactId', 'draftArtifactId', 'publishedUrl', 'pullRequestUrl']));
+    expect(Object.keys(props('seo_batch'))).toEqual(expect.arrayContaining(['projectId', 'topic', 'keywords', 'destination']));
+  });
+
+  it('grades the team on pages approved and published, never on pages written alone', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [seo]\naccountableUser: ops@northwind.example\n'));
+    const team = ws.teams.find(t => t.slug === 'seo')!;
+
+    expect(team.lead).toBe('seo-strategist');
+    expect(team.measures.find(m => m.key === 'pages_published')).toMatchObject({ dimension: 'outcome', source: { kind: 'observed', actions: ['site.publish_page'] } });
+    expect(team.measures.find(m => m.key === 'pages_signed_off')).toMatchObject({ dimension: 'quality', source: { kind: 'human-confirmed', askKinds: ['signoff'] } });
+    expect(team.measures.find(m => m.key === 'drafts_written')!.dimension).toBe('velocity');
+  });
+
+  it('holds a direct write to a page and every publish for a person', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [seo]\naccountableUser: ops@northwind.example\n'));
+    const rule = (action: string) => ws.trust?.rules.find(r => r.action === action);
+
+    expect(rule('objects.update_meta.seo_page')).toMatchObject({ enabled: false, rung: 'execute-with-approval' });
+    expect(rule('site.publish_page')).toMatchObject({ enabled: false, rung: 'execute-with-approval' });
+  });
+
+  it('composes beside every other shipped plugin with one trust rule per action', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [seo, marketing, growth-loop, software-factory, proposals, meeting-followup]\naccountableUser: ops@northwind.example\n'));
+    const slugs = ws.agents.map(a => a.slug);
+    const actions = (ws.trust?.rules ?? []).map(r => r.action);
+
+    expect(new Set(slugs).size).toBe(slugs.length);
     expect(new Set(actions).size).toBe(actions.length);
   });
 });

@@ -1,7 +1,7 @@
-# Paid search run by an agent and approved by a person: the Marketing lead,
+# Paid Marketing — paid search run by an agent and approved by a person: the Marketing lead,
 # the daily update, and the pages for campaigns and search terms.
 id: marketing
-name: Marketing
+name: Paid Marketing
 icon: megaphone
 tint: peach
 order: 7
