@@ -38,7 +38,18 @@ export function PresentMode(props: PresentModeProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const channel = useRef<BroadcastChannel | null>(null);
   const page = props.pages[index];
-  const { pages, onClose, onIndex, frameHtml } = props;
+  const { pages, frameHtml } = props;
+  // The caller's callbacks are fresh on every render (moving a slide re-renders
+  // the pane through `onIndex`). Read them through refs so the full-screen
+  // effect below runs once: re-running it exits full screen, and the browser
+  // refuses to re-enter without a click.
+  const onCloseRef = useRef(props.onClose);
+  const onIndexRef = useRef(props.onIndex);
+  useEffect(() => {
+    onCloseRef.current = props.onClose;
+    onIndexRef.current = props.onIndex;
+  });
+  const onClose = useCallback(() => onCloseRef.current(), []);
 
   const go = useCallback((to: number | 'next' | 'prev') => {
     setIndex((i) => {
@@ -48,8 +59,8 @@ export function PresentMode(props: PresentModeProps) {
   }, [pages.length]);
 
   useEffect(() => {
-    onIndex?.(index);
-  }, [index, onIndex]);
+    onIndexRef.current?.(index);
+  }, [index]);
 
   const state = useCallback((): PresenterState => {
     const cur = pages[index];
