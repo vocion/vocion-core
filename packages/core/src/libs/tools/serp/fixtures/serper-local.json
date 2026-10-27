@@ -1,0 +1,17 @@
+{
+  "searchParameters": { "q": "water heater repair fairview", "gl": "us", "hl": "en", "type": "search", "num": 10, "location": "Fairview, Oregon, United States", "engine": "google" },
+  "places": [
+    { "position": 1, "title": "Northwind Home Services", "address": "120 Example St, Fairview", "latitude": 45.5, "longitude": -122.4, "rating": 4.8, "ratingCount": 212, "category": "Plumber", "phoneNumber": "(503) 555-0142", "website": "https://www.northwind-home.example/", "cid": "1000000000000000001" },
+    { "position": 2, "title": "Lakeside Plumbing Co", "address": "45 Oak Ave, Lakeside", "rating": "4.6", "ratingCount": "1,204", "category": "Water heater installation service", "website": "https://lakeside-plumbing.example/water-heaters", "cid": "1000000000000000002" },
+    { "position": 3, "title": "Fairview Rooter & Drain", "address": "8 Market Rd, Fairview", "category": "Plumber", "cid": "1000000000000000003" }
+  ],
+  "organic": [
+    { "title": "THE BEST 10 Water Heater Repair in Fairview - Updated 2026", "link": "https://www.yelp.com/search?find_desc=water+heater+repair&find_loc=Fairview", "snippet": "Top 10 best water heater repair near Fairview.", "position": 1 },
+    { "title": "Water Heater Repair in Fairview | Northwind Home Services", "link": "https://northwind-home.example/fairview/water-heater-repair", "snippet": "Same-day water heater repair across Fairview.", "position": 2 },
+    { "title": "The 10 Best Water Heater Repair Services in Fairview", "link": "https://www.angi.com/companylist/fairview/water-heater-repair.htm", "snippet": "Find top-rated pros.", "position": 3 },
+    { "title": "Water Heater Repair | Lakeside Plumbing Co", "link": "https://lakeside-plumbing.example/water-heaters", "snippet": "Tank and tankless repair.", "date": "Sep 2, 2026", "position": 4 }
+  ],
+  "peopleAlsoAsk": [{ "question": "How much does water heater repair cost?" }],
+  "relatedSearches": [{ "query": "tankless water heater repair fairview" }],
+  "credits": 1
+}

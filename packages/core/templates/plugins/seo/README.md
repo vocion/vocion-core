@@ -12,8 +12,9 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   Sonnet 5.5, granted the `serp` tools), the SEO writer (Opus 5.5) and the
   SEO editor (Sonnet 5.5), who checks every draft before a person sees it.
 - **Two records**, both carrying `projectId`: `seo_batch` (a set of pages for
-  one client and topic, with its gate) and `seo_page` (one keyword, its
-  status, the SERP brief, brief and draft artifacts, the model that ran each
+  one client and topic, with its gate) and `seo_page` (one keyword, its page
+  type, location and target URL, its status, the SERP brief, brief and draft
+  artifacts, the model that ran each
   step, every feedback note with where it was filed, and the pull request and
   live URL once published).
 - **The volume gate**, enforced in code: a sample of 3 pages first, nothing
@@ -21,12 +22,18 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   rest. A page sent back with changes holds new drafts until its feedback is
   filed. Sizes per project: `seoGate: {sample: 3, tranche: 10}` on the
   project.
+- **Local search, in code**: a location page is researched on its own city's
+  Google results, its brief carries the client's local substance, and its
+  draft fails review when it is a sibling location page with the city
+  swapped (70% or more the same). A plan that targets a keyword or URL the
+  project already has is refused unless it is a refresh.
 - **Skills**: `onboard-client`, `serp-research`, `page-brief`, `write-page`,
   `review-page`, `feedback-to-wiki`, `publish-page`.
 - **The learning step `seo-feedback`**: notes on sign-offs become candidate
   rules; adopted ones mount for the writer and the editor.
 - **Pages**: SEO (every batch with its gate line and pages by status) and SEO
-  pages (a batch's pages with keyword, status, models and links).
+  pages (a batch's pages with keyword, type, location, target URL, status,
+  models and links).
 
 It turns on the `data-rooms` plugin (Projects kept current) and the Wiki with it. Projects themselves are core, in every app, so turning SEO on adds the SEO app and no other.
 

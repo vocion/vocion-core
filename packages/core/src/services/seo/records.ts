@@ -25,6 +25,10 @@ import { readSeoProject } from './projects';
 export const SEO_BATCH_TYPE = 'seo_batch';
 export const SEO_PAGE_TYPE = 'seo_page';
 
+/** What kind of page it is. A `location` page targets one city or service area and must say something true of that place. */
+export const SEO_PAGE_TYPES = ['location', 'service', 'blog', 'landing', 'other'] as const;
+export type SeoPageType = typeof SEO_PAGE_TYPES[number];
+
 export const SEO_PAGE_STATUSES = ['proposed', 'researched', 'briefed', 'drafting', 'in_review', 'changes_requested', 'approved', 'publishing', 'published', 'rejected'] as const;
 export type SeoPageStatus = typeof SEO_PAGE_STATUSES[number];
 
@@ -63,6 +67,18 @@ export type SeoPageMeta = {
   secondaryKeywords?: string[];
   intent?: string;
   volume?: number | null;
+  /** What kind of page: a location page gets its own SERP read and must carry local substance. */
+  pageType?: SeoPageType;
+  /** The city or service area a location page is for ("Fairview"). */
+  location?: string;
+  /** The live page this one rewrites, when it is a refresh. */
+  existingUrl?: string;
+  /** Planned as a refresh of a page that already targets this keyword or URL. */
+  refresh?: boolean;
+  /** The URL slug planned for a new page. */
+  slug?: string;
+  /** Where the page lives or will live: the published URL, else the page it refreshes, else its planned slug. Stamped on every write. */
+  target?: string;
   status: SeoPageStatus;
   serpArtifactId?: number;
   briefArtifactId?: number;
@@ -72,7 +88,13 @@ export type SeoPageMeta = {
   models?: { plan?: SeoModelStamp; write?: SeoModelStamp; review?: SeoModelStamp };
   /** "Plan Opus 5.5 · Write Opus 5.5 · Review Sonnet 5.5" — the models line the batch page shows. */
   modelsLine?: string;
-  review?: { verdict: 'pass' | 'fix'; notes: string; at: string };
+  review?: {
+    verdict: 'pass' | 'fix';
+    notes: string;
+    at: string;
+    /** Sibling location pages the draft was too similar to (`duplicates.ts`), when it was. */
+    similarTo?: Array<{ pageId: number; similarity: number }>;
+  };
   signoff?: SeoSignoff;
   feedback?: SeoFeedback[];
   publishTargetId?: string;
@@ -97,6 +119,14 @@ export type SeoBatchMeta = {
 };
 
 export type SeoPageRecord = { id: number; title: string; meta: SeoPageMeta };
+
+/**
+ * Where a page lives or will live, for the pages list.
+ * @param meta - The page.
+ */
+export function targetOf(meta: Pick<SeoPageMeta, 'publishedUrl' | 'existingUrl' | 'slug'>): string | undefined {
+  return meta.publishedUrl || meta.existingUrl || meta.slug || undefined;
+}
 export type SeoBatchRecord = { id: number; title: string; meta: SeoBatchMeta };
 
 /** The plugin's types must be there; a workspace that has not applied it is told how to get them. */
@@ -193,13 +223,97 @@ export async function listSeoPages(orgId: string, batchId: number): Promise<SeoP
   return rows.filter(p => p.meta.batchId === batchId).sort((a, b) => (a.meta.order ?? 0) - (b.meta.order ?? 0) || a.id - b.id);
 }
 
+export type PlannedPage = {
+  keyword: string;
+  title?: string;
+  secondaryKeywords?: string[];
+  intent?: string;
+  volume?: number | null;
+  pageType?: SeoPageType;
+  location?: string;
+  existingUrl?: string;
+  slug?: string;
+  refresh?: boolean;
+};
+
 export type PlanBatchInput = {
   projectId: number;
   topic: string;
   destination?: string;
-  pages: Array<{ keyword: string; title?: string; secondaryKeywords?: string[]; intent?: string; volume?: number | null }>;
+  pages: PlannedPage[];
   plannedBy?: SeoModelStamp | null;
 };
+
+/** A plan that would make two pages compete for one keyword or one URL. */
+export class SeoPlanConflictError extends SeoSetupError {}
+
+/**
+ * A keyword as it is compared: case, spacing and punctuation gone.
+ * @param keyword - The keyword.
+ */
+export function keywordKey(keyword: string): string {
+  return keyword.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+/**
+ * A URL or slug as it is compared: no scheme, host or `www.`, no query or
+ * trailing slash, lower case. A bare slug compares with a URL's path.
+ * @param urlOrSlug - A URL or a slug.
+ */
+export function pathKey(urlOrSlug: string): string {
+  const raw = urlOrSlug.trim().toLowerCase();
+  let path = raw;
+  try {
+    path = new URL(raw).pathname;
+  } catch {
+    path = raw.replace(/^[a-z0-9.-]+\.[a-z]{2,}(?=\/)/, '');
+  }
+  return `/${path.replace(/[?#].*$/, '').replace(/^\/+|\/+$/g, '')}`;
+}
+
+/**
+ * Why a planned page would compete with a page the project already has, or
+ * null when it would not. A keyword planned in another open batch, a keyword
+ * a published page already targets, or a URL another page lives at or
+ * refreshes is a conflict unless the plan marks the page a refresh. Two
+ * pages in one plan with the same keyword always are.
+ * @param planned - The pages being planned, in order.
+ * @param existing - Every page the project already has.
+ * @param openBatchIds - The project's batches that are not done.
+ */
+export function planConflicts(planned: PlannedPage[], existing: SeoPageRecord[], openBatchIds: ReadonlySet<number>): string[] {
+  const problems: string[] = [];
+  const inPlan = new Map<string, string>();
+  for (const p of planned) {
+    const key = keywordKey(p.keyword);
+    if (!key) {
+      continue;
+    }
+    if (inPlan.has(key)) {
+      problems.push(`"${p.keyword}" is planned twice in this batch; one keyword is one page (put the other as a secondary keyword).`);
+      continue;
+    }
+    inPlan.set(key, p.keyword);
+    if (p.refresh) {
+      continue;
+    }
+    const live = existing.filter(e => e.meta.status !== 'rejected');
+    const sameKeyword = live.find(e => keywordKey(e.meta.keyword) === key && (openBatchIds.has(e.meta.batchId) || e.meta.status === 'published' || Boolean(e.meta.publishedUrl)));
+    if (sameKeyword) {
+      const where = sameKeyword.meta.publishedUrl ? `published at ${sameKeyword.meta.publishedUrl}` : `planned in batch #${sameKeyword.meta.batchId}`;
+      problems.push(`"${p.keyword}" is already page #${sameKeyword.id} (${where}). Two pages on one keyword compete with each other: drop it, or plan it with refresh: true and existing_url to rewrite that page.`);
+      continue;
+    }
+    const urls = [p.existingUrl, p.slug].filter((u): u is string => Boolean(u?.trim())).map(pathKey).filter(u => u !== '/');
+    const sameUrl = urls.length
+      ? live.find(e => [e.meta.existingUrl, e.meta.publishedUrl, e.meta.slug].filter((u): u is string => Boolean(u?.trim())).some(u => urls.includes(pathKey(u))))
+      : undefined;
+    if (sameUrl) {
+      problems.push(`"${p.keyword}" targets ${p.existingUrl ?? p.slug}, which page #${sameUrl.id} "${sameUrl.meta.keyword}" already ${sameUrl.meta.publishedUrl ? 'lives at' : 'targets'}. Plan it with refresh: true to rewrite that page, or give it its own URL.`);
+    }
+  }
+  return problems;
+}
 
 /**
  * A batch and its proposed pages, in the order given, with the gate read once.
@@ -214,6 +328,14 @@ export async function planSeoBatch(orgId: string, userId: string, input: PlanBat
     throw new SeoSetupError(`No project #${input.projectId} in this workspace.`);
   }
   const keywords = input.pages.map(p => p.keyword.trim()).filter(Boolean);
+  const [existingPages, batches] = await Promise.all([
+    listBusinessObjects(orgId, SEO_PAGE_TYPE, { projectId: project.id }).then(rows => rows.map(toPage)),
+    listSeoBatches(orgId, project.id),
+  ]);
+  const problems = planConflicts(input.pages, existingPages.filter(p => p.meta.projectId === project.id), new Set(batches.filter(b => b.meta.status !== 'done').map(b => b.id)));
+  if (problems.length > 0) {
+    throw new SeoPlanConflictError(`Not planned: ${problems.length === 1 ? problems[0] : `\n- ${problems.join('\n- ')}`}`);
+  }
   const batchMeta: SeoBatchMeta = {
     projectId: project.id,
     projectName: project.title,
@@ -243,11 +365,20 @@ export async function planSeoBatch(orgId: string, userId: string, input: PlanBat
       ...(p.secondaryKeywords?.length ? { secondaryKeywords: p.secondaryKeywords } : {}),
       ...(p.intent ? { intent: p.intent } : {}),
       ...(typeof p.volume === 'number' ? { volume: p.volume } : {}),
+      ...(p.pageType ? { pageType: p.pageType } : {}),
+      ...(p.location?.trim() ? { location: p.location.trim() } : {}),
+      ...(p.existingUrl?.trim() ? { existingUrl: p.existingUrl.trim() } : {}),
+      ...(p.slug?.trim() ? { slug: p.slug.trim() } : {}),
+      ...(p.refresh ? { refresh: true } : {}),
       ...(input.destination ? { publishTargetId: input.destination } : {}),
       status: 'proposed',
       ...(models ? { models, modelsLine: modelsLine(models) } : {}),
       feedback: [],
     };
+    const target = targetOf(meta);
+    if (target) {
+      meta.target = target;
+    }
     const row = await createBusinessObject({ typeSlug: SEO_PAGE_TYPE, title: p.title?.trim() || keyword, metadata: meta }, orgId, userId);
     pages.push(toPage(row!));
   }
@@ -263,6 +394,10 @@ export async function planSeoBatch(orgId: string, userId: string, input: PlanBat
  */
 export async function patchSeoPage(orgId: string, page: SeoPageRecord, patch: Partial<SeoPageMeta>): Promise<SeoPageRecord> {
   const next: SeoPageMeta = { ...page.meta, ...patch };
+  const target = targetOf(next);
+  if (target) {
+    next.target = target;
+  }
   if (patch.models) {
     next.models = { ...page.meta.models, ...patch.models };
     next.modelsLine = modelsLine(next.models);

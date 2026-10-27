@@ -1,5 +1,5 @@
 import type { CapabilityStatus } from '../types';
-import type { KeywordMetricsResult, SerpCallOptions, SerpProvider, SerpProviderName, SerpQuery, SerpResult } from './types';
+import type { KeywordIdeasResult, KeywordMetricsResult, SerpCallOptions, SerpProvider, SerpProviderName, SerpQuery, SerpResult } from './types';
 import process from 'node:process';
 import { statusForProvider } from '../status';
 import { ProviderNotConfiguredError } from '../types';
@@ -64,10 +64,14 @@ export function serpProviderLabel(name: string): string {
  * engine's, not Google's, and it has no People Also Ask or related searches.
  * An org key that could not be READ is not "none" — that error is thrown, so
  * nothing quietly spends another account or substitutes another engine.
+ *
+ * `googleOnly` turns the fallback off: SEO work (a SERP brief, a keyword
+ * cluster) built on another engine's order looks authoritative and is not,
+ * so those callers get `ProviderNotConfiguredError` instead.
  * @param q - The query and where it is searched from.
- * @param opts - The org the call is for.
+ * @param opts - The org the call is for, and whether only Google will do.
  */
-export async function searchSerp(q: SerpQuery, opts: SerpCallOptions = {}): Promise<SerpResult> {
+export async function searchSerp(q: SerpQuery, opts: SerpCallOptions & { googleOnly?: boolean } = {}): Promise<SerpResult> {
   for (const provider of candidates()) {
     try {
       return await provider.search(q, opts);
@@ -76,6 +80,9 @@ export async function searchSerp(q: SerpQuery, opts: SerpCallOptions = {}): Prom
         throw err;
       }
     }
+  }
+  if (opts.googleOnly) {
+    throw new ProviderNotConfiguredError('serp', 'serper', ['VOCION_SERP_PROVIDER', 'SERPER_API_KEY']);
   }
   return webSearchFallback(q, opts);
 }
@@ -154,6 +161,40 @@ export async function keywordMetrics(keywords: string[], where: { location?: str
   return {
     ok: false,
     reason: `Could not establish volume: ${why}. DataForSEO has it (Google Ads data); a workspace admin can add a DataForSEO API login under API credentials. Do not estimate volumes.`,
+  };
+}
+
+/** What keyword ideas came back as: the ideas, or the plain reason there are none. */
+export type KeywordIdeasOutcome
+  = | { ok: true; result: KeywordIdeasResult }
+    | { ok: false; reason: string };
+
+/**
+ * Keyword ideas (related searches Google Ads suggests, with their numbers)
+ * for seed keywords. Only DataForSEO has them; Serper and SerpApi have no
+ * keyword data at all, and the answer then says so.
+ * @param seeds - Seed keywords (the first 20 are used).
+ * @param where - Location and language.
+ * @param where.location - A free-text place.
+ * @param where.language - ISO 639-1.
+ * @param opts - The org the call is for.
+ */
+export async function keywordIdeas(seeds: string[], where: { location?: string; language?: string }, opts: SerpCallOptions = {}): Promise<KeywordIdeasOutcome> {
+  const dfs = dataForSeoProvider();
+  try {
+    return { ok: true, result: await dfs.keywordIdeas!(seeds, where, opts) };
+  } catch (err) {
+    if (!(err instanceof ProviderNotConfiguredError)) {
+      throw err;
+    }
+  }
+  const active = configuredSerpProviderName() ?? candidates()[0]?.name ?? 'serper';
+  const why = active === 'dataforseo'
+    ? 'DataForSEO is the SERP provider but no DataForSEO API login is configured'
+    : `keyword ideas are not available on ${serpProviderLabel(active)}, which has no keyword data`;
+  return {
+    ok: false,
+    reason: `No keyword ideas: ${why}. DataForSEO has them (Google Ads data); a workspace admin can add a DataForSEO API login under API credentials. Use People Also Ask and related searches from serp_search instead, and do not invent keywords with numbers.`,
   };
 }
 

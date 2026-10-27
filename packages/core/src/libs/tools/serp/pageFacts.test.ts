@@ -48,5 +48,6 @@ describe('extractPageFacts', () => {
     expect(bare.published).toBeNull();
     expect(bare.updated).toBeNull();
     expect(bare.wordCount).toBe(6);
+    expect(bare.text).toBe('Frequently asked questions One two three.');
   });
 });

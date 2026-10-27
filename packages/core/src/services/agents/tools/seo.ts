@@ -3,10 +3,11 @@
  *
  *   seo_plan_batch       a batch and its proposed pages, for one project
  *   seo_next_pages       what the volume gate lets be written now, and why the rest wait
- *   seo_save_research    the SERP brief artifact on a page
+ *   seo_save_research    the SERP brief artifact on a page; a location page's must be its own city's read
  *   seo_save_brief       the page brief artifact on a page
  *   seo_save_draft       the draft on a page; REFUSES a page the gate has not released
- *   seo_save_review      the editor's verdict on a draft, and the sign-off ask to file
+ *   seo_save_review      the editor's verdict on a draft, and the sign-off ask to file;
+ *                        FAILS a location page that is a sibling with the city swapped
  *   seo_record_feedback  a note on a page, its scope, and where it was filed
  *
  * The gate is code (`services/seo/gate.ts`), not a prompt: these tools are the
@@ -22,12 +23,13 @@ import type { RuntimeContext } from '../types';
 import type { SeoFeedback, SeoPageRecord } from '@/services/seo/records';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { SERP_BRIEF_FOLDER, SYNTHESIS_END, SYNTHESIS_START } from '@/libs/tools/serp/brief';
+import { SERP_BRIEF_FOLDER, serpBriefMeta, SYNTHESIS_END, SYNTHESIS_START } from '@/libs/tools/serp/brief';
 import { anchorArtifact, getArtifact } from '@/services/ArtifactService';
+import { LOCATION_PAGE_SIMILARITY_LIMIT, nearDuplicates, queryNamesLocation } from '@/services/seo/duplicates';
 import { whyNotWritable } from '@/services/seo/gate';
 import { modelThatRan } from '@/services/seo/modelThatRan';
 import { readSeoProject, seoProjectHref } from '@/services/seo/projects';
-import { getSeoPage, patchSeoPage, planSeoBatch, readSeoGate, refreshSeoBatch, SeoSetupError } from '@/services/seo/records';
+import { getSeoPage, listSeoPages, patchSeoPage, planSeoBatch, readSeoGate, refreshSeoBatch, SEO_PAGE_TYPES, SeoSetupError } from '@/services/seo/records';
 import { seoSignoffRef } from '@/services/seo/signoff';
 import { recordIdArg, recordIdOf } from './recordIdArg';
 
@@ -68,7 +70,8 @@ async function artifactArg(ctx: RuntimeContext, id: number, page: SeoPageRecord,
   }
   // The artifact lives on the page's record too, so the record lists it beside
   // its versions — unless it already lives on a record (one SERP brief can
-  // serve every page of a topic; it stays where it was first filed).
+  // serve several pages of a topic, never two location pages; it stays where
+  // it was first filed).
   if (!artifact.recordId) {
     await anchorArtifact({ orgId: ctx.orgId, id, record: { type: 'object', id: String(page.id), role } }).catch(() => null);
   }
@@ -77,11 +80,14 @@ async function artifactArg(ctx: RuntimeContext, id: number, page: SeoPageRecord,
 
 /**
  * Why an artifact is not a finished SERP brief, or null when it is: one
- * `serp_compare` filed (folder `seo/serp`) with its synthesis written in.
+ * `serp_compare` filed (folder `seo/serp`) from Google's ranking, with its
+ * synthesis written in; for a location page, read for a query naming its
+ * place and not already another page's research.
  * @param ctx - The turn.
  * @param id - The artifact.
+ * @param page - The page it is for.
  */
-async function serpBriefProblem(ctx: RuntimeContext, id: number): Promise<string | null> {
+async function serpBriefProblem(ctx: RuntimeContext, id: number, page: SeoPageRecord): Promise<string | null> {
   const artifact = await getArtifact({ orgId: ctx.orgId, id });
   if (!artifact) {
     return null; // artifactArg says so.
@@ -90,25 +96,118 @@ async function serpBriefProblem(ctx: RuntimeContext, id: number): Promise<string
     return `Not saved: artifact #${id} is not a SERP brief. Run serp_compare for the keyword; it files the brief in ${SERP_BRIEF_FOLDER}, and pass that id.`;
   }
   const md = typeof artifact.spec?.md === 'string' ? artifact.spec.md : '';
+  const meta = serpBriefMeta(md);
+  // A brief on another engine's order (filed before serp_compare refused
+  // them) reads as authoritative and is not.
+  if ((meta && !meta.google) || (!meta && /web search \(not Google\)/.test(md))) {
+    return `Not saved: SERP brief #${id} was built on web search results, not Google's ranking. A workspace admin can add a Serper key under API credentials; then run serp_compare again.`;
+  }
   const start = md.indexOf(SYNTHESIS_START);
   const end = md.indexOf(SYNTHESIS_END);
   if (start >= 0 && end > start && /_Not written yet\._/.test(md.slice(start, end))) {
     return `Not saved: SERP brief #${id} has no synthesis yet. Call serp_compare with brief_id ${id} and synthesis { intent, common_subtopics, gaps } first.`;
   }
+  if (page.meta.pageType === 'location') {
+    const location = page.meta.location?.trim();
+    if (!location) {
+      return `Not saved: page #${page.id} is a location page with no location. Its location (the city or area) is set when it is planned.`;
+    }
+    const query = meta?.query ?? artifact.title.replace(/^SERP brief:\s*/, '');
+    if (!queryNamesLocation(query, location)) {
+      return `Not saved: page #${page.id} is a location page for ${location}, and SERP brief #${id} reads "${query}", which does not name ${location}. A location page is researched on its own city's results: serp_search the query with ${location} in it (and location set to ${location}), serp_compare it, and attach that brief.`;
+    }
+    if (artifact.recordId && artifact.recordId !== String(page.id)) {
+      return `Not saved: SERP brief #${id} is already the research of record #${artifact.recordId}. Each location page gets its own read of its own city's results; run serp_compare for "${page.meta.keyword}".`;
+    }
+  }
   return null;
+}
+
+/** The section a location page's brief must carry: what is true of that place. */
+const LOCAL_SUBSTANCE = /^#{1,6}\s+(?:\d+[.)]\s*)?\**local substance\b/im;
+
+/**
+ * Why a location page's brief is missing its local substance, or null.
+ * @param ctx - The turn.
+ * @param id - The brief artifact.
+ * @param page - The page.
+ */
+async function localSubstanceProblem(ctx: RuntimeContext, id: number, page: SeoPageRecord): Promise<string | null> {
+  if (page.meta.pageType !== 'location') {
+    return null;
+  }
+  const artifact = await getArtifact({ orgId: ctx.orgId, id });
+  const md = typeof artifact?.spec?.md === 'string' ? artifact.spec.md : null;
+  if (md === null || LOCAL_SUBSTANCE.test(md)) {
+    return null; // artifactArg reports a missing artifact.
+  }
+  return `Not saved: page #${page.id} is a location page for ${page.meta.location ?? 'its area'}, and brief #${id} has no "Local substance" section. Add one (a heading "Local substance"): the client's projects, reviews and customers in ${page.meta.location ?? 'that area'} from the project, service-area facts, local codes or conditions, each with its source. If the project has nothing for that place, say so in that section; never invent it.`;
+}
+
+/**
+ * The markdown of an artifact, or null.
+ * @param ctx - The turn.
+ * @param id - The artifact.
+ */
+async function markdownOf(ctx: RuntimeContext, id: number | undefined): Promise<string | null> {
+  if (!id) {
+    return null;
+  }
+  const artifact = await getArtifact({ orgId: ctx.orgId, id });
+  return typeof artifact?.spec?.md === 'string' ? artifact.spec.md : null;
+}
+
+/**
+ * The sibling location pages in this page's batch its draft is too similar
+ * to. Empty for any other page, or with no sibling drafted.
+ * @param ctx - The turn.
+ * @param page - The page under review.
+ */
+async function siblingDuplicates(ctx: RuntimeContext, page: SeoPageRecord) {
+  if (page.meta.pageType !== 'location') {
+    return [];
+  }
+  const own = await markdownOf(ctx, page.meta.draftArtifactId);
+  if (!own) {
+    return [];
+  }
+  const siblings = (await listSeoPages(ctx.orgId, page.meta.batchId)).filter(p => p.id !== page.id && p.meta.pageType === 'location' && p.meta.draftArtifactId && p.meta.status !== 'rejected');
+  const drafts = await Promise.all(siblings.map(async p => ({ pageId: p.id, keyword: p.meta.keyword, location: p.meta.location, markdown: await markdownOf(ctx, p.meta.draftArtifactId) ?? '' })));
+  return nearDuplicates({ pageId: page.id, keyword: page.meta.keyword, location: page.meta.location, markdown: own }, drafts.filter(d => d.markdown));
 }
 
 function failed(err: unknown): string {
   return err instanceof SeoSetupError ? err.message : `Not saved: ${(err as Error).message}`;
 }
 
+type PlanArgPage = {
+  keyword: string;
+  title?: string;
+  secondary_keywords?: string[];
+  intent?: string;
+  volume?: number | null;
+  page_type?: (typeof SEO_PAGE_TYPES)[number];
+  location?: string;
+  existing_url?: string;
+  slug?: string;
+  refresh?: boolean;
+};
+
 export function seoPlanBatchTool(ctx: RuntimeContext) {
   return tool(
     async (raw) => {
       const args = raw as { project_id: number; topic: string; destination?: string; pages: unknown };
-      const pages = coerceJson(args.pages) as Array<{ keyword: string; title?: string; secondary_keywords?: string[]; intent?: string; volume?: number | null }>;
+      const pages = coerceJson(args.pages) as PlanArgPage[];
       if (!Array.isArray(pages) || pages.length === 0) {
         return 'Not planned: name at least one page (its target keyword).';
+      }
+      const placeless = pages.filter(p => p.page_type === 'location' && !p.location?.trim());
+      if (placeless.length > 0) {
+        return `Not planned: ${placeless.map(p => `"${p.keyword}"`).join(', ')} ${placeless.length === 1 ? 'is a location page' : 'are location pages'} with no location. Give each the city or service area it is for.`;
+      }
+      const refreshWithoutUrl = pages.filter(p => p.refresh && !p.existing_url?.trim());
+      if (refreshWithoutUrl.length > 0) {
+        return `Not planned: ${refreshWithoutUrl.map(p => `"${p.keyword}"`).join(', ')} ${refreshWithoutUrl.length === 1 ? 'is a refresh' : 'are refreshes'} with no existing_url. A refresh names the live page it rewrites.`;
       }
       try {
         const plannedBy = await modelThatRan(ctx);
@@ -116,31 +215,49 @@ export function seoPlanBatchTool(ctx: RuntimeContext) {
           projectId: args.project_id,
           topic: args.topic,
           destination: args.destination,
-          pages: pages.map(p => ({ keyword: p.keyword, title: p.title, secondaryKeywords: p.secondary_keywords, intent: p.intent, volume: p.volume })),
+          pages: pages.map(p => ({
+            keyword: p.keyword,
+            title: p.title,
+            secondaryKeywords: p.secondary_keywords,
+            intent: p.intent,
+            volume: p.volume,
+            pageType: p.page_type,
+            location: p.location,
+            existingUrl: p.existing_url,
+            slug: p.slug,
+            refresh: p.refresh,
+          })),
           plannedBy,
         });
+        const locations = made.filter(p => p.meta.pageType === 'location').length;
         return [
           `Planned batch #${batch.id} "${batch.title}" with ${made.length} pages (${batchHref(batch.id)}).`,
           `Gate: ${gate.line}. Sizes come from the project (seoGate), never from a prompt.`,
           `Released now: ${gate.released.map(id => `#${id}`).join(', ') || 'none'}. Research and brief those first (seo_next_pages says what each needs).`,
-        ].join('\n');
+          locations > 0 ? `${locations} location page${locations === 1 ? '' : 's'}: each is researched on its own city's results (seo_save_research refuses a brief whose query does not name its location) and must carry local substance; the editor's review fails one that is ${Math.round(LOCATION_PAGE_SIMILARITY_LIMIT * 100)}% or more the same as a sibling.` : null,
+        ].filter(Boolean).join('\n');
       } catch (err) {
         return failed(err);
       }
     },
     {
       name: 'seo_plan_batch',
-      description: 'Plan a batch of SEO pages for one client project: a batch record and one proposed page record per target keyword, in the order they should be written (the first ones become the sample a person reviews before anything else is drafted). Use after the SERP research for the topic, with the keywords you chose and why. Returns the batch link and the gate line.',
+      description: 'Plan a batch of SEO pages for one client project: a batch record and one proposed page record per target keyword, in the order they should be written (the first ones become the sample a person reviews before anything else is drafted). Use after the SERP research for the topic (keyword_cluster first, so each page targets one cluster), with the keywords you chose and why. Refuses a keyword the project already has a page for in another open batch or live, or a URL another page lives at, unless the page is marked `refresh` with the `existing_url` it rewrites. Returns the batch link and the gate line.',
       schema: z.object({
         project_id: z.number().int().positive().describe('The client project (list_projects) the pages are for.'),
-        topic: z.string().min(1).max(200).describe('What the batch covers, in a few words, e.g. "Trail running shoes".'),
+        topic: z.string().min(1).max(200).describe('What the batch covers, in a few words, e.g. "Water heater service".'),
         destination: z.string().max(120).optional().describe('The project\'s publish target id these pages ship to, when it has one.'),
         pages: z.array(z.object({
           keyword: z.string().min(1).max(200),
           title: z.string().max(200).optional().describe('A working title; defaults to the keyword.'),
-          secondary_keywords: z.array(z.string().max(200)).max(20).optional(),
+          secondary_keywords: z.array(z.string().max(200)).max(20).optional().describe('The rest of the keyword\'s cluster (keyword_cluster).'),
           intent: z.string().max(60).optional().describe('informational, commercial, transactional or navigational.'),
           volume: z.number().int().nonnegative().nullable().optional().describe('Monthly search volume when keyword_metrics established it; leave out when it did not.'),
+          page_type: z.enum(SEO_PAGE_TYPES).optional().describe('location (one city or service area), service, blog, landing or other.'),
+          location: z.string().max(120).optional().describe('For a location page: the city or area it is for, e.g. "Fairview".'),
+          existing_url: z.string().max(500).optional().describe('The live page this one rewrites, when it is a refresh.'),
+          slug: z.string().max(200).optional().describe('The URL slug planned for a new page.'),
+          refresh: z.boolean().optional().describe('True when this rewrites a page the client already has (give existing_url).'),
         })).min(1).max(200),
       }),
     },
@@ -162,7 +279,16 @@ export function seoNextPagesTool(ctx: RuntimeContext) {
       const nextStep = (p: SeoPageRecord) => p.meta.status === 'changes_requested'
         ? 'redraft (read its feedback first)'
         : !p.meta.serpArtifactId ? 'research' : !p.meta.briefArtifactId ? 'brief' : 'draft';
-      const writable = pages.filter(p => gate.writable.includes(p.id)).map(p => ({ id: p.id, keyword: p.meta.keyword, status: p.meta.status, next: nextStep(p), href: pageHref(p.id) }));
+      const writable = pages.filter(p => gate.writable.includes(p.id)).map(p => ({
+        id: p.id,
+        keyword: p.meta.keyword,
+        ...(p.meta.pageType ? { pageType: p.meta.pageType } : {}),
+        ...(p.meta.location ? { location: p.meta.location } : {}),
+        ...(p.meta.existingUrl ? { refreshes: p.meta.existingUrl } : {}),
+        status: p.meta.status,
+        next: nextStep(p),
+        href: pageHref(p.id),
+      }));
       const waiting = pages.filter(p => !gate.writable.includes(p.id) && p.meta.status !== 'rejected' && p.meta.status !== 'approved' && p.meta.status !== 'published');
       const reasons = new Map<string, number[]>();
       for (const p of waiting) {
@@ -191,7 +317,7 @@ export function seoSaveResearchTool(ctx: RuntimeContext) {
       if (typeof page === 'string') {
         return page;
       }
-      const bad = await serpBriefProblem(ctx, serp_artifact_id) ?? await artifactArg(ctx, serp_artifact_id, page, 'serp', 'SERP brief');
+      const bad = await serpBriefProblem(ctx, serp_artifact_id, page) ?? await artifactArg(ctx, serp_artifact_id, page, 'serp', 'SERP brief');
       if (bad) {
         return bad;
       }
@@ -202,7 +328,7 @@ export function seoSaveResearchTool(ctx: RuntimeContext) {
     },
     {
       name: 'seo_save_research',
-      description: 'Attach the SERP brief serp_compare filed (folder seo/serp), with its synthesis written in, to an SEO page. One brief can serve several pages of the same topic. Moves a proposed page to researched.',
+      description: 'Attach the SERP brief serp_compare filed (folder seo/serp), with its synthesis written in, to an SEO page. One brief can serve several pages of the same topic, except location pages: a location page needs its own brief, read for a query that names its city. Refuses a brief built on web search results rather than Google\'s ranking. Moves a proposed page to researched.',
       schema: z.object({ page_id: recordIdArg('The SEO page'), serp_artifact_id: z.number().int().positive().describe('The SERP brief artifact id serp_compare returned (briefArtifactId)') }),
     },
   );
@@ -215,7 +341,7 @@ export function seoSaveBriefTool(ctx: RuntimeContext) {
       if (typeof page === 'string') {
         return page;
       }
-      const bad = await artifactArg(ctx, brief_artifact_id, page, 'brief', 'page brief');
+      const bad = await localSubstanceProblem(ctx, brief_artifact_id, page) ?? await artifactArg(ctx, brief_artifact_id, page, 'brief', 'page brief');
       if (bad) {
         return bad;
       }
@@ -228,7 +354,7 @@ export function seoSaveBriefTool(ctx: RuntimeContext) {
     },
     {
       name: 'seo_save_brief',
-      description: 'Attach the page brief (a markdown artifact: search intent, the outline, what the top results cover and miss, the client rules that apply, internal links, the meta title and description) to an SEO page. Records the model that planned it.',
+      description: 'Attach the page brief (a markdown artifact: search intent, the outline, what the top results cover and miss, the client rules that apply, internal links, the meta title and description) to an SEO page. A location page\'s brief must have a "Local substance" section: what is true of that place for this client (projects, reviews, service-area facts), so the page is not a sibling with the city swapped. Records the model that planned it.',
       schema: z.object({ page_id: recordIdArg('The SEO page'), brief_artifact_id: z.number().int().positive() }),
     },
   );
@@ -295,14 +421,25 @@ export function seoSaveReviewTool(ctx: RuntimeContext) {
       }
       const ran = await modelThatRan(ctx);
       const at = new Date().toISOString();
+      // Doorway pages, in code: a location page that is a sibling with the
+      // city swapped fails, whatever verdict the editor gave.
+      const dupes = await siblingDuplicates(ctx, page);
+      const dupeNote = dupes.length
+        ? `Too similar to ${dupes.map(d => `page #${d.pageId} "${d.keyword}" (${Math.round(d.similarity * 100)}% the same once city names are masked)`).join(', ')}; the limit is ${Math.round(LOCATION_PAGE_SIMILARITY_LIMIT * 100)}%. Rewrite it around what is true of ${page.meta.location ?? 'this place'}: the brief's local substance, local projects and reviews, service-area facts.`
+        : null;
+      const finalVerdict: 'pass' | 'fix' = dupeNote ? 'fix' : verdict;
+      const finalNotes = dupeNote ? `${dupeNote}\n\n${notes}`.slice(0, 4000) : notes;
       await patchSeoPage(ctx.orgId, page, {
-        review: { verdict, notes, at },
-        ...(verdict === 'fix' ? { status: 'drafting' as const } : {}),
+        review: { verdict: finalVerdict, notes: finalNotes, at, ...(dupes.length ? { similarTo: dupes.map(d => ({ pageId: d.pageId, similarity: d.similarity })) } : {}) },
+        ...(finalVerdict === 'fix' ? { status: 'drafting' as const } : {}),
         ...(ran ? { models: { review: ran } } : {}),
       });
       await refreshSeoBatch(ctx.orgId, page.meta.batchId);
-      if (verdict === 'fix') {
-        return `Sent back to the writer: page #${page.id} is drafting again. The writer saves the fixed draft with seo_save_draft; nothing reached a person.`;
+      if (finalVerdict === 'fix') {
+        return [
+          dupeNote && verdict === 'pass' ? `Not passed: ${dupeNote}` : dupeNote,
+          `Sent back to the writer: page #${page.id} is drafting again. The writer saves the fixed draft with seo_save_draft; nothing reached a person.`,
+        ].filter(Boolean).join(' ');
       }
       const draft = page.meta.draftArtifactId;
       const round = page.meta.draftRound ?? 1;
@@ -323,7 +460,7 @@ export function seoSaveReviewTool(ctx: RuntimeContext) {
     },
     {
       name: 'seo_save_review',
-      description: 'The editor\'s verdict on an SEO draft, checked against the project\'s rules, brand, guidelines and the SERP brief: `pass` (returns the exact sign-off ask to file for a person) or `fix` (back to the writer, no person bothered). Records the model that reviewed it.',
+      description: 'The editor\'s verdict on an SEO draft, checked against the project\'s rules, brand, guidelines and the SERP brief: `pass` (returns the exact sign-off ask to file for a person) or `fix` (back to the writer, no person bothered). A location page whose draft is 70% or more the same as a sibling location page in the batch (city names masked) is sent back whatever the verdict, with the sibling and the score. Records the model that reviewed it.',
       schema: z.object({
         page_id: recordIdArg('The SEO page'),
         verdict: z.enum(['pass', 'fix']),

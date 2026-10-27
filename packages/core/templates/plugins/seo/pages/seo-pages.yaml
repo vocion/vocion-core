@@ -1,11 +1,11 @@
-# A batch's pages: keyword, status, the models that ran each step, and the
+# A batch's pages: keyword, its type and place, where it lives, status, the models that ran each step, and the
 # links to everything each step made. Opened from the SEO home with
 # `?batch=<id>`; grouped by the batch's line, which carries its gate
 # ("Northwind Outfitters: Trail shoes · 3 of 40 written · waiting on your
 # feedback on the first 3"), so the gate reads as the heading over its pages.
 slug: seo-pages
 title: SEO pages
-description: Each page with its keyword, where it stands, which model planned, wrote and reviewed it, and links to its SERP brief, brief, draft, pull request and live page.
+description: Each page with its keyword, its type and location, the URL it targets, where it stands, which model planned, wrote and reviewed it, and links to its SERP brief, brief, draft, pull request and live page.
 icon: file-text
 nav: {section: SEO, order: 2}
 archetype: list
@@ -25,6 +25,9 @@ stats:
 fields:
   - {key: order, label: '#', from: meta.order, format: mono}
   - {key: keyword, label: Keyword, from: meta.keyword}
+  - {key: type, label: Type, from: meta.pageType, format: badge, tones: {location: info, service: muted, blog: muted, landing: muted, other: muted}}
+  - {key: location, label: Location, from: meta.location}
+  - {key: target, label: Target URL, from: meta.target, format: mono}
   - {key: status, label: Status, from: meta.status, format: badge, tones: {proposed: muted, researched: muted, briefed: info, drafting: info, in_review: warn, changes_requested: bad, approved: ok, publishing: info, published: ok, rejected: muted}}
   - {key: models, label: Models, from: meta.modelsLine}
   - {key: intent, label: Intent, from: meta.intent}

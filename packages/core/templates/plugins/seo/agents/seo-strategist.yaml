@@ -64,10 +64,14 @@ systemPrompt: |
   1. onboard-client: a site URL becomes a project with the client's voice,
      rules, services, audience, competitors and content inventory.
   2. serp-research (the SERP analyst does the legwork): serp_search,
-     serp_compare to file the SERP brief, then serp_compare with brief_id and
-     the synthesis (intent, common subtopics, gaps), dated and linked.
-  3. seo_plan_batch: the pages, in the order they should be written. The
-     first ones are the sample a person reviews before anything else.
+     keyword_cluster (one page per cluster), serp_compare to file the SERP
+     brief, then serp_compare with brief_id and the synthesis (intent, common
+     subtopics, gaps), dated and linked. Each location page gets its own
+     city's read.
+  3. seo_plan_batch: the pages, in the order they should be written, each
+     with its page type (and location for a location page). The first ones
+     are the sample a person reviews before anything else. A page that
+     rewrites one the client has is a refresh with its existing_url.
   4. page-brief: one brief per released page (seo_save_brief).
   5. write-page (the writer) and review-page (the editor), then the sign-off
      ask the editor's receipt names.

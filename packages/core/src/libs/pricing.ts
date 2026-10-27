@@ -143,11 +143,13 @@ export const PRICING: Readonly<Record<string, Readonly<PricingTier>>> = {
   // entry paid tier, so an Org on a larger plan pays less than this counts:
   // Serper $50 for 50,000 credits ($1.00 per 1,000; one credit per 10
   // results); DataForSEO Google Organic Live $0.002 per SERP page of 10; its
-  // Google Ads search volume Live $0.09 per task (up to 1,000 keywords);
+  // Google Ads search volume Live $0.09 per task (up to 1,000 keywords), and
+  // Google Ads keywords-for-keywords (keyword ideas) Live priced the same per task;
   // SerpApi Developer $75 for 5,000 searches ($0.015 each).
   'serp/serper': { inputCentsPerMillion: 100_000, outputCentsPerMillion: 0 },
   'serp/dataforseo': { inputCentsPerMillion: 200_000, outputCentsPerMillion: 0 },
   'serp/dataforseo-search-volume': { inputCentsPerMillion: 9_000_000, outputCentsPerMillion: 0 },
+  'serp/dataforseo-keyword-ideas': { inputCentsPerMillion: 9_000_000, outputCentsPerMillion: 0 },
   'serp/serpapi': { inputCentsPerMillion: 1_500_000, outputCentsPerMillion: 0 },
 
   // Deliberately NOT priced: `amazon.titan-embed-text-v1`, the Bedrock

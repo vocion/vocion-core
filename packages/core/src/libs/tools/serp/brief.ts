@@ -10,7 +10,9 @@
  */
 
 import type { PageFacts } from './pageFacts';
+import type { SharedTerm } from './textMatch';
 import type { SerpResult } from './types';
+import { clusterHeadings, sharedTerms } from './textMatch';
 
 /** One compared page: its rank on the results page and what was read off it. */
 export type ComparedPage = {
@@ -24,6 +26,12 @@ export type ComparedPage = {
   facts: PageFacts | null;
   /** Why the page could not be read, when it could not. */
   error?: string;
+  /**
+   * A directory, marketplace, social or reference site (`directories.ts`):
+   * listed, but left out of the median, the shared headings and terms, and
+   * what "the ranking pages cover".
+   */
+  directory?: boolean;
 };
 
 /** A synthesis point, cited by the positions of the pages that support it. */
@@ -74,32 +82,64 @@ export function headingKey(text: string): string {
 }
 
 /**
- * H2/H3 headings that two or more of the pages share, most-shared first, with
- * the positions of the pages that have them.
+ * The pages a brief aggregates over: read, and not a directory.
+ * @param pages - The compared pages.
+ */
+export function rankingPages(pages: ComparedPage[]): ComparedPage[] {
+  return pages.filter(p => p.facts && !p.directory);
+}
+
+/**
+ * H2/H3 headings that two or more of the ranking pages share, matched
+ * loosely ("How We Tested!" and "Our testing process" are one), most-shared
+ * first, with the positions of the pages that have them. Directories are
+ * left out.
  * @param pages - The compared pages.
  * @param limit - How many to keep.
  */
-export function recurringHeadings(pages: ComparedPage[], limit = 15): Array<{ heading: string; positions: number[] }> {
-  const seen = new Map<string, { heading: string; positions: Set<number> }>();
-  for (const page of pages) {
-    for (const h of page.facts?.outline ?? []) {
-      if (h.level === 1) {
-        continue;
-      }
-      const key = headingKey(h.text);
-      if (key.length < 3) {
-        continue;
-      }
-      const entry = seen.get(key) ?? { heading: h.text.replace(/^[\d.)\s-]+/, ''), positions: new Set<number>() };
-      entry.positions.add(page.position);
-      seen.set(key, entry);
-    }
+export function recurringHeadings(pages: ComparedPage[], limit = 15): Array<{ heading: string; positions: number[]; variants: string[] }> {
+  return clusterHeadings(rankingPages(pages).map(p => ({
+    position: p.position,
+    headings: p.facts!.outline.filter(h => h.level !== 1 && headingKey(h.text).length >= 3).map(h => h.text),
+  })), limit);
+}
+
+/** How many ranking pages must use a term for it to count as shared. */
+export const SHARED_TERM_MIN_PAGES = 3;
+
+/**
+ * Terms the ranking pages' body text shares (on at least three of them),
+ * with which pages use each. Directories and the query's own words are left
+ * out.
+ * @param pages - The compared pages.
+ * @param query - The query.
+ * @param limit - How many to keep.
+ */
+export function termTable(pages: ComparedPage[], query: string, limit = 40): SharedTerm[] {
+  return sharedTerms(rankingPages(pages).filter(p => p.facts!.text).map(p => ({ position: p.position, text: p.facts!.text })), { minPages: SHARED_TERM_MIN_PAGES, limit, exclude: query });
+}
+
+/** What `seo_save_research` reads back off a brief: the query and how it was read. */
+export type SerpBriefMeta = { query: string; location?: string; google: boolean; provider: string };
+
+const META_RE = /<!-- serp-brief (\{.*?\}) -->/;
+
+/**
+ * The brief's own record of what it was read for, or null on a brief filed
+ * before it carried one.
+ * @param md - The brief as stored.
+ */
+export function serpBriefMeta(md: string): SerpBriefMeta | null {
+  const m = META_RE.exec(md);
+  if (!m) {
+    return null;
   }
-  return [...seen.values()]
-    .filter(e => e.positions.size >= 2)
-    .sort((a, b) => b.positions.size - a.positions.size || a.heading.localeCompare(b.heading))
-    .slice(0, limit)
-    .map(e => ({ heading: e.heading, positions: [...e.positions].sort((a, b) => a - b) }));
+  try {
+    const v = JSON.parse(m[1]!) as Partial<SerpBriefMeta>;
+    return typeof v.query === 'string' ? { query: v.query, google: v.google === true, provider: String(v.provider ?? ''), ...(typeof v.location === 'string' ? { location: v.location } : {}) } : null;
+  } catch {
+    return null;
+  }
 }
 
 function cite(positions: number[], pages: ComparedPage[]): string {
@@ -118,8 +158,10 @@ function cite(positions: number[], pages: ComparedPage[]): string {
 export function renderSerpBrief(serp: SerpResult, pages: ComparedPage[]): string {
   const where = [serp.location, serp.language && `language ${serp.language}`, serp.country && `country ${serp.country.toUpperCase()}`, serp.device].filter(Boolean).join(' · ');
   const source = serp.isGoogleRanking ? `Google's results page, read through ${serp.provider}` : `${serp.provider.replace(/^web_search:/, '')} web search (not Google)`;
+  const meta: SerpBriefMeta = { query: serp.query, ...(serp.location ? { location: serp.location } : {}), google: serp.isGoogleRanking, provider: serp.provider };
   const lines: string[] = [
     `# SERP brief: ${serp.query}`,
+    `<!-- serp-brief ${JSON.stringify(meta).replace(/--/g, '\\u002d\\u002d')} -->`,
     '',
     `Top ${pages.length} for **${cell(serp.query)}**${where ? ` · ${where}` : ''} · read ${stamp(serp.retrievedAt)} from ${source}.`,
   ];
@@ -132,7 +174,7 @@ export function renderSerpBrief(serp: SerpResult, pages: ComparedPage[]): string
   lines.push('|---|---|---|---|---|---|---|---|---|---|');
   for (const p of pages) {
     const f = p.facts;
-    const page = `[${linkText(f?.title || p.serpTitle)}](${p.url}) · ${cell(p.domain)}`;
+    const page = `[${linkText(f?.title || p.serpTitle)}](${p.url}) · ${cell(p.domain)}${p.directory ? ' · directory' : ''}`;
     if (!f) {
       lines.push(`| ${p.position} | ${page} | could not read: ${cell(p.error ?? 'no HTML')} | | | | | | ${cell(p.serpDate ?? '')} | |`);
       continue;
@@ -144,11 +186,26 @@ export function renderSerpBrief(serp: SerpResult, pages: ComparedPage[]): string
     lines.push(`| ${p.position} | ${page} | ${words} | ${h2s} | ${cell(f.schemaTypes.join(', ') || 'none')} | ${f.faq.present ? `yes (${f.faq.via})` : 'no'} | ${f.imagesCount} | ${f.links.internal} / ${f.links.external} | ${cell(day(f.published) || p.serpDate || 'not stated')} | ${cell(day(f.updated) || 'not stated')} |`);
   }
 
-  const read = pages.filter(p => p.facts && p.facts.wordCount > 0);
+  const directories = pages.filter(p => p.directory);
+  const read = rankingPages(pages).filter(p => p.facts!.wordCount > 0);
   if (read.length > 0) {
     const counts = read.map(p => p.facts!.wordCount).sort((a, b) => a - b);
     const median = counts[Math.floor(counts.length / 2)]!;
     lines.push('', `Median length ${median.toLocaleString('en-US')} words across the ${read.length} pages read; ${read.filter(p => p.facts!.faq.present).length} carry an FAQ.`);
+  }
+  if (directories.length > 0) {
+    lines.push('', `${directories.length} of the top ${pages.length} are directories, marketplaces or social sites (${directories.map(p => `[#${p.position}](${p.url})`).join(' ')}): listed above, left out of the median, the shared headings and terms, and what the ranking pages cover.`);
+  }
+
+  const pack = serp.localPack ?? [];
+  if (pack.length > 0) {
+    lines.push('', '## Local pack', '', 'The businesses Google shows on the map for this search.', '');
+    lines.push('| # | Business | Rating | Reviews | Category | Website | Address |');
+    lines.push('|---|---|---|---|---|---|---|');
+    for (const b of pack) {
+      const site = b.website ? `[${cell(b.domain || b.website)}](${b.website})` : 'none listed';
+      lines.push(`| ${b.position} | ${cell(b.name)} | ${b.rating ?? ''} | ${b.reviews?.toLocaleString('en-US') ?? ''} | ${cell(b.category ?? '')} | ${site} | ${cell(b.address ?? '')} |`);
+    }
   }
 
   if (serp.featuredSnippet) {
@@ -171,7 +228,19 @@ export function renderSerpBrief(serp: SerpResult, pages: ComparedPage[]): string
     lines.push('No H2 or H3 recurs across two or more of the pages read.');
   } else {
     for (const r of recurring) {
-      lines.push(`- ${cell(r.heading)} · ${r.positions.length} pages: ${cite(r.positions, pages)}`);
+      const also = r.variants.slice(1, 3).map(v => `“${cell(v)}”`).join(', ');
+      lines.push(`- ${cell(r.heading)}${also ? ` (also ${also})` : ''} · ${r.positions.length} pages: ${cite(r.positions, pages)}`);
+    }
+  }
+
+  const terms = termTable(pages, serp.query);
+  lines.push('', '## Terms the top pages use', '');
+  if (terms.length === 0) {
+    lines.push(`No term recurs in the body text of ${SHARED_TERM_MIN_PAGES} or more of the pages read.`);
+  } else {
+    lines.push('| Term | Pages | Used on | Mentions |', '|---|---|---|---|');
+    for (const t of terms) {
+      lines.push(`| ${cell(t.term)} | ${t.positions.length} | ${cite(t.positions, pages)} | ${t.mentions} |`);
     }
   }
 
