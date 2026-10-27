@@ -34,6 +34,8 @@
     "more": "More",
     "pin": "Pin",
     "unpin": "Unpin",
+    "move_up": "Move up",
+    "move_down": "Move down",
     "invite_title": "Invite team members",
     "invite_body": "Bring the people who review and decide into this workspace.",
     "invite_cta": "Invite",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPins, defaultPinDismissal, movePin, resolveWorkPins, splitOverflow, togglePin, withoutPins } from './navPins';
+import { applyPins, defaultPinDismissal, dropPlace, movePinNear, pinStep, resolveWorkPins, splitOverflow, togglePin, withoutPins } from './navPins';
 
 const items = [
   { url: '/dashboard/p/deal-desk', title: 'Deal desk' },
@@ -25,12 +25,50 @@ describe('nav pins', () => {
     expect(togglePin(pins, '/dashboard/p/hiring')).toEqual(['/dashboard/teams']);
   });
 
-  it('reorders by moving a pin to an index and ignores unknown urls', () => {
+  it('reorders by moving a pin before or after another, up or down, and ignores unknown urls', () => {
     const pins = ['a', 'b', 'c'];
 
-    expect(movePin(pins, 'c', 0)).toEqual(['c', 'a', 'b']);
-    expect(movePin(pins, 'a', 99)).toEqual(['b', 'c', 'a']);
-    expect(movePin(pins, 'zzz', 0)).toEqual(pins);
+    expect(movePinNear(pins, 'c', 'a', 'before')).toEqual(['c', 'a', 'b']);
+    expect(movePinNear(pins, 'a', 'c', 'after')).toEqual(['b', 'c', 'a']);
+    expect(movePinNear(pins, 'a', 'b', 'after')).toEqual(['b', 'a', 'c']);
+    expect(movePinNear(pins, 'c', 'b', 'before')).toEqual(['a', 'c', 'b']);
+    expect(movePinNear(pins, 'zzz', 'a', 'before')).toEqual(pins);
+    expect(movePinNear(pins, 'a', 'zzz', 'before')).toEqual(pins);
+    expect(movePinNear(pins, 'b', 'b', 'after')).toEqual(pins);
+  });
+
+  it('lands where it was dropped even when the list holds pins this group does not show', () => {
+    // A work row pinned first (drawn in the main list) and a stale pin: the
+    // Pinned group shows Teams, Missions, Workflows. Dragging Teams below
+    // Missions used to do nothing, because the index it was dropped at (1)
+    // was applied to this whole list.
+    const pins = ['/dashboard/artifacts', '/dashboard/teams', '/dashboard/p/gone', '/dashboard/missions', '/dashboard/workflows'];
+    const shownInPinned = ['/dashboard/teams', '/dashboard/missions', '/dashboard/workflows'];
+
+    const once = movePinNear(pins, '/dashboard/teams', '/dashboard/missions', 'after');
+
+    expect(once.filter(p => shownInPinned.includes(p))).toEqual(['/dashboard/missions', '/dashboard/teams', '/dashboard/workflows']);
+
+    const twice = movePinNear(once, '/dashboard/workflows', '/dashboard/missions', 'before');
+
+    expect(twice.filter(p => shownInPinned.includes(p))).toEqual(['/dashboard/workflows', '/dashboard/missions', '/dashboard/teams']);
+    // Nothing else moved, and nothing was dropped.
+    expect(twice.filter(p => !shownInPinned.includes(p))).toEqual(['/dashboard/artifacts', '/dashboard/p/gone']);
+  });
+
+  it('steps one place among the rows the group shows, and stops at either end', () => {
+    const shown = ['a', 'b', 'c'];
+
+    expect(pinStep(shown, 'b', -1)).toEqual({ target: 'a', place: 'before' });
+    expect(pinStep(shown, 'b', 1)).toEqual({ target: 'c', place: 'after' });
+    expect(pinStep(shown, 'a', -1)).toBeNull();
+    expect(pinStep(shown, 'c', 1)).toBeNull();
+    expect(pinStep(shown, 'zzz', 1)).toBeNull();
+  });
+
+  it('drops above a row on its top half and below it on its bottom half', () => {
+    expect(dropPlace(105, { top: 100, height: 32 })).toBe('before');
+    expect(dropPlace(125, { top: 100, height: 32 })).toBe('after');
   });
 
   it('splits at seven for the "More pages" submenu', () => {
