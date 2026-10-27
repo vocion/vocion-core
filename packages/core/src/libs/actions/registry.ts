@@ -54,6 +54,7 @@ import { repoCommentPullAction } from './repo-comment-pull';
 import { repoSubmitReviewAction } from './repo-submit-review';
 import { restRequestAction } from './rest';
 import { reviewDeclineAction } from './review-decline';
+import { sitePublishPageAction } from './site-publish-page';
 import { slackPostMessageAction } from './slack-post-message';
 import { sourceConnectAction } from './source-connect';
 import { teamHireAgentAction } from './team-hire-agent';
@@ -246,6 +247,10 @@ registerAction(agentRevisePromptAction);
 registerAction(workspaceWriteMissionAction);
 registerAction(workspaceWritePlaybookAction);
 registerAction(workspaceWriteOperatingIntentAction);
+// A page published to its project's site, after a person approves it: a pull
+// request with the page file on GitHub (Undo closes it), or a Squarespace draft
+// saved by a browser run and published on a second approval (`./site-publish-page.ts`).
+registerAction(sitePublishPageAction);
 // Pause or resume a campaign or ad set on the connected ad platform — the ads
 // family's one write; Undo puts it back (`libs/actions/ads-set-status.ts`).
 registerAction(adsSetStatusAction);

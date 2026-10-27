@@ -4,6 +4,8 @@ import type { ComponentType } from 'react';
 import type { ReviewContent } from '@/libs/actions/types';
 import { Check, Copy, ExternalLink, FileText } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { RichEmailBody } from './RichEmailBody';
 
@@ -331,6 +333,14 @@ function VideoContent({ item }: ContentRenderProps) {
 function TextContent({ item }: ContentRenderProps) {
   if (item.kind !== 'text') {
     return null;
+  }
+  if (item.markdown) {
+    // The page as it will read: headings, lists, links (a draft about to be published).
+    return (
+      <div data-testid={`text-pane-${item.id}`} className="prose prose-sm mt-2 max-w-none text-foreground dark:prose-invert">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.body}</ReactMarkdown>
+      </div>
+    );
   }
   return item.preformatted
     ? (

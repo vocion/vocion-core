@@ -334,6 +334,8 @@ export type ReviewContent
     body: string;
     /** Render in a monospace block with whitespace kept — commands, YAML, a diff. */
     preformatted?: boolean;
+    /** Render the body as markdown, the way the page will read — a draft about to be published. */
+    markdown?: boolean;
   }
   | {
     /**
