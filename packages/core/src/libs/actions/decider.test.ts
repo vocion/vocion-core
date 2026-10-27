@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { decidedByMachine } from './decider';
 
 describe('decidedByMachine', () => {
-  it('reads a seat, a sweep or the trust ladder as a machine', () => {
-    for (const by of ['agent:product-manager', 'system:review-sweep', 'factory:send-engineer', 'trust-ladder']) {
+  it('reads a seat, a sweep, the trust ladder or a decision clock default as a machine', () => {
+    for (const by of ['agent:product-manager', 'system:review-sweep', 'factory:send-engineer', 'trust-ladder', 'by-default']) {
       expect(decidedByMachine(by)).toBe(true);
     }
   });

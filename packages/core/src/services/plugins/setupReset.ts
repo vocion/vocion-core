@@ -122,8 +122,10 @@ export async function resetSetup(input: { orgId: string; pluginSlug: string; act
         sql`${actionRunSchema.input}->>'objectType' in (${sql.join(setup.records.map(t => sql`${t}`), sql`, `)})`,
       ));
     for (const run of pending) {
-      await rejectAction(run.id, input.orgId, `setup of ${manifest.name} was reset`, { reviewedBy: input.actor });
-      rejected += 1;
+      // Decided since it was read: it is no longer waiting, so there is nothing to withdraw.
+      if (await rejectAction(run.id, input.orgId, `setup of ${manifest.name} was reset`, { reviewedBy: input.actor }).then(() => true, () => false)) {
+        rejected += 1;
+      }
     }
     // A DECIDED PROPOSAL MUST NOT BLOCK THE NEXT SETUP. The duplicate check
     // (`ActionService.findDecidedRunForKey`) refuses to re-file a record a
@@ -162,8 +164,9 @@ export async function resetSetup(input: { orgId: string; pluginSlug: string; act
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.orgId, input.orgId), eq(actionRunSchema.status, 'pending'), byAgent));
     for (const run of proposals) {
-      await rejectAction(run.id, input.orgId, reason, { reviewedBy: input.actor });
-      withdrawn.proposals += 1;
+      if (await rejectAction(run.id, input.orgId, reason, { reviewedBy: input.actor }).then(() => true, () => false)) {
+        withdrawn.proposals += 1;
+      }
     }
     const asks = await db
       .select({ id: askSchema.id })

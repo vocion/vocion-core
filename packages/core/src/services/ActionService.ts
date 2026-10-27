@@ -90,6 +90,9 @@ const DAY_IN_MS = 86_400_000;
 /** What blocks a fresh card by default, for an action that opted in at all. */
 const DECIDED_STATUSES_THAT_BLOCK = ['done', 'rejected'] as const;
 
+/** What a rejection may still turn down: waiting on a person, a released hand-off, or a failure waiting to be retried or dismissed. */
+const REJECTABLE_STATUSES = ['pending', 'awaiting_execution', 'failed'] as const;
+
 /** A chat card's idempotency key starts with this (`libs/actions/cardDedupKey.ts`). */
 export const CARD_DEDUP_PREFIX = 'card:';
 
@@ -1144,6 +1147,29 @@ export async function updateActionInput(runId: number, orgId: string, input: Rec
  * @param opts.reviewedBy - The human who declined, when it came through review.
  */
 export async function rejectAction(runId: number, orgId: string, reason?: string, opts?: { reviewedBy?: string }): Promise<void> {
+  // ONLY A RUN STILL IN FRONT OF SOMEONE IS TURNED DOWN (2026-10-27). The
+  // write used to match on the id alone, so a late rejection — a decision
+  // clock or a sweep that read the run as waiting a moment before a person
+  // approved it, a stale card's Deny — turned a done run into a rejected one
+  // and its `onRejected` turned the record the person had just approved into
+  // a rejected one. Now: a waiting run is turned down by whoever decides it;
+  // a run the trust ladder released may be turned down by a PERSON (their
+  // word overrides the agent's); nothing turns down a run a person approved,
+  // and no machine turns down a decided run. A decided run is put back with Undo.
+  const [found] = await db
+    .select({ status: actionRunSchema.status, approvedByAgent: actionRunSchema.approvedByAgent })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+    .limit(1);
+  // Gone, or already rejected: nothing to do, as before.
+  if (!found || found.status === 'rejected') {
+    return;
+  }
+  const waiting = (REJECTABLE_STATUSES as readonly string[]).includes(found.status);
+  const overridesLadder = found.approvedByAgent === true && !decidedByMachine(opts?.reviewedBy);
+  if (!waiting && !overridesLadder) {
+    throw new ActionError('INVALID_STATE', `action_run ${runId} is ${found.status}, so it cannot be turned down; a decided run is put back with Undo`);
+  }
   const [run] = await db
     .update(actionRunSchema)
     .set({
@@ -1160,10 +1186,11 @@ export async function rejectAction(runId: number, orgId: string, reason?: string
       // through on its own.
       approvedByAgent: false,
     })
-    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+    // On the status just read, so a decision that lands in between wins.
+    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, found.status)))
     .returning({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, invokedBy: actionRunSchema.invokedBy });
   if (!run) {
-    return;
+    throw new ActionError('INVALID_STATE', `action_run ${runId} was decided while it was being turned down; nothing changed`);
   }
   const action = getAction(run.actionId);
   await action?.onRejected?.(

@@ -291,7 +291,12 @@ export async function withdrawProposal(opts: { orgId: string; agentSlug: string;
       return { ok: false, message: `Proposal #${opts.id} is not yours to withdraw.` };
     }
     const { rejectAction } = await import('@/services/ActionService');
-    await rejectAction(opts.id, opts.orgId, note, { reviewedBy: `agent:${opts.agentSlug}` });
+    try {
+      await rejectAction(opts.id, opts.orgId, note, { reviewedBy: `agent:${opts.agentSlug}` });
+    } catch (err) {
+      // A person decided it a moment ago: it is theirs now, not the agent's to take back.
+      return { ok: false, message: `Proposal #${opts.id} was decided before it could be withdrawn: ${(err as Error).message}. Nothing was withdrawn.` };
+    }
     return { ok: true };
   }
   const { getAsk, supersedeAsk } = await import('@/services/AskService');
