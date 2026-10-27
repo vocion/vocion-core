@@ -48,6 +48,7 @@ const ORG = 'proj_seo_brightline';
 const WRITER_RUN = 501;
 const EDITOR_RUN = 502;
 const BACKGROUND_TOOLS = new Set(['seo_save_draft', 'seo_save_review']);
+const SITE = { id: 'site', kind: 'github', label: 'Website', config: { repo: 'northwind-home/site', path: 'src/content/services/{slug}.mdx' } };
 const PERSON = 'usr-seo-mara';
 
 const ctx = (over: Partial<RuntimeContext> = {}): RuntimeContext => ({
@@ -439,8 +440,47 @@ describe('the gate sizes and publish targets are a person\'s', () => {
     const token = { orgId: ORG, actorId: 'token:7', source: 'token' as const, principal: { kind: 'agent', id: 'token:7', scope: { orgId: ORG } } } as never;
 
     expect((await patchProject(token, String(projectId), req({ seoGate: { sample: 1, tranche: 1 } }))).status).toBe(403);
-    expect((await patchProject(person, String(projectId), req({ seoGate: { sample: 5, tranche: 20 }, publishTargets: [{ id: 'site', kind: 'github', label: 'Website' }] }))).status).toBe(200);
+    // Each target is checked by publishing's own schema: a GitHub target names its repository and path.
+    expect((await patchProject(person, String(projectId), req({ publishTargets: [{ id: 'site', kind: 'github', label: 'Website' }] }))).status).toBe(400);
+    expect((await patchProject(person, String(projectId), req({ seoGate: { sample: 5, tranche: 20 }, publishTargets: [SITE] }))).status).toBe(200);
     expect((await getDataRoom(ORG, projectId))?.meta).toMatchObject({ seoGate: { sample: 5, tranche: 20 }, publishTargets: [{ id: 'site', kind: 'github' }] });
+  });
+});
+
+describe('publishing reads the sign-off this app writes', () => {
+  it('a signed-off page plans to publish; the sign-off carries the version and the hash publishing checks', async () => {
+    const { contentHashOf, planPublish } = await import('@/services/publish/sitePublish');
+    const page = (await getSeoPage(ORG, pages[3]!.id))!;
+    const { getArtifact } = await import('@/services/ArtifactService');
+    const draft = (await getArtifact({ orgId: ORG, id: page.meta.draftArtifactId! }))!;
+
+    expect(page.meta.signoff).toMatchObject({ decision: 'approve', version: draft.currentVersion, contentHash: await contentHashOf(String(draft.spec.md)) });
+    expect(page.meta).toMatchObject({ metaTitle: expect.any(String), metaDescription: expect.any(String), slug: 'boiler-servicing' });
+
+    const planned = await planPublish(ORG, { pageRecordId: page.id });
+
+    expect(planned).toMatchObject({ ok: true, plan: { page: { slug: 'boiler-servicing', metaTitle: page.meta.metaTitle } } });
+  });
+
+  it('an edit after the sign-off makes site.publish_page refuse, until a person signs the new words off', async () => {
+    const { planPublish } = await import('@/services/publish/sitePublish');
+    const page = (await getSeoPage(ORG, pages[3]!.id))!;
+    await updateArtifact({ orgId: ORG, id: page.meta.draftArtifactId!, contentMarkdown: '# Boiler servicing\n\nNow with a cheaper offer.', author: { kind: 'human', id: PERSON } });
+
+    const right = await planPublish(ORG, { pageRecordId: page.id });
+
+    expect(right.ok).toBe(false);
+    expect(right.ok ? '' : right.why).toMatch(/changed after it was signed off|not the text that was signed off|not signed off/);
+
+    await vi.waitFor(async () => expect((await getSeoPage(ORG, page.id))?.meta.status).toBe('in_review'));
+
+    const later = await planPublish(ORG, { pageRecordId: page.id });
+
+    expect(later.ok ? '' : later.why).toMatch(/is not signed off/);
+
+    await answer(await openAskFor(page.id), 'approve');
+
+    expect((await planPublish(ORG, { pageRecordId: page.id })).ok).toBe(true);
   });
 });
 
