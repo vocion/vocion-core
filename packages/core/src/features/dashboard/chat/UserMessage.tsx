@@ -3,6 +3,7 @@
 import type { ChatAttachment } from './types';
 import { FileText, Image as ImageIcon } from 'lucide-react';
 import { useState } from 'react';
+import { ImageLightbox } from './ImageLightbox';
 
 /**
  * User message bubble (Phase C).
@@ -38,15 +39,12 @@ export function UserMessage({ content, attachments = [] }: UserMessageProps) {
           not break that word, so the bubble grew past the transcript. */}
       <div className="max-w-2xl rounded-[18px] rounded-br-md bg-muted/60 px-4 py-2.5 text-left text-[15px] leading-[1.55] break-words whitespace-pre-wrap">
         {/* What was attached is part of what was said: an image shows itself,
-            a document shows its name. Each opens the artifact (authenticated). */}
+            a document shows its name. An image opens over the conversation; a document opens the artifact (authenticated). */}
         {attachments.length > 0 && (
           <div data-testid="message-attachments" className="mb-2 flex flex-wrap gap-2">
             {attachments.map(a => (a.kind === 'image'
               ? (
-                  <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-border" title={a.title}>
-                    {/* A plain img: the route is authenticated and same-origin, not a static asset for next/image. */}
-                    <img src={a.url} alt={a.title} className="max-h-40 max-w-60 object-cover" />
-                  </a>
+                  <ImageLightbox key={a.id} url={a.url} title={a.title} />
                 )
               : (
                   <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="inline-flex max-w-72 items-center gap-1.5 rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground/85 no-underline transition hover:bg-surface-hover">
