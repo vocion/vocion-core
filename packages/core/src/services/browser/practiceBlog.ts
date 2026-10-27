@@ -7,11 +7,12 @@
  *
  * Northwind Outfitters' site, fictional: a sign-in at `/config`, a "What's
  * new" dialog in the way, a Pages panel with the blog (Journal), its post list
- * with one published post, an Add post button, and the post editor: a title
- * field, a body that takes blocks (Text or Markdown), Post settings with
- * Content (Post URL, Excerpt) and SEO (SEO title, SEO description) tabs, a
- * status menu and Save. A post goes live only when it is saved with status
- * Published, or with Publish. Its "server" is the page's localStorage, so a
+ * with one published post, an Add blog post button, and the post editor as
+ * 7.1 draws it: a top bar of PUBLISH, Save and Exit with the post's name and
+ * status, a title and a body that are rich-text areas named only by their
+ * placeholders ("Enter a post title…", "Write here..."), the body taking pasted
+ * formatted text, and Blog Post Settings (Content: Excerpt, Post URL; SEO: SEO
+ * title, SEO description; SAVE). A post goes live only with PUBLISH. Its "server" is the page's localStorage, so a
  * second run in the same browser is still signed in and sees the draft the
  * first one saved; the public blog at `/journal` lists only published posts.
  */
@@ -25,7 +26,7 @@ export const PRACTICE_BLOG_SIGN_IN = { email: 'editor@northwind-outfitters.examp
 export const PRACTICE_BLOG_PATH = '/journal';
 
 const SEED_POSTS = [
-  { id: 'p1', title: 'Layering for Shoulder Season', slug: 'layering-for-shoulder-season', status: 'Published', body: '## Three layers\n\nA base, a mid and a shell.', excerpt: 'Three layers, and when to shed each one.', seoTitle: '', seoDescription: '' },
+  { id: 'p1', title: 'Layering for Shoulder Season', slug: 'layering-for-shoulder-season', status: 'Published', body: '<h2>Three layers</h2><p>A base, a mid and a shell.</p>', excerpt: 'Three layers, and when to shed each one.', seoTitle: '', seoDescription: '' },
 ];
 
 const PAGE = String.raw`<!doctype html>
@@ -76,7 +77,7 @@ function pages() {
 }
 function blog() {
   const list = posts();
-  app.innerHTML = '<div class="wrap"><nav class="panel" aria-label="Journal"><p><a href="/config/pages">← Pages</a></p><h1>Journal</h1><button id="add" aria-label="Add post">+ Add post</button><ul style="margin-top:12px">'
+  app.innerHTML = '<div class="wrap"><nav class="panel" aria-label="Journal"><p><a href="/config/pages">← Pages</a></p><h1>Journal</h1><button id="add">Add blog post</button><ul style="margin-top:12px">'
     + list.map(p => '<li><a href="/config/pages/journal/' + p.id + '">' + esc(p.title || 'Untitled') + '</a><span class="pill">' + p.status + '</span></li>').join('') + '</ul></nav><main class="main"><p class="muted">Pick a post, or add one.</p></main></div>';
   document.getElementById('add').onclick = () => { const id = 'p' + Date.now(); savePosts([...posts(), { id, title: '', slug: '', status: 'Draft', body: '', excerpt: '', seoTitle: '', seoDescription: '' }]); location.href = '/config/pages/journal/' + id; };
   whatsNew();
@@ -86,15 +87,18 @@ function editor(id) {
   if (!p) { app.innerHTML = '<p>No such post.</p>'; return; }
   const draft = Object.assign({}, p);
   const draw = () => {
-    app.innerHTML = '<div class="wrap"><nav class="panel"><p><a href="/config/pages/journal">← Journal</a></p><p class="muted">Editing a blog post</p></nav><main class="main">'
-      + '<label for="ti">Post title</label><input id="ti" placeholder="Enter a post title…" value="' + esc(draft.title) + '">'
-      + '<h2>Body</h2>' + (draft.body ? '<div class="block" aria-label="Markdown block">' + esc(draft.body) + '</div>' : '<p class="muted">Empty. Add a block to write the post.</p>')
-      + '<button class="ghost" id="addb" aria-label="Add block">+ Add block</button>'
-      + '<div class="bar"><button class="ghost" id="st" aria-label="Post settings">Settings</button><div><label for="status">Status</label><select id="status">' + ['Draft', 'Needs Review', 'Scheduled', 'Published'].map(s => '<option' + (s === draft.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></div><button id="save">Save</button><button class="ghost" id="pub">Publish</button></div>'
-      + '<p id="msg" role="status" class="muted"></p></main></div>';
-    document.getElementById('ti').oninput = e => { draft.title = e.target.value; };
-    document.getElementById('status').onchange = e => { draft.status = e.target.value; };
-    document.getElementById('addb').onclick = blockMenu;
+    app.innerHTML = '<div class="bar" style="margin:0;padding:10px 18px;background:#fff;border-bottom:1px solid #ddd;align-items:center">'
+      + '<button id="pub">PUBLISH</button><button class="ghost" id="save">Save</button><a href="/config/pages/journal">Exit</a>'
+      + '<button class="ghost" id="st" style="margin:0 auto">' + esc(p.title || 'No Title') + ' · Post · ' + esc(p.status) + '</button></div>'
+      + '<main class="main" style="max-width:760px;margin:0 auto">'
+      + '<div id="ti" contenteditable="true" data-placeholder="Enter a post title…" style="font-size:34px;font-weight:700;min-height:44px;outline:1px dashed #ccc">' + esc(draft.title) + '</div>'
+      + '<div id="bd" contenteditable="true" data-placeholder="Write here..." style="min-height:160px;margin-top:18px;outline:1px dashed #ccc">' + draft.body + '</div>'
+      + '<p id="msg" role="status" class="muted"></p></main>';
+    const ti = document.getElementById('ti'); const bd = document.getElementById('bd');
+    ti.oninput = () => { draft.title = ti.innerText.trim(); };
+    bd.oninput = () => { draft.body = bd.innerHTML; };
+    // A paste of formatted text keeps its headings and lists, as the real editor's does.
+    bd.addEventListener('paste', e => { const html = e.clipboardData && e.clipboardData.getData('text/html'); if (html) { e.preventDefault(); bd.innerHTML = html; draft.body = html; } });
     document.getElementById('st').onclick = settings;
     document.getElementById('save').onclick = () => persist(draft.status);
     document.getElementById('pub').onclick = () => persist('Published');
@@ -102,25 +106,18 @@ function editor(id) {
   const persist = status => {
     draft.status = status;
     savePosts(posts().map(x => x.id === id ? Object.assign({}, draft) : x));
+    Object.assign(p, draft);
     draw();
     document.getElementById('msg').textContent = status === 'Published' ? 'Published.' : 'Saved as ' + status + '.';
   };
-  const blockMenu = () => {
-    const d = document.createElement('div'); d.className = 'dialog'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', 'Add a block');
-    d.innerHTML = '<div><h1>Add a block</h1><button class="ghost" id="bt">Text</button> <button class="ghost" id="bm">Markdown</button> <button class="ghost" id="bi">Image</button></div>';
-    document.body.appendChild(d);
-    const edit = kind => { d.innerHTML = '<div><h1>' + kind + ' block</h1><label for="bx">' + kind + '</label><textarea id="bx"></textarea><div style="margin-top:12px"><button id="ap">Apply</button></div></div>';
-      d.querySelector('#ap').onclick = () => { draft.body = d.querySelector('#bx').value; d.remove(); draw(); }; };
-    d.querySelector('#bt').onclick = () => edit('Text'); d.querySelector('#bm').onclick = () => edit('Markdown'); d.querySelector('#bi').onclick = () => d.remove();
-  };
   const settings = () => {
-    const d = document.createElement('div'); d.className = 'dialog'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', 'Post settings');
+    const d = document.createElement('div'); d.className = 'dialog'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', 'Blog Post Settings');
     const tab = t => {
-      d.innerHTML = '<div><h1>Post settings</h1><div class="tabs" role="tablist"><button role="tab" id="tc" aria-selected="' + (t === 'c') + '">Content</button><button role="tab" id="ts" aria-selected="' + (t === 's') + '">SEO</button></div>'
-        + (t === 'c' ? '<label for="pu">Post URL</label><input id="pu" value="' + esc(draft.slug) + '"><label for="ex">Excerpt</label><textarea id="ex">' + esc(draft.excerpt) + '</textarea>'
+      d.innerHTML = '<div><button id="dn">SAVE</button><h1>Blog Post Settings</h1><div class="tabs" role="tablist"><button role="tab" id="tc" aria-selected="' + (t === 'c') + '">Content</button><button role="tab" id="ts" aria-selected="' + (t === 's') + '">SEO</button></div>'
+        + (t === 'c' ? '<label for="ex">Excerpt</label><textarea id="ex">' + esc(draft.excerpt) + '</textarea><label for="pu">Post URL</label><input id="pu" value="' + esc(draft.slug ? '/journal/' + draft.slug : '') + '">'
           : '<label for="sti">SEO title</label><input id="sti" value="' + esc(draft.seoTitle) + '"><label for="sde">SEO description</label><textarea id="sde">' + esc(draft.seoDescription) + '</textarea>')
-        + '<div style="margin-top:12px"><button id="dn">Done</button></div></div>';
-      const keep = () => { if (t === 'c') { draft.slug = d.querySelector('#pu').value.trim(); draft.excerpt = d.querySelector('#ex').value; } else { draft.seoTitle = d.querySelector('#sti').value; draft.seoDescription = d.querySelector('#sde').value; } };
+        + '</div>';
+      const keep = () => { if (t === 'c') { draft.slug = d.querySelector('#pu').value.trim().split('/').filter(Boolean).pop() || ''; draft.excerpt = d.querySelector('#ex').value; } else { draft.seoTitle = d.querySelector('#sti').value; draft.seoDescription = d.querySelector('#sde').value; } };
       d.querySelector('#tc').onclick = () => { keep(); tab('c'); }; d.querySelector('#ts').onclick = () => { keep(); tab('s'); };
       d.querySelector('#dn').onclick = () => { keep(); d.remove(); };
     };
@@ -132,7 +129,7 @@ function publicBlog() {
   const live = posts().filter(p => p.status === 'Published');
   const slug = decodeURIComponent(path.slice('/journal/'.length));
   const one = path.startsWith('/journal/') ? live.find(p => p.slug === slug) : null;
-  app.innerHTML = '<main class="main"><h1>' + (one ? esc(one.title) : 'Journal') + '</h1>' + (one ? '<div class="block">' + esc(one.body) + '</div>' : '<ul>' + live.map(p => '<li><a href="/journal/' + esc(p.slug) + '">' + esc(p.title) + '</a></li>').join('') + '</ul>') + '</main>';
+  app.innerHTML = '<main class="main"><h1>' + (one ? esc(one.title) : 'Journal') + '</h1>' + (one ? '<div class="block">' + one.body + '</div>' : '<ul>' + live.map(p => '<li><a href="/journal/' + esc(p.slug) + '">' + esc(p.title) + '</a></li>').join('') + '</ul>') + '</main>';
 }
 if (path === '/journal' || path.startsWith('/journal/')) publicBlog();
 else if (!S.get('user') || path === '/config' || path === '/login') { if (S.get('user') && path === '/config') location.href = '/config/pages'; else login(); }

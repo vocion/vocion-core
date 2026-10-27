@@ -184,11 +184,20 @@ function system(input: LoopInput, notes: string[]): string {
   ].filter(s => s !== '').join('\n');
 }
 
-/** A routine's run does a whole piece of work (find, add, enroll, read back): more steps than one errand. */
+/**
+ * A routine's run does a whole piece of work (find, add, enroll, read back): more steps than one
+ * errand. So does a run whose writes were approved before it started (a post written in a site's
+ * editor, `site.publish_page`): a person already said yes to the whole piece of work.
+ */
 const ROUTINE_STEPS = 60;
+const ROUTINE_RUN_MS = 15 * 60_000;
+
+function wholePiece(input: LoopInput): boolean {
+  return Boolean(input.routine || input.approvedAhead);
+}
 
 function stepsFor(input: LoopInput): number {
-  return input.routine ? ROUTINE_STEPS : BROWSER_RUN_LIMITS.steps;
+  return wholePiece(input) ? ROUTINE_STEPS : BROWSER_RUN_LIMITS.steps;
 }
 
 /**
@@ -286,7 +295,7 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
     if (s.page.isClosed()) {
       throw new BrowserLostError();
     }
-    if (hooks.now() - started - waited > BROWSER_RUN_LIMITS.runMs) {
+    if (hooks.now() - started - waited > (wholePiece(input) ? ROUTINE_RUN_MS : BROWSER_RUN_LIMITS.runMs)) {
       return { status: 'failed', summary: 'The run ran out of time before the task was done.', result: null, error: 'time limit' };
     }
     const snap = await snapshot(s).catch(e => ({ url: s.page.url(), title: '', text: `(the page could not be read: ${(e as Error).message.slice(0, 120)})`, blocked: [] as string[] }));

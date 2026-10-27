@@ -9,24 +9,36 @@
  *    (`DRAFT_SAVE_WRITES`, approved ahead, sealed with the run's secrets). It
  *    signs in with the stored login (secret inputs: the model types
  *    `{{password}}` and never reads it), opens the blog, adds the post or
- *    reopens the draft of the same title, writes the title, the body (as a
- *    Markdown block, so headings stay headings), the excerpt, the SEO title
- *    and description and the URL slug, and saves it as a draft.
+ *    reopens the draft of the same title, writes the title, the body (pasted as
+ *    HTML, so headings stay headings), the excerpt, the SEO title and
+ *    description and the URL slug, and saves it as a draft.
  * 2. **Going live.** Started in the same browser once the draft is saved. It
  *    reopens the draft and presses Publish (or sets Published and saves);
  *    nothing is approved ahead, so the engine holds that click for the person,
  *    with the draft on screen. Declining leaves the draft.
  *
- * The body travels as a secret input too: the engine fills `{{body_markdown}}`
- * in as it types, so the model reads the editor, not a 2,000-word article on
- * every step. Pure: the task text, inputs and outputs, for the action and for
+ * The body travels as a secret input too, rendered as HTML: the engine pastes
+ * `{{body_html}}` into the editor the way a person pastes formatted text, so
+ * headings and lists stay what they are, and the model reads the editor, not a
+ * 2,000-word article on every step. Pure: the task text, inputs and outputs, for the action and for
  * a test to read.
  */
 
 import type { ApprovedAhead } from '@/services/browser/browserLoop';
 
 /** The buttons the draft run may press without stopping: saving a post that stays a draft. */
-export const DRAFT_SAVE_WRITES: ApprovedAhead['writes'] = ['Save', 'Save draft', 'Save as draft', 'Save and exit', 'Save & exit', 'Create post', 'Create'].map(button => ({ button, match: 'exact' as const }));
+export const DRAFT_SAVE_WRITES: ApprovedAhead['writes'] = [
+  // Starting a post: Squarespace 7.1 names its button "Add blog post", which reads as consequential ("post").
+  'Add blog post',
+  'Add post',
+  'New post',
+  'Create post',
+  'Save',
+  'Save draft',
+  'Save as draft',
+  'Save and exit',
+  'Save & exit',
+].map(button => ({ button, match: 'exact' as const }));
 
 /** What a Squarespace post is made of, as the editor asks for it. */
 export type SquarespacePost = {
@@ -34,7 +46,8 @@ export type SquarespacePost = {
   blogPath: string;
   title: string;
   slug: string;
-  bodyMarkdown: string;
+  /** The body rendered as HTML: pasted into the editor, so headings stay headings. */
+  bodyHtml: string;
   excerpt: string;
   seoTitle: string;
   seoDescription: string;
@@ -75,11 +88,12 @@ export function draftRun(post: SquarespacePost, login: { email: string; password
     `Save a blog post as a DRAFT on the Squarespace site ${site(post.siteUrl)}, in its editor. Never publish it in this task.`,
     `1. Open ${editorUrl}. If asked to log in, type the email input and {{password}}, and log in. If Squarespace asks for a verification code, ask the person for it. Close any cookie banner, "What's new" or tips dialog in the way.`,
     `2. In the Pages panel open the blog whose address is ${post.blogPath} (it is marked Blog; its name may differ). Its post list opens.`,
-    `3. If the list already has a post titled exactly "${post.title}": if it is a draft, open it and replace its content; if it is published or scheduled, stop and give_up saying it is already on the site. Otherwise press the + / Add post / New post button to start a new post.`,
-    `4. In the post editor, type the post_title input into the title field ("Enter a post title…").`,
-    '5. Body: remove any empty placeholder text, open the insert point or + Add block, choose Markdown, and type {{body_markdown}} into its text area exactly as written, with the braces: the browser fills in the article. Apply or close the block. If the site offers no Markdown block, use a Text block and type {{body_markdown}} there.',
-    '6. Open the post\'s settings (Settings, the gear, or … then Settings). Set Post URL to the url_slug input (only the last part, after the blog path). Set Excerpt to the excerpt input. In the SEO tab set SEO title to seo_title and SEO description to seo_description. Close the settings with Done, Apply or Save.',
-    '7. Make sure the post\'s status is Draft. Never choose Published, Scheduled or Publish here. Press Save.',
+    `3. If the list already has a post titled exactly "${post.title}": if it is a draft, open it and replace its content; if it is published or scheduled, stop and give_up saying it is already on the site. Else, if it has a draft with no title ("No Title", left by an earlier attempt today), open that one. Otherwise press Add blog post (or + / Add post): Squarespace creates the draft at once.`,
+    '4. The post shows in the page preview. If the preview has an Edit button, press it: the top bar then shows PUBLISH, Save and Exit. Click the title ("Enter a post title…") and type the post_title input once; it goes in whole.',
+    '5. Click the body ("Write here…") and type {{body_html}} exactly as written, with the braces: the browser pastes the article in, headings and lists kept. Do not retype it or type it anywhere else.',
+    '6. Open Blog Post Settings: click the post\'s name and status in the middle of the top bar (press Escape first if the page preview has the focus). Content: set Excerpt to the excerpt input, and further down set Post URL to the blog path and the url_slug input, e.g. /blog/the-slug. SEO: set SEO title to seo_title and SEO description to seo_description. Then press SAVE (or CLOSE) at the top left of that panel.',
+    '7. The post must stay a Draft: never press PUBLISH or choose Published or Scheduled. Press Escape, then Save in the top bar. The top bar should then show the title and "Post · Draft".',
+    'If a click fails twice, look at the page again instead of repeating it: the element has moved or a panel is open.',
     '8. Finish with the outputs: post_url is the address it will have when live, editor_url is the address of the editor page the post is open in, status is the status the editor shows after saving (draft).',
   ].join('\n');
   return {
@@ -95,10 +109,10 @@ export function draftRun(post: SquarespacePost, login: { email: string; password
       excerpt: post.excerpt,
       seo_title: post.seoTitle,
       seo_description: post.seoDescription,
-      body_markdown: post.bodyMarkdown,
+      body_html: post.bodyHtml,
       post_url: postUrlOf(post),
     },
-    secretNames: ['password', 'body_markdown'],
+    secretNames: ['password', 'body_html'],
     outputs: [
       { name: 'post_url', description: 'The address the post will have once live' },
       { name: 'editor_url', description: 'The editor address the draft is open at' },

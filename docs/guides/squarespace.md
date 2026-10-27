@@ -61,16 +61,19 @@ Review card shows the site and blog, the URL the post will have, the title, the
 meta description and the page rendered. Then two browser runs, in the
 approver's browser:
 
-1. **The draft.** Approving the card starts it and is the approval for its one
-   write: pressing Save on a post that stays a draft (an exact list of button
-   names, sealed with the run's secrets: `DRAFT_SAVE_WRITES` in
+1. **The draft.** Approving the card starts it and is the approval for its
+   writes: starting a post (Squarespace 7.1's **Add blog post**) and pressing
+   Save on a post that stays a draft (an exact list of button names, sealed
+   with the run's secrets: `DRAFT_SAVE_WRITES` in
    `services/publish/squarespaceTask.ts`). The run signs in, opens the blog in
-   the Pages panel, adds a post (or reopens a draft with the same title), types
-   the title, adds a **Markdown block** with the article (so headings stay
-   headings), sets the Post URL, the Excerpt, and the SEO title and
-   description, checks the status is Draft, and saves. The article reaches the
-   editor as `{{body_markdown}}`, filled in by the browser, so the model reads
-   the editor rather than the whole article on every step.
+   the Pages panel, adds a post (or reopens a draft with the same title, or an
+   untitled draft an earlier attempt left), presses Edit, types the title into
+   "Enter a post title…", pastes the article into "Write here…" as formatted
+   text (headings and lists kept), opens Blog Post Settings from the post's
+   name in the top bar and sets the Excerpt and Post URL (Content) and the SEO
+   title and description (SEO), and presses Save, never PUBLISH. The article
+   reaches the editor as `{{body_html}}`, a secret input the browser pastes, so
+   the model reads the editor rather than the whole article on every step.
 2. **Going live.** Once the draft is saved, a second run reopens it in the same
    browser and presses Publish. Nothing is approved ahead for it, so the
    browser holds that click for the person, with the draft on screen. Decline,
@@ -92,11 +95,27 @@ The practice blog editor (`services/browser/practiceBlog.ts`) is Northwind
 Outfitters' site, fictional, served inside the browser: sign in at
 `https://site.northwind-outfitters.test/config` with
 `editor@northwind-outfitters.example` / `northwind-demo`, then the same Pages
-panel, post list, editor, Markdown block, Post settings and Save/Publish the
+panel, post list, editor (rich-text title and body), Blog Post Settings and Save/PUBLISH the
 task text describes. It never touches the network.
 
-## What still needs a live site
+## Verified on a live 7.1 site (2026-10-27)
 
-The task text follows Squarespace 7.1's blog editor as documented; button names
-and panel layout change. If a run cannot find a control, it says which one and
-stops; the draft is never published by a guess.
+The draft run was run against a real Squarespace 7.1 test site through the
+browser-run engine: it saved one draft with its title, its headings as real
+`h2`s, its excerpt, Post URL and SEO fields, status Draft, in about four and a
+half minutes and 30 steps; the public `?format=json` did not list it. What the
+real editor needed, now in core:
+
+- **Add blog post** creates the draft at once, and reads as a consequential
+  click ("post"), so it is approved ahead with Save.
+- The title and body are rich-text areas named only by CSS placeholders. The
+  browser names them by their placeholders before the model reads the page
+  (`nameRichEditors`), types into them in one insert, and pastes HTML into
+  them as formatted text: no Markdown block is needed.
+- Blog Post Settings opens as a dialog drawn at the end of the page. The
+  snapshot is centred on an open dialog, or the model never sees it.
+- A run whose writes were approved ahead is a whole piece of work, like a
+  routine's: 60 steps and 15 minutes.
+
+Still unverified live: the going-live run (its Publish click, held for the
+person), and accounts with two-step verification.

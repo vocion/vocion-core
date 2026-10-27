@@ -15,7 +15,7 @@ const post = {
   blogPath: PRACTICE_BLOG_PATH,
   title: 'How to Choose a Three-Season Tent',
   slug: 'choose-a-three-season-tent',
-  bodyMarkdown: '## Weight\n\nUnder 2 kg for two people.\n\n## Weather\n\nA full-coverage fly.',
+  bodyHtml: '<h2>Weight</h2><p>Under 2 kg for two people.</p><h2>Weather</h2><p>A full-coverage fly.</p>',
   excerpt: 'What matters, what does not, and what to spend.',
   seoTitle: 'How to Choose a Three-Season Tent',
   seoDescription: 'What matters, what does not, and what to spend.',
@@ -26,16 +26,16 @@ describe('the draft run', () => {
 
   it('signs in to the editor with the password and the article as secrets, so the model reads neither', () => {
     expect(spec.startUrl).toBe('https://site.northwind-outfitters.test/config/pages');
-    expect(spec.secretNames).toEqual(['password', 'body_markdown']);
+    expect(spec.secretNames).toEqual(['password', 'body_html']);
     expect(spec.inputs).toMatchObject({ email: 'editor@northwind-outfitters.example', post_title: post.title, url_slug: post.slug, blog_path: '/journal', post_url: 'https://site.northwind-outfitters.test/journal/choose-a-three-season-tent' });
     expect(spec.task).toContain('{{password}}');
-    expect(spec.task).toContain('{{body_markdown}}');
+    expect(spec.task).toContain('{{body_html}}');
     expect(spec.task).not.toContain('Under 2 kg');
     expect(spec.outputs.map(o => o.name)).toEqual(['post_url', 'editor_url', 'status']);
   });
 
-  it('names every field the editor asks for, keeps headings with a Markdown block, and never publishes', () => {
-    for (const words of ['Markdown', 'Post URL', 'Excerpt', 'SEO title', 'SEO description', 'status is Draft', 'Never choose Published', 'already on the site']) {
+  it('names every field the editor asks for, as 7.1 names them, pastes the body so headings stay, and never publishes', () => {
+    for (const words of ['Add blog post', 'Enter a post title…', 'Write here…', 'headings and lists kept', 'Blog Post Settings', 'Post URL', 'Excerpt', 'SEO title', 'SEO description', 'never press PUBLISH', 'already on the site', 'No Title']) {
       expect(spec.task).toContain(words);
     }
   });
@@ -79,7 +79,7 @@ describe('the practice blog editor', () => {
 
     expect(page?.status).toBe(200);
 
-    for (const words of ['Log In', 'Add post', 'Enter a post title…', 'Markdown', 'Post URL', 'Excerpt', 'SEO title', 'SEO description', '>Save<', '>Publish<', 'Practice site · fictional data']) {
+    for (const words of ['Log In', 'Add blog post', 'Enter a post title…', 'Write here...', 'Blog Post Settings', 'Post URL', 'Excerpt', 'SEO title', 'SEO description', '>Save<', '>PUBLISH<', 'Practice site · fictional data']) {
       expect(page?.body).toContain(words);
     }
 

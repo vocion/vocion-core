@@ -239,7 +239,7 @@ export async function startSquarespaceDraft(orgId: string, plan: PublishPlan, lo
     blogPath,
     title: plan.page.title,
     slug: plan.page.slug,
-    bodyMarkdown: plan.draft.markdown.replace(/^\s*#\s+(?:\S[^\n]*)?\n+/, '').trim(),
+    bodyHtml: await markdownToHtml(plan.draft.markdown.replace(/^\s*#\s+(?:\S[^\n]*)?\n+/, '').trim()),
     excerpt: plan.page.description,
     seoTitle: plan.page.title,
     seoDescription: plan.page.description,

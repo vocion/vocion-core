@@ -137,9 +137,9 @@ describe('site.publish_page', () => {
   it('on Squarespace, saves a draft in the approver\'s browser with Save approved ahead, then follows it', async () => {
     const result = await action.execute(ctx, { pageRecordId: 20, publishTargetId: 'blog' });
 
-    expect(created[0]).toMatchObject({ userId: 'user_1', start: true, startUrl: 'https://example-site.squarespace.com/config/pages', secretNames: ['password', 'body_markdown'] });
+    expect(created[0]).toMatchObject({ userId: 'user_1', start: true, startUrl: 'https://example-site.squarespace.com/config/pages', secretNames: ['password', 'body_html'] });
     expect((created[0]!.approvedAhead as { writes: unknown[] }).writes.length).toBeGreaterThan(0);
-    expect((created[0]!.inputs as Record<string, string>).body_markdown).toBe('A tent for spring, summer and fall: what matters, what does not, and what it should cost you.\n\n## Weight\n\nUnder 2 kg.');
+    expect((created[0]!.inputs as Record<string, string>).body_html).toBe('<p>A tent for spring, summer and fall: what matters, what does not, and what it should cost you.</p>\n<h2>Weight</h2>\n<p>Under 2 kg.</p>');
     expect(startJob).toHaveBeenCalledWith('site-publish-settle:70', expect.objectContaining({ job: 'site.publish-settle' }));
     expect(result).toMatchObject({ kind: 'squarespace', browserRunId: 70, postUrl: 'https://example-site.squarespace.com/journal/three-season-tent' });
     expect(action.canUndo!(result)).toBe(false);

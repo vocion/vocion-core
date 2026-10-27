@@ -259,8 +259,64 @@ async function settle(page: Page): Promise<void> {
  * @param find
  */
 export async function snapshot(s: BrowserSession, find?: string | null): Promise<{ url: string; title: string; text: string; blocked: string[] }> {
-  const snap = await pageSnapshot(s.page, BROWSER_RUN_LIMITS.snapshotChars, find);
+  await nameRichEditors(s.page);
+  // A dialog that just opened is usually drawn at the end of the page, past what a long page shows:
+  // with nothing asked for, the window is centred on it, since it is what the person would see.
+  const snap = await pageSnapshot(s.page, BROWSER_RUN_LIMITS.snapshotChars, find || await openDialogName(s.page));
   return { ...snap, blocked: s.blocked.splice(0) };
+}
+
+/**
+ * The name of the dialog open on the page, when one is: its label, else its heading, else its first
+ * line of words. Null when none is open or it cannot be read.
+ * @param page - The page.
+ */
+async function openDialogName(page: Page): Promise<string | null> {
+  for (const frame of page.frames()) {
+    const name = await frame.evaluate(() => {
+      const open = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"], dialog[open]'))
+        .filter(el => el.offsetParent !== null || el.getClientRects().length > 0);
+      const last = open.at(-1);
+      if (!last) {
+        return null;
+      }
+      // innerText, not textContent: only the rendered text, in the lines a person sees.
+      // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+      const heading = last.querySelector<HTMLElement>('h1, h2, h3, [role="heading"]')?.innerText;
+      // No label and no heading: its first line of words (a button's CAPS label is not a title).
+      // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+      const firstLine = last.innerText.split('\n').map(l => l.trim()).find(l => l.length >= 4 && /[a-z]/.test(l));
+      return (last.getAttribute('aria-label') || heading || firstLine || '').trim().slice(0, 80) || null;
+    }).catch(() => null);
+    if (name) {
+      return name;
+    }
+  }
+  return null;
+}
+
+/**
+ * A rich editor's fields (a site builder's post title and body) are contenteditable areas whose
+ * only name is a placeholder drawn by CSS ("Enter a post title…", "Write here…"), so the page's
+ * accessibility tree shows them nameless and a model cannot tell which is which. Each one is given
+ * its placeholder as its accessible name, in every frame, before the page is read. Never throws.
+ * @param page - The page.
+ */
+async function nameRichEditors(page: Page): Promise<void> {
+  await Promise.all(page.frames().map(frame => frame.evaluate(() => {
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>('[contenteditable="true"]'))) {
+      if (el.getAttribute('aria-label') || el.parentElement?.closest('[contenteditable="true"]')) {
+        continue;
+      }
+      const placeholder = el.getAttribute('aria-placeholder') ?? el.getAttribute('data-placeholder') ?? el.querySelector('[data-placeholder]')?.getAttribute('data-placeholder');
+      if (placeholder) {
+        el.setAttribute('aria-label', placeholder.trim().slice(0, 80));
+        if (!el.getAttribute('role')) {
+          el.setAttribute('role', 'textbox');
+        }
+      }
+    }
+  }).catch(() => {})));
 }
 
 /**
@@ -405,8 +461,21 @@ export async function act(s: BrowserSession, action:
         }
         await pointAt(page, loc);
         await loc.fill('', { timeout: 10_000 });
-        if (action.text.length > LONG_TEXT_CHARS) {
-          // A whole article (a post's body) typed key by key outlasts any timeout; it goes in at once.
+        // A whole article typed key by key outlasts any timeout, and a rich editor's field (a
+        // contenteditable title in a site builder) re-renders after the first key and drops the
+        // rest: both take the text in one insert.
+        const rich = await loc.evaluate(el => (el as HTMLElement).isContentEditable).catch(() => false);
+        if (rich && /^\s*<[a-z][\s\S]*>\s*$/i.test(action.text)) {
+          // HTML into a rich editor goes in the way a person pastes formatted text, so headings,
+          // lists and links stay what they are instead of arriving as literal tags.
+          await loc.evaluate((el, html) => {
+            const root = (el as HTMLElement).closest('[contenteditable="true"]') ?? el;
+            const data = new DataTransfer();
+            data.setData('text/html', html);
+            data.setData('text/plain', html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+            root.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+          }, action.text);
+        } else if (action.text.length > LONG_TEXT_CHARS || rich) {
           await loc.fill(action.text, { timeout: 15_000 });
         } else {
           await loc.pressSequentially(action.text, { delay: action.text.length > 60 ? 0 : 18, timeout: 15_000 });
