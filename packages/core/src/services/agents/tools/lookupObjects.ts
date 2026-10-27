@@ -126,7 +126,7 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
         // The CODE beside it: what the answer names the record by (FE-294, `libs/codes.ts`).
         // `record_state` says the row's lifecycle in words, beside fields that may
         // sound like one (`relationship_status`), so the answer names the right one.
-        const rec: Record<string, unknown> = { id: obj.id, code: recordCode(codes, obj.type?.slug, obj.id), title: obj.title, status: obj.status, record_state: recordStateLine(obj.status, obj.snoozedUntil) };
+        const rec: Record<string, unknown> = { id: obj.id, code: recordCode(codes, obj.type?.slug, obj.id), title: obj.title, status: obj.status, record_state: recordStateLine(obj.status, obj.snoozedUntil, Date.now(), (obj.provenance as { decision?: unknown } | null | undefined)?.decision) };
         if (statuses[i]) {
           rec.liveStatus = statuses[i];
         }

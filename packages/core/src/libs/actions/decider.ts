@@ -4,11 +4,13 @@
  * A person's decision carries their user id (or the token they hold). A
  * machine's carries a namespaced handle: `agent:<slug>` when a seat withdrew
  * its own card or its budget retired it, `system:<name>` for a sweep,
- * `trust-ladder` when the confidence bar released it. Those are the only
- * stamps the code writes for a machine; this is the one place that knows them.
+ * `trust-ladder` when the confidence bar released it, `by-default` when a
+ * decision clock applied its default at the deadline (`DEFAULT_DECIDER`,
+ * `libs/needsYou/deadlines.ts`). Those are the only stamps the code writes
+ * for a machine; this is the one place that knows them.
  */
 const MACHINE_PREFIXES = ['agent:', 'system:', 'factory:', 'automation:', 'mission:', 'workflow:'] as const;
-const MACHINE_STAMPS = new Set(['trust-ladder']);
+const MACHINE_STAMPS = new Set(['trust-ladder', 'by-default']);
 
 /**
  * True only when the stamp names a machine. No stamp is not known to be a

@@ -813,6 +813,10 @@ async function upsertCandidateObject(ctx: ActionContext, input: CandidateInput, 
  * @param externalRef.system
  * @param externalRef.id
  * @param origin - Where it was asked for (`originMeta`); written as `metadata.origin` unless the record already says.
+ * @param stamp
+ * @param stamp.by
+ * @param stamp.note
+ * @param stamp.onlyFrom
  */
 async function decideCandidateObject(
   ctx: ActionContext,
@@ -820,12 +824,22 @@ async function decideCandidateObject(
   status: string,
   externalRef?: { system: string; id: string },
   origin?: { conversationId: number; userId: string | null; at: string } | null,
+  stamp?: { by: string | null; note?: string | null; onlyFrom?: string },
 ): Promise<number | null> {
   const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema } = await import('@/models/Schema');
+  const { decidedByMachine } = await import('./decider');
 
-  const updates: Record<string, unknown> = { status };
+  // WHO SETTLED IT, ON THE RECORD (2026-10-27: four repo records in a factory workspace
+  // read "turned down in Review" and nobody could say who had; the person
+  // had approved). The run keeps `decidedBy`; the record now says it too, so
+  // every read of the record — the agent's, the Repos tab's — names who.
+  const decision = { status, by: stamp?.by ?? null, byMachine: decidedByMachine(stamp?.by), at: new Date().toISOString(), ...(stamp?.note ? { note: stamp.note.slice(0, 300) } : {}) };
+  const updates: Record<string, unknown> = {
+    status,
+    provenance: sql`coalesce(${businessObjectSchema.provenance}, '{}'::jsonb) || ${JSON.stringify({ decision })}::jsonb`,
+  };
   if (externalRef) {
     updates.externalSystem = externalRef.system;
     updates.externalId = externalRef.id;
@@ -841,6 +855,9 @@ async function decideCandidateObject(
     .where(and(
       eq(businessObjectSchema.orgId, ctx.orgId),
       eq(businessObjectSchema.reviewActionRunId, runId),
+      // A turn-down moves only a record still waiting as a proposal: one a
+      // person approved is never turned down by a late or machine rejection.
+      ...(stamp?.onlyFrom ? [eq(businessObjectSchema.status, stamp.onlyFrom)] : []),
     ))
     .returning({ id: businessObjectSchema.id });
 
@@ -1162,8 +1179,19 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
 
   // A rejected candidate keeps its payload — that row is the record of what
   // the extractor got wrong, and the training signal for fixing it.
-  async onRejected(ctx, _input, runId) {
-    await decideCandidateObject(ctx, runId, CANDIDATE_STATUS.rejected);
+  //
+  // A machine (a seat withdrawing its card, a clock's default, a sweep) only
+  // ever closes a record still waiting as a proposal; a person's turn-down
+  // also reaches one the trust ladder approved, since their word overrides
+  // the agent's (`rejectAction` already refuses a run a person approved).
+  async onRejected(ctx, _input, runId, reason) {
+    const { decidedByMachine } = await import('./decider');
+    const byPerson = Boolean(ctx.reviewedBy) && !decidedByMachine(ctx.reviewedBy);
+    await decideCandidateObject(ctx, runId, CANDIDATE_STATUS.rejected, undefined, undefined, {
+      by: ctx.reviewedBy ?? null,
+      note: reason ?? null,
+      ...(byPerson ? {} : { onlyFrom: CANDIDATE_STATUS.proposed }),
+    });
   },
 
   /**
@@ -1186,6 +1214,7 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
       ctx.externalRef,
       // The conversation that asked for it, on the record, in the same write.
       origin,
+      { by: ctx.reviewedBy ?? ctx.origin?.userId ?? null },
     );
     if (objectId !== null && origin) {
       // And what the person sent in it, as the record's own evidence.

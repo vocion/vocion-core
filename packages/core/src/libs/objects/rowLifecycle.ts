@@ -87,14 +87,15 @@ export function finishedLabel(status: string): string {
  * @param status - The row's status (null reads as open).
  * @param snoozedUntil - The date an open record is put off to, if any; one that has passed is over.
  * @param now - The clock.
+ * @param decision
  */
-export function recordStateLine(status: string | null | undefined, snoozedUntil?: Date | null, now: number = Date.now()): string {
+export function recordStateLine(status: string | null | undefined, snoozedUntil?: Date | null, now: number = Date.now(), decision?: unknown): string {
   const s = String(status ?? '').toLowerCase();
   if (s === CANDIDATE) {
     return 'proposed: waiting for a person to approve or dismiss it in Review; not yet a record they stand behind';
   }
   if (s === 'rejected') {
-    return 'dismissed in Review: a proposal a person turned down';
+    return turnedDownLine(readRecordDecision(decision));
   }
   if (isFinishedStatus(s)) {
     return `finished (${finishedLabel(s).toLowerCase()})`;
@@ -105,4 +106,59 @@ export function recordStateLine(status: string | null | undefined, snoozedUntil?
   return snoozedUntil && snoozedUntil.getTime() > now
     ? `open, snoozed until ${snoozedUntil.toISOString().slice(0, 10)}: put off by a person; do not raise it before then`
     : 'open';
+}
+
+/**
+ * Who settled a proposed record, as `decideCandidateObject` stamps it on the
+ * record's provenance (`provenance.decision`).
+ */
+export type RecordDecision = {
+  status: string;
+  /** The run's `decidedBy`: a person's id, or a machine's stamp (`libs/actions/decider.ts`). */
+  by: string | null;
+  /** True when a machine settled it: a seat withdrawing its own card, a clock's default, a sweep. */
+  byMachine: boolean;
+  at: string;
+  /** The reason the decider gave, when one was given. */
+  note?: string | null;
+};
+
+/**
+ * A record's decision stamp, or null when it carries none (records decided
+ * before the stamp existed).
+ * @param raw - `provenance.decision`.
+ */
+export function readRecordDecision(raw: unknown): RecordDecision | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const d = raw as Record<string, unknown>;
+  if (typeof d.status !== 'string' || typeof d.at !== 'string') {
+    return null;
+  }
+  return { status: d.status, by: typeof d.by === 'string' ? d.by : null, byMachine: d.byMachine === true, at: d.at, note: typeof d.note === 'string' ? d.note : null };
+}
+
+/**
+ * A turned-down proposal in words, saying WHO turned it down.
+ *
+ * Jamie, 2026-10-27, of four repo records in a factory workspace the product manager
+ * called "turned down in Review": "i never deny'd the repos in [the workspace].
+ * i approved all." This line used to say "a proposal a person turned down" of
+ * every rejected record, while the same status is written when a seat
+ * withdraws its own card, a decision clock declines it by default, or a
+ * sweep closes a moot one. Now it says who, from the record's own stamp, and
+ * a record with no stamp says it does not know rather than blaming a person.
+ * @param d - The record's decision stamp.
+ */
+function turnedDownLine(d: RecordDecision | null): string {
+  const why = d?.note ? ` (${d.note.slice(0, 160)})` : '';
+  if (!d) {
+    return 'not in use: its proposal was closed in Review — by a person, or withdrawn by an agent or a sweep (this record predates the stamp that says which). File it again for a person to approve if it is still wanted';
+  }
+  if (d.byMachine) {
+    const who = d.by === 'by-default' ? 'its decision clock, by default at the deadline' : d.by ?? 'the system';
+    return `withdrawn, not turned down by a person: ${who} closed this proposal on ${d.at.slice(0, 10)}${why}. File it again for a person to approve if it is still wanted`;
+  }
+  return `dismissed in Review: ${d.by ?? 'a person'} turned this proposal down on ${d.at.slice(0, 10)}${why}`;
 }

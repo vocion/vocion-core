@@ -956,6 +956,54 @@ describe('deciding a candidate', () => {
     expect(object!.metadata).toMatchObject({ venue: 'The Corvina' });
   });
 
+  // Jamie, 2026-10-27: "i never deny'd the repos in [the workspace]. i approved
+  // all." Four repo records read "turned down in Review"; the status a
+  // person's Deny writes was also written by every machine path, and a late
+  // rejection could overturn an approval.
+  it('says on the record who settled it: the person who approved, the seat that withdrew', async () => {
+    const approved = await propose();
+    await executeAction(approved.runId, ORG, { reviewedBy: 'user_moderator' });
+    const withdrawn = await propose({ title: 'Poetry Slam', fields: { title: 'Poetry Slam', start: '2026-09-13T19:30', venue: 'The Corvina' } });
+    await rejectAction(withdrawn.runId, ORG, 'Withdrawn by intake: superseded by proposal #9', { reviewedBy: 'agent:intake' });
+
+    const rows = await objectsFor();
+    const kept = rows.find(r => r.title === 'Open Mic Night')!;
+    const closed = rows.find(r => r.title === 'Poetry Slam')!;
+
+    expect(kept.provenance).toMatchObject({ decision: { status: 'approved', by: 'user_moderator', byMachine: false } });
+    expect(closed.status).toBe('rejected');
+    expect(closed.provenance).toMatchObject({ decision: { status: 'rejected', by: 'agent:intake', byMachine: true, note: 'Withdrawn by intake: superseded by proposal #9' } });
+  });
+
+  it('never turns down a record a person approved, whatever rejects it late', async () => {
+    const proposed = await propose();
+    await executeAction(proposed.runId, ORG, { reviewedBy: 'user_moderator' });
+
+    // A clock that read it as waiting, a sweep, a stale card's Deny: refused.
+    await expect(rejectAction(proposed.runId, ORG, 'Declined by default at its deadline', { reviewedBy: 'by-default' })).rejects.toThrow(/cannot be turned down/);
+    await expect(rejectAction(proposed.runId, ORG, 'stale card', { reviewedBy: 'user_other' })).rejects.toThrow(/cannot be turned down/);
+
+    const [object] = await objectsFor();
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, proposed.runId));
+
+    expect(object!.status).toBe('approved');
+    expect(run!.status).toBe('done');
+  });
+
+  it('a machine closing the run never moves a record that is no longer a proposal', async () => {
+    const proposed = await propose();
+    // Approved on the record, while the run itself failed afterwards (a hook
+    // after the write threw): the failed run waits to be retried or dismissed.
+    await db.update(businessObjectSchema).set({ status: 'approved' }).where(eq(businessObjectSchema.reviewActionRunId, proposed.runId));
+    await db.update(actionRunSchema).set({ status: 'failed' }).where(eq(actionRunSchema.id, proposed.runId));
+
+    await rejectAction(proposed.runId, ORG, 'Cleared from the Review queue by age', { reviewedBy: 'system:clear-out' });
+
+    const [object] = await objectsFor();
+
+    expect(object!.status).toBe('approved');
+  });
+
   it('fails loudly when there is no stored row to approve', async () => {
     const proposed = await propose();
     // The row a candidate is approved through can be gone by decision time —
