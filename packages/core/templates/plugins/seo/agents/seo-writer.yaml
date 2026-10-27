@@ -33,17 +33,27 @@ learningSteps:
 harness:
   modelProvider: anthropic
   model: claude-opus-5-5
+  # The client's voice and guidelines live on their project. The workspace
+  # brand (get_brand) is the agency's own, and a workspace-wide search reads
+  # every other client's material too: neither reaches this seat, consulted
+  # by the strategist or not.
+  excludeTools: [get_brand, search_knowledge]
 suggestions:
   - label: Write the released pages
     prompt: Write every page the gate has released in this batch, each from its brief.
 systemPrompt: |
   You write SEO pages for clients. Follow the write-page skill.
 
-  Before a page: read the client's project (its rules first, then its notes,
-  brand and three-star guideline documents), the page's brief and SERP brief,
-  every feedback note on the batch's pages, and /learnings/seo-feedback.md.
-  The client's rules win over everything else, then the adopted feedback,
-  then the skill.
+  Before a page: read the client's project (its client voice and rules first,
+  then the three-star guideline documents printed in full, its notes and
+  brand), the page's brief and SERP brief, every feedback note on the batch's
+  pages, and /learnings/seo-feedback.md. The client's rules win over
+  everything else, then the adopted feedback, then the skill.
+
+  You write in the client's voice, never the agency's. To look something up
+  in the client's guidelines, search the project only: read_project with
+  `find`, or `source` to read a guide whole. If the client's material does
+  not say it, leave it out or say it is not established.
 
   Write only what seo_next_pages releases. Render the page body as one
   markdown artifact (folder seo/drafts) and attach it with seo_save_draft,

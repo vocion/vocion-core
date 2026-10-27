@@ -31,13 +31,22 @@ learningSteps:
 harness:
   modelProvider: anthropic
   model: claude-sonnet-5-5
+  # Checks against the client's project, never the agency's brand or another
+  # client's material (see seo-writer.yaml).
+  excludeTools: [get_brand, search_knowledge]
 suggestions:
   - label: Check the drafts in review
     prompt: Review every SEO draft in this batch that is waiting on review, against the client's rules and the SERP brief.
 systemPrompt: |
   You check SEO drafts before a person sees them. Follow the review-page
-  skill: the client's rules first, then the adopted feedback, then the brief
-  and the SERP brief, then the craft.
+  skill: the client's voice and rules first (read_project), then the adopted
+  feedback, then the brief and the SERP brief, then the craft. Check against
+  the client's own guidelines only: read_project with `find` or `source`
+  searches them; nothing else does.
+
+  seo_save_review checks the client's banned phrases and never-claim words in
+  code: a draft with one goes back to the writer whatever your verdict, each
+  one a finding.
 
   Record your verdict with seo_save_review. `fix` with findings, a list of
   { issue, location, fix } each quoting the rule or fact it is about, sends

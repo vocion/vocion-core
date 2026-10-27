@@ -221,6 +221,27 @@ describe('runAgentOnRuntime sends the same agent the in-process loop runs', () =
     expect(agent.subagents.map(s => s.name)).toEqual(['pipeline-analyst']);
   });
 
+  it('sends a teammate\'s own withheld tools with it, so the container withholds them too', async () => {
+    buildAgentDefinition.mockResolvedValueOnce({
+      agentRow: {},
+      systemPrompt: 'Lead SEO.',
+      subagentSpecs: [{ name: 'seo-writer', description: 'Writes.', systemPrompt: 'You write.' }, { name: 'serp-analyst', description: 'Reads.', systemPrompt: 'You read.' }],
+      teammateExcludes: { 'seo-writer': ['get_brand', 'search_knowledge'] },
+      defaultTimeZone: 'UTC',
+      enabledPlugins: ['seo'],
+    } as never);
+    const captured = captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'write the sample' });
+
+    const agent = captured.payload().agent as { subagents: Array<{ name: string; excludeTools?: string[] }> };
+
+    expect(agent.subagents).toEqual([
+      { name: 'seo-writer', description: 'Writes.', systemPrompt: 'You write.', excludeTools: ['get_brand', 'search_knowledge'] },
+      { name: 'serp-analyst', description: 'Reads.', systemPrompt: 'You read.' },
+    ]);
+  });
+
   it('states NOW on the turn, in the workspace zone when the person named none', async () => {
     buildAgentDefinition.mockResolvedValueOnce({ agentRow: {}, systemPrompt: 'Be helpful.', subagentSpecs: [], defaultTimeZone: 'America/Los_Angeles', enabledPlugins: [] });
     const captured = captureInvocation();

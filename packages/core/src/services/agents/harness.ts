@@ -268,6 +268,13 @@ type AgentBlueprint = {
   teammateSkills?: Record<string, string[]>;
   /** The registered teammates' own granted tools (`harness.grantTools`), slug to grants. */
   teammateGrants?: Record<string, string[]>;
+  /**
+   * The teammates whose own seat withholds tools (`harness.excludeTools`),
+   * slug to those tools. Consulted through `task`, a teammate gets the lead's
+   * tools less its own exclusions: the SEO writer never reads the agency's
+   * brand, whoever asks it to write.
+   */
+  teammateExcludes?: Record<string, string[]>;
   /** This agent's chat model. Stateless per call, so one instance serves every request. */
   model: Awaited<ReturnType<typeof buildChatModelForOrg>>;
   /** The workspace's own zone (`project.time_zone`), the fallback when a turn names none. */
@@ -541,7 +548,9 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   const teammateSkills = skilled.length > 0 ? Object.fromEntries(skilled.map(d => [d.slug, d.skillSlugs!])) : undefined;
   const granted = registered.filter(d => d.grantTools?.length);
   const teammateGrants = granted.length > 0 ? Object.fromEntries(granted.map(d => [d.slug, d.grantTools!])) : undefined;
-  return { agentRow: row, systemPrompt, subagentSpecs, teammateNames, ...(teammateModels ? { teammateModels } : {}), ...(teammateSkills ? { teammateSkills } : {}), ...(teammateGrants ? { teammateGrants } : {}), defaultTimeZone, enabledPlugins, filingTypes, restSources, sourceKinds, workspaceKind };
+  const withholding = registered.filter(d => d.excludeTools?.length);
+  const teammateExcludes = withholding.length > 0 ? Object.fromEntries(withholding.map(d => [d.slug, canonicalToolNames(d.excludeTools)])) : undefined;
+  return { agentRow: row, systemPrompt, subagentSpecs, teammateNames, ...(teammateModels ? { teammateModels } : {}), ...(teammateSkills ? { teammateSkills } : {}), ...(teammateGrants ? { teammateGrants } : {}), ...(teammateExcludes ? { teammateExcludes } : {}), defaultTimeZone, enabledPlugins, filingTypes, restSources, sourceKinds, workspaceKind };
 }
 
 async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
@@ -767,6 +776,10 @@ export async function compileAgentForRequest(
     const extra = buildDomainTools(withGrants).filter(t => !excludeTools.has(t.name) && !domainTools.some(d => d.name === t.name));
     return extra.length > 0 ? extra : null;
   };
+  const withheld = (spec: { name: string }, list: StructuredToolInterface[]) => {
+    const held = new Set(blueprint.teammateExcludes?.[spec.name] ?? []);
+    return held.size ? list.filter(t => !held.has(t.name)) : list;
+  };
   const subagents: SubAgent[] = blueprint.subagentSpecs.map((spec) => {
     const extra = grantedTools(spec.name);
     const base = blueprint.legworkModel && !spec.model ? domainTools : tools;
@@ -774,7 +787,8 @@ export async function compileAgentForRequest(
       ...spec,
       // A teammate that pins its own model keeps it (`delegationRoster.ts` `pinnedModel`).
       ...(blueprint.legworkModel && !spec.model ? { model: blueprint.legworkModel } : {}),
-      tools: (extra ? [...base, ...extra] : base) as SubAgent['tools'],
+      // A teammate's own exclusions hold when the lead consults it (`teammateExcludes`).
+      tools: withheld(spec, extra ? [...base, ...extra] : base) as SubAgent['tools'],
       ...(turnMiddleware.length > 0 ? { middleware: turnMiddleware } : {}),
     };
   });

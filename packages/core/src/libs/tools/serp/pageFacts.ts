@@ -18,6 +18,13 @@ export type PageFacts = {
   url: string;
   title: string | null;
   metaDescription: string | null;
+  /**
+   * The canonical URL the page declares (`<link rel="canonical">`), absolute;
+   * null when it declares none. Optional only for facts built by hand.
+   */
+  canonical?: string | null;
+  /** The page asks not to be indexed (`<meta name="robots">` or `googlebot` with `noindex`). */
+  noindex?: boolean;
   /** H1–H3 in document order, capped. */
   outline: OutlineHeading[];
   /** Words in the main content (scripts, navigation, header and footer left out). */
@@ -151,6 +158,16 @@ export function extractPageFacts(html: string, url: string): PageFacts {
 
   const title = clean($('title').first().text()) || null;
   const metaDescription = meta($, 'description', 'og:description');
+  const canonicalHref = $('link[rel~="canonical"]').first().attr('href')?.trim();
+  let canonical: string | null = null;
+  if (canonicalHref) {
+    try {
+      canonical = new URL(canonicalHref, url).toString();
+    } catch {
+      canonical = canonicalHref;
+    }
+  }
+  const noindex = $('meta[name="robots" i], meta[name="googlebot" i]').toArray().some(el => /\bnoindex\b/i.test($(el).attr('content') ?? ''));
 
   const faqByHeading = outline.some(h => /\bfaqs?\b|frequently asked/i.test(h.text));
   const faq = schemaTypes.has('FAQPage')
@@ -201,6 +218,8 @@ export function extractPageFacts(html: string, url: string): PageFacts {
     url,
     title,
     metaDescription,
+    canonical,
+    noindex,
     outline,
     wordCount: words.length,
     text: mainText.slice(0, TEXT_CAP),

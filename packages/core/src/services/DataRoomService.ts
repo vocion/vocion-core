@@ -47,7 +47,7 @@ import { db } from '@/libs/DB';
 import { publishTargetLine } from '@/libs/publish/targets';
 import { artifactHref } from '@/libs/tools/artifacts/url';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, objectDocumentLinkSchema } from '@/models/Schema';
-import { anchorArtifact, createArtifact, listArtifactsForRecord } from '@/services/ArtifactService';
+import { anchorArtifact, createArtifact, getArtifact, listArtifactsByIds, listArtifactsForRecord } from '@/services/ArtifactService';
 import { listAskGroup, upsertAsk } from '@/services/AskService';
 import { addDocumentLink, createBusinessObject, createObjectType, getBusinessObject, getObjectTypeBySlug, groupRecordsByType, listBusinessObjects, listBusinessObjectsForProject, removeDocumentLink, updateBusinessObject } from '@/services/BusinessObjectService';
 
@@ -144,6 +144,83 @@ export type RoomBrandSlot = typeof ROOM_BRAND_SLOTS[number];
 export type { StoredPublishTarget as PublishTarget } from '@/libs/publish/targets';
 export { publishTargetLine } from '@/libs/publish/targets';
 
+/**
+ * One line of a client's voice, with where it was read: a page URL, or a
+ * source id from the project's bundle (`doc:12`, `artifact:34`). A line with
+ * no source is a guess, and the voice block holds none (principle 10).
+ */
+export type VoiceLine = {
+  text: string;
+  source: string;
+  /**
+   * For a never-claim line: the words a draft making the claim would use
+   * ("guaranteed", "#1 in"), checked in code before a person sees a draft.
+   */
+  phrases?: string[];
+};
+
+/**
+ * How the client writes, as structured lines a writer follows and a check can
+ * read: who speaks to whom, reading level, spelling, tone, the words they
+ * never use, the calls to action they prefer, and what they must never claim.
+ * The other half of the project's rules: rules are free lines, this is the
+ * shape every client's voice has.
+ */
+export type ClientVoice = {
+  /** Who speaks and to whom: "we, to you", "third person". */
+  pointOfView?: VoiceLine;
+  /** "Grade 7–8", "plain, no jargon". */
+  readingLevel?: VoiceLine;
+  /** US or UK spelling. */
+  spelling?: VoiceLine & { text: 'US' | 'UK' };
+  /** Tone words, one each. */
+  tone?: VoiceLine[];
+  /** Words and phrases the client never uses — a draft that has one goes back. */
+  bannedPhrases?: VoiceLine[];
+  /** The calls to action the client uses. */
+  preferredCtas?: VoiceLine[];
+  /** Claims the client may not make. `phrases` are the words checked in code. */
+  neverClaim?: VoiceLine[];
+  updatedAt?: string;
+};
+
+export const VOICE_FIELDS = ['pointOfView', 'readingLevel', 'spelling', 'tone', 'bannedPhrases', 'preferredCtas', 'neverClaim'] as const;
+
+/**
+ * The project's site inventory: a dated artifact listing every page of the
+ * client's site with its basics (`services/agents/tools/siteInventory.ts`).
+ */
+export type SiteInventoryRef = {
+  artifactId: number;
+  site: string;
+  readAt: string;
+  /** Pages read. */
+  pages: number;
+  /** Where the URL list came from. */
+  from: 'sitemap' | 'robots' | 'crawl';
+  /** The cap, when the site listed more pages than were read. */
+  cappedAt?: number;
+  /** How many URLs the site listed, when more than were read. */
+  listed?: number;
+};
+
+/** One ranking that makes a domain a competitor: which search, where, which page. */
+export type CompetitorRanking = { query: string; position: number; url: string };
+
+/**
+ * Who ranks beside the client on Google, read from searches rather than
+ * guessed: domains that ranked for two or more of them, directories and
+ * marketplaces left out (`libs/tools/serp/competitors.ts`).
+ */
+export type ProjectCompetitors = {
+  readAt: string;
+  queries: string[];
+  location?: string;
+  /** Whether the order was Google's (false when the web-search fallback answered). */
+  isGoogleRanking: boolean;
+  domains: Array<{ domain: string; ranked: CompetitorRanking[] }>;
+};
+
 export type RoomMeta = {
   client?: string;
   codename?: string;
@@ -175,6 +252,12 @@ export type RoomMeta = {
   publishTargets?: StoredPublishTarget[];
   /** How the SEO app releases this project's pages: the sample, then each tranche. Set by a person on the project page. */
   seoGate?: { sample?: number; tranche?: number };
+  /** How the client writes, each line sourced. Printed at the top of the bundle. */
+  voice?: ClientVoice;
+  /** The latest site inventory filed on the project. */
+  siteInventory?: SiteInventoryRef;
+  /** Who ranks beside the client, from Google searches. */
+  competitors?: ProjectCompetitors;
   /** Knowledge documents a person or agent took back out — the collector never re-files these on its own. */
   unfiled?: number[];
 };
@@ -195,6 +278,11 @@ export type DataRoomDetail = DataRoom & {
   items: Ask[];
   /** Records that belong to the project (`metadata.projectId`), newest first. Absent: not read. */
   work?: ProjectRecord[];
+  /**
+   * The text of the ⭐⭐⭐ sources, by source id (`doc:12`, `artifact:34`), for
+   * the bundle to print in full. Absent: not read (`loadSourceTexts`).
+   */
+  sourceTexts?: Record<string, string>;
 };
 
 const toRoom = (row: { id: number; title: string; status: string | null; metadata: unknown; createdAt: Date; updatedAt: Date | null }): DataRoom => ({
@@ -444,6 +532,69 @@ export function mergeBrand(existing: RoomBrand | undefined, slot: RoomBrandSlot,
 }
 
 /**
+ * A source's id in the bundle: `doc:<id>` for an ingested document,
+ * `artifact:<id>` for a filed artifact. What `read_project` takes to read
+ * one whole. Null for a source that is only a title.
+ * @param s - The source.
+ */
+export function sourceKey(s: Pick<RoomSource, 'documentId' | 'artifactId'>): string | null {
+  return s.documentId ? `doc:${s.documentId}` : s.artifactId ? `artifact:${s.artifactId}` : null;
+}
+
+/**
+ * A rule that says where it came from: the rule, then the source's title and
+ * id. A rule already citing that id is left as it is. Pure.
+ * @param rule - The rule.
+ * @param citation - "Brand guide, doc:12" or a page URL.
+ */
+export function citeRule(rule: string, citation: string | null): string {
+  const text = rule.trim();
+  if (!citation || !text) {
+    return text;
+  }
+  return text.includes(citation) ? text : `${text} (from ${citation})`;
+}
+
+/**
+ * How a rule cites a source: its title and id when the project holds it,
+ * the reference as given otherwise (a page URL).
+ * @param sources - The project's sources.
+ * @param ref - `doc:12`, `artifact:34` or a URL.
+ */
+export function ruleCitation(sources: readonly RoomSource[] | undefined, ref: string | undefined): string | null {
+  const r = ref?.trim();
+  if (!r) {
+    return null;
+  }
+  const s = (sources ?? []).find(x => sourceKey(x) === r);
+  return s ? `"${s.title}", ${r}` : r;
+}
+
+/**
+ * The voice after a change: a field given replaces that field (a list is
+ * replaced whole, so removing a line is sending the list without it); a
+ * field set to an empty list clears it; the rest stay. Pure.
+ * @param existing - The voice on the project.
+ * @param patch - The fields to set.
+ */
+export function mergeVoice(existing: ClientVoice | undefined, patch: Partial<ClientVoice>): ClientVoice {
+  const out: ClientVoice = { ...(existing ?? {}) };
+  for (const field of VOICE_FIELDS) {
+    if (!(field in patch)) {
+      continue;
+    }
+    const value = patch[field];
+    if (value === undefined || (Array.isArray(value) && value.length === 0)) {
+      delete out[field];
+    } else {
+      (out as Record<string, unknown>)[field] = value;
+    }
+  }
+  out.updatedAt = new Date().toISOString();
+  return out;
+}
+
+/**
  * Open a room for an engagement.
  * @param orgId - The project.
  * @param userId - Who opened it.
@@ -505,6 +656,17 @@ export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & 
   appendNotes?: string;
   /** Rules to add (deduplicated by text). */
   addRules?: string[];
+  /**
+   * Where `addRules` came from — a source id (`doc:12`, `artifact:34`) or a
+   * page URL. Each added rule is stored citing it.
+   */
+  rulesSource?: string;
+  /** Voice fields to set (`mergeVoice`). */
+  voice?: Partial<ClientVoice>;
+  /** The site inventory just filed. */
+  siteInventory?: SiteInventoryRef;
+  /** Competitors just read from Google. */
+  competitors?: ProjectCompetitors;
   /** Rules to remove, by exact text. */
   removeRules?: string[];
   /** A milestone to add or update (matched by date + title). */
@@ -569,7 +731,17 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
     meta.notes = [meta.notes?.trimEnd(), `\n### ${stamp}\n\n${patch.appendNotes.trim()}`].filter(Boolean).join('\n').trim();
   }
   if (patch.addRules?.length || patch.removeRules?.length) {
-    meta.rules = mergeRules(meta.rules, patch.addRules, patch.removeRules);
+    const citation = ruleCitation(meta.sources, patch.rulesSource);
+    meta.rules = mergeRules(meta.rules, patch.addRules?.map(r => citeRule(r, citation)), patch.removeRules);
+  }
+  if (patch.voice) {
+    meta.voice = mergeVoice(meta.voice, patch.voice);
+  }
+  if (patch.siteInventory) {
+    meta.siteInventory = patch.siteInventory;
+  }
+  if (patch.competitors) {
+    meta.competitors = patch.competitors;
   }
   if (patch.milestone) {
     const list = [...(meta.milestones ?? [])];
@@ -715,6 +887,15 @@ export async function fileToDataRoom(orgId: string, id: number, input: FileInput
         link: doc.uri ?? undefined,
         role: input.kind,
       }, orgId);
+    }
+  }
+  if (input.artifactId) {
+    // An upload or a note filed here lives on the project too, so the project
+    // lists it and the bundle reads its text — unless it already lives on a
+    // record (an intake source of another project stays where it was read).
+    const artifact = await getArtifact({ orgId, id: input.artifactId });
+    if (artifact && !artifact.recordId) {
+      await anchorArtifact({ orgId, id: artifact.id, record: { type: 'object', id: String(id), role: `source:${input.title}` } });
     }
   }
   const source: RoomSource = {
@@ -1001,6 +1182,171 @@ export async function knowledgeDocument(orgId: string, id: number): Promise<Know
   return { ...row, metadata: (row.metadata ?? {}) as Record<string, unknown>, text: chunks.map(c => c.content).join('\n') };
 }
 
+/** Characters of one ⭐⭐⭐ source the bundle prints before it says where the rest is. */
+export const SOURCE_TEXT_PER_SOURCE = 8_000;
+/** Characters of ⭐⭐⭐ source text the bundle prints in all. */
+export const SOURCE_TEXT_TOTAL = 30_000;
+
+/**
+ * The readable text an artifact holds: a note's markdown, an upload's
+ * extracted text, a document's words. Empty when it holds none (an image, a
+ * scanned PDF). Pure.
+ * @param a - The artifact.
+ * @param a.spec - Its spec, whatever its kind.
+ */
+export function artifactText(a: { spec: unknown }): string {
+  const spec = (a.spec ?? {}) as Record<string, unknown>;
+  if (typeof spec.md === 'string') {
+    return spec.md;
+  }
+  if (typeof spec.text === 'string') {
+    return spec.text;
+  }
+  if (typeof spec.html === 'string') {
+    return spec.html.replace(/<(?:script|style)[\s\S]*?<\/(?:script|style)>/gi, ' ').replace(/<\/(?:p|div|h\d|li|tr|section)>/gi, '\n').replace(/<[^>]+>/g, ' ').split('\n').map(l => l.replace(/[ \t]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  return '';
+}
+
+/**
+ * One source's whole text, by its id (`doc:12`, `artifact:34`), when the
+ * project holds that source. Null when it does not — a project reads only
+ * what was filed to it.
+ * @param orgId - The workspace.
+ * @param room - The project.
+ * @param key - The source id.
+ */
+export async function readRoomSource(orgId: string, room: DataRoom, key: string): Promise<{ source: RoomSource; text: string } | null> {
+  const source = (room.meta.sources ?? []).find(s => sourceKey(s) === key.trim());
+  if (!source) {
+    return null;
+  }
+  if (source.documentId) {
+    const doc = await knowledgeDocument(orgId, source.documentId);
+    return { source, text: doc?.text ?? '' };
+  }
+  const artifact = source.artifactId ? await getArtifact({ orgId, id: source.artifactId }) : null;
+  return { source, text: artifact ? artifactText(artifact) : '' };
+}
+
+/**
+ * The text of a project's sources at a weight (⭐⭐⭐ by default), by source
+ * id — what the bundle prints in full. A source with no text reads as ''.
+ * @param orgId - The workspace.
+ * @param sources - The project's sources.
+ * @param minRating - The lowest weight read.
+ */
+export async function loadSourceTexts(orgId: string, sources: readonly RoomSource[] | undefined, minRating: 1 | 2 | 3 = 3): Promise<Record<string, string>> {
+  const wanted = (sources ?? []).filter(s => s.rating >= minRating && sourceKey(s));
+  const out: Record<string, string> = {};
+  const artifactIds = wanted.filter(s => !s.documentId && s.artifactId).map(s => s.artifactId!);
+  const artifacts = await listArtifactsByIds({ orgId, ids: artifactIds });
+  for (const a of artifacts) {
+    out[`artifact:${a.id}`] = artifactText(a);
+  }
+  for (const s of wanted.filter(x => x.documentId)) {
+    out[`doc:${s.documentId}`] = (await knowledgeDocument(orgId, s.documentId!))?.text ?? '';
+  }
+  for (const s of wanted) {
+    out[sourceKey(s)!] ??= '';
+  }
+  return out;
+}
+
+/**
+ * A voice line's source as something to open: a page as a link, a source
+ * id as itself (`read_project` reads it).
+ * @param source - The line's source.
+ */
+function voiceSource(source: string): string {
+  if (/^https?:\/\//.test(source)) {
+    let label = source;
+    try {
+      const u = new URL(source);
+      label = `${u.hostname.replace(/^www\./, '')}${u.pathname === '/' ? '' : u.pathname}`;
+    } catch {}
+    return `[${label}](${source})`;
+  }
+  return /^(?:doc|artifact):\d+$/.test(source) ? `\`${source}\`` : source;
+}
+
+/**
+ * The client voice block, as the bundle prints it at the top. Pure; empty
+ * for a project with no voice lines.
+ * @param voice - The project's voice.
+ */
+export function renderVoice(voice: ClientVoice | undefined): string[] {
+  if (!voice) {
+    return [];
+  }
+  const one = (l: VoiceLine) => `${l.text} — ${voiceSource(l.source)}`;
+  const many = (list: VoiceLine[]) => list.map(l => `"${l.text}" (${voiceSource(l.source)})`).join('; ');
+  const rows: string[] = [];
+  if (voice.pointOfView) {
+    rows.push(`- **Point of view:** ${one(voice.pointOfView)}`);
+  }
+  if (voice.readingLevel) {
+    rows.push(`- **Reading level:** ${one(voice.readingLevel)}`);
+  }
+  if (voice.spelling) {
+    rows.push(`- **Spelling:** ${one(voice.spelling)}`);
+  }
+  if (voice.tone?.length) {
+    rows.push(`- **Tone:** ${many(voice.tone)}`);
+  }
+  if (voice.bannedPhrases?.length) {
+    rows.push(`- **Never use:** ${many(voice.bannedPhrases)}`);
+  }
+  if (voice.preferredCtas?.length) {
+    rows.push(`- **Calls to action:** ${many(voice.preferredCtas)}`);
+  }
+  if (voice.neverClaim?.length) {
+    rows.push(`- **Never claim:** ${voice.neverClaim.map(l => `${l.text}${l.phrases?.length ? ` (checked words: ${l.phrases.map(p => `"${p}"`).join(', ')})` : ''} — ${voiceSource(l.source)}`).join('; ')}`);
+  }
+  if (rows.length === 0) {
+    return [];
+  }
+  return ['## Client voice', '', `Write as this client, not as the agency: this is their voice, not the workspace brand (get_brand is the agency's own).${voice.updatedAt ? ` Set ${voice.updatedAt.slice(0, 10)}.` : ''} Every line cites where it was read. A draft with a "never use" word or a never-claim word is sent back in code.`, '', ...rows, ''];
+}
+
+/**
+ * The ⭐⭐⭐ sources' text, printed in full up to the per-source and total
+ * caps, each cut saying how much was left and how to read it. Pure.
+ * @param roomId - The project, for the read call it names.
+ * @param sources - The project's sources, heaviest first.
+ * @param texts - Their text by source id.
+ */
+export function renderSourceTexts(roomId: number, sources: readonly RoomSource[], texts: Record<string, string>): string[] {
+  const heavy = sources.filter(s => s.rating === 3 && sourceKey(s) && sourceKey(s)! in texts);
+  if (heavy.length === 0) {
+    return [];
+  }
+  const readCall = (key: string, offset?: number) => `read_project { project_id: ${roomId}, source: "${key}"${offset ? `, offset: ${offset}` : ''} }`;
+  const lines: string[] = ['## ⭐⭐⭐ sources in full', '', 'The client\'s own material, read before writing anything. Where it and a page disagree, it wins.', ''];
+  let budget = SOURCE_TEXT_TOTAL;
+  for (const s of heavy) {
+    const key = sourceKey(s)!;
+    const text = (texts[key] ?? '').replace(/\n{3,}/g, '\n\n').trim();
+    lines.push(`### ${s.title} · \`${key}\``, '');
+    if (!text) {
+      lines.push('_No text could be read from this source (a scan, an image, or it is gone). Say so rather than guessing what it says._', '');
+      continue;
+    }
+    if (budget <= 0) {
+      lines.push(`_Not printed: the bundle's ${SOURCE_TEXT_TOTAL.toLocaleString('en-US')} characters for sources in full are spent. Read it (${text.length.toLocaleString('en-US')} characters): ${readCall(key)}._`, '');
+      continue;
+    }
+    const allowed = Math.min(SOURCE_TEXT_PER_SOURCE, budget);
+    const shown = text.length > allowed ? text.slice(0, allowed) : text;
+    budget -= shown.length;
+    lines.push(shown, '');
+    if (shown.length < text.length) {
+      lines.push(`_Cut at ${shown.length.toLocaleString('en-US')} of ${text.length.toLocaleString('en-US')} characters. Read the rest: ${readCall(key, shown.length)}._`, '');
+    }
+  }
+  return lines;
+}
+
 /**
  * The whole room as one markdown file — the "download context for an LLM"
  * bundle, and exactly what `read_project` hands the agent. Order is the
@@ -1024,6 +1370,12 @@ export function renderDataRoom(room: DataRoomDetail): string {
   if (m.publishTargets?.length) {
     lines.push(`Publishes to: ${m.publishTargets.map(publishTargetLine).join(' · ')}`, '');
   }
+  if (m.siteInventory) {
+    const inv = m.siteInventory;
+    lines.push(`Site inventory: [${inv.site}, read ${inv.readAt.slice(0, 10)}](/dashboard/artifacts/${inv.artifactId}) — ${inv.pages} pages from the ${inv.from === 'crawl' ? 'crawl (no sitemap)' : inv.from === 'robots' ? 'sitemap robots.txt names' : 'sitemap'}${inv.cappedAt ? `, the first ${inv.cappedAt} of ${inv.listed ?? 'more'} listed` : ''} (artifact #${inv.artifactId}).`, '');
+  }
+  // The client's voice first: it decides how every word below is used.
+  lines.push(...renderVoice(m.voice));
   if (m.rules?.length) {
     lines.push('## Instructions for this project', '');
     for (const r of m.rules) {
@@ -1046,16 +1398,17 @@ export function renderDataRoom(room: DataRoomDetail): string {
     lines.push('');
   }
   if (m.brand?.logo || m.brand?.mark) {
-    // The data URI is here in full, because the consumer of this bundle is
-    // the thing writing the document, and a logo it has to fetch again is a
-    // logo it will fabricate instead.
-    lines.push('## Client brand', '', 'Inline these exactly, as they are. Do not redraw the mark as text.', '');
+    // A link, not the data URI: the base64 cost 10–35k tokens on every read,
+    // and most reads write no document. A document that needs the mark gets
+    // the stored copy from fetch_image in one call, without fetching again.
+    lines.push('## Client brand', '', `Never redraw a mark as text. To inline one in a document, call fetch_image with its source URL, project_id ${room.id} and the slot: it hands back the stored copy as a data URI.`, '');
     for (const slot of ROOM_BRAND_SLOTS) {
       const img = m.brand?.[slot];
       if (img) {
-        lines.push(`- **${slot}** — ${img.width && img.height ? `${img.width}×${img.height}, ` : ''}${Math.round(img.bytes / 1024)} KB, from ${img.source} on ${img.fetchedAt.slice(0, 10)}`, '', `  \`${img.dataUri}\``, '');
+        lines.push(`- **${slot}** — [${slot}](${img.url ?? img.source}) · ${img.width && img.height ? `${img.width}×${img.height}, ` : ''}${Math.round(img.bytes / 1024)} KB, from ${img.source} on ${img.fetchedAt.slice(0, 10)}`);
       }
     }
+    lines.push('');
   }
   if (m.cast?.length) {
     lines.push('## Cast', '', '| Name | Role | Email | Side |', '|---|---|---|---|');
@@ -1069,7 +1422,19 @@ export function renderDataRoom(room: DataRoomDetail): string {
     lines.push('## Sources', '');
     for (const s of sources) {
       const how = s.filedBy === 'auto' ? `, filed automatically${s.score === undefined ? '' : ` at ${Math.round(s.score * 100)}%`}${s.evidence?.length ? ` (${s.evidence.join(', ')})` : ''}` : '';
-      lines.push(`- ${stars(s.rating)} ${s.date ? `**${s.date}** · ` : ''}${s.title} — ${s.kind}${s.channel ? ` via ${s.channel}` : ''}, filed ${s.retrievedAt.slice(0, 10)}${how}${s.note ? `. ${s.note}` : ''}`);
+      const key = sourceKey(s);
+      lines.push(`- ${stars(s.rating)} ${s.date ? `**${s.date}** · ` : ''}${s.title} — ${s.kind}${s.channel ? ` via ${s.channel}` : ''}, filed ${s.retrievedAt.slice(0, 10)}${how}${s.note ? `. ${s.note}` : ''}${key ? ` · \`${key}\`` : ''}`);
+    }
+    lines.push('', `Read any source whole with read_project { project_id: ${room.id}, source: "<id>" }, or find a passage in them with read_project { project_id: ${room.id}, find: "<words>" }.`, '');
+    if (room.sourceTexts) {
+      lines.push(...renderSourceTexts(room.id, sources, room.sourceTexts));
+    }
+  }
+  if (m.competitors?.domains.length) {
+    const c = m.competitors;
+    lines.push('## Competitors', '', `Read from ${c.isGoogleRanking ? 'Google' : 'web search (not Google\'s ranking)'} on ${c.readAt.slice(0, 10)} for ${c.queries.length} searches${c.location ? ` in ${c.location}` : ''}: the domains that ranked for two or more, directories and marketplaces left out.`, '');
+    for (const d of c.domains) {
+      lines.push(`- **${d.domain}** — ${d.ranked.map(r => `"${r.query}" #${r.position} ([page](${r.url}))`).join('; ')}`);
     }
     lines.push('');
   }
@@ -1131,6 +1496,54 @@ export function renderDataRoom(room: DataRoomDetail): string {
   return lines.join('\n');
 }
 
+export type SourcePassage = { key: string; title: string; offset: number; text: string; hits: number };
+
+/** The longest passage a find returns; a longer paragraph is split. */
+const PASSAGE_CHARS = 700;
+
+/**
+ * Passages of a project's sources that carry the words asked for, most
+ * words first, then the whole phrase, then source order. The search a writer
+ * gets in place of the workspace-wide one: it reads only what was filed to
+ * this project. Pure.
+ * @param sources - The project's sources, in the order to prefer.
+ * @param texts - Their text by source id.
+ * @param query - The words.
+ * @param limit - Passages returned.
+ */
+export function findInSources(sources: readonly RoomSource[], texts: Record<string, string>, query: string, limit = 8): SourcePassage[] {
+  const phrase = query.trim().toLowerCase();
+  const terms = [...new Set(phrase.split(/[^\p{L}\p{N}'-]+/u).filter(t => t.length >= 3))];
+  if (terms.length === 0) {
+    return [];
+  }
+  const found: Array<SourcePassage & { order: number; whole: boolean }> = [];
+  sources.forEach((s, order) => {
+    const key = sourceKey(s);
+    const text = key ? texts[key] : undefined;
+    if (!key || !text) {
+      return;
+    }
+    let at = 0;
+    for (const para of text.split(/\n\s*\n/)) {
+      const start = text.indexOf(para, at);
+      at = start + para.length;
+      for (let i = 0; i < para.length; i += PASSAGE_CHARS) {
+        const piece = para.slice(i, i + PASSAGE_CHARS).trim();
+        const lower = piece.toLowerCase();
+        const hits = terms.filter(t => lower.includes(t)).length;
+        if (hits > 0) {
+          found.push({ key, title: s.title, offset: start + i, text: piece, hits, order, whole: lower.includes(phrase) });
+        }
+      }
+    }
+  });
+  return found
+    .sort((a, b) => b.hits - a.hits || Number(b.whole) - Number(a.whole) || a.order - b.order || a.offset - b.offset)
+    .slice(0, limit)
+    .map(({ order: _o, whole: _w, ...p }) => p);
+}
+
 /**
  * The room's bundle, read from the database. Null when the id is not a room.
  * @param orgId - The project.
@@ -1138,7 +1551,12 @@ export function renderDataRoom(room: DataRoomDetail): string {
  */
 export async function exportDataRoom(orgId: string, id: number): Promise<string | null> {
   const room = await getDataRoomDetail(orgId, id);
-  return room ? renderDataRoom(room) : null;
+  if (!room) {
+    return null;
+  }
+  // The ⭐⭐⭐ sources are read whole into the bundle: a guideline listed by
+  // title is a guideline the writer never sees.
+  return renderDataRoom({ ...room, sourceTexts: await loadSourceTexts(orgId, room.meta.sources) });
 }
 
 /**

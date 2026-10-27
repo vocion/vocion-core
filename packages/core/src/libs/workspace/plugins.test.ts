@@ -632,8 +632,12 @@ describe('loadWorkspace with the SEO app', () => {
     // Planning and writing on the strongest model; the legwork and the check on Sonnet.
     expect(agent('seo-strategist').harness).toMatchObject({ modelProvider: 'anthropic', model: 'claude-opus-5-5' });
     expect(agent('seo-writer').harness).toMatchObject({ modelProvider: 'anthropic', model: 'claude-opus-5-5' });
-    expect(agent('serp-analyst').harness).toMatchObject({ modelProvider: 'anthropic', model: 'claude-sonnet-5-5', grantTools: ['serp'] });
+    expect(agent('serp-analyst').harness).toMatchObject({ modelProvider: 'anthropic', model: 'claude-sonnet-5-5', grantTools: ['serp', 'site_inventory'] });
     expect(agent('seo-editor').harness).toMatchObject({ modelProvider: 'anthropic', model: 'claude-sonnet-5-5' });
+    // The writer and the editor work from the client's project: never the
+    // agency's brand, never a search across every client's material.
+    expect(agent('seo-writer').harness).toMatchObject({ excludeTools: ['get_brand', 'search_knowledge'] });
+    expect(agent('seo-editor').harness).toMatchObject({ excludeTools: ['get_brand', 'search_knowledge'] });
     // Feedback on a sign-off becomes rules the writer and the editor read.
     expect(agent('seo-writer').learningSteps).toEqual(['seo-feedback']);
     expect(ws.learningSteps.find(s => s.name === 'seo-feedback')?.agents).toEqual(['seo-writer', 'seo-editor']);
@@ -643,7 +647,13 @@ describe('loadWorkspace with the SEO app', () => {
     const ws = loadWorkspace(makeWorkspace('plugins: [seo]\naccountableUser: ops@northwind.example\n'));
     const props = (slug: string) => (ws.objectTypes.find(o => o.slug === slug)!.schema as { properties: Record<string, unknown> }).properties;
 
-    expect(Object.keys(props('data_room'))).toContain('seoGate');
+    expect(Object.keys(props('data_room'))).toEqual(expect.arrayContaining(['seoGate', 'voice', 'siteInventory', 'competitors']));
+
+    // One voice line shape for every field, each line sourced.
+    const voice = props('data_room').voice as { properties: Record<string, { items?: unknown; required?: string[] }> };
+
+    expect(voice.properties.bannedPhrases!.items).toEqual(voice.properties.pointOfView);
+    expect(voice.properties.pointOfView!.required).toEqual(['text', 'source']);
     expect(Object.keys(props('seo_page'))).toEqual(expect.arrayContaining(['projectId', 'batchId', 'keyword', 'status', 'serpArtifactId', 'briefArtifactId', 'draftArtifactId', 'publishedUrl', 'pullRequestUrl']));
     expect(Object.keys(props('seo_batch'))).toEqual(expect.arrayContaining(['projectId', 'topic', 'keywords', 'destination']));
   });

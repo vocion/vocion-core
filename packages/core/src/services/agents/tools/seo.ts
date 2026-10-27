@@ -38,6 +38,7 @@ import { readSeoProject, seoProjectHref } from '@/services/seo/projects';
 import { feedbackCheck, getSeoBatch, getSeoPage, listProjectSeoPages, listSeoPages, patchSeoPage, pathKey, planApproved, planSeoBatch, readSeoGate, refreshSeoBatch, revisePlan, SEO_LEARNING_STEP, SEO_PAGE_TYPES, SeoSetupError } from '@/services/seo/records';
 import { fileSeoPlanAsk, fileSeoSignoffAsk, withdrawPageAsks } from '@/services/seo/signoff';
 import { findingsMd, followFrom, normaliseFindings, queueSeoWork, SEO_EDITOR_ROUNDS } from '@/services/seo/work';
+import { describeVoiceFindings, draftVoiceFindings } from '@/services/seo/voiceCheck';
 import { recordIdArg, recordIdOf } from './recordIdArg';
 
 export const SEO_PLUGIN = 'seo';
@@ -542,6 +543,11 @@ export function seoSaveReviewTool(ctx: RuntimeContext) {
       if (!page.meta.draftArtifactId || page.meta.status !== 'in_review') {
         return `Not recorded: page #${page.id} has no draft in review (status ${page.meta.status}).`;
       }
+      // The client's banned words and never-claim words, in code
+      // (`services/seo/voiceCheck.ts`): a draft with one goes back whatever
+      // the verdict, each finding quoting the line and where the client said it.
+      const voice = await draftVoiceFindings(ctx.orgId, page);
+      const voiceNote = voice.length ? `The draft breaks the client's voice block:\n${describeVoiceFindings(voice)}` : null;
       const ran = await modelThatRan(ctx, runtime);
       const at = new Date().toISOString();
       // Doorway pages, in code: a location page that is a sibling with the
@@ -550,9 +556,10 @@ export function seoSaveReviewTool(ctx: RuntimeContext) {
       const dupeNote = dupes.length
         ? `Too similar to ${dupes.map(d => `page #${d.pageId} "${d.keyword}" (${Math.round(d.similarity * 100)}% the same once city names are masked)`).join(', ')}; the limit is ${Math.round(LOCATION_PAGE_SIMILARITY_LIMIT * 100)}%. Rewrite it around what is true of ${page.meta.location ?? 'this place'}: the brief's local substance, local projects and reviews, service-area facts.`
         : null;
-      const finalVerdict: 'pass' | 'fix' = dupeNote ? 'fix' : verdict;
-      const findings = [...(dupeNote ? [{ issue: dupeNote.slice(0, 600), location: 'whole page' }] : []), ...normaliseFindings(coerceJson(raw.findings))];
-      const notes = [dupeNote, (raw.notes ?? '').trim()].filter(Boolean).join('\n\n') || (findings.length ? findingsMd(findings) : 'Checked.');
+      const finalVerdict: 'pass' | 'fix' = dupeNote || voiceNote ? 'fix' : verdict;
+      const voiceFindings = voice.map(f => ({ issue: f.kind === 'banned' ? `Uses "${f.phrase}", which the client never uses (${f.line.source})` : `"${f.phrase}" makes a claim the client may not make: "${f.line.text}" (${f.line.source})`, location: f.excerpt, fix: f.kind === 'banned' ? `Remove "${f.phrase}".` : 'Take the claim out.' }));
+      const findings = [...voiceFindings, ...(dupeNote ? [{ issue: dupeNote.slice(0, 600), location: 'whole page' }] : []), ...normaliseFindings(coerceJson(raw.findings))];
+      const notes = [voiceNote, dupeNote, (raw.notes ?? '').trim()].filter(Boolean).join('\n\n') || (findings.length ? findingsMd(findings) : 'Checked.');
       // A review is never lost to its length: past the page's share, the
       // whole review is an artifact linked from the page.
       let notesArtifactId: number | undefined;
@@ -590,6 +597,7 @@ export function seoSaveReviewTool(ctx: RuntimeContext) {
         const gate = await refreshSeoBatch(ctx.orgId, page.meta.batchId);
         await queueSeoWork(ctx.orgId, 'revise', { batchId: page.meta.batchId, projectId: page.meta.projectId, pageId: page.id, round: rounds, of: SEO_EDITOR_ROUNDS, findings: findingsMd(findings.length ? findings : [{ issue: notes.slice(0, 600) }]), ...(notesArtifactId ? { review: `/dashboard/artifacts/${notesArtifactId}` } : {}), line: gate?.line ?? null }, `revise:${page.id}:${page.meta.draftRound ?? 1}:${rounds}`);
         return [
+          voiceNote && verdict === 'pass' ? `Not passed: ${voiceNote}\n` : voiceNote ? `${voiceNote}\n` : null,
           dupeNote && verdict === 'pass' ? `Not passed: ${dupeNote}` : dupeNote,
           `Sent back to the writer (round ${rounds} of ${SEO_EDITOR_ROUNDS}): page #${page.id} is drafting again, and the writer's revision with your findings is queued, then your review again. Nothing reached a person.`,
         ].filter(Boolean).join(' ');
@@ -609,7 +617,7 @@ export function seoSaveReviewTool(ctx: RuntimeContext) {
     },
     {
       name: 'seo_save_review',
-      description: `The editor's verdict on an SEO draft, checked against the project's rules, brand, guidelines and the SERP brief: \`pass\` files the page's sign-off for a person itself; \`fix\` sends it back to the writer with your findings and queues the revision and your next review in code, at most ${SEO_EDITOR_ROUNDS} rounds, after which the sign-off is filed with the open findings for the person to decide. Give findings as a list of { issue, location, fix }; a long review is kept whole, never refused. A location page whose draft is 70% or more the same as a sibling location page in the batch (city names masked) is sent back whatever the verdict. Records the model that reviewed it.`,
+      description: `The editor's verdict on an SEO draft, checked against the project's rules, brand, guidelines and the SERP brief: \`pass\` files the page's sign-off for a person itself; \`fix\` sends it back to the writer with your findings and queues the revision and your next review in code, at most ${SEO_EDITOR_ROUNDS} rounds, after which the sign-off is filed with the open findings for the person to decide. Give findings as a list of { issue, location, fix }; a long review is kept whole, never refused. A draft with one of the client's banned phrases or never-claim words (the voice block, checked in code) is sent back whatever the verdict, each one a finding. A location page whose draft is 70% or more the same as a sibling location page in the batch (city names masked) is sent back whatever the verdict. Records the model that reviewed it.`,
       schema: z.object({
         page_id: recordIdArg('The SEO page'),
         verdict: z.enum(['pass', 'fix']),

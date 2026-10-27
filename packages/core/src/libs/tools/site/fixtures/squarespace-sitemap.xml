@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Recorded shape of a Squarespace /sitemap.xml: one urlset, image entries
+     nested in each url, www host. Fictional site. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+  <url>
+    <loc>https://www.northwind-home.example/</loc>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+    <lastmod>2026-09-30</lastmod>
+    <image:image>
+      <image:loc>https://images.cdn.example/content/v1/van.jpg</image:loc>
+      <image:title>Home - Our van</image:title>
+    </image:image>
+  </url>
+  <url>
+    <loc>https://www.northwind-home.example/furnace-repair</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.75</priority>
+    <lastmod>2026-08-12</lastmod>
+    <image:image>
+      <image:loc>https://images.cdn.example/content/v1/furnace.jpg</image:loc>
+    </image:image>
+  </url>
+  <url>
+    <loc>https://www.northwind-home.example/ac-installation</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.75</priority>
+    <lastmod>2026-08-12</lastmod>
+  </url>
+  <url>
+    <loc>https://www.northwind-home.example/about</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.75</priority>
+    <lastmod>2026-07-01</lastmod>
+  </url>
+  <url>
+    <loc>https://www.northwind-home.example/old-specials</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+    <lastmod>2025-01-10</lastmod>
+  </url>
+  <url>
+    <loc>https://www.northwind-home.example/thank-you</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+    <lastmod>2026-02-02</lastmod>
+  </url>
+  <url>
+    <loc>https://www.northwind-home.example/s/price-sheet.pdf</loc>
+    <lastmod>2026-02-02</lastmod>
+  </url>
+  <url>
+    <loc>https://www.northwind-home.example/about#team</loc>
+  </url>
+</urlset>

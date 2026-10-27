@@ -109,7 +109,8 @@ export type AgentDefinition = {
    * `services/agents/stepLimit.ts` for the unit and why there is no default.
    */
   maxSteps?: number;
-  subagents?: Array<{ name: string; description: string; systemPrompt: string }>;
+  /** `excludeTools`: the teammate's own seat withholds these, consulted too. */
+  subagents?: Array<{ name: string; description: string; systemPrompt: string; excludeTools?: string[] }>;
   /** deepagents built-in tool names to withhold from the catalog. */
   excludeTools?: string[];
   /**

@@ -168,7 +168,7 @@ function remember(id: string, serp: SerpResult): void {
  * @param ctx - The turn.
  * @param id - The `serpResultId`.
  */
-async function recall(ctx: RuntimeContext, id: string): Promise<SerpResult | null> {
+export async function recall(ctx: RuntimeContext, id: string): Promise<SerpResult | null> {
   const local = recent.get(id);
   if (local) {
     return local;

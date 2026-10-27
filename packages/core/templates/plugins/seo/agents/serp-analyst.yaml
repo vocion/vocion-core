@@ -30,7 +30,7 @@ objectTypes:
 harness:
   modelProvider: anthropic
   model: claude-sonnet-5-5
-  grantTools: [serp]
+  grantTools: [serp, site_inventory]
 suggestions:
   - label: What ranks for this keyword
     prompt: 'Research the top 10 Google results for this keyword and write the SERP brief: '

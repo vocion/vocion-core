@@ -6,7 +6,7 @@ description: >-
   rules, answering the query better than what ranks. Location pages carry
   what is true of their own place. Only pages the volume gate has released.
   Read before writing or redrafting any page.
-version: 3
+version: 4
 ---
 
 # Writing an SEO page
@@ -16,8 +16,11 @@ version: 3
 1. `seo_next_pages` for the batch. Write only what it lists under writeNow.
    If the page you were asked for is not there, say why (the gate's reason)
    and stop.
-2. Read the client's project: rules first, then notes, brand and three-star
-   guideline documents.
+2. Read the client's project (`read_project`): the client voice and the
+   rules first, then the three-star guideline documents (printed in full; a
+   cut one says how to read the rest), the notes and the brand. To look
+   something up in the client's guides, `read_project` with `find`; never a
+   workspace-wide search, which reads other clients' material too.
 3. Read the page brief, the SERP brief, `/learnings/seo-feedback.md`, the
    client's adopted rules `seo_next_pages` returns (`clientRulesFromSignoffs`),
    and every feedback note on this batch's pages. A redraft starts from the
@@ -29,8 +32,11 @@ version: 3
   search with.
 - Follow the brief's outline. A section the brief did not ask for needs a
   reason from the SERP brief.
-- Write in the client's voice as the project describes it. The client's rules
-  win over everything else.
+- Write in the client's voice as the project's voice block describes it:
+  its point of view, reading level, spelling, tone and calls to action. Never
+  a word from its "never use" list or a claim from "never claim": the review
+  checks both in code. The client's rules win over everything else. The
+  workspace's own brand is the agency's, never the client's.
 - Every number and claim traces to the client's material or a dated source in
   the SERP brief. Otherwise cut it.
 - Internal links from the brief, written into the sentences that need them.

@@ -118,4 +118,20 @@ describe('buildDelegationRoster (pure)', () => {
 
     expect(roster.delegates[0]).toMatchObject({ skillSlugs: ['write-page'], grantTools: ['serp'] });
   });
+
+  it('carries the tools a teammate\'s own seat withholds, so consulting it does not hand them back', () => {
+    const lead = { slug: 'seo-strategist' } as never;
+    const writer = { slug: 'seo-writer', name: 'SEO writer', description: 'Writes', systemPrompt: null, teamSlug: 'seo', harnessConfig: { excludeTools: ['get_brand', 'search_knowledge'] } } as never;
+    const analyst = { slug: 'serp-analyst', name: 'SERP analyst', description: 'Reads', systemPrompt: null, teamSlug: 'seo', harnessConfig: { excludeTools: [] } } as never;
+    const roster = buildDelegationRoster({
+      lead,
+      children: [],
+      teams: [{ slug: 'seo', name: 'SEO', leadAgentSlug: 'seo-strategist', description: null } as never],
+      teamAgents: [writer, analyst],
+      isWorkspaceLead: false,
+    });
+
+    expect(roster.delegates.find(d => d.slug === 'seo-writer')?.excludeTools).toEqual(['get_brand', 'search_knowledge']);
+    expect(roster.delegates.find(d => d.slug === 'serp-analyst')).not.toHaveProperty('excludeTools');
+  });
 });

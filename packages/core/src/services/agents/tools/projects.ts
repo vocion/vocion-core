@@ -33,6 +33,7 @@
  */
 
 import type { RuntimeContext } from '../types';
+import type { ClientVoice, DataRoom } from '@/services/DataRoomService';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { createArtifact } from '@/services/ArtifactService';
@@ -41,13 +42,17 @@ import {
   createDataRoom,
   exportDataRoom,
   fileToDataRoom,
+  findInSources,
   getDataRoom,
   knowledgeDocument,
   listDataRooms,
+  loadSourceTexts,
   matchDataRoom,
   projectHref,
   proposeFiling,
+  readRoomSource,
   roomAnchor,
+  sourceKey,
   unfileFromDataRoom,
   updateDataRoom,
 } from '@/services/DataRoomService';
@@ -125,6 +130,44 @@ const highlightSchema = z.object({
   source: z.string().max(200).optional().describe('The source title or transcript timestamp it came from.'),
 });
 
+const voiceLineSchema = z.object({
+  text: z.string().min(1).max(300),
+  source: z.string().min(1).max(500).describe('Where it was read: the page URL, or a source id from read_project ("doc:12"). A line you cannot source, leave out.'),
+});
+
+const neverClaimSchema = voiceLineSchema.extend({
+  phrases: z.array(z.string().min(2).max(60)).max(10).optional().describe('Words a draft making this claim would use ("guaranteed", "#1 in") — checked in code on every review.'),
+});
+
+/**
+ * The client voice block `update_project` sets: each field replaces the one
+ * on the project; an empty list clears it.
+ */
+const voiceSchema = z.object({
+  point_of_view: voiceLineSchema.optional().describe('Who speaks to whom: "we, to you".'),
+  reading_level: voiceLineSchema.optional().describe('"Grade 7–8", "plain, no jargon".'),
+  spelling: voiceLineSchema.extend({ text: z.enum(['US', 'UK']) }).optional(),
+  tone: z.array(voiceLineSchema).max(8).optional().describe('Tone words, one per line.'),
+  banned_phrases: z.array(voiceLineSchema).max(60).optional().describe('Words and phrases the client never uses, one per line, exactly as they would appear. A draft that has one is sent back in code.'),
+  preferred_ctas: z.array(voiceLineSchema).max(10).optional().describe('The calls to action the client uses, word for word.'),
+  never_claim: z.array(neverClaimSchema).max(30).optional().describe('Claims the client may not make, with the words that would make them.'),
+});
+
+/**
+ * The voice argument in the project's own field names.
+ * @param v - The parsed argument.
+ */
+function voicePatch(v: z.infer<typeof voiceSchema>): Partial<ClientVoice> {
+  const out: Partial<ClientVoice> = {};
+  const map = { point_of_view: 'pointOfView', reading_level: 'readingLevel', spelling: 'spelling', tone: 'tone', banned_phrases: 'bannedPhrases', preferred_ctas: 'preferredCtas', never_claim: 'neverClaim' } as const;
+  for (const [arg, field] of Object.entries(map) as Array<[keyof typeof map, (typeof map)[keyof typeof map]]>) {
+    if (arg in v) {
+      (out as Record<string, unknown>)[field] = v[arg];
+    }
+  }
+  return out;
+}
+
 const personSchema = z.object({
   name: z.string().min(1).max(120),
   role: z.string().max(120).optional(),
@@ -165,17 +208,78 @@ export function readProjectTool(ctx: RuntimeContext) {
       if ('error' in found) {
         return found.error;
       }
+      if (args.source || args.find) {
+        const room = await getDataRoom(ctx.orgId, found.id);
+        if (!room) {
+          return `No project #${found.id}.`;
+        }
+        return args.source ? readOneSource(ctx, room, args.source, args.offset ?? 0) : findInRoom(ctx, room, args.find!);
+      }
       const md = await exportDataRoom(ctx.orgId, found.id);
       return md ?? `No project #${found.id}.`;
     },
     {
       name: 'read_project',
-      description: 'Read a project as one markdown bundle — its INSTRUCTIONS first (they govern everything you do in it), status, where it publishes, its wiki, the entity it is anchored to, sources by weight (⭐⭐⭐ first: brand and guidelines, read those before writing anything), the timeline, highlights, open items, every decision log, the records that belong to it (Work) and the outline of every document. This is the same bundle a person downloads as LLM context. Omit `project_id` for the project the person is looking at. (Formerly read_data_room.)',
+      description: 'Read a project as one markdown bundle — the client voice and its INSTRUCTIONS first (they govern everything you do in it), status, where it publishes, its wiki, the entity it is anchored to, sources by weight with the TEXT of every ⭐⭐⭐ source (brand and guidelines: read before writing anything), the timeline, highlights, open items, every decision log, the records that belong to it (Work) and the outline of every document. This is the same bundle a person downloads as LLM context. With `source` (an id the bundle lists, e.g. "doc:12") it reads that one source whole, a page at a time from `offset`; with `find` it returns the passages of THIS project\'s sources that carry those words — the search to use for a client\'s guidelines, never a workspace-wide one. Omit `project_id` for the project the person is looking at. (Formerly read_data_room.)',
       schema: z.object({
         project_id: z.number().int().positive().optional(),
+        source: z.string().max(40).optional().describe('A source id from the bundle ("doc:12", "artifact:34"): read that source whole.'),
+        offset: z.number().int().min(0).optional().describe('With `source`: the character to start from, as a cut in the bundle names it.'),
+        find: z.string().min(3).max(200).optional().describe('Words to find in this project\'s sources (any weight). Returns the passages, each with its source id and offset.'),
       }),
     },
   );
+}
+
+/** Characters of one source a `read_project { source }` call returns. */
+const SOURCE_PAGE_CHARS = 12_000;
+
+/**
+ * One source of a project, whole, a page at a time.
+ * @param ctx - The turn.
+ * @param room - The project.
+ * @param key - The source id.
+ * @param offset - Where to start.
+ */
+async function readOneSource(ctx: RuntimeContext, room: DataRoom, key: string, offset: number): Promise<string> {
+  const read = await readRoomSource(ctx.orgId, room, key);
+  if (!read) {
+    const ids = (room.meta.sources ?? []).map(sourceKey).filter(Boolean);
+    return `Project #${room.id} has no source "${key}". Its sources: ${ids.join(', ') || 'none'}.`;
+  }
+  const { source, text } = read;
+  if (!text.trim()) {
+    return `"${source.title}" (${key}) has no readable text (a scan, an image, or the document is gone). Say so rather than guessing what it says.`;
+  }
+  const page = text.slice(offset, offset + SOURCE_PAGE_CHARS);
+  const end = offset + page.length;
+  return [
+    `"${source.title}" (${key}, ${'⭐'.repeat(source.rating)}, filed ${source.retrievedAt.slice(0, 10)}) — characters ${offset.toLocaleString('en-US')}–${end.toLocaleString('en-US')} of ${text.length.toLocaleString('en-US')}.`,
+    '',
+    page,
+    '',
+    end < text.length ? `More follows: read_project { project_id: ${room.id}, source: "${key}", offset: ${end} }.` : 'End of the source.',
+  ].join('\n');
+}
+
+/**
+ * Passages in a project's own sources: the scoped search a writer uses for
+ * a client's guidelines instead of the workspace-wide one.
+ * @param ctx - The turn.
+ * @param room - The project.
+ * @param query - The words.
+ */
+async function findInRoom(ctx: RuntimeContext, room: DataRoom, query: string): Promise<string> {
+  const sources = [...(room.meta.sources ?? [])].sort((a, b) => b.rating - a.rating);
+  const texts = await loadSourceTexts(ctx.orgId, sources, 1);
+  const passages = findInSources(sources, texts, query);
+  if (passages.length === 0) {
+    return `Nothing in project #${room.id}'s ${sources.length} sources carries "${query}". If the client's material does not say it, say you could not establish it; do not take it from another client's material.`;
+  }
+  return [
+    `${passages.length} passages in project #${room.id}'s sources for "${query}":`,
+    ...passages.map(p => `\n— "${p.title}" (${p.key}, at ${p.offset}):\n${p.text}`),
+  ].join('\n');
 }
 
 export function createProjectTool(ctx: RuntimeContext) {
@@ -239,6 +343,17 @@ function writesForRecordProject(ctx: RuntimeContext): boolean {
   return (ctx.enabledPlugins ?? []).includes('seo') && (ctx.objectTypeSlugs ?? []).includes('seo_page');
 }
 
+/**
+ * Lines in a voice block, for the receipt.
+ * @param v - The voice.
+ */
+function voiceLineCount(v: ClientVoice | undefined): number {
+  if (!v) {
+    return 0;
+  }
+  return [v.pointOfView, v.readingLevel, v.spelling].filter(Boolean).length + (v.tone?.length ?? 0) + (v.bannedPhrases?.length ?? 0) + (v.preferredCtas?.length ?? 0) + (v.neverClaim?.length ?? 0);
+}
+
 export function updateProjectTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -265,6 +380,8 @@ export function updateProjectTool(ctx: RuntimeContext) {
         ...(args.notes !== undefined ? { notes: args.notes } : {}),
         ...(args.append_notes ? { appendNotes: args.append_notes } : {}),
         ...(args.add_rules ? { addRules: coerceJson(args.add_rules) } : {}),
+        ...(args.rules_source ? { rulesSource: args.rules_source } : {}),
+        ...(args.voice ? { voice: voicePatch(coerceJson(args.voice)) } : {}),
         ...(args.remove_rules ? { removeRules: coerceJson(args.remove_rules) } : {}),
         ...(args.milestone ? { milestone: coerceJson(args.milestone) } : {}),
         ...(args.highlights ? { highlights: coerceJson(args.highlights) } : {}),
@@ -273,17 +390,18 @@ export function updateProjectTool(ctx: RuntimeContext) {
       if (!room) {
         return `No project #${found.id}.`;
       }
-      const changed = ['status', 'stage', 'client', 'codename', 'domains', 'aliases', 'add_cast', 'deliverable', 'deal', 'anchor', 'closed', 'title', 'notes', 'append_notes', 'add_rules', 'remove_rules', 'milestone', 'highlights', 'auto_file'].filter(k => (args as Record<string, unknown>)[k] !== undefined);
+      const changed = ['status', 'stage', 'client', 'codename', 'domains', 'aliases', 'add_cast', 'deliverable', 'deal', 'anchor', 'closed', 'title', 'notes', 'append_notes', 'add_rules', 'remove_rules', 'voice', 'milestone', 'highlights', 'auto_file'].filter(k => (args as Record<string, unknown>)[k] !== undefined);
       const counts = [
         args.highlights ? `${room.meta.highlights?.length ?? 0} highlights on the project` : null,
         args.add_rules || args.remove_rules ? `${room.meta.rules?.length ?? 0} instructions` : null,
+        args.voice ? `a voice block of ${voiceLineCount(room.meta.voice)} lines` : null,
         args.milestone ? `${room.meta.milestones?.length ?? 0} milestones` : null,
       ].filter(Boolean);
       return `Updated project #${room.id} "${room.title}": ${changed.join(', ')}.${args.status !== undefined ? ` Status is dated ${room.meta.statusAt?.slice(0, 10)}.` : ''}${counts.length ? ` Now ${counts.join(', ')}.` : ''}`;
     },
     {
       name: 'update_project',
-      description: 'Keep a project current: the dated status paragraph (say so when something ships), the stage, the anchor (the deal or tracker project it is about), people on the cast, a deliverable, matching domains and aliases — and the project\'s own knowledge: its WIKI (notes; replace with notes or add a dated section with append_notes), its INSTRUCTIONS (add_rules / remove_rules — terminology, voice, what files here, conventions the person stated), a MILESTONE on the timeline (planned or done), and HIGHLIGHTS worth keeping as they appear in material (a client\'s own words, a measured result, a win, a challenge met). When a person corrects you or states how things are called, add it as an instruction so it holds next time. Omit `project_id` for the project the person is looking at. (Formerly update_data_room.)',
+      description: 'Keep a project current: the dated status paragraph (say so when something ships), the stage, the anchor (the deal or tracker project it is about), people on the cast, a deliverable, matching domains and aliases — and the project\'s own knowledge: its WIKI (notes; replace with notes or add a dated section with append_notes), its INSTRUCTIONS (add_rules / remove_rules — terminology, voice, what files here, conventions the person stated; rules_source cites where they came from), the client VOICE block (voice — point of view, reading level, spelling, tone, banned phrases, calls to action, never-claim, each line sourced), a MILESTONE on the timeline (planned or done), and HIGHLIGHTS worth keeping as they appear in material (a client\'s own words, a measured result, a win, a challenge met). When a person corrects you or states how things are called, add it as an instruction so it holds next time. Omit `project_id` for the project the person is looking at. (Formerly update_data_room.)',
       schema: z.object({
         project_id: z.number().int().positive().optional(),
         title: z.string().max(200).optional(),
@@ -301,6 +419,8 @@ export function updateProjectTool(ctx: RuntimeContext) {
         notes: z.string().max(20_000).optional().describe('Replace the project\'s wiki (markdown).'),
         append_notes: z.string().max(10_000).optional().describe('Add a dated section to the notes instead of replacing them.'),
         add_rules: z.array(z.string().max(300)).max(30).optional().describe('Instructions to add, one line each.'),
+        rules_source: z.string().max(500).optional().describe('Where add_rules came from: a source id from read_project ("doc:12") or a page URL. Each rule is stored citing it — turn a client guide\'s do and don\'t lines into rules this way.'),
+        voice: voiceSchema.optional().describe('The client voice block, every line sourced. Printed at the top of read_project; banned phrases and never-claim words are checked in code on review.'),
         remove_rules: z.array(z.string().max(300)).max(30).optional().describe('Exact instruction text to remove.'),
         milestone: z.object({ date: z.string().max(20), title: z.string().min(1).max(200), status: z.enum(['planned', 'done']), artifactId: z.number().int().optional(), note: z.string().max(300).optional() }).optional(),
         highlights: z.array(highlightSchema).max(20).optional(),
@@ -393,7 +513,7 @@ export function fileToProjectTool(ctx: RuntimeContext) {
       schema: z.object({
         project_id: z.number().int().positive().optional().describe('The project. Omit to match automatically.'),
         document_id: z.number().int().positive().optional().describe('The ingested knowledge document (a Zoom recording, a Gmail thread) — from search_knowledge or get_zoom_transcript.'),
-        artifact_id: z.number().int().positive().optional().describe('An artifact already in the store (an upload, a pasted note).'),
+        artifact_id: z.number().int().positive().optional().describe('An artifact already in the store (an uploaded PDF or document, a pasted note). It is kept on the project, and at ⭐⭐⭐ its text is printed in read_project.'),
         title: z.string().max(200).optional().describe('Defaults to the document title.'),
         kind: z.enum(['transcript', 'email', 'attachment', 'note']),
         rating: z.union([z.literal(1), z.literal(2), z.literal(3)]).describe('1–3 stars.'),

@@ -150,7 +150,8 @@ async function getGraph(req: InvocationRequest): Promise<GraphEntry> {
     name: s.name,
     description: s.description,
     systemPrompt: s.systemPrompt,
-    tools: kept as SubAgent['tools'],
+    // A teammate's own exclusions hold when the lead consults it.
+    tools: (s.excludeTools?.length ? kept.filter(t => !s.excludeTools!.includes(t.name)) : kept) as SubAgent['tools'],
   }));
 
   // Read through on every model request, never captured by value — the

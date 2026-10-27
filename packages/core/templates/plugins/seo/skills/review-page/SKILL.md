@@ -7,7 +7,7 @@ description: >-
   substance on a location page, then the craft. Fix or pass, at most three
   ordered fixes, and on pass the sign-off is filed for a person. Read before
   reviewing any draft.
-version: 4
+version: 5
 ---
 
 # Reviewing an SEO draft
@@ -17,7 +17,12 @@ is the expensive part; a draft that reaches them with a broken rule wastes it.
 
 ## The cheap order
 
-1. **The client's rules** (read_project). One broken rule is a `fix`.
+1. **The client's voice and rules** (read_project). One broken rule is a
+   `fix`. Banned phrases and never-claim words are checked in code by
+   `seo_save_review`: a draft with one goes back whatever your verdict, each
+   one a finding ahead of yours. Point of view, reading level, spelling and
+   tone are yours to read. Check against the client's own guidelines only
+   (`read_project` with `find` or `source`).
 2. **Adopted feedback** (`/learnings/seo-feedback.md`, and the client's own
    adopted rules `seo_next_pages` returns as `clientRulesFromSignoffs`) and
    the notes on this batch's pages. Repeating a mistake a person already
