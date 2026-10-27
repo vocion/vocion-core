@@ -21,6 +21,17 @@ import { call, ghFor } from './githubChecks';
 /** Every branch the Release engineer opens starts here. */
 export const PIPELINE_BRANCH_PREFIX = 'vocion/pipeline-';
 
+/**
+ * A page published to a client's site (`site.publish_page`): one branch per
+ * page, `vocion/seo-<slug>`, so publishing the page again is one more commit
+ * on the same pull request. Never merged from Vocion: the client's team does.
+ */
+export const PAGE_BRANCH_PREFIX = 'vocion/seo-';
+
+/** Every branch a change from Vocion may write, and Undo may delete. */
+const CHANGE_BRANCH_PREFIXES = [PIPELINE_BRANCH_PREFIX, PAGE_BRANCH_PREFIX] as const;
+type ChangeBranchPrefix = (typeof CHANGE_BRANCH_PREFIXES)[number];
+
 /** One file the change writes, or removes. */
 export type ChangeFile = { path: string; content?: string | null; delete?: boolean };
 
@@ -86,10 +97,11 @@ export async function defaultBranch(orgId: string, repo: string): Promise<string
  * @param o.body - The pull request's description: what broke, why this fixes it, how it is undone.
  * @param o.files - The files' new contents, or `delete: true`.
  * @param o.base - The branch the change targets; the default branch when omitted.
- * @param o.branch - The branch to write; a new `vocion/pipeline-…` one when omitted.
+ * @param o.branch - The branch to write; a new one under `o.prefix` when omitted.
+ * @param o.prefix - The kind of change, by its branch prefix: a pipeline fix (the default) or a page.
  * @param o.now - The clock.
  */
-export async function openChangePull(orgId: string, o: { repo: string; title: string; body: string; files: ChangeFile[]; base?: string | null; branch?: string | null; now?: Date }): Promise<OpenedChange> {
+export async function openChangePull(orgId: string, o: { repo: string; title: string; body: string; files: ChangeFile[]; base?: string | null; branch?: string | null; prefix?: ChangeBranchPrefix; now?: Date }): Promise<OpenedChange> {
   const files = o.files.map((f) => {
     const path = cleanPath(f.path);
     if (!path) {
@@ -106,9 +118,10 @@ export async function openChangePull(orgId: string, o: { repo: string; title: st
   const gh = await ghFor(orgId, o.repo);
   const repo = `${gh.owner}/${gh.repo}`;
   const base = o.base?.trim() || await defaultBranch(orgId, repo);
-  const branch = o.branch?.trim() || branchFor(o.title, o.now);
-  if (!branch.startsWith(PIPELINE_BRANCH_PREFIX)) {
-    throw new Error(`${branch} is not a branch this change may write: its branches start ${PIPELINE_BRANCH_PREFIX}`);
+  const prefix = o.prefix ?? PIPELINE_BRANCH_PREFIX;
+  const branch = o.branch?.trim() || (prefix === PIPELINE_BRANCH_PREFIX ? branchFor(o.title, o.now) : '');
+  if (!branch.startsWith(prefix) || branch.length === prefix.length) {
+    throw new Error(`${branch || 'no branch'} is not a branch this change may write: its branches start ${prefix}`);
   }
 
   // The commit's parent: the branch's head when it exists, else the base's.
@@ -174,7 +187,7 @@ export async function discardChange(orgId: string, o: { url: string; repo: strin
     return { closed: false, branchDeleted: false, revertUrl, state: 'merged' };
   }
   let branchDeleted = false;
-  if (o.branch.startsWith(PIPELINE_BRANCH_PREFIX)) {
+  if (CHANGE_BRANCH_PREFIXES.some(prefix => o.branch.startsWith(prefix))) {
     const gh = await ghFor(orgId, o.repo);
     const res = await call<unknown>(gh, `/git/refs/heads/${encodeURIComponent(o.branch)}`, { method: 'DELETE' });
     branchDeleted = res.ok;

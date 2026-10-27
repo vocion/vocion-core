@@ -11,7 +11,7 @@ vi.mock('@/services/agents/tools/githubPullRead', async importOriginal => ({
   tokenForRepo: vi.fn(async () => 'test-token'),
 }));
 
-const { branchFor, cleanPath, discardChange, openChangePull, PIPELINE_BRANCH_PREFIX } = await import('./githubChange');
+const { branchFor, cleanPath, discardChange, openChangePull, PAGE_BRANCH_PREFIX, PIPELINE_BRANCH_PREFIX } = await import('./githubChange');
 
 type Call = { method: string; path: string; body: any };
 let calls: Call[] = [];
@@ -113,6 +113,30 @@ describe('a pipeline change (repo.open_pull\'s work)', () => {
     routes[`DELETE /git/refs/heads/${encodeURIComponent(branch)}`] = () => ({ status: 204 });
 
     const out = await discardChange('org_1', { url: 'https://github.com/Acme/northwind-core/pull/88', repo: 'Acme/northwind-core', branch });
+
+    expect(out).toEqual({ closed: true, branchDeleted: true, revertUrl: null, state: 'closed' });
+  });
+
+  it('a page is a change of its own kind: its own branch, which a pipeline change may not write', async () => {
+    aNewBranch();
+    routes['GET /pulls?state=open&head=Acme%3Avocion%2Fseo-choose-a-tent'] = () => ({ status: 200, body: [] });
+    routes['POST /pulls'] = () => ({ status: 201, body: { html_url: 'https://github.com/Acme/northwind-core/pull/90', number: 90 } });
+
+    const out = await openChangePull('org_1', { repo: 'Acme/northwind-core', title: 'Add page: Choose a tent', body: 'Adds the page as drafted and approved.', files: [{ path: 'src/content/blog/choose-a-tent.mdx', content: '# x\n' }], branch: `${PAGE_BRANCH_PREFIX}choose-a-tent`, prefix: PAGE_BRANCH_PREFIX });
+
+    expect(out).toMatchObject({ branch: 'vocion/seo-choose-a-tent', number: 90, created: true });
+    await expect(openChangePull('org_1', { repo: 'Acme/northwind-core', title: 'Add page', body: 'Adds the page.', files: [{ path: 'a.md', content: 'x' }], prefix: PAGE_BRANCH_PREFIX })).rejects.toThrow(/no branch is not a branch this change may write/);
+    await expect(openChangePull('org_1', { repo: 'Acme/northwind-core', title: 'CI', body: 'Fix CI.', files: [{ path: 'a.yml', content: 'x' }], branch: 'vocion/seo-choose-a-tent' })).rejects.toThrow(/its branches start vocion\/pipeline-/);
+  });
+
+  it('undo deletes a page\'s branch too', async () => {
+    const branch = `${PAGE_BRANCH_PREFIX}choose-a-tent`;
+    routes['GET /pulls/90'] = () => ({ status: 200, body: { merged: false, state: 'open' } });
+    routes['POST /issues/90/comments'] = () => ({ status: 201, body: {} });
+    routes['PATCH /pulls/90'] = () => ({ status: 200, body: {} });
+    routes[`DELETE /git/refs/heads/${encodeURIComponent(branch)}`] = () => ({ status: 204 });
+
+    const out = await discardChange('org_1', { url: 'https://github.com/Acme/northwind-core/pull/90', repo: 'Acme/northwind-core', branch });
 
     expect(out).toEqual({ closed: true, branchDeleted: true, revertUrl: null, state: 'closed' });
   });

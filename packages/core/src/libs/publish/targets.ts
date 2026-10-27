@@ -79,10 +79,20 @@ const githubConfigSchema = z.object({
   path: z.string().min(3).max(400)
     .refine(p => p.includes('{slug}'), 'the path names the page with {slug}, e.g. src/content/blog/{slug}.mdx')
     .refine(insideRepo, 'a path inside the repository, from its root')
-    .refine(p => unknownPlaceholders(p).length === 0, p => ({ message: `the path uses ${unknownPlaceholders(p).map(n => `{${n}}`).join(', ')}, which a page cannot fill (it can fill ${PAGE_PLACEHOLDERS.map(n => `{${n}}`).join(', ')})` })),
+    .superRefine((p, ctx) => {
+      const unknown = unknownPlaceholders(p);
+      if (unknown.length > 0) {
+        ctx.addIssue({ code: 'custom', message: `the path uses ${unknown.map(n => `{${n}}`).join(', ')}, which a page cannot fill (it can fill ${PAGE_PLACEHOLDERS.map(n => `{${n}}`).join(', ')})` });
+      }
+    }),
   format: z.enum(PAGE_FORMATS).optional(),
   frontmatter: z.record(z.string(), z.unknown()).default({})
-    .refine(fm => stringsIn(fm).every(s => unknownPlaceholders(s).length === 0), fm => ({ message: `the frontmatter uses ${[...new Set(stringsIn(fm).flatMap(unknownPlaceholders))].map(n => `{${n}}`).join(', ')}, which a page cannot fill` })),
+    .superRefine((fm, ctx) => {
+      const unknown = [...new Set(stringsIn(fm).flatMap(unknownPlaceholders))];
+      if (unknown.length > 0) {
+        ctx.addIssue({ code: 'custom', message: `the frontmatter uses ${unknown.map(n => `{${n}}`).join(', ')}, which a page cannot fill` });
+      }
+    }),
 });
 
 const squarespaceConfigSchema = z.object({
