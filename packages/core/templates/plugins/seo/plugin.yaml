@@ -34,7 +34,7 @@ recommend:
     - someone asks what the top Google results for a keyword cover before writing
     - pages were written in bulk and came back wrong because nobody saw the first few
     - feedback on a client's page keeps being given twice, or lost between writers
-  connectors: [github]
+  connectors: [github, squarespace]
 
 starters:
   - label: Onboard a new client from their website

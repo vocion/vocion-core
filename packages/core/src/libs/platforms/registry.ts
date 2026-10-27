@@ -1084,7 +1084,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     fields: [
       { name: 'email', label: 'Squarespace login email', pattern: /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/, shapeHint: 'is an email address', secret: false },
       { name: 'password', label: 'Password', pattern: null, shapeHint: 'is the account\'s password', secret: true },
-      { name: 'apiKey', label: 'Developer API key (optional)', pattern: null, shapeHint: 'is a Squarespace developer API key', secret: true, optional: true },
+      { name: 'apiKey', label: 'Developer API key', pattern: null, shapeHint: 'is a Squarespace developer API key', secret: true, optional: true },
     ],
   },
   {
