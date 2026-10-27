@@ -289,12 +289,12 @@ publishTargets:
     config:
       repo: example-org/northwind-site
       baseBranch: main
-      path: src/content/blog/{slug}.mdx     # {slug} is required; {date} works too
-      format: mdx                            # mdx | md | html; else read off the path
-      frontmatter:                           # the site's own keys, mirrored exactly
-        title: "{title}"
-        description: "{description}"
-        pubDate: "{date}"
+      path: src/content/blog/{slug}.mdx # {slug} is required; {date} works too
+      format: mdx # mdx | md | html; else read off the path
+      frontmatter: # the site's own keys, mirrored exactly
+        title: '{title}'
+        description: '{description}'
+        pubDate: '{date}'
         draft: false
 ```
 
