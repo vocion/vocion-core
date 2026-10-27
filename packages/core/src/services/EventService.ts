@@ -326,15 +326,16 @@ export type AskDecidedPayload = {
 };
 
 /**
- * A person's SEO sign-off moved the work — a drafted page approved, sent back
- * or discarded, or a batch's keyword plan decided (`services/seo/signoff.ts`).
- * Raised after the page or batch moved and the project's gate was read again,
- * deduped per ask. The SEO plugin's strategist subscribes and continues the
- * released pages. Payload: `askId`, `decision`, `kind` (`page` | `plan`),
- * `batchId`, `projectId`, `pageId` (a page), `signoff` or `plan` (what it
- * became), `note`, `writable` (pages the gate releases now) and `line`.
+ * SEO work queued for the strategist's background run (`services/seo/work.ts`),
+ * so writing and reviewing never run inside a person's chat turn. The SEO
+ * plugin's `seo-continue` automation runs its standing mission on it.
+ * Payload: `reason` — `write` (a person asked for the released pages),
+ * `revise` (the editor sent a draft back: `pageId`, `round`, `findings`) or
+ * `signoff` (a person answered: `askId`, `decision`, `kind` page | plan,
+ * `signoff` or `plan`, `note`) — plus `batchId`, `projectId`, `writable`
+ * and `line`. Deduped per hand-off.
  */
-export const SEO_SIGNOFF_SETTLED = 'seo.signoff_settled';
+export const SEO_WORK_QUEUED = 'seo.work_queued';
 
 /**
  * A release record was linked to what it shipped — the requests, tasks and

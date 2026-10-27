@@ -3,6 +3,7 @@
  *
  *   seo_plan_batch       a batch and its keyword plan for one project; files the plan's sign-off
  *   seo_next_pages       what the project's gate lets be written now, why the rest wait, and the client's adopted rules
+ *   seo_start_writing    queue the released pages for the background run (writing never runs in a chat turn)
  *   seo_save_research    the SERP brief artifact on a page; a location page's must be its own city's read
  *   seo_save_brief       the page brief on a page; REFUSES a page whose plan is not signed off
  *   seo_save_draft       the draft and its meta on a page; REFUSES a page the gate has not released
@@ -28,7 +29,7 @@ import type { SeoFeedback, SeoPageRecord, SeoPageType } from '@/services/seo/rec
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { SERP_BRIEF_FOLDER, serpBriefMeta, SYNTHESIS_END, SYNTHESIS_START } from '@/libs/tools/serp/brief';
-import { anchorArtifact, getArtifact } from '@/services/ArtifactService';
+import { anchorArtifact, createArtifact, getArtifact } from '@/services/ArtifactService';
 import { LOCATION_PAGE_SIMILARITY_LIMIT, nearDuplicates, queryNamesLocation } from '@/services/seo/duplicates';
 import { whyNotWritable } from '@/services/seo/gate';
 import { checkPageMeta } from '@/services/seo/meta';
@@ -36,6 +37,7 @@ import { modelThatRan } from '@/services/seo/modelThatRan';
 import { readSeoProject, seoProjectHref } from '@/services/seo/projects';
 import { feedbackCheck, getSeoBatch, getSeoPage, listProjectSeoPages, listSeoPages, patchSeoPage, pathKey, planApproved, planSeoBatch, readSeoGate, refreshSeoBatch, revisePlan, SEO_LEARNING_STEP, SEO_PAGE_TYPES, SeoSetupError } from '@/services/seo/records';
 import { fileSeoPlanAsk, fileSeoSignoffAsk, withdrawPageAsks } from '@/services/seo/signoff';
+import { findingsMd, followFrom, normaliseFindings, queueSeoWork, SEO_EDITOR_ROUNDS } from '@/services/seo/work';
 import { recordIdArg, recordIdOf } from './recordIdArg';
 
 export const SEO_PLUGIN = 'seo';
@@ -201,6 +203,19 @@ async function planProblem(ctx: RuntimeContext, page: SeoPageRecord): Promise<st
     : `Not saved: the keyword plan for batch #${batch.id} is waiting on a person's sign-off${plan.askId ? ` (ask #${plan.askId})` : ''}. Nothing is briefed or drafted until it is approved.`;
 }
 
+/**
+ * Why drafting or reviewing may not run here, or null: they run in the
+ * background run (`work.ts`), never inside a person's chat turn, where they
+ * ran into the turn's spend ceiling mid-review.
+ * @param ctx - The turn.
+ * @param what - What was attempted.
+ */
+function backgroundOnly(ctx: RuntimeContext, what: string): string | null {
+  return ctx.missionRunId
+    ? null
+    : `Not ${what}: writing and reviewing run in the background, not in this chat turn. Call seo_start_writing with the batch; it queues the released pages and the person hears progress here.`;
+}
+
 function failed(err: unknown): string {
   return err instanceof SeoSetupError ? err.message : `Not saved: ${(err as Error).message}`;
 }
@@ -345,6 +360,38 @@ export function seoNextPagesTool(ctx: RuntimeContext) {
   );
 }
 
+export function seoStartWritingTool(ctx: RuntimeContext) {
+  return tool(
+    async ({ batch_id }) => {
+      const ref = await recordIdOf(ctx.orgId, batch_id);
+      if ('reason' in ref) {
+        return `No such batch: ${ref.reason}.`;
+      }
+      const read = await readSeoGate(ctx.orgId, ref.id);
+      if (!read) {
+        return `#${ref.id} is not an SEO batch in this workspace.`;
+      }
+      if (!read.planSignedOff) {
+        return `Nothing queued: batch #${ref.id}'s keyword plan waits on a person's sign-off. Say so; it starts when they approve it.`;
+      }
+      if (read.gate.writable.length === 0) {
+        return `Nothing to write now in batch #${ref.id}: ${read.gate.line}.`;
+      }
+      await followFrom(ctx.orgId, ref.id, ctx.conversationId);
+      const queued = await queueSeoWork(ctx.orgId, 'write', { batchId: ref.id, projectId: read.batch.meta.projectId, writable: read.gate.writable.length, line: read.gate.line }, `write:${ref.id}:${read.gate.writable.join(',')}:${new Date().toISOString().slice(0, 16)}`);
+      if (!queued) {
+        return `Not queued: the background run for batch #${ref.id} could not be started. Say so plainly; nothing was written.`;
+      }
+      return `Queued ${read.gate.writable.length} ${read.gate.writable.length === 1 ? 'page' : 'pages'} of batch #${ref.id} for the background run: research, brief, draft and the editor's review, each with its own sign-off for the person. It runs outside this turn on the SEO team's budget; progress shows on the batch (${batchHref(ref.id)}) and here. Tell the person what is running and stop.`;
+    },
+    {
+      name: 'seo_start_writing',
+      description: 'Start writing the pages the project\'s gate has released in a batch, in the BACKGROUND: the writer drafts and the editor reviews each page, sending drafts back with findings for up to three rounds, and each passed page\'s sign-off is filed for the person. Drafting never runs inside a chat turn; call this instead, tell the person what is running, and stop.',
+      schema: z.object({ batch_id: recordIdArg('The batch') }),
+    },
+  );
+}
+
 export function seoSaveResearchTool(ctx: RuntimeContext) {
   return tool(
     async ({ page_id, serp_artifact_id }) => {
@@ -404,6 +451,10 @@ export function seoSaveDraftTool(ctx: RuntimeContext) {
   return tool(
     async (raw, runtime?: ToolCallRuntime) => {
       const { page_id, draft_artifact_id, meta_title, meta_description, slug } = raw as { page_id: number | string; draft_artifact_id: number; meta_title?: string; meta_description?: string; slug?: string };
+      const elsewhere = backgroundOnly(ctx, 'saved');
+      if (elsewhere) {
+        return elsewhere;
+      }
       const page = await pageArg(ctx, page_id);
       if (typeof page === 'string') {
         return page;
@@ -473,9 +524,17 @@ export function seoSaveDraftTool(ctx: RuntimeContext) {
   );
 }
 
+/** Notes longer than this are kept whole as an artifact linked from the page; the page keeps the start. */
+const REVIEW_NOTES_ON_PAGE = 4000;
+
 export function seoSaveReviewTool(ctx: RuntimeContext) {
   return tool(
-    async ({ page_id, verdict, notes }, runtime?: ToolCallRuntime) => {
+    async (raw, runtime?: ToolCallRuntime) => {
+      const { page_id, verdict } = raw as { page_id: number | string; verdict: 'pass' | 'fix'; notes?: string; findings?: unknown };
+      const elsewhere = backgroundOnly(ctx, 'recorded');
+      if (elsewhere) {
+        return elsewhere;
+      }
       const page = await pageArg(ctx, page_id);
       if (typeof page === 'string') {
         return page;
@@ -492,37 +551,74 @@ export function seoSaveReviewTool(ctx: RuntimeContext) {
         ? `Too similar to ${dupes.map(d => `page #${d.pageId} "${d.keyword}" (${Math.round(d.similarity * 100)}% the same once city names are masked)`).join(', ')}; the limit is ${Math.round(LOCATION_PAGE_SIMILARITY_LIMIT * 100)}%. Rewrite it around what is true of ${page.meta.location ?? 'this place'}: the brief's local substance, local projects and reviews, service-area facts.`
         : null;
       const finalVerdict: 'pass' | 'fix' = dupeNote ? 'fix' : verdict;
-      const finalNotes = dupeNote ? `${dupeNote}\n\n${notes}`.slice(0, 4000) : notes;
+      const findings = [...(dupeNote ? [{ issue: dupeNote.slice(0, 600), location: 'whole page' }] : []), ...normaliseFindings(coerceJson(raw.findings))];
+      const notes = [dupeNote, (raw.notes ?? '').trim()].filter(Boolean).join('\n\n') || (findings.length ? findingsMd(findings) : 'Checked.');
+      // A review is never lost to its length: past the page's share, the
+      // whole review is an artifact linked from the page.
+      let notesArtifactId: number | undefined;
+      if (notes.length > REVIEW_NOTES_ON_PAGE || findings.length > 0) {
+        const { artifact } = await createArtifact({
+          orgId: ctx.orgId,
+          kind: 'markdown',
+          title: `Review: ${page.title} (round ${page.meta.draftRound ?? 1})`,
+          spec: { md: [`# Review: ${page.title}`, `Verdict: **${finalVerdict}**`, findings.length ? `## Findings\n\n${findingsMd(findings)}` : null, `## Notes\n\n${notes}`].filter(Boolean).join('\n\n') },
+          folder: 'seo/reviews',
+          author: { kind: 'agent', id: `agent:${seat(ctx, ran) ?? 'seo-editor'}` },
+          record: { type: 'object', id: String(page.id), role: 'review' },
+        }).catch(() => ({ artifact: null }));
+        notesArtifactId = artifact?.id;
+      }
+      const rounds = (page.meta.editorRounds ?? 0) + (finalVerdict === 'fix' ? 1 : 0);
+      const exhausted = finalVerdict === 'fix' && rounds >= SEO_EDITOR_ROUNDS;
       const reviewed = await patchSeoPage(ctx.orgId, page, {
-        review: { verdict: finalVerdict, notes: finalNotes, at, ...(dupes.length ? { similarTo: dupes.map(d => ({ pageId: d.pageId, similarity: d.similarity })) } : {}) },
-        ...(finalVerdict === 'fix' ? { status: 'drafting' as const } : {}),
+        review: {
+          verdict: finalVerdict,
+          notes: notes.length > REVIEW_NOTES_ON_PAGE ? `${notes.slice(0, REVIEW_NOTES_ON_PAGE - 80).trimEnd()}… (the whole review: /dashboard/artifacts/${notesArtifactId ?? ''})` : notes,
+          at,
+          ...(findings.length ? { findings } : {}),
+          ...(notesArtifactId ? { notesArtifactId } : {}),
+          ...(dupes.length ? { similarTo: dupes.map(d => ({ pageId: d.pageId, similarity: d.similarity })) } : {}),
+        },
+        editorRounds: rounds,
+        ...(finalVerdict === 'fix' && !exhausted ? { status: 'drafting' as const } : {}),
         ...(ran ? { models: { review: ran } } : {}),
       });
-      if (finalVerdict === 'fix') {
-        // A later review supersedes any sign-off still open for this page.
+      if (finalVerdict === 'fix' && !exhausted) {
+        // A later review supersedes any sign-off still open for this page,
+        // and the writer's revision is queued in code with the findings.
         await withdrawPageAsks(ctx.orgId, page.id, 'The editor sent this draft back to the writer.');
-        await refreshSeoBatch(ctx.orgId, page.meta.batchId);
+        const gate = await refreshSeoBatch(ctx.orgId, page.meta.batchId);
+        await queueSeoWork(ctx.orgId, 'revise', { batchId: page.meta.batchId, projectId: page.meta.projectId, pageId: page.id, round: rounds, of: SEO_EDITOR_ROUNDS, findings: findingsMd(findings.length ? findings : [{ issue: notes.slice(0, 600) }]), ...(notesArtifactId ? { review: `/dashboard/artifacts/${notesArtifactId}` } : {}), line: gate?.line ?? null }, `revise:${page.id}:${page.meta.draftRound ?? 1}:${rounds}`);
         return [
           dupeNote && verdict === 'pass' ? `Not passed: ${dupeNote}` : dupeNote,
-          `Sent back to the writer: page #${page.id} is drafting again. The writer saves the fixed draft with seo_save_draft; nothing reached a person.`,
+          `Sent back to the writer (round ${rounds} of ${SEO_EDITOR_ROUNDS}): page #${page.id} is drafting again, and the writer's revision with your findings is queued, then your review again. Nothing reached a person.`,
         ].filter(Boolean).join(' ');
       }
       // THE SIGN-OFF, filed here in code — the right ref, the draft and the
-      // page as its records, bound to the words it shows.
-      const ask = await fileSeoSignoffAsk({ orgId: ctx.orgId, page: reviewed, agentSlug: seat(ctx, ran), notes });
+      // page as its records, bound to the words it shows. After the last
+      // round it is filed anyway, with the findings still open, so the
+      // person decides.
+      const ask = await fileSeoSignoffAsk({ orgId: ctx.orgId, page: reviewed, agentSlug: seat(ctx, ran), notes, ...(exhausted ? { openFindings: findings.length ? findings : [{ issue: notes.slice(0, 600) }] } : {}) });
       await refreshSeoBatch(ctx.orgId, page.meta.batchId);
       if (!ask) {
         return `Review recorded on page #${page.id}, but its sign-off could not be filed: draft #${page.meta.draftArtifactId} is gone. Save the draft again (seo_save_draft).`;
       }
-      return `Review recorded on page #${page.id}${ran ? ` (${ran.name})` : ''}, and its sign-off is filed for a person (ask #${ask.askId}, ${ask.sourceRef}). Do not file another ask for it; the answer moves the page and the gate on its own, and the strategist picks the work up after it.`;
+      return exhausted
+        ? `The editor's ${SEO_EDITOR_ROUNDS} rounds on page #${page.id} are used up, so its sign-off is filed for the person with the open findings shown (ask #${ask.askId}); they decide. Do not send it back again.`
+        : `Review recorded on page #${page.id}${ran ? ` (${ran.name})` : ''}, and its sign-off is filed for a person (ask #${ask.askId}, ${ask.sourceRef}). Do not file another ask for it; the answer moves the page and the gate on its own, and the strategist picks the work up after it.`;
     },
     {
       name: 'seo_save_review',
-      description: 'The editor\'s verdict on an SEO draft, checked against the project\'s rules, brand, guidelines and the SERP brief: `pass` files the page\'s sign-off for a person itself, or `fix` (back to the writer, no person bothered, any open sign-off withdrawn). A location page whose draft is 70% or more the same as a sibling location page in the batch (city names masked) is sent back whatever the verdict, with the sibling and the score. Records the model that reviewed it.',
+      description: `The editor's verdict on an SEO draft, checked against the project's rules, brand, guidelines and the SERP brief: \`pass\` files the page's sign-off for a person itself; \`fix\` sends it back to the writer with your findings and queues the revision and your next review in code, at most ${SEO_EDITOR_ROUNDS} rounds, after which the sign-off is filed with the open findings for the person to decide. Give findings as a list of { issue, location, fix }; a long review is kept whole, never refused. A location page whose draft is 70% or more the same as a sibling location page in the batch (city names masked) is sent back whatever the verdict. Records the model that reviewed it.`,
       schema: z.object({
         page_id: recordIdArg('The SEO page'),
         verdict: z.enum(['pass', 'fix']),
-        notes: z.string().min(1).max(4000).describe('What was checked and what was found, each finding tied to the rule, guideline or SERP fact it is about.'),
+        findings: z.array(z.object({
+          issue: z.string().describe('What is wrong, quoting the rule, guideline or SERP fact it is about.'),
+          location: z.string().optional().describe('Where in the draft: the heading or the sentence.'),
+          fix: z.string().optional().describe('What the writer should do.'),
+        })).optional().describe('Each finding on its own; required with fix.'),
+        notes: z.string().optional().describe('What was checked, in a few lines. Any length; a long review is kept whole as an artifact linked from the page.'),
       }),
     },
   );
@@ -644,6 +740,7 @@ export function seoTools(ctx: RuntimeContext) {
   return [
     seoPlanBatchTool(ctx),
     seoNextPagesTool(ctx),
+    seoStartWritingTool(ctx),
     seoSaveResearchTool(ctx),
     seoSaveBriefTool(ctx),
     seoSaveDraftTool(ctx),

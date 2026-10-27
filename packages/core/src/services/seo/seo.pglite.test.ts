@@ -45,6 +45,9 @@ const { onSeoAskSettled } = await import('./signoff');
 const { renderSerpBrief, renderSynthesis, withSynthesis } = await import('@/libs/tools/serp/brief');
 
 const ORG = 'proj_seo_brightline';
+const WRITER_RUN = 501;
+const EDITOR_RUN = 502;
+const BACKGROUND_TOOLS = new Set(['seo_save_draft', 'seo_save_review']);
 const PERSON = 'usr-seo-mara';
 
 const ctx = (over: Partial<RuntimeContext> = {}): RuntimeContext => ({
@@ -68,7 +71,9 @@ const ctx = (over: Partial<RuntimeContext> = {}): RuntimeContext => ({
  * @param over - Context changes.
  */
 async function call(name: string, args: Record<string, unknown>, over: Partial<RuntimeContext> = {}): Promise<string> {
-  const t = seoTools(ctx(over)).find(x => x.name === name)! as unknown as { invoke: (input: Record<string, unknown>) => Promise<unknown> };
+  // Drafting and review run in the background run, never a chat turn: give them one unless the test says otherwise.
+  const run = BACKGROUND_TOOLS.has(name) && !('missionRunId' in over) ? { missionRunId: WRITER_RUN } : {};
+  const t = seoTools(ctx({ ...run, ...over })).find(x => x.name === name)! as unknown as { invoke: (input: Record<string, unknown>) => Promise<unknown> };
   return String(await t.invoke(args));
 }
 
@@ -132,7 +137,7 @@ async function writeAndPass(pageId: number, keyword: string): Promise<void> {
   await call('seo_save_brief', { page_id: pageId, brief_artifact_id: await markdown(`Brief ${keyword}`, 'seo/briefs') });
 
   expect(await call('seo_save_draft', { page_id: pageId, draft_artifact_id: await markdown(`Draft ${keyword}`, 'seo/drafts'), ...meta(keyword.replace(/\s+/g, '-')) }, { agentSlug: 'seo-writer' })).toContain('round');
-  expect(await call('seo_save_review', { page_id: pageId, verdict: 'pass', notes: 'Rules, brief and SERP brief checked.' }, { agentSlug: 'seo-editor', harnessConfig: { model: 'claude-sonnet-5-5' }, conversationId: 9102 })).toContain('sign-off is filed');
+  expect(await call('seo_save_review', { page_id: pageId, verdict: 'pass', notes: 'Rules, brief and SERP brief checked.' }, { agentSlug: 'seo-editor', harnessConfig: { model: 'claude-sonnet-5-5' }, missionRunId: EDITOR_RUN })).toContain('sign-off is filed');
 }
 
 let projectId = 0;
@@ -164,7 +169,7 @@ describe('installing the SEO app on a workspace with no folder', () => {
     const rules = await db.select().from(trustRuleSchema).where(eq(trustRuleSchema.orgId, ORG));
 
     expect(rules.find(r => r.actionId === 'objects.update_meta.seo_page')?.enabled).toBe('false');
-    expect((await db.select().from(automationSchema).where(and(eq(automationSchema.orgId, ORG), eq(automationSchema.slug, 'seo-continue-after-signoff')))).length).toBe(1);
+    expect((await db.select().from(automationSchema).where(and(eq(automationSchema.orgId, ORG), eq(automationSchema.slug, 'seo-continue')))).length).toBe(1);
   });
 });
 
@@ -173,7 +178,10 @@ describe('a keyword plan a person signs off before anything is briefed', () => {
     const room = await createDataRoom(ORG, PERSON, { title: 'Northwind Home Services', domains: ['northwind-home.example'] });
     projectId = room.id;
     otherProjectId = (await createDataRoom(ORG, PERSON, { title: 'Kestrel Gear' })).id;
-    await db.insert(modelCallSchema).values({ orgId: ORG, feature: 'agent.turn', conversationId: 9101, model: 'claude-opus-5-5', agentSlug: 'seo-strategist' });
+    await db.insert(modelCallSchema).values([
+      { orgId: ORG, feature: 'agent.turn', conversationId: 9101, model: 'claude-opus-5-5', agentSlug: 'seo-strategist' },
+      { orgId: ORG, feature: 'agent.turn', runKind: 'mission_run', runId: String(WRITER_RUN), model: 'claude-opus-5-5', agentSlug: 'seo-writer' },
+    ]);
 
     const out = await call('seo_plan_batch', {
       project_id: projectId,
@@ -220,7 +228,7 @@ describe('a keyword plan a person signs off before anything is briefed', () => {
 
     expect((await getSeoBatch(ORG, firstBatch))?.meta.plan).toMatchObject({ state: 'revise', note: 'Add a page for Brookfield too.' });
     expect(await call('seo_save_brief', { page_id: pages[0]!.id, brief_artifact_id: await markdown('Brief') })).toContain('was sent back ("Add a page for Brookfield too.")');
-    expect(emitted.filter(e => e.type === 'seo.signoff_settled').at(-1)).toMatchObject({ type: 'seo.signoff_settled', payload: { kind: 'plan', plan: 'revise', batchId: firstBatch } });
+    expect(emitted.filter(e => e.type === 'seo.work_queued').at(-1)).toMatchObject({ payload: { reason: 'signoff', kind: 'plan', plan: 'revise', batchId: firstBatch } });
 
     const revised = await call('seo_plan_batch', {
       batch_id: firstBatch,
@@ -312,7 +320,7 @@ describe('the sample, with its sign-offs filed by code', () => {
     expect((await getSeoBatch(ORG, firstBatch))?.meta.gate?.line).toBe('3 of 6 written · 1 page has feedback to file before more are written');
     // The note holds every batch of the project, not only its own.
     expect((await getSeoBatch(ORG, secondBatch))?.meta.gate?.line).toContain('feedback to file');
-    expect(emitted.filter(e => e.type === 'seo.signoff_settled' && e.payload?.kind === 'page').map(e => e.payload?.signoff)).toEqual(['approve', 'approve', 'revise']);
+    expect(emitted.filter(e => e.type === 'seo.work_queued' && e.payload?.reason === 'signoff' && e.payload?.kind === 'page').map(e => e.payload?.signoff)).toEqual(['approve', 'approve', 'revise']);
   });
 });
 
@@ -543,5 +551,67 @@ describe('location pages', () => {
     expect(after?.meta.status).toBe('drafting');
     expect(after?.meta.review).toMatchObject({ verdict: 'fix', similarTo: [{ pageId: fairview!.id, similarity: 1 }] });
     expect((await asksLike(`seo-page:${lakeside!.id}:`)).filter(a => a.status === 'open')).toEqual([]);
+  });
+});
+
+describe('writing runs in the background, and the editor\'s loop is code', () => {
+  let batchId = 0;
+  let pageId = 0;
+
+  it('refuses drafting and review in a chat turn; seo_start_writing queues the released pages and follows the conversation', async () => {
+    const project = (await createDataRoom(ORG, PERSON, { title: 'Bellwater Hall' })).id;
+    batchId = Number(/batch #(\d+)/.exec(await call('seo_plan_batch', { project_id: project, topic: 'Weddings', pages: [{ keyword: 'wedding venue checklist', page_type: 'blog' }] }))![1]);
+
+    expect(await call('seo_start_writing', { batch_id: batchId })).toMatch(/^Nothing queued: .*keyword plan waits/);
+
+    await answer((await asksLike(`seo-plan:${batchId}:`))[0]!, 'approve');
+    pageId = (await listSeoPages(ORG, batchId))[0]!.id;
+    await call('seo_save_brief', { page_id: pageId, brief_artifact_id: await markdown('Brief checklist') });
+
+    expect(await call('seo_save_draft', { page_id: pageId, draft_artifact_id: await markdown('Draft checklist', 'seo/drafts'), ...meta('wedding-venue-checklist') }, { missionRunId: undefined })).toMatch(/^Not saved: writing and reviewing run in the background/);
+    expect(await call('seo_start_writing', { batch_id: batchId }, { conversationId: 9200 })).toMatch(/^Queued 1 page of batch/);
+    expect(emitted.filter(e => e.type === 'seo.work_queued').at(-1)).toMatchObject({ payload: { reason: 'write', batchId, writable: 1 } });
+    expect((await getSeoBatch(ORG, batchId))?.meta.conversationId).toBe(9200);
+  });
+
+  it('a fix queues the writer\'s revision with the findings; a long review is kept whole, never refused', async () => {
+    await call('seo_save_draft', { page_id: pageId, draft_artifact_id: await markdown('Draft checklist', 'seo/drafts'), ...meta('wedding-venue-checklist') });
+    const out = await call('seo_save_review', {
+      page_id: pageId,
+      verdict: 'fix',
+      notes: 'Checked against the rules. '.repeat(400),
+      findings: [{ issue: 'The H1 does not answer the query.', location: 'H1', fix: 'Lead with the checklist.' }, { issue: 'x'.repeat(2000) }],
+    });
+
+    expect(out).toContain('round 1 of 3');
+
+    const page = await getSeoPage(ORG, pageId);
+
+    expect(page?.meta.status).toBe('drafting');
+    expect(page?.meta.editorRounds).toBe(1);
+    expect(page?.meta.review?.findings?.[1]?.issue).toHaveLength(600);
+    expect(page?.meta.review?.notes.length).toBeLessThanOrEqual(4000);
+    expect(page?.meta.review?.notesArtifactId).toBeGreaterThan(0);
+    expect(emitted.filter(e => e.type === 'seo.work_queued').at(-1)).toMatchObject({ payload: { reason: 'revise', pageId, round: 1, of: 3 } });
+    expect(String(emitted.filter(e => e.type === 'seo.work_queued').at(-1)?.payload?.findings)).toContain('1. The H1 does not answer the query. (H1) — fix: Lead with the checklist.');
+  });
+
+  it('after the last round the sign-off is filed anyway, with the open findings shown, so the person decides', async () => {
+    const draft = (await getSeoPage(ORG, pageId))!.meta.draftArtifactId!;
+    for (const round of [2, 3]) {
+      await call('seo_save_draft', { page_id: pageId, draft_artifact_id: draft });
+      const out = await call('seo_save_review', { page_id: pageId, verdict: 'fix', findings: [{ issue: `Still no venue capacity (round ${round}).` }] });
+
+      expect(out).toContain(round === 3 ? 'rounds on page' : `round ${round} of 3`);
+    }
+    const ask = await openAskFor(pageId);
+
+    expect(ask.contextMd).toContain('Open findings (the editor\'s rounds ran out)');
+    expect(ask.contextMd).toContain('Still no venue capacity (round 3).');
+    expect((await getSeoPage(ORG, pageId))?.meta.status).toBe('in_review');
+
+    await answer(ask, 'other', 'Add the capacity table.');
+
+    expect((await getSeoPage(ORG, pageId))?.meta.editorRounds).toBe(0);
   });
 });

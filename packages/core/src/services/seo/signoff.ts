@@ -17,19 +17,21 @@
  *                      to review with a new ask.
  *
  * When one is answered, `AskService.settleWaitersOn` hands it here: the page
- * or batch moves, the project's gate is read again, and `seo.signoff_settled`
+ * or batch moves, the project's gate is read again, and `seo.work_queued`
  * is raised so the strategist's standing mission continues the released pages
- * (the plugin's `seo-continue-after-signoff` automation) — no person has to
- * tell it to. This is the only writer of a page's `signoff`, which is what the
+ * in the background (the plugin's `seo-continue` automation, `work.ts`) — no
+ * person has to tell it to. This is the only writer of a page's `signoff`, which is what the
  * gate counts as approved: an agent cannot approve its own page.
  */
 
 import type { SeoBatchMeta, SeoFeedback, SeoPageMeta, SeoPageRecord, SeoSignoff, SeoSignoffAsk } from './records';
+import type { SeoFinding } from './work';
 import type { Ask } from '@/services/AskService';
 import { and, eq, like } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { askSchema } from '@/models/Schema';
 import { artifactWords, getSeoBatch, getSeoPage, listSeoPages, mergeMeta, pagesDraftedIn, patchSeoPage, refreshSeoBatch } from './records';
+import { findingsMd, queueSeoWork, tellBatch } from './work';
 
 export const SEO_SIGNOFF_REF = 'seo-page';
 export const SEO_PLAN_REF = 'seo-plan';
@@ -129,7 +131,8 @@ export function signoffPatch(ask: Pick<Ask, 'id' | 'status' | 'decision' | 'deci
     ? [...(page.feedback ?? []), { at, by, note, filedTo: null, askId: ask.id, draftArtifactId: ref.draftArtifactId }]
     : page.feedback ?? [];
   const status: SeoPageMeta['status'] = decision === 'approve' ? 'approved' : decision === 'discard' ? 'rejected' : 'changes_requested';
-  return { signoff, status, feedback };
+  // A person decided: the editor's rounds start again for the next draft.
+  return { signoff, status, feedback, editorRounds: 0 };
 }
 
 /**
@@ -182,8 +185,9 @@ export async function withdrawPageAsks(orgId: string, pageId: number, why: strin
  * @param opts.page - The page, with its draft attached.
  * @param opts.agentSlug - The seat asking.
  * @param opts.notes - What the editor checked, in a few lines.
+ * @param opts.openFindings - The editor's findings still open when its rounds ran out: the person decides with them in view.
  */
-export async function fileSeoSignoffAsk(opts: { orgId: string; page: SeoPageRecord; agentSlug?: string | null; notes?: string }): Promise<{ askId: number; sourceRef: string } | null> {
+export async function fileSeoSignoffAsk(opts: { orgId: string; page: SeoPageRecord; agentSlug?: string | null; notes?: string; openFindings?: readonly SeoFinding[] }): Promise<{ askId: number; sourceRef: string } | null> {
   const { orgId, page } = opts;
   const draft = page.meta.draftArtifactId;
   if (typeof draft !== 'number') {
@@ -205,7 +209,7 @@ export async function fileSeoSignoffAsk(opts: { orgId: string; page: SeoPageReco
     ask: {
       kind: 'signoff',
       title: `Sign off page #${page.id}: ${page.title}`,
-      body: `Draft for "${m.keyword}"${round > 1 ? ` (round ${round})` : ''}, version ${words.version}. Approve it, revise with a note, or discard it.`,
+      body: `Draft for "${m.keyword}"${round > 1 ? ` (round ${round})` : ''}, version ${words.version}.${opts.openFindings?.length ? ` The editor still has ${opts.openFindings.length} open ${opts.openFindings.length === 1 ? 'finding' : 'findings'} after ${m.editorRounds ?? 0} rounds; they are below.` : ''} Approve it, revise with a note, or discard it.`,
       sourceRef,
       agentSlug: opts.agentSlug ?? null,
       teamSlug: 'seo',
@@ -213,12 +217,18 @@ export async function fileSeoSignoffAsk(opts: { orgId: string; page: SeoPageReco
       groupKey: `seo-batch:${m.batchId}`,
       groupTitle: m.batchTitle ?? `SEO batch #${m.batchId}`,
       contextUrl: pageHref(page.id),
-      contextMd: [meta, opts.notes?.trim() ? `**What the editor checked:** ${opts.notes.trim().slice(0, 1200)}` : null].filter(Boolean).join('\n\n') || null,
+      contextMd: [
+        meta,
+        opts.openFindings?.length ? `**Open findings (the editor's rounds ran out):**\n${findingsMd(opts.openFindings)}` : null,
+        opts.notes?.trim() ? `**What the editor checked:** ${opts.notes.trim().slice(0, 1200)}` : null,
+        m.review?.notesArtifactId ? `[The editor's whole review](/dashboard/artifacts/${m.review.notesArtifactId})` : null,
+      ].filter(Boolean).join('\n\n') || null,
       allowOther: true,
     },
   });
   const shown: SeoSignoffAsk = { askId: ask.id, round, draftArtifactId: draft, version: words.version, hash: words.hash, at: new Date().toISOString() };
   await patchSeoPage(orgId, page, { signoffAsk: shown });
+  await tellBatch(orgId, m.batchId, `Page "${page.title}" is ready for your sign-off${opts.openFindings?.length ? `, with ${opts.openFindings.length} open ${opts.openFindings.length === 1 ? 'finding' : 'findings'} from the editor` : ''}. [Open it](/dashboard/objects/${page.id})`, `signoff-filed:${ask.id}`);
   return { askId: ask.id, sourceRef };
 }
 
@@ -336,26 +346,13 @@ export async function onSeoDraftRevised(orgId: string, artifactId: number): Prom
 }
 
 /**
- * Tell the strategist's mission that a sign-off moved the work, so it
- * continues the released pages on its own.
+ * Queue the strategist's background run after a sign-off moved the work, so
+ * it continues the released pages on its own.
  * @param row - The settled ask.
  * @param payload - What moved.
  */
 async function announceSettled(row: Ask, payload: Record<string, unknown>): Promise<void> {
-  try {
-    const { SEO_SIGNOFF_SETTLED, emitEvent } = await import('@/services/EventService');
-    await emitEvent({
-      orgId: row.orgId,
-      type: SEO_SIGNOFF_SETTLED,
-      payload: { askId: row.id, decision: row.decision ?? null, ...payload },
-      dedupeKey: `${SEO_SIGNOFF_SETTLED}:${row.id}`,
-      invokedBy: row.decidedBy ?? `ask:${row.id}`,
-      dispatchMode: 'auto',
-    });
-  } catch (err) {
-    const { logger } = await import('@/libs/Logger');
-    logger.warn('the SEO follow-up could not be queued', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
-  }
+  await queueSeoWork(row.orgId, 'signoff', { askId: row.id, decision: row.decision ?? null, ...payload }, `signoff:${row.id}`);
 }
 
 /**

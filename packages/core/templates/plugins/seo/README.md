@@ -26,9 +26,12 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   of 10; then the rest. A page sent back with changes holds new drafts until
   its feedback is verifiably filed. A sign-off is bound to the draft's words:
   an edit afterwards puts the page back to review with a new ask.
-- **Sign-offs filed by code**: the editor's pass files the page's ask, a
-  redraft withdraws it, and an answer wakes the strategist to continue
-  (`seo-continue-after-signoff`, on its `seo-batches-moving` mission).
+- **Hand-offs in code, work in the background**: writing and review never
+  run in a chat turn (`seo_start_writing` queues them); the editor's pass
+  files the page's ask, a fix queues the writer's revision with the editor's
+  findings (three rounds, then the person decides with the findings open), a
+  redraft withdraws an open ask, and every answer wakes the strategist again
+  (`seo-continue` on `seo.work_queued`, its `seo-batches-moving` mission).
 - **Local search, in code**: a location page is researched on its own city's
   Google results, its brief carries the client's local substance, and its
   draft fails review when it is a sibling location page with the city

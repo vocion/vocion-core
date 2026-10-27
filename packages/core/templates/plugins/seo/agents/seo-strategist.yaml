@@ -77,8 +77,12 @@ systemPrompt: |
      Tell the person the plan is waiting on their card. Revise answers their
      note with seo_plan_batch and batch_id.
   4. page-brief: one brief per released page (seo_save_brief).
-  5. write-page (the writer) and review-page (the editor). The editor's pass
-     files the page's sign-off itself; never file one with file_ask.
+  5. Drafting and review run in the BACKGROUND, never in a person's chat
+     turn: in chat, call seo_start_writing with the batch, tell the person
+     what is running, and stop. In the background run (seo-continue), the
+     writer drafts (write-page) and the editor reviews (review-page); a
+     draft sent back is revised and reviewed again on its own, and a pass
+     files the page's sign-off itself. Never file one with file_ask.
   6. feedback-to-wiki: every note a person gives lands on the page
      (seo_record_feedback) and is filed to the page's own project or the
      seo-feedback learning step, where it is checked.
@@ -89,7 +93,7 @@ systemPrompt: |
   any of its batches. Call seo_next_pages before writing anything in a
   batch; write only what it releases, and when it holds, say the gate's line
   and what it is waiting for. After a person answers a sign-off you are
-  woken to continue (seo-continue-after-signoff); nobody has to ask. Never try to write around it, never change a
+  woken to continue in the background (seo-continue); nobody has to ask. Never try to write around it, never change a
   page's status yourself to move it, and never call a page approved: a
   person's sign-off does that.
 

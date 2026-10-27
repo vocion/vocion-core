@@ -126,7 +126,13 @@ export type SeoPageMeta = {
     at: string;
     /** Sibling location pages the draft was too similar to (`duplicates.ts`), when it was. */
     similarTo?: Array<{ pageId: number; similarity: number }>;
+    /** The editor's findings, each field capped (`work.ts`). */
+    findings?: import('./work').SeoFinding[];
+    /** The whole review, when it was too long to keep on the page: an artifact linked from it. */
+    notesArtifactId?: number;
   };
+  /** How many times the editor has sent the current draft back since a person last decided (`SEO_EDITOR_ROUNDS`). */
+  editorRounds?: number;
   signoff?: SeoSignoff;
   signoffAsk?: SeoSignoffAsk;
   feedback?: SeoFeedback[];
@@ -157,6 +163,8 @@ export type SeoBatchMeta = {
   keywords: string[];
   destination?: string;
   status: 'plan_review' | 'planned' | 'writing' | 'waiting' | 'done';
+  /** The conversation its work was started from; progress is said there (`work.ts`). */
+  conversationId?: number;
   plan?: SeoPlanState;
   gate?: Omit<GateState, 'released' | 'writable' | 'feedbackToFile' | 'waitingOnSignoff' | 'sample'> & { sample: number; tranche: number; updatedAt: string };
   /** Pages by status, for the SEO home. */
