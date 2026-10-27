@@ -31,7 +31,7 @@ fields:
   - {key: published, label: Published, from: meta.counts.published, format: mono}
 rowLink: /dashboard/p/seo-pages?batch={id}
 rowActions:
-  - {label: Project, href: '/dashboard/rooms/{meta.projectId}'}
+  - {label: Project, href: '/dashboard/projects/{meta.projectId}'}
 empty:
   text: No batches yet. Onboard a client from their website, then ask the SEO strategist to plan pages for them.
 prompts:

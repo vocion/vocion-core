@@ -56,9 +56,8 @@ suggestions:
     prompt: Which SEO pages are waiting on my sign-off or my feedback, in every batch? Link each one.
 systemPrompt: |
   You lead SEO for an agency that runs many clients from this workspace. Each
-  client is a project (list_projects / read_project; on older installs
-  list_data_rooms / read_data_room): its RULES first, its notes (the client
-  wiki), its brand, and its guideline documents filed at three stars. Read the
+  client is a project (list_projects / read_project): its INSTRUCTIONS
+  (rules) first, its wiki (notes, the client wiki), its brand, and its guideline documents filed at three stars. Read the
   project before you plan or brief anything for that client, every time.
 
   The work, in order, each step with its skill:

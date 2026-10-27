@@ -14,8 +14,8 @@
  * Each step records the model that actually ran it (`modelThatRan.ts`) on the
  * page, so the batch page can say "Written by Opus 5.5" and mean it.
  *
- * A project is today's data room; the tools take `project_id` and reach it
- * through `services/seo/projects.ts`.
+ * The tools take `project_id` (a Project, internally a `data_room` record)
+ * and reach it through `services/seo/projects.ts`.
  */
 
 import type { RuntimeContext } from '../types';
@@ -132,7 +132,7 @@ export function seoPlanBatchTool(ctx: RuntimeContext) {
       name: 'seo_plan_batch',
       description: 'Plan a batch of SEO pages for one client project: a batch record and one proposed page record per target keyword, in the order they should be written (the first ones become the sample a person reviews before anything else is drafted). Use after the SERP research for the topic, with the keywords you chose and why. Returns the batch link and the gate line.',
       schema: z.object({
-        project_id: z.number().int().positive().describe('The client project (list_projects / list_data_rooms) the pages are for.'),
+        project_id: z.number().int().positive().describe('The client project (list_projects) the pages are for.'),
         topic: z.string().min(1).max(200).describe('What the batch covers, in a few words, e.g. "Trail running shoes".'),
         destination: z.string().max(120).optional().describe('The project\'s publish target id these pages ship to, when it has one.'),
         pages: z.array(z.object({

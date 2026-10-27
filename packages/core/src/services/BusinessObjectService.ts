@@ -1,6 +1,6 @@
 import type { ObjectOrigin } from '@/services/objects/objectCreated';
 import type { AddDocumentLinkInput, CreateBusinessObjectInput, CreateObjectTypeInput, UpdateBusinessObjectInput } from '@/validations/BusinessObjectValidation';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { assignTypeCodes, TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { createdStatus } from '@/libs/objects/statusModel';
@@ -59,7 +59,16 @@ export const createObjectType = async (input: CreateObjectTypeInput, orgId: stri
 /* Business Objects                                                     */
 /* ------------------------------------------------------------------ */
 
-export const listBusinessObjects = async (orgId: string, typeSlug?: string) => {
+/**
+ * An org's objects, newest first, optionally of one type and optionally only
+ * those that belong to one project (`metadata.projectId`).
+ * @param orgId - The tenant.
+ * @param typeSlug - Only this type.
+ * @param opts - Filters.
+ * @param opts.projectId - Only records that belong to this project.
+ */
+export const listBusinessObjects = async (orgId: string, typeSlug?: string, opts: { projectId?: number } = {}) => {
+  const inProject = opts.projectId === undefined ? undefined : sql`${businessObjectSchema.metadata}->>'projectId' = ${String(opts.projectId)}`;
   if (typeSlug) {
     const objType = await getObjectTypeBySlug(orgId, typeSlug);
     if (!objType) {
@@ -69,6 +78,7 @@ export const listBusinessObjects = async (orgId: string, typeSlug?: string) => {
       where: and(
         eq(businessObjectSchema.orgId, orgId),
         eq(businessObjectSchema.typeId, objType.id),
+        inProject,
       ),
       with: { type: true, documentLinks: true },
       orderBy: (obj, { desc }) => [desc(obj.createdAt)],
@@ -76,7 +86,7 @@ export const listBusinessObjects = async (orgId: string, typeSlug?: string) => {
   }
 
   return db.query.businessObjectSchema.findMany({
-    where: eq(businessObjectSchema.orgId, orgId),
+    where: and(eq(businessObjectSchema.orgId, orgId), inProject),
     with: { type: true, documentLinks: true },
     orderBy: (obj, { desc }) => [desc(obj.createdAt)],
   });

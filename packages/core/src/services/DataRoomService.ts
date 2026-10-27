@@ -357,6 +357,17 @@ export async function listDataRooms(orgId: string): Promise<DataRoom[]> {
 }
 
 /**
+ * One project, or null when the id is not a project in this workspace. The
+ * project-named entry point for code outside this module (`getDataRoom` is
+ * the same read under its internal name).
+ * @param orgId - The workspace.
+ * @param id - The project id.
+ */
+export async function getProject(orgId: string, id: number): Promise<DataRoom | null> {
+  return getDataRoom(orgId, id);
+}
+
+/**
  * One room, or null when the id is not a data room in this workspace.
  * @param orgId - The project.
  * @param id - The room id.

@@ -179,8 +179,8 @@ export async function getSeoBatch(orgId: string, id: number): Promise<SeoBatchRe
  * @param projectId - Only this project's.
  */
 export async function listSeoBatches(orgId: string, projectId?: number): Promise<SeoBatchRecord[]> {
-  const rows = (await listBusinessObjects(orgId, SEO_BATCH_TYPE)).map(toBatch);
-  return projectId === undefined ? rows : rows.filter(b => b.meta.projectId === projectId);
+  // A batch belongs to its project through `metadata.projectId`, read in the database.
+  return (await listBusinessObjects(orgId, SEO_BATCH_TYPE, projectId === undefined ? {} : { projectId })).map(toBatch);
 }
 
 /**

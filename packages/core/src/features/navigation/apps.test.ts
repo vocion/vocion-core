@@ -348,6 +348,14 @@ describe('the shipped apps over the shipped plugins', () => {
     expect(split.core.nav.claimedRoutes).not.toContain('/dashboard/projects');
   });
 
+  it('turning SEO on adds the SEO app and nothing else: its projects dependency installs no GTM', () => {
+    const seo = plugins.find(p => p.manifest.slug === 'seo')!.manifest;
+    const enabled = ['seo', ...seo.depends];
+
+    expect(enabled).toContain('data-rooms');
+    expect(installedApps(enabled, [], apps).filter(a => !a.core).map(a => a.id)).toEqual(['seo']);
+  });
+
   it('a GTM workspace still shows Projects: the app does not own it, and nothing pins it twice', () => {
     const enabled = ['proposals', 'data-rooms'];
     const installed = installedApps(enabled, [], apps);
