@@ -24,7 +24,7 @@ describe('the reading-width cap', () => {
   it('is not dropped for a page merely because it is wide', () => {
     // A Detail with a right column and a List: both are read top to bottom,
     // and a 1900px line of prose is worse than an empty gutter.
-    expect(isFullBleedPath('/dashboard/rooms/42')).toBe(false);
+    expect(isFullBleedPath('/dashboard/projects/42')).toBe(false);
     expect(isFullBleedPath('/gtm/proposals')).toBe(false);
     expect(isFullBleedPath('/gtm/lead/abc')).toBe(false);
   });

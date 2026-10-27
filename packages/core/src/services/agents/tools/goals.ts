@@ -26,7 +26,7 @@ import { z } from 'zod';
 import { GOAL_LINK_KINDS, GOAL_STATUSES, goalLine, horizonLabel, localDay, MAX_MILESTONES, MAX_SPRINT_TARGETS, MIN_MILESTONES, MIN_SPRINT_TARGETS, nextStepsFor, parseHorizon, sprintWeeks, targetLine, weekOf } from '@/libs/objectives/goal';
 
 const goalRef = z.union([z.number().int().positive(), z.string().min(1)]).describe('The goal: its code (GOAL-12) or id.');
-const linkSchema = z.object({ kind: z.enum(GOAL_LINK_KINDS), id: z.string().min(1).describe('Row id (records, rooms, artifacts, conversations), a view\'s slug, or a wiki page as <page>/<slug>.'), label: z.string().optional() });
+const linkSchema = z.object({ kind: z.enum(GOAL_LINK_KINDS), id: z.string().min(1).describe('Row id (records; projects, whose kind is room; artifacts; conversations), a view\'s slug, or a wiki page as <page>/<slug>.'), label: z.string().optional() });
 
 /**
  * A goal id from a code or a number.
@@ -150,7 +150,7 @@ export function goalTools(ctx: RuntimeContext) {
         'Use it when the person says "make this a goal", or states an open-ended aim with no end in this conversation (offer it once; do not push).',
         `Measure: a saved VIEW that fits (call query_state with list: true first), with the facets that mark a row done ({"reply_state": "replied"}) or a target count — counted live, never ticked; or ${MIN_MILESTONES}–${MAX_MILESTONES} MILESTONES you propose, each optionally linked to the work that completes it.`,
         `Or a SPRINT: a start date, the horizon as its end, and ${MIN_SPRINT_TARGETS}–${MAX_SPRINT_TARGETS} weekly targets ("Discovery calls", 3 a week) — for a plan with a weekly scorecard; each week is logged with goal_progress.`,
-        'Suggest links to what serves it: data rooms, wiki pages, artifacts, saved views, conversations, records.',
+        'Suggest links to what serves it: projects, wiki pages, artifacts, saved views, conversations, records.',
       ].join(' '),
       schema: z.object({
         title: z.string().describe('The outcome in the person\'s words.'),
@@ -230,7 +230,7 @@ export function goalTools(ctx: RuntimeContext) {
     },
     {
       name: 'goal_link',
-      description: 'Link work that serves one of the person\'s goals — a data room, wiki page, artifact, saved view, conversation or record in this workspace — or unlink it. Each must be something here they can open.',
+      description: 'Link work that serves one of the person\'s goals — a project, wiki page, artifact, saved view, conversation or record in this workspace — or unlink it. Each must be something here they can open.',
       schema: z.object({ goal: goalRef, add: z.array(linkSchema).optional(), remove: z.array(linkSchema).optional() }),
     },
   );

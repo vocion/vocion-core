@@ -11,17 +11,17 @@ call is fresh.
    people outside were and whether a follow-up is owed. A client or prospect
    call that owes one becomes **one** card in Review: *Approve to draft the
    &lt;meeting&gt; follow-up* (`meeting.draft_followup`), showing who it goes
-   to, the room, the deck or document it would attach, and the next meeting
+   to, the project, the deck or document it would attach, and the next meeting
    already on the calendar. The meeting's owner is notified
    (**Follow-up to approve**).
 2. **Approve, and it is drafted.** Approving is the person releasing the
    call's record — the Follow-up writer reads it only through
    `read_meeting_record`, which refuses a call nobody released — and starts
    the draft. The writer proposes a `gmail.send` with `draft: true` from the
-   owner's mailbox to the people outside, the room's deck or document
+   owner's mailbox to the people outside, the project's deck or document
    attached as a PDF when the call was about it, and writes a dated decision
    log, open items for each promise, and a note on any deliverable the call
-   changed back to the room. The owner is notified again
+   changed back to the project. The owner is notified again
    (**Follow-up ready for review**).
 3. **One decision per call.** A pending discovery card for the same call is
    closed in the follow-up card's favour, and none is filed beside it. A call

@@ -174,7 +174,7 @@ registerPreview('deal', { sourceLabel: 'HubSpot', resolve: resolveCrmRecord });
  */
 async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: string | null }): Promise<PreviewDoc | null> {
   if (/^\d+$/.test(ref.id)) {
-    const { exportDataRoom, getDataRoom, roomHref } = await import('@/services/DataRoomService');
+    const { exportDataRoom, getDataRoom, projectHref } = await import('@/services/DataRoomService');
     const room = await getDataRoom(ctx.orgId, Number.parseInt(ref.id, 10));
     if (room) {
       const md = (await exportDataRoom(ctx.orgId, room.id)) ?? '';
@@ -182,7 +182,7 @@ async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: strin
       return {
         ref,
         title: room.title,
-        sourceLabel: 'Data room',
+        sourceLabel: 'Project',
         kind: 'data_room',
         subtitle: room.meta.status ?? undefined,
         facts: [
@@ -192,7 +192,7 @@ async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: strin
           { label: 'Cast', value: String(room.meta.cast?.length ?? 0) },
         ].filter((f): f is { label: string; value: string } => f !== null),
         body: cut ? md.slice(0, 6000) : md,
-        href: roomHref(room.id),
+        href: projectHref(room.id),
         ...(cut ? { truncated: true } : {}),
       };
     }

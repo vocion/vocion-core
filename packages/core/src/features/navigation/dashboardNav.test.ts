@@ -39,10 +39,10 @@ describe('dashboardNav registry', () => {
     // business user opens on their own, so it must not sit under MANAGE.
     // Automations is the one configuration row in WORK, under More (Chris,
     // 2026-10-01: "Make it on main nav under More dropdown").
-    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/goals', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/rooms', '/dashboard/routines', '/dashboard/marketing']);
-    // Chat and Review are the surface; the rest earn a row by being pinned, Briefings, Goals (with its count) and the Scorecard from the start.
-    expect(workCoreRoutes().map(r => r.url)).toEqual(['/dashboard/chat', '/dashboard/inbox']);
-    expect(workPinnableRoutes().map(r => r.url)).toEqual(['/dashboard/briefings', '/dashboard/goals', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/rooms', '/dashboard/routines', '/dashboard/marketing']);
+    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/projects', '/dashboard/briefings', '/dashboard/goals', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/routines', '/dashboard/marketing']);
+    // Chat, Review and Projects (a core workspace noun, in every app) are the surface; the rest earn a row by being pinned, Briefings, Goals (with its count) and the Scorecard from the start.
+    expect(workCoreRoutes().map(r => r.url)).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/projects']);
+    expect(workPinnableRoutes().map(r => r.url)).toEqual(['/dashboard/briefings', '/dashboard/goals', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/routines', '/dashboard/marketing']);
     expect(DEFAULT_WORK_PINS).toEqual(['/dashboard/briefings', '/dashboard/goals', '/dashboard/scorecard']);
     // Artifacts replaced Canvases, which never earned a row of its own.
     expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/canvases')).toBe(false);
@@ -112,7 +112,7 @@ describe('dashboardNav registry', () => {
     expect(build.routes.map(r => r.url)).toEqual(['/dashboard/skills', '/dashboard/evals', '/dashboard/apps']);
     expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/plugins' || r.url.startsWith('/dashboard/marketplace'))).toBe(false);
     // It kept the plugin catalogue's words, so ⌘K "turn on wiki" still lands.
-    expect(apps.keywords).toEqual(expect.arrayContaining(['plugin', 'plugins', 'feature', 'install', 'turn on', 'wiki', 'data rooms', 'proposals', 'marketplace']));
+    expect(apps.keywords).toEqual(expect.arrayContaining(['plugin', 'plugins', 'feature', 'install', 'turn on', 'wiki', 'proposals', 'marketplace']));
   });
 
   it('puts Hire an agent in Workforce, a tab of Teams & agents beside the agents you have', () => {

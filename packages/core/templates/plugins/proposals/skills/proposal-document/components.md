@@ -182,12 +182,12 @@ Inline as data URIs. A stacked wordmark turns to mush at 15px: use the mark in
 the strip and the full lockup on the cover only.
 
 **The cover carries the client's mark beside the seller's.** Their logo is on
-the data room (`read_data_room` prints it under **Client brand** as a data URI
+the project (`read_project` prints it under **Client brand** as a data URI
 to inline); if it is not, `brand_lookup` finds the image URL and `fetch_image`
-with the `room_id` verifies, shrinks and files it so the next document does not
+with the `project_id` verifies, shrinks and files it so the next document does not
 fetch it again. Never draw a company's mark as styled text and call it their
 logo; if it cannot be fetched, the lockup is the seller's mark alone and the
-missing logo is an open item on the room.
+missing logo is an open item on the project.
 
 ```html
 <div class="clogo-lockup">

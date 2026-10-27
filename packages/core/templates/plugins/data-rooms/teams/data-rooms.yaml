@@ -1,16 +1,16 @@
-name: Data rooms
+name: Projects
 description: >-
-  Keeps one room per engagement current so every document is written from a
+  Keeps one project per engagement current so every document is written from a
   source of record. Graded on the collection growing on its own.
-goal: Every active engagement has a room that reads true today.
+goal: Every active engagement has a project that reads true today.
 lead: room-keeper
 # No accountableUser: inherits the workspace default.
 measures:
   - key: rooms_opened
-    label: Rooms opened
+    label: Projects opened
     dimension: outcome
     target: 2
-    unit: rooms
+    unit: projects
     window: 30d
     source: {kind: observed, rows: data-rooms}
   - key: sources_filed

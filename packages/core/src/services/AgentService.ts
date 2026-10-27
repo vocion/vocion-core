@@ -680,7 +680,7 @@ async function runAgentDeepInScope(opts: {
   // window in which it emits its `documents` event via ctx.emit).
   let activeSpecialist: string | null = null;
   const emittedCards: string[] = [];
-  // Records the turn made (a data room, a proposal) — linked at the end of the
+  // Records the turn made (a project, a proposal) — linked at the end of the
   // answer if the model forgot to (`appendRecordLinks`).
   const createdRecords: import('@/services/chat/pageContext').RecordRef[] = [];
   // Versions the turn wrote (a record changed) — linked at the end (`versionLinksDelta`).

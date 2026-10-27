@@ -1,10 +1,10 @@
 {
   "turns": [
     {
-      "match": "open a data room",
+      "match": "open a project",
       "steps": [
         {
-          "tool": "create_data_room",
+          "tool": "create_project",
           "args": {
             "title": "Northwind — Hiring agents",
             "client": "Northwind",
@@ -49,13 +49,13 @@
           }
         }
       ],
-      "reply": "Opened the data room for Northwind — Hiring agents, with the cast from the third call and one urgent open item: reprice per open role."
+      "reply": "Opened the project for Northwind — Hiring agents, with the cast from the third call and one urgent open item: reprice per open role."
     },
     {
       "match": "file the third call",
       "steps": [
         {
-          "tool": "file_to_data_room",
+          "tool": "file_to_project",
           "args": {
             "title": "Third call — Amy Larkin",
             "kind": "transcript",

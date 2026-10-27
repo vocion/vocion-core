@@ -8,7 +8,7 @@ const actor = { id: 'revops-lead', kind: 'lead' as const, name: 'RevOps Lead' };
 
 const TRACE: TraceNode[] = [
   { id: 'r1', actor, kind: 'reason', status: 'done', label: 'Reasoned', text: 'The angle rests on two sourced facts.' },
-  { id: 's1', actor, kind: 'search', status: 'done', label: 'Searched the data room', detail: 'hosting, monthly', result: '3 results' },
+  { id: 's1', actor, kind: 'search', status: 'done', label: 'Searched the project', detail: 'hosting, monthly', result: '3 results' },
   { id: 's1a', parentId: 's1', actor, kind: 'tool', status: 'done', label: 'Found the precedent table', tool: 'search', resultDetail: 'precedents.md' },
   { id: 't1', actor, kind: 'tool', status: 'done', label: 'Edited proposal.md', result: '+38 −12', tool: 'edit_file', args: '{"path":"proposal.md"}', resultDetail: 'section 4 rewritten' },
 ];
@@ -30,18 +30,18 @@ describe('WorkTimeline three-level transcript', () => {
     await render(<WorkTimeline runs={[]} streaming={false} trace={TRACE} />);
 
     // The headline is composed from the steps' own finished labels; the count rides in the accessible name.
-    await expect.element(page.getByRole('button', { name: /Searched the data room and edited proposal.md · 3 steps/ })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: /Searched the project and edited proposal.md · 3 steps/ })).toBeInTheDocument();
     await expect.element(page.getByTestId('work-steps')).not.toBeInTheDocument();
 
     await userEvent.click(page.getByTestId('work-group').getByRole('button').first());
 
-    await expect.element(claim(/Searched the data room/)).toBeInTheDocument();
+    await expect.element(claim(/Searched the project/)).toBeInTheDocument();
   });
 
   it('renders one collapsed claim line per action, with the blast radius on the line', async () => {
     await renderUnfolded();
 
-    await expect.element(claim(/Searched the data room/)).toBeInTheDocument();
+    await expect.element(claim(/Searched the project/)).toBeInTheDocument();
     await expect.element(claim(/Edited proposal.md/)).toBeInTheDocument();
     await expect.element(page.getByText('+38 −12')).toBeInTheDocument();
     // Level 2 stays hidden until asked.
@@ -51,7 +51,7 @@ describe('WorkTimeline three-level transcript', () => {
   it('expands a claim to its steps, and a stepless claim to its payload', async () => {
     await renderUnfolded();
 
-    await userEvent.click(claim(/Searched the data room/));
+    await userEvent.click(claim(/Searched the project/));
 
     await expect.element(page.getByText('Found the precedent table')).toBeInTheDocument();
 
@@ -72,7 +72,7 @@ describe('WorkTimeline three-level transcript', () => {
 
   it('one control recollapses everything', async () => {
     await renderUnfolded();
-    await userEvent.click(claim(/Searched the data room/));
+    await userEvent.click(claim(/Searched the project/));
     await userEvent.click(page.getByRole('button', { name: /Thought it through/ }));
 
     await userEvent.click(page.getByRole('button', { name: 'Collapse all' }));
@@ -98,7 +98,7 @@ describe('WorkTimeline three-level transcript', () => {
 
     const rows = page.getByTestId('work-steps-live');
 
-    await expect.element(rows.getByText('Searched the data room')).toBeInTheDocument();
+    await expect.element(rows.getByText('Searched the project')).toBeInTheDocument();
     await expect.element(rows.getByText('Editing proposal.md…')).toBeInTheDocument();
     await expect.element(page.getByText('Found the precedent table')).not.toBeInTheDocument();
   });
@@ -117,7 +117,7 @@ describe('WorkTimeline three-level transcript', () => {
     await expect.element(line).toHaveTextContent('Editing proposal.md…');
     await expect.element(line).toHaveTextContent('· 2 steps · 12s');
     expect(container.querySelectorAll('.work-shimmer')).toHaveLength(1);
-    expect(container.textContent).not.toContain('Searched the data room and');
+    expect(container.textContent).not.toContain('Searched the project and');
     // One polite live region, holding the words only — never the ticking seconds.
     expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
     expect(container.querySelector('[role="status"]')?.textContent).toBe('Editing proposal.md…');

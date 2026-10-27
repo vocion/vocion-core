@@ -28,7 +28,7 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
 - **Pages**: SEO (every batch with its gate line and pages by status) and SEO
   pages (a batch's pages with keyword, status, models and links).
 
-It turns on Data rooms (projects) and the Wiki with it.
+It turns on the `data-rooms` plugin (Projects kept current) and the Wiki with it. Projects themselves are core, in every app, so turning SEO on adds the SEO app and no other.
 
 ## Customising
 

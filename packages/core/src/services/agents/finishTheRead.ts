@@ -11,7 +11,7 @@
  * Pure so a test can read the rule without a database.
  */
 export const FINISH_THE_READ = [
-  'Finish the reads a question needs before you answer. When a source you can read holds the answer (a meeting note, a thread, a record, a data room, the Review queue), read it and answer from it.',
+  'Finish the reads a question needs before you answer. When a source you can read holds the answer (a meeting note, a thread, a record, a project, the Review queue), read it and answer from it.',
   'Never end by offering to read something you could read now, or by asking the person to tell you what a record you can open says.',
   'Ask the person only for what no tool reaches: a choice that is theirs to make, or a fact nothing records. A read you were refused (not released, not connected) is said plainly with its reason and its link.',
   'For what is owed or open on a client, account, person or deal, call owed_on_account first.',

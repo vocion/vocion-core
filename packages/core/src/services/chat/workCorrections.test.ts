@@ -93,7 +93,7 @@ describe('correctionInTurn', () => {
   const message = 'Put the client\'s logo lockup on the cover.';
 
   it('fires only when the turn actually changed a document', () => {
-    expect(correctionInTurn({ message, toolNames: ['read_data_room', 'edit_document'] })?.via).toBe('edit_document');
+    expect(correctionInTurn({ message, toolNames: ['read_project', 'edit_document'] })?.via).toBe('edit_document');
     expect(correctionInTurn({ message, toolNames: ['render_document'] })?.via).toBe('render_document');
   });
 

@@ -550,7 +550,7 @@ tbody tr:last-child td {
 }
 /* The placeholder chip. Everything the document does not yet know shows as
    one of these, in the open, and the same word appears as an open item on the
-   room — the one visual signal the red team's grounding rule leans on. Amber
+   project — the one visual signal the red team's grounding rule leans on. Amber
    because it is neither a claim nor an error: it is a number somebody still
    has to baseline. */
 .ph {

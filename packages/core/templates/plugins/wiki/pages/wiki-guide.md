@@ -14,7 +14,7 @@ to be true every time an agent acts.
 - **Glossary** — the terms we use our own way.
 
 What does **not**: what happened today (the activity ledger has it), a rule for
-one step (a learning), a client's material (its data room).
+one step (a learning), a client's material (its project).
 
 ## Who writes it
 
@@ -40,7 +40,7 @@ and share a page like any artifact.
 
 Say it in chat. "We write *the client's team*, never *their team*" becomes an
 edit to Voice. "Remember: internal calls file in the wiki, client calls in the
-room" becomes a standing rule. "We decided to price per opening" becomes a dated
+project" becomes a standing rule. "We decided to price per opening" becomes a dated
 section under Decisions. The agent cites the page when it relies on it, so you
 can check the claim in one move.
 

@@ -39,6 +39,10 @@ const detail: DataRoomDetail = {
     ],
     milestones: [{ date: '2026-09-20', title: 'Proposal sent', status: 'planned' }, { date: '2026-09-02', title: 'Discovery call', status: 'done' }],
     highlights: [{ kind: 'quote', text: 'We work on a monthly fee for managed AI services.', who: 'Amy Larkin', date: '2026-09-16', addedAt: '2026-09-16T18:00:00Z' }],
+    publishTargets: [
+      { id: 'site', kind: 'github', label: 'Marketing site', config: { repo: 'example-org/northwind-site', baseBranch: 'main' } },
+      { id: 'blog', kind: 'squarespace', config: { siteUrl: 'https://example-site.squarespace.com' } },
+    ],
   },
   artifacts: [
     artifact(20, { recordRole: 'decision-log:1', title: '2026-09-16 · weekly sync — decision log', spec: { md: '1. Volume is ~20.' } }),
@@ -47,17 +51,29 @@ const detail: DataRoomDetail = {
     artifact(23, { recordRole: 'source:Pasted scope note', title: 'Pasted scope note' }),
   ],
   items: [{ id: 5, title: 'Confirm openings per month', status: 'open', risk: 'high', body: 'Amy said ~20.' } as Ask, { id: 6, title: 'Send the deck', status: 'done', risk: 'low', decisionNote: 'sent 09-15' } as Ask],
+  work: [
+    { id: 40, typeSlug: 'seo_page', typeLabel: 'SEO page', title: 'Waterproof hiking boots', status: 'drafting', updatedAt: new Date('2026-09-17T00:00:00Z') },
+    { id: 41, typeSlug: 'seo_batch', typeLabel: 'SEO batch', title: 'Spring footwear', status: 'open', updatedAt: new Date('2026-09-16T00:00:00Z') },
+    { id: 42, typeSlug: 'seo_page', typeLabel: 'SEO page', title: 'Trail running shoes', status: null, updatedAt: new Date('2026-09-15T00:00:00Z') },
+  ],
 };
 
 describe('renderDataRoom', () => {
   const md = renderDataRoom(detail);
   const at = (s: string) => md.indexOf(s);
 
-  it('orders the bundle: rules, status, notes, sources, timeline, highlights, items, logs, documents, working files', () => {
-    const order = ['## Rules for this room', '> **Status as of 2026-09-16.**', '## Notes', '## Promised', '## Sources', '## Timeline', '## Highlights', '## Open items', '## 2026-09-16 · weekly sync — decision log', '## Documents', '## Working files'].map(at);
+  it('orders the bundle: publish targets, instructions, status, wiki, sources, timeline, highlights, items, logs, documents, work, working files', () => {
+    const order = ['# Northwind — Hiring agents — project', 'Publishes to:', '## Instructions for this project', '> **Status as of 2026-09-16.**', '## Wiki', '## Promised', '## Sources', '## Timeline', '## Highlights', '## Open items', '## 2026-09-16 · weekly sync — decision log', '## Documents', '## Work', '## Working files'].map(at);
 
     expect(order.every(i => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('lists where the project publishes and the records that belong to it, grouped by type', () => {
+    expect(md).toContain('Publishes to: Marketing site — GitHub example-org/northwind-site · Squarespace https://example-site.squarespace.com');
+    expect(md).toContain('### SEO page\n\n- #40 Waterproof hiking boots · drafting\n- #42 Trail running shoes');
+    expect(at('### SEO page')).toBeLessThan(at('### SEO batch'));
+    expect(md).toContain('- #41 Spring footwear · open');
   });
 
   it('shows the anchor, the auto filing with its score and evidence, and the timeline in date order', () => {

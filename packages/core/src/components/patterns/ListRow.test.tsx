@@ -25,9 +25,9 @@ const { Column, ListRow, ListRows } = await import('./index');
 // Held in consts so the lint rule that wants `<Link />` for a known page route
 // does not fire on a fixture: the chip under test IS a plain anchor, which is
 // the whole point of where it may be rendered.
-const ROOM = '/dashboard/rooms/7';
+const ROOM = '/dashboard/projects/7';
 const DOCUMENT = '/dashboard/artifacts/41';
-const PLAIN = '/dashboard/rooms/9';
+const PLAIN = '/dashboard/projects/9';
 
 function ProposalRow({ aside }: { aside: boolean }) {
   const cols = (

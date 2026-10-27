@@ -1,9 +1,9 @@
 # Meeting follow-up — after every call with a client or prospect, the
 # follow-up a good chief of staff would have ready: one card while the call is
 # fresh ("Approve to draft the <meeting> follow-up"), and on approval a draft
-# in Review from the meeting's owner to the people outside, with the room's
+# in Review from the meeting's owner to the people outside, with the project's
 # deck or document attached as a PDF, and what changed on the call written
-# back to the room.
+# back to the project.
 #
 # Core ships the MECHANISM: `meeting.transcript_ready` after a sync
 # (`services/meetings/captures.ts`), the `meeting-followup` job with its typed
@@ -18,7 +18,7 @@
 slug: meeting-followup
 name: Meeting follow-up
 version: 1.0.0
-description: After every call with a client or prospect, the follow-up is ready while the call is fresh. One card per call — approve it and the follow-up email is drafted from what was said, from the meeting's owner to the people outside, with the room's deck or document attached as a PDF, the next step already on the calendar confirmed, and what changed on the call written back to the data room. The owner hears when the card is waiting and when the draft is ready.
+description: After every call with a client or prospect, the follow-up is ready while the call is fresh. One card per call — approve it and the follow-up email is drafted from what was said, from the meeting's owner to the people outside, with the project's deck or document attached as a PDF, the next step already on the calendar confirmed, and what changed on the call written back to the project. The owner hears when the card is waiting and when the draft is ready.
 depends: [data-rooms]
 nav: {section: GTM}
 recommend:

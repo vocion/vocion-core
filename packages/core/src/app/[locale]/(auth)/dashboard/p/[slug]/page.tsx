@@ -872,7 +872,7 @@ export default async function WorkspacePage(props: {
       />
 
       {/* A page a plugin shipped carries that plugin's outcome panel — the
-          same one the Proposals and Data rooms surfaces carry, decided by
+          same one the Proposals and Projects surfaces carry, decided by
           where the YAML came from rather than by the page's slug. */}
       {/* No paused-automations banner over the list (Chris, 2026-10-02): a
           paused automation that holds a feature says so in that feature's own

@@ -1,16 +1,14 @@
 /**
- * The project an SEO batch belongs to — the client's home: its rules, its
- * wiki (`notes`), its brand and guideline documents, and the gate sizes it
- * sets (`seoGate`).
+ * The project an SEO batch belongs to — the client's home: its instructions
+ * (`rules`), its wiki (`notes`), its brand and guideline documents, and the
+ * gate sizes it sets (`seoGate`).
  *
- * A project is today's data room (`business_object` of type `data_room`); the
- * Projects rename gives it its own helpers (`projectHref`, list by project).
- * Until that lands, this file is the one place the SEO app reaches it, through
- * the data-room service underneath, so the rename is a change here and
- * nowhere else.
+ * A Project is a core workspace noun (internally a `data_room` record). Every
+ * SEO record belongs to one through `metadata.projectId`, so a project's page
+ * lists its batches and pages under Work with no SEO-specific code.
  */
 
-import { getDataRoom, roomHref } from '@/services/DataRoomService';
+import { getProject, projectHref } from '@/services/DataRoomService';
 
 export type SeoProject = { id: number; title: string; meta: Record<string, unknown> };
 
@@ -20,8 +18,8 @@ export type SeoProject = { id: number; title: string; meta: Record<string, unkno
  * @param id - The project id.
  */
 export async function readSeoProject(orgId: string, id: number): Promise<SeoProject | null> {
-  const room = await getDataRoom(orgId, id);
-  return room ? { id: room.id, title: room.title, meta: room.meta as Record<string, unknown> } : null;
+  const project = await getProject(orgId, id);
+  return project ? { id: project.id, title: project.title, meta: project.meta as Record<string, unknown> } : null;
 }
 
 /**
@@ -29,5 +27,5 @@ export async function readSeoProject(orgId: string, id: number): Promise<SeoProj
  * @param id - The project id.
  */
 export function seoProjectHref(id: number): string {
-  return roomHref(id);
+  return projectHref(id);
 }

@@ -4,7 +4,7 @@ The workspace's **long-term memory**: what changes slowly and has to be true
 every time — the voice, the standing rules, who is who, the decisions that
 hold, the glossary. Not a log of what happened (that is the activity ledger),
 not a rule for one step (that is a learning), not a client's own material (that
-is its data room).
+is its project).
 
 **How it works**
 

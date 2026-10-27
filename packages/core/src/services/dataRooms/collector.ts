@@ -1,8 +1,8 @@
 /**
- * The collector — how a data room grows without anyone filing.
+ * The collector — how a project grows without anyone filing.
  *
  * After every source sync, the documents that run touched are scored against
- * the open rooms (`scoreRooms`, the same rule the `file_to_data_room` tool
+ * the open rooms (`scoreRooms`, the same rule the `file_to_project` tool
  * applies) and acted on by confidence, the way a person would want work done
  * for them and shown, not asked about (Chris, 2026-09-18: "the default
  * behaviour should be done for you, with visibility and the ability to undo"):

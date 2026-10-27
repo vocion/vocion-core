@@ -3,7 +3,7 @@ import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
 import { fillPath, findWhereTo, WHERE_TO, whereTo, whereToLine } from './whereTo';
 
 /** Routes real pages serve that the registry does not list as sidebar rows. */
-const DYNAMIC_OK = [/^\/dashboard\/rooms\/\{id\}$/, /^\/dashboard\/connectors\/\{slug\}$/, /^\/dashboard\/conversations$/];
+const DYNAMIC_OK = [/^\/dashboard\/projects\/\{id\}$/, /^\/dashboard\/connectors\/\{slug\}$/, /^\/dashboard\/conversations$/];
 
 describe('where-to registry', () => {
   it('has unique intents and a route the app actually serves for every one', () => {
@@ -33,11 +33,11 @@ describe('where-to registry', () => {
     expect(findWhereTo('xqzv')).toEqual([]);
   });
 
-  it('fills a room id into the link and writes the line the chat renders as a chip', () => {
-    const w = whereTo('open-data-room')!;
+  it('fills a project id into the link and writes the line the chat renders as a chip', () => {
+    const w = whereTo('open-project')!;
 
-    expect(fillPath(w.path, { id: '21' })).toBe('/dashboard/rooms/21');
-    expect(fillPath(w.path)).toBe('/dashboard/rooms/{id}');
-    expect(whereToLine(w, { id: '21' })).toMatch(/^\[Open one data room\]\(\/dashboard\/rooms\/21\) — /);
+    expect(fillPath(w.path, { id: '21' })).toBe('/dashboard/projects/21');
+    expect(fillPath(w.path)).toBe('/dashboard/projects/{id}');
+    expect(whereToLine(w, { id: '21' })).toMatch(/^\[Open one project\]\(\/dashboard\/projects\/21\) — /);
   });
 });

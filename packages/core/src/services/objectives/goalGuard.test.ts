@@ -63,7 +63,7 @@ describe('an import goal', () => {
     const refusal = await ask(id);
 
     expect(refusal).toMatch(/nobody asked this goal for outreach/);
-    expect(refusal).toMatch(/N items in the data room — open it\?/);
+    expect(refusal).toMatch(/N items in the project — open it\?/);
     expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.input, DRAFT as never))).toHaveLength(0);
   });
 

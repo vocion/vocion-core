@@ -3,7 +3,7 @@ slug: proposal-deck
 name: Proposal deck
 description: >-
   Write, revise and verify a 16:9 client deck — a proposal, a concept, a case
-  study — as a vocion-deck/1 artifact, grounded in the client's data room. Read
+  study — as a vocion-deck/1 artifact, grounded in the client's project. Read
   before the first slide and again before changing one: it carries the slide
   format, the render → read the receipt → fix → verify loop, the red team, and
   how a workspace supplies its own slide library and house rules.
@@ -14,7 +14,7 @@ version: 1
 
 A deck is what a client sees in the meeting; the document is what they carry
 into their own business case. Both are deliverables, both are written from the
-room, and both are not done until the receipt reads clean. Use a deck when the
+project, and both are not done until the receipt reads clean. Use a deck when the
 person asked for slides, a presentation, a pitch or a walkthrough; use the
 `proposal-document` skill when they asked for something to read and sign.
 
@@ -65,7 +65,7 @@ person asked for slides, a presentation, a pitch or a walkthrough; use the
   and the seller). The receipt lists anything else there.
 - **Never invent a number.** A figure nobody gave you is a placeholder —
   `[$__]`, `[__]`, `[date]` — in the open, with a note saying what would fill
-  it, and an open item on the room. The receipt lists every placeholder so
+  it, and an open item on the project. The receipt lists every placeholder so
   none ships by accident.
 - **The client's words are the spine**: their names for their products,
   stages and teams; a pull-quote is something they said, attributed and dated
@@ -75,12 +75,12 @@ person asked for slides, a presentation, a pitch or a walkthrough; use the
 
 ## The loop
 
-1. **Read the data room** (`read_data_room`). The starred sources are what you
+1. **Read the project** (`read_project`). The starred sources are what you
    write from. Draft the slide list first — one line per slide, its one idea.
 2. **Read your house rules**: your learnings (`/learnings/proposal-feedback.md`),
    the workspace's slide library and playbook if it has them (below), and
    `get_brand` for palette, fonts and logos.
-3. **Build small**: `render_deck` with `room_id` and the first two or three
+3. **Build small**: `render_deck` with `project_id` and the first two or three
    slides, then `edit_deck` with `insert_slide` ops a few slides at a time. A
    whole deck in one call runs into the output cap.
 4. **Read the receipt** after every write. It names, by slide: content past
@@ -93,7 +93,7 @@ person asked for slides, a presentation, a pitch or a walkthrough; use the
 6. **Verify**: `verify_deck` with the look. The receipt must read "no issues";
    what remains in the notes list is a judgement you can explain.
 7. **Red team**: `red_team_document` on the deck, with the house rubric and
-   the room's facts as `context`. It reads every slide's text AND its notes.
+   the project's facts as `context`. It reads every slide's text AND its notes.
    Fix every BLOCK by slide and run it again.
 8. **Export**: `export_deck_pdf` — one 1920×1080 page per slide. A
    client-facing deck (playbook `proposal`, `concept`, `case-study`, or

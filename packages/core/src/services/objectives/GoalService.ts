@@ -523,15 +523,15 @@ export async function resolveGoalLinks(orgId: string, viewerId: string, links: r
         .from(businessObjectSchema)
         .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
         .where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.id, wanted)));
-      const [{ DATA_ROOM_TYPE, roomHref }, { recordHref }] = await Promise.all([import('@/services/DataRoomService'), import('@/services/objects/recordHref')]);
+      const [{ DATA_ROOM_TYPE, projectHref }, { recordHref }] = await Promise.all([import('@/services/DataRoomService'), import('@/services/objects/recordHref')]);
       const rooms = new Set(ids('room'));
       const records = new Set(ids('record'));
       for (const r of rows) {
         if (rooms.has(String(r.id)) && r.type === DATA_ROOM_TYPE) {
-          put({ kind: 'room', id: String(r.id) }, r.title, roomHref(r.id));
+          put({ kind: 'room', id: String(r.id) }, r.title, projectHref(r.id));
         }
         if (records.has(String(r.id))) {
-          put({ kind: 'record', id: String(r.id) }, r.title, r.type === DATA_ROOM_TYPE ? roomHref(r.id) : await recordHref(orgId, { objectType: r.type, id: r.id }).catch(() => `/dashboard/objects/${r.id}`));
+          put({ kind: 'record', id: String(r.id) }, r.title, r.type === DATA_ROOM_TYPE ? projectHref(r.id) : await recordHref(orgId, { objectType: r.type, id: r.id }).catch(() => `/dashboard/objects/${r.id}`));
         }
       }
     }),
@@ -762,7 +762,7 @@ export async function goalsTurnNote(input: { orgId: string; userId: string; pers
   return [
     `THE PERSON'S ACTIVE GOALS${input.personal ? '' : ' HERE'} (context, not a task list — bring one up only when this turn bears on it; goal_progress reads one live):`,
     ...lines,
-    'Working a goal: do what it asks and stop. A goal that imports or stages data is done when the data is in — end with one line, "N items in the data room — open it?" — and draft or send nothing unless the person asks. A denied action is dropped: never ask it again, reworded, unless they give new direction.',
+    'Working a goal: do what it asks and stop. A goal that imports or stages data is done when the data is in — end with one line, "N items in the project — open it?" — and draft or send nothing unless the person asks. A denied action is dropped: never ask it again, reworded, unless they give new direction.',
   ].join('\n');
 }
 

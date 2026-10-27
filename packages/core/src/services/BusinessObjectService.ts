@@ -1,6 +1,6 @@
 import type { ObjectOrigin } from '@/services/objects/objectCreated';
 import type { AddDocumentLinkInput, CreateBusinessObjectInput, CreateObjectTypeInput, UpdateBusinessObjectInput } from '@/validations/BusinessObjectValidation';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { assignTypeCodes, TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { createdStatus } from '@/libs/objects/statusModel';
@@ -59,7 +59,16 @@ export const createObjectType = async (input: CreateObjectTypeInput, orgId: stri
 /* Business Objects                                                     */
 /* ------------------------------------------------------------------ */
 
-export const listBusinessObjects = async (orgId: string, typeSlug?: string) => {
+/**
+ * An org's objects, newest first, optionally of one type and optionally only
+ * those that belong to one project (`metadata.projectId`).
+ * @param orgId - The tenant.
+ * @param typeSlug - Only this type.
+ * @param opts - Filters.
+ * @param opts.projectId - Only records that belong to this project.
+ */
+export const listBusinessObjects = async (orgId: string, typeSlug?: string, opts: { projectId?: number } = {}) => {
+  const inProject = opts.projectId === undefined ? undefined : sql`${businessObjectSchema.metadata}->>'projectId' = ${String(opts.projectId)}`;
   if (typeSlug) {
     const objType = await getObjectTypeBySlug(orgId, typeSlug);
     if (!objType) {
@@ -69,6 +78,7 @@ export const listBusinessObjects = async (orgId: string, typeSlug?: string) => {
       where: and(
         eq(businessObjectSchema.orgId, orgId),
         eq(businessObjectSchema.typeId, objType.id),
+        inProject,
       ),
       with: { type: true, documentLinks: true },
       orderBy: (obj, { desc }) => [desc(obj.createdAt)],
@@ -76,7 +86,7 @@ export const listBusinessObjects = async (orgId: string, typeSlug?: string) => {
   }
 
   return db.query.businessObjectSchema.findMany({
-    where: eq(businessObjectSchema.orgId, orgId),
+    where: and(eq(businessObjectSchema.orgId, orgId), inProject),
     with: { type: true, documentLinks: true },
     orderBy: (obj, { desc }) => [desc(obj.createdAt)],
   });
@@ -365,6 +375,8 @@ export type ListBusinessObjectsOptions = {
   linked?: boolean;
   /** Case-insensitive match on the title. */
   search?: string;
+  /** Only records that belong to this project (`metadata.projectId`). */
+  projectId?: number;
   limit?: number;
   offset?: number;
 };
@@ -395,7 +407,7 @@ export const listBusinessObjectPage = async (
   orgId: string,
   options: ListBusinessObjectsOptions = {},
 ): Promise<BusinessObjectPage> => {
-  const { and, count, desc, eq, ilike, isNotNull, isNull } = await import('drizzle-orm');
+  const { and, count, desc, eq, ilike, isNotNull, isNull, sql } = await import('drizzle-orm');
 
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
   const offset = Math.max(options.offset ?? 0, 0);
@@ -415,6 +427,10 @@ export const listBusinessObjectPage = async (
   }
   if (options.search) {
     conditions.push(ilike(businessObjectSchema.title, `%${escapeLikeWildcards(options.search)}%`));
+  }
+  if (options.projectId !== undefined) {
+    // Read as text so a record that stored the id as "12" belongs as surely as one that stored 12.
+    conditions.push(sql`${businessObjectSchema.metadata}->>'projectId' = ${String(options.projectId)}`);
   }
   const where = and(...conditions);
 
@@ -454,6 +470,37 @@ export const listBusinessObjectPage = async (
     offset,
   };
 };
+
+/** One record that belongs to a project, as the project's Work section lists it. */
+export type ProjectRecord = Pick<BusinessObjectPage['items'][number], 'id' | 'typeSlug' | 'typeLabel' | 'title' | 'status' | 'updatedAt'>;
+
+/**
+ * The records that belong to a project — any type, generic: a record belongs
+ * when its `metadata.projectId` names the project. Newest first, at most 200.
+ * The project page's Work section and the bundle an agent reads both list
+ * these, grouped by type label.
+ * @param orgId - The tenant.
+ * @param projectId - The project (a `data_room` record's id).
+ */
+export const listBusinessObjectsForProject = async (orgId: string, projectId: number): Promise<ProjectRecord[]> => {
+  const page = await listBusinessObjectPage(orgId, { projectId, limit: 200 });
+  return page.items
+    .filter(r => r.id !== projectId)
+    .map(r => ({ id: r.id, typeSlug: r.typeSlug, typeLabel: r.typeLabel, title: r.title, status: r.status, updatedAt: r.updatedAt }));
+};
+
+/**
+ * Records grouped by their type's label, groups in order of first appearance
+ * (so the type with the newest record leads). Pure; exported for the test.
+ * @param records - Records that belong to one project, newest first.
+ */
+export function groupRecordsByType<T extends Pick<ProjectRecord, 'typeLabel'>>(records: readonly T[]): Array<{ label: string; records: T[] }> {
+  const groups = new Map<string, T[]>();
+  for (const r of records) {
+    groups.set(r.typeLabel, [...(groups.get(r.typeLabel) ?? []), r]);
+  }
+  return [...groups.entries()].map(([label, list]) => ({ label, records: list }));
+}
 
 /**
  * Point a business object at the record another system now holds for it —

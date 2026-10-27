@@ -24,10 +24,10 @@ export function UnfileSource({ roomId, documentId, artifactId, title }: { roomId
         <button
           type="button"
           disabled={busy}
-          aria-label={`Remove ${title} from this room`}
+          aria-label={`Remove ${title} from this project`}
           data-room-unfile
           onClick={() => start(async () => {
-            const res = await fetch(`/api/v1/rooms/${roomId}/sources?${qs}`, { method: 'DELETE' });
+            const res = await fetch(`/api/v1/projects/${roomId}/sources?${qs}`, { method: 'DELETE' });
             if (!res.ok) {
               setFailed(true);
               return;
@@ -39,7 +39,7 @@ export function UnfileSource({ roomId, documentId, artifactId, title }: { roomId
           <X className="size-3.5" aria-hidden />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top">Remove from this room</TooltipContent>
+      <TooltipContent side="top">Remove from this project</TooltipContent>
     </Tooltip>
   );
 }

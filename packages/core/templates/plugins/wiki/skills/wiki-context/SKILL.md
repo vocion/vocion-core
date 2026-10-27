@@ -45,4 +45,4 @@ to the wiki with `write_wiki_page`:
 Above the bar the page is written at once (undo is one click for a person);
 below it a card carries the change and a person decides. Never say a queued
 write was made. A rule for one step is a learning (`add_learning`), not a page;
-a client's material is its data room, not a page.
+a client's material is its project, not a page.

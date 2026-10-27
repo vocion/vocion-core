@@ -12,7 +12,7 @@ const OTHER_ORG = 'org_elsewhere';
 
 const { db } = await import('@/libs/DB');
 const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
-const { linkExternalRecord, listBusinessObjectPage } = await import('./BusinessObjectService');
+const { groupRecordsByType, linkExternalRecord, listBusinessObjectPage, listBusinessObjectsForProject } = await import('./BusinessObjectService');
 const { eq } = await import('drizzle-orm');
 
 /** Type ids, filled by the seed so each test can attach objects to a type. */
@@ -40,6 +40,7 @@ type SeedObject = {
   orgId?: string;
   externalSystem?: string;
   externalId?: string;
+  metadata?: Record<string, unknown>;
 };
 
 async function seedObject(object: SeedObject): Promise<number> {
@@ -53,6 +54,7 @@ async function seedObject(object: SeedObject): Promise<number> {
       status: object.status ?? 'candidate',
       externalSystem: object.externalSystem,
       externalId: object.externalId,
+      ...(object.metadata ? { metadata: object.metadata } : {}),
     })
     .returning({ id: businessObjectSchema.id });
   return row!.id;
@@ -224,5 +226,35 @@ describe('linkExternalRecord', () => {
 
     // The unique index is the guard: one business object per external record.
     await expect(linkExternalRecord(ORG, second, { system: 'strapi', id: '412' })).rejects.toThrow();
+  });
+});
+
+describe('records that belong to a project (`metadata.projectId`)', () => {
+  it('lists any type that names the project, in this org only, whether the id was stored as a number or a string', async () => {
+    const project = await seedObject({ title: 'Northwind Outfitters', status: 'active' });
+    await seedObject({ title: 'Open Mic Night', metadata: { projectId: project } });
+    await seedObject({ title: 'NEA Folk Arts', typeSlug: 'grant_deadline', metadata: { projectId: String(project) } });
+    await seedObject({ title: 'Another client\'s page', metadata: { projectId: project + 1000 } });
+    await seedObject({ title: 'No project at all' });
+    await seedObject({ title: 'Someone else\'s', orgId: OTHER_ORG, metadata: { projectId: project } });
+
+    const records = await listBusinessObjectsForProject(ORG, project);
+
+    expect(records.map(r => r.title).sort()).toEqual(['NEA Folk Arts', 'Open Mic Night']);
+    expect(records.find(r => r.title === 'NEA Folk Arts')).toMatchObject({ typeSlug: 'grant_deadline', typeLabel: 'Grant deadline' });
+
+    const page = await listBusinessObjectPage(ORG, { projectId: project, typeSlug: 'event_candidate' });
+
+    expect(page.items.map(i => i.title)).toEqual(['Open Mic Night']);
+  });
+
+  it('groups by type label, the type with the newest record first', () => {
+    const groups = groupRecordsByType([
+      { id: 3, typeLabel: 'SEO page' },
+      { id: 2, typeLabel: 'SEO batch' },
+      { id: 1, typeLabel: 'SEO page' },
+    ]);
+
+    expect(groups.map(g => [g.label, g.records.map(r => r.id)])).toEqual([['SEO page', [3, 1]], ['SEO batch', [2]]]);
   });
 });

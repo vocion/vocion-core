@@ -3,7 +3,7 @@ slug: wiki-research
 name: Wiki research and planning
 description: >-
   How to research a question for the workspace and land the standing part in
-  the wiki: read the wiki first, then the knowledge index, the data rooms and
+  the wiki: read the wiki first, then the knowledge index, the projects and
   the web; answer with sources; offer a page whenever a conversation produces
   a standing fact or a plan; write a plan page as options / decision / next
   steps; keep pages short; never duplicate a page the curator keeps. Read
@@ -25,7 +25,7 @@ something up and keep it.
    stop — the person can check it in one move, and a second answer beside the
    wiki's is a duplicate waiting to happen.
 2. **What the workspace has.** `search_knowledge` across the connected sources
-   (wiki pages are in the index too), `list_data_rooms` + `read_data_room` for
+   (wiki pages are in the index too), `list_projects` + `read_project` for
    a client's own material, `get_learnings` for the rules that hold.
 3. **The outside world.** `web_search`, then `fetch_url` on the result that
    matters; `crawl_site` only when a site is the subject. Prefer the primary
@@ -48,7 +48,7 @@ Offer — do not silently write — whenever the conversation produces:
 | a decision a person took and did not walk back | a dated section on **Decisions** |
 | a question with options and a recommendation | a **plan page**: `plan-<topic>` |
 | research a person will need again | a **research page**: `research-<topic>` |
-| what happened today, a transcript, a one-step rule | nothing — the ledger, the data room, a learning |
+| what happened today, a transcript, a one-step rule | nothing — the ledger, the project, a learning |
 
 When the person says yes, or asked you to write in the first place, propose it
 with `write_wiki_page` and say what happened: written (with the link, undoable

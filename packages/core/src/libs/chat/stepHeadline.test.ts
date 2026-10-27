@@ -14,7 +14,7 @@ describe('stepHeadline', () => {
   });
 
   it('a single search with no sources keeps its own words', () => {
-    expect(stepHeadline([{ kind: 'search', status: 'done', label: 'Searched the data room' }])).toBe('Searched the data room');
+    expect(stepHeadline([{ kind: 'search', status: 'done', label: 'Searched the project' }])).toBe('Searched the project');
   });
 
   it('caps at three phrases and counts the rest, and names failures', () => {

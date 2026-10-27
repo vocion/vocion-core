@@ -4,7 +4,7 @@ name: Proposal document
 description: >-
   Write, revise and verify a paginated, print-ready client document — a
   proposal, scope doc or partnership update — in the house sheet framework,
-  grounded in the client's data room. Read before the first sheet, and again
+  grounded in the client's project. Read before the first sheet, and again
   before changing one: it carries the framework, the component vocabulary, the
   structure rules, the language rules and the verify loop.
 version: 4
@@ -33,28 +33,28 @@ refusal: you answer it by going and looking at those sheets.
 
 ## The loop
 
-1. **Read the data room** (`read_data_room`). The starred sources are what you
+1. **Read the project** (`read_project`). The starred sources are what you
    write from. The client's own words — their project names, their stage
    names, their vocabulary — become the document's spine. If the newest call
    has no **decision log** (a numbered list of the decisions and corrections a
-   person actually said, in their words), write one and file it on the room
+   person actually said, in their words), write one and file it on the project
    first; every sheet then traces to a line in it.
 2. **Read your learnings** (`/learnings/proposal-feedback.md` is mounted):
    what people cut, rejected or corrected in earlier proposals. They win over
    this skill where they disagree.
 3. **Draft the sheet list** before any HTML: one line per sheet, in order,
-   from `spine.md`. Pass `room_id` on `render_document` so the document lands
-   on the room and the Proposals board.
+   from `spine.md`. Pass `project_id` on `render_document` so the document lands
+   on the project and the Proposals board.
 4. **Read the brand** — both of them. `get_brand` is the seller's:
    paste its `:root` tokens into the `<style>` block, inline its logo data
    URIs in the strip and the cover, and keep its voice rules beside the ones
    below. The CLIENT's logo is the other half of the cover lockup, and it is
-   on the data room: `read_data_room` prints it under **Client brand** as a
-   data URI to inline exactly. If the room has none, find the image's own URL
-   (`brand_lookup` returns one) and call `fetch_image` with the `room_id`,
-   which verifies it is really an image, shrinks it, and files it on the room
+   on the project: `read_project` prints it under **Client brand** as a
+   data URI to inline exactly. If the project has none, find the image's own URL
+   (`brand_lookup` returns one) and call `fetch_image` with the `project_id`,
+   which verifies it is really an image, shrinks it, and files it on the project
    so the next document does not fetch it again. If it cannot be fetched, say
-   so on the room as an open item. **Never draw a company's mark as styled
+   so on the project as an open item. **Never draw a company's mark as styled
    text and present it as their logo.**
 5. **Build sheet by sheet, never the whole document in one call.** A 12-sheet
    proposal is 40 KB of HTML; one tool call that size runs into the model's
@@ -83,7 +83,7 @@ refusal: you answer it by going and looking at those sheets.
 8. **Verify**: `verify_document` with the look on. The receipt must read "no
    issues" and the PDF page count must equal the sheet count.
 9. **Red team**: `red_team_document` with the rubric from `red-team.md` and
-   the room's starred facts as `context`. Fix every BLOCK by sheet and run it
+   the project's starred facts as `context`. Fix every BLOCK by sheet and run it
    again. A document is done when verify is clean and the red team has no
    blocks; say what you left and why. The result is stored on the version it
    read, so an edit makes it unread again.
@@ -174,9 +174,9 @@ proposal starts without the mistake.
 
 ## Grounding
 
-- Every claim traces to the data room. An unverified number, stat or quote
+- Every claim traces to the project. An unverified number, stat or quote
   renders as an amber `.ph` placeholder and is filed as an open item on the
-  room. It is never invented and never quietly dropped.
+  project. It is never invented and never quietly dropped.
 - Once a client has seen a document, revisions are a new version with a new
   dated title; the reviewed version stays in the history untouched.
 
@@ -192,4 +192,4 @@ proposal starts without the mistake.
   at cost, as an estimate sized to the deployment.
 - Risk reversal beats a further discount: a 60-day walk-away trial.
 - Pricing and commercial shape are the seller's call: propose the nearest
-  precedent, flag it unconfirmed on the room, and confirm before sending.
+  precedent, flag it unconfirmed on the project, and confirm before sending.

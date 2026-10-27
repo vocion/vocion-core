@@ -1,26 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { dashboardRoute, manageNavGroups, routeVisible, workPinnableRoutes } from './dashboardNav';
+import { dashboardRoute, manageNavGroups, routeVisible, workCoreRoutes, workPinnableRoutes } from './dashboardNav';
 
 // Plugin-owned nav rows show only while their plugin is on; a caller with no
 // plugin list in hand sees every row (nothing already running loses a door).
 
 describe('plugin-owned routes', () => {
-  const rooms = dashboardRoute('/dashboard/rooms')!;
+  const routines = dashboardRoute('/dashboard/routines')!;
 
-  it('Data rooms belongs to the data-rooms plugin', () => {
-    expect(rooms.plugin).toBe('data-rooms');
+  it('Routines belongs to the routines plugin', () => {
+    expect(routines.plugin).toBe('routines');
   });
 
   it('hides while the plugin is off, shows while on, and ungated without a list', () => {
-    expect(routeVisible(rooms, { enabledPlugins: [] })).toBe(false);
-    expect(routeVisible(rooms, { enabledPlugins: ['data-rooms'] })).toBe(true);
-    expect(routeVisible(rooms, {})).toBe(true);
+    expect(routeVisible(routines, { enabledPlugins: [] })).toBe(false);
+    expect(routeVisible(routines, { enabledPlugins: ['routines'] })).toBe(true);
+    expect(routeVisible(routines, {})).toBe(true);
   });
 
   it('the WORK pinnable rows follow the same gate', () => {
-    expect(workPinnableRoutes({ enabledPlugins: [] }).map(r => r.url)).not.toContain('/dashboard/rooms');
-    expect(workPinnableRoutes({ enabledPlugins: ['data-rooms'] }).map(r => r.url)).toContain('/dashboard/rooms');
-    expect(workPinnableRoutes().map(r => r.url)).toContain('/dashboard/rooms');
+    expect(workPinnableRoutes({ enabledPlugins: [] }).map(r => r.url)).not.toContain('/dashboard/routines');
+    expect(workPinnableRoutes({ enabledPlugins: ['routines'] }).map(r => r.url)).toContain('/dashboard/routines');
+    expect(workPinnableRoutes().map(r => r.url)).toContain('/dashboard/routines');
+  });
+
+  it('Projects is a core noun: no plugin owns it, and it shows with no plugin on (2026-10-27)', () => {
+    const projects = dashboardRoute('/dashboard/projects')!;
+
+    expect(projects.plugin).toBeUndefined();
+    expect(routeVisible(projects, { enabledPlugins: [] })).toBe(true);
+    expect(workCoreRoutes({ enabledPlugins: [] }).map(r => r.url)).toContain('/dashboard/projects');
+    expect(dashboardRoute('/dashboard/rooms')).toBeUndefined();
   });
 
   it('the plugin catalogue is Apps, a Build row for everyone; admin gating still holds', () => {

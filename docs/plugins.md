@@ -9,7 +9,7 @@ plugins: [wiki, data-rooms, proposals]
 ```
 
 It is the abstract rung of the ladder (concrete → abstract → core) made
-installable. Core ships the **mechanism** — the artifact noun, the room noun,
+installable. Core ships the **mechanism** — the artifact noun, the project noun,
 the render-verify engine, the tools, the pages' archetypes, the event bus. A
 plugin ships the **meaning**: which agent, on what cadence, graded on what,
 with which pages and which rules. A workspace ships the **concretion**: its
@@ -20,9 +20,9 @@ Eleven ship in core, at `packages/core/templates/plugins/`:
 | Plugin | What turning it on gives you | Depends on |
 |---|---|---|
 | **`wiki`** | The workspace's long-term memory — voice, standing rules, who is who, decisions — as markdown artifacts in a `wiki` folder. Every agent gets the index and the pages that fit in context each turn; any agent writes back through `write_wiki_page`, done for you above a confidence bar and reviewed below it; every save indexes for search; a curator consolidates the week every Friday. | — |
-| **`data-rooms`** | One room per engagement: the `data_room` type, the filing skill, the Room keeper and its daily mission, the Data rooms sidebar row, and the after-sync collector that files clear matches and asks about plausible ones. | — |
+| **`data-rooms`** | Projects kept current: the full Project (`data_room`) type, the filing skill, the Project keeper and its daily mission, and the after-sync collector that files clear matches and asks about plausible ones. The Projects page, its sidebar row and the project tools are core and in every workspace without it (see `packages/core/docs/projects.md`). | — |
 | **`proposals`** | The Proposal Writer, the house sheet framework, the `proposal-deck` skill for 16:9 decks, the Proposals app under GTM, a weekly verify mission, and a team graded on documents rendered and verified clean. | `data-rooms` |
-| **`meeting-followup`** | After every call with a client or prospect, the follow-up ready while the call is fresh: a settled transcript or note is read (metadata first, then one typed classifier read), and a call that owes a follow-up becomes ONE card — *Approve to draft the &lt;meeting&gt; follow-up* (`meeting.draft_followup`, never-auto). Approving releases the call's record to the Follow-up writer (`read_meeting_record`) and drafts a `gmail.send` from the owner to the people outside, the room's deck or document attached as a PDF, with a decision log and open items written back to the room. The owner hears when the card is waiting and when the draft is ready. A waiting discovery card for the same call is folded into it. | `data-rooms` |
+| **`meeting-followup`** | After every call with a client or prospect, the follow-up ready while the call is fresh: a settled transcript or note is read (metadata first, then one typed classifier read), and a call that owes a follow-up becomes ONE card — *Approve to draft the &lt;meeting&gt; follow-up* (`meeting.draft_followup`, never-auto). Approving releases the call's record to the Follow-up writer (`read_meeting_record`) and drafts a `gmail.send` from the owner to the people outside, the project's deck or document attached as a PDF, with a decision log and open items written back to the project. The owner hears when the card is waiting and when the draft is ready. A waiting discovery card for the same call is folded into it. | `data-rooms` |
 | **`growth-loop`** | The loop a go-to-market team actually runs: the `growth_brief` — one claim, one audience, the list of what the piece may NOT say, the acceptance contract, and the number it will be judged on with its baseline, source and attribution model fixed before anything is made; five seats on one team (Demand writes the brief, Production makes one deliverable as an artifact, Quality decides fit-to-publish against that brief and nothing else, Measurement takes the reading on its due date and writes the verdict, Growth promotes inside three limits), Design declared empty; four standing missions, every way an agent acts an automation a person can read on /dashboard/automation; Briefs, Measure and Cost-and-return on top with the team report beside them; and `team.hire_agent` — the team adding a teammate from the catalog, with the daily allowance it is hired under, refused while the workspace is over its own spend, and one Undo from being put back. | — |
 | **`production-watch`** | Production errors from Sentry become `incident` records: the `error-watch` job opens one when an issue is new and busy or spiking, with its cause (`deploy`, `code`, `unknown`) read by a model from the release and the stack, resolves it after a quiet hour, and raises `incident.opened` / `incident.updated`. An on-call engineer reads each one and writes the move on it; a person hears once per incident. With `software-factory` on, a deploy-caused incident wakes its Release engineer, and a major code bug becomes a factory request. The watch list is the `error-watch` automation's input. | — |
 | **`software-factory`** | Every request — bug, review, email, incident — as one `request` record; the `engineering_task` contract as the record a person reads; the `repo` registry and the `product` with its written promises; five disciplines on one team — a product manager that tags, ranks, recommends in batches of ten and then pauses, ideates as requests and authorizes nothing; a planner (architecture) that triages and writes contracts under three WIP limits; an `external-worker` engineer that executes in its own checkout and attaches the proof; a reviewer (QA) that approves nothing without evidence; the Design seat declared empty — nine standing missions, every way the product manager acts an automation a person can read on /dashboard/automation; the AppCurious portfolio and Releases on top with agent-maintained counters, and the Backlog, Recommendations, Factory floor, Product board, Factory log and Team report as the evidence underneath; one merge bar per risk class and one authorization bar per class, earned or never. | — |
@@ -67,7 +67,7 @@ All three are the same edit to the same file, so the workspace stays the source
 of truth and the change is in git the next time someone commits. Dependencies
 come along: `plugins: [proposals]` loads `data-rooms` first. Turning a plugin
 off removes its pages, nav rows, agents, automations and team from the applied
-workspace; nothing it *wrote* (artifacts, rooms, learnings) is deleted.
+workspace; nothing it *wrote* (artifacts, projects, learnings) is deleted.
 
 ## Installing an app on Vocion Cloud
 
@@ -152,7 +152,7 @@ plugin, and a project that did not sees nothing extra.
 
 **Where its rows sit** is decided once, in `plugin.yaml` `nav.section`
 (`features/navigation/pluginNav.ts`): the plugin's pages, the core routes it
-owns (`DashboardRoute.plugin`, e.g. Data rooms) and the surfaces it switches on
+owns (`DashboardRoute.plugin`, e.g. Routines) and the surfaces it switches on
 all land in that section. The default is `Workspace` — beside Chat and Review,
 pinned by default. A plugin names a section only when it is part of a named
 app: `proposals` says `nav: {section: GTM}` and sits under GTM with the
@@ -163,8 +163,8 @@ the plugin's own row urls (a core route it owns, or one of its pages) that
 start pinned in Workforce's Workspace group while the plugin is on:
 
 ```yaml
-# templates/plugins/data-rooms/plugin.yaml
-nav: {pinByDefault: [/dashboard/rooms]}
+# a plugin.yaml that owns /dashboard/routines
+nav: {pinByDefault: [/dashboard/routines]}
 ```
 
 It sets a default and nothing more. A person who unpins the row keeps it
@@ -283,9 +283,10 @@ place. The wiki plugin needed four such seams, each generic:
 | be graded on pages that exist | `rows: artifacts` (+ `where`) measure source | count any kind, folder, playbook, verified state of artifact |
 | read what an agent publishes before it goes out | `actionGates:` in `plugin.yaml` + `services/gates/actionGate.ts` | put a critic from another vendor in front of any registered action |
 
-The **data-rooms** plugin owns the Data rooms nav row (`DashboardRoute.plugin`)
-and the after-sync collector runs only where the plugin is on; its tool set is
-present only with the plugin. The **proposals** plugin's `rows: artifacts where
+Projects are core, not a plugin's: the Projects nav row shows in every app of
+every workspace and the project tools are always on. The **data-rooms** plugin
+adds the after-sync collector (it runs only where the plugin is on), the
+Project keeper and the full type. The **proposals** plugin's `rows: artifacts where
 {kind: document, playbook: proposal, verified: true}` measure is what "verified
 clean" means on its team report.
 
@@ -473,11 +474,11 @@ page lists only the tones it changes and a new state is never drawn uncoloured.
 ## Measures and missions — a plugin that improves itself
 
 Every plugin ships a **team** with **measures**, so the team report grades it
-from the day it is on: rooms opened and sources filed; proposals rendered and
+from the day it is on: projects opened and sources filed; proposals rendered and
 verified clean; wiki pages written by agents and edits a person had to decide.
 Every plugin ships a **mission** on a **schedule**, so it keeps working without
-anyone asking: the keeper's weekday room check, the writer's Monday verify pass,
-the curator's Friday consolidation. Corrections in chat become learnings, room
+anyone asking: the keeper's weekday project check, the writer's Monday verify pass,
+the curator's Friday consolidation. Corrections in chat become learnings, project
 rules, or wiki pages; the trust ladder promotes what people keep approving.
 
 That is the loop the manifesto describes — outcome → work → measure → learn →

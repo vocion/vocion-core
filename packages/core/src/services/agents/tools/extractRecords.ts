@@ -2,7 +2,7 @@
  * extract_records — files a person dropped into the conversation become typed
  * records (`services/intake/intake.ts`).
  *
- * The agent chooses the type and names the data room the files are kept in,
+ * The agent chooses the type and names the project the files are kept in,
  * from what the person said; the tool reads each file once (vision for an
  * image, the extracted text for a document), folds the same person read
  * twice, checks the workspace's records and CRM-synced contacts, and writes
@@ -50,7 +50,7 @@ export function extractRecordsTool(ctx: RuntimeContext) {
           conversationId: ctx.conversationId ?? null,
           objectType: args.object_type,
           artifactIds,
-          roomTitle: args.room,
+          roomTitle: args.project,
           set: args.set,
           hint: args.hint,
           identity: args.identity,
@@ -116,13 +116,13 @@ export function extractRecordsTool(ctx: RuntimeContext) {
       name: 'extract_records',
       description: [
         'Turn files a person dropped into this conversation — photos of badges or business cards, PDFs, notes, spreadsheet exports — into records of an object type, with every value traced to the file, page and confidence it came from.',
-        'Choose the type from what the person said (lookup_objects lists the types), name the data room the files are kept in from context (e.g. "Northwind Expo 2026 — badges"), and pass values every record shares in `set` (the event, who met them).',
+        'Choose the type from what the person said (lookup_objects lists the types), name the project the files are kept in from context (e.g. "Northwind Expo 2026 — badges"), and pass values every record shares in `set` (the event, who met them).',
         'People already on file (a record of the type, or a contact synced from the CRM — matched by email, then name plus company), records the reader was unsure of and unreadable files are NOT written: they come back as one Decision in front of the person, which ends your turn.',
         'Files already read into records are skipped, so calling it again after more files arrive reads only the new ones.',
       ].join(' '),
       schema: z.object({
         object_type: z.string().min(1).max(120).describe('The object type slug to file them as, e.g. "lead".'),
-        room: z.string().min(2).max(200).describe('The data room the files are kept in: an open room with this title, or a new one.'),
+        project: z.string().min(2).max(200).describe('The project the files are kept in: an open project with this title, or a new one.'),
         files: z.array(z.string().min(1).max(300)).max(60).optional().describe('Only these files, by the name they were dropped with. Omit to read every file in this conversation not read yet.'),
         set: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe('Field values every record gets, from what the person said: {"event": "Northwind Expo 2026", "met_by": "Alex"}. Never over a value a file shows.'),
         hint: z.string().max(500).optional().describe('What the person said these files are, for the reader: "badges scanned at our booth; handwriting on the back is mine".'),

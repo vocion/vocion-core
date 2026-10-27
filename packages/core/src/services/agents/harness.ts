@@ -67,6 +67,7 @@ import { agentScope, createEvidenceHandoffMiddleware, createLookupMemoMiddleware
 import { NO_SCREEN_CLAIMS } from './screenClaims';
 import { createSeenImagesMiddleware, takesToolResultImages } from './toolResultImages';
 import { buildDomainTools } from './tools/registry';
+import { canonicalToolNames, createToolAliasMiddleware, TOOL_ALIASES } from './tools/toolAliases';
 
 /* ------------------------------------------------------------------ */
 /* LRU cache of agent blueprints — never of per-request state          */
@@ -504,7 +505,7 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   // ~13k characters — in their own descriptions, so every model call paid
   // for it twice. It is stated here once, cached with the prompt, and both
   // tools point at it. An agent that holds neither tool carries none of it.
-  const heldTools = new Set(row.harnessConfig?.excludeTools ?? []);
+  const heldTools = new Set(canonicalToolNames(row.harnessConfig?.excludeTools));
   const { actionCatalog } = await import('@/libs/actions/registry');
   const ACTIONS = heldTools.has('recommend_action') && heldTools.has('propose_action') ? '' : actionCatalog({ connectorSources: row.connectorSources ?? [], sourceKinds });
   systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE, ACTIONS].filter(Boolean).join('\n\n');
@@ -703,7 +704,7 @@ export async function compileAgentForRequest(
   // `harness.excludeTools` withholds built-ins by name — the tool never
   // reaches the model's catalog, so the agent can't even offer it (vs.
   // `interrupts`, which keeps the tool but gates execution).
-  const excludeTools = new Set(ctx.harnessConfig.excludeTools ?? []);
+  const excludeTools = new Set(canonicalToolNames(ctx.harnessConfig.excludeTools));
   const domainTools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
   const tools = await tieredTools(blueprint, ctx, domainTools);
   // Deferred tools are invisible until searched for: without this line the
@@ -715,7 +716,8 @@ export async function compileAgentForRequest(
   // asked.
   // A lookup repeated by the lead or a teammate is answered from the first
   // (`runtimeContext.ts`, turn evidence); every model call of the turn shares the one ledger.
-  const turnMiddleware = [...(ctx.evidence ? [createLookupMemoMiddleware(ctx.evidence)] : []), ...(ctx.toolResultImages ? [createSeenImagesMiddleware()] : []), ...(opts.turnMiddleware ?? [])];
+  // A call under a renamed tool's old name runs as the new tool (`toolAliases.ts`).
+  const turnMiddleware = [createToolAliasMiddleware(), ...(ctx.evidence ? [createLookupMemoMiddleware(ctx.evidence)] : []), ...(ctx.toolResultImages ? [createSeenImagesMiddleware()] : []), ...(opts.turnMiddleware ?? [])];
   //
   // On the fast model a teammate gets the tools in full rather than behind
   // tool search, which the fast model may not take (`effort.ts`).
@@ -789,7 +791,9 @@ async function tieredTools<T extends StructuredToolInterface>(blueprint: AgentBl
   // What the agent used lately, what it was granted, and what its own prompt
   // tells it to use (`namedInPrompt`).
   const { expandGrants } = await import('./tools/grantGroups');
-  const keep = new Set([...blueprint.hotTools, ...expandGrants(harness.grantTools ?? []), ...namedInPrompt(blueprint.agentRow.systemPrompt, tools.map(t => t.name))]);
+  // Old names (a renamed tool's history, grant or prompt) count as the tool they became.
+  const names = [...tools.map(t => t.name), ...Object.keys(TOOL_ALIASES)];
+  const keep = new Set(canonicalToolNames([...blueprint.hotTools, ...expandGrants(harness.grantTools ?? []), ...namedInPrompt(blueprint.agentRow.systemPrompt, names)]));
   if (tools.every(t => keep.has(t.name))) {
     return tools;
   }

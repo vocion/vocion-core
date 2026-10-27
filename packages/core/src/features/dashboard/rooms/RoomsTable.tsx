@@ -25,7 +25,7 @@ const COLUMNS = [
 ];
 
 /**
- * The Data rooms as a table: titled columns on one grid, sorted by title until
+ * The Projects list as a table: titled columns on one grid, sorted by title until
  * the person clicks another title, and the sort kept in the address.
  * @param props - The table.
  * @param props.rows - The rooms, built on the server.
@@ -39,8 +39,8 @@ export function RoomsTable(props: { rows: RoomRow[]; hrefs: Record<number, strin
   return (
     <div data-testid="rooms-table">
       <ListHeader
-        label="Data rooms"
-        title={{ key: 'title', label: 'Room' }}
+        label="Projects"
+        title={{ key: 'title', label: 'Project' }}
         columns={COLUMNS}
         sort={sort}
         dir={list.dir}

@@ -57,7 +57,7 @@ describe('extract_records', () => {
     const events: Array<{ type: string; [k: string]: unknown }> = [];
     const ctx = { orgId: ORG, userId: USER, agentSlug: 'revenue-lead', conversationId, objectTypeSlugs: [], searchConfig: {}, harnessConfig: {}, emit: (e: never) => events.push(e), citationSeq: { current: 0 } };
     const tool = extractRecordsTool(ctx as never);
-    const out = await (tool as unknown as { invoke: (a: unknown) => Promise<string> }).invoke({ object_type: 'lead', room: 'Northwind Expo 2026 — badges', set: { event: 'Northwind Expo 2026' } });
+    const out = await (tool as unknown as { invoke: (a: unknown) => Promise<string> }).invoke({ object_type: 'lead', project: 'Northwind Expo 2026 — badges', set: { event: 'Northwind Expo 2026' } });
 
     expect(out).toContain('Added 1: [Jamie Smith]');
     expect(out).toContain('ONE decision docked');
@@ -71,7 +71,7 @@ describe('extract_records', () => {
 
   it('says plainly when there is nothing new to read', async () => {
     const ctx = { orgId: ORG, userId: USER, agentSlug: 'revenue-lead', conversationId, objectTypeSlugs: [], searchConfig: {}, harnessConfig: {}, emit: () => {}, citationSeq: { current: 0 } };
-    const out = await (extractRecordsTool(ctx as never) as unknown as { invoke: (a: unknown) => Promise<string> }).invoke({ object_type: 'lead', room: 'Northwind Expo 2026 — badges' });
+    const out = await (extractRecordsTool(ctx as never) as unknown as { invoke: (a: unknown) => Promise<string> }).invoke({ object_type: 'lead', project: 'Northwind Expo 2026 — badges' });
 
     expect(out).toMatch(/^Nothing read: Every file here has been read already/);
   });

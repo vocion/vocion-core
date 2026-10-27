@@ -80,7 +80,7 @@ spend read for LinkedIn Ads and Meta Ads. A campaign is what groups spend
 toward one objective (LinkedIn: campaign group) and an ad set is where budget
 and audience are set (LinkedIn: campaign).
 
-Data-room filing (`file_to_data_room`, `unfile_from_data_room`) and artifact editing
+Project filing (`file_to_project`, `unfile_from_project`) and artifact editing
 (`update_artifact`, `edit_document`) write inside the workspace and the conversation and are not
 on the ladder: nothing leaves, and every version is kept.
 

@@ -37,7 +37,7 @@ export const READING_WIDTH_CLASS = 'mx-auto w-full max-w-[1180px]';
  * Each is a two-pane working surface whose second pane is a rendered sheet:
  * a wider pane is a bigger, more readable document, not a longer line of
  * prose. A page is NOT listed just because it happens to be wide —
- * `/dashboard/rooms/[id]` (a Detail with a right column) and `/gtm/proposals`
+ * `/dashboard/projects/[id]` (a Detail with a right column) and `/gtm/proposals`
  * (a List) are both read top-to-bottom and keep the cap.
  */
 const FULL_BLEED_PATTERNS: readonly RegExp[] = [
@@ -57,7 +57,7 @@ const FULL_BLEED_PATTERNS: readonly RegExp[] = [
  *   would go 1180px → 1584px, but the sheet inside it is `width: 8.5in;
  *   margin: 0 auto`, so those 404px arrive as grey either side of an
  *   identically-sized document. More window, not more document.
- * - `/dashboard/rooms/<id>` (a Detail with a right column) and `/gtm/proposals`
+ * - `/dashboard/projects/<id>` (a Detail with a right column) and `/gtm/proposals`
  *   (a List): read top to bottom, so the cap is doing its job.
  */
 

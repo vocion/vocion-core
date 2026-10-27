@@ -25,7 +25,7 @@ client already has one (`list_projects`), update it; never open a second.
 
 ## 2. Open the project and write what you found
 
-`create_project` (older installs: `create_data_room`) with the client's name,
+`create_project` with the client's name,
 its domain in `domains`, and an anchor of type `client`. Then
 `update_project`:
 

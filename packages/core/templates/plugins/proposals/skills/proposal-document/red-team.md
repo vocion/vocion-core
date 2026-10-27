@@ -5,7 +5,7 @@ to carry this into an internal business case. It returns numbered findings by
 sheet — the rule broken, what they read, the fix — graded `block` (not sent),
 `fix` (costs trust) and `consider`. Run it after `verify_document` and before
 you call a document ready; fix the blocks by sheet; run it again. Pass the
-rubric below as `rubric` and the room's starred facts in brief as `context`.
+rubric below as `rubric` and the project's starred facts in brief as `context`.
 
 **It is a gate, not a habit.** The result is stored on the version it read, and
 `export_document_pdf` refuses to print a client document with a blocking
@@ -16,9 +16,9 @@ kind makes the document unread again.
 
 ## House rubric (paste as `rubric`)
 
-- **Grounding.** Every number, name, date and quote traces to the decision log or a starred source. **A fact the room already carries is sourced** — a call that happened, a filed transcript, a decision-log line — and asking for a written copy of a record the room holds is not a finding. An unsourced figure is a block unless it is a `.ph` placeholder marked "to be baselined". A claim about a third party (a named reference, another client's results) needs their permission, which is a different question from whether it is sourced.
+- **Grounding.** Every number, name, date and quote traces to the decision log or a starred source. **A fact the project already carries is sourced** — a call that happened, a filed transcript, a decision-log line — and asking for a written copy of a record the project holds is not a finding. An unsourced figure is a block unless it is a `.ph` placeholder marked "to be baselined". A claim about a third party (a named reference, another client's results) needs their permission, which is a different question from whether it is sourced.
 - **No outcome promise.** We commit capabilities and to measuring together. A projected saving, percentage, revenue or return figure is a block. The client's own cost numbers belong in the problem statement, never in a promised return.
-- **Placeholders in the open.** Anything unbaselined shows as a `.ph` chip in the document and is an open item on the room. Nothing unknown is dropped or guessed.
+- **Placeholders in the open.** Anything unbaselined shows as a `.ph` chip in the document and is an open item on the project. Nothing unknown is dropped or guessed.
 - **The client's words are the spine.** Their product names, their stage names, their question answered in their unit ("100 good and 100 bad per SKU", not "a few weeks"). The pull-quote is something they said, attributed and dated.
 - **Scope is unmistakable.** In / out / later are visually and verbally distinct; the appendix says "not in this scope" in words; the out-of-scope list names the other project we must not touch.
 - **Assume the yes.** No line invites a no, hedges, or argues against the offer. "If this drops down your list, say so" is cut.

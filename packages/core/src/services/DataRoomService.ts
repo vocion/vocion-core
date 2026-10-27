@@ -1,7 +1,14 @@
 /**
- * Data rooms — the collection around one entity.
+ * Projects — the collection around one entity.
  *
- * Core definition (Chris, 2026-09-18): a data room is **the collection of
+ * Named "Project" wherever a person or a model reads it (2026-10-27); the
+ * internal names stay: the type slug `data_room`, the plugin `data-rooms`, the
+ * ask group key `data-room:<id>` and this module's identifiers — the same move
+ * as the `project` table, which is the workspace. A project is a core
+ * workspace noun: its page, nav row and agent tools are there in every
+ * workspace and every app of it, plugin or not.
+ *
+ * Core definition (Chris, 2026-09-18): a project (then "data room") is **the collection of
  * ingested objects and generated artifacts related to one entity**, plus the
  * standing knowledge that keeps the collection growing on its own — a wiki
  * (`notes`), `rules` for collection and association, a dated timeline and the
@@ -33,13 +40,14 @@
 
 import type { ArtifactRow } from '@/services/ArtifactService';
 import type { Ask } from '@/services/AskService';
+import type { ProjectRecord } from '@/services/BusinessObjectService';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { artifactHref } from '@/libs/tools/artifacts/url';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, objectDocumentLinkSchema } from '@/models/Schema';
 import { anchorArtifact, createArtifact, listArtifactsForRecord } from '@/services/ArtifactService';
 import { listAskGroup, upsertAsk } from '@/services/AskService';
-import { addDocumentLink, createBusinessObject, createObjectType, getBusinessObject, getObjectTypeBySlug, listBusinessObjects, removeDocumentLink, updateBusinessObject } from '@/services/BusinessObjectService';
+import { addDocumentLink, createBusinessObject, createObjectType, getBusinessObject, getObjectTypeBySlug, groupRecordsByType, listBusinessObjects, listBusinessObjectsForProject, removeDocumentLink, updateBusinessObject } from '@/services/BusinessObjectService';
 
 export const DATA_ROOM_TYPE = 'data_room';
 
@@ -129,6 +137,18 @@ export type RoomBrand = { logo?: RoomImage; mark?: RoomImage };
 export const ROOM_BRAND_SLOTS = ['logo', 'mark'] as const;
 export type RoomBrandSlot = typeof ROOM_BRAND_SLOTS[number];
 
+/**
+ * Where a project's pages ship: a GitHub repo, a Squarespace site, WordPress
+ * later. The publishing work owns what `config` holds per kind; the project
+ * page only shows the list, read-only, under "Publishes to".
+ */
+export type PublishTarget = {
+  id: string;
+  kind: 'github' | 'squarespace' | 'wordpress';
+  label?: string;
+  config?: Record<string, unknown>;
+};
+
 export type RoomMeta = {
   client?: string;
   codename?: string;
@@ -156,6 +176,8 @@ export type RoomMeta = {
   brand?: RoomBrand;
   /** `false` keeps the collector out of this room; filings then come only from tools and people. */
   autoFile?: boolean;
+  /** Where this project's pages ship (`PublishTarget`). */
+  publishTargets?: PublishTarget[];
   /** Knowledge documents a person or agent took back out — the collector never re-files these on its own. */
   unfiled?: number[];
 };
@@ -174,6 +196,8 @@ export type DataRoomDetail = DataRoom & {
   artifacts: ArtifactRow[];
   /** Open (and decided) items, newest first. */
   items: Ask[];
+  /** Records that belong to the project (`metadata.projectId`), newest first. Absent: not read. */
+  work?: ProjectRecord[];
 };
 
 const toRoom = (row: { id: number; title: string; status: string | null; metadata: unknown; createdAt: Date; updatedAt: Date | null }): DataRoom => ({
@@ -186,7 +210,11 @@ const toRoom = (row: { id: number; title: string; status: string | null; metadat
 });
 
 export const roomGroupKey = (id: number): string => `data-room:${id}`;
-export const roomHref = (id: number): string => `/dashboard/rooms/${id}`;
+/**
+ * The project's page. `/dashboard/rooms/<id>` still redirects here.
+ * @param id
+ */
+export const projectHref = (id: number): string => `/dashboard/projects/${id}`;
 
 /**
  * The room's entity, whichever shape the meta carries. `anchor` wins; a
@@ -230,7 +258,7 @@ export type RoomDeliverablesSplit = {
  * Chris, 2026-09-19, on a room showing both: *"the data room has draft doc
  * (which we already have?)"*. The room listed `… proposal v2.0 (…) — drafted`
  * under DELIVERABLES and the same artifact again under DOCUMENTS, because
- * `update_data_room` writes a deliverable line AND anchors the artifact it
+ * `update_project` writes a deliverable line AND anchors the artifact it
  * names (see `updateDataRoom`). Two surfaces stating one fact is the defect
  * principle 6 names.
  *
@@ -312,8 +340,8 @@ export async function ensureDataRoomType(orgId: string): Promise<{ id: number }>
   }
   const [created] = await createObjectType({
     slug: DATA_ROOM_TYPE,
-    label: 'Data room',
-    description: 'The source of record for one client engagement.',
+    label: 'Project',
+    description: 'The source of record for one client or engagement.',
     icon: 'folder-open',
   }, orgId);
   return { id: created!.id };
@@ -326,6 +354,17 @@ export async function ensureDataRoomType(orgId: string): Promise<{ id: number }>
 export async function listDataRooms(orgId: string): Promise<DataRoom[]> {
   const rows = await listBusinessObjects(orgId, DATA_ROOM_TYPE);
   return rows.map(toRoom);
+}
+
+/**
+ * One project, or null when the id is not a project in this workspace. The
+ * project-named entry point for code outside this module (`getDataRoom` is
+ * the same read under its internal name).
+ * @param orgId - The workspace.
+ * @param id - The project id.
+ */
+export async function getProject(orgId: string, id: number): Promise<DataRoom | null> {
+  return getDataRoom(orgId, id);
 }
 
 /**
@@ -351,11 +390,12 @@ export async function getDataRoomDetail(orgId: string, id: number): Promise<Data
   if (!room) {
     return null;
   }
-  const [artifacts, items] = await Promise.all([
+  const [artifacts, items, work] = await Promise.all([
     listArtifactsForRecord({ orgId, record: { type: 'object', id: String(id) } }),
     listAskGroup(orgId, roomGroupKey(id)),
+    listBusinessObjectsForProject(orgId, id),
   ]);
-  return { ...room, artifacts, items: [...items].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()) };
+  return { ...room, artifacts, items: [...items].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()), work };
 }
 
 export type CreateDataRoomInput = {
@@ -631,7 +671,7 @@ export type FileInput = {
 export async function fileToDataRoom(orgId: string, id: number, input: FileInput): Promise<{ room: DataRoom; source: RoomSource; decisionLog: ArtifactRow | null }> {
   const room = await getDataRoom(orgId, id);
   if (!room) {
-    throw new Error(`data room #${id} not found`);
+    throw new Error(`project #${id} not found`);
   }
   const retrievedAt = new Date().toISOString();
   let decisionLog: ArtifactRow | null = null;
@@ -709,7 +749,7 @@ export async function fileToDataRoom(orgId: string, id: number, input: FileInput
 export async function addOpenItem(orgId: string, id: number, item: { title: string; body?: string; urgent?: boolean; owner?: string; sourceRef?: string }, createdBy: string | null): Promise<Ask> {
   const room = await getDataRoom(orgId, id);
   if (!room) {
-    throw new Error(`data room #${id} not found`);
+    throw new Error(`project #${id} not found`);
   }
   const { ask } = await upsertAsk({
     orgId,
@@ -721,7 +761,7 @@ export async function addOpenItem(orgId: string, id: number, item: { title: stri
       risk: item.urgent ? 'high' : 'low',
       groupKey: roomGroupKey(id),
       groupTitle: room.title,
-      contextUrl: roomHref(id),
+      contextUrl: projectHref(id),
       sourceRef: item.sourceRef ?? null,
       options: [
         { id: 'done', label: 'Done', recommended: false },
@@ -790,8 +830,8 @@ export async function proposeFiling(orgId: string, createdBy: string | null, age
         kind: 'recommendation',
         title: `File "${material.title}" into ${match.best.room.title}?`,
         body: `It looks like it belongs there (${match.best.evidence.join(', ')}), but not clearly enough to file on its own.\n\nCandidates: ${describe()}`,
-        options: match.candidates.slice(0, 3).map((c, i) => ({ id: `room-${c.room.id}`, label: c.room.title, recommended: i === 0, confidence: c.score })).concat([{ id: 'new-room', label: 'A new room', recommended: false, confidence: 0 }]),
-        contextUrl: roomHref(match.best.room.id),
+        options: match.candidates.slice(0, 3).map((c, i) => ({ id: `room-${c.room.id}`, label: c.room.title, recommended: i === 0, confidence: c.score })).concat([{ id: 'new-room', label: 'A new project', recommended: false, confidence: 0 }]),
+        contextUrl: projectHref(match.best.room.id),
         sourceRef: material.documentId ? `data-room:file:${material.documentId}` : null,
         risk: 'low',
         agentSlug,
@@ -804,9 +844,9 @@ export async function proposeFiling(orgId: string, createdBy: string | null, age
     createdBy,
     ask: {
       kind: 'recommendation',
-      title: `New opportunity? "${material.title}" matches no data room`,
-      body: `Nothing filed yet. Open a room for it if this is a new engagement${match.candidates.length ? `; nearest rooms: ${describe()}` : ''}.`,
-      options: [{ id: 'open-room', label: 'Open a data room', recommended: true, confidence: 0.5 }, { id: 'ignore', label: 'Not an engagement', recommended: false }],
+      title: `New opportunity? "${material.title}" matches no project`,
+      body: `Nothing filed yet. Open a project for it if this is a new engagement${match.candidates.length ? `; nearest projects: ${describe()}` : ''}.`,
+      options: [{ id: 'open-room', label: 'Open a project', recommended: true, confidence: 0.5 }, { id: 'ignore', label: 'Not an engagement', recommended: false }],
       sourceRef: material.documentId ? `data-room:new:${material.documentId}` : null,
       risk: 'low',
       agentSlug,
@@ -946,7 +986,7 @@ export async function knowledgeDocument(orgId: string, id: number): Promise<Know
 
 /**
  * The whole room as one markdown file — the "download context for an LLM"
- * bundle, and exactly what `read_data_room` hands the agent. Order is the
+ * bundle, and exactly what `read_project` hands the agent. Order is the
  * order to read in: the rules first (they govern everything below), the
  * status, the notes (the wiki), the entity and stage, then the material by
  * weight, the timeline, the highlights, the open items, every decision log,
@@ -957,15 +997,18 @@ export function renderDataRoom(room: DataRoomDetail): string {
   const m = room.meta;
   const stars = (n: number) => '⭐'.repeat(Math.max(1, Math.min(3, n)));
   const anchor = roomAnchor(m);
-  const lines: string[] = [`# ${room.title} — data room`, ''];
+  const lines: string[] = [`# ${room.title} — project`, ''];
   if (m.client || m.codename || m.stage) {
     lines.push([m.client ? `Client: ${m.client}` : null, m.codename ? `Codename: ${m.codename}` : null, m.stage ? `Stage: ${m.stage}` : null].filter(Boolean).join(' · '), '');
   }
   if (anchor) {
     lines.push(`Anchor: ${anchor.type}${anchor.label ? ` "${anchor.label}"` : ''}${anchor.system ? ` in ${anchor.system}` : ''}${anchor.id ? ` (${anchor.id})` : ''}${anchor.url ? ` — ${anchor.url}` : ''}${anchor.amount ? ` · $${anchor.amount.toLocaleString('en-US')}` : ''}`, '');
   }
+  if (m.publishTargets?.length) {
+    lines.push(`Publishes to: ${m.publishTargets.map(publishTargetLine).join(' · ')}`, '');
+  }
   if (m.rules?.length) {
-    lines.push('## Rules for this room', '');
+    lines.push('## Instructions for this project', '');
     for (const r of m.rules) {
       lines.push(`- ${r}`);
     }
@@ -975,7 +1018,7 @@ export function renderDataRoom(room: DataRoomDetail): string {
     lines.push(`> **Status${m.statusAt ? ` as of ${m.statusAt.slice(0, 10)}` : ''}.** ${m.status}`, '');
   }
   if (m.notes?.trim()) {
-    lines.push('## Notes', '', m.notes.trim(), '');
+    lines.push('## Wiki', '', m.notes.trim(), '');
   }
   const split = roomDeliverables(room.artifacts, m.deliverables);
   if (split.promised.length) {
@@ -1050,6 +1093,16 @@ export function renderDataRoom(room: DataRoomDetail): string {
     }
     lines.push('');
   }
+  if (room.work?.length) {
+    lines.push('## Work', '');
+    for (const group of groupRecordsByType(room.work)) {
+      lines.push(`### ${group.label}`, '');
+      for (const r of group.records) {
+        lines.push(`- #${r.id} ${r.title}${r.status ? ` · ${r.status}` : ''}`);
+      }
+      lines.push('');
+    }
+  }
   const working = room.artifacts.filter(a => !docs.includes(a) && !logs.includes(a) && !(a.recordRole ?? '').startsWith('source:'));
   if (working.length) {
     lines.push('## Working files', '');
@@ -1059,6 +1112,21 @@ export function renderDataRoom(room: DataRoomDetail): string {
     lines.push('');
   }
   return lines.join('\n');
+}
+
+const PUBLISH_KIND_LABEL: Record<PublishTarget['kind'], string> = { github: 'GitHub', squarespace: 'Squarespace', wordpress: 'WordPress' };
+
+/**
+ * One publish target in a line: its label, its kind, and where it points
+ * when the config names it (a repo, a site). Pure; the page and the bundle
+ * share it so they say the same thing.
+ * @param t - The target.
+ */
+export function publishTargetLine(t: PublishTarget): string {
+  const c = t.config ?? {};
+  const where = [c.repo, c.siteUrl, c.url].find(v => typeof v === 'string' && v.trim()) as string | undefined;
+  const kind = PUBLISH_KIND_LABEL[t.kind] ?? t.kind;
+  return [t.label && t.label !== where ? t.label : null, where ? `${kind} ${where}` : kind].filter(Boolean).join(' — ');
 }
 
 /**

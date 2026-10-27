@@ -192,7 +192,7 @@ export function renderDeckTool(ctx: RuntimeContext) {
           author: authorOf(ctx),
           visibility: ctx.missionRunId ? 'system' : 'user',
           folder: args.folder ?? null,
-          record: args.room_id ? { type: 'object', id: String(args.room_id), role: 'deck' } : recordScope(ctx),
+          record: args.project_id ? { type: 'object', id: String(args.project_id), role: 'deck' } : recordScope(ctx),
           deck: { ...deck, ...(Object.keys(ingested.assets).length ? { assets: ingested.assets } : {}), ...(args.playbook ? { playbook: args.playbook } : {}) },
           verify: { look: args.look ?? false, onProgress: progressTo(ctx, 'render_deck') },
         });
@@ -217,7 +217,7 @@ export function renderDeckTool(ctx: RuntimeContext) {
       name: 'render_deck',
       description: `Create a 16:9 PRESENTATION DECK artifact (${DECK_FORMAT}): each slide one <section id="…"> on a fixed 1920×1080 canvas, styled inline, speaker notes in a trailing <aside>, images as src="asset:<id>", icons as <x-icon name="Lock">, shapes as <x-shape kind="arrow-right">, lines as <x-connector x1 y1 x2 y2>. It renders in real Chrome, audits every slide (overflow, text under 24px, content under y 920, unknown elements, unresolved assets, placeholders, missing notes) and returns the receipt with a screenshot URL per slide. Also accepts a Claude Slides project as \`files\` (project/deck.json + project/slides/*.html). Fix what the receipt lists with edit_deck before you say the deck is done. Read the proposal-deck skill before the first slide.`,
       schema: z.object({
-        room_id: z.number().int().positive().optional().describe('The data room this deck belongs to. Pass it whenever you are writing from a room — the deck then shows on the room and on the Proposals board.'),
+        project_id: z.number().int().positive().optional().describe('The project this deck belongs to. Pass it whenever you are writing from a project — the deck then shows on the project and on the Proposals board.'),
         title: z.string().max(200).optional().describe('Deck title — also the PDF filename. Overrides the one in `deck`/`files`.'),
         deck: z.union([deckArgSchema, z.string()]).optional().describe('{ title, order: [slide ids], slides: { id: "<section id=…>…</section>" }, sections?, faces? }'),
         files: z.union([z.record(z.string(), z.string()), z.string()]).optional().describe('Instead of `deck`: a Vocion deck as files (deck.json + slides/<id>.html) or a Claude Slides v4 project.'),

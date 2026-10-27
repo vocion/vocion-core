@@ -3,7 +3,7 @@
 A **deck** is a 16:9 presentation a client sees in a meeting. A **document** is
 the paginated US-Letter file they carry into their own business case. Both are
 **client deliverables**, and both are artifacts: versioned, red-teamed, gated
-before they print, filed to a data room and shown on the Proposals board.
+before they print, filed to a project and shown on the Proposals board.
 
 This file is the contract for the `deck` kind. Build to it; change it in the same
 PR as the code that changes the behaviour.
@@ -18,7 +18,7 @@ PR as the code that changes the behaviour.
   adapter is on the path from draft to PDF, and none is named in core prompts.
 - **One shape, used everywhere** (principle 6). Decks reuse the document
   machinery: `ArtifactService` versions, the red team, the export gate, the
-  learning step, data rooms and the Proposals board. Nothing is built twice.
+  learning step, projects and the Proposals board. Nothing is built twice.
 
 ## The format: `vocion-deck/1`
 
@@ -131,7 +131,7 @@ an issue saying it was not rendered.
 
 | Tool | Arguments | Does |
 |---|---|---|
-| `render_deck` | `room_id?`, `title?`, `deck?` (`{title, order, slides, sections?, faces?}`) or `files?` (Vocion or Claude Slides v4 files), `assets?` (`{id: {url \| base64, name?}}`), `playbook?`, `folder?`, `look?` | Create a deck in a data room; render, audit, return the receipt |
+| `render_deck` | `project_id?`, `title?`, `deck?` (`{title, order, slides, sections?, faces?}`) or `files?` (Vocion or Claude Slides v4 files), `assets?` (`{id: {url \| base64, name?}}`), `playbook?`, `folder?`, `look?` | Create a deck in a project; render, audit, return the receipt |
 | `read_deck` | `id?`, `slides?` (ids or 1-based numbers), `images?` | The index (one line per slide, assets), the last receipt and the red-team state; with `slides`, their HTML with notes |
 | `edit_deck` | `id?`, `ops`, `assets?`, `change_summary`, `look?` | Operations, applied atomically as one version: `replace_slide{id,html}`, `insert_slide{html,after?}` (`after` omitted appends, `"^"` puts it first), `remove_slide{id}`, `move_slide{id,to}`, `replace_text{find,replace,slide?,all?}` (literal; exactly once in the named slide, or once across the deck, unless `all`), `set_notes{id,notes}`, `set_title{title}`, `set_asset{asset,value\|null}`. New images in `assets` are stored first and become `set_asset` ops |
 | `verify_deck` | `id?`, `look?` (default true) | Re-render and re-audit, recorded as a system version; the red-team receipt stands |

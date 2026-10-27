@@ -20,13 +20,13 @@ be true every time an agent acts. Kept **true, small and read**.
 | It is… | It goes to… | Not to… |
 |---|---|---|
 | How we sound, what we never say, the signature block | **Voice** (`voice`) | a learning per phrase |
-| A rule that holds across the workspace — "never promise a business outcome", "file client calls in the room, internal calls in the wiki" | **Standing rules** (`standing-rules`) | a data room's rules (those are one room's) |
+| A rule that holds across the workspace — "never promise a business outcome", "file client calls in the project, internal calls in the wiki" | **Standing rules** (`standing-rules`) | a project's rules (those are one project's) |
 | Who owns what — agents, teams, the accountable humans, partners and their roles | **Who is who** (`who-is-who`) | a CRM record |
 | A decision a person made and did not walk back, dated | **Decisions** (`decisions`, append a dated section) | the activity ledger |
 | A term the workspace uses its own way | **Glossary** (`glossary`, append) | prose in another page |
 | What happened this week | the activity ledger, a briefing | the wiki |
 | A rule for one step ("always CC the AE on…") | a learning (`add_learning`) | the wiki |
-| A client's transcripts, decisions, notes | that client's data room | the wiki |
+| A client's transcripts, decisions, notes | that client's project | the wiki |
 
 A new page is right only when none of these fits **and** the fact will be read
 again. Nine weeks of a hand-run wiki taught this: pages written once and never

@@ -116,7 +116,7 @@ function pluginIcon(url: string, name: string): LucideIcon {
 export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, goalsCount = 0, apps = [], elsewhere = [], gettingStarted = null, personalWorkspace = false, ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
-  /** Plugins the workspace turned on (`project.enabledPlugins`); a plugin-owned row (Data rooms) shows only while its plugin is on. */
+  /** Plugins the workspace turned on (`project.enabledPlugins`); a plugin-owned row (Projects) shows only while its plugin is on. */
   enabledPlugins?: readonly string[];
   /** Optional surfaces the workspace switched on — see `features/navigation/surfaces.ts` — minus the ones a plugin claimed. */
   enabledSurfaces?: SurfaceId[];
@@ -258,7 +258,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
 
   // ---- the three WORK groups ----
   // WORKSPACE: Chat and Review are the surface and always show; Briefings,
-  // Artifacts, Search and Data rooms show while pinned (Briefings starts
+  // Artifacts, Search and Projects show while pinned (Briefings starts
   // pinned) and otherwise sit one row down under "More" (Chris, 2026-09-18).
   const toWorkItem = useCallback((r: DashboardRoute): PinnableItem => ({
     title: label(r),

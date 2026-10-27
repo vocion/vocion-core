@@ -13,16 +13,16 @@ The person drops files into the conversation. These can be photos of badges or c
 ```json
 {
   "object_type": "lead",
-  "room": "Northwind Expo 2026 — badges",
+  "project": "Northwind Expo 2026 — badges",
   "set": { "event": "Northwind Expo 2026", "met_by": "Alex" },
   "hint": "badges scanned at our booth"
 }
 ```
 
-The agent picks the object type and names the room from context. The call then runs these steps (`services/intake/intake.ts`):
+The agent picks the object type and names the project from context. The call then runs these steps (`services/intake/intake.ts`):
 
 1. **Each file is read once.** Images go to the extractor model as images. Documents go as the text extracted when they were uploaded (`services/chat/attachments.ts`). The model is offered the type's declared fields (`services/intake/fields.ts`). For every value it gives a **confidence**, the **page** (or **row**, for a table), and the **quote** when the printed words differ from the value. No tools are bound to the reader. Every call is charged and traced as `tool.extract`.
-2. **The files go into a data room**, which is the room the agent named, or a new one. Each file is anchored to the room as its evidence (`source:<id>`). Anchoring has two effects:
+2. **The files go into a project**, which is the project the agent named, or a new one. Each file is anchored to the project as its evidence (`source:<id>`). Anchoring has two effects:
    - The first record written afterwards does not claim every upload in the thread.
    - Calling the tool again reads only new files, so nothing is charged twice.
 3. **Duplicates are folded** (`services/intake/dedupe.ts`). Two people are the same person when they share an email, or when they share both a name and a company. The comparison ignores case, accents and punctuation. Two readings of one person within the batch become one record: the surer value wins for each field, and both files are kept as sources.
@@ -34,7 +34,7 @@ The agent picks the object type and names the room from context. The call then r
 5. **Clear records are written.** Each record gets `provenance` with:
    - `sources`: the files it came from;
    - `fields`: for each field, `{ artifactId, file, page | row, confidence, quote?, from }`, where `from` is `conversation` for values the agent set from what the person said;
-   - `intake`: the batch, the room, and who wrote it.
+   - `intake`: the batch, the project (`roomId`), and who wrote it.
 6. **The rest becomes ONE Decision.** Some items are held back:
    - files that could not be read;
    - records the reader was unsure of (confidence below 0.6, no readable name, or an identity field that is hard to read);
@@ -68,10 +68,10 @@ If a type declares none, any field with `format: email` identifies the record. T
 ### What the person sees
 
 - One line from the agent saying what was added, with links.
-- The data room, which holds every file.
+- The project, which holds every file.
 - One docked Decision for the rest. It is answered with the keyboard (see `docs/guides/decisions.md`).
 
-![Desktop: the intake Decision docked above the composer, the room open beside it](../../deliverables/list-intake/desktop-01-decision.png)
+![Desktop: the intake Decision docked above the composer, the project open beside it](../../deliverables/list-intake/desktop-01-decision.png)
 
 ![Desktop: after Merge — the agent's answer, and Undo on the receipt](../../deliverables/list-intake/desktop-02-settled.png)
 
