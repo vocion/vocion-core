@@ -134,8 +134,9 @@ export function postsFromJson(json: Record<string, unknown>, siteUrl: string): S
  */
 export function isBlogCollection(json: Record<string, unknown>): boolean {
   const collection = (json.collection ?? {}) as Record<string, unknown>;
-  // Squarespace's collection type 1 is a blog; `typeName` says so in words.
-  return collection.typeName === 'blog' || collection.type === 1;
+  // Squarespace's collection type 1 is a blog; `typeName` says so in words,
+  // with the layout after it on 7.1 (`blog-side-by-side`, `blog-basic-grid`…).
+  return (typeof collection.typeName === 'string' && /^blog(?:-|$)/.test(collection.typeName)) || collection.type === 1;
 }
 
 /**

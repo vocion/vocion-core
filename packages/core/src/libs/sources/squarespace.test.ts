@@ -4,7 +4,7 @@ import { FIXTURE_BLOG_JSON, FIXTURE_SITE_URL, squarespaceFetch } from '@/libs/fi
 // Every address in the fixtures is invented; the public-address guard would otherwise resolve DNS.
 vi.mock('@/libs/net/publicUrl', () => ({ resolvesPublicly: vi.fn(async (raw: string) => ({ ok: true, url: new URL(raw) })) }));
 
-const { blogUrlOf, findPublishedPost, postsFromJson, squarespaceConnector } = await import('./squarespace');
+const { blogUrlOf, findPublishedPost, isBlogCollection, postsFromJson, squarespaceConnector } = await import('./squarespace');
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(squarespaceFetch()));
@@ -48,6 +48,9 @@ describe('the Squarespace connector', () => {
     expect((await findPublishedPost(FIXTURE_SITE_URL, '/journal', { slug: 'other', title: 'layering for shoulder season' })).post?.slug).toBe('layering-for-shoulder-season');
     expect((await findPublishedPost(FIXTURE_SITE_URL, '/journal', { slug: 'a-draft', title: 'A Draft' })).post).toBeNull();
     expect(blogUrlOf(`${FIXTURE_SITE_URL}/`, null)).toBe('https://example-site.squarespace.com/blog');
+    // 7.1 names the layout after the type.
+    expect(isBlogCollection({ collection: { typeName: 'blog-side-by-side' } })).toBe(true);
+    expect(isBlogCollection({ collection: { typeName: 'page' } })).toBe(false);
   });
 
   it('syncs through the web connector\'s own read, seeded at the site and its blog', async () => {

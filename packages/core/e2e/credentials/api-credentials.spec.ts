@@ -179,6 +179,8 @@ test.describe('the platform selector decides which controls exist', () => {
       // The finance and people families. QuickBooks and Gusto log in and
       // have nothing to paste, so the selector leaves them out.
       'Stripe',
+      // A client's Squarespace site: an editor login, for publishing.
+      'Squarespace',
       'Xero',
       'NetSuite',
       'Ramp',
