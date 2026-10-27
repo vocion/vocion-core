@@ -29,8 +29,12 @@ const clients = new Map<string, Promise<AmplitudeAIClient | null>>();
 
 async function start(apiKey: string): Promise<AmplitudeAIClient | null> {
   try {
-    const { AmplitudeAI, AIConfig } = await import('@amplitude/ai');
-    return new AmplitudeAI({ apiKey, config: new AIConfig({ contentMode: 'metadata_only' }) });
+    // Our own import, not the SDK's `apiKey` path: that one loads analytics-node
+    // with a runtime require the standalone trace cannot see, so prod shipped without it.
+    const [{ AmplitudeAI, AIConfig }, { createInstance }] = await Promise.all([import('@amplitude/ai'), import('@amplitude/analytics-node')]);
+    const amplitude = createInstance();
+    void amplitude.init(apiKey).promise.catch((error: unknown) => console.error('[amplitude] agent analytics did not initialise', error));
+    return new AmplitudeAI({ amplitude, config: new AIConfig({ contentMode: 'metadata_only' }) });
   } catch (error) {
     console.error('[amplitude] could not start agent analytics; continuing without it', error);
     return null;

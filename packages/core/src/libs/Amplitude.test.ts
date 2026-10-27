@@ -4,9 +4,14 @@ import { resetAmplitudeForTests, trackAgentModelCall, trackAgentToolCall } from 
 const trackAiMessage = vi.fn();
 const trackToolCall = vi.fn();
 const constructed = vi.fn();
+const initialised = vi.fn();
 
 const keys = new Map<string, string>();
 vi.mock('@/services/analytics/amplitudeKey', () => ({ amplitudeKeyFor: async (orgId: string) => keys.get(orgId) ?? null }));
+
+vi.mock('@amplitude/analytics-node', () => ({
+  createInstance: () => ({ init: (key: string) => ({ promise: Promise.resolve(initialised(key)) }) }),
+}));
 
 vi.mock('@amplitude/ai', () => ({
   AIConfig: class {
@@ -58,7 +63,8 @@ describe('Amplitude agent analytics', () => {
     keys.set('proj_northwind', 'key_1');
     await trackAgentModelCall(modelCall);
 
-    expect(constructed).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'key_1' }));
+    expect(initialised).toHaveBeenCalledWith('key_1');
+    expect(constructed).toHaveBeenCalledWith(expect.objectContaining({ amplitude: expect.anything() }));
     expect((constructed.mock.calls[0]![0] as { config: { opts: unknown } }).config.opts).toEqual({ contentMode: 'metadata_only' });
     expect(trackAiMessage).toHaveBeenCalledWith(expect.objectContaining({
       userId: 'user_1',
@@ -78,7 +84,7 @@ describe('Amplitude agent analytics', () => {
     await trackAgentModelCall(modelCall);
     await trackAgentToolCall({ orgId: 'proj_kestrel', userId: null, conversationId: null, runId: 7, traceId: null, agentSlug: 'researcher', leadAgentSlug: 'revenue-lead', tool: 'search_knowledge', durationMs: 120, error: 'timed out' });
 
-    expect(constructed.mock.calls.map(c => (c[0] as { apiKey: string }).apiKey)).toEqual(['key_northwind', 'key_kestrel']);
+    expect(initialised.mock.calls.map(c => c[0])).toEqual(['key_northwind', 'key_kestrel']);
 
     const event = trackToolCall.mock.calls[0]![0] as Record<string, unknown>;
 
