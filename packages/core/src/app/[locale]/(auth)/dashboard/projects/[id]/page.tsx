@@ -66,6 +66,31 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
   const guidelines = allSources.filter(isGuideline);
   const sources = allSources.filter(s => !isGuideline(s));
   const brandImages = (['logo', 'mark'] as const).flatMap(slot => (m.brand?.[slot] ? [{ slot, image: m.brand[slot]! }] : []));
+  // What was read off the client's site (brand_lookup with the project) and
+  // how they write (the voice block), each fact with where it came from.
+  const profile = m.brand?.profile;
+  const pairs = (r: Record<string, string> | undefined) => Object.entries(r ?? {}).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(' · ');
+  const brandFacts = profile
+    ? [
+        profile.name ? { key: 'name', label: 'Name', value: profile.name } : null,
+        pairs(profile.colors) ? { key: 'colours', label: 'Colours', value: pairs(profile.colors) } : null,
+        pairs(profile.fonts) ? { key: 'fonts', label: 'Fonts', value: pairs(profile.fonts) } : null,
+        { key: 'read', label: 'Read from', value: `${profile.source} · ${profile.readAt.slice(0, 10)}`, href: profile.source },
+      ]
+    : [];
+  const v = m.voice;
+  const lines = (list: Array<{ text: string }> | undefined) => (list ?? []).map(l => l.text).join(' · ');
+  const voiceFacts = v
+    ? [
+        v.pointOfView ? { key: 'pov', label: 'Point of view', value: v.pointOfView.text } : null,
+        v.readingLevel ? { key: 'level', label: 'Reading level', value: v.readingLevel.text } : null,
+        v.spelling ? { key: 'spelling', label: 'Spelling', value: v.spelling.text } : null,
+        v.tone?.length ? { key: 'tone', label: 'Tone', value: lines(v.tone) } : null,
+        v.bannedPhrases?.length ? { key: 'banned', label: 'Never use', value: lines(v.bannedPhrases) } : null,
+        v.preferredCtas?.length ? { key: 'ctas', label: 'Calls to action', value: lines(v.preferredCtas) } : null,
+        v.neverClaim?.length ? { key: 'claims', label: 'Never claim', value: lines(v.neverClaim) } : null,
+      ].filter(f => f !== null)
+    : [];
   const linkRecord = await recordLinkerForOrg(orgId);
   const workGroups = groupRecordsByType(room.work ?? []);
   const publishTargets = m.publishTargets ?? [];
@@ -170,10 +195,12 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
         <ProjectInstructions projectId={room.id} rules={m.rules ?? []} />
 
         <Section eyebrow="Brand & guidelines" data-testid="project-brand">
-          {brandImages.length === 0 && guidelines.length === 0
+          {brandImages.length === 0 && guidelines.length === 0 && brandFacts.length === 0 && voiceFacts.length === 0
             ? <p className="text-sm text-muted-foreground">No brand or guidelines yet. File the client's brand guide or style rules at ⭐⭐⭐ and they show here; the agent reads them before writing anything.</p>
             : (
                 <>
+                  {brandFacts.length > 0 && <div className="mb-3" data-testid="project-brand-profile"><FactList layout="column" facts={brandFacts} /></div>}
+                  {voiceFacts.length > 0 && <div className="mb-3" data-testid="project-voice"><FactList layout="column" facts={voiceFacts} /></div>}
                   {brandImages.length > 0 && (
                     <div className="mb-3 flex flex-wrap items-center gap-4">
                       {brandImages.map(({ slot, image }) => (

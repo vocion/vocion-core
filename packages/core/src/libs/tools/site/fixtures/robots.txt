@@ -1,0 +1,4 @@
+# Recorded shape of a robots.txt that names its sitemap. Fictional site.
+User-agent: *
+Disallow: /cart
+Sitemap: https://northwind-home.example/sitemaps/main.xml

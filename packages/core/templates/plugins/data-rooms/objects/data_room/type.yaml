@@ -2,6 +2,9 @@
 # 2026-10-27); every label a person or a model reads says Project.
 slug: data_room
 label: Project
+# PRJ-12, not the DR derived from the old slug (migration 0222 moves stored
+# rows; an old DR-12 link still resolves).
+code: PRJ
 description: >-
   The collection around one client or engagement — a deal, a retainer, a
   piece of delivery: everything ingested about it (transcripts, threads, attachments, by weight)
@@ -114,7 +117,8 @@ schema:
           documentId: {type: integer}
           artifactId: {type: integer}
           title: {type: string}
-          kind: {type: string, enum: [transcript, email, attachment, note, decision-log]}
+          kind: {type: string, enum: [transcript, email, attachment, note, decision-log, page]}
+          url: {type: string, description: 'For a page of a website: where it was read.'}
           rating: {type: integer, minimum: 1, maximum: 3}
           channel: {type: string}
           date: {type: string}
@@ -153,6 +157,70 @@ schema:
       type: array
       description: Knowledge documents a person took back out; never auto-filed again.
       items: {type: integer}
+    voice:
+      type: object
+      description: >-
+        How the client writes, each line citing the page or source id it was
+        read from: point of view, reading level, spelling, tone words, phrases
+        they never use, their calls to action, claims they may not make (with
+        the words that would make them). Printed at the top of the project's
+        bundle; banned phrases and never-claim words are checked in code
+        before a draft reaches a person.
+      properties:
+        pointOfView: &voiceLine
+          type: object
+          required: [text, source]
+          properties:
+            text: {type: string}
+            source: {type: string, description: 'A page URL, or a source id from the project (doc:12, artifact:34).'}
+            phrases: {type: array, items: {type: string}, description: 'For a never-claim line: the words checked in code.'}
+        readingLevel: *voiceLine
+        spelling:
+          type: object
+          properties:
+            text: {type: string, enum: [US, UK]}
+            source: {type: string}
+        tone: {type: array, items: *voiceLine}
+        bannedPhrases: {type: array, items: *voiceLine}
+        preferredCtas: {type: array, items: *voiceLine}
+        neverClaim: {type: array, items: *voiceLine}
+        updatedAt: {type: string}
+    siteInventory:
+      type: object
+      description: The latest site inventory filed on the project (an artifact), when it was read and from where.
+      properties:
+        artifactId: {type: integer}
+        site: {type: string}
+        readAt: {type: string}
+        pages: {type: integer}
+        from: {type: string, enum: [sitemap, robots, crawl]}
+        cappedAt: {type: integer}
+        listed: {type: integer}
+    competitors:
+      type: object
+      description: >-
+        Who ranks beside the client on Google: the domains that ranked for two
+        or more of its core searches, directories and marketplaces left out,
+        each with the searches, positions and pages, dated.
+      properties:
+        readAt: {type: string}
+        queries: {type: array, items: {type: string}}
+        location: {type: string}
+        isGoogleRanking: {type: boolean}
+        domains:
+          type: array
+          items:
+            type: object
+            properties:
+              domain: {type: string}
+              ranked:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    query: {type: string}
+                    position: {type: integer}
+                    url: {type: string}
     seoGate:
       type: object
       description: >-

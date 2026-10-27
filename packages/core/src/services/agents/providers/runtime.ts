@@ -228,6 +228,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
         name: s.name,
         description: s.description,
         systemPrompt: s.systemPrompt,
+        ...(definition.teammateExcludes?.[s.name] ? { excludeTools: definition.teammateExcludes[s.name] } : {}),
       })),
       excludeTools: hc.excludeTools,
       // Sent only when the author wrote it. The runtime defaults to caching

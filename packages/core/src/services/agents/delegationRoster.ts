@@ -41,6 +41,12 @@ export type DelegateEntry = {
   skillSlugs?: string[];
   /** The tools its own seat is granted (`harness.grantTools`), added to the lead's set when it is consulted. */
   grantTools?: string[];
+  /**
+   * The tools the delegate's own seat withholds (`harness.excludeTools`) —
+   * consulted, it is denied them too, so a seat that must never read the
+   * agency's brand cannot read it through the lead's tool belt.
+   */
+  excludeTools?: string[];
 };
 
 export type DelegationRoster = {
@@ -78,10 +84,11 @@ export function buildDelegationRoster(opts: {
       return;
     }
     taken.add(a.slug);
-    const h = (a.harnessConfig ?? {}) as { modelProvider?: 'anthropic' | 'openai' | 'bedrock'; model?: string; grantTools?: string[] };
+    const h = (a.harnessConfig ?? {}) as { modelProvider?: 'anthropic' | 'openai' | 'bedrock'; model?: string; grantTools?: string[]; excludeTools?: string[] };
     const pinnedModel = h.modelProvider && h.model ? { modelProvider: h.modelProvider, model: h.model } : undefined;
     const skillSlugs = a.skillSlugs ?? [];
     const grantTools = h.grantTools ?? [];
+    const excludeTools = h.excludeTools ?? [];
     delegates.push({
       slug: a.slug,
       name: a.name,
@@ -91,6 +98,7 @@ export function buildDelegationRoster(opts: {
       ...(pinnedModel ? { pinnedModel } : {}),
       ...(skillSlugs.length > 0 ? { skillSlugs } : {}),
       ...(grantTools.length > 0 ? { grantTools } : {}),
+      ...(excludeTools.length > 0 ? { excludeTools } : {}),
     });
   };
 

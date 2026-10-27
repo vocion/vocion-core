@@ -31,6 +31,7 @@ import { browserTaskTools } from './browserTasks';
 import { calendarTools } from './calendarEvents';
 import { listCapabilitiesTool } from './capabilities';
 import { chatTools } from './chatTools';
+import { competitorTools } from './competitors';
 import { connectSystemTool } from './connectSystems';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
@@ -112,6 +113,7 @@ import { seoTools } from './seo';
 import { serpTools } from './serpResearch';
 import { setupWorkspaceTools } from './setupWorkspace';
 import { setVoiceTool } from './setVoice';
+import { siteInventoryTools } from './siteInventory';
 import { exportArtifactXlsxTool } from './tableExport';
 import { openTeamThreadTool } from './teamThread';
 import { canonicalToolNames } from './toolAliases';
@@ -386,6 +388,12 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted-only (`harness.grantTools: [serp]`): Google's results page, the
     // pages on it compared into a SERP brief, keyword volume — paid per call.
     ...serpTools(ctx),
+    // With the `serp` grant: the client's competitors, counted in code from
+    // the searches serp_search already made, recorded on the project.
+    ...competitorTools(ctx),
+    // Granted-only: a client's whole site from its sitemap, every page's
+    // basics in one dated table filed on the project.
+    ...siteInventoryTools(ctx),
     // Granted-only: reference-based kit verification + the Rekognition second opinion.
     ...kitVisionTools(ctx),
     // Personal workspaces only: the person's own assistant lists and asks the

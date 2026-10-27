@@ -34,9 +34,12 @@ naming it in `metadata.projectId`; those records are the project's **Work**,
 and `read_project` lists them.
 
 Tools: `list_projects` · `read_project` (the whole project as one markdown
-bundle — the LLM-context export) · `create_project` · `update_project`
-(status, stage, anchor, cast, deliverables, domains, and the project's own
-knowledge: notes, rules, milestones, highlights) · `file_to_project` ·
+bundle — the LLM-context export, with the text of every ⭐⭐⭐ source; with
+`source` it reads one source whole, with `find` it searches only this
+project's sources) · `create_project` · `update_project` (status, stage,
+anchor, cast, deliverables, domains, and the project's own knowledge: notes,
+rules citing their source, the client voice, milestones, highlights) ·
+`file_to_project` (a page of a website by its `url`, kind `page`, too) ·
 `unfile_from_project` (the undo of a filing) · `add_open_item`.
 
 ## Rules first

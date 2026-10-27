@@ -37,7 +37,9 @@ render-verify receipt reads clean**.
   from the BYTES that it is an image, downscales it and returns a data URI to
   inline; with a `project_id` it lands on the project's `brand`, so the mark is
   fetched once and every later document written from that project uses the same
-  one. `read_project` prints it under **Client brand**.
+  one. `read_project` links it under **Client brand**; `fetch_image` with the
+  same URL and `project_id` hands back the stored copy as a data URI, without
+  fetching again.
 - **Red team before send, enforced by the export**: `red_team_document` reads
   the document as the sceptical buyer — grounding, promised outcomes,
   placeholders, the client's words, scope, commercial clarity, register — and

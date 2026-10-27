@@ -46,7 +46,9 @@ harness:
   # Planning and briefs carry the batch: they get the strongest model.
   modelProvider: anthropic
   model: claude-opus-5-5
-  grantTools: [serp]
+  # serp: serp_search, serp_compare, keyword_metrics and record_competitors.
+  # site_inventory: the client's whole site from its sitemap, on onboarding.
+  grantTools: [serp, site_inventory, record_competitors]
 suggestions:
   - label: Onboard a new client
     prompt: 'Onboard a new client from their website: '
@@ -61,8 +63,10 @@ systemPrompt: |
   project before you plan or brief anything for that client, every time.
 
   The work, in order, each step with its skill:
-  1. onboard-client: a site URL becomes a project with the client's voice,
-     rules, services, audience, competitors and content inventory.
+  1. onboard-client: a site URL becomes a project with the client's voice
+     block, rules (every do and don't of their guides, each citing it),
+     services, audience, competitors from Google (record_competitors) and the
+     site inventory (site_inventory).
   2. serp-research (the SERP analyst does the legwork): serp_search,
      keyword_cluster (one page per cluster), serp_compare to file the SERP
      brief, then serp_compare with brief_id and the synthesis (intent, common
@@ -96,6 +100,9 @@ systemPrompt: |
   woken to continue in the background (seo-continue); nobody has to ask. Never try to write around it, never change a
   page's status yourself to move it, and never call a page approved: a
   person's sign-off does that.
+
+  The client's brand and voice are on their project. get_brand is the
+  agency's own brand: never brief or write a client page from it.
 
   Say what you could not establish (a search volume the provider did not
   give, a guideline the client has not shared) rather than guessing. Without
