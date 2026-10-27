@@ -2,7 +2,7 @@ import type { InventoryFetchers } from './inventory';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { inventoryIssues, parseSitemap, readInventory, renderInventory, robotsSitemaps, sitePages } from './inventory';
+import { INVENTORY_MD_BUDGET, inventoryIssues, parseSitemap, readInventory, renderInventory, robotsSitemaps, sitePages } from './inventory';
 
 /**
  * A client's whole site, read from its own sitemap rather than from what ten
@@ -200,5 +200,25 @@ describe('renderInventory', () => {
     const md = renderInventory({ site: 'northwind-home.example', readAt: NOW.toISOString(), from: 'sitemap', sitemaps: [], listed: 1, rows: [{ url: 'https://northwind-home.example/', status: 200, title: 'Home', metaDescription: 'Home.', h1: 'Home', h1Count: 1, canonical: null, noindex: false, wordCount: 10, schemaTypes: [] }] });
 
     expect(md).toContain('Nothing missing: every page read has a title, a meta description and one H1');
+  });
+
+  it('fits one markdown artifact on a big site: compact table first, then a stated cut', () => {
+    const bigRow = (i: number) => ({ url: `https://northwind-home.example/blog/a-long-post-slug-about-drain-cleaning-number-${i}`, status: 200, title: `How to keep a drain clear in winter, part ${i}`, metaDescription: `A long description of drain care for homeowners in Fairview and Lakeside, number ${i}, with tips and costs.`, h1: `Keeping a drain clear in winter, part ${i}`, h1Count: 1, canonical: `https://northwind-home.example/blog/a-long-post-slug-about-drain-cleaning-number-${i}`, noindex: false, wordCount: 1200 + i, schemaTypes: ['BlogPosting', 'BreadcrumbList'] });
+    const inv = (n: number) => ({ site: 'northwind-home.example', readAt: NOW.toISOString(), from: 'sitemap' as const, sitemaps: [], listed: n, rows: Array.from({ length: n }, (_, i) => bigRow(i + 1)) });
+    const tableRows = (md: string) => md.split('\n').filter(l => /^\| \d+ \|/.test(l));
+
+    // 300 pages: the full table does not fit, the compact one does, every row kept.
+    const compact = renderInventory(inv(300));
+
+    expect(compact.length).toBeLessThanOrEqual(INVENTORY_MD_BUDGET);
+    expect(compact).toContain('Compact table, paths on northwind-home.example: the full columns');
+    expect(tableRows(compact)).toHaveLength(300);
+
+    // A tiny budget: rows are cut, and the document says how many fit.
+    const cut = renderInventory(inv(300), 6_000);
+
+    expect(cut.length).toBeLessThanOrEqual(6_000);
+    expect(tableRows(cut).length).toBeLessThan(300);
+    expect(cut).toContain(`only the first ${tableRows(cut).length} rows fit even compact`);
   });
 });
