@@ -59,6 +59,31 @@ async function persistAndEmit(
   summary: string,
   folder?: string,
 ): Promise<string> {
+  return (await persistArtifact(ctx, kind, modelTitle, spec, summary, folder)).receipt;
+}
+
+/**
+ * A markdown artifact made by a tool rather than by the model's
+ * `render_markdown` call — the SERP brief is one — through the same path, so
+ * it opens beside the conversation and lands in the artifacts log the same
+ * way. Returns the receipt and the artifact's id (null when it was refused).
+ * @param ctx - The turn.
+ * @param title - The artifact's title.
+ * @param md - Its body.
+ * @param folder - Where it is filed in the artifacts log.
+ */
+export async function renderMarkdownArtifact(ctx: RuntimeContext, title: string, md: string, folder?: string): Promise<{ receipt: string; artifactId: number | null }> {
+  return persistArtifact(ctx, 'markdown', title, { title, md }, `${md.length} chars`, folder);
+}
+
+async function persistArtifact(
+  ctx: RuntimeContext,
+  kind: 'table' | 'markdown' | 'chart' | 'record',
+  modelTitle: string,
+  spec: unknown,
+  summary: string,
+  folder?: string,
+): Promise<{ receipt: string; artifactId: number | null }> {
   // The model names the artifact; the content decides when the name is not
   // one. "Right now — Sep 17, 4:50 PM UTC" was filed as a title today
   // (`services/artifacts/title.ts`). The spec keeps the derived title too, so
@@ -110,12 +135,15 @@ async function persistAndEmit(
     });
     ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
     const where = ctx.conversationId ? ` as artifact #${artifact.id}` : ' (no conversation — not shown beside a chat)';
-    return `Rendered ${kind} "${artifact.title}"${summary ? ` (${summary})` : ''}${where}, now open beside the conversation at v1. The artifact carries the content — do NOT repeat it as text; refer to it by title. To change it later call update_artifact(${artifact.id}, …) rather than rendering a second one.`;
+    return {
+      artifactId: artifact.id,
+      receipt: `Rendered ${kind} "${artifact.title}"${summary ? ` (${summary})` : ''}${where}, now open beside the conversation at v1. The artifact carries the content — do NOT repeat it as text; refer to it by title. To change it later call update_artifact(${artifact.id}, …) rather than rendering a second one.`,
+    };
   } catch (err) {
     if (err instanceof ArtifactError) {
-      return `render_${kind} rejected: ${err.message}. Fix the payload and call again.`;
+      return { artifactId: null, receipt: `render_${kind} rejected: ${err.message}. Fix the payload and call again.` };
     }
-    return `Could not render ${kind}: ${(err as Error).message ?? 'unknown error'}`;
+    return { artifactId: null, receipt: `Could not render ${kind}: ${(err as Error).message ?? 'unknown error'}` };
   }
 }
 

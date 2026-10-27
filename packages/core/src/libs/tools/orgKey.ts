@@ -12,9 +12,9 @@
  * key can ask without importing a sibling capability's registry.
  */
 
-import type { CredentialToolProvider } from '@/libs/platforms/registry';
-import { platformForToolProvider } from '@/libs/platforms/registry';
-import { spendablePlatformKey } from '@/services/ApiTokenService';
+import type { CredentialToolProvider, CredentialValues } from '@/libs/platforms/registry';
+import { keyHint, platformForToolProvider } from '@/libs/platforms/registry';
+import { resolvePlatformCredential, spendablePlatformKey } from '@/services/ApiTokenService';
 import { ToolProviderKeyUnavailableError } from './types';
 
 /**
@@ -58,6 +58,36 @@ export async function resolveToolProviderKey(
   }
 }
 
+/**
+ * The org's whole stored credential for a provider whose credential is more
+ * than one string — DataForSEO's API login and password — or null when it
+ * has none, or holds one with a field missing.
+ *
+ * The multi-field twin of {@link resolveToolProviderKey}, with the same
+ * contract: null means "fall through to the server's env", and a store that
+ * will not answer raises {@link ToolProviderKeyUnavailableError} rather than
+ * letting the call spend the deployment's account.
+ * @param provider - The tool provider about to be called, e.g. `dataforseo`.
+ * @param orgId - The org the call is being made for.
+ */
+export async function resolveToolProviderCredential(
+  provider: CredentialToolProvider,
+  orgId: string,
+): Promise<CredentialValues | null> {
+  const platform = platformForToolProvider(provider);
+  if (!platform) {
+    return null;
+  }
+  try {
+    const values = await resolvePlatformCredential(orgId, platform.id);
+    const complete = values && platform.fields.every(f => f.optional || Boolean(values[f.name]));
+    return complete ? values : null;
+  } catch (error) {
+    console.error('[tools/orgKey] could not read the org\'s stored credential', { provider, orgId, error });
+    throw new ToolProviderKeyUnavailableError(provider);
+  }
+}
+
 /** What the catalog needs to know about a key without handling the key. */
 export type StoredToolCredential = {
   /** Masked tail of the stored key, for the settings surface to show. */
@@ -90,6 +120,14 @@ export async function storedToolProviderCredential(
   const platform = platformForToolProvider(provider);
   if (!platform) {
     return null;
+  }
+  if (platform.fields.length > 1) {
+    // A pair (DataForSEO's login and password): spendable when every field
+    // the call needs is there, and masked by its secret field.
+    const values = await resolvePlatformCredential(orgId, platform.id);
+    const secret = platform.fields.find(f => f.secret);
+    const complete = values && platform.fields.every(f => f.optional || Boolean(values[f.name]));
+    return complete && secret ? { keyHint: keyHint(values[secret.name]!) } : null;
   }
   const spendable = await spendablePlatformKey(orgId, platform.id);
   if (!spendable) {

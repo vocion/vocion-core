@@ -1,0 +1,15 @@
+{
+  "searchParameters": { "q": "wide hiking boots", "gl": "us", "hl": "en", "type": "search", "num": 10, "location": "Denver, Colorado, United States", "engine": "google" },
+  "answerBox": { "title": "Best Wide Hiking Boots, Tested", "snippet": "Look for a wide toe box, a removable insole and a lacing system that adjusts across the forefoot.", "link": "https://northwind-outfitters.example/guides/wide-hiking-boots" },
+  "organic": [
+    { "title": "Best Wide Hiking Boots, Tested on 200 Miles of Trail", "link": "https://northwind-outfitters.example/guides/wide-hiking-boots", "snippet": "We tested twelve wide-fit boots across rocky and wet trails.", "date": "Jul 19, 2026", "position": 1 },
+    { "title": "Wide Hiking Boots | Contoso Supply", "link": "https://www.contoso-supply.example/boots/wide", "snippet": "Shop wide and extra-wide hiking boots with free returns.", "position": 2 },
+    { "title": "How to Fit Hiking Boots for Wide Feet", "link": "https://acme-trail-journal.example/fit/wide-feet", "snippet": "Measure your foot at the end of the day, when it is largest.", "date": "3 days ago", "position": 3 }
+  ],
+  "peopleAlsoAsk": [
+    { "question": "What hiking boots are best for wide feet?", "snippet": "Boots with a wide toe box and a stretchable upper.", "title": "Wide boots", "link": "https://acme-trail-journal.example/fit/wide-feet" },
+    { "question": "Should hiking boots be a size bigger?" }
+  ],
+  "relatedSearches": [{ "query": "wide hiking boots women" }, { "query": "waterproof wide hiking boots" }],
+  "credits": 1
+}

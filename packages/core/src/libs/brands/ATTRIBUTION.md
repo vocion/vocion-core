@@ -81,5 +81,8 @@ entry a mark.
 | `rippling` | Rippling | No logo | Rippling publishes no terms for third-party use of its logo. |
 | `slack` | Slack | No logo | Slack's brand terms require a written licence for most logo use and allow an integration to be stated in text only: https://slack.com/terms-of-service/slack-brand. simple-icons dropped Salesforce marks in v16. The "Sign in with Slack" button is Slack's own sign-in asset and is a separate matter. |
 | `slate` | Slate | No logo | Slate publishes no brand guidelines. |
+| `serper` | Serper | No logo | No terms for third-party use of its logo were found on serper.dev (2026-10-27). Not in simple-icons. |
+| `serpapi` | SerpApi | No logo | No terms for third-party use of its logo were found on serpapi.com (2026-10-27). Not in simple-icons. |
+| `dataforseo` | DataForSEO | No logo | No terms for third-party use of its logo were found on dataforseo.com (2026-10-27). Not in simple-icons. |
 | `tavily` | Tavily | No logo | Tavily's brand page allows its marks in a compatibility statement but not alongside other companies' without formal permission, which a catalog of tools is: https://www.tavily.com/brand. Ask Tavily before adding it. |
 | `workday` | Workday | No logo | Workday's trademark guidelines require permission to use its logos: https://www.workday.com/en-us/legal/trademarks.html. |

@@ -22,7 +22,7 @@ import {
   platformForToolProvider,
 } from './registry';
 
-const TOOL_PROVIDERS = ['tavily', 'brave', 'firecrawl'] as const;
+const TOOL_PROVIDERS = ['tavily', 'brave', 'firecrawl', 'serper', 'serpapi'] as const;
 
 describe('finding the platform behind a tool provider', () => {
   it.each(TOOL_PROVIDERS)('maps %s to its own platform', (provider) => {
@@ -75,5 +75,15 @@ describe('how a tool platform stores its key', () => {
 
     expect(platform.connectorSlugs).toEqual([]);
     expect(platform.llmProvider).toBeNull();
+  });
+});
+
+describe('the DataForSEO platform', () => {
+  it('holds a login and a password, the password secret', () => {
+    const platform = getPlatform('dataforseo');
+
+    expect(platformForToolProvider('dataforseo')?.id).toBe('dataforseo');
+    expect(platform.credentialsPerOrg).toBe('one-live');
+    expect(platform.fields.map(f => [f.name, f.secret])).toEqual([['login', false], ['password', true]]);
   });
 });

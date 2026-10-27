@@ -768,7 +768,8 @@ async function tieredTools<T extends StructuredToolInterface>(blueprint: AgentBl
   const { TOOL_SEARCH, deferColdTools, namedInPrompt } = await import('./toolTiers');
   // What the agent used lately, what it was granted, and what its own prompt
   // tells it to use (`namedInPrompt`).
-  const keep = new Set([...blueprint.hotTools, ...(harness.grantTools ?? []), ...namedInPrompt(blueprint.agentRow.systemPrompt, tools.map(t => t.name))]);
+  const { expandGrants } = await import('./tools/grantGroups');
+  const keep = new Set([...blueprint.hotTools, ...expandGrants(harness.grantTools ?? []), ...namedInPrompt(blueprint.agentRow.systemPrompt, tools.map(t => t.name))]);
   if (tools.every(t => keep.has(t.name))) {
     return tools;
   }

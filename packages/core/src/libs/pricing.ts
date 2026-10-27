@@ -136,6 +136,20 @@ export const PRICING: Readonly<Record<string, Readonly<PricingTier>>> = {
   'elevenlabs/eleven_flash_v2_5': { inputCentsPerMillion: 10_000, outputCentsPerMillion: 0 },
   'elevenlabs/eleven_turbo_v2_5': { inputCentsPerMillion: 10_000, outputCentsPerMillion: 0 },
 
+  // SERP vendors bill per call, so a row prices one billed unit as one input
+  // "token" (the ElevenLabs pattern above): the SERP tools charge
+  // `inputTokens = units` to `seo.research` (`services/agents/tools/serpResearch.ts`).
+  // List prices read off each vendor's pricing page on 2026-10-27, at the
+  // entry paid tier, so an Org on a larger plan pays less than this counts:
+  // Serper $50 for 50,000 credits ($1.00 per 1,000; one credit per 10
+  // results); DataForSEO Google Organic Live $0.002 per SERP page of 10; its
+  // Google Ads search volume Live $0.09 per task (up to 1,000 keywords);
+  // SerpApi Developer $75 for 5,000 searches ($0.015 each).
+  'serp/serper': { inputCentsPerMillion: 100_000, outputCentsPerMillion: 0 },
+  'serp/dataforseo': { inputCentsPerMillion: 200_000, outputCentsPerMillion: 0 },
+  'serp/dataforseo-search-volume': { inputCentsPerMillion: 9_000_000, outputCentsPerMillion: 0 },
+  'serp/serpapi': { inputCentsPerMillion: 1_500_000, outputCentsPerMillion: 0 },
+
   // Deliberately NOT priced: `amazon.titan-embed-text-v1`, the Bedrock
   // embedding default. AWS publishes Titan embedding pricing behind a
   // region-and-model picker we could not read a single figure off on

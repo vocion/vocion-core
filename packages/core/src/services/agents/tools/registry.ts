@@ -108,6 +108,7 @@ import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { sentryTools } from './sentry';
+import { serpTools } from './serpResearch';
 import { setupWorkspaceTools } from './setupWorkspace';
 import { setVoiceTool } from './setVoice';
 import { exportArtifactXlsxTool } from './tableExport';
@@ -376,6 +377,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted-only (harness.grantTools) — empty for agents without the grant.
     ...discoveryTools(ctx),
     ...personalizationTools(ctx),
+    // Granted-only (`harness.grantTools: [serp]`): Google's results page, the
+    // pages on it compared into a SERP brief, keyword volume — paid per call.
+    ...serpTools(ctx),
     // Granted-only: reference-based kit verification + the Rekognition second opinion.
     ...kitVisionTools(ctx),
     // Personal workspaces only: the person's own assistant lists and asks the

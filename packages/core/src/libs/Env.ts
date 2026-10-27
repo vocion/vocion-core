@@ -44,6 +44,21 @@ export const Env = createEnv({
      * (`libs/http/clientIp.ts`).
      */
     VOCION_TRUSTED_PROXY_COUNT: z.string().optional(),
+    /**
+     * SERP research (`libs/tools/serp/`, the `serp_search` / `serp_compare` /
+     * `keyword_metrics` tools; docs/guides/seo-research.md). `serper` |
+     * `dataforseo` | `serpapi`; unset, the first with a key, Serper first. A
+     * plain string so a typo degrades to that order instead of failing boot.
+     * Each is the SERVER's key and the fallback: a workspace that stores its
+     * own under API credentials spends its own account. With none, the tools
+     * fall back to the web search provider and say the results are not
+     * Google's ranking. Keyword volume needs DataForSEO.
+     */
+    VOCION_SERP_PROVIDER: z.string().optional(),
+    SERPER_API_KEY: z.string().optional(),
+    SERPAPI_API_KEY: z.string().optional(),
+    DATAFORSEO_LOGIN: z.string().optional(),
+    DATAFORSEO_PASSWORD: z.string().optional(),
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
     BILLING_PLAN_ENV: z.enum(['dev', 'test', 'prod']).default('dev'),
@@ -225,6 +240,11 @@ export const Env = createEnv({
     VOCION_RATE_LIMIT: process.env.VOCION_RATE_LIMIT,
     VOCION_TRUSTED_PROXY_COUNT: process.env.VOCION_TRUSTED_PROXY_COUNT,
     DATABASE_URL: process.env.DATABASE_URL,
+    VOCION_SERP_PROVIDER: process.env.VOCION_SERP_PROVIDER,
+    SERPER_API_KEY: process.env.SERPER_API_KEY,
+    SERPAPI_API_KEY: process.env.SERPAPI_API_KEY,
+    DATAFORSEO_LOGIN: process.env.DATAFORSEO_LOGIN,
+    DATAFORSEO_PASSWORD: process.env.DATAFORSEO_PASSWORD,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
     BILLING_PLAN_ENV: process.env.BILLING_PLAN_ENV,

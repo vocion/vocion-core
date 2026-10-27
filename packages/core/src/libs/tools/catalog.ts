@@ -2,6 +2,7 @@ import type { CapabilityStatus } from './types';
 import { browseStatus } from './browse/registry';
 import { codeStatus } from './code/registry';
 import { imageStatus } from './image/registry';
+import { serpStatus } from './serp/registry';
 import { webSearchStatus } from './websearch/registry';
 
 /**
@@ -68,6 +69,50 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
     ],
   },
   {
+    name: 'serp_search',
+    title: 'Google results',
+    capability: 'serp',
+    category: 'research',
+    description: 'Google\'s results page for a query: top results, People Also Ask, related searches, dated.',
+    sourceFile: 'src/services/agents/tools/serpResearch.ts',
+    params: [
+      { name: 'query', type: 'string', required: true, description: 'The search query, exactly as a person would type it' },
+      { name: 'location', type: 'string', required: false, description: 'Where the search is made from, as Google names places' },
+      { name: 'language', type: 'string', required: false, description: 'Interface language, ISO 639-1 (Google hl)' },
+      { name: 'country', type: 'string', required: false, description: 'Country, ISO 3166-1 alpha-2 (Google gl)' },
+      { name: 'device', type: '"desktop" | "mobile"', required: false, description: 'Desktop (default) or mobile results' },
+      { name: 'num', type: 'number', required: false, description: 'How many organic results (default 10)' },
+    ],
+  },
+  {
+    name: 'serp_compare',
+    title: 'Compare top pages',
+    capability: 'serp',
+    category: 'research',
+    description: 'Reads Google\'s top pages for a query and files a SERP brief: outline, length, schema, FAQ, links, dates.',
+    sourceFile: 'src/services/agents/tools/serpResearch.ts',
+    params: [
+      { name: 'query', type: 'string', required: false, description: 'The search query; omit when passing serp_result_id' },
+      { name: 'serp_result_id', type: 'string', required: false, description: 'The serpResultId serp_search returned' },
+      { name: 'top', type: 'number', required: false, description: 'How many of the top results to read (5–10, default 10)' },
+      { name: 'brief_id', type: 'number', required: false, description: 'With synthesis: the brief to write it into' },
+      { name: 'synthesis', type: 'object', required: false, description: '{ intent, common_subtopics, gaps }, each point citing page positions' },
+    ],
+  },
+  {
+    name: 'keyword_metrics',
+    title: 'Keyword volume',
+    capability: 'serp',
+    category: 'research',
+    description: 'Monthly search volume, CPC and competition from Google Ads data (DataForSEO).',
+    sourceFile: 'src/services/agents/tools/serpResearch.ts',
+    params: [
+      { name: 'keywords', type: 'string[]', required: true, description: 'Up to 1,000 keywords' },
+      { name: 'location', type: 'string', required: false, description: 'As Google names places; default United States' },
+      { name: 'language', type: 'string', required: false, description: 'ISO 639-1, default en' },
+    ],
+  },
+  {
     name: 'generate_image',
     title: 'Generate image',
     capability: 'generate_image',
@@ -126,13 +171,14 @@ const ARTIFACT_STATUS: CapabilityStatus = {
  * @param orgId - The org to report for, or undefined for the server's view.
  */
 export async function capabilityStatuses(orgId?: string): Promise<CapabilityStatus[]> {
-  const [webSearch, browse, image, code] = await Promise.all([
+  const [webSearch, browse, serp, image, code] = await Promise.all([
     webSearchStatus(orgId),
     browseStatus(orgId),
+    serpStatus(orgId),
     imageStatus(orgId),
     codeStatus(orgId),
   ]);
-  return [webSearch, browse, image, code, ARTIFACT_STATUS];
+  return [webSearch, browse, serp, image, code, ARTIFACT_STATUS];
 }
 
 /**
@@ -159,6 +205,8 @@ export async function capabilityStatus(
       return webSearchStatus(orgId);
     case 'browse':
       return browseStatus(orgId);
+    case 'serp':
+      return serpStatus(orgId);
     case 'generate_image':
       return imageStatus(orgId);
     case 'run_code':

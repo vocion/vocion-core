@@ -82,6 +82,8 @@ export const FEATURES = {
   DISCOVERY_CLASSIFY: 'discovery.classify',
   /** The `generate_image` agent tool — the priciest single call an agent makes. */
   TOOL_IMAGE: 'tool.image',
+  /** SERP research — Google's results page, the pages on it, keyword volume (`serp_search`, `serp_compare`, `keyword_metrics`). */
+  SEO_RESEARCH: 'seo.research',
   /** The `draw_mockup` survey — a vision read of the real screen a mockup is drawn on. */
   TOOL_MOCKUP: 'tool.mockup',
   /** `extract_records` — one read per dropped file (a badge photo, a card, a page of notes) into typed records (`services/intake`). */
