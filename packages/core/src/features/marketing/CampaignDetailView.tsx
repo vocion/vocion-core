@@ -27,7 +27,7 @@ export function CampaignDetailView(props: { campaign: CampaignRow; daily: Array<
   const daily = props.daily;
   return (
     <DetailPage
-      crumbs={[{ label: 'Marketing', href: '/dashboard/marketing' }, { label: c.name }]}
+      crumbs={[{ label: 'Paid Marketing', href: '/dashboard/marketing' }, { label: c.name }]}
       title={c.name}
       subtitle={`${c.status === 'ENABLED' ? 'Live' : c.status === 'PAUSED' ? 'Paused' : c.status} · ${money(c.dailyBudget)} a day · ${props.from} to ${props.to}`}
       actions={<RangeLinks days={props.days} base={`/dashboard/marketing/${c.id}`} />}

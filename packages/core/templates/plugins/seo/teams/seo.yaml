@@ -1,0 +1,43 @@
+name: SEO
+description: >-
+  SEO pages for every client, researched against what ranks, planned and
+  written on the strongest model, checked before a person sees them, and
+  signed off early. Four seats: the strategist (plans, briefs, routes
+  feedback; leads), the SERP analyst (the research legwork), the writer and
+  the editor. Graded on pages a person approved and pages published, never on
+  pages written.
+goal: Every client's pages are approved on the first read more often each month, and the ones approved reach the client's site.
+lead: seo-strategist
+measures:
+  # THE OUTCOME: pages that reached the client's site. Counted from the
+  # publish action's runs that finished, so it is observed, not reported.
+  - key: pages_published
+    label: Pages published
+    dimension: outcome
+    target: 20
+    baseline: 0
+    unit: pages
+    window: 30d
+    source: {kind: observed, actions: [site.publish_page]}
+  # What a person signed off. Human-confirmed by construction: the answer on
+  # the sign-off ask is the evidence. Read beside the next one, it says how
+  # often a draft was approved as it stood.
+  - key: pages_signed_off
+    label: Pages a person signed off
+    dimension: quality
+    target: 25
+    baseline: 0
+    unit: pages
+    window: 30d
+    source: {kind: human-confirmed, askKinds: [signoff]}
+  # Drafts written, from the artifact rows the writer files under seo/drafts.
+  # Velocity beside quality, never instead of it: many drafts and few
+  # sign-offs is the failure the volume gate exists to catch early.
+  - key: drafts_written
+    label: Drafts written
+    dimension: velocity
+    target: 30
+    baseline: 0
+    unit: drafts
+    window: 30d
+    source: {kind: observed, rows: artifacts, where: {folder: seo/drafts}}

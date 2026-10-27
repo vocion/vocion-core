@@ -136,6 +136,15 @@ schema:
       type: array
       description: Knowledge documents a person took back out; never auto-filed again.
       items: {type: integer}
+    seoGate:
+      type: object
+      description: >-
+        How the SEO app releases this project's pages for writing: a sample a
+        person signs off on first, then a tranche, then the rest. Whole
+        numbers from 1 to 100; anything else reads as the default (3, then 10).
+      properties:
+        sample: {type: integer, minimum: 1, maximum: 100}
+        tranche: {type: integer, minimum: 1, maximum: 100}
 sourceRelevance:
   zoom: 2.0
   granola: 2.0

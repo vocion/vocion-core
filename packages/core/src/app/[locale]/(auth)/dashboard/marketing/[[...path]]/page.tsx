@@ -31,7 +31,7 @@ function shown(path: string[] | undefined): Shown {
 
 export async function generateMetadata(props: { params: Promise<{ path?: string[] }> }): Promise<Metadata> {
   const s = shown((await props.params).path);
-  return { title: s.kind === 'search-terms' ? 'Search terms' : s.kind === 'campaign' ? 'Campaign' : 'Marketing' };
+  return { title: s.kind === 'search-terms' ? 'Search terms' : s.kind === 'campaign' ? 'Campaign' : 'Paid Marketing' };
 }
 
 /**
@@ -63,7 +63,7 @@ export default async function MarketingPage(props: { params: Promise<{ locale: s
   if (s.kind === 'campaign') {
     const read = await readCampaign(orgId, s.id, days);
     if (!read.ok) {
-      return <ListPage title="Marketing" description={read.reason}>{connect}</ListPage>;
+      return <ListPage title="Paid Marketing" description={read.reason}>{connect}</ListPage>;
     }
     if (!read.campaign) {
       notFound();
@@ -87,7 +87,7 @@ export default async function MarketingPage(props: { params: Promise<{ locale: s
 
   const read = await readCampaigns(orgId, days);
   return (
-    <ListPage title="Marketing" description={read.ok ? `Google Ads ${read.account.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}, ${read.from} to ${read.to}. Every change is a card you approve.` : read.reason}>
+    <ListPage title="Paid Marketing" description={read.ok ? `Google Ads ${read.account.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}, ${read.from} to ${read.to}. Every change is a card you approve.` : read.reason}>
       <PluginPanel orgId={orgId} slug="marketing" />
       <MarketingTabs active="campaigns" days={days} />
       {!read.ok

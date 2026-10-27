@@ -1,5 +1,5 @@
 /**
- * The Marketing app's lists as data: how a campaign or a search term sorts,
+ * The Paid Marketing app's lists as data: how a campaign or a search term sorts,
  * and how its numbers read. Pure, so the tables and their tests agree.
  */
 

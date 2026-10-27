@@ -1,0 +1,70 @@
+slug: seo_page
+label: SEO page
+description: >-
+  One page meant to rank for one keyword, for one client. It belongs to a
+  project (`projectId`, the client) and a batch (`batchId`), and it carries
+  the artifacts each step made: the SERP brief (what the top results cover),
+  the page brief (the plan), and the draft. A person signs off on every draft;
+  the page records who wrote, planned and reviewed it on which model, every
+  piece of feedback with where it was filed, and, once published, the pull
+  request or post and the live URL.
+
+  The SEO tools move a page (`seo_save_research`, `seo_save_brief`,
+  `seo_save_draft`, `seo_save_review`, `seo_record_feedback`) and read the
+  volume gate before they write; a person's answer on the sign-off moves it
+  too. Approval is read from that sign-off, never from the status alone.
+icon: file-text
+schema:
+  type: object
+  properties:
+    projectId:
+      type: integer
+      description: The client's project this page is for.
+    batchId:
+      type: integer
+      description: The batch it was planned in.
+    order:
+      type: integer
+      description: Its place in the batch. The first pages are the sample a person reviews before anything else is written.
+    keyword:
+      type: string
+      description: The target search query, as people type it.
+    secondaryKeywords:
+      type: array
+      items: {type: string}
+      description: Related queries the page should also answer.
+    intent:
+      type: string
+      description: What the searcher wants — informational, commercial, transactional or navigational.
+    volume:
+      type: integer
+      description: Monthly search volume, when keyword research established it. Empty when it could not.
+    status:
+      type: string
+      enum: [proposed, researched, briefed, drafting, in_review, changes_requested, approved, publishing, published, rejected]
+      x-display: {label: Status, format: badge, tones: {proposed: muted, researched: muted, briefed: info, drafting: info, in_review: warn, changes_requested: bad, approved: ok, publishing: info, published: ok, rejected: muted}}
+      x-labels: {proposed: Proposed, researched: Researched, briefed: Briefed, drafting: Drafting, in_review: Waiting on your sign-off, changes_requested: Changes requested, approved: Approved, publishing: Publishing, published: Published, rejected: Discarded}
+      x-groups:
+        - {key: progress, label: In progress, role: progress, default: true, in: [researched, briefed, drafting, in_review, changes_requested, publishing]}
+        - {key: proposed, label: Proposed, role: proposed, in: [proposed]}
+        - {key: done, label: Done, role: done, in: [approved, published]}
+        - {key: archived, label: Discarded, role: archived, in: [rejected]}
+      x-needs-you: [in_review]
+    serpArtifactId:
+      type: integer
+      description: The SERP brief artifact — the top results for the keyword, what each covers, dated.
+    briefArtifactId:
+      type: integer
+      description: The page brief artifact the draft is written from.
+    draftArtifactId:
+      type: integer
+      description: The current draft artifact.
+    publishTargetId:
+      type: string
+      description: Which of the project's publish targets the page ships to.
+    publishedUrl:
+      type: string
+      description: The live page, once published.
+    pullRequestUrl:
+      type: string
+      description: The pull request that carries the page, when the site is a repository.

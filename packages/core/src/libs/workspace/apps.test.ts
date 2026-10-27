@@ -10,9 +10,9 @@ import { AppManifestSchema } from './schemas';
 
 describe('the shipped apps', () => {
   it('ships Workforce as the one core app, the prebuilt apps, and the Assistants slot', () => {
-    expect(listAppIds()).toEqual(['assistants', 'company', 'finance', 'gtm', 'marketing', 'routines', 'software-factory', 'workforce']);
+    expect(listAppIds()).toEqual(['assistants', 'company', 'finance', 'gtm', 'marketing', 'routines', 'seo', 'software-factory', 'workforce']);
     expect(listApps().filter(a => a.core).map(a => a.id)).toEqual(['workforce']);
-    expect(listApps().map(a => a.id)).toEqual(['workforce', 'assistants', 'software-factory', 'gtm', 'company', 'finance', 'routines', 'marketing']);
+    expect(listApps().map(a => a.id)).toEqual(['workforce', 'assistants', 'software-factory', 'gtm', 'company', 'finance', 'routines', 'marketing', 'seo']);
   });
 
   it('starts the Company app on its templates, behind its own plugin', () => {
@@ -29,6 +29,20 @@ describe('the shipped apps', () => {
     expect(finance.plugins).toEqual(['finance']);
     expect(finance.entry).toBe('/dashboard/p/account-rules');
     expect(finance.nav).toEqual(['Finance']);
+  });
+
+  it('ships two marketing apps side by side: Paid Marketing, then Search Engine Optimization', () => {
+    const paid = loadApp('marketing');
+    const seo = loadApp('seo');
+
+    // The id, routes and plugin stay `marketing`; only the name a person reads changed.
+    expect(paid.name).toBe('Paid Marketing');
+    expect(paid.entry).toBe('/dashboard/marketing');
+    expect(seo.name).toBe('Search Engine Optimization');
+    expect(seo.plugins).toEqual(['seo']);
+    expect(seo.entry).toBe('/dashboard/p/seo');
+    expect(seo.nav).toEqual(['SEO']);
+    expect(seo.order).toBeGreaterThan(paid.order);
   });
 
   it('keeps the Assistants slot hidden until it has plugins of its own', () => {
@@ -65,7 +79,7 @@ describe('the shipped apps', () => {
   });
 
   it('refuses an unknown id and names the catalogue', () => {
-    expect(() => loadApp('nope')).toThrow(/unknown app "nope" — this core ships: assistants, company, finance, gtm, marketing, routines, software-factory, workforce/);
+    expect(() => loadApp('nope')).toThrow(/unknown app "nope" — this core ships: assistants, company, finance, gtm, marketing, routines, seo, software-factory, workforce/);
   });
 });
 

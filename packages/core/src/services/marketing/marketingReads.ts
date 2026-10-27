@@ -1,5 +1,5 @@
 /**
- * What the Marketing app's pages read: the connected Google Ads account,
+ * What the Paid Marketing app's pages read: the connected Google Ads account,
  * live, through the same reports the Marketing lead reads (`ads/googleReports.ts`).
  * Nothing is stored; every page load asks Google.
  *

@@ -1,0 +1,39 @@
+# Where the SEO app's actions start on the autonomy ladder, and why.
+#
+# The volume gate is NOT here: it is code (`services/seo/gate.ts`), because
+# "nothing past the sample until a person signed off" is a requirement, not a
+# bar that can be earned. These rules are the bars around it.
+rules:
+  # THE PAGE RECORD, written directly. The SEO tools (`seo_save_*`,
+  # `seo_record_feedback`) are the path a page moves on, and they read the
+  # gate first. An agent writing a page's fields any other way
+  # (`update_object`) is going around that path, so a person sees it first.
+  # Medium, not high: correcting a typo in a keyword is real work, and the
+  # ledger can show it is safe.
+  - action: objects.update_meta.seo_page
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+
+  # The batch record: its topic, keywords and destination. Its gate is
+  # rewritten by core on every page write, so a wrong field here is a
+  # correction, never a release.
+  - action: objects.update_meta.seo_batch
+    autoApproveAbove: 0.9
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+
+  # PUBLISHING. A page going to a client's site is public and under the
+  # client's name. Opening a pull request or saving a Squarespace draft is
+  # reversible, but it lands in the client's own system, so it is asked every
+  # time; it may earn its way to running within bounds once the ledger shows
+  # pages approved and published unchanged. Written ahead of the action
+  # (`site.publish_page`, the publishing PR), the way growth-loop writes its
+  # `growth.publish.*` bars, so nothing here changes the day it registers.
+  - action: site.publish_page
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium

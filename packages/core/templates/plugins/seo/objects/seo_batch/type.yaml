@@ -1,0 +1,26 @@
+slug: seo_batch
+label: SEO batch
+description: >-
+  A set of SEO pages planned together for one client's project, on one topic,
+  written in stages: a sample of three a person signs off on first, then a
+  tranche of ten, then the rest. Core writes the batch's `gate` (its stage,
+  counts and one line — "3 of 40 written · waiting on your feedback on the
+  first 3") on every page write, from the pages themselves; the sizes come
+  from the project's `seoGate`.
+icon: layers
+schema:
+  type: object
+  properties:
+    projectId:
+      type: integer
+      description: The client's project.
+    topic:
+      type: string
+      description: What the batch covers, in a few words.
+    keywords:
+      type: array
+      items: {type: string}
+      description: The target keyword of every page, in planned order.
+    destination:
+      type: string
+      description: The project's publish target the pages ship to.

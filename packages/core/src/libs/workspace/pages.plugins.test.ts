@@ -51,6 +51,25 @@ describe('plugin pages', () => {
     expect(metrics?.metrics?.items.map(i => i.key)).toEqual(['expenses_recoded', 'journal_entries', 'invoices_drafted', 'changes_approved']);
   });
 
+  it('the SEO plugin ships its home and its batch view, reading the gate core writes on the records', () => {
+    workspace('plugins: [seo]\n');
+    const { pages, issues } = readWorkspacePages();
+    const home = pages.find(p => p.slug === 'seo');
+    const batch = pages.find(p => p.slug === 'seo-pages');
+
+    expect(issues).toEqual([]);
+    expect(home?.origin).toBe('plugin:seo');
+    expect(home?.source).toEqual({ kind: 'objects', objectType: 'seo_batch' });
+    expect(home?.fields?.find(f => f.key === 'gate')?.from).toBe('meta.gate.line');
+    expect(home?.rowLink).toBe('/dashboard/p/seo-pages?batch={id}');
+    expect(batch?.source).toEqual({ kind: 'objects', objectType: 'seo_page' });
+    // Opened as one batch's pages, headed by the batch's gate line.
+    expect(batch?.queryFilters?.map(q => q.param)).toEqual(['batch', 'project']);
+    expect(batch?.groupBy).toBe('meta.batchLine');
+    expect(batch?.fields?.map(f => f.key)).toEqual(expect.arrayContaining(['keyword', 'status', 'models', 'pr', 'live']));
+    expect(batch?.rowActions.map(a => a.label)).toEqual(['SERP brief', 'Brief', 'Draft']);
+  });
+
   it('an enabled plugin\'s pages appear with their origin and prose', () => {
     workspace('plugins: [wiki]\n');
     const { pages, issues } = readWorkspacePages();

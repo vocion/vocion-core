@@ -253,6 +253,12 @@ type AgentBlueprint = {
    * Auto knows this agent is a lead (`effort.ts` `synthesisLevel`).
    */
   teammateNames?: Record<string, string>;
+  /**
+   * The teammates whose own seat pins a model (`harness.modelProvider` + `harness.model`),
+   * slug to that pin. Consulted through `task`, they run on it rather than on the lead's
+   * legwork model, so a writer pinned to Opus 5.5 writes on Opus 5.5 whoever asks.
+   */
+  teammateModels?: Record<string, { modelProvider: 'anthropic' | 'openai' | 'bedrock'; model: string }>;
   /** This agent's chat model. Stateless per call, so one instance serves every request. */
   model: Awaited<ReturnType<typeof buildChatModelForOrg>>;
   /** The workspace's own zone (`project.time_zone`), the fallback when a turn names none. */
@@ -519,12 +525,25 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   }
 
   const teammateNames = Object.fromEntries(roster.delegates.map(d => [d.slug, d.name]));
-  return { agentRow: row, systemPrompt, subagentSpecs, teammateNames, defaultTimeZone, enabledPlugins, filingTypes, restSources, sourceKinds, workspaceKind };
+  const pinned = roster.delegates.filter(d => d.pinnedModel && !authoredNames.has(d.slug));
+  const teammateModels = pinned.length > 0 ? Object.fromEntries(pinned.map(d => [d.slug, d.pinnedModel!])) : undefined;
+  return { agentRow: row, systemPrompt, subagentSpecs, teammateNames, ...(teammateModels ? { teammateModels } : {}), defaultTimeZone, enabledPlugins, filingTypes, restSources, sourceKinds, workspaceKind };
 }
 
 async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
   const definition = await buildAgentDefinition(orgId, agentSlug);
   const row = definition.agentRow;
+  // A teammate that pins its own model is consulted on it (`teammateModels`).
+  // Built once per blueprint; one that cannot be built falls back to the
+  // lead's choice for teammates, as before.
+  if (definition.teammateModels) {
+    const pins = definition.teammateModels;
+    definition.subagentSpecs = await Promise.all(definition.subagentSpecs.map(async (spec) => {
+      const pin = pins[spec.name];
+      const built = pin ? await buildChatModelForOrg('main', orgId, chatModelOptionsFor(pin)).catch(() => undefined) : undefined;
+      return built ? { ...spec, model: built } : spec;
+    }));
+  }
   // Creativity sets the sampling temperature only when a voice sets it: an
   // agent with no voice keeps the builder's deterministic default, and a model
   // that refuses sampling parameters never receives one (the builder drops it).
@@ -702,7 +721,8 @@ export async function compileAgentForRequest(
   // tool search, which the fast model may not take (`effort.ts`).
   const subagents: SubAgent[] = blueprint.subagentSpecs.map(spec => ({
     ...spec,
-    ...(blueprint.legworkModel ? { tools: domainTools as SubAgent['tools'], model: blueprint.legworkModel } : { tools: tools as SubAgent['tools'] }),
+    // A teammate that pins its own model keeps it (`delegationRoster.ts` `pinnedModel`).
+    ...(blueprint.legworkModel && !spec.model ? { tools: domainTools as SubAgent['tools'], model: blueprint.legworkModel } : { tools: tools as SubAgent['tools'] }),
     ...(turnMiddleware.length > 0 ? { middleware: turnMiddleware } : {}),
   }));
 

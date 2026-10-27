@@ -1,0 +1,39 @@
+# The SEO home: every batch, its gate in one line, and its pages by status.
+# An ordinary `list` over the `seo_batch` noun. The gate line and the counts
+# are written onto the batch by core (`services/seo/records.ts`) on every page
+# write, from the pages themselves, so this page reads what the tools enforce.
+slug: seo
+title: SEO
+description: Every batch of pages for every client, where its gate stands, and what is waiting on you.
+icon: search
+nav: {section: SEO, order: 1}
+archetype: list
+source: {kind: objects, objectType: seo_batch}
+sort: {field: createdAt, dir: desc}
+groupBy: meta.projectName
+primary: {field: title, subtitle: [gate]}
+stats:
+  - {label: Batches, kind: count}
+  - {label: Pages, kind: sum, field: meta.gate.total}
+  - {label: Written, kind: sum, field: meta.gate.written}
+  - {label: Approved, kind: sum, field: meta.gate.approved}
+  - {label: Waiting on you, kind: sum, field: meta.waitingOnYou}
+fields:
+  - {key: title, label: Batch}
+  - {key: gate, label: Gate, from: meta.gate.line}
+  - {key: stage, label: Stage, from: meta.gate.stage, format: badge, tones: {sample: warn, tranche: info, open: ok}}
+  - {key: total, label: Pages, from: meta.gate.total, format: mono}
+  - {key: proposed, label: Proposed, from: meta.counts.proposed, format: mono}
+  - {key: briefed, label: Briefed, from: meta.counts.briefed, format: mono}
+  - {key: review, label: In review, from: meta.counts.in_review, format: mono}
+  - {key: changes, label: Changes, from: meta.counts.changes_requested, format: mono}
+  - {key: approved, label: Approved, from: meta.counts.approved, format: mono}
+  - {key: published, label: Published, from: meta.counts.published, format: mono}
+rowLink: /dashboard/p/seo-pages?batch={id}
+rowActions:
+  - {label: Project, href: '/dashboard/rooms/{meta.projectId}'}
+empty:
+  text: No batches yet. Onboard a client from their website, then ask the SEO strategist to plan pages for them.
+prompts:
+  - {label: Plan pages, prompt: 'Plan a batch of SEO pages for a client. Ask me which client and what topic, then research what ranks before proposing the pages.', agent: seo-strategist}
+  - {label: Onboard a client, prompt: 'Onboard a new client from their website: ', agent: seo-strategist}

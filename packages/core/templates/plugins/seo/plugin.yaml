@@ -1,0 +1,45 @@
+# The SEO plugin — SEO pages for many clients from one workspace: research
+# what ranks, plan, write in each client's voice and rules, get feedback early,
+# and ship pages to the client's site.
+#
+# Core ships the MECHANISM: the `seo_*` tools (batches and pages as records,
+# the volume gate enforced in code — `services/seo/gate.ts` — and the model
+# that actually ran each step recorded on the page), the sign-off ask and its
+# routing back onto the page (`services/seo/signoff.ts`), projects (the
+# client's rules, wiki, brand and guideline documents), the wiki, the SERP
+# research tools (`serp_search`, `serp_compare`, `keyword_metrics`, granted as
+# the `serp` group) and page publishing (`site.publish_page`).
+#
+# This plugin ships the MEANING: four seats (a strategist who plans and
+# briefs, a SERP analyst who does the legwork, a writer, an editor who checks
+# every draft before a person sees it), the procedure for each step as a
+# skill, the learning step that carries adopted feedback into the writer's
+# context, the trust bars, and the two pages.
+#
+# The workspace ships the CONCRETION: its clients (one project each), their
+# rules and voice, the gate sizes per project (`seoGate`), and where each
+# client's pages publish.
+slug: seo
+name: SEO pages
+version: 1.0.0
+description: SEO pages for every client from one workspace. Research what ranks on Google, plan pages on the strongest model, write in each client's voice and rules, get your feedback on the first three before the rest are written, and ship to the client's site with your sign-off.
+depends: [data-rooms, wiki]
+lead: seo-strategist
+surfaces: []
+nav: {section: SEO}
+recommend:
+  when:
+    - a person asks for SEO pages, blog posts or landing pages meant to rank for a keyword
+    - an agency onboards a client and the brand, voice and rules live in people's heads
+    - someone asks what the top Google results for a keyword cover before writing
+    - pages were written in bulk and came back wrong because nobody saw the first few
+    - feedback on a client's page keeps being given twice, or lost between writers
+  connectors: [github]
+
+starters:
+  - label: Onboard a new client from their website
+    prompt: 'Onboard a new client from their website: '
+  - label: Plan pages for a client
+    prompt: Plan a batch of SEO pages for a client. Ask me which client and what topic, then research what ranks before proposing the pages.
+  - label: Show pages waiting on me
+    prompt: Which SEO pages are waiting on my sign-off or my feedback, in every batch? Link each one.

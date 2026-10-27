@@ -1,0 +1,29 @@
+# The SEO writer's own learning step. A sign-off answered with a note, a
+# revise on a draft and a correction in chat each file a candidate here,
+# because the writer declares this as its first learning step. Adopted rules
+# mount into the writer's and the editor's context before the next page.
+#
+# Client-specific rules belong to the client's project (its rules and notes,
+# filed with update_project); this bucket is for what a person adopted as
+# true of the craft, across clients.
+name: seo-feedback
+title: SEO page feedback
+description: >-
+  What people changed, cut or sent back on SEO pages, as rules for the next
+  page: structure, headings, how intent is answered, internal links, meta
+  titles and descriptions, claims, length. Read before writing or reviewing
+  any page.
+agents:
+  - seo-writer
+  - seo-editor
+preamble: |
+  These rules came from real sign-offs: a page a person sent back, a heading
+  they rewrote, a claim they cut. They are narrower than the skills and win
+  where they disagree. A client's own rules, in its project, win over these.
+  Read them before the first heading; check the draft against them before you
+  save it.
+rules:
+  - id: answer-the-query-first
+    text: Answer the search query in the first two sentences under the H1, in the words a searcher used; context comes after the answer, never before it.
+  - id: no-claim-without-a-source
+    text: A number, ranking or comparison in a page traces to the client's own material or a dated source in the SERP brief; otherwise it is cut, not softened.

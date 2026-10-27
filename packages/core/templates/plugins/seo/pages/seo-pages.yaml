@@ -1,0 +1,40 @@
+# A batch's pages: keyword, status, the models that ran each step, and the
+# links to everything each step made. Opened from the SEO home with
+# `?batch=<id>`; grouped by the batch's line, which carries its gate
+# ("Northwind Outfitters: Trail shoes · 3 of 40 written · waiting on your
+# feedback on the first 3"), so the gate reads as the heading over its pages.
+slug: seo-pages
+title: SEO pages
+description: Each page with its keyword, where it stands, which model planned, wrote and reviewed it, and links to its SERP brief, brief, draft, pull request and live page.
+icon: file-text
+nav: {section: SEO, order: 2}
+archetype: list
+source: {kind: objects, objectType: seo_page}
+sort: {field: meta.order, dir: asc}
+groupBy: meta.batchLine
+queryFilters:
+  - {param: batch, field: meta.batchId, label: Batch, picker: {labelFrom: meta.batchTitle}}
+  - {param: project, field: meta.projectId, label: Project, picker: {labelFrom: meta.projectName}}
+primary: {field: keyword, subtitle: [models]}
+stats:
+  - {label: Pages, kind: count}
+  - {label: Waiting on you, kind: countWhere, where: {field: meta.status, op: eq, value: in_review}}
+  - {label: Changes requested, kind: countWhere, where: {field: meta.status, op: eq, value: changes_requested}}
+  - {label: Approved, kind: countWhere, where: {field: meta.status, op: in, value: [approved, publishing, published]}}
+  - {label: Published, kind: countWhere, where: {field: meta.status, op: eq, value: published}}
+fields:
+  - {key: order, label: '#', from: meta.order, format: mono}
+  - {key: keyword, label: Keyword, from: meta.keyword}
+  - {key: status, label: Status, from: meta.status, format: badge, tones: {proposed: muted, researched: muted, briefed: info, drafting: info, in_review: warn, changes_requested: bad, approved: ok, publishing: info, published: ok, rejected: muted}}
+  - {key: models, label: Models, from: meta.modelsLine}
+  - {key: intent, label: Intent, from: meta.intent}
+  - {key: volume, label: Volume, from: meta.volume, format: mono}
+  - {key: pr, label: Pull request, from: meta.pullRequestUrl, format: link}
+  - {key: live, label: Live page, from: meta.publishedUrl, format: link}
+rowLink: /dashboard/objects/{id}
+rowActions:
+  - {label: SERP brief, href: '/dashboard/artifacts/{meta.serpArtifactId}'}
+  - {label: Brief, href: '/dashboard/artifacts/{meta.briefArtifactId}'}
+  - {label: Draft, href: '/dashboard/artifacts/{meta.draftArtifactId}'}
+empty:
+  text: No pages here yet. Plan a batch from the SEO page.

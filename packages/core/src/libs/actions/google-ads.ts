@@ -2,7 +2,7 @@
  * GOOGLE ADS WRITES — every change to a Google Ads account is a proposal a
  * person approves (`approvalRequired`), because each one moves money: what a
  * campaign may spend, what it bids on, what it says. A person's own tap on the
- * Marketing app is that approval.
+ * Paid Marketing app is that approval.
  *
  *   google_ads.set_budget             a campaign's daily budget
  *   google_ads.add_negatives          negative keywords on a campaign

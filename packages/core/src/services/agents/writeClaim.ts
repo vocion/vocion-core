@@ -28,7 +28,7 @@ export type WriteClaimToolCall = { tool: string; output?: string };
  * Tool-name verbs that change state. A closed list read from the registry;
  * a read tool never starts with one of these.
  */
-const WRITE_VERB = /^(?:add|apollo_add|apollo_remove|create|decide|edit|export|file|publish|queue|recommend|propose|record|red_team|remember|remove|render_document|request|save|unfile|update|withdraw|write)(?:_|$)/;
+const WRITE_VERB = /^(?:add|apollo_add|apollo_remove|create|decide|edit|export|file|publish|queue|recommend|propose|record|red_team|remember|remove|render_document|request|save|seo_(?:plan|save|record)|unfile|update|withdraw|write)(?:_|$)/;
 
 /**
  * Is this tool one that changes state?
@@ -50,7 +50,7 @@ export function isWriteTool(tool: string): boolean {
  * over "Expanded #201" when nothing had been written. An empty answer is not
  * a receipt either.
  */
-const DID_NOT_WRITE = /^(?:error|failed|refused|not (?:put up|proposed|recorded|written|filed|saved)|update (?:refused|failed)|proposal (?:failed|refused)|received tool input did not match|could not|couldn'?t|cannot|can'?t)\b|\bis not yours to\b|\bdid not land\b/i;
+const DID_NOT_WRITE = /^(?:error|failed|refused|not (?:put up|proposed|recorded|written|filed|saved|planned)|update (?:refused|failed)|proposal (?:failed|refused)|received tool input did not match|could not|couldn'?t|cannot|can'?t)\b|\bis not yours to\b|\bdid not land\b/i;
 
 function failed(output: string | undefined): boolean {
   const head = (output ?? '').trimStart().slice(0, 200);

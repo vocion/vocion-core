@@ -32,6 +32,11 @@ export type DelegateEntry = {
   systemPrompt: string;
   /** Where the entry came from — surfaced in the PR/debug, not the prompt. */
   source: 'child' | 'team-lead' | 'team-member';
+  /**
+   * The model the delegate's own seat pins (`harness.modelProvider` + `harness.model`),
+   * when it pins one — consulted, it runs on it rather than on the lead's legwork model.
+   */
+  pinnedModel?: { modelProvider: 'anthropic' | 'openai' | 'bedrock'; model: string };
 };
 
 export type DelegationRoster = {
@@ -69,7 +74,9 @@ export function buildDelegationRoster(opts: {
       return;
     }
     taken.add(a.slug);
-    delegates.push({ slug: a.slug, name: a.name, description, systemPrompt: a.systemPrompt ?? `You are ${a.name}.`, source });
+    const h = (a.harnessConfig ?? {}) as { modelProvider?: 'anthropic' | 'openai' | 'bedrock'; model?: string };
+    const pinnedModel = h.modelProvider && h.model ? { modelProvider: h.modelProvider, model: h.model } : undefined;
+    delegates.push({ slug: a.slug, name: a.name, description, systemPrompt: a.systemPrompt ?? `You are ${a.name}.`, source, ...(pinnedModel ? { pinnedModel } : {}) });
   };
 
   for (const c of opts.children) {
