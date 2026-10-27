@@ -80,6 +80,9 @@ export type CredentialPlatformId
   // The finance family (`services/finance`): billing, books, spend and
   // payables. One account per workspace each (`one-live`, no migration).
     | 'stripe'
+  // A client's Squarespace site: an editor login for publishing, and an
+  // optional developer API key that names the site (`libs/sources/squarespace.ts`).
+    | 'squarespace'
     | 'xero'
     | 'netsuite'
     | 'ramp'
@@ -1053,6 +1056,36 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keyShapeHint: 'a restricted key starting rk_live_ or rk_test_',
     helpText: 'A Stripe restricted key (Developers → API keys → Create restricted key) with Read on customers, invoices, subscriptions, payouts, charges and payment intents. Nothing it reads moves money. Add Invoices: Write only if agents may prepare draft invoices, which are never sent or charged. A publishable key (pk_…) cannot read anything.',
     fields: singleKeyField('Restricted API key', /^[rs]k_(?:live|test)_\w{10,}$/, 'starts with rk_live_ or rk_test_ (a restricted key; a secret key sk_… works but reads more than Vocion needs)'),
+  },
+  {
+    id: 'squarespace',
+    label: 'Squarespace',
+    brand: 'squarespace',
+    keySource: 'supplied',
+    // One login is one person's Squarespace account, and it edits every site it
+    // is a contributor on, so one per workspace covers an agency's clients.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['squarespace'],
+    howToConnect: {
+      // No login: Squarespace's OAuth is for Commerce partners and opens no
+      // pages or posts, and its API has no content endpoints at all. Publishing
+      // signs in to the site's editor with this login, in a browser run.
+      paste: {
+        credential: 'Editor login',
+        access: ['A Squarespace account that can edit the site (a contributor with Content Editor or Administrator)', 'Optional: a developer API key from the site (Settings → Advanced → Developer API Keys), so Test connection can name the site'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'the email and password of a Squarespace account that can edit the site',
+    helpText: 'Squarespace has no API for posts, so Vocion publishes by signing in to your site\'s editor. It saves a draft first and asks before it goes live. Give the email and password of an account that can edit the site; the password is typed by the browser and never shown to a model. A developer API key is optional and only names the site.',
+    fields: [
+      { name: 'email', label: 'Squarespace login email', pattern: /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/, shapeHint: 'is an email address', secret: false },
+      { name: 'password', label: 'Password', pattern: null, shapeHint: 'is the account\'s password', secret: true },
+      { name: 'apiKey', label: 'Developer API key (optional)', pattern: null, shapeHint: 'is a Squarespace developer API key', secret: true, optional: true },
+    ],
   },
   {
     id: 'xero',

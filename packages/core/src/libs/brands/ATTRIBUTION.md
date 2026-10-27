@@ -49,6 +49,7 @@ about a mark is altered.
 | `quickbooks` | QuickBooks | simple-icons, from https://design.intuit.com/quickbooks/brand | CC0-1.0 (drawing) | https://design.intuit.com/quickbooks/brand |
 | `sentry` | Sentry | simple-icons, from https://sentry.io/branding/ | CC0-1.0 (drawing) | https://sentry.io/branding/ |
 | `snowflake` | Snowflake | simple-icons, from https://www.snowflake.com/brand-guidelines/ | CC0-1.0 (drawing) | https://www.snowflake.com/brand-guidelines/ |
+| `squarespace` | Squarespace | simple-icons, from https://www.squarespace.com/logo-guidelines | CC0-1.0 (drawing) | https://www.squarespace.com/brand-guidelines |
 | `strapi` | Strapi | simple-icons, from https://handbook.strapi.io/strapi-brand-book-2022/strapi-logo | CC0-1.0 (drawing) | https://handbook.strapi.io/strapi-brand-book-2022 |
 | `stripe` | Stripe | simple-icons, from https://stripe.com/newsroom/information | CC0-1.0 (drawing) | — |
 | `xero` | Xero | simple-icons, from https://www.xero.com/uk/about/media/downloads | CC0-1.0 (drawing) | — |

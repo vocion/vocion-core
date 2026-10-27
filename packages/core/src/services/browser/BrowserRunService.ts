@@ -33,6 +33,7 @@
  */
 
 import type { SavedBrowser } from './browserEngine';
+import type { ApprovedAhead } from './browserLoop';
 import type { BrowserInput, BrowserOutputSpec, BrowserRunStatus, BrowserRunView, BrowserStep, BrowserWaiting } from '@/libs/browser/run';
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
@@ -69,8 +70,8 @@ export class BrowserRunError extends Error {}
 
 type Answer = { kind: 'approved' } | { kind: 'denied'; note?: string } | { kind: 'answer'; text: string } | { kind: 'stopped' } | { kind: 'timeout' };
 
-/** What a checkpoint holds, sealed. */
-type Checkpoint = { secrets: Record<string, string>; notes: string[]; browser: SavedBrowser | null };
+/** What a checkpoint holds, sealed: the writes approved ahead ride here, where no page or model can change them. */
+type Checkpoint = { secrets: Record<string, string>; notes: string[]; browser: SavedBrowser | null; approvedAhead?: ApprovedAhead | null };
 
 /** Where a resumed run picks up. */
 type Resume = { browser: SavedBrowser | null; notes: string[]; waiting: BrowserWaiting | null };
@@ -84,6 +85,8 @@ type Live = {
   /** The person's pending answer to a wait. */
   answer: ((a: Answer) => void) | null;
   secrets: Record<string, string>;
+  /** Writes a person approved before the run started (`CreateBrowserRun.approvedAhead`). */
+  approvedAhead: ApprovedAhead | null;
   notes: string[];
   steps: BrowserStep[];
   /** A tool call is waiting on this run: it hands the result over, so the run does not also post it. */
@@ -193,6 +196,14 @@ export type CreateBrowserRun = {
   continuing?: boolean;
   /** A run of a routine: its own browser, the routine's rules and trust (`services/routines/`). */
   routineRunId?: number | null;
+  /**
+   * Writes a person already approved, elsewhere, before this run started: the
+   * buttons (by exact name) the run may press without stopping again, and
+   * where that approval was given. `site.publish_page` approved on Review
+   * lets its run press Save on the draft; anything else that saves, sends or
+   * publishes still waits. Sealed with the secrets, never shown to the model.
+   */
+  approvedAhead?: ApprovedAhead | null;
 };
 
 /**
@@ -218,7 +229,8 @@ export async function createBrowserRun(input: CreateBrowserRun): Promise<Browser
     }
   }
   // Sealed from the start, so a suggestion's Start and a restarted run both still have them.
-  const checkpoint = Object.keys(secrets).length > 0 ? await seal(input.orgId, { secrets, notes: [], browser: null }) : null;
+  const approvedAhead = input.approvedAhead && input.approvedAhead.writes.length > 0 ? input.approvedAhead : null;
+  const checkpoint = Object.keys(secrets).length > 0 || approvedAhead ? await seal(input.orgId, { secrets, notes: [], browser: null, approvedAhead }) : null;
   const [row] = await db.insert(browserRunSchema).values({
     orgId: input.orgId,
     userId: input.userId,
@@ -235,7 +247,7 @@ export async function createBrowserRun(input: CreateBrowserRun): Promise<Browser
     ...(input.start ? { runnerId: RUNNER_ID, heartbeatAt: new Date() } : {}),
   }).returning();
   if (input.start) {
-    begin(row!, secrets, input.continuing ?? false, null);
+    begin(row!, secrets, input.continuing ?? false, null, approvedAhead);
     return toView(row!);
   }
   return toView(row!);
@@ -259,7 +271,8 @@ export async function startBrowserRun(orgId: string, userId: string, id: number)
   if (busy) {
     throw new BrowserRunBusyError(busy.id, busy.task);
   }
-  const secrets = (await unseal(row))?.secrets ?? {};
+  const sealed = await unseal(row);
+  const secrets = sealed?.secrets ?? {};
   const owed = Object.entries(row.inputs ?? {}).filter(([, v]) => v.secret).map(([k]) => k).filter(k => !(k in secrets));
   if (owed.length > 0) {
     throw new BrowserRunError(`The secret input${owed.length > 1 ? 's' : ''} ${owed.join(', ')} could not be read back. Ask for the run again.`);
@@ -269,7 +282,7 @@ export async function startBrowserRun(orgId: string, userId: string, id: number)
   if (!claimed) {
     throw new BrowserRunError(`${browserRunLabel(id)} has already been started.`);
   }
-  begin(claimed, secrets, false, null);
+  begin(claimed, secrets, false, null, sealed?.approvedAhead ?? null);
   return toView(claimed);
 }
 
@@ -422,7 +435,7 @@ async function checkpoint(l: Live, force = false): Promise<void> {
   try {
     const s = existingSession(l.key);
     const browser = s ? await saveBrowser(s) : null;
-    await patch(l.id, { checkpoint: await seal(l.orgId, { secrets: l.secrets, notes: l.notes, browser }) });
+    await patch(l.id, { checkpoint: await seal(l.orgId, { secrets: l.secrets, notes: l.notes, browser, approvedAhead: l.approvedAhead }) });
   } catch (e) {
     console.warn('[browser] checkpoint not written', { run: l.id, reason: (e as Error).message });
   }
@@ -448,12 +461,12 @@ function tellRoutine(row: Row, event: { kind: 'waiting'; waiting: BrowserWaiting
  * @param steps - Its steps.
  */
 function wroteAfterApproval(steps: BrowserStep[]): boolean {
-  return steps.some(s => s.kind === 'approval' && s.ok && /^(?:Approved by the person|Inside the routine)/.test(s.label));
+  return steps.some(s => s.kind === 'approval' && s.ok && /^(?:Approved by the person|Inside the routine|Approved ahead)/.test(s.label));
 }
 
-function begin(row: Row, secrets: Record<string, string>, continuing: boolean, resume: Resume | null): void {
+function begin(row: Row, secrets: Record<string, string>, continuing: boolean, resume: Resume | null, approvedAhead: ApprovedAhead | null): void {
   const key = sessionKeyOf(row);
-  const l: Live = { id: row.id, orgId: row.orgId, userId: row.userId, key, stop: false, answer: null, secrets, notes: resume?.notes ?? [], steps: [...(row.steps ?? [])], heldByCall: 0, listeners: new Set(), beat: null, lastCheckpoint: 0 };
+  const l: Live = { id: row.id, orgId: row.orgId, userId: row.userId, key, stop: false, answer: null, secrets, approvedAhead, notes: resume?.notes ?? [], steps: [...(row.steps ?? [])], heldByCall: 0, listeners: new Set(), beat: null, lastCheckpoint: 0 };
   live.set(row.id, l);
   // The beat that says this process is driving it; a stopped beat lets another process pick it up.
   l.beat = setInterval(() => {
@@ -578,6 +591,7 @@ async function drive(row: Row, l: Live, continuing: boolean, resume: Resume | nu
     continuing,
     ...(resume ? { resume: { done: l.steps.map(s => s.label), notes: l.notes, approved } } : {}),
     ...(routine ? { routine } : {}),
+    ...(l.approvedAhead ? { approvedAhead: l.approvedAhead } : {}),
   }, {
     now: () => Date.now(),
     stopped: () => l.stop,
@@ -692,7 +706,7 @@ async function adopt(id: number): Promise<void> {
     return;
   }
   console.warn('[browser] picking up a run after a restart', { run: id, status: row.status, resumes: row.resumes });
-  begin(row, saved?.secrets ?? {}, false, { browser: saved?.browser ?? null, notes: saved?.notes ?? [], waiting: row.status === 'waiting' ? row.waiting ?? null : null });
+  begin(row, saved?.secrets ?? {}, false, { browser: saved?.browser ?? null, notes: saved?.notes ?? [], waiting: row.status === 'waiting' ? row.waiting ?? null : null }, saved?.approvedAhead ?? null);
 }
 
 let keeper: ReturnType<typeof setInterval> | null = null;

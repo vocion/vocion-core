@@ -334,6 +334,13 @@ export type ReviewContent
     body: string;
     /** Render in a monospace block with whitespace kept — commands, YAML, a diff. */
     preformatted?: boolean;
+    /**
+     * The body as the page will read, rendered on the server from markdown by the escaping
+     * renderer (`services/reports/markdownToEmailHtml.ts`: every character of the source is
+     * escaped, links are http(s) only), for a draft about to be published. Drawn in place of
+     * `body` when present.
+     */
+    html?: string;
   }
   | {
     /**

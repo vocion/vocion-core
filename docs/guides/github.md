@@ -275,6 +275,71 @@ and by a grant; a new run is recorded under the current id.
 pipeline's own moves: only a person, or an agent whose harness grants the
 action by either id, may propose one (`mayActOnPipeline`).
 
+## Publishing a page to a site in a repository
+
+A client whose site lives in a repository (Astro, Next.js, Jekyll, Hugo…) gets
+new pages as pull requests. The Project names the repository as a **publish
+target** (`publishTargets` on the project, `libs/publish/targets.ts`):
+
+```yaml
+publishTargets:
+  - id: site
+    kind: github
+    label: Northwind site
+    config:
+      repo: example-org/northwind-site
+      baseBranch: main
+      path: src/content/blog/{slug}.mdx # {slug} is required; {date} works too
+      format: mdx # mdx | md | html; else read off the path
+      frontmatter: # the site's own keys, mirrored exactly
+        title: '{title}'
+        description: '{description}'
+        pubDate: '{date}'
+        draft: false
+```
+
+- **The template is the site's own.** When a client is onboarded, the agent
+  reads two or three files in that folder (`repo_read_tree`, `repo_read_file`)
+  and copies their frontmatter keys exactly. Values are literals, or a
+  placeholder a page fills in: `{title}`, `{description}`, `{slug}`, `{date}`,
+  `{datetime}`, `{keyword}`. Anything else is refused when the target is read,
+  with the target named.
+- **The body is the draft artifact's markdown.** Its leading `# Title` is
+  dropped when the frontmatter already carries the title. `mdx` escapes braces
+  and stray `<` outside code; `html` renders the markdown with the small
+  escaping renderer the reports use (no inline styles, so the site's apply).
+- **`site.publish_page`** (`libs/actions/site-publish-page.ts`) always waits
+  for a person. The Review card shows the target, the path, the branch, the
+  title, the meta description, the page rendered, and the exact file. Approving
+  writes one commit on `vocion/seo-<slug>-p<page record>` and opens its pull
+  request (`services/factory/githubChange.ts`, the same path `repo.open_pull`
+  uses). Publishing the same page again adds a commit to that pull request; a
+  page from another batch with the same slug gets its own.
+- **No silent overwrite.** A file already at the path on the base branch is
+  replaced only on a refresh (`refresh: true`, or the page's `existingUrl`),
+  and the card then says "replacing".
+- **Never merged from Vocion.** The client's team reviews and merges it. The
+  page record gets `pullRequestUrl` and `status: publishing`, then its checks
+  (`pullRequestChecks`) and the preview its host deployed (`previewUrl`, from a
+  Vercel or Netlify status), and moves to `published` when they merge it, or
+  back to `approved` when they close it (the `site.publish-merge` job follows
+  the pull request for two weeks). Only a merge counts on "Pages published".
+- **Undo** closes the pull request and deletes its branch, and puts the page
+  record back as it was.
+
+An SEO page (`seo_page`) publishes only once a person has signed off on its
+current draft, at the version published; its own `metaTitle`,
+`metaDescription` and `slug` are used (`{metaTitle}` is a frontmatter
+placeholder too), and its target is the page's `publishTargetId`, else its
+batch's destination. A project the SEO app tracks publishes by page record
+only.
+
+Input: `{ pageRecordId }`, or with no record yet `{ projectId, publishTargetId,
+artifactId, slug, title, metaDescription }`. Fields given explicitly win over
+the record's. The repository must be listed by the workspace's github source,
+whose token (or the GitHub App installation) needs Contents: write and Pull
+requests: write. Squarespace sites are covered in [Squarespace](./squarespace.md).
+
 ## The webhook — the same events, sooner
 
 `POST /api/webhooks/github` receives GitHub's deliveries and emits the same

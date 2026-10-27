@@ -24,7 +24,7 @@ import type { BrowserOutputSpec, BrowserStep, BrowserWaiting } from '@/libs/brow
 import type { RoutineWrite } from '@/libs/routines/types';
 import { HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { BROWSER_RUN_LIMITS, needsApproval } from '@/libs/browser/run';
-import { act, describeElement, formSubmitOf, markTarget, snapshot } from './browserEngine';
+import { act, describeElement, formSubmitOf, markTarget, pageShows, snapshot } from './browserEngine';
 
 /** What the loop asks of the service around it. */
 export type LoopHooks = {
@@ -62,7 +62,41 @@ export type LoopInput = {
    * writes go ahead without waiting; anything else that saves, sends or pays still waits.
    */
   routine?: RoutineGuide;
+  /** Writes a person approved before the run started: pressed without stopping again, said on the run. */
+  approvedAhead?: ApprovedAhead;
 };
+
+/**
+ * Writes approved before a run started, and where: `site.publish_page`,
+ * approved on Review, lets its run press Save on a draft. Matched like a
+ * routine's writes (`allowedWrite`), by exact button name unless `contains`.
+ */
+export type ApprovedAhead = {
+  reason: string;
+  writes: RoutineWrite[];
+  /**
+   * Writes approved ahead only while the page shows a state, read off the page at the moment of
+   * the click: a draft post's Save only while the editor shows `Post · Draft`. When the page does
+   * not show it, the click waits for the person like any other.
+   */
+  whilePageShows?: { text: string; writes: RoutineWrite[] };
+  /**
+   * Words that hold a click or a choice whatever its role, even one no button name would catch: a
+   * status menu's "Published", a "Publish" option. Matched case-insensitively within the element's
+   * name or the option chosen.
+   */
+  alwaysHold?: string[];
+};
+
+/**
+ * Whether an element's name, or the option chosen, carries one of the words always held.
+ * @param words - The words (`ApprovedAhead.alwaysHold`).
+ * @param text - The element's name, or the option chosen.
+ */
+export function alwaysHeld(words: readonly string[] | undefined, text: string | null | undefined): boolean {
+  const t = (text ?? '').toLowerCase();
+  return Boolean(t) && (words ?? []).some(w => t.includes(w.toLowerCase()));
+}
 
 export type RoutineGuide = {
   name: string;
@@ -175,11 +209,20 @@ function system(input: LoopInput, notes: string[]): string {
   ].filter(s => s !== '').join('\n');
 }
 
-/** A routine's run does a whole piece of work (find, add, enroll, read back): more steps than one errand. */
+/**
+ * A routine's run does a whole piece of work (find, add, enroll, read back): more steps than one
+ * errand. So does a run whose writes were approved before it started (a post written in a site's
+ * editor, `site.publish_page`): a person already said yes to the whole piece of work.
+ */
 const ROUTINE_STEPS = 60;
+const ROUTINE_RUN_MS = 15 * 60_000;
+
+function wholePiece(input: LoopInput): boolean {
+  return Boolean(input.routine || input.approvedAhead);
+}
 
 function stepsFor(input: LoopInput): number {
-  return input.routine ? ROUTINE_STEPS : BROWSER_RUN_LIMITS.steps;
+  return wholePiece(input) ? ROUTINE_STEPS : BROWSER_RUN_LIMITS.steps;
 }
 
 /**
@@ -277,7 +320,7 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
     if (s.page.isClosed()) {
       throw new BrowserLostError();
     }
-    if (hooks.now() - started - waited > BROWSER_RUN_LIMITS.runMs) {
+    if (hooks.now() - started - waited > (wholePiece(input) ? ROUTINE_RUN_MS : BROWSER_RUN_LIMITS.runMs)) {
       return { status: 'failed', summary: 'The run ran out of time before the task was done.', result: null, error: 'time limit' };
     }
     const snap = await snapshot(s).catch(e => ({ url: s.page.url(), title: '', text: `(the page could not be read: ${(e as Error).message.slice(0, 120)})`, blocked: [] as string[] }));
@@ -327,6 +370,21 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
         await hooks.step({ kind: 'approval', label: `Inside the routine's approved scope: ${label}`, url: s.page.url(), ok: true });
         return { go: true };
       }
+      // Approved before the run started (the Review card that started it): only the named buttons.
+      if (input.approvedAhead && target && allowedWrite(input.approvedAhead.writes, target)) {
+        await hooks.step({ kind: 'approval', label: `Approved ahead (${input.approvedAhead.reason}): ${label}`, url: s.page.url(), ok: true });
+        return { go: true };
+      }
+      const guarded = input.approvedAhead?.whilePageShows;
+      if (guarded && target && allowedWrite(guarded.writes, target)) {
+        // Read off the page at the moment of the click, never assumed: a Save on a post that is no
+        // longer a draft is not the Save that was approved.
+        if (await pageShows(s, guarded.text)) {
+          await hooks.step({ kind: 'approval', label: `Approved ahead (${input.approvedAhead!.reason}), the page showing “${guarded.text}”: ${label}`, url: s.page.url(), ok: true });
+          return { go: true };
+        }
+        await hooks.step({ kind: 'approval', label: `Not approved ahead: the page does not show “${guarded.text}”`, url: s.page.url(), ok: true });
+      }
       if (approvedAhead && approvedAhead === label) {
         approvedAhead = null;
         await hooks.step({ kind: 'approval', label: `Approved by the person: ${label}`, ok: true });
@@ -356,7 +414,7 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
       }
       case 'click': {
         const el = await describeElement(s, String(args.ref));
-        if (el && needsApproval(el)) {
+        if (el && (needsApproval(el) || alwaysHeld(input.approvedAhead?.alwaysHold, el.name))) {
           await markTarget(s, String(args.ref));
           const h = await hold(`Click ${quote(el.name)} on ${new URL(s.page.url()).host}`, { name: el.name, host: new URL(s.page.url()).host });
           if (!h.go) {
@@ -398,6 +456,17 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
       }
       case 'select_option': {
         const el = await describeElement(s, String(args.ref));
+        if (alwaysHeld(input.approvedAhead?.alwaysHold, String(args.value))) {
+          const h = await hold(`Choose “${String(args.value).slice(0, 60)}” in ${quote(el?.name)} on ${new URL(s.page.url()).host}`);
+          if (h.reply === 'STOP') {
+            return { status: 'stopped', summary: 'Stopped by the person.' };
+          }
+          if (!h.go) {
+            outcome = { ok: false, detail: h.reply! };
+            await record('select', `Did not choose “${String(args.value).slice(0, 60)}”`, outcome);
+            break;
+          }
+        }
         outcome = await act(s, { kind: 'select', ref: String(args.ref), value: String(args.value) });
         await record('select', `Chose “${String(args.value).slice(0, 60)}” in ${quote(el?.name)}`, outcome);
         break;

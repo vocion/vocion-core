@@ -38,11 +38,13 @@
  * a guess (design principle 11: automation is earned).
  */
 
+import type { StoredPublishTarget } from '@/libs/publish/targets';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import type { Ask } from '@/services/AskService';
 import type { ProjectRecord } from '@/services/BusinessObjectService';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { publishTargetLine } from '@/libs/publish/targets';
 import { artifactHref } from '@/libs/tools/artifacts/url';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, objectDocumentLinkSchema } from '@/models/Schema';
 import { anchorArtifact, createArtifact, listArtifactsForRecord } from '@/services/ArtifactService';
@@ -137,17 +139,10 @@ export type RoomBrand = { logo?: RoomImage; mark?: RoomImage };
 export const ROOM_BRAND_SLOTS = ['logo', 'mark'] as const;
 export type RoomBrandSlot = typeof ROOM_BRAND_SLOTS[number];
 
-/**
- * Where a project's pages ship: a GitHub repo, a Squarespace site, WordPress
- * later. The publishing work owns what `config` holds per kind; the project
- * page only shows the list, read-only, under "Publishes to".
- */
-export type PublishTarget = {
-  id: string;
-  kind: 'github' | 'squarespace' | 'wordpress';
-  label?: string;
-  config?: Record<string, unknown>;
-};
+// Where a project's pages ship, as stored, and the one line it is shown in: owned by the
+// publishing module (`libs/publish/targets.ts`), pure, so a page or an action reads it without this service.
+export type { StoredPublishTarget as PublishTarget } from '@/libs/publish/targets';
+export { publishTargetLine } from '@/libs/publish/targets';
 
 export type RoomMeta = {
   client?: string;
@@ -177,7 +172,7 @@ export type RoomMeta = {
   /** `false` keeps the collector out of this room; filings then come only from tools and people. */
   autoFile?: boolean;
   /** Where this project's pages ship (`PublishTarget`). */
-  publishTargets?: PublishTarget[];
+  publishTargets?: StoredPublishTarget[];
   /** Knowledge documents a person or agent took back out — the collector never re-files these on its own. */
   unfiled?: number[];
 };
@@ -1112,21 +1107,6 @@ export function renderDataRoom(room: DataRoomDetail): string {
     lines.push('');
   }
   return lines.join('\n');
-}
-
-const PUBLISH_KIND_LABEL: Record<PublishTarget['kind'], string> = { github: 'GitHub', squarespace: 'Squarespace', wordpress: 'WordPress' };
-
-/**
- * One publish target in a line: its label, its kind, and where it points
- * when the config names it (a repo, a site). Pure; the page and the bundle
- * share it so they say the same thing.
- * @param t - The target.
- */
-export function publishTargetLine(t: PublishTarget): string {
-  const c = t.config ?? {};
-  const where = [c.repo, c.siteUrl, c.url].find(v => typeof v === 'string' && v.trim()) as string | undefined;
-  const kind = PUBLISH_KIND_LABEL[t.kind] ?? t.kind;
-  return [t.label && t.label !== where ? t.label : null, where ? `${kind} ${where}` : kind].filter(Boolean).join(' — ');
 }
 
 /**

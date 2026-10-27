@@ -653,7 +653,7 @@ describe('loadWorkspace with the SEO app', () => {
     const team = ws.teams.find(t => t.slug === 'seo')!;
 
     expect(team.lead).toBe('seo-strategist');
-    expect(team.measures.find(m => m.key === 'pages_published')).toMatchObject({ dimension: 'outcome', source: { kind: 'observed', actions: ['site.publish_page'] } });
+    expect(team.measures.find(m => m.key === 'pages_published')).toMatchObject({ dimension: 'outcome', source: { kind: 'observed', rows: 'published-pages' } });
     expect(team.measures.find(m => m.key === 'pages_signed_off')).toMatchObject({ dimension: 'quality', source: { kind: 'human-confirmed', askKinds: ['signoff'] } });
     expect(team.measures.find(m => m.key === 'drafts_written')!.dimension).toBe('velocity');
   });
@@ -664,6 +664,7 @@ describe('loadWorkspace with the SEO app', () => {
 
     expect(rule('objects.update_meta.seo_page')).toMatchObject({ enabled: false, rung: 'execute-with-approval' });
     expect(rule('site.publish_page')).toMatchObject({ enabled: false, rung: 'execute-with-approval' });
+    expect(rule('site.publish_live')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'high' });
   });
 
   it('composes beside every other shipped plugin with one trust rule per action', () => {

@@ -367,6 +367,24 @@ async function countDataRoomSources(orgId: string, range: Range): Promise<number
   return Number(row?.n ?? 0);
 }
 
+/**
+ * Publish runs whose page was confirmed live in the window: the pull request
+ * merged or the post read back (`result.live.at`, stamped by `markRunLive`).
+ * @param orgId - The workspace.
+ * @param range - The window.
+ */
+async function countPublishedPages(orgId: string, range: Range): Promise<number> {
+  const [row] = await db.select({ n: sql<number>`count(*)::int` })
+    .from(actionRunSchema)
+    .where(and(
+      eq(actionRunSchema.orgId, orgId),
+      eq(actionRunSchema.actionId, 'site.publish_page'),
+      sql`(${actionRunSchema.result} -> 'live' ->> 'at')::timestamptz >= ${range.since.toISOString()}::timestamptz`,
+      sql`(${actionRunSchema.result} -> 'live' ->> 'at')::timestamptz < ${range.until.toISOString()}::timestamptz`,
+    ));
+  return Number(row?.n ?? 0);
+}
+
 async function countVerifiedRoutineRuns(orgId: string, range: Range): Promise<number> {
   const rows = await db.select({ receipt: routineRunSchema.receipt })
     .from(routineRunSchema)
@@ -438,6 +456,9 @@ export async function readSourceRaw(orgId: string, s: TeamMeasureSource, scope: 
         }
         if (s.rows === 'data-room-sources') {
           return { value: await countDataRoomSources(orgId, range), asOf: now, freshness: live(now), sourceLabel: 'sources filed', unavailableReason: null, unavailableKind: null };
+        }
+        if (s.rows === 'published-pages') {
+          return { value: await countPublishedPages(orgId, range), asOf: now, freshness: live(now), sourceLabel: 'pages confirmed live', unavailableReason: null, unavailableKind: null };
         }
         if (s.rows === 'routine-runs') {
           return { value: await countVerifiedRoutineRuns(orgId, range), asOf: now, freshness: live(now), sourceLabel: 'verified routine runs', unavailableReason: null, unavailableKind: null };

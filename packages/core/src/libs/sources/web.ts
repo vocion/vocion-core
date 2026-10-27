@@ -1873,6 +1873,16 @@ const ICAL_QUERY_RE = /[?&]ical=1(?:&|$)/i;
 const SQUARESPACE_MARKERS = ['static1.squarespace.com', 'squarespace-cdn.com', 'Squarespace.afterBodyLoad'];
 
 /**
+ * Whether a page's HTML was served by Squarespace, so its `?format=json` twin
+ * exists. The one test, shared with the Squarespace connector
+ * (`libs/sources/squarespace.ts`), which reads its inventory the same way.
+ * @param html - the page's raw HTML.
+ */
+export function isSquarespacePage(html: string): boolean {
+  return SQUARESPACE_MARKERS.some(marker => html.includes(marker));
+}
+
+/**
  * What feeds this listing page advertises, best first. Nothing is fetched
  * here, these are candidates, and the caller probes them silently.
  *
@@ -1910,7 +1920,7 @@ function discoverFeeds(page: FetchedPage, ctx: SourceContext): FeedCandidate[] {
       add(link.url, 'ics');
     }
   }
-  if (SQUARESPACE_MARKERS.some(marker => page.raw.includes(marker))) {
+  if (isSquarespacePage(page.raw)) {
     add(withFormatJson(page.url), 'json');
   }
 
@@ -2047,7 +2057,7 @@ function tagAttr(tag: string, name: string): string | undefined {
  * The same page asked for as JSON, the Squarespace listing answer.
  * @param url - the listing URL.
  */
-function withFormatJson(url: string): string {
+export function withFormatJson(url: string): string {
   try {
     const u = new URL(url);
     u.searchParams.set('format', 'json');

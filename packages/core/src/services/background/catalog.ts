@@ -25,6 +25,8 @@ export const JOB = {
   personalRhythmSweep: 'personal.rhythm-sweep',
   personalRhythm: 'personal.rhythm',
   mailThreadStateBackfill: 'mail.thread-state-backfill',
+  sitePublishSettle: 'site.publish-settle',
+  sitePublishMerge: 'site.publish-merge',
 } as const;
 
 const twice = { attempts: 2, intervalSeconds: 10, backoff: 2 };
@@ -193,4 +195,41 @@ defineJob<{ orgId: string; sourceId: number; windowDays?: number }>(JOB.mailThre
   }
   logger.info(`thread-state backfill ${plan.sourceSlug} (${plan.orgId}): ${plan.threadIds.length} threads in ${plan.windowDays} days, ${plan.alreadyLabelled} already labelled, at most ${plan.maxLabels} labels (~${(plan.maxCents / 100).toFixed(2)} USD)`);
   return runThreadStateBackfill(plan, { step: ctx.step, sleep: ctx.sleep, log: line => logger.info(line) });
+}, { whole: true });
+
+/** How often a Squarespace publish run is looked at, and for how long: a queue of runs ahead of it, each up to 15 minutes of work. */
+const PUBLISH_POLL_MS = 20_000;
+const PUBLISH_POLL_ATTEMPTS = 1_080;
+
+// A page published to Squarespace (`services/publish/sitePublish.ts`): follow one run (a draft or
+// going live), start it when its turn comes if it was queued, then read the post back from the
+// site's public JSON and record it on the page. Each look is a step, so a deploy mid-wait carries on.
+defineJob<import('@/services/publish/sitePublish').SettleInput>(JOB.sitePublishSettle, async (input, ctx) => {
+  const { settlePublishRun } = await import('@/services/publish/sitePublish');
+  for (let attempt = 0; attempt < PUBLISH_POLL_ATTEMPTS; attempt++) {
+    await ctx.sleep(PUBLISH_POLL_MS);
+    const out = await ctx.step(`look-${attempt}`, () => settlePublishRun(input), { attempts: 3, intervalSeconds: 10, backoff: 2 });
+    if (out.done) {
+      return out;
+    }
+  }
+  return { done: false, line: 'Stopped following the publish run; its own page says how it ended.' };
+}, { whole: true });
+
+/** A page's pull request is looked at every half hour for two weeks: merging is the client's team's, on their schedule. */
+const MERGE_POLL_MS = 30 * 60_000;
+const MERGE_POLL_ATTEMPTS = 14 * 48;
+
+// A page published as a pull request: published when the client's team merges it, approved again
+// when they close it (`services/publish/sitePublish.ts` `settlePull`). Vocion never merges it.
+defineJob<import('@/services/publish/sitePublish').PullFollow>(JOB.sitePublishMerge, async (input, ctx) => {
+  const { settlePull } = await import('@/services/publish/sitePublish');
+  for (let attempt = 0; attempt < MERGE_POLL_ATTEMPTS; attempt++) {
+    await ctx.sleep(MERGE_POLL_MS);
+    const out = await ctx.step(`look-${attempt}`, () => settlePull(input), { attempts: 3, intervalSeconds: 30, backoff: 2 });
+    if (out.done) {
+      return out;
+    }
+  }
+  return { done: false, line: 'Stopped following the pull request after two weeks; the page stays publishing.' };
 }, { whole: true });

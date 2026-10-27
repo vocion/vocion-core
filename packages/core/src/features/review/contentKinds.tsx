@@ -332,6 +332,14 @@ function TextContent({ item }: ContentRenderProps) {
   if (item.kind !== 'text') {
     return null;
   }
+  if (item.html) {
+    // The page as it will read. Rendered on the server by the escaping renderer, so nothing in
+    // the draft becomes markup it did not mean (`ReviewContent` text `html`).
+    return (
+      // eslint-disable-next-line react-dom/no-dangerously-set-innerhtml
+      <div data-testid={`text-pane-${item.id}`} className="prose prose-sm mt-2 max-w-none text-foreground dark:prose-invert" dangerouslySetInnerHTML={{ __html: item.html }} />
+    );
+  }
   return item.preformatted
     ? (
         <pre data-testid={`text-pane-${item.id}`} className="mt-2 overflow-x-auto rounded-md bg-muted/40 p-3 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90">{item.body}</pre>

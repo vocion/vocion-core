@@ -10,7 +10,9 @@ goal: Every client's pages are approved on the first read more often each month,
 lead: seo-strategist
 measures:
   # THE OUTCOME: pages that reached the client's site. Counted from the
-  # publish action's runs that finished, so it is observed, not reported.
+  # publish runs confirmed live: a pull request the client's team merged, or a
+  # post read back from the site's public JSON. An opened pull request or a
+  # saved draft is not a published page.
   - key: pages_published
     label: Pages published
     dimension: outcome
@@ -18,7 +20,7 @@ measures:
     baseline: 0
     unit: pages
     window: 30d
-    source: {kind: observed, actions: [site.publish_page]}
+    source: {kind: observed, rows: published-pages}
   # What a person signed off. Human-confirmed by construction: the answer on
   # the sign-off ask is the evidence. Read beside the next one, it says how
   # often a draft was approved as it stood.

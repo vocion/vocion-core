@@ -1253,7 +1253,7 @@ export type TeamKpi = {
 export type TeamMeasureSource
   = | { kind: 'verified'; connector: 'hubspot'; query: { object: 'deals' | 'contacts' | 'companies'; filter: { dealStages?: string[]; pipelines?: string[]; dealStatus?: 'open' | 'closed'; lifecycleStages?: string[]; industries?: string[]; ownerIds?: string[] }; aggregate: string; dateField?: 'createdAt' | 'mqlEnteredAt' | 'sqlEnteredAt' | 'opportunityEnteredAt' | 'customerEnteredAt' | 'closeDate' } }
     | { kind: 'verified'; connector: 'web-analytics'; query: { metric: 'sessions' | 'users' | 'conversions' | 'signups'; filter: { pathPrefix?: string; channel?: string; event?: string } } }
-    | { kind: 'observed'; actions?: string[]; counts?: string; rows?: 'workspace-members' | 'artifacts' | 'data-rooms' | 'data-room-sources' | 'routine-runs'; where?: { kind?: string; folder?: string; playbook?: string; verified?: boolean } }
+    | { kind: 'observed'; actions?: string[]; counts?: string; rows?: 'workspace-members' | 'artifacts' | 'data-rooms' | 'data-room-sources' | 'routine-runs' | 'published-pages'; where?: { kind?: string; folder?: string; playbook?: string; verified?: boolean } }
     | { kind: 'human-confirmed'; actions?: string[]; askKinds?: string[] }
     | { kind: 'agent-reported'; counts: string };
 

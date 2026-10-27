@@ -21,6 +21,7 @@ export const KEY_ONLY_CONNECTORS: Readonly<Record<string, { reason: string; vend
   // each of these is a follow-up to give it a login like the rest.
   sentry: { reason: 'Sentry offers OAuth through an integration app; Vocion has no Sentry login yet.', vendorHasLogin: true },
   slate: { reason: 'Slate\'s MCP server signs in with OAuth; the REST connector takes a key until it gets the same login.', vendorHasLogin: true },
+  squarespace: { reason: 'Squarespace\'s OAuth is for Commerce partners and opens no pages or posts, and its API has no content endpoints; publishing signs in to the site\'s editor with a login instead.', vendorHasLogin: true },
   stripe: { reason: 'Stripe Connect has OAuth for platforms; for a company\'s own account a restricted key is Stripe\'s own advice.', vendorHasLogin: true },
   netsuite: { reason: 'NetSuite supports OAuth 2.0; Vocion has no NetSuite login yet.', vendorHasLogin: true },
   ramp: { reason: 'Ramp\'s API supports OAuth; Vocion has no Ramp login yet.', vendorHasLogin: true },

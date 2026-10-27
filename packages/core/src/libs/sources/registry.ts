@@ -43,6 +43,7 @@ import { sentryConnector } from './sentry';
 import { slackConnector } from './slack';
 import { slateConnector } from './slate';
 import { snowflakeConnector } from './snowflake';
+import { squarespaceConnector } from './squarespace';
 import { strapiConnector } from './strapi';
 import { stripeConnector } from './stripe';
 import { webConnector } from './web';
@@ -110,3 +111,6 @@ registerConnector(mixpanelConnector);
 registerConnector(amplitudeConnector);
 registerConnector(linkedinAdsConnector);
 registerConnector(metaAdsConnector);
+// A client's Squarespace site: its pages read through the public JSON, and
+// blog posts published as drafts by a browser run (`site.publish_page`).
+registerConnector(squarespaceConnector);

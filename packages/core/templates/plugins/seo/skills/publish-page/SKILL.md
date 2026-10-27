@@ -23,8 +23,8 @@ Only a page a person signed off is published. The page's status says
    the title, the meta description and a preview.
    - A repository: one commit on its own branch and a pull request. Nobody
      merges it but the client's own people.
-   - Squarespace: a browser run saves the post as a draft; going live is a
-     second click a person approves.
+   - Squarespace: a browser run saves the post as a draft. Going live is
+     `site.publish_live` with the drafted pages, one card for all of them.
 3. The pull request or post URL and, once live, the live URL are recorded on
    the page. Tell the person where it is, with the link.
 

@@ -761,8 +761,12 @@ export const VerifiedMeasureSourceSchema = z.discriminatedUnion('connector', [
  *
  * `routine-runs` — `routine_run` rows that ended `done` with a verified receipt
  * (read back after the write and matched) in the window.
+ *
+ * `published-pages` — `site.publish_page` runs whose page was confirmed live in
+ * the window (`result.live`): its pull request merged, or its post read back
+ * from the site. A pull request opened or a draft saved does not count.
  */
-export const OBSERVED_ROW_KINDS = ['workspace-members', 'artifacts', 'data-rooms', 'data-room-sources', 'routine-runs'] as const;
+export const OBSERVED_ROW_KINDS = ['workspace-members', 'artifacts', 'data-rooms', 'data-room-sources', 'routine-runs', 'published-pages'] as const;
 export type ObservedRowKind = typeof OBSERVED_ROW_KINDS[number];
 
 /**
