@@ -5,7 +5,7 @@ import { FactList } from '@/components/patterns';
 import { ApiTokensPanel } from '@/features/api-tokens/ApiTokensPanel';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { TitleBar } from '@/features/dashboard/TitleBar';
-import { JevRoutingSection } from '@/features/routing/JevRoutingSection';
+import { SystemKeysSection } from '@/features/routing/SystemKeysSection';
 import { Link } from '@/libs/I18nNavigation';
 import { appBaseUrl } from '@/libs/links';
 import { ORG_ROLE } from '@/types/Auth';
@@ -125,7 +125,7 @@ export default async function DevelopersPage() {
         {isAdmin && <ApiTokensPanel />}
       </DashboardSection>
 
-      <JevRoutingSection scope="workspace" orgId={orgId} isAdmin={isAdmin} />
+      <SystemKeysSection scope="workspace" orgId={orgId} isAdmin={isAdmin} />
 
       <DashboardSection
         title="Docs"
