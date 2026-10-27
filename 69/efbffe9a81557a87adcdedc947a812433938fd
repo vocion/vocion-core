@@ -1,0 +1,65 @@
+packages/core/next.config.ts
+  s_581d6725ee027e::t_ac4e55bade923b 85
+packages/core/src/libs/Amplitude.test.ts
+  s_581d6725ee027e::t_385f17eaa2ddb6 1-90
+packages/core/src/services/agents/toolCallRecord.ts
+  s_581d6725ee027e::t_c20e65eccd0b3c 202-213
+  s_581d6725ee027e::t_541640a66b5194 184-185,188-189
+packages/core/package.json
+  s_581d6725ee027e::t_a2f710f411792f 102-104
+package-lock.json
+  s_581d6725ee027e::t_05108d3cb0ed88 112-549,6614-6616,6619,8926-8937,14818-14823,15184-15189,15998-16003,16095-16104,16861-16869,23731-23736,27821-27826,35122-35127,38587-38592,40119-40124,40941-40946,41449-41451
+packages/core/src/app/[locale]/(auth)/layout.tsx
+  s_581d6725ee027e::t_adbc74238322b8 3,11,55-56,60
+packages/core/src/libs/Amplitude.ts
+  s_581d6725ee027e::t_209d1fc4cb51e4 1,4,10-13,17,20-25,27,29-30,32-33,42-45,48-49,78-80,83,85,105-106,108-110,124,138,140-145
+  s_581d6725ee027e::t_ac4e55bade923b 18-19
+  s_581d6725ee027e::t_035f2444e8b5a5 2-3,5-9,14-16,26,28,31,34-41,46-47,50-77,81-82,84,86-104,107,111-123,125-137,139,146,150
+  s_581d6725ee027e::t_2de835a2dfe355 147-149,151-153
+packages/core/src/services/spend/ledger.ts
+  s_581d6725ee027e::t_1b0ad3be4ae000 135
+packages/core/src/features/analytics/AmplitudeAnalytics.tsx
+  s_581d6725ee027e::t_de81c46f08cbab 1-49
+  s_581d6725ee027e::t_828f783a965171 50
+packages/core/.env.example
+  s_581d6725ee027e::t_a6b3d637337cfc 124-132
+  s_581d6725ee027e::t_70ef3d52fd7c68 133
+packages/core/src/app/[locale]/(auth)/dashboard/admin/page.tsx
+  s_581d6725ee027e::t_493e36f206db17 5,26
+packages/core/src/app/[locale]/(auth)/dashboard/developers/page.tsx
+  s_581d6725ee027e::t_395f51365501bc 8,128
+packages/core/src/features/routing/AmplitudeKeyCard.tsx
+  s_581d6725ee027e::t_ea4154dc3ef5ac 1-42
+packages/core/src/features/routing/JevKeyCard.tsx
+  s_581d6725ee027e::t_004601a363ea6e 13,30-32
+packages/core/src/features/routing/SystemKeyCard.tsx
+  s_581d6725ee027e::t_d65f313a2f2fa1 1-55
+packages/core/src/features/routing/SystemKeysSection.tsx
+  s_581d6725ee027e::t_29e0c75fadc910 1,3,6,11-12,17,19-29,33-34
+packages/core/src/routers/Routing.ts
+  s_581d6725ee027e::t_7c25185be52087 2-4,13,18,20,26-27,29-33,36,40,46,68,70-72,76-77,81,83-85
+packages/core/src/services/routing/jevKey.ts
+  s_581d6725ee027e::t_f6951740198df8 17-19,27-28,31,51-59,64,67,73,75-76,85-86,95-96,109,118-119
+packages/core/src/services/analytics/amplitudeKey.test.ts
+  s_581d6725ee027e::t_171c1e0a3a420c 1-95
+packages/core/src/services/analytics/amplitudeKey.ts
+  s_581d6725ee027e::t_2e0b5c5d5730cb 1-76
+packages/core/src/services/keys/systemKeys.ts
+  s_581d6725ee027e::t_2618c57fa2f994 1-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "69efbffe9a81557a87adcdedc947a812433938fd",
+  "prompts": {},
+  "sessions": {
+    "s_581d6725ee027e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "991bfb48-3fb7-43af-a80d-6ff8d6972537",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
