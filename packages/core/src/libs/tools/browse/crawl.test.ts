@@ -22,6 +22,7 @@ const provider = {
   requiredEnv: ['FIRECRAWL_API_KEY'],
   isReady: () => true,
   fetchPage: (url: string, opts?: { orgId?: string }) => fetchPage(url, opts),
+  fetchHtml: async () => null,
 } satisfies BrowseProvider;
 
 const START_URL = 'https://example.com/start';

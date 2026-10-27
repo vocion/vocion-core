@@ -105,6 +105,11 @@ export type CredentialPlatformId
     | 'tavily'
     | 'brave'
     | 'firecrawl'
+  // SERP research (`libs/tools/serp/`): Google's own ranking, bought from a
+  // SERP vendor, plus keyword volume from DataForSEO.
+    | 'serper'
+    | 'serpapi'
+    | 'dataforseo'
   // Login apps (#1080). A workspace's own OAuth app at a vendor, so its "Log
   // in with <vendor>" runs on the workspace's client ID and secret instead of
   // the server's env. One live per vendor: saving a new one replaces the old.
@@ -127,7 +132,7 @@ export type CredentialPlatformId
  * Only the providers that bill someone appear here. `builtin` browse and the
  * calculator call nothing and need no key, so no platform claims them.
  */
-export type CredentialToolProvider = 'tavily' | 'brave' | 'firecrawl' | 'openai';
+export type CredentialToolProvider = 'tavily' | 'brave' | 'firecrawl' | 'openai' | 'serper' | 'serpapi' | 'dataforseo';
 
 /**
  * Where a platform's secret comes from.
@@ -1818,6 +1823,56 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keyShapeHint: 'starts with "fc-" followed by at least 8 more characters',
     helpText: 'Your Firecrawl API key, from firecrawl.dev. Pages this workspace fetches through Firecrawl bill your Firecrawl account.',
     fields: singleKeyField('Firecrawl key', /^fc-[\w-]{8,}$/i, 'starts with "fc-" followed by at least 8 more characters'),
+  },
+  // SERP vendors. None of them offers a sign-in an app could use, so the key is
+  // the one path, not the Advanced one. Each bills per search, so a workspace
+  // that pastes its own spends its own account.
+  {
+    id: 'serper',
+    label: 'Serper',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
+    llmProvider: null,
+    toolProvider: 'serper',
+    // Serper keys are opaque hex; the shape is not documented, so anything
+    // non-empty is accepted rather than risk refusing a good key.
+    keyPattern: null,
+    keyShapeHint: 'is any non-empty API key',
+    helpText: 'Your Serper API key, from serper.dev → API key. Google searches this workspace runs for SEO research bill your Serper account. Serper has no sign-in for apps, so a key is the way to connect it.',
+    fields: singleKeyField('Serper API key', null, 'is any non-empty API key'),
+  },
+  {
+    id: 'serpapi',
+    label: 'SerpApi',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
+    llmProvider: null,
+    toolProvider: 'serpapi',
+    keyPattern: null,
+    keyShapeHint: 'is any non-empty API key',
+    helpText: 'Your SerpApi private API key, from serpapi.com/manage-api-key. Google searches this workspace runs for SEO research bill your SerpApi account. SerpApi has no sign-in for apps, so a key is the way to connect it.',
+    fields: singleKeyField('SerpApi key', null, 'is any non-empty API key'),
+  },
+  {
+    id: 'dataforseo',
+    label: 'DataForSEO',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
+    llmProvider: null,
+    toolProvider: 'dataforseo',
+    keyPattern: null,
+    keyShapeHint: 'an API login and an API password',
+    helpText: 'Your DataForSEO API login and API password, from app.dataforseo.com → API Access (not your account password). Google searches and keyword volumes this workspace looks up bill your DataForSEO balance. DataForSEO has no sign-in for apps, so these are the way to connect it.',
+    fields: [
+      { name: 'login', label: 'API login', pattern: null, shapeHint: 'is the API login shown under API Access', secret: false },
+      { name: 'password', label: 'API password', pattern: null, shapeHint: 'is the API password shown under API Access', secret: true },
+    ],
   },
   {
     id: 'app-login',

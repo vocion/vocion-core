@@ -183,6 +183,18 @@ export type StepLabelHints = {
 };
 
 /**
+ * A search query as a step label quotes it: curly quotes, cut to fit a line.
+ * @param value - The argument.
+ */
+function quoted(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    return '';
+  }
+  const q = value.trim().replace(/\s+/g, ' ');
+  return `“${q.length > 40 ? `${q.slice(0, 39)}…` : q}”`;
+}
+
+/**
  * WHAT A STEP DID FOR THE PERSON, for the steps that ask them something or set
  * something up — read from the call's arguments, said as the outcome they
  * see: "Asked you to connect Jira", never "Ran the offer connection"
@@ -206,6 +218,25 @@ export function personFacingStepLabels(tool: string, args: Record<string, unknow
       const named = names(args?.named);
       const what = named.length > 0 ? and(named) : 'your systems';
       return { running: `Asking you to connect ${what}…`, done: `Asked you to connect ${what}` };
+    }
+    // SERP research says what it read, with the query (`serpResearch.ts`).
+    case 'serp_search': {
+      const q = quoted(args?.query);
+      const n = typeof args?.num === 'number' ? args.num : 10;
+      return q ? { running: `Reading Google's top ${n} for ${q}…`, done: `Read Google's top ${n} for ${q}` } : { running: 'Reading Google\'s results…', done: 'Read Google\'s results' };
+    }
+    case 'serp_compare': {
+      if (args?.synthesis) {
+        return { running: 'Writing up what the top pages show…', done: 'Wrote up what the top pages show' };
+      }
+      const q = quoted(args?.query);
+      const n = typeof args?.top === 'number' ? args.top : 10;
+      return { running: `Reading the top ${n} pages${q ? ` for ${q}` : ''}…`, done: `Read the top ${n} pages${q ? ` for ${q}` : ''}` };
+    }
+    case 'keyword_metrics': {
+      const count = Array.isArray(args?.keywords) ? args.keywords.length : 0;
+      const what = count === 1 && typeof (args!.keywords as unknown[])[0] === 'string' ? quoted((args!.keywords as string[])[0]) : `${count || 'the'} keywords`;
+      return { running: `Looking up search volume for ${what}…`, done: `Looked up search volume for ${what}` };
     }
     case 'describe_setup':
       return { running: 'Checking what setup is left…', done: 'Checked what setup is left' };

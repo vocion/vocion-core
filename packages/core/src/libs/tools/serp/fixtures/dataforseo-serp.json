@@ -1,0 +1,33 @@
+{
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "cost": 0.002,
+  "tasks": [
+    {
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "result": [
+        {
+          "keyword": "wide hiking boots",
+          "location_code": 1014221,
+          "language_code": "en",
+          "datetime": "2026-10-27 14:05:12 +00:00",
+          "items": [
+            { "type": "paid", "rank_group": 1, "domain": "contoso-supply.example", "title": "Wide Boots Sale", "url": "https://contoso-supply.example/sale" },
+            { "type": "featured_snippet", "rank_group": 1, "domain": "northwind-outfitters.example", "title": "Best Wide Hiking Boots, Tested", "description": "Look for a wide toe box and a removable insole.", "url": "https://northwind-outfitters.example/guides/wide-hiking-boots" },
+            { "type": "organic", "rank_group": 1, "rank_absolute": 2, "domain": "northwind-outfitters.example", "title": "Best Wide Hiking Boots, Tested on 200 Miles of Trail", "url": "https://northwind-outfitters.example/guides/wide-hiking-boots", "description": "We tested twelve wide-fit boots.", "timestamp": "2026-07-19 00:00:00 +00:00" },
+            {
+              "type": "people_also_ask",
+              "rank_group": 1,
+              "items": [
+                { "type": "people_also_ask_element", "title": "Should hiking boots be a size bigger?", "expanded_element": [{ "type": "people_also_ask_expanded_element", "url": "https://acme-trail-journal.example/fit/wide-feet", "description": "Half a size, usually." }] }
+              ]
+            },
+            { "type": "organic", "rank_group": 2, "rank_absolute": 4, "domain": "www.contoso-supply.example", "title": "Wide Hiking Boots | Contoso Supply", "url": "https://www.contoso-supply.example/boots/wide", "description": "Shop wide boots.", "timestamp": null },
+            { "type": "related_searches", "rank_group": 1, "items": ["wide hiking boots women", "waterproof wide hiking boots"] }
+          ]
+        }
+      ]
+    }
+  ]
+}

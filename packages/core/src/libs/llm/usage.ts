@@ -173,5 +173,10 @@ export function providerOfModel(model: string): string | null {
   if (m.startsWith('eleven')) {
     return 'elevenlabs';
   }
+  // SERP research's billed units, priced as `serp/<vendor>[-<endpoint>]`.
+  const serp = /^serp\/([a-z]+)/.exec(m);
+  if (serp) {
+    return serp[1]!;
+  }
   return null;
 }

@@ -1,0 +1,14 @@
+{
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "tasks": [
+    {
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "result": [
+        { "keyword": "wide hiking boots", "search_volume": 9900, "cpc": 1.42, "competition": "HIGH", "competition_index": 100, "monthly_searches": [{ "year": 2026, "month": 9, "search_volume": 12100 }, { "year": 2026, "month": 8, "search_volume": 9900 }] },
+        { "keyword": "extra wide trail shoes", "search_volume": null, "cpc": null, "competition": null, "competition_index": null, "monthly_searches": null }
+      ]
+    }
+  ]
+}

@@ -143,3 +143,16 @@ describe('a read of the person\'s own connection says so', () => {
     expect(personFacingStepLabels('mcp_read', { sourceSlug: 'company-knowledge' })).toBeNull();
   });
 });
+
+describe('SERP research says what it read, in plain words', () => {
+  it('names the query and how many results', () => {
+    expect(personFacingStepLabels('serp_search', { query: 'wide hiking boots' })).toEqual({ running: 'Reading Google\'s top 10 for “wide hiking boots”…', done: 'Read Google\'s top 10 for “wide hiking boots”' });
+    expect(personFacingStepLabels('serp_compare', { query: 'wide hiking boots', top: 5 })?.done).toBe('Read the top 5 pages for “wide hiking boots”');
+    expect(personFacingStepLabels('serp_compare', { brief_id: 4, synthesis: {} })?.done).toBe('Wrote up what the top pages show');
+    expect(personFacingStepLabels('keyword_metrics', { keywords: ['a', 'b', 'c'] })?.done).toBe('Looked up search volume for 3 keywords');
+  });
+
+  it('cuts a long query to fit the line', () => {
+    expect(personFacingStepLabels('serp_search', { query: 'x'.repeat(80) })!.done.length).toBeLessThan(70);
+  });
+});

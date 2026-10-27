@@ -174,7 +174,7 @@ describe('toolCatalogForOrg', () => {
     const catalog = await toolCatalogForOrg(ORG);
     const builtin = catalog.families[0]!;
 
-    expect(builtin.tools.map(t => t.name)).toEqual(['web_search', 'fetch_url', 'crawl_site', 'generate_image', 'create_artifact', 'run_code']);
+    expect(builtin.tools.map(t => t.name)).toEqual(['web_search', 'fetch_url', 'crawl_site', 'serp_search', 'serp_compare', 'keyword_metrics', 'generate_image', 'create_artifact', 'run_code']);
     expect(builtin.tools[0]!.status).toEqual(WEB_SEARCH_STATUS);
     expect(builtin.tools[0]!.title).toBe('Web search');
     expect(catalog.statuses).toEqual([WEB_SEARCH_STATUS]);

@@ -1,5 +1,6 @@
-import type { BrowseProvider, Page } from './types';
+import type { BrowseProvider, Page, RawPage } from './types';
 import process from 'node:process';
+import { resolvesPublicly } from '@/libs/net/publicUrl';
 import { resolveToolProviderKey } from '../orgKey';
 import { ProviderNotConfiguredError } from '../types';
 
@@ -61,6 +62,30 @@ export function firecrawlBrowseProvider(): BrowseProvider {
         return null;
       }
       return { url, title: data.data?.metadata?.title ?? url, content };
+    },
+    async fetchHtml(url, opts): Promise<RawPage | null> {
+      // Firecrawl fetches from its own network, but the same guard applies:
+      // a model's URL is never handed on unless it is a public address.
+      const verdict = await resolvesPublicly(url);
+      if (!verdict.ok) {
+        throw new Error(verdict.reason);
+      }
+      const orgKey = opts?.orgId ? await orgKeyOnce(opts.orgId) : null;
+      const apiKey = orgKey ?? process.env.FIRECRAWL_API_KEY;
+      if (!apiKey) {
+        throw new ProviderNotConfiguredError('browse', 'firecrawl', requiredEnv);
+      }
+      const res = await fetch('https://api.firecrawl.dev/v1/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({ url, formats: ['rawHtml'] }),
+      });
+      if (!res.ok) {
+        throw new Error(`firecrawl scrape failed: ${res.status} ${await res.text().catch(() => '')}`.trim());
+      }
+      const data = (await res.json()) as { data?: { rawHtml?: string; metadata?: { sourceURL?: string; url?: string } } };
+      const html = data.data?.rawHtml ?? '';
+      return html.trim() ? { url: data.data?.metadata?.url ?? url, html } : null;
     },
   };
 }

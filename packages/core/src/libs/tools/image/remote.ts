@@ -21,10 +21,10 @@
  *   - an SVG carrying script is refused rather than sanitised.
  */
 
+import type { Buffer } from 'node:buffer';
 import type { ImageKind } from './inspect';
-import { Buffer } from 'node:buffer';
 import sharp from 'sharp';
-import { resolvesPublicly } from '@/libs/net/publicUrl';
+import { fetchPublic, PublicFetchError, readCapped as readCappedBody } from '@/libs/net/publicFetch';
 import { CONTENT_TYPES, RASTER_KINDS, svgDimensions, svgIsInert, validateImageBytes } from './inspect';
 
 /** The most we will pull off the wire before refusing. */
@@ -64,77 +64,34 @@ export type FetchedImage = {
 };
 
 /**
- * Read a capped body. The cap is enforced chunk by chunk so an enormous
- * response is abandoned rather than buffered.
+ * The shared guarded fetch (`libs/net/publicFetch.ts`), with its refusals
+ * worded as this module's own, so a caller still catches one error type.
+ * @param raw - The URL to fetch.
+ */
+async function fetchGuarded(raw: string): Promise<Response> {
+  try {
+    const { res } = await fetchPublic(raw, { headers: { 'User-Agent': 'VocionBot/1.0 (+https://vocion.com)', 'Accept': 'image/*' } });
+    return res;
+  } catch (err) {
+    throw asImageError(err);
+  }
+}
+
+/**
+ * A capped read, its refusal as an {@link ImageFetchError}.
  * @param res - The response.
  * @param maxBytes - The cap.
  */
 async function readCapped(res: Response, maxBytes: number): Promise<Buffer> {
-  const declared = Number(res.headers.get('content-length') ?? Number.NaN);
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    throw new ImageFetchError(`it is ${Math.round(declared / 1024)} KB, over the ${Math.round(maxBytes / 1024)} KB cap.`, 'too_large');
+  try {
+    return await readCappedBody(res, maxBytes);
+  } catch (err) {
+    throw asImageError(err);
   }
-  const body = res.body;
-  if (!body) {
-    throw new ImageFetchError('the response had no body.');
-  }
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  const reader = body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => {});
-      throw new ImageFetchError(`it is over the ${Math.round(maxBytes / 1024)} KB cap.`, 'too_large');
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks);
 }
 
-/**
- * Follow up to `hops` redirects by hand, checking each destination is still
- * a public address. `redirect: 'follow'` would do the hops inside fetch,
- * where the guard cannot see them.
- * @param raw - The URL to fetch.
- * @param hops - How many redirects to follow.
- */
-async function fetchGuarded(raw: string, hops = 4): Promise<Response> {
-  let target = raw;
-  for (let i = 0; i <= hops; i++) {
-    const verdict = await resolvesPublicly(target);
-    if (!verdict.ok) {
-      throw new ImageFetchError(verdict.reason, 'blocked');
-    }
-    let res: Response;
-    try {
-      res = await fetch(verdict.url, {
-        redirect: 'manual',
-        headers: { 'User-Agent': 'VocionBot/1.0 (+https://vocion.com)', 'Accept': 'image/*' },
-        signal: AbortSignal.timeout(15_000),
-      });
-    } catch (err) {
-      throw new ImageFetchError(`${verdict.url.host} did not answer (${(err as Error).message || 'network error'}).`, 'network');
-    }
-    if (res.status >= 300 && res.status < 400) {
-      const next = res.headers.get('location');
-      if (!next) {
-        throw new ImageFetchError(`the server redirected (HTTP ${res.status}) with no destination.`);
-      }
-      await res.body?.cancel().catch(() => {});
-      target = new URL(next, verdict.url).toString();
-      continue;
-    }
-    if (!res.ok) {
-      throw new ImageFetchError(`HTTP ${res.status} from ${verdict.url.host}.`, 'http', res.status);
-    }
-    return res;
-  }
-  throw new ImageFetchError('too many redirects.');
+function asImageError(err: unknown): unknown {
+  return err instanceof PublicFetchError ? new ImageFetchError(err.message, err.code, err.status) : err;
 }
 
 /** The bytes of one image, verified and untouched. */
