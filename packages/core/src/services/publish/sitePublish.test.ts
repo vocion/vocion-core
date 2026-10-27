@@ -11,8 +11,8 @@ describe('a page\'s pieces', () => {
     expect(long.endsWith('…')).toBe(true);
   });
 
-  it('renders markdown to HTML with the app\'s own renderer, tables included', async () => {
-    expect(await markdownToHtml('## Weight\n\n| a | b |\n| - | - |\n| 1 | 2 |')).toBe('<h2>Weight</h2>\n<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>');
+  it('renders markdown to plain HTML, escaped, with no inline styles, tables included', async () => {
+    expect(await markdownToHtml('## Weight\n\nUnder **2 kg** <b>x</b>\n\n| a | b |\n| --- | --- |\n| 1 | 2 |')).toBe('<h2>Weight</h2>\n<p>Under <strong>2 kg</strong> &lt;b&gt;x&lt;/b&gt;</p>\n<table><tr><th>a</th><th>b</th></tr><tr><td>1</td><td>2</td></tr></table>');
   });
 
   it('reads what a sign-off covered, in whichever field it was written', async () => {

@@ -221,19 +221,21 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
   };
 }
 
+/** No inline styles: the page takes the site's own. */
+const NO_STYLES = { h1: '', h2: '', h3: '', p: '', ul: '', ol: '', li: '', a: '', code: '', hr: '', table: '', th: '', td: '', blockquote: '' };
+
 /**
- * Markdown rendered to HTML with the same renderer the app reads markdown
- * with (react-markdown, GitHub-flavoured), for a target that takes HTML.
+ * Markdown rendered to HTML, for a target that takes HTML, a post pasted into
+ * an editor, and the card's preview: the small escaping renderer the reports
+ * already use (headings, paragraphs, lists, emphasis, code, links, tables,
+ * rules), with no inline styles, so the site's own styles apply.
  * @param markdown - The body.
  */
 export async function markdownToHtml(markdown: string): Promise<string> {
-  const [{ createElement }, { renderToStaticMarkup }, { default: ReactMarkdown }, { default: remarkGfm }] = await Promise.all([
-    import('react'),
-    import('react-dom/server'),
-    import('react-markdown'),
-    import('remark-gfm'),
-  ]);
-  return renderToStaticMarkup(createElement(ReactMarkdown, { remarkPlugins: [remarkGfm] }, markdown));
+  const { markdownToEmailHtml } = await import('@/services/reports/markdownToEmailHtml');
+  return markdownToEmailHtml(markdown, NO_STYLES)
+    .replace(/ style=""/g, '')
+    .replace(/ role="presentation" cellpadding="0" cellspacing="0"/g, '');
 }
 
 /**

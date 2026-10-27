@@ -184,7 +184,7 @@ describe('site.publish_page', () => {
 
     expect(file).toMatch(/^---\ntitle: "Three-Season Tents: What Matters"\n/);
     expect(file).not.toMatch(/Meta description:|Slug:|## Meta/);
-    expect(card.content?.[0]).toMatchObject({ markdown: true });
+    expect((card.content?.[0] as { html: string }).html).toContain('<h2>Weight</h2>');
   });
 
   it('refuses to overwrite a page already at the path, unless it is a refresh, and says "replacing"', async () => {

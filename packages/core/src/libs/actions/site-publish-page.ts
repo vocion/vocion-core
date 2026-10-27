@@ -122,7 +122,8 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
     const { plan } = planned;
     const { publishTargetLine } = await import('@/libs/publish/targets');
     const draftLink = { kind: 'document' as const, id: 'draft', label: plan.draft.title, tabLabel: 'Draft', href: `/dashboard/artifacts/${plan.draft.artifactId}`, version: String(plan.draft.version), summary: plan.page.description };
-    const preview = { kind: 'text' as const, id: 'preview', label: plan.page.title, tabLabel: 'Preview', body: plan.draft.markdown, markdown: true };
+    const { markdownToHtml } = await import('@/services/publish/sitePublish');
+    const preview = { kind: 'text' as const, id: 'preview', label: plan.page.title, tabLabel: 'Preview', body: plan.draft.markdown, html: await markdownToHtml(plan.draft.markdown) };
     const metaFields = [
       { label: 'Title', value: plan.page.title },
       { label: 'Meta title', value: plan.page.metaTitle ?? plan.page.title },
