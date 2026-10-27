@@ -676,6 +676,10 @@ async function settleWaitersOn(row: Ask): Promise<void> {
       logger.warn('a routine could not hear an answered ask', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
     });
   }
+  if (row.sourceRef?.startsWith('seo-page:')) {
+    // A drafted SEO page's sign-off: the page moves and its batch's gate is read again (`services/seo/signoff.ts`).
+    await import('@/services/seo/signoff').then(m => m.onSeoAskSettled(row)).catch(() => undefined);
+  }
   try {
     const { onAskSettled } = await import('@/services/needsYou/ResumeGateService');
     await onAskSettled(row);

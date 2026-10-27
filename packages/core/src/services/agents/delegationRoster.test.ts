@@ -89,4 +89,20 @@ describe('buildDelegationRoster (pure)', () => {
     expect(roster.delegates).toHaveLength(1);
     expect(roster.delegates[0]).toMatchObject({ slug: 'x', source: 'child', description: 'child desc', systemPrompt: 'You are X.' });
   });
+
+  it('carries a teammate\'s pinned model, and only a full pin (vendor and model)', () => {
+    const lead = { slug: 'seo-strategist' } as never;
+    const writer = { slug: 'seo-writer', name: 'SEO writer', description: 'Writes', systemPrompt: null, teamSlug: 'seo', harnessConfig: { modelProvider: 'anthropic', model: 'claude-opus-5-5' } } as never;
+    const editor = { slug: 'seo-editor', name: 'SEO editor', description: 'Checks', systemPrompt: null, teamSlug: 'seo', harnessConfig: { model: 'claude-sonnet-5-5' } } as never;
+    const roster = buildDelegationRoster({
+      lead,
+      children: [],
+      teams: [{ slug: 'seo', name: 'SEO', leadAgentSlug: 'seo-strategist', description: null } as never],
+      teamAgents: [writer, editor],
+      isWorkspaceLead: false,
+    });
+
+    expect(roster.delegates.find(d => d.slug === 'seo-writer')?.pinnedModel).toEqual({ modelProvider: 'anthropic', model: 'claude-opus-5-5' });
+    expect(roster.delegates.find(d => d.slug === 'seo-editor')?.pinnedModel).toBeUndefined();
+  });
 });

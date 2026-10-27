@@ -108,6 +108,7 @@ import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { sentryTools } from './sentry';
+import { seoTools } from './seo';
 import { serpTools } from './serpResearch';
 import { setupWorkspaceTools } from './setupWorkspace';
 import { setVoiceTool } from './setVoice';
@@ -350,6 +351,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ...(ctx.enabledPlugins?.includes('meeting-followup') ? [readMeetingRecordTool(ctx)] : []),
     // The workspace wiki — long-term context. Present while the `wiki` plugin is on.
     ...wikiTools(ctx),
+    // The SEO app: batches and pages as records, the volume gate in code, the
+    // model that ran each step. Present while the `seo` plugin is on.
+    ...(ctx.enabledPlugins?.includes('seo') ? seoTools(ctx) : []),
     // Missions and playbooks edit like artifacts: read the file, write it back
     // whole through the `workspace.write_*` actions (reviewed by default).
     ...workspaceSourceTools(ctx),
