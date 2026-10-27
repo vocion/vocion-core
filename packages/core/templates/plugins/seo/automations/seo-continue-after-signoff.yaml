@@ -1,0 +1,32 @@
+# A person answered an SEO sign-off — a keyword plan or a page. Core moved the
+# page or batch and read the project's gate again (`services/seo/signoff.ts`),
+# then raised `seo.signoff_settled`; this wakes the strategist to continue the
+# released work. No person has to tell it to.
+slug: seo-continue-after-signoff
+name: Continue after a sign-off
+label: Picked up the sign-off
+doing: Picking up the sign-off
+description: >-
+  Fires when a person signs off, revises or discards an SEO keyword plan or
+  page. The strategist reads the batch's gate and continues what it released:
+  briefs for an approved plan, the writer and editor for released pages, the
+  feedback filed and the page redrafted for one sent back, a revised plan for
+  one sent back.
+status: active
+agent: seo-strategist
+when:
+  event: seo.signoff_settled
+  maxFiresPer10m: 6
+do:
+  checkMission: seo-batches-moving
+  prompt: >-
+    A person answered an SEO sign-off; the event names the batch, the page or
+    plan, what it became, the note, and how many pages the gate releases now.
+    Call seo_next_pages for the batch first. A plan approved: brief the
+    released pages (page-brief). A plan sent back: revise it to answer the
+    note and file it with seo_plan_batch and batch_id. A page approved: write
+    and review the pages the gate releases now (the writer, then the editor).
+    A page sent back: file its note first (feedback-to-wiki), then have the
+    writer redraft it. Write only what seo_next_pages lists under writeNow;
+    when the gate holds, say its line and stop. Report in one line per batch:
+    what moved, what waits on a person.

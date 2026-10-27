@@ -11,8 +11,9 @@ description: >-
 
   The SEO tools move a page (`seo_save_research`, `seo_save_brief`,
   `seo_save_draft`, `seo_save_review`, `seo_record_feedback`) and read the
-  volume gate before they write; a person's answer on the sign-off moves it
-  too. Approval is read from that sign-off, never from the status alone.
+  project's volume gate before they write; a person's answer on the sign-off
+  moves it too. Approval is read from that sign-off — on these exact words,
+  the draft's version and content — never from the status alone.
 icon: file-text
 schema:
   type: object
@@ -59,7 +60,7 @@ schema:
       description: Planned as a rewrite of a page the client already has, so it may share that page's keyword and URL.
     slug:
       type: string
-      description: The URL slug planned for a new page.
+      description: The URL slug planned for a new page — kebab-case words, path segments allowed (fairview/water-heater-repair), unique within the client's project. Checked again by seo_save_draft with the meta title and description.
     target:
       type: string
       description: Where the page lives or will live — the published URL, else the page it refreshes, else its planned slug.
@@ -82,7 +83,15 @@ schema:
       description: The page brief artifact the draft is written from.
     draftArtifactId:
       type: integer
-      description: The current draft artifact.
+      description: The current draft artifact. A person's sign-off is bound to its version and content; an edit after it puts the page back to review.
+    metaTitle:
+      type: string
+      maxLength: 60
+      description: The meta title, at most 60 characters. Checked and stored by seo_save_draft; never in the draft's body.
+    metaDescription:
+      type: string
+      maxLength: 155
+      description: The meta description, at most 155 characters.
     publishTargetId:
       type: string
       description: Which of the project's publish targets the page ships to.

@@ -174,7 +174,7 @@ async function countApprovedActions(orgId: string, scope: MeasureScope, actions:
 
 /**
  * Asks of the named kinds, filed by the team or its agents, decided in range
- * with anything but a reject.
+ * with anything but a reject — and a sign-off only when it was approved.
  * @param orgId
  * @param scope
  * @param kinds
@@ -192,6 +192,9 @@ async function countDecidedAsks(orgId: string, scope: MeasureScope, kinds: strin
       eq(askSchema.orgId, orgId),
       inArray(askSchema.kind, kinds),
       inArray(askSchema.status, ['approved', 'done']),
+      // A sign-off counts only when it was approved: a Revise is an answer in
+      // the person's words (`other`, status done), and it signed nothing off.
+      sql`(${askSchema.kind} <> 'signoff' or ${askSchema.decision} = 'approve')`,
       who,
       gte(askSchema.decidedAt, range.since),
       lt(askSchema.decidedAt, range.until),

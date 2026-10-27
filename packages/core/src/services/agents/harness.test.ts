@@ -34,7 +34,7 @@ vi.mock('deepagents', () => ({
 
 const { createDeepAgent } = await import('deepagents');
 const { db } = await import('@/libs/DB');
-const { agentSchema, knowledgeSourceSchema, projectSchema, teamSchema, tenantAccountSchema } = await import('@/models/Schema');
+const { agentSchema, knowledgeSourceSchema, playbookSchema, projectSchema, teamSchema, tenantAccountSchema } = await import('@/models/Schema');
 const { buildChatModelForOrg } = await import('@/libs/llm');
 const { buildAgentDefinition, compileAgentForRequest, initiativePromptNote, resetAgentRuntimeCache } = await import('@/services/agents/harness');
 
@@ -100,6 +100,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   resetAgentRuntimeCache();
+  await db.delete(playbookSchema);
   await db.delete(knowledgeSourceSchema);
   await db.delete(teamSchema);
   await db.delete(agentSchema);
@@ -281,5 +282,49 @@ describe('MCP sources in the actual chat definition', () => {
     const chatContext = vi.mocked(buildDomainTools).mock.calls[0]![0];
 
     expect(mcpTools(chatContext).map(tool => tool.name)).toEqual(['mcp_list_tools', 'mcp_read']);
+  });
+});
+
+describe('teammates run with their own skills, grants and pinned model', () => {
+  /** An SEO team: the strategist leads; the writer pins Opus 5.5, has its own skill and its own grant. */
+  async function seoTeam(): Promise<void> {
+    await db.delete(playbookSchema);
+    await db.insert(playbookSchema).values({ orgId: ORG, slug: 'write-page', name: 'Writing a page', description: 'd', kind: 'skill', origin: 'core', contentSha: 'x' });
+    await db.insert(agentSchema).values([
+      { orgId: ORG, slug: 'seo-strategist', name: 'SEO strategist', systemPrompt: 'You lead SEO.', teamSlug: 'seo', skillSlugs: ['page-brief'] },
+      { orgId: ORG, slug: 'seo-writer', name: 'SEO writer', systemPrompt: 'You write pages.', teamSlug: 'seo', skillSlugs: ['write-page'], harnessConfig: { modelProvider: 'anthropic', model: 'claude-opus-5-5', grantTools: ['serp_search'] } },
+    ]);
+    await db.insert(teamSchema).values({ orgId: ORG, slug: 'seo', name: 'SEO', leadAgentSlug: 'seo-strategist' });
+  }
+
+  it('mounts a teammate\'s own skills for it and adds its own grants to its tools', async () => {
+    await seoTeam();
+    vi.mocked(buildDomainTools).mockImplementation(ctx => (ctx.harnessConfig.grantTools ?? []).map(name => ({ name })) as never);
+    await compile('seo-strategist');
+    const writer = graphOptions(mockCreate.mock.calls.length - 1).subagents.find(s => s.name === 'seo-writer')!;
+
+    expect(writer.skills).toEqual(['/teammates/seo-writer/skills/']);
+    expect((writer.tools ?? []).map(t => t.name)).toContain('serp_search');
+    expect(writer.model).toEqual({ stub: 'model' });
+
+    vi.mocked(buildDomainTools).mockImplementation(() => []);
+  });
+
+  it('a pinned model that cannot be built fails loudly: the teammate is left out and the lead is told, never run on the fast model', async () => {
+    await seoTeam();
+    vi.mocked(buildChatModelForOrg).mockImplementation(async (_role, _org, opts) => {
+      if ((opts as { model?: string } | undefined)?.model === 'claude-opus-5-5') {
+        throw new Error('no Anthropic key for this workspace');
+      }
+      return { stub: 'model' } as never;
+    });
+    await compile('seo-strategist');
+    const graph = graphOptions(mockCreate.mock.calls.length - 1);
+
+    expect(graph.subagents.map(s => s.name)).not.toContain('seo-writer');
+    expect(graph.systemPrompt).toContain('TEAMMATES YOU CANNOT CONSULT');
+    expect(graph.systemPrompt).toContain('claude-opus-5-5 could not be started — no Anthropic key for this workspace');
+
+    vi.mocked(buildChatModelForOrg).mockImplementation(async () => ({ stub: 'model' }) as never);
   });
 });

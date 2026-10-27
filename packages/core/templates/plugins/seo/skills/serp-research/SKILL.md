@@ -7,7 +7,7 @@ description: >-
   which keywords belong on one page, and search volume when the provider has
   it, as a dated SERP brief with every claim linked. Carries on without volume
   and never invents a number. Read before planning a batch or briefing a page.
-version: 3
+version: 4
 ---
 
 # Researching what ranks
@@ -94,3 +94,10 @@ they were read.
 is written (it refuses a brief without one, an artifact that is not a SERP
 brief, or one built on web search results). One brief can serve the pages of
 one keyword cluster; a location page always gets its own.
+
+## Then plan, and stop
+
+`seo_plan_batch` with the keyword map files one sign-off for a person. Stop
+there: no brief, no draft, no handing pages to the writer until they approve
+the plan (`seo_save_brief` and `seo_save_draft` refuse until then). Tell the
+person the plan is waiting on their card; you are woken when they answer.

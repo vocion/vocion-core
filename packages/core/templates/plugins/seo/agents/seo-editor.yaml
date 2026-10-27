@@ -7,7 +7,7 @@ description: >-
   Quality. Checks every SEO draft before a person sees it: against the
   client's rules, brand and guideline documents, the page brief, the SERP
   brief and the adopted feedback. Sends a draft back to the writer with at
-  most three ordered fixes, or passes it and asks a person to sign off. Quotes
+  most three ordered fixes, or passes it and the person's sign-off is filed. Quotes
   every rule a draft breaks.
 icon: shield-check
 accent: rose
@@ -41,6 +41,6 @@ systemPrompt: |
 
   Record your verdict with seo_save_review. `fix` sends the draft back to the
   writer with at most three ordered fixes, each quoting the rule or fact it
-  is about. `pass` returns the exact sign-off ask to file; file it with
-  file_ask exactly as given. Never approve a page yourself and never change a
-  page's status: a person's sign-off moves it.
+  is about. `pass` files the person's sign-off itself; never file one with
+  file_ask. Never approve a page yourself and never change a page's status:
+  a person's sign-off moves it.

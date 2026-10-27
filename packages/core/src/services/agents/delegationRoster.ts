@@ -37,6 +37,10 @@ export type DelegateEntry = {
    * when it pins one — consulted, it runs on it rather than on the lead's legwork model.
    */
   pinnedModel?: { modelProvider: 'anthropic' | 'openai' | 'bedrock'; model: string };
+  /** The delegate's own skills (`skills:`), mounted for it under `/teammates/<slug>/skills/`. */
+  skillSlugs?: string[];
+  /** The tools its own seat is granted (`harness.grantTools`), added to the lead's set when it is consulted. */
+  grantTools?: string[];
 };
 
 export type DelegationRoster = {
@@ -74,9 +78,20 @@ export function buildDelegationRoster(opts: {
       return;
     }
     taken.add(a.slug);
-    const h = (a.harnessConfig ?? {}) as { modelProvider?: 'anthropic' | 'openai' | 'bedrock'; model?: string };
+    const h = (a.harnessConfig ?? {}) as { modelProvider?: 'anthropic' | 'openai' | 'bedrock'; model?: string; grantTools?: string[] };
     const pinnedModel = h.modelProvider && h.model ? { modelProvider: h.modelProvider, model: h.model } : undefined;
-    delegates.push({ slug: a.slug, name: a.name, description, systemPrompt: a.systemPrompt ?? `You are ${a.name}.`, source, ...(pinnedModel ? { pinnedModel } : {}) });
+    const skillSlugs = a.skillSlugs ?? [];
+    const grantTools = h.grantTools ?? [];
+    delegates.push({
+      slug: a.slug,
+      name: a.name,
+      description,
+      systemPrompt: a.systemPrompt ?? `You are ${a.name}.`,
+      source,
+      ...(pinnedModel ? { pinnedModel } : {}),
+      ...(skillSlugs.length > 0 ? { skillSlugs } : {}),
+      ...(grantTools.length > 0 ? { grantTools } : {}),
+    });
   };
 
   for (const c of opts.children) {

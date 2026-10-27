@@ -69,6 +69,31 @@ export const RESERVED_OBJECT_KEYS: ReadonlySet<string> = new Set([
   'dedupOn',
 ]);
 
+/**
+ * Fields a PERSON sets, on a record's own page, by object type: this action —
+ * the path every agent write takes (`update_object`) — refuses them whoever
+ * the proposal came from, so no trust bar, consent reading or approval can
+ * move them. A project's SEO gate sizes and where its pages publish decide
+ * what reaches a client's site; a person sets them on the project page
+ * (`PATCH /api/v1/projects/:id`).
+ */
+export const PERSON_ONLY_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  data_room: ['seoGate', 'publishTargets'],
+};
+
+/**
+ * Why this write may not be made here, or nothing.
+ * @param typeSlug - The object type.
+ * @param set - The write.
+ */
+export function personOnlyRefusal(typeSlug: string, set: Record<string, unknown>): string | undefined {
+  const held = (PERSON_ONLY_FIELDS[typeSlug.trim().toLowerCase()] ?? []).filter(k => k in set);
+  if (held.length === 0) {
+    return undefined;
+  }
+  return `${held.join(' and ')} ${held.length === 1 ? 'is' : 'are'} set by a person on the project page, never through an agent's write. Tell the person what you would change and why; they change it there.`;
+}
+
 const updateMetaInput = z.object({
   /** Slug of an object type in this org's registry, e.g. `request`. */
   objectType: z.string().min(1).max(200),
@@ -375,7 +400,7 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     if (!objectType) {
       return `No object type "${input.objectType}" in this workspace. Write to a type the workspace defines, or have the type added first.`;
     }
-    const refusal = await refuseWrite(objectType.schema, input.objectType, input.set);
+    const refusal = personOnlyRefusal(input.objectType, input.set) ?? await refuseWrite(objectType.schema, input.objectType, input.set);
     if (refusal) {
       return refusal;
     }

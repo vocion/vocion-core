@@ -326,6 +326,17 @@ export type AskDecidedPayload = {
 };
 
 /**
+ * A person's SEO sign-off moved the work — a drafted page approved, sent back
+ * or discarded, or a batch's keyword plan decided (`services/seo/signoff.ts`).
+ * Raised after the page or batch moved and the project's gate was read again,
+ * deduped per ask. The SEO plugin's strategist subscribes and continues the
+ * released pages. Payload: `askId`, `decision`, `kind` (`page` | `plan`),
+ * `batchId`, `projectId`, `pageId` (a page), `signoff` or `plan` (what it
+ * became), `note`, `writable` (pages the gate releases now) and `line`.
+ */
+export const SEO_SIGNOFF_SETTLED = 'seo.signoff_settled';
+
+/**
  * A release record was linked to what it shipped — the requests, tasks and
  * QA verdicts its pull requests carried (`services/factory/releasePack.ts`
  * `linkRelease`, run when a deploy posts the release). The moment a release

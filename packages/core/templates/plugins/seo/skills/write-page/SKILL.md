@@ -6,7 +6,7 @@ description: >-
   rules, answering the query better than what ranks. Location pages carry
   what is true of their own place. Only pages the volume gate has released.
   Read before writing or redrafting any page.
-version: 2
+version: 3
 ---
 
 # Writing an SEO page
@@ -18,9 +18,10 @@ version: 2
    and stop.
 2. Read the client's project: rules first, then notes, brand and three-star
    guideline documents.
-3. Read the page brief, the SERP brief, `/learnings/seo-feedback.md`, and
-   every feedback note on this batch's pages. A redraft starts from the notes
-   on its own page (and the editor's review notes when it sent it back).
+3. Read the page brief, the SERP brief, `/learnings/seo-feedback.md`, the
+   client's adopted rules `seo_next_pages` returns (`clientRulesFromSignoffs`),
+   and every feedback note on this batch's pages. A redraft starts from the
+   notes on its own page (and the editor's review notes when it sent it back).
 
 ## The page
 
@@ -33,7 +34,19 @@ version: 2
 - Every number and claim traces to the client's material or a dated source in
   the SERP brief. Otherwise cut it.
 - Internal links from the brief, written into the sentences that need them.
-- End with the meta title, meta description and slug from the brief.
+- The body is the page and nothing else: no meta block, no front matter. The
+  meta title, meta description and slug go to `seo_save_draft` as fields.
+
+## The meta
+
+From the brief, checked by `seo_save_draft` before it saves anything:
+
+- `meta_title`: at most 60 characters (it says so at 55 and over).
+- `meta_description`: at most 155 characters.
+- `slug`: the page's planned slug stands when you leave it out; a new one
+  is kebab-case, path segments allowed (`fairview/water-heater-repair`),
+  unique within the client's project. A redraft keeps the page's meta unless
+  you pass new values.
 
 ## Location pages
 
@@ -52,6 +65,7 @@ place; never invent a job, a review or a fact about a town.
 ## Save it
 
 Render it as one markdown artifact in folder `seo/drafts` (a redraft updates
-the same artifact as a new version) and attach it with `seo_save_draft`. If
-it is refused, report the reason as given. The editor reads it next; you
-never mark a page approved.
+the same artifact as a new version) and attach it with `seo_save_draft`, with
+the meta. If it is refused, report the reason as given. The editor reads it
+next; you never mark a page approved and never file a sign-off. Once a person
+has signed a draft off, any edit to it puts the page back to review.

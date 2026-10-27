@@ -260,6 +260,14 @@ type AgentBlueprint = {
    * legwork model, so a writer pinned to Opus 5.5 writes on Opus 5.5 whoever asks.
    */
   teammateModels?: Record<string, { modelProvider: 'anthropic' | 'openai' | 'bedrock'; model: string }>;
+  /**
+   * The registered teammates' own skills, slug to skill slugs: consulted, each
+   * reads its skills from `/teammates/<slug>/skills/` (`buildInitialFiles`
+   * mounts them), not the lead's.
+   */
+  teammateSkills?: Record<string, string[]>;
+  /** The registered teammates' own granted tools (`harness.grantTools`), slug to grants. */
+  teammateGrants?: Record<string, string[]>;
   /** This agent's chat model. Stateless per call, so one instance serves every request. */
   model: Awaited<ReturnType<typeof buildChatModelForOrg>>;
   /** The workspace's own zone (`project.time_zone`), the fallback when a turn names none. */
@@ -526,24 +534,44 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   }
 
   const teammateNames = Object.fromEntries(roster.delegates.map(d => [d.slug, d.name]));
-  const pinned = roster.delegates.filter(d => d.pinnedModel && !authoredNames.has(d.slug));
+  const registered = roster.delegates.filter(d => !authoredNames.has(d.slug));
+  const pinned = registered.filter(d => d.pinnedModel);
   const teammateModels = pinned.length > 0 ? Object.fromEntries(pinned.map(d => [d.slug, d.pinnedModel!])) : undefined;
-  return { agentRow: row, systemPrompt, subagentSpecs, teammateNames, ...(teammateModels ? { teammateModels } : {}), defaultTimeZone, enabledPlugins, filingTypes, restSources, sourceKinds, workspaceKind };
+  const skilled = registered.filter(d => d.skillSlugs?.length);
+  const teammateSkills = skilled.length > 0 ? Object.fromEntries(skilled.map(d => [d.slug, d.skillSlugs!])) : undefined;
+  const granted = registered.filter(d => d.grantTools?.length);
+  const teammateGrants = granted.length > 0 ? Object.fromEntries(granted.map(d => [d.slug, d.grantTools!])) : undefined;
+  return { agentRow: row, systemPrompt, subagentSpecs, teammateNames, ...(teammateModels ? { teammateModels } : {}), ...(teammateSkills ? { teammateSkills } : {}), ...(teammateGrants ? { teammateGrants } : {}), defaultTimeZone, enabledPlugins, filingTypes, restSources, sourceKinds, workspaceKind };
 }
 
 async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
   const definition = await buildAgentDefinition(orgId, agentSlug);
   const row = definition.agentRow;
-  // A teammate that pins its own model is consulted on it (`teammateModels`).
-  // Built once per blueprint; one that cannot be built falls back to the
-  // lead's choice for teammates, as before.
+  // A teammate that pins its own model is consulted on it (`teammateModels`),
+  // built once per blueprint. One that cannot be built is NOT quietly run on
+  // the fast model: it is logged as an error, left out of the roster, and the
+  // lead is told, so the person hears that the writer could not be consulted
+  // rather than reading a page "written by" a model that never wrote it.
   if (definition.teammateModels) {
     const pins = definition.teammateModels;
-    definition.subagentSpecs = await Promise.all(definition.subagentSpecs.map(async (spec) => {
+    const unbuilt: string[] = [];
+    const specs = await Promise.all(definition.subagentSpecs.map(async (spec) => {
       const pin = pins[spec.name];
-      const built = pin ? await buildChatModelForOrg('main', orgId, chatModelOptionsFor(pin)).catch(() => undefined) : undefined;
-      return built ? { ...spec, model: built } : spec;
+      if (!pin) {
+        return spec;
+      }
+      try {
+        return { ...spec, model: await buildChatModelForOrg('main', orgId, chatModelOptionsFor(pin)) };
+      } catch (error) {
+        logger.error(`teammate "${spec.name}" pins ${pin.modelProvider}/${pin.model}, which could not be built; it is left out of "${agentSlug}"'s roster`, { error });
+        unbuilt.push(`${definition.teammateNames?.[spec.name] ?? spec.name} (${spec.name}): its model ${pin.model} could not be started — ${(error as Error).message}`);
+        return null;
+      }
     }));
+    definition.subagentSpecs = specs.filter((s): s is NonNullable<typeof s> => s !== null);
+    if (unbuilt.length > 0) {
+      definition.systemPrompt = [definition.systemPrompt, `TEAMMATES YOU CANNOT CONSULT THIS TURN, because their pinned model failed to start. Do not do their work yourself in their place; say plainly that it could not be done and why: ${unbuilt.join(' | ')}`].filter(Boolean).join('\n\n');
+    }
   }
   // Creativity sets the sampling temperature only when a voice sets it: an
   // agent with no voice keeps the builder's deterministic default, and a model
@@ -584,6 +612,12 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
   ]);
   const hasAnyFolders = Number(playbookCount?.n ?? 0) > 0;
   const hasMounts = hasAnyFolders && ((row.skillSlugs ?? []).length > 0 || (row.playbookSlugs ?? []).length > 0);
+  // A registered teammate reads its OWN skills (deepagents gives a custom
+  // subagent none of the lead's), mounted for it under /teammates/<slug>/.
+  if (hasAnyFolders && definition.teammateSkills) {
+    const skills = definition.teammateSkills;
+    definition.subagentSpecs = definition.subagentSpecs.map(spec => (skills[spec.name] ? { ...spec, skills: [teammateSkillRoot(spec.name)] } : spec));
+  }
 
   return { ...definition, model, hasMounts, hotTools, ...(stepModel ? { stepModel } : {}), ...(legworkModel ? { legworkModel } : {}) };
 }
@@ -721,12 +755,29 @@ export async function compileAgentForRequest(
   //
   // On the fast model a teammate gets the tools in full rather than behind
   // tool search, which the fast model may not take (`effort.ts`).
-  const subagents: SubAgent[] = blueprint.subagentSpecs.map(spec => ({
-    ...spec,
-    // A teammate that pins its own model keeps it (`delegationRoster.ts` `pinnedModel`).
-    ...(blueprint.legworkModel && !spec.model ? { tools: domainTools as SubAgent['tools'], model: blueprint.legworkModel } : { tools: tools as SubAgent['tools'] }),
-    ...(turnMiddleware.length > 0 ? { middleware: turnMiddleware } : {}),
-  }));
+  // A teammate granted tools of its own (`harness.grantTools`) gets them on
+  // top of the lead's set, built on this request's context.
+  const grantedTools = (slug: string): StructuredToolInterface[] | null => {
+    const own = blueprint.teammateGrants?.[slug] ?? [];
+    const lead = new Set(ctx.harnessConfig.grantTools ?? []);
+    if (own.every(g => lead.has(g))) {
+      return null;
+    }
+    const withGrants = { ...ctx, harnessConfig: { ...ctx.harnessConfig, grantTools: [...lead, ...own.filter(g => !lead.has(g))] } } as RuntimeContext;
+    const extra = buildDomainTools(withGrants).filter(t => !excludeTools.has(t.name) && !domainTools.some(d => d.name === t.name));
+    return extra.length > 0 ? extra : null;
+  };
+  const subagents: SubAgent[] = blueprint.subagentSpecs.map((spec) => {
+    const extra = grantedTools(spec.name);
+    const base = blueprint.legworkModel && !spec.model ? domainTools : tools;
+    return {
+      ...spec,
+      // A teammate that pins its own model keeps it (`delegationRoster.ts` `pinnedModel`).
+      ...(blueprint.legworkModel && !spec.model ? { model: blueprint.legworkModel } : {}),
+      tools: (extra ? [...base, ...extra] : base) as SubAgent['tools'],
+      ...(turnMiddleware.length > 0 ? { middleware: turnMiddleware } : {}),
+    };
+  });
 
   const graph = createDeepAgent({
     model: blueprint.model,
@@ -825,6 +876,15 @@ export function forgetAgentBlueprint(orgId: string, agentSlug: string): void {
 /** Test/dev hook: flush the cache (e.g. after `workspace:apply`). */
 export function resetAgentRuntimeCache(): void {
   blueprintCache.clear();
+}
+
+/**
+ * Where a registered teammate's own skills mount: deepagents's skills loader
+ * reads `<root><skill>/SKILL.md`.
+ * @param slug - The teammate.
+ */
+export function teammateSkillRoot(slug: string): string {
+  return `/teammates/${slug}/skills/`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -974,6 +1034,22 @@ export async function buildInitialFiles(
   } catch (error) {
     logger.error(`agent "${agentSlug}" cannot start: mounting its workspace files failed`, { error });
     throw error;
+  }
+  // Each registered teammate's own skills, at /teammates/<slug>/skills/, so a
+  // writer consulted through `task` reads the writing skill, not the lead's.
+  try {
+    const roster = await deriveDelegationRoster(orgId, row);
+    for (const d of roster.delegates) {
+      if (!d.skillSlugs?.length) {
+        continue;
+      }
+      const own = await mountSkills({ orgId, skillSlugs: d.skillSlugs, playbookSlugs: [] });
+      for (const [path, body] of Object.entries(own)) {
+        mounted[path.replace(/^\/skills\//, teammateSkillRoot(d.slug))] = body;
+      }
+    }
+  } catch (error) {
+    logger.error(`agent "${agentSlug}": its teammates' skills did not mount this turn`, { error });
   }
   // Pre-rendered store content, one file per rule under /memories/…: the
   // digest middleware reads these out of graph state, and the same paths are

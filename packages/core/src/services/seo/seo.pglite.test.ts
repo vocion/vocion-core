@@ -1,28 +1,48 @@
 /**
  * The SEO app end to end on PGlite: installed on a workspace with no folder
- * (Vocion Cloud), a batch planned for a client's project, the gate refusing a
- * draft past the sample, a person's sign-off and revise moving the pages, and
- * feedback filed before anything more is written. Every client, person and
- * site here is fictional.
+ * (Vocion Cloud), a keyword plan signed off before anything is briefed, the
+ * project's gate holding a second batch until the first sample is approved,
+ * asks filed and withdrawn by code, a sign-off bound to the draft's words,
+ * feedback filed where it says, and a person's settings out of an agent's
+ * reach. Every client, person and site here is fictional.
  */
+import type { NextRequest } from 'next/server';
 import type { RuntimeContext } from '@/services/agents/types';
 import type { Ask } from '@/services/AskService';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, like } from 'drizzle-orm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 vi.mock('@/services/chat/synthesis', () => ({ invalidateChipCache: vi.fn() }));
+// The follow-up the strategist is woken by is an event; record it rather than run an agent.
+const emitted = vi.hoisted(() => [] as Array<{ type: string; payload?: Record<string, unknown> }>);
+vi.mock('@/services/EventService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/EventService')>();
+  return { ...actual, emitEvent: vi.fn(async (input: { type: string; payload?: Record<string, unknown> }) => {
+    emitted.push(input);
+    return { eventId: 0, dispatched: [] };
+  }) };
+});
+// Duplicate judging is a model call; every proposed rule is new here.
+vi.mock('@/services/feedback/duplicateDetection', async importOriginal => ({
+  ...await importOriginal<typeof import('@/services/feedback/duplicateDetection')>(),
+  findDuplicateRule: vi.fn(async () => ({ duplicate: false, reason: 'test' })),
+}));
 
 const { db } = await import('@/libs/DB');
-const { agentSchema, memoryNamespaceSchema, modelCallSchema, projectSchema, teamSchema, tenantAccountSchema, trustRuleSchema } = await import('@/models/Schema');
+const { agentSchema, askSchema, automationSchema, learningCandidateSchema, modelCallSchema, projectSchema, tenantAccountSchema, trustRuleSchema } = await import('@/models/Schema');
 const { installPluginBundles } = await import('@/services/plugins/installBundle');
-const { getObjectTypeBySlug, updateBusinessObject } = await import('@/services/BusinessObjectService');
-const { createDataRoom } = await import('@/services/DataRoomService');
-const { createArtifact } = await import('@/services/ArtifactService');
+const { getObjectTypeBySlug } = await import('@/services/BusinessObjectService');
+const { createDataRoom, getDataRoom } = await import('@/services/DataRoomService');
+const { createArtifact, updateArtifact } = await import('@/services/ArtifactService');
 const { seoTools } = await import('@/services/agents/tools/seo');
-const { getSeoBatch, getSeoPage, listSeoPages } = await import('./records');
-const { renderSerpBrief, renderSynthesis, withSynthesis } = await import('@/libs/tools/serp/brief');
+const { updateProjectTool } = await import('@/services/agents/tools/projects');
+const { objectsUpdateMetaAction } = await import('@/libs/actions/objects-update-meta');
+const { patchProject } = await import('@/app/api/v1/projects/[id]/handlers');
+const { decideCandidate } = await import('@/services/LearningCandidateService');
+const { getSeoBatch, getSeoPage, listSeoPages, patchSeoPage, readSeoGate } = await import('./records');
 const { onSeoAskSettled } = await import('./signoff');
+const { renderSerpBrief, renderSynthesis, withSynthesis } = await import('@/libs/tools/serp/brief');
 
 const ORG = 'proj_seo_brightline';
 const PERSON = 'usr-seo-mara';
@@ -36,6 +56,7 @@ const ctx = (over: Partial<RuntimeContext> = {}): RuntimeContext => ({
   searchConfig: {},
   harnessConfig: { model: 'claude-opus-5-5' },
   enabledPlugins: ['data-rooms', 'wiki', 'seo'],
+  objectTypeSlugs: ['seo_batch', 'seo_page', 'data_room'],
   emit: () => {},
   ...over,
 } as RuntimeContext);
@@ -62,30 +83,63 @@ async function markdown(title: string, folder?: string, md = `# ${title}`): Prom
  * @param written - Whether the synthesis is in.
  */
 async function serpBrief(query: string, written = true): Promise<number> {
-  const synthesis = written ? '**Intent.** To compare trail shoes before buying [1][2].' : '_Not written yet._';
+  const synthesis = written ? '**Intent.** To find a local tradesperson today [1][2].' : '_Not written yet._';
   return markdown(`SERP brief: ${query}`, 'seo/serp', `# SERP brief: ${query}\n\n## Synthesis\n\n<!-- serp-synthesis -->\n${synthesis}\n<!-- /serp-synthesis -->\n`);
 }
 
 /**
- * A sign-off answered by a person, as `AskService` hands it over.
- * @param id - The ask id.
- * @param ref - Its source ref.
- * @param decision - approve | reject | other.
- * @param note - What they wrote.
+ * The asks filed with a source ref starting so, oldest first.
+ * @param prefix - The start of the ref.
  */
-function answered(id: number, ref: string, decision: string, note: string | null = null): Ask {
-  return { id, orgId: ORG, kind: 'signoff', sourceRef: ref, status: decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'done', decision, decisionNote: note, decidedBy: PERSON } as unknown as Ask;
+async function asksLike(prefix: string): Promise<Ask[]> {
+  return (await db.select().from(askSchema).where(and(eq(askSchema.orgId, ORG), like(askSchema.sourceRef, `${prefix}%`)))).sort((a, b) => a.id - b.id);
 }
 
 /**
- * The sign-off ref the editor's receipt names.
- * @param receipt - What seo_save_review returned.
+ * A person answers an ask, as `AskService` hands it over once decided.
+ * @param ask - The open ask.
+ * @param decision - approve | reject | other.
+ * @param note - What they wrote.
  */
-function refIn(receipt: string): string {
-  return /"source_ref":"([^"]+)"/.exec(receipt)![1]!;
+async function answer(ask: Ask, decision: string, note: string | null = null): Promise<Ask> {
+  const status = decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'done';
+  const [row] = await db.update(askSchema).set({ status, decision, decisionNote: note, decidedBy: PERSON, decidedAt: new Date() }).where(eq(askSchema.id, ask.id)).returning();
+  await onSeoAskSettled(row!);
+  return row!;
+}
+
+/**
+ * The one open sign-off of a page.
+ * @param pageId - The page.
+ */
+async function openAskFor(pageId: number): Promise<Ask> {
+  const open = (await asksLike(`seo-page:${pageId}:`)).filter(a => a.status === 'open');
+
+  expect(open).toHaveLength(1);
+
+  return open[0]!;
+}
+
+const meta = (slug: string) => ({ meta_title: `${slug.replace(/-/g, ' ')} | Northwind`, meta_description: `Same-day ${slug.replace(/-/g, ' ')} from Northwind Home Services.`, slug });
+
+/**
+ * Research, brief, draft and pass one page: its sign-off ends up filed.
+ * @param pageId - The page.
+ * @param keyword - Its keyword, for the artifacts.
+ */
+async function writeAndPass(pageId: number, keyword: string): Promise<void> {
+  await call('seo_save_research', { page_id: pageId, serp_artifact_id: await serpBrief(keyword) }, { agentSlug: 'serp-analyst' });
+  await call('seo_save_brief', { page_id: pageId, brief_artifact_id: await markdown(`Brief ${keyword}`, 'seo/briefs') });
+
+  expect(await call('seo_save_draft', { page_id: pageId, draft_artifact_id: await markdown(`Draft ${keyword}`, 'seo/drafts'), ...meta(keyword.replace(/\s+/g, '-')) }, { agentSlug: 'seo-writer' })).toContain('round');
+  expect(await call('seo_save_review', { page_id: pageId, verdict: 'pass', notes: 'Rules, brief and SERP brief checked.' }, { agentSlug: 'seo-editor', harnessConfig: { model: 'claude-sonnet-5-5' }, conversationId: 9102 })).toContain('sign-off is filed');
 }
 
 let projectId = 0;
+let otherProjectId = 0;
+let firstBatch = 0;
+let secondBatch = 0;
+let pages: Awaited<ReturnType<typeof listSeoPages>> = [];
 
 beforeAll(async () => {
   await db.insert(tenantAccountSchema).values({ id: 'acct-seo', name: 'Brightline Studio', slug: 'brightline-seo' });
@@ -93,7 +147,7 @@ beforeAll(async () => {
 });
 
 describe('installing the SEO app on a workspace with no folder', () => {
-  it('sets up everything the app needs: the seats, the records, the learning step, the trust bars and its lead', async () => {
+  it('sets up everything the app needs: the seats, the records, the learning step, the trust bars, its lead and its follow-up', async () => {
     const res = await installPluginBundles({ orgId: ORG, plugins: ['seo'], appliedBy: 'user:mara' });
 
     expect(res.errors).toEqual([]);
@@ -101,133 +155,284 @@ describe('installing the SEO app on a workspace with no folder', () => {
     expect(res.leadAdopted).toBe('seo-strategist');
 
     const agents = await db.select({ slug: agentSchema.slug, harness: agentSchema.harnessConfig }).from(agentSchema).where(eq(agentSchema.orgId, ORG));
-    const writer = agents.find(a => a.slug === 'seo-writer');
 
     expect(agents.map(a => a.slug)).toEqual(expect.arrayContaining(['seo-strategist', 'serp-analyst', 'seo-writer', 'seo-editor']));
-    expect(writer?.harness).toMatchObject({ model: 'claude-opus-5-5' });
+    expect(agents.find(a => a.slug === 'seo-writer')?.harness).toMatchObject({ model: 'claude-opus-5-5' });
     expect(await getObjectTypeBySlug(ORG, 'seo_batch')).toBeTruthy();
     expect(await getObjectTypeBySlug(ORG, 'seo_page')).toBeTruthy();
-    expect(await getObjectTypeBySlug(ORG, 'data_room')).toBeTruthy();
-    expect((await db.select().from(teamSchema).where(and(eq(teamSchema.orgId, ORG), eq(teamSchema.slug, 'seo')))).length).toBe(1);
-    expect((await db.select().from(memoryNamespaceSchema).where(and(eq(memoryNamespaceSchema.orgId, ORG), eq(memoryNamespaceSchema.name, 'seo-feedback')))).length).toBe(1);
 
     const rules = await db.select().from(trustRuleSchema).where(eq(trustRuleSchema.orgId, ORG));
 
     expect(rules.find(r => r.actionId === 'objects.update_meta.seo_page')?.enabled).toBe('false');
+    expect((await db.select().from(automationSchema).where(and(eq(automationSchema.orgId, ORG), eq(automationSchema.slug, 'seo-continue-after-signoff')))).length).toBe(1);
   });
 });
 
-describe('a batch through the gate', () => {
-  it('plans a batch for a project, with the sample released and the planning model recorded from the ledger', async () => {
-    const room = await createDataRoom(ORG, PERSON, { title: 'Northwind Outfitters', domains: ['northwind-outfitters.example'] });
+describe('a keyword plan a person signs off before anything is briefed', () => {
+  it('plans a batch in review and files ONE sign-off showing the keyword map, in code', async () => {
+    const room = await createDataRoom(ORG, PERSON, { title: 'Northwind Home Services', domains: ['northwind-home.example'] });
     projectId = room.id;
+    otherProjectId = (await createDataRoom(ORG, PERSON, { title: 'Kestrel Gear' })).id;
     await db.insert(modelCallSchema).values({ orgId: ORG, feature: 'agent.turn', conversationId: 9101, model: 'claude-opus-5-5', agentSlug: 'seo-strategist' });
 
     const out = await call('seo_plan_batch', {
       project_id: projectId,
-      topic: 'Trail shoes',
-      pages: ['trail running shoes', 'waterproof trail shoes', 'trail shoes for wide feet', 'how to clean trail shoes', 'trail vs road shoes'].map(keyword => ({ keyword })),
+      topic: 'Boiler repair',
+      why: 'Local intent dominates; the client has no location pages.',
+      pages: [
+        { keyword: 'boiler repair riverton', page_type: 'location', location: 'Riverton', intent: 'transactional', cluster: 'boiler repair' },
+        { keyword: 'boiler repair lakeside', page_type: 'location', location: 'Lakeside', intent: 'transactional', cluster: 'boiler repair' },
+        { keyword: 'boiler repair hillcrest', page_type: 'location', location: 'Hillcrest', intent: 'transactional', cluster: 'boiler repair' },
+        { keyword: 'boiler servicing', page_type: 'service', intent: 'commercial', cluster: 'boiler care', existing_url: 'https://northwind-home.example/boilers' },
+        { keyword: 'why is my boiler losing pressure', page_type: 'blog', intent: 'informational', cluster: 'boiler care' },
+      ],
+    });
+    firstBatch = Number(/batch #(\d+)/.exec(out)![1]);
+
+    expect(out).toContain('Filed the keyword plan\'s sign-off');
+
+    const batch = await getSeoBatch(ORG, firstBatch);
+
+    expect(batch?.meta.status).toBe('plan_review');
+    expect(batch?.meta.gate?.line).toBe('5 pages planned · waiting on your sign-off on the keyword plan');
+
+    const [ask, ...more] = await asksLike(`seo-plan:${firstBatch}:`);
+
+    expect(more).toEqual([]);
+    expect(ask).toMatchObject({ kind: 'signoff', sourceRef: `seo-plan:${firstBatch}:1`, status: 'open', groupKey: `seo-batch:${firstBatch}` });
+    expect(ask!.contextMd).toContain('| 4 | boiler servicing | service | — | commercial | boiler care | refresh https://northwind-home.example/boilers |');
+
+    pages = await listSeoPages(ORG, firstBatch);
+
+    expect(pages.map(p => p.meta.released)).toEqual([false, false, false, false, false]);
+    expect(pages[0]!.meta.models?.plan).toMatchObject({ name: 'Opus 5.5', source: 'ledger' });
+  });
+
+  it('refuses a brief and a draft until the plan is approved; research may go on', async () => {
+    expect(await call('seo_save_research', { page_id: pages[0]!.id, serp_artifact_id: await serpBrief('boiler repair riverton') })).toContain('is on page');
+    expect(await call('seo_save_brief', { page_id: pages[0]!.id, brief_artifact_id: await markdown('Brief') })).toMatch(/^Not saved: the keyword plan .* is waiting on a person's sign-off/);
+    expect(await call('seo_save_draft', { page_id: pages[0]!.id, draft_artifact_id: await markdown('Draft'), ...meta('x') })).toMatch(/^Not saved: the keyword plan/);
+  });
+
+  it('Revise holds the batch with the note, and a revised plan files its own sign-off', async () => {
+    const [ask] = await asksLike(`seo-plan:${firstBatch}:`);
+    await answer(ask!, 'other', 'Add a page for Brookfield too.');
+
+    expect((await getSeoBatch(ORG, firstBatch))?.meta.plan).toMatchObject({ state: 'revise', note: 'Add a page for Brookfield too.' });
+    expect(await call('seo_save_brief', { page_id: pages[0]!.id, brief_artifact_id: await markdown('Brief') })).toContain('was sent back ("Add a page for Brookfield too.")');
+    expect(emitted.filter(e => e.type === 'seo.signoff_settled').at(-1)).toMatchObject({ type: 'seo.signoff_settled', payload: { kind: 'plan', plan: 'revise', batchId: firstBatch } });
+
+    const revised = await call('seo_plan_batch', {
+      batch_id: firstBatch,
+      topic: 'Boiler repair',
+      pages: [
+        { keyword: 'boiler repair riverton', page_type: 'location', location: 'Riverton' },
+        { keyword: 'boiler repair lakeside', page_type: 'location', location: 'Lakeside' },
+        { keyword: 'boiler repair brookfield', page_type: 'location', location: 'Brookfield' },
+        { keyword: 'boiler servicing', page_type: 'service', existing_url: 'https://northwind-home.example/boilers' },
+        { keyword: 'why is my boiler losing pressure', page_type: 'blog' },
+        { keyword: 'boiler repair cost', page_type: 'blog' },
+      ],
     });
 
-    expect(out).toContain('with 5 pages');
-    expect(out).toContain('0 of 5 written · writing a sample of 3 for your feedback first');
+    expect(revised).toContain('Revised the keyword plan');
 
-    const pages = await listSeoPages(ORG, Number(/batch #(\d+)/.exec(out)![1]));
+    const round2 = (await asksLike(`seo-plan:${firstBatch}:2`))[0]!;
+    await answer(round2, 'approve');
+    pages = await listSeoPages(ORG, firstBatch);
 
-    expect(pages.map(p => p.meta.released)).toEqual([true, true, true, false, false]);
-    expect(pages[0]!.meta.models?.plan).toMatchObject({ id: 'claude-opus-5-5', name: 'Opus 5.5', source: 'ledger' });
-    expect(pages[0]!.meta.projectId).toBe(projectId);
+    expect((await getSeoBatch(ORG, firstBatch))?.meta.plan?.state).toBe('approved');
+    // The sample: one page of each type — the first location, the service, the first post.
+    expect(pages.filter(p => p.meta.released).map(p => p.meta.keyword)).toEqual(['boiler repair riverton', 'boiler servicing', 'why is my boiler losing pressure']);
+  });
+});
+
+describe('the gate is the project\'s', () => {
+  it('a second batch for the same client drafts nothing until the first sample is signed off', async () => {
+    const out = await call('seo_plan_batch', { project_id: projectId, topic: 'Heat pumps', pages: [{ keyword: 'heat pump installation', page_type: 'service' }, { keyword: 'heat pump grants', page_type: 'blog' }] });
+    secondBatch = Number(/batch #(\d+)/.exec(out)![1]);
+    await answer((await asksLike(`seo-plan:${secondBatch}:`))[0]!, 'approve');
+    const [second] = await listSeoPages(ORG, secondBatch);
+    await call('seo_save_brief', { page_id: second!.id, brief_artifact_id: await markdown('Brief heat pumps') });
+
+    expect(await call('seo_save_draft', { page_id: second!.id, draft_artifact_id: await markdown('Draft heat pumps'), ...meta('heat-pump-installation') })).toMatch(/^Not saved: .*past the sample: a person has to sign off on the project's sample first/);
+    expect((await getSeoBatch(ORG, secondBatch))?.meta.gate?.line).toBe('0 of 2 written · nothing released until the project\'s sample is signed off');
+  });
+});
+
+describe('the sample, with its sign-offs filed by code', () => {
+  it('checks the meta in code and stores it on the page', async () => {
+    const page = pages[0]!;
+    await call('seo_save_brief', { page_id: page.id, brief_artifact_id: await markdown('Brief Riverton', 'seo/briefs', '# Brief\n\n## Local substance\n\nTwo jobs in Riverton from the project\'s notes.') });
+    const draft = await markdown('Draft Riverton', 'seo/drafts');
+
+    expect(await call('seo_save_draft', { page_id: page.id, draft_artifact_id: draft, meta_title: 'x'.repeat(61), meta_description: 'ok', slug: 'Boiler Repair' })).toMatch(/^Not saved: .*meta_title is 61 characters; at most 60; slug "Boiler Repair" is not kebab-case/);
+    expect(await call('seo_save_draft', { page_id: page.id, draft_artifact_id: draft, meta_title: 'Boiler repair in Riverton, same day | Northwind Home Co.', meta_description: 'Same-day boiler repair in Riverton.', slug: 'boiler-repair-riverton' }, { agentSlug: 'seo-writer' })).toContain('close to the 60');
+    expect((await getSeoPage(ORG, page.id))?.meta).toMatchObject({ metaTitle: 'Boiler repair in Riverton, same day | Northwind Home Co.', metaDescription: 'Same-day boiler repair in Riverton.', slug: 'boiler-repair-riverton' });
   });
 
-  it('takes only a SERP brief serp_compare filed, with its synthesis written', async () => {
-    const pages = await listSeoPages(ORG, await firstBatch());
+  it('a pass files the sign-off itself; a later review withdraws it; the redraft gets its own', async () => {
+    const page = pages[0]!;
+    await call('seo_save_review', { page_id: page.id, verdict: 'pass', notes: 'Checked.' }, { agentSlug: 'seo-editor' });
+    const first = await openAskFor(page.id);
+    const draft = (await getSeoPage(ORG, page.id))!.meta.draftArtifactId!;
 
-    expect(await call('seo_save_research', { page_id: pages[0]!.id, serp_artifact_id: await markdown('Notes') })).toMatch(/^Not saved: .*not a SERP brief/);
-    expect(await call('seo_save_research', { page_id: pages[0]!.id, serp_artifact_id: await serpBrief('trail running shoes', false) })).toMatch(/^Not saved: .*no synthesis yet/);
-    expect((await getSeoPage(ORG, pages[0]!.id))?.meta.status).toBe('proposed');
+    expect(first).toMatchObject({ kind: 'signoff', sourceRef: `seo-page:${page.id}:${draft}:1`, groupKey: `seo-batch:${firstBatch}`, agentSlug: 'seo-editor' });
+    expect(first.objectRefs).toEqual([{ type: 'artifact', id: String(draft) }, { type: 'object', id: String(page.id) }]);
+    expect((await getSeoPage(ORG, page.id))?.meta.signoffAsk).toMatchObject({ askId: first.id, version: 1 });
+
+    // The editor looks again and sends it back: the open ask is withdrawn.
+    expect(await call('seo_save_review', { page_id: page.id, verdict: 'fix', notes: 'The answer is in paragraph three.' }, { agentSlug: 'seo-editor' })).toContain('drafting again');
+    expect((await db.select().from(askSchema).where(eq(askSchema.id, first.id)))[0]?.status).toBe('superseded');
+
+    expect(await call('seo_save_draft', { page_id: page.id, draft_artifact_id: draft }, { agentSlug: 'seo-writer' })).toContain('round 2');
+
+    await call('seo_save_review', { page_id: page.id, verdict: 'pass', notes: 'Fixed.' }, { agentSlug: 'seo-editor' });
+
+    expect((await openAskFor(page.id)).sourceRef).toBe(`seo-page:${page.id}:${draft}:2`);
   });
 
-  it('refuses a draft past the sample, and a draft with no brief', async () => {
-    const pages = await listSeoPages(ORG, await firstBatch());
-    const draft = await markdown('Draft');
+  it('holds everything past the sample until a person signs off on every page of it', async () => {
+    await writeAndPass(pages[3]!.id, 'boiler servicing');
+    await writeAndPass(pages[4]!.id, 'why is my boiler losing pressure');
 
-    expect(await call('seo_save_draft', { page_id: pages[3]!.id, draft_artifact_id: draft })).toMatch(/^Not saved: .*past the sample/);
-    expect(await call('seo_save_draft', { page_id: pages[0]!.id, draft_artifact_id: draft })).toMatch(/^Not saved: .*no brief/);
-  });
+    const batch = await getSeoBatch(ORG, firstBatch);
 
-  it('writes the sample, and holds everything past it until a person signs off on all three', async () => {
-    const batchId = await firstBatch();
-    const pages = await listSeoPages(ORG, batchId);
-    const refs: string[] = [];
-    for (const page of pages.slice(0, 3)) {
-      if (page === pages[0]) {
-        // The editor sends the first draft back once; the writer may redraft it at once.
-        await call('seo_save_research', { page_id: page.id, serp_artifact_id: await serpBrief('first') });
-        await call('seo_save_brief', { page_id: page.id, brief_artifact_id: await markdown('Brief first') });
-        await call('seo_save_draft', { page_id: page.id, draft_artifact_id: await markdown('Draft first') });
-
-        expect(await call('seo_save_review', { page_id: page.id, verdict: 'fix', notes: 'The query is answered in paragraph three.' })).toContain('drafting again');
-      }
-      await call('seo_save_research', { page_id: page.id, serp_artifact_id: await serpBrief(page.meta.keyword) }, { agentSlug: 'serp-analyst' });
-      await call('seo_save_brief', { page_id: page.id, brief_artifact_id: await markdown(`Brief ${page.meta.keyword}`) });
-
-      expect(await call('seo_save_draft', { page_id: page.id, draft_artifact_id: await markdown(`Draft ${page.meta.keyword}`) }, { agentSlug: 'seo-writer' })).toContain(page === pages[0] ? 'round 2' : 'round 1');
-
-      refs.push(refIn(await call('seo_save_review', { page_id: page.id, verdict: 'pass', notes: 'Rules, brief and SERP brief checked.' }, { agentSlug: 'seo-editor', harnessConfig: { model: 'claude-sonnet-5-5' }, conversationId: 9102 })));
-    }
-
-    const batch = await getSeoBatch(ORG, batchId);
-
-    expect(batch?.meta.gate?.line).toBe('3 of 5 written · waiting on your feedback on the first 3');
+    expect(batch?.meta.gate?.line).toBe('3 of 6 written · waiting on your feedback on the sample of 3');
     expect(batch?.meta.waitingOnYou).toBe(3);
     // The editor's turn had no ledger row, so its model is the seat's, and says so.
-    expect((await getSeoPage(ORG, pages[0]!.id))?.meta.modelsLine).toBe('Plan Opus 5.5 · Write Opus 5.5 · Review Sonnet 5.5 (configured)');
+    expect((await getSeoPage(ORG, pages[3]!.id))?.meta.modelsLine).toBe('Plan Opus 5.5 · Write Opus 5.5 · Review Sonnet 5.5 (configured)');
 
-    // Two approved, one sent back with a note.
-    await onSeoAskSettled(answered(1, refs[0]!, 'approve'));
-    await onSeoAskSettled(answered(2, refs[1]!, 'approve'));
-    await onSeoAskSettled(answered(3, refs[2]!, 'other', 'Northwind never says "cheap"; say "good value".'));
+    await answer(await openAskFor(pages[0]!.id), 'approve');
+    await answer(await openAskFor(pages[3]!.id), 'approve');
+    await answer(await openAskFor(pages[4]!.id), 'other', 'Northwind never says "cheap"; say "fairly priced".');
 
-    const sentBack = await getSeoPage(ORG, pages[2]!.id);
+    expect((await getSeoPage(ORG, pages[0]!.id))?.meta.signoff).toMatchObject({ decision: 'approve', version: 1 });
+    expect((await getSeoPage(ORG, pages[4]!.id))?.meta.status).toBe('changes_requested');
+    expect((await getSeoBatch(ORG, firstBatch))?.meta.gate?.line).toBe('3 of 6 written · 1 page has feedback to file before more are written');
+    // The note holds every batch of the project, not only its own.
+    expect((await getSeoBatch(ORG, secondBatch))?.meta.gate?.line).toContain('feedback to file');
+    expect(emitted.filter(e => e.type === 'seo.signoff_settled' && e.payload?.kind === 'page').map(e => e.payload?.signoff)).toEqual(['approve', 'approve', 'revise']);
+  });
+});
 
-    expect(sentBack?.meta.status).toBe('changes_requested');
-    expect(sentBack?.meta.feedback?.[0]).toMatchObject({ note: 'Northwind never says "cheap"; say "good value".', filedTo: null, askId: 3 });
-    expect((await getSeoBatch(ORG, batchId))?.meta.gate?.line).toBe('3 of 5 written · 1 page has feedback to file before more are written');
-    // Not even the page itself is redrafted before its feedback is filed.
-    expect(await call('seo_save_draft', { page_id: pages[2]!.id, draft_artifact_id: await markdown('Redraft') })).toMatch(/^Not saved: .*has to be filed/);
+describe('feedback goes to the right client and is really filed', () => {
+  const note = 'Northwind never says "cheap"; say "fairly priced".';
+  const rule = 'Never say "cheap"; say "fairly priced".';
 
-    // Filed to the client's project, and the page says where.
-    expect(await call('seo_record_feedback', { page_id: pages[2]!.id, note: 'Northwind never says "cheap"; say "good value".', scope: 'client', filed_to: `project:${projectId}` })).toContain(`filed to project:${projectId}`);
+  it('refuses another client\'s project, and words that are not on the page\'s own project', async () => {
+    const page = pages[4]!;
 
-    // The redraft is round 2 of the same artifact, with its own sign-off.
-    const draftId = sentBack!.meta.draftArtifactId!;
-
-    expect(await call('seo_save_draft', { page_id: pages[2]!.id, draft_artifact_id: draftId })).toContain('round 2');
-
-    const ref = refIn(await call('seo_save_review', { page_id: pages[2]!.id, verdict: 'pass', notes: 'Rule applied.' }));
-
-    expect(ref).toBe(`seo-page:${pages[2]!.id}:${draftId}:2`);
-
-    // An answer about the first round no longer moves the page.
-    await onSeoAskSettled(answered(4, refs[2]!, 'approve'));
-
-    expect((await getSeoBatch(ORG, batchId))?.meta.gate?.stage).toBe('sample');
-
-    await onSeoAskSettled(answered(5, ref, 'approve'));
-
-    const after = await getSeoBatch(ORG, batchId);
-
-    // Sample approved: the rest of this small batch is released.
-    expect(after?.meta.gate?.stage).toBe('tranche');
-    expect((await listSeoPages(ORG, batchId)).map(p => p.meta.released)).toEqual([true, true, true, true, true]);
+    expect(await call('seo_record_feedback', { page_id: page.id, note, scope: 'client', filed_to: `project:${otherProjectId}`, filed_text: rule })).toMatch(new RegExp(`^Not recorded: page #${page.id} belongs to project ${projectId}`));
+    expect(await call('seo_record_feedback', { page_id: page.id, note, scope: 'client', filed_to: `project:${projectId}`, filed_text: rule })).toMatch(/^Not recorded as filed: .* is not on project/);
+    expect(await call('seo_save_draft', { page_id: page.id, draft_artifact_id: (await getSeoPage(ORG, page.id))!.meta.draftArtifactId! })).toMatch(/has to be filed/);
   });
 
-  it('reads the gate sizes from the project, never from the call', async () => {
-    const room = await createDataRoom(ORG, PERSON, { title: 'Kestrel Gear' });
-    await updateBusinessObject({ id: room.id, metadata: { ...room.meta, seoGate: { sample: 1, tranche: 2 } } }, ORG);
-    const out = await call('seo_plan_batch', { project_id: room.id, topic: 'Tents', pages: [{ keyword: 'two person tent' }, { keyword: 'ultralight tent' }] });
+  it('an SEO seat names the page\'s project on update_project; the rule on it counts as filed', async () => {
+    const update = updateProjectTool(ctx()) as unknown as { invoke: (a: Record<string, unknown>) => Promise<unknown> };
 
-    expect(out).toContain('writing a sample of 1 for your feedback first');
+    expect(String(await update.invoke({ add_rules: [rule] }))).toContain('name project_id');
+
+    await update.invoke({ project_id: projectId, add_rules: [rule] });
+
+    expect(await call('seo_record_feedback', { page_id: pages[4]!.id, note, scope: 'client', filed_to: `project:${projectId}`, filed_text: rule })).toContain(`filed to project:${projectId}`);
+    expect(await call('seo_save_draft', { page_id: pages[4]!.id, draft_artifact_id: (await getSeoPage(ORG, pages[4]!.id))!.meta.draftArtifactId! })).toContain('round 2');
+  });
+
+  it('a filing that no longer holds stops counting: take the rule off the project and the gate holds again', async () => {
+    const update = updateProjectTool(ctx()) as unknown as { invoke: (a: Record<string, unknown>) => Promise<unknown> };
+    await call('seo_save_review', { page_id: pages[4]!.id, verdict: 'fix', notes: 'Still says cheap.' }, { agentSlug: 'seo-editor' });
+    await patchSeoPage(ORG, pages[4]!, { status: 'changes_requested' });
+
+    expect((await readSeoGate(ORG, firstBatch))?.project.feedbackToFile).toEqual([]);
+
+    await update.invoke({ project_id: projectId, remove_rules: [rule] });
+
+    expect((await readSeoGate(ORG, firstBatch))?.project.feedbackToFile).toEqual([pages[4]!.id]);
+
+    await update.invoke({ project_id: projectId, add_rules: [rule] });
+  });
+
+  it('craft goes to the learning step as a candidate tagged with the project; a client\'s candidate reaches only that client', async () => {
+    const page = pages[0]!;
+
+    expect(await call('seo_record_feedback', { page_id: page.id, note: 'Open with the answer.', scope: 'general', filed_to: 'learning:seo-feedback', filed_text: 'Answer the query in the first sentence.' })).toMatch(/filed to learning:seo-feedback \(candidate #\d+/);
+    expect(await call('seo_record_feedback', { page_id: page.id, note: 'Mention the 24-hour line.', scope: 'client', filed_to: 'learning:seo-feedback', filed_text: 'Mention the 24-hour emergency line on every location page.' })).toContain('candidate #');
+
+    const candidates = await db.select().from(learningCandidateSchema).where(and(eq(learningCandidateSchema.orgId, ORG), eq(learningCandidateSchema.stepName, 'seo-feedback')));
+    const general = candidates.find(c => c.ruleText.startsWith('Answer the query'))!;
+    const client = candidates.find(c => c.ruleText.startsWith('Mention the 24-hour'))!;
+
+    expect(general).toMatchObject({ scopeKind: null, sourceRef: `seo-page:${page.id}:project:${projectId}` });
+    expect(client).toMatchObject({ scopeKind: 'object', scopeRef: `data_room/${projectId}` });
+
+    await decideCandidate({ orgId: ORG, id: client.id, decision: 'approve', decidedBy: PERSON });
+    const here = JSON.parse(await call('seo_next_pages', { batch_id: firstBatch }));
+    const otherBatch = Number(/batch #(\d+)/.exec(await call('seo_plan_batch', { project_id: otherProjectId, topic: 'Tents', pages: [{ keyword: 'two person tent' }] }))![1]);
+    const there = JSON.parse(await call('seo_next_pages', { batch_id: otherBatch }));
+
+    expect(here.clientRulesFromSignoffs).toEqual(['Mention the 24-hour emergency line on every location page.']);
+    expect(there.clientRulesFromSignoffs).toBeUndefined();
+  });
+});
+
+describe('a sign-off is bound to the words', () => {
+  it('an edit to an approved draft puts the page back to review with a new ask, and the gate stops counting it', async () => {
+    const page = pages[0]!;
+    const draft = (await getSeoPage(ORG, page.id))!.meta.draftArtifactId!;
+    const before = (await readSeoGate(ORG, firstBatch))!.project.approved;
+    await updateArtifact({ orgId: ORG, id: draft, contentMarkdown: '# Boiler repair in Riverton\n\nNow with a cheaper offer.', author: { kind: 'agent', id: 'agent:seo-writer' } });
+
+    await vi.waitFor(async () => expect((await getSeoPage(ORG, page.id))?.meta.status).toBe('in_review'));
+
+    const after = await getSeoPage(ORG, page.id);
+
+    expect(after?.meta.draftRound).toBe(3);
+    expect(after?.meta.signoff).toBeUndefined();
+    expect((await openAskFor(page.id)).sourceRef).toBe(`seo-page:${page.id}:${draft}:3`);
+    expect((await readSeoGate(ORG, firstBatch))!.project.approved).toBe(before - 1);
+  });
+});
+
+describe('writes that cannot wipe a sign-off', () => {
+  it('a tool writing from a stale read keeps the sign-off that landed meanwhile', async () => {
+    const page = pages[0]!;
+    const stale = (await getSeoPage(ORG, page.id))!;
+    await answer(await openAskFor(page.id), 'approve');
+    await patchSeoPage(ORG, stale, { review: { verdict: 'pass', notes: 'late', at: '' } });
+
+    expect((await getSeoPage(ORG, page.id))?.meta).toMatchObject({ status: 'approved', signoff: { decision: 'approve' }, review: { notes: 'late' } });
+  });
+
+  it('two writers at once each keep their own keys', async () => {
+    const page = (await getSeoPage(ORG, pages[1]!.id))!;
+    await Promise.all([
+      patchSeoPage(ORG, page, current => ({ feedback: [...(current.feedback ?? []), { at: '', by: PERSON, note: 'one', filedTo: null }] })),
+      patchSeoPage(ORG, page, current => ({ feedback: [...(current.feedback ?? []), { at: '', by: PERSON, note: 'two', filedTo: null }] })),
+      patchSeoPage(ORG, page, { location: 'Lakeside East' }),
+    ]);
+    const after = await getSeoPage(ORG, page.id);
+
+    expect(after?.meta.feedback?.map(f => f.note).sort()).toEqual(['one', 'two']);
+    expect(after?.meta.location).toBe('Lakeside East');
+  });
+});
+
+describe('the gate sizes and publish targets are a person\'s', () => {
+  it('refuses an agent\'s write to seoGate or publishTargets, whatever the bar', async () => {
+    const refusal = await objectsUpdateMetaAction.precheck!({ orgId: ORG, proposedBy: 'agent:seo-strategist' }, { objectType: 'data_room', id: projectId, set: { seoGate: { sample: 100, tranche: 100 } }, reason: 'faster' });
+
+    expect(refusal).toContain('set by a person on the project page');
+  });
+
+  it('a person sets them on the project page; a token may not', async () => {
+    const req = (body: unknown) => new Request('http://localhost/api/v1/projects/1', { method: 'PATCH', body: JSON.stringify(body) }) as unknown as NextRequest;
+    const person = { orgId: ORG, actorId: PERSON, source: 'session' as const, principal: { kind: 'user', id: PERSON, role: 'admin', scope: { orgId: ORG } } } as never;
+    const token = { orgId: ORG, actorId: 'token:7', source: 'token' as const, principal: { kind: 'agent', id: 'token:7', scope: { orgId: ORG } } } as never;
+
+    expect((await patchProject(token, String(projectId), req({ seoGate: { sample: 1, tranche: 1 } }))).status).toBe(403);
+    expect((await patchProject(person, String(projectId), req({ seoGate: { sample: 5, tranche: 20 }, publishTargets: [{ id: 'site', kind: 'github', label: 'Website' }] }))).status).toBe(200);
+    expect((await getDataRoom(ORG, projectId))?.meta).toMatchObject({ seoGate: { sample: 5, tranche: 20 }, publishTargets: [{ id: 'site', kind: 'github' }] });
   });
 });
 
@@ -243,7 +448,7 @@ async function renderedBrief(query: string, google = true): Promise<number> {
 
 const cityPage = (city: string) => `# Water heater repair in ${city}
 
-Northwind Home Services repairs tank and tankless water heaters across ${city}. Our licensed plumbers arrive the same day, diagnose the fault, and quote before any work starts.
+Contoso Plumbing repairs tank and tankless water heaters across ${city}. Our licensed plumbers arrive the same day, diagnose the fault, and quote before any work starts.
 
 ## Common water heater problems
 
@@ -254,7 +459,7 @@ describe('location pages', () => {
   let batchId = 0;
 
   it('plans location pages with their place, and refuses one with no place', async () => {
-    home = (await createDataRoom(ORG, PERSON, { title: 'Northwind Home Services', domains: ['northwind-home.example'] })).id;
+    home = (await createDataRoom(ORG, PERSON, { title: 'Contoso Plumbing', domains: ['contoso-plumbing.example'] })).id;
 
     expect(await call('seo_plan_batch', { project_id: home, topic: 'Water heaters', pages: [{ keyword: 'water heater repair fairview', page_type: 'location' }] })).toMatch(/^Not planned: .*no location/);
 
@@ -264,20 +469,23 @@ describe('location pages', () => {
       pages: [
         { keyword: 'water heater repair fairview', page_type: 'location', location: 'Fairview', slug: 'fairview/water-heater-repair' },
         { keyword: 'water heater repair lakeside', page_type: 'location', location: 'Lakeside', slug: 'lakeside/water-heater-repair' },
-        { keyword: 'tankless water heater repair', page_type: 'service', existing_url: 'https://northwind-home.example/tankless', refresh: true },
+        { keyword: 'tankless water heater repair', page_type: 'service', existing_url: 'https://contoso-plumbing.example/tankless', refresh: true },
       ],
     });
     batchId = Number(/batch #(\d+)/.exec(out)![1]);
 
     expect(out).toContain('2 location pages');
+    expect(out).toContain('STOP HERE');
 
     const pages = await listSeoPages(ORG, batchId);
 
     expect(pages.map(p => [p.meta.pageType, p.meta.location, p.meta.target])).toEqual([
       ['location', 'Fairview', 'fairview/water-heater-repair'],
       ['location', 'Lakeside', 'lakeside/water-heater-repair'],
-      ['service', undefined, 'https://northwind-home.example/tankless'],
+      ['service', undefined, 'https://contoso-plumbing.example/tankless'],
     ]);
+
+    await answer((await asksLike(`seo-plan:${batchId}:`))[0]!, 'approve');
   });
 
   it('refuses a keyword another open batch already plans, or a URL another page targets, unless it is a refresh', async () => {
@@ -286,7 +494,7 @@ describe('location pages', () => {
     expect(again).toMatch(/^Not planned: "Water heater repair Fairview" is already page #\d+ \(planned in batch #\d+\)/);
     expect(await call('seo_plan_batch', { project_id: home, topic: 'More', pages: [{ keyword: 'fairview water heaters', slug: '/fairview/water-heater-repair/' }] })).toMatch(/already targets/);
     expect(await call('seo_plan_batch', { project_id: home, topic: 'More', pages: [{ keyword: 'water heater repair fairview', refresh: true }] })).toMatch(/^Not planned: .*no existing_url/);
-    expect(await call('seo_plan_batch', { project_id: home, topic: 'Refresh', pages: [{ keyword: 'water heater repair fairview', refresh: true, existing_url: 'https://northwind-home.example/fairview/water-heater-repair' }] })).toMatch(/^Planned batch/);
+    expect(await call('seo_plan_batch', { project_id: home, topic: 'Refresh', pages: [{ keyword: 'water heater repair fairview', refresh: true, existing_url: 'https://contoso-plumbing.example/fairview/water-heater-repair' }] })).toMatch(/^Planned batch/);
   });
 
   it('researches each location page on its own city\'s Google results', async () => {
@@ -312,14 +520,19 @@ describe('location pages', () => {
     }
   });
 
-  it('fails a location page that is its sibling with the city swapped, whatever the editor said', async () => {
+  it('fails a location page that is its sibling with the city swapped, whatever the editor said; the planned slug is the one checked', async () => {
     const [fairview, lakeside] = await listSeoPages(ORG, batchId);
-    await call('seo_save_draft', { page_id: fairview!.id, draft_artifact_id: await markdown('Draft Fairview', 'seo/drafts', cityPage('Fairview')) });
+    const pageMeta = (city: string) => ({ meta_title: `Water heater repair in ${city}`, meta_description: `Same-day water heater repair in ${city}.` });
 
+    expect(await call('seo_save_draft', { page_id: fairview!.id, draft_artifact_id: await markdown('Draft Fairview', 'seo/drafts', cityPage('Fairview')), ...pageMeta('Fairview'), slug: 'lakeside/water-heater-repair' })).toMatch(/slug "lakeside\/water-heater-repair" is already used/);
+
+    await call('seo_save_draft', { page_id: fairview!.id, draft_artifact_id: await markdown('Draft Fairview', 'seo/drafts', cityPage('Fairview')), ...pageMeta('Fairview') });
+
+    expect((await getSeoPage(ORG, fairview!.id))?.meta.slug).toBe('fairview/water-heater-repair');
     // The first location page has no drafted sibling yet: the editor's pass stands.
-    expect(await call('seo_save_review', { page_id: fairview!.id, verdict: 'pass', notes: 'Checked.' })).toContain('file_ask');
+    expect(await call('seo_save_review', { page_id: fairview!.id, verdict: 'pass', notes: 'Checked.' })).toContain('sign-off is filed');
 
-    await call('seo_save_draft', { page_id: lakeside!.id, draft_artifact_id: await markdown('Draft Lakeside', 'seo/drafts', cityPage('Lakeside')) });
+    await call('seo_save_draft', { page_id: lakeside!.id, draft_artifact_id: await markdown('Draft Lakeside', 'seo/drafts', cityPage('Lakeside')), ...pageMeta('Lakeside') });
     const out = await call('seo_save_review', { page_id: lakeside!.id, verdict: 'pass', notes: 'Checked.' });
 
     expect(out).toMatch(new RegExp(`^Not passed: Too similar to page #${fairview!.id} "water heater repair fairview" \\(100% the same once city names are masked\\)`));
@@ -329,11 +542,6 @@ describe('location pages', () => {
 
     expect(after?.meta.status).toBe('drafting');
     expect(after?.meta.review).toMatchObject({ verdict: 'fix', similarTo: [{ pageId: fairview!.id, similarity: 1 }] });
+    expect((await asksLike(`seo-page:${lakeside!.id}:`)).filter(a => a.status === 'open')).toEqual([]);
   });
 });
-
-async function firstBatch(): Promise<number> {
-  const { listBusinessObjects } = await import('@/services/BusinessObjectService');
-  const rows = await listBusinessObjects(ORG, 'seo_batch');
-  return rows.sort((a, b) => a.id - b.id)[0]!.id;
-}

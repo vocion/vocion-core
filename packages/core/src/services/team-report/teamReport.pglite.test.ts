@@ -6,6 +6,7 @@
  */
 import { generateKeyPairSync } from 'node:crypto';
 import process from 'node:process';
+import { inArray } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -262,6 +263,18 @@ describe('team-report module (PGlite)', () => {
 
     it('human-confirmed asks: decided with anything but a reject, filed by the team or its agents', async () => {
       const r = await readMeasure(ORG, { key: 'rulings', label: 'Rulings', dimension: 'outcome', target: 1, window: '7d', direction: 'higher', source: { kind: 'human-confirmed', askKinds: ['ruling'] } }, gtm, NOW);
+
+      expect(r.value).toBe(1);
+    });
+
+    it('human-confirmed sign-offs count only what was approved, never a Revise', async () => {
+      // One approved, one sent back with a note (Revise): only the first signed anything off.
+      const rows = await db.insert(askSchema).values([
+        { orgId: ORG, kind: 'signoff', title: 'Sign off the intro email', agentSlug: 'outreach', status: 'approved', decision: 'approve', createdAt: ago(2 * DAY), decidedAt: ago(2 * DAY - 30 * 60_000), decidedBy: CHRIS.id },
+        { orgId: ORG, kind: 'signoff', title: 'Sign off the follow-up email', agentSlug: 'outreach', status: 'done', decision: 'other', decisionNote: 'Shorter, please.', createdAt: ago(2 * DAY), decidedAt: ago(2 * DAY - 20 * 60_000), decidedBy: CHRIS.id },
+      ]).returning({ id: askSchema.id });
+      const r = await readMeasure(ORG, { key: 'signed', label: 'Signed off', dimension: 'quality', target: 1, window: '7d', direction: 'higher', source: { kind: 'human-confirmed', askKinds: ['signoff'] } }, gtm, NOW);
+      await db.delete(askSchema).where(inArray(askSchema.id, rows.map(x => x.id)));
 
       expect(r.value).toBe(1);
     });

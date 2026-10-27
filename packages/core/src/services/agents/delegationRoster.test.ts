@@ -105,4 +105,17 @@ describe('buildDelegationRoster (pure)', () => {
     expect(roster.delegates.find(d => d.slug === 'seo-writer')?.pinnedModel).toEqual({ modelProvider: 'anthropic', model: 'claude-opus-5-5' });
     expect(roster.delegates.find(d => d.slug === 'seo-editor')?.pinnedModel).toBeUndefined();
   });
+
+  it('carries a teammate\'s own skills and granted tools', () => {
+    const writer = { slug: 'seo-writer', name: 'SEO writer', description: 'Writes', systemPrompt: null, teamSlug: 'seo', skillSlugs: ['write-page'], harnessConfig: { grantTools: ['serp'] } } as never;
+    const roster = buildDelegationRoster({
+      lead: { slug: 'seo-strategist' } as never,
+      children: [],
+      teams: [{ slug: 'seo', name: 'SEO', leadAgentSlug: 'seo-strategist', description: null } as never],
+      teamAgents: [writer],
+      isWorkspaceLead: false,
+    });
+
+    expect(roster.delegates[0]).toMatchObject({ skillSlugs: ['write-page'], grantTools: ['serp'] });
+  });
 });

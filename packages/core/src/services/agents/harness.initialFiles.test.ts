@@ -74,3 +74,19 @@ describe('buildInitialFiles', () => {
     expect(mockMountSkills).not.toHaveBeenCalled();
   });
 });
+
+describe('a teammate\'s own skills', () => {
+  it('mount under /teammates/<slug>/skills/ beside the lead\'s', async () => {
+    const { teamSchema } = await import('@/models/Schema');
+    await db.delete(teamSchema);
+    await db.insert(agentSchema).values({ orgId: ORG, slug: 'seo-writer', name: 'SEO writer', systemPrompt: 'Write.', teamSlug: 'seo', skillSlugs: ['write-page'] });
+    await db.insert(teamSchema).values({ orgId: ORG, slug: 'seo', name: 'SEO', leadAgentSlug: AGENT });
+    mockMountSkills.mockImplementation(async ({ skillSlugs }) => Object.fromEntries(skillSlugs.map(s => [`/skills/${s}/SKILL.md`, `# ${s}`])));
+
+    const files = await buildInitialFiles(ORG, AGENT);
+
+    expect(files['/skills/ingest-sources/SKILL.md']?.content).toBe('# ingest-sources');
+    expect(files['/teammates/seo-writer/skills/write-page/SKILL.md']?.content).toBe('# write-page');
+    expect(files['/skills/write-page/SKILL.md']).toBeUndefined();
+  });
+});

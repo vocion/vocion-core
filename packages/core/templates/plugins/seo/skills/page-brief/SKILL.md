@@ -6,14 +6,15 @@ description: >-
   what ranks, the outline, what to include from the SERP brief, the local
   substance a location page needs, the client rules that apply, internal
   links, and the meta title and description. Read before briefing any page.
-version: 3
+version: 4
 ---
 
 # Writing a page brief
 
 A writer should be able to write the page from the brief without asking a
 question. Write it as one markdown artifact (folder `seo/briefs`) and attach
-it with `seo_save_brief`.
+it with `seo_save_brief`. A batch's pages are briefed only once a person has
+signed off its keyword plan; the tool refuses until then.
 
 ## Read first
 
@@ -50,8 +51,9 @@ brief says it misses.
    the editor check the same lines.
 7. **Internal links**: pages from the client's content inventory, with URLs;
    a location page links its service pages and its nearest sibling areas.
-8. **Meta**: title (under 60 characters) and description (under 155), and the
-   URL slug (the page's `slug` or `existingUrl` when it has one).
+8. **Meta**: title (at most 60 characters) and description (at most 155),
+   and the URL slug (the page's planned `slug`, or its `existingUrl` for a
+   refresh). The writer passes them to `seo_save_draft`, which checks them.
 9. **Length and format**: from the SERP brief's median (directories are
    already left out), plus schema or FAQ when the ranking pages use them.
 

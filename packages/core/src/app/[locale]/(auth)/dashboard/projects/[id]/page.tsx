@@ -7,7 +7,7 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL } from '@/features/dashboard/artifacts/kinds';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
-import { ProjectInstructions, ProjectWiki } from '@/features/dashboard/rooms/ProjectKnowledge';
+import { ProjectInstructions, ProjectPublishing, ProjectWiki } from '@/features/dashboard/rooms/ProjectKnowledge';
 import { UnfileSource } from '@/features/dashboard/rooms/UnfileSource';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { deckVerificationChip } from '@/libs/decks/audit';
@@ -16,6 +16,7 @@ import { artifactHref } from '@/libs/tools/artifacts/url';
 import { groupRecordsByType } from '@/services/BusinessObjectService';
 import { getDataRoomDetail, projectHref, publishTargetLine, roomAnchor, roomDeliverables } from '@/services/DataRoomService';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
+import { enabledPluginsForOrg } from '@/services/PluginService';
 
 /**
  * One project — the collection around one client or engagement, as a page.
@@ -31,8 +32,9 @@ import { recordLinkerForOrg } from '@/services/objects/recordHref';
  * (`metadata.projectId`), grouped by type, and the documents and files written
  * from it; then the OPEN ITEMS, what is still only promised, the timeline,
  * the highlights and the decision logs. Nothing is collapsed on the way down.
- * Where its pages ship (`publishTargets`) is one read-only line in the right
- * column, "Publishes to".
+ * Where its pages ship (`publishTargets`) and, with the SEO app on, how its
+ * pages are released (`seoGate`) sit in the right column under "Publishing":
+ * a person's settings, edited in place there and refused to any agent.
  *
  * The rail opens beside it scoped to the room; "Download context" is the same
  * bundle the agent reads (`renderDataRoom`), which keeps its own order — an
@@ -67,6 +69,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
   const linkRecord = await recordLinkerForOrg(orgId);
   const workGroups = groupRecordsByType(room.work ?? []);
   const publishTargets = m.publishTargets ?? [];
+  const seoOn = (await enabledPluginsForOrg(orgId).catch(() => [] as string[])).includes('seo');
   const open = room.items.filter(i => i.status === 'open');
   const done = room.items.filter(i => i.status !== 'open');
   // Deliverables and documents are one fact: a deliverable naming an artifact
@@ -117,11 +120,13 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
         )}
         aside={(
           <RightColumn>
-            {publishTargets.length > 0 && (
-              <Section eyebrow="Publishes to" tone="quiet" data-testid="project-publishes-to">
-                <FactList layout="column" facts={publishTargets.map(t => ({ key: t.id, label: t.label ?? t.kind, value: publishTargetLine(t) }))} />
-              </Section>
-            )}
+            <ProjectPublishing
+              projectId={room.id}
+              gate={m.seoGate ?? null}
+              targets={publishTargets}
+              lines={Object.fromEntries(publishTargets.map(t => [t.id, publishTargetLine(t)]))}
+              showGate={seoOn}
+            />
             <Section eyebrow="Entity" tone="quiet">
               {anchor
                 ? (
