@@ -62,7 +62,16 @@ export type LoopInput = {
    * writes go ahead without waiting; anything else that saves, sends or pays still waits.
    */
   routine?: RoutineGuide;
+  /** Writes a person approved before the run started: pressed without stopping again, said on the run. */
+  approvedAhead?: ApprovedAhead;
 };
+
+/**
+ * Writes approved before a run started, and where: `site.publish_page`,
+ * approved on Review, lets its run press Save on a draft. Matched like a
+ * routine's writes (`allowedWrite`), by exact button name unless `contains`.
+ */
+export type ApprovedAhead = { reason: string; writes: RoutineWrite[] };
 
 export type RoutineGuide = {
   name: string;
@@ -325,6 +334,11 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
       // The routine's Approved trust: a write its approved spec names goes ahead, said on the run.
       if (input.routine?.autoWrites && target && allowedWrite(input.routine.writes, target)) {
         await hooks.step({ kind: 'approval', label: `Inside the routine's approved scope: ${label}`, url: s.page.url(), ok: true });
+        return { go: true };
+      }
+      // Approved before the run started (the Review card that started it): only the named buttons.
+      if (input.approvedAhead && target && allowedWrite(input.approvedAhead.writes, target)) {
+        await hooks.step({ kind: 'approval', label: `Approved ahead (${input.approvedAhead.reason}): ${label}`, url: s.page.url(), ok: true });
         return { go: true };
       }
       if (approvedAhead && approvedAhead === label) {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FIXTURE_BLOG_JSON, FIXTURE_SITE_URL, squarespaceFetch } from './squarespace.fixtures';
+import { FIXTURE_BLOG_JSON, FIXTURE_SITE_URL, squarespaceFetch } from '@/libs/fixtures/squarespace';
 
 // Every address in the fixtures is invented; the public-address guard would otherwise resolve DNS.
 vi.mock('@/libs/net/publicUrl', () => ({ resolvesPublicly: vi.fn(async (raw: string) => ({ ok: true, url: new URL(raw) })) }));

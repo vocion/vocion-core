@@ -359,6 +359,9 @@ export type ActOutcome = { ok: boolean; detail: string };
  * @param s - The browser.
  * @param action - What to do.
  */
+/** Past this many characters, text is filled in at once rather than typed key by key. */
+const LONG_TEXT_CHARS = 400;
+
 export async function act(s: BrowserSession, action:
   | { kind: 'open'; url: string }
   | { kind: 'click'; ref: string }
@@ -402,7 +405,12 @@ export async function act(s: BrowserSession, action:
         }
         await pointAt(page, loc);
         await loc.fill('', { timeout: 10_000 });
-        await loc.pressSequentially(action.text, { delay: action.text.length > 60 ? 0 : 18, timeout: 15_000 });
+        if (action.text.length > LONG_TEXT_CHARS) {
+          // A whole article (a post's body) typed key by key outlasts any timeout; it goes in at once.
+          await loc.fill(action.text, { timeout: 15_000 });
+        } else {
+          await loc.pressSequentially(action.text, { delay: action.text.length > 60 ? 0 : 18, timeout: 15_000 });
+        }
         if (action.submit) {
           await loc.press('Enter');
           await settle(page);
