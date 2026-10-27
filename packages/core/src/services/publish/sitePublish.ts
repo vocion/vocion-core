@@ -41,7 +41,7 @@ const NOT_A_POST = new Set(['location', 'service', 'landing']);
 export type PublishPlan = {
   project: { id: number; title: string };
   target: PublishTarget;
-  page: PageFields & { recordId: number | null; descriptionFrom: 'given' | 'record' | 'first paragraph'; refresh: boolean; publishedUrl: string | null; draftUrl: string | null };
+  page: PageFields & { recordId: number | null; descriptionFrom: 'given' | 'record' | 'first paragraph'; refresh: boolean; publishedUrl: string | null; existingUrl: string | null; draftUrl: string | null };
   draft: { artifactId: number; title: string; version: number; markdown: string };
   /** The page record's metadata before this publish, for Undo. */
   before: { status: unknown; pullRequestUrl: unknown; publishedUrl: unknown } | null;
@@ -95,6 +95,23 @@ export function signedVersionOf(meta: Meta): { version: number | null; contentHa
 export async function contentHashOf(markdown: string): Promise<string> {
   const { createHash } = await import('node:crypto');
   return createHash('sha256').update(markdown).digest('hex');
+}
+
+/**
+ * The last segment of a URL or a path: `https://site.example/blog/a-b/` and `blog/a-b` both give `a-b`.
+ * @param urlOrPath - A URL, a path or a slug.
+ */
+export function lastSegment(urlOrPath: string): string {
+  const path = urlOrPath.replace(/^[a-z]+:\/\/[^/]+/i, '').split(/[?#]/)[0] ?? '';
+  return path.split('/').filter(Boolean).pop() ?? '';
+}
+
+/**
+ * A URL as compared: no scheme, no `www.`, no query, no trailing slash, lower case.
+ * @param url - The URL.
+ */
+function sameUrl(url: string): string {
+  return url.toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/^www\./, '').split(/[?#]/)[0]!.replace(/\/+$/, '');
 }
 
 /**
@@ -201,7 +218,11 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
   }
 
   const title = input.title ?? text(pageMeta.title) ?? pageTitle ?? artifact.title;
-  const slug = input.slug ?? text(pageMeta.slug) ?? slugify(text(pageMeta.keyword) ?? title);
+  // The page's one slug: what the SEO plan wrote (`slug`, which may be a path such as
+  // `lakeside/drain-cleaning`, or the URL a refresh rewrites), its last segment.
+  const existingUrl = text(pageMeta.existingUrl);
+  const planned = text(pageMeta.slug) ?? (existingUrl ? lastSegment(existingUrl) : null);
+  const slug = input.slug ?? (planned ? slugify(lastSegment(planned)) : null) ?? slugify(text(pageMeta.keyword) ?? title);
   if (!SLUG_RE.test(slug)) {
     return { ok: false, why: `"${slug}" is not a URL slug: lower case letters and digits joined by -.` };
   }
@@ -214,7 +235,7 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
     plan: {
       project: { id: project.id, title: project.title },
       target: resolved.target,
-      page: { recordId: input.pageRecordId ?? null, title, metaTitle, slug, description, descriptionFrom: given ? 'given' : recorded ? 'record' : 'first paragraph', keyword: text(pageMeta.keyword), at: now, refresh: input.refresh === true || Boolean(text(pageMeta.existingUrl)), publishedUrl: text(pageMeta.publishedUrl), draftUrl: text(pageMeta.squarespaceDraftUrl) },
+      page: { recordId: input.pageRecordId ?? null, title, metaTitle, slug, description, descriptionFrom: given ? 'given' : recorded ? 'record' : 'first paragraph', keyword: text(pageMeta.keyword), at: now, refresh: input.refresh === true || pageMeta.refresh === true || Boolean(existingUrl), publishedUrl: text(pageMeta.publishedUrl), existingUrl, draftUrl: text(pageMeta.squarespaceDraftUrl) },
       draft: { artifactId, title: artifact.title, version: artifact.currentVersion, markdown },
       before: input.pageRecordId ? { status: pageMeta.status ?? null, pullRequestUrl: pageMeta.pullRequestUrl ?? null, publishedUrl: pageMeta.publishedUrl ?? null } : null,
     },
@@ -557,7 +578,9 @@ export async function squarespaceSlugCheck(plan: PublishPlan): Promise<string | 
   }
   const { findPublishedPost } = await import('@/libs/sources/squarespace');
   const { post } = await findPublishedPost(plan.target.config.siteUrl, plan.target.config.blogPath ?? '/blog', { slug: plan.page.slug });
-  if (post && post.url !== plan.page.publishedUrl) {
+  // Ours: the post this page already published, or the one it was planned to refresh.
+  const ours = [plan.page.publishedUrl, plan.page.existingUrl].filter(Boolean).map(u => sameUrl(u!));
+  if (post && !ours.includes(sameUrl(post.url))) {
     return `A post is already live at ${post.url} ("${post.title}"), and it is not this page's. Give this page another slug, or update that post in Squarespace.`;
   }
   return null;

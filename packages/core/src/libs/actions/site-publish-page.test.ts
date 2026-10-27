@@ -317,3 +317,25 @@ describe('following a page\'s pull request', () => {
     expect(checksOf(null, null).state).toBe('none');
   });
 });
+
+describe('the SEO plan\'s own fields', () => {
+  it('reads the planned slug as one slug, even written as a path, and a refresh of a live post is ours', async () => {
+    records.get(20)!.meta.slug = 'lakeside/three-season-tents/';
+    const card = await action.reviewCard!(ctx, { pageRecordId: 20 });
+
+    expect(card.fields.find(f => f.label === 'Path')!.value).toBe('src/content/blog/three-season-tents.mdx');
+
+    vi.stubGlobal('fetch', vi.fn(squarespaceFetch()));
+    records.get(20)!.meta = { ...records.get(20)!.meta, slug: undefined, refresh: true, existingUrl: 'https://example-site.squarespace.com/journal/choose-a-three-season-tent' };
+
+    expect(await action.precheck!(ctx, { pageRecordId: 20, publishTargetId: 'blog' })).toBeUndefined();
+  });
+
+  it('a planned refresh may replace the file at its path, and the card says so', async () => {
+    github['/contents/'] = { status: 200, body: { sha: 'f1' } };
+    records.get(20)!.meta.refresh = true;
+
+    expect(await action.precheck!(ctx, { pageRecordId: 20 })).toBeUndefined();
+    expect((await action.reviewCard!(ctx, { pageRecordId: 20 })).fields.find(f => f.label === 'Path')!.value).toMatch(/\(replacing\)$/);
+  });
+});
