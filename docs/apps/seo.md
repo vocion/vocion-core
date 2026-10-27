@@ -8,7 +8,7 @@
 | **Plugin** | `seo` (`packages/core/templates/plugins/seo/`): four agents, the `seo` team, seven skills, the `seo-feedback` learning step, the `seo_batch` and `seo_page` types, two pages, trust rules. Depends on `data-rooms` (projects) and `wiki` |
 | **Pages** | `/dashboard/p/seo` (every batch, its gate line, pages by status) and `/dashboard/p/seo-pages?batch=<id>` (a batch's pages) — descriptor pages over the two records |
 | **Core** | `services/seo/` — `gate.ts` (the volume gate), `records.ts` (batches and pages, the gate written back on every write), `signoff.ts` (a person's sign-off onto the page), `modelThatRan.ts`, `projects.ts`; tools in `services/agents/tools/seo.ts` |
-| **Research** | `serp_search`, `serp_compare`, `keyword_metrics`, granted to agents with `harness.grantTools: [serp]` |
+| **Research** | `serp_search`, `serp_compare` (files the SERP brief in `seo/serp`, then writes its synthesis with `brief_id`), `keyword_metrics`, granted with `harness.grantTools: [serp]`. See [SEO research](../guides/seo-research.md). Serper, the default provider, gives no volume: the skills carry on without it and never estimate one |
 | **Publishing** | `site.publish_page` to a project's publish targets (a GitHub pull request, a Squarespace draft) |
 
 ## The seats and their models
@@ -44,7 +44,7 @@ A page sent back with changes holds every new draft in the batch until its feedb
 |---|---|
 | `seo_plan_batch` | A batch and its proposed pages, in writing order, for one project |
 | `seo_next_pages` | What the gate lets be written now, each page's next step, and why the rest wait |
-| `seo_save_research` | The SERP brief artifact on a page |
+| `seo_save_research` | The SERP brief `serp_compare` filed (folder `seo/serp`) on a page; refuses another artifact or a brief whose synthesis is not written yet |
 | `seo_save_brief` | The page brief on a page; records the planning model |
 | `seo_save_draft` | The draft on a page (refused past the gate or without a brief); records the writing model |
 | `seo_save_review` | The editor's verdict; `pass` returns the exact sign-off ask to file |

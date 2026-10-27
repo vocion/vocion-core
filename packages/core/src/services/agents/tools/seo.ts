@@ -22,6 +22,7 @@ import type { RuntimeContext } from '../types';
 import type { SeoFeedback, SeoPageRecord } from '@/services/seo/records';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { SERP_BRIEF_FOLDER, SYNTHESIS_END, SYNTHESIS_START } from '@/libs/tools/serp/brief';
 import { anchorArtifact, getArtifact } from '@/services/ArtifactService';
 import { whyNotWritable } from '@/services/seo/gate';
 import { modelThatRan } from '@/services/seo/modelThatRan';
@@ -65,8 +66,35 @@ async function artifactArg(ctx: RuntimeContext, id: number, page: SeoPageRecord,
   if (!artifact) {
     return `Not saved: no artifact #${id} in this workspace. Make the ${what} first (render it as a markdown artifact), then pass its id.`;
   }
-  // The artifact lives on the page's record too, so the record lists it beside its versions.
-  await anchorArtifact({ orgId: ctx.orgId, id, record: { type: 'object', id: String(page.id), role } }).catch(() => null);
+  // The artifact lives on the page's record too, so the record lists it beside
+  // its versions — unless it already lives on a record (one SERP brief can
+  // serve every page of a topic; it stays where it was first filed).
+  if (!artifact.recordId) {
+    await anchorArtifact({ orgId: ctx.orgId, id, record: { type: 'object', id: String(page.id), role } }).catch(() => null);
+  }
+  return null;
+}
+
+/**
+ * Why an artifact is not a finished SERP brief, or null when it is: one
+ * `serp_compare` filed (folder `seo/serp`) with its synthesis written in.
+ * @param ctx - The turn.
+ * @param id - The artifact.
+ */
+async function serpBriefProblem(ctx: RuntimeContext, id: number): Promise<string | null> {
+  const artifact = await getArtifact({ orgId: ctx.orgId, id });
+  if (!artifact) {
+    return null; // artifactArg says so.
+  }
+  if (artifact.folder !== SERP_BRIEF_FOLDER) {
+    return `Not saved: artifact #${id} is not a SERP brief. Run serp_compare for the keyword; it files the brief in ${SERP_BRIEF_FOLDER}, and pass that id.`;
+  }
+  const md = typeof artifact.spec?.md === 'string' ? artifact.spec.md : '';
+  const start = md.indexOf(SYNTHESIS_START);
+  const end = md.indexOf(SYNTHESIS_END);
+  if (start >= 0 && end > start && /_Not written yet\._/.test(md.slice(start, end))) {
+    return `Not saved: SERP brief #${id} has no synthesis yet. Call serp_compare with brief_id ${id} and synthesis { intent, common_subtopics, gaps } first.`;
+  }
   return null;
 }
 
@@ -163,7 +191,7 @@ export function seoSaveResearchTool(ctx: RuntimeContext) {
       if (typeof page === 'string') {
         return page;
       }
-      const bad = await artifactArg(ctx, serp_artifact_id, page, 'serp', 'SERP brief');
+      const bad = await serpBriefProblem(ctx, serp_artifact_id) ?? await artifactArg(ctx, serp_artifact_id, page, 'serp', 'SERP brief');
       if (bad) {
         return bad;
       }
@@ -174,8 +202,8 @@ export function seoSaveResearchTool(ctx: RuntimeContext) {
     },
     {
       name: 'seo_save_research',
-      description: 'Attach the SERP brief (the markdown artifact serp_compare rendered, or the one you wrote from serp_search) to an SEO page. Moves a proposed page to researched.',
-      schema: z.object({ page_id: recordIdArg('The SEO page'), serp_artifact_id: z.number().int().positive() }),
+      description: 'Attach the SERP brief serp_compare filed (folder seo/serp), with its synthesis written in, to an SEO page. One brief can serve several pages of the same topic. Moves a proposed page to researched.',
+      schema: z.object({ page_id: recordIdArg('The SEO page'), serp_artifact_id: z.number().int().positive().describe('The SERP brief artifact id serp_compare returned (briefArtifactId)') }),
     },
   );
 }

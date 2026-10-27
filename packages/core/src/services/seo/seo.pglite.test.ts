@@ -50,9 +50,19 @@ async function call(name: string, args: Record<string, unknown>, over: Partial<R
   return String(await t.invoke(args));
 }
 
-async function markdown(title: string): Promise<number> {
-  const { artifact } = await createArtifact({ orgId: ORG, kind: 'markdown', title, spec: { md: `# ${title}` }, author: { kind: 'agent', id: 'agent:seo-writer' } });
+async function markdown(title: string, folder?: string, md = `# ${title}`): Promise<number> {
+  const { artifact } = await createArtifact({ orgId: ORG, kind: 'markdown', title, spec: { md }, folder: folder ?? null, author: { kind: 'agent', id: 'agent:seo-writer' } });
   return artifact.id;
+}
+
+/**
+ * A SERP brief as serp_compare files it, with its synthesis written or not.
+ * @param query - The keyword.
+ * @param written - Whether the synthesis is in.
+ */
+async function serpBrief(query: string, written = true): Promise<number> {
+  const synthesis = written ? '**Intent.** To compare trail shoes before buying [1][2].' : '_Not written yet._';
+  return markdown(`SERP brief: ${query}`, 'seo/serp', `# SERP brief: ${query}\n\n## Synthesis\n\n<!-- serp-synthesis -->\n${synthesis}\n<!-- /serp-synthesis -->\n`);
 }
 
 /**
@@ -68,7 +78,7 @@ function answered(id: number, ref: string, decision: string, note: string | null
 
 /**
  * The sign-off ref the editor's receipt names.
- * @param receipt
+ * @param receipt - What seo_save_review returned.
  */
 function refIn(receipt: string): string {
   return /"source_ref":"([^"]+)"/.exec(receipt)![1]!;
@@ -128,6 +138,14 @@ describe('a batch through the gate', () => {
     expect(pages[0]!.meta.projectId).toBe(projectId);
   });
 
+  it('takes only a SERP brief serp_compare filed, with its synthesis written', async () => {
+    const pages = await listSeoPages(ORG, await firstBatch());
+
+    expect(await call('seo_save_research', { page_id: pages[0]!.id, serp_artifact_id: await markdown('Notes') })).toMatch(/^Not saved: .*not a SERP brief/);
+    expect(await call('seo_save_research', { page_id: pages[0]!.id, serp_artifact_id: await serpBrief('trail running shoes', false) })).toMatch(/^Not saved: .*no synthesis yet/);
+    expect((await getSeoPage(ORG, pages[0]!.id))?.meta.status).toBe('proposed');
+  });
+
   it('refuses a draft past the sample, and a draft with no brief', async () => {
     const pages = await listSeoPages(ORG, await firstBatch());
     const draft = await markdown('Draft');
@@ -143,13 +161,13 @@ describe('a batch through the gate', () => {
     for (const page of pages.slice(0, 3)) {
       if (page === pages[0]) {
         // The editor sends the first draft back once; the writer may redraft it at once.
-        await call('seo_save_research', { page_id: page.id, serp_artifact_id: await markdown('SERP first') });
+        await call('seo_save_research', { page_id: page.id, serp_artifact_id: await serpBrief('first') });
         await call('seo_save_brief', { page_id: page.id, brief_artifact_id: await markdown('Brief first') });
         await call('seo_save_draft', { page_id: page.id, draft_artifact_id: await markdown('Draft first') });
 
         expect(await call('seo_save_review', { page_id: page.id, verdict: 'fix', notes: 'The query is answered in paragraph three.' })).toContain('drafting again');
       }
-      await call('seo_save_research', { page_id: page.id, serp_artifact_id: await markdown(`SERP ${page.meta.keyword}`) }, { agentSlug: 'serp-analyst' });
+      await call('seo_save_research', { page_id: page.id, serp_artifact_id: await serpBrief(page.meta.keyword) }, { agentSlug: 'serp-analyst' });
       await call('seo_save_brief', { page_id: page.id, brief_artifact_id: await markdown(`Brief ${page.meta.keyword}`) });
 
       expect(await call('seo_save_draft', { page_id: page.id, draft_artifact_id: await markdown(`Draft ${page.meta.keyword}`) }, { agentSlug: 'seo-writer' })).toContain(page === pages[0] ? 'round 2' : 'round 1');
