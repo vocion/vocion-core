@@ -1,0 +1,21 @@
+/*
+ * reveal.js marks every slide but the current one `hidden` (for screen
+ * readers) and shows the ones near it with an inline `display: block`, so the
+ * outgoing slide can fade while the next comes in. Tailwind's preflight hides
+ * `[hidden]` with `!important` in `@layer base`, which would cut every
+ * transition to a jump. An important rule wins from an earlier layer, so this
+ * one sits in a sublayer of base, ahead of preflight: the slides reveal shows
+ * stay shown, the far ones it sets to `display: none` stay hidden.
+ */
+@layer base {
+  @layer reveal-deck {
+    [data-present-reveal] .slides > section[hidden][style*='display: block'] {
+      display: block !important;
+    }
+  }
+}
+
+/* Embedded, reveal makes `.reveal` its own viewport and paints it white; present mode letterboxes in black. */
+[data-present-reveal].reveal-viewport {
+  background-color: #000;
+}

@@ -1,12 +1,21 @@
 'use client';
 
 /**
- * Present: the deck full screen, one slide at a time. Arrow keys, space and
- * Page Up/Down move; Home/End jump; a click on the slide moves on (its left
- * third goes back); Escape leaves. "Open notes" opens a second window with the
- * current slide's notes and the next slide, kept in step over a
- * `BroadcastChannel` (`presenterNotes.ts`) — it can move the deck too.
- * Nothing animates, so reduced motion is already respected.
+ * Present: the deck full screen, one slide at a time, on reveal.js (loaded
+ * with a dynamic import when present mode opens, `revealDeck.ts`). Reveal owns
+ * the slides: arrow keys, space and Page Up/Down move, Home/End jump, a swipe
+ * moves on a touch screen, and each slide comes in with the transition its
+ * `<section>` names (`data-transition`, fade when it names none). A click on
+ * the slide moves on (its left third goes back); Escape leaves. "Open notes"
+ * opens a second window with the current slide's notes and the next slide,
+ * kept in step over a `BroadcastChannel` (`presenterNotes.ts`) — it can move
+ * the deck too. Reduced motion turns every transition off.
+ *
+ * Each slide is still the pane's own page frame (`PageFrame`, `frameHtml`): the
+ * deck's render page with that one slide, `asset:` images and Vocion's
+ * elements resolved inside its sandbox. Reveal moves and fades the frames; it
+ * never sees the slide's markup. Frames near the current slide are mounted,
+ * the rest wait, so a long deck does not start forty frames at once.
  *
  * The same view fills a browser window of its own (`display="window"`, the
  * deck's `/window` route): nothing goes full screen until the person asks with
@@ -15,6 +24,7 @@
  * to show it (design principle 6).
  */
 
+import type RevealApi from 'reveal.js';
 import type { DeliverablePage } from './pages';
 import type { PresenterMessage, PresenterState } from './presenterNotes';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, NotebookText, X } from 'lucide-react';
@@ -23,6 +33,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from '@/components/ui/toast';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '@/libs/decks/page';
 import { PageFrame } from './PageFrame';
+import { slideTransition } from './pages';
 import { presenterChannel, presenterNotesHtml } from './presenterNotes';
 
 export type PresentModeProps = {
@@ -44,12 +55,22 @@ export type PresentModeProps = {
   display?: 'overlay' | 'window';
 };
 
+/** The keys reveal.js moves the deck on. Everything else (its overview, pause, help, F for full screen) stays ours or the browser's. */
+const REVEAL_KEYS = new Set(['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', ' ', 'PageDown', 'PageUp', 'Home', 'End']);
+/** How many slides either side of the current one keep a live frame. */
+const MOUNTED = 2;
+
 const CONTROL = 'inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-white hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white';
 
 export function PresentMode(props: PresentModeProps) {
   const t = useTranslations('Deliverable');
   const [index, setIndex] = useState(Math.max(0, Math.min(props.start, props.pages.length - 1)));
   const rootRef = useRef<HTMLDivElement>(null);
+  const revealRef = useRef<HTMLDivElement>(null);
+  const deckRef = useRef<RevealApi.Api | null>(null);
+  const [ready, setReady] = useState(false);
+  // Reduced motion: no transition at all, the deck's or any slide's.
+  const [still] = useState(() => typeof window !== 'undefined' && (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false));
   const channel = useRef<BroadcastChannel | null>(null);
   const page = props.pages[index];
   const { pages, frameHtml } = props;
@@ -67,12 +88,94 @@ export function PresentMode(props: PresentModeProps) {
   });
   const onClose = useCallback(() => onCloseRef.current?.(), []);
 
+  // Every move goes through reveal; its `slidechanged` sets the index the rest of the view reads.
   const go = useCallback((to: number | 'next' | 'prev') => {
-    setIndex((i) => {
-      const next = to === 'next' ? i + 1 : to === 'prev' ? i - 1 : to;
-      return Math.max(0, Math.min(pages.length - 1, next));
-    });
+    const deck = deckRef.current;
+    if (!deck) {
+      return;
+    }
+    if (to === 'next') {
+      deck.next();
+    } else if (to === 'prev') {
+      deck.prev();
+    } else {
+      deck.slide(Math.max(0, Math.min(pages.length - 1, to)));
+    }
   }, [pages.length]);
+
+  // reveal.js, once per present session, on the sections rendered below.
+  const startRef = useRef(index);
+  useEffect(() => {
+    const el = revealRef.current;
+    let cancelled = false;
+    void import('./revealDeck').then(async ({ Reveal }) => {
+      if (cancelled || !el) {
+        return;
+      }
+      const deck = new Reveal(el, {
+        embedded: true,
+        width: SLIDE_WIDTH,
+        height: SLIDE_HEIGHT,
+        margin: 0,
+        minScale: 0.05,
+        maxScale: 4,
+        center: false,
+        controls: false,
+        progress: false,
+        slideNumber: false,
+        overview: false,
+        help: false,
+        pause: false,
+        hash: false,
+        history: false,
+        respondToHashChanges: false,
+        loop: false,
+        mouseWheel: false,
+        previewLinks: false,
+        hideInactiveCursor: false,
+        postMessage: false,
+        postMessageEvents: false,
+        transition: still ? 'none' : 'fade',
+        backgroundTransition: 'none',
+        viewDistance: MOUNTED + 1,
+        keyboardCondition: e => REVEAL_KEYS.has(e.key),
+      });
+      await deck.initialize();
+      if (cancelled) {
+        deck.destroy();
+        return;
+      }
+      // The start slide shows at once, not as a fade from the first: reveal's
+      // own `no-transition` class holds every transition off while it moves
+      // there, and comes off once the browser has laid that out.
+      const slides = deck.getSlidesElement();
+      slides?.classList.add('no-transition');
+      deck.slide(startRef.current);
+      void slides?.offsetHeight;
+      slides?.classList.remove('no-transition');
+      deck.on('slidechanged', () => setIndex(deck.getIndices().h ?? 0));
+      deckRef.current = deck;
+      setReady(true);
+    });
+    return () => {
+      // A deck still initialising is destroyed when its initialize() returns, above.
+      cancelled = true;
+      deckRef.current?.destroy();
+      deckRef.current = null;
+    };
+  }, [still]);
+
+  // Slides added or removed while presenting (an edit landed): reveal re-reads them.
+  const keys = pages.map(p => p.key).join('\n');
+  useEffect(() => {
+    const deck = deckRef.current;
+    if (!deck || !ready) {
+      return;
+    }
+    deck.sync();
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect -- reveal is the source of the index; sync() moves it without a slidechanged
+    setIndex(deck.getIndices().h ?? 0);
+  }, [keys, ready]);
 
   useEffect(() => {
     onIndexRef.current?.(index);
@@ -154,21 +257,10 @@ export function PresentMode(props: PresentModeProps) {
     }
   };
 
+  // The moving keys are reveal's (`REVEAL_KEYS`); Escape is ours.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
-        e.preventDefault();
-        go('next');
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
-        e.preventDefault();
-        go('prev');
-      } else if (e.key === 'Home') {
-        e.preventDefault();
-        go(0);
-      } else if (e.key === 'End') {
-        e.preventDefault();
-        go(pages.length - 1);
-      } else if (e.key === 'Escape' && !windowed) {
+      if (e.key === 'Escape' && !windowed) {
         // In a window, Escape is the browser's: it leaves full screen and nothing more.
         e.preventDefault();
         onClose();
@@ -176,7 +268,7 @@ export function PresentMode(props: PresentModeProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [go, onClose, pages.length, windowed]);
+  }, [onClose, windowed]);
 
   const openNotes = () => {
     const w = window.open('', `vocion-notes-${props.artifactId}`, 'popup,width=960,height=640');
@@ -212,23 +304,45 @@ export function PresentMode(props: PresentModeProps) {
       className="fixed inset-0 z-[100] flex flex-col bg-black outline-none"
       data-present-mode={windowed ? 'window' : 'overlay'}
     >
-      <div className="relative min-h-0 flex-1">
-        <PageFrame
-          key={page.key}
-          html={frameHtml(page.key)}
-          width={SLIDE_WIDTH}
-          height={SLIDE_HEIGHT}
-          root=".vocion-slide > section"
-          title={t('pageLabel', { unit: 'slide', n: page.n, label: page.label || t('untitled') })}
-          className="absolute inset-0"
-        />
+      {/* Inline, so reveal's stage stays inside this box even where no stylesheet but reveal's has loaded. */}
+      <div className="relative min-h-0 flex-1" style={{ position: 'relative', overflow: 'hidden' }}>
+        {/* Reveal owns the classes and styles of `.reveal`, `.slides` and each
+            section (present, past, future, display). React writes those
+            classes once and never again, and gives a section only its
+            transition attributes and the frame inside. */}
+        <div style={{ position: 'absolute', inset: 0, background: '#000' }} data-present-stage>
+          {/* eslint-disable-next-line tailwindcss/no-custom-classname -- reveal.js's own structure */}
+          <div ref={revealRef} className="reveal" data-present-reveal={ready ? 'ready' : 'loading'}>
+            <div className="slides">
+              {pages.map((p, i) => {
+                const tr = still ? {} : slideTransition(p.html);
+                return (
+                  <section key={p.key} data-transition={tr.transition} data-transition-speed={tr.speed} data-present-slide={p.key}>
+                    {Math.abs(i - index) <= MOUNTED && (
+                      <div style={{ position: 'relative', width: SLIDE_WIDTH, height: SLIDE_HEIGHT }}>
+                        <PageFrame
+                          html={frameHtml(p.key)}
+                          width={SLIDE_WIDTH}
+                          height={SLIDE_HEIGHT}
+                          root=".vocion-slide > section"
+                          title={t('pageLabel', { unit: 'slide', n: p.n, label: p.label || t('untitled') })}
+                          className="absolute inset-0"
+                        />
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+          </div>
+        </div>
         {/* A click on the slide moves the deck, as it does in any presenter.
             The frame would swallow the click (and the keys after it, once it
             has focus), so the click lands on this layer instead. Keyboard
             users have the arrows; the layer is not a control of its own. */}
         <div
           aria-hidden
-          className="absolute inset-0 cursor-pointer"
+          className="absolute inset-0 z-10 cursor-pointer"
           onClick={(e) => {
             const box = e.currentTarget.getBoundingClientRect();
             go(e.clientX - box.left < box.width / 3 ? 'prev' : 'next');
