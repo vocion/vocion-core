@@ -181,6 +181,13 @@ export const QuestionDark: Story = { args: { decision: question, dark: true } };
 /** An approval: Approve or Reject, words not offered. */
 export const Approval: Story = { args: { decision: approval } };
 export const ApprovalDark: Story = { args: { decision: approval, dark: true } };
+// Always allow before the kind has earned it: an undoable kind, the person's own "always" (Jamie, 2026-10-26).
+const approvalChosen: DecisionView = {
+  ...proposal,
+  options: proposal.options.map(o => (o.id === 'always' ? { ...o, consequence: 'Runs it now, and from now on without asking, in Northwind Support only. Each run keeps its Undo; turn it off on the Autonomy page.' } : o)),
+};
+export const ApprovalAllowAlways: Story = { args: { decision: approvalChosen } };
+export const ApprovalAllowAlwaysDark: Story = { args: { decision: approvalChosen, dark: true } };
 
 /** Several may be chosen together: numbers toggle. */
 export const Several: Story = { args: { decision: several } };

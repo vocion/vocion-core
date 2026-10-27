@@ -6,9 +6,11 @@
  * trust ladder's own promotion (`autonomy/AutonomyService.promote`), offered
  * in the moment the person is already saying yes — and ONLY where the ladder
  * would take it: the person is an admin (moving a kind changes what runs
- * without a person), the next rung is earned on the alignment evidence, and
- * that rung automates. Anywhere else the option is simply not there; the
- * refusal is the product, as on the autonomy page.
+ * without a person), the next rung automates, and either it is earned on the
+ * alignment evidence or every run of the kind keeps its Undo (Jamie,
+ * 2026-10-26: "I don't want to have to be allow once all the time" — the
+ * person's own "always" is the evidence, scoped and revocable). Anywhere
+ * else the option is simply not there.
  *
  * Choosing it promotes the kind, then runs this one as Allow once. Scoped to
  * the workspace.
@@ -35,7 +37,7 @@ async function workspaceName(orgId: string): Promise<string> {
  * @param userId - The person.
  * @param actionId - The action kind.
  */
-async function promotion(orgId: string, userId: string | null, actionId: string | null): Promise<{ to: string } | null> {
+async function promotion(orgId: string, userId: string | null, actionId: string | null): Promise<{ to: string; earned: boolean } | null> {
   if (!userId || !actionId) {
     return null;
   }
@@ -47,7 +49,15 @@ async function promotion(orgId: string, userId: string | null, actionId: string 
     const { eligibility } = await import('@/services/autonomy/AutonomyService');
     const { RUNG_LABEL, rungAutomates } = await import('@/services/autonomy/rungs');
     const e = await eligibility(orgId, actionId);
-    return e.earned && e.nextRung && rungAutomates(e.nextRung) ? { to: RUNG_LABEL[e.nextRung] } : null;
+    if (!e.nextRung || !rungAutomates(e.nextRung)) {
+      return null;
+    }
+    if (e.earned) {
+      return { to: RUNG_LABEL[e.nextRung], earned: true };
+    }
+    // Before it is earned, only a kind whose every run keeps its Undo.
+    const { actionIsUndoable } = await import('@/libs/actions/undoable');
+    return actionIsUndoable(actionId) ? { to: RUNG_LABEL[e.nextRung], earned: false } : null;
   } catch {
     return null;
   }
@@ -68,10 +78,13 @@ export async function alwaysAllowOption(orgId: string, userId: string | null, ac
   const { actionLabel } = await import('@/libs/actions/undoable');
   const kind = actionLabel(actionId!);
   const plain = /^[A-Z][a-z]+(?=[\s,.:;]|$)/.test(kind) ? `${kind[0]!.toLowerCase()}${kind.slice(1)}` : kind;
+  const where = await workspaceName(orgId);
   return {
     id: ALWAYS_ALLOW_ID,
-    label: `Always allow "${plain}" in ${await workspaceName(orgId)}`,
-    consequence: `Runs it now, and moves this kind to ${can.to}: next time it runs without asking.`,
+    label: `Always allow "${plain}" in ${where}`,
+    consequence: can.earned
+      ? `Runs it now, and moves this kind to ${can.to}: next time it runs without asking.`
+      : `Runs it now, and from now on without asking, in ${where} only. Each run keeps its Undo; turn it off on the Autonomy page.`,
   };
 }
 
@@ -101,9 +114,10 @@ export async function withAlwaysAllow(orgId: string, userId: string | null, view
  */
 export async function takeAlwaysAllow(orgId: string, userId: string, actionId: string | null): Promise<void> {
   const { DecisionError } = await import('./DecisionService');
-  if (!(await promotion(orgId, userId, actionId))) {
+  const can = await promotion(orgId, userId, actionId);
+  if (!can) {
     throw new DecisionError('VALIDATION_FAILED', 'Always allow is not open here: the trust ladder would not move this kind for you now. Allow once or Deny.');
   }
   const { promote } = await import('@/services/autonomy/AutonomyService');
-  await promote(orgId, actionId!, userId);
+  await promote(orgId, actionId!, userId, { personChose: !can.earned });
 }

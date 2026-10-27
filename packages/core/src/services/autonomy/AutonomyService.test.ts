@@ -154,6 +154,20 @@ describe('promote', () => {
     expect(await trustRule('hubspot.update')).toBeNull();
   });
 
+  it('a person\'s Always allow moves an undoable kind before it is earned, recorded as theirs (Jamie, 2026-10-26)', async () => {
+    await agreedDecisions(3);
+
+    const view = await svc.promote(ORG, 'hubspot.update', 'usr_chris', { personChose: true });
+
+    expect(view.rung).toBe('execute-within-bounds');
+    expect((await policy('hubspot.update'))!.evidence).toMatchObject({ allowedAlwaysBy: 'usr_chris', promotedFrom: 'execute-with-approval' });
+    expect(track).toHaveBeenCalledWith({ orgId: ORG, userId: 'usr_chris' }, 'autonomy.promoted', { meta: { actionId: 'hubspot.update', from: 'execute-with-approval', to: 'execute-within-bounds', automatic: false, personChose: true } });
+  });
+
+  it('never before it is earned on a kind that cannot be undone', async () => {
+    await expect(svc.promote(ORG, 'northwind.irreversible', 'usr_chris', { personChose: true })).rejects.toMatchObject({ code: 'NOT_EARNED' });
+  });
+
   it('writes the policy row, an ENABLED trust rule at the floor, the evidence, and an adoption event', async () => {
     await agreedDecisions(20);
 

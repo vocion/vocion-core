@@ -1,6 +1,7 @@
 /**
  * "ALWAYS ALLOW" APPEARS ONLY WHERE THE TRUST LADDER WOULD TAKE IT — an admin,
- * an earned next rung that automates — and choosing it promotes the kind,
+ * a next rung that automates, earned or on a kind whose every run can be
+ * undone — and choosing it promotes the kind,
  * then runs this one as Allow once. Fixtures are fictional (Northwind).
  */
 import { eq } from 'drizzle-orm';
@@ -61,9 +62,10 @@ describe('Always allow on an approval', () => {
 
     expect((await withAlwaysAllow(ORG, DANA, view, 'hubspot.update')).options.map(o => o.id)).toEqual(['approve', 'reject']);
 
+    // Not earned, on a kind whose runs cannot all be undone: not offered.
     eligibility.mockResolvedValueOnce({ earned: false, nextRung: 'execute-within-bounds', reason: 'Needs 20 decisions' });
 
-    expect((await withAlwaysAllow(ORG, DANA, view, 'hubspot.update')).options).toHaveLength(2);
+    expect((await withAlwaysAllow(ORG, DANA, view, 'northwind.irreversible')).options).toHaveLength(2);
 
     eligibility.mockResolvedValueOnce({ earned: true, nextRung: 'execute-with-approval', reason: 'Below the default' });
 
@@ -71,11 +73,24 @@ describe('Always allow on an approval', () => {
     expect((await withAlwaysAllow(ORG, DANA, view, null)).options).toHaveLength(2);
   });
 
+  it('is offered before it is earned on a kind every run of which keeps its Undo, saying it is scoped and how to take it back (Jamie, 2026-10-26)', async () => {
+    eligibility.mockResolvedValue({ earned: false, nextRung: 'execute-within-bounds', reason: 'Needs 20 decisions' });
+    const view = await withAlwaysAllow(ORG, DANA, await proposalDecisionView(await pending()), 'hubspot.update');
+
+    expect(view.options.map(o => o.id)).toEqual(['approve', 'always', 'reject']);
+    expect(view.options[1]!.consequence).toBe('Runs it now, and from now on without asking, in Northwind Support only. Each run keeps its Undo; turn it off on the Autonomy page.');
+
+    const run = await pending();
+    await answerDecision({ orgId: ORG, conversationId: 392, id: run.id, subject: 'proposal', answer: { kind: 'option', optionIds: ['always'] }, by: DANA, via: 'card' });
+
+    expect(promote).toHaveBeenCalledWith(ORG, 'hubspot.update', DANA, { personChose: true });
+  });
+
   it('choosing it promotes the kind as the person, then approves this one — the agent hears "Always allow"', async () => {
     const run = await pending();
     const out = await answerDecision({ orgId: ORG, conversationId: 392, id: run.id, subject: 'proposal', answer: { kind: 'option', optionIds: ['always'] }, by: DANA, via: 'card' });
 
-    expect(promote).toHaveBeenCalledWith(ORG, 'hubspot.update', DANA);
+    expect(promote).toHaveBeenCalledWith(ORG, 'hubspot.update', DANA, { personChose: false });
     expect(decide).toHaveBeenCalledWith({ kind: 'action', id: run.id }, 'approve', ORG, { reviewedBy: DANA });
     expect(out.answer).toEqual({ kind: 'option', optionIds: ['always'] });
     expect(out.asked.options.some(o => o.id === 'always')).toBe(true);
@@ -95,6 +110,6 @@ describe('Always allow on an approval', () => {
     const { view } = await raiseDecision({ orgId: ORG, conversationId: 392, ownerUserId: DANA, agentSlug: 'revenue-lead', kind: 'approval', question: 'Move Northwind to Negotiation', options: [{ id: 'approve', label: 'Allow once', action: { id: 'hubspot.update', input: { id: '4410' } } }, { id: 'reject', label: 'Deny' }] });
     await answerDecision({ orgId: ORG, conversationId: 392, id: view.id, answer: { kind: 'option', optionIds: ['always'] }, by: DANA, via: 'card' }).catch(() => null);
 
-    expect(promote).toHaveBeenCalledWith(ORG, 'hubspot.update', DANA);
+    expect(promote).toHaveBeenCalledWith(ORG, 'hubspot.update', DANA, { personChose: false });
   });
 });
