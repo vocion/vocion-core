@@ -695,6 +695,34 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
   // The finance and people families. Most are read live and need nothing
   // beyond the credential, which Connect takes.
   'stripe': [],
+  // A client's Squarespace site (`libs/sources/squarespace.ts`). The login and
+  // the optional API key are the credential, which Connect takes.
+  'squarespace': [
+    {
+      key: 'siteUrl',
+      label: 'Site address',
+      type: 'url',
+      required: true,
+      placeholder: 'https://example-site.squarespace.com',
+      help: 'The site as visitors see it: its own domain or its .squarespace.com address.',
+    },
+    {
+      key: 'blogPath',
+      label: 'Blog path',
+      type: 'text',
+      defaultValue: '/blog',
+      help: 'Where the blog lives on the site, starting with /. New posts are saved there as drafts.',
+    },
+    {
+      key: 'maxPages',
+      label: 'Pages read per sync',
+      type: 'number',
+      defaultValue: 50,
+      min: 1,
+      max: 200,
+      advanced: true,
+    },
+  ],
   'xero': [
     {
       key: 'tenantId',
