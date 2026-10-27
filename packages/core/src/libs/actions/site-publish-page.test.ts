@@ -54,11 +54,23 @@ vi.mock('@/services/browser/BrowserRunService', () => ({
 
 const startJob = vi.fn(async (id: string) => ({ id }));
 vi.mock('@/libs/durable/jobs', () => ({ startJob }));
-vi.mock('@/services/background/catalog', () => ({ JOB: { sitePublishSettle: 'site.publish-settle' } }));
+vi.mock('@/services/background/catalog', () => ({ JOB: { sitePublishSettle: 'site.publish-settle', sitePublishMerge: 'site.publish-merge' } }));
+const refreshSeoBatch = vi.fn(async () => null);
+vi.mock('@/services/seo/records', () => ({
+  signedOff: (meta: { signoff?: { decision?: string } }) => meta.signoff?.decision === 'approve',
+  refreshSeoBatch,
+}));
+let pull: { status: number; body: Record<string, unknown> } = { status: 200, body: { state: 'open', merged: false } };
+vi.mock('@/services/factory/githubChecks', () => ({
+  ghFor: vi.fn(async (_org: string, repo: string) => ({ owner: repo.split('/')[0], repo: repo.split('/')[1], token: 't' })),
+  call: vi.fn(async () => (pull.status === 200 ? { ok: true, status: 200, data: pull.body } : { ok: false, status: pull.status, message: 'no' })),
+}));
+// The project page's own one-line description of a target, stood in for (its module reaches the database).
+vi.mock('@/services/DataRoomService', () => ({ publishTargetLine: (t: { id: string; kind: string }) => `${t.kind} target ${t.id}` }));
 vi.mock('@/libs/net/publicUrl', () => ({ resolvesPublicly: vi.fn(async (raw: string) => ({ ok: true, url: new URL(raw) })) }));
 
 const { sitePublishPageAction: action } = await import('./site-publish-page');
-const { settlePublishRun } = await import('@/services/publish/sitePublish');
+const { settlePublishRun, settlePull } = await import('@/services/publish/sitePublish');
 
 const GITHUB = { id: 'site', kind: 'github', label: 'Northwind site', config: { repo: 'example-org/northwind-site', baseBranch: 'main', path: 'src/content/blog/{slug}.mdx', frontmatter: { title: '{title}', description: '{description}', pubDate: '{date}' } } };
 const SQUARESPACE = { id: 'blog', kind: 'squarespace', config: { siteUrl: 'https://example-site.squarespace.com', blogPath: '/journal' } };
@@ -72,7 +84,12 @@ beforeEach(() => {
   startJob.mockClear();
   login = { email: 'editor@northwind-outfitters.example', password: 'fixture-password' };
   records.set(10, { id: 10, title: 'Northwind Outfitters', typeSlug: 'data_room', meta: { publishTargets: [GITHUB, SQUARESPACE] } });
-  records.set(20, { id: 20, title: 'three season tent', typeSlug: 'seo_page', meta: { projectId: 10, keyword: 'three season tent', title: 'How to Choose a Three-Season Tent', draftArtifactId: 501, publishTargetId: 'site', status: 'approved', metaDescription: 'What matters in a three-season tent, what does not, and what it should cost.' } });
+  records.set(20, { id: 20, title: 'three season tent', typeSlug: 'seo_page', meta: { projectId: 10, batchId: 30, keyword: 'three season tent', title: 'How to Choose a Three-Season Tent', draftArtifactId: 501, status: 'approved', signoff: { decision: 'approve' }, metaDescription: 'What matters in a three-season tent, what does not, and what it should cost.' } });
+  records.set(21, { id: 21, title: 'tent stakes', typeSlug: 'seo_page', meta: { projectId: 10, batchId: 30, keyword: 'tent stakes', draftArtifactId: 501, status: 'in_review' } });
+  // The page names no target; its batch's destination does.
+  records.set(30, { id: 30, title: 'Northwind Outfitters: tents', typeSlug: 'seo_batch', meta: { projectId: 10, destination: 'site' } });
+  refreshSeoBatch.mockClear();
+  pull = { status: 200, body: { state: 'open', merged: false } };
   vi.stubGlobal('fetch', vi.fn(squarespaceFetch()));
 });
 
@@ -89,6 +106,7 @@ describe('site.publish_page', () => {
 
   it('says why a page cannot publish before anyone is asked', async () => {
     expect(await action.precheck!(ctx, { pageRecordId: 99 })).toBe('There is no record #99 in this workspace.');
+    expect(await action.precheck!(ctx, { pageRecordId: 21 })).toBe('"tent stakes" is not signed off: a person approves its current draft before it is published (it is in_review).');
     expect(await action.precheck!(ctx, { projectId: 10, artifactId: 501 })).toBe('The project publishes to site, blog: name the target this page goes to.');
     expect(await action.precheck!(ctx, { projectId: 10, publishTargetId: 'site', artifactId: 502 })).toBe('Artifact #502 (A table) is a table, not a markdown draft.');
 
@@ -103,7 +121,7 @@ describe('site.publish_page', () => {
 
     expect(card.title).toBe('Publish "How to Choose a Three-Season Tent" to example-org/northwind-site');
     expect(card.fields.map(f => `${f.label}: ${f.value}`)).toEqual([
-      'Target: Northwind site: example-org/northwind-site · src/content/blog/{slug}.mdx (pull request)',
+      'Target: github target site',
       'Path: src/content/blog/three-season-tent.mdx',
       'Branch: vocion/seo-three-season-tent',
       'Title: How to Choose a Three-Season Tent',
@@ -126,6 +144,8 @@ describe('site.publish_page', () => {
     expect(file.content).not.toContain('# How to Choose');
     expect(result).toMatchObject({ kind: 'github', url: 'https://github.com/example-org/northwind-site/pull/12', path: file.path });
     expect(records.get(20)!.meta).toMatchObject({ status: 'publishing', pullRequestUrl: 'https://github.com/example-org/northwind-site/pull/12' });
+    expect(refreshSeoBatch).toHaveBeenCalledWith('org_nw', 30);
+    expect(startJob).toHaveBeenCalledWith('site-publish-merge:example-org/northwind-site#12', expect.objectContaining({ job: 'site.publish-merge' }));
     expect(action.canUndo!(result)).toBe(true);
 
     await action.undo!(ctx, { pageRecordId: 20 }, result);
@@ -184,5 +204,26 @@ describe('following a Squarespace publish', () => {
 
     expect(out.line).toBe('"How to Choose a Three-Season Tent" stays a draft in Squarespace: going live was not approved.');
     expect(records.get(20)!.meta.publishedUrl).toBeUndefined();
+  });
+});
+
+describe('following a page\'s pull request', () => {
+  const follow = { orgId: 'org_nw', repo: 'example-org/northwind-site', number: 12, url: 'https://github.com/example-org/northwind-site/pull/12', pageRecordId: 20 };
+
+  it('waits while it is open, and moves the page to published when the client\'s team merges it', async () => {
+    expect(await settlePull(follow)).toEqual({ done: false });
+
+    pull = { status: 200, body: { state: 'closed', merged: true, merged_at: '2026-10-28T09:00:00Z' } };
+    const out = await settlePull(follow);
+
+    expect(out.done).toBe(true);
+    expect(records.get(20)!.meta).toMatchObject({ status: 'published', publishing: { kind: 'github', mergedAt: '2026-10-28T09:00:00Z' } });
+  });
+
+  it('puts the page back to approved when the pull request is closed unmerged', async () => {
+    pull = { status: 200, body: { state: 'closed', merged: false, closed_at: '2026-10-28T09:00:00Z' } };
+    await settlePull(follow);
+
+    expect(records.get(20)!.meta.status).toBe('approved');
   });
 });

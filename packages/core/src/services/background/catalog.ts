@@ -26,6 +26,7 @@ export const JOB = {
   personalRhythm: 'personal.rhythm',
   mailThreadStateBackfill: 'mail.thread-state-backfill',
   sitePublishSettle: 'site.publish-settle',
+  sitePublishMerge: 'site.publish-merge',
 } as const;
 
 const twice = { attempts: 2, intervalSeconds: 10, backoff: 2 };
@@ -218,4 +219,22 @@ defineJob<import('@/services/publish/sitePublish').SettleInput>(JOB.sitePublishS
     }
   }
   return { done: false, line: 'Stopped following the publish run; its own page says how it ended.' };
+}, { whole: true });
+
+/** A page's pull request is looked at every half hour for two weeks: merging is the client's team's, on their schedule. */
+const MERGE_POLL_MS = 30 * 60_000;
+const MERGE_POLL_ATTEMPTS = 14 * 48;
+
+// A page published as a pull request: published when the client's team merges it, approved again
+// when they close it (`services/publish/sitePublish.ts` `settlePull`). Vocion never merges it.
+defineJob<import('@/services/publish/sitePublish').PullFollow>(JOB.sitePublishMerge, async (input, ctx) => {
+  const { settlePull } = await import('@/services/publish/sitePublish');
+  for (let attempt = 0; attempt < MERGE_POLL_ATTEMPTS; attempt++) {
+    await ctx.sleep(MERGE_POLL_MS);
+    const out = await ctx.step(`look-${attempt}`, () => settlePull(input), { attempts: 3, intervalSeconds: 30, backoff: 2 });
+    if (out.done) {
+      return out;
+    }
+  }
+  return { done: false, line: 'Stopped following the pull request after two weeks; the page stays publishing.' };
 }, { whole: true });

@@ -315,9 +315,15 @@ publishTargets:
   (`services/factory/githubChange.ts`, the same path `repo.open_pull` uses).
   Publishing the same page again adds a commit to that pull request.
 - **Never merged from Vocion.** The client's team reviews and merges it. The
-  page record gets `pullRequestUrl` and `status: publishing`.
+  page record gets `pullRequestUrl` and `status: publishing`, and moves to
+  `published` when they merge it, or back to `approved` when they close it
+  (the `site.publish-merge` job follows the pull request for two weeks).
 - **Undo** closes the pull request and deletes its branch, and puts the page
   record back as it was.
+
+An SEO page (`seo_page`) publishes only once a person has signed off on its
+current draft; its target is the page's `publishTargetId`, else its batch's
+destination.
 
 Input: `{ pageRecordId }`, or with no record yet `{ projectId, publishTargetId,
 artifactId, slug, title, metaDescription }`. Fields given explicitly win over

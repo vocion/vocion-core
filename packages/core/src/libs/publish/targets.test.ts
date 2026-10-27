@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeTarget, escapeForMdx, fillTemplate, formatOf, publishTargetsOf, renderPageFile, resolvePublishTarget, slugify, squarespaceBlogUrl } from './targets';
+import { escapeForMdx, fillTemplate, formatOf, publishTargetsOf, renderPageFile, resolvePublishTarget, slugify, squarespaceBlogUrl } from './targets';
 
 const github = {
   id: 'site',
@@ -47,14 +47,10 @@ describe('a project\'s publish targets', () => {
     expect(resolvePublishTarget([github], 'nope')).toMatchObject({ ok: false, why: expect.stringMatching(/no publish target "nope"; it has site/) });
   });
 
-  it('says each target in one line', () => {
-    const { targets } = publishTargetsOf([github, squarespace]);
+  it('gives a Squarespace blog its address', () => {
+    const { targets } = publishTargetsOf([squarespace]);
 
-    expect(targets.map(describeTarget)).toEqual([
-      'Northwind site: example-org/northwind-site · src/content/blog/{slug}.mdx (pull request)',
-      'https://example-site.squarespace.com/journal (Squarespace draft)',
-    ]);
-    expect(squarespaceBlogUrl(targets[1] as never)).toBe('https://example-site.squarespace.com/journal');
+    expect(squarespaceBlogUrl(targets[0] as never)).toBe('https://example-site.squarespace.com/journal');
   });
 });
 

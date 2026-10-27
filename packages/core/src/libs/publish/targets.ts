@@ -1,8 +1,8 @@
 /**
  * WHERE A PROJECT'S PAGES GO: its publish targets (`publishTargets` on a
  * Project, the `data_room` record's metadata), what each kind needs, and the
- * page file a target turns a draft into. Pure and client-safe: the Project page
- * reads the same shapes it renders under "Publishes to", and the
+ * page file a target turns a draft into. Pure and client-safe. The Project page
+ * shows them as stored (`DataRoomService.publishTargetLine`); the
  * `site.publish_page` action (`libs/actions/site-publish-page.ts`) reads them
  * to publish.
  *
@@ -320,22 +320,6 @@ export function renderPageFile(target: GithubTarget, page: PageFields, body: { m
     return { path, format, content: `${head}${body.html.trim()}\n` };
   }
   return { path, format, content: `${head}${format === 'mdx' ? escapeForMdx(markdown) : markdown}\n` };
-}
-
-/**
- * One line naming a target, as "Publishes to" shows it.
- * @param target - The target.
- */
-export function describeTarget(target: PublishTarget): string {
-  const label = target.label ? `${target.label}: ` : '';
-  switch (target.kind) {
-    case 'github':
-      return `${label}${target.config.repo} · ${target.config.path} (pull request)`;
-    case 'squarespace':
-      return `${label}${target.config.siteUrl.replace(/\/+$/, '')}${target.config.blogPath ?? ''} (Squarespace draft)`;
-    default:
-      return `${label}${target.config.siteUrl} (WordPress, not yet supported)`;
-  }
 }
 
 /**

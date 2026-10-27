@@ -81,6 +81,7 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
 
   let pageMeta: Meta = {};
   let pageTitle: string | null = null;
+  let batchDestination: string | null = null;
   if (input.pageRecordId) {
     const record = await readRecord(orgId, input.pageRecordId);
     if (!record) {
@@ -88,6 +89,16 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
     }
     pageMeta = record.meta;
     pageTitle = record.title;
+    if (record.typeSlug === 'seo_page') {
+      // Approval is read from the person's sign-off on the current draft, never from the status alone.
+      const { signedOff } = await import('@/services/seo/records');
+      if (!signedOff(record.meta as Parameters<typeof signedOff>[0])) {
+        return { ok: false, why: `"${record.title}" is not signed off: a person approves its current draft before it is published (it is ${String(pageMeta.status ?? 'not drafted')}).` };
+      }
+      const batchId = num(pageMeta.batchId);
+      const batch = batchId ? await readRecord(orgId, batchId) : null;
+      batchDestination = text(batch?.meta.destination);
+    }
   }
 
   const projectId = input.projectId ?? num(pageMeta.projectId);
@@ -98,7 +109,7 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
   if (!project || project.typeSlug !== 'data_room') {
     return { ok: false, why: `#${projectId} is not a project in this workspace.` };
   }
-  const resolved = resolvePublishTarget(project.meta.publishTargets, input.publishTargetId ?? text(pageMeta.publishTargetId));
+  const resolved = resolvePublishTarget(project.meta.publishTargets, input.publishTargetId ?? text(pageMeta.publishTargetId) ?? batchDestination);
   if (!resolved.ok) {
     return { ok: false, why: resolved.why };
   }
@@ -178,8 +189,53 @@ export async function recordOnPage(orgId: string, recordId: number | null | unde
   if (!recordId) {
     return;
   }
-  const { writeMeta } = await import('@/libs/actions/factory-dispatch');
+  const { readRecord, writeMeta } = await import('@/libs/actions/factory-dispatch');
   await writeMeta(orgId, recordId, set);
+  // An SEO page's batch keeps its counts and gate line in step with its pages.
+  const record = await readRecord(orgId, recordId).catch(() => null);
+  const batchId = record?.typeSlug === 'seo_page' ? num(record.meta.batchId) : null;
+  if (batchId) {
+    const { refreshSeoBatch } = await import('@/services/seo/records');
+    await refreshSeoBatch(orgId, batchId).catch(error => console.warn('[publish] the batch could not be refreshed', { batchId, reason: (error as Error).message }));
+  }
+}
+
+/** What the merge follower carries: the pull request a page went out in. */
+export type PullFollow = { orgId: string; repo: string; number: number; url: string; pageRecordId: number | null };
+
+/**
+ * Start following a page's pull request until the client's team merges or closes it.
+ * @param follow - The pull request and the page.
+ */
+export async function followPull(follow: PullFollow): Promise<boolean> {
+  const { startJob } = await import('@/libs/durable/jobs');
+  const { JOB } = await import('@/services/background/catalog');
+  return startJob(`site-publish-merge:${follow.repo}#${follow.number}`, { job: JOB.sitePublishMerge, input: follow }).then(() => true, () => false);
+}
+
+/**
+ * One look at a page's pull request: merged moves the page to published,
+ * closed unmerged puts it back to approved, open waits. Vocion never merges it.
+ * @param follow - The pull request and the page.
+ */
+export async function settlePull(follow: PullFollow): Promise<{ done: boolean; line?: string }> {
+  const { call, ghFor } = await import('@/services/factory/githubChecks');
+  const gh = await ghFor(follow.orgId, follow.repo);
+  const res = await call<{ state?: string; merged?: boolean; merged_at?: string | null; closed_at?: string | null }>(gh, `/pulls/${follow.number}`);
+  if (!res.ok) {
+    return { done: false };
+  }
+  if (res.data.merged) {
+    const line = `Merged ${follow.url.replace('https://github.com/', '')}: the page is on the site's main branch.`;
+    await recordOnPage(follow.orgId, follow.pageRecordId, { status: 'published', publishing: { kind: 'github', url: follow.url, mergedAt: res.data.merged_at ?? new Date().toISOString(), note: line } });
+    return { done: true, line };
+  }
+  if (res.data.state === 'closed') {
+    const line = `${follow.url.replace('https://github.com/', '')} was closed without merging; the page is approved and unpublished.`;
+    await recordOnPage(follow.orgId, follow.pageRecordId, { status: 'approved', publishing: { kind: 'github', url: follow.url, closedAt: res.data.closed_at ?? new Date().toISOString(), note: line } });
+    return { done: true, line };
+  }
+  return { done: false };
 }
 
 /**

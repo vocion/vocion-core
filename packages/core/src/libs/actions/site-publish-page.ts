@@ -89,7 +89,7 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
       return { title: 'Publish a page', system: 'Site', headline: planned.why, fields: [] };
     }
     const { plan } = planned;
-    const { describeTarget } = await import('@/libs/publish/targets');
+    const { publishTargetLine } = await import('@/services/DataRoomService');
     const draftLink = { kind: 'document' as const, id: 'draft', label: plan.draft.title, tabLabel: 'Draft', href: `/dashboard/artifacts/${plan.draft.artifactId}`, version: String(plan.draft.version), summary: plan.page.description };
     const preview = { kind: 'text' as const, id: 'preview', label: plan.page.title, tabLabel: 'Preview', body: plan.draft.markdown, markdown: true };
     const descriptionField = { label: 'Meta description', value: plan.page.descriptionFrom === 'first paragraph' ? `${plan.page.description} (none was written; this is the draft's first paragraph)` : plan.page.description };
@@ -103,7 +103,7 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
         headline: `Open a pull request on ${plan.target.config.repo} adding ${file.path}. Nothing merges until the client's team merges it.`,
         badges: [{ label: 'GitHub' }, { label: 'Pull request, not merged' }, { label: 'Undo closes it' }],
         fields: [
-          { label: 'Target', value: describeTarget(plan.target), href: `https://github.com/${plan.target.config.repo}` },
+          { label: 'Target', value: publishTargetLine(plan.target), href: `https://github.com/${plan.target.config.repo}` },
           { label: 'Path', value: file.path },
           { label: 'Branch', value: `vocion/seo-${plan.page.slug}` },
           { label: 'Title', value: plan.page.title },
@@ -126,7 +126,7 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
       headline: 'Save this post as a draft in the site\'s Squarespace editor, signed in with the stored login. Going live is a second click that waits for you, with the draft on screen.',
       badges: [{ label: 'Squarespace' }, { label: 'Draft first' }, { label: 'No Undo once saved', tone: 'warn' }],
       fields: [
-        { label: 'Target', value: describeTarget(plan.target), href: `${siteUrl.replace(/\/+$/, '')}${blogPath}` },
+        { label: 'Target', value: publishTargetLine(plan.target), href: `${siteUrl.replace(/\/+$/, '')}${blogPath}` },
         { label: 'URL once live', value: postUrlOf({ siteUrl, blogPath, slug: plan.page.slug }) },
         { label: 'Title', value: plan.page.title },
         descriptionField,
@@ -139,7 +139,7 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
     };
   },
   async execute(ctx, input) {
-    const { planPublish, publishToGithub, recordOnPage, startSquarespaceDraft } = await import('@/services/publish/sitePublish');
+    const { followPull, planPublish, publishToGithub, recordOnPage, startSquarespaceDraft } = await import('@/services/publish/sitePublish');
     const planned = await planPublish(ctx.orgId, input);
     if (!planned.ok) {
       throw new Error(planned.why);
@@ -151,6 +151,8 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
       const opened = await publishToGithub(ctx.orgId, plan, ctx.reviewedBy ?? null);
       const line = `${opened.created ? 'Opened' : 'Added a commit to'} ${opened.url.replace('https://github.com/', '')}: ${opened.path}. The client's team merges it; Undo closes it.`;
       await recordOnPage(ctx.orgId, plan.page.recordId, { status: 'publishing', pullRequestUrl: opened.url, publishing: { kind: 'github', targetId: plan.target.id, branch: opened.branch, path: opened.path, at, by: ctx.reviewedBy ?? ctx.invokedBy ?? null, actionRunId: ctx.runId ?? null } });
+      // Published when the client's team merges it: followed, never merged from here.
+      await followPull({ orgId: ctx.orgId, repo: opened.repo, number: opened.number, url: opened.url, pageRecordId: plan.page.recordId });
       return { ...base, published: true, url: opened.url, repo: opened.repo, branch: opened.branch, number: opened.number, path: opened.path, created: opened.created, line };
     }
     if (plan.target.kind !== 'squarespace') {
