@@ -2,7 +2,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { SystemStatus } from '@/features/dashboard/SystemStatus';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { ExtensionSlot } from '@/features/extensions/ExtensionSlot';
-import { JevRoutingSection } from '@/features/routing/JevRoutingSection';
+import { SystemKeysSection } from '@/features/routing/SystemKeysSection';
 import { slotComponents } from '@/libs/extensions';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
@@ -23,7 +23,7 @@ export default async function AdminPage(props: {
       />
       <SystemStatus />
       <div className="mt-8">
-        <JevRoutingSection scope="instance" orgId={orgId} isAdmin={has({ role: ORG_ROLE.ADMIN })} />
+        <SystemKeysSection scope="instance" orgId={orgId} isAdmin={has({ role: ORG_ROLE.ADMIN })} />
       </div>
     </>
   );

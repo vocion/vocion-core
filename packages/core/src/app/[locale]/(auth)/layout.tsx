@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
+import { AmplitudeAnalytics } from '@/features/analytics/AmplitudeAnalytics';
 import { BrandChromeProvider, OrgBrandProvider } from '@/features/branding/BrandContext';
 import { OrgBrandStyle } from '@/features/branding/OrgBrandStyle';
 import { AuthProviders } from '@/features/navigation/AuthProviders';
@@ -7,6 +8,7 @@ import { auth } from '@/libs/Auth';
 import { brandTitle } from '@/libs/branding/orgBrand';
 import { titlePrefix } from '@/libs/envLabel';
 import { WORKSPACE_HEADER } from '@/libs/links';
+import { amplitudeKeyFor } from '@/services/analytics/amplitudeKey';
 import { brandChromeForRequest, brandViewForRequest } from '@/services/branding/OrgBrandService';
 
 /**
@@ -50,9 +52,12 @@ export default async function AuthLayout(props: {
 }) {
   const [requestHeaders, session, brand, chrome] = await Promise.all([headers(), auth(), brandViewForRequest().catch(() => null), brandChromeForRequest().catch(() => ({ lead: 'vocion' as const, footer: 'vocion-wordmark' as const }))]);
   const slug = requestHeaders.get(WORKSPACE_HEADER.slug)?.trim() || null;
+  const workspaceId = session?.user?.projectId ?? null;
+  const amplitudeKey = workspaceId ? await amplitudeKeyFor(workspaceId).catch(() => null) : null;
 
   return (
     <AuthProviders session={session} workspaceSlug={slug}>
+      <AmplitudeAnalytics apiKey={amplitudeKey} userId={session?.user?.id || null} workspaceId={workspaceId} />
       <OrgBrandStyle brand={brand} />
       <OrgBrandProvider value={brand}>
         <BrandChromeProvider value={chrome}>{props.children}</BrandChromeProvider>
