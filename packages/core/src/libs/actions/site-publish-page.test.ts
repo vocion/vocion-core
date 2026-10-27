@@ -91,6 +91,7 @@ describe('site.publish_page', () => {
     expect(await action.precheck!(ctx, { pageRecordId: 99 })).toBe('There is no record #99 in this workspace.');
     expect(await action.precheck!(ctx, { projectId: 10, artifactId: 501 })).toBe('The project publishes to site, blog: name the target this page goes to.');
     expect(await action.precheck!(ctx, { projectId: 10, publishTargetId: 'site', artifactId: 502 })).toBe('Artifact #502 (A table) is a table, not a markdown draft.');
+
     login = undefined;
 
     expect(await action.precheck!(ctx, { pageRecordId: 20, publishTargetId: 'blog' })).toMatch(/^No Squarespace editor login is stored/);
@@ -118,6 +119,7 @@ describe('site.publish_page', () => {
     const result = await action.execute(ctx, { pageRecordId: 20 });
 
     expect(openChangePull).toHaveBeenCalledWith('org_nw', expect.objectContaining({ repo: 'example-org/northwind-site', base: 'main', branch: 'vocion/seo-three-season-tent', prefix: 'vocion/seo-' }));
+
     const file = (openChangePull.mock.calls[0]![1] as { files: Array<{ path: string; content: string }> }).files[0]!;
 
     expect(file.path).toBe('src/content/blog/three-season-tent.mdx');

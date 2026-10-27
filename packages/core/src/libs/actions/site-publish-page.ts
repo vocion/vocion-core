@@ -163,7 +163,7 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
     const { getCredentialsForSource } = await import('@/services/SourceCredentialService');
     const login = await getCredentialsForSource(ctx.orgId, 'squarespace') as Record<string, unknown> | undefined;
     if (typeof login?.email !== 'string' || typeof login?.password !== 'string') {
-      throw new Error('No Squarespace editor login is stored: connect Squarespace with the email and password of an account that can edit the site.');
+      throw new TypeError('No Squarespace editor login is stored: connect Squarespace with the email and password of an account that can edit the site.');
     }
     const started = await startSquarespaceDraft(ctx.orgId, plan, { email: login.email, password: login.password }, {
       userId,

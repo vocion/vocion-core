@@ -76,23 +76,19 @@ function insideRepo(path: string): boolean {
 const githubConfigSchema = z.object({
   repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'the repository as owner/name'),
   baseBranch: z.string().min(1).max(200).optional(),
-  path: z.string().min(3).max(400)
-    .refine(p => p.includes('{slug}'), 'the path names the page with {slug}, e.g. src/content/blog/{slug}.mdx')
-    .refine(insideRepo, 'a path inside the repository, from its root')
-    .superRefine((p, ctx) => {
-      const unknown = unknownPlaceholders(p);
-      if (unknown.length > 0) {
-        ctx.addIssue({ code: 'custom', message: `the path uses ${unknown.map(n => `{${n}}`).join(', ')}, which a page cannot fill (it can fill ${PAGE_PLACEHOLDERS.map(n => `{${n}}`).join(', ')})` });
-      }
-    }),
+  path: z.string().min(3).max(400).refine(p => p.includes('{slug}'), 'the path names the page with {slug}, e.g. src/content/blog/{slug}.mdx').refine(insideRepo, 'a path inside the repository, from its root').superRefine((p, ctx) => {
+    const unknown = unknownPlaceholders(p);
+    if (unknown.length > 0) {
+      ctx.addIssue({ code: 'custom', message: `the path uses ${unknown.map(n => `{${n}}`).join(', ')}, which a page cannot fill (it can fill ${PAGE_PLACEHOLDERS.map(n => `{${n}}`).join(', ')})` });
+    }
+  }),
   format: z.enum(PAGE_FORMATS).optional(),
-  frontmatter: z.record(z.string(), z.unknown()).default({})
-    .superRefine((fm, ctx) => {
-      const unknown = [...new Set(stringsIn(fm).flatMap(unknownPlaceholders))];
-      if (unknown.length > 0) {
-        ctx.addIssue({ code: 'custom', message: `the frontmatter uses ${unknown.map(n => `{${n}}`).join(', ')}, which a page cannot fill` });
-      }
-    }),
+  frontmatter: z.record(z.string(), z.unknown()).default({}).superRefine((fm, ctx) => {
+    const unknown = [...new Set(stringsIn(fm).flatMap(unknownPlaceholders))];
+    if (unknown.length > 0) {
+      ctx.addIssue({ code: 'custom', message: `the frontmatter uses ${unknown.map(n => `{${n}}`).join(', ')}, which a page cannot fill` });
+    }
+  }),
 });
 
 const squarespaceConfigSchema = z.object({
@@ -191,7 +187,7 @@ export function formatOf(target: GithubTarget): PageFormat {
  * @param text - The title or keyword.
  */
 export function slugify(text: string): string {
-  return text.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).replace(/-+$/, '');
+  return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).replace(/-+$/, '');
 }
 
 /** A slug a page may carry: what `slugify` writes. */
@@ -269,7 +265,7 @@ export function bodyWithoutTitle(markdown: string, template: Record<string, unkn
   if (!titled) {
     return markdown.trim();
   }
-  return markdown.replace(/^\s*#\s+[^\n]*\n+/, '').trim();
+  return markdown.replace(/^\s*#\s+(?:\S[^\n]*)?\n+/, '').trim();
 }
 
 /**
@@ -294,7 +290,7 @@ export function escapeForMdx(markdown: string): string {
     // Inline code spans keep their text; everything between them is escaped.
     out.push(line.split(/(`[^`]*`)/).map((part, i) => (i % 2 === 1
       ? part
-      : part.replace(/[{}]/g, c => `\\${c}`).replace(/<(?![a-z/!]|https?:)/gi, '&lt;'))).join(''));
+      : part.replace(/[{}]/g, c => `\\${c}`).replace(/<(?![a-z/!])/gi, '&lt;'))).join(''));
   }
   return out.join('\n');
 }

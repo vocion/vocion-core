@@ -58,7 +58,7 @@ function text(value: unknown): string | null {
  * @param markdown - The draft.
  */
 export function firstParagraph(markdown: string): string {
-  const para = markdown.split(/\n\s*\n/).map(p => p.trim()).find(p => p && !/^(?:#|[-*+]\s|\d+\.\s|>|```|\||!\[)/.test(p)) ?? '';
+  const para = markdown.split(/\n\s*\n/).map(p => p.trim()).find(p => p && !/^(?:[#>|]|[-*+]\s|\d+\.\s|```|!\[)/.test(p)) ?? '';
   const plain = para.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim();
   if (plain.length <= 155) {
     return plain;
@@ -239,7 +239,7 @@ export async function startSquarespaceDraft(orgId: string, plan: PublishPlan, lo
     blogPath,
     title: plan.page.title,
     slug: plan.page.slug,
-    bodyMarkdown: plan.draft.markdown.replace(/^\s*#\s+[^\n]*\n+/, '').trim(),
+    bodyMarkdown: plan.draft.markdown.replace(/^\s*#\s+(?:\S[^\n]*)?\n+/, '').trim(),
     excerpt: plan.page.description,
     seoTitle: plan.page.title,
     seoDescription: plan.page.description,

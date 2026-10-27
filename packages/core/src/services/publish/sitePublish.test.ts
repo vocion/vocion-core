@@ -4,6 +4,7 @@ import { firstParagraph, markdownToHtml } from './sitePublish';
 describe('a page\'s pieces', () => {
   it('takes a description from the draft\'s first paragraph of prose when nobody wrote one', () => {
     expect(firstParagraph('# Title\n\n- a list\n\nA **tent** for [spring](https://northwind-outfitters.example), summer and fall.')).toBe('A tent for spring, summer and fall.');
+
     const long = firstParagraph(`Intro ${'word '.repeat(60)}`);
 
     expect(long.length).toBeLessThanOrEqual(156);

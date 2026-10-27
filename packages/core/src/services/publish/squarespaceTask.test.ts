@@ -46,6 +46,7 @@ describe('the draft run', () => {
     expect(spec.approvedAhead?.writes).toBe(DRAFT_SAVE_WRITES);
     expect(allowedWrite(DRAFT_SAVE_WRITES, { name: 'Save', host })).toBe(true);
     expect(allowedWrite(DRAFT_SAVE_WRITES, { name: 'save draft', host })).toBe(true);
+
     for (const name of ['Publish', 'Save & Publish', 'Publish now', 'Schedule', 'Delete']) {
       expect(allowedWrite(DRAFT_SAVE_WRITES, { name, host })).toBe(false);
     }
@@ -77,9 +78,11 @@ describe('the practice blog editor', () => {
     const page = practiceResponse(`${PRACTICE_BLOG_ORIGIN}/config/pages/journal`);
 
     expect(page?.status).toBe(200);
+
     for (const words of ['Log In', 'Add post', 'Enter a post title…', 'Markdown', 'Post URL', 'Excerpt', 'SEO title', 'SEO description', '>Save<', '>Publish<', 'Practice site · fictional data']) {
       expect(page?.body).toContain(words);
     }
+
     expect(page?.body).toContain(PRACTICE_BLOG_SIGN_IN.password);
     expect(practiceResponse('https://example-site.squarespace.com/config')).toBeNull();
   });
