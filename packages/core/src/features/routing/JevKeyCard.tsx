@@ -10,10 +10,7 @@
 
 import type { KeyOnFile, KeyScope } from '@/services/routing/jevKey';
 import { Route } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { client } from '@/libs/Orpc';
-import { ApiKeyCard } from './ApiKeyCard';
+import { SystemKeyCard } from './SystemKeyCard';
 
 export type JevKeyCardProps = {
   scope: KeyScope;
@@ -28,29 +25,11 @@ export type JevKeyCardProps = {
 };
 
 export function JevKeyCard(props: JevKeyCardProps) {
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function act(run: () => Promise<unknown>): Promise<boolean> {
-    setBusy(true);
-    setError(null);
-    try {
-      await run();
-      router.refresh();
-      return true;
-    } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : 'That did not work. Try again.');
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const openrouter = props.onFile?.provider === 'openrouter';
   return (
-    <ApiKeyCard
-      testId={`jev-key-${props.scope}`}
+    <SystemKeyCard
+      service="jev"
+      scope={props.scope}
       name="Jev by TypeSafe"
       blurb="Picks the right model, engine and effort for each run."
       icon={Route}
@@ -61,12 +40,6 @@ export function JevKeyCard(props: JevKeyCardProps) {
       console={openrouter ? { href: 'https://openrouter.ai/settings/keys', label: 'openrouter.ai' } : { href: 'https://typesafe.ai', label: 'typesafe.ai' }}
       canEdit={props.canEdit}
       lock={props.lock}
-      busy={busy}
-      error={error}
-      onSave={key => act(() => client.routing.saveKey({ scope: props.scope, key }))}
-      onRemove={async () => {
-        await act(() => client.routing.removeKey({ scope: props.scope }));
-      }}
     />
   );
 }

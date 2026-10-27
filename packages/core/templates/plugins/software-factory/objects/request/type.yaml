@@ -367,6 +367,7 @@ schema:
       # the step's sentence and `{title}` the request's. The feature page follows every line.
       x-tell:
         stopped: 'Blocked, and it needs you: {line}'
+        recovering: 'A build stopped, and it is being retried on its own: {line}'
         plan_waits: 'The plan is ready, and it waits on your approval. {line}'
         merge_waits: 'Ready to merge, and the merge waits on you. {line}'
         live: 'Done ✅ "{title}" is live in production and checked. {line}'
@@ -383,6 +384,7 @@ schema:
         starting: building
         planning: planning
         building: building
+        recovering: building
         review: in_qa
         deploying: deploying
         merged: deploying

@@ -39,7 +39,7 @@ import type { Effort, JevAnswer, JevCandidate, JevDeps, JevFailure, JevProvider,
 import type { KeyScope } from './jevKey';
 import { createHash } from 'node:crypto';
 import process from 'node:process';
-import { decide, isJevFailure, jevEndpoint, jevSettings, NONE } from './jev';
+import { decide, isJevFailure, jevEndpoint, jevSettings, NONE, questionVersion } from './jev';
 
 export type ChatProvider = 'anthropic' | 'bedrock' | 'openai';
 export type CostTier = 'high' | 'low' | 'medium';
@@ -73,6 +73,8 @@ export type AgentRouteDetail = {
   keyScope: KeyScope | null;
   provider: JevProvider | null;
   fallback: string | null;
+  /** Which wording of the question was asked (`questionVersion`). */
+  questionVersion: string;
 };
 
 export type AgentRoute = {
@@ -388,6 +390,7 @@ export async function routeAgentTurn(input: AgentRouteInput, deps: AgentRouteDep
     keyScope: resolved.scope,
     provider: endpoint.provider,
     fallback: null,
+    questionVersion: questionVersion('turn'),
   };
   const configured = (detail: AgentRouteDetail, why: string): AgentRoute => ({
     selector: 'configured',

@@ -220,6 +220,14 @@ steps:
                         - set:
                             intent:
                               value: {requestId: '{{input.requestId}}', by: 'factory:recovery', byPerson: false, from: recovery, note: '{{vars.read.result.failure}}', trigger: recovery}
+                        # A WORKER THAT DIED IS SAID AT ONCE (FE-535, 2026-10-26): the
+                        # asker hears the run stopped reporting and is being sent
+                        # again, not an hour later when they ask. A send-back on
+                        # failed checks retries by itself and says nothing, as before.
+                        - when:
+                            - if: {any: [{path: vars.read.result.failureClass, equals: lost}, {path: vars.read.result.failureClass, equals: transient}]}
+                              then:
+                                - status: {stage: recovering, line: 'RUN-{{vars.runId}} stopped: {{vars.read.result.failure}}. The factory is sending it again now.'}
                         - next: true
                 - set:
                     why: {from: vars.read.result.decision.why}

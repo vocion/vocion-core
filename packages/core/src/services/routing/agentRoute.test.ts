@@ -149,7 +149,7 @@ describe('Jev\'s answer', () => {
       throw new Error('boom');
     } }));
 
-    expect(r).toMatchObject({ selector: 'configured', detail: { asked: true, fallback: 'no answer within 1500 ms' } });
+    expect(r).toMatchObject({ selector: 'configured', detail: { asked: true, fallback: 'no answer within 1500 ms', questionVersion: expect.stringMatching(/^turn-[0-9a-f]{8}$/) } });
     expect(thrown).toMatchObject({ selector: 'configured', detail: { fallback: 'Jev could not be reached' } });
   });
 });

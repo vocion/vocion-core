@@ -1825,7 +1825,14 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
       continue;
     }
     const request = await readRecord(orgId, id);
-    if (!request || !(await carriedHere(orgId, request))) {
+    if (!request) {
+      continue;
+    }
+    const stale = await clearStartedBlocker(orgId, request, now).catch(() => null);
+    if (stale) {
+      acted.push(stale);
+    }
+    if (!(await carriedHere(orgId, request))) {
       continue;
     }
     const state = readRecovery(request.meta);
@@ -1899,6 +1906,80 @@ const INTAKE_RETRY_EVERY_MS = 30 * 60_000;
 const INTAKE_TRIES = 3;
 /** How far back a request a person asked for is still carried on by itself. */
 const INTAKE_RETRY_WINDOW_MS = 3 * 24 * 60 * 60_000;
+
+const RECORD_CAUSES: ReadonlySet<string> = new Set(['no_repo', 'no_checks']);
+
+function recordBlocker(meta: Meta): Meta | null {
+  const b = meta.blocker && typeof meta.blocker === 'object' ? meta.blocker as Meta : null;
+  return b && typeof b.cause === 'string' && RECORD_CAUSES.has(b.cause) ? b : null;
+}
+
+/**
+ * A BLOCKER A BUILD HAS ANSWERED IS GONE (FE-535, 2026-10-26): "Nothing says
+ * which repository DeliveryStack is built in" stayed on the request while
+ * RUN-526 built it from REPO-536. A missing-record blocker on a request with a
+ * run under way is cleared, with a line saying why. Workflow-owned or not:
+ * it only corrects what the page says. Null when there was nothing to clear.
+ * @param orgId - Tenant.
+ * @param request - The request.
+ * @param now - The clock.
+ */
+async function clearStartedBlocker(orgId: string, request: FactoryRecord, now: Date): Promise<CarryResult | null> {
+  const blocker = recordBlocker(request.meta);
+  if (!blocker) {
+    return null;
+  }
+  const work = await workFor(orgId, request.id);
+  const live = work.runs.find(r => LIVE_RUN.has(r.status));
+  if (!live) {
+    return null;
+  }
+  const { writeMeta } = await lib();
+  await writeMeta(orgId, request.id, { blocker: null });
+  const line = `Cleared the blocker, because ${nounCode('run', live.id)} is building it: ${String(blocker.what ?? 'the blocker')}`;
+  await updateRecovery(orgId, request.id, st => logLine(st, line, now.toISOString()));
+  return { requestId: request.id, did: 'blocker cleared', line };
+}
+
+/**
+ * A REPO RECORD ARRIVED OR CHANGED: every request it may unblock is read now,
+ * not at the next hourly sweep (FE-535, 2026-10-26: the repo record was
+ * approved and the page said the factory reads the records again every hour).
+ * A request blocked on a missing repo record or its checks: one already
+ * building has its stale blocker cleared; one that can be built now goes back
+ * through intake, which starts it the way it would have.
+ * @param orgId - Tenant.
+ * @param now - The clock.
+ */
+export async function unblockForRecords(orgId: string, now: Date = new Date()): Promise<{ acted: CarryResult[] }> {
+  const { listBusinessObjects } = await import('@/services/BusinessObjectService');
+  const { readRecord } = await lib();
+  const ids = ((await listBusinessObjects(orgId, (await factoryTypes(orgId)).request).catch(() => [])) as Array<{ id: number }>).map(r => r.id);
+  const acted: CarryResult[] = [];
+  for (const id of ids) {
+    const request = await readRecord(orgId, id);
+    if (!request || !recordBlocker(request.meta) || !(await isOpen(orgId, request))) {
+      continue;
+    }
+    const cleared = await clearStartedBlocker(orgId, request, now);
+    if (cleared) {
+      acted.push(cleared);
+      continue;
+    }
+    const work = await workFor(orgId, id);
+    if (work.waiting || work.openAsks.length > 0 || work.tasks.length > 0) {
+      continue;
+    }
+    const r = await carryStalledIntake(orgId, request, work.plans.length > 0, now).catch((err: Error) => {
+      console.warn('factory unblock: reading a blocked request again failed', { orgId, requestId: id, message: err.message });
+      return null;
+    });
+    if (r?.line) {
+      acted.push(r);
+    }
+  }
+  return { acted };
+}
 
 /**
  * A REQUEST INTAKE COULD NOT START, CARRIED ON BY THE SWEEP (2026-10-01,

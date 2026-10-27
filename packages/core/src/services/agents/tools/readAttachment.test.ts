@@ -5,6 +5,7 @@
  * limits. Fixtures are fictional and built in the test (`officeFixtures.ts`).
  */
 import type { RuntimeContext } from '../types';
+import { Buffer } from 'node:buffer';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -160,5 +161,27 @@ describe('read_attachment scope', () => {
     const id = await uploadId('private.xlsx', await fx.workbook({ Leads: fx.leadRows(2) }), OTHER_ORG);
 
     expect(await read({ id }, ORG)).toBe(`No attached file #${id} in this workspace.`);
+  });
+});
+
+describe('read_attachment on an image (FE-535, 2026-10-26)', () => {
+  // A 1×1 PNG.
+  const PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
+
+  it('shows the picture again where the model takes one in a tool result', async () => {
+    const id = await uploadId('time-off.png', PNG);
+    const out = await readAttachmentTool({ ...ctxFor(ORG), toolResultImages: true } as RuntimeContext).invoke({ id }) as unknown;
+    const blocks = (typeof out === 'object' && out && 'content' in out ? (out as { content: unknown }).content : out) as Array<{ type: string; text?: string; image_url?: { url: string } }>;
+
+    expect(Array.isArray(blocks)).toBe(true);
+    expect(blocks[0]).toMatchObject({ type: 'text', text: `time-off.png (file #${id}), the image as the person attached it:` });
+    expect(blocks[1]!.image_url!.url).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('elsewhere says it cannot show it and to ask, never "no text to read"', async () => {
+    const id = await uploadId('time-off.png', PNG);
+    const out = await read({ id });
+
+    expect(out).toBe(`time-off.png (file #${id}) is an image, and it cannot be shown to you again from here. If you cannot see it in this conversation, say so and ask the person to attach it again; do not describe it from memory.`);
   });
 });

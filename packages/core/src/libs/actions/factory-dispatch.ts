@@ -1562,7 +1562,11 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       const { askRequestWorkflow } = await import('@/services/factory/requestWorkflowStart');
       const { decidedByMachine } = await import('@/libs/actions/decider');
       const by = ctx.reviewedBy ?? ctx.proposedBy ?? ctx.invokedBy ?? 'factory';
-      return askRequestWorkflow(ctx.orgId, funnelled, {
+      // SAY WHEN IT WAITS (FE-535, 2026-10-26): "Restart RUN-526" read
+      // Completed while the flow still waited on that run, and nothing new
+      // appeared. A build ask behind a live run says so, and when it runs.
+      const live = underwayNow(await earlierStarts(ctx.orgId, funnelled), { trigger: input.trigger });
+      const told = await askRequestWorkflow(ctx.orgId, funnelled, {
         by,
         byPerson: ctx.origin?.byPerson === true || !decidedByMachine(by),
         from: input.autoRetryOf ? 'qa' : input.trigger ?? 'build',
@@ -1570,6 +1574,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         planId: input.planId ?? null,
         trigger: input.trigger ?? null,
       });
+      return live ? { ...told, waiting: true, line: `Already building: ${live.line}. This ask is kept: the next attempt starts when that run ends, and a run that stops reporting is ended within minutes.` } : told;
     }
     const { createWorkerRun } = await import('@/services/WorkerRunService');
     const loaded = await loadAll(ctx, input);
@@ -1754,9 +1759,15 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       const { logLine, noteAttempt, personActed, readRecovery } = await import('@/services/factory/recovery');
       previousRecovery = request.meta.recovery ?? null;
       const state = readRecovery(request.meta);
-      const recovery = automatic
+      const started = automatic
         ? noteAttempt(state, { at, kind: 'build', trigger: input.trigger ?? 'retry', runId: run.id, taskId: task.id, line: input.reason })
         : logLine(personActed(state, at, `Build started by ${approvedBy}.`), `Run #${run.id} queued for task #${task.id}.`, at, run.id);
+      // A BUILD THAT STARTED IS NOT BLOCKED (FE-535, 2026-10-26): "Nothing
+      // says which repository" stayed on the page while RUN-526 built from
+      // REPO-536, because only the hourly sweep cleared a blocker and it never
+      // reads a request with a live run. The start itself proves it.
+      const blocker = request.meta.blocker && typeof request.meta.blocker === 'object' ? request.meta.blocker as Meta : null;
+      const recovery = blocker ? logLine(started, `Cleared the blocker, because ${nounCode('run', run.id)} started: ${String(blocker.what ?? 'the blocker')}`, at, run.id) : started;
       // A BUILD ANSWERS THE STOP (2026-09-30, #246: a stop ask from 00:56 stayed
       // open after the build started again at 01:48, and the sweep then read
       // the request as waiting on a person). Whatever started this build, the
@@ -1769,12 +1780,13 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         recommendationState: 'approved',
         decidedAt: approvedAt,
         ...(request.meta.acceptanceFrozenAt ? {} : { acceptanceFrozenAt: approvedAt }),
+        ...(blocker ? { blocker: null } : {}),
         recovery,
       });
       // Building: a person's start reopens a finished request; an automatic one never does.
       await markStatus(ctx.orgId, request.id, 'building', { line: `${nounCode('run', run.id)} is building task #${task.id}.`, reopen: !automatic, at: approvedAt });
     }
-    return { workerRunId: run.id, agentSlug, taskId: task.id, createdTaskId, planId: plan?.id ?? null, requestId: request?.id ?? null, ...(request ? { record: { objectType: request.typeSlug, id: request.id } } : {}), previousTask, previousPlan, previousRequestState: before ? before.state : null, previousRequest: before ? { recommendationState: before.recommendationState, decidedAt: before.decidedAt, acceptanceFrozenAt: before.acceptanceFrozenAt } : null, previousRecovery, previousStatus };
+    return { workerRunId: run.id, agentSlug, taskId: task.id, createdTaskId, planId: plan?.id ?? null, requestId: request?.id ?? null, ...(request ? { record: { objectType: request.typeSlug, id: request.id } } : {}), previousTask, previousPlan, previousRequestState: before ? before.state : null, previousRequest: before ? { recommendationState: before.recommendationState, decidedAt: before.decidedAt, acceptanceFrozenAt: before.acceptanceFrozenAt, ...(request?.meta.blocker ? { blocker: request.meta.blocker } : {}) } : null, previousRecovery, previousStatus };
   },
   async undo(ctx, _input, result) {
     // Planning started instead of a build: nothing ran, so the request goes

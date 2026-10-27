@@ -181,10 +181,12 @@ export async function persistToolCall(rec: ToolCallRecord): Promise<void> {
     const taskId = taskIdOf(rec.ns);
     const specialist = taskId ? ctx.delegations?.get(taskId) : undefined;
     const workspaceSha = await getCurrentWorkspaceSha(ctx.orgId).catch(() => null);
+    const agentSlug = taskId ? (specialist ?? 'specialist') : (ctx.agentSlug ?? 'unknown');
+    const leadAgentSlug = taskId ? (ctx.agentSlug ?? null) : null;
     await db.insert(toolCallSchema).values({
       orgId: ctx.orgId,
-      agentSlug: taskId ? (specialist ?? 'specialist') : (ctx.agentSlug ?? 'unknown'),
-      leadAgentSlug: taskId ? (ctx.agentSlug ?? null) : null,
+      agentSlug,
+      leadAgentSlug,
       tool: rec.tool,
       input: rec.input,
       output: rec.output?.slice(0, OUTPUT_CAP) ?? null,
@@ -197,6 +199,18 @@ export async function persistToolCall(rec: ToolCallRecord): Promise<void> {
       workspaceSha,
       createdBy: ctx.userId ?? null,
     });
+    void import('@/libs/Amplitude').then(m => m.trackAgentToolCall({
+      orgId: ctx.orgId,
+      userId: ctx.userId ?? null,
+      conversationId: ctx.conversationId ?? null,
+      runId: ctx.missionRunId ?? null,
+      traceId: ctx.traceId ?? null,
+      agentSlug,
+      leadAgentSlug,
+      tool: rec.tool,
+      durationMs: rec.durationMs,
+      error: rec.error ?? null,
+    }));
   } catch (err) {
     // Reported, never propagated — and console rather than the LogTape
     // logger so the CLI scripts that import the harness stay loadable.

@@ -41,11 +41,11 @@ export const factoryReadAttemptAction: Action<typeof readAttemptInput> = {
     const prUrl = typeof result.prUrl === 'string' ? result.prUrl : typeof result.pr_url === 'string' ? result.pr_url : null;
     const status = run?.status ?? 'unknown';
     if (status === 'completed' && prUrl) {
-      return { status, branch, prUrl, failure: null, decision: { do: 'none', why: '' } };
+      return { status, branch, prUrl, failure: null, failureClass: null, decision: { do: 'none', why: '' } };
     }
     const failure = classifyFailure({ status, error: run?.error ?? null, failures: (run?.failures ?? []) as never, result });
     const d = recoveryDecision({ failure, attempts: input.automatic });
-    return { status, branch, prUrl, failure: failure.sentence, decision: { do: d.do, why: 'why' in d ? String(d.why) : failure.sentence } };
+    return { status, branch, prUrl, failure: failure.sentence, failureClass: failure.class, decision: { do: d.do, why: 'why' in d ? String(d.why) : failure.sentence } };
   },
 };
 
