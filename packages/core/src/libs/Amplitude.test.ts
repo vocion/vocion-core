@@ -78,7 +78,7 @@ describe('Amplitude agent analytics', () => {
     }));
   });
 
-  it('sends each workspace to its own key, and files a run nobody started under its workspace', async () => {
+  it('sends each workspace to its own key, and files a run nobody started under the one unattended identity', async () => {
     keys.set('proj_northwind', 'key_northwind');
     keys.set('proj_kestrel', 'key_kestrel');
     await trackAgentModelCall(modelCall);
@@ -88,9 +88,25 @@ describe('Amplitude agent analytics', () => {
 
     const event = trackToolCall.mock.calls[0]![0] as Record<string, unknown>;
 
-    expect(event).toMatchObject({ deviceId: 'workspace:proj_kestrel', sessionId: 'run:7', toolName: 'search_knowledge', success: false, agentId: 'researcher', parentAgentId: 'revenue-lead' });
+    expect(event).toMatchObject({ deviceId: 'vocion-agents', sessionId: 'run:7', groups: { workspace: 'proj_kestrel' }, eventProperties: { actor: 'unattended' }, toolName: 'search_knowledge', success: false, agentId: 'researcher', parentAgentId: 'revenue-lead' });
     expect(event).not.toHaveProperty('userId');
     expect(event).not.toHaveProperty('input');
     expect(event).not.toHaveProperty('output');
+  });
+
+  it('counts only people as users: an automation or token is the unattended identity, named on the event', async () => {
+    keys.set('proj_northwind', 'key_northwind');
+    const base = { orgId: 'proj_northwind', conversationId: null, runId: null, traceId: null, agentSlug: 'researcher', leadAgentSlug: null, tool: 'search_knowledge', durationMs: 5, error: null };
+    await trackAgentToolCall({ ...base, userId: 'automation:crm-sweep' });
+    await trackAgentToolCall({ ...base, userId: 'token:tok_1' });
+    await trackAgentToolCall({ ...base, userId: 'user_1' });
+
+    const [automation, token, person] = trackToolCall.mock.calls.map(c => c[0] as Record<string, unknown>);
+
+    expect(automation).toMatchObject({ deviceId: 'vocion-agents', eventProperties: { actor: 'automation:crm-sweep' } });
+    expect(automation).not.toHaveProperty('userId');
+    expect(token).toMatchObject({ deviceId: 'vocion-agents', eventProperties: { actor: 'token:tok_1' } });
+    expect(person).toMatchObject({ userId: 'user_1', eventProperties: { actor: 'user_1' } });
+    expect(person).not.toHaveProperty('deviceId');
   });
 });

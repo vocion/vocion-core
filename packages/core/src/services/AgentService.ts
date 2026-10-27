@@ -36,6 +36,7 @@ import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliv
 import { HandOffGateCallback, HandOffGuard, handsOff } from './agents/handOff';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
 import { endedOnToolCall } from './agents/passage';
+import { personIdOf } from './agents/personId';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
@@ -2147,16 +2148,4 @@ export async function runAgentDeep(opts: Parameters<typeof runAgentDeepInScope>[
     ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
     ...(opts.missionRunId ? { runKind: 'mission_run' as const, runId: opts.missionRunId } : {}),
   }, () => runAgentDeepInScope(opts));
-}
-
-/**
- * The person a turn is for, or null for the stand-ins non-person callers pass
- * as a user (`system`, `eval-runner`, `workflow:<slug>:<run>`, `mission:…`).
- * @param userId - What the caller passed.
- */
-export function personIdOf(userId: string | undefined): string | null {
-  if (!userId || userId === 'system' || userId === 'eval-runner' || userId.includes(':')) {
-    return null;
-  }
-  return userId;
 }

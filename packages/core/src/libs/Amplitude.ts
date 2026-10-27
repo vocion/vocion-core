@@ -22,6 +22,7 @@
  */
 
 import process from 'node:process';
+import { personIdOf } from '@/services/agents/personId';
 
 type AmplitudeAIClient = import('@amplitude/ai').AmplitudeAI;
 
@@ -55,7 +56,14 @@ async function clientFor(orgId: string): Promise<AmplitudeAIClient | null> {
   return client;
 }
 
-/** Who the event is about. A run nobody started is filed under its workspace. */
+/**
+ * The one identity unattended work is filed under. Amplitude counts every
+ * identity as a user, so giving each automation, token or workspace its own
+ * turned 6 people into 33 "users"; this way the count is the people plus one.
+ */
+const UNATTENDED = 'vocion-agents';
+
+/** Who the event is about. */
 type Identity = {
   orgId: string;
   userId?: string | null;
@@ -65,14 +73,19 @@ type Identity = {
 };
 
 function identityOf(who: Identity) {
+  const person = personIdOf(who.userId);
   const sessionId = who.conversationId != null
     ? `conversation:${who.conversationId}`
     : who.runId != null ? `run:${who.runId}` : who.traceId ? `trace:${who.traceId}` : `workspace:${who.orgId}`;
   return {
-    ...(who.userId ? { userId: who.userId } : { deviceId: `workspace:${who.orgId}` }),
+    ...(person ? { userId: person } : { deviceId: UNATTENDED }),
     sessionId,
     customerOrgId: who.orgId,
     env: process.env.NODE_ENV ?? null,
+    // The same group the browser sets, so a workspace's people and agents line up.
+    groups: { workspace: who.orgId },
+    // Who started it when no person did: `automation:<slug>`, `token:<id>`, or nothing.
+    eventProperties: { actor: person ?? who.userId ?? 'unattended' },
   };
 }
 
