@@ -306,8 +306,8 @@ publishTargets:
   with the target named.
 - **The body is the draft artifact's markdown.** Its leading `# Title` is
   dropped when the frontmatter already carries the title. `mdx` escapes braces
-  and stray `<` outside code; `html` renders the markdown with the app's own
-  renderer.
+  and stray `<` outside code; `html` renders the markdown with the small
+  escaping renderer the reports use (no inline styles, so the site's apply).
 - **`site.publish_page`** (`libs/actions/site-publish-page.ts`) always waits
   for a person. The Review card shows the target, the path, the branch, the
   title, the meta description, the page rendered, and the exact file. Approving
