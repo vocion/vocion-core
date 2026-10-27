@@ -1830,6 +1830,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'serper',
     label: 'Serper',
+    brand: 'serper',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
@@ -1846,6 +1847,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'serpapi',
     label: 'SerpApi',
+    brand: 'serpapi',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
@@ -1860,6 +1862,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'dataforseo',
     label: 'DataForSEO',
+    brand: 'dataforseo',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],

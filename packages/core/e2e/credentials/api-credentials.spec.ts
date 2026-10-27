@@ -205,6 +205,10 @@ test.describe('the platform selector decides which controls exist', () => {
       'Tavily',
       'Brave Search',
       'Firecrawl',
+      // SERP research's vendors (docs/guides/seo-research.md).
+      'Serper',
+      'SerpApi',
+      'DataForSEO',
       // A sign-in to an app the workspace builds, for its QA (2026-09-30).
       'App sign-in',
       // The login apps (#1080): one per vendor a connector can log in to,
