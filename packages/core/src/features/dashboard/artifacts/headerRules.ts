@@ -109,6 +109,8 @@ export type ArtifactActionId
     | 'pdf'
   /** A deck, full screen, with notes in a second window. */
     | 'present'
+  /** A deck in a browser window of its own — not full screen (`deckWindowUrl.ts`). */
+    | 'window'
   /** A deliverable as PDF, PPTX or DOCX, through the export route. */
     | 'download'
   /** A .pptx or .docx back in as the next version. */
@@ -153,8 +155,11 @@ export type ActionInput = {
  *   On the pane and the page a deliverable (deck or document) offers
  *   **`download`** instead — PDF, and PPTX or Word, through the export gate —
  *   with **`upload`** beside it for the way back, and a deck adds
- *   **`present`**. An older version is read-only: it can be downloaded, never
- *   uploaded onto or presented from.
+ *   **`present`** and **`window`** — the same slides full screen, or in a
+ *   browser window of its own a person can move to a second monitor. An older
+ *   version is read-only: it can be downloaded, never uploaded onto, presented
+ *   from or opened in a window (the window shows the head, so offering it from
+ *   v2 would open something other than what is on screen).
  * - **`spreadsheet` is any artifact's that has tables** — a document's tables
  *   or a table artifact's rows — on every surface, `/open` included, because
  *   taking the numbers into a spreadsheet is the third thing; `csv` is the
@@ -187,7 +192,7 @@ export function actionsFor(surface: ArtifactSurface, input: ActionInput): Artifa
     ...(input.dirty ? (['save'] as const) : []),
     'history',
     ...(surface === 'page' ? (['chat'] as const) : []),
-    ...(input.kind === 'deck' && !input.historical ? (['present'] as const) : []),
+    ...(input.kind === 'deck' && !input.historical ? (['present', 'window'] as const) : []),
     ...(deliverable ? (['download'] as const) : []),
     ...(deliverable && !input.historical ? (['upload'] as const) : []),
     ...(input.hasTables ? (['spreadsheet'] as const) : []),

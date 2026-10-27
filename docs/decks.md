@@ -273,8 +273,8 @@ the body of the artifact pane for a deck and for a document's Document tab:
 page thumbnails (the verify's screenshots, or a live render when there is none
 or the page changed since), the selected slide or sheet large and live, its
 notes (decks), what the last receipt found on that page (advice, never a
-blocker), and the existing version menu. The header carries **Present**
-(decks), **Download** (PDF, PPTX or DOCX) and **Upload a new version**
+blocker), and the existing version menu. The header carries **Present** and
+**Open in a new window** (decks), **Download** (PDF, PPTX or DOCX) and **Upload a new version**
 (`actionsFor`).
 
 - **A page** is the engine's own page HTML for that one slide (`buildDeckPage`
@@ -305,7 +305,17 @@ blocker), and the existing version menu. The header carries **Present**
 - **Present** (decks): full screen, arrows/space/Page Up/Down, Home/End,
   Escape; "Open notes" writes a second window that shows the current slide's
   notes and the next slide, kept in step over `BroadcastChannel`
-  `vocion-present:<id>` (`presenterNotes.ts`); it can move the deck too.
+  `vocion-present:<id>` (`presenterNotes.ts`); it can move the deck too. A
+  click on the slide moves on; a click on its left third goes back.
+- **Open in a new window** (decks): the same present view in a browser window
+  of its own, `/dashboard/artifacts/<id>/window` (the `(popup)` route group, so
+  no app chrome), opened with `window.open` at 16:9 sized to 80% of the screen
+  (`deckWindowUrl.ts`) and named per deck, so a second click brings it forward.
+  It opens on the slide the pane had selected and keeps `?slide=N` current, so
+  a reload keeps the place. Not full screen until the person presses **Full
+  screen**; leaving full screen keeps the window. Auth and the share check are
+  the artifact page's. A document has no window of its own: its full-width
+  read is `/open`.
 - **Download** fetches the export route and saves the file; `X-Vocion-Advice`
   is one line in a toast. **Upload** posts the file with the version on screen
   as `baseVersion`, says the report in plain words ("12 kept, 2 text edited, 1

@@ -49,10 +49,13 @@ import { toast } from '@/components/ui/toast';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { hasExportableTables, tableExportHref } from '@/libs/artifacts/tableExportAvailability';
 import { verificationChip } from '@/libs/documents/audit';
+import { canonicalise } from '@/libs/links';
 import { client } from '@/libs/Orpc';
+import { useWorkspaceSlug } from '@/libs/workspaceSlug';
 import { cn } from '@/utils/Helpers';
 import { ArtifactCard } from './ArtifactCard';
 import { ArtifactHeader } from './ArtifactHeader';
+import { deckWindowFeatures, deckWindowName, deckWindowPath } from './deliverable/deckWindowUrl';
 import { DeliverablePane } from './deliverable/DeliverablePane';
 import { isDeliverableKind } from './deliverable/pages';
 import { exportFormats } from './deliverable/transfer';
@@ -138,6 +141,9 @@ export function ArtifactPane(props: ArtifactPaneProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   // The deliverable pane (deck, document): present mode, and the page an upload asks to show.
   const [presenting, setPresenting] = useState(false);
+  // The slide on screen, so the deck's own window opens where the person is.
+  const slideOnScreen = useRef(1);
+  const slug = useWorkspaceSlug();
   const [selectPage, setSelectPage] = useState<{ key: string; nonce: number } | null>(null);
   const deliverableKind = isDeliverableKind(artifact.kind) && !artifact.pending ? artifact.kind : null;
   const folderRef = useRef<HTMLInputElement>(null);
@@ -381,6 +387,15 @@ export function ArtifactPane(props: ArtifactPaneProps) {
         {...(deliverableKind
           ? {
               onPresent: () => setPresenting(true),
+              onOpenWindow: () => {
+                const href = canonicalise(deckWindowPath(artifact.id, slideOnScreen.current), slug);
+                const opened = window.open(href, deckWindowName(artifact.id), deckWindowFeatures(window.screen));
+                if (opened) {
+                  opened.focus();
+                } else {
+                  toast.info('The window was blocked — allow pop-ups for Vocion and try again.');
+                }
+              },
               downloadFormats: exportFormats(deliverableKind),
               onDownload: transfer.download,
               onUpload: transfer.upload,
@@ -501,6 +516,9 @@ export function ArtifactPane(props: ArtifactPaneProps) {
                     select={selectPage}
                     presenting={presenting && !historical}
                     onPresentingChange={setPresenting}
+                    onPageChange={(n) => {
+                      slideOnScreen.current = n;
+                    }}
                   />
                 )
               : tab === 'findings'

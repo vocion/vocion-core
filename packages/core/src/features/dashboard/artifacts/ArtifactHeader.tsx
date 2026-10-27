@@ -33,7 +33,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { stashChatAbout } from '@/features/dashboard/chat/agentSurface';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
-import { DownloadAction, PresentAction, UploadAction } from './deliverable/HeaderActions';
+import { DownloadAction, PresentAction, UploadAction, WindowAction } from './deliverable/HeaderActions';
 import { openInChatTarget } from './headerRules';
 import { ARTIFACT_KIND_LABEL } from './kinds';
 import { SharePicker } from './SharePicker';
@@ -88,6 +88,8 @@ export type ArtifactHeaderProps = {
   openHref?: string | null;
   /** A deck, full screen (`present`). */
   onPresent?: () => void;
+  /** A deck in a browser window of its own (`window`). */
+  onOpenWindow?: () => void;
   /** A deliverable's download formats and the handler (`download`). */
   downloadFormats?: ExportFormat[];
   onDownload?: (format: ExportFormat) => void;
@@ -354,6 +356,8 @@ function HeaderAction({ id, ...props }: { id: ArtifactActionId } & ArtifactHeade
         : null;
     case 'present':
       return props.onPresent ? <PresentAction onPresent={props.onPresent} /> : null;
+    case 'window':
+      return props.onOpenWindow ? <WindowAction onOpenWindow={props.onOpenWindow} /> : null;
     case 'download':
       return props.onDownload && props.downloadFormats?.length
         ? <DownloadAction formats={props.downloadFormats} onDownload={props.onDownload} pdfPages={props.pdfPages} />

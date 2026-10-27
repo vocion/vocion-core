@@ -880,6 +880,13 @@
       "ended": "The presentation has ended. You can close this window.",
       "notesBlocked": "The notes window was blocked — allow pop-ups for Vocion and try again."
     },
+    "window": {
+      "action": "Open in a new window",
+      "fullscreen": "Full screen",
+      "exitFullscreen": "Exit full screen",
+      "fullscreenBlocked": "Full screen was refused by the browser — the deck stays in its window.",
+      "empty": "This deck has no slides yet."
+    },
     "report": {
       "kept": "{count} kept",
       "textEdited": "{count} text edited",
