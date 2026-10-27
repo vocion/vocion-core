@@ -30,10 +30,14 @@ import type { MarkFills } from './contrast';
 import {
   siAnthropic,
   siAtlassian,
+  siBox,
   siBrave,
+  siConfluence,
   siDatabricks,
+  siDropbox,
   siElevenlabs,
   siGithub,
+  siGitlab,
   siGmail,
   siGoogle,
   siGoogleads,
@@ -44,10 +48,13 @@ import {
   siGoogledrive,
   siGusto,
   siHubspot,
+  siIntercom,
   siJira,
+  siLinear,
   siMeta,
   siMixpanel,
   siNotion,
+  siPagerduty,
   siPosthog,
   siQuickbooks,
   siSentry,
@@ -55,6 +62,7 @@ import {
   siStrapi,
   siStripe,
   siXero,
+  siZendesk,
   siZoom,
 } from 'simple-icons';
 import { markFills } from './contrast';
@@ -107,6 +115,15 @@ const BRANDS = {
   stripe: { icon: siStripe },
   xero: { icon: siXero },
   zoom: { icon: siZoom },
+  // The prebuilt support, engineering, docs and files connectors.
+  box: { icon: siBox },
+  confluence: { icon: siConfluence },
+  dropbox: { icon: siDropbox },
+  gitlab: { icon: siGitlab },
+  intercom: { icon: siIntercom },
+  linear: { icon: siLinear },
+  pagerduty: { icon: siPagerduty },
+  zendesk: { icon: siZendesk },
 
   amazonredshift: { title: 'Amazon Redshift', fallback: 'AWS\'s trademark guidelines allow a plain-text reference only, no logos (aws.amazon.com/trademark-guidelines); simple-icons dropped AWS marks in v15.' },
   amazons3: { title: 'Amazon S3', fallback: 'AWS\'s trademark guidelines allow a plain-text reference only, no logos (aws.amazon.com/trademark-guidelines); simple-icons dropped AWS marks in v15.' },
@@ -128,6 +145,7 @@ const BRANDS = {
   serper: { title: 'Serper', fallback: 'No terms for third-party use of Serper\'s logo were found (serper.dev, 2026-10-27); not in simple-icons.' },
   serpapi: { title: 'SerpApi', fallback: 'No terms for third-party use of SerpApi\'s logo were found (serpapi.com, 2026-10-27); not in simple-icons.' },
   dataforseo: { title: 'DataForSEO', fallback: 'No terms for third-party use of DataForSEO\'s logo were found (dataforseo.com, 2026-10-27); not in simple-icons.' },
+  freshdesk: { title: 'Freshdesk', fallback: 'Not in simple-icons, and Freshworks\' brand terms have not been checked for integration use; no mark is vendored until they are.' },
   tavily: { title: 'Tavily', fallback: 'Tavily\'s brand page allows its marks in a compatibility statement but not alongside other companies\' without formal permission, which a catalog of tools is (tavily.com/brand); not in simple-icons.' },
 } as const satisfies Record<string, BrandEntry>;
 

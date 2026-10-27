@@ -7,9 +7,9 @@
  * status transitions, its comments, its attachments, its fields. So the
  * agent's tools and actions are named for those constructs (`tracker_read_issue`,
  * `tracker.transition_issue`) and this interface is what each provider fills
- * in. Jira is the first provider (`providers/jira.ts`); Linear, Azure Boards
- * and GitHub Issues implement the same interface and the agent's skills
- * change not a word.
+ * in. Jira is the first provider (`providers/jira.ts`) and Linear the second
+ * (`providers/linear.ts`); Azure Boards and GitHub Issues implement the same
+ * interface and the agent's skills change not a word.
  *
  * Which provider answers is decided by the workspace's sources
  * (`libs/connectors/families.ts`): the tracker source whose configured
@@ -132,7 +132,7 @@ export function projectKeysOf(source: FamilySource): string[] {
 export async function trackerProviderFor(orgId: string, opts: { issueKey?: string | null; sourceSlug?: string | null } = {}): Promise<TrackerProvider> {
   const sources = await familySourcesForOrg(orgId, 'tracker');
   if (sources.length === 0) {
-    throw new Error('This workspace has no issue tracker connected. Connect one (Jira today) at /dashboard/connectors and give this agent the source.');
+    throw new Error('This workspace has no issue tracker connected. Connect one (Jira or Linear) at /dashboard/connectors and give this agent the source.');
   }
   let chosen: FamilySource | undefined;
   if (opts.sourceSlug) {
@@ -171,6 +171,10 @@ async function providerFor(orgId: string, source: FamilySource): Promise<Tracker
   if (source.kind === 'jira') {
     const { jiraTrackerProvider } = await import('./providers/jira');
     return jiraTrackerProvider(orgId, source);
+  }
+  if (source.kind === 'linear') {
+    const { linearTrackerProvider } = await import('./providers/linear');
+    return linearTrackerProvider(orgId, source);
   }
   throw new Error(`${source.slug} is a ${source.kind} source, which no tracker provider serves yet.`);
 }

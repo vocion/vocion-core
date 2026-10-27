@@ -48,7 +48,7 @@ function readIssueTool(ctx: RuntimeContext): StructuredToolInterface {
     },
     {
       name: READ_ISSUE_TOOL,
-      description: 'One issue on the connected issue tracker (Jira today), read live: summary, description, status and its category, type, priority, labels, assignee, reporter, dates, fix versions, every comment, the attachments (ids to read with tracker_read_attachment), linked issues, and the status transitions available from where it stands. Use it before writing a contract from an issue, judging against acceptance a client wrote on it, or answering on it.',
+      description: 'One issue on the connected issue tracker (Jira or Linear), read live: summary, description, status and its category, type, priority, labels, assignee, reporter, dates, fix versions, every comment, the attachments (ids to read with tracker_read_attachment), linked issues, and the status transitions available from where it stands. Use it before writing a contract from an issue, judging against acceptance a client wrote on it, or answering on it.',
       schema: z.object({ key: z.string().min(3).max(40).describe('The issue key, e.g. NOCO-123.') }),
     },
   );
@@ -68,7 +68,7 @@ function searchIssuesTool(ctx: RuntimeContext): StructuredToolInterface {
     },
     {
       name: SEARCH_ISSUES_TOOL,
-      description: 'Search the connected issue tracker live, in its own query language (JQL on Jira: status = "To Do" AND updated >= -7d). The search is always bounded to the projects the source is configured for; leave the query empty for the most recently updated issues. Returns key, summary, status, assignee, updated and the link per issue.',
+      description: 'Search the connected issue tracker live, in its own query language (JQL on Jira: status = "To Do" AND updated >= -7d; plain words on Linear, matched against title and description). The search is always bounded to the projects the source is configured for; leave the query empty for the most recently updated issues. Returns key, summary, status, assignee, updated and the link per issue.',
       schema: z.object({
         query: z.string().max(2000).optional().describe('The query, in the tracker\'s own language, without the project clause. Empty: the most recently updated issues.'),
         limit: z.number().int().min(1).max(50).optional().describe('How many (default 20).'),

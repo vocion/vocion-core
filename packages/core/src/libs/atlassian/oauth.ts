@@ -25,6 +25,25 @@ export const ATLASSIAN_API_BASE = 'https://api.atlassian.com/ex/jira';
 export const JIRA_READ_SCOPES = ['read:jira-work', 'read:jira-user', 'offline_access'] as const;
 
 /**
+ * Read-only Confluence (classic scopes, which cover the REST v1 content and
+ * CQL search the connector uses) plus the refresh token. The same Atlassian
+ * app serves both products: its Confluence API permissions must include these.
+ */
+export const CONFLUENCE_READ_SCOPES = ['read:confluence-content.all', 'read:confluence-space.summary', 'search:confluence', 'offline_access'] as const;
+
+/** Where Confluence calls go with a grant: `/{cloudId}/wiki/rest/api/…` under this. */
+export const ATLASSIAN_CONFLUENCE_API_BASE = 'https://api.atlassian.com/ex/confluence';
+
+/**
+ * The scopes a login asks for, by the connector it is for: one consent per
+ * product, so a Jira login never asks for Confluence and the other way round.
+ * @param connector - The connector the login is for (`jira`, `confluence`).
+ */
+export function atlassianScopesFor(connector: string): readonly string[] {
+  return connector === 'confluence' ? CONFLUENCE_READ_SCOPES : JIRA_READ_SCOPES;
+}
+
+/**
  * How far before Atlassian's own expiry the token is treated as expired.
  * Atlassian tokens last an hour; five minutes of slack covers a sync that
  * starts near the edge without paying a refresh on every run. This is the

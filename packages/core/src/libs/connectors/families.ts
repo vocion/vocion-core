@@ -18,6 +18,13 @@
  * `analytics` (Mixpanel, Amplitude) answers events, funnels and cohorts, and
  * `ads` (Google Ads, LinkedIn Ads, Meta Ads) answers campaigns and what they spent.
  *
+ * Four more follow the same rule. A `support` desk holds tickets
+ * and conversations with customers (Zendesk, Intercom, Freshdesk); an
+ * `incident` pager holds incidents and who is on them (PagerDuty); a `docs`
+ * site holds pages in spaces (Confluence); `files` storage holds folders and
+ * files (Dropbox, Box). Their tools are `support_read_ticket`,
+ * `incident_read`, `docs_read_page`, `files_read` — never a vendor's name.
+ *
  * The family of a source is read off its connector kind
  * (`knowledge_source.kind`, or `config._connector` for a source cloned from a
  * connector pack). An agent reaches a family when one of its
@@ -31,7 +38,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { knowledgeSourceSchema } from '@/models/Schema';
 
-export type ConnectorFamily = 'repo' | 'tracker' | 'chat' | 'finance' | 'people' | 'warehouse' | 'analytics' | 'ads';
+export type ConnectorFamily = 'repo' | 'tracker' | 'chat' | 'finance' | 'people' | 'warehouse' | 'analytics' | 'ads' | 'support' | 'incident' | 'docs' | 'files';
 
 /**
  * The connector kinds that belong to each family, first provider first.
@@ -44,8 +51,8 @@ export type ConnectorFamily = 'repo' | 'tracker' | 'chat' | 'finance' | 'people'
  * `people_list` and `people_get`, with personal identifiers never returned.
  */
 export const FAMILY_KINDS: Record<ConnectorFamily, readonly string[]> = {
-  repo: ['github'],
-  tracker: ['jira'],
+  repo: ['github', 'gitlab'],
+  tracker: ['jira', 'linear'],
   chat: ['slack'],
   finance: ['stripe', 'quickbooks', 'xero', 'netsuite', 'ramp', 'bill'],
   people: ['gusto', 'rippling', 'workday'],
@@ -56,6 +63,10 @@ export const FAMILY_KINDS: Record<ConnectorFamily, readonly string[]> = {
   analytics: ['mixpanel', 'amplitude'],
   // An ad platform: campaigns, ad sets and what they spent (`services/ads/provider.ts`).
   ads: ['google-ads', 'linkedin-ads', 'meta-ads'],
+  support: ['zendesk', 'intercom', 'freshdesk'],
+  incident: ['pagerduty'],
+  docs: ['confluence'],
+  files: ['dropbox', 'box'],
 };
 
 /** How each family and its constructs are named to a person. */
@@ -68,6 +79,10 @@ export const FAMILY_LABEL: Record<ConnectorFamily, string> = {
   warehouse: 'data warehouse',
   analytics: 'product analytics',
   ads: 'ad platform',
+  support: 'help desk',
+  incident: 'on-call pager',
+  docs: 'documentation site',
+  files: 'file storage',
 };
 
 /**

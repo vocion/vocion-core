@@ -27,6 +27,8 @@ const { gustoProvider, refreshGustoGrant } = await import('./gusto');
 const { slackProvider } = await import('./slack');
 const { refreshXeroGrant, xeroProvider } = await import('./xero');
 const { refreshZoomGrant, zoomProvider } = await import('./zoom');
+const { dropboxProvider, refreshDropboxGrant } = await import('./dropbox');
+const { boxProvider, refreshBoxGrant } = await import('./box');
 const { refreshAtlassianGrant } = await import('@/libs/atlassian/oauth');
 const { connectProviders } = await import('../registry');
 const { loginAppPlatformFor } = await import('@/libs/platforms/registry');
@@ -48,6 +50,8 @@ const LOGIN_APP_PROVIDERS: Array<{ provider: ConnectProvider; connector: string 
   { provider: gustoProvider, connector: 'gusto' },
   { provider: linkedinProvider, connector: 'linkedin-ads' },
   { provider: metaProvider, connector: 'meta-ads' },
+  { provider: dropboxProvider, connector: 'dropbox' },
+  { provider: boxProvider, connector: 'box' },
 ];
 
 /** Each refresh that takes the login's app, by the provider it belongs to. */
@@ -61,6 +65,8 @@ const REFRESHES: Array<{ id: string; refresh: (refreshToken: string, client?: Lo
   { id: 'atlassian', refresh: refreshAtlassianGrant },
   { id: 'linkedin', refresh: refreshLinkedinGrant },
   { id: 'meta', refresh: refreshMetaGrant },
+  { id: 'dropbox', refresh: refreshDropboxGrant },
+  { id: 'box', refresh: refreshBoxGrant },
 ];
 
 /**
@@ -109,6 +115,10 @@ describe('a workspace\'s own login app, for every provider that takes one', () =
     env.META_APP_SECRET = 'server_secret';
     vi.stubEnv('ATLASSIAN_CLIENT_ID', 'server_atlassian');
     vi.stubEnv('ATLASSIAN_CLIENT_SECRET', 'server_secret');
+    vi.stubEnv('DROPBOX_CLIENT_ID', 'server_dropbox');
+    vi.stubEnv('DROPBOX_CLIENT_SECRET', 'server_secret');
+    vi.stubEnv('BOX_CLIENT_ID', 'server_box');
+    vi.stubEnv('BOX_CLIENT_SECRET', 'server_secret');
   });
 
   afterEach(() => {

@@ -15,8 +15,9 @@
  * connected for the repository.
  *
  * A later host plugs in as another `providers/<host>.ts` implementing
- * `RepoProvider`, registered in `repoProviderFor`; nothing an agent is told,
- * no trust rule and no skill names the vendor.
+ * `RepoProvider`, registered in `repoProviderFor` — GitLab is the second
+ * (`providers/gitlab.ts`); nothing an agent is told, no trust rule and no
+ * skill names the vendor.
  */
 
 import { tokenForRepo } from '@/services/agents/tools/githubPullRead';
@@ -76,9 +77,22 @@ export type ReviewInput = {
   comments?: Array<{ path: string; line: number; body: string; side?: 'LEFT' | 'RIGHT' }>;
 };
 
+/** One pipeline run as a host lists it, newest first, with its jobs when they were read. */
+export type PipelineRunSummary = {
+  id: number;
+  url: string;
+  ref: string | null;
+  sha: string | null;
+  status: string;
+  /** What started it: a push, a merge request, a schedule, a person. */
+  source: string | null;
+  createdAt: string | null;
+  jobs?: Array<{ name: string; stage: string | null; status: string }>;
+};
+
 export type RepoProvider = {
-  /** The connector kind this provider answers for (`github`). */
-  kind: 'github';
+  /** The connector kind this provider answers for (`github`, `gitlab`). */
+  kind: string;
   /** The host as a person names it ("GitHub"). */
   label: string;
   /** A pull request URL's parts, or null when the URL is not one on this host. */
@@ -97,7 +111,8 @@ export type RepoProvider = {
   readTree: (orgId: string, repo: string, ref?: string | null) => Promise<RepoTree>;
   /** A comment on the pull request's conversation. */
   commentPull: (orgId: string, ref: PullRequestRef, body: string) => Promise<{ commentId: number; url: string }>;
-  deletePullComment: (orgId: string, repo: string, commentId: number) => Promise<void>;
+  /** Delete a comment; `pullNumber` is the pull request it is on, which a host that files notes per merge request (GitLab) needs. */
+  deletePullComment: (orgId: string, repo: string, commentId: number, pullNumber?: number) => Promise<void>;
   submitReview: (orgId: string, ref: PullRequestRef, review: ReviewInput) => Promise<{ reviewId: number; url: string }>;
   /** Dismiss a submitted approval or request for changes; a plain comment review cannot be dismissed. */
   dismissReview: (orgId: string, ref: PullRequestRef, reviewId: number, message: string) => Promise<void>;
@@ -107,6 +122,12 @@ export type RepoProvider = {
   rerunPipelineRun: (orgId: string, ref: PipelineRunRef) => Promise<void>;
   /** The host account behind an email, when the host can say; null when it cannot or there is none. */
   findUserByEmail: (orgId: string, repo: string, email: string) => Promise<{ login: string; url: string } | null>;
+  /**
+   * A repository's pipeline runs, newest first, the newest few with their
+   * jobs. Present on a host whose runs are not GitHub's workflow runs
+   * (GitLab); absent, `repo_read_pipeline_runs` reads GitHub's.
+   */
+  listPipelineRuns?: (orgId: string, repo: string, opts: { branch?: string | null; limit: number }) => Promise<PipelineRunSummary[]>;
 };
 
 const OWNER_NAME = /^[\w.-]+\/[\w.-]+$/;
@@ -128,12 +149,15 @@ export function hostOf(repoOrUrl: string): string | null {
   }
 }
 
+/** A repository path: `owner/name` on GitHub, `group/subgroup/project` on GitLab. */
+const REPO_PATH = /^[\w.-]+(?:\/[\w.-]+)+$/;
+
 /**
  * The provider for a repository or a URL on it. A github.com URL is GitHub's;
- * a bare `owner/name` is GitHub's when an enabled github source of the
- * workspace lists it. Anything else is refused by name: the factory touches
- * only repositories a source connected, and only GitHub is a connected code
- * host today.
+ * a URL on the instance an enabled gitlab source names is GitLab's; a bare
+ * path is GitHub's when an enabled github source lists it, else GitLab's when
+ * an enabled gitlab source does. Anything else is refused by name: the
+ * factory touches only repositories a source connected.
  * @param orgId - The workspace.
  * @param repoOrUrl - A pull request, run or file URL, or a repository as `owner/name`.
  */
@@ -143,13 +167,25 @@ export async function repoProviderFor(orgId: string, repoOrUrl: string): Promise
   if (host === 'github.com') {
     return githubRepoProvider;
   }
-  if (host === null && OWNER_NAME.test(repoOrUrl.trim())) {
-    if (await tokenForRepo(orgId, repoOrUrl.trim())) {
+  const { gitlabProviderForHost, gitlabProviderForRepo } = await import('./providers/gitlab');
+  if (host !== null) {
+    const gitlab = await gitlabProviderForHost(orgId, host);
+    if (gitlab) {
+      return gitlab;
+    }
+  }
+  const path = repoOrUrl.trim();
+  if (host === null && REPO_PATH.test(path)) {
+    if (OWNER_NAME.test(path) && await tokenForRepo(orgId, path)) {
       return githubRepoProvider;
     }
-    throw new Error(`${repoOrUrl.trim()} is not a repository this workspace connected: no enabled code-host source lists it. Add it to the source's repositories, or ask with its full URL.`);
+    const gitlab = await gitlabProviderForRepo(orgId, path);
+    if (gitlab) {
+      return gitlab;
+    }
+    throw new Error(`${path} is not a repository this workspace connected: no enabled code-host source lists it. Add it to the source's repositories, or ask with its full URL.`);
   }
-  throw new Error(`${host ?? repoOrUrl} is not a code host this workspace connected. GitHub is the only connected code host today; a Bitbucket, Azure DevOps or GitLab repository needs its own connector first.`);
+  throw new Error(`${host ?? repoOrUrl} is not a code host this workspace connected. GitHub and GitLab are the code hosts Vocion connects; a Bitbucket or Azure DevOps repository needs its own connector first.`);
 }
 
 /**

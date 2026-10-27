@@ -24,7 +24,8 @@ describe('brand catalog', () => {
   it('gives every brand either a drawable mark or a reason it has none', () => {
     for (const brand of listBrands()) {
       if (brand.mark) {
-        expect(brand.mark.path, brand.key).toMatch(/^M/);
+        // A path opens with a moveto; a lowercase `m` first is absolute too (SVG 1.1 §8.3.2), as GitLab's is.
+        expect(brand.mark.path, brand.key).toMatch(/^M/i);
         expect(brand.mark.hex, brand.key).toMatch(/^#[0-9a-f]{6}$/i);
         expect(brand.fallback, brand.key).toBeNull();
       } else {

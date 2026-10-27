@@ -53,6 +53,11 @@ function serverClientPair(provider: ConnectProviderId): { clientId?: string; cli
       return { clientId: Env.LINKEDIN_CLIENT_ID, clientSecret: Env.LINKEDIN_CLIENT_SECRET };
     case 'meta':
       return { clientId: Env.META_APP_ID, clientSecret: Env.META_APP_SECRET };
+    // Read like Atlassian's, straight from the environment, trimmed.
+    case 'dropbox':
+      return { clientId: process.env.DROPBOX_CLIENT_ID?.trim(), clientSecret: process.env.DROPBOX_CLIENT_SECRET?.trim() };
+    case 'box':
+      return { clientId: process.env.BOX_CLIENT_ID?.trim(), clientSecret: process.env.BOX_CLIENT_SECRET?.trim() };
     default:
       return {};
   }
