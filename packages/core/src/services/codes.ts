@@ -1,7 +1,7 @@
 import type { CoreNoun, TypeCodes } from '@/libs/codes';
 import { and, eq, inArray } from 'drizzle-orm';
 import { cache } from 'react';
-import { assignTypeCodes, coreNounOf, formatCode, nounCode, parseCode, recordCode, TYPE_CODE_SCHEMA_KEY } from '@/libs/codes';
+import { assignTypeCodes, coreNounOf, deriveTypeCode, formatCode, nounCode, parseCode, recordCode, TYPE_CODE_SCHEMA_KEY } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import {
   actionRunSchema,
@@ -120,7 +120,9 @@ export async function resolveCode(orgId: string, text: string | number): Promise
   }
   const codes = await typeCodesForOrg(orgId);
   const code = recordCode(codes, row.slug, row.id);
-  if (parsed.prefix && !code.startsWith(`${parsed.prefix}-`)) {
+  // A type that later declared a code still answers to the one its slug
+  // derives, so a link written before (DR-12 for a project) keeps opening.
+  if (parsed.prefix && !code.startsWith(`${parsed.prefix}-`) && deriveTypeCode(row.slug) !== parsed.prefix) {
     return { kind: 'none', reason: `${formatCode(parsed.prefix, parsed.id)} does not exist; record ${parsed.id} is ${code} (${row.title})` };
   }
   return { kind: 'record', id: row.id, typeSlug: row.slug, code, title: row.title };

@@ -52,6 +52,8 @@ import { listAskGroup, upsertAsk } from '@/services/AskService';
 import { addDocumentLink, createBusinessObject, createObjectType, getBusinessObject, getObjectTypeBySlug, groupRecordsByType, listBusinessObjects, listBusinessObjectsForProject, removeDocumentLink, updateBusinessObject } from '@/services/BusinessObjectService';
 
 export const DATA_ROOM_TYPE = 'data_room';
+/** A project's record code: PRJ-12. */
+export const PROJECT_CODE = 'PRJ';
 
 export const MATCH_HIGH = 0.75;
 export const MATCH_MEDIUM = 0.45;
@@ -64,7 +66,9 @@ export type RoomSource = {
   /** The artifact id when the source is a filed artifact (a decision log, an attachment). */
   artifactId?: number;
   title: string;
-  kind: 'transcript' | 'email' | 'attachment' | 'note' | 'decision-log';
+  kind: 'transcript' | 'email' | 'attachment' | 'note' | 'decision-log' | 'page';
+  /** For a page of a website: where it was read (`retrievedAt` is when). */
+  url?: string;
   /** ⭐ 1–3. Three means "read this before writing anything". */
   rating: 1 | 2 | 3;
   /** Where it came from: zoom, gmail, drive, granola, pasted… */
@@ -133,8 +137,23 @@ export type RoomImage = {
   url?: string;
 };
 
-/** The client's brand as the room knows it: the full lockup and the square mark. */
-export type RoomBrand = { logo?: RoomImage; mark?: RoomImage };
+/**
+ * The client's brand facts read off their own site (`brand_lookup` with a
+ * project): colour roles, font families by role, the name and line they
+ * use, with the page it was read from and when.
+ */
+export type RoomBrandProfile = {
+  source: string;
+  readAt: string;
+  name?: string;
+  description?: string;
+  colors?: Record<string, string>;
+  fonts?: Record<string, string>;
+  colorScheme?: string;
+};
+
+/** The client's brand as the room knows it: the full lockup, the square mark, and the facts read off their site. */
+export type RoomBrand = { logo?: RoomImage; mark?: RoomImage; profile?: RoomBrandProfile };
 
 export const ROOM_BRAND_SLOTS = ['logo', 'mark'] as const;
 export type RoomBrandSlot = typeof ROOM_BRAND_SLOTS[number];
@@ -428,6 +447,8 @@ export async function ensureDataRoomType(orgId: string): Promise<{ id: number }>
     label: 'Project',
     description: 'The source of record for one client or engagement.',
     icon: 'folder-open',
+    // Read as PRJ-12, as the template's type declares — not the DR its slug derives.
+    code: PROJECT_CODE,
   }, orgId);
   return { id: created!.id };
 }
@@ -529,6 +550,34 @@ export function mergeRules(existing: string[] | undefined, add: string[] | undef
  */
 export function mergeBrand(existing: RoomBrand | undefined, slot: RoomBrandSlot, image: RoomImage): RoomBrand {
   return { ...(existing ?? {}), [slot]: image };
+}
+
+/**
+ * A project's title without an app's name hung on the end: a project is the
+ * client and outlives any one app, so "Northwind Home Services — SEO" is
+ * "Northwind Home Services". Only a trailing part that names an app (or an
+ * app plus "project"/"client") is taken off. Pure.
+ * @param title - The title asked for.
+ * @param appWords - The app and plugin ids and names this install knows.
+ */
+export function withoutAppSuffix(title: string, appWords: readonly string[]): string {
+  const t = title.trim();
+  let cut = -1;
+  let width = 0;
+  for (const sep of ['—', '–', '|', ':', '·', ' - ', '(']) {
+    const at = t.lastIndexOf(sep);
+    if (at > cut) {
+      cut = at;
+      width = sep.length;
+    }
+  }
+  const head = cut > 0 ? t.slice(0, cut).trim() : '';
+  if (!head) {
+    return t;
+  }
+  const tail = t.slice(cut + width).replace(/\)$/, '').trim().toLowerCase().replace(/\s(?:project|client|work|engagement|app)$/, '').trim();
+  const words = new Set(appWords.map(w => w.trim().toLowerCase()).filter(Boolean));
+  return words.has(tail) ? head : t;
 }
 
 /**
@@ -675,6 +724,8 @@ export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & 
   highlights?: Array<Omit<RoomHighlight, 'addedAt'>>;
   /** The client's logo or mark, fetched and verified — replaces whatever that slot held. */
   brandImage?: { slot: RoomBrandSlot; image: RoomImage };
+  /** The brand facts read off the client's site — replaces the profile held. */
+  brandProfile?: RoomBrandProfile;
   autoFile?: boolean;
   /**
    * A PERSON's settings, from the project page only (`PATCH
@@ -763,6 +814,9 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
   if (patch.brandImage) {
     meta.brand = mergeBrand(meta.brand, patch.brandImage.slot, patch.brandImage.image);
   }
+  if (patch.brandProfile) {
+    meta.brand = { ...(meta.brand ?? {}), profile: patch.brandProfile };
+  }
   if (patch.autoFile !== undefined) {
     meta.autoFile = patch.autoFile;
   }
@@ -837,6 +891,8 @@ export type FileInput = {
   channel?: string;
   date?: string;
   note?: string;
+  /** For a page: the URL it was read from. */
+  url?: string;
   /**
    * The decision log to file on top of a transcript: participants, headlines,
    * numbered decisions and corrections, open items created. Markdown. Becomes
@@ -904,6 +960,7 @@ export async function fileToDataRoom(orgId: string, id: number, input: FileInput
     title: input.title,
     kind: input.kind,
     rating: input.rating,
+    ...(input.url ? { url: input.url } : {}),
     ...(input.channel ? { channel: input.channel } : {}),
     ...(input.date ? { date: input.date } : {}),
     retrievedAt,
@@ -1271,6 +1328,23 @@ function voiceSource(source: string): string {
 }
 
 /**
+ * The brand facts read off the client's site, as lines. Pure; empty with none.
+ * @param p - The profile.
+ */
+export function renderBrandProfile(p: RoomBrandProfile | undefined): string[] {
+  if (!p) {
+    return [];
+  }
+  const pairs = (r: Record<string, string> | undefined) => Object.entries(r ?? {}).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(' · ');
+  return [
+    p.name ? `- **Name:** ${p.name}${p.description ? ` — ${p.description}` : ''}` : null,
+    pairs(p.colors) ? `- **Colours:** ${pairs(p.colors)}${p.colorScheme ? ` (${p.colorScheme})` : ''}` : null,
+    pairs(p.fonts) ? `- **Fonts:** ${pairs(p.fonts)}` : null,
+    `- Read from ${p.source} on ${p.readAt.slice(0, 10)}.`,
+  ].filter((l): l is string => Boolean(l));
+}
+
+/**
  * The client voice block, as the bundle prints it at the top. Pure; empty
  * for a project with no voice lines.
  * @param voice - The project's voice.
@@ -1397,18 +1471,21 @@ export function renderDataRoom(room: DataRoomDetail): string {
     }
     lines.push('');
   }
-  if (m.brand?.logo || m.brand?.mark) {
+  if (m.brand?.logo || m.brand?.mark || m.brand?.profile) {
     // A link, not the data URI: the base64 cost 10–35k tokens on every read,
     // and most reads write no document. A document that needs the mark gets
     // the stored copy from fetch_image in one call, without fetching again.
-    lines.push('## Client brand', '', `Never redraw a mark as text. To inline one in a document, call fetch_image with its source URL, project_id ${room.id} and the slot: it hands back the stored copy as a data URI.`, '');
+    lines.push('## Client brand', '');
+    if (m.brand.logo || m.brand.mark) {
+      lines.push(`Never redraw a mark as text. To inline one in a document, call fetch_image with its source URL, project_id ${room.id} and the slot: it hands back the stored copy as a data URI.`, '');
+    }
     for (const slot of ROOM_BRAND_SLOTS) {
       const img = m.brand?.[slot];
       if (img) {
         lines.push(`- **${slot}** — [${slot}](${img.url ?? img.source}) · ${img.width && img.height ? `${img.width}×${img.height}, ` : ''}${Math.round(img.bytes / 1024)} KB, from ${img.source} on ${img.fetchedAt.slice(0, 10)}`);
       }
     }
-    lines.push('');
+    lines.push(...renderBrandProfile(m.brand.profile), '');
   }
   if (m.cast?.length) {
     lines.push('## Cast', '', '| Name | Role | Email | Side |', '|---|---|---|---|');
@@ -1423,7 +1500,7 @@ export function renderDataRoom(room: DataRoomDetail): string {
     for (const s of sources) {
       const how = s.filedBy === 'auto' ? `, filed automatically${s.score === undefined ? '' : ` at ${Math.round(s.score * 100)}%`}${s.evidence?.length ? ` (${s.evidence.join(', ')})` : ''}` : '';
       const key = sourceKey(s);
-      lines.push(`- ${stars(s.rating)} ${s.date ? `**${s.date}** · ` : ''}${s.title} — ${s.kind}${s.channel ? ` via ${s.channel}` : ''}, filed ${s.retrievedAt.slice(0, 10)}${how}${s.note ? `. ${s.note}` : ''}${key ? ` · \`${key}\`` : ''}`);
+      lines.push(`- ${stars(s.rating)} ${s.date ? `**${s.date}** · ` : ''}${s.url ? `[${s.title}](${s.url})` : s.title} — ${s.kind}${s.channel ? ` via ${s.channel}` : ''}, ${s.url ? 'read' : 'filed'} ${s.retrievedAt.slice(0, 10)}${how}${s.note ? `. ${s.note}` : ''}${key ? ` · \`${key}\`` : ''}`);
     }
     lines.push('', `Read any source whole with read_project { project_id: ${room.id}, source: "<id>" }, or find a passage in them with read_project { project_id: ${room.id}, find: "<words>" }.`, '');
     if (room.sourceTexts) {

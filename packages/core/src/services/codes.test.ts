@@ -61,6 +61,31 @@ describe('resolveCode', () => {
     expect((res as { reason: string }).reason).toContain(`is PL-${plan}`);
   });
 
+  it('opens a record by the code its slug derives, after its type declared another: an old DR-12 link to a project', async () => {
+    const [type] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'data_room', label: 'Project', schema: { 'x-code': 'PRJ' } }).returning();
+    const [room] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: type!.id, title: 'Northwind Home Services' }).returning();
+
+    expect(await resolveCode(ORG, `DR-${room!.id}`)).toMatchObject({ kind: 'record', id: room!.id, code: `PRJ-${room!.id}` });
+    expect(await resolveCode(ORG, `PRJ-${room!.id}`)).toMatchObject({ kind: 'record', code: `PRJ-${room!.id}` });
+    expect((await resolveCode(ORG, `FE-${room!.id}`)).kind).toBe('none');
+  });
+
+  it('moves a project type still on the derived DR to PRJ, and leaves a chosen code alone (migration 0222)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { sql } = await import('drizzle-orm');
+    const [old, chosen] = await db.insert(businessObjectTypeSchema).values([
+      { orgId: 'proj_codes_bellwater', slug: 'data_room', label: 'Data room', schema: { 'x-code': 'DR' } },
+      { orgId: 'proj_codes_contoso', slug: 'data_room', label: 'Account', schema: { 'x-code': 'ACC' } },
+    ]).returning();
+    await db.execute(sql.raw(readFileSync(join(__dirname, '..', '..', 'migrations', '0222_project_code.sql'), 'utf8')));
+    const rows = await db.select().from(businessObjectTypeSchema);
+    const code = (id: number) => (rows.find(r => r.id === id)!.schema as Record<string, unknown>)['x-code'];
+
+    expect(code(old!.id)).toBe('PRJ');
+    expect(code(chosen!.id)).toBe('ACC');
+  });
+
   it('resolves core nouns, within the org only', async () => {
     expect(await resolveCode(ORG, `RUN-${run}`)).toEqual({ kind: 'run', id: run, code: `RUN-${run}` });
     expect(await resolveCode(ORG, `ask-${ask}`)).toEqual({ kind: 'ask', id: ask, code: `ASK-${ask}` });

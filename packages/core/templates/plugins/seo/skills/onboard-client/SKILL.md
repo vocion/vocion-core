@@ -19,22 +19,31 @@ client already has one (`list_projects`), update it; never open a second.
 
 ## 1. Open the project
 
-`create_project` with the client's name, its domain in `domains`, and an
-anchor of type `client`.
+`create_project` with the client's name and nothing else in the title
+("Northwind Home Services", never "Northwind Home Services — SEO"): a project
+is the client, worked from every app, and what SEO is doing for them lives in
+the SEO app's batches and pages. Its domain goes in `domains`, and the anchor
+is of type `client`.
 
 ## 2. Read the whole site
 
 - `site_inventory` with the project. It reads the site's sitemap (then the
   sitemaps robots.txt names, then a crawl), every page's status, title, meta
   description, H1, canonical, noindex, word count and schema, and files a
-  dated inventory on the project. If it says it hit its cap, say so and
-  offer to read the rest. If it fell back to a crawl, say pages nothing links
-  to may be missing.
-- Then read the pages that carry the voice and the offer: the home page, each
-  service or product page, the about page, three or four recent posts
-  (`fetch_url`, or `crawl_site` with a higher `chars_per_page`).
-- `brand_lookup` the domain for the logo, colours and tagline; `fetch_image`
-  the logo with `project_id` so it is kept on the project.
+  dated inventory on the project, filed as one of its sources. If it says it
+  hit its cap, say so and offer to read the rest. If it fell back to a crawl,
+  say pages nothing links to may be missing. The inventory is the content
+  inventory, every blog post included: never wait on the site's repository
+  (GitHub) for it, and never put "waiting on GitHub" in the status.
+- Then read the pages that carry the voice and the offer, filing each as a
+  source as you read it: `file_to_project` with `url`, kind `page` (it reads
+  the page and keeps it with its URL and date). The home, service, product
+  and about pages and case studies at ⭐⭐; a style guide or brand page on the
+  site at ⭐⭐⭐; three or four recent posts at ⭐. Then the writer can open
+  every page the voice and rules were taken from.
+- `brand_lookup` the domain with `project_id`: the colours, fonts and name
+  are kept on the project's brand and the logo is fetched onto it, so its
+  Brand & guidelines show them. The wiki links there; it does not copy them.
 
 ## 3. Competitors from Google, never from memory
 
@@ -96,11 +105,13 @@ message, naming exactly what is missing. When they send one, do step 4 for it.
 
 If the person names the site's repository or platform, record it on the
 project as a publish target, and say which kinds the workspace can publish to
-today.
+today. A repository that is private or not connected yet is one line in what
+is still missing; it blocks publishing only, never onboarding.
 
 ## Done when
 
-The project has the site inventory, a sourced voice block, rules citing the
-guides and pages they came from, competitors read from Google, notes with
-services, audience and the content inventory, and a list of what is still
-missing, said to the person.
+The project is named after the client and has the site inventory and the
+pages read as sources, the brand read off the site, a sourced voice block,
+rules citing the guides and pages they came from, competitors read from
+Google, notes with services, audience and the content inventory, and a list
+of what is still missing, said to the person.

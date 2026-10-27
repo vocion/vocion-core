@@ -12,6 +12,7 @@ import type { SerpResult } from '@/libs/tools/serp/types';
  * client, site and person here is fictional.
  */
 import type { RuntimeContext } from '@/services/agents/types';
+import { Buffer } from 'node:buffer';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { and, eq } from 'drizzle-orm';
@@ -44,11 +45,18 @@ vi.mock('@/libs/net/publicFetch', async (importActual) => {
     },
   };
 });
+vi.mock('@/libs/tools/brand/firecrawlBrand', () => ({
+  lookupBrand: vi.fn(async () => ({ url: 'https://northwind-home.example/', name: 'Northwind Home Services', colors: { primary: '#0B3D5C', accent: '#F2A900' }, fonts: { heading: 'Lato' }, logoUrl: 'https://northwind-home.example/logo.png' })),
+}));
+vi.mock('@/libs/tools/image/remote', () => ({
+  fetchImage: vi.fn(async (url: string) => ({ url, bytes: Buffer.from('png'), dataUri: 'data:image/png;base64,cG5n', width: 240, height: 60, contentType: 'image/png' })),
+}));
+vi.mock('@/libs/tools/artifacts/store', () => ({ saveArtifact: vi.fn(async () => ({ url: '/api/artifacts/x/logo.png' })) }));
 vi.mock('@/libs/tools/browse/registry', () => ({
   getBrowseProvider: () => ({
     name: 'builtin',
     fetchHtml: async (url: string) => ({ url, html: `<html><head><title>${url.endsWith('/') && url.length === SITE.length + 1 ? 'Northwind Home Services' : `Page ${new URL(url).pathname}`}</title></head><body><main><h1>Heading</h1><p>Words here.</p></main></body></html>` }),
-    fetchPage: async () => null,
+    fetchPage: async (url: string) => ({ url, title: 'Furnace repair | Northwind Home Services', content: `We repair every make of furnace. Read at ${url}.` }),
   }),
 }));
 
@@ -62,6 +70,7 @@ const { siteInventoryTools } = await import('@/services/agents/tools/siteInvento
 const { competitorTools } = await import('@/services/agents/tools/competitors');
 const { serpTools } = await import('@/services/agents/tools/serpResearch');
 const { draftVoiceFindings } = await import('./voiceCheck');
+const { brandLookupTool } = await import('@/services/agents/tools/brandLookup');
 
 const ORG = 'proj_seo_onboard_brightline';
 
@@ -82,7 +91,7 @@ const ctx = (over: Partial<RuntimeContext> = {}): RuntimeContext => ({
 type Invokable = { name: string; invoke: (input: Record<string, unknown>) => Promise<unknown> };
 async function call(name: string, args: Record<string, unknown>): Promise<string> {
   const c = ctx();
-  const all = [...projectTools(c), ...siteInventoryTools(c), ...competitorTools(c), ...serpTools(c)] as unknown as Invokable[];
+  const all = [...projectTools(c), ...siteInventoryTools(c), ...competitorTools(c), ...serpTools(c), brandLookupTool(c)] as unknown as Invokable[];
   return String(await all.find(t => t.name === name)!.invoke(args));
 }
 
@@ -132,6 +141,15 @@ describe('the SEO seats', () => {
     // Ungranted, neither tool is on an agent's belt.
     expect(siteInventoryTools(ctx({ harnessConfig: {} } as Partial<RuntimeContext>))).toEqual([]);
     expect(competitorTools(ctx({ harnessConfig: {} } as Partial<RuntimeContext>))).toEqual([]);
+  });
+});
+
+describe('a project is the client', () => {
+  it('opens it under the client\'s name, without the app\'s', async () => {
+    const out = await call('create_project', { title: 'Larkfield Plumbing — SEO', domains: ['larkfield-plumbing.example'] });
+
+    expect(out).toContain('"Larkfield Plumbing"');
+    expect(out).toContain('Named after the client');
   });
 });
 
@@ -215,9 +233,53 @@ describe('onboarding reads the whole site', () => {
 
     const [inv] = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, ORG), eq(artifactSchema.id, out.inventory.artifactId)));
 
-    expect(inv).toMatchObject({ kind: 'markdown', folder: 'site-inventory', recordType: 'object', recordId: String(projectId), recordRole: 'site-inventory' });
+    // Filed as one of the project's sources, so it lands on the project.
+    expect(inv).toMatchObject({ kind: 'markdown', title: 'Site inventory · northwind-home.example', folder: 'site-inventory', recordType: 'object', recordId: String(projectId), recordRole: 'source:Site inventory · northwind-home.example' });
+    expect(room!.meta.sources).toEqual(expect.arrayContaining([expect.objectContaining({ artifactId: out.inventory.artifactId, rating: 2, channel: 'site_inventory' })]));
     expect(String((inv!.spec as { md: string }).md)).toContain('| 4 | [/blog/ac-tune-up-checklist/](https://northwind-home.example/blog/ac-tune-up-checklist/) | 200 |');
     expect(await call('read_project', { project_id: projectId })).toContain(`Site inventory: [northwind-home.example, read ${room!.meta.siteInventory!.readAt.slice(0, 10)}](/dashboard/artifacts/${out.inventory.artifactId}) — 4 pages from the sitemap`);
+
+    // Read again: the same artifact, a new version, one source.
+    const again = JSON.parse(await call('site_inventory', { project_id: projectId }));
+    const [after] = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, ORG), eq(artifactSchema.id, out.inventory.artifactId)));
+
+    expect(again.inventory.artifactId).toBe(out.inventory.artifactId);
+    expect(after!.currentVersion).toBe(2);
+    expect((await getDataRoom(ORG, projectId))!.meta.sources!.filter(s => s.channel === 'site_inventory')).toHaveLength(1);
+  });
+
+  it('files each page it read as a source with its URL and date, once per URL', async () => {
+    const url = `${SITE}/furnace-repair`;
+    const first = await call('file_to_project', { project_id: projectId, url, kind: 'page', rating: 2 });
+
+    expect(first).toContain('Filed "Furnace repair | Northwind Home Services" (page, ⭐⭐, via web)');
+
+    await call('file_to_project', { project_id: projectId, url, kind: 'page', rating: 2 });
+    const pages = (await getDataRoom(ORG, projectId))!.meta.sources!.filter(s => s.url === url);
+
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toMatchObject({ kind: 'page', rating: 2, url });
+
+    const md = await call('read_project', { project_id: projectId, source: `artifact:${pages[0]!.artifactId}` });
+
+    expect(md).toContain(`Read from ${url} on`);
+    expect(md).toContain('We repair every make of furnace.');
+  });
+
+  it('keeps the brand read off the site on the project, logo included', async () => {
+    const out = JSON.parse(await call('brand_lookup', { company: 'northwind-home.example', project_id: projectId }));
+
+    expect(out.project).toContain(`colours, fonts and name kept on project #${projectId}; the logo fetched and kept as its logo`);
+
+    const brand = (await getDataRoom(ORG, projectId))!.meta.brand!;
+
+    expect(brand.profile).toMatchObject({ source: 'https://northwind-home.example/', name: 'Northwind Home Services', colors: { primary: '#0B3D5C', accent: '#F2A900' }, fonts: { heading: 'Lato' } });
+    expect(brand.logo).toMatchObject({ source: 'https://northwind-home.example/logo.png', url: '/api/artifacts/x/logo.png' });
+
+    const md = await call('read_project', { project_id: projectId });
+
+    expect(md).toMatch(/- \*\*Colours:\*\* .*primary #0B3D5C/);
+    expect(md).toContain('- **logo** — [logo](/api/artifacts/x/logo.png)');
   });
 
   it('records competitors counted from searches, never guessed', async () => {

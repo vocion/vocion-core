@@ -2,7 +2,7 @@ import type { DataRoomDetail } from './DataRoomService';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import type { Ask } from '@/services/AskService';
 import { describe, expect, it } from 'vitest';
-import { artifactText, citeRule, deliverableIndex, findInSources, mergeBrand, mergeRules, mergeVoice, renderDataRoom, roomAnchor, roomDeliverables, ruleCitation, SOURCE_TEXT_PER_SOURCE, SOURCE_TEXT_TOTAL, sourceKey } from './DataRoomService';
+import { artifactText, citeRule, deliverableIndex, findInSources, mergeBrand, mergeRules, mergeVoice, renderBrandProfile, renderDataRoom, roomAnchor, roomDeliverables, ruleCitation, SOURCE_TEXT_PER_SOURCE, SOURCE_TEXT_TOTAL, sourceKey, withoutAppSuffix } from './DataRoomService';
 
 /**
  * The bundle the agent reads and a person downloads: order and sections. The
@@ -382,5 +382,32 @@ describe('competitors and the site inventory on the bundle', () => {
     expect(md).toContain('## Competitors');
     expect(md).toContain('Read from Google on 2026-10-27 for 2 searches in Springfield, Illinois, United States');
     expect(md).toContain('- **kestrel-heating.example** — "furnace repair springfield" #2 ([page](https://kestrel-heating.example/furnace)); "ac install springfield" #4 ([page](https://kestrel-heating.example/ac))');
+  });
+});
+
+describe('a project is the client, not an app', () => {
+  const apps = ['seo', 'Search Engine Optimization', 'marketing', 'Paid Marketing'];
+
+  it('takes an app\'s name off the end of a title, and nothing else', () => {
+    expect(withoutAppSuffix('Northwind Home Services — SEO', apps)).toBe('Northwind Home Services');
+    expect(withoutAppSuffix('Northwind Home Services - SEO project', apps)).toBe('Northwind Home Services');
+    expect(withoutAppSuffix('Northwind Home Services (Paid Marketing)', apps)).toBe('Northwind Home Services');
+    expect(withoutAppSuffix('Northwind Home Services | search engine optimization', apps)).toBe('Northwind Home Services');
+    // An engagement name is the person's word, not an app's.
+    expect(withoutAppSuffix('Northwind — Hiring agents', apps)).toBe('Northwind — Hiring agents');
+    expect(withoutAppSuffix('Kestrel-Capital', apps)).toBe('Kestrel-Capital');
+    expect(withoutAppSuffix('SEO', apps)).toBe('SEO');
+  });
+});
+
+describe('the brand read off the client\'s site', () => {
+  it('prints the colours, fonts and name with where and when they were read, and nothing without them', () => {
+    expect(renderBrandProfile({ source: 'https://northwind-home.example/', readAt: '2026-10-27T09:00:00Z', name: 'Northwind Home Services', colors: { primary: '#0B3D5C' }, fonts: { body: 'Lato' } })).toEqual([
+      '- **Name:** Northwind Home Services',
+      '- **Colours:** primary #0B3D5C',
+      '- **Fonts:** body Lato',
+      '- Read from https://northwind-home.example/ on 2026-10-27.',
+    ]);
+    expect(renderBrandProfile(undefined)).toEqual([]);
   });
 });

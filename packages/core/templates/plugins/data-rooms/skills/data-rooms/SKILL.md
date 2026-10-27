@@ -39,7 +39,7 @@ bundle — the LLM-context export, with the text of every ⭐⭐⭐ source; with
 project's sources) · `create_project` · `update_project` (status, stage,
 anchor, cast, deliverables, domains, and the project's own knowledge: notes,
 rules citing their source, the client voice, milestones, highlights) ·
-`file_to_project` ·
+`file_to_project` (a page of a website by its `url`, kind `page`, too) ·
 `unfile_from_project` (the undo of a filing) · `add_open_item`.
 
 ## Rules first

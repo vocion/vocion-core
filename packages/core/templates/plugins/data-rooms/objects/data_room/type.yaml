@@ -2,6 +2,9 @@
 # 2026-10-27); every label a person or a model reads says Project.
 slug: data_room
 label: Project
+# PRJ-12, not the DR derived from the old slug (migration 0222 moves stored
+# rows; an old DR-12 link still resolves).
+code: PRJ
 description: >-
   The collection around one client or engagement — a deal, a retainer, a
   piece of delivery: everything ingested about it (transcripts, threads, attachments, by weight)
@@ -114,7 +117,8 @@ schema:
           documentId: {type: integer}
           artifactId: {type: integer}
           title: {type: string}
-          kind: {type: string, enum: [transcript, email, attachment, note, decision-log]}
+          kind: {type: string, enum: [transcript, email, attachment, note, decision-log, page]}
+          url: {type: string, description: 'For a page of a website: where it was read.'}
           rating: {type: integer, minimum: 1, maximum: 3}
           channel: {type: string}
           date: {type: string}

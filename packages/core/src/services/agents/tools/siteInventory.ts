@@ -29,9 +29,9 @@ import { bfsCrawl } from '@/libs/tools/browse/crawl';
 import { getBrowseProvider } from '@/libs/tools/browse/registry';
 import { DEFAULT_INVENTORY_CAP, inventoryIssues, readInventory, renderInventory, siteOrigin } from '@/libs/tools/site/inventory';
 import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '@/libs/tools/types';
-import { anchorArtifact } from '@/services/ArtifactService';
-import { getDataRoom, projectHref, updateDataRoom } from '@/services/DataRoomService';
-import { renderMarkdownArtifact } from './renderArtifacts';
+import { toPayload, updateArtifact } from '@/services/ArtifactService';
+import { fileToDataRoom, getDataRoom, projectHref, updateDataRoom } from '@/services/DataRoomService';
+import { authorOf, renderMarkdownArtifact } from './renderArtifacts';
 
 export const SITE_INVENTORY = 'site_inventory';
 
@@ -106,12 +106,28 @@ function siteInventoryTool(ctx: RuntimeContext) {
         return `${origin} listed no pages: no sitemap, nothing in robots.txt, and a crawl from the home page read nothing. Say so; do not list pages from memory.`;
       }
       const md = renderInventory(inv);
-      const title = `Site inventory · ${inv.site} · ${inv.readAt.slice(0, 10)}`;
-      const { artifactId, receipt } = await renderMarkdownArtifact(ctx, title, md, SITE_INVENTORY_FOLDER);
-      if (artifactId === null) {
-        return `The inventory of ${inv.site} was read (${inv.rows.length} pages) but could not be filed: ${receipt}`;
+      const title = `Site inventory · ${inv.site}`;
+      // One inventory per site: a second read is a new version of the same
+      // artifact (its history keeps the last), never a second artifact.
+      const held = room.meta.siteInventory?.site === inv.site ? room.meta.siteInventory.artifactId : null;
+      let artifactId: number | null = null;
+      if (held) {
+        const updated = await updateArtifact({ orgId: ctx.orgId, id: held, contentMarkdown: md, author: authorOf(ctx), changeSummary: `Read again ${inv.readAt.slice(0, 10)}`, runId: ctx.traceId ?? null }).catch(() => null);
+        if (updated) {
+          artifactId = held;
+          ctx.emit({ type: 'artifact', artifact: toPayload(updated.artifact) });
+        }
       }
-      await anchorArtifact({ orgId: ctx.orgId, id: artifactId, record: { type: 'object', id: String(room.id), role: 'site-inventory' } });
+      if (artifactId === null) {
+        const made = await renderMarkdownArtifact(ctx, title, md, SITE_INVENTORY_FOLDER);
+        if (made.artifactId === null) {
+          return `The inventory of ${inv.site} was read (${inv.rows.length} pages) but could not be filed: ${made.receipt}`;
+        }
+        artifactId = made.artifactId;
+      }
+      // Filed as one of the project's sources (it lands on the project, and
+      // the writer can open it by id), and recorded as its inventory.
+      await fileToDataRoom(ctx.orgId, room.id, { artifactId, title, kind: 'note', rating: 2, channel: 'site_inventory', date: inv.readAt.slice(0, 10), note: `${inv.rows.length} pages from the ${inv.from}`, author: authorOf(ctx) });
       await updateDataRoom(ctx.orgId, room.id, {
         siteInventory: {
           artifactId,
@@ -144,7 +160,7 @@ function siteInventoryTool(ctx: RuntimeContext) {
           canonicalElsewhere: issues.canonicalElsewhere.length,
         },
         pages: inv.rows.map(r => ({ url: r.url, status: r.status, title: r.title, h1: r.h1, words: r.wordCount })),
-        next: 'The inventory is filed on the project and linked from its bundle. Build the content inventory in the project notes from these pages (by topic, with URLs), and name what needs fixing in a line or two; the artifact holds the full table.',
+        next: 'The inventory is filed on the project as a source and linked from its bundle. It is the content inventory, blog posts included, whether or not the site\'s repository is connected: build the notes\' content inventory from these pages (by topic, with URLs), and name what needs fixing in a line or two; the artifact holds the full table.',
       });
     },
     {

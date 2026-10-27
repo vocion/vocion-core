@@ -55,6 +55,7 @@ import {
   sourceKey,
   unfileFromDataRoom,
   updateDataRoom,
+  withoutAppSuffix,
 } from '@/services/DataRoomService';
 import { authorOf } from './renderArtifacts';
 
@@ -282,9 +283,28 @@ async function findInRoom(ctx: RuntimeContext, room: DataRoom, query: string): P
   ].join('\n');
 }
 
+/**
+ * The app and plugin ids and names this install ships, for taking an app's
+ * name off a project title (`withoutAppSuffix`). The core app is left out:
+ * its name is the workspace's, not an app a client is worked in.
+ */
+async function appWords(): Promise<string[]> {
+  try {
+    const [{ safeListApps }, { listPluginSlugs }] = await Promise.all([import('@/libs/workspace/apps'), import('@/libs/workspace/plugins')]);
+    return [...safeListApps().filter(a => !a.core).flatMap(a => [a.id, a.name]), ...listPluginSlugs()];
+  } catch {
+    return [];
+  }
+}
+
 export function createProjectTool(ctx: RuntimeContext) {
   return tool(
-    async (args) => {
+    async (raw) => {
+      // A project is the client, worked from every app: "Northwind — SEO" is
+      // opened as "Northwind", and the SEO-ness lives in the SEO app's records.
+      const title = withoutAppSuffix(raw.title, await appWords());
+      const renamed = title !== raw.title.trim();
+      const args = { ...raw, title };
       // One project per engagement. A second one with the same name or the
       // same client domains would split the record and make every later
       // filing a coin toss between the two — refuse, and point at the one
@@ -309,13 +329,13 @@ export function createProjectTool(ctx: RuntimeContext) {
         ...(args.rules ? { rules: coerceJson(args.rules) } : {}),
       });
       ctx.emit({ type: 'record_created', record: { type: 'object', id: String(room.id), label: room.title, href: projectHref(room.id) } });
-      return `Opened project #${room.id} "${room.title}". When you tell the person, link it inline as [${room.title}](${projectHref(room.id)}) — the link is how they open it. Matching domains: ${(room.meta.domains ?? []).join(', ') || 'none yet — add the client\'s email domain so transcripts and threads can be filed to it automatically'}.`;
+      return `Opened project #${room.id} "${room.title}".${renamed ? ` Named after the client, not "${raw.title.trim()}": a project is the client in every app, and the app's own records say what it is doing for them.` : ''} When you tell the person, link it inline as [${room.title}](${projectHref(room.id)}) — the link is how they open it. Matching domains: ${(room.meta.domains ?? []).join(', ') || 'none yet — add the client\'s email domain so transcripts and threads can be filed to it automatically'}.`;
     },
     {
       name: 'create_project',
       description: 'Open a project for a NEW client, engagement or deal — the collection of everything ingested and everything written about it. Name the anchor (the CRM deal, the tracker project) when there is one, give the client\'s email domain(s) and any codename or aliases so material is matched to the project on its own, and seed its instructions (rules) and wiki (notes) if the person stated any. Do not open a project for an entity that already has one — list_projects first. (Formerly create_data_room.)',
       schema: z.object({
-        title: z.string().min(1).max(200).describe('e.g. "Northwind — Hiring agents"'),
+        title: z.string().min(1).max(200).describe('The client\'s name ("Northwind Home Services"), or the engagement for a deal ("Northwind — Hiring agents"). Never an app\'s name: a project is worked from every app.'),
         client: z.string().max(120).optional().describe('The client\'s name as used in prose.'),
         codename: z.string().max(60).optional().describe('For an NDA\'d deal — used in filenames instead of the name.'),
         domains: z.array(z.string()).max(10).optional().describe('Email domains that identify the client\'s people, e.g. ["northwind.example"].'),
@@ -365,7 +385,7 @@ export function updateProjectTool(ctx: RuntimeContext) {
         return found.error;
       }
       const room = await updateDataRoom(ctx.orgId, found.id, {
-        ...(args.title ? { title: args.title } : {}),
+        ...(args.title ? { title: withoutAppSuffix(args.title, await appWords()) } : {}),
         ...(args.status !== undefined ? { status: args.status } : {}),
         ...(args.stage !== undefined ? { stage: args.stage } : {}),
         ...(args.client !== undefined ? { client: args.client } : {}),
@@ -438,8 +458,21 @@ export function fileToProjectTool(ctx: RuntimeContext) {
       if (args.document_id && !doc) {
         return `No knowledge document #${args.document_id} in this workspace.`;
       }
-      const title = args.title ?? doc?.title ?? 'Untitled source';
-      const channel = args.channel ?? (doc ? doc.sourceSlug : undefined);
+      // A page of a website: read now (or as given in `text`), kept as a
+      // markdown artifact with its URL, so the writer can open it later.
+      let page: { title: string; text: string } | null = null;
+      if (args.url && !args.document_id && !args.artifact_id) {
+        if (!args.project_id && !roomInView(ctx)) {
+          return 'Pass project_id to file a page: a page is filed to the project it is about.';
+        }
+        const read = args.text?.trim() ? { title: args.title ?? args.url, text: args.text } : await readPage(ctx, args.url);
+        if (typeof read === 'string') {
+          return read;
+        }
+        page = read;
+      }
+      const title = args.title ?? page?.title ?? doc?.title ?? 'Untitled source';
+      const channel = args.channel ?? (doc ? doc.sourceSlug : page ? 'web' : undefined);
       const date = args.date ?? (typeof doc?.metadata.start === 'string' ? doc.metadata.start.slice(0, 10) : undefined);
 
       let roomId = args.project_id ?? roomInView(ctx);
@@ -461,7 +494,9 @@ export function fileToProjectTool(ctx: RuntimeContext) {
       // Pasted material with no document behind it is kept as a note
       // artifact on the project, so the source is a thing a person can open.
       let artifactId = args.artifact_id;
-      if (!args.document_id && !artifactId && args.text?.trim()) {
+      if (page && args.url) {
+        artifactId = await keepPage(ctx, roomId, args.url, title, page.text);
+      } else if (!args.document_id && !artifactId && args.text?.trim()) {
         const { artifact } = await createArtifact({
           orgId: ctx.orgId,
           kind: 'markdown',
@@ -482,6 +517,7 @@ export function fileToProjectTool(ctx: RuntimeContext) {
         channel,
         date,
         note: args.note,
+        ...(page && args.url ? { url: args.url } : {}),
         decisionLog: args.decision_log,
         author,
       });
@@ -509,13 +545,14 @@ export function fileToProjectTool(ctx: RuntimeContext) {
     },
     {
       name: 'file_to_project',
-      description: 'File a transcript, email thread, note, attachment or guideline document into a project with provenance (channel, date), a weight (⭐1–3; 3 = read before writing anything — brand and guideline documents go in at 3) and, for a call, its DECISION LOG plus the OPEN ITEMS it created (pass them in open_items — they are filed in this call; nothing is filed from the log text alone). Omit `project_id` to match the material to a project by attendee domains and title: a clear match files, a plausible one asks a person, no match asks whether it is a new opportunity. Never opens a project on its own. (Formerly file_to_data_room.)',
+      description: 'File a transcript, email thread, note, attachment, guideline document or a page of the client\'s website (`url`, kind page) into a project with provenance (channel, date), a weight (⭐1–3; 3 = read before writing anything — brand and guideline documents go in at 3) and, for a call, its DECISION LOG plus the OPEN ITEMS it created (pass them in open_items — they are filed in this call; nothing is filed from the log text alone). Omit `project_id` to match the material to a project by attendee domains and title: a clear match files, a plausible one asks a person, no match asks whether it is a new opportunity. Never opens a project on its own. (Formerly file_to_data_room.)',
       schema: z.object({
         project_id: z.number().int().positive().optional().describe('The project. Omit to match automatically.'),
         document_id: z.number().int().positive().optional().describe('The ingested knowledge document (a Zoom recording, a Gmail thread) — from search_knowledge or get_zoom_transcript.'),
         artifact_id: z.number().int().positive().optional().describe('An artifact already in the store (an uploaded PDF or document, a pasted note). It is kept on the project, and at ⭐⭐⭐ its text is printed in read_project.'),
         title: z.string().max(200).optional().describe('Defaults to the document title.'),
-        kind: z.enum(['transcript', 'email', 'attachment', 'note']),
+        kind: z.enum(['transcript', 'email', 'attachment', 'note', 'page']).describe('`page` for a page of a website, with `url`.'),
+        url: z.string().url().max(1000).optional().describe('A page of a website to file (kind page): read now and kept with its URL and the date it was read. Filing the same URL again keeps one source and reads it afresh as a new version.'),
         rating: z.union([z.literal(1), z.literal(2), z.literal(3)]).describe('1–3 stars.'),
         channel: z.string().max(40).optional().describe('zoom, gmail, drive, granola, pasted…'),
         date: z.string().max(20).optional().describe('YYYY-MM-DD of the call or message.'),
@@ -532,6 +569,54 @@ export function fileToProjectTool(ctx: RuntimeContext) {
       }),
     },
   );
+}
+
+/**
+ * A page of a website, read now through the browse provider. A string when
+ * it could not be read, said so the agent can pass it on.
+ * @param ctx - The turn.
+ * @param url - The page.
+ */
+async function readPage(ctx: RuntimeContext, url: string): Promise<{ title: string; text: string } | string> {
+  try {
+    const { getBrowseProvider } = await import('@/libs/tools/browse/registry');
+    const got = await getBrowseProvider().fetchPage(url, { orgId: ctx.orgId });
+    return got?.content.trim() ? { title: got.title || url, text: got.content } : `Not filed: ${url} has no readable text.`;
+  } catch (err) {
+    return `Not filed: ${url} could not be read (${(err as Error).message ?? 'unknown error'}). Say so; do not file it from memory.`;
+  }
+}
+
+/**
+ * Keep a page's text as a markdown artifact on the project: the one already
+ * kept for this URL as a new version, else a new one.
+ * @param ctx - The turn.
+ * @param roomId - The project.
+ * @param url - The page.
+ * @param title - Its title.
+ * @param text - What it says.
+ * @returns The artifact id.
+ */
+async function keepPage(ctx: RuntimeContext, roomId: number, url: string, title: string, text: string): Promise<number> {
+  const md = `Read from ${url} on ${new Date().toISOString().slice(0, 10)}.\n\n${text.trim()}`;
+  const held = (await getDataRoom(ctx.orgId, roomId))?.meta.sources?.find(s => s.url === url && s.artifactId);
+  if (held?.artifactId) {
+    const { updateArtifact } = await import('@/services/ArtifactService');
+    const updated = await updateArtifact({ orgId: ctx.orgId, id: held.artifactId, contentMarkdown: md, author: authorOf(ctx), changeSummary: 'Read again' }).catch(() => null);
+    if (updated) {
+      return held.artifactId;
+    }
+  }
+  const { artifact } = await createArtifact({
+    orgId: ctx.orgId,
+    kind: 'markdown',
+    title,
+    spec: { title, md, sourceUrl: url },
+    record: { type: 'object', id: String(roomId), role: `source:${url}` },
+    author: authorOf(ctx),
+    changeSummary: 'Read from the site',
+  });
+  return artifact.id;
 }
 
 export function addOpenItemTool(ctx: RuntimeContext) {
