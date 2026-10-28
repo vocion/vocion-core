@@ -688,6 +688,99 @@ export async function recordFastLanePreference(opts: {
 }
 
 /* ------------------------------------------------------------------ */
+/* A rule added by hand — the fast lane's workspace twin               */
+/* ------------------------------------------------------------------ */
+
+export type ManualLearningResult
+  = | { ok: true; candidate: LearningCandidate; ruleKey: string }
+    | { ok: false; error: 'empty_text' | 'unknown_step' }
+    | { ok: false; error: 'near_duplicate'; existing: { existingKey: string; existingRule: string; similarity: number } };
+
+/**
+ * A rule a person adds directly, without waiting for feedback to propose it.
+ *
+ * The person IS the decision, so the rule goes live at once in the workspace
+ * step they named, and an approved candidate is recorded beside it: the
+ * decided list shows what shipped, and `unadoptCandidate` takes it back like
+ * any adopted rule. The same shape as `recordFastLanePreference`, at workspace
+ * scope instead of the speaker's own.
+ *
+ * The rule and the candidate land together or not at all. The dedup guard runs
+ * inside `addRule` before anything is written; if the candidate then cannot be
+ * recorded, the rule is removed again before the error goes back up, so no rule
+ * ever lives without the candidate that lets a person retire it.
+ * @param opts - The rule and who added it.
+ * @param opts.orgId - The workspace.
+ * @param opts.step - The learning step (namespace name) the rule joins.
+ * @param opts.ruleText - The rule, as the agent will read it.
+ * @param opts.decidedBy - The person who added it, as the record names them.
+ * @param opts.polarity - `correct` (change this, the default) or `reinforce`.
+ * @param opts.memoryType - `preference`, `knowledge` or `procedure`; null when not said.
+ */
+export async function addManualLearning(opts: {
+  orgId: string;
+  step: string;
+  ruleText: string;
+  decidedBy: string;
+  polarity?: 'correct' | 'reinforce';
+  memoryType?: 'preference' | 'knowledge' | 'procedure' | null;
+}): Promise<ManualLearningResult> {
+  const ruleText = opts.ruleText.trim();
+  if (!ruleText) {
+    return { ok: false, error: 'empty_text' };
+  }
+  const polarity = opts.polarity ?? 'correct';
+
+  let added;
+  try {
+    added = await addRule({
+      orgId: opts.orgId,
+      stepName: opts.step,
+      ruleText,
+      source: 'manual',
+      createdBy: opts.decidedBy,
+      polarity,
+      type: opts.memoryType ?? undefined,
+    });
+  } catch (error) {
+    // addRule throws only for an unknown namespace; anything else is a real fault.
+    if (error instanceof Error && error.message.startsWith('unknown memory namespace')) {
+      return { ok: false, error: 'unknown_step' };
+    }
+    throw error;
+  }
+  if (!added.ok) {
+    const { existingKey, existingRule, similarity } = added.existing;
+    return { ok: false, error: 'near_duplicate', existing: { existingKey, existingRule, similarity } };
+  }
+
+  let inserted: LearningCandidate[];
+  try {
+    inserted = await db
+      .insert(learningCandidateSchema)
+      .values({
+        orgId: opts.orgId,
+        stepName: opts.step,
+        ruleText,
+        polarity,
+        memoryType: opts.memoryType ?? null,
+        status: 'approved',
+        decidedBy: opts.decidedBy,
+        decidedAt: new Date(),
+        createdMemoryKey: added.rule.key,
+      })
+      .returning();
+  } catch (error) {
+    const { removeRule } = await import('@/services/MemoryService');
+    await removeRule({ orgId: opts.orgId, key: added.rule.key });
+    throw error;
+  }
+  const candidate = inserted[0]!;
+  await trackCandidateDecision(opts.orgId, candidate.id, opts.decidedBy, 'approved', null);
+  return { ok: true, candidate, ruleKey: added.rule.key };
+}
+
+/* ------------------------------------------------------------------ */
 /* Decided cards with their eval evidence                              */
 /* ------------------------------------------------------------------ */
 

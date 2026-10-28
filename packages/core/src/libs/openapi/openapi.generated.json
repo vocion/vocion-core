@@ -2751,7 +2751,7 @@
     "/api/v1/learning-candidates": {
       "get": {
         "operationId": "get_learning_candidates",
-        "summary": "Rules the system has proposed but not adopted.",
+        "summary": "Rules the system has proposed, adopted or turned down (POST, below, adds one by hand).",
         "tags": [
           "learning-candidates"
         ],
@@ -2792,7 +2792,7 @@
             }
           }
         },
-        "description": "Rules the system has proposed but not adopted. Filter with `status`\n(`pending` | `approved` | `rejected`) and `stepName`; page with `limit` and\n`offset`. Newest first, with the real total for the filters.\nAuth: tenant API token or dashboard session.\n\nQuery parameters:\n- `status` — `pending`, `approved` or `rejected`.\n- `stepName` — only the candidates proposed for one learning step.",
+        "description": "Rules the system has proposed, adopted or turned down (POST, below, adds one\nby hand). Filter with `status`\n(`pending` | `approved` | `rejected`) and `stepName`; page with `limit` and\n`offset`. Newest first, with the real total for the filters.\nAuth: tenant API token or dashboard session.\n\nQuery parameters:\n- `status` — `pending`, `approved` or `rejected`.\n- `stepName` — only the candidates proposed for one learning step.",
         "parameters": [
           {
             "name": "status",
@@ -2830,6 +2830,97 @@
               "type": "integer"
             }
           }
+        ]
+      },
+      "post": {
+        "operationId": "post_learning_candidates",
+        "summary": "Add a rule by hand, without waiting for feedback to propose it.",
+        "tags": [
+          "learning-candidates"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record is in a state that does not allow this. Codes: `CONFLICT`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Add a rule by hand, without waiting for feedback to propose it. The rule\ngoes live in the named step at once and an approved candidate is recorded\nwith it (`addManualLearning`), so it lists with the adopted rules and can be\ntaken back with `POST /api/v1/learning-candidates/:id/unadopt`.\n\nBody: `{ step, ruleText, decidedBy?, polarity?, memoryType? }`. `ruleText`\nis 1–600 characters. `decidedBy` names the person a tenant token acts for, as\n`<app>:<id>`; only a token may set it. Answers 201 with the candidate and the\nrule's key; 409 with `details.existing` when it restates a rule already on\nfile (the same shape `…/decide` uses); 400 with `details.step` for a step the\nworkspace does not have. Requires the `approve` capability.\nAuth: tenant API token or dashboard session.\n\n**Requires the `approve` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "memoryType": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "polarity": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "step": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "x-required-capability": [
+          "approve"
         ]
       }
     },
@@ -3107,6 +3198,110 @@
                     "description": "Read by this endpoint; see the description for what it must contain."
                   }
                 },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "x-required-capability": [
+          "approve"
+        ]
+      }
+    },
+    "/api/v1/learning-candidates/{id}/unadopt": {
+      "post": {
+        "operationId": "post_learning_candidates_id_unadopt",
+        "summary": "Take an adopted rule back.",
+        "tags": [
+          "learning-candidates"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record is in a state that does not allow this. Codes: `CONFLICT`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Take an adopted rule back. The rule leaves the store, so the agent stops\nreading it on its next turn, and the candidate goes to `rejected` with the\nreason, so the evidence stays and the same wording is not re-adopted the\nnext time someone says it. An approved merge or retirement is put back the\nsame way: the rules it retired return as they were (`unadoptCandidate`).\n\nBody: `{ reason?, undoneBy? }`. `reason` (≤500 characters) is stored as the\nrejection reason. `undoneBy` names the person a tenant token acts for, as\n`<app>:<id>` (an id, never an email) — an app with its own admin screen\nrecords its user, not the token. Only a token may set it; a dashboard\nsession is recorded as itself.\n\nA rule already gone (removed by hand, consolidated away) is not an error:\nthe candidate still flips. 404 when the candidate does not exist, 409 when it\nis not adopted. Requires the `approve` capability.\nAuth: tenant API token or dashboard session.\n\n**Requires the `approve` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "A JSON object. This endpoint reads its fields dynamically, so they are described in the prose above.",
+                "properties": {},
                 "additionalProperties": true
               }
             }
