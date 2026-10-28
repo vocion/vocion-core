@@ -32,11 +32,27 @@ export function parsePullUrl(url: string): { owner: string; repo: string; number
   return m ? { owner: m[1]!, repo: m[2]!, number: Number(m[3]) } : null;
 }
 
+/**
+ * Whether a source row is a GitHub connection. The connect form names a
+ * source after its API host (`github-api-github-com`, one per GitHub
+ * Enterprise host too) and records the connector as `_connector`; older
+ * rows are named plain `github`. Matching the name alone missed every
+ * connection made through the form, so publishing and pull-request reads
+ * said the workspace had no GitHub connection while it had one.
+ * @param row - The row's slug and config.
+ * @param row.slug - `knowledge_source.slug`.
+ * @param row.config - `knowledge_source.config_json`.
+ */
+export function isGithubSource(row: { slug?: string | null; config?: unknown }): boolean {
+  const connector = (row.config as { _connector?: unknown } | null | undefined)?._connector;
+  return connector === 'github' || row.slug === 'github';
+}
+
 export async function tokenForRepo(orgId: string, fullName: string): Promise<string | null> {
-  const rows = await db
-    .select({ config: knowledgeSourceSchema.configJson, apiTokenId: knowledgeSourceSchema.apiTokenId })
+  const rows = (await db
+    .select({ slug: knowledgeSourceSchema.slug, config: knowledgeSourceSchema.configJson, apiTokenId: knowledgeSourceSchema.apiTokenId })
     .from(knowledgeSourceSchema)
-    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, 'github'), eq(knowledgeSourceSchema.enabled, 'true')));
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.enabled, 'true')))).filter(isGithubSource);
   const wanted = fullName.toLowerCase();
   const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
   for (const row of rows) {
@@ -61,10 +77,10 @@ export async function tokenForRepo(orgId: string, fullName: string): Promise<str
  * @param fullName - `owner/name`.
  */
 export async function sourceConfigForRepo(orgId: string, fullName: string): Promise<{ deployBranch: string | null; branchPrefix: string | null } | null> {
-  const rows = await db
-    .select({ config: knowledgeSourceSchema.configJson })
+  const rows = (await db
+    .select({ slug: knowledgeSourceSchema.slug, config: knowledgeSourceSchema.configJson })
     .from(knowledgeSourceSchema)
-    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, 'github'), eq(knowledgeSourceSchema.enabled, 'true')));
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.enabled, 'true')))).filter(isGithubSource);
   const wanted = fullName.toLowerCase();
   for (const row of rows) {
     const config = (row.config ?? {}) as { repos?: unknown; deployBranch?: unknown; branchPrefix?: unknown };
