@@ -7,7 +7,7 @@
 import type { InputSchema } from './jsonSchema';
 import { toJsonSchema } from '@langchain/core/utils/json_schema';
 import { describe, expect, it } from 'vitest';
-import { inputPropertyNames, inputSchemaProblems, zodFromInputSchema } from './jsonSchema';
+import { inputPropertyNames, inputSchemaProblems, normalizeInput, zodFromInputSchema } from './jsonSchema';
 
 const GOOD: InputSchema = {
   type: 'object',
@@ -89,5 +89,67 @@ describe('zodFromInputSchema', () => {
 
   it('lists the declared property names in order', () => {
     expect(inputPropertyNames(GOOD)).toEqual(['status', 'search', 'limit', 'ratio', 'archived', 'tags', 'dueDate', 'at', 'email', 'link']);
+  });
+});
+
+describe('list constraints — pattern, normalize, maxItems, uniqueItems', () => {
+  const KEYS: InputSchema = {
+    type: 'object',
+    properties: {
+      keys: { type: 'array', maxItems: 3, uniqueItems: true, items: { type: 'string', normalize: ['trim', 'uppercase'], pattern: '^[A-Z][A-Z0-9_]+-[1-9]\\d*$' } },
+      code: { type: 'string', normalize: ['trim', 'lowercase'] },
+    },
+  };
+
+  it('are accepted where they belong and named where they do not', () => {
+    expect(inputSchemaProblems(KEYS)).toEqual([]);
+    expect(inputSchemaProblems({
+      type: 'object',
+      properties: {
+        a: { type: 'array', pattern: 'x', items: { type: 'string' } },
+        b: { type: 'array', maxItems: 0, uniqueItems: 'yes', items: { type: 'string' } },
+        c: { type: 'string', maxItems: 2 },
+        d: { type: 'integer', pattern: 'x', normalize: ['trim'] },
+        e: { type: 'string', pattern: '(' },
+        f: { type: 'string', normalize: ['shout'] },
+      },
+    })).toEqual([
+      'input.a: enum, format, pattern and normalize go on the array\'s items, not on the array',
+      'input.b: maxItems must be a whole number of at least 1',
+      'input.b: uniqueItems must be true or false',
+      'input.c: maxItems and uniqueItems go on an array property',
+      'input.d: pattern is only supported on a string property',
+      'input.d: normalize is only supported on a string property',
+      expect.stringMatching(/^input\.e: pattern is not a valid regular expression/),
+      'input.f: normalize must be a list of trim, uppercase, lowercase',
+    ]);
+  });
+
+  it('normalize trims, cases and dedupes before anything is checked, leaving what it does not own alone', () => {
+    expect(normalizeInput(KEYS, { keys: [' acme-1', 'ACME-1 ', 'acme-22'], code: '  AbC ', other: ' x ' })).toEqual({ keys: ['ACME-1', 'ACME-22'], code: 'abc', other: ' x ' });
+    expect(normalizeInput(KEYS, { keys: [] })).toEqual({ keys: [] });
+    expect(normalizeInput(KEYS, { keys: 'ACME-1' })).toEqual({ keys: 'ACME-1' });
+  });
+
+  it('are enforced when a write is validated, and left out of the schema a model is bound with', () => {
+    const enforced = zodFromInputSchema(KEYS, { enforce: true });
+
+    expect(enforced.safeParse({ keys: ['ACME-1', 'ACME-2', 'ACME-3'] }).success).toBe(true);
+    expect(enforced.safeParse({ keys: [] }).success).toBe(true);
+
+    const tooMany = enforced.safeParse({ keys: ['AB-1', 'BC-1', 'CD-1', 'DE-1'] });
+
+    expect(tooMany.success).toBe(false);
+    expect(tooMany.error!.issues[0]!.message).toBe('at most 3 entries');
+
+    const badKey = enforced.safeParse({ keys: ['ACME-1', 'acme 12'] });
+
+    expect(badKey.success).toBe(false);
+    expect(badKey.error!.issues[0]!.path).toEqual(['keys', 1]);
+    expect(badKey.error!.issues[0]!.message).toBe('"acme 12" does not match ^[A-Z][A-Z0-9_]+-[1-9]\\d*$');
+
+    const bound = zodFromInputSchema(KEYS);
+
+    expect(bound.safeParse({ keys: ['anything', 'goes', 'here', 'too'] }).success).toBe(true);
   });
 });

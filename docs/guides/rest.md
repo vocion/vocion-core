@@ -111,7 +111,8 @@ An action also takes:
 | `body` | none | The JSON body as a template. Keys whose value resolves to nothing are dropped. |
 | `reversible` | `false` | Whether a person could put the write back by hand. `false` badges the card Irreversible. |
 | `review.title` | `<description> — <source name>` | The card's title, templated. |
-| `review.fields[]` | `[]` | `{ label, value }` rows, templated. A row whose value resolves to nothing is left off. |
+| `review.fields[]` | `[]` | `{ label, value }` rows, templated. A row whose value resolves to nothing is left off. A list reads as words (`AB-1, AB-2`), an empty list as `none`. |
+| `verify[]` | `[]` | Reads made through this source's own `tools[]` before a proposal becomes a card — see [Checking a write before it is a card](#checking-a-write-before-it-is-a-card). |
 
 ### Selecting fields
 
@@ -208,6 +209,28 @@ An object whose properties are `string`, `number`, `integer`, `boolean`, or an
 else — a nested object is refused with a message pointing at the `body`
 template, which is where shape belongs. The subset is what converts to every
 model provider's tool schema without a transform.
+
+A list of identifiers needs a little more, so a string (or an array's `items`)
+may also carry `pattern` (a regular expression the whole value must match;
+anchor it yourself) and `normalize` (any of `trim`, `uppercase`, `lowercase`,
+in order), and an array may carry `maxItems` and `uniqueItems`:
+
+```yaml
+epicKeys:
+  type: array
+  maxItems: 10
+  uniqueItems: true # repeats are dropped, first kept: the list is a set
+  items:
+    type: string
+    normalize: [trim, uppercase]
+    pattern: '^[A-Z][A-Z0-9_]+-[1-9][0-9]*$'
+```
+
+On a write, `normalize` and `uniqueItems` are applied first, then `pattern`
+and `maxItems` are checked, and the card and the request both carry the
+normalized list — `[" ab-1", "AB-1"]` is proposed, shown and sent as
+`["AB-1"]`. These keywords are not put on the schema a model is bound with
+(not every provider takes `pattern`); `list_actions` shows them as declared.
 
 ## Connecting it
 
@@ -307,8 +330,9 @@ The why, the evidence and the confidence ride the proposal envelope, as they do
 for every action; `action_input` carries only what the endpoint needs plus the
 one-line `summary`. `input` is checked against the endpoint's declared schema
 before any row is written: a source that does not exist or is not a REST source, an action the
-source does not declare, an argument outside the schema, or a missing path
-parameter is refused with a sentence the model can act on.
+source does not declare, an argument outside the schema, a missing path
+parameter, or a `verify` read that does not answer as declared is refused
+with a sentence the model can act on.
 
 The proposal lands on Needs you as a card built from the endpoint's `review`
 hints — the templated title, the rows that resolved, then Method and Path —
@@ -322,6 +346,40 @@ and capped the same way the reads are.
 `rest.request` is external and has no undo, so by default every run waits for
 a person. It carries no fixed source: the credential is the one connected to
 the source the input names (`Action.sourceSlugFor`).
+
+## Checking a write before it is a card
+
+The schema can say an argument is a list of at most ten ticket keys. It
+cannot say each key is the right KIND of ticket, or that the "currently" a
+card shows is what the record holds. An action may declare reads to make
+first, through tools the same source already declares:
+
+```yaml
+verify:
+  # One read per entry; {item} names it. The array must declare maxItems (≤ 25).
+  - each: epicKeys
+    tool: get_issue
+    input: {projectId: '{projectId}', issueKey: '{item}'}
+    expect: {path: fields.issuetype.name, in: [Epic]} # case-insensitive
+    also: {parent: fields.parent.key} # more words for the refusal
+    refuse: '{item} is a {found}, not an Epic (its parent: {parent}).'
+  # Once, only when epicKeys was sent: the card's "now" must be the record's.
+  - when: epicKeys
+    tool: get_milestone
+    input: {documentId: '{documentId}'}
+    expect: {path: 0.epicKeys, sameItemsAs: previousEpicKeys} # as sets; absent = empty
+    refuse: 'The milestone currently links {found}; pass exactly that as previousEpicKeys.'
+```
+
+`path` walks the read's answer after the tool's own `response.pick`; digits
+index arrays. `{found}` is the value there, in words (`none` when absent).
+Every failing entry is reported in one refusal, so the proposer fixes them in
+one pass, and nothing is queued. A read that fails — the API refuses, the
+credential is missing, an argument the read needs was not sent — refuses
+too, with the API's own words: a check that could not be made is not a check
+that passed. An empty list makes no `each` reads. Apply refuses a check that
+names an unknown tool or argument, leaves one of the tool's required
+arguments unpassed, or fans out over an uncapped list.
 
 ## Granting autonomy per endpoint
 
