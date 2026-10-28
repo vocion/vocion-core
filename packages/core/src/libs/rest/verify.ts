@@ -23,7 +23,8 @@
  * `expect.in` holds when the value at `path` is one of the listed strings
  * (case-insensitive); `expect.sameItemsAs` holds when the list at `path` and
  * the named argument hold the same entries in any order, absent counting as
- * empty. A read that fails refuses too, with the API's own words: a check
+ * empty, compared trimmed and case-insensitively — a record typed by hand
+ * may hold `ab-1 ` where the normalized argument says `AB-1`. A read that fails refuses too, with the API's own words: a check
  * that could not be made is not a check that passed.
  *
  * Every refusal from one proposal is reported together, so the proposer
@@ -160,11 +161,11 @@ export function asWords(value: unknown): string {
 }
 
 /**
- * A list's entries as a comparable set of strings; absent is empty.
+ * A list's entries as a comparable set of strings, trimmed and case-folded; absent is empty.
  * @param value - A list, or nothing.
  */
 function itemSet(value: unknown): Set<string> {
-  return new Set(Array.isArray(value) ? value.map(entry => String(entry)) : []);
+  return new Set(Array.isArray(value) ? value.map(entry => String(entry).trim().toLowerCase()) : []);
 }
 
 /** One read a check makes: the tool's name and its arguments. */

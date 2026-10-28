@@ -123,8 +123,9 @@ describe('runVerify', () => {
     await expect(runVerify([KIND], { keys: ['ACME-1'] }, reader())).resolves.toBe('ACME-1: cannot be checked without "projectId" — pass it in input.');
   });
 
-  it('compares a current list as a set, absent counting as empty', async () => {
+  it('compares a current list as a set, trimmed and case-insensitively, absent counting as empty', async () => {
     await expect(runVerify([CURRENT], { id: 'r1', keys: ['ACME-1'], previousKeys: ['ACME-9'] }, reader())).resolves.toBeUndefined();
+    await expect(runVerify([CURRENT], { id: 'r1', keys: ['ACME-1'], previousKeys: ['ACME-9', 'ACME-3'] }, reader([{ keys: [' acme-3', 'ACME-9'] }]))).resolves.toBeUndefined();
     await expect(runVerify([CURRENT], { id: 'r1', keys: ['ACME-1'], previousKeys: ['ACME-9', 'ACME-3'] }, reader())).resolves.toBe('The record currently links ACME-9; pass exactly that as previousKeys.');
     await expect(runVerify([CURRENT], { id: 'r1', keys: ['ACME-1'] }, reader([{ keys: null }]))).resolves.toBeUndefined();
     await expect(runVerify([CURRENT], { id: 'r1', keys: ['ACME-1'], previousKeys: [] }, reader([{}]))).resolves.toBeUndefined();
