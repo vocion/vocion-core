@@ -1,3 +1,4 @@
+import type { BundleTrack } from './bundleTrack';
 import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedNotification, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
 import type { KnownProcessorNames, SourceUpsertSpec } from '@/libs/sources/upsert';
 import { readFileSync } from 'node:fs';
@@ -6,8 +7,9 @@ import { TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow, validateSourceSpec } from '@/libs/sources/upsert';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, notificationRuleSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, autonomyPolicySchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, notificationRuleSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { AGENT_DEFAULT_SCOPE_SLUG, setCentsLimits } from '@/services/BudgetService';
+import { keepEdits } from './bundleTrack';
 import { deriveRole } from './hierarchy';
 import { boundConnectorSources } from './requiredSources';
 import { effectiveTeamSlug } from './teams';
@@ -27,6 +29,13 @@ export type ApplyOptions = {
    * source mirrors (the files are core's templates, never edited from here).
    */
   additive?: boolean;
+  /**
+   * With `additive`: what the bundle last wrote here, field by field
+   * (`libs/workspace/bundleTrack.ts`). A field a person changed since is kept
+   * as they left it and reported in `track.kept`; an autonomy rung moved in
+   * the app is kept over the bundle's trust rule. Filled in by the apply.
+   */
+  track?: BundleTrack;
 };
 
 export type ResourceCounts = {
@@ -154,6 +163,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   const orgId = opts.orgId ?? loaded.manifest.orgId;
   const dryRun = opts.dryRun ?? false;
   const additive = opts.additive ?? false;
+  const track = additive ? opts.track : undefined;
   // A real apply needs the database and fails loudly without one. A dry-run
   // does not: with no answer it still validates and reports what it would apply.
   const database: ApplyResult['database'] = dryRun ? await probeDatabase() : { reachable: true };
@@ -217,7 +227,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   for (const agent of loaded.agents) {
     try {
       const bound = { ...agent, connectorSources: boundConnectorSources(agent, loaded.sources) };
-      const outcome = await upsertAgent(orgId, bound, defaults, mode, loaded.teams, warnings);
+      const outcome = await upsertAgent(orgId, bound, defaults, mode, loaded.teams, warnings, track);
       bump(counts.agents, outcome);
       if (!dryRun) {
         await reconcileManagedHarness(orgId, agent, errors);
@@ -260,7 +270,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 
   for (const mission of loaded.missions) {
     try {
-      const outcome = await upsertMission(orgId, mission, mode);
+      const outcome = await upsertMission(orgId, mission, mode, track, warnings);
       bump(counts.missions, outcome);
     } catch (err) {
       errors.push({ resource: 'mission', slug: mission.slug, message: (err as Error).message });
@@ -269,7 +279,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 
   for (const automation of loaded.automations) {
     try {
-      const outcome = await upsertAutomation(orgId, automation, mode);
+      const outcome = await upsertAutomation(orgId, automation, mode, track, warnings);
       bump(counts.automations, outcome);
     } catch (err) {
       errors.push({ resource: 'automation', slug: automation.slug, message: (err as Error).message });
@@ -481,7 +491,26 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // Absent file (or empty rules) = no auto-execution anywhere.
   if (!dryRun) {
     try {
-      const rules = loaded.trust?.rules ?? [];
+      let rules = loaded.trust?.rules ?? [];
+      let trust = loaded.trust;
+      // AUTONOMY THAT WAS EARNED OUTLIVES THE BUNDLE. A kind promoted or
+      // demoted in the app since the bundle set it (its policy's `source` is
+      // no longer `trust.yaml`) keeps its rung; the bundle's rule for it is
+      // left out of this apply and reported as kept.
+      if (track && rules.length > 0) {
+        const moved = new Set((await db
+          .select({ actionId: autonomyPolicySchema.actionId })
+          .from(autonomyPolicySchema)
+          .where(and(eq(autonomyPolicySchema.orgId, orgId), inArray(autonomyPolicySchema.actionId, rules.map(r => r.action)), sql`${autonomyPolicySchema.source} <> 'trust.yaml'`))).map(r => r.actionId));
+        if (moved.size > 0) {
+          rules = rules.filter(r => !moved.has(r.action));
+          trust = { ...loaded.trust!, rules, ...(loaded.trust?.risk ? { risk: Object.fromEntries(Object.entries(loaded.trust.risk).filter(([action]) => !moved.has(action))) } : {}) };
+          for (const action of moved) {
+            track.kept.push({ resource: 'trustRule', slug: action, field: 'rung' });
+            warnings.push({ resource: 'trustRule', slug: action, message: 'its autonomy was moved in the app — kept; the bundle\'s rule for it was not applied' });
+          }
+        }
+      }
       // Additive: the bundle's own rules replace only themselves, by action.
       await db.delete(trustRuleSchema).where(additive
         ? and(eq(trustRuleSchema.orgId, orgId), inArray(trustRuleSchema.actionId, rules.length > 0 ? rules.map(r => r.action) : ['']))
@@ -498,7 +527,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
       // action (`rung:` / `risk:` on a rule, or the top-level `risk:` map).
       // In-app promotions of kinds the file does not name are left alone.
       const { syncPoliciesFromManifest } = await import('@/services/autonomy/AutonomyService');
-      for (const problem of await syncPoliciesFromManifest(orgId, loaded.trust)) {
+      for (const problem of await syncPoliciesFromManifest(orgId, trust)) {
         errors.push({ resource: 'trustRule', slug: problem.action, message: problem.message });
       }
     } catch (err) {
@@ -773,6 +802,7 @@ async function upsertAgent(
   mode: ApplyMode,
   teams: LoadedTeam[] = [],
   warnings: ApplyResult['warnings'] = [],
+  track?: BundleTrack,
 ): Promise<UpsertOutcome> {
   const payload = {
     orgId,
@@ -834,6 +864,8 @@ async function upsertAgent(
     .from(agentSchema)
     .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agent.slug)));
 
+  warnKept('agent', agent.slug, keepEdits(track, 'agent', agent.slug, existing, payload), warnings);
+
   if (!existing) {
     if (!mode.dryRun) {
       await db.insert(agentSchema).values(payload);
@@ -865,6 +897,19 @@ async function upsertAgent(
     await db.update(agentSchema).set(payload).where(eq(agentSchema.id, existing.id));
   }
   return 'updated';
+}
+
+/**
+ * Say which fields an app apply left as a person changed them.
+ * @param resource - Which table.
+ * @param slug - Which row.
+ * @param fields - The fields kept.
+ * @param warnings - The apply's running warnings list; pushed into in place.
+ */
+function warnKept(resource: string, slug: string, fields: readonly string[], warnings: ApplyResult['warnings']): void {
+  if (fields.length > 0) {
+    warnings.push({ resource, slug, message: `changed in the app since the app was installed — kept as it is: ${fields.join(', ')}` });
+  }
 }
 
 /** The agent lists a dropped-to-empty apply is worth warning about. */
@@ -1418,7 +1463,7 @@ async function mirrorSources(orgId: string, loaded: LoadedWorkspace, warnings: A
   }
 }
 
-async function upsertMission(orgId: string, mission: LoadedMission, mode: ApplyMode): Promise<UpsertOutcome> {
+async function upsertMission(orgId: string, mission: LoadedMission, mode: ApplyMode, track?: BundleTrack, warnings: ApplyResult['warnings'] = []): Promise<UpsertOutcome> {
   const payload = {
     orgId,
     slug: mission.slug,
@@ -1443,6 +1488,8 @@ async function upsertMission(orgId: string, mission: LoadedMission, mode: ApplyM
     .from(missionSchema)
     .where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.slug, mission.slug)));
 
+  warnKept('mission', mission.slug, keepEdits(track, 'mission', mission.slug, existing, payload), warnings);
+
   if (!existing) {
     if (!mode.dryRun) {
       await db.insert(missionSchema).values(payload);
@@ -1458,7 +1505,7 @@ async function upsertMission(orgId: string, mission: LoadedMission, mode: ApplyM
   return 'updated';
 }
 
-async function upsertAutomation(orgId: string, automation: LoadedAutomation, mode: ApplyMode): Promise<UpsertOutcome> {
+async function upsertAutomation(orgId: string, automation: LoadedAutomation, mode: ApplyMode, track?: BundleTrack, warnings: ApplyResult['warnings'] = []): Promise<UpsertOutcome> {
   const payload = {
     orgId,
     slug: automation.slug,
@@ -1483,6 +1530,14 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, mod
     .select()
     .from(automationSchema)
     .where(and(eq(automationSchema.orgId, orgId), eq(automationSchema.slug, automation.slug)));
+
+  const kept = keepEdits(track, 'automation', automation.slug, existing, payload);
+  warnKept('automation', automation.slug, kept, warnings);
+  // The schedule pass reads the loaded automation: a schedule a person
+  // changed is the one that keeps running.
+  if (kept.includes('whenConfig')) {
+    automation.when = payload.whenConfig as typeof automation.when;
+  }
 
   if (!existing) {
     if (!mode.dryRun) {

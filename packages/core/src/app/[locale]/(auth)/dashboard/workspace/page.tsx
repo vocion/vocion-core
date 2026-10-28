@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { AlertTriangle, CheckCircle2, Database, FileText, Layers, Plug, Scale, Share2 } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { IntegrationLogo } from '@/components/patterns';
@@ -44,7 +44,7 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
   // The applied versions — what the drift banner links to when it says a
   // project is applied from git: which sha, from which folder, by whom, when.
   const versions = await db
-    .select({ id: workspaceVersionSchema.id, sha: workspaceVersionSchema.sha, sourcePath: workspaceVersionSchema.sourcePath, status: workspaceVersionSchema.status, appliedBy: workspaceVersionSchema.appliedBy, appliedAt: workspaceVersionSchema.appliedAt })
+    .select({ id: workspaceVersionSchema.id, sha: workspaceVersionSchema.sha, sourcePath: workspaceVersionSchema.sourcePath, status: workspaceVersionSchema.status, appliedBy: workspaceVersionSchema.appliedBy, appliedAt: workspaceVersionSchema.appliedAt, kept: sql<Array<{ resource: string; slug: string; field: string }> | null>`${workspaceVersionSchema.bundle}->'kept'` })
     .from(workspaceVersionSchema)
     .where(eq(workspaceVersionSchema.orgId, orgId))
     .orderBy(desc(workspaceVersionSchema.appliedAt))
@@ -173,7 +173,15 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
                         <td className="px-4 py-2"><Badge variant="outline">{v.status}</Badge></td>
                         <td className="px-4 py-2 font-mono text-xs">{v.appliedBy ?? '—'}</td>
                         <td className="px-4 py-2 text-muted-foreground"><time dateTime={v.appliedAt.toISOString()}>{v.appliedAt.toLocaleString()}</time></td>
-                        <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{v.sourcePath ?? '—'}</td>
+                        <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
+                          {v.sourcePath ?? '—'}
+                          {/* An app upgrade that left a person's own changes as they were says which. */}
+                          {v.kept && v.kept.length > 0 && (
+                            <span className="ml-2 font-sans" title={v.kept.map(k => `${k.resource} ${k.slug}: ${k.field}`).join('\n')}>
+                              {`kept ${v.kept.length} change${v.kept.length === 1 ? '' : 's'} made in the app`}
+                            </span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

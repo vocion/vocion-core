@@ -38,6 +38,9 @@ export async function register() {
     void import('./services/browser/BrowserRunService').then(m => m.startBrowserRunKeeper()).catch(() => {});
     // Routines: pick up a launched teaching session's finished recording, and queued runs a restart left.
     void import('./services/routines/RoutineService').then(m => m.startRoutineKeeper()).catch(() => {});
+    // AN INSTALLED APP FOLLOWS CORE'S NEW VERSION: apps turned on in a workspace with no folder are
+    // applied again when this image's templates for them changed (`services/plugins/upgradeBundles.ts`).
+    void import('./services/plugins/upgradeBundles').then(m => m.startInstalledAppUpgrades()).catch(() => {});
     // A TURN SURVIVES A RESTART (backlog 056). Told to stop, the process lets
     // the turns it is answering finish first, up to the container's grace
     // period, instead of dying under them. Next's own handler would exit at

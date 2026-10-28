@@ -1694,6 +1694,14 @@ export const workspaceVersionSchema = pgTable(
     errors: jsonb('errors').$type<Array<{ resource: string; slug: string; message: string }>>().default([]),
     /** User ID who triggered the apply (or 'system' for automated) */
     appliedBy: text('applied_by'),
+    /**
+     * An app install or upgrade (`source_path` `app:…`): each plugin's
+     * template hash, what it shipped, what it left in each field it owns and
+     * which fields a person had changed and were kept
+     * (`libs/workspace/bundleTrack.ts`). Null for a folder apply, and for
+     * installs made before it was recorded.
+     */
+    bundle: jsonb('bundle').$type<import('@/libs/workspace/bundleTrack').AppBundleRecord>(),
     appliedAt: timestamp('applied_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [

@@ -1429,6 +1429,13 @@
       "when": 1792300222000,
       "tag": "0222_project_code",
       "breakpoints": true
+    },
+    {
+      "idx": 223,
+      "version": "7",
+      "when": 1792300223000,
+      "tag": "0223_workspace_version_bundle",
+      "breakpoints": true
     }
   ]
 }
