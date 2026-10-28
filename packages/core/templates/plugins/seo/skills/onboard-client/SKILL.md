@@ -8,7 +8,7 @@ description: >-
   Google, services, audience, the content already on the site, and the brand.
   Asks for what it could not find instead of inventing it. Read before opening
   a project for a new client.
-version: 2
+version: 3
 ---
 
 # Onboarding a client from their website
@@ -22,8 +22,10 @@ client already has one (`list_projects`), update it; never open a second.
 `create_project` with the client's name and nothing else in the title
 ("Northwind Home Services", never "Northwind Home Services — SEO"): a project
 is the client, worked from every app, and what SEO is doing for them lives in
-the SEO app's batches and pages. Its domain goes in `domains`, and the anchor
-is of type `client`.
+the SEO app's batches and pages. Spell the name the way the client writes it
+on their own site, and use that one spelling everywhere after: the anchor's
+label (the entity), working files, notes. Its domain goes in `domains`, and
+the anchor is of type `client` with the project's name as its label.
 
 ## 2. Read the whole site
 
@@ -41,6 +43,12 @@ is of type `client`.
   and about pages and case studies at ⭐⭐; a style guide or brand page on the
   site at ⭐⭐⭐; three or four recent posts at ⭐. Then the writer can open
   every page the voice and rules were taken from.
+- The site's author pages (an `/author/` or team page, a byline on recent
+  posts): `update_project` with `authors`, each with name, title, author
+  page and the topics they write on, and one marked `default` (the byline a
+  page gets when no one's topics fit). If the site names no one, say so in
+  what is missing; pages are planned without a byline until a person names
+  one.
 - `brand_lookup` the domain with `project_id`: the colours, fonts and name
   are kept on the project's brand and the logo is fetched onto it, so its
   Brand & guidelines show them. The wiki links there; it does not copy them.
@@ -110,7 +118,8 @@ is still missing; it blocks publishing only, never onboarding.
 
 ## Done when
 
-The project is named after the client and has the site inventory and the
+The project is named after the client and has the site inventory, its
+authors when the site names them, and the
 pages read as sources, the brand read off the site, a sourced voice block,
 rules citing the guides and pages they came from, competitors read from
 Google, notes with services, audience and the content inventory, and a list

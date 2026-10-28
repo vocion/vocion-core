@@ -61,6 +61,14 @@ schema:
     slug:
       type: string
       description: The URL slug planned for a new page — kebab-case words, path segments allowed (fairview/water-heater-repair), unique within the client's project. Checked again by seo_save_draft with the meta title and description.
+    author:
+      type: object
+      description: Who signs the page — one of the project's authors, the one it was planned with or else the project's default. Unset while the project names none.
+      properties:
+        name: {type: string}
+        title: {type: string}
+        url: {type: string}
+        from: {type: string, enum: [planned, default]}
     target:
       type: string
       description: Where the page lives or will live — the published URL, else the page it refreshes, else its planned slug.

@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/services/BusinessObjectService', () => ({}));
 vi.mock('./projects', () => ({}));
 
-const { pathKey, planConflicts, targetOf } = await import('./records');
+const { bylineFor, pathKey, planConflicts, targetOf } = await import('./records');
 
 function page(id: number, batchId: number, keyword: string, more: Partial<SeoPageRecord['meta']> = {}): SeoPageRecord {
   return { id, title: keyword, meta: { projectId: 7, batchId, order: id, keyword, status: 'proposed', ...more } };
@@ -64,5 +64,16 @@ describe('where a page lives', () => {
     expect(targetOf({ slug: 'a', existingUrl: 'https://northwind-home.example/b' })).toBe('https://northwind-home.example/b');
     expect(targetOf({ slug: 'a' })).toBe('a');
     expect(targetOf({})).toBeUndefined();
+  });
+});
+
+describe('a page\'s byline comes from the project', () => {
+  const authors = [{ name: 'Dana Reyes', title: 'Head of Engineering', default: true }, { name: 'Sam Okafor' }];
+
+  it('the author the plan named, else the project\'s default; never an invented one', () => {
+    expect(bylineFor(authors, 'sam okafor')).toEqual({ name: 'Sam Okafor', from: 'planned' });
+    expect(bylineFor(authors)).toEqual({ name: 'Dana Reyes', title: 'Head of Engineering', from: 'default' });
+    expect(bylineFor(authors, 'Someone Else')).toEqual({ name: 'Dana Reyes', title: 'Head of Engineering', from: 'default' });
+    expect(bylineFor([], 'Sam Okafor')).toBeNull();
   });
 });

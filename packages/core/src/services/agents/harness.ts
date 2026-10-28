@@ -89,6 +89,9 @@ import { canonicalToolNames, createToolAliasMiddleware, TOOL_ALIASES } from './t
 //
 // Keep the cache small: each blueprint holds a model plus N subagent
 // descriptions, so the working set per org should stay tight.
+/** What an agent handed deferred tools is told, the lead and a teammate alike. */
+const TOOL_SEARCH_NOTE = 'You have more tools than the ones listed: search for one with tool_search_tool_bm25 before saying you cannot do something.';
+
 const BLUEPRINT_CACHE_LIMIT = 16;
 const blueprintCache = new Map<string, AgentBlueprint>();
 
@@ -783,8 +786,13 @@ export async function compileAgentForRequest(
   const subagents: SubAgent[] = blueprint.subagentSpecs.map((spec) => {
     const extra = grantedTools(spec.name);
     const base = blueprint.legworkModel && !spec.model ? domainTools : tools;
+    // A teammate handed the tiered set is told about the search, as the lead
+    // is: a live editor on its own model never searched, and reported it
+    // could not open the draft it was asked to review (2026-10-27).
+    const searches = deferring && base === tools;
     return {
       ...spec,
+      ...(searches ? { systemPrompt: `${spec.systemPrompt ?? ''}\n\n${TOOL_SEARCH_NOTE}` } : {}),
       // A teammate that pins its own model keeps it (`delegationRoster.ts` `pinnedModel`).
       ...(blueprint.legworkModel && !spec.model ? { model: blueprint.legworkModel } : {}),
       // A teammate's own exclusions hold when the lead consults it (`teammateExcludes`).
@@ -803,7 +811,7 @@ export async function compileAgentForRequest(
     // it a SECOND system message once the middleware prepends its own, which
     // the model API rejects ("System messages are only permitted as the first
     // passed message").
-    systemPrompt: deferring ? `${blueprint.systemPrompt ?? ''}\n\nYou have more tools than the ones listed: search for one with tool_search_tool_bm25 before saying you cannot do something.` : blueprint.systemPrompt,
+    systemPrompt: deferring ? `${blueprint.systemPrompt ?? ''}\n\n${TOOL_SEARCH_NOTE}` : blueprint.systemPrompt,
     // Scratch stays ephemeral graph state; /memories/ routes to the LangGraph
     // Store over Postgres, so an agent's file reads there see the org's full
     // approved memory across threads. Writes under /memories/ are refused —

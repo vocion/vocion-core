@@ -1,4 +1,4 @@
-import type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
+import type { AskKind, AskObjectRef, AskOption, AskOutcomes, AskRisk } from '@/models/Schema';
 import type { WorkspaceAddress } from '@/services/ProjectService';
 import { and, asc, desc, eq, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
 import { verbosityHints } from '@/features/dashboard/inbox/askText';
@@ -13,7 +13,7 @@ import { recordAskAlignment } from '@/services/alignment/AlignmentService';
 import { proposeLearningFromDecision } from '@/services/feedback/askFeedbackQueue';
 import { askDecidedPayload } from '@/services/inbox/askDecided';
 
-export type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
+export type { AskKind, AskObjectRef, AskOption, AskOutcomes, AskRisk } from '@/models/Schema';
 // The vocabulary lives beside the row (see `models/Schema.ts`); this is its home for readers.
 export { ASK_KINDS, ASK_RISKS };
 
@@ -257,6 +257,8 @@ export type AskInput = {
   allowOther?: boolean;
   /** Whether several options may be chosen together. */
   multiSelect?: boolean;
+  /** What each answer does, one line each, when the answer resumes work (`AskOutcomes`). */
+  outcomes?: AskOutcomes | null;
 };
 
 /**
@@ -302,8 +304,9 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
       ownerUserId: ask.ownerUserId,
       allowOther: ask.allowOther,
       multiSelect: ask.multiSelect,
+      outcomes: ask.outcomes,
     }).filter(([, v]) => v !== undefined),
-  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'options' | 'objectRefs' | 'decisionCost' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId' | 'conversationId' | 'ownerUserId' | 'allowOther' | 'multiSelect'>> & Pick<Ask, 'kind' | 'title'>;
+  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'options' | 'objectRefs' | 'decisionCost' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId' | 'conversationId' | 'ownerUserId' | 'allowOther' | 'multiSelect' | 'outcomes'>> & Pick<Ask, 'kind' | 'title'>;
 
   const sourceRef = ask.sourceRef?.trim() || null;
   if (sourceRef) {

@@ -1,6 +1,7 @@
 /**
  * The SEO app's tools — present while the `seo` plugin is on.
  *
+ *   seo_read_page        a page whole: its record, findings and feedback, and the text of its SERP brief, brief and draft
  *   seo_plan_batch       a batch and its keyword plan for one project; files the plan's sign-off
  *   seo_next_pages       what the project's gate lets be written now, why the rest wait, and the client's adopted rules
  *   seo_start_writing    queue the released pages for the background run (writing never runs in a chat turn)
@@ -40,6 +41,7 @@ import { fileSeoPlanAsk, fileSeoSignoffAsk, withdrawPageAsks } from '@/services/
 import { describeVoiceFindings, draftVoiceFindings } from '@/services/seo/voiceCheck';
 import { findingsMd, followFrom, normaliseFindings, queueSeoWork, SEO_EDITOR_ROUNDS } from '@/services/seo/work';
 import { recordIdArg, recordIdOf } from './recordIdArg';
+import { seoReadPageTool } from './seoReadPage';
 
 export const SEO_PLUGIN = 'seo';
 
@@ -236,12 +238,13 @@ const pageSchema = z.object({
   secondary_keywords: z.array(z.string().max(200)).max(20).optional(),
   intent: z.string().max(60).optional().describe('informational, commercial, transactional or navigational.'),
   volume: z.number().int().nonnegative().nullable().optional().describe('Monthly search volume when keyword_metrics established it; leave out when it did not.'),
-  page_type: z.enum(SEO_PAGE_TYPES).optional().describe('location (one city or service area), service, blog, landing or other. The project\'s first sample covers one page of each type.'),
+  page_type: z.enum(SEO_PAGE_TYPES).optional().describe('location (one city or service area), service, blog, landing or other. The project\'s sample (3 pages unless the project sets another size) takes one page of each type first, then the next pages in order.'),
   location: z.string().max(120).optional().describe('For a location page: the city or area it is for, e.g. "Fairview".'),
   cluster: z.string().max(120).optional().describe('The keyword cluster the page belongs to (keyword_cluster).'),
   existing_url: z.string().max(500).optional().describe('The live page this one rewrites, when it is a refresh.'),
   slug: z.string().max(200).optional().describe('The URL slug planned for a new page.'),
   refresh: z.boolean().optional().describe('True when this rewrites a page the client already has (give existing_url).'),
+  author: z.string().max(120).optional().describe('Who signs it: one of the project\'s authors (read_project lists them), when one fits better than the project\'s default. Leave out for the default.'),
 });
 
 type PageInput = z.infer<typeof pageSchema>;
@@ -262,7 +265,7 @@ export function seoPlanBatchTool(ctx: RuntimeContext) {
       if (refreshWithoutUrl.length > 0) {
         return `Not planned: ${refreshWithoutUrl.map(p => `"${p.keyword}"`).join(', ')} ${refreshWithoutUrl.length === 1 ? 'is a refresh' : 'are refreshes'} with no existing_url. A refresh names the live page it rewrites.`;
       }
-      const input = pages.map(p => ({ keyword: p.keyword, title: p.title, secondaryKeywords: p.secondary_keywords, intent: p.intent, volume: p.volume, pageType: p.page_type as SeoPageType | undefined, location: p.location, cluster: p.cluster, existingUrl: p.existing_url, slug: p.slug, refresh: p.refresh }));
+      const input = pages.map(p => ({ keyword: p.keyword, title: p.title, secondaryKeywords: p.secondary_keywords, intent: p.intent, volume: p.volume, pageType: p.page_type as SeoPageType | undefined, location: p.location, cluster: p.cluster, existingUrl: p.existing_url, slug: p.slug, refresh: p.refresh, author: p.author }));
       try {
         const plannedBy = await modelThatRan(ctx, runtime);
         const by = ctx.userId ?? `agent:${seat(ctx, plannedBy) ?? 'unknown'}`;
@@ -284,10 +287,12 @@ export function seoPlanBatchTool(ctx: RuntimeContext) {
         const { batch, pages: made } = await planSeoBatch(ctx.orgId, by, { projectId: args.project_id, topic: args.topic, destination: args.destination, pages: input, plannedBy });
         const ask = await fileSeoPlanAsk({ orgId: ctx.orgId, batchId: batch.id, agentSlug: seat(ctx, plannedBy), why: args.why });
         const locations = made.filter(p => p.meta.pageType === 'location').length;
+        const unsigned = made.filter(p => !p.meta.author).length;
         return [
           `Planned batch #${batch.id} "${batch.title}" with ${made.length} pages (${batchHref(batch.id)}).`,
           `Filed the keyword plan's sign-off for a person${ask ? ` (ask #${ask.askId})` : ''}: the map of keyword, page type, location, intent, cluster and target.`,
           'STOP HERE: brief and draft nothing until they approve it — seo_save_brief and seo_save_draft refuse until then, and you are woken when they answer. Do not file another ask for it. SERP research may go on meanwhile (seo_save_research).',
+          unsigned > 0 ? `${unsigned === made.length ? 'No page has' : `${unsigned} ${unsigned === 1 ? 'page has' : 'pages have'}`} a byline: the project names no default author. Read the client's author pages and set them once with update_project authors (one marked default); ask the person only if the site names none. Never ask per batch.` : null,
           locations > 0 ? `${locations} location page${locations === 1 ? '' : 's'}: each is researched on its own city's results (seo_save_research refuses a brief whose query does not name its location) and must carry local substance; the editor's review fails one that is ${Math.round(LOCATION_PAGE_SIMILARITY_LIMIT * 100)}% or more the same as a sibling.` : null,
         ].filter(Boolean).join('\n');
       } catch (err) {
@@ -348,6 +353,8 @@ export function seoNextPagesTool(ctx: RuntimeContext) {
       return JSON.stringify({
         batch: { id: batch.id, title: batch.title, href: batchHref(batch.id), project: seoProjectHref(batch.meta.projectId), plan: batch.meta.plan?.state ?? 'approved' },
         gate: { stage: gate.stage, line: gate.line, released: gate.allowed, written: gate.written, approved: gate.approved, total: gate.total },
+        // Said outright so nobody reads "one of each type" as a sample of one per kind.
+        sample: { size: read.project.sample.length, pages: read.project.sample, rule: 'the project\'s sample size: one page of each page type first, then the next pages in planned order' },
         writeNow: writable,
         waiting: [...reasons.entries()].map(([why, ids]) => ({ why, pages: ids.length, ids: ids.slice(0, 20) })),
         ...(clientRules.length > 0 ? { clientRulesFromSignoffs: clientRules } : {}),
@@ -745,7 +752,8 @@ export function seoRecordFeedbackTool(ctx: RuntimeContext) {
  * @param ctx - The turn.
  */
 export function seoTools(ctx: RuntimeContext) {
-  return [
+  const tools = [
+    seoReadPageTool(ctx),
     seoPlanBatchTool(ctx),
     seoNextPagesTool(ctx),
     seoStartWritingTool(ctx),
@@ -755,4 +763,11 @@ export function seoTools(ctx: RuntimeContext) {
     seoSaveReviewTool(ctx),
     seoRecordFeedbackTool(ctx),
   ];
+  // The SEO seats' own tools are never behind tool search: a teammate on its
+  // own model gets the lead's tiered set, and a live editor run could not find
+  // what it needed to read the draft it was reviewing (2026-10-27).
+  for (const t of tools) {
+    t.metadata = { ...t.metadata, alwaysLoaded: true };
+  }
+  return tools;
 }

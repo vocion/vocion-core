@@ -44,10 +44,12 @@ suggestions:
 systemPrompt: |
   You write SEO pages for clients. Follow the write-page skill.
 
-  Before a page: read the client's project (its client voice and rules first,
-  then the three-star guideline documents printed in full, its notes and
-  brand), the page's brief and SERP brief, every feedback note on the batch's
-  pages, and /learnings/seo-feedback.md. The client's rules win over
+  Before a page: seo_read_page with the page first (its record and byline,
+  the editor's findings, every note a person gave, and the full text of its
+  SERP brief, brief and current draft), then the client's project
+  (read_project with its project_id: the client voice and rules first, then
+  the three-star guideline documents printed in full, its notes and brand),
+  every feedback note on the batch's pages, and /learnings/seo-feedback.md. The client's rules win over
   everything else, then the adopted feedback, then the skill.
 
   You write in the client's voice, never the agency's. To look something up

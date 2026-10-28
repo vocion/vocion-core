@@ -1,4 +1,4 @@
-import type { AskOption } from '@/models/Schema';
+import type { AskOption, AskOutcomes } from '@/models/Schema';
 
 /**
  * Ask option vocabulary, shared by the client sheet and the server-rendered
@@ -32,12 +32,20 @@ export type AnswerListeners = Record<string, string[]>;
  * the answer is recorded, and only an automation subscribed to it acts. So
  * the sentence is read off `listeners`, never assumed. When the page did not
  * look, it says only what is certain.
+ * The asker's own line wins (`ask.outcomes`): an ask whose answer resumes
+ * work says what happens ("The briefs start"), never "nothing runs".
  * @param ask - The asker, for "recorded for …".
  * @param ask.agentSlug
+ * @param ask.outcomes - What each answer does, when the asker said.
  * @param decision - The decision id.
  * @param listeners - What each answer starts, when the page looked.
  */
-export function consequenceOf(ask: { agentSlug: string | null }, decision: string, listeners?: AnswerListeners): string {
+export function consequenceOf(ask: { agentSlug: string | null; outcomes?: AskOutcomes | null }, decision: string, listeners?: AnswerListeners): string {
+  // The asker said what this answer does: an answer that resumes its work.
+  const said = outcomeLine(ask.outcomes, decision);
+  if (said) {
+    return said;
+  }
   const names = listeners?.[decision];
   if (names && names.length > 0) {
     return `Starts ${names.map(n => `“${n}”`).join(' and ')}.`;
@@ -47,15 +55,27 @@ export function consequenceOf(ask: { agentSlug: string | null }, decision: strin
 }
 
 /**
+ * The line an ask carries for one answer, or null: Approve's for `approve`,
+ * Revise's for an answer in a person's words (`other`), Reject's for `reject`.
+ * @param outcomes - The ask's lines.
+ * @param decision - The decision id.
+ */
+export function outcomeLine(outcomes: AskOutcomes | null | undefined, decision: string): string | null {
+  const line = decision === 'approve' ? outcomes?.onApprove : decision === OTHER ? outcomes?.onRevise : decision === 'reject' ? outcomes?.onReject : undefined;
+  return line?.trim() ? line.trim() : null;
+}
+
+/**
  * The rows shown when an ask names no options of its own. When it names
  * options, those ARE the choices and these never replace them. Each
  * description says what that answer does (`consequenceOf`). None of them
  * says "as proposed", because an ask with no options proposes nothing.
  * @param ask - The asker.
  * @param ask.agentSlug
+ * @param ask.outcomes
  * @param listeners - What each answer starts, when the page looked.
  */
-export function fixedRowsFor(ask: { agentSlug: string | null }, listeners?: AnswerListeners): AskOption[] {
+export function fixedRowsFor(ask: { agentSlug: string | null; outcomes?: AskOutcomes | null }, listeners?: AnswerListeners): AskOption[] {
   return [
     { id: 'approve', label: 'Approve', description: `Yes. ${consequenceOf(ask, 'approve', listeners)}` },
     { id: 'reject', label: 'Reject', description: `No. ${consequenceOf(ask, 'reject', listeners)}` },

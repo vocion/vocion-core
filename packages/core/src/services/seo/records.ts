@@ -24,11 +24,13 @@
 
 import type { GatePage, GateState, SeoGateConfig } from './gate';
 import type { SeoModelStamp } from './modelThatRan';
+import type { ProjectAuthor } from '@/services/DataRoomService';
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { artifactSchema, businessObjectSchema, learningCandidateSchema } from '@/models/Schema';
 import { createBusinessObject, deleteBusinessObject, getBusinessObject, getObjectTypeBySlug, listBusinessObjects } from '@/services/BusinessObjectService';
+import { defaultAuthor, sameName } from '@/services/DataRoomService';
 import { batchView, evaluateGate, gateConfigFrom } from './gate';
 import { readSeoProject } from './projects';
 
@@ -105,6 +107,8 @@ export type SeoPageMeta = {
   refresh?: boolean;
   /** Where the page lives or will live: the published URL, else the page it refreshes, else its planned slug. Stamped on every write. */
   target?: string;
+  /** Who signs the page: the project's author it was planned with, else the project's default. Unset while the project names none. */
+  author?: SeoPageAuthor;
   status: SeoPageStatus;
   serpArtifactId?: number;
   briefArtifactId?: number;
@@ -165,6 +169,8 @@ export type SeoBatchMeta = {
   status: 'plan_review' | 'planned' | 'writing' | 'waiting' | 'done';
   /** The conversation its work was started from; progress is said there (`work.ts`). */
   conversationId?: number;
+  /** The state last said there (`seoRunReport`): a run that changed nothing says nothing. */
+  toldState?: string;
   plan?: SeoPlanState;
   gate?: Omit<GateState, 'released' | 'writable' | 'feedbackToFile' | 'waitingOnSignoff' | 'sample'> & { sample: number; tranche: number; updatedAt: string };
   /** Pages by status, for the SEO home. */
@@ -173,6 +179,26 @@ export type SeoBatchMeta = {
 };
 
 export type SeoPageRecord = { id: number; title: string; meta: SeoPageMeta };
+
+/** A page's byline, as the project keeps its authors (`ProjectAuthor`). */
+export type SeoPageAuthor = { name: string; title?: string; url?: string; from: 'planned' | 'default' };
+
+/**
+ * The byline for a planned page: the project author the plan named (by name,
+ * any spelling), else the project's default author, else none. A name the
+ * project does not have is not invented into a byline. Pure.
+ * @param authors - The project's authors.
+ * @param named - The author the plan named for this page, if any.
+ */
+export function bylineFor(authors: readonly ProjectAuthor[] | undefined, named?: string | null): SeoPageAuthor | null {
+  const pick = (a: ProjectAuthor, from: SeoPageAuthor['from']): SeoPageAuthor => ({ name: a.name, ...(a.title ? { title: a.title } : {}), ...(a.url ? { url: a.url } : {}), from });
+  const chosen = named?.trim() ? (authors ?? []).find(a => sameName(a.name, named)) : undefined;
+  if (chosen) {
+    return pick(chosen, 'planned');
+  }
+  const fallback = defaultAuthor(authors);
+  return fallback ? pick(fallback, 'default') : null;
+}
 
 /**
  * Where a page lives or will live, for the pages list.
@@ -431,6 +457,8 @@ export type PlannedPage = {
   existingUrl?: string;
   slug?: string;
   refresh?: boolean;
+  /** The project author who signs it, by name; the project's default when left out. */
+  author?: string;
 };
 
 export type PlanBatchInput = {
@@ -539,10 +567,12 @@ async function refuseConflicts(orgId: string, projectId: number, pages: PlannedP
  * @param project - Its project.
  * @param project.id - The project id.
  * @param project.title - Its name.
+ * @param project.meta
  * @param input - The plan.
  */
-async function createPlanPages(orgId: string, userId: string, batch: { id: number; title: string }, project: { id: number; title: string }, input: PlanBatchInput): Promise<void> {
+async function createPlanPages(orgId: string, userId: string, batch: { id: number; title: string }, project: { id: number; title: string; meta?: Record<string, unknown> }, input: PlanBatchInput): Promise<void> {
   let order = 0;
+  const authors = Array.isArray(project.meta?.authors) ? project.meta.authors as ProjectAuthor[] : [];
   for (const p of input.pages) {
     const keyword = p.keyword.trim();
     if (!keyword) {
@@ -566,6 +596,10 @@ async function createPlanPages(orgId: string, userId: string, batch: { id: numbe
       ...(p.existingUrl?.trim() ? { existingUrl: p.existingUrl.trim() } : {}),
       ...(p.slug?.trim() ? { slug: p.slug.trim() } : {}),
       ...(p.refresh ? { refresh: true } : {}),
+      ...(() => {
+        const author = bylineFor(authors, p.author);
+        return author ? { author } : {};
+      })(),
       ...(input.destination ? { publishTargetId: input.destination } : {}),
       status: 'proposed',
       ...(models ? { models, modelsLine: modelsLine(models) } : {}),

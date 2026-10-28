@@ -6,7 +6,7 @@ description: >-
   what ranks, the outline, what to include from the SERP brief, the local
   substance a location page needs, the client rules that apply, internal
   links, and the meta title and description. Read before briefing any page.
-version: 4
+version: 5
 ---
 
 # Writing a page brief
@@ -18,7 +18,8 @@ signed off its keyword plan; the tool refuses until then.
 
 ## Read first
 
-The client's project (rules first, then notes and three-star guidelines), the
+The page itself (`seo_read_page`: its record, notes and the full SERP
+brief), then the client's project (rules first, then notes and three-star guidelines), the
 page's SERP brief (its synthesis: intent, common subtopics, gaps, each cited
 to page positions; its local pack; the terms the ranking pages share), and
 every feedback note already on this batch. For a refresh (`existingUrl`),

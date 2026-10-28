@@ -411,3 +411,11 @@ describe('the brand read off the client\'s site', () => {
     expect(renderBrandProfile(undefined)).toEqual([]);
   });
 });
+
+describe('the brand a project read off a built site', () => {
+  it('names its fonts without the build hash, even on a profile read before they were taken off', () => {
+    const lines = renderBrandProfile({ source: 'https://northwind-home.example', readAt: '2026-10-27T00:00:00Z', fonts: { heading: 'Barlow-364621179e86efae', primary: 'Inter-b937ba1167470226' } });
+
+    expect(lines).toContain('- **Fonts:** heading Barlow · primary Inter');
+  });
+});

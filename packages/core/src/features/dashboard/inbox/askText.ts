@@ -135,3 +135,29 @@ export function verbosityHints(ask: { title: string; body?: string | null }): st
   }
   return hints;
 }
+
+/**
+ * An ask's long form, split into what the card shows and what waits in
+ * Details. A table at the head of it is the thing being judged (a keyword
+ * plan's map: keyword, type, location, intent, cluster, target), so it is
+ * shown on the card; the reasoning after it stays in Details. A long form
+ * that does not open with a table is all Details, as before. Pure.
+ * @param md - The ask's `contextMd`.
+ */
+export function splitContext(md: string | null | undefined): { shown: string | null; rest: string | null } {
+  const text = (md ?? '').trim();
+  if (!text) {
+    return { shown: null, rest: null };
+  }
+  const lines = text.split('\n');
+  let end = 0;
+  while (end < lines.length && lines[end]!.trim().startsWith('|')) {
+    end += 1;
+  }
+  // A table is a header row and its divider at least.
+  if (end < 2 || !/^\s*(?:\|\s*)?:?-{3,}/.test(lines[1]!)) {
+    return { shown: null, rest: text };
+  }
+  const rest = lines.slice(end).join('\n').trim();
+  return { shown: lines.slice(0, end).join('\n'), rest: rest || null };
+}

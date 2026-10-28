@@ -19,8 +19,13 @@
  *   signoff   a person answered a plan or page sign-off
  */
 
-import type { SeoBatchMeta } from './records';
-import { getSeoBatch, mergeMeta } from './records';
+import type { GateState } from './gate';
+import type { SeoBatchMeta, SeoBatchRecord } from './records';
+import { createHash } from 'node:crypto';
+import { getSeoBatch, mergeMeta, readSeoGate } from './records';
+
+/** Who raises `seo.work_queued`: the fires it starts carry it as `invokedBy`. */
+export const SEO_WORK_INVOKER = 'seo';
 
 /** How many times the editor may send one draft back before a person decides. */
 export const SEO_EDITOR_ROUNDS = 3;
@@ -79,7 +84,7 @@ export function findingsMd(findings: readonly SeoFinding[]): string {
 export async function queueSeoWork(orgId: string, reason: SeoWorkReason, payload: Record<string, unknown>, dedupeKey: string): Promise<boolean> {
   try {
     const { emitEvent, SEO_WORK_QUEUED } = await import('@/services/EventService');
-    await emitEvent({ orgId, type: SEO_WORK_QUEUED, payload: { reason, ...payload }, dedupeKey: `${SEO_WORK_QUEUED}:${dedupeKey}`, invokedBy: 'seo', dispatchMode: 'auto' });
+    await emitEvent({ orgId, type: SEO_WORK_QUEUED, payload: { reason, ...payload }, dedupeKey: `${SEO_WORK_QUEUED}:${dedupeKey}`, invokedBy: SEO_WORK_INVOKER, dispatchMode: 'auto' });
     return true;
   } catch (err) {
     const { logger } = await import('@/libs/Logger');
@@ -120,5 +125,53 @@ export async function tellBatch(orgId: string, batchId: number, text: string, ke
     await tellConversation(orgId, conversationId, text, { key: `seo:${key}`, url: `/dashboard/p/seo-pages?batch=${batchId}` });
   } catch {
     // Progress is a courtesy; the records already say where things stand.
+  }
+}
+
+/**
+ * What a background run says in the conversation a batch was started from,
+ * read off the records, never the run's prose: the batch's gate line and
+ * what waits on whom. Null when nothing changed since the last line said
+ * there — a run that found nothing to write and moved nothing stays silent
+ * (a live run posted "writeNow 0 · waiting 1" again while nothing had moved,
+ * 2026-10-27). Pure.
+ * @param batch - The batch, with the state last said (`meta.toldState`).
+ * @param gate - The batch's view of the project's gate, read after the run.
+ */
+export function seoRunReport(batch: Pick<SeoBatchRecord, 'id' | 'title'> & { meta: Pick<SeoBatchMeta, 'toldState'> }, gate: Pick<GateState, 'line' | 'writable' | 'waitingOnSignoff' | 'feedbackToFile' | 'written' | 'approved' | 'total' | 'stage'>): { text: string; state: string } | null {
+  const state = createHash('sha256').update(JSON.stringify([gate.stage, gate.line, gate.written, gate.approved, gate.total, [...gate.writable].sort(), [...gate.waitingOnSignoff].sort(), [...gate.feedbackToFile].sort()])).digest('hex').slice(0, 16);
+  if (batch.meta.toldState === state) {
+    return null;
+  }
+  const waiting = gate.waitingOnSignoff.length;
+  return {
+    state,
+    text: `${batch.title}: ${gate.line}.${waiting > 0 ? ` ${waiting === 1 ? '1 page is' : `${waiting} pages are`} waiting on your sign-off.` : ''}`,
+  };
+}
+
+/**
+ * After a background SEO run: say where its batch stands in the conversation
+ * it was started from, once per state (`seoRunReport`). Silent when nobody
+ * started it from a conversation or nothing changed. Never throws.
+ * @param orgId - The workspace.
+ * @param batchId - The batch the run was queued for.
+ * @param tell - How the line is said (tests).
+ */
+export async function reportSeoRun(orgId: string, batchId: number, tell: typeof tellBatch = tellBatch): Promise<'said' | 'silent'> {
+  try {
+    const read = await readSeoGate(orgId, batchId);
+    if (!read?.batch.meta.conversationId) {
+      return 'silent';
+    }
+    const report = seoRunReport(read.batch, read.gate);
+    if (!report) {
+      return 'silent';
+    }
+    await tell(orgId, batchId, report.text, `report:${batchId}:${report.state}`);
+    await mergeMeta<SeoBatchMeta>(orgId, batchId, () => ({ toldState: report.state }));
+    return 'said';
+  } catch {
+    return 'silent';
   }
 }

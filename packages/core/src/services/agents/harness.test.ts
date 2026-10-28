@@ -34,7 +34,7 @@ vi.mock('deepagents', () => ({
 
 const { createDeepAgent } = await import('deepagents');
 const { db } = await import('@/libs/DB');
-const { agentSchema, knowledgeSourceSchema, playbookSchema, projectSchema, teamSchema, tenantAccountSchema } = await import('@/models/Schema');
+const { agentSchema, knowledgeSourceSchema, playbookSchema, projectSchema, teamSchema, tenantAccountSchema, toolCallSchema } = await import('@/models/Schema');
 const { buildChatModelForOrg } = await import('@/libs/llm');
 const { buildAgentDefinition, compileAgentForRequest, initiativePromptNote, resetAgentRuntimeCache } = await import('@/services/agents/harness');
 
@@ -325,6 +325,40 @@ describe('teammates run with their own skills, grants and pinned model', () => {
     expect(graph.systemPrompt).toContain('TEAMMATES YOU CANNOT CONSULT');
     expect(graph.systemPrompt).toContain('claude-opus-5-5 could not be started — no Anthropic key for this workspace');
 
+    vi.mocked(buildChatModelForOrg).mockImplementation(async () => ({ stub: 'model' }) as never);
+  });
+
+  it('a teammate on its own model, as the lead delegates, sees the SEO tools in full and is told the rest can be searched', async () => {
+    // The live editor run (2026-10-27): consulted in the background on its own
+    // model, it got the lead's tiered tools, never searched, and said it could
+    // not open the draft it was reviewing.
+    const { ChatAnthropic } = await import('@langchain/anthropic');
+    const { tool } = await import('@langchain/core/tools');
+    const { z } = await import('zod');
+    const { seoTools } = await import('./tools/seo');
+    await seoTeam();
+    await db.insert(agentSchema).values({ orgId: ORG, slug: 'seo-editor', name: 'SEO editor', systemPrompt: 'You check drafts.', teamSlug: 'seo', harnessConfig: { modelProvider: 'anthropic', model: 'claude-sonnet-5-5', excludeTools: ['get_brand'] } });
+    // The lead's history makes the tiers: it has only ever read projects.
+    await db.insert(toolCallSchema).values(Array.from({ length: 5 }, () => ({ orgId: ORG, agentSlug: 'seo-strategist', tool: 'read_project' })));
+    const plain = (name: string) => tool(async () => 'ok', { name, description: `${name} does one thing.`, schema: z.object({ q: z.string().optional() }) });
+    vi.mocked(buildDomainTools).mockImplementation(ctx => [plain('read_project'), plain('read_artifact'), ...seoTools(ctx)] as never);
+    vi.mocked(buildChatModelForOrg).mockImplementation(async (_role, _org, opts) => new ChatAnthropic({ apiKey: 'sk-ant-test', model: (opts as { model?: string } | undefined)?.model ?? 'claude-opus-5-5' }) as never);
+
+    await compile('seo-strategist');
+    const editor = graphOptions(mockCreate.mock.calls.length - 1).subagents.find(s => s.name === 'seo-editor')!;
+    const visible = (name: string) => (editor.tools ?? []).find(t => t.name === name) as { extras?: { defer_loading?: boolean } } | undefined;
+
+    for (const name of ['seo_read_page', 'seo_save_review', 'seo_save_draft']) {
+      expect(visible(name), name).toBeDefined();
+      expect(visible(name)?.extras?.defer_loading, name).toBeUndefined();
+    }
+
+    // What its history never earned waits behind the search, and the teammate is told so.
+    expect(visible('read_artifact')?.extras?.defer_loading).toBe(true);
+    expect(editor.systemPrompt).toContain('tool_search_tool_bm25');
+
+    await db.delete(toolCallSchema);
+    vi.mocked(buildDomainTools).mockImplementation(() => []);
     vi.mocked(buildChatModelForOrg).mockImplementation(async () => ({ stub: 'model' }) as never);
   });
 });

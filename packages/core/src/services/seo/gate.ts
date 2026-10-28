@@ -6,9 +6,10 @@
  * one's sample still waits on a person. Decided here, in code, never by a
  * prompt:
  *
- *   sample   one page of EACH page type in the project's signed-off plans
- *            (a location page, a service page, a blog post…), filled up to
- *            `sample` pages (3 by default) in planned order. Nothing else is
+ *   sample   `sample` pages (3 by default) of the project's signed-off
+ *            plans: one page of each page type first (a location page, a
+ *            service page, a blog post…, in planned order), then the next
+ *            pages in planned order until it holds `sample`. Nothing else is
  *            drafted, in any batch, until a person has signed off on every
  *            one. A page with no type yet counts as its own kind.
  *   tranche  the next `tranche` pages (10 by default) in planned order —
@@ -67,7 +68,7 @@ export type GateState = {
   stage: SeoGateStage;
   /** How many pages (live pages only) the gate releases now. */
   allowed: number;
-  /** The sample's pages: one of each page type, filled up to the project's size. */
+  /** The sample's pages: the project's size, one of each page type first, then in planned order. */
   sample: number[];
   written: number;
   approved: number;
@@ -113,10 +114,14 @@ function plannedOrder(a: GatePage, b: GatePage): number {
 }
 
 /**
- * The sample: the first page of every page type, in planned order, then the
- * next pages until it holds `size`. A project planning only blog posts samples
- * three of them; one planning locations, services and posts samples one of
- * each even when that is more than three.
+ * The sample: the project's sample size, never more and never less while the
+ * plan has that many pages. It covers the kinds first — the first page of
+ * each page type, in planned order, until it is full — then takes the next
+ * pages in planned order up to the size. A project planning only blog posts
+ * samples three of them (a live run released one of three, 2026-10-27: the
+ * sample shrank to the number of kinds); one planning five kinds with a
+ * sample of three samples the first three kinds, and the others are written
+ * in the tranche.
  * @param live - The live pages, in planned order.
  * @param size - The project's sample size.
  */
@@ -124,6 +129,9 @@ export function samplePages(live: readonly GatePage[], size: number): GatePage[]
   const seen = new Set<string>();
   const picked = new Set<number>();
   for (const p of live) {
+    if (picked.size >= size) {
+      break;
+    }
     const kind = p.pageType?.trim() || '(untyped)';
     if (!seen.has(kind)) {
       seen.add(kind);
@@ -291,7 +299,7 @@ export function whyNotWritable(state: GateState, pageId: number): string | null 
   }
   if (!state.released.includes(pageId)) {
     return state.stage === 'sample'
-      ? `it is past the sample: a person has to sign off on the project's sample first (${state.sample.length} ${state.sample.length === 1 ? 'page' : 'pages'}, one of each page type: ${state.sample.map(id => `#${id}`).join(', ')})`
+      ? `it is past the sample: a person has to sign off on the project's sample first (${state.sample.length} ${state.sample.length === 1 ? 'page' : 'pages'}, one of each page type first, then in planned order: ${state.sample.map(id => `#${id}`).join(', ')})`
       : `it is past the ${state.stage}: every released page in the project (${state.allowed}) has to be approved first`;
   }
   if (state.waitingOnSignoff.includes(pageId)) {
