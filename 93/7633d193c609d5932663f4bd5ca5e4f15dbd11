@@ -1,0 +1,40 @@
+packages/core/src/libs/Amplitude.test.ts
+  s_581d6725ee027e::t_dcf990d8e9ea80 2,8,12,15,114-134
+packages/core/src/services/analytics/workspaceName.ts
+  s_581d6725ee027e::t_103ee4c7f654a3 1-27
+packages/core/src/libs/analytics/featureOf.ts
+  s_581d6725ee027e::t_5d61b88c3aab8a 1-21
+packages/core/src/libs/analytics/featureOf.test.ts
+  s_581d6725ee027e::t_48879bf6091c70 1-17
+packages/core/src/libs/Amplitude.ts
+  s_581d6725ee027e::t_834db5971e8343 21-22,31-35,37,39,46,53,83-85,98,121-122,125-126,160-161,164-165,179,181-183,186-192,204-205,209,216,236-237,240-242,248,250-254
+  s_581d6725ee027e::t_7b79792c872762 3-6,178,180,184-185,193-203,206-208,210-215,217-235,238-239,243-247,249
+  s_581d6725ee027e::t_395f9e2d6e15a3 255
+packages/core/src/app/[locale]/(auth)/layout.tsx
+  s_581d6725ee027e::t_39f9f0e69fa04b 12,57-59,63
+packages/core/src/features/analytics/AmplitudeAnalytics.tsx
+  s_581d6725ee027e::t_39f9f0e69fa04b 5-6,10-12,29-34,38,40-42,54-61,76,78-79,81-82
+  s_581d6725ee027e::t_3120f70c5da2ae 13-15,77,80
+  s_581d6725ee027e::t_affbd556d52c42 43-47
+  s_581d6725ee027e::t_37393ce3193603 83
+packages/core/src/app/[locale]/rpc/agent/stream/route.ts
+  s_581d6725ee027e::t_bf1472406aaf9a 21,24,455-456,499-503,815-827
+packages/core/src/services/adoption/track.ts
+  s_581d6725ee027e::t_bf1472406aaf9a 90-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "937633d193c609d5932663f4bd5ca5e4f15dbd11",
+  "prompts": {},
+  "sessions": {
+    "s_581d6725ee027e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "991bfb48-3fb7-43af-a80d-6ff8d6972537",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
