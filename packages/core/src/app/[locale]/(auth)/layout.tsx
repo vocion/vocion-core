@@ -9,6 +9,7 @@ import { brandTitle } from '@/libs/branding/orgBrand';
 import { titlePrefix } from '@/libs/envLabel';
 import { WORKSPACE_HEADER } from '@/libs/links';
 import { amplitudeKeyFor } from '@/services/analytics/amplitudeKey';
+import { workspaceNameOf } from '@/services/analytics/workspaceName';
 import { brandChromeForRequest, brandViewForRequest } from '@/services/branding/OrgBrandService';
 
 /**
@@ -53,11 +54,13 @@ export default async function AuthLayout(props: {
   const [requestHeaders, session, brand, chrome] = await Promise.all([headers(), auth(), brandViewForRequest().catch(() => null), brandChromeForRequest().catch(() => ({ lead: 'vocion' as const, footer: 'vocion-wordmark' as const }))]);
   const slug = requestHeaders.get(WORKSPACE_HEADER.slug)?.trim() || null;
   const workspaceId = session?.user?.projectId ?? null;
-  const amplitudeKey = workspaceId ? await amplitudeKeyFor(workspaceId).catch(() => null) : null;
+  const [amplitudeKey, workspaceName] = workspaceId
+    ? await Promise.all([amplitudeKeyFor(workspaceId).catch(() => null), workspaceNameOf(workspaceId)])
+    : [null, null];
 
   return (
     <AuthProviders session={session} workspaceSlug={slug}>
-      <AmplitudeAnalytics apiKey={amplitudeKey} userId={session?.user?.id || null} workspaceId={workspaceId} />
+      <AmplitudeAnalytics apiKey={amplitudeKey} userId={session?.user?.id || null} workspaceId={workspaceId} workspaceName={workspaceName} />
       <OrgBrandStyle brand={brand} />
       <OrgBrandProvider value={brand}>
         <BrandChromeProvider value={chrome}>{props.children}</BrandChromeProvider>
