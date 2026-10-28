@@ -319,6 +319,18 @@ function pageLink(url: string): string {
   return `[${cell(label, 80)}](${url})`;
 }
 
+function pathOf(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.pathname}${u.search}` || '/';
+  } catch {
+    return url;
+  }
+}
+
+/** A markdown artifact holds at most 60,000 characters (`markdownSpecSchema`); leave room. */
+export const INVENTORY_MD_BUDGET = 58_000;
+
 /** Pages named per issue in the summary; the table has the rest. */
 const NAMED_PER_ISSUE = 8;
 
@@ -388,27 +400,72 @@ function sourceLine(inv: SiteInventory): string {
  * cap when it was hit, what needs fixing, then every page in a table, each
  * row linked. Pure.
  * @param inv - The inventory.
+ * @param budget - The most characters the document may hold; a big site falls back to a compact table, then cuts rows.
  */
-export function renderInventory(inv: SiteInventory): string {
+export function renderInventory(inv: SiteInventory, budget = INVENTORY_MD_BUDGET): string {
   const date = inv.readAt.slice(0, 10);
   const issues = inventoryIssues(inv.rows);
-  const lines = [
+  const head = [
     `# Site inventory · ${inv.site} · ${date}`,
     '',
     `Read ${date} from ${sourceLine(inv)}: ${pages(inv.listed)} listed, ${pages(inv.rows.length)} read.`,
     '',
   ];
   if (inv.cappedAt) {
-    lines.push(`**Capped.** The site lists ${pages(inv.listed)}; the first ${inv.cappedAt} were read. Run site_inventory with max_pages ${inv.listed} to read them all.`, '');
+    head.push(`**Capped.** The site lists ${pages(inv.listed)}; the first ${inv.cappedAt} were read. Run site_inventory with max_pages ${inv.listed} to read them all.`, '');
   }
   const found = issueLines(issues);
-  lines.push('## What needs fixing', '', ...(found.length ? found : ['Nothing missing: every page read has a title, a meta description and one H1; no title or description is used twice; nothing is noindex.']), '');
-  lines.push('## Pages', '', '| # | Page | Status | Title | Meta description | H1 | Canonical | Index | Words | Schema |', '|---|---|---|---|---|---|---|---|---|---|');
-  inv.rows.forEach((r, i) => {
-    const status = r.error && r.status === 200 ? r.error : r.status ? `${r.status}${r.redirectedTo ? ` → ${pageLink(r.redirectedTo)}` : ''}` : cell(r.error ?? 'no answer', 60);
-    const canonical = r.canonical ? (sameUrl(r.canonical, r.redirectedTo ?? r.url) ? 'self' : pageLink(r.canonical)) : '';
-    lines.push(`| ${i + 1} | ${pageLink(r.url)} | ${status} | ${cell(r.title)} | ${cell(r.metaDescription, 160)} | ${cell(r.h1)}${r.h1Count > 1 ? ` (+${r.h1Count - 1})` : ''} | ${canonical} | ${r.status === 200 && !r.error ? (r.noindex ? 'noindex' : 'yes') : ''} | ${r.wordCount ?? ''} | ${cell(r.schemaTypes.join(', '), 80)} |`);
-  });
-  lines.push('');
-  return lines.join('\n');
+  head.push('## What needs fixing', '', ...(found.length ? found : ['Nothing missing: every page read has a title, a meta description and one H1; no title or description is used twice; nothing is noindex.']), '');
+
+  // The full table first; a big site (hundreds of posts) does not fit one
+  // document, so it falls back to a compact table (page, status, title,
+  // words), and only then cuts rows, saying how many and why. The tool's
+  // reply still carries every page read.
+  const full = tableLines(inv.rows, 'full');
+  const fullDoc = [...head, '## Pages', '', ...full, ''].join('\n');
+  if (fullDoc.length <= budget) {
+    return fullDoc;
+  }
+  const compact = tableLines(inv.rows, 'compact');
+  const note = (shown: number) => shown < inv.rows.length
+    ? `Compact table, paths on ${inv.site}: the full columns for ${pages(inv.rows.length)} do not fit one document, and only the first ${shown} rows fit even compact. The problems above cover every page read.`
+    : `Compact table, paths on ${inv.site}: the full columns (meta description, H1, canonical, index, schema) for ${pages(inv.rows.length)} do not fit one document. The problems above cover every page read.`;
+  const base = [...head, '## Pages', '', note(inv.rows.length), ''];
+  const compactDoc = [...base, ...compact, ''].join('\n');
+  if (compactDoc.length <= budget) {
+    return compactDoc;
+  }
+  // Header row + separator, then as many rows as fit.
+  const [h, sep, ...rows] = compact;
+  let used = [...head, '## Pages', '', note(0), '', h!, sep!].join('\n').length + 1;
+  let shown = 0;
+  for (const r of rows) {
+    if (used + r.length + 1 > budget) {
+      break;
+    }
+    used += r.length + 1;
+    shown++;
+  }
+  return [...head, '## Pages', '', note(shown), '', h!, sep!, ...rows.slice(0, shown), ''].join('\n');
+}
+
+function tableLines(rows: readonly InventoryRow[], shape: 'full' | 'compact'): string[] {
+  const status = (r: InventoryRow) => r.error && r.status === 200 ? r.error : r.status ? `${r.status}${r.redirectedTo ? ` → ${pageLink(r.redirectedTo)}` : ''}` : cell(r.error ?? 'no answer', 60);
+  if (shape === 'compact') {
+    // The path alone (the site is in the heading); a link per row doubles a
+    // row's length, and a 300-page site then no longer fits.
+    return [
+      '| # | Path | Status | Title | Words |',
+      '|---|---|---|---|---|',
+      ...rows.map((r, i) => `| ${i + 1} | ${cell(pathOf(r.url), 90)} | ${r.status ?? cell(r.error ?? 'no answer', 40)} | ${cell(r.title, 80)} | ${r.wordCount ?? ''} |`),
+    ];
+  }
+  return [
+    '| # | Page | Status | Title | Meta description | H1 | Canonical | Index | Words | Schema |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+    ...rows.map((r, i) => {
+      const canonical = r.canonical ? (sameUrl(r.canonical, r.redirectedTo ?? r.url) ? 'self' : pageLink(r.canonical)) : '';
+      return `| ${i + 1} | ${pageLink(r.url)} | ${status(r)} | ${cell(r.title)} | ${cell(r.metaDescription, 160)} | ${cell(r.h1)}${r.h1Count > 1 ? ` (+${r.h1Count - 1})` : ''} | ${canonical} | ${r.status === 200 && !r.error ? (r.noindex ? 'noindex' : 'yes') : ''} | ${r.wordCount ?? ''} | ${cell(r.schemaTypes.join(', '), 80)} |`;
+    }),
+  ];
 }
