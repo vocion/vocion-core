@@ -104,6 +104,30 @@ Plugins page, the API or a chat card, sets the whole app up at once
 - **Recorded** as a `workspace_version` row whose `source_path` is
   `app:<plugins>`.
 
+**Upgrades.** An installed app follows core's new version
+(`services/plugins/upgradeBundles.ts`). On boot, the scheduler-of-record
+(`VOCION_SCHEDULE_OWNER=1`) hashes each plugin's templates as the image ships
+them and, for every workspace with no folder, re-applies each app-installed
+plugin that is still on and whose hash differs from the one its last install
+recorded: new granted tools, prompts, skills and object fields reach the
+installed agents, through the same additive apply. An unchanged plugin is a
+no-op; one advisory lock keeps two processes from racing. A person's change is
+kept: every install records, on its version row (`workspace_version.bundle`), a
+hash of what it left in each agent, mission and automation field, so a field
+whose value no longer matches was changed in the app since. That field keeps
+the person's value and is listed as kept on the upgrade's row, on this and every
+later upgrade until they set it back. An autonomy rung moved in the app keeps
+its rung. Lifecycle (`active`, `status`) belongs to the app switch and a
+person's hold to `paused_at`, so neither is compared. An install from before
+these records has nothing to compare against, so its first upgrade takes the
+templates whole. What the new templates no longer ship is disabled the way
+turning the app off disables it, and every row is kept. Each upgrade is a
+`workspace_version` row (`app:<plugins>`, applied by `system:app-upgrade`, its
+sha naming the templates), so the Workspace page shows that the app moved, and
+when. Workspaces applied from a folder are never touched (their deploy
+re-applies the manifest), nor are plugins that are turned off.
+`VOCION_APP_UPGRADE=off` stops the pass.
+
 A workspace applied from a folder (a self-hosted deployment's repo) is never
 set up this way: its manifest is the source of truth, and the next deploy
 would retire whatever an install wrote. The toggle changes that project's
