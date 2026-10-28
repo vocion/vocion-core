@@ -11,7 +11,7 @@ vi.mock('@/libs/DB', () => ({
   db: {
     select: () => ({
       from: () => ({
-        where: async () => [{ apiTokenId: null, config: { repos: ['northwind/orders-api'] } }],
+        where: async () => [{ slug: 'github-api-github-com', apiTokenId: null, config: { _connector: 'github', repos: ['northwind/orders-api'] } }],
       }),
     }),
   },
@@ -44,5 +44,17 @@ describe('readPullHead with an installation credential', () => {
     expect(head).toEqual({ sha: 'abc123', state: 'open', merged: false });
 
     vi.unstubAllGlobals();
+  });
+});
+
+describe('isGithubSource', () => {
+  it('knows a connection by its connector, whatever the form named it', async () => {
+    const { isGithubSource } = await import('./githubPullRead');
+
+    expect(isGithubSource({ slug: 'github-api-github-com', config: { _connector: 'github' } })).toBe(true);
+    expect(isGithubSource({ slug: 'github-git-northwind-example', config: { _connector: 'github' } })).toBe(true);
+    expect(isGithubSource({ slug: 'github', config: { repos: [] } })).toBe(true);
+    expect(isGithubSource({ slug: 'squarespace', config: { _connector: 'squarespace' } })).toBe(false);
+    expect(isGithubSource({ slug: 'gitlab', config: null })).toBe(false);
   });
 });
