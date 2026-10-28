@@ -175,3 +175,31 @@ describe('restConfigOf', () => {
     expect(restConfigOf(null)).toEqual({ healthPath: '/', tools: [], actions: [] });
   });
 });
+
+describe('verify on an action', () => {
+  const withVerify = (verify: unknown[], keys: Record<string, unknown> = { type: 'array', maxItems: 5, items: { type: 'string' } }) => ({
+    ...EXAMPLE_CONFIG,
+    actions: [{
+      name: 'link_keys',
+      method: 'PUT',
+      path: '/api/things/{documentId}',
+      input: { type: 'object', properties: { documentId: { type: 'string' }, keys }, required: ['documentId'] },
+      body: { keys: '{keys}' },
+      verify,
+    }],
+  });
+  const CHECK = { each: 'keys', tool: 'get_project', input: { documentId: '{item}' }, expect: { path: 'kind', in: ['Epic'] }, refuse: '{item} is a {found}.' };
+
+  it('accepts a check over a declared tool and a capped list, and defaults to none', () => {
+    expect(restConfigSchema.parse(withVerify([CHECK])).actions[0]!.verify).toHaveLength(1);
+    expect(restConfigSchema.parse(EXAMPLE_CONFIG).actions[0]!.verify).toEqual([]);
+  });
+
+  it('refuses at apply a check over an undeclared tool or an uncapped list, naming the action', () => {
+    const unknownTool = restConfigSchema.safeParse(withVerify([{ ...CHECK, tool: 'get_nothing' }]));
+    const uncapped = restConfigSchema.safeParse(withVerify([CHECK], { type: 'array', items: { type: 'string' } }));
+
+    expect(unknownTool.error?.issues.map(i => i.message)).toEqual(['link_keys: verify[0]: tool "get_nothing" is not one of this source\'s tools']);
+    expect(uncapped.error?.issues.map(i => i.message)).toEqual(['link_keys: verify[0]: "keys" needs maxItems of at most 25, so one proposal cannot fan out into unbounded reads']);
+  });
+});

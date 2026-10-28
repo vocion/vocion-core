@@ -21,20 +21,28 @@
  *
  * The proposal is checked against tenant state before any row exists
  * (`precheck`): the source must exist and be a REST source, the action must
- * be declared, the input must match the endpoint's schema, and every path
- * parameter must be present. Each refusal is a sentence the model acts on.
+ * be declared, the input must match the endpoint's schema, every path
+ * parameter must be present, and every read the endpoint declares under
+ * `verify` must answer as the write needs (`libs/rest/verify.ts`). Each
+ * refusal is a sentence the model acts on.
+ *
+ * The arguments are normalized by the endpoint's schema (`normalize`,
+ * `uniqueItems`) before they are validated, rendered on the card or sent, so
+ * the card shows exactly the list the request will carry.
  */
 
 import type { Action, ReviewCard } from './types';
 import type { RestAction as RestEndpointAction, RestSourceSpec } from '@/libs/rest/spec';
 import type { TemplateClock } from '@/libs/rest/template';
+import type { VerifyRead } from '@/libs/rest/verify';
 import { z } from 'zod';
 import { buildUrl, capJson, pickPath, restCall, restCredentialsOf } from '@/libs/rest/client';
-import { zodFromInputSchema } from '@/libs/rest/jsonSchema';
+import { normalizeInput, zodFromInputSchema } from '@/libs/rest/jsonSchema';
 import { selectPaths } from '@/libs/rest/select';
 import { restSourceForOrg } from '@/libs/rest/sources';
 import { endpointDescription } from '@/libs/rest/spec';
 import { renderPath, renderQuery, renderString, renderTemplate } from '@/libs/rest/template';
+import { asWords, runVerify } from '@/libs/rest/verify';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
 
 const restRequestInput = z.object({
@@ -119,18 +127,53 @@ function renderRequest(endpoint: RestEndpointAction, args: Record<string, unknow
 }
 
 /**
- * The arguments checked against the endpoint's declared schema, as the
- * validated object or a sentence naming the faults.
+ * The arguments normalized and checked against the endpoint's declared
+ * schema — constraints included — as the validated object or a sentence
+ * naming the faults.
  * @param endpoint - The declared action.
  * @param raw - The arguments as proposed.
  */
 function validateArgs(endpoint: RestEndpointAction, raw: Record<string, unknown>): { ok: true; args: Record<string, unknown> } | { ok: false; message: string } {
-  const parsed = zodFromInputSchema(endpoint.input).safeParse(raw);
+  const parsed = zodFromInputSchema(endpoint.input, { enforce: true }).safeParse(normalizeInput(endpoint.input, raw));
   if (!parsed.success) {
     const faults = parsed.error.issues.map(issue => `${issue.path.join('.') || 'input'}: ${issue.message}`).join('; ');
     return { ok: false, message: `input for ${endpoint.name} does not match its schema — ${faults}. Declared properties: ${Object.keys(endpoint.input.properties ?? {}).join(', ') || 'none'}.` };
   }
   return { ok: true, args: parsed.data };
+}
+
+/**
+ * How `verify` reads: one of the source's declared `tools[]`, called the way
+ * the agent's own read tool calls it, answered after the tool's `pick`.
+ * @param orgId - The workspace.
+ * @param spec - The source.
+ * @param clock - What built-in dates resolve against.
+ */
+function verifyReader(orgId: string, spec: RestSourceSpec, clock: TemplateClock): VerifyRead {
+  let credentials: Promise<ReturnType<typeof restCredentialsOf>> | undefined;
+  return async (toolName, args) => {
+    const endpoint = spec.config.tools.find(t => t.name === toolName);
+    if (!endpoint) {
+      return { ok: false, message: `${spec.slug} declares no tool "${toolName}"` };
+    }
+    credentials ??= import('@/services/SourceCredentialService')
+      .then(({ getCredentialsForSource }) => getCredentialsForSource(orgId, spec.slug))
+      .then(found => restCredentialsOf(found))
+      .catch(() => undefined);
+    const creds = await credentials;
+    if (!creds) {
+      return { ok: false, message: `no connected credential for the "${spec.slug}" source, so nothing could be checked — connect one on the Connectors page` };
+    }
+    const path = renderPath(endpoint.path, args, clock);
+    if (!path.ok) {
+      return { ok: false, message: `needs ${path.missing.join(', ')}` };
+    }
+    const result = await restCall({ credentials: creds, method: endpoint.method, path: path.path, query: renderQuery(endpoint.query, args, clock) });
+    if (!result.ok) {
+      return { ok: false, message: result.message };
+    }
+    return { ok: true, data: pickPath(result.data, endpoint.response.pick) };
+  };
 }
 
 export const restRequestAction: Action<typeof restRequestInput> = {
@@ -156,9 +199,16 @@ export const restRequestAction: Action<typeof restRequestInput> = {
     if (!args.ok) {
       return args.message;
     }
-    const request = renderRequest(resolved.endpoint, args.args, await clockFor(ctx.orgId));
+    const clock = await clockFor(ctx.orgId);
+    const request = renderRequest(resolved.endpoint, args.args, clock);
     if (!request.ok) {
       return request.message;
+    }
+    if (resolved.endpoint.verify.length > 0) {
+      const refusal = await runVerify(resolved.endpoint.verify, args.args, verifyReader(ctx.orgId, resolved.spec, clock), clock);
+      if (refusal) {
+        return `${resolved.endpoint.name} was not proposed: ${refusal}`;
+      }
     }
     return undefined;
   },
@@ -176,7 +226,10 @@ export const restRequestAction: Action<typeof restRequestInput> = {
       return { ...base, fields: [{ label: 'Refused', value: resolved.message }] };
     }
     const { spec, endpoint } = resolved;
-    const args = input.input;
+    // The card shows what would be sent: the normalized arguments when they
+    // validate, the proposal as it came when they do not.
+    const validated = validateArgs(endpoint, input.input);
+    const args = validated.ok ? validated.args : input.input;
     const clock = await clockFor(ctx.orgId);
     const title = endpoint.review?.title ? renderString(endpoint.review.title, args, clock) : undefined;
     // A row whose value resolved to nothing is left off the card.
@@ -184,7 +237,9 @@ export const restRequestAction: Action<typeof restRequestInput> = {
     for (const field of endpoint.review?.fields ?? []) {
       const value = renderString(field.value, args, clock);
       if (value !== undefined && value !== '') {
-        fields.push({ label: field.label, value: typeof value === 'string' ? value : JSON.stringify(value) });
+        // A list reads as words — "BS-72, BS-202", or "none" for an empty
+        // one, which on a write is the clearing of the list, not a blank.
+        fields.push({ label: field.label, value: typeof value === 'string' ? value : Array.isArray(value) ? asWords(value) : JSON.stringify(value) });
       }
     }
     const request = renderRequest(endpoint, args, clock);

@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { EMPTY_INPUT_SCHEMA, inputPropertyNames, inputSchemaProblems } from './jsonSchema';
 import { selectPathProblem } from './select';
 import { builtinPlaceholderProblems, placeholdersIn, placeholdersInTemplate } from './template';
+import { RestVerifySchema, verifyProblems } from './verify';
 
 /** The HTTP methods an endpoint may declare. */
 export const REST_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
@@ -104,6 +105,12 @@ export const RestActionSchema = EndpointSchema.extend({
     title: z.string().min(1).optional(),
     fields: z.array(ReviewFieldSchema).default([]),
   }).strict().optional(),
+  /**
+   * Reads made against this source's own `tools[]` before a proposal becomes
+   * a card, each refusing it with a sentence when the answer is not what the
+   * write needs (`libs/rest/verify.ts`).
+   */
+  verify: z.array(RestVerifySchema).default([]),
 }).strict();
 export type RestAction = z.infer<typeof RestActionSchema>;
 
@@ -186,6 +193,16 @@ export const restConfigSchema = z.object({
     }
     seenActions.add(action.name);
     refineEndpoint(action, ctx, ['actions', i]);
+    if (action.verify.length > 0) {
+      const properties = Object.fromEntries(Object.entries(action.input.properties ?? {}).map(([name, prop]) => [
+        name,
+        prop.type === 'array' ? { array: true, maxItems: prop.maxItems } : { array: false },
+      ]));
+      const tools = Object.fromEntries(config.tools.map(tool => [tool.name, { declared: inputPropertyNames(tool.input), required: tool.input.required ?? [] }]));
+      for (const problem of verifyProblems(action.verify, { properties, tools })) {
+        ctx.addIssue({ code: 'custom', path: ['actions', i, 'verify'], message: `${action.name}: ${problem}` });
+      }
+    }
   });
 });
 
