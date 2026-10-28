@@ -1,6 +1,9 @@
 /**
  * Amplitude Agent Analytics: every paid model call and every tool call an
- * agent makes, as `[Agent]` events.
+ * agent makes, as `[Agent]` events; every action a person takes on the
+ * adoption stream (`chat.message_sent`, `review.decided`, …); and how each
+ * chat turn ended (`chat.turn_completed`). Chat volume is the messages: a
+ * model call counts work, and one turn makes dozens.
  *
  * Fed from the two write paths every runtime already shares: the spend ledger
  * (`services/spend/ledger.ts`, one row per model call) and the tool-call record
@@ -15,7 +18,8 @@
  *
  * Metadata only: model, tokens, cost, latency, tool name and outcome. No
  * prompt, reply or tool payload leaves the instance, because they carry
- * client records.
+ * client records. Every event carries `workspace_id` and `workspace_name` as
+ * plain properties, so any chart breaks down by workspace.
  *
  * Never throws and never waits: events queue and the SDK sends them on its
  * own interval. Telemetry is a record of the work, not part of it.
@@ -24,25 +28,29 @@
 import process from 'node:process';
 import { personIdOf } from '@/services/agents/personId';
 
-type AmplitudeAIClient = import('@amplitude/ai').AmplitudeAI;
+type Client = {
+  ai: import('@amplitude/ai').AmplitudeAI;
+  /** The plain client under it, for product events. */
+  amplitude: ReturnType<typeof import('@amplitude/analytics-node').createInstance>;
+};
 
-const clients = new Map<string, Promise<AmplitudeAIClient | null>>();
+const clients = new Map<string, Promise<Client | null>>();
 
-async function start(apiKey: string): Promise<AmplitudeAIClient | null> {
+async function start(apiKey: string): Promise<Client | null> {
   try {
     // Our own import, not the SDK's `apiKey` path: that one loads analytics-node
     // with a runtime require the standalone trace cannot see, so prod shipped without it.
     const [{ AmplitudeAI, AIConfig }, { createInstance }] = await Promise.all([import('@amplitude/ai'), import('@amplitude/analytics-node')]);
     const amplitude = createInstance();
     void amplitude.init(apiKey).promise.catch((error: unknown) => console.error('[amplitude] agent analytics did not initialise', error));
-    return new AmplitudeAI({ amplitude, config: new AIConfig({ contentMode: 'metadata_only' }) });
+    return { ai: new AmplitudeAI({ amplitude, config: new AIConfig({ contentMode: 'metadata_only' }) }), amplitude };
   } catch (error) {
     console.error('[amplitude] could not start agent analytics; continuing without it', error);
     return null;
   }
 }
 
-async function clientFor(orgId: string): Promise<AmplitudeAIClient | null> {
+async function clientFor(orgId: string): Promise<Client | null> {
   const { amplitudeKeyFor } = await import('@/services/analytics/amplitudeKey');
   const apiKey = await amplitudeKeyFor(orgId);
   if (!apiKey) {
@@ -72,7 +80,9 @@ type Identity = {
   traceId?: string | null;
 };
 
-function identityOf(who: Identity) {
+async function identityOf(who: Identity) {
+  const { workspaceNameOf } = await import('@/services/analytics/workspaceName');
+  const workspaceName = await workspaceNameOf(who.orgId);
   const person = personIdOf(who.userId);
   const sessionId = who.conversationId != null
     ? `conversation:${who.conversationId}`
@@ -85,7 +95,7 @@ function identityOf(who: Identity) {
     // The same group the browser sets, so a workspace's people and agents line up.
     groups: { workspace: who.orgId },
     // Who started it when no person did: `automation:<slug>`, `token:<id>`, or nothing.
-    eventProperties: { actor: person ?? who.userId ?? 'unattended' },
+    eventProperties: { actor: person ?? who.userId ?? 'unattended', workspace_id: who.orgId, workspace_name: workspaceName },
   };
 }
 
@@ -108,12 +118,12 @@ export type AgentModelCall = Identity & {
  */
 export async function trackAgentModelCall(call: AgentModelCall): Promise<void> {
   try {
-    const ai = await clientFor(call.orgId);
-    if (!ai) {
+    const client = await clientFor(call.orgId);
+    if (!client) {
       return;
     }
-    ai.trackAiMessage({
-      ...identityOf(call),
+    client.ai.trackAiMessage({
+      ...(await identityOf(call)),
       content: '',
       model: call.model,
       provider: call.provider ?? 'unknown',
@@ -147,12 +157,12 @@ export type AgentToolCall = Identity & {
  */
 export async function trackAgentToolCall(call: AgentToolCall): Promise<void> {
   try {
-    const ai = await clientFor(call.orgId);
-    if (!ai) {
+    const client = await clientFor(call.orgId);
+    if (!client) {
       return;
     }
-    ai.trackToolCall({
-      ...identityOf(call),
+    client.ai.trackToolCall({
+      ...(await identityOf(call)),
       toolName: call.tool,
       latencyMs: call.durationMs,
       success: call.error === null,
@@ -163,6 +173,84 @@ export async function trackAgentToolCall(call: AgentToolCall): Promise<void> {
   } catch (error) {
     console.error('[amplitude] tool call not tracked', error);
   }
+}
+
+async function trackProduct(orgId: string, userId: string, eventType: string, properties: Record<string, unknown>): Promise<void> {
+  try {
+    const client = await clientFor(orgId);
+    if (!client) {
+      return;
+    }
+    const who = await identityOf({ orgId, userId });
+    client.amplitude.track(eventType, { ...who.eventProperties, ...properties }, {
+      ...('userId' in who ? { user_id: who.userId } : { device_id: who.deviceId }),
+      groups: who.groups,
+    });
+  } catch (error) {
+    console.error(`[amplitude] ${eventType} not tracked`, error);
+  }
+}
+
+/** One event from the adoption stream (`services/adoption/track.ts`). */
+export type ProductEvent = {
+  orgId: string;
+  userId: string;
+  /** The adoption event type, kept as its Amplitude name: `chat.message_sent`, `review.decided`, … */
+  eventType: string;
+  agentSlug: string | null;
+  resourceType: string | null;
+  meta: Record<string, unknown> | null;
+};
+
+/**
+ * A person's action from the adoption stream, under the same name the Adoption
+ * page counts it by, so Vocion's numbers and Amplitude's agree.
+ * @param event - The adoption event.
+ */
+export async function trackProductEvent(event: ProductEvent): Promise<void> {
+  await trackProduct(event.orgId, event.userId, event.eventType, {
+    ...event.meta,
+    agent: event.agentSlug,
+    resource_type: event.resourceType,
+  });
+}
+
+/** How one chat turn a person started ended (`rpc/agent/stream`). */
+export type ChatTurnEnd = {
+  orgId: string;
+  userId: string;
+  conversationId: number | null;
+  agentSlug: string;
+  /** The feature the person sent it from (`libs/analytics/featureOf.ts`): `chat`, `review`, … */
+  feature: string;
+  /** What the person asked for: `auto`, `quick`, `standard`, `deep`. */
+  effortChoice: string;
+  /** The level the turn ran at, when it reported one. */
+  effortLevel: string | null;
+  /** `complete`, `stopped`, `stalled`, `incomplete`, `failed`, `refused`. */
+  ending: string;
+  durationMs: number;
+  toolCalls: number;
+  microCents: number;
+};
+
+/**
+ * `chat.turn_completed`: the answer to one `chat.message_sent`, with how it
+ * ended, how long it took and what it cost.
+ * @param turn - The finished turn.
+ */
+export async function trackChatTurn(turn: ChatTurnEnd): Promise<void> {
+  await trackProduct(turn.orgId, turn.userId, 'chat.turn_completed', {
+    agent: turn.agentSlug,
+    conversation_id: turn.conversationId,
+    feature: turn.feature,
+    effort_choice: turn.effortChoice,
+    effort_level: turn.effortLevel,
+    ending: turn.ending,
+    duration_ms: turn.durationMs,
+    tool_calls: turn.toolCalls,
+    cost_usd: turn.microCents / 100_000_000,
+  });
 }
 
 export function resetAmplitudeForTests(): void {

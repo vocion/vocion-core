@@ -18,8 +18,10 @@ import type { RunCostScope } from '@/services/budget/runCost';
 import type { HistoryTurn } from '@/services/chat/historyTools';
 import type { CollectedDoc } from '@/services/chat/runCollector';
 import type { TurnStatus } from '@/services/chat/turnStatus';
+import { featureOf } from '@/libs/analytics/featureOf';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { clientIp } from '@/libs/http/clientIp';
+import { stripWorkspacePrefix } from '@/libs/links';
 import { firstRefusal, hit, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';
 import { openStream, wasStopped } from '@/libs/streams/buffer';
 import { track } from '@/services/adoption/track';
@@ -450,6 +452,8 @@ export async function POST(request: Request): Promise<Response> {
   commit(true);
 
   const collector = conversationId !== null ? new RunCollector() : null;
+  // What Amplitude's `chat.turn_completed` reports (`libs/Amplitude.ts`).
+  const turnStats = { startedAt: Date.now(), toolCalls: 0, effortLevel: null as string | null };
   const encoder = new TextEncoder();
 
   // Resumable stream: buffer every event of this turn so a client that drops
@@ -492,6 +496,11 @@ export async function POST(request: Request): Promise<Response> {
 
       const writeEvent = (event: AgentEvent) => {
         buffered.append(JSON.stringify(event));
+        if (event.type === 'tool_start') {
+          turnStats.toolCalls += 1;
+        } else if (event.type === 'effort_result' || (event.type === 'run_meta' && event.effort)) {
+          turnStats.effortLevel = event.type === 'effort_result' ? event.level : event.effort!.level;
+        }
         // Tee certain events into the RunCollector for persistence.
         if (collector) {
           if (event.type === 'response_delta') {
@@ -803,6 +812,19 @@ export async function POST(request: Request): Promise<Response> {
             }
           }
         }
+        void import('@/libs/Amplitude').then(m => m.trackChatTurn({
+          orgId,
+          userId,
+          conversationId,
+          agentSlug,
+          feature: pageContext?.path ? featureOf(stripWorkspacePrefix(pageContext.path)) : 'chat',
+          effortChoice: modelPrefs.level,
+          effortLevel: turnStats.effortLevel,
+          ending,
+          durationMs: Date.now() - turnStats.startedAt,
+          toolCalls: turnStats.toolCalls,
+          microCents: counted.cost?.microCents ?? 0,
+        })).catch(() => {});
         if (!closed) {
           closed = true;
           try {

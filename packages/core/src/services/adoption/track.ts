@@ -87,6 +87,18 @@ export async function track<T extends AdoptionEventType>(
         ...(opts.at ? { createdAt: opts.at } : {}),
       })
       .onConflictDoNothing();
+    // A person's action, to Amplitude too (`libs/Amplitude.ts`). The heartbeat
+    // stays here: the browser already counts sessions, and a backfill is history.
+    if (isHumanActor(actor.userId) && eventType !== 'activity.heartbeat' && !opts.at) {
+      void import('@/libs/Amplitude').then(m => m.trackProductEvent({
+        orgId: actor.orgId,
+        userId: actor.userId,
+        eventType,
+        agentSlug: opts.agentSlug ?? null,
+        resourceType: opts.resource?.[0] ?? null,
+        meta: (opts.meta as Record<string, unknown> | undefined) ?? null,
+      })).catch(() => {});
+    }
   } catch (error) {
     logWarn('adoption.track insert failed', { eventType, error: String(error) });
   }

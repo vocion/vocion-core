@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetAmplitudeForTests, trackAgentModelCall, trackAgentToolCall } from './Amplitude';
+import { resetAmplitudeForTests, trackAgentModelCall, trackAgentToolCall, trackChatTurn, trackProductEvent } from './Amplitude';
 
 const trackAiMessage = vi.fn();
 const trackToolCall = vi.fn();
 const constructed = vi.fn();
 const initialised = vi.fn();
+const tracked = vi.fn();
 
 const keys = new Map<string, string>();
 vi.mock('@/services/analytics/amplitudeKey', () => ({ amplitudeKeyFor: async (orgId: string) => keys.get(orgId) ?? null }));
+vi.mock('@/services/analytics/workspaceName', () => ({ workspaceNameOf: async (orgId: string) => (orgId === 'proj_northwind' ? 'Northwind' : null) }));
 
 vi.mock('@amplitude/analytics-node', () => ({
-  createInstance: () => ({ init: (key: string) => ({ promise: Promise.resolve(initialised(key)) }) }),
+  createInstance: () => ({ init: (key: string) => ({ promise: Promise.resolve(initialised(key)) }), track: tracked }),
 }));
 
 vi.mock('@amplitude/ai', () => ({
@@ -108,5 +110,26 @@ describe('Amplitude agent analytics', () => {
     expect(token).toMatchObject({ deviceId: 'vocion-agents', eventProperties: { actor: 'token:tok_1' } });
     expect(person).toMatchObject({ userId: 'user_1', eventProperties: { actor: 'user_1' } });
     expect(person).not.toHaveProperty('deviceId');
+  });
+
+  it('stamps every event with the workspace id and name, as plain properties', async () => {
+    keys.set('proj_northwind', 'key_1');
+    await trackAgentModelCall(modelCall);
+
+    expect(trackAiMessage).toHaveBeenCalledWith(expect.objectContaining({ eventProperties: { actor: 'user_1', workspace_id: 'proj_northwind', workspace_name: 'Northwind' } }));
+  });
+
+  it('sends a person\'s adoption event under its own name, as the person', async () => {
+    keys.set('proj_northwind', 'key_1');
+    await trackProductEvent({ orgId: 'proj_northwind', userId: 'user_1', eventType: 'review.decided', agentSlug: 'revenue-lead', resourceType: 'action_run', meta: { decision: 'approved' } });
+
+    expect(tracked).toHaveBeenCalledWith('review.decided', expect.objectContaining({ decision: 'approved', agent: 'revenue-lead', resource_type: 'action_run', workspace_name: 'Northwind' }), { user_id: 'user_1', groups: { workspace: 'proj_northwind' } });
+  });
+
+  it('reports how a chat turn ended, with its cost in dollars', async () => {
+    keys.set('proj_northwind', 'key_1');
+    await trackChatTurn({ orgId: 'proj_northwind', userId: 'user_1', conversationId: 42, agentSlug: 'revenue-lead', feature: 'review', effortChoice: 'auto', effortLevel: 'standard', ending: 'complete', durationMs: 6000, toolCalls: 3, microCents: 50_000_000 });
+
+    expect(tracked).toHaveBeenCalledWith('chat.turn_completed', expect.objectContaining({ conversation_id: 42, feature: 'review', effort_level: 'standard', ending: 'complete', tool_calls: 3, cost_usd: 0.5, workspace_id: 'proj_northwind' }), expect.objectContaining({ user_id: 'user_1' }));
   });
 });
