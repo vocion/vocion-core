@@ -22,5 +22,6 @@ export function toSheetAsk(ask: Ask, alignment?: SheetAsk['alignment'], listener
     agentSlug: ask.agentSlug,
     teamSlug: ask.teamSlug,
     risk: ask.risk,
+    ...(ask.outcomes ? { outcomes: ask.outcomes } : {}),
   };
 }

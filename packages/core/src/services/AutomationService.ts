@@ -317,6 +317,16 @@ export async function completeAutomationFire(
     if (dispatched.kind === 'mission_check' && dispatched.result) {
       await announceCheckCompleted(orgId, slug, automationRunId, invokedBy, dispatched.result as AutomationCheckResult, causedBy);
     }
+    // Work the SEO app queued says where its batch stands in the conversation
+    // it was started from, read off the records, and only when it changed
+    // (`services/seo/work.ts`), the way an answered SEO sign-off is heard in
+    // `AskService.settleWaitersOn`.
+    if (dispatched.kind === 'mission_check' && typeof triggerInput?.batchId === 'number') {
+      const work = await import('@/services/seo/work');
+      if (invokedBy === work.SEO_WORK_INVOKER) {
+        await work.reportSeoRun(orgId, triggerInput.batchId);
+      }
+    }
     return { ...dispatched, result, automationRunId };
   } catch (err) {
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 2000);
@@ -543,7 +553,11 @@ async function dispatchDo(
  * @param orgId - Tenant.
  * @param slug - The automation, for the log.
  * @param template - The mission checked.
+ * @param template.name
+ * @param template.agentSlug
+ * @param template.deliver
  * @param run - The check's run.
+ * @param run.id
  * @param failed - Why the check did not finish, or null when it did.
  * @param startedAt - When the check started.
  */
@@ -972,6 +986,7 @@ export type ScheduleHealth = {
  * person deliberately paused is quiet on purpose.
  * @param opts - The schedule, its last fire, and whether it is paused.
  * @param opts.cron - The `when.schedule` cron, or null/undefined for an event-when.
+ * @param opts.timezone
  * @param opts.lastFireAt - `started_at` of the most recent run.
  * @param opts.paused - The automation is paused.
  * @param opts.now - Evaluation time.

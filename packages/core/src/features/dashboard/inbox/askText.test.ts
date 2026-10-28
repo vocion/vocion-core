@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstParagraph, isNearDuplicate, sentenceCase, splitBody, verbosityHints } from './askText';
+import { firstParagraph, isNearDuplicate, sentenceCase, splitBody, splitContext, verbosityHints } from './askText';
 
 const LONG_BODY = 'The Slack surface needs an identity model before #253 can ship. The company recommends one app per Slack-workspace × Vocion-project, with per-agent identity via chat:write.customize. A dedicated app would only be needed when an agent must be addressable directly. This has been open since cycle 52 and blocks the manifest reinstall in 035.\n\nSee the approval file for the trade-offs and the three alternatives the board considered.';
 
@@ -64,5 +64,20 @@ describe('sentenceCase + verbosityHints', () => {
       'title is 81 chars (aim for ≤ 80)',
       'body is 401 chars (aim for ≤ 400; put the long form in contextMd)',
     ]);
+  });
+});
+
+describe('splitContext — a table heading the long form is on the card', () => {
+  const table = '| # | Keyword | Page type |\n|---|---|---|\n| 1 | boiler repair | service |';
+
+  it('shows the table and keeps the reasoning in Details', () => {
+    expect(splitContext(`${table}\n\n**Why these pages:** local intent.`)).toEqual({ shown: table, rest: '**Why these pages:** local intent.' });
+    expect(splitContext(table)).toEqual({ shown: table, rest: null });
+  });
+
+  it('a long form that does not open with a table is all Details', () => {
+    expect(splitContext('**Meta title:** Boiler repair\n\n| a | b |\n|---|---|')).toEqual({ shown: null, rest: '**Meta title:** Boiler repair\n\n| a | b |\n|---|---|' });
+    expect(splitContext('| not a table')).toEqual({ shown: null, rest: '| not a table' });
+    expect(splitContext(null)).toEqual({ shown: null, rest: null });
   });
 });

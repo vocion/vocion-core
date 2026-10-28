@@ -99,21 +99,27 @@ export async function hotToolNames(orgId: string, agentSlug: string): Promise<st
 
 /**
  * The turn's tools with every one outside `keep` deferred, plus the search
- * that finds them. The tools are this request's own objects, built for it.
+ * that finds them. A deferred tool is a copy; the tools given are left as
+ * they were.
  * @param tools - The turn's tools.
  * @param keep - Names that stay loaded.
  * @param search - The tool-search entry the model calls to find the rest.
  */
 export function deferColdTools<T extends StructuredToolInterface>(tools: T[], keep: ReadonlySet<string>, search: T): T[] {
-  for (const t of tools) {
+  const tiered = tools.map((t) => {
     // A tool may say it is the platform's way to a whole class of question
     // and must never wait behind a search (`metadata.alwaysLoaded`): a new
     // one has no history to earn its place yet, and found only by search it
     // loses to the phrase hunt it exists to replace.
-    if (!keep.has(t.name) && (t as { metadata?: Record<string, unknown> }).metadata?.alwaysLoaded !== true) {
-      const withExtras = t as T & { extras?: Record<string, unknown> };
-      withExtras.extras = { ...withExtras.extras, defer_loading: true };
+    if (keep.has(t.name) || (t as { metadata?: Record<string, unknown> }).metadata?.alwaysLoaded === true) {
+      return t;
     }
-  }
-  return [...tools, search];
+    // A copy carries the flag, never the tool itself: the same objects are
+    // handed whole to a teammate on the fast model, with no search beside
+    // them, and marking them in place deferred its tools too.
+    const copy = Object.assign(Object.create(Object.getPrototypeOf(t)) as T, t) as T & { extras?: Record<string, unknown> };
+    copy.extras = { ...(t as T & { extras?: Record<string, unknown> }).extras, defer_loading: true };
+    return copy as T;
+  });
+  return [...tiered, search];
 }

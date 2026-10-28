@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 /**
  * The decisions inside a brand lookup, without spending a Firecrawl credit.
@@ -54,5 +54,21 @@ describe('brand colours', () => {
     expect(hex('rgb(88,35,93)')).toBeUndefined();
     expect(hex(null)).toBeUndefined();
     expect(hex('')).toBeUndefined();
+  });
+});
+
+describe('fonts read off a built site', () => {
+  it('brand_lookup keeps the brand\'s font names, not the bundler\'s', async () => {
+    const { lookupBrand } = await import('./firecrawlBrand');
+    vi.stubEnv('FIRECRAWL_API_KEY', 'fc-test');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: { branding: { brandName: 'Northwind', typography: { fontFamilies: { heading: 'Barlow-364621179e86efae', primary: '__Inter_a64ecd, __Inter_Fallback_a64ecd' } } } } }), { headers: { 'content-type': 'application/json' } })));
+    try {
+      const profile = await lookupBrand('northwind-home.example');
+
+      expect(profile?.fonts).toEqual({ heading: 'Barlow', primary: 'Inter' });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 });

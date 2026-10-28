@@ -46,6 +46,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { publishTargetLine } from '@/libs/publish/targets';
 import { artifactHref } from '@/libs/tools/artifacts/url';
+import { cleanFontRoles } from '@/libs/tools/brand/fontNames';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, objectDocumentLinkSchema } from '@/models/Schema';
 import { anchorArtifact, createArtifact, getArtifact, listArtifactsByIds, listArtifactsForRecord } from '@/services/ArtifactService';
 import { listAskGroup, upsertAsk } from '@/services/AskService';
@@ -240,6 +241,25 @@ export type ProjectCompetitors = {
   domains: Array<{ domain: string; ranked: CompetitorRanking[] }>;
 };
 
+/**
+ * Someone who signs the client's pages: their name, title and author page,
+ * with the topics they write on, or `default` for the byline a page gets
+ * when no one's topics fit. Read off the client's own author pages at
+ * onboarding, each with where it was read; a person may set them too.
+ */
+export type ProjectAuthor = {
+  name: string;
+  title?: string;
+  /** Their author page on the client's site. */
+  url?: string;
+  /** What they write about, in the client's words. */
+  topics?: string[];
+  /** The byline a page gets when no one's topics fit. */
+  default?: boolean;
+  /** Where it was read: the author page, or a source id. */
+  source?: string;
+};
+
 export type RoomMeta = {
   client?: string;
   codename?: string;
@@ -277,6 +297,8 @@ export type RoomMeta = {
   siteInventory?: SiteInventoryRef;
   /** Who ranks beside the client, from Google searches. */
   competitors?: ProjectCompetitors;
+  /** Who signs the client's pages (`ProjectAuthor`). */
+  authors?: ProjectAuthor[];
   /** Knowledge documents a person or agent took back out — the collector never re-files these on its own. */
   unfiled?: number[];
 };
@@ -333,6 +355,34 @@ export function roomAnchor(meta: RoomMeta): RoomAnchor | null {
     return { type: 'deal', ...meta.deal };
   }
   return null;
+}
+
+/**
+ * Whether two names are the same name, spelled or cased differently
+ * ("MetaCTO" and "Metacto", "Northwind Home-Services"). Pure.
+ * @param a - One name.
+ * @param b - The other.
+ */
+export function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
+  const key = (s: string | null | undefined) => (s ?? '').normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  return Boolean(key(a)) && key(a) === key(b);
+}
+
+/**
+ * The entity's name as the project spells it. The project is named after the
+ * client in the client's own spelling, so an anchor naming the same entity
+ * (no label, or the same name cased or spelled another way, as a site's
+ * title or a brand extractor reads it) carries the project's name: one
+ * onboarding showed the project "Northwind" beside an entity "NorthWind".
+ * A label naming something else (a deal's own name) is kept. Pure.
+ * @param title - The project's name.
+ * @param anchor - The anchor as given.
+ */
+export function anchorNamedAs<T extends RoomAnchor | undefined>(title: string, anchor: T): T {
+  if (!anchor || !title.trim()) {
+    return anchor;
+  }
+  return (!anchor.label?.trim() || sameName(anchor.label, title) ? { ...anchor, label: title.trim() } : anchor) as T;
 }
 
 /** Where a document stands. `planned` belongs to a promise, never to a file that exists. */
@@ -644,6 +694,44 @@ export function mergeVoice(existing: ClientVoice | undefined, patch: Partial<Cli
 }
 
 /**
+ * Authors as kept: named, each name once, at most one default (the first
+ * one marked). Pure.
+ * @param list - The authors as given.
+ */
+export function cleanAuthors(list: readonly ProjectAuthor[]): ProjectAuthor[] {
+  const out: ProjectAuthor[] = [];
+  let hasDefault = false;
+  for (const a of list) {
+    const name = a.name?.trim();
+    if (!name || out.some(o => sameName(o.name, name))) {
+      continue;
+    }
+    const isDefault: boolean = Boolean(a.default) && !hasDefault;
+    hasDefault = hasDefault || isDefault;
+    out.push({
+      name,
+      ...(a.title?.trim() ? { title: a.title.trim() } : {}),
+      ...(a.url?.trim() ? { url: a.url.trim() } : {}),
+      ...(a.topics?.length ? { topics: a.topics.map(t => t.trim()).filter(Boolean) } : {}),
+      ...(isDefault ? { default: true } : {}),
+      ...(a.source?.trim() ? { source: a.source.trim() } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * The byline a page gets with no author named for it: the author marked
+ * default, else the only one. Null when the project names none, or several
+ * and no default — then whoever plans the page names one, or asks.
+ * @param authors - The project's authors.
+ */
+export function defaultAuthor(authors: readonly ProjectAuthor[] | undefined): ProjectAuthor | null {
+  const list = authors ?? [];
+  return list.find(a => a.default) ?? (list.length === 1 ? list[0]! : null);
+}
+
+/**
  * Open a room for an engagement.
  * @param orgId - The project.
  * @param userId - Who opened it.
@@ -658,7 +746,7 @@ export async function createDataRoom(orgId: string, userId: string, input: Creat
     ...(input.stage ? { stage: input.stage } : {}),
     ...(input.status ? { status: input.status, statusAt: now } : {}),
     ...(input.deal ? { deal: input.deal } : {}),
-    ...(input.anchor ? { anchor: input.anchor } : input.deal ? { anchor: { type: 'deal', ...input.deal } } : {}),
+    ...(input.anchor ? { anchor: anchorNamedAs(input.title, input.anchor) } : input.deal ? { anchor: { type: 'deal', ...input.deal } } : {}),
     ...(input.notes ? { notes: input.notes } : {}),
     ...(input.autoFile === undefined ? {} : { autoFile: input.autoFile }),
     rules: cleanLines(input.rules),
@@ -716,6 +804,8 @@ export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & 
   siteInventory?: SiteInventoryRef;
   /** Competitors just read from Google. */
   competitors?: ProjectCompetitors;
+  /** The client's authors, replacing the list held (an empty list clears it). */
+  authors?: ProjectAuthor[];
   /** Rules to remove, by exact text. */
   removeRules?: string[];
   /** A milestone to add or update (matched by date + title). */
@@ -767,8 +857,12 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
       meta.anchor = { type: 'deal', ...(meta.anchor ?? {}), ...patch.deal };
     }
   }
+  if (patch.title?.trim() && meta.anchor?.label && sameName(meta.anchor.label, room.title)) {
+    // A renamed project renames the entity it carried the name of.
+    meta.anchor = { ...meta.anchor, label: patch.title.trim() };
+  }
   if (patch.anchor !== undefined) {
-    meta.anchor = { ...(meta.anchor ?? {}), ...patch.anchor };
+    meta.anchor = anchorNamedAs(patch.title ?? room.title, { ...(meta.anchor ?? {}), ...patch.anchor });
     if (meta.anchor.type === 'deal') {
       const { type: _t, label: _l, ...deal } = meta.anchor;
       meta.deal = { ...(meta.deal ?? {}), ...deal };
@@ -793,6 +887,9 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
   }
   if (patch.competitors) {
     meta.competitors = patch.competitors;
+  }
+  if (patch.authors !== undefined) {
+    meta.authors = cleanAuthors(patch.authors);
   }
   if (patch.milestone) {
     const list = [...(meta.milestones ?? [])];
@@ -1339,7 +1436,7 @@ export function renderBrandProfile(p: RoomBrandProfile | undefined): string[] {
   return [
     p.name ? `- **Name:** ${p.name}${p.description ? ` — ${p.description}` : ''}` : null,
     pairs(p.colors) ? `- **Colours:** ${pairs(p.colors)}${p.colorScheme ? ` (${p.colorScheme})` : ''}` : null,
-    pairs(p.fonts) ? `- **Fonts:** ${pairs(p.fonts)}` : null,
+    pairs(cleanFontRoles(p.fonts)) ? `- **Fonts:** ${pairs(cleanFontRoles(p.fonts))}` : null,
     `- Read from ${p.source} on ${p.readAt.slice(0, 10)}.`,
   ].filter((l): l is string => Boolean(l));
 }
@@ -1486,6 +1583,13 @@ export function renderDataRoom(room: DataRoomDetail): string {
       }
     }
     lines.push(...renderBrandProfile(m.brand.profile), '');
+  }
+  if (m.authors?.length) {
+    lines.push('## Authors', '', 'Who signs the client\'s pages. A page carries the author it was planned with, else the default.', '');
+    for (const a of m.authors) {
+      lines.push(`- **${a.name}**${a.title ? `, ${a.title}` : ''}${a.default ? ' (default)' : ''}${a.topics?.length ? ` — writes on ${a.topics.join(', ')}` : ''}${a.url ? ` · [author page](${a.url})` : ''}${a.source && a.source !== a.url ? ` · from ${a.source}` : ''}`);
+    }
+    lines.push('');
   }
   if (m.cast?.length) {
     lines.push('## Cast', '', '| Name | Role | Email | Side |', '|---|---|---|---|');

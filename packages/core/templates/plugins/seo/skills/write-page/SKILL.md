@@ -6,7 +6,7 @@ description: >-
   rules, answering the query better than what ranks. Location pages carry
   what is true of their own place. Only pages the volume gate has released.
   Read before writing or redrafting any page.
-version: 4
+version: 5
 ---
 
 # Writing an SEO page
@@ -16,12 +16,15 @@ version: 4
 1. `seo_next_pages` for the batch. Write only what it lists under writeNow.
    If the page you were asked for is not there, say why (the gate's reason)
    and stop.
-2. Read the client's project (`read_project`): the client voice and the
+2. `seo_read_page` with the page: its record and byline, the editor's open
+   findings, every note a person gave, and the full text of its SERP brief,
+   its brief and (for a redraft) the current draft.
+3. Read the client's project (`read_project` with its `project_id`): the client voice and the
    rules first, then the three-star guideline documents (printed in full; a
    cut one says how to read the rest), the notes and the brand. To look
    something up in the client's guides, `read_project` with `find`; never a
    workspace-wide search, which reads other clients' material too.
-3. Read the page brief, the SERP brief, `/learnings/seo-feedback.md`, the
+4. Then `/learnings/seo-feedback.md`, the
    client's adopted rules `seo_next_pages` returns (`clientRulesFromSignoffs`),
    and every feedback note on this batch's pages. A redraft starts from the
    notes on its own page (and the editor's review notes when it sent it back).
@@ -40,6 +43,8 @@ version: 4
 - Every number and claim traces to the client's material or a dated source in
   the SERP brief. Otherwise cut it.
 - Internal links from the brief, written into the sentences that need them.
+- Signed by the page's byline (seo_read_page shows it); never invent an
+  author.
 - The body is the page and nothing else: no meta block, no front matter. The
   meta title, meta description and slug go to `seo_save_draft` as fields.
 

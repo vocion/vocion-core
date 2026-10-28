@@ -169,6 +169,15 @@ function voicePatch(v: z.infer<typeof voiceSchema>): Partial<ClientVoice> {
   return out;
 }
 
+const authorSchema = z.object({
+  name: z.string().min(1).max(120),
+  title: z.string().max(160).optional().describe('Their title as the site gives it.'),
+  url: z.string().max(500).optional().describe('Their author page on the client\'s site.'),
+  topics: z.array(z.string().max(80)).max(12).optional().describe('What they write about, in the client\'s words.'),
+  default: z.boolean().optional().describe('The byline a page gets when no one\'s topics fit. One author at most.'),
+  source: z.string().max(500).optional().describe('Where it was read: the author page URL or a source id.'),
+});
+
 const personSchema = z.object({
   name: z.string().min(1).max(120),
   role: z.string().max(120).optional(),
@@ -402,6 +411,7 @@ export function updateProjectTool(ctx: RuntimeContext) {
         ...(args.add_rules ? { addRules: coerceJson(args.add_rules) } : {}),
         ...(args.rules_source ? { rulesSource: args.rules_source } : {}),
         ...(args.voice ? { voice: voicePatch(coerceJson(args.voice)) } : {}),
+        ...(args.authors ? { authors: coerceJson(args.authors) } : {}),
         ...(args.remove_rules ? { removeRules: coerceJson(args.remove_rules) } : {}),
         ...(args.milestone ? { milestone: coerceJson(args.milestone) } : {}),
         ...(args.highlights ? { highlights: coerceJson(args.highlights) } : {}),
@@ -410,18 +420,19 @@ export function updateProjectTool(ctx: RuntimeContext) {
       if (!room) {
         return `No project #${found.id}.`;
       }
-      const changed = ['status', 'stage', 'client', 'codename', 'domains', 'aliases', 'add_cast', 'deliverable', 'deal', 'anchor', 'closed', 'title', 'notes', 'append_notes', 'add_rules', 'remove_rules', 'voice', 'milestone', 'highlights', 'auto_file'].filter(k => (args as Record<string, unknown>)[k] !== undefined);
+      const changed = ['status', 'stage', 'client', 'codename', 'domains', 'aliases', 'add_cast', 'deliverable', 'deal', 'anchor', 'closed', 'title', 'notes', 'append_notes', 'add_rules', 'remove_rules', 'voice', 'authors', 'milestone', 'highlights', 'auto_file'].filter(k => (args as Record<string, unknown>)[k] !== undefined);
       const counts = [
         args.highlights ? `${room.meta.highlights?.length ?? 0} highlights on the project` : null,
         args.add_rules || args.remove_rules ? `${room.meta.rules?.length ?? 0} instructions` : null,
         args.voice ? `a voice block of ${voiceLineCount(room.meta.voice)} lines` : null,
+        args.authors ? `${room.meta.authors?.length ?? 0} authors${room.meta.authors?.some(a => a.default) ? ` (default ${room.meta.authors.find(a => a.default)!.name})` : ''}` : null,
         args.milestone ? `${room.meta.milestones?.length ?? 0} milestones` : null,
       ].filter(Boolean);
       return `Updated project #${room.id} "${room.title}": ${changed.join(', ')}.${args.status !== undefined ? ` Status is dated ${room.meta.statusAt?.slice(0, 10)}.` : ''}${counts.length ? ` Now ${counts.join(', ')}.` : ''}`;
     },
     {
       name: 'update_project',
-      description: 'Keep a project current: the dated status paragraph (say so when something ships), the stage, the anchor (the deal or tracker project it is about), people on the cast, a deliverable, matching domains and aliases — and the project\'s own knowledge: its WIKI (notes; replace with notes or add a dated section with append_notes), its INSTRUCTIONS (add_rules / remove_rules — terminology, voice, what files here, conventions the person stated; rules_source cites where they came from), the client VOICE block (voice — point of view, reading level, spelling, tone, banned phrases, calls to action, never-claim, each line sourced), a MILESTONE on the timeline (planned or done), and HIGHLIGHTS worth keeping as they appear in material (a client\'s own words, a measured result, a win, a challenge met). When a person corrects you or states how things are called, add it as an instruction so it holds next time. Omit `project_id` for the project the person is looking at. (Formerly update_data_room.)',
+      description: 'Keep a project current: the dated status paragraph (say so when something ships), the stage, the anchor (the deal or tracker project it is about), people on the cast, a deliverable, matching domains and aliases — and the project\'s own knowledge: its WIKI (notes; replace with notes or add a dated section with append_notes), its INSTRUCTIONS (add_rules / remove_rules — terminology, voice, what files here, conventions the person stated; rules_source cites where they came from), the client VOICE block (voice — point of view, reading level, spelling, tone, banned phrases, calls to action, never-claim, each line sourced), the AUTHORS who sign its pages (authors), a MILESTONE on the timeline (planned or done), and HIGHLIGHTS worth keeping as they appear in material (a client\'s own words, a measured result, a win, a challenge met). When a person corrects you or states how things are called, add it as an instruction so it holds next time. Omit `project_id` for the project the person is looking at. (Formerly update_data_room.)',
       schema: z.object({
         project_id: z.number().int().positive().optional(),
         title: z.string().max(200).optional(),
@@ -441,6 +452,7 @@ export function updateProjectTool(ctx: RuntimeContext) {
         add_rules: z.array(z.string().max(300)).max(30).optional().describe('Instructions to add, one line each.'),
         rules_source: z.string().max(500).optional().describe('Where add_rules came from: a source id from read_project ("doc:12") or a page URL. Each rule is stored citing it — turn a client guide\'s do and don\'t lines into rules this way.'),
         voice: voiceSchema.optional().describe('The client voice block, every line sourced. Printed at the top of read_project; banned phrases and never-claim words are checked in code on review.'),
+        authors: z.array(authorSchema).max(30).optional().describe('Who signs the client\'s pages, read off their author pages: name, title, author page, topics, and which one is the default byline. Replaces the list held.'),
         remove_rules: z.array(z.string().max(300)).max(30).optional().describe('Exact instruction text to remove.'),
         milestone: z.object({ date: z.string().max(20), title: z.string().min(1).max(200), status: z.enum(['planned', 'done']), artifactId: z.number().int().optional(), note: z.string().max(300).optional() }).optional(),
         highlights: z.array(highlightSchema).max(20).optional(),

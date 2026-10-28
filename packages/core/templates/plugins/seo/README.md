@@ -21,7 +21,8 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   the keyword map (keyword, page type, location, intent, cluster, new page or
   refresh). Nothing is briefed or drafted until a person approves it.
 - **The volume gate**, enforced in code and per client project: a sample
-  first (one page of each page type, at least 3), nothing more in any of the
+  first (the project's sample size, 3 by default: one page of each page
+  type first, then the next in planned order), nothing more in any of the
   project's batches until a person signed off on every one; then a tranche
   of 10; then the rest. A page sent back with changes holds new drafts until
   its feedback is verifiably filed. A sign-off is bound to the draft's words:

@@ -25,7 +25,9 @@ do:
     SEO work was queued; the event names why (reason), the batch, and for a
     revision the page, the round and the editor's findings. Call
     seo_next_pages for the batch first and do what it lists under writeNow,
-    one page at a time: research and brief what needs it, then the writer
+    every page it lists (the sample is all of its pages, not one), one page
+    at a time: hand each teammate the page id, and each reads it with
+    seo_read_page. Research and brief what needs it, then the writer
     drafts (seo_save_draft with its meta) and the editor reviews
     (seo_save_review with findings). reason revise: the writer revises that
     page answering each finding, then the editor reviews it again; the tools
@@ -33,5 +35,5 @@ do:
     a plan approved, brief the released pages; a plan sent back, revise it
     with seo_plan_batch and batch_id; a page sent back, file its note first
     (feedback-to-wiki), then redraft it. When the gate holds, say its line
-    and stop. Report in one line per batch: what moved, what waits on a
-    person.
+    and stop. Core says where each batch stands in the conversation it was
+    started from, and only when something changed: do not repeat it.

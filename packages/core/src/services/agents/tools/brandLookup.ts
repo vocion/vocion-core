@@ -31,7 +31,7 @@ const EXT: Record<string, string> = { 'image/png': 'png', 'image/svg+xml': 'svg'
  * @param profile - What was read off the site.
  */
 async function fileBrandOnProject(ctx: RuntimeContext, projectId: number, profile: BrandProfile): Promise<string> {
-  const { getDataRoom, updateDataRoom } = await import('@/services/DataRoomService');
+  const { getDataRoom, sameName, updateDataRoom } = await import('@/services/DataRoomService');
   const room = await getDataRoom(ctx.orgId, projectId);
   if (!room) {
     return `No project #${projectId}; nothing kept.`;
@@ -40,7 +40,8 @@ async function fileBrandOnProject(ctx: RuntimeContext, projectId: number, profil
     brandProfile: {
       source: profile.url,
       readAt: new Date().toISOString(),
-      ...(profile.name ? { name: profile.name } : {}),
+      // The same name as the project's, cased another way ("MetaCTO" for "Metacto"), reads as the project spells it.
+      ...(profile.name ? { name: sameName(profile.name, room.title) ? room.title : profile.name } : {}),
       ...(profile.description ? { description: profile.description } : {}),
       ...(profile.colors ? { colors: Object.fromEntries(Object.entries(profile.colors).filter(([, v]) => typeof v === 'string' && v)) as Record<string, string> } : {}),
       ...(profile.fonts ? { fonts: profile.fonts } : {}),

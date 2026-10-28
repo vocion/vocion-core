@@ -65,6 +65,32 @@ describe('the sample', () => {
   });
 });
 
+describe('the sample is the project\'s size, covering the kinds first', () => {
+  const typed = (types: string[]) => batch(types.length, Object.fromEntries(types.map((t, i) => [i + 1, { pageType: t }])));
+
+  it('three blog posts: the sample is all three, not one per kind', () => {
+    const g = evaluateGate(typed(['blog', 'blog', 'blog']));
+
+    expect(g.sample).toEqual([1, 2, 3]);
+    expect(g.writable).toEqual([1, 2, 3]);
+    expect(g.line).toBe('0 of 3 written · writing a sample of 3 for your feedback first');
+  });
+
+  it('one of each page type first, then filled in planned order up to the size', () => {
+    // blog, blog, location, blog, service: the location and the service come in before the second post.
+    expect(evaluateGate(typed(['blog', 'blog', 'location', 'blog', 'service'])).sample).toEqual([1, 3, 5]);
+    // Two kinds, a sample of four: one of each, then the next pages in order.
+    expect(evaluateGate(typed(['blog', 'blog', 'service', 'blog', 'blog']), { sample: 4, tranche: 10 }).sample).toEqual([1, 2, 3, 4]);
+  });
+
+  it('never more than the size: with more kinds than the sample holds, the first kinds in planned order', () => {
+    const g = evaluateGate(typed(['location', 'service', 'blog', 'landing', 'other']));
+
+    expect(g.sample).toEqual([1, 2, 3]);
+    expect(g.allowed).toBe(3);
+  });
+});
+
 describe('changes requested', () => {
   it('stops every new draft until the feedback is filed', () => {
     const g = evaluateGate(batch(40, { 1: approved, 2: sentBack, 3: written }));
@@ -201,11 +227,11 @@ describe('the sample covers one page of each type', () => {
     expect(whyNotWritable(g, 2)).toContain('one of each page type');
   });
 
-  it('samples more than three when the plan has more kinds of page', () => {
+  it('never samples more than the project\'s size, even with more kinds of page', () => {
     const g = evaluateGate(typed(['location', 'service', 'blog', 'landing', 'other', 'blog']));
 
-    expect(g.sample).toEqual([1, 2, 3, 4, 5]);
-    expect(g.line).toBe('0 of 6 written · writing a sample of 5 for your feedback first');
+    expect(g.sample).toEqual([1, 2, 3]);
+    expect(g.line).toBe('0 of 6 written · writing a sample of 3 for your feedback first');
   });
 
   it('fills up to the project\'s size in planned order when there are fewer kinds', () => {

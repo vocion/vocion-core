@@ -55,3 +55,18 @@ describe('what an answer does (ruling #145, 2026-09-29)', () => {
       .toBe('Your answer is recorded for whoever asked.');
   });
 });
+
+describe('an ask that says what its answer does', () => {
+  const ask = { agentSlug: 'seo-strategist', outcomes: { onApprove: 'The briefs start.', onRevise: 'It re-plans with your note.' } };
+
+  it('says the asker\'s line in place of "nothing runs on its own"', () => {
+    expect(consequenceOf(ask, 'approve', { approve: [] })).toBe('The briefs start.');
+    expect(consequenceOf(ask, 'other', { other: [] })).toBe('It re-plans with your note.');
+    expect(fixedRowsFor(ask, {})[0]!.description).toBe('Yes. The briefs start.');
+  });
+
+  it('an answer it says nothing about reads as before', () => {
+    expect(consequenceOf(ask, 'reject', { reject: [] })).toBe('Your answer is recorded for seo-strategist; nothing runs on its own.');
+    expect(consequenceOf({ agentSlug: 'seo-strategist', outcomes: null }, 'approve', { approve: [] })).toBe('Your answer is recorded for seo-strategist; nothing runs on its own.');
+  });
+});

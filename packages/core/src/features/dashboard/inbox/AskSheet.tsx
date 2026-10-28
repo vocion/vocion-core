@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import type { AnswerListeners } from './askOptions';
-import type { AskOption } from '@/models/Schema';
+import type { AskOption, AskOutcomes } from '@/models/Schema';
 import type { InboxKind } from '@/services/InboxService';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, CornerUpLeft, ExternalLink, RotateCcw, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -18,7 +18,7 @@ import { decisionLegend, planDecision } from '@/features/review/reviewSheetModel
 import { shortcutFor } from '@/features/review/reviewShortcuts';
 import { kindForAsk } from '@/services/inbox/kinds';
 import { consequenceOf, fixedRowsFor, labelFor, OTHER } from './askOptions';
-import { firstParagraph, isNearDuplicate, sentenceCase, splitBody } from './askText';
+import { firstParagraph, isNearDuplicate, sentenceCase, splitBody, splitContext } from './askText';
 import { DECISION_VERBS } from './decisionVerbs';
 import { decisionCrumbs, KIND_LABEL, riskTone } from './inboxMeta';
 import { withMinimumPending } from './pending';
@@ -55,6 +55,8 @@ export type SheetAsk = {
   draft?: boolean;
   /** What each answer starts (`services/inbox/answerListeners`), so each row can say what it does. */
   listeners?: AnswerListeners;
+  /** What each answer does, in the asker's words, when its answer resumes work (`ask.outcomes`). */
+  outcomes?: AskOutcomes | null;
 };
 
 type Answer = { decision: string; note: string };
@@ -513,7 +515,9 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
   const body = splitBody(current.body);
   const paragraph = firstParagraph(current.body);
   const evidence = current.evidence ?? [];
-  const hasDetails = Boolean(body.rest || current.contextMd || current.contextUrl || evidence.length > 0);
+  // A table heading the long form is the thing being judged: it is on the card, the rest in Details.
+  const context = splitContext(current.contextMd);
+  const hasDetails = Boolean(body.rest || context.rest || current.contextUrl || evidence.length > 0);
   const canAdvance = done || complete(answer);
   const outcome = outcomes[current.id];
   const locked = pending || done;
@@ -555,9 +559,9 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
               <Markdown remarkPlugins={[remarkGfm]}>{body.rest}</Markdown>
             </div>
           )}
-          {current.contextMd && (
+          {context.rest && (
             <div className={`prose prose-sm max-w-none dark:prose-invert ${body.rest ? 'border-t border-rule pt-3' : ''}`}>
-              <Markdown remarkPlugins={[remarkGfm]}>{current.contextMd}</Markdown>
+              <Markdown remarkPlugins={[remarkGfm]}>{context.rest}</Markdown>
             </div>
           )}
           {current.contextUrl && (
@@ -608,6 +612,11 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
               anything that talks about it. */}
           {workNode && <div className="mt-4" data-testid="ask-work">{workNode}</div>}
           {whyNode ?? (leadNode && <div className="mt-4 mb-4">{leadNode}</div>)}
+          {context.shown && (
+            <div className="prose prose-sm mt-4 max-w-none overflow-x-auto dark:prose-invert" data-testid="ask-context-table">
+              <Markdown remarkPlugins={[remarkGfm]}>{context.shown}</Markdown>
+            </div>
+          )}
           {extraNode}
 
           <div role="radiogroup" aria-label="Your answer" aria-busy={pending || undefined} hidden={oneBar} className={`mt-4 space-y-2 transition ${locked ? 'opacity-70' : ''}`}>

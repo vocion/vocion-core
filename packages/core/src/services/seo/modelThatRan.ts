@@ -10,9 +10,11 @@
  *   1. the model message that made THIS tool call (the tool runtime's state):
  *      the model id its response reported, and the seat that ran it — a
  *      teammate's own call, not the newest call in the conversation;
- *   2. for the lead's own call with no message to read (a tool run through
- *      the agent runtime's callback), the newest call the ledger
- *      (`model_call`) filed for this conversation or run;
+ *   2. with no message to read (a tool run through the agent runtime's
+ *      callback, a background run), the ledger (`model_call`): in a
+ *      background run, that run's own calls — the seat's own, else a call on
+ *      the seat's model — never the conversation's; in a chat turn, the
+ *      conversation's newest call, for the lead's own step only;
  *   3. only when no call was logged, the seat's configured model, marked as
  *      such: "configured" is a weaker claim than "ran", and the page says
  *      which (Principle 10).
@@ -87,6 +89,28 @@ async function configuredModel(orgId: string, seat: string | null, ctx: Pick<Run
 }
 
 /**
+ * The call of a background run that made a seat's step, from the run's own
+ * ledger rows, newest first: the seat's own row; else, for a teammate, the
+ * newest row on its configured model (a teammate's calls may be filed under
+ * the lead); for the lead, the newest row. Null when the run logged none
+ * that fits. Pure.
+ * @param rows - The run's calls, newest first.
+ * @param seat - The seat whose step it is.
+ * @param lead - The run's own agent.
+ * @param configured - The seat's pinned model, if any.
+ */
+export function runCallFor<T extends { model: string; agent: string | null }>(rows: readonly T[], seat: string | null, lead: string | null, configured: string | null): T | null {
+  const own = rows.find(r => r.model && seat && r.agent === seat);
+  if (own) {
+    return own;
+  }
+  if (seat && seat !== lead) {
+    return configured ? rows.find(r => r.model && modelName(r.model) === modelName(configured)) ?? null : null;
+  }
+  return rows.find(r => r.model && (r.agent === null || r.agent === lead)) ?? null;
+}
+
+/**
  * The model behind the step being recorded now, or null when nothing says.
  * @param ctx - The turn.
  * @param runtime - The tool's runtime, when the tool was called by a model in this process.
@@ -99,28 +123,40 @@ export async function modelThatRan(ctx: Pick<RuntimeContext, 'orgId' | 'agentSlu
   if (called) {
     return { id: called, name: modelName(called), source: 'call', agent, at };
   }
-  // The ledger's newest call is the lead's own only when no teammate is
-  // involved: a teammate's step is never stamped with whatever ran last.
-  const scope = ctx.missionRunId
-    ? and(eq(modelCallSchema.runKind, 'mission_run'), eq(modelCallSchema.runId, String(ctx.missionRunId)))
-    : ctx.conversationId
-      ? eq(modelCallSchema.conversationId, ctx.conversationId)
-      : null;
-  if (scope && agent === (ctx.agentSlug ?? null)) {
-    try {
+  const configured = await configuredModel(ctx.orgId, agent, ctx).catch(() => null);
+  try {
+    if (ctx.missionRunId) {
+      // A background run is stamped from ITS OWN calls (the ledger rows of
+      // this run), never the conversation's: a live run showed "Write Opus 5.5
+      // (configured)" for a step its own calls had made (2026-10-27). The
+      // seat's own row first; else, for a teammate, the run's newest call on
+      // the seat's model; for the lead, the run's newest call.
+      const rows = await db
+        .select({ model: modelCallSchema.model, agent: modelCallSchema.agentSlug })
+        .from(modelCallSchema)
+        .where(and(eq(modelCallSchema.orgId, ctx.orgId), eq(modelCallSchema.runKind, 'mission_run'), eq(modelCallSchema.runId, String(ctx.missionRunId)), gte(modelCallSchema.createdAt, new Date(now.getTime() - WINDOW_MS))))
+        .orderBy(desc(modelCallSchema.createdAt), desc(modelCallSchema.id))
+        .limit(200);
+      const row = runCallFor(rows, agent, ctx.agentSlug ?? null, configured);
+      if (row) {
+        return { id: row.model, name: modelName(row.model), source: 'ledger', agent, at };
+      }
+    } else if (ctx.conversationId && agent === (ctx.agentSlug ?? null)) {
+      // In a conversation the ledger's newest call is the lead's own only
+      // when no teammate is involved: a teammate's step is never stamped with
+      // whatever ran last.
       const [row] = await db
         .select({ model: modelCallSchema.model })
         .from(modelCallSchema)
-        .where(and(eq(modelCallSchema.orgId, ctx.orgId), scope, gte(modelCallSchema.createdAt, new Date(now.getTime() - WINDOW_MS))))
+        .where(and(eq(modelCallSchema.orgId, ctx.orgId), eq(modelCallSchema.conversationId, ctx.conversationId), gte(modelCallSchema.createdAt, new Date(now.getTime() - WINDOW_MS))))
         .orderBy(desc(modelCallSchema.createdAt), desc(modelCallSchema.id))
         .limit(1);
       if (row?.model) {
         return { id: row.model, name: modelName(row.model), source: 'ledger', agent, at };
       }
-    } catch {
-      // The ledger is evidence, not a dependency: fall through to the seat's model.
     }
+  } catch {
+    // The ledger is evidence, not a dependency: fall through to the seat's model.
   }
-  const configured = await configuredModel(ctx.orgId, agent, ctx).catch(() => null);
   return configured ? { id: configured, name: modelName(configured), source: 'configured', agent, at } : null;
 }

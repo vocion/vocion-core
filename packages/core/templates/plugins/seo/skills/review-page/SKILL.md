@@ -7,7 +7,7 @@ description: >-
   substance on a location page, then the craft. Fix or pass, at most three
   ordered fixes, and on pass the sign-off is filed for a person. Read before
   reviewing any draft.
-version: 5
+version: 6
 ---
 
 # Reviewing an SEO draft
@@ -15,9 +15,18 @@ version: 5
 You decide one thing: is this ready for a person to sign off. A person's time
 is the expensive part; a draft that reaches them with a broken rule wastes it.
 
+## Read the page first
+
+`seo_read_page` with the page: its record, your earlier findings, every note
+a person gave, and the full text of the SERP brief, the page brief and the
+current draft, each with its artifact id and version. A long text is cut
+where it says, with the call that reads the rest. Never file an ask for a
+draft or a brief you could not open: read it here.
+
 ## The cheap order
 
-1. **The client's voice and rules** (read_project). One broken rule is a
+1. **The client's voice and rules** (`read_project` with the page's
+   `project_id`). One broken rule is a
    `fix`. Banned phrases and never-claim words are checked in code by
    `seo_save_review`: a draft with one goes back whatever your verdict, each
    one a finding ahead of yours. Point of view, reading level, spelling and

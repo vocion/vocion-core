@@ -13,6 +13,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { deckVerificationChip } from '@/libs/decks/audit';
 import { redTeamChip, verificationChip } from '@/libs/documents/audit';
 import { artifactHref } from '@/libs/tools/artifacts/url';
+import { cleanFontRoles } from '@/libs/tools/brand/fontNames';
 import { groupRecordsByType } from '@/services/BusinessObjectService';
 import { getDataRoomDetail, projectHref, publishTargetLine, roomAnchor, roomDeliverables } from '@/services/DataRoomService';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
@@ -74,7 +75,8 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
     ? [
         profile.name ? { key: 'name', label: 'Name', value: profile.name } : null,
         pairs(profile.colors) ? { key: 'colours', label: 'Colours', value: pairs(profile.colors) } : null,
-        pairs(profile.fonts) ? { key: 'fonts', label: 'Fonts', value: pairs(profile.fonts) } : null,
+        // A profile read before build hashes were taken off still shows the brand's names.
+        pairs(cleanFontRoles(profile.fonts)) ? { key: 'fonts', label: 'Fonts', value: pairs(cleanFontRoles(profile.fonts)) } : null,
         { key: 'read', label: 'Read from', value: `${profile.source} · ${profile.readAt.slice(0, 10)}`, href: profile.source },
       ]
     : [];

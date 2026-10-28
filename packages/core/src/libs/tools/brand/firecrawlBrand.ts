@@ -1,6 +1,7 @@
 import process from 'node:process';
 import { resolveToolProviderKey } from '../orgKey';
 import { ProviderNotConfiguredError } from '../types';
+import { cleanFontFamily } from './fontNames';
 
 /**
  * Brand lookup — from a company name, or a sentence containing one, to that
@@ -163,7 +164,8 @@ export async function lookupBrand(
 
   const fonts: Record<string, string> = {};
   for (const [role, family] of Object.entries(families)) {
-    const f = str(family);
+    // A built site's names carry the bundler's hash (`Inter-b937ba1167470226`, `__Inter_a64ecd`): the brand's font is the name.
+    const f = cleanFontFamily(str(family));
     if (f) {
       fonts[role] = f;
     }

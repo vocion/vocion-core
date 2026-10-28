@@ -4687,6 +4687,12 @@ export type AskOption = {
 };
 
 /**
+ * What each answer to an ask does, one line each, said by the asker when its
+ * answer resumes work. `onRevise` is the answer in a person's own words.
+ */
+export type AskOutcomes = { onApprove?: string; onRevise?: string; onReject?: string };
+
+/**
  * One record an ask is about: an object type slug and the object's id, as a
  * string. Carried on `ask.decided` so a subscriber can write the answer back
  * where the question came from.
@@ -4799,6 +4805,13 @@ export const askSchema = pgTable(
     decidedVia: text('decided_via'),
     /** The action_run the chosen option's effect started — what Undo reverses, where its kind has undo. */
     effectRunId: integer('effect_run_id'),
+    /**
+     * What each answer does, in one line, when the asker knows (migration
+     * 0224): an answer that resumes work says so ("Approve: the briefs
+     * start"), in place of the sheet's generic line. Null: the sheet reads
+     * what is subscribed to the answer, as before.
+     */
+    outcomes: jsonb('outcomes').$type<AskOutcomes>(),
   },
   table => [
     index('ask_org_status_idx').on(table.orgId, table.status),

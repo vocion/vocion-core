@@ -2,7 +2,7 @@ import type { Ask } from '@/services/AskService';
 import { describe, expect, it } from 'vitest';
 import { personOnlyRefusal } from '@/libs/actions/objects-update-meta';
 import { checkPageMeta } from './meta';
-import { modelOfToolCall, seatOf } from './modelThatRan';
+import { modelOfToolCall, runCallFor, seatOf } from './modelThatRan';
 import { gatePageOf, modelsLine, signedOff } from './records';
 import { parseSeoPlanRef, parseSeoSignoffRef, planPatch, planTable, seoPlanRef, seoSignoffRef, signoffPatch } from './signoff';
 
@@ -158,5 +158,28 @@ describe('a project\'s gate and publish targets are a person\'s', () => {
     expect(personOnlyRefusal('data_room', { publishTargets: [] })).toContain('publishTargets');
     expect(personOnlyRefusal('data_room', { notes: 'x' })).toBeUndefined();
     expect(personOnlyRefusal('request', { seoGate: 1 })).toBeUndefined();
+  });
+});
+
+describe('a background run is stamped from its own calls', () => {
+  // Newest first, as the ledger is read for the run.
+  const rows = [
+    { model: 'claude-sonnet-5-5', agent: 'seo-editor' },
+    { model: 'claude-opus-5-5-20261001', agent: 'seo-strategist' },
+    { model: 'claude-haiku-4-5-20251001', agent: 'seo-strategist' },
+  ];
+
+  it('the seat\'s own row first', () => {
+    expect(runCallFor(rows, 'seo-editor', 'seo-strategist', 'claude-sonnet-5-5')?.model).toBe('claude-sonnet-5-5');
+  });
+
+  it('a teammate whose calls were filed under the lead: the run\'s call on its own model, never the newest of the run', () => {
+    expect(runCallFor(rows, 'seo-writer', 'seo-strategist', 'claude-opus-5-5')?.model).toBe('claude-opus-5-5-20261001');
+    expect(runCallFor(rows, 'seo-writer', 'seo-strategist', 'claude-opus-4-1')).toBeNull();
+  });
+
+  it('the lead: the run\'s newest call of its own', () => {
+    expect(runCallFor(rows, 'seo-strategist', 'seo-strategist', null)?.model).toBe('claude-opus-5-5-20261001');
+    expect(runCallFor([], 'seo-strategist', 'seo-strategist', null)).toBeNull();
   });
 });

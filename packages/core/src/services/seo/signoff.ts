@@ -33,6 +33,24 @@ import { askSchema } from '@/models/Schema';
 import { artifactWords, getSeoBatch, getSeoPage, listSeoPages, mergeMeta, pagesDraftedIn, patchSeoPage, refreshSeoBatch } from './records';
 import { findingsMd, queueSeoWork, tellBatch } from './work';
 
+/**
+ * What each answer to a keyword plan does — said on the card, since an answer
+ * here resumes the work in the background (`seo-continue`) rather than only
+ * being recorded.
+ */
+export const PLAN_OUTCOMES = {
+  onApprove: 'The briefs start for the pages the gate releases, in the background.',
+  onRevise: 'It re-plans with your note and brings the revised plan back to you.',
+  onReject: 'The batch is discarded; nothing is written.',
+} as const;
+
+/** What each answer to a page's sign-off does. */
+export const PAGE_OUTCOMES = {
+  onApprove: 'The page is approved, and the next pages the gate releases are written.',
+  onRevise: 'Your note is filed where it belongs and the page is redrafted.',
+  onReject: 'The page leaves the batch.',
+} as const;
+
 export const SEO_SIGNOFF_REF = 'seo-page';
 export const SEO_PLAN_REF = 'seo-plan';
 
@@ -224,6 +242,7 @@ export async function fileSeoSignoffAsk(opts: { orgId: string; page: SeoPageReco
         m.review?.notesArtifactId ? `[The editor's whole review](/dashboard/artifacts/${m.review.notesArtifactId})` : null,
       ].filter(Boolean).join('\n\n') || null,
       allowOther: true,
+      outcomes: PAGE_OUTCOMES,
     },
   });
   const shown: SeoSignoffAsk = { askId: ask.id, round, draftArtifactId: draft, version: words.version, hash: words.hash, at: new Date().toISOString() };
@@ -298,8 +317,10 @@ export async function fileSeoPlanAsk(opts: { orgId: string; batchId: number; age
       groupKey: `seo-batch:${batch.id}`,
       groupTitle: batch.title,
       contextUrl: batchHref(batch.id),
+      // The map first: the sheet shows a leading table on the card, the reasoning in Details.
       contextMd: [planTable(rows), opts.why?.trim() ? `**Why these pages:** ${opts.why.trim().slice(0, 1500)}` : null].filter(Boolean).join('\n\n'),
       allowOther: true,
+      outcomes: PLAN_OUTCOMES,
     },
   });
   await mergeMeta<SeoBatchMeta>(opts.orgId, batch.id, cur => ({ plan: { ...(cur.plan ?? { state: 'plan_review', round }), askId: ask.id } }));

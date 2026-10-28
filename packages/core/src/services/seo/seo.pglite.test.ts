@@ -33,7 +33,7 @@ const { db } = await import('@/libs/DB');
 const { agentSchema, askSchema, automationSchema, learningCandidateSchema, modelCallSchema, projectSchema, tenantAccountSchema, trustRuleSchema } = await import('@/models/Schema');
 const { installPluginBundles } = await import('@/services/plugins/installBundle');
 const { getObjectTypeBySlug } = await import('@/services/BusinessObjectService');
-const { createDataRoom, getDataRoom } = await import('@/services/DataRoomService');
+const { createDataRoom, getDataRoom, updateDataRoom } = await import('@/services/DataRoomService');
 const { createArtifact, updateArtifact } = await import('@/services/ArtifactService');
 const { seoTools } = await import('@/services/agents/tools/seo');
 const { updateProjectTool } = await import('@/services/agents/tools/projects');
@@ -42,6 +42,7 @@ const { patchProject } = await import('@/app/api/v1/projects/[id]/handlers');
 const { decideCandidate } = await import('@/services/LearningCandidateService');
 const { getSeoBatch, getSeoPage, listSeoPages, patchSeoPage, readSeoGate } = await import('./records');
 const { onSeoAskSettled } = await import('./signoff');
+const { reportSeoRun } = await import('./work');
 const { renderSerpBrief, renderSynthesis, withSynthesis } = await import('@/libs/tools/serp/brief');
 
 const ORG = 'proj_seo_brightline';
@@ -210,6 +211,8 @@ describe('a keyword plan a person signs off before anything is briefed', () => {
     expect(more).toEqual([]);
     expect(ask).toMatchObject({ kind: 'signoff', sourceRef: `seo-plan:${firstBatch}:1`, status: 'open', groupKey: `seo-batch:${firstBatch}` });
     expect(ask!.contextMd).toContain('| 4 | boiler servicing | service | — | commercial | boiler care | refresh https://northwind-home.example/boilers |');
+    // The card says what an answer does: approval resumes the work.
+    expect(ask!.outcomes).toMatchObject({ onApprove: expect.stringContaining('The briefs start'), onRevise: expect.stringContaining('re-plans with your note') });
 
     pages = await listSeoPages(ORG, firstBatch);
 
@@ -653,5 +656,85 @@ describe('writing runs in the background, and the editor\'s loop is code', () =>
     await answer(ask, 'other', 'Add the capacity table.');
 
     expect((await getSeoPage(ORG, pageId))?.meta.editorRounds).toBe(0);
+  });
+});
+
+describe('the editor reads the page it reviews', () => {
+  let batchId = 0;
+  let pageIds: number[] = [];
+
+  it('a batch of three blog posts samples all three, each signed by the project\'s authors', async () => {
+    const project = (await createDataRoom(ORG, PERSON, { title: 'Larkfield Systems' })).id;
+    await updateDataRoom(ORG, project, { authors: [
+      { name: 'Dana Reyes', title: 'Head of Engineering', url: 'https://larkfield.example/team/dana', default: true },
+      { name: 'Sam Okafor', title: 'Field Lead', topics: ['heat pumps'] },
+    ] });
+    const out = await call('seo_plan_batch', { project_id: project, topic: 'Heat pumps', pages: [
+      { keyword: 'heat pump noise', page_type: 'blog', author: 'sam okafor' },
+      { keyword: 'heat pump sizing', page_type: 'blog' },
+      { keyword: 'heat pump defrost cycle', page_type: 'blog' },
+    ] });
+    batchId = Number(/batch #(\d+)/.exec(out)![1]);
+
+    expect(out).not.toContain('byline');
+
+    await answer((await asksLike(`seo-plan:${batchId}:`))[0]!, 'approve');
+    const pages = await listSeoPages(ORG, batchId);
+    pageIds = pages.map(p => p.id);
+
+    expect(pages.map(p => p.meta.released)).toEqual([true, true, true]);
+    expect(pages.map(p => p.meta.author?.name)).toEqual(['Sam Okafor', 'Dana Reyes', 'Dana Reyes']);
+    expect(pages[1]!.meta.author).toMatchObject({ from: 'default', url: 'https://larkfield.example/team/dana' });
+    expect(JSON.parse(await call('seo_next_pages', { batch_id: batchId })).sample).toMatchObject({ size: 3, pages: pageIds });
+  });
+
+  it('seo_read_page hands the editor the record, the findings and the whole SERP brief, brief and draft', async () => {
+    const [first] = pageIds;
+    const serp = await serpBrief('heat pump noise');
+    await call('seo_save_research', { page_id: first, serp_artifact_id: serp });
+    const brief = await markdown('Brief heat pump noise', 'seo/briefs', '# Brief\n\nAnswer: most noise is the defrost cycle.');
+    await call('seo_save_brief', { page_id: first, brief_artifact_id: brief });
+    const draftMd = `# Why is my heat pump noisy?\n\n${'A steady hum is normal. '.repeat(900)}THE LAST LINE.`;
+    const draft = await markdown('Draft heat pump noise', 'seo/drafts', draftMd);
+    await call('seo_save_draft', { page_id: first, draft_artifact_id: draft, ...meta('heat-pump-noise') }, { agentSlug: 'seo-writer' });
+    await call('seo_save_review', { page_id: first, verdict: 'fix', findings: [{ issue: 'The intro does not name the defrost cycle.', location: 'Intro' }] }, { agentSlug: 'seo-editor' });
+
+    const read = await call('seo_read_page', { page: first }, { agentSlug: 'seo-editor', missionRunId: EDITOR_RUN });
+
+    expect(read).toContain('**Keyword:** heat pump noise');
+    expect(read).toContain('**Byline:** Sam Okafor, Field Lead');
+    expect(read).toContain('The intro does not name the defrost cycle. (Intro)');
+    expect(read).toContain(`## SERP brief — artifact #${serp}, version 1`);
+    expect(read).toContain(`## Page brief — artifact #${brief}, version 1`);
+    expect(read).toContain('Answer: most noise is the defrost cycle.');
+    expect(read).toContain(`## Draft — artifact #${draft}, version 1`);
+    // A long draft is cut where it says, and the same tool reads on.
+    expect(read).toContain(`seo_read_page { page: ${first}, part: "draft", offset: 16000 }`);
+    expect(read).not.toContain('THE LAST LINE.');
+    expect(await call('seo_read_page', { page: first, part: 'draft', offset: 16000 })).toContain('THE LAST LINE.');
+  });
+
+  it('refuses a page of another workspace', async () => {
+    expect(await call('seo_read_page', { page: pageIds[0] }, { orgId: 'proj_seo_elsewhere' })).toBe(`#${pageIds[0]} is not an SEO page in this workspace.`);
+  });
+
+  it('a background run says where the batch stands once, and nothing when nothing changed', async () => {
+    await call('seo_start_writing', { batch_id: batchId }, { conversationId: 9300 });
+    const said: string[] = [];
+    const tell = async (_org: string, _batch: number, text: string) => {
+      said.push(text);
+    };
+
+    expect(await reportSeoRun(ORG, batchId, tell)).toBe('said');
+    expect(said[0]).toContain('Larkfield Systems: Heat pumps:');
+    expect(await reportSeoRun(ORG, batchId, tell)).toBe('silent');
+    expect(said).toHaveLength(1);
+
+    // Something moved: the next run says so.
+    await call('seo_save_brief', { page_id: pageIds[1], brief_artifact_id: await markdown('Brief sizing', 'seo/briefs') });
+    await call('seo_save_draft', { page_id: pageIds[1], draft_artifact_id: await markdown('Draft sizing', 'seo/drafts'), ...meta('heat-pump-sizing') }, { agentSlug: 'seo-writer' });
+
+    expect(await reportSeoRun(ORG, batchId, tell)).toBe('said');
+    expect(said).toHaveLength(2);
   });
 });
