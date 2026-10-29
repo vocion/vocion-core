@@ -10,7 +10,6 @@ describe('the reading-width cap', () => {
   it('is the default: an ordinary dashboard page keeps it', () => {
     for (const path of [
       '/dashboard',
-      '/dashboard/chat',
       '/dashboard/artifacts',
       '/dashboard/inbox',
       '/dashboard/briefings',
@@ -38,6 +37,11 @@ describe('the full-bleed surfaces', () => {
   it('opens the window for a conversation and for an artifact on its own page', () => {
     expect(isFullBleedPath('/dashboard/chat/132')).toBe(true);
     expect(isFullBleedPath('/dashboard/artifacts/251')).toBe(true);
+  });
+
+  it('opens it for the chat surface, whose transcript scrolls at the pane\'s edge and keeps its own measure (2026-10-29)', () => {
+    expect(isFullBleedPath('/dashboard/chat')).toBe(true);
+    expect(isFullBleedPath('/w/metacto-revenue/dashboard/chat')).toBe(true);
   });
 
   it('leaves the document wrapper capped, because its sheet is a fixed size', () => {

@@ -24,9 +24,10 @@
  *
  * Two cases deliberately keep the cap rather than the window:
  *
- * - **No artifact open.** The transcript alone is prose, and prose gets the
- *   same reading column every other page gets. A conversation does not become
- *   a working surface because it could be one.
+ * - **No artifact open.** The transcript alone is prose, and keeps its own
+ *   centred reading measure (`max-w-3xl`). A conversation does not become a
+ *   working surface because it could be one; only its scroller spans the pane,
+ *   so the scrollbar sits at the edge.
  * - **Below `lg`.** There is no split at all: the surface shows ONE pane, the
  *   artifact when one is open and the conversation otherwise. The divider is
  *   not rendered either — there is nothing to drag.
@@ -57,9 +58,7 @@ import type { ReactNode } from 'react';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { SplitDivider } from '@/components/ui/split-divider';
 import { useViewportBelow } from '@/components/ui/useMobile';
-import { READING_WIDTH_CLASS } from '@/features/navigation/pageWidth';
 import { PaneDrawer } from '@/features/preview/PaneDrawer';
-import { cn } from '@/utils/Helpers';
 import {
   clampConversationSplit,
   clearStoredConversationSplit,
@@ -119,11 +118,13 @@ export function ConversationSplit(props: ConversationSplitProps) {
   const clamp = useCallback((fraction: number) => clampConversationSplit(fraction, usable), [usable]);
 
   if (!open) {
-    // Prose keeps the reading column — the same one the shell gives every
-    // other page, so closing the pane does not throw the transcript across
-    // the monitor.
+    // Alone, the conversation is the whole pane and reaches its edges through
+    // the page gutter (`--page-gutter-x`), so the transcript's scrollbar sits
+    // at the pane's right edge (Chris, 2026-10-29). The prose keeps its own
+    // centred measure, so closing the pane does not throw the transcript
+    // across the monitor.
     return (
-      <div className={cn(READING_WIDTH_CLASS, 'flex min-h-0 flex-1 flex-col')} data-conversation-split="closed">
+      <div className="mx-[calc(var(--page-gutter-x,0px)*-1)] flex min-h-0 flex-1 flex-col" data-conversation-split="closed">
         {props.conversation}
       </div>
     );

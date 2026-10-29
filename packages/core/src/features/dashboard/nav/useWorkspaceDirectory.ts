@@ -22,12 +22,26 @@ export type WorkspaceDirectory = {
 };
 
 /**
- * Load the person's workspaces and the apps in them, once per mount. Null
- * while loading. A failed apps read leaves the rail on this workspace's apps
- * rather than failing the switcher; a failed workspaces read leaves both empty.
+ * The last directory this tab read. The shell is mounted by two layouts
+ * (`/dashboard/*` and `/gtm/*`), so picking an app across them mounts the
+ * sidebar afresh; starting from null blanked the switcher to its loading
+ * pulse and back to the same workspace on every such click (Chris,
+ * 2026-10-29: "flickering and blinking, then coming back to the same
+ * workspace"). Only ever written in the browser, from an effect, so a server
+ * render never shares it between people; a workspace switch or a sign-out is
+ * a full page load, which empties it.
+ */
+let lastRead: WorkspaceDirectory | null = null;
+
+/**
+ * Load the person's workspaces and the apps in them, on every mount. Null
+ * while the tab's first read loads; after that a mount starts from the last
+ * read and refreshes it in place. A failed apps read leaves the rail on this
+ * workspace's apps rather than failing the switcher; a failed workspaces read
+ * leaves both empty, unless an earlier read is on screen, which it keeps.
  */
 export function useWorkspaceDirectory(): WorkspaceDirectory | null {
-  const [data, setData] = useState<WorkspaceDirectory | null>(null);
+  const [data, setData] = useState<WorkspaceDirectory | null>(() => lastRead);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,13 +50,14 @@ export function useWorkspaceDirectory(): WorkspaceDirectory | null {
       client.apps.forUser().catch(() => ({ apps: [], workspacesByApp: {} })),
     ])
       .then(([r, a]) => {
+        lastRead = { projects: r.projects, accounts: r.accounts, account: r.account ? { id: r.account.id, name: r.account.name } : null, orgsMode: r.orgsMode, apps: a.apps, workspacesByApp: a.workspacesByApp };
         if (!cancelled) {
-          setData({ projects: r.projects, accounts: r.accounts, account: r.account ? { id: r.account.id, name: r.account.name } : null, orgsMode: r.orgsMode, apps: a.apps, workspacesByApp: a.workspacesByApp });
+          setData(lastRead);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setData({ projects: [], accounts: [], account: null, orgsMode: 'single', apps: [], workspacesByApp: {} });
+          setData(current => current ?? { projects: [], accounts: [], account: null, orgsMode: 'single', apps: [], workspacesByApp: {} });
         }
       });
     return () => {

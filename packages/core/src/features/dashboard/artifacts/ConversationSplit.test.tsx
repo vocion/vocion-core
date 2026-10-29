@@ -152,7 +152,7 @@ describe('a conversation with a document beside it', () => {
 });
 
 describe('a conversation with nothing beside it', () => {
-  it('keeps the reading column, and offers no divider to drag', async () => {
+  it('spans the pane through the page gutter (its scrollbar at the edge), and offers no divider to drag', async () => {
     forget();
     render(<ConversationSplit conversation={CONVERSATION} pane={null} />);
 
@@ -162,8 +162,10 @@ describe('a conversation with nothing beside it', () => {
 
     const host = document.querySelector('[data-conversation-split="closed"]') as HTMLElement;
 
-    expect(host.className).toContain('max-w-[1180px]');
-    expect(host.className).toContain('mx-auto');
+    // The measure is the transcript's own `max-w-3xl`; the host is the pane,
+    // reaching its edges through the gutter (Chris, 2026-10-29).
+    expect(host.className).not.toContain('max-w-[1180px]');
+    expect(host.className).toContain('mx-[calc(var(--page-gutter-x,0px)*-1)]');
   });
 });
 
