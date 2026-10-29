@@ -85,6 +85,15 @@ describe('buildConnections', () => {
     expect([one({ sync: done() }).problem, one({ sync: done() }).fix]).toEqual([null, null]);
   });
 
+  it('asks for a fresh sign-in on a site that wants one, and counts a kept sign-in as connected', () => {
+    const signIn = { kept: true, site: 'https://example-site.squarespace.com', savedAt: '2026-10-27T12:00:00.000Z', savedFrom: 'the operator CLI', cookies: 17, needsSignIn: null };
+    const one = (extra: Partial<Source>) => buildConnections(tiles, [source('sq', 'squarespace', extra)])[0]!;
+
+    expect([one({ signIn: { ...signIn, needsSignIn: { at: '2026-10-28T09:00:00.000Z', why: 'refused' } } }).problem, one({ signIn: { ...signIn, needsSignIn: { at: '2026-10-28T09:00:00.000Z', why: 'refused' } } }).fix]).toEqual(['sign-in-needed', 'sign-in']);
+    expect(one({ credentialConnected: false, signIn }).status).toBe('working');
+    expect(one({ credentialConnected: false, signIn: { ...signIn, kept: false } }).problem).toBe('not-connected');
+  });
+
   it('retries a failed crawl rather than offering a login it does not have', () => {
     const row = buildConnections(tiles, [source('w', 'web', { authKind: 'none', sync: done({ status: 'failed', error: '404' }) })])[0]!;
 

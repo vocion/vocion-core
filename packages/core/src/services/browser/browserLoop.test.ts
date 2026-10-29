@@ -25,3 +25,17 @@ describe('goingInCircles', () => {
     expect(goingInCircles(['open:/a', 'open:/a', 'open:/a', 'open:/a', 'open:/a', 'open:/a'])).toBe(false);
   });
 });
+
+describe('a secret the page echoes back', () => {
+  it('is said to have gone in as its real value, so a refused sign-in never blames the placeholder', async () => {
+    const { SECRET_ECHO_RULE, typedSecretNote } = await import('./browserLoop');
+    const secrets = { password: 'fixture-pass-42', body_html: '<p>x</p>' };
+
+    expect(typedSecretNote('{{password}}', secrets)).toContain('typed the real value of {{password}}');
+    expect(typedSecretNote('{{ password }}', secrets)).toContain('{{password}}');
+    expect(typedSecretNote('editor@northwind-home.example', secrets)).toBeNull();
+    expect(typedSecretNote('{{email}}', secrets)).toBeNull();
+    expect(SECRET_ECHO_RULE).toContain('never the braces');
+    expect(SECRET_ECHO_RULE).toContain('never blame the placeholder');
+  });
+});

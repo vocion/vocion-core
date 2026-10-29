@@ -29,6 +29,9 @@ fields:
   - {key: location, label: Location, from: meta.location}
   - {key: target, label: Target URL, from: meta.target, format: mono}
   - {key: status, label: Status, from: meta.status, format: badge, tones: {proposed: muted, researched: muted, briefed: info, drafting: info, in_review: warn, changes_requested: bad, approved: ok, publishing: info, published: ok, rejected: muted}}
+  # Where publishing stands, in one line: waiting its turn, a saved draft, or waiting on a fresh
+  # Squarespace sign-in (never shown as failed: it carries on once someone signs in).
+  - {key: publishing, label: Publishing, from: meta.publishing.note}
   - {key: models, label: Models, from: meta.modelsLine}
   - {key: intent, label: Intent, from: meta.intent}
   - {key: volume, label: Volume, from: meta.volume, format: mono}
