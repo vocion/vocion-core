@@ -2,6 +2,7 @@
 
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { splitSections } from './briefingSectionsModel';
 
 /**
@@ -49,7 +50,7 @@ export function BriefingSections(props: { briefingId: number; briefingTitle: str
               <h2 className="text-base font-semibold tracking-tight">{sec.heading}</h2>
             </div>
           )}
-          <Markdown remarkPlugins={[remarkGfm]}>{sec.body}</Markdown>
+          <Markdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{sec.body}</Markdown>
         </section>
       ))}
     </>

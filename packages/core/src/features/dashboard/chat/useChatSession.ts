@@ -447,6 +447,11 @@ export function useChatSession({
   const [allDocuments, setAllDocuments] = useState<IndexedDocument[]>([]);
   // Citation numbers the assistant answers actually reference (`[n]`) — drives
   // the drawer's "Cited" tab vs. the full retrieved "All" set.
+  // The asks the dock holds. The card is the one shape for an ask a turn
+  // produced; a "waiting on a person" chip beside it would be a second.
+  const dockedAsks = useMemo(() => [...openDecisions, ...waitingDecisions]
+    .filter(d => (d.subject ?? 'ask') === 'ask')
+    .map(d => ({ type: 'ask', id: String(d.id) })), [openDecisions, waitingDecisions]);
   const citedIndices = useMemo(() => {
     const set = new Set<number>();
     for (const message of messages) {
@@ -1547,7 +1552,7 @@ export function useChatSession({
    * typing, and the server records the answer and runs the agent that asked
    * (`services/decisions/answersFirst.ts`).
    */
-  const sendMessage = useCallback(async (raw: string, decision?: { view: DecisionView; answer: DecisionAnswer }) => {
+  const sendMessage = useCallback(async (raw: string, decision?: { view: DecisionView; answer: DecisionAnswer; via?: 'chat_chip' }) => {
     // Read the ref, not `isStreaming`: ⌘⏎ (stop-and-send) calls handleStop and
     // sendMessage in the same handler, before React has re-rendered.
     // THE HIGHLIGHTED PASSAGE IS PART OF WHAT WAS SAID (Chris, 2026-09-29: "I
@@ -1595,7 +1600,7 @@ export function useChatSession({
     // A card's answer is drawn as what it is — a receipt on the person's
     // side — and the composer, its files and its tags are left alone.
     const answerRow: ChatMessage | null = decision
-      ? { role: 'user', content: '', decisionAnswer: { id: decision.view.id, question: decision.view.question, line: answerLine(decision.view, decision.answer), kind: decision.answer.kind, via: 'card' } }
+      ? { role: 'user', content: '', decisionAnswer: { id: decision.view.id, question: decision.view.question, line: answerLine(decision.view, decision.answer), kind: decision.answer.kind, via: decision.via ?? 'card' } }
       : null;
     setMessages(prev => [
       ...prev,
@@ -1663,7 +1668,7 @@ export function useChatSession({
           agent_slug: turnAgent.slug,
           // The answer to a Decision, typed: the server records it and runs
           // the agent that asked — no routing, no intent read, no words.
-          ...(decision ? { decision_answer: decisionAnswerWire(decision.view, decision.answer) } : {}),
+          ...(decision ? { decision_answer: { ...decisionAnswerWire(decision.view, decision.answer), ...(decision.via ? { via: decision.via } : {}) } } : {}),
           // Nobody named an agent for this turn: let the workspace choose
           // (`services/agents/router.ts`). The reply is attributed to whoever
           // answers, exactly as an `@mention` is; the reason rides with it.
@@ -2341,8 +2346,18 @@ export function useChatSession({
    * next message, a real turn (chips are prompts).
    */
   const sendSuggestion = useCallback((s: import('@/libs/chat/suggestions').Suggestion) => {
+    // A chip the turn bound to its open card's option decides the card, as
+    // the person, typed (`services/decisions/chipAnswers.ts`) — the same
+    // answer as the card's own button, never its words sent as a message.
+    // Once the card is answered (or on a reload after it was), the chip is
+    // just words again.
+    const bound = s.answers ? openDecisions.find(d => (d.subject ?? 'ask') === 'ask' && d.id === s.answers!.id && d.options.some(o => o.id === s.answers!.optionId)) : undefined;
+    if (bound && s.answers && !streamingRef.current) {
+      void sendMessage('', { view: bound, answer: { kind: 'option', optionIds: [s.answers.optionId] }, via: 'chat_chip' });
+      return;
+    }
     void sendMessage(s.prompt);
-  }, [sendMessage]);
+  }, [sendMessage, openDecisions]);
 
   /**
    * A thumb (and optional note) on one assistant turn. Optimistic: the
@@ -2443,6 +2458,8 @@ export function useChatSession({
     openDecisions,
     /** What else waits on this person — Needs you questions, proposals from no conversation — queued behind them. */
     waitingDecisions,
+    /** The asks the dock holds, as refs: a turn draws no follow chip for an ask whose card is here. */
+    dockedAsks,
     /** What an answer from the queue did, said once in the dock. */
     dockNotice,
     dismissDockNotice: () => setDockNotice(null),

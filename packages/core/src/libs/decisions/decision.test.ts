@@ -103,20 +103,21 @@ describe('what an answer may be', () => {
 
 describe('the answer on the wire and to the agent', () => {
   it('reads exactly one of options, words or skip — and nothing else', () => {
-    expect(readDecisionAnswerWire({ id: 41, option_ids: ['api'] })).toEqual({ id: 41, subject: 'ask', answer: { kind: 'option', optionIds: ['api'] } });
-    expect(readDecisionAnswerWire({ id: 41, free_text: ' the fork ' })).toEqual({ id: 41, subject: 'ask', answer: { kind: 'free_text', text: 'the fork' } });
-    expect(readDecisionAnswerWire({ id: 41, skip: true })).toEqual({ id: 41, subject: 'ask', answer: { kind: 'skip' } });
-    expect(readDecisionAnswerWire({ id: 6061, subject: 'proposal', option_ids: ['approve'] })).toEqual({ id: 6061, subject: 'proposal', answer: { kind: 'option', optionIds: ['approve'] } });
+    expect(readDecisionAnswerWire({ id: 41, option_ids: ['api'] })).toEqual({ id: 41, subject: 'ask', answer: { kind: 'option', optionIds: ['api'] }, via: 'card' });
+    expect(readDecisionAnswerWire({ id: 41, free_text: ' the fork ' })).toEqual({ id: 41, subject: 'ask', answer: { kind: 'free_text', text: 'the fork' }, via: 'card' });
+    expect(readDecisionAnswerWire({ id: 41, skip: true })).toEqual({ id: 41, subject: 'ask', answer: { kind: 'skip' }, via: 'card' });
+    expect(readDecisionAnswerWire({ id: 6061, subject: 'proposal', option_ids: ['approve'] })).toEqual({ id: 6061, subject: 'proposal', answer: { kind: 'option', optionIds: ['approve'] }, via: 'card' });
     expect(readDecisionAnswerWire({ id: 41 })).toBeNull();
     expect(readDecisionAnswerWire({ id: 41, skip: true, option_ids: ['api'] })).toBeNull();
     expect(readDecisionAnswerWire({ id: -1, skip: true })).toBeNull();
     expect(readDecisionAnswerWire('approve')).toBeNull();
+    expect(readDecisionAnswerWire({ id: 41, option_ids: ['approve'], via: 'chat_chip' })).toEqual({ id: 41, subject: 'ask', answer: { kind: 'option', optionIds: ['approve'] }, via: 'chat_chip' });
   });
 
   it('round-trips through the wire shape the client sends, ask or proposal', () => {
     for (const answer of [{ kind: 'option' as const, optionIds: ['api'] }, { kind: 'free_text' as const, text: 'the fork' }, { kind: 'skip' as const }]) {
-      expect(readDecisionAnswerWire(decisionAnswerWire({ id: 41 }, answer))).toEqual({ id: 41, subject: 'ask', answer });
-      expect(readDecisionAnswerWire(decisionAnswerWire({ id: 6061, subject: 'proposal' }, answer))).toEqual({ id: 6061, subject: 'proposal', answer });
+      expect(readDecisionAnswerWire(decisionAnswerWire({ id: 41 }, answer))).toEqual({ id: 41, subject: 'ask', answer, via: 'card' });
+      expect(readDecisionAnswerWire(decisionAnswerWire({ id: 6061, subject: 'proposal' }, answer))).toEqual({ id: 6061, subject: 'proposal', answer, via: 'card' });
     }
   });
 

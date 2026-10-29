@@ -20,6 +20,14 @@ import { personSaidToDecide } from '../owedDecision';
  * Gated on the person's own words: the answer must be one their message this
  * turn says (`owedDecision.personSaid`) — never the model's reading of the
  * thread. Only a person may decide; on an agent's own schedule it refuses.
+ *
+ * Every kind, a sign-off included: the SEO app's keyword plan (2026-10-29)
+ * was answered "Approve the plan" in chat, the strategist found no way to
+ * record it, and filed a second, generic approval instead. A person's own
+ * words in their own turn ARE their sign-off; the answer is recorded as
+ * theirs (`decided_via: 'chat'`), and the ask's own follow-up runs. The tool
+ * is always loaded, never behind a tool search: answering in words must not
+ * depend on the agent having used it before.
  * @param ctx - The runtime context of the turn.
  */
 export function decideAskTool(ctx: RuntimeContext) {
@@ -41,7 +49,7 @@ export function decideAskTool(ctx: RuntimeContext) {
         return `Refused: the person has not said to answer ask #${input.id} with "${input.decision}" in their message. Recommend the answer and let them say so.`;
       }
       try {
-        const row = await decideAsk({ orgId: ctx.orgId, id: input.id, decision: input.decision, note: input.note ?? null, decidedBy: ctx.userId });
+        const row = await decideAsk({ orgId: ctx.orgId, id: input.id, decision: input.decision, note: input.note ?? null, decidedBy: ctx.userId, via: 'chat' });
         const carried = row.decisionNote && row.decisionNote !== (input.note ?? null) ? ` ${row.decisionNote.split('\n').at(-1)}` : '';
         // The records it was about, named — so the answer can point at what
         // the decision set moving (the turn's follow chips read this line).
@@ -56,7 +64,8 @@ export function decideAskTool(ctx: RuntimeContext) {
     },
     {
       name: 'decide_ask',
-      description: 'Answer an open ask (a question or approval waiting on the person, e.g. a Stopped ask on a request) on the person\'s behalf, in their own turn — when their message says the answer ("approve", "leave it stopped", an option\'s label). The same answer as the ask\'s own buttons: an option that carries an action runs it as the person. Refuses an answer they did not say. Never on your own schedule.',
+      description: 'Answer an open ask (a question, an approval or a sign-off waiting on the person, e.g. a Stopped ask on a request, a plan to sign off) on the person\'s behalf, in their own turn — when their message says the answer ("approve the plan", "leave it stopped", an option\'s label; a revise is "other" with their words as the note). The same answer as the ask\'s own buttons: an option that carries an action runs it as the person, and the ask\'s follow-up runs. Never file a new ask for something an open one already asks: answer that one. Refuses an answer they did not say. Never on your own schedule.',
+      metadata: { alwaysLoaded: true },
       schema: z.object({
         id: z.number().int().positive().describe('The ask id'),
         decision: z.string().min(1).max(80).describe('approve, reject, done, or one of the ask\'s option ids'),

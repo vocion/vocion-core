@@ -17,6 +17,7 @@ import { BrowserRunResult } from '@/features/browser/BrowserRunResult';
 import { BriefAudioPlayer } from '@/features/dashboard/briefings/BriefAudioPlayer';
 import { RecordMicrocard } from '@/features/dashboard/factory/WorkStatus';
 import { openPreview } from '@/features/preview/previewState';
+import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { normalizeAnswerHtml, stripCardNotes } from '@/libs/chat/answerText';
 import { linkedArtifactIds, mergeArtifactChips } from '@/libs/chat/artifactRefs';
 import { splitScratch } from '@/libs/chat/scratch';
@@ -146,6 +147,11 @@ export type AgentMessageProps = {
   conversationId?: number | null;
   /** The page's own record: never a follow chip (it refreshes itself). */
   pageRecord?: FollowExclude | null;
+  /**
+   * The asks docked in this conversation: the card is the one shape for an
+   * ask the turn produced, so it gets no "waiting on a person" chip as well.
+   */
+  docked?: readonly FollowExclude[];
   /** The newest turn in the thread — the only one that carries record microcards. */
   latest?: boolean;
   /** Sends a follow-up pill's words as the person's next message. */
@@ -288,7 +294,7 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   return null;
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onDigDeeper, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, opener, writer, onOpenArtifact, onBuildCard, conversationId, pageRecord, latest = false, threadRecords, onSuggestion }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onDigDeeper, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, opener, writer, onOpenArtifact, onBuildCard, conversationId, pageRecord, docked, latest = false, threadRecords, onSuggestion }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const settling = useJustEnded(streaming);
   const runs: AgentRun[] = message.runs
@@ -311,8 +317,8 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // What the turn set moving, less the page's own record, the artifacts the
   // row already shows and the records a microcard already draws.
   const follow = useMemo(() => turnFollowups(message.runs as TurnToolStep[] | undefined, {
-    exclude: [...(pageRecord ? [pageRecord] : []), ...chips.map(a => ({ type: 'artifact', id: String(a.id) })), ...microcards.map(r => ({ type: 'object', id: String(r.id) }))],
-  }), [message.runs, chips, pageRecord, microcards]);
+    exclude: [...(pageRecord ? [pageRecord] : []), ...(docked ?? []), ...chips.map(a => ({ type: 'artifact', id: String(a.id) })), ...microcards.map(r => ({ type: 'object', id: String(r.id) }))],
+  }), [message.runs, chips, pageRecord, docked, microcards]);
   // The browser runs this turn handed back done, with outputs for the run to draw (`BrowserRunResult`).
   const doneBrowserRuns = useMemo(() => browserRunsDone(message.runs as TurnToolStep[] | undefined), [message.runs]);
   // A failure is a failure whether it arrived as a legacy run or as a typed
@@ -367,7 +373,13 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // A live group that is only what the agent is saying (no step yet) has
   // nothing to open: its words are the bottom line, with the writer's dot.
   const notesOnly = liveSeg?.kind === 'work' && liveSeg.runs.length === 0 && liveSeg.trace.length === 0;
-  const lineOnGroup = liveSeg?.kind === 'work' && !notesOnly
+  // Artifacts the turn already made, while it keeps working: their chips sit
+  // under the prose, so a live line above them left the chips as the last
+  // thing in the turn, and a mid-turn line ("Now I'll propose the batch…")
+  // over two chips read as the end (2026-10-29). The live line then moves
+  // below the chips, the turn's one line, at its very bottom.
+  const chipsTrail = streaming && chips.length > 0;
+  const lineOnGroup = !chipsTrail && liveSeg?.kind === 'work' && !notesOnly
     && hasLiveDetail({ runs: liveSeg.runs, trace: liveSeg.trace, notes: liveSeg.notes, thinkingText: liveSeg.index === firstWork ? message.thinkingText : undefined });
   // What the agent is saying right now, on the thinking line (`foldNarration` live).
   const liveNote = liveSeg?.kind === 'work' ? latestNoteLine(liveSeg.notes) : null;
@@ -504,7 +516,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             ? (
                 // The newest group with nothing to open yet draws nothing: the
                 // bottom line is the turn's one line until it has.
-                liveIndex === seg.index && !lineOnGroup
+                // With chips trailing, a running group with steps draws as
+                // finished work and the line under the chips is the live one.
+                liveIndex === seg.index && !lineOnGroup && !(chipsTrail && (seg.runs.length > 0 || seg.trace.length > 0))
                   ? null
                   : (
                       <WorkTimeline
@@ -514,7 +528,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                         notes={seg.notes}
                         // The live group IS the turn's live line; every other
                         // group is folded to the quiet line of finished work.
-                        streaming={liveIndex === seg.index}
+                        streaming={liveIndex === seg.index && !chipsTrail}
                         activity={activity}
                         elapsed={elapsed}
                         thinkingText={seg.index === firstWork ? message.thinkingText : undefined}
@@ -539,7 +553,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                     // scroller instead (the `table` renderer below).
                     <div key={`text-${seg.index}-${i}`} className={PROSE}>
                       <Markdown
-                        remarkPlugins={[remarkGfm]}
+                        remarkPlugins={[remarkGfm, remarkDropHtmlComments]}
                         // Keep our private citation scheme; react-markdown's default
                         // sanitizer would strip `vocion-cite:` and drop the link.
                         urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}
@@ -666,7 +680,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             (`interleave.ts`) — each group of steps sits where it happened,
             and a group the agent has written past folds to one quiet line.
           */}
-          {streaming && !lineOnGroup && (
+          {streaming && !lineOnGroup && !chipsTrail && (
             <div className="mt-2 min-w-0">
               <LiveLine text={bottomLine} elapsed={elapsed} agent={writer} />
             </div>
@@ -689,6 +703,13 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           )}
           {(chips.length > 0 || (!streaming && follow.length > 0)) && (
             <ArtifactChips artifacts={chips} follow={streaming ? [] : follow} onOpen={onOpenArtifact} onBuild={streaming ? undefined : onBuildCard} />
+          )}
+          {/* Still working after it made something: the line under the chips,
+              so what it made never reads as the end of the turn. */}
+          {chipsTrail && (
+            <div className="mt-2 min-w-0" data-testid="live-line-after-chips">
+              <LiveLine text={bottomLine} elapsed={elapsed} agent={writer} />
+            </div>
           )}
           {(message.selfUpdates?.length ?? 0) > 0 && (
             <SelfUpdateChips updates={message.selfUpdates!} />

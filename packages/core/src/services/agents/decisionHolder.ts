@@ -200,7 +200,7 @@ export type HeldVerdict
  * (`conversation.surface`). Unknown reads as the app.
  * @param ctx - The turn.
  */
-async function inTheApp(ctx: Pick<RuntimeContext, 'orgId' | 'conversationId'>): Promise<boolean> {
+export async function inTheApp(ctx: Pick<RuntimeContext, 'orgId' | 'conversationId'>): Promise<boolean> {
   if (!ctx.conversationId) {
     return false;
   }

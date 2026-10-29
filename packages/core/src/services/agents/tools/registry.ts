@@ -16,6 +16,7 @@
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { z } from 'zod';
+import { withConnectCardOnGap } from '@/services/connect/connectCardOnGap';
 import { withToolCallRecord } from '../toolCallRecord';
 import { adsTools } from './adsTools';
 import { analyticsTools } from './analyticsTools';
@@ -181,7 +182,9 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
   const filing = fileRecordTools(ctx).filter(t => !taken.has(t.name));
   // Every invocation writes one tool_call row — the activity record,
   // covering all three harness providers at this single seam.
-  return [...tools, ...filing].map(t => withToolCallRecord(t as StructuredToolInterface, ctx));
+  // A result that says a system is not connected shows that system's
+  // connect card in the same turn (`services/connect/connectCardOnGap.ts`).
+  return [...tools, ...filing].map(t => withToolCallRecord(withConnectCardOnGap(t as StructuredToolInterface, ctx), ctx));
 }
 
 /**

@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { FactList, Related } from '@/components/patterns';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
+import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { resolveField } from '@/libs/workspace/pageFields';
 
 /**
@@ -39,7 +40,7 @@ function Prose({ row, field, now, links }: { row: PageRow; field: RecordField; n
       {field.format === 'text' && typeof raw === 'string'
         ? (
             <div className="prose prose-sm max-w-none text-foreground dark:prose-invert">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{raw}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{raw}</ReactMarkdown>
             </div>
           )
         : <FieldValue row={row} field={field} now={now} links={links} />}

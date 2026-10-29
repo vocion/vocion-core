@@ -185,6 +185,7 @@ describe('a keyword plan a person signs off before anything is briefed', () => {
       { orgId: ORG, feature: 'agent.turn', runKind: 'mission_run', runId: String(WRITER_RUN), model: 'claude-opus-5-5', agentSlug: 'seo-writer' },
     ]);
 
+    const raised: Array<{ type: string; decision?: { id: number; state: string; options: Array<{ id: string; recommended?: boolean }> } }> = [];
     const out = await call('seo_plan_batch', {
       project_id: projectId,
       topic: 'Boiler repair',
@@ -196,10 +197,14 @@ describe('a keyword plan a person signs off before anything is briefed', () => {
         { keyword: 'boiler servicing', page_type: 'service', intent: 'commercial', cluster: 'boiler care', existing_url: 'https://northwind-home.example/boilers' },
         { keyword: 'why is my boiler losing pressure', page_type: 'blog', intent: 'informational', cluster: 'boiler care' },
       ],
-    });
+    }, { emit: e => raised.push(e as never) });
     firstBatch = Number(/batch #(\d+)/.exec(out)![1]);
 
     expect(out).toContain('Filed the keyword plan\'s sign-off');
+    // The person planned it in their own turn: the sign-off is docked there,
+    // as the one card, Approve first — and a typed answer is recorded on it.
+    expect(out).toMatch(/Ask #\d+ is docked above their composer as the card, Approve first\./);
+    expect(out).toMatch(/decide_ask id \d+/);
 
     const batch = await getSeoBatch(ORG, firstBatch);
 
@@ -209,7 +214,8 @@ describe('a keyword plan a person signs off before anything is briefed', () => {
     const [ask, ...more] = await asksLike(`seo-plan:${firstBatch}:`);
 
     expect(more).toEqual([]);
-    expect(ask).toMatchObject({ kind: 'signoff', sourceRef: `seo-plan:${firstBatch}:1`, status: 'open', groupKey: `seo-batch:${firstBatch}` });
+    expect(ask).toMatchObject({ kind: 'signoff', sourceRef: `seo-plan:${firstBatch}:1`, status: 'open', groupKey: `seo-batch:${firstBatch}`, conversationId: 9101, ownerUserId: PERSON });
+    expect(raised.filter(e => e.type === 'decision').map(e => e.decision)).toEqual([expect.objectContaining({ id: ask!.id, state: 'open', options: [expect.objectContaining({ id: 'approve', recommended: true }), expect.objectContaining({ id: 'reject' })] })]);
     expect(ask!.contextMd).toContain('| 4 | boiler servicing | service | — | commercial | boiler care | refresh https://northwind-home.example/boilers |');
     // The card says what an answer does: approval resumes the work.
     expect(ask!.outcomes).toMatchObject({ onApprove: expect.stringContaining('The briefs start'), onRevise: expect.stringContaining('re-plans with your note') });
@@ -250,7 +256,14 @@ describe('a keyword plan a person signs off before anything is briefed', () => {
     expect(revised).toContain('Revised the keyword plan');
 
     const round2 = (await asksLike(`seo-plan:${firstBatch}:2`))[0]!;
-    await answer(round2, 'approve');
+    // The person taps the chip "Approve the plan", bound to the card's
+    // Approve: the typed answer is recorded as theirs, with no model between.
+    const { answersFirst } = await import('@/services/decisions/answersFirst');
+    const first = await answersFirst({ orgId: ORG, userId: PERSON, conversationId: 9101, message: '', wire: { id: round2.id, option_ids: ['approve'], via: 'chat_chip' } });
+
+    expect(first).toMatchObject({ kind: 'answered', source: 'card', via: 'chat_chip' });
+    expect((await asksLike(`seo-plan:${firstBatch}:2`))[0]).toMatchObject({ status: 'approved', decidedBy: PERSON, decidedVia: 'chat_chip' });
+
     pages = await listSeoPages(ORG, firstBatch);
 
     expect((await getSeoBatch(ORG, firstBatch))?.meta.plan?.state).toBe('approved');

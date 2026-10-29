@@ -8,6 +8,7 @@ import { EvidenceList, FactList, Section } from '@/components/patterns';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { EvidenceRef } from '@/features/preview/EvidenceRefs';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { readerFailure } from '@/libs/chat/redact';
 import { reduceBrief } from '@/services/personalization/brief';
 import { CONFIDENCE_DIMENSIONS, DIMENSION_LABEL, dimensionState, SIGNAL_STATE_LABEL } from '@/services/personalization/confidence';
@@ -62,7 +63,7 @@ export const Prose = ({ body, field }: { body: string; field?: string }) => (
     data-comment-field={field}
     className="prose prose-sm max-w-none dark:prose-invert [&_p]:whitespace-pre-line"
   >
-    <Markdown remarkPlugins={[remarkGfm]}>{body}</Markdown>
+    <Markdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{body}</Markdown>
   </div>
 );
 

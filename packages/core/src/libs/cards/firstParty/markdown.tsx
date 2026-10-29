@@ -1,6 +1,7 @@
 /**
  * markdown Card — a note, a brief section, a plan the agent wrote with
- * `render_markdown`. GFM (tables, task lists) on; raw HTML off. Links that
+ * `render_markdown`. GFM (tables, task lists) on; raw HTML off, and HTML
+ * comments dropped (`markdownDisplay.ts`). Links that
  * start with `/` stay in the app.
  */
 
@@ -12,6 +13,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/utils/Helpers';
 import { anchorCounter, headingText } from '../headingAnchor';
+import { remarkDropHtmlComments } from '../markdownDisplay';
 import { markdownSpecSchema } from '../specs';
 
 /**
@@ -45,7 +47,8 @@ export function MarkdownCardView({ data, surface }: { data: MarkdownSpec; surfac
       {data.title && <h3 className={cn('mb-2 font-semibold text-foreground', dense ? 'text-sm' : 'text-base')}>{data.title}</h3>}
       <div className={cn('prose prose-sm max-w-none text-foreground prose-headings:font-semibold prose-a:text-foreground prose-a:underline prose-a:decoration-border prose-a:underline-offset-2 dark:prose-invert', dense && 'line-clamp-[14]')}>
         <Markdown
-          remarkPlugins={[remarkGfm]}
+          // A comment is a note for code (a brief's metadata), never text.
+          remarkPlugins={[remarkGfm, remarkDropHtmlComments]}
           components={{
             ...(dense ? {} : anchoredHeadings()),
             a: ({ href, children }) => (

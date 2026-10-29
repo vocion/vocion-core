@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { personEffortChoice } from '@/services/AgentService';
-import { answerFloor, autoFloor, CONSULT_TOOL, createEffortMiddleware, decideEffort, EffortCeilings, effortNote, envelopeFor, inferEffort, nextLevel, parseEffort, synthesisLevel } from './effort';
+import { answerFloor, autoFloor, CONSULT_TOOL, createEffortMiddleware, decideEffort, EffortCeilings, effortNote, envelopeFor, INFER_SYSTEM, inferEffort, nextLevel, parseEffort, synthesisLevel } from './effort';
 
 describe('choosing the level', () => {
   const auto = async () => ({ level: 'deep' as const, reason: 'research across months' });
@@ -88,6 +88,17 @@ describe('the Auto floor', () => {
     expect(parseEffort('{"level":"quick","reason":"owed items lookup","drafts":false,"systems":1,"changes":0,"teams":1,"owed":true}')).toEqual({ level: 'standard', reason: 'reading everything open on it', teams: 1 });
     expect(parseEffort('{"level":"deep","reason":"account audit","drafts":false,"systems":4,"owed":true}')).toEqual({ level: 'deep', reason: 'account audit' });
     expect(parseEffort('{"level":"quick","reason":"calendar","drafts":false,"systems":1,"owed":false}')).toEqual({ level: 'quick', reason: 'calendar' });
+  });
+
+  it('never puts a question about connecting a system, or publishing through one, on Quick (2026-10-29)', () => {
+    expect(parseEffort('{"level":"quick","reason":"connection status","drafts":false,"systems":1,"changes":0,"teams":1,"owed":false,"analysis":"none","connects":true}')).toEqual({ level: 'standard', reason: 'checking a connection', teams: 1 });
+    expect(parseEffort('{"level":"deep","reason":"publish plan","drafts":false,"systems":2,"connects":true}')).toEqual({ level: 'deep', reason: 'publish plan' });
+    expect(autoFloor({ drafts: false, systems: 1, connects: true })).toEqual({ level: 'standard', reason: 'checking a connection' });
+    expect(autoFloor({ drafts: false, systems: 1, connects: false })).toBeNull();
+  });
+
+  it('asks the classifier for the connects fact, typed, never matched from words', () => {
+    expect(INFER_SYSTEM).toContain('"connects": true | false');
   });
 });
 

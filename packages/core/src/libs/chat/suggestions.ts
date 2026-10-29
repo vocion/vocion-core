@@ -42,6 +42,13 @@ export type Suggestion = {
   deeper?: true;
   /** Why it is offered, in one line, when the writer said (a brief's actions): the pill's tooltip. */
   why?: string;
+  /**
+   * The open Decision this pill answers, and with which option — bound by the
+   * turn in code (`services/decisions/chipAnswers.ts`), never written by the
+   * model. Tapping it decides the Decision as the person, typed, the way the
+   * card's own button does; its words are never sent as a message.
+   */
+  answers?: { id: number; optionId: string };
 };
 
 /** The line the agent writes for "the same question, on the Deep model". */
@@ -104,5 +111,6 @@ export const SUGGEST_INSTRUCTION = [
   'Only suggest what is specific to THIS answer and clearly worth a tap; never generic ("Tell me more", "Anything else?"). Zero is common: when nothing clears that bar, write no block.',
   'Write "Dig deeper" as one line only when a deeper pass would materially improve this answer.',
   'A suggestion is never a card or an ask: cards and file_ask are for what you want to DO that needs their consent, or a real question with options.',
+  'While a question of yours is open, a line that answers it is that option\'s label as the card shows it (e.g. "Approve"): tapping it decides the card. Never file a second ask for the same thing.',
   'The block is never shown as text; do not mention it.',
 ].join(' ');

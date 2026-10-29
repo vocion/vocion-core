@@ -56,8 +56,17 @@ describe('the SERP brief', () => {
   });
 
   it('links every row and dates it, and says which page could not be read', () => {
-    expect(md).toContain('| 1 | [Wide boots \\| northwind-outfitters.example](https://northwind-outfitters.example/wide-boots) · northwind-outfitters.example | 1,200 | 2 | Article | yes (schema) | 3 | 4 / 2 | 2026-07-19 | not stated |');
-    expect(md).toContain('| 3 | [Fit guide](https://acme-trail-journal.example/fit) · acme-trail-journal.example | could not read: HTTP 403 from acme-trail-journal.example. | | | | | | 3 days ago | |');
+    expect(md).toContain('| 1 | [Wide boots \\| northwind-outfitters.example](https://northwind-outfitters.example/wide-boots) · northwind-outfitters.example | 1,200 | 2026-07-19 (published) |');
+    expect(md).toContain('| 3 | [Fit guide](https://acme-trail-journal.example/fit) · acme-trail-journal.example | could not read: HTTP 403 from acme-trail-journal.example. | 3 days ago |');
+  });
+
+  // 2026-10-29: a ten-column table ran off the artifact pane.
+  it('keeps the page table to four columns and lists the rest under each page', () => {
+    const header = md.split('\n').find(l => l.startsWith('| # | Page'))!;
+
+    expect(header).toBe('| # | Page | Words | Dated |');
+    expect(md).toContain('## Each page');
+    expect(md).toContain('**Words** 1,200 · **H2s** 2 · **Schema** Article · **FAQ** yes (schema) · **Images** 3 · **Links in / out** 4 / 2 · **Published** 2026-07-19 · **Updated** not stated');
   });
 
   it('lists headings two pages share, matched loosely, each citing its pages', () => {

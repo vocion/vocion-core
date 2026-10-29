@@ -2,6 +2,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { verifyArtifactShare } from '@/libs/share/artifactShareToken';
 import { getArtifact } from '@/services/ArtifactService';
 import { resolvePreview } from '@/services/preview/registry';
@@ -46,7 +47,7 @@ export default async function SharedArtifactPage(props: { params: Promise<{ loca
         : doc.body
           ? (
               <div className="prose prose-sm mt-6 max-w-none dark:prose-invert">
-                <Markdown remarkPlugins={[remarkGfm]}>{doc.body}</Markdown>
+                <Markdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{doc.body}</Markdown>
               </div>
             )
           : <p className="mt-6 text-sm text-muted-foreground">Nothing readable to show for this artifact.</p>}

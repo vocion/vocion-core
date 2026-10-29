@@ -16,6 +16,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Section } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
+import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { useRouter } from '@/libs/I18nNavigation';
 import { PUBLISH_TARGET_EXAMPLE, publishTargetProblems } from './publishTargetEdit';
 
@@ -163,7 +164,7 @@ export function ProjectWiki({ projectId, notes }: { projectId: number; notes: st
         : notes.trim()
           ? (
               <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{notes}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{notes}</ReactMarkdown>
               </div>
             )
           : <p className="text-sm text-muted-foreground">No wiki yet. The agent writes it as it learns the client; you can start it here.</p>}

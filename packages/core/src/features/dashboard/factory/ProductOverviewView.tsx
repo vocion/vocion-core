@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DetailMeta, DetailPage, FactList, MetaChip, OpenInPreview, Related, Section, StatusDot } from '@/components/patterns';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
+import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { Link } from '@/libs/I18nNavigation';
 import { relativeLabel } from '@/libs/timeAgo';
 import { PRODUCT_SECTIONS } from '@/libs/workspace/pageFields';
@@ -436,7 +437,7 @@ function About({ o }: { o: ProductOverview }) {
           <details className="text-[13px]">
             <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Notes</summary>
             <div className="prose prose-sm mt-2 max-w-none dark:prose-invert">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{c.notes}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{c.notes}</ReactMarkdown>
             </div>
           </details>
         )}

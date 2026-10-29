@@ -9,6 +9,7 @@
 import type { ArtifactPayload } from '@/services/agents/types';
 import { useMemo } from 'react';
 import { resolveCard } from '@/libs/cards';
+import { shownSpec } from '@/libs/cards/markdownDisplay';
 import { cardPayloadFor } from '@/libs/cards/specs';
 import { cn } from '@/utils/Helpers';
 
@@ -24,7 +25,7 @@ import { cn } from '@/utils/Helpers';
  * @param props.className
  */
 export function ArtifactCard({ artifact, surface, className }: { artifact: ArtifactPayload; surface: 'chat' | 'artifact'; className?: string }) {
-  const resolved = useMemo(() => resolveCard(cardPayloadFor(artifact.kind, artifact.spec, artifact.id > 0 ? artifact.id : undefined), { surface }), [artifact, surface]);
+  const resolved = useMemo(() => resolveCard(cardPayloadFor(artifact.kind, shownSpec(artifact, surface), artifact.id > 0 ? artifact.id : undefined), { surface }), [artifact, surface]);
   const { Renderer } = resolved.renderer;
   return (
     <div data-artifact-id={artifact.id} data-card={resolved.slug} className={cn(className)}>

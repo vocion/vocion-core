@@ -52,6 +52,7 @@ import { isSeededLead, leadName } from '@/libs/workspace/leadName';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { readInitiative } from '@/services/agents/initiative';
+import { SHOW_THE_CONNECT_CARD } from '@/services/connect/connectCardOnGap';
 import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
 import { enabledPluginsForOrg } from '@/services/PluginService';
@@ -64,6 +65,7 @@ import { createLegworkThinkingMiddleware, legworkConfig, stepThinkingDiffers } f
 import { FINISH_THE_READ } from './finishTheRead';
 import { createHandOffMiddleware } from './handOff';
 import { createMemoryDigestMiddleware } from './memoryDigest';
+import { PROGRESS_WORDS } from './progressWords';
 import { agentScope, createEvidenceHandoffMiddleware, createLookupMemoMiddleware, runtimeContextFromScope } from './runtimeContext';
 import { NO_SCREEN_CLAIMS } from './screenClaims';
 import { createSeenImagesMiddleware, takesToolResultImages } from './toolResultImages';
@@ -465,7 +467,14 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   // artifact #5261" to a person who had closed it). `screenClaims.ts`.
   systemPrompt = `${systemPrompt}\n\n${NO_SCREEN_CLAIMS}`;
   // A place in Vocion is a link, not a description (2026-09-18: eight paragraphs of Zoom scope steps, no link). The tool holds the table; this line makes the call.
-  systemPrompt = `${systemPrompt}\n\nWhen a person has to do something in Vocion themselves (connect or re-authorise a system, fix a credential, approve a proposal, adopt a learning), call where_to first and put the link it returns inline in your reply — never describe where to click without the link.`;
+  systemPrompt = `${systemPrompt}\n\nWhen a person has to do something in Vocion themselves (fix a credential, approve a proposal, adopt a learning), call where_to first and put the link it returns inline in your reply — never describe where to click without the link.`;
+  // A system that is not connected is answered with its connect card, never
+  // an offer to walk them through it (2026-10-29). `connectCardOnGap.ts`
+  // shows the card on its own when a tool finds the gap; this is the rule.
+  systemPrompt = `${systemPrompt}\n\n${SHOW_THE_CONNECT_CARD}`;
+  // Words between steps never read as the end, and no "Perfect." openers
+  // (2026-10-29). `progressWords.ts`.
+  systemPrompt = `${systemPrompt}\n\n${PROGRESS_WORDS}`;
 
   // CAPABILITIES (CORE, all agents). What the workspace could turn on and has
   // not: the chat recommends a plugin when the conversation calls for it

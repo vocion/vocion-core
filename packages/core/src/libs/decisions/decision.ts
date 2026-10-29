@@ -38,7 +38,7 @@ export const DECISION_STATES = ['open', 'answered', 'skipped', 'defaulted', 'exp
 export type DecisionState = typeof DECISION_STATES[number];
 
 /** Where a Decision was answered. */
-export const DECISION_CHANNELS = ['card', 'composer', 'needs_you', 'slack', 'email', 'default', 'agent'] as const;
+export const DECISION_CHANNELS = ['card', 'composer', 'chat', 'chat_chip', 'needs_you', 'slack', 'email', 'default', 'agent'] as const;
 export type DecisionChannel = typeof DECISION_CHANNELS[number];
 
 /**
@@ -467,6 +467,12 @@ export const DecisionAnswerWireSchema = z.object({
   option_ids: z.array(z.string().min(1).max(80)).max(8).optional(),
   free_text: z.string().max(4_000).optional(),
   skip: z.boolean().optional(),
+  /**
+   * Where the answer was given, when not the card itself: `chat_chip` is a
+   * follow-up chip under an answer that the turn bound to this Decision's
+   * option (`services/decisions/chipAnswers.ts`). Recorded as `decided_via`.
+   */
+  via: z.enum(['card', 'chat_chip']).optional(),
 });
 export type DecisionAnswerWire = z.infer<typeof DecisionAnswerWireSchema>;
 
@@ -475,24 +481,25 @@ export type DecisionAnswerWire = z.infer<typeof DecisionAnswerWireSchema>;
  * the three must be present.
  * @param raw - Whatever the client sent.
  */
-export function readDecisionAnswerWire(raw: unknown): { id: number; subject: DecisionSubject; answer: DecisionAnswer } | null {
+export function readDecisionAnswerWire(raw: unknown): { id: number; subject: DecisionSubject; answer: DecisionAnswer; via: 'card' | 'chat_chip' } | null {
   const parsed = DecisionAnswerWireSchema.safeParse(raw);
   if (!parsed.success) {
     return null;
   }
   const { id, option_ids, free_text, skip } = parsed.data;
   const subject = parsed.data.subject ?? 'ask';
+  const via = parsed.data.via ?? 'card';
   const given = [skip === true, (option_ids?.length ?? 0) > 0, typeof free_text === 'string' && free_text.trim().length > 0].filter(Boolean).length;
   if (given !== 1) {
     return null;
   }
   if (skip) {
-    return { id, subject, answer: { kind: 'skip' } };
+    return { id, subject, answer: { kind: 'skip' }, via };
   }
   if (option_ids && option_ids.length > 0) {
-    return { id, subject, answer: { kind: 'option', optionIds: option_ids } };
+    return { id, subject, answer: { kind: 'option', optionIds: option_ids }, via };
   }
-  return { id, subject, answer: { kind: 'free_text', text: free_text!.trim() } };
+  return { id, subject, answer: { kind: 'free_text', text: free_text!.trim() }, via };
 }
 
 /**

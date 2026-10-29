@@ -130,6 +130,44 @@ describe('a Decision in the chat session', () => {
     expect(result.current.composerValue).toBe('half a thought about billing');
   });
 
+  it('a chip the turn bound to the card decides it, typed, as a chip — never as words (2026-10-29)', async () => {
+    resumeThread();
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => answeredStream());
+    vi.stubGlobal('fetch', fetchMock);
+    const { result, act } = await renderHook(() => useChatSession({ agents: AGENTS }));
+    await vi.waitFor(() => expect(result.current.openDecisions).toHaveLength(1));
+
+    vi.mocked(client.decisions.open).mockResolvedValue([] as never);
+    await act(async () => {
+      result.current.sendSuggestion({ label: 'Build it in the portal', prompt: 'Build it in the portal', answers: { id: 41, optionId: 'portal' } });
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
+
+    expect(body.message).toBe('');
+    expect(body.decision_answer).toEqual({ id: 41, option_ids: ['portal'], via: 'chat_chip' });
+    expect(body.agent_slug).toBe('product-manager');
+
+    await vi.waitFor(() => expect(result.current.messages.some(m => m.decisionAnswer?.id === 41 && m.decisionAnswer.via === 'chat_chip')).toBe(true));
+  });
+
+  it('a chip bound to a card that is no longer open is just its words', async () => {
+    resumeThread();
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => answeredStream());
+    vi.stubGlobal('fetch', fetchMock);
+    const { result, act } = await renderHook(() => useChatSession({ agents: AGENTS }));
+    await vi.waitFor(() => expect(result.current.openDecisions).toHaveLength(1));
+
+    await act(async () => {
+      result.current.sendSuggestion({ label: 'Approve the plan', prompt: 'Approve the plan', answers: { id: 999, optionId: 'approve' } });
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
+
+    expect(body.message).toBe('Approve the plan');
+    expect(body.decision_answer).toBeUndefined();
+  });
+
   it('an answer that did not land takes its receipt back and says why on the card', async () => {
     resumeThread();
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'Decision 41 was already answered' }), { status: 409 })));

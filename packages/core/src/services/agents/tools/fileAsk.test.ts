@@ -102,6 +102,25 @@ describe('file_ask', () => {
 
     expect(out).toMatch(/^Ask refused \(VALIDATION_FAILED\): at most one option may be recommended/);
   });
+
+  it('refuses a duplicate of its own open ask and points to it (the keyword plan, 2026-10-29)', async () => {
+    const { ask: plan } = await upsertAsk({ orgId: ORG, ask: { kind: 'signoff', title: 'Sign off the keyword plan: Northwind trail shoes', agentSlug: 'product-manager', objectRefs: [{ type: 'object', id: '12' }], groupKey: 'seo-batch:12', sourceRef: 'seo-plan:12:1' } });
+
+    const out = await fileAskTool(ctxFor()).invoke({ title: 'Approve the trail shoes batch plan', kind: 'approval', object_refs: [{ type: 'object', id: 12 }], confidence: 0.9 });
+
+    expect(out).toMatch(new RegExp(`^Not asked: ask #${plan.id} "Sign off the keyword plan: Northwind trail shoes" is already open`));
+    expect(out).toContain(`decide_ask id ${plan.id}`);
+    expect(await db.select().from(askSchema)).toHaveLength(1);
+  });
+
+  it('still asks a different question about other records, and another agent\'s ask is not its duplicate', async () => {
+    await upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: 'Approve request 12?', agentSlug: 'product-manager', objectRefs: [{ type: 'request', id: '12' }] } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: 'Approve request 13?', agentSlug: 'qa-lead', objectRefs: [{ type: 'request', id: '13' }] } });
+
+    const out = await fileAskTool(ctxFor()).invoke({ title: 'Approve request 13?', kind: 'approval', object_refs: [{ type: 'request', id: 13 }], confidence: 0.9 });
+
+    expect(out).not.toMatch(/^Not asked/);
+  });
 });
 
 describe('withdraw_ask', () => {

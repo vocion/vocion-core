@@ -33,6 +33,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { SERP_BRIEF_FOLDER, serpBriefMeta, SYNTHESIS_END, SYNTHESIS_START } from '@/libs/tools/serp/brief';
 import { anchorArtifact, createArtifact, getArtifact } from '@/services/ArtifactService';
+import { askHere, showDocked } from '@/services/decisions/askHere';
 import { cadencePlanRefusal, readCadenceStanding } from '@/services/seo/cadence';
 import { LOCATION_PAGE_SIMILARITY_LIMIT, nearDuplicates, queryNamesLocation } from '@/services/seo/duplicates';
 import { whyNotWritable } from '@/services/seo/gate';
@@ -252,6 +253,16 @@ const pageSchema = z.object({
 
 type PageInput = z.infer<typeof pageSchema>;
 
+/**
+ * What the strategist is told about the plan's sign-off: where it is, and
+ * that a person's answer in words is recorded on it, never asked again.
+ * @param askId - The sign-off.
+ * @param docked - It is docked above the person's composer in this conversation.
+ */
+function planAskLine(askId: number, docked: boolean): string {
+  return ` ${docked ? `Ask #${askId} is docked above their composer as the card, Approve first.` : `Ask #${askId} is on Needs you.`} If they answer it in words ("approve the plan", a change to make), record it with decide_ask id ${askId} (a change is "other" with their words as the note); never file another ask for this plan.`;
+}
+
 export function seoPlanBatchTool(ctx: RuntimeContext) {
   return tool(
     async (raw, runtime?: ToolCallRuntime) => {
@@ -281,8 +292,10 @@ export function seoPlanBatchTool(ctx: RuntimeContext) {
           if (typeof revised === 'string') {
             return `Not planned: ${revised}`;
           }
-          const ask = await fileSeoPlanAsk({ orgId: ctx.orgId, batchId: revised.batch.id, agentSlug: seat(ctx, plannedBy), why: args.why });
-          return `Revised the keyword plan for batch #${revised.batch.id} (${revised.pages.length} pages, ${batchHref(revised.batch.id)}) and filed its sign-off${ask ? ` (ask #${ask.askId})` : ''}. Nothing is briefed or drafted until a person approves it.`;
+          const here = await askHere(ctx);
+          const ask = await fileSeoPlanAsk({ orgId: ctx.orgId, batchId: revised.batch.id, agentSlug: seat(ctx, plannedBy), why: args.why, here });
+          const docked = ask && here ? await showDocked(ctx, ask.askId) : false;
+          return `Revised the keyword plan for batch #${revised.batch.id} (${revised.pages.length} pages, ${batchHref(revised.batch.id)}) and filed its sign-off${ask ? ` (ask #${ask.askId})` : ''}. Nothing is briefed or drafted until a person approves it.${ask ? planAskLine(ask.askId, docked) : ''}`;
         }
         if (!args.project_id) {
           return 'Not planned: name the client project (project_id), or batch_id to revise a plan that was sent back.';
@@ -296,13 +309,16 @@ export function seoPlanBatchTool(ctx: RuntimeContext) {
           }
         }
         const { batch, pages: made } = await planSeoBatch(ctx.orgId, by, { projectId: args.project_id, topic: args.topic, destination: args.destination, pages: input, plannedBy });
-        const ask = await fileSeoPlanAsk({ orgId: ctx.orgId, batchId: batch.id, agentSlug: seat(ctx, plannedBy), why: args.why });
+        const here = await askHere(ctx);
+        const ask = await fileSeoPlanAsk({ orgId: ctx.orgId, batchId: batch.id, agentSlug: seat(ctx, plannedBy), why: args.why, here });
+        const docked = ask && here ? await showDocked(ctx, ask.askId) : false;
         const locations = made.filter(p => p.meta.pageType === 'location').length;
         const unsigned = made.filter(p => !p.meta.author).length;
         return [
           `Planned batch #${batch.id} "${batch.title}" with ${made.length} pages (${batchHref(batch.id)}).`,
           `Filed the keyword plan's sign-off for a person${ask ? ` (ask #${ask.askId})` : ''}: the map of keyword, page type, location, intent, cluster and target.`,
           'STOP HERE: brief and draft nothing until they approve it — seo_save_brief and seo_save_draft refuse until then, and you are woken when they answer. Do not file another ask for it. SERP research may go on meanwhile (seo_save_research).',
+          ask ? planAskLine(ask.askId, docked).trim() : null,
           unsigned > 0 ? `${unsigned === made.length ? 'No page has' : `${unsigned} ${unsigned === 1 ? 'page has' : 'pages have'}`} a byline: the project names no default author. Read the client's author pages and set them once with update_project authors (one marked default); ask the person only if the site names none. Never ask per batch.` : null,
           locations > 0 ? `${locations} location page${locations === 1 ? '' : 's'}: each is researched on its own city's results (seo_save_research refuses a brief whose query does not name its location) and must carry local substance; the editor's review fails one that is ${Math.round(LOCATION_PAGE_SIMILARITY_LIMIT * 100)}% or more the same as a sibling.` : null,
         ].filter(Boolean).join('\n');
@@ -646,8 +662,12 @@ export function seoSaveReviewTool(ctx: RuntimeContext) {
       // page as its records, bound to the words it shows. After the last
       // round it is filed anyway, with the findings still open, so the
       // person decides.
-      const ask = await fileSeoSignoffAsk({ orgId: ctx.orgId, page: reviewed, agentSlug: seat(ctx, ran), notes, ...(exhausted ? { openFindings: findings.length ? findings : [{ issue: notes.slice(0, 600) }] } : {}) });
+      const here = await askHere(ctx);
+      const ask = await fileSeoSignoffAsk({ orgId: ctx.orgId, page: reviewed, agentSlug: seat(ctx, ran), notes, here, ...(exhausted ? { openFindings: findings.length ? findings : [{ issue: notes.slice(0, 600) }] } : {}) });
       await refreshSeoBatch(ctx.orgId, page.meta.batchId);
+      if (ask && here) {
+        await showDocked(ctx, ask.askId);
+      }
       if (!ask) {
         return `Review recorded on page #${page.id}, but its sign-off could not be filed: draft #${page.meta.draftArtifactId} is gone. Save the draft again (seo_save_draft).`;
       }

@@ -117,6 +117,97 @@ async function raiseHere(
   }
 }
 
+/** Kinds that ask the same thing — "may this go ahead?" — whatever the filer called them. */
+const GO_AHEAD_KINDS = new Set(['approval', 'signoff', 'gate', 'recommendation', 'merge']);
+
+/**
+ * An ask's kind family: every go-ahead is one family; any other kind is its own.
+ * @param kind
+ */
+function kindFamily(kind: string | null | undefined): string {
+  const k = kind ?? 'approval';
+  return GO_AHEAD_KINDS.has(k) ? 'go-ahead' : k;
+}
+
+/**
+ * One record ref as a key.
+ * @param r
+ * @param r.type
+ * @param r.id
+ */
+const refKey = (r: { type: string; id: string | number }) => `${r.type}:${String(r.id)}`;
+
+/** An open ask, as the duplicate check reads it. */
+export type OpenAskLike = { id: number; title: string; kind: string; groupKey: string | null; objectRefs: ReadonlyArray<{ type: string; id: string | number }> | null; conversationId: number | null };
+
+/**
+ * NO DUPLICATE ASKS. The open ask of this agent's that a new one would ask
+ * again, or null. Pure; the agent's own open asks in.
+ *
+ * 2026-10-29, the SEO app on prod: the strategist's keyword plan sign-off
+ * (filed in code, about the batch) was open, the person tapped "Approve the
+ * plan", and the strategist filed a second, generic approval about the same
+ * batch. Approving it would have done nothing. A duplicate is:
+ *
+ *   - the same records (every one, nothing else) and the same kind family,
+ *     or the same records under the same group_key — the same question about
+ *     the same things, however it is worded;
+ *   - in this conversation, a go-ahead (or the same kind) while one of the
+ *     agent's is already open here, unless the new one names other records:
+ *     one card is docked at a time, and an unanchored second approval beside
+ *     it is the same question asked again.
+ *
+ * The same `source_ref` is not a duplicate: it updates the open ask in place
+ * (`upsertAsk`), which is how a filer refreshes its own question.
+ * @param candidate - The ask about to be filed.
+ * @param candidate.kind - Its kind.
+ * @param candidate.groupKey - Its group key.
+ * @param candidate.objectRefs - Its records.
+ * @param candidate.conversationId - The conversation it would be asked in, when a person is here.
+ * @param open - The agent's open asks in this workspace.
+ */
+export function duplicateOpenAsk(candidate: { kind?: string | null; groupKey?: string | null; objectRefs?: ReadonlyArray<{ type: string; id: string | number }> | null; conversationId?: number | null }, open: readonly OpenAskLike[]): OpenAskLike | null {
+  const refs = new Set((candidate.objectRefs ?? []).map(refKey));
+  const family = kindFamily(candidate.kind);
+  for (const e of open) {
+    const theirs = new Set((e.objectRefs ?? []).map(refKey));
+    const sameRefs = refs.size > 0 && refs.size === theirs.size && [...refs].every(r => theirs.has(r));
+    const sameFamily = kindFamily(e.kind) === family;
+    const sameGroup = Boolean(candidate.groupKey) && e.groupKey === candidate.groupKey;
+    if (sameRefs && (sameFamily || sameGroup)) {
+      return e;
+    }
+    const overlaps = refs.size === 0 || theirs.size === 0 || [...refs].some(r => theirs.has(r));
+    if (candidate.conversationId && e.conversationId === candidate.conversationId && sameFamily && overlaps) {
+      return e;
+    }
+  }
+  return null;
+}
+
+/**
+ * The asking agent's open asks in this workspace. Never throws: a check that
+ * cannot read lets the ask through, since a missed question is worse than a
+ * doubled one.
+ * @param orgId - The workspace.
+ * @param agentSlug - The agent.
+ */
+async function openAsksOf(orgId: string, agentSlug: string): Promise<OpenAskLike[]> {
+  try {
+    const { and, desc, eq } = await import('drizzle-orm');
+    const { db } = await import('@/libs/DB');
+    const { askSchema } = await import('@/models/Schema');
+    return await db
+      .select({ id: askSchema.id, title: askSchema.title, kind: askSchema.kind, groupKey: askSchema.groupKey, objectRefs: askSchema.objectRefs, conversationId: askSchema.conversationId })
+      .from(askSchema)
+      .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), eq(askSchema.agentSlug, agentSlug)))
+      .orderBy(desc(askSchema.id))
+      .limit(50);
+  } catch {
+    return [];
+  }
+}
+
 const KIND_GUIDE = 'approval (approve, reject or mark done), input (you need a value or a decision only they have), ruling (choose between options), credential (paste a secret; the value never travels through the ask), merge (a PR for a person to merge), recommendation (you recommend an outcome; they authorise), gate (a run may not continue without a yes), signoff (an artifact you made, for them to approve, revise with a note, or discard — name it in object_refs as { type: "artifact", id }), setup (one step of setting something up). A suggestion of what to do next asks for no consent and is never an ask: end your reply with a <suggest> block instead';
 
 export function fileAskTool(ctx: RuntimeContext) {
@@ -149,6 +240,15 @@ export function fileAskTool(ctx: RuntimeContext) {
         due_at?: string;
         confidence: number;
       };
+      // NO DUPLICATES: the same question, already open, is pointed to, not asked again.
+      if (ctx.agentSlug && !args.source_ref) {
+        const here = ctx.conversationId && ctx.userId && !isAgentsOwnSchedule(ctx) ? ctx.conversationId : null;
+        const dup = duplicateOpenAsk({ kind: args.kind, groupKey: args.group_key, objectRefs: args.object_refs, conversationId: here }, await openAsksOf(ctx.orgId, ctx.agentSlug));
+        if (dup) {
+          ctx.emit({ type: 'tool_progress', tool: 'file_ask', meta: { filed: false, reason: 'duplicate', askId: dup.id } } as never);
+          return `Not asked: ask #${dup.id} "${dup.title}" is already open and asks this. Do not file another. If the person answered it in their words, record their answer with decide_ask id ${dup.id}; otherwise point them to it${dup.conversationId && dup.conversationId === here ? ' (it is docked above their composer)' : ''}. If it no longer applies, withdraw_ask it first.`;
+        }
+      }
       const options = args.options?.map(optionForAsk);
       // THE PERSON ASKING IS THE OWNER (backlog 044): a decision the person in
       // this turn holds is asked HERE, docked above their composer, not filed

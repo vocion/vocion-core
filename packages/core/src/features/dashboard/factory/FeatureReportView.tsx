@@ -10,6 +10,7 @@ import { Related, Section, StatusDot } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Notice } from '@/components/ui/notice';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { heroPictures } from '@/libs/factory/heroPictures';
 import { showsAnError } from '@/libs/factory/mockup';
 import { prNumberLabel } from '@/libs/factory/runTitle';
@@ -88,7 +89,7 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
               {item.imageUrl === null && item.body !== null && (
                 <div className="max-h-[32rem] overflow-y-auto px-4 py-3.5 sm:px-5">
                   <div className="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:text-[13px] prose-headings:tracking-wide prose-headings:text-muted-foreground prose-headings:uppercase prose-p:leading-relaxed prose-pre:bg-background prose-pre:text-[11px] prose-pre:leading-snug prose-table:text-xs">
-                    <Markdown remarkPlugins={[remarkGfm]}>{item.body}</Markdown>
+                    <Markdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{item.body}</Markdown>
                   </div>
                 </div>
               )}
@@ -621,7 +622,7 @@ export function FeatureReportView({ report, status, related = [] }: { report: Fe
           <div id="report-story" className="max-w-prose space-y-2">
             {report.story !== null && (
               <div className="prose prose-sm max-w-none text-foreground dark:prose-invert prose-p:my-0 prose-p:text-[15px] prose-p:leading-relaxed">
-                <Markdown remarkPlugins={[remarkGfm]}>{report.story}</Markdown>
+                <Markdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{report.story}</Markdown>
               </div>
             )}
             {report.expectedBenefit !== null && (
