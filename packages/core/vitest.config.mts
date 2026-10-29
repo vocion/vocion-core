@@ -95,6 +95,11 @@ const uiSettings: ProjectTest = {
 
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
+  // Bundled before the browser tests start. A dependency Vite first meets
+  // mid-run (SignInForm.test.tsx hydrates with react-dom/client) makes it
+  // re-optimise and reload, and whichever test files are loading then fail
+  // to import.
+  optimizeDeps: { include: ['react-dom/client'] },
   test: {
     coverage: {
       include: ['src/**/*'],
