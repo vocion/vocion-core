@@ -418,8 +418,8 @@ export function stripMetaBlock(markdown: string): string {
 }
 
 const BYLINE_LABEL = String.raw`(?:author|authors|by|written\s+by|byline|category|categories|tags?|published|date|reading\s+time|read\s+time)`;
-/** A labelled byline line ("**Author:** Jane", "Category: Plumbing", "*By:* Jane | **Category:** X"). */
-const BYLINE_LINE_RE = new RegExp(String.raw`^\s*(?:[-*]\s+)?(?:\*\*|__|\*|_)?${BYLINE_LABEL}(?:\*\*|__|\*|_)?\s*:`, 'i');
+/** A labelled byline line ("**Author:** Jane", "Category: Plumbing", "*By:* Jane | **Category:** X", "> **Author:** Jane"). */
+const BYLINE_LINE_RE = new RegExp(String.raw`^\s*(?:>\s*)?(?:[-*]\s+)?(?:\*\*|__|\*|_)?${BYLINE_LABEL}(?:\*\*|__|\*|_)?\s*:`, 'i');
 
 /**
  * The body without a byline block at its top ("**Author:** …", "**Category:**
