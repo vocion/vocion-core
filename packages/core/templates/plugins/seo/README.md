@@ -86,10 +86,21 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   project already has is refused unless it is a refresh.
 - **Skills**: `onboard-client`, `audit-site`, `ai-prompts`, `serp-research`, `page-brief`, `write-page`,
   `review-page`, `feedback-to-wiki`, `publish-page`.
-- **The learning step `seo-feedback`**: craft notes from sign-offs become
-  candidate rules, tagged with their project; adopted ones mount for the
-  writer and the editor. A client's own candidate, once adopted, reaches only
-  that client's pages.
+- **Playbooks, the agency's way of working**: `how-we-brief-a-page`,
+  `location-pages-without-doorways`, `sourcing-and-claims`,
+  `on-page-checklist`, `internal-linking`. The strategist, the writer and the
+  editor name them (`playbooks:`), and the editor checks every draft against
+  the on-page checklist and the sourcing rules. Installed into a workspace
+  with no folder, they are applied once as the workspace's own copies, edited
+  in place, and an upgrade keeps a copy a person changed.
+- **Feedback that edits the playbooks**: a craft note that changes how the
+  agency works becomes a proposed edit to the matching playbook, a diff a
+  person approves in Review. A client's note goes to its project, never a
+  playbook.
+- **The learning step `seo-feedback`**: one-line craft rules from sign-offs
+  become candidate rules, tagged with their project; adopted ones mount for
+  the writer and the editor. A client's own candidate, once adopted, reaches
+  only that client's pages.
 - **Pages**: SEO (every batch with its gate line and pages by status) and SEO
   pages (a batch's pages with keyword, type, location, target URL, status,
   models and links).
@@ -109,5 +120,8 @@ It turns on the `data-rooms` plugin (Projects kept current) and the Wiki with it
   `workflows/<slug>/workflow.yaml` of the same slug in the workspace wins.
 - A seat's model: patch the agent with `extends: core` in your workspace's
   `agents/<slug>.yaml` and set `harness.model`.
-- House craft rules: seed them in `learnings/seo-feedback.yaml` with
+- The agency's way of working: edit a playbook on `/dashboard/skills/<slug>`
+  (a workspace with no folder edits its own copy in place; one with a folder
+  adds `playbooks/<slug>/SKILL.md`), or approve the edits feedback proposes.
+- One-line craft rules: seed them in `learnings/seo-feedback.yaml` with
   `extends: core`, or adopt them from feedback on `/dashboard/learnings`.

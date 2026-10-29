@@ -13,7 +13,8 @@ import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { listPluginSlugs, loadPlugin, pluginContents, readPluginTeams } from '@/libs/workspace/plugins';
 import { effectiveMeasures } from '@/libs/workspace/team-export';
-import { agentSchema, teamSchema } from '@/models/Schema';
+import { agentSchema, playbookSchema, teamSchema } from '@/models/Schema';
+import { ownsPlaybookCopies } from '@/services/playbooks/owned';
 import { readPluginActions, readPluginLearnings } from '@/services/plugins/pluginReads';
 import { enabledPluginsForOrg } from '@/services/PluginService';
 import { readTeamMeasures, windowPhrase } from '@/services/team-report';
@@ -31,8 +32,9 @@ import { actionPill, learningPill, planPluginPanel } from './pluginPanelPlan';
  * costs nothing (principles 6, 7 and 12).
  *
  * Five groups, each derived: the measures its team declared (read exactly as
- * the team report reads them, provenance and all), its agents, its skills and
- * playbooks with the path that overrides each one, its automations (the
+ * the team report reads them, provenance and all), its agents, its playbooks
+ * (the way of working it brings, each linked where it is edited), its skills
+ * with the path that overrides each one, its automations (the
  * workspace register's own rows narrowed to this plugin, system plumbing left
  * out, linking to the register filtered to the app — there is no second
  * register), and what use has taught it — learning candidates on its agents'
@@ -81,13 +83,19 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
     };
   });
 
-  const [readings, learnings, actions, register] = await Promise.all([
+  const [readings, learnings, actions, register, playbookRows, ownsCopies] = await Promise.all([
     teams.length > 0
       ? readTeamMeasures(orgId, teams.map(t => ({ teamSlug: t.slug, agentSlugs, measures: t.measures })))
       : Promise.resolve(new Map<string, MeasureReading>()),
     readPluginLearnings(orgId, agentSlugs),
     readPluginActions(orgId, agentSlugs),
     readAutomationRegister(orgId),
+    contents.playbooks.length > 0
+      ? db.select({ slug: playbookSchema.slug, name: playbookSchema.name })
+          .from(playbookSchema)
+          .where(and(eq(playbookSchema.orgId, orgId), eq(playbookSchema.kind, 'playbook'), inArray(playbookSchema.slug, contents.playbooks)))
+      : Promise.resolve([]),
+    contents.playbooks.length > 0 ? ownsPlaybookCopies(orgId) : Promise.resolve(false),
   ]);
   // The register's rows for this plugin, drawn by the register's own list.
   const automations = planAutomations({ ...register, now: await currentTime(), filter: { plugin: slug } }).rows;
@@ -101,6 +109,8 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
     agents: agentRows.map((a): PluginPanelAgent => ({ slug: a.slug, name: a.name, description: a.description })),
     learnings,
     actions,
+    playbookNames: new Map(playbookRows.map(r => [r.slug, r.name])),
+    ownsCopies,
   });
 
   return (
@@ -116,6 +126,7 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
           {' · '}
           {view.skills.length}
           {view.skills.length === 1 ? ' skill' : ' skills'}
+          {view.playbooks.length > 0 && ` · ${view.playbooks.length} ${view.playbooks.length === 1 ? 'playbook' : 'playbooks'}`}
           {automations.length > 0 && ` · ${automations.length} ${automations.length === 1 ? 'automation' : 'automations'}`}
         </span>
       </summary>
@@ -141,7 +152,18 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
               ))}
         </Group>
 
-        <Group heading="Skills & playbooks" href="/dashboard/skills">
+        {view.playbooks.length > 0 && (
+          <Group heading="Playbooks" href="/dashboard/skills">
+            {view.playbooks.map(p => (
+              <li key={p.slug} className="flex flex-wrap items-baseline justify-between gap-x-3 py-2 text-sm">
+                <Link href={p.href} className="font-medium hover:underline">{p.label}</Link>
+                <span className="font-mono text-[11px] text-muted-foreground">{p.hint}</span>
+              </li>
+            ))}
+          </Group>
+        )}
+
+        <Group heading="Skills" href="/dashboard/skills">
           {view.skills.length === 0
             ? <Nothing>This feature brings no skill.</Nothing>
             : view.skills.map(s => (

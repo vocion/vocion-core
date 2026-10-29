@@ -274,6 +274,12 @@ type AgentBlueprint = {
    * mounts them), not the lead's.
    */
   teammateSkills?: Record<string, string[]>;
+  /**
+   * The registered teammates' own playbooks, slug to playbook slugs: consulted,
+   * each reads them at `/playbooks/<slug>/` (`buildInitialFiles` mounts them),
+   * the same path it reads them at when it runs itself.
+   */
+  teammatePlaybooks?: Record<string, string[]>;
   /** The registered teammates' own granted tools (`harness.grantTools`), slug to grants. */
   teammateGrants?: Record<string, string[]>;
   /**
@@ -573,11 +579,13 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   const teammateModels = pinned.length > 0 ? Object.fromEntries(pinned.map(d => [d.slug, d.pinnedModel!])) : undefined;
   const skilled = registered.filter(d => d.skillSlugs?.length);
   const teammateSkills = skilled.length > 0 ? Object.fromEntries(skilled.map(d => [d.slug, d.skillSlugs!])) : undefined;
+  const readers = registered.filter(d => d.playbookSlugs?.length);
+  const teammatePlaybooks = readers.length > 0 ? Object.fromEntries(readers.map(d => [d.slug, d.playbookSlugs!])) : undefined;
   const granted = registered.filter(d => d.grantTools?.length);
   const teammateGrants = granted.length > 0 ? Object.fromEntries(granted.map(d => [d.slug, d.grantTools!])) : undefined;
   const withholding = registered.filter(d => d.excludeTools?.length);
   const teammateExcludes = withholding.length > 0 ? Object.fromEntries(withholding.map(d => [d.slug, canonicalToolNames(d.excludeTools)])) : undefined;
-  return { agentRow: row, systemPrompt, subagentSpecs, teammateNames, ...(teammateModels ? { teammateModels } : {}), ...(teammateSkills ? { teammateSkills } : {}), ...(teammateGrants ? { teammateGrants } : {}), ...(teammateExcludes ? { teammateExcludes } : {}), defaultTimeZone, enabledPlugins, filingTypes, restSources, sourceKinds, workspaceKind };
+  return { agentRow: row, systemPrompt, subagentSpecs, teammateNames, ...(teammateModels ? { teammateModels } : {}), ...(teammateSkills ? { teammateSkills } : {}), ...(teammatePlaybooks ? { teammatePlaybooks } : {}), ...(teammateGrants ? { teammateGrants } : {}), ...(teammateExcludes ? { teammateExcludes } : {}), defaultTimeZone, enabledPlugins, filingTypes, restSources, sourceKinds, workspaceKind };
 }
 
 async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
@@ -650,9 +658,14 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
   const hasMounts = hasAnyFolders && ((row.skillSlugs ?? []).length > 0 || (row.playbookSlugs ?? []).length > 0);
   // A registered teammate reads its OWN skills (deepagents gives a custom
   // subagent none of the lead's), mounted for it under /teammates/<slug>/.
-  if (hasAnyFolders && definition.teammateSkills) {
-    const skills = definition.teammateSkills;
-    definition.subagentSpecs = definition.subagentSpecs.map(spec => (skills[spec.name] ? { ...spec, skills: [teammateSkillRoot(spec.name)] } : spec));
+  // Its own playbooks it reads where it always does, at /playbooks/.
+  if (hasAnyFolders && (definition.teammateSkills || definition.teammatePlaybooks)) {
+    const skills = definition.teammateSkills ?? {};
+    const playbooks = definition.teammatePlaybooks ?? {};
+    definition.subagentSpecs = definition.subagentSpecs.map((spec) => {
+      const roots = [...(skills[spec.name] ? [teammateSkillRoot(spec.name)] : []), ...(playbooks[spec.name] ? ['/playbooks/'] : [])];
+      return roots.length > 0 ? { ...spec, skills: roots } : spec;
+    });
   }
 
   // In `core` tool loading a tool the agent's skills or playbooks name stays
@@ -1109,14 +1122,16 @@ export async function buildInitialFiles(
     throw error;
   }
   // Each registered teammate's own skills, at /teammates/<slug>/skills/, so a
-  // writer consulted through `task` reads the writing skill, not the lead's.
+  // writer consulted through `task` reads the writing skill, not the lead's;
+  // and its own playbooks at /playbooks/, where it reads them running alone
+  // (a playbook is the workspace's, the same text whoever reads it).
   try {
     const roster = await deriveDelegationRoster(orgId, row);
     for (const d of roster.delegates) {
-      if (!d.skillSlugs?.length) {
+      if (!d.skillSlugs?.length && !d.playbookSlugs?.length) {
         continue;
       }
-      const own = await mountSkills({ orgId, skillSlugs: d.skillSlugs, playbookSlugs: [] });
+      const own = await mountSkills({ orgId, skillSlugs: d.skillSlugs ?? [], playbookSlugs: d.playbookSlugs ?? [] });
       for (const [path, body] of Object.entries(own)) {
         mounted[path.replace(/^\/skills\//, teammateSkillRoot(d.slug))] = body;
       }

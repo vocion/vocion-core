@@ -40,8 +40,12 @@ export type FieldHashes = Record<string, string>;
 /** Per resource, per slug: what the bundle last left in each field. */
 export type BundleFields = Partial<Record<TrackedResource, Record<string, FieldHashes>>>;
 
-/** One field an apply left as a person had changed it. */
-export type KeptChange = { resource: TrackedResource | 'trustRule'; slug: string; field: string };
+/**
+ * One field an apply left as a person had changed it. A playbook's is its
+ * text (`field: 'text'`): the workspace's own copy, kept whole
+ * (`services/playbooks/owned.ts`).
+ */
+export type KeptChange = { resource: TrackedResource | 'trustRule' | 'playbook'; slug: string; field: string };
 
 /** What an apply of the bundle needs to keep edits, and what it reports back. */
 export type BundleTrack = {
@@ -61,6 +65,12 @@ export type AppBundleRecord = {
   contents: Record<string, { agents: string[]; missions: string[]; automations: string[] }>;
   /** What the bundle left in each field it owns. */
   fields: BundleFields;
+  /**
+   * Playbook slug → hash of the text the bundle last left in the workspace's
+   * copy (`services/playbooks/owned.ts`). A copy whose text no longer hashes
+   * to this was edited, and an upgrade keeps it.
+   */
+  playbooks?: Record<string, string>;
   /** Fields left as a person changed them. */
   kept: KeptChange[];
   /** An upgrade: each plugin's hash before it (null when it was never recorded). */

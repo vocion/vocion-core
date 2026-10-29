@@ -48,6 +48,7 @@ describe('the SEO profile on the project page', () => {
     await expect.element(section.getByText('GitHub · northwind/site')).toBeInTheDocument();
     await expect.element(section.getByRole('link', { name: 'Wiki' })).toHaveAttribute('href', '/dashboard/projects/7#wiki');
     await expect.element(page.getByTestId('seo-profile-priorities').getByText(/^Google Business Profile: /)).toBeInTheDocument();
+    await expect.element(page.getByTestId('seo-profile-playbooks').getByRole('link', { name: 'Location pages without doorways' })).toHaveAttribute('href', '/dashboard/skills/location-pages-without-doorways');
   });
 
   it('asks for one when there is none', async () => {

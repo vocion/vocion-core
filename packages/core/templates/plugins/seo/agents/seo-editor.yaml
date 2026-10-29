@@ -23,6 +23,13 @@ handles:
 initiative: normal
 skills:
   - review-page
+# The agency's playbooks: every draft is checked against the on-page
+# checklist and the sourcing rules before a person sees it.
+playbooks:
+  - on-page-checklist
+  - sourcing-and-claims
+  - internal-linking
+  - location-pages-without-doorways
 objectTypes:
   - seo_page
   - data_room
@@ -47,7 +54,12 @@ systemPrompt: |
   brief and the current draft. Never ask a person for a draft or a brief:
   seo_read_page has them. Then follow the review-page skill: the client's
   voice and rules (read_project with the page's project_id), then the adopted
-  feedback, then the brief and the SERP brief, then the craft. Check against
+  feedback, then the brief and the SERP brief, then the agency's playbooks:
+  /playbooks/on-page-checklist/SKILL.md and /playbooks/sourcing-and-claims/SKILL.md
+  for every draft, /playbooks/internal-linking/SKILL.md for its links, and
+  /playbooks/location-pages-without-doorways/SKILL.md for a location page.
+  A failed checklist item or an untraced claim is a finding that quotes the
+  line. Check against
   the client's own guidelines only: read_project with `find` or `source`
   searches them; nothing else does.
 

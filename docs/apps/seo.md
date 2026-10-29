@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **App manifest** | `packages/core/templates/apps/seo/app.yaml` |
-| **Plugin** | `seo` (`packages/core/templates/plugins/seo/`): four agents, the `seo` team, nine skills, the `seo-feedback` learning step, the `seo_strategy`, `seo_audit`, `seo_keyword`, `seo_prompt`, `seo_batch` and `seo_page` types, six pages (Strategy, Audits, Keywords, Prompts, Batches, Pages), trust rules, four workflows (`seo-batch`, `seo-page`, `seo-plan`, `seo-opportunities`), the `seo-batches-moving` mission ("Each client grows in search") and one automation, `seo-opportunities` ("New page opportunities", weekly). Depends on `data-rooms` (projects) and `wiki` |
+| **Plugin** | `seo` (`packages/core/templates/plugins/seo/`): four agents, the `seo` team, nine skills, five playbooks (the agency's way of working), the `seo-feedback` learning step, the `seo_strategy`, `seo_audit`, `seo_keyword`, `seo_prompt`, `seo_batch` and `seo_page` types, six pages (Strategy, Audits, Keywords, Prompts, Batches, Pages), trust rules, four workflows (`seo-batch`, `seo-page`, `seo-plan`, `seo-opportunities`), the `seo-batches-moving` mission ("Each client grows in search") and one automation, `seo-opportunities` ("New page opportunities", weekly). Depends on `data-rooms` (projects) and `wiki` |
 | **Pages** | `/dashboard/p/seo` (every batch, its gate line, pages by status) and `/dashboard/p/seo-pages?batch=<id>` (a batch's pages) — descriptor pages over the two records |
 | **Core** | `services/seo/` — `gate.ts` (the volume gate, per project), `records.ts` (batches and pages, the gate written back on every write, per-key merges under a row lock), `signoff.ts` (the plan and page sign-offs, filed and heard in code), `cadence.ts` (pages a month, and the weekly check), `meta.ts` (meta title, description and slug), `modelThatRan.ts`, `projects.ts`; tools in `services/agents/tools/seo.ts` |
 | **Research** | `serp_search` (with the local pack), `keyword_cluster` (one page per set of keywords whose top 10s share 3+ URLs), `serp_compare` (files the SERP brief in `seo/serp`, directories flagged, the pages' text and shared terms, then writes its synthesis with `brief_id`; Google's ranking only), `keyword_metrics` (volume and keyword ideas) and `record_competitors`, granted with `harness.grantTools: [serp]`; `site_inventory`, granted by name. See [SEO research](../guides/seo-research.md). Serper, the default provider, gives no volume or ideas: the skills carry on without them and never estimate one |
@@ -45,6 +45,35 @@ Clients differ in what search should do for them: a local services client needs 
 - **Onboarding drafts it on one card.** `seo_propose_profile` pre-fills it in code from the client's home page (its language tag, meta description, schema types and the places its schema names), the site inventory's paths (`/pricing` and `/integrations` read as B2B SaaS, `/products/` and `/cart` as ecommerce, LocalBusiness schema as local services; one path is not a pattern), the competitors Google ranked and the project's first publish target, and lays over it what the agent read (industry, offering, audience, tone), each value with where it came from. It files one `seo.save_profile` card: the person edits the text and saves it, or declines. Every run waits for a person (`approvalRequired`); Undo puts back the profile that was there.
 - **A person edits it on the project page** (the "SEO profile" section, with the SEO app on), and the project API takes it only from a signed-in person. `seoProfile` is in `PERSON_ONLY_FIELDS`, so `update_object` refuses it.
 - **It decides what comes first** (`seoPriorities`). The bundle prints it right after the voice, with "What comes first for this client" ordered by the goals as ranked, then the client type, and the page types to weight a plan toward. The project page shows the same list under the profile.
+- **It picks the playbooks to lead with.** `seoPriorities` chooses which of the agency's playbooks come first for this client (the brief and on-page checklist always, the doorway playbook for a local services client or one that wants its Google Business Profile, sourcing and claims for one that wants to be named in AI answers, internal linking always). The bundle names them with the path each seat reads (`Playbooks to lead with for this client: … (/playbooks/<slug>/SKILL.md)`), the project page links each one under "Playbooks we lead with", and the strategy document lists them (`playbookLinks`).
+
+## The agency's playbooks
+
+Three layers shape every page, and each has one home:
+
+| Layer | What it holds | Where it lives | Who changes it |
+|---|---|---|---|
+| **Project rules** | What is true of one client: their voice, banned phrases, claims they never make, their services | The client's project (`update_project`) | The strategist, from onboarding and client notes |
+| **Playbooks** | How the agency works on every client: how it briefs, sources, links and checks a page | The workspace (`playbooks/<slug>/SKILL.md`), mounted at `/playbooks/<slug>/` | A person, in place, or a feedback note a person approves as a diff |
+| **Learnings** | One-line rules adopted from sign-offs | The `seo-feedback` learning step, `/learnings/seo-feedback.md` | A person adopting a candidate at `/dashboard/learnings` |
+
+Where they disagree the client's rules win, then the adopted learnings, then the playbooks, then the skills (the procedure: which tool, in which order).
+
+The plugin ships five (`templates/plugins/seo/playbooks/`):
+
+| Playbook | What it settles | Read by |
+|---|---|---|
+| `how-we-brief-a-page` | Search intent from what ranks, the gap the page owns, the outline, the entities to name, internal links, FAQ, schema | strategist |
+| `location-pages-without-doorways` | When a location page earns its place, local substance, NAP, the truth about the service area, the similarity check | strategist, writer, editor |
+| `sourcing-and-claims` | Every number sourced and dated, no invented statistics, client proof only as worded, E-E-A-T: a real author and first-hand experience | strategist, writer, editor |
+| `on-page-checklist` | Title and meta lengths, one H1, headings, alt text, canonical and indexability, links, schema, readability | strategist, writer, editor |
+| `internal-linking` | Hubs, anchors, no orphan pages, links to the service pages | strategist, writer, editor |
+
+Each seat names its playbooks in its agent YAML (`playbooks:`), so they mount on every turn; a teammate the strategist consults through `task` reads its own at the same `/playbooks/` path (`teammatePlaybooks`, `services/agents/harness.ts`). The editor reviews every draft against `on-page-checklist` and `sourcing-and-claims` (a failed item is a finding that quotes the line); `review-page`, `write-page` and `page-brief` name the playbooks they read.
+
+**Applied once, then the workspace's.** In a workspace with no folder (every Vocion Cloud workspace), installing the app writes each playbook as the workspace's own copy: its `source` mirror artifact, the row a folder workspace edits through (`services/playbooks/owned.ts`). From then on the mount, `read_playbook` and the skills page read that copy. A person edits it in place on `/dashboard/skills/<slug>` (versions, restore), and an agent's `write_playbook` lands on it once a person approves the diff. When core ships new templates, an upgrade (`services/plugins/upgradeBundles.ts`) moves a copy nobody touched to them and keeps a copy a person changed, listed as kept on the version row (`AppBundleRecord.playbooks` holds a hash of what the bundle last left in each copy). A workspace applied from a folder overrides a playbook with a same-slug file under `playbooks/`.
+
+**Visible.** The app's page lists the playbooks under "What you get", and the "How SEO is doing" panel on the SEO page links each one ("yours to edit" where the workspace keeps its own copies).
 
 ## Onboarding a client
 
@@ -170,7 +199,7 @@ A page sent back with changes holds every new draft in every batch of the projec
 | `seo_save_brief` | The page brief on a page (refused until the plan is signed off; a location page's needs its "Local substance" section); records the planning model |
 | `seo_save_draft` | The draft on a page with `meta_title` (at most 60, said at 55+), `meta_description` (at most 155) and `slug` (the planned one stands when left out; kebab-case, path segments allowed, unique in the project), stored as `metaTitle`, `metaDescription`, `slug` (refused past the gate, without a brief, or with meta that does not pass); withdraws an open ask from an earlier round; records the writing model |
 | `seo_save_review` | The editor's verdict with `findings`; `pass` files the page's sign-off itself, `fix` withdraws any open one and queues the writer's revision (3 rounds, then the sign-off with the findings open); a draft with one of the client's banned phrases or never-claim words, or a location draft 70%+ the same as a sibling, is sent back whatever the verdict |
-| `seo_record_feedback` | A note on a page, its scope (client or general) and where it was filed, checked |
+| `seo_record_feedback` | A note on a page, its scope (client or general) and where it was filed, checked: the page's own project, a proposed edit to a playbook (`playbook:<slug>` with the whole new SKILL.md), or a candidate rule |
 
 Present while the `seo` plugin is on (`services/agents/tools/registry.ts`). Beside them, granted: `site_inventory` (the whole site onto the project) and `record_competitors` (with the `serp` grant).
 
@@ -188,12 +217,15 @@ Writing is a fixed procedure, so it is a workflow (ADR 0011), visible step by st
 
 The editor gives `findings` (a list of `{ issue, location, fix }`, each field kept to 600 characters) and notes of any length: a review longer than the page keeps, or one with findings, is stored whole as an artifact in `seo/reviews` linked from the page (`review.notesArtifactId`), so a review is never lost to a limit. Inside a run, a `fix` sends the draft back to the writer in the run's repeat, counted on the page (`editorRounds`); after 3 rounds the run goes to the sign-off anyway with the open findings shown, and the person decides. The editor ends its step with the verdict the tool recorded, which the repeat reads. Only a pass or exhausted rounds reaches a person; a person's answer starts the count again.
 
-`feedback-to-wiki` then routes each note, to the page's own project or the learning step, and `seo_record_feedback` checks the filing before the gate counts it:
+`feedback-to-wiki` then routes each note to one place, and `seo_record_feedback` checks the filing before the gate counts it:
 
-- **client** → `update_project` with `project_id` set to the page's project (SEO seats must name it; "the project on screen" is refused). `update_project` writes directly: there is no Review step. Then `filed_to: project:<that id>` with `filed_text`, which must be on that project's rules or notes; another project's id is refused.
-- **general** (craft) → `filed_to: learning:seo-feedback` with the rule as `filed_text`. The tool files it as a learning candidate (`sourceRef` names the page and project) for a person to adopt at /dashboard/learnings; adopted rules mount for the writer and the editor. A client's note filed this way is scoped to its project (`data_room/<id>`) and, once adopted, reaches only that project's pages (through `seo_next_pages`).
+- **client** → `update_project` with `project_id` set to the page's project (SEO seats must name it; "the project on screen" is refused). `update_project` writes directly: there is no Review step. Then `filed_to: project:<that id>` with `filed_text`, which must be on that project's rules or notes; another project's id is refused. A client's note never changes a playbook: `filed_to: playbook:…` with scope `client` is refused.
+- **general, and it changes how we work** → a playbook edit. The strategist reads the matching playbook (`read_playbook`), makes the smallest edit that says it, and calls `seo_record_feedback` with `filed_to: playbook:<slug>`, `filed_text` (the words added, as they read in the new text) and `playbook_md` (the whole SKILL.md after the edit). The tool checks the words are in the new text and not already in the playbook, and proposes it through `workspace.write_playbook`: the same card with the diff that any playbook change gets, approved in Review, reversible with Undo. One change per playbook waits at a time; a second note on the same playbook must build on the waiting one, or it is refused with that change's text. The run is recorded on the note (`filedRef.actionRunId`).
+- **general, and it is one line** → `filed_to: learning:seo-feedback` with the rule as `filed_text`. The tool files it as a learning candidate (`sourceRef` names the page and project) for a person to adopt at /dashboard/learnings; adopted rules mount for the writer and the editor. A client's note filed this way is scoped to its project (`data_room/<id>`) and, once adopted, reaches only that project's pages (through `seo_next_pages`).
 
-A candidate that was rejected, a note filed to another client, or words that are not on the project do not count as filed. SEO sign-offs skip the generic learning-from-decision path, so a note is never proposed twice or filed for every client. There is no SEO wiki page: the learning step is the one place craft is read from.
+**A rule or a playbook edit?** A note becomes a rule when it is one sentence a draft can be checked against and no playbook section is about it ("never open with a question"). It becomes a playbook edit when it adds or corrects a step, a check, a threshold or a method a playbook covers ("a location page names where the crew comes from", "two links in to every new page"), and whenever it narrows or contradicts what a playbook says: a rule that argues with a playbook leaves two places to read.
+
+A candidate that was rejected, a playbook change a person left as it was (or that failed or was undone), a note filed to another client, or words that are not on the project do not count as filed; a waiting playbook change counts while its text still carries the note's words. SEO sign-offs skip the generic learning-from-decision path, so a note is never proposed twice or filed for every client. There is no SEO wiki page: the playbooks and the learning step are where craft is read from.
 
 ## Measures
 
@@ -205,4 +237,4 @@ The `seo` team is graded on **pages published** (observed, `site.publish_page` r
 
 ## Installing it on Vocion Cloud
 
-Adding Search Engine Optimization to a workspace with no folder sets the whole app up through `services/plugins/installBundle.ts`: Data rooms and the Wiki with it, the four agents (the strategist becomes the workspace lead when the workspace has only the generic one), the team, the two record types, the learning step and the trust rules (`services/seo/seo.pglite.test.ts`). Then onboard a client from their website.
+Adding Search Engine Optimization to a workspace with no folder sets the whole app up through `services/plugins/installBundle.ts`: Data rooms and the Wiki with it, the four agents (the strategist becomes the workspace lead when the workspace has only the generic one), the team, the two record types, the five playbooks as the workspace's own copies, the learning step and the trust rules (`services/seo/seo.pglite.test.ts`, `services/seo/playbooks.pglite.test.ts`). Then onboard a client from their website.

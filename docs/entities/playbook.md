@@ -13,6 +13,7 @@ of being chosen by the model.
 | **Runtime** | Mounted at `/playbooks/<slug>/` when named by a mounted skill's `playbooks:` or by the agent's `playbooks:` |
 | **Surface** | `/dashboard/skills`, Playbooks section |
 | **Layering** | Composable — a workspace copy replaces an activated base playbook whole-file |
+| **No folder** | An app applies its playbooks once as the workspace's own copies (mirror artifacts), edited in place and kept through upgrades — `services/playbooks/owned.ts` |
 
 The filename is `SKILL.md` here too, for the same middleware reason.
 
@@ -50,6 +51,18 @@ It mounts by name, never by tag:
 
 Activating a base-pack skill also activates the playbooks its frontmatter
 names, so you rarely list those yourself.
+
+## In a workspace with no folder
+
+A workspace made in the app (every Vocion Cloud workspace) has no
+`playbooks/` folder to override in. There, installing an app writes each
+playbook it ships once as the workspace's own copy: the playbook's `source`
+mirror artifact, the same row a folder workspace edits through. From then on
+the mount, `read_playbook` and the skills page read the copy; a person's Save
+in the pane, a Restore, and an agent's `write_playbook` (once a person
+approves the diff) land on it; and when core ships new templates an upgrade
+moves a copy nobody touched and keeps one a person changed, listed as kept on
+the version row (`services/playbooks/owned.ts`, `AppBundleRecord.playbooks`).
 
 ## Rules
 

@@ -40,6 +40,8 @@ export type DelegateEntry = {
   pinnedModel?: { modelProvider: 'anthropic' | 'openai' | 'bedrock'; model: string };
   /** The delegate's own skills (`skills:`), mounted for it under `/teammates/<slug>/skills/`. */
   skillSlugs?: string[];
+  /** The delegate's own playbooks (`playbooks:`), mounted at `/playbooks/<slug>/` when it is consulted. */
+  playbookSlugs?: string[];
   /** The tools its own seat is granted (`harness.grantTools`), added to the lead's set when it is consulted. */
   grantTools?: string[];
   /**
@@ -88,6 +90,7 @@ export function buildDelegationRoster(opts: {
     const h = (a.harnessConfig ?? {}) as { modelProvider?: 'anthropic' | 'openai' | 'bedrock'; model?: string; grantTools?: string[]; excludeTools?: string[] };
     const pinnedModel = h.modelProvider && h.model ? { modelProvider: h.modelProvider, model: h.model } : undefined;
     const skillSlugs = a.skillSlugs ?? [];
+    const playbookSlugs = a.playbookSlugs ?? [];
     const grantTools = h.grantTools ?? [];
     const excludeTools = h.excludeTools ?? [];
     delegates.push({
@@ -98,6 +101,7 @@ export function buildDelegationRoster(opts: {
       source,
       ...(pinnedModel ? { pinnedModel } : {}),
       ...(skillSlugs.length > 0 ? { skillSlugs } : {}),
+      ...(playbookSlugs.length > 0 ? { playbookSlugs } : {}),
       ...(grantTools.length > 0 ? { grantTools } : {}),
       ...(excludeTools.length > 0 ? { excludeTools } : {}),
     });

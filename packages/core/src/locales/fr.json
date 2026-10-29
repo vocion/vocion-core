@@ -430,6 +430,7 @@
     "agents": "Agents",
     "pages": "Pages",
     "automations": "Automatisations",
+    "playbooks": "Playbooks",
     "none": "Aucune",
     "connects_to": "Se connecte à",
     "connects_none": "Rien à connecter : elle fonctionne avec ce que vous importez.",

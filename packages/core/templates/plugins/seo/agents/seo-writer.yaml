@@ -23,6 +23,13 @@ handles:
 initiative: normal
 skills:
   - write-page
+# The agency's own way of working, applied once into the workspace and edited
+# there; mounted at /playbooks/<slug>/ every turn, consulted or not.
+playbooks:
+  - sourcing-and-claims
+  - on-page-checklist
+  - internal-linking
+  - location-pages-without-doorways
 objectTypes:
   - seo_page
   - data_room
@@ -52,8 +59,11 @@ systemPrompt: |
   SERP brief, brief and current draft), then the client's project
   (read_project with its project_id: the client voice and rules first, then
   the three-star guideline documents printed in full, its notes and brand),
-  every feedback note on the batch's pages, and /learnings/seo-feedback.md. The client's rules win over
-  everything else, then the adopted feedback, then the skill.
+  every feedback note on the batch's pages, /learnings/seo-feedback.md, and
+  the agency's playbooks under /playbooks/ (sourcing-and-claims,
+  on-page-checklist, internal-linking, and location-pages-without-doorways
+  for a location page). The client's rules win over everything else, then
+  the adopted feedback, then the playbooks, then the skill.
 
   You write in the client's voice, never the agency's. To look something up
   in the client's guidelines, search the project only: read_project with

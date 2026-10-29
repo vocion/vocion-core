@@ -65,6 +65,14 @@ async function precheck(actionKind: 'mission' | 'playbook', ctx: ActionContext, 
     }
     throw err;
   }
+  // A workspace with no folder edits its own copy of a playbook an app
+  // applied (`services/playbooks/owned.ts`): no file, nothing read-only.
+  if (kind === 'playbook') {
+    const { ownedPlaybookRow } = await import('@/services/playbooks/owned');
+    if (await ownedPlaybookRow(ctx.orgId, input.slug)) {
+      return undefined;
+    }
+  }
   // Refuse before a card exists when the write cannot happen here — a
   // deploy-managed box mounts the workspace read-only, and a "Failed" card
   // teaches nobody anything.
@@ -81,9 +89,8 @@ async function precheck(actionKind: 'mission' | 'playbook', ctx: ActionContext, 
 
 async function reviewCard(actionKind: 'mission' | 'playbook', ctx: ActionContext, input: AnyInput) {
   const kind = kindOf(actionKind, input);
-  const { getSourceArtifact, resolveSourceFile, workspaceDirFor } = await import('@/services/workspace/WorkspaceSourceService');
-  const dir = await workspaceDirFor(ctx.orgId);
-  const current = dir ? resolveSourceFile(dir, kind, input.slug) : null;
+  const { currentSourceText, getSourceArtifact } = await import('@/services/workspace/WorkspaceSourceService');
+  const current = await currentSourceText(ctx.orgId, kind, input.slug);
   const mirror = await getSourceArtifact(ctx.orgId, kind, input.slug);
   const before = current?.content ?? '';
   const counts = diffCounts(before, input.content);
@@ -102,13 +109,15 @@ async function reviewCard(actionKind: 'mission' | 'playbook', ctx: ActionContext
     summary: input.reason,
     fields: [
       { label: noun(kind).charAt(0).toUpperCase() + noun(kind).slice(1), value: `${title} (${input.slug})`, href },
-      { label: 'File', value: sourceRelPath(kind, input.slug) + (current?.layer === 'core' ? ' — a workspace copy of the inherited default' : '') },
+      { label: 'File', value: current?.copy ? 'The workspace\'s own copy (no folder; edited here)' : sourceRelPath(kind, input.slug) + (current?.layer === 'core' ? ' — a workspace copy of the inherited default' : '') },
       { label: 'Change', value: current ? `−${counts.removed} / +${counts.added} lines${mirror ? `, replaces v${mirror.currentVersion}` : ''}` : `${input.content.length.toLocaleString()} characters, new file` },
       { label: 'Diff', value: diff || (current ? 'No change to the text.' : input.content.slice(0, 1500)) },
     ],
-    nextAction: current
-      ? `Approving writes the file, records v${(mirror?.currentVersion ?? 0) + 1} on its history, and applies the workspace. The previous text stays one Undo away.`
-      : `Approving creates ${sourceRelPath(kind, input.slug)} and applies the workspace. Undo removes it.`,
+    nextAction: current?.copy
+      ? `Approving records v${(mirror?.currentVersion ?? 0) + 1} of the workspace's copy; every agent reads it from the next turn. The previous text stays one Undo away.`
+      : current
+        ? `Approving writes the file, records v${(mirror?.currentVersion ?? 0) + 1} on its history, and applies the workspace. The previous text stays one Undo away.`
+        : `Approving creates ${sourceRelPath(kind, input.slug)} and applies the workspace. Undo removes it.`,
     verbs: { approve: verb, reject: 'Leave as is' },
   };
 }

@@ -5,7 +5,7 @@
  * and site here is fictional.
  */
 import { describe, expect, it } from 'vitest';
-import { applyProfileDraft, cleanSeoProfile, clientTypeFrom, detectClientType, domainOf, goalFrom, missingFields, overlayProfile, prefillSeoProfile, profileDraftText, renderSeoProfile, seoPriorities } from './profile';
+import { applyProfileDraft, cleanSeoProfile, clientTypeFrom, detectClientType, domainOf, goalFrom, missingFields, overlayProfile, playbookLinks, prefillSeoProfile, profileDraftText, renderSeoProfile, seoPriorities } from './profile';
 import { homepageSignals, inventoryUrls } from './profilePrefill';
 
 const HOME = `<!doctype html><html lang="en-US"><head>
@@ -128,6 +128,7 @@ describe('what comes first', () => {
     expect(pr.lines[0]).toMatch(/^Google Business Profile: .*location pages for each place served \(Springfield, Shelbyville\)/);
     expect(pr.pageTypes.slice(0, 2)).toEqual(['location', 'service']);
     expect(pr.playbooks).toContain('location-pages-without-doorways');
+    expect(playbookLinks(pr.playbooks).find(l => l.slug === 'location-pages-without-doorways')).toEqual({ slug: 'location-pages-without-doorways', label: 'Location pages without doorways', path: '/playbooks/location-pages-without-doorways/SKILL.md', href: '/dashboard/skills/location-pages-without-doorways' });
     expect(pr.trackPrompts).toBe(false);
   });
 
@@ -149,6 +150,7 @@ describe('what comes first', () => {
     expect(md).toContain('- **Client type:** Ecommerce');
     expect(md).toContain('### What comes first for this client');
     expect(md).toMatch(/1\. Rankings: /);
+    expect(md).toContain('Playbooks to lead with for this client: How we brief a page (/playbooks/how-we-brief-a-page/SKILL.md), On-page checklist (/playbooks/on-page-checklist/SKILL.md), Internal linking (/playbooks/internal-linking/SKILL.md).');
     expect(renderSeoProfile(undefined)).toEqual([]);
     expect(renderSeoProfile({})).toEqual([]);
   });

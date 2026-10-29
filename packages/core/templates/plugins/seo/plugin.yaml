@@ -13,8 +13,10 @@
 # This plugin ships the MEANING: four seats (a strategist who plans and
 # briefs, a SERP analyst who does the legwork, a writer, an editor who checks
 # every draft before a person sees it), the procedure for each step as a
-# skill, the learning step that carries adopted feedback into the writer's
-# context, the trust bars, and the two pages.
+# skill, the agency's way of working as five playbooks (applied once into the
+# workspace and edited there, by hand or by approved feedback), the learning
+# step that carries adopted one-line rules into the writer's context, the
+# trust bars, and the two pages.
 #
 # The workspace ships the CONCRETION: its clients (one project each), their
 # rules and voice, the gate sizes per project (`seoGate`), and where each

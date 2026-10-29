@@ -27,6 +27,10 @@
  * sees a raw token; an unresolvable one throws instead of mounting.
  * Base-pack bodies are served as shipped — every tenant gets the same
  * bytes, so they carry no per-box values.
+ *
+ * A workspace with no folder owns its playbooks as artifacts once an app has
+ * applied them (`owned.ts`): a playbook's SKILL.md is then read from that
+ * copy, so what a person edited is what every agent reads.
  */
 
 import { readFileSync, realpathSync } from 'node:fs';
@@ -41,6 +45,7 @@ import { workspacePathForProject } from '@/libs/workspace/project-path';
 import { getWorkspacePath } from '@/libs/workspace/reader';
 import { substituteEnvTokens } from '@/libs/workspace/template-vars';
 import { playbookSchema } from '@/models/Schema';
+import { ownedPlaybookTexts } from './owned';
 
 const PACK_ROOT = 'packages/core/templates/base';
 /**
@@ -102,6 +107,7 @@ export async function mountSkills(opts: MountSkillsOptions): Promise<Record<stri
   // names it per project, and the one shared `WORKSPACE_PATH` is some other
   // workspace's — reading a tenant skill from there skips it silently.
   const workspaceDir = await workspacePathForProject(opts.orgId);
+  const owned = await ownedPlaybookTexts(opts.orgId, rows.filter(r => r.kind === 'playbook').map(r => r.slug));
   const out: Record<string, string> = {};
   for (const row of rows) {
     // A slug can name a skill and only mounts as what it is: the agent's
@@ -111,14 +117,14 @@ export async function mountSkills(opts: MountSkillsOptions): Promise<Record<stri
     if ((row.kind === 'skill' && !requestedAsSkill) || (row.kind === 'playbook' && !requestedAsPlaybook)) {
       continue;
     }
-    mountRow(row, out, workspaceDir);
+    mountRow(row, out, workspaceDir, row.kind === 'playbook' ? owned.get(row.slug) : undefined);
   }
   return out;
 }
 
-function mountRow(row: CatalogRow, out: Record<string, string>, workspaceDir: string | null): void {
+function mountRow(row: CatalogRow, out: Record<string, string>, workspaceDir: string | null, ownCopy?: string): void {
   const mountBase = row.kind === 'skill' ? `/skills/${row.slug}` : `/playbooks/${row.slug}`;
-  const body = readByOrigin(row, 'SKILL.md', workspaceDir);
+  const body = ownCopy ?? readByOrigin(row, 'SKILL.md', workspaceDir);
   if (body === null) {
     // Row exists but the on-disk file is gone (renamed?). Skip silently —
     // workspace:apply should be re-run to clean up.

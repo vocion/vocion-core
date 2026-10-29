@@ -28,7 +28,7 @@ import { and, eq, ne, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { businessObjectSchema } from '@/models/Schema';
 import { getObjectTypeBySlug } from '@/services/BusinessObjectService';
-import { CLIENT_TYPE_LABEL, GOAL_LABEL, seoPriorities } from './profile';
+import { CLIENT_TYPE_LABEL, GOAL_LABEL, playbookLinks, seoPriorities } from './profile';
 import { mergeMeta } from './records';
 
 export const SEO_STRATEGY_TYPE = 'seo_strategy';
@@ -159,6 +159,7 @@ export function renderStrategyDoc(i: StrategyInputs, a: { title: string; milesto
   if (pr.lines.length) {
     out.push('## What comes first', '', ...pr.lines.map((l, n) => `${n + 1}. ${l}`), '');
   }
+  out.push(`Playbooks we lead with for this client: ${playbookLinks(pr.playbooks).map(l => `[${l.label}](${l.href})`).join(', ')}.`, '');
   out.push('## Where things stand', '');
   out.push(i.audit
     ? `- **Audit** ${i.audit.checkedAt.slice(0, 10)}: ${i.audit.openCount} open, ${i.audit.highCount} high · [${i.audit.title}](/dashboard/objects/${i.audit.id})${i.audit.reportArtifactId ? ` · [report](/dashboard/artifacts/${i.audit.reportArtifactId})` : ''}`

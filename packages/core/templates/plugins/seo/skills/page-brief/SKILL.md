@@ -6,13 +6,16 @@ description: >-
   what ranks, the outline, what to include from the SERP brief, the local
   substance a location page needs, the client rules that apply, internal
   links, and the meta title and description. Read before briefing any page.
-version: 5
+version: 6
 ---
 
 # Writing a page brief
 
 A writer should be able to write the page from the brief without asking a
-question. Write it as one markdown artifact (folder `seo/briefs`) and attach
+question. How the agency briefs (intent, the gap, entities, links, FAQ,
+schema) is the playbook `/playbooks/how-we-brief-a-page/SKILL.md`; read it
+first, and `/playbooks/location-pages-without-doorways/SKILL.md` for a
+location page. This skill is the procedure; the playbook is the craft. Write it as one markdown artifact (folder `seo/briefs`) and attach
 it with `seo_save_brief`. A batch's pages are briefed only once a person has
 signed off its keyword plan; the tool refuses until then.
 

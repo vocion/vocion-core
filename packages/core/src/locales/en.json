@@ -430,6 +430,7 @@
     "agents": "Agents",
     "pages": "Pages",
     "automations": "Automations",
+    "playbooks": "Playbooks",
     "none": "None",
     "connects_to": "Connects to",
     "connects_none": "Nothing to connect: it works from what you upload.",

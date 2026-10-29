@@ -26,7 +26,9 @@
  *
  * When core ships new templates for an app that is on, the next boot applies
  * them the same way, keeping what a person changed since
- * (`services/plugins/upgradeBundles.ts`). Each install and upgrade records on
+ * (`services/plugins/upgradeBundles.ts`). The playbooks are applied once
+ * into the workspace as its own copies, which it edits from then on
+ * (`services/playbooks/owned.ts`). Each install and upgrade records on
  * its version row what it wrote (`workspace_version.bundle`) so that one can
  * tell the two apart.
  */
@@ -34,6 +36,7 @@
 import type { ApplyResult } from '@/libs/workspace/applier';
 import type { AppBundleRecord, BundleFields, BundleTrack, TrackedResource } from '@/libs/workspace/bundleTrack';
 import type { LoadedPlugin } from '@/libs/workspace/plugins';
+import type { OwnedPlaybookSeed } from '@/services/playbooks/owned';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -46,6 +49,7 @@ import { fieldsAfter, mergeFields } from '@/libs/workspace/bundleTrack';
 import { loadPlugin, pluginContents, resolvePlugins } from '@/libs/workspace/plugins';
 import { WORKSPACE_LEAD_SLUG } from '@/libs/workspace/workspaceLead';
 import { agentSchema, automationSchema, missionSchema, projectSchema, workspaceVersionSchema } from '@/models/Schema';
+import { seedOwnedPlaybooks } from '@/services/playbooks/owned';
 
 /** How an install is recorded in `workspace_version.source_path`: never a folder. */
 export const APP_INSTALL_SOURCE_PREFIX = 'app:';
@@ -238,6 +242,8 @@ export type AppHistory = {
   contents: AppBundleRecord['contents'];
   /** What the bundles last left in each field they own. */
   fields: BundleFields;
+  /** Per playbook, a hash of the text the bundles last left in the workspace's copy. */
+  playbooks: Record<string, string>;
 };
 
 /**
@@ -255,6 +261,7 @@ export async function appHistory(orgId: string): Promise<AppHistory> {
   const installed = new Set<string>();
   const hashes: AppHistory['hashes'] = {};
   const contents: AppHistory['contents'] = {};
+  const playbooks: AppHistory['playbooks'] = {};
   for (const row of rows) {
     for (const slug of (row.sourcePath ?? '').slice(APP_INSTALL_SOURCE_PREFIX.length).split(',').filter(Boolean)) {
       installed.add(slug);
@@ -264,8 +271,9 @@ export async function appHistory(orgId: string): Promise<AppHistory> {
       Object.assign(hashes, row.bundle.hashes);
     }
     Object.assign(contents, row.bundle?.contents ?? {});
+    Object.assign(playbooks, row.bundle?.playbooks ?? {});
   }
-  return { installed: [...installed], hashes, contents, fields: mergeFields(rows.flatMap(r => (r.bundle ? [r.bundle] : []))) };
+  return { installed: [...installed], hashes, contents, fields: mergeFields(rows.flatMap(r => (r.bundle ? [r.bundle] : []))), playbooks };
 }
 
 /**
@@ -311,6 +319,7 @@ export async function applyAppBundles(opts: { orgId: string; plugins: readonly s
   const dir = mkdtempSync(join(tmpdir(), 'vocion-app-install-'));
   let result: ApplyResult;
   let contents: AppBundleRecord['contents'];
+  let playbooks: OwnedPlaybookSeed;
   try {
     writeFileSync(join(dir, 'workspace.yaml'), stringify(installManifest({ orgId: opts.orgId, name: opts.project.name, timeZone: opts.project.timeZone ?? null }, slugs)), 'utf8');
     const loaded = loadWorkspace(dir);
@@ -326,10 +335,15 @@ export async function applyAppBundles(opts: { orgId: string; plugins: readonly s
     const combined = createHash('sha256').update(slugs.map(s => `${s}:${hashes[s]}`).join('\n')).digest('hex').slice(0, 12);
     const sha = `app-${combined}${resolved.map(p => `+${p.manifest.slug}@${p.manifest.version}`).join('')}`;
     result = await applyWorkspace({ ...loaded, sha, sourcePath: `${APP_INSTALL_SOURCE_PREFIX}${slugs.join(',')}` }, { orgId: opts.orgId, appliedBy: opts.appliedBy, additive: true, track });
+    // The playbooks are applied once into the workspace as its own copies,
+    // which it edits from then on; a copy a person changed is kept.
+    const shippedPlaybooks = resolved.flatMap(p => loaded.playbooks.filter(of(p)));
+    playbooks = await seedOwnedPlaybooks(opts.orgId, shippedPlaybooks, opts.history.playbooks);
+    track.kept.push(...playbooks.kept.map(slug => ({ resource: 'playbook' as const, slug, field: 'text' })));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  return { resolved, slugs, result, record: { hashes, contents, fields: await readFieldsAfter(opts.orgId, track), kept: track.kept } };
+  return { resolved, slugs, result, record: { hashes, contents, fields: await readFieldsAfter(opts.orgId, track), playbooks: { ...opts.history.playbooks, ...playbooks.hashes }, kept: track.kept } };
 }
 
 /**

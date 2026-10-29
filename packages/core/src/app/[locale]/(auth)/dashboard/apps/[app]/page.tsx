@@ -138,6 +138,8 @@ export default async function AppPage(props: Props) {
             { label: t('agents'), value: list(app.agents) },
             { label: t('pages'), value: list(app.pages) },
             { label: t('automations'), value: list(app.automations) },
+            // The way of working it brings, applied once and then the workspace's to edit.
+            ...(app.playbooks.length > 0 ? [{ label: t('playbooks'), value: list(app.playbooks) }] : []),
           ]}
         />
       </Section>
