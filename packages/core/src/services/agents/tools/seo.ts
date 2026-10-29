@@ -903,14 +903,14 @@ export function seoRecordFeedbackTool(ctx: RuntimeContext) {
     },
     {
       name: 'seo_record_feedback',
-      description: 'Record a person\'s feedback on an SEO page, its scope (client: true of this client only; general: craft for every client) and where it was filed. filed_to is `project:<the page\'s own project id>` after update_project put filed_text on that project\'s rules or notes (checked here); `playbook:<slug>` for craft that changes how the agency works (a step, check or method one of the playbooks covers), with playbook_md the whole SKILL.md after your edit and filed_text the words you added: it is proposed as a change a person approves in Review (never for a client\'s note); or `learning:seo-feedback`, which files filed_text as a one-line candidate rule (a client\'s scoped to its project). The project\'s gate holds new drafts until every note on a sent-back page is verifiably filed. `requests_changes: true` when the person asked for changes in words rather than on the sign-off card.',
+      description: 'Record a person\'s feedback on an SEO page, its scope (client: this client only; general: craft for every client) and where it was filed, checked here. filed_to: `project:<the page\'s project id>` once update_project put filed_text on its rules or notes; `playbook:<slug>` for craft that changes how the agency works, with playbook_md the whole new SKILL.md and filed_text the words added, proposed for a person to approve (never a client\'s note); or `learning:seo-feedback`, filing filed_text as a one-line candidate rule. The gate holds new drafts until every note on a sent-back page is filed. `requests_changes: true` when the person asked for changes in words.',
       schema: z.object({
         page_id: recordIdArg('The SEO page'),
         note: z.string().min(1).max(4000).describe('The person\'s words (for an existing note, the same text, to update its scope or filing).'),
         scope: z.enum(['client', 'general']).optional(),
         filed_to: z.string().max(200).optional(),
-        filed_text: z.string().max(2000).optional().describe('The words as filed: the rule line or notes passage on the project, the words added to the playbook (as they read in playbook_md), or the rule to propose to the learning step.'),
-        playbook_md: z.string().max(200_000).optional().describe('With filed_to playbook:<slug>: the playbook\'s WHOLE SKILL.md after your edit. read_playbook first; change only what the note asks.'),
+        filed_text: z.string().max(2000).optional().describe('The words as filed: on the project, added to the playbook, or the rule to propose.'),
+        playbook_md: z.string().max(200_000).optional().describe('With playbook:<slug>: its WHOLE SKILL.md after your edit (read_playbook first).'),
         requests_changes: z.boolean().optional(),
       }),
     },
