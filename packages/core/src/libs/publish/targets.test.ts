@@ -213,6 +213,8 @@ describe('the byline is the page\'s, not the body\'s', () => {
     expect(stripBylineBlock('# Title\n\n**Author:** Dana Whitfield\n**Category:** Plumbing\n\n---\n\nBody.')).toBe('# Title\n\nBody.');
     expect(stripBylineBlock('**By:** Dana Whitfield | **Category:** Plumbing\n\nBody.')).toBe('Body.');
     expect(stripBylineBlock('- Author: Dana\n- Tags: a, b\n\n# Title\n\nBody.')).toBe('# Title\n\nBody.');
+    expect(stripBylineBlock('> **Author:** Dana Whitfield · **Category:** Plumbing\n\n# Title\n\nBody.')).toBe('# Title\n\nBody.');
+    expect(stripBylineBlock('# Title\n\n> **Author:** Dana Whitfield\n\nBody.')).toBe('# Title\n\nBody.');
   });
 
   it('leaves a body that opens with prose alone', () => {
