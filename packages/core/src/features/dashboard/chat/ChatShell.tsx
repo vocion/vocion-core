@@ -388,8 +388,13 @@ function ChatShellInner({
     return () => window.removeEventListener(AGENT_SURFACE_EVENT, onRequest);
   }, []);
 
+  // The surface reaches the pane's edges through the page gutter
+  // (`--page-gutter-x`, `PageWidth`), so the transcript's scrollbar sits at the
+  // pane's right edge, not beside the text (Chris, 2026-10-29). The measure
+  // stays the transcript's and the composer's own centred `max-w-3xl`, and
+  // each brings its own side padding for a phone.
   return (
-    <div className="relative flex h-full flex-1 flex-col">
+    <div className="relative mx-[calc(var(--page-gutter-x,0px)*-1)] flex h-full flex-1 flex-col">
       {handedOff && (
         <div role="status" data-testid="connect-handed-off" className="border-b bg-muted/60 px-4 py-2 text-center text-[13px] text-muted-foreground">
           Signed in. Your conversation carried on in the tab you started from; you can close this one.

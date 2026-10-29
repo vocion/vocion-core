@@ -448,6 +448,9 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   );
 }
 
+/** The picker's last read of each row's details, for the tab; browser-only, like the directory's. */
+let lastDetails: { details: Record<string, PickerDetail>; marks: Record<string, { light: string; dark?: string }> } = { details: {}, marks: {} };
+
 /**
  * The live switcher: the directory the sidebar loaded, the active project from the session.
  * @param props - The switcher's inputs.
@@ -471,8 +474,10 @@ export function WorkspaceSwitcherLive(props: {
   // lead, last activity and Org marks (`projects.overview`), and what waits
   // on the person (`inbox.mineCount`, the one count). A failed read leaves
   // the rows on their names.
-  const [details, setDetails] = useState<Record<string, PickerDetail>>({});
-  const [marks, setMarks] = useState<Record<string, { light: string; dark?: string }>>({});
+  // Kept for the tab like the directory itself (`useWorkspaceDirectory`): a
+  // remount across the shell's two layouts starts from the last read.
+  const [details, setDetails] = useState<Record<string, PickerDetail>>(() => lastDetails.details);
+  const [marks, setMarks] = useState<Record<string, { light: string; dark?: string }>>(() => lastDetails.marks);
   const loaded = data !== null;
   useEffect(() => {
     if (!loaded) {
@@ -489,8 +494,15 @@ export function WorkspaceSwitcherLive(props: {
         return;
       }
       const waiting = new Map((counts?.workspaces ?? []).map(w => [w.id, w.yours]));
-      setDetails(Object.fromEntries((overview?.workspaces ?? []).map(w => [w.id, { leadName: w.leadName, lastActiveAt: w.lastActiveAt, waiting: waiting.get(w.id) ?? 0 }])));
-      setMarks(overview?.marks ?? {});
+      if (!overview && !counts) {
+        return;
+      }
+      lastDetails = {
+        details: Object.fromEntries((overview?.workspaces ?? []).map(w => [w.id, { leadName: w.leadName, lastActiveAt: w.lastActiveAt, waiting: waiting.get(w.id) ?? 0 }])),
+        marks: overview?.marks ?? {},
+      };
+      setDetails(lastDetails.details);
+      setMarks(lastDetails.marks);
     });
     return () => {
       cancelled = true;

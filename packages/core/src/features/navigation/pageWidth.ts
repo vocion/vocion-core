@@ -18,8 +18,8 @@
  * first paint, on the server and the client alike.
  *
  * What the route does NOT decide is how the page then spends the width: the
- * conversation surface opens the whole window only while a pane is beside it,
- * and falls back to the same reading column when it is alone
+ * conversation surface spreads its prose across the window only while a pane
+ * is beside it, and keeps the transcript's own centred measure when it is alone
  * (`features/dashboard/artifacts/ConversationSplit.tsx`). One decision per
  * owner — the shell answers "does this route need the window", the page
  * answers "what do I do with it".
@@ -41,6 +41,11 @@ export const READING_WIDTH_CLASS = 'mx-auto w-full max-w-[1180px]';
  * (a List) are both read top-to-bottom and keep the cap.
  */
 const FULL_BLEED_PATTERNS: readonly RegExp[] = [
+  // The chat surface. Its reading measure is the transcript's and the
+  // composer's own (`max-w-3xl`, centred); the pane around them is the
+  // transcript's scroller, so the scrollbar sits at the pane's right edge
+  // rather than beside the text (Chris, 2026-10-29).
+  /^\/dashboard\/chat$/,
   // One conversation beside ONE artifact (`?artifact=<id>`). The page itself
   // re-centres when no artifact is open.
   /^\/dashboard\/chat\/\d+$/,
