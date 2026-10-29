@@ -42,13 +42,13 @@ describe('queuePosition', () => {
 });
 
 describe('itemTitle', () => {
-  it('leads with the type and names the subject and company', () => {
-    expect(itemTitle({ label: 'Enroll MQL in sequence', title: 'New MQL ready to enroll', subject: { name: 'Dev Okonkwo', company: 'Vantage Automation' } }))
-      .toBe('Enroll MQL in sequence — Dev Okonkwo · Vantage Automation');
+  it('names who it is about, with role and company, never the type or an em dash', () => {
+    expect(itemTitle({ label: 'Enroll MQL in sequence', title: 'New MQL ready to enroll', subject: { name: 'Dev Okonkwo', role: 'VP Operations', company: 'Vantage Automation' } }))
+      .toBe('Dev Okonkwo · VP Operations, Vantage Automation');
   });
 
-  it('omits the company when absent and falls back to the card title without a subject', () => {
-    expect(itemTitle({ label: 'Send email', title: 'SEND email → x', subject: { name: 'Dana' } })).toBe('Send email — Dana');
+  it('drops a company that is really an id, and falls back to the card title without a subject', () => {
+    expect(itemTitle({ title: 'New MQL ready to enroll', subject: { name: 'Dev Okonkwo', company: '157000001' } })).toBe('Dev Okonkwo');
     expect(itemTitle({ label: 'Update HubSpot record', title: 'Update HubSpot deal record' })).toBe('Update HubSpot deal record');
   });
 });

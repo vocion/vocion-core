@@ -243,7 +243,7 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
         // then does. Core used to fill this in — an "approve" on every card,
         // which the agreement rate read as the agent's own view.
         suggested_decision: z.enum(SUGGESTED_DECISIONS).optional().describe('What you think the reviewer should do with this once it reaches the queue: "approve", "reject" or "snooze". Almost always "approve" for something you are recommending — say "snooze" when it should wait for something you name, and "reject" when you are surfacing it for a person to turn down. Omitted means approve.'),
-        suggested_decision_reason: z.string().optional().describe('ONE short sentence for why that recommendation, in your own words — "the renewal is 11 days out and nobody has replied", "worth doing, but not until the contract is signed". Not the same as `rationale`: that argues the payload is right, this argues what should happen to the card. Omitted means the rationale.'),
+        suggested_decision_reason: z.string().optional().describe('ONE short sentence for why that recommendation, in your own words — "the renewal is 11 days out and nobody has replied", "worth doing, but not until the contract is signed". Not the same as `rationale`: that argues the payload is right, this argues what should happen to the card; never repeat it. Omitted means the rationale.'),
         supersedes: z.number().int().positive().optional().describe('When this revises a decision still waiting on the person in this conversation (the numbered list "WAITING ON THE PERSON" on the turn), its number: the new card replaces it. Omit for a new, separate action.'),
       }),
     },

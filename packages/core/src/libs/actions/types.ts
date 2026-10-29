@@ -76,6 +76,19 @@ export type ActionContext = {
    * (`result.advice`), because the person's word runs.
    */
   onPersonsWord?: boolean;
+  /**
+   * The card is being drawn for its one decision screen
+   * (`services/inbox/pendingAction.ts`), not for a page of the queue: a
+   * presenter may read the slower evidence a person decides on there (a
+   * reply's whole thread). Present on `reviewCard` only.
+   */
+  detail?: boolean;
+  /**
+   * The person the card is drawn for, on its decision screen: evidence read
+   * from a source (a mailbox) is read through their grants, and a source they
+   * may not read contributes nothing. Present on `reviewCard` with `detail`.
+   */
+  viewerId?: string;
 };
 
 /**
@@ -167,7 +180,11 @@ export type ReviewCard = {
   /** Who/what the item is about, e.g. the lead: name / role / company, deep-linked. */
   subject?: { name: string; role?: string; company?: string; href?: string };
   /** Where the item came from: source, campaign, MQL date. Labeled, no links. */
-  provenance?: Array<{ label: string; value: string }>;
+  /**
+   * Header facts. `handle: true` marks a value that is an internal id the
+   * presenter could not name (a campaign id): the shell does not show it.
+   */
+  provenance?: Array<{ label: string; value: string; handle?: boolean }>;
   /** The recommended action, front and center. `ref` names the thing approving acts on (e.g. the existing sequence it enrolls into). */
   recommendation?: { headline: string; detail?: string; ref?: string };
   /**
@@ -244,8 +261,13 @@ export type OutboundMessage = {
     subject?: string;
     /** Opens the thread in its own system. */
     href?: string;
-    /** The last 1–3 messages, oldest first. */
+    /**
+     * The messages as lines, oldest first: the last 1–3 synced snippets, or on
+     * the decision screen every message but `latest`, each one line.
+     */
     messages: Array<{ from: string; at: string; snippet: string }>;
+    /** The other side's latest message, whole, when the thread was read (the decision screen). */
+    latest?: { from: string; at: string | null; body: string };
   };
   /**
    * The files that go with the message, each one the approver can open before
@@ -547,6 +569,16 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * into one, and the reviewer would only ever see the last one to arrive.
    */
   dedupKeyFor?: (input: z.infer<S>) => string | undefined;
+  /**
+   * THE RECORDS THIS ACTION IS ABOUT, as record keys: `gmail-thread:<id>`
+   * for a mail thread, `deals:<id>` / `contacts:<id>` / `companies:<id>` for
+   * a CRM record (the mirror's own external ids). Review lists the other open
+   * decisions about the same records beside this one
+   * (`services/inbox/relatedItems`), matched on these keys exactly. Only the
+   * record the action changes or answers: never a sequence, a sender, a
+   * channel or a project it merely names. Absent, nothing is related.
+   */
+  subjectRefs?: (input: z.infer<S>) => string[];
   /**
    * How many records approving this changes, when it changes more than one
    * (a bulk decline: its refs). The turn that reports the approval reads it,

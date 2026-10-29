@@ -1,9 +1,9 @@
 'use client';
 
 import type { ContentEdit } from './contentKinds';
-import type { ReviewCardRun } from './ReviewSurface';
+import type { ReviewCardRun, ReviewStale } from './ReviewSurface';
 import type { ReviewContentEdit } from '@/libs/actions/types';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { answerInput } from '@/features/dashboard/chat/rulingChoices';
 import { isPollableRunId } from '@/features/dashboard/chat/useActionRunStatus';
 import { withMinimumPending } from '@/features/dashboard/inbox/pending';
@@ -69,6 +69,13 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
   const [execError, setExecError] = useState<string | null>(
     run.status === 'failed' ? (run.error ?? 'The action failed to execute.') : null,
   );
+  // OVERTAKEN BY EVENTS: what this was proposed on changed since (the other
+  // side wrote again, the contact joined a sequence, a field moved). Seeded
+  // from the run, read once from `actionStatus` when the surface opens, and
+  // set by an approve the server answered STALE. The shell shows it under the
+  // decision line with Proceed anyway and Redraft (`StaleBanner`).
+  const [stale, setStale] = useState<ReviewStale | null>(run.stale ?? null);
+  const lastWasStale = useRef(false);
 
   // Reset the working copy when the surface moves to another run — and bring
   // back the edits that sit behind a standing check, so an approved send's
@@ -80,9 +87,30 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     setNote('');
     // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
     setExecError(run.status === 'failed' ? (run.error ?? 'The action failed to execute.') : null);
+    setStale(run.stale ?? null);
     const properties = (run.input.properties ?? {}) as Record<string, unknown>;
     setPropertyEdits(Object.fromEntries(Object.entries(properties).map(([k, v]) => [k, str(v)])));
   }, [run.id]);
+
+  // What changed since it was proposed, read once when a waiting run opens.
+  // A server without the check answers no `stale` field and nothing shows.
+  useEffect(() => {
+    if (run.status !== 'pending' || !isPollableRunId(run.id)) {
+      return;
+    }
+    let alive = true;
+    Promise.resolve()
+      .then(() => client.review.actionStatus({ id: run.id }))
+      .then((s) => {
+        if (alive && s && 'stale' in s) {
+          setStale(((s as { stale?: ReviewStale | null }).stale) ?? null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [run.id, run.status]);
 
   const runStamp = run.regeneratingSince == null
     ? null
@@ -166,9 +194,11 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
    * write it as a draft. Rides the approval as that item's content edit.
    * @param opts.mode.contentId - The message's content item.
    * @param opts.mode.mode - What the approver chose.
+   * @param opts.overrideStale
    */
-  const decide = (decision: ReviewDecision, opts?: { answer?: string; mode?: { contentId: string; mode: 'draft' | 'send' } }) => once(async () => {
+  const decide = (decision: ReviewDecision, opts?: { answer?: string; mode?: { contentId: string; mode: 'draft' | 'send' }; overrideStale?: boolean }) => once(async () => {
     setBusy(true);
+    lastWasStale.current = false;
     try {
       const built = buildDecision();
       const chosen = decision === 'approve' ? opts?.mode : undefined;
@@ -187,13 +217,29 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(decision === 'approve' && ce ? { contentEdits: ce } : {}),
         ...(decision === 'approve' && editedInput ? { editedInput } : {}),
+        // Proceed anyway: the person was told what changed and runs it past
+        // that; the server records it on the run.
+        // The fingerprint names exactly what they were shown: anything new
+        // since is answered STALE again rather than run past.
+        ...(decision === 'approve' && opts?.overrideStale ? { overrideStale: true, ...(stale?.fingerprint ? { staleFingerprint: stale.fingerprint } : {}) } : {}),
       })).catch((err: unknown) => {
+        // Nothing ran: what it was proposed on changed. Said on the card,
+        // under the decision line, never as a failure.
+        if (decision === 'approve' && (err as { code?: string })?.code === 'STALE') {
+          const data = (err as { data?: { stale?: ReviewStale } }).data?.stale;
+          return { stale: data ?? { line: String((err as Error).message ?? '').replace(/^Not run: /, ''), checkedAt: new Date().toISOString(), canRedraft: false } } as const;
+        }
         // Already what was asked (a second press, another tab): decided, not failed.
         if ((decision === 'approve' || decision === 'reject') && alreadySettled((err as Error)?.message, decision)) {
           return { settled: true } as const;
         }
         throw err;
       });
+      if ('stale' in outcome) {
+        lastWasStale.current = true;
+        setStale(outcome.stale ?? null);
+        return;
+      }
       if ('settled' in outcome) {
         setExecError(null);
         onDecided?.(decision);
@@ -329,6 +375,9 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     regen,
     regenError,
     execError,
+    stale,
+    /** True when the last approve was answered STALE: nothing ran, the banner says why. */
+    wasStale: () => lastWasStale.current,
     contentEdits,
     editContent,
     propertyEdits,

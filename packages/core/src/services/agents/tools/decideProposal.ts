@@ -84,7 +84,7 @@ export function decideProposalTool(ctx: RuntimeContext) {
         id: z.number().int().positive().describe('The proposal (action run) id: the proposal number a card in this conversation carries, or one listed under what is waiting on the page\'s record. There is no tool that lists proposals; never guess an id.'),
         decision: z.enum(['approve', 'reject', 'defer']).describe('What the person said to do with it'),
         note: z.string().max(500).optional().describe('The person\'s reason, in their words, when they gave one'),
-        override_stale: z.boolean().optional().describe('Approve although what it was proposed on changed. Only after this tool said NOT RUN with what changed, and the person said to run it anyway.'),
+        override_stale: z.boolean().optional().describe('Approve although what it was proposed on changed: only after this tool said NOT RUN and the person said run it anyway.'),
       }),
     },
   );

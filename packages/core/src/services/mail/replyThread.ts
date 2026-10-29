@@ -20,8 +20,9 @@
  */
 
 import type { RecentMessage } from '@/libs/sources/mailThreadState';
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { canonicalGmailUrl } from '@/libs/mail/gmailUrl';
 import { MAIL_THREAD_STATE_KIND } from '@/libs/retrieval/facets';
 import { addressOf, recentMessagesOf } from '@/libs/sources/mailThreadState';
 import { knowledgeChunkSchema, knowledgeDocumentSchema } from '@/models/Schema';
@@ -35,7 +36,11 @@ export type ReplyThread = {
   counterpart: string;
   /** The mailbox the thread was read from — who the reply goes out as. */
   mailbox: string | null;
+  /** The source (mailbox connection) whose sync filed it: its credentials read the thread. */
+  sourceId?: number;
   lastMessageAt: string | null;
+  /** The thread's last message id, as sync last saw it: a full copy ending there is current. */
+  lastMessageId?: string | null;
   /** The last few messages, oldest first. */
   messages: RecentMessage[];
   /** How the thread was found: by the id the draft named, or by who and what it is about. */
@@ -57,7 +62,14 @@ export function bareSubject(subject: string): string {
   return s.replace(/\s+/g, ' ').toLowerCase();
 }
 
-type Row = { id: number; uri: string | null; metadata: Record<string, unknown>; lastModifiedAt: Date | null };
+type Row = { id: number; sourceId: number; uri: string | null; metadata: Record<string, unknown>; lastModifiedAt: Date | null };
+
+/**
+ * Which mailboxes a read may look in: the sources a viewer may read, by id.
+ * Absent, every source (a server path with no viewer: an action's own
+ * execution). An empty list reads nothing — no access is no evidence.
+ */
+export type SourceScope = { sourceIds?: readonly number[] };
 
 const meta = (key: string) => sql<string>`${knowledgeDocumentSchema.metadata}->>${key}`;
 const facet = (key: string) => sql<string>`${knowledgeDocumentSchema.metadata}->'facets'->>${key}`;
@@ -67,17 +79,27 @@ const facet = (key: string) => sql<string>`${knowledgeDocumentSchema.metadata}->
  * @param orgId - The workspace.
  * @param where - The extra filter.
  * @param limit - How many.
+ * @param scope - The mailboxes the reader may read.
  */
-async function threadDocs(orgId: string, where: ReturnType<typeof sql> | ReturnType<typeof and>, limit: number): Promise<Row[]> {
+async function threadDocs(orgId: string, where: ReturnType<typeof sql> | ReturnType<typeof and>, limit: number, scope: SourceScope = {}): Promise<Row[]> {
+  if (scope.sourceIds && scope.sourceIds.length === 0) {
+    return [];
+  }
   return db
     .select({
       id: knowledgeDocumentSchema.id,
+      sourceId: knowledgeDocumentSchema.sourceId,
       uri: knowledgeDocumentSchema.uri,
       metadata: knowledgeDocumentSchema.metadata,
       lastModifiedAt: knowledgeDocumentSchema.lastModifiedAt,
     })
     .from(knowledgeDocumentSchema)
-    .where(and(eq(knowledgeDocumentSchema.orgId, orgId), sql`${meta('kind')} = ${MAIL_THREAD_STATE_KIND}`, where))
+    .where(and(
+      eq(knowledgeDocumentSchema.orgId, orgId),
+      sql`${meta('kind')} = ${MAIL_THREAD_STATE_KIND}`,
+      scope.sourceIds ? inArray(knowledgeDocumentSchema.sourceId, [...scope.sourceIds]) : undefined,
+      where,
+    ))
     .orderBy(desc(knowledgeDocumentSchema.lastModifiedAt))
     .limit(limit);
 }
@@ -111,10 +133,12 @@ async function toThread(orgId: string, row: Row, matchedBy: ReplyThread['matched
   return {
     threadId: str(m.threadId),
     subject: str(m.subject),
-    href: row.uri,
+    href: canonicalGmailUrl(row.uri),
     counterpart: str(facets.counterpart) || str(m.from),
     mailbox: str(facets.mailbox) || null,
+    sourceId: row.sourceId,
     lastMessageAt: row.lastModifiedAt?.toISOString() ?? null,
+    lastMessageId: str(facets.last_message_id) || null,
     messages: recentMessagesOf(m, content).slice(-3),
     matchedBy,
   };
@@ -127,10 +151,11 @@ async function toThread(orgId: string, row: Row, matchedBy: ReplyThread['matched
  * @param draft.threadId - The thread it named, when it named one.
  * @param draft.to - Its recipient (an address, or `Name <address>`).
  * @param draft.subject - Its subject; only a reply's subject (`Re: …`) is matched without an id.
+ * @param scope - The mailboxes the reader may read (`SourceScope`).
  */
-export async function findReplyThread(orgId: string, draft: { threadId?: string; to?: string; subject?: string }): Promise<ReplyThread | null> {
+export async function findReplyThread(orgId: string, draft: { threadId?: string; to?: string; subject?: string }, scope: SourceScope = {}): Promise<ReplyThread | null> {
   if (draft.threadId) {
-    const [row] = await threadDocs(orgId, sql`${meta('threadId')} = ${draft.threadId}`, 1);
+    const [row] = await threadDocs(orgId, sql`${meta('threadId')} = ${draft.threadId}`, 1, scope);
     return row ? toThread(orgId, row, 'id') : null;
   }
   const address = draft.to ? addressOf(draft.to.split(',')[0] ?? '') : '';
@@ -138,7 +163,7 @@ export async function findReplyThread(orgId: string, draft: { threadId?: string;
   if (!address || !/^\s*re\s*:/i.test(subject)) {
     return null;
   }
-  const rows = await threadDocs(orgId, sql`lower(${facet('counterpart')}) like ${`%${address}%`}`, 10);
+  const rows = await threadDocs(orgId, sql`lower(${facet('counterpart')}) like ${`%${address}%`}`, 10, scope);
   const want = bareSubject(subject);
   const row = rows.find(r => bareSubject(String(r.metadata?.subject ?? '')) === want);
   return row ? toThread(orgId, row, 'subject') : null;
@@ -150,13 +175,14 @@ export async function findReplyThread(orgId: string, draft: { threadId?: string;
  * @param orgId - The workspace.
  * @param email - Their address.
  * @param days - How far back counts as active.
+ * @param scope - The mailboxes the reader may read (`SourceScope`).
  */
-export async function activeThreadWith(orgId: string, email: string, days = ACTIVE_THREAD_DAYS): Promise<ReplyThread | null> {
+export async function activeThreadWith(orgId: string, email: string, days = ACTIVE_THREAD_DAYS, scope: SourceScope = {}): Promise<ReplyThread | null> {
   const address = addressOf(email);
   if (!address.includes('@')) {
     return null;
   }
   const since = new Date(Date.now() - days * 86_400_000);
-  const [row] = await threadDocs(orgId, and(sql`lower(${facet('counterpart')}) like ${`%${address}%`}`, gte(knowledgeDocumentSchema.lastModifiedAt, since)), 1);
+  const [row] = await threadDocs(orgId, and(sql`lower(${facet('counterpart')}) like ${`%${address}%`}`, gte(knowledgeDocumentSchema.lastModifiedAt, since)), 1, scope);
   return row ? toThread(orgId, row, 'subject') : null;
 }

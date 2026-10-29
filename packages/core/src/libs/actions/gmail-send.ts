@@ -53,8 +53,10 @@
 import type { Action, ReviewCard } from './types';
 import type { GmailThreadMessage } from '@/libs/sources/gmail';
 import type { ReplyThread } from '@/services/mail/replyThread';
+import type { ThreadEvidence } from '@/services/mail/threadEvidence';
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
+import { gmailUrl } from '@/libs/mail/gmailUrl';
 import { nameOf, splitRecipients } from '@/libs/mail/recipients';
 import { resolveGoogleAccessToken } from '@/libs/sources/googleAuth';
 import { addressOf } from '@/libs/sources/mailThreadState';
@@ -233,7 +235,7 @@ async function gmailSignatureFor(baseUrl: string, headers: Record<string, string
  * @param where - `#drafts?compose=<message>` or `#all/<thread>`.
  */
 function gmailLink(mailbox: string | undefined, where: string): string {
-  return `https://mail.google.com/mail/${mailbox ? `u/${encodeURIComponent(mailbox)}/` : ''}${where}`;
+  return gmailUrl(mailbox, where);
 }
 
 /**
@@ -246,6 +248,28 @@ async function replyThreadFor(orgId: string, input: GmailSendInput): Promise<Rep
   try {
     const { findReplyThread } = await import('@/services/mail/replyThread');
     return await findReplyThread(orgId, { threadId: input.threadId, to: input.to, subject: input.subject });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The thread a reply answers, read whole, for the person deciding it — or
+ * `hidden` when the thread's mailbox is not theirs to read, in which case the
+ * card shows no thread at all (not even the synced lines). Never throws: no
+ * copy and no Gmail means the synced lines stand.
+ * @param orgId - The workspace.
+ * @param thread - The thread, as its synced state named it.
+ * @param viewerId - Who the card is drawn for.
+ */
+async function threadEvidenceFor(orgId: string, thread: ReplyThread, viewerId: string | undefined): Promise<ThreadEvidence | 'hidden' | null> {
+  try {
+    const { readableGmailSources, readThreadEvidence } = await import('@/services/mail/threadEvidence');
+    const sources = await readableGmailSources(orgId, viewerId);
+    if (thread.sourceId === undefined || !sources.some(s => s.id === thread.sourceId)) {
+      return 'hidden';
+    }
+    return await readThreadEvidence(orgId, { threadId: thread.threadId, state: thread, sources });
   } catch {
     return null;
   }
@@ -359,10 +383,18 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
   // Pending-only dedup, so a fresh email to the same person proposes cleanly
   // once the last one is decided.
   dedupKeyFor: input => `gmail.send:${addressOf(splitRecipients(input.to)[0] ?? input.to)}`,
+  // The thread it replies in: the ask that a reply is owed and a stage change
+  // on the same thread are decided beside it.
+  subjectRefs: input => (input.threadId ? [`gmail-thread:${input.threadId}`] : []),
   // The outbound artifact: who it goes to, what it answers, the copy and
   // the signature — one email, never a "Send 1" of a sequence.
   async reviewCard(ctx, input): Promise<ReviewCard> {
     const thread = await replyThreadFor(ctx.orgId, input);
+    // On its decision screen a reply shows what it answers whole: the other
+    // side's latest message in full and the rest as lines, read the way an
+    // ask about the same thread reads it (`services/mail/threadEvidence`).
+    const read = ctx.detail && thread ? await threadEvidenceFor(ctx.orgId, thread, ctx.viewerId) : null;
+    const evidence = read === 'hidden' ? null : read;
     const to = splitRecipients(input.to);
     const cc = splitRecipients(input.cc);
     const first = to[0] ?? input.to;
@@ -386,9 +418,11 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
         recipientsEditable: true,
         contentId: 'message',
         ...(input.signature ? { signature: input.signature } : {}),
-        ...(thread && thread.messages.length > 0
-          ? { thread: { subject: thread.subject, ...(thread.href ? { href: thread.href } : {}), messages: thread.messages } }
-          : {}),
+        ...(evidence
+          ? { thread: { subject: evidence.subject, href: evidence.href, messages: evidence.history.map(m => ({ from: m.from, at: m.at ?? '', snippet: m.line })), ...(evidence.latest ? { latest: evidence.latest } : {}) } }
+          : read !== 'hidden' && thread && thread.messages.length > 0
+            ? { thread: { subject: thread.subject, ...(thread.href ? { href: thread.href } : {}), messages: thread.messages } }
+            : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         modeChoice: true,
         doneLabel: input.draft ? 'Draft created' : 'Sent',

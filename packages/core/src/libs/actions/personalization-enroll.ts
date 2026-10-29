@@ -776,6 +776,8 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
   // One queue item per contact: a re-fired sweep updates the pending item in
   // place, never duplicates it.
   dedupKeyFor: input => `personalization.enroll:${input.contactRef}`,
+  // The contact it enrolls; the sequence and the sender are only named.
+  subjectRefs: input => [input.contactRef],
   // Back-link the queue item onto the lead so the personalization console
   // renders and decides the same run.
   async onProposed(ctx, input, runId) {
@@ -820,19 +822,23 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     // MQL date: the true stage-entry date when the mirror carried one; the
     // arrival date otherwise, labeled "Arrived" — never presented as stage
     // timing the data lacks.
-    const provenance: Array<{ label: string; value: string }> = [];
+    const provenance: Array<{ label: string; value: string; handle?: boolean }> = [];
     if (lead?.entranceSource) {
       provenance.push({ label: 'Source', value: entranceLabel(lead.entranceSource) });
     }
+    // An ad platform passes its campaign and ad ids as the UTM values when it
+    // passes no name: a bare number is that id, marked so the shell does not
+    // show digits as a campaign name. A named campaign shows.
+    const adId = (v: string) => /^\d{6,}$/.test(v.trim());
     if (lead?.utmCampaign) {
-      provenance.push({ label: 'Campaign', value: lead.utmCampaign });
+      provenance.push({ label: 'Campaign', value: lead.utmCampaign, ...(adId(lead.utmCampaign) ? { handle: true } : {}) });
     }
     // The ad lead magnet they answered, from the CRM mirror (the ledger row
     // does not carry it; see `contactUtmContentByRef`).
     const { contactUtmContentByRef } = await import('@/services/CrmRecordsService');
     const utmContent = (await contactUtmContentByRef(ctx.orgId, [input.contactRef]).catch(() => new Map<string, string>())).get(input.contactRef);
     if (utmContent) {
-      provenance.push({ label: 'Lead magnet', value: utmContent });
+      provenance.push({ label: 'Lead magnet', value: utmContent, ...(adId(utmContent) ? { handle: true } : {}) });
     }
     // Who the emails go out as, and from which inbox if it were enrolled
     // now: the platform picks the inbox at Enroll (warm-up ramps first), so

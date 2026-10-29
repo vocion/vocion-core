@@ -4,6 +4,7 @@ import type { ActionChange } from '@/services/inbox/describeActionRun';
 import type { EmailPreviewModel } from '@/services/inbox/emailPreview';
 import type { ReviewContextModel } from '@/services/inbox/reviewContextModel';
 import { looksLikeManualInput } from '@/libs/actions/manual';
+import { restatesLabel } from '@/libs/actions/restatesLabel';
 import { nounCode } from '@/libs/codes';
 import { evidenceRef } from '@/libs/preview/evidenceRef';
 import { humaniseField } from '@/services/inbox/describeActionRun';
@@ -230,6 +231,143 @@ export function planDecision(input: { note: string; edited: boolean; draft?: boo
         : 'Type direction here to approve with changes, or to send it back to the agent.',
     carriesNote,
   };
+}
+
+/** One labelled line of a Why, in the words its author wrote. */
+export type WhyLine = { kind: 'rationale' | 'reason' | 'detail' | 'summary'; label: string; text: string };
+
+/**
+ * The Why, as labelled lines in their authors' own words: the case for the
+ * payload (the rationale), the reason for the suggestion, and the presenter's
+ * own case and summary. Never merged, cut or rewritten (CLAUDE.md: no editing
+ * an agent's words after it writes them). A line is left out only when it is
+ * empty, says nothing but the title, or is the very same text as a line
+ * before it. A reason that restates its rationale is fixed where it is
+ * written (`propose_action`'s `suggested_decision_reason`), not here. Pure.
+ * @param input - What the run and the card carry.
+ * @param input.rationale - The case for the payload.
+ * @param input.reason - The reason for the suggestion.
+ * @param input.suggestedVerb - The suggestion, as a verb ("approving").
+ * @param input.detail - The presenter's case for its recommendation.
+ * @param input.summary - The presenter's summary.
+ * @param input.titles - What the page already says as its title.
+ */
+export function whyLines(input: { rationale?: string | null; reason?: string | null; suggestedVerb?: string | null; detail?: string | null; summary?: string | null; titles: ReadonlyArray<string | null | undefined> }): WhyLine[] {
+  const candidates: WhyLine[] = [
+    { kind: 'rationale', label: 'Why', text: input.rationale ?? '' },
+    { kind: 'reason', label: input.suggestedVerb ? `Why it suggests ${input.suggestedVerb}` : 'Why it suggests that', text: input.reason ?? '' },
+    { kind: 'detail', label: 'The recommendation', text: input.detail ?? '' },
+    { kind: 'summary', label: 'Summary', text: input.summary ?? '' },
+  ];
+  const out: WhyLine[] = [];
+  for (const c of candidates) {
+    const text = c.text.trim();
+    if (!text || input.titles.some(t => t && restatesLabel(text, t)) || out.some(o => o.text === text)) {
+      continue;
+    }
+    out.push({ ...c, text });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// The Review item shell — the order and rules every kind follows
+// (`docs/design/patterns.md` § Review item). A kind contributes its subject
+// block and its header facts; these decide how they read.
+// ---------------------------------------------------------------------------
+
+/**
+ * Header facts a person can read: a fact its presenter marked as an internal
+ * handle (`handle: true`, a campaign id where no name is known) is dropped,
+ * and so is an empty one. Nothing is guessed from the value: an order
+ * number, a count or an amount is a real value. Pure.
+ * @param facts - The kind's facts, in order.
+ */
+export function readableFacts<T extends { label: string; value: unknown; handle?: boolean }>(facts: readonly T[]): T[] {
+  return facts.filter(f => !f.handle && !(typeof f.value === 'string' && f.value.trim() === ''));
+}
+
+/**
+ * How long the item has waited, as the header says it: "Waiting 6 days".
+ * Speed is the problem a week-old lead has, so the age leads. Pure.
+ * @param since - When it was proposed.
+ * @param now - The clock.
+ */
+export function waitingLabel(since: Date | string | null | undefined, now: Date = new Date()): string | null {
+  const at = since ? new Date(since) : null;
+  if (!at || Number.isNaN(at.getTime())) {
+    return null;
+  }
+  const hours = Math.floor(Math.max(0, now.getTime() - at.getTime()) / 3_600_000);
+  if (hours < 1) {
+    return 'Waiting under an hour';
+  }
+  if (hours < 48) {
+    return `Waiting ${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+  return `Waiting ${Math.floor(hours / 24)} days`;
+}
+
+/**
+ * The one sentence that tipped the recommendation: the first sentence of the
+ * reason given for it, else of the case for the payload. Pure.
+ * @param reasons - The reason for the suggestion, then the rationale, then the presenter's detail.
+ */
+export function tippingFact(reasons: ReadonlyArray<string | null | undefined>): string | null {
+  for (const r of reasons) {
+    // A sentence ends at . ! or ? followed by a space or the end: "$1.5M"
+    // and "v2.1" are not sentence ends.
+    const first = r?.trim().match(/^[\s\S]+?(?:[.!?](?=\s|$)|$)/)?.[0]?.trim();
+    if (first && first.length > 3) {
+      return first.replace(/[.!?]$/, '');
+    }
+  }
+  return null;
+}
+
+/**
+ * The decision line under the header, for every kind: who suggests what (the
+ * card's own verb, or its recommendation), the fact that tipped it, how sure,
+ * and how often you agreed with this agent. One line; empty parts drop. Pure.
+ * @param input - The parts.
+ * @param input.agent - The agent's name.
+ * @param input.suggested - What it suggests.
+ * @param input.what - The verb or the recommendation's headline ("Create draft in Gmail", "Enroll in: …").
+ * @param input.tipping - The fact that tipped it.
+ * @param input.confidence - 0..1.
+ * @param input.agreement - "You agreed 84 of 97", when there is enough history.
+ */
+export function decisionLine(input: { agent?: string | null; suggested?: 'approve' | 'reject' | 'snooze' | null; what?: string | null; tipping?: string | null; confidence?: number | null; agreement?: string | null }): string | null {
+  const who = input.agent ?? 'The agent';
+  const verb = input.suggested === 'reject' ? 'suggests turning it down' : input.suggested === 'snooze' ? 'suggests waiting' : input.what ? 'suggests' : input.suggested === 'approve' ? 'suggests approving' : null;
+  const head = verb ? (input.what && input.suggested !== 'reject' && input.suggested !== 'snooze' ? `${who} ${verb}: ${input.what}` : `${who} ${verb}`) : input.what ?? null;
+  const parts = [
+    head && input.tipping ? `${head}. ${input.tipping}` : head ?? input.tipping,
+    typeof input.confidence === 'number' ? `${Math.round(input.confidence * 100)}% confident` : null,
+    input.agreement,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/** One of the two ways an email card can be approved. */
+export type OutboundModeVerb = { mode: 'draft' | 'send'; label: string; shortcut?: 'r' };
+
+/**
+ * Send and Create draft, in the order the proposal asked for. The primary is
+ * what was PROPOSED — a draft proposal opens on Create draft, with Send beside
+ * it and no key, so the one keystroke never sends what was offered as a draft
+ * (2026-10-29: a draft reply's primary read Send). A send proposal keeps Send
+ * primary and the draft on `r`.
+ * @param input - The card's outbound message.
+ * @param input.mode - What the proposal asked for.
+ * @param input.system - Where the draft is made ("Gmail").
+ */
+export function outboundModeVerbs(input: { mode: 'draft' | 'send'; system: string }): { primary: OutboundModeVerb; secondary: OutboundModeVerb } {
+  const draft: OutboundModeVerb = { mode: 'draft', label: `Create draft in ${input.system}` };
+  const send: OutboundModeVerb = { mode: 'send', label: 'Send' };
+  return input.mode === 'draft'
+    ? { primary: draft, secondary: send }
+    : { primary: send, secondary: { ...draft, shortcut: 'r' } };
 }
 
 /**

@@ -367,3 +367,73 @@ describe('contextPaneRows — a context that was never read', () => {
     expect(pane.notes).not.toContain(CONTEXT_PANE_LABELS.notRead);
   });
 });
+
+describe('send or draft, in the order the proposal asked for', () => {
+  it('opens a draft proposal on Create draft, with Send beside it and no key', async () => {
+    const { outboundModeVerbs } = await import('./reviewSheetModel');
+
+    expect(outboundModeVerbs({ mode: 'draft', system: 'Gmail' })).toEqual({
+      primary: { mode: 'draft', label: 'Create draft in Gmail' },
+      secondary: { mode: 'send', label: 'Send' },
+    });
+  });
+
+  it('keeps Send primary on a send proposal, the draft on r', async () => {
+    const { outboundModeVerbs } = await import('./reviewSheetModel');
+
+    expect(outboundModeVerbs({ mode: 'send', system: 'Gmail' })).toEqual({
+      primary: { mode: 'send', label: 'Send' },
+      secondary: { mode: 'draft', label: 'Create draft in Gmail', shortcut: 'r' },
+    });
+  });
+});
+
+describe('a Why in its authors\' own words', () => {
+  it('keeps the rationale and the reason as two labelled lines, whole, never merged or cut', async () => {
+    const { whyLines } = await import('./reviewSheetModel');
+    const rationale = 'Dana replied on Oct 28 after a month. The deal is worth $1.5M.';
+    const reason = 'A referral call Friday may open a licensing deal. The deal is worth $1.5M.';
+
+    expect(whyLines({ rationale, reason, suggestedVerb: 'approving', titles: ['Draft a reply to Dana Reyes'] })).toEqual([
+      { kind: 'rationale', label: 'Why', text: rationale },
+      { kind: 'reason', label: 'Why it suggests approving', text: reason },
+    ]);
+  });
+
+  it('leaves out only a line that is the title, or the same text as one before it, and keeps any script', async () => {
+    const { whyLines } = await import('./reviewSheetModel');
+
+    expect(whyLines({ rationale: 'Draft a reply to Dana Reyes', reason: 'Same.', detail: 'Same.', summary: 'Ответ ждут с понедельника.', titles: ['Draft a reply to Dana Reyes'] }).map(l => l.kind))
+      .toEqual(['reason', 'summary']);
+  });
+});
+
+describe('the Review item shell', () => {
+  it('drops only the facts its presenter marked as handles, never by the look of the value', async () => {
+    const { readableFacts } = await import('./reviewSheetModel');
+
+    expect(readableFacts([{ label: 'Campaign', value: '23900000001', handle: true }, { label: 'Order', value: '100245' }, { label: 'Source', value: 'Paid social' }, { label: 'Owner', value: '' }]))
+      .toEqual([{ label: 'Order', value: '100245' }, { label: 'Source', value: 'Paid social' }]);
+  });
+
+  it('says how long it has waited', async () => {
+    const { waitingLabel } = await import('./reviewSheetModel');
+    const now = new Date('2026-10-29T12:00:00Z');
+
+    expect(waitingLabel('2026-10-22T09:00:00Z', now)).toBe('Waiting 7 days');
+    expect(waitingLabel('2026-10-29T09:00:00Z', now)).toBe('Waiting 3 hours');
+    expect(waitingLabel(null, now)).toBeNull();
+  });
+
+  it('reads the recommendation, the fact that tipped it, how sure and how often you agreed as one line', async () => {
+    const { decisionLine, tippingFact } = await import('./reviewSheetModel');
+    const tipping = tippingFact([null, 'Fit is Poor: enterprise, outside the 20 to 90M band. The rest is detail.']);
+
+    expect(tipping).toBe('Fit is Poor: enterprise, outside the 20 to 90M band');
+    expect(tippingFact(['The deal is worth $1.5M, up from v2.1 of the quote. More.'])).toBe('The deal is worth $1.5M, up from v2.1 of the quote');
+    expect(decisionLine({ agent: 'Revenue Lead', suggested: 'approve', what: 'Enroll in Nurture · 4 emails', tipping, confidence: 0.85, agreement: 'You agreed 84 of 97' }))
+      .toBe('Revenue Lead suggests: Enroll in Nurture · 4 emails. Fit is Poor: enterprise, outside the 20 to 90M band · 85% confident · You agreed 84 of 97');
+    expect(decisionLine({ agent: 'Revenue Lead', suggested: 'reject', what: 'Enroll in Nurture', confidence: 0.6 })).toBe('Revenue Lead suggests turning it down · 60% confident');
+    expect(decisionLine({})).toBeNull();
+  });
+});

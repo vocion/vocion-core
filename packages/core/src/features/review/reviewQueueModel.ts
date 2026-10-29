@@ -1,3 +1,4 @@
+import { looksLikeId } from '@/libs/preview/evidenceRef';
 /**
  * Pure helpers behind the Review page header: the type chips, the queue
  * position line and the item title. Kept free of React so the header's
@@ -44,20 +45,25 @@ export function queuePosition(index: number, total: number): string {
 }
 
 /**
- * The page title for one item: the type in plain words, then who or what it
- * is about — "Enroll MQL in sequence — Dev Okonkwo · Vantage Automation". Falls back to the
- * card's own title when there is no subject.
- * @param opts - The type label plus the card's title and subject.
+ * The H1 of a Review item: WHO or WHAT, in plain words — "Dana Reyes · VP
+ * Operations, Kestrel Capital" — never the action's type, an em dash, or an
+ * id (an enroll card read "Enroll MQL in sequence — Rob … · 157863368",
+ * 2026-10-29: the company field held a CRM id). The verb is the decision
+ * line's, under it. With no subject the card's own title stands. Pure.
+ * @param opts - The item.
  * @param opts.label
- * @param opts.title
- * @param opts.subject
+ * @param opts.title - The card's title, for an item with no subject.
+ * @param opts.subject - Who it is about.
  * @param opts.subject.name
+ * @param opts.subject.role
  * @param opts.subject.company
  */
-export function itemTitle(opts: { label: string; title: string; subject?: { name: string; company?: string } }): string {
+export function itemTitle(opts: { label?: string; title: string; subject?: { name: string; role?: string; company?: string } }): string {
   if (!opts.subject) {
     return opts.title;
   }
-  const who = opts.subject.company ? `${opts.subject.name} · ${opts.subject.company}` : opts.subject.name;
-  return `${opts.label} — ${who}`;
+  const company = opts.subject.company && !looksLikeId(opts.subject.company) ? opts.subject.company : undefined;
+  const role = opts.subject.role && !looksLikeId(opts.subject.role) ? opts.subject.role : undefined;
+  const about = [role, company].filter(Boolean).join(', ');
+  return about ? `${opts.subject.name} · ${about}` : opts.subject.name;
 }

@@ -37,7 +37,7 @@ export function hasZoomSource(ctx: RuntimeContext): boolean {
   return ctx.connectorSources.some(s => ZOOM_SLUG.test(s));
 }
 
-type SourceRow = { id: number; slug: string };
+export type SourceRow = { id: number; slug: string };
 
 /**
  * Every source in the org built on the given connector family.

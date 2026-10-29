@@ -76,8 +76,9 @@ export function looksLikeId(s: string): boolean {
 /**
  * One evidence citation as a reference the preview registry can resolve.
  * @param source - The citation string as the proposer or researcher wrote it.
+ * @param label - What it is called, when the server already resolved it (`services/preview/evidenceLabels`).
  */
-export function evidenceRef(source: string): EvidenceRef {
+export function evidenceRef(source: string, label?: string): EvidenceRef {
   const raw = source.trim();
   if (/^https?:\/\//i.test(raw)) {
     return {
@@ -89,17 +90,21 @@ export function evidenceRef(source: string): EvidenceRef {
   }
   const m = /^([a-z][\w-]*):(.+)$/i.exec(raw);
   if (!m) {
-    return { ref: { type: 'document', id: raw, label: raw }, sourceLabel: 'Note', label: raw, raw };
+    return { ref: { type: 'document', id: raw, label: label ?? raw }, sourceLabel: 'Note', label: label ?? raw, raw };
   }
-  const prefix = m[1]!.toLowerCase();
-  const rest = m[2]!.trim();
+  // `gmail:thread:<id>` and `hubspot:deals:<id>` name a kind inside the
+  // source: read the inner kind, so neither shows as "thread:1a04…".
+  const inner = /^(thread|deals|contacts|companies):(.+)$/i.exec(m[2]!.trim());
+  const nested = inner && (m[1]!.toLowerCase() === 'gmail' || m[1]!.toLowerCase() === 'hubspot');
+  const prefix = nested ? (inner[1]!.toLowerCase() === 'thread' ? 'gmail-thread' : inner[1]!.toLowerCase()) : m[1]!.toLowerCase();
+  const rest = nested ? inner[2]!.trim() : m[2]!.trim();
   const known = SOURCES[prefix];
   const sourceLabel = known?.label ?? prefix.charAt(0).toUpperCase() + prefix.slice(1);
   // A ref whose tail is a handle reads as its kind; a tail someone typed —
   // a subject line, a meeting title — already reads as itself.
-  const label = known && looksLikeId(rest) ? known.noun : rest;
+  const shown = label ?? (known && looksLikeId(rest) ? known.noun : rest);
   const type = prefix === 'deals' || prefix === 'hubspot' ? 'deal' : prefix === 'contacts' || prefix === 'companies' ? 'object' : 'document';
-  return { ref: { type, id: raw, label }, sourceLabel, label, raw };
+  return { ref: { type, id: raw, label: shown }, sourceLabel, label: shown, raw };
 }
 
 /**

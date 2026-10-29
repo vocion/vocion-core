@@ -2,10 +2,12 @@
 
 import type { ReviewType } from './reviewQueueModel';
 import type { ReviewShortcut } from './reviewShortcuts';
+import type { ReviewStale } from './ReviewSurface';
 import type { UpNextEntry } from './UpNextMenu';
 import type { ActionRevision } from '@/libs/actions/revisions';
 import type { ReviewCard } from '@/libs/actions/types';
-import { AlarmClock, Check, Loader2, ShieldCheck, Sparkles, X } from 'lucide-react';
+import type { RelatedItem } from '@/services/inbox/relatedItems';
+import { AlarmClock, Check, ChevronLeft, ChevronRight, Loader2, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { DECISION_VERBS } from '@/features/dashboard/inbox/decisionVerbs';
@@ -18,7 +20,7 @@ import { describeAction } from './describeAction';
 import { ReviewHeader } from './ReviewHeader';
 import { itemTitle, queuePosition, typeLabel } from './reviewQueueModel';
 import { SHORTCUTS } from './reviewShortcuts';
-import { ReviewSurface } from './ReviewSurface';
+import { ReviewSurface, StaleBanner } from './ReviewSurface';
 import { TypeChips } from './TypeChips';
 import { UpNextMenu } from './UpNextMenu';
 
@@ -37,6 +39,14 @@ import { UpNextMenu } from './UpNextMenu';
  */
 
 export type ActionRun = {
+  /** The proposing agent's name ("Revenue Director"), when its row has one. */
+  agentName?: string | null;
+  /** Names for the proposal's citations, resolved on the server (`services/preview/evidenceLabels`). */
+  evidenceLabels?: Record<string, string>;
+  /** The other open decisions about the same thread or record (`services/inbox/relatedItems`). */
+  related?: RelatedItem[];
+  /** What changed since it was proposed, checked when the page loads (`services/proposals/staleness`). */
+  stale?: ReviewStale | null;
   id: number;
   actionId: string;
   status: string;
@@ -109,6 +119,10 @@ export type ReviewFocusViewProps = {
   steering: boolean;
   busy: boolean;
   onDecide: (decision: 'approve' | 'reject') => void;
+  /** What changed since it was proposed, for an item with no card (a card shows its own). */
+  stale?: ReviewStale | null;
+  /** Approve past it: the person was shown what changed. */
+  onProceedStale?: () => void;
   /**
    * Snooze, on the generic (card-less) proposal. The card owns its own
    * snooze; this is the same verb for everything else. The bar dropped it
@@ -198,9 +212,10 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
   // costing the thing they sat beside.
   //
   // Nothing is lost that a person cannot reach: `j` and `k` walk the queue,
-  // `?` opens the shortcut list, and the breadcrumb goes back to it. The
-  // legacy (non-card) header below keeps its own cluster, because that path
-  // has no tabs and the row has the room.
+  // `?` opens the shortcut list, and the breadcrumb goes back to it. The card
+  // keeps the count and two arrows ("3 of 12 ‹ ›"): without them a person
+  // lost their place (2026-10-29). The legacy (non-card) header below keeps
+  // its own cluster, because that path has no tabs and the row has the room.
 
   const help = p.showHelp && (
     <ul className="hidden flex-wrap gap-x-5 gap-y-1 border-b border-rule py-2 text-[12px] text-muted-foreground sm:flex" data-testid="shortcuts-hint">
@@ -224,6 +239,19 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
           crumbs={p.crumbs ?? decisionCrumbs('proposal', record, object?.section)}
           title={title}
           subtitle={object?.subtitle}
+          // Where you are, and one step either way: the count and two arrows,
+          // never the next item's name (which is what crowded the row before).
+          position={queuePosition(p.index, p.total)}
+          actions={(
+            <span className="inline-flex items-center" data-testid="queue-steps">
+              <button type="button" onClick={p.onBack} disabled={!p.canBack} aria-label="Previous in the queue (k)" title="Previous (k)" className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-30">
+                <ChevronLeft className="size-4" aria-hidden />
+              </button>
+              <button type="button" onClick={() => p.upNext[0] && p.onSkipTo(p.upNext[0].id)} disabled={p.upNext.length === 0} aria-label={p.upNext[0] ? `Next: ${p.upNext[0].title} (j)` : 'Next in the queue (j)'} title="Next (j)" className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-30">
+                <ChevronRight className="size-4" aria-hidden />
+              </button>
+            </span>
+          )}
           beforeTabs={help}
           barLabels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
           onDecided={p.onCardDecided}
@@ -263,6 +291,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
           </button>
         )}
       />
+      {p.stale && <StaleBanner stale={p.stale} disabled={held} onProceed={p.onProceedStale} />}
       {help}
       {chips}
 

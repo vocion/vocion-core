@@ -105,3 +105,14 @@ describe('the no-raw-id rule, all the way to the panel', () => {
     expect(item.label).not.toBe(source);
   });
 });
+
+describe('a citation that names a kind inside its source', () => {
+  it('reads gmail:thread and hubspot:deals by their inner kind, never as "thread:1a04…"', () => {
+    expect(evidenceRef('gmail:thread:19a2b3c4d5e6f708')).toMatchObject({ sourceLabel: 'Gmail', label: 'Email thread' });
+    expect(evidenceRef('hubspot:deals:61000000001')).toMatchObject({ sourceLabel: 'HubSpot', label: 'Deal', ref: { type: 'deal', id: 'hubspot:deals:61000000001' } });
+  });
+
+  it('takes the name the server resolved', () => {
+    expect(evidenceRef('hubspot:deals:61000000001', 'Kestrel Capital — Phase 2')).toMatchObject({ label: 'Kestrel Capital — Phase 2', ref: { label: 'Kestrel Capital — Phase 2' } });
+  });
+});

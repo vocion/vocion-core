@@ -363,6 +363,79 @@ DetailPage ───────────────────────
 navigation | primary workspace | optional copilot drawer. The metadata column
 goes away."*
 
+### Review item — one shell, every kind
+
+Every decision in Review — an ask, a reply draft (`gmail.send`), an
+enrollment (`personalization.enroll`), a CRM update (`hubspot.update`), a
+hand-off — renders in ONE shell (`features/review/ReviewSurface`, with
+`AskSheet` for asks). The shell owns the order and the rules below; a kind
+contributes only **its subject block** (the thing being approved) and **its
+header facts** (`card.provenance`). A new kind follows this by construction,
+and a gap a kind finds is closed in the shell, not beside it (principle 6).
+
+```
+  Dev Okonkwo · VP Operations, Contoso Supply      3 of 12  ‹ ›
+  Waiting 7 days · Source Paid social · Sends from …                (meta)
+  ✦ Revenue Lead suggests: Enroll in Nurture · 4 emails. Fit is Poor:
+    enterprise, outside the band · 58% confident · You agreed 84 of 97
+  ▌Changed since it was proposed: … · Deal stage: A → B   Proceed anyway  Redraft
+  Also waiting: Move Kestrel Capital to Nurture
+  ───────────────────────────────────────────────────────────────────────
+  [source material it answers: their latest message, whole]
+  [the subject: the email / the steps / the field change]
+  ─ Why, evidence and run details ▸                              (folded)
+  StickyActionBar                      Decline  Snooze   ▐ Create draft ▌
+```
+
+1. **Header.** Who or what, in plain words: `name · role, company`, or the
+   record's name (`itemTitle`). Never the action's type, an em dash, an id, or
+   "Proposal 9265" (the page title names the item, so the shell's breadcrumb
+   does too). How long it has waited leads the facts ("Waiting 7 days"). The
+   queue position and prev/next sit beside the name; the back crumb keeps the
+   list's filters.
+2. **Decision line.** One sentence: who suggests what (the card's own verb, or
+   its recommendation), the one fact that tipped it, how sure, and how often
+   you agreed with this agent (`decisionLine`). Said once: not again in the
+   meta row, not again under Why.
+3. **Overtaken by events.** When what it was proposed on changed, one line
+   directly under the decision line (`StaleBanner`): what changed, old → new
+   for a field, Proceed anyway, and Redraft when the action can redraft (or
+   "The agent will redraft on its next pass"). Never an error on the bar.
+4. **The subject, with what it answers above it.** The email with the message
+   it replies to shown whole (`ThreadEvidence`: the other side's latest
+   message in full, every other message as one line in a fold, Open in
+   Gmail); the steps of a sequence; the field change. Reading text keeps a
+   ~70ch measure.
+   A card with no content items (a CRM change, an ad paused) IS its fields:
+   they are its subject, open on the page, never folded.
+5. **Related open items** on the same subject, one link each
+   (`RelatedItems`), so one visit settles them all. The subject is what the
+   action declares (`Action.subjectRefs`) or the ask names, matched by exact
+   record key — never a key-suffix scrape or a substring of the input.
+6. **Folded below:** one Why section with the rationale and the reason for
+   the suggestion as separate labelled lines, word for word (`whyLines`;
+   repetition is fixed where the agent writes them, not by editing them),
+   the citations as readable names (`evidenceLabels`), sources, run details.
+
+**The rules.**
+
+- A section with nothing in it is not drawn ("No citations recorded." is gone).
+- A raw id is never the visible text: a fact the presenter marks
+  `handle: true` is dropped (`readableFacts`; nothing is guessed from the
+  value), a citation reads by its record's name.
+- Evidence read from a mailbox goes through the viewer's source grants
+  (`readableGmailSources`): the thread's state, its copy and a draft in it.
+  No access is no evidence, never a fallback.
+- The primary verb is the card's own (Enroll, Update, Create draft in Gmail)
+  and matches the proposal: a draft proposal opens on Create draft, with Send
+  secondary and no key (`outboundModeVerbs`).
+- One "Ask for changes" control per item, folded until used, with a scope
+  when there is more than one item (this step / all steps). No explanatory
+  prose beside it.
+- A walk of several steps says what the primary does with the ones not yet
+  approved, where the count is.
+- The agent is named by its name ("Revenue Director"), never its slug.
+
 ## Ledger
 
 ```

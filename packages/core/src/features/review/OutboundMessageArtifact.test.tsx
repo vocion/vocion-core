@@ -116,16 +116,36 @@ describe('a reply draft', () => {
   it('shows the thread folded to its newest message, the rest one tap away', async () => {
     await render(<ReviewSurface run={replyDraft()} crumbs={CRUMBS} />);
 
-    expect(page.getByTestId('outbound-thread-message').all()).toHaveLength(1);
-    await expect.element(page.getByTestId('outbound-thread')).toHaveTextContent('Can we get everyone on a call');
+    await expect.element(page.getByTestId('thread-newest')).toHaveTextContent('Can we get everyone on a call');
+    await expect.element(page.getByTestId('thread-history')).toHaveTextContent('2 earlier messages');
+    expect((page.getByTestId('thread-history').element() as HTMLDetailsElement).open).toBe(false);
 
-    await page.getByTestId('outbound-thread-toggle').click();
+    await page.getByTestId('thread-history').getByText('2 earlier messages').click();
 
-    expect(page.getByTestId('outbound-thread-message').all()).toHaveLength(3);
+    await expect.element(page.getByTestId('thread-line').first()).toBeVisible();
+    expect(page.getByTestId('thread-line').elements()).toHaveLength(2);
   });
 
-  it('says Why once, with the evidence, and never the title again', async () => {
+  it('shows the message it answers whole, above the draft, when the thread was read', async () => {
+    const run = replyDraft();
+    const outbound = run.card.outbound!;
+    await render(<ReviewSurface run={{ ...run, card: { ...run.card, outbound: { ...outbound, thread: { ...outbound.thread!, latest: { from: 'Dana Reyes <dana@kestrel.example>', at: '2026-10-28T23:20:00.000Z', body: 'Slow going on the pilot.\nA referral call Friday may open a licensing deal.' } } } } }} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('thread-latest')).toHaveTextContent('A referral call Friday may open a licensing deal.');
+    await expect.element(page.getByTestId('thread-history')).toHaveTextContent('3 other messages');
+
+    const latest = page.getByTestId('thread-latest').element().getBoundingClientRect();
+    const composer = page.getByTestId('outbound-composer').element().getBoundingClientRect();
+
+    expect(latest.bottom).toBeLessThanOrEqual(composer.top);
+  });
+
+  it('says Why once, with the evidence, folded under the decision', async () => {
     await render(<ReviewSurface run={replyDraft()} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('review-decision-line')).toBeVisible();
+
+    await page.getByTestId('review-dossier').getByText('Why, evidence and run details').click();
 
     await expect.element(page.getByTestId('outbound-why')).toHaveTextContent('nobody has answered');
     expect(visibleText()).not.toMatch(/The reasoning|Why it suggests that/);
@@ -271,14 +291,21 @@ describe('send or draft, and what goes with it', () => {
     return { ...run, card: { ...run.card, outbound: { ...run.card.outbound!, modeChoice: true, ...over } } };
   };
 
-  it('offers Send first and the draft beside it, whatever the proposal suggested', async () => {
+  it('opens a draft proposal on Create draft, with Send beside it', async () => {
     await render(<ReviewSurface run={withChoice()} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Create draft in Gmail');
+    await expect.element(page.getByTestId('decide-send')).toHaveTextContent('Send');
+  });
+
+  it('keeps Send first on a send proposal, the draft beside it', async () => {
+    await render(<ReviewSurface run={withChoice({ mode: 'send' })} crumbs={CRUMBS} />);
 
     await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Send');
     await expect.element(page.getByTestId('decide-draft')).toHaveTextContent('Create draft in Gmail');
   });
 
-  it('runs what was pressed: Send carries mode send, the draft (or r) carries mode draft', async () => {
+  it('runs what was pressed: the draft carries mode draft, Send carries mode send', async () => {
     await render(
       <>
         <ReviewSurface run={withChoice()} crumbs={CRUMBS} />
@@ -286,10 +313,10 @@ describe('send or draft, and what goes with it', () => {
       </>,
     );
 
-    await page.getByTestId('decide-draft').click();
+    await page.getByTestId('decide-send').click();
 
     await expect.poll(() => decideAction.mock.calls.length).toBe(1);
-    expect(decideAction.mock.calls[0]![0]).toMatchObject({ decision: 'approve', contentEdits: [{ id: 'message', mode: 'draft' }] });
+    expect(decideAction.mock.calls[0]![0]).toMatchObject({ decision: 'approve', contentEdits: [{ id: 'message', mode: 'send' }] });
   });
 
   it('lists each attachment with what it goes as, and says when one cannot go', async () => {

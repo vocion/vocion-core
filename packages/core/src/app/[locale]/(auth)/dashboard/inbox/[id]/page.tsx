@@ -1,6 +1,8 @@
+import type { Metadata } from 'next';
 import type { RunSummary } from '@/features/dashboard/inbox/RunDecision';
 import type { SheetExtras } from '@/services/inbox/sheetExtras';
 import type { InboxSort } from '@/services/InboxService';
+import { and, eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { CommentLayerProvider } from '@/features/comments/CommentLayer';
@@ -21,12 +23,16 @@ import { ReviewSurface } from '@/features/review/ReviewSurface';
 import { doneSummary } from '@/libs/actions/doneSummary';
 import { resultLinks } from '@/libs/actions/resultLinks';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { recordLinker } from '@/libs/workspace/recordHref';
+import { actionRunSchema } from '@/models/Schema';
 import { scoreFor } from '@/services/alignment/AlignmentService';
 import { getAsk } from '@/services/AskService';
 import { recordRef } from '@/services/chat/recordContext';
 import { loadAnswerListeners } from '@/services/inbox/answerListeners';
+import { loadAskEvidence } from '@/services/inbox/askEvidence';
+import { describeActionRun } from '@/services/inbox/describeActionRun';
 import { parseInboxRef } from '@/services/inbox/inboxRef';
 import { loadPendingAction } from '@/services/inbox/pendingAction';
 import { askGroupHref } from '@/services/inbox/recordKey';
@@ -54,6 +60,36 @@ import { getWorkflowRun } from '@/services/WorkflowService';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * The tab and the shell's breadcrumb name the item ("Draft a reply to Dana
+ * Reyes"), never the ref ("Proposal 9265"): the top bar reads its last crumb
+ * from the page title, and without one it humanised the URL segment.
+ * @param props - The route's params.
+ * @param props.params - The inbox ref.
+ */
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await props.params;
+  const { orgId } = await auth();
+  const ref = parseInboxRef(id);
+  if (!orgId || !ref) {
+    return {};
+  }
+  if (ref.kind === 'ask') {
+    const ask = await getAsk(orgId, ref.id).catch(() => null);
+    return ask ? { title: ask.title } : {};
+  }
+  if (ref.kind === 'proposal') {
+    const [row] = await db
+      .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, input: actionRunSchema.input, proposal: actionRunSchema.proposal, invokedBy: actionRunSchema.invokedBy })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.id, ref.id)))
+      .limit(1)
+      .catch(() => []);
+    return row ? { title: describeActionRun({ ...row, proposal: row.proposal as Record<string, unknown> | null }).title } : {};
+  }
+  return {};
+}
+
 type Params = { q?: string; sort?: string; actionKind?: string; agents?: string; kind?: string };
 
 function list(value: string | undefined): string[] {
@@ -79,7 +115,7 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
   const { locale, id } = await props.params;
   const sp = await props.searchParams;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, userId } = await auth();
   const ref = parseInboxRef(id);
   if (!orgId || !ref) {
     notFound();
@@ -95,15 +131,17 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
       // What each answer starts, so the rows say what Approve does instead
       // of "go ahead as proposed" on an ask that proposes nothing.
       const listeners = ask.status === 'open' ? (await loadAnswerListeners(orgId, [ask])).get(ask.id) : undefined;
-      // Who the answer goes back to, and the draft it is about; who answered, by name.
-      const [extras, deciders] = await Promise.all([
+      // Who the answer goes back to, and the draft it is about; who answered,
+      // by name; and the email and records it is about, read whole.
+      const [extras, deciders, evidence] = await Promise.all([
         ask.status === 'open' ? loadSheetExtras(orgId, [ask]) : Promise.resolve(new Map<number, SheetExtras>()),
         decidersNamed([ask]),
+        ask.status === 'open' ? loadAskEvidence(orgId, ask, { userId: userId ?? null }).catch(() => undefined) : Promise.resolve(undefined),
       ]);
       return (
         <div className="mx-auto w-full max-w-3xl">
           {ask.status === 'open'
-            ? <AskSheet asks={[toSheetAsk(ask, await scoreFor({ orgId, subjectKey: ask.kind, agentSlug: ask.agentSlug }), listeners, extras.get(ask.id))]} kind={kind} />
+            ? <AskSheet asks={[toSheetAsk(ask, await scoreFor({ orgId, subjectKey: ask.kind, agentSlug: ask.agentSlug }), listeners, extras.get(ask.id), evidence)]} kind={kind} />
             : (
                 <>
                   <ReviewHeader crumbs={decisionCrumbs(kind, ask.title)} title={ask.title} system="Answered" status={ask.status} proposedBy={ask.agentSlug ? `asked by ${ask.agentSlug}` : null} />
@@ -133,7 +171,7 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
     }
 
     case 'proposal': {
-      const run = await loadPendingAction(orgId, ref.id);
+      const run = await loadPendingAction(orgId, ref.id, { userId });
       if (!run) {
         notFound();
       }

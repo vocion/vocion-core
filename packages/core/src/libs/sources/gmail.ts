@@ -11,6 +11,8 @@ import type { IngestDoc } from '@/services/IngestionService';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { z } from 'zod';
+import { gmailThreadUrl } from '@/libs/mail/gmailUrl';
+import { decodeEntities, htmlToText } from '@/libs/surfaces/email';
 import { resolveGoogleAccessToken } from './googleAuth';
 import { threadFacts, threadStateDoc } from './mailThreadState';
 
@@ -84,11 +86,13 @@ function messageBody(msg: GmailMessage): string {
   if (plain) {
     return decodeBody(plain.body?.data);
   }
+  // HTML only: block breaks kept and entities decoded, so the thread reads as
+  // written (`haven&#39;t` was reaching the review card verbatim).
   const html = findPart(msg.payload, 'text/html');
   if (html) {
-    return decodeBody(html.body?.data).replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    return htmlToText(decodeBody(html.body?.data));
   }
-  return msg.snippet ?? '';
+  return decodeEntities(msg.snippet ?? '');
 }
 
 /**
@@ -300,7 +304,7 @@ async function readThreadFacts(baseUrl: string, headers: Record<string, string>,
         cc: header(m, 'Cc'),
         date: new Date(m.internalDate ? Number(m.internalDate) : Date.parse(header(m, 'Date')) || 0),
         subject: header(m, 'Subject'),
-        snippet: m.snippet ?? '',
+        snippet: decodeEntities(m.snippet ?? ''),
         bulk: isBulk(m),
       })), mailbox);
       if (f) {
@@ -312,14 +316,8 @@ async function readThreadFacts(baseUrl: string, headers: Record<string, string>,
   return facts;
 }
 
-/**
- * A link that opens a thread in the owner's Gmail.
- * @param mailbox
- * @param threadId
- */
-export function gmailThreadUrl(mailbox: string, threadId: string): string {
-  return `https://mail.google.com/mail/u/${encodeURIComponent(mailbox)}/#all/${threadId}`;
-}
+/** A link that opens a thread in the owner's Gmail (`libs/mail/gmailUrl`). */
+export { gmailThreadUrl };
 
 /**
  * The facts of threads with mail NEWER than the last sync, read live — the

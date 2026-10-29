@@ -27,6 +27,7 @@ import type { ReplyState, ThreadCategory } from '@/libs/retrieval/facets';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
 import { MAIL_THREAD_STATE_KIND, REPLY_STATES, THREAD_CATEGORIES } from '@/libs/retrieval/facets';
+import { cutQuotedInline, decodeEntities } from '@/libs/surfaces/email';
 
 /** One message as the thread read gives it: headers and the provider's snippet. */
 export type ThreadMessage = {
@@ -301,6 +302,16 @@ export function priorFromMetadata(metadata: Record<string, unknown> | null | und
   };
 }
 
+/**
+ * A provider's snippet as a person reads it: entities decoded (Gmail sends
+ * `haven&#39;t`) and cut where the quoted history starts. Snippets filed
+ * before sync decoded them are read through this too.
+ * @param snippet - As stored.
+ */
+function readableSnippet(snippet: string): string {
+  return cutQuotedInline(decodeEntities(snippet));
+}
+
 /** One message of a thread as a reply draft shows it: who, when, and the opening words. */
 export type RecentMessage = { from: string; at: string; snippet: string };
 
@@ -319,13 +330,13 @@ export function recentMessagesOf(metadata: Record<string, unknown> | null | unde
   if (Array.isArray(stored)) {
     return stored
       .filter((m): m is RecentMessage => !!m && typeof m === 'object' && typeof (m as RecentMessage).from === 'string' && typeof (m as RecentMessage).at === 'string')
-      .map(m => ({ from: m.from, at: m.at, snippet: typeof m.snippet === 'string' ? m.snippet : '' }));
+      .map(m => ({ from: m.from, at: m.at, snippet: readableSnippet(typeof m.snippet === 'string' ? m.snippet : '') }));
   }
   const out: RecentMessage[] = [];
   for (const line of (content ?? '').split('\n')) {
     const m = RECENT_LINE.exec(line.trim());
     if (m) {
-      out.push({ from: m[1]!, at: m[2]!, snippet: m[3]! });
+      out.push({ from: m[1]!, at: m[2]!, snippet: readableSnippet(m[3]!) });
     }
   }
   return out;
