@@ -20,7 +20,7 @@ export const proposeActionArgsSchema = z.object({
   rationale: z.string().describe('One or two sentences: WHY this change, citing the evidence'),
   evidence: z.array(z.string()).optional().describe('Source doc uris/ids backing the proposal (e.g. gmail message ids, hubspot record uris)'),
   suggested_decision: z.enum(SUGGESTED_DECISIONS).describe('Required. What the reviewer should DO, a different question from your confidence: "approve" to go ahead, "reject" if it should be turned down, "snooze" if worth another look later. An unsure read is still a read: always pick one, and say "reject" when that is your call. Advisory: a person decides; nothing runs on it.'),
-  suggested_decision_reason: z.string().describe('Required. ONE short clause a reviewer can check, read beside a badge on the card: "date has already passed", "third listing of this show this week". Not `rationale` (why the payload is right): why this decision. Name the one thing that tipped it; no restated payload or rationale (both show), no confidence talk.'),
+  suggested_decision_reason: z.string().describe('Required. ONE short clause a reviewer can check, read beside a badge on the card: "date has already passed", "third listing of this show this week". Not `rationale` (why the payload is right): why this decision. Name the one thing that tipped it; no restated payload or rationale, no confidence talk.'),
   suggested_snooze_until: z.string().optional().describe('ISO timestamp for when this is worth revisiting. Only meaningful with suggested_decision "snooze".'),
 });
 
