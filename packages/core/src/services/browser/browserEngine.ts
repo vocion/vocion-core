@@ -32,8 +32,10 @@
 
 import type { Buffer } from 'node:buffer';
 import type { Browser, BrowserContext, CDPSession, Locator, Page } from 'playwright';
+import type { SignInState } from '@/libs/browser/keptSignIn';
 import { Buffer as NodeBuffer } from 'node:buffer';
 import process from 'node:process';
+import { mergeSignIn } from '@/libs/browser/keptSignIn';
 import { BROWSER_RUN_LIMITS } from '@/libs/browser/run';
 import { CURSOR_GLIDE_MS, DEMO_CHROME_SCRIPT } from '@/libs/media/demoChrome';
 import { resolvesPublicly } from '@/libs/net/publicUrl';
@@ -162,7 +164,7 @@ function touch(s: BrowserSession): void {
  * The person's browser, opened if it is not.
  * @param key - `personKey(orgId, userId)`.
  * @param deps - Chrome.
- * @param restore
+ * @param restore - A saved browser to open from: its cookies, site storage and page.
  */
 export async function openBrowserSession(key: string, deps: Partial<EngineDeps> = {}, restore?: SavedBrowser | null): Promise<BrowserSession> {
   const existing = sessions.get(key);
@@ -205,6 +207,29 @@ export async function openBrowserSession(key: string, deps: Partial<EngineDeps> 
     await settle(s.page);
   }
   return s;
+}
+
+/**
+ * The person's browser, signed in with a kept sign-in (`services/browser/keptSignIn.ts`) before a
+ * run's first step: its cookies and site storage laid over whatever the browser already held
+ * (`mergeSignIn`), on the page it was on. A browser open from an earlier run is saved, closed and
+ * opened again from the merged state, because a context takes site storage only when it is made;
+ * one busy with another run is handed back as it is, and the run's own claim then refuses it.
+ * @param key - `personKey(orgId, userId)`.
+ * @param kept - The kept sign-in.
+ * @param deps - Chrome.
+ */
+export async function openWithSignIn(key: string, kept: SignInState, deps: Partial<EngineDeps> = {}): Promise<BrowserSession> {
+  const existing = existingSession(key);
+  if (existing?.busy) {
+    return existing;
+  }
+  const base = existing ? await saveBrowser(existing) : null;
+  if (existing) {
+    await closeBrowserSession(key);
+  }
+  const merged = mergeSignIn(base?.storageState ?? { cookies: [], origins: [] }, kept);
+  return openBrowserSession(key, deps, { storageState: merged as SavedBrowser['storageState'], url: base?.url ?? 'about:blank' });
 }
 
 /**

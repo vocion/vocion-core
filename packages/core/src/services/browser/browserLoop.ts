@@ -64,6 +64,8 @@ export type LoopInput = {
   routine?: RoutineGuide;
   /** Writes a person approved before the run started: pressed without stopping again, said on the run. */
   approvedAhead?: ApprovedAhead;
+  /** The browser was signed in before the first step with a kept sign-in (`keptSignIn.ts`). */
+  keptSignIn?: { vendor: string; savedAt: string | null };
 };
 
 /**
@@ -180,6 +182,14 @@ function tools(outputs: BrowserOutputSpec[], routine = false): ToolDef[] {
   ];
 }
 
+/**
+ * What the model is told about a secret it sees in a page: the engine shows any echo of a secret's
+ * value as its placeholder, so a field showing `{{password}}` holds the real value. Without this
+ * a refused sign-in read as "the field received the literal text {{password}}" (Vocion Cloud dev,
+ * 2026-10-27), and the run blamed the placeholder instead of the password.
+ */
+export const SECRET_ECHO_RULE = 'Wherever a page shows a secret input\'s value, you are shown its placeholder ({{name}}) instead: the field holds the real value, never the braces. If a site refuses a secret you typed (a sign-in says the password is incorrect), the site refused the real value: say that, and never blame the placeholder.';
+
 function system(input: LoopInput, notes: string[]): string {
   const plain = Object.entries(input.inputs);
   const secret = Object.keys(input.secrets);
@@ -190,6 +200,8 @@ function system(input: LoopInput, notes: string[]): string {
     input.startUrl ? `It starts at: ${input.startUrl}` : '',
     plain.length > 0 ? `Inputs:\n${plain.map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : 'Inputs: none.',
     secret.length > 0 ? `Secret inputs (type them as written, with the braces; you never see their values): ${secret.map(k => `{{${k}}}`).join(', ')}` : '',
+    secret.length > 0 ? SECRET_ECHO_RULE : '',
+    input.keptSignIn ? `The browser was signed in to ${input.keptSignIn.vendor} before your first step, with a kept sign-in${input.keptSignIn.savedAt ? ` saved ${input.keptSignIn.savedAt.slice(0, 10)}` : ''}: expect to be signed in. If the site shows its sign-in page anyway, that kept sign-in has expired.` : '',
     input.outputs.length > 0 ? `Outputs you owe, as keys of finish's result:\n${input.outputs.map(o => `- ${o.name}: ${o.description}`).join('\n')}` : 'Outputs: none; finish with a summary.',
     '',
     'How to work:',
@@ -252,6 +264,20 @@ function routineSection(r: RoutineGuide): string {
     '- After a save, read the saved record back from the page it lands on, and give each output as it reads there, exactly.',
     '- After the expert answers an escalation, do what they said, within the rules.',
   ].filter(Boolean).join('\n');
+}
+
+/**
+ * What the step result says after a type that carried a secret: the real value went in, though
+ * the page will show it as its placeholder. Null when the text carried none.
+ * @param text - What the model asked to type.
+ * @param secrets - The run's secrets.
+ */
+export function typedSecretNote(text: string, secrets: Record<string, string>): string | null {
+  const used = [...new Set([...text.matchAll(/\{\{\s*([\w-]+)\s*\}\}/g)].map(m => m[1]!).filter(k => k in secrets))];
+  if (used.length === 0) {
+    return null;
+  }
+  return `typed the real value of ${used.map(k => `{{${k}}}`).join(' and ')}; the page shows it to you as its placeholder because secrets are masked in what you read. If the site refuses it, the site refused the real value.`;
 }
 
 /**
@@ -450,8 +476,13 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
         }
         const el = await describeElement(s, String(args.ref));
         outcome = await act(s, { kind: 'type', ref: String(args.ref), text: fillSecrets(text, input.secrets, input.inputs), submit });
-        const shown = Object.keys(input.secrets).some(k => text.includes(`{{${k}}}`)) ? '••••' : `“${mask(text).slice(0, 60)}”`;
+        const secretNote = typedSecretNote(text, input.secrets);
+        const shown = secretNote ? '••••' : `“${mask(text).slice(0, 60)}”`;
         await record('type', `Typed ${shown} into ${quote(el?.name)}${submit ? ' and pressed Enter' : ''}`, outcome);
+        if (secretNote && outcome.ok) {
+          // The model's own step result says the secret went in, so a refusal is never read as the braces.
+          outcome = { ok: true, detail: `${outcome.detail}: ${secretNote}` };
+        }
         break;
       }
       case 'select_option': {

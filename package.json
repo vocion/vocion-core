@@ -42,6 +42,7 @@
     "workspace:check": "npm run workspace:check --workspace @vocion/core --",
     "workspace:export": "npm run workspace:export --workspace @vocion/core",
     "mcp:serve": "npm run mcp:serve --workspace @vocion/core",
+    "squarespace:session": "npm run squarespace:session --workspace @vocion/core --",
     "tokens:issue": "npm run tokens:issue --workspace @vocion/core --",
     "tokens:list": "npm run tokens:list --workspace @vocion/core --",
     "tokens:revoke": "npm run tokens:revoke --workspace @vocion/core --",
