@@ -1868,6 +1868,28 @@ async function runAgentDeepInScope(opts: {
   emit({ type: 'done', response: finalText, traceId: trace.id });
   await flushTraces();
 
+  // THE TURN ON THE SCOREBOARD (ADR 0010): failed calls, a refusal with the
+  // action path there, a claimed save with nothing saved — counts and flags,
+  // no text. After `done`, never awaited by the person; a failed write is
+  // logged and dropped (`recordTurnSignals` never throws).
+  void import('./evals/live/signals').then(({ recordTurnSignals }) => recordTurnSignals({
+    orgId: opts.orgId,
+    agentSlug: opts.agentSlug,
+    level: effortDecision?.level ?? null,
+    toolLoading: compiled.toolLoading?.mode ?? null,
+    model: usage.model || null,
+    traceId: trace.id,
+    conversationId: opts.conversationId ?? null,
+    answer: finalText,
+    calls: [
+      ...toolCallLog.filter(c => !c.output.startsWith('Error: ')).map(c => ({ tool: c.tool, error: false })),
+      ...failures.filter(f => f.tool !== 'task').map(f => ({ tool: f.tool, error: true })),
+    ],
+    available: compiled.toolNames ?? [],
+    searches: toolStats.searches,
+    unknownTools: toolStats.unknownTools,
+  })).catch(() => {});
+
   // After `done`, only what the person reads lands: a card. A status line
   // would put "Writing…" back under an answer that is finished.
   const doneAt = Date.now();

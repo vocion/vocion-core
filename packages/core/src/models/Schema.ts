@@ -2693,6 +2693,42 @@ export const evalOnlineConfigSchema = pgTable('eval_online_config', {
   uniqueIndex('eval_online_config_org_region_idx').on(table.orgId, table.region),
 ]);
 
+/**
+ * What each live agent turn did wrong that can be read off the turn itself
+ * (ADR 0010): the scoreboard's source. One row per finished chat turn,
+ * written as the turn ends, best-effort. Counts and flags only — no text of
+ * the conversation, so it can be kept and read without the transcript's
+ * access rules.
+ *
+ * `flags` are `services/evals/live/turnSignals.ts`'s: `toolFailures` (three
+ * or more failed calls), `refusedWithAction` (declined with the action path
+ * there), `claimedSave` ("noted" with nothing saved). `judge` is reserved for
+ * a sampled turn's graded dimensions, written by the nightly job when it
+ * scores live turns (ADR 0010 phase 3); NULL until then.
+ */
+export const agentTurnSignalSchema = pgTable('agent_turn_signal', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  agentSlug: text('agent_slug').notNull(),
+  /** The turn's effort level: quick, standard or deep. */
+  level: text('level'),
+  /** How its tools were loaded (ADR 0009): history, core or all. */
+  toolLoading: text('tool_loading'),
+  model: text('model'),
+  traceId: text('trace_id'),
+  conversationId: integer('conversation_id'),
+  toolCalls: integer('tool_calls').notNull().default(0),
+  toolErrors: integer('tool_errors').notNull().default(0),
+  searches: integer('searches').notNull().default(0),
+  unknownTools: integer('unknown_tools').notNull().default(0),
+  flags: text('flags').array().notNull().default([]),
+  judge: jsonb('judge').$type<Record<string, boolean | number | string | null>>(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+}, table => [
+  index('agent_turn_signal_org_created_idx').on(table.orgId, table.createdAt),
+  index('agent_turn_signal_org_agent_created_idx').on(table.orgId, table.agentSlug, table.createdAt),
+]);
+
 export const evalDatasetRelations = relations(evalDatasetSchema, ({ many }) => ({
   runs: many(evalRunSchema),
   remotes: many(evalDatasetRemoteSchema),

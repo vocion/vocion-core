@@ -5,18 +5,23 @@ import type { CaseRun } from '@/services/evals/agentBehaviour/score';
  * the gate `core` must pass to be switched on.
  *
  *   dotenv -c -- tsx --tsconfig ./tsconfig.json src/scripts/eval-agent-behaviour.ts \
- *     [--modes history,core,all] [--levels quick,standard] [--cases pa-write-deal,...] [--out results.json]
+ *     [--modes history,core,all] [--levels quick,standard] [--cases pa-write-deal,...] \
+ *     [--repeat 3] [--out results.json] [--markdown results.md]
  *
  * Needs ANTHROPIC_API_KEY (direct Anthropic: tool search runs there). Needs
- * no database, workspace or connector. Costs a few dollars for a full run.
+ * no database, workspace or connector. One repetition of every case in every
+ * mode and level costs about $20; `--repeat 3` about $60. A deployment's
+ * nightly CI (`docs/guides/agent-evals.md`, ADR 0010) runs a smaller slice;
+ * the `eval:agent-behaviour` npm script is the same command.
  */
 import { writeFileSync } from 'node:fs';
 import process from 'node:process';
 import { parseArgs } from 'node:util';
 import { mapWithConcurrency } from '@/libs/concurrency';
 import { EVAL_AGENTS, EVAL_CASES, EVAL_LEVELS, EVAL_MODES } from '@/services/evals/agentBehaviour/dataset';
+import { resultsMarkdown } from '@/services/evals/agentBehaviour/report';
 import { runCase } from '@/services/evals/agentBehaviour/run';
-import { checkGate, summarize } from '@/services/evals/agentBehaviour/score';
+import { checkGate, summarizeRepeated } from '@/services/evals/agentBehaviour/score';
 
 const { values } = parseArgs({
   options: {
@@ -25,6 +30,8 @@ const { values } = parseArgs({
     cases: { type: 'string' },
     out: { type: 'string', default: 'agent-behaviour-results.json' },
     concurrency: { type: 'string', default: '3' },
+    repeat: { type: 'string', default: '1' },
+    markdown: { type: 'string' },
   },
 });
 
@@ -39,21 +46,28 @@ async function main(): Promise<void> {
   // One group per agent, mode and level, run in order, so every case after
   // the first reads the agent's prefix from the cache, as a live
   // conversation does. Groups run side by side.
-  const groups = EVAL_AGENTS.flatMap(agent => modes.flatMap(mode => levels.map(level => ({ agent, mode, level, cases: cases.filter(c => c.agent === agent.slug) })))).filter(g => g.cases.length > 0);
+  // Repetitions are separate groups, so they run side by side too.
+  const repeat = Math.max(1, Number(values.repeat) || 1);
+  const reps = Array.from({ length: repeat }, (_, rep) => rep);
+  const groups = reps.flatMap(rep => EVAL_AGENTS.flatMap(agent => modes.flatMap(mode => levels.map(level => ({ rep, agent, mode, level, cases: cases.filter(c => c.agent === agent.slug) }))))).filter(g => g.cases.length > 0);
   const runs: CaseRun[] = (await mapWithConcurrency(groups, Number(values.concurrency), async (g) => {
     const out: CaseRun[] = [];
     for (const evalCase of g.cases) {
-      const run = await runCase({ agent: g.agent, evalCase, mode: g.mode, level: g.level });
-      console.log(`${g.mode.padEnd(7)} ${g.level.padEnd(8)} ${evalCase.id.padEnd(22)} tools=${run.calls.map(c => c.tool + (c.error ? '!' : '')).join(',') || '-'} searches=${run.searches} ${run.cents.toFixed(2)}¢ ${run.crashed ? `CRASHED ${run.crashed}` : ''}`);
+      const run = { ...await runCase({ agent: g.agent, evalCase, mode: g.mode, level: g.level }), rep: g.rep };
+      console.log(`r${g.rep} ${g.mode.padEnd(7)} ${g.level.padEnd(8)} ${evalCase.id.padEnd(22)} tools=${run.calls.map(c => c.tool + (c.error ? '!' : '')).join(',') || '-'} searches=${run.searches} ${run.cents.toFixed(2)}¢ ${run.crashed ? `CRASHED ${run.crashed}` : ''}`);
       out.push(run);
     }
     return out;
   })).flat();
-  const rows = summarize(cases, runs);
-  console.table(rows.map(r => ({ mode: r.mode, level: r.level, runs: r.runs, crashed: r.crashed, awareness: `${(r.awareness * 100).toFixed(0)}%`, falseRefusals: r.falseRefusals, toolErrorsPerTurn: r.toolErrorsPerTurn.toFixed(2), errorsPerCall: `${(r.toolErrorsPerCall * 100).toFixed(0)}%`, searchesPerTurn: r.searchesPerTurn.toFixed(2), loaded: r.avgLoaded.toFixed(0), avgCents: r.avgCents.toFixed(2), warmCents: r.warmCents?.toFixed(2) ?? '-', firstTokenMs: r.medianFirstTokenMs, totalMs: r.medianTotalMs, failed: r.failedCases.join(' ') })));
+  const repeated = summarizeRepeated(cases, runs);
+  const rows = repeated.map(r => r.pooled);
   const gate = checkGate(rows);
-  console.table(gate);
-  writeFileSync(values.out!, JSON.stringify({ at: new Date().toISOString(), rows, gate, runs }, null, 2));
+  const markdown = resultsMarkdown(repeated, gate);
+  console.log(markdown);
+  writeFileSync(values.out!, JSON.stringify({ at: new Date().toISOString(), repeat, cases: cases.length, rows, repeated, gate, runs }, null, 2));
+  if (values.markdown) {
+    writeFileSync(values.markdown, markdown);
+  }
   console.log(`wrote ${values.out}`);
 }
 

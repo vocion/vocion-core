@@ -10,6 +10,10 @@
  *     workspace's accountable human (or `input.to`). `services/jobs/dailyTeamReport.ts`.
  *   - `notify-asks` — mails the accountable human about asks that opened since the
  *     last notification, grouped, throttled per org. `services/jobs/notifyAsks.ts`.
+ *   - `agent-evals-nightly` — judges a sample of the last day's live agent
+ *     turns on the agent-behaviour eval's dimensions and writes each verdict
+ *     onto the turn's row for the Live agents page (ADR 0010).
+ *     `services/jobs/agentEvalsNightly.ts`.
  *   - `refresh-evals` — starts an eval refresh for every dataset, or the ones
  *     named, so the trend line keeps growing without anyone pressing a button.
  *     `services/jobs/refreshEvals.ts`.
@@ -97,6 +101,8 @@ const JOBS: Record<string, BuiltInJob> = {
   // `object.created` for a type with `x-duplicate-check` whose intake does not
   // already run it (a factory request's does): is this one we already have?
   'record-duplicate-check': async (orgId, input) => (await import('@/services/objects/duplicateCheck')).checkNewRecordForDuplicate(orgId, input),
+  // The nightly pass over live agent turns: a judged sample on the eval's dimensions (ADR 0010).
+  'agent-evals-nightly': async (orgId, input) => (await import('./agentEvalsNightly')).runAgentEvalsNightly(orgId, input),
   // The Marketing plugin's four-hourly read of the ad account: raises an event only when something changed (ADR 0008).
   'ads-guard': async (orgId, input) => (await import('./adsGuard')).runAdsGuardJob(orgId, input),
   // A workspace whose old automation still names these hears nothing from them: asker-follow says it.

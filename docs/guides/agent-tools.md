@@ -232,4 +232,4 @@ harness:
 
 [Trust rules](../entities/trust.md) · [Earned autonomy](./earned-autonomy.md) ·
 [Needs you](./needs-you.md) · [Ask](../entities/ask.md) · [Object type](../entities/object-type.md) ·
-[Agent](../entities/agent.md)
+[Agent](../entities/agent.md) · [Agent evals](./agent-evals.md)
