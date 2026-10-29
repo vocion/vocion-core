@@ -1,0 +1,44 @@
+# Every AI-answer prompt tracked for each client: the question, its group,
+# the platforms, whether the client is mentioned or cited and which
+# competitors are, and when that was checked. An ordinary `list` over the
+# `seo_prompt` noun; code writes the rows (`services/seo/prompts.ts`) from the
+# strategist's proposals and from Ahrefs Brand Radar exports, so this reads
+# what is tracked, never what someone remembered to save.
+slug: seo-prompts
+title: Prompts
+description: The questions buyers ask AI assistants, for each client, whether the client is named or cited in the answers, and who is instead.
+icon: radar
+nav: {section: SEO, order: 3}
+archetype: list
+source: {kind: objects, objectType: seo_prompt}
+sort: {field: meta.group, dir: asc}
+groupBy: meta.projectName
+queryFilters:
+  - {param: project, field: meta.projectId, label: Project, picker: {labelFrom: meta.projectName}}
+  - {param: group, field: meta.group, label: Group}
+primary: {field: prompt, subtitle: [why]}
+stats:
+  - {label: Prompts, kind: count}
+  - {label: Cited, kind: countWhere, where: {field: meta.visibility, op: eq, value: cited}}
+  - {label: Mentioned, kind: countWhere, where: {field: meta.visibility, op: eq, value: mentioned}}
+  - {label: Not mentioned, kind: countWhere, where: {field: meta.visibility, op: eq, value: absent}}
+fields:
+  - {key: prompt, label: Prompt, from: meta.prompt}
+  - {key: why, label: Why, from: meta.why.text}
+  - {key: project, label: Project, from: meta.projectName}
+  - {key: group, label: Group, from: meta.group, format: badge}
+  - {key: platforms, label: Platforms, from: meta.platformsLabel}
+  - {key: client, label: Client, from: meta.visibility, format: badge, tones: {cited: ok, mentioned: info, absent: warn, unchecked: muted}}
+  - {key: competitors, label: Competitors named, from: meta.competitorsMentioned}
+  - {key: checked, label: Checked, from: meta.checkedAt, format: date}
+rowLink: /dashboard/objects/{id}
+rowActions:
+  - {label: Project, href: '/dashboard/projects/{meta.projectId}'}
+selectionPrompts:
+  - {label: Plan pages for these, prompt: 'Plan pages worth citing for these AI prompts (one page per prompt the client is not named for, each answering it plainly up front, with sourced facts and an FAQ). Ask me what you need first.', agent: seo-strategist}
+empty:
+  text: No prompts yet. Ask the SEO strategist which questions buyers ask AI assistants about a client, or drop an Ahrefs Brand Radar export in chat.
+prompts:
+  - {label: Find AI prompts, prompt: 'Find the questions buyers ask AI assistants about a client''s category, and track them. First ask me which client.', agent: seo-strategist}
+  - {label: Import a Brand Radar CSV, prompt: 'Import an Ahrefs Brand Radar export into a client''s prompts. First ask me which client, then I will drop the CSV here.', agent: seo-strategist}
+  - {label: Export for Brand Radar, prompt: 'Export a client''s tracked AI prompts as a CSV for Ahrefs Brand Radar. First ask me which client.', agent: seo-strategist}

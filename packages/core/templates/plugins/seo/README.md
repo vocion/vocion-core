@@ -41,6 +41,13 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   first; a finding's Fix it (`seo_update_findings`) plans a page in a batch
   or makes a task on the project and links it. The Audits page lists every
   run; the project page shows the latest.
+- **Prompts** (`seo_prompt`, one row per AI-answer prompt per client): the
+  questions buyers ask AI assistants, by group (category, shortlist,
+  problem, comparison, brand), the platforms tracked, and whether the client
+  is mentioned or cited and which competitors are, with when that was
+  checked. The strategist saves the prompts it proposes in code
+  (`seo_save_prompts`); an Ahrefs Brand Radar CSV export dropped in chat is
+  imported (`seo_import_prompts`), and `seo_export_prompts` writes one back.
 - **A signed-off keyword plan**: `seo_plan_batch` files one sign-off showing
   the keyword map (keyword, page type, location, intent, cluster, new page or
   refresh). Nothing is briefed or drafted until a person approves it.
@@ -69,7 +76,7 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   draft fails review when it is a sibling location page with the city
   swapped (70% or more the same). A plan that targets a keyword or URL the
   project already has is refused unless it is a refresh.
-- **Skills**: `onboard-client`, `audit-site`, `serp-research`, `page-brief`, `write-page`,
+- **Skills**: `onboard-client`, `audit-site`, `ai-prompts`, `serp-research`, `page-brief`, `write-page`,
   `review-page`, `feedback-to-wiki`, `publish-page`.
 - **The learning step `seo-feedback`**: craft notes from sign-offs become
   candidate rules, tagged with their project; adopted ones mount for the

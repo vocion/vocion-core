@@ -70,13 +70,13 @@ describe('plugin pages', () => {
     expect(batch?.rowActions.map(a => a.label)).toEqual(['SERP brief', 'Brief', 'Draft']);
   });
 
-  it('the SEO plugin lists Audits, then Keywords, Batches and Pages, and offers a batch from ticked keywords', () => {
+  it('the SEO plugin lists Audits, Keywords, Prompts, Batches and Pages, and offers a batch from ticked keywords', () => {
     workspace('plugins: [seo]\n');
     const { pages, issues } = readWorkspacePages();
     const keywords = pages.find(p => p.slug === 'seo-keywords');
 
     expect(issues).toEqual([]);
-    expect(pages.filter(p => p.nav.section === 'SEO').map(p => p.title)).toEqual(['Audits', 'Keywords', 'Batches', 'Pages']);
+    expect(pages.filter(p => p.nav.section === 'SEO').map(p => p.title)).toEqual(['Audits', 'Keywords', 'Prompts', 'Batches', 'Pages']);
     expect(keywords?.source).toEqual({ kind: 'objects', objectType: 'seo_keyword' });
     expect(keywords?.icon).not.toBe('search');
     expect(keywords?.queryFilters?.map(q => q.param)).toEqual(['project', 'status']);
@@ -88,6 +88,11 @@ describe('plugin pages', () => {
 
     expect(audits?.source).toEqual({ kind: 'objects', objectType: 'seo_audit' });
     expect(audits?.rowActions.map(a => a.label)).toEqual(['Report', 'Project']);
+
+    const prompts = pages.find(p => p.slug === 'seo-prompts');
+
+    expect(prompts?.source).toEqual({ kind: 'objects', objectType: 'seo_prompt' });
+    expect(prompts?.prompts?.map(p => p.label)).toEqual(['Find AI prompts', 'Import a Brand Radar CSV', 'Export for Brand Radar']);
     expect(audits?.selectionPrompts).toEqual([expect.objectContaining({ label: 'Fix these', agent: 'seo-strategist', prompt: expect.stringContaining('seo_update_findings') })]);
   });
 
