@@ -193,7 +193,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     const lead = await leadNow;
     if (body.route === true && message.trim()) {
-      const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn, workspacePageDecision } = await import('@/services/agents/router');
+      const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn, routeFollowUp, workspacePageDecision } = await import('@/services/agents/router');
       // A follow-up stays with the agent the thread is with; the router
       // picks only a conversation's first turn, or an agent the person names
       // (conversation 349: "Please file it now." left the product manager's
@@ -213,6 +213,13 @@ export async function POST(request: Request): Promise<Response> {
       // to the wiki researcher on a keyword score).
       if (!routing) {
         routerRead = started(routeFirstTurn({ orgId, agents: routable, message, leadSlug: lead.leadAgentSlug, surface: 'chat' }));
+      } else if (routing.decidedBy === 'thread') {
+        // …unless the follow-up turned to work another seat owns, which a
+        // model reads with the thread's last reply in front of it (2026-10-29:
+        // "no I want to do lead and email follow up" stayed with the
+        // marketing lead). The thread's agent gets the head start meanwhile.
+        const lastReply = (await historyRead)?.[0].filter(m => m.role === 'assistant').at(-1)?.content ?? null;
+        routerRead = started(routeFollowUp({ orgId, agents: routable, message, thread: { agentSlug: routing.chosen, lastReply }, leadSlug: lead.leadAgentSlug, surface: 'chat' }));
       }
     }
     agentSlug = routing?.chosen
@@ -221,8 +228,8 @@ export async function POST(request: Request): Promise<Response> {
   if (!agentSlug) {
     return new Response(JSON.stringify({ error: 'No agents authored for this project. See /dashboard/chat for setup.' }), { status: 404 });
   }
-  // While the router reads, `agentSlug` is the lead: who answers when it is
-  // unsure, and who answers most first turns.
+  // While the router reads, `agentSlug` is who answers when it is unsure: the
+  // lead on a first turn, the thread's agent on a follow-up.
   const clientHistory = (body.conversation_history as HistoryTurn[]) ?? [];
   // Optional persistence — when the client supplies a conversation_id
   // we replay server-side history (authoritative) and persist the new
@@ -394,7 +401,8 @@ export async function POST(request: Request): Promise<Response> {
   // (`agents/turnGate.ts`), and nothing it says is sent. The router picks the
   // lead on most first turns, and then the answer is that much nearer; when
   // it picks someone else the lead's turn is stopped and dropped, costing the
-  // tokens it read. Chris, 2026-10-04: "yes on start default".
+  // tokens it read. Chris, 2026-10-04: "yes on start default". A follow-up
+  // works the same way with the thread's agent in the lead's place.
   let headStart: ReturnType<typeof runTurn> | null = null;
   let commit: (keep: boolean) => void = () => {};
   if (routerRead) {
