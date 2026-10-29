@@ -43,8 +43,13 @@ the SERP analyst hold.
    Ahrefs or DataForSEO. The connect card for Search Console shows in the conversation.
 
 Every keyword carries its `source` and `checkedAt`, the date the vendor measured it (DataForSEO
-Labs dates its own snapshot, which can be days older than the call). The shape the Keywords
-register takes is one call away: `keywordRecordOf()` in `libs/tools/serp/types.ts` gives
+Labs dates its own snapshot, which can be days older than the call). With the SEO app on, each
+keyword lands in the client project's **Keywords register** (`seo_keyword`) as part of the call:
+volume and its trend, **Difficulty** (`kd`, 0–100), CPC, intent, SERP features and the AI
+Overview, with `metricsSource` and `metricsCheckedAt`. The register's Competition column is Google
+Ads competition (how many advertisers bid), not SEO difficulty, and is kept only where Google Ads
+data is the source. A vendor's intent never overwrites one a person or a page set.
+`keywordRecordOf()` in `libs/tools/serp/types.ts` gives the same numbers flat:
 `{ keyword, volume, kd, intent, cpc, serp_features, ai_overview { present, cited_domains }, source, checked_at }`.
 
 ### The 7-day cache
