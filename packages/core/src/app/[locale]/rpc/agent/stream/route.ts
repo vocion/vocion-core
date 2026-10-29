@@ -609,7 +609,8 @@ export async function POST(request: Request): Promise<Response> {
         const effect = answered.answered.effect;
         if (effect && effect.status === 'done') {
           const opens = answered.answered.view.href;
-          writeEvent({ type: 'receipt', receipt: { runId: effect.runId, actionId: effect.actionId, label: effect.label, undoable: effect.undoable, ...(opens?.startsWith('/') ? { href: opens } : {}) } });
+          const { receiptForRun } = await import('@/services/decisions/receiptFor');
+          writeEvent({ type: 'receipt', receipt: await receiptForRun(orgId, { runId: effect.runId, actionId: effect.actionId, label: effect.label, undoable: effect.undoable, ...(opens?.startsWith('/') ? { href: opens } : {}) }) });
         }
       }
 

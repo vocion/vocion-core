@@ -1976,7 +1976,7 @@ export const conversationMessageSchema = pgTable('conversation_message', {
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string }
     | { type: 'decision'; id: number; question: string; state?: string }
     | { type: 'decision_answer'; id: number; question: string; answer: { kind: 'option'; optionIds: string[] } | { kind: 'free_text'; text: string } | { kind: 'skip' }; line: string; via?: string }
-    | { type: 'receipt'; receipt: { runId: number; actionId: string; label: string; undoable: boolean; href?: string; status?: 'done' | 'undone' } }
+    | { type: 'receipt'; receipt: { runId: number; actionId: string; label: string; undoable: boolean; href?: string; status?: 'done' | 'undone'; record?: { label: string; href?: string }; changes?: Array<{ field: string; from?: string | null; to: string }>; outcome?: { text: string; href?: string; linkLabel?: string }; why?: string } }
     | { type: 'suggestions'; items: Array<{ label: string; prompt: string; deeper?: true }> }
     | { type: 'audio'; ref: { type: 'briefing'; id: number } }
   >>(),

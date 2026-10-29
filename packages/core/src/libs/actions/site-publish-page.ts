@@ -215,7 +215,9 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
       await recordOnPage(ctx.orgId, plan.page.recordId, { status: 'publishing', pullRequestUrl: opened.url, publishing: { kind: 'github', targetId: plan.target.id, branch: opened.branch, path: opened.path, replaced: opened.replaced, at, by: ctx.reviewedBy ?? ctx.invokedBy ?? null, actionRunId: ctx.runId ?? null } });
       // Published when the client's team merges it: followed, never merged from here.
       await followPull({ orgId: ctx.orgId, repo: opened.repo, number: opened.number, url: opened.url, pageRecordId: plan.page.recordId, actionRunId: ctx.runId ?? null });
-      return { ...base, published: false, url: opened.url, repo: opened.repo, branch: opened.branch, number: opened.number, path: opened.path, created: opened.created, replaced: opened.replaced, line };
+      // The Done line reads this (`libs/decisions/receipt.ts` `outcomeOf`): "Pull request opened: <link>".
+      const receipt = { text: opened.created ? 'Pull request opened' : 'Pull request updated', href: opened.url, linkLabel: `${opened.repo}#${opened.number}` };
+      return { ...base, published: false, url: opened.url, repo: opened.repo, branch: opened.branch, number: opened.number, path: opened.path, created: opened.created, replaced: opened.replaced, line, receipt };
     }
     if (plan.target.kind !== 'squarespace') {
       throw new Error('Publishing to this kind of target is not built yet.');
@@ -232,7 +234,8 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
     const started = await startSquarespaceDraft(ctx.orgId, plan, signIn.login, owner, ctx.runId ?? null);
     await recordOnPage(ctx.orgId, plan.page.recordId, { status: 'publishing', publishing: { kind: 'squarespace', phase: 'draft', targetId: plan.target.id, browserRunId: started.browserRunId, href: `/dashboard/browser/${started.browserRunId}`, at, by: owner.userId, actionRunId: ctx.runId ?? null, ...(started.queued ? { note: 'Waiting its turn in your browser.' } : {}) } });
     const line = `Browser run ${started.browserRunId} ${started.queued ? 'is queued to save' : 'is saving'} "${plan.page.title}" as a draft on ${plan.target.config.siteUrl}.${started.followed ? '' : ' Its result will not be read back on its own: check the run.'}`;
-    return { ...base, published: false, browserRunId: started.browserRunId, queued: started.queued, link: `/dashboard/browser/${started.browserRunId}`, postUrl: started.postUrl, line };
+    const receipt = { text: started.queued ? 'Draft queued for Squarespace' : 'Saving the draft in Squarespace', href: `/dashboard/browser/${started.browserRunId}`, linkLabel: 'the browser run' };
+    return { ...base, published: false, browserRunId: started.browserRunId, queued: started.queued, link: `/dashboard/browser/${started.browserRunId}`, postUrl: started.postUrl, line, receipt };
   },
   canUndo: result => result?.kind === 'github' && typeof result.url === 'string',
   async undo(ctx, _input, result) {
