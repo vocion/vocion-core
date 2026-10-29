@@ -91,6 +91,18 @@ async function squarespaceSignIn(orgId: string, siteUrl: string) {
   return login || connection?.signIn.kept ? { login, kept: connection?.signIn.kept === true } : null;
 }
 
+/**
+ * A publish proposal's title: `Publish "<page title>" → <target label>`, the
+ * target by the label the project gave it, else where it points.
+ * @param plan - The plan.
+ * @param verb - `Publish`, or `Replace` for a page already at its path.
+ */
+export async function publishTitle(plan: Pick<import('@/services/publish/sitePublish').PublishPlan, 'page' | 'target'>, verb = 'Publish'): Promise<string> {
+  const { publishTargetLine } = await import('@/libs/publish/targets');
+  const where = plan.target.label?.trim() || publishTargetLine(plan.target);
+  return `${verb} "${plan.page.title}" → ${where}`.slice(0, 200);
+}
+
 const NO_LOGIN = 'There is no way to sign in to this Squarespace site yet. Connect it under Connectors → Squarespace and sign in once (Sign in again, or Upload a session file under Advanced), or store the email and password of an account that can edit it; publishing signs in to the editor with that.';
 
 export const sitePublishPageAction: Action<typeof publishPageInput> = {
@@ -104,6 +116,12 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
   requiresReviewDecision: true,
   dedupKeyFor: input => (input.pageRecordId ? `${PUBLISH_PAGE_ACTION_ID}:page:${input.pageRecordId}` : `${PUBLISH_PAGE_ACTION_ID}:${input.projectId}:${input.artifactId}:${input.slug ?? ''}`),
   ownsDedupKey: true,
+  // Every surface that lists the proposal reads `Publish "<page>" → <where>`, never "Site publish page".
+  async proposalTitle(ctx, input) {
+    const { planPublish } = await import('@/services/publish/sitePublish');
+    const planned = await planPublish(ctx.orgId, input).catch(() => null);
+    return planned?.ok ? await publishTitle(planned.plan) : null;
+  },
   async precheck(ctx, input) {
     const { planPublish, githubPreflight, squarespaceSlugCheck } = await import('@/services/publish/sitePublish');
     const planned = await planPublish(ctx.orgId, input);
@@ -141,7 +159,7 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
       const pre = await githubPreflight(ctx.orgId, plan);
       const replacing = pre.exists === true;
       return {
-        title: `${replacing ? 'Replace' : 'Publish'} "${plan.page.title}" on ${plan.target.config.repo}`,
+        title: await publishTitle(plan, replacing ? 'Replace' : 'Publish'),
         system: 'GitHub',
         object: { title: plan.page.title, subtitle: `${plan.project.title} · ${pre.file.path}`, section: 'Pages' },
         headline: replacing
