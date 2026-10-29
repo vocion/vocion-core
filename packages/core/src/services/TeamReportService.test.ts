@@ -21,6 +21,7 @@ const teamRow = (slug: string, extra: Partial<Parameters<typeof buildTeamReport>
   leadAgentSlug: null,
   accountableUserId: null,
   goal: null,
+  app: null,
   kpis: [],
   measures: [],
   createdAt: NOW,

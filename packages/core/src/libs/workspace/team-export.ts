@@ -16,6 +16,8 @@ export type TeamExportRow = {
   leadAgentSlug: string | null;
   accountableUserId: string | null;
   goal?: string | null;
+  /** The app a workspace team works in (migration 0227). */
+  app?: string | null;
   /** @deprecated read only when `measures` is empty — a row applied before migration 0100. */
   kpis?: TeamKpi[] | null;
   measures?: TeamMeasure[] | null;
@@ -82,6 +84,7 @@ export function teamRowToManifest(row: TeamExportRow, emailByUserId: Map<string,
       ? {}
       : { accountableUser: emailByUserId.get(row.accountableUserId)! }),
     ...(row.goal ? { goal: row.goal } : {}),
+    ...(row.app ? { app: row.app } : {}),
     // An empty list exports as an absent key (the schema defaults it back to
     // []), so a team authored without `measures:` round-trips with no new line.
     ...(measures.length > 0 ? { measures: measures.map(measureToManifest) } : {}),

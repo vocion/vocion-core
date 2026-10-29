@@ -32,6 +32,12 @@ export type Surface = {
   icon: string;
   /** Shown in the workspace docs + apply summary, not in the sidebar. */
   description: string;
+  /**
+   * Review items (by action id) a person decides ON this surface. A count of
+   * them links here rather than to Review (an app's Chat page,
+   * `services/chat/appFront.ts`).
+   */
+  decides?: readonly string[];
 };
 
 export const SURFACES = {
@@ -41,6 +47,7 @@ export const SURFACES = {
     section: 'GTM',
     icon: 'sparkles',
     description: 'Review queue for MQLs the personalization agent has briefed and drafted a sequence for.',
+    decides: ['personalization.enroll'],
   },
   discovery: {
     url: '/gtm/discovery',

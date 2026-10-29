@@ -1,13 +1,16 @@
 import type { ConnectPlanInput } from '@/libs/connect/systemsPlan';
 import { setRequestLocale } from 'next-intl/server';
+import { cookies } from 'next/headers';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { ChatShell } from '@/features/dashboard/chat/ChatShell';
 import { parseConversationParam } from '@/features/dashboard/chat/resumeRule';
+import { NAV_APP_COOKIE } from '@/features/dashboard/nav/workspaceMemory';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { askOf } from '@/libs/chat/ask';
 import { connectReturnOutcome } from '@/libs/connect/returnTo';
 import { connectSystemsAsk, connectSystemsInputOf } from '@/libs/connect/systemsLink';
 import { listArtifactsByIds } from '@/services/ArtifactService';
+import { loadAppFronts } from '@/services/chat/appFront';
 import { attachmentFromArtifact } from '@/services/chat/attachments';
 import { loadOpeningHints } from '@/services/chat/openingHints';
 import { buildWorkspaceChips } from '@/services/chat/suggestions';
@@ -79,9 +82,14 @@ export default async function ChatPage(props: {
   // (`services/chat/openingHints.ts`). No model call; a failed read leaves it out.
   const lead = agents.find(a => a.slug === coordinatorSlug) ?? agents[0];
   const leadSpoken = lead?.givenName ?? (lead?.leadRole ? `the ${lead.leadRole}` : lead?.name ?? 'the team');
-  const openingHints = orgId && userId
-    ? await loadOpeningHints({ orgId, userId, isAdmin: has({ role: ORG_ROLE.ADMIN }), leadSpoken }).catch(() => [])
-    : [];
+  // Read beside the hints: the front of the app the person is in, its
+  // attention counts and its teams' briefing (`services/chat/appFront.ts`).
+  // Chat is every app's, so the sidebar's cookie names which; no model call.
+  const navCookie = (await cookies()).get(NAV_APP_COOKIE)?.value ?? null;
+  const [openingHints, appFronts] = await Promise.all([
+    orgId && userId ? loadOpeningHints({ orgId, userId, isAdmin: has({ role: ORG_ROLE.ADMIN }), leadSpoken }).catch(() => []) : Promise.resolve([]),
+    orgId ? loadAppFronts(orgId, { navCookie }).catch(() => ({})) : Promise.resolve({}),
+  ]);
 
   // `?attach=<ids>` — files the phone's share sheet already uploaded
   // (`/api/mobile/share`) start in the composer as chips. Only this
@@ -111,6 +119,7 @@ export default async function ChatPage(props: {
         startNew={startNew === '1'}
         openingAsk={openingAsk}
         openingHints={openingHints}
+        appFronts={appFronts}
       />
     </div>
   );

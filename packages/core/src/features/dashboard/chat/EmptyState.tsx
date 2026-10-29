@@ -43,6 +43,12 @@ export type EmptyStateProps = {
   team?: readonly TeamMember[];
   /** A second short line under the greeting ("Northwind's team is on it."). */
   secondLine?: string | null;
+  /**
+   * What an app's Chat page leads with, above the team and the line: the
+   * attention entry and the app's briefing (`AppFront`). Absent in the core
+   * app, whose empty conversation stays as above.
+   */
+  top?: ReactNode;
 };
 
 /**
@@ -71,8 +77,9 @@ function readReturning(): boolean {
  * @param props.line - The one line, when the surface has its own.
  * @param props.team - The workspace's agents, lead first.
  * @param props.secondLine - A second short line under the greeting.
+ * @param props.top - What an app's Chat page leads with, above the rest.
  */
-export function EmptyState({ firstName, nudge, hour, returning, line: ownLine, team = [], secondLine }: EmptyStateProps) {
+export function EmptyState({ firstName, nudge, hour, returning, line: ownLine, team = [], secondLine, top }: EmptyStateProps) {
   const t = useTranslations('Chat');
   // Read once, before this visit is written, so a return reads as one.
   const [cameBack] = useState(() => returning ?? readReturning());
@@ -87,6 +94,7 @@ export function EmptyState({ firstName, nudge, hour, returning, line: ownLine, t
 
   return (
     <div data-testid="chat-empty-state" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 sm:px-6">
+      {top && <div className="shrink-0">{top}</div>}
       <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
         {/* The team, when there is one; never a brand logo — the chat body
             shows no brand (one brand per region, `libs/branding/chrome.ts`). */}

@@ -921,6 +921,14 @@ const TeamManifestBaseSchema = z.object({
    * read time and is NOT baked in on export.
    */
   accountableUser: z.string().email().optional(),
+  /**
+   * The app this team works in — an app id (`gtm`). A team a plugin ships
+   * already belongs to that plugin's app; name one here for a workspace's
+   * own team, so the app's Chat page leads with its briefing and counts its
+   * work (`features/navigation/appTeams.ts`). Omitted, it stays with the core
+   * app.
+   */
+  app: SlugSchema.optional(),
 });
 
 export const TeamManifestSchema = TeamManifestBaseSchema

@@ -1076,6 +1076,8 @@ async function upsertTeam(orgId: string, team: LoadedTeam, mode: ApplyMode, erro
     // workspace default is inherited at read time, never baked in here.
     accountableUserId: await resolveAccountableUser(team.accountableUser, 'team', team.slug, mode, errors),
     goal: team.goal ?? null,
+    // The app a workspace's own team works in; an omitted key clears it.
+    app: team.app ?? null,
     // Declarative like the rest: authored measures land wholesale (a legacy
     // `kpis:` block is already folded in by the schema), an omitted block
     // clears the column. The deprecated `kpis` column is no longer written.
@@ -1103,6 +1105,7 @@ async function upsertTeam(orgId: string, team: LoadedTeam, mode: ApplyMode, erro
     && (existing.leadAgentSlug ?? null) === payload.leadAgentSlug
     && (existing.accountableUserId ?? null) === payload.accountableUserId
     && (existing.goal ?? null) === payload.goal
+    && (existing.app ?? null) === payload.app
     && JSON.stringify(existing.measures ?? []) === JSON.stringify(payload.measures)
   ) {
     return 'unchanged';

@@ -1304,6 +1304,13 @@ export const teamSchema = pgTable(
     /** The team's standing goal, authored as `goal:` in teams/<slug>.yaml. */
     goal: text('goal'),
     /**
+     * The app this team works in, when its file names one (`app:` in
+     * teams/<slug>.yaml, an app id; migration 0227). NULL = the app of the
+     * plugin that ships the team, else the core app
+     * (`features/navigation/appTeams.ts`).
+     */
+    app: text('app'),
+    /**
      * @deprecated Legacy `kpis:` (F3) — worker-reported counts only. Kept for
      * one release so rows applied before `measures` existed still read; the
      * report folds them in as `agent-reported` measures when `measures` is
@@ -3731,6 +3738,12 @@ export const briefingSchema = pgTable(
     teamSlug: text('team_slug'),
     /** Agent that published it (plain slug). */
     agentSlug: text('agent_slug'),
+    /**
+     * The mission run whose turn published it (migration 0227) — through its
+     * automation run, the job that writes this brief. NULL when it was
+     * published outside a mission run.
+     */
+    missionRunId: integer('mission_run_id'),
     /**
      * A personal brief's once-only key, `<kind>:<local day>` (`brief:2026-10-09`,
      * migration 0205): one edition per person, kind and day, refreshed in place

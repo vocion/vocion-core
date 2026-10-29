@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_REMEMBERED, NAV_WHERE_KEY, placeIn, readPlaces, rememberPlace } from './workspaceMemory';
+import { appFromNavCookie, MAX_REMEMBERED, NAV_WHERE_KEY, navAppCookieValue, placeIn, readPlaces, rememberPlace } from './workspaceMemory';
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const m = new Map(Object.entries(initial));
@@ -53,5 +53,22 @@ describe('where the person was, per workspace', () => {
     expect(placeIn(throwing, 'finance')).toBeNull();
     expect(() => rememberPlace(throwing, 'finance', { app: 'finance', path: '/x' })).not.toThrow();
     expect(readPlaces(null)).toEqual({});
+  });
+});
+
+describe('the nav app cookie', () => {
+  it('names the app for its own workspace only', () => {
+    const value = navAppCookieValue('northwind-sales', 'gtm');
+
+    expect(appFromNavCookie(value, 'northwind-sales')).toBe('gtm');
+    expect(appFromNavCookie(value, 'northwind-finance')).toBeNull();
+  });
+
+  it('survives slugs with a colon and reads nothing from junk', () => {
+    expect(appFromNavCookie(navAppCookieValue('a:b', 'gtm'), 'a:b')).toBe('gtm');
+    expect(appFromNavCookie('', 'a')).toBeNull();
+    expect(appFromNavCookie('nocolon', 'nocolon')).toBeNull();
+    expect(appFromNavCookie('%E0%A4%A:gtm', 'x')).toBeNull();
+    expect(appFromNavCookie(undefined, 'a')).toBeNull();
   });
 });
