@@ -31,6 +31,9 @@ objectTypes:
 learningSteps:
   - seo-feedback
 harness:
+  # A person's turn runs at Standard: Auto once put "publish these pages" on
+  # the fast model, which did not know publishing is a proposed site.publish_page.
+  turnEffort: standard
   modelProvider: anthropic
   model: claude-opus-5-5
   # The client's voice and guidelines live on their project. The workspace

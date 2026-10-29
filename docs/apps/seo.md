@@ -13,6 +13,8 @@
 
 ## The seats and their models
 
+Every SEO seat runs a person's chat turn at Standard (`harness.turnEffort: standard`), never Quick, and Auto never runs a turn that publishes, sends or changes something outside the workspace at Quick either (`effort.ts`, the `outward` fact).
+
 | Agent | Does | Model |
 |---|---|---|
 | `seo-strategist` (lead) | Onboards clients, plans batches, writes briefs, routes feedback, publishes | Opus 5.5 |
@@ -107,6 +109,8 @@ A page sent back with changes holds every new draft in every batch of the projec
 Present while the `seo` plugin is on (`services/agents/tools/registry.ts`). Beside them, granted: `site_inventory` (the whole site onto the project) and `record_competitors` (with the `serp` grant).
 
 ## Sign-off and feedback
+
+A page's sign-off shows the draft itself, rendered in place on the decision sheet with **Open the draft** (the ask's primary artifact), beside the meta and the editor's report. Any other question a seat asks — the authors for a sample, say — is answered on Needs you and goes back to that seat as a follow-up turn in its conversation, so it carries on (`services/inbox/handBack.ts`). A publish proposal reads `Publish "<page title>" → <target>`, and its Done line "Pull request opened: <link>".
 
 Code files every sign-off, never the model: on the editor's `pass`, `seo_save_review` files core's `signoff` ask with `source_ref: seo-page:<page>:<draft>:<round>`, the draft and the page as its records, grouped under the batch on Needs you, and writes the version and hash it showed onto the page (`signoffAsk`). A redraft, a `fix` or a request for changes in words withdraws the open one. The answer comes back through `AskService.settleWaitersOn`: **Approve** approves the page, **Revise** (the answer in the person's words) records the note on the page and sends it back, **Discard** takes it out of the batch. Each draft round has its own ask, so an answer about an older draft moves nothing. After either sign-off settles, core raises `seo.work_queued` (reason `signoff`), and the plugin's `seo-continue` automation wakes the strategist on its `seo-batches-moving` mission to continue the released pages — nobody has to ask.
 

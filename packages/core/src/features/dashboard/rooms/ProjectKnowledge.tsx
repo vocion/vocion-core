@@ -17,11 +17,14 @@ import remarkGfm from 'remark-gfm';
 import { Section } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { useRouter } from '@/libs/I18nNavigation';
+import { PUBLISH_TARGET_EXAMPLE, publishTargetProblems } from './publishTargetEdit';
 
 async function patchProject(projectId: number, body: Record<string, unknown>): Promise<void> {
   const res = await fetch(`/api/v1/projects/${projectId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) {
-    throw new Error(`save failed (${res.status})`);
+    // The server's own sentence, where the person is editing (a target's schema problem names the field).
+    const said = await res.json().then((b: { error?: { message?: string } }) => b.error?.message, () => undefined);
+    throw new Error(said ? `Not saved: ${said}` : `save failed (${res.status})`);
   }
 }
 
@@ -171,31 +174,38 @@ export function ProjectWiki({ projectId, notes }: { projectId: number; notes: st
 
 type Target = { id: string; kind: 'github' | 'squarespace' | 'wordpress'; label?: string; config?: Record<string, unknown> };
 
+/** A target learned from the site's own posts, waiting on a person (`publishTargetSuggestion`). */
+export type TargetSuggestion = { target: Target; replaces: string | null; repo: string; read: string[]; notes: string[] };
+
 /**
  * Where the project's pages ship and how the SEO app releases them: a
  * person's settings, set here and nowhere else — an agent's write to either
  * is refused (`PERSON_ONLY_FIELDS`). The same edit-in-place as Instructions
- * and Wiki. The gate shows only where the SEO app is on.
+ * and Wiki. The gate shows only where the SEO app is on. A target learned
+ * from the site's own posts waits here for the person to apply or dismiss.
  * @param props
  * @param props.projectId - The project.
  * @param props.gate - Its `seoGate`, when set.
  * @param props.targets - Its publish targets.
  * @param props.lines - Each target in words, by id (`publishTargetLine`).
  * @param props.showGate - The SEO app is on in this workspace.
+ * @param props.suggestion - A target learned from the site's posts, waiting on a person.
  */
-export function ProjectPublishing({ projectId, gate, targets, lines, showGate }: { projectId: number; gate: { sample?: number; tranche?: number } | null; targets: Target[]; lines: Record<string, string>; showGate: boolean }) {
+export function ProjectPublishing({ projectId, gate, targets, lines, showGate, suggestion = null }: { projectId: number; gate: { sample?: number; tranche?: number } | null; targets: Target[]; lines: Record<string, string>; showGate: boolean; suggestion?: TargetSuggestion | null }) {
   const field = useProjectField(projectId);
   const [sample, setSample] = useState(String(gate?.sample ?? 3));
   const [tranche, setTranche] = useState(String(gate?.tranche ?? 10));
-  const [json, setJson] = useState(JSON.stringify(targets, null, 2));
+  const [json, setJson] = useState(targets.length > 0 ? JSON.stringify(targets, null, 2) : '');
   const [problem, setProblem] = useState<string | null>(null);
-  if (!showGate && targets.length === 0 && !field.editing) {
+  if (!showGate && targets.length === 0 && !field.editing && !suggestion) {
     return null;
   }
+  // Read as it is typed: what the server would refuse, said under the editor before Save.
+  const problems = field.editing ? publishTargetProblems(json) : [];
   const cancel = () => {
     setSample(String(gate?.sample ?? 3));
     setTranche(String(gate?.tranche ?? 10));
-    setJson(JSON.stringify(targets, null, 2));
+    setJson(targets.length > 0 ? JSON.stringify(targets, null, 2) : '');
     setProblem(null);
     field.setEditing(false);
   };
@@ -206,15 +216,19 @@ export function ProjectPublishing({ projectId, gate, targets, lines, showGate }:
       setProblem('Sample and tranche are whole numbers from 1 to 100.');
       return;
     }
-    let parsed: unknown;
-    try {
-      parsed = json.trim() ? JSON.parse(json) : [];
-    } catch {
-      setProblem('Publish targets are a JSON list: [{"id": "site", "kind": "github", "label": "…", "config": {…}}].');
+    if (problems.length > 0) {
+      setProblem(null);
       return;
     }
     setProblem(null);
-    field.save({ ...(showGate ? { seoGate: { sample: s, tranche: t } } : {}), publishTargets: parsed });
+    field.save({ ...(showGate ? { seoGate: { sample: s, tranche: t } } : {}), publishTargets: json.trim() ? JSON.parse(json) : [] });
+  };
+  const apply = () => {
+    if (!suggestion) {
+      return;
+    }
+    const next = suggestion.replaces ? targets.map(t => (t.id === suggestion.replaces ? suggestion.target : t)) : [...targets, suggestion.target];
+    field.save({ publishTargets: next, publishTargetSuggestion: null });
   };
   const input = 'h-7 w-16 rounded-md border border-border bg-background px-2 text-sm tabular-nums focus:border-foreground/30 focus:outline-none';
   return (
@@ -235,7 +249,12 @@ export function ProjectPublishing({ projectId, gate, targets, lines, showGate }:
                   </label>
                 </div>
               )}
-              <Editor value={json} onChange={setJson} onSave={save} onCancel={cancel} busy={field.busy} mono placeholder='[{"id": "site", "kind": "github", "label": "Website", "config": {"repo": "…", "branch": "main", "path": "content/"}}]' />
+              <Editor value={json} onChange={setJson} onSave={save} onCancel={cancel} busy={field.busy} mono placeholder={PUBLISH_TARGET_EXAMPLE} />
+              {problems.length > 0 && (
+                <ul className="space-y-0.5 text-xs text-destructive" data-testid="publish-target-problems">
+                  {problems.map(p => <li key={p}>{p}</li>)}
+                </ul>
+              )}
             </div>
           )
         : (
@@ -248,9 +267,21 @@ export function ProjectPublishing({ projectId, gate, targets, lines, showGate }:
               )}
               {targets.length === 0
                 ? <p className="text-muted-foreground">Publishes nowhere yet.</p>
-                : targets.map(t => <p key={t.id}>{`${t.label ?? t.kind}: ${lines[t.id] ?? t.kind}`}</p>)}
+                // The line already carries the label: said once.
+                : targets.map(t => <p key={t.id}>{lines[t.id] ?? t.label ?? t.kind}</p>)}
             </div>
           )}
+      {suggestion && !field.editing && (
+        <div className="mt-3 border-t border-rule pt-3 text-sm" data-testid="publish-target-suggestion">
+          <p className="text-foreground">{`Learned from ${suggestion.read.length} ${suggestion.read.length === 1 ? 'post' : 'posts'} in ${suggestion.repo}: ${Object.keys((suggestion.target.config?.frontmatter ?? {}) as Record<string, unknown>).length} frontmatter keys, path ${String(suggestion.target.config?.path ?? '')}.`}</p>
+          <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-surface-soft p-2 font-mono text-[12px]">{JSON.stringify(suggestion.target.config?.frontmatter ?? {}, null, 2)}</pre>
+          {suggestion.notes.length > 0 && <p className="mt-1 text-xs text-muted-foreground">{`To check: ${suggestion.notes.join(' ')}`}</p>}
+          <div className="mt-2 flex items-center gap-2">
+            <button type="button" onClick={apply} disabled={field.busy} className={buttonVariants({ size: 'sm' })}>{suggestion.replaces ? `Apply to ${suggestion.replaces}` : 'Add this target'}</button>
+            <button type="button" onClick={() => field.save({ publishTargetSuggestion: null })} disabled={field.busy} className="inline-flex h-7 items-center rounded-md px-2 text-xs hover:bg-surface-hover">Dismiss</button>
+          </div>
+        </div>
+      )}
       {(problem ?? field.error) && <p className="mt-2 text-xs text-destructive">{problem ?? field.error}</p>}
     </Section>
   );

@@ -153,6 +153,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
               targets={publishTargets}
               lines={Object.fromEntries(publishTargets.map(t => [t.id, publishTargetLine(t)]))}
               showGate={seoOn}
+              suggestion={m.publishTargetSuggestion ? { target: m.publishTargetSuggestion.target, replaces: m.publishTargetSuggestion.replaces, repo: m.publishTargetSuggestion.repo, read: m.publishTargetSuggestion.read, notes: m.publishTargetSuggestion.notes } : null}
             />
             <Section eyebrow="Entity" tone="quiet">
               {anchor

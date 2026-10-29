@@ -50,8 +50,9 @@ export const waitingRoute = os.handler(async () => {
 });
 
 /**
- * decisions.answer — answer one of those, from the dock. No turn follows:
- * whoever asked hears it the way it always did. A conversation's own Decision
+ * decisions.answer — answer one of those, from the dock. No turn follows here:
+ * whoever asked hears it the way it always did, and an agent that asked
+ * carries on in its own conversation (`services/inbox/handBack.ts`). A conversation's own Decision
  * is answered in its conversation, never here.
  */
 export const answerRoute = os

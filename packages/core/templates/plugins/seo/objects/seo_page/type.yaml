@@ -68,7 +68,18 @@ schema:
         name: {type: string}
         title: {type: string}
         url: {type: string}
-        from: {type: string, enum: [planned, default]}
+        slug: {type: string}
+        from: {type: string, enum: [planned, default, writer]}
+    category:
+      type: string
+      description: The site's category for the post, given with the draft. Publishing writes it into the site's frontmatter; the body never carries it.
+    tags:
+      type: array
+      items: {type: string}
+      description: The post's tags, given with the draft.
+    excerpt:
+      type: string
+      description: The listing blurb, when the site shows one apart from the meta description.
     target:
       type: string
       description: Where the page lives or will live — the published URL, else the page it refreshes, else its planned slug.

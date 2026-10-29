@@ -57,7 +57,7 @@ describe('the Done receipt', () => {
 
     expect(said).not.toContain('can undo');
     expect(said).toContain('It cannot be undone');
-    expect(events.find(e => e.type === 'receipt')?.receipt).toEqual({ runId: 7, actionId: 'objects.propose_candidate', label: 'Filed request #131 — Export the viewer list', undoable: false, href: '/w/northwind/dashboard/p/feature/131' });
+    expect(events.find(e => e.type === 'receipt')?.receipt).toMatchObject({ runId: 7, actionId: 'objects.propose_candidate', label: 'Filed request #131 — Export the viewer list', undoable: false, href: '/w/northwind/dashboard/p/feature/131', record: { label: 'request #131 — Export the viewer list', href: '/w/northwind/dashboard/p/feature/131' } });
   });
 
   it('a change that can be put back is Done with Undo, said once', async () => {
@@ -65,7 +65,8 @@ describe('the Done receipt', () => {
     const events: Array<{ type: string; receipt?: unknown }> = [];
     const said = await proposeActionTool(ctxWith(events)).invoke(call('hubspot.update', { objectType: 'deal', id: '4410', properties: { dealstage: 'negotiation' } }));
 
-    expect(said).toContain('A person can undo it from the Done line under this turn');
+    expect(said).toContain('The Done line under your reply already says what was done');
+    expect(said).not.toContain('without waiting —');
     expect(events.filter(e => e.type === 'receipt')).toEqual([{ type: 'receipt', receipt: expect.objectContaining({ runId: 8, actionId: 'hubspot.update', undoable: true }) }]);
   });
 

@@ -10,8 +10,10 @@ import { KIND_LABEL } from './inboxMeta';
  * @param props
  * @param props.ask
  * @param props.compact - One row in a sheet's receipt list rather than a full card.
+ * @param props.decidedByName - Who answered, by name (else email); a raw user id is never shown.
  */
-export function AskReceipt({ ask, compact = false }: { ask: Ask; compact?: boolean }) {
+export function AskReceipt({ ask, compact = false, decidedByName = null }: { ask: Ask; compact?: boolean; decidedByName?: string | null }) {
+  const by = answeredBy(ask.decidedBy, decidedByName);
   const label = ask.decision ? labelFor(ask, ask.decision) : ask.status;
   const Icon = ask.status === 'rejected' ? X : Check;
   const tone = ask.status === 'rejected' ? 'text-fail' : 'text-pass';
@@ -26,7 +28,7 @@ export function AskReceipt({ ask, compact = false }: { ask: Ask; compact?: boole
         </p>
         <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
           <span className="rounded-full border border-border px-1.5 py-px text-[10px] font-medium">{KIND_LABEL[ask.kind] ?? ask.kind}</span>
-          {ask.decidedBy && <span className="truncate font-mono">{ask.decidedBy}</span>}
+          {by && <span className="truncate">{by}</span>}
           {ask.decidedAt && <span>{ask.decidedAt.toLocaleString()}</span>}
           {ask.followUp && (
             <span className="inline-flex items-center gap-1 text-waiting">
@@ -44,4 +46,30 @@ export function AskReceipt({ ask, compact = false }: { ask: Ask; compact?: boole
       </div>
     </div>
   );
+}
+
+/**
+ * Who answered, as a person reads it: their name (else email); the trust bar
+ * or the deadline's default in words; an agent by its slug; never a raw user id.
+ * @param id - `ask.decided_by`.
+ * @param name - The person's name, when the page resolved it.
+ */
+export function answeredBy(id: string | null, name: string | null): string | null {
+  if (!id) {
+    return null;
+  }
+  if (name) {
+    return name;
+  }
+  if (id === 'trust-ladder') {
+    return 'answered on the trust bar';
+  }
+  if (id === 'by-default') {
+    return 'applied by default';
+  }
+  if (id.startsWith('agent:')) {
+    return id.slice('agent:'.length);
+  }
+  // A person id that no longer resolves says "a person", never the id.
+  return id.includes(':') ? id : 'a person';
 }

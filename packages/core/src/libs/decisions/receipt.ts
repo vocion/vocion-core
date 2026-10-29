@@ -23,7 +23,62 @@ export type DoneReceipt = {
   href?: string;
   /** `undone` once a person took it back. */
   status?: 'done' | 'undone';
+  /** The record it changed, by name; the name is the link (no separate pill). */
+  record?: { label: string; href?: string };
+  /** What changed on it, old → new, when the run says. */
+  changes?: ReceiptChange[];
+  /** What the action itself says it did ("Pull request opened" and its link), from its result's `receipt`. */
+  outcome?: { text: string; href?: string; linkLabel?: string };
+  /** Why it ran without a card, for a tooltip — never in the line. */
+  why?: string;
 };
+
+/** One field a run changed. */
+export type ReceiptChange = { field: string; from?: string | null; to: string };
+
+/** At most this many changes are named on the line. */
+const CHANGES_SHOWN = 4;
+
+/**
+ * The changes, as the line reads them: "Deal stage: Proposal → Contract sent".
+ * @param changes - What changed.
+ */
+export function changesText(changes: readonly ReceiptChange[]): string {
+  const shown = changes.slice(0, CHANGES_SHOWN).map(c => `${c.field}: ${c.from !== undefined && c.from !== null && c.from !== '' ? `${c.from} → ` : ''}${c.to}`);
+  return `${shown.join(', ')}${changes.length > CHANGES_SHOWN ? ` +${changes.length - CHANGES_SHOWN} more` : ''}`;
+}
+
+/**
+ * The Done line in words, as it renders (the record name and the outcome's
+ * link are links there): "Done. Northwind renewal updated: Deal stage:
+ * Proposal → Contract sent". One line, one Undo beside it; no run code, no
+ * explanation of why it ran.
+ * @param r - The receipt.
+ */
+export function receiptText(r: DoneReceipt): string {
+  const head = r.status === 'undone' ? 'Undone.' : 'Done.';
+  if (r.outcome) {
+    return `${head} ${r.outcome.text}${r.outcome.href ? `: ${r.outcome.linkLabel ?? r.outcome.href}` : ''}`;
+  }
+  if (r.record && r.changes && r.changes.length > 0) {
+    return `${head} ${r.record.label} updated: ${changesText(r.changes)}`;
+  }
+  return `${head} ${r.label}`;
+}
+
+/**
+ * The `receipt` an action's result carries, when it says one: what it did in
+ * a few words and the link to the thing it made.
+ * @param result - The run's result.
+ */
+export function outcomeOf(result: unknown): DoneReceipt['outcome'] | undefined {
+  const raw = (result as { receipt?: unknown } | null)?.receipt as { text?: unknown; href?: unknown; linkLabel?: unknown } | undefined;
+  if (!raw || typeof raw.text !== 'string' || !raw.text.trim()) {
+    return undefined;
+  }
+  const href = typeof raw.href === 'string' && (raw.href.startsWith('/') || /^https:\/\//.test(raw.href)) ? raw.href : undefined;
+  return { text: raw.text.trim().slice(0, 160), ...(href ? { href } : {}), ...(href && typeof raw.linkLabel === 'string' && raw.linkLabel.trim() ? { linkLabel: raw.linkLabel.trim().slice(0, 120) } : {}) };
+}
 
 /**
  * A receipt off the wire or the ledger, or null when it is not one.
@@ -41,6 +96,10 @@ export function readDoneReceipt(raw: unknown): DoneReceipt | null {
     undoable: r.undoable === true,
     ...(typeof r.href === 'string' && r.href.startsWith('/') ? { href: r.href } : {}),
     ...(r.status === 'undone' ? { status: 'undone' as const } : {}),
+    ...(r.record && typeof r.record.label === 'string' && r.record.label.trim() ? { record: { label: r.record.label, ...(typeof r.record.href === 'string' && r.record.href.startsWith('/') ? { href: r.record.href } : {}) } } : {}),
+    ...(Array.isArray(r.changes) ? { changes: r.changes.filter(c => c && typeof c.field === 'string' && typeof c.to === 'string').map(c => ({ field: c.field, to: c.to, ...(typeof c.from === 'string' ? { from: c.from } : {}) })) } : {}),
+    ...(outcomeOf({ receipt: r.outcome }) ? { outcome: outcomeOf({ receipt: r.outcome }) } : {}),
+    ...(typeof r.why === 'string' && r.why.trim() ? { why: r.why } : {}),
   };
 }
 
@@ -51,6 +110,6 @@ export function readDoneReceipt(raw: unknown): DoneReceipt | null {
  */
 export function undoSentence(undoable: boolean): string {
   return undoable
-    ? 'A person can undo it from the Done line under this turn, or from the Review queue\'s Decided tab.'
+    ? 'The Done line under your reply says what changed, links the record and offers Undo.'
     : 'It cannot be undone — this kind has no undo — so do not offer one.';
 }

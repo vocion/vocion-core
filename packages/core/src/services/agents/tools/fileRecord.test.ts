@@ -190,7 +190,7 @@ describe('filing a request from chat, end to end', () => {
     const out = await graph.invoke({ messages: [{ role: 'user', content: 'File a feature request for Send: senders want to see who opened the file and when.' }] } as never) as { messages: Array<{ getType: () => string; content: unknown; name?: string }> };
     const toolAnswer = out.messages.filter(m => m.getType() === 'tool').map(m => String(m.content)).join('\n');
 
-    expect(toolAnswer).toMatch(/is DONE: filed as [A-Z]{2,5}-\d+ \(ACT-\d+, confidence 0\.9\), open at \S+/);
+    expect(toolAnswer).toMatch(/is DONE: filed as [A-Z]{2,5}-\d+\./);
 
     const [row] = await db
       .select()

@@ -39,9 +39,10 @@ describe('a DONE proposal that made a record', () => {
       suggested_decision_reason: 'Asked for directly by the product owner.',
     });
 
-    expect(said).toContain('is DONE: filed as request #131 (ACT-7, confidence 0.8), open at /w/northwind/dashboard/p/feature/131.');
-    expect(said).toContain('the record exists now; no approval is pending');
-    expect(said).toContain('[request #131](/w/northwind/dashboard/p/feature/131)');
+    expect(said).toContain('is DONE: filed as request #131.');
+    expect(said).toContain('The record exists now; no approval is pending');
+    // The Done line carries the record and its link; the agent is told not to say it again.
+    expect(said).toContain('do not paste the record link');
     expect(events).toContainEqual({
       type: 'record_created',
       record: { type: 'object', id: '131', label: 'request #131 — Export the viewer list as a CSV', href: '/w/northwind/dashboard/p/feature/131' },

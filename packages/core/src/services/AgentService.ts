@@ -32,6 +32,7 @@ import { noteConnectionNeeded } from '@/services/connect/triedAndFailed';
 import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agents/answerBackstop';
 import { messageBreak } from './agents/answerJoin';
 import { AnswerStreamer } from './agents/answerStream';
+import { canDoNudge, failedStepsLine, worthCheckingCanDo } from './agents/canDo';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { HandOffGateCallback, HandOffGuard, handsOff } from './agents/handOff';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
@@ -42,7 +43,7 @@ import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, isToolInternalModelEvent, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 import { HeadStartDropped, TurnGateCallback, TurnStopped } from './agents/turnGate';
-import { asksForAct, NO_INTENT, readIntent } from './agents/turnJudge';
+import { asksForAct, NO_INTENT, readIntent, readUnableClaim } from './agents/turnJudge';
 import { TurnRefusedError } from './agents/turnRefusal';
 import { inTurn } from './agents/turnScope';
 import { writeLanded } from './agents/writeClaim';
@@ -1155,6 +1156,7 @@ async function runAgentDeepInScope(opts: {
   // A malformed tool call is retried once, not fatal — see the catch below.
   let toolErrorRetried = false;
   let thoughtOnlyRetried = false;
+  let canDoRetried = false;
   // THE MODEL DECLINED (2026-10-01, FE-308's questions): the API answered
   // `stop_reason: "refusal"`, and the loop read that as "said nothing" and
   // ran two more passes into the same refusal. A refusal is an outcome, read
@@ -1557,8 +1559,30 @@ async function runAgentDeepInScope(opts: {
           ...input,
           messages: continueWith(empty
             ? 'You returned nothing — no words and no tool call. Answer the person now: run the lookups you need and reply.'
-            : `You were asked to ${intent.summary || 'do what the person said'}. Do it now with your tools, or say in one line why you can't. Never write a tool call as text.`, [...input.messages, ...(empty ? [] : [{ role: 'assistant', content: soFar }])]),
+            : `You were asked to ${intent.summary || 'do what the person said'}. Do it now with your tools — look in ACTIONS and search your tools before deciding you cannot.${failures.length > 0 ? ` Steps that failed this turn:\n${failedStepsLine(failures)}\nIf it still cannot be done, say which step failed and its error, in one line.` : ' If it cannot be done, say which step failed and why, in one line.'} Never write a tool call as text.`, [...input.messages, ...(empty ? [] : [{ role: 'assistant', content: soFar }])]),
         } as typeof input);
+      }
+      // CAN BEFORE CAN'T (`services/agents/canDo.ts`): a reply that says it
+      // cannot do the act it was asked for, read by a model against the turn's
+      // own actions, runs once more told which action does it.
+      const reply = normalizeAnswerHtml(finalText).trim();
+      if (worthCheckingCanDo({ personTurn, refused, handedOff: handOffGuard.stopped, writes: turn.writes, asks: intent.asks, reply, already: canDoRetried })) {
+        canDoRetried = true;
+        const { listActions } = await import('@/libs/actions/registry');
+        const { actionInSourceScope } = await import('@/libs/actions/availability');
+        const scope = { connectorSources: boundCtx.connectorSources ?? [], sourceKinds: boundCtx.sourceKinds };
+        const actions = listActions().filter(a => actionInSourceScope(a, scope)).map(a => ({ id: a.id, line: a.description.split(/(?<=\.)\s/)[0]!.slice(0, 200) }));
+        const claim = await readUnableClaim({ orgId: opts.orgId, message: opts.message, reply, actions });
+        if (claim.claims_unable && claim.action_id) {
+          console.warn('agent turn: said it cannot, and has the action; once more', { orgId: opts.orgId, agentSlug: opts.agentSlug, action: claim.action_id, failures: failures.length });
+          emit({ type: 'status', label: 'Trying the action it has for this' });
+          finalText += '\n\n';
+          emit({ type: 'response_delta', delta: '\n\n' });
+          await runGraph({
+            ...input,
+            messages: continueWith(canDoNudge(claim.action_id, failures), [...input.messages, { role: 'assistant', content: reply }]),
+          } as typeof input);
+        }
       }
       // THOUGHT, AND SAID NOTHING. A turn that ends with no words and no tool
       // call after the continuation is the model spending its whole output
