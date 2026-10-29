@@ -128,8 +128,7 @@ jobs:
           fi
 
       # The E2E shards restore this, keyed by the same node version and
-      # commit. scripts/wait-for-build-output.sh watches for this step by its
-      # name, so rename both together.
+      # commit.
       - name: Cache Next.js build output
         uses: actions/cache/save@v5
         with:
@@ -377,8 +376,7 @@ jobs:
         # runs the `setup`/`teardown`
         # projects its tests depend on, and the self-seeding projects make
         # their own admin. Each also repeats checkout, install, the build
-        # restore and the server boot, most of it now while the build runs,
-        # but each shard is still a runner, so more shards
+        # restore and the server boot, and each shard is a runner, so more shards
         # stop paying for themselves quickly. Three is the count measured on
         # #629; the `--shard` argument below has to match this list.
         shard: [1, 2, 3]
@@ -390,18 +388,16 @@ jobs:
     # per shard, so the limit has to cover those 8, setup and the upload. It used
     # to be 10 with no Playwright cap, and a red run hit this limit before
     # Playwright could print its summary.
-    # No `needs: [build]`. A shard starts with the build, pulls the
-    # Playwright image, starts Postgres and restores node_modules (about 70s)
-    # while the build runs, and waits only for the build output, in the
-    # "Wait for the build output" step below (#631). So this limit now also
-    # covers the wait: up to the build's own 10 minutes, then Playwright's 8,
-    # plus setup and the upload. 20 leaves room for all three; a normal run
-    # waits 3–4 minutes.
-    timeout-minutes: 20
-    # The wait step reads this run's jobs and the cache list.
-    permissions:
-      contents: read
-      actions: read
+    # The shards wait for the build with `needs`, not on a runner of their
+    # own. From #631 to 2026-10-29 they started with the build and polled for
+    # its output (scripts/wait-for-build-output.sh), to save about 70s of
+    # setup. But the account runs at most 20 jobs at once, and when a dozen runs
+    # overlap, the polling shards held a third of those slots while the
+    # builds they waited for sat in the queue behind them: shards gave up on
+    # builds that had not started yet (main at 83d8d9a3, PRs #1499 and #1500).
+    # A shard that holds no runner until its build is done cannot starve it.
+    needs: [build]
+    timeout-minutes: 15
 
     # A real Postgres, not the in-memory PGlite the suite boots locally.
     # PGlite accepts one connection, which made every seed script a spec
@@ -440,16 +436,6 @@ jobs:
         uses: ./.github/actions/setup-project
         with:
           node-version: ${{ matrix.node-version }}
-
-      - name: Wait for the build output
-        run: scripts/wait-for-build-output.sh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BUILD_OUTPUT_CACHE_KEY: nextjs-build-${{ matrix.node-version }}-${{ github.sha }}
-          # Longer than the build job's 10-minute limit, so a slow build that
-          # succeeds is never abandoned; a build that fails or times out ends
-          # the wait on its own, as soon as its job reports.
-          WAIT_TIMEOUT_SECONDS: 660
 
       - name: Restore the build output
         uses: actions/cache/restore@v5
