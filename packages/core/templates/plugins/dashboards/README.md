@@ -15,7 +15,7 @@ plugins: [dashboards]
 | `agents/dashboard-analyst` | Builds a dashboard from the workspace's own reads, writes the recipe that rebuilds it, and refreshes it in place. Handles "dashboard", "KPI", "scorecard". |
 | `skills/build-a-dashboard` | The method: what to watch, read once, lay it out, write the recipe, refresh. |
 | `pages/dashboards` | Dashboards, under Workspace. One dashboard: the page is that dashboard. Several: a row each with its lead and as-of date. |
-| `automations/dashboards-refresh` | Weekday mornings, refreshes every dashboard that is due. Off until `scheduledRefresh` is on. |
+| `missions/dashboards-current` + `automations/dashboards-refresh` | "Every dashboard is current", checked weekday mornings: every due dashboard is refreshed from its recipe. Off until `scheduledRefresh` is on. |
 
 Core gives every agent the mechanism: the `dashboard` artifact kind,
 `render_dashboard`, `update_artifact`, `list_artifacts` and the `dashboards`

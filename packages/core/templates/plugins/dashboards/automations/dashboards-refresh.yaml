@@ -1,7 +1,7 @@
-# The scheduled refresh. Off unless the workspace turns on
-# `scheduledRefresh`: a dashboard is refreshed on its own only where its
-# sources are the workspace's. One run walks every due dashboard; it never
-# makes a new one.
+# The scheduled refresh: the cadence of the "Every dashboard is current"
+# mission. Off unless the workspace turns on `scheduledRefresh`: a dashboard
+# is refreshed on its own only where its sources are the workspace's. One run
+# walks every due dashboard; it never makes a new one.
 slug: dashboards-refresh
 name: Refresh dashboards that are due
 description: Refreshes every dashboard whose cadence is due, in place, as a new version.
@@ -12,9 +12,10 @@ when:
   schedule: '0 7 * * 1-5'
   timezone: workspace
 do:
+  checkMission: dashboards-current
   prompt: >-
-    Refresh the dashboards that are due today. Find them with list_artifacts (kind
-    dashboard), which gives each one's cadence and asOf: daily ones are
+    Refresh the dashboards that are due today. Find them with list_artifacts
+    (kind dashboard), which gives each one's cadence and asOf: daily ones are
     due every weekday, weekly ones on Monday, monthly ones on the first
     weekday of the month, on-request ones never. For each due dashboard,
     read_artifact, follow its refresh.method, and update_artifact the same

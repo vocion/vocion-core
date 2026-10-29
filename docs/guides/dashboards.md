@@ -98,9 +98,10 @@ refresh method" — sent as their turn. So their own connections are read (an
 `auth: person` MCP source follows the person into every chat turn, never into
 a schedule), and the refresh runs as their action.
 
-The dashboards plugin's `dashboards-refresh` automation (setting
-`scheduledRefresh`, off by default) refreshes what is due each weekday
-morning from the workspace's own sources. A dashboard whose recipe needs a
+The dashboards plugin's mission, "Every dashboard is current"
+(`dashboards-current`), is checked each weekday morning by the
+`dashboards-refresh` automation (setting `scheduledRefresh`, off by default),
+which refreshes what is due from the workspace's own sources. A dashboard whose recipe needs a
 person's sign-in is left as it is, and the run says which.
 
 ## The page
