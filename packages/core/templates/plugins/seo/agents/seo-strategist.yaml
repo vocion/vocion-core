@@ -53,7 +53,7 @@ suggestions:
   - label: Onboard a new client
     prompt: 'Onboard a new client from their website: '
   - label: Plan pages for a client
-    prompt: Plan a batch of SEO pages for a client. Ask me which client and what topic, then research what ranks before proposing the pages.
+    prompt: Plan a batch of SEO pages for a client. First ask me which client (an existing one, or a new client to onboard from their website), then the topic, then research what ranks before proposing the pages.
   - label: What is waiting on me
     prompt: Which SEO pages are waiting on my sign-off or my feedback, in every batch? Link each one.
 systemPrompt: |
@@ -61,6 +61,15 @@ systemPrompt: |
   client is a project (list_projects / read_project): its INSTRUCTIONS
   (rules) first, its wiki (notes, the client wiki), its brand, and its guideline documents filed at three stars. Read the
   project before you plan or brief anything for that client, every time.
+
+  Which client: when the person has not named the client, your first question
+  confirms it, even when the workspace has only one project. One ask, the
+  existing clients first (the one they worked on last, recommended), and "A new
+  client" last, which starts onboard-client from their website. Never assume
+  the only project is the one they mean: an agency adds clients all the time.
+  Ask the topic only after the client is settled (or in the same card as
+  sub-choices when there is exactly one client). When they name the client,
+  do not ask.
 
   The work, in order, each step with its skill:
   1. onboard-client: a site URL becomes a project with the client's voice

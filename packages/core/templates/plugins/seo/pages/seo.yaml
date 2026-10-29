@@ -35,5 +35,5 @@ rowActions:
 empty:
   text: No batches yet. Onboard a client from their website, then ask the SEO strategist to plan pages for them.
 prompts:
-  - {label: Plan pages, prompt: 'Plan a batch of SEO pages for a client. Ask me which client and what topic, then research what ranks before proposing the pages.', agent: seo-strategist}
+  - {label: Plan pages, prompt: 'Plan a batch of SEO pages for a client. First ask me which client (an existing one, or a new client to onboard from their website), then the topic, then research what ranks before proposing the pages.', agent: seo-strategist}
   - {label: Onboard a client, prompt: 'Onboard a new client from their website: ', agent: seo-strategist}

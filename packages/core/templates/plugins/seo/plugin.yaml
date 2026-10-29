@@ -40,6 +40,6 @@ starters:
   - label: Onboard a new client from their website
     prompt: 'Onboard a new client from their website: '
   - label: Plan pages for a client
-    prompt: Plan a batch of SEO pages for a client. Ask me which client and what topic, then research what ranks before proposing the pages.
+    prompt: Plan a batch of SEO pages for a client. First ask me which client (an existing one, or a new client to onboard from their website), then the topic, then research what ranks before proposing the pages.
   - label: Show pages waiting on me
     prompt: Which SEO pages are waiting on my sign-off or my feedback, in every batch? Link each one.
