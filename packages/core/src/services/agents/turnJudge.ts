@@ -233,3 +233,45 @@ export function decisionAnswerFromReading(decision: { options: ReadonlyArray<{ i
   }
   return { kind: 'option', optionIds: known };
 }
+
+export const UnableClaimSchema = z.object({
+  claims_unable: z.boolean().describe('The agent\'s reply tells the person it cannot, is unable to or has no way to do the act they asked for (update, send, publish, file, run, execute it), or tells them to do it themselves, instead of doing it.'),
+  action_id: z.string().max(120).nullable().describe('With claims_unable: the id, from the list, of the action that does what they asked; null when none on the list does.'),
+});
+export type UnableClaim = z.infer<typeof UnableClaimSchema>;
+
+/**
+ * CAN BEFORE CAN'T (2026-10-28, a HubSpot deal update: "I can't execute the
+ * CRM update directly in this session", then done at once when the person said
+ * "yes you can"). Did the reply say it cannot do what was asked, and which of
+ * the turn's actions does it? A model reads the reply against the catalog;
+ * code routes on the typed fields (`services/agents/canDo.ts`). Never claims
+ * on a failure.
+ * @param input - The turn.
+ * @param input.orgId - The workspace.
+ * @param input.message - What the person asked.
+ * @param input.reply - What the agent answered.
+ * @param input.actions - The turn's action catalog, one line each (`id — what it does`).
+ * @param model - Injected in tests.
+ */
+export async function readUnableClaim(input: { orgId: string; message: string; reply: string; actions: ReadonlyArray<{ id: string; line: string }> }, model?: Model): Promise<UnableClaim> {
+  const none: UnableClaim = { claims_unable: false, action_id: null };
+  if (!input.reply.trim() || input.actions.length === 0) {
+    return none;
+  }
+  try {
+    const out = await ask(input.orgId, model ?? await classifier(input.orgId), UnableClaimSchema, 'report_unable', 'Report whether the agent said it cannot do what was asked, and which action does it.', 'An agent in a work app answered a person. You report, as typed fields, whether its reply says it cannot do the act the person asked for, and which action from the list does that act. Judge the meaning, not the wording. A reply that did the act, or explains a real failure of a step it ran, is not a claim that it cannot. Answer only through the tool.', [
+      `Actions the agent has:\n${input.actions.map(a => `${a.id} — ${a.line}`).join('\n').slice(0, 8_000)}`,
+      `The person asked: ${input.message.slice(0, 2_000)}`,
+      `The agent answered: ${input.reply.slice(-3_000)}`,
+    ].join('\n\n'));
+    if (!out) {
+      return none;
+    }
+    const known = out.action_id && input.actions.some(a => a.id === out.action_id) ? out.action_id : null;
+    return { claims_unable: out.claims_unable, action_id: known };
+  } catch (err) {
+    console.warn('turn judge: unable-claim read failed', { orgId: input.orgId, message: (err as Error).message });
+    return none;
+  }
+}
