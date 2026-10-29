@@ -1,5 +1,7 @@
 import { signIn } from 'next-auth/react';
 import { NextIntlClientProvider } from 'next-intl';
+import { act } from 'react';
+import { createRoot, hydrateRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
@@ -173,5 +175,71 @@ describe('SignInForm access line', () => {
     await renderForm({ access: { org: null, autoJoin: null } });
 
     await expect.element(page.getByTestId('sign-in-access')).toHaveTextContent('This instance is invite-only');
+  });
+});
+
+/**
+ * On a slow phone or a busy box the page is on screen before React has
+ * hydrated it, and a person (or their password manager, or a test) can fill
+ * the email in that gap. React's state for the field is still empty, so the
+ * next render (filling the password) used to wipe the email, and "Sign in"
+ * then did nothing: the browser refused the empty required field. This took
+ * main's CI down (PhoneOverflow.e2e.ts, 2026-10-28 and 2026-10-29).
+ */
+/**
+ * Runs `work` inside act(), so React has finished rendering (or hydrating)
+ * when it returns. act() is switched on only for this, as vitest-browser-react
+ * does for its own render, so the clicks and typing after it do not warn.
+ * @param work - What React should finish.
+ */
+async function settled<T>(work: () => T): Promise<T> {
+  const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const was = env.IS_REACT_ACT_ENVIRONMENT;
+  env.IS_REACT_ACT_ENVIRONMENT = true;
+  try {
+    let result!: T;
+    await act(async () => {
+      result = work();
+    });
+    return result;
+  } finally {
+    env.IS_REACT_ACT_ENVIRONMENT = was;
+  }
+}
+
+describe('SignInForm filled before it hydrates', () => {
+  it('keeps the email typed before hydration once the password is filled, and signs in with it', async () => {
+    vi.mocked(signIn).mockResolvedValue({ ok: false, error: 'CredentialsSignin', code: 'credentials', status: 401, url: null });
+    const tree = (
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <SignInForm callbackUrl="/dashboard" hint={null} />
+      </NextIntlClientProvider>
+    );
+    // The page as the server sends it: the form's HTML, not yet React's.
+    // (Rendered on the client and copied, because a react-dom/server import
+    // would make Vite re-optimise mid-run and reload the browser tests.)
+    const scratch = document.createElement('div');
+    const scratchRoot = await settled(() => createRoot(scratch));
+    await settled(() => scratchRoot.render(tree));
+    const container = document.createElement('div');
+    container.innerHTML = scratch.innerHTML;
+    await settled(() => scratchRoot.unmount());
+    document.body.append(container);
+    // The server's HTML, filled in by hand before React takes it over.
+    container.querySelector<HTMLInputElement>('#email')!.value = 'dana@northwind.example';
+
+    const root = await settled(() => hydrateRoot(container, tree));
+    try {
+      await page.getByLabelText('Password', { exact: true }).fill('correct horse');
+
+      await expect.element(page.getByLabelText('Email')).toHaveValue('dana@northwind.example');
+
+      await page.getByRole('button', { name: 'Sign in' }).click();
+
+      await vi.waitFor(() => expect(signIn).toHaveBeenCalledWith('credentials', { email: 'dana@northwind.example', password: 'correct horse', redirect: false, callbackUrl: '/dashboard' }));
+    } finally {
+      await settled(() => root.unmount());
+      container.remove();
+    }
   });
 });
