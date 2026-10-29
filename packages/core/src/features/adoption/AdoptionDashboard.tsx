@@ -1,6 +1,7 @@
 'use client';
 
 import type { AdoptionAgentRow, AdoptionOverview, AdoptionTrendPoint, AdoptionUserRow, AdoptionWindow } from '@/services/adoption/AdoptionService';
+import type { WorkforceInventory } from '@/services/adoption/WorkforceService';
 import { ArrowUpDown, Download } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
@@ -10,6 +11,7 @@ import { AdoptionStatusPill } from './AdoptionStatusPill';
 import { formatAgo, formatCount, formatPercent } from './format';
 import { StatCard } from './StatCard';
 import { TrendChart } from './TrendChart';
+import { WorkforceInventoryPanel } from './WorkforceInventoryPanel';
 
 /**
  * Adoption overview — org headline stats, the daily trend, the per-member
@@ -77,6 +79,7 @@ function exportUsersCsv(rows: AdoptionUserRow[], days: number) {
 }
 
 export function AdoptionDashboard() {
+  const [workforce, setWorkforce] = useState<WorkforceInventory | null>(null);
   const [days, setDays] = useState<AdoptionWindow>(30);
   const [overview, setOverview] = useState<AdoptionOverview | null>(null);
   const [users, setUsers] = useState<AdoptionUserRow[] | null>(null);
@@ -92,8 +95,10 @@ export function AdoptionDashboard() {
       client.adoption.users({ days }),
       client.adoption.agents({ days }),
       client.adoption.trend({ days }),
-    ]).then(([o, u, a, t]) => {
+      client.adoption.workforce({ days }),
+    ]).then(([o, u, a, t, w]) => {
       if (!cancelled) {
+        setWorkforce(w);
         setOverview(o);
         setUsers(u);
         setAgents(a);
@@ -154,6 +159,8 @@ export function AdoptionDashboard() {
           </div>
         )}
       </div>
+
+      {workforce && workforce.window.days === days && <WorkforceInventoryPanel report={workforce} />}
 
       {/* Headline stats */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

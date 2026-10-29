@@ -8,6 +8,7 @@ import {
   adoptionTrendRoute,
   adoptionUserDetailRoute,
   adoptionUsersRoute,
+  adoptionWorkforceRoute,
 } from './Analytics';
 import {
   apply as applyComment,
@@ -172,6 +173,7 @@ import { applyNow as applyWorkspaceNow, pause as pauseWorkspaceRoute, readPrimit
 
 export const router = {
   adoption: {
+    workforce: adoptionWorkforceRoute,
     overview: adoptionOverviewRoute,
     users: adoptionUsersRoute,
     agents: adoptionAgentsRoute,

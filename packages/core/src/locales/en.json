@@ -923,5 +923,31 @@
       "retry": "Reload and retry",
       "dismiss": "Dismiss"
     }
+  },
+  "WorkforceInventory": {
+    "title": "Workforce inventory and measurement coverage",
+    "export": "Export evidence (JSON)",
+    "summary": "{teams} teams · {agents} configured agents · {enabled} enabled · {observed} with recorded activity in {days} days",
+    "caveat": "Recorded activity includes human interactions and tool calls, including failed calls. It does not prove successful execution, accepted work, or business impact. No activity observed is not proof of non-use. Completeness remains unverified.",
+    "coverage": "Local adoption events: {events} · Latest: {last} · Events referencing agents no longer configured: {unlinked}",
+    "amplitude": "Amplitude configuration: {configuration}. Delivery to Amplitude has not been verified by this report.",
+    "agent": "Agent / purpose",
+    "team": "Team",
+    "owner": "Accountable owner",
+    "state": "Enabled state",
+    "activity": "Recorded activity",
+    "last": "Last observed (UTC)",
+    "unknown": "Unknown",
+    "notConfigured": "Not configured",
+    "missingPurpose": "Purpose not documented",
+    "unassigned": "Unassigned",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "counts": "{human} human actions · {tools} tool calls",
+    "notObserved": "Not observed in window",
+    "empty": "No configured agents in this workspace.",
+    "teams": "Team goals and ownership (includes teams without agents)",
+    "missingGoal": "Goal not documented",
+    "generated": "Generated {at}. This report covers the current workspace only; exports contain internal identifiers."
   }
 }
