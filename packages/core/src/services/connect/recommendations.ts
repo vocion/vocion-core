@@ -242,13 +242,17 @@ export async function recommendConnections(ctx: { orgId: string; userId: string 
     // What agents tried and failed this week, for want of each system.
     triedAndFailed(ctx.orgId).catch(() => new Map<string, { times: number }>()),
   ]);
-  const [apps, mail] = await Promise.all([appsReading(offers), mailEvidence(user?.email, deps.resolveMx)]);
   const named = new Set((input.named ?? []).filter(slug => known.has(slug)));
   const appScope = input.app ? offers.find(a => a.id === input.app) ?? null : null;
   const inScope = (slug: string) => !appScope || appScope.connectors.some(c => c.slug === slug) || named.has(slug);
   // An app counts as evidence once it is added (or is the app the plan is for);
   // one only on offer is not the workspace's yet. "Needs" is its own declaration.
   const counted = offers.filter(a => a.added || a.id === appScope?.id);
+  // What connecting unlocks is read from the same apps: one this workspace
+  // has not added unlocks nothing here (2026-10-29: "GitHub · unlocks
+  // Software Factory can read it" in a workspace without that app, repeated
+  // to the person as "the Software Factory can read your repos").
+  const [apps, mail] = await Promise.all([appsReading(counted), mailEvidence(user?.email, deps.resolveMx)]);
 
   const evidenceFor = (slug: string): ConnectEvidence[] => {
     const out: ConnectEvidence[] = [];

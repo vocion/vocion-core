@@ -244,3 +244,29 @@ test('from an app\'s page: one move connects the systems that app reads, and the
 
   await expect(card).toContainText(/Connected 0 of \d+\./);
 });
+
+test('"Something else…" on a step records their words as the answer and closes the walk (2026-10-29)', async ({ page }, info) => {
+  await signIn(page);
+  await page.goto('/dashboard/chat?objective=connect-systems&named=jira');
+  const card = page.getByTestId('decision-card');
+
+  await expect(card).toContainText('Connect Jira?');
+
+  // Tab reaches "Something else"; their words, then Enter.
+  await page.keyboard.press('Tab');
+
+  await expect(page.getByTestId('decision-other')).toBeFocused();
+
+  await page.keyboard.type('We file bugs somewhere else');
+  await shot(page, info, '10-something-else');
+  await page.keyboard.press('Enter');
+
+  // Recorded on the walk's Decision, on the person's side, and the walk is gone.
+  await expect(page.getByTestId('decision-answer').last()).toContainText('We file bugs somewhere else');
+  await expect(card).toHaveCount(0);
+
+  await page.reload();
+
+  await expect(page.getByTestId('decision-answer').last()).toContainText('We file bugs somewhere else');
+  await expect(page.getByTestId('decision-card')).toHaveCount(0);
+});

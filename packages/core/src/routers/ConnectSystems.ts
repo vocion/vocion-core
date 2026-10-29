@@ -8,6 +8,8 @@
  *   verify   the test call and first-sync preview (`verifyConnection.ts`)
  *   finish   answers the Decision that started the walk, with the summary as
  *            what happened, so a reload (and the agent's next turn) reads it
+ *   status   whether each system is connected now, read live — what a connect
+ *            card re-checks when its window closes or the tab regains focus
  *
  * Every call is scoped to the session's workspace; nothing takes a workspace
  * from the caller. A key is never echoed: `saveKey` answers with the source it
@@ -62,6 +64,15 @@ export const verifyConnectionRoute = os
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
     return verifyConnection(orgId, input.connector);
+  });
+
+export const connectionStatusRoute = os
+  .input(z.object({ connectors: z.array(Slug).min(1).max(20) }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const { liveConnections } = await import('@/services/connect/connectionTruth');
+    const live = await liveConnections(orgId, new Map(input.connectors.map(slug => [slug, null])));
+    return { connectors: live.map(c => ({ connector: c.connector, connected: c.connected })) };
   });
 
 export const finishConnectionsRoute = os

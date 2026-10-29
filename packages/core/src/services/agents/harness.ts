@@ -1061,6 +1061,9 @@ export function capabilitiesPromptNote(enabledPlugins: readonly string[]): strin
     lines.push('WIKI: the workspace wiki — long-term context that changes slowly (voice, standing rules, who is who, decisions) — is mounted at /wiki/index.md with the pages that fit at /wiki/<slug>.md. Read the relevant page before acting on a standing fact and cite it; read_wiki_page fetches one that did not fit. When you learn a durable fact or a person corrects a standing one, write it with write_wiki_page (honest confidence; above the bar it is done for you, below it a person decides).');
   }
   const off = catalogue.filter(p => !enabledPlugins.includes(p.manifest.slug));
+  // Only what is on here does work here (2026-10-29: a reply told a person
+  // "the Software Factory can read your repos" in a workspace without it).
+  lines.push('Name only the apps and plugins that are on in this workspace as doing work here. One that is off is only ever named as a recommendation to turn on, never as something that can read, run or use anything now.');
   if (off.length > 0) {
     lines.push(`PLUGINS OFF in this workspace — recommend turning one on (recommend_action with action plugin.enable and input {"slug": "<slug>"}) when the conversation calls for it; list_capabilities has the full read: ${off.map(p => `${p.manifest.name} (${p.manifest.slug}) — ${p.manifest.description}${p.manifest.recommend.when.length ? ` Helps when: ${p.manifest.recommend.when.join('; ')}.` : ''}`).join(' | ')}`);
   }

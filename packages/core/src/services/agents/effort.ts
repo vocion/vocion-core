@@ -112,7 +112,7 @@ export const INFER_SYSTEM = [
   'When unsure between two, pick the lower one: the person can always ask to dig deeper.',
   'A short message that turns the conversation to new work ("no, I want to work on the renewals instead") is a new request: judge it by the work it asks for, not by its length or by the earlier exchange.',
   'Also say seven facts about the request: "drafts" is true when it asks to write, revise or soften something a person will send or read (an email, a note, a reply, a draft already proposed); "systems" is how many distinct systems or sources it needs checked (Gmail and HubSpot is 2; "confirm with the company knowledge base" after an earlier answer adds one); "changes" is how many records it asks to change, decide, dismiss, approve or delete (0 for a question; "approve this one" is 1; "clear out everything older than a week" or "decline all of these" is many, so say 10 or more); "teams" is how many different teams\' or functions\' work the answer has to bring together (a status across pipeline, pitches and referrals is 3; how my go-to-market is going, across founder outreach and pipeline, is 2; one team\'s queue, one deal or one person is 1); "owed" is true when it asks what is owed, open, pending or left to do on a client, account, person, deal or project ("what do I owe on Kestrel", "where are we with Dana", "anything open for the Northwind deal"); "analysis" is "chart" when it asks for a chart, graph or visual, or an analysis to look at (a forecast, a breakdown, a bridge), "multi" when that analysis spans more than one statement or scenario (the P&L and the balance sheet; low, base and high cases; actuals against the year\'s forecast), and "none" otherwise; "outward" is true when it asks to publish, send, post, merge or otherwise change something outside this workspace (publish these pages to the site, send the email, post it to Slack, open the pull request, update the CRM), and false for a question or for work that stays here.',
-  'One more fact: "connects" is true when it asks whether a system is connected or can be used for something, or asks to connect, sign in to or set one up — including a question about whether work can be published or sent through it, which "outward" leaves false ("are we connected to GitHub?", "can we publish to their site?", "hook up HubSpot") — and false otherwise.',
+  'One more fact: "connects" is true when it asks whether a system is connected or can be used for something, asks to connect, sign in to or set one up, or says one is now connected ("it connected", "done, I signed in") — including a question about whether work can be published or sent through it, which "outward" leaves false ("are we connected to GitHub?", "can we publish to their site?", "hook up HubSpot") — and false otherwise.',
   'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>, "changes": <number>, "teams": <number>, "owed": true | false, "analysis": "none" | "chart" | "multi", "outward": true | false, "connects": true | false}.',
 ].join(' ');
 
@@ -255,6 +255,23 @@ export function synthesisLevel(read: AutoRead, agent: { leadsTeammates: boolean 
     return read;
   }
   return keepFloor({ ...read, level: 'deep', reason: `synthesizing ${teams} teams` }, floorOf(read));
+}
+
+/**
+ * A turn about whether a system is connected, in a conversation that asked
+ * the person to connect it, is never Quick. On 2026-10-29 "It said it did
+ * connect" ran Quick on the fast model, which took the person's word and
+ * answered "GitHub is now connected" while no GitHub source existed. The
+ * turn carries the live state (`services/connect/connectionTruth.ts`); this
+ * keeps it on a model that reads it. Raises, never lowers.
+ * @param read - What Auto read from the request.
+ * @param aboutConnection - The message claims a system connected, and this conversation asked for one.
+ */
+export function connectionFloor(read: AutoRead, aboutConnection: boolean): AutoRead {
+  if (!aboutConnection || read.level !== 'quick') {
+    return read;
+  }
+  return keepFloor({ ...read, level: 'standard', reason: 'checking a connection' }, floorOf(read));
 }
 
 /** Jev's effort (ADR 0006) as a turn level. */

@@ -28,6 +28,9 @@ import { isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService'
 export const SHOW_THE_CONNECT_CARD = [
   'A system the person asked about, or the work needs, that is not connected is answered with its connect card, never with words about connecting.',
   'Never offer to "walk them through" connecting, and never list the steps: call offer_connection with that connector (or pass `connector` to list_capabilities), say in one line that it is not connected and what connecting it lets you do, and stop. The card has the sign-in, recommended first, and the API key behind it.',
+  // 2026-10-29: "It said it did connect" was answered "GitHub is now
+  // connected" with no GitHub source (`connectionTruth.ts`).
+  'Whether a system is connected, and what you can now read, comes only from state read in this turn (list_capabilities with `connector`, or the CONNECTIONS lines on the turn), never from the person saying it connected or from an earlier turn. When they say it connected, check first; if it is not, say so plainly with the reason the state shows, and the card stays.',
 ].join(' ');
 
 /** The systems a turn has already shown a card for. */
