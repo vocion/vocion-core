@@ -28,8 +28,8 @@ export function outcomeInsights(report: Report) {
     if (item.status === 'open' || item.status === 'reopened') {
       return [{ itemId: item.id, priority: 3, text: 'Review the output against its acceptance criteria; execution completion alone cannot establish useful work.', evidence: `Work ${item.key}: no current accepted outcome.`, measure: 'Record accepted, corrected, rejected or blocked with evidence.' }];
     }
-    if (item.effortCoverage !== 'reported' || item.baselineMinutes === null) {
-      return [{ itemId: item.id, priority: 4, text: 'Measure a comparable manual baseline and active human effort before claiming time or money saved.', evidence: `Work ${item.key}: effort or baseline evidence is incomplete.`, measure: 'Record sample, minutes and evidence; keep capacity released separate from cash savings.' }];
+    if (item.effortCoverage !== 'reported' || item.baselineMinutes === null || item.baselineKind !== 'measured') {
+      return [{ itemId: item.id, priority: 4, text: 'Use assumed baselines for planning only. Measure comparable manual work and active human effort before claiming realized savings.', evidence: `Work ${item.key}: effort or baseline evidence is incomplete.`, measure: 'Record sample, minutes and evidence; keep capacity released separate from cash savings.' }];
     }
     return [];
   });

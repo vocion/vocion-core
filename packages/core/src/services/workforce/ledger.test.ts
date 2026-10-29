@@ -126,3 +126,36 @@ it('refuses changed evidence and invalidates stale acceptance until explicit ref
   expect(report.items.find(i => i.id === item.itemId)?.evidenceChanged).toBe(true);
   expect(outcomeInsights(report)[0]?.itemId).toBe(item.itemId);
 });
+
+it('preserves assumed, measured and legacy baseline provenance without claiming savings', async () => {
+  const base = { baselineMinutes: 30, baselineEvidence: 'Planning estimate; no timed observations' };
+  const assumed = await record(org, actor, { ...create('assumed-baseline'), ...base, baselineKind: 'assumed', baselineSampleSize: 0 });
+  const measured = await record(org, actor, { ...create('measured-baseline'), ...base, baselineEvidence: 'Synthetic timing fixture, three observations', baselineKind: 'measured', baselineSampleSize: 3 });
+  const legacy = await record(org, actor, { ...create('legacy-baseline'), ...base });
+  const report = await readAll();
+
+  expect(report.items.find(i => i.id === assumed.itemId)).toMatchObject({ baselineKind: 'assumed', baselineSampleSize: 0 });
+  expect(report.items.find(i => i.id === measured.itemId)).toMatchObject({ baselineKind: 'measured', baselineSampleSize: 3 });
+  expect(report.items.find(i => i.id === legacy.itemId)).toMatchObject({ baselineKind: 'unverified', baselineSampleSize: null });
+  expect(report.summary.netTimeSavedMinutes).toBeNull();
+
+  for (const [index, invalid] of [
+    { baselineKind: 'measured' as const, baselineSampleSize: 0 },
+    { baselineKind: 'measured' as const },
+    { baselineKind: 'assumed' as const, baselineSampleSize: 2 },
+    { baselineKind: 'assumed' as const },
+    { baselineSampleSize: 3 },
+  ].entries()) {
+    await expect(record(org, actor, { ...create(`invalid-baseline-${index}`), ...base, ...invalid })).rejects.toMatchObject({ status: 400 });
+  }
+
+  await expect(record(org, actor, { ...create('orphan-provenance'), baselineKind: 'assumed', baselineSampleSize: 0 })).rejects.toMatchObject({ status: 400 });
+});
+
+it('uses the final worker account instead of duplicated heartbeat cost', async () => {
+  const item = await record(org, actor, create('final-cost'));
+  const [run] = await db.insert(workerRunSchema).values({ orgId: org, agentSlug: 'specialist', status: 'completed', cents: 704, result: { token_usage: { cost_usd: 3.52 } } }).returning();
+  await record(org, actor, { kind: 'link', eventKey: 'final-cost-link', itemId: item.itemId, version: 0, sourceKind: 'worker', sourceId: run!.id });
+
+  expect((await readAll()).items.find(i => i.id === item.itemId)).toMatchObject({ linkedWorkerCostCents: 352, costCoverage: 'partial' });
+});
