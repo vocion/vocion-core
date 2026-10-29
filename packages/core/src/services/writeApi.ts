@@ -43,11 +43,14 @@ export type ApiCaller = {
 export class WriteApiError extends Error {
   status: number;
   code: string;
-  constructor(status: number, code: string, message: string) {
+  /** Typed detail for the caller, sent as `error.details`. */
+  details?: Record<string, unknown>;
+  constructor(status: number, code: string, message: string, details?: Record<string, unknown>) {
     super(message);
     this.name = 'WriteApiError';
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -278,6 +281,12 @@ export type DecideInput = {
    * the action links its own row to it. Core never calls that system.
    */
   externalRef?: { system: string; id: string };
+  /**
+   * On `approve`: run it although what it was proposed on changed. Without
+   * it, an approve whose recommendation no longer holds answers 409 `STALE`
+   * with what changed (`error.details.stale`) and runs nothing.
+   */
+  overrideStale?: boolean;
 };
 
 /**
@@ -303,8 +312,9 @@ export async function apiDecideReview(
   }
   enforceQueueCapability(caller, 'decide reviews');
 
+  let outcome: Awaited<ReturnType<typeof ReviewService.decide>>;
   try {
-    await ReviewService.decide(
+    outcome = await ReviewService.decide(
       { kind: input.kind, id: input.id },
       input.action,
       caller.orgId,
@@ -315,6 +325,7 @@ export async function apiDecideReview(
         editedInput: input.action === 'approve' ? input.editedInput : undefined,
         externalRef: input.action !== 'reject' ? input.externalRef : undefined,
         resultUrl: input.action === 'done' ? input.resultUrl : undefined,
+        overrideStale: input.action === 'approve' ? input.overrideStale : undefined,
       },
     );
   } catch (error) {
@@ -328,6 +339,10 @@ export async function apiDecideReview(
       throw new WriteApiError(404, 'NOT_FOUND', error.message);
     }
     throw error;
+  }
+  const stale = outcome?.execution?.stale;
+  if (stale && (outcome.execution?.status === 'stale' || outcome.execution?.status === 'pending')) {
+    throw new WriteApiError(409, 'STALE', `Not run: ${stale.line}. Approve again with overrideStale to run it anyway.`, { stale });
   }
 
   const reviews = await ReviewService.listPending(caller.orgId);

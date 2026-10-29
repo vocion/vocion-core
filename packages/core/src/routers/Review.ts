@@ -340,6 +340,8 @@ export const actionStatusRoute = os
         proposal: actionRunSchema.proposal,
         input: actionRunSchema.input,
         result: actionRunSchema.result,
+        createdAt: actionRunSchema.createdAt,
+        invokedBy: actionRunSchema.invokedBy,
         name: userSchema.name,
         email: userSchema.email,
       })
@@ -393,6 +395,9 @@ export const actionStatusRoute = os
       regeneratingSince: row.regeneratingSince?.toISOString() ?? null,
       regenerateNote: row.regenerateNote,
       regenerateError: row.regenerateError ?? null,
+      // What changed since it was proposed, while it waits and no longer
+      // holds as proposed: from a check at most a few minutes old.
+      stale: await (await import('@/services/proposals/staleness')).staleForRead({ ...row, id: input.id, orgId, input: (row.input ?? {}) as Record<string, unknown> }),
     };
   });
 
@@ -412,7 +417,9 @@ export const contextRoute = os
     if (!row) {
       throw ApiError.notFound(`no action ${input.id}`);
     }
-    return loadReviewContext(orgId, row);
+    const { staleForRead } = await import('@/services/proposals/staleness');
+    const [context, stale] = await Promise.all([loadReviewContext(orgId, row), staleForRead({ ...row, orgId })]);
+    return { ...context, stale };
   });
 
 /** Rewrite-with-AI on a pending draft — returns the rewrite (unsaved) + records a `rewrite` signal. */
@@ -493,6 +500,11 @@ export const decideActionRoute = os
       /** The approver's choice on a card that offers one: send now, or write a draft. */
       mode: z.enum(['draft', 'send']).optional(),
     })).optional(),
+    /**
+     * On approve: run it although what it was proposed on changed — the
+     * person was told what (a `STALE` answer) and proceeds anyway.
+     */
+    overrideStale: z.boolean().optional(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
@@ -553,6 +565,7 @@ export const decideActionRoute = os
         reviewedBy: userId,
         editedInput: input.decision === 'approve' ? editedInput : undefined,
         resultUrl: input.decision === 'done' ? input.resultUrl : undefined,
+        overrideStale: input.decision === 'approve' ? input.overrideStale : undefined,
       });
     } catch (err) {
       // Marking done what was never released, or approving twice, is a state
@@ -561,6 +574,12 @@ export const decideActionRoute = os
         throw ApiError.badRequest(err.message);
       }
       throw err;
+    }
+    // Nothing ran because what it was proposed on changed: an answer the
+    // approving surface must not read as a success, so it is a typed error
+    // whose message is the one line to show (`ApiError.stale`).
+    if (outcome?.execution?.stale && (outcome.execution.status === 'stale' || outcome.execution.status === 'pending')) {
+      throw ApiError.stale(outcome.execution.stale);
     }
     // The execution outcome rides back so the card can SAY a failed execution
     // failed — approve used to return bare `ok` and a HubSpot 400 was silent.

@@ -463,7 +463,11 @@ async function applyDefault(row: DecisionClock, subject: Subject, verdict: Defau
         invokedBy: agent ? `agent:${agent}` : DEFAULT_DECIDER,
         proposal: { confidence: option.confidence ?? 1, rationale: `Ask #${subject.ask.id} answered by default: ${option.label}`, agentSlug: agent ?? undefined, suggestedDecision: 'approve', suggestedDecisionReason: 'The recommended answer applied at the deadline.' },
       } as never) as { runId: number; status: string; error?: string };
-      const done = res.status === 'pending' ? await executeAction(res.runId, row.orgId, { reviewedBy: DEFAULT_DECIDER }) as { status: string; error?: string } : res;
+      const done = res.status === 'pending' ? await executeAction(res.runId, row.orgId, { reviewedBy: DEFAULT_DECIDER }) as { status: string; error?: string; stale?: { line: string } } : res;
+      // What it was proposed on changed: it is back in Review with the line, not released.
+      if (done.status === 'pending' && 'stale' in done && done.stale) {
+        return { applied: true, problem: `${option.label}: not run, ${done.stale.line}` };
+      }
       if (res.status === 'pending') {
         await stampDefaultRelease(row.orgId, res.runId, verdict.reason, now);
       }
@@ -481,6 +485,10 @@ async function applyDefault(row: DecisionClock, subject: Subject, verdict: Defau
     return { applied: true, problem: null };
   }
   const outcome = await executeAction(subject.run.id, row.orgId, { reviewedBy: DEFAULT_DECIDER });
+  // What it was proposed on changed: the default does not release it, and it waits in Review with the line.
+  if (outcome.stale) {
+    return { applied: true, problem: `not run, what it was proposed on changed: ${outcome.stale.line}` };
+  }
   await stampDefaultRelease(row.orgId, subject.run.id, verdict.reason, now);
   return { applied: true, problem: outcome.status === 'failed' ? (outcome.error ?? 'its execution failed') : null };
 }

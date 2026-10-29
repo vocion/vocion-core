@@ -219,7 +219,7 @@ export function jsonError(code: string, message: string, status: number, details
  */
 export function writeApiErrorResponse(error: unknown): NextResponseType {
   if (error instanceof WriteApiError) {
-    return jsonError(error.code, error.message, error.status);
+    return jsonError(error.code, error.message, error.status, error.details);
   }
   throw error;
 }

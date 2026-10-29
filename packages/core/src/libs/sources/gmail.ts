@@ -32,8 +32,16 @@ type GmailMessage = {
   threadId?: string;
   snippet?: string;
   internalDate?: string;
+  labelIds?: string[];
   payload?: GmailPayload;
 };
+
+/**
+ * One message of a fetched thread, as a check reads it: who wrote it, when,
+ * and whether it is the mailbox's own (sent) or an unsent draft. Gmail's
+ * thread read returns drafts in place, labelled.
+ */
+export type GmailThreadMessage = { id: string; from: string; at: string | null; sent: boolean; draft: boolean };
 type GmailThread = { id: string; historyId?: string; messages?: GmailMessage[] };
 
 function header(msg: GmailMessage, name: string): string {
@@ -157,6 +165,15 @@ export async function fetchGmailThreadDoc(opts: {
       // Freshness watermark for the read-through cache (TTL compare).
       fetchedAt: new Date().toISOString(),
       from: header(first, 'From'),
+      // Who wrote each message and when, for a waiting reply's "did the
+      // thread move since?" check (`gmail.send`'s `stillHolds`).
+      messages: messages.map((m): GmailThreadMessage => ({
+        id: m.id,
+        from: header(m, 'From'),
+        at: m.internalDate ? new Date(Number(m.internalDate)).toISOString() : null,
+        sent: (m.labelIds ?? []).includes('SENT'),
+        draft: (m.labelIds ?? []).includes('DRAFT'),
+      })),
     },
   };
 }

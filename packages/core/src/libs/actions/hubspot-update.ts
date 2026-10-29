@@ -49,6 +49,54 @@ const hubspotUpdateInput = z.object({
   baseUrl: z.string().url().default('https://api.hubapi.com'),
 });
 
+type HubspotUpdateInput = z.infer<typeof hubspotUpdateInput>;
+
+/**
+ * One property value as a person reads it.
+ * @param value
+ */
+function shown(value: string | null | undefined): string {
+  return value === null || value === undefined || value === '' ? '(empty)' : value;
+}
+
+/**
+ * HubSpot's singular for the object type.
+ * @param objectType
+ */
+function noun(objectType: HubspotUpdateInput['objectType']): string {
+  return objectType === 'companies' ? 'company' : objectType.replace(/s$/, '');
+}
+
+/**
+ * The record as HubSpot holds it now, for the properties this update writes.
+ * `gone` when HubSpot no longer has it; throws when HubSpot cannot be read.
+ * @param ctx - The action context carrying the vault credentials.
+ * @param input - The update.
+ */
+async function currentValues(ctx: ActionContext, input: HubspotUpdateInput): Promise<{ gone: true } | { gone: false; id: string; values: Record<string, string | null> }> {
+  const token = await freshHubspotToken(ctx);
+  if (!token) {
+    throw new Error('no HubSpot credentials');
+  }
+  const client = createHubspotClient({ token, baseUrl: input.baseUrl });
+  const keys = Object.keys(input.properties);
+  const res = await client.get<{ id?: string; properties?: Record<string, string | null> }>(
+    `/crm/v3/objects/${input.objectType}/${input.objectId}`,
+    { properties: keys.join(',') },
+  );
+  if (!res.ok) {
+    if (res.error === 'hubspot_error' && res.status === 404) {
+      return { gone: true };
+    }
+    throw new Error(`HubSpot read failed: ${res.message}`);
+  }
+  return {
+    gone: false,
+    id: String(res.data.id ?? input.objectId),
+    values: Object.fromEntries(keys.map(k => [k, res.data.properties?.[k] ?? null])),
+  };
+}
+
 export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
   id: 'hubspot.update',
   name: 'Update HubSpot record',
@@ -69,6 +117,40 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
       ],
       verbs: { approve: 'Update', reject: 'Reject' },
     };
+  },
+  // What the update assumed: the values of exactly the properties it writes,
+  // as they were when it was proposed.
+  async basisFor(ctx, input) {
+    const now = await currentValues(ctx, input);
+    return now.gone ? null : { values: now.values };
+  },
+  // Stale when someone changed a property it would overwrite, or the record
+  // was merged into another or deleted. HubSpot not answering throws: core
+  // reads that as "still holds".
+  async stillHolds(ctx, input, basis) {
+    const now = await currentValues(ctx, input);
+    const record = `HubSpot ${noun(input.objectType)} ${input.objectId}`;
+    if (now.gone) {
+      return { line: `${record} was deleted or merged away since this was proposed` };
+    }
+    if (now.id !== input.objectId) {
+      return { line: `${record} was merged into ${noun(input.objectType)} ${now.id} since this was proposed` };
+    }
+    const before = (basis?.values ?? null) as Record<string, string | null> | null;
+    if (!before) {
+      return null;
+    }
+    const changed = Object.keys(before)
+      .filter(k => k in now.values && (before[k] ?? null) !== (now.values[k] ?? null))
+      .map(k => ({ label: k, from: shown(before[k]), to: shown(now.values[k]) }));
+    if (changed.length === 0) {
+      return null;
+    }
+    const first = changed[0]!;
+    const line = changed.length === 1
+      ? `${first.label} changed from ${first.from} to ${first.to} since this was proposed`
+      : `${changed.length} fields it would overwrite changed since this was proposed: ${changed.map(c => `${c.label} (${c.from} to ${c.to})`).join(', ')}`;
+    return { line, changed };
   },
   async execute(ctx, input) {
     const token = await freshHubspotToken(ctx);

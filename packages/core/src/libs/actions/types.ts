@@ -54,6 +54,47 @@ export type ActionContext = {
    * in this turn (`readThisTurn`) checks it here, at the door.
    */
   turn?: import('@/libs/gates/handoffGate').GateTurn;
+  /**
+   * When the recommendation's basis was read (`basisFor`), else when it was
+   * proposed. Present on `stillHolds` only: a check whose basis could not be
+   * read still compares the world against this moment.
+   */
+  proposedAt?: Date;
+  /**
+   * What changed that the person was told and proceeded past ("Proceed
+   * anyway" on a stale check). Present on `execute` only, and only then. An
+   * action that refuses to do something silently (replace a sequence the
+   * contact is already in) does it only when this names it, by its `code`.
+   */
+  proceededPast?: StaleFinding;
+};
+
+/**
+ * WHAT CHANGED SINCE A RECOMMENDATION WAS PROPOSED, in one plain sentence.
+ * The answer of an action's `stillHolds` when the world moved under it: the
+ * other side wrote again, the contact is already in a sequence, a field it
+ * would overwrite was changed by someone else.
+ */
+export type StaleFinding = {
+  /** One sentence a person reads: "Dana Reyes wrote again on Oct 30". */
+  line: string;
+  /** Where to see it, in one move. */
+  href?: string;
+  /** Each value that moved, old to new, when there are values to show. */
+  changed?: Array<{ label: string; from?: string; to?: string }>;
+  /**
+   * The recommendation is still owed or still a person's call, so the review
+   * sweep marks it stale rather than closing it: a reply whose thread moved
+   * is redrafted by its agent's next pass, and an enrollment over a sequence
+   * the contact is already in is a person's to replace or decline. Absent, a
+   * stale item is closed by the sweep with this line as the reason.
+   */
+  keepOpen?: boolean;
+  /**
+   * The action's own name for what it found, opaque to core. Read back off
+   * `ActionContext.proceededPast` by the action's `execute`, never by core.
+   */
+  code?: string;
 };
 
 /**
@@ -610,6 +651,27 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * link, and nothing new starts. Checked before `precheck`.
    */
   underway?: (ctx: ActionContext, input: z.infer<S>) => Promise<{ line: string; href?: string | null } | null>;
+  /**
+   * WHAT THIS RECOMMENDATION ASSUMED ABOUT THE WORLD, read when it is
+   * proposed: the thread's latest message, the contact's lifecycle stage, the
+   * current values of the fields an update would write. Stored on the run's
+   * proposal as `basis` (with `basisAt`) and refreshed when the run is
+   * re-proposed. A failing read never blocks a proposal: the run is stored
+   * with no basis, and `stillHolds` compares against when it was proposed.
+   * Declare it together with `stillHolds`.
+   */
+  basisFor?: (ctx: ActionContext, input: z.infer<S>) => Promise<Record<string, unknown> | null>;
+  /**
+   * DOES THIS RECOMMENDATION STILL MAKE SENSE? Asked of a waiting run at
+   * approval, when a person opens it, and by the review sweep
+   * (`services/proposals/staleness.ts`). Null when it still holds; else one
+   * plain sentence saying what changed since `basis` was read. A check that
+   * cannot reach its system returns null (or throws, which core reads as
+   * null) so one dead API never freezes the queue. A person told what changed
+   * may proceed anyway; an agent's approval does not, and the run goes back
+   * to Review with the line.
+   */
+  stillHolds?: (ctx: ActionContext, input: z.infer<S>, basis: Record<string, unknown> | null) => Promise<StaleFinding | null>;
   /**
    * Fields a refinement requires that the shape marks optional — so the
    * input hints a model reads (`actionInputHints`) can mark them required.

@@ -17,6 +17,7 @@
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { Action, ActionContext } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
+import type { StaleView } from '@/services/proposals/staleness';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { decideExecution } from '@/libs/actions/autoAccept';
@@ -26,6 +27,7 @@ import { isManualAction } from '@/libs/actions/manual';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { policyKeyForRun } from '@/libs/actions/policyKey';
 import { getAction } from '@/libs/actions/registry';
+import { isStaleError } from '@/libs/actions/stale';
 import { db } from '@/libs/DB';
 import { actionRunSchema, projectSchema } from '@/models/Schema';
 import { agentSlugFromPrincipal } from '@/services/adoption/attribution';
@@ -52,10 +54,23 @@ export class ActionError extends Error {
  */
 export type ActionRunResult = {
   runId: number;
-  status: 'pending' | 'awaiting_execution' | 'done' | 'failed' | 'rejected' | 'undone';
+  /**
+   * `stale` is not a stored state: the run is still pending, because what it
+   * was proposed on changed (`Action.stillHolds`) and the person approving it
+   * has not yet been told. `stale` says what changed; approving again with
+   * `overrideStale` runs it anyway.
+   */
+  status: 'pending' | 'awaiting_execution' | 'done' | 'failed' | 'rejected' | 'undone' | 'stale';
   result?: Record<string, unknown> | null;
   /** What went wrong, set only when `status` is `failed`. */
   error?: string;
+  /**
+   * What changed since it was proposed, when that kept it from running: on
+   * `stale` (a person's approval, which they may repeat with
+   * `overrideStale`), or on `pending` (an agent's or a clock's approval,
+   * which put it back in Review with this line).
+   */
+  stale?: StaleView;
 };
 
 /**
@@ -137,6 +152,29 @@ function storedOnRefresh(
   return checked.success
     ? { input: checked.data as Record<string, unknown>, proposal: merged.proposal }
     : { input: parsed, proposal };
+}
+
+/**
+ * A refreshed run carries the basis just read, whatever an action's own
+ * `refresh` kept, and no longer carries a stale finding about the old one:
+ * re-proposing on the same key is how an overtaken recommendation is redrafted.
+ * @param stored - What the refresh stores.
+ * @param stored.input - Its input.
+ * @param stored.proposal - Its proposal.
+ * @param next - The new proposal envelope, with the basis read for it.
+ */
+function withFreshBasis(
+  stored: { input: Record<string, unknown>; proposal: Record<string, unknown> | null },
+  next: Record<string, unknown> | null,
+): { input: Record<string, unknown>; proposal: Record<string, unknown> | null } {
+  if (!stored.proposal) {
+    return stored;
+  }
+  const { stale: _stale, staleCheckedAt: _checked, basis: _basis, basisAt: _basisAt, ...rest } = stored.proposal;
+  return {
+    input: stored.input,
+    proposal: { ...rest, ...(next?.basis ? { basis: next.basis, basisAt: next.basisAt } : {}) },
+  };
 }
 
 /**
@@ -536,6 +574,17 @@ async function proposeActionInTurn(input: {
   const gated = decision.gate === 'approve'
     || (input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number')
     || gateHold !== null;
+  // WHAT THE RECOMMENDATION ASSUMES, read now, for the check made when it is
+  // decided (`Action.basisFor`, `services/proposals/staleness.ts`). Only for a
+  // run that will wait for a decision: one that runs now is checked by nothing.
+  // A failed read stores no basis and never blocks the proposal.
+  if (gated && action.basisFor) {
+    const { captureBasis } = await import('@/services/proposals/staleness');
+    const read = await captureBasis(action, { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, proposedBy }, parsed as Record<string, unknown>);
+    if (read) {
+      storedProposal = { ...(storedProposal ?? {}), basis: read.basis, basisAt: read.basisAt } as typeof storedProposal;
+    }
+  }
   const keyIdentifiesOneRecord = action.dedupAgainstDecided?.keyIsTrustworthy?.(parsed) ?? true;
   if (dedupKey && keyIdentifiesOneRecord) {
     const refreshed = await db.transaction(async (tx) => {
@@ -556,7 +605,7 @@ async function proposeActionInTurn(input: {
       if (!existing) {
         return null;
       }
-      const stored = storedOnRefresh(action, existing, parsed as Record<string, unknown>, storedProposal);
+      const stored = withFreshBasis(storedOnRefresh(action, existing, parsed as Record<string, unknown>, storedProposal), storedProposal);
       await tx
         .update(actionRunSchema)
         .set({
@@ -907,6 +956,8 @@ export async function clearsTrustBar(opts: { orgId: string; actionId: string; in
  * @param opts.externalRef
  * @param opts.externalRef.system
  * @param opts.externalRef.id
+ * @param opts.overrideStale
+ * @param opts.staleChecked
  */
 export async function executeAction(
   runId: number,
@@ -915,6 +966,17 @@ export async function executeAction(
     reviewedBy?: string;
     /** The downstream record the approver created, to link to the domain row. */
     externalRef?: { system: string; id: string };
+    /**
+     * The person was told what changed since this was proposed and runs it
+     * anyway ("Proceed anyway"). Recorded on the result, and handed to the
+     * action as `ctx.proceededPast`. Ignored for a machine's approval.
+     */
+    overrideStale?: boolean;
+    /**
+     * The caller checked `stillHolds` a moment ago and it held
+     * (`ReviewService.decide`), so it is not asked twice.
+     */
+    staleChecked?: boolean;
   },
 ): Promise<ActionRunResult> {
   const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, runId)).limit(1);
@@ -964,6 +1026,26 @@ export async function executeAction(
     await assertWorkspaceRunning(orgId, 'gated_action');
   }
 
+  // OVERTAKEN BY EVENTS (`Action.stillHolds`). Asked of a decision, never of
+  // a person's own word (a run they asked for runs): a person approving is
+  // told what changed and may proceed anyway; an agent's approval, the trust
+  // ladder's or a decision clock's does not run, and the run goes back to
+  // Review carrying the line. A basis read moments ago is not read again.
+  const byMachine = opts?.reviewedBy ? decidedByMachine(opts.reviewedBy) : run.approvedByAgent === true;
+  const byPerson = Boolean(opts?.reviewedBy) && !byMachine;
+  const staleness = action.stillHolds && (byPerson || byMachine) ? await import('@/services/proposals/staleness') : null;
+  let proceededPast: StaleView | undefined;
+  if (staleness) {
+    if (byPerson && opts?.overrideStale) {
+      proceededPast = staleness.storedStale(run.proposal) ?? undefined;
+    } else if (!opts?.staleChecked && !staleness.basisIsFresh(run.proposal)) {
+      const stale = await staleness.checkStillHolds(run);
+      if (stale) {
+        return heldAsStale(runId, orgId, stale, byMachine);
+      }
+    }
+  }
+
   // A hand-off (`libs/actions/manual.ts`) is released, not run: the approval
   // is the decision, the doing is a person's or an outside system's, and the
   // run waits for them to say so. Nothing in-process is called — a manual
@@ -1006,8 +1088,13 @@ export async function executeAction(
       runId,
       externalRef: opts?.externalRef,
       origin: ((run.proposal ?? {}) as { origin?: ActionOrigin }).origin,
+      ...(proceededPast ? { proceededPast } : {}),
     }, run.input);
-    const kept = earlierFailures.length > 0 ? { ...result, failedAttempts: earlierFailures } : result;
+    // Who ran it past what changed, and what that was, on the run for good.
+    const past = byPerson && opts?.overrideStale
+      ? { proceededPastStale: { line: proceededPast?.line ?? null, changed: proceededPast?.changed ?? null, code: proceededPast?.code ?? null, by: opts.reviewedBy, at: new Date().toISOString() } }
+      : {};
+    const kept = { ...result, ...past, ...(earlierFailures.length > 0 ? { failedAttempts: earlierFailures } : {}) };
     await db
       .update(actionRunSchema)
       .set({ status: 'done', result: kept, error: null, executedAt: new Date() })
@@ -1016,8 +1103,14 @@ export async function executeAction(
     // noun in the class (`libs/actions/selfUpdate.ts`) is therefore in the
     // log, and countable, with no new `track()` call of its own.
     void trackSelfUpdate({ orgId, run, runId, result, mode: opts?.reviewedBy ? 'approved' : 'auto' });
-    return { runId, status: 'done', result };
+    return { runId, status: 'done', result: { ...result, ...past } };
   } catch (err) {
+    // What it was approved on stopped being true as it ran (`libs/actions/stale.ts`):
+    // back to Review with the line, never a failure.
+    if (isStaleError(err)) {
+      const { viewOf } = await import('@/services/proposals/staleness');
+      return heldAsStale(runId, orgId, viewOf(action, err.finding, new Date().toISOString()), byMachine);
+    }
     const message = err instanceof Error ? err.message : String(err);
     await db
       .update(actionRunSchema)
@@ -1027,6 +1120,35 @@ export async function executeAction(
     // the execution failed — a silent failed row cost three days once.
     return { runId, status: 'failed', result: null, error: message };
   }
+}
+
+/**
+ * A run kept from running because what it was proposed on changed. It stays
+ * (or goes back to) pending with the finding on its proposal, carrying no
+ * decision: an agent's approval is undone so the run re-enters Review with
+ * the reason, and a person's is answered with the line so they can proceed
+ * anyway or redraft.
+ * @param runId - The run.
+ * @param orgId - Its tenant.
+ * @param stale - What changed.
+ * @param byMachine - An agent, the ladder or a clock approved it.
+ */
+async function heldAsStale(runId: number, orgId: string, stale: StaleView, byMachine: boolean): Promise<ActionRunResult> {
+  const { sql } = await import('drizzle-orm');
+  const patch = JSON.stringify({ stale, staleCheckedAt: stale.checkedAt });
+  await db
+    .update(actionRunSchema)
+    .set({
+      status: 'pending',
+      approvedByAgent: null,
+      decidedBy: null,
+      decidedAt: null,
+      // The ladder's stamp is withdrawn with its decision, so the card does
+      // not claim an approval that did not run.
+      proposal: sql`(coalesce(${actionRunSchema.proposal}, '{}'::jsonb) - 'autoApproved' - 'autoApprovedThreshold' - 'autoApprovedReason' - 'autoApprovedBy' - 'stale') || ${patch}::jsonb`,
+    })
+    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)));
+  return { runId, status: byMachine ? 'pending' : 'stale', stale };
 }
 
 /**

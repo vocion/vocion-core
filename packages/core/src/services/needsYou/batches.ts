@@ -200,6 +200,9 @@ async function acceptProposal(orgId: string, userId: string, key: string, id: nu
   try {
     const { decide } = await import('@/services/ReviewService');
     const out = await decide({ kind: 'action', id }, suggested, orgId, { reviewedBy: userId });
+    if (out?.execution?.stale && (out.execution.status === 'stale' || out.execution.status === 'pending')) {
+      return { ref, title, outcome: 'skipped', reason: `what it was proposed on changed: ${out.execution.stale.line}` };
+    }
     if (out?.execution?.status === 'failed') {
       return { ref, title, outcome: 'failed', reason: out.execution.error ?? 'it was approved and its execution failed' };
     }

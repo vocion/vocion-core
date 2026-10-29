@@ -115,6 +115,10 @@ export const defaultThreadApprovalDeps: ThreadApprovalDeps = {
     try {
       const res = await decide({ kind: 'action', id: runId }, verb, orgId, { reviewedBy: by, ...(note ? { note } : {}) });
       const status = res.execution?.status;
+      const stale = res.execution?.stale;
+      if (stale && (status === 'stale' || status === 'pending')) {
+        return { ok: false, what: `Not run: ${stale.line}. It is still waiting in Vocion, where you can run it anyway or have it redrafted.` };
+      }
       const what = verb === 'reject'
         ? 'It is held; the work goes back with your words as the note.'
         : status === 'done'

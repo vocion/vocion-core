@@ -69,7 +69,11 @@ export function decideProposalTool(ctx: RuntimeContext) {
         await snooze(ctx.orgId, item, until, ctx.userId, { note: input.note ?? 'Deferred from chat' });
         return `Deferred proposal #${input.id} until ${until.toISOString().slice(0, 10)}. The card now reads Deferred; it comes back to review then.`;
       }
-      const result = await decide(item, input.decision, ctx.orgId, { reviewedBy: ctx.userId, note: input.note, reason: input.note });
+      const result = await decide(item, input.decision, ctx.orgId, { reviewedBy: ctx.userId, note: input.note, reason: input.note, ...(input.decision === 'approve' && input.override_stale ? { overrideStale: true } : {}) });
+      const stale = result.execution?.status === 'stale' || result.execution?.status === 'pending' ? result.execution.stale : undefined;
+      if (stale) {
+        return `NOT RUN: proposal #${input.id} is still pending, because what it was proposed on changed: ${stale.line}. Tell the person that in one line and ask whether to run it anyway or have it redrafted. Only when they say to run it anyway, call decide_proposal again with override_stale: true.`;
+      }
       const status = (result as { status?: string } | null)?.status ?? input.decision;
       return `${input.decision === 'approve' ? 'Approved' : 'Rejected'} proposal #${input.id} (${status}). The card updates on its own; do not restate what it shows.`;
     },
@@ -80,6 +84,7 @@ export function decideProposalTool(ctx: RuntimeContext) {
         id: z.number().int().positive().describe('The proposal (action run) id: the proposal number a card in this conversation carries, or one listed under what is waiting on the page\'s record. There is no tool that lists proposals; never guess an id.'),
         decision: z.enum(['approve', 'reject', 'defer']).describe('What the person said to do with it'),
         note: z.string().max(500).optional().describe('The person\'s reason, in their words, when they gave one'),
+        override_stale: z.boolean().optional().describe('Approve although what it was proposed on changed. Only after this tool said NOT RUN with what changed, and the person said to run it anyway.'),
       }),
     },
   );

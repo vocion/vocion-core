@@ -636,6 +636,12 @@ export type ReviewDetail = ReviewItem & {
   alignment?: AlignmentScore | null;
   /** Everything else about the underlying row, kept verbatim for the client. */
   record: Record<string, unknown>;
+  /**
+   * What changed since this was proposed, when it no longer holds as
+   * proposed (`Action.stillHolds`), from a check at most a few minutes old.
+   * Null when it still holds, is decided, or its action has no check. Actions only.
+   */
+  stale?: import('@/services/proposals/staleness').StaleView | null;
 };
 
 /**
@@ -688,6 +694,7 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       suggestedDecisionReason: parseSuggestedDecisionReason(row.proposal?.suggestedDecisionReason),
       approvedByAgent: row.approvedByAgent,
       card: withGateFindings(await renderActionCard(orgId, row.actionId, row.input ?? {}), row.proposal as Record<string, unknown> | null),
+      stale: await (await import('@/services/proposals/staleness')).staleForRead(row),
       alignment: await scoreFor({
         orgId,
         subjectKey: policyKeyForRun(row.actionId, row.input),
@@ -940,8 +947,16 @@ export async function snooze(
  */
 export type DecideResult = {
   execution?: {
-    status: 'pending' | 'awaiting_execution' | 'done' | 'failed' | 'rejected' | 'undone';
+    /**
+     * `stale`: nothing ran and nothing was decided. What the item was
+     * proposed on changed since (`stale.line`); approving again with
+     * `overrideStale` runs it anyway, and Redraft (`stale.canRedraft`)
+     * regenerates it.
+     */
+    status: 'pending' | 'awaiting_execution' | 'done' | 'failed' | 'rejected' | 'undone' | 'stale';
     error: string | null;
+    /** What changed since it was proposed, on `stale`. */
+    stale?: import('@/services/proposals/staleness').StaleView;
     /**
      * What the execution returned, so the receipt can point at what it made:
      * the draft's `link` ("Open in Gmail →") and its `draftId` (Undo). Before
@@ -985,6 +1000,7 @@ class ReviewDecisionError extends Error {
  * @param opts.externalRef
  * @param opts.externalRef.system
  * @param opts.externalRef.id
+ * @param opts.overrideStale
  */
 export async function decide(
   item: { kind: ReviewKind; id: number },
@@ -1010,6 +1026,13 @@ export async function decide(
      * to the action, which links its domain row to it. Ignored on reject.
      */
     externalRef?: { system: string; id: string };
+    /**
+     * On approve: the person was told what changed since the item was
+     * proposed and runs it anyway. Absent, an approve first checks that the
+     * recommendation still holds (`Action.stillHolds`) and answers `stale`
+     * with what changed instead of running.
+     */
+    overrideStale?: boolean;
   },
 ): Promise<DecideResult> {
   // A decision taken from an agent's turn counts on the turn, and a turn the
@@ -1058,6 +1081,15 @@ export async function decide(
       let labels: Record<string, LabelVerdict> | undefined;
       let corrections: DecisionCorrections | undefined;
       if (action === 'approve') {
+        // STILL TRUE? Asked before anything about the decision is recorded:
+        // an approve that answers "this changed since" decided nothing, so it
+        // leaves no approved copy, no label verdicts and no learning behind.
+        if (!opts?.overrideStale) {
+          const stale = await staleBeforeApprove(item.id, orgId);
+          if (stale) {
+            return { execution: { status: 'stale', error: stale.line, result: null, stale } };
+          }
+        }
         // BEFORE the write, and only here: `updateActionInput` replaces
         // `input` wholesale and `onProposed` rewrites the object's metadata
         // after it, so this is the last moment the values the proposer wrote
@@ -1100,10 +1132,14 @@ export async function decide(
           await recordVoiceEditDiff(item.id, orgId, opts.editedInput, reviewedBy);
           await updateActionInput(item.id, orgId, opts.editedInput);
         }
-        const outcome = await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef });
+        const outcome = await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef, overrideStale: opts?.overrideStale, staleChecked: !opts?.overrideStale });
         // An approve whose execution failed is NOT a completed decision to the
         // person who clicked it — the outcome rides back so the surface says so.
-        execution = { status: outcome.status, error: outcome.error ?? null, result: outcome.result ?? null };
+        execution = { status: outcome.status, error: outcome.error ?? (outcome.stale?.line ?? null), result: outcome.result ?? null, ...(outcome.stale ? { stale: outcome.stale } : {}) };
+        // What it was approved on stopped being true as it ran: no decision was taken.
+        if (outcome.status === 'stale' || (outcome.status === 'pending' && outcome.stale)) {
+          return { execution };
+        }
       } else {
         await rejectAction(item.id, orgId, opts?.reason?.trim() || opts?.note, { reviewedBy });
       }
@@ -1158,6 +1194,23 @@ export async function decide(
       return { execution };
     }
   }
+}
+
+/**
+ * What changed since this pending run was proposed, checked now, or null when
+ * it still holds, its action has no check, or the basis was read moments ago.
+ * A run that is not open answers null and the execute path says why.
+ * @param runId - The run.
+ * @param orgId - Its tenant.
+ */
+async function staleBeforeApprove(runId: number, orgId: string) {
+  const { getAction } = await import('@/libs/actions/registry');
+  const [run] = await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId))).limit(1);
+  if (!run || (run.status !== 'pending' && run.status !== 'failed') || !getAction(run.actionId)?.stillHolds) {
+    return null;
+  }
+  const { basisIsFresh, checkStillHolds } = await import('@/services/proposals/staleness');
+  return basisIsFresh(run.proposal) ? null : checkStillHolds(run);
 }
 
 /**

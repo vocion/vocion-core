@@ -75,6 +75,7 @@ export async function POST(req: Request) {
         ? body.editedInput as Record<string, unknown>
         : undefined,
       externalRef: readExternalRef(body.externalRef),
+      overrideStale: body.overrideStale === true ? true : undefined,
     }));
   } catch (e) {
     return writeApiErrorResponse(e);
