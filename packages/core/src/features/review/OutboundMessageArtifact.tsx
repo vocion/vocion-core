@@ -145,8 +145,6 @@ export function OutboundMessageArtifact(props: {
   /** Present when the reviewer may edit; absent, the artifact reads. */
   onEdit?: (patch: ContentEdit) => void;
   disabled?: boolean;
-  /** The one-line recommendation, drawn above the thread. */
-  lead?: ReactNode;
   /** The copy: the registered renderer for the item's kind, built by the shell. */
   children: ReactNode;
 }) {
@@ -158,7 +156,6 @@ export function OutboundMessageArtifact(props: {
 
   return (
     <div data-testid="outbound-artifact" data-channel={outbound.channel} data-mode={outbound.mode} className="flex flex-col gap-4">
-      {props.lead}
       {outbound.thread && (outbound.thread.latest || outbound.thread.messages.length > 0) && (
         <ThreadEvidence
           heading="In reply to"

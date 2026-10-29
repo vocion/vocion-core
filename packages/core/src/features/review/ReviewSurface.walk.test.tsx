@@ -315,16 +315,19 @@ describe('one primary, and the walk is what it does', () => {
     expect(approveContent.mock.calls[0]![0]).toMatchObject({ contentId: 'send-2' });
   });
 
-  it('says the regenerate is about this send and leaves the others alone', async () => {
+  it('says what an ask for changes rewrites by its scope, not a paragraph', async () => {
     // The sentence beside the ask described the old card-wide behaviour, and
     // the reviewer read it as the promise it was: a note typed under send 4
-    // redrafting all four (Chris, 2026-09-20).
+    // redrafting all four (Chris, 2026-09-20). The scope is now the control
+    // itself: This step (the default) or All 4 steps, with no prose.
     await render(<ReviewSurface run={enrollment(4)} crumbs={CRUMBS} />);
 
-    const pane = page.getByTestId('regenerate-send-1-open').element();
+    await page.getByTestId('regenerate-send-1-open').getByText('Ask for changes').click();
 
-    expect(pane.textContent).toContain('rewrites Day 0');
-    expect(pane.textContent).toContain('leaves the others as they are');
+    await expect.element(page.getByRole('radio', { name: 'This step' })).toHaveAttribute('aria-checked', 'true');
+    await expect.element(page.getByRole('radio', { name: 'All 4 steps' })).toHaveAttribute('aria-checked', 'false');
+    expect(page.getByTestId('regenerate-send-1').element().getAttribute('aria-label')).toBe('Regenerate Day 0');
+    expect(page.getByTestId('regenerate-send-1-open').element().textContent).not.toMatch(/holds its place|re-enables/);
   });
 
   it('says no such thing on a card with one item, where there is no other', async () => {

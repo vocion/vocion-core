@@ -27,7 +27,7 @@ import { approvableItems, isChecked, walkApplies, walkCount } from './contentWal
 import { ExecutionFailure } from './ExecutionFailure';
 import { OutboundMessageArtifact } from './OutboundMessageArtifact';
 import { RelatedItems } from './RelatedItems';
-import { distinctSentences, outboundModeVerbs } from './reviewSheetModel';
+import { decisionLine, distinctSentences, outboundModeVerbs, readableFacts, tippingFact, waitingLabel } from './reviewSheetModel';
 import { shortcutFor } from './reviewShortcuts';
 import { showLearnedToast } from './showLearnedToast';
 import { useReviewDecision } from './useReviewDecision';
@@ -82,7 +82,28 @@ import { useReviewDecision } from './useReviewDecision';
  */
 
 /** The run a review surface decides — the `action_run` row with its built card. */
+/**
+ * WHAT CHANGED SINCE IT WAS PROPOSED — the server's staleness check, as the
+ * shell shows it (`review.actionStatus`'s and `review.context`'s `stale`, the
+ * `data.stale` of a STALE answer to approve; vocion/vocion-core#1515).
+ */
+export type ReviewStale = {
+  /** One sentence: "Dana Reyes wrote again on Oct 30". */
+  line: string;
+  /** Where to see it. */
+  href?: string;
+  /** Each value that moved, old to new. */
+  changed?: Array<{ label: string; from?: string; to?: string }>;
+  checkedAt: string;
+  /** The action can redraft the item itself (Redraft). */
+  canRedraft: boolean;
+  /** The item stays open because its agent's next pass redrafts it. */
+  keepOpen?: boolean;
+};
+
 export type ReviewCardRun = {
+  /** What changed since it was proposed, when the server found something. */
+  stale?: ReviewStale | null;
   id: number;
   actionId: string;
   status: string;
@@ -90,6 +111,8 @@ export type ReviewCardRun = {
   invokedBy: string | null;
   proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: SuggestedDecision; suggestedDecisionReason?: string } | null;
   card: ReviewCard;
+  /** When it was proposed: the header says how long it has waited. */
+  createdAt?: string | Date;
   /** The proposing agent's name, when its row has one (`services/inbox/pendingAction`). */
   agentName?: string | null;
   /** Names for the proposal's citations, resolved on the server. */
@@ -167,11 +190,11 @@ const STATUS_LABEL: Record<string, string> = {
 
 const RED_STATUSES = new Set(['failed', 'rejected']);
 
-const SUGGESTION_LABEL: Record<SuggestedDecision, string> = {
-  approve: 'Agent suggests approving',
-  reject: 'Agent suggests turning down',
-  snooze: 'Agent suggests revisiting later',
-};
+/**
+ * "approving" → "Approving".
+ * @param s - A word or phrase.
+ */
+const sentenceStart = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The same advice as one word, for "send-lead suggests approving". */
 const SUGGESTION_VERB: Record<SuggestedDecision, string> = {
@@ -350,9 +373,9 @@ function ItemHistory(props: { entries: readonly ActionRevision[]; id: string }) 
  * read it while writing the instruction. Side by side, the copy stays put and
  * the ask is made against something you can still see.
  *
- * Regenerate is therefore always open, not a disclosure: a control that hides
- * the thing it acts on is the defect, and one fewer click to reach it is the
- * fix. Edit is gone for the same reason — the copy on the left is already
+ * The copy is never hidden; the ask for changes is folded until used
+ * (`AskForChanges`), because two always-open boxes and their prose outweighed
+ * the copy on an enroll card (2026-10-29). Edit is gone because — the copy on the left is already
  * editable in place, so a button whose only job was to focus it was chrome
  * naming an affordance that was already there.
  *
@@ -376,62 +399,87 @@ function ItemHistory(props: { entries: readonly ActionRevision[]; id: string }) 
  * @param props.scoped - True when a regenerate rewrites this item alone.
  */
 /**
- * Regenerate every send from one instruction.
+ * ASK FOR CHANGES — one control for rewriting the copy, folded until used.
  *
- * Sits under the strip rather than on the bar (one Regenerate on the bar
- * meant whichever item its author had in mind) and rather than inside a
- * pane (a pane is about one send). It says what it costs: every send is
- * redrafted, so any per-send approval whose copy changes is cleared, which
- * the walk derives from the copy's hash without anyone clearing it.
- * @param props
- * @param props.count - How many sends the instruction will rewrite.
- * @param props.disabled
- * @param props.regenerating
- * @param props.onRegenerate - Runs the whole-card pass with the instruction.
+ * It replaced two always-open boxes ("What should Day 3 do differently?" in
+ * every pane and "What should all 4 sends do differently?" under them), each
+ * with its own Regenerate and a paragraph explaining it, which on an enroll
+ * card outweighed the copy being judged (2026-10-29). Now: one fold, one
+ * field, a scope when there is more than one item (this step, or all of
+ * them), one button. The pane is KEYED by content id at the call site, so an
+ * instruction typed against one send never arrives on another.
+ * @param props - The item and the regenerate paths.
+ * @param props.id - The item's content id.
+ * @param props.label - What the item is called.
+ * @param props.allCount - How many items "All" would rewrite.
+ * @param props.disabled - Held while busy.
+ * @param props.regenerating - True while a pass is in flight.
+ * @param props.onRegenerate - Rewrites this item.
+ * @param props.onRegenerateAll - Rewrites every item.
  */
-function RegenerateAll(props: {
-  count: number;
-  disabled: boolean;
+function AskForChanges(props: {
+  id: string;
+  label: string;
+  allCount: number;
+  disabled?: boolean;
   regenerating: boolean;
   onRegenerate: (instruction: string) => void;
+  onRegenerateAll?: (instruction: string) => void;
 }) {
   const [instruction, setInstruction] = useState('');
+  const [all, setAll] = useState(false);
+  const offerAll = props.allCount > 1 && Boolean(props.onRegenerateAll);
+  const scopeAll = offerAll && all;
   return (
-    <section className="mt-6 border-t border-rule pt-4" data-testid="regenerate-all-open" aria-label="Regenerate all sends">
-      <label className="block">
-        <span className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
-          {`What should all ${props.count} sends do differently?`}
-        </span>
+    <details data-testid={`regenerate-${props.id}-open`} className="group">
+      <summary className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground">
+        <RefreshCw className="size-3.5" aria-hidden />
+        Ask for changes
+      </summary>
+      <div className="pt-1">
+        {offerAll && (
+          <div className="mb-1.5 inline-flex rounded-lg bg-surface-soft p-0.5 text-[12px]" role="radiogroup" aria-label="What to change">
+            {[{ v: false, label: 'This step' }, { v: true, label: `All ${props.allCount} steps` }].map(o => (
+              <button
+                key={o.label}
+                type="button"
+                role="radio"
+                aria-checked={all === o.v}
+                onClick={() => setAll(o.v)}
+                className={cn('rounded-md px-2 py-1 transition', all === o.v ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           value={instruction}
           onChange={e => setInstruction(e.target.value)}
-          rows={2}
+          rows={3}
           disabled={props.disabled}
-          aria-label="Instruction for regenerating all sends"
-          placeholder="e.g. Replace every dash with a comma, and drop the sign-off."
-          className="mt-1.5 w-full resize-y rounded-lg bg-surface-soft px-3 py-2 text-sm leading-relaxed transition outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-ring/30 disabled:opacity-60"
+          aria-label={scopeAll ? 'Instruction for regenerating all sends' : `Regenerate instruction for ${props.label}`}
+          placeholder="e.g. Shorter, and lead with the hiring signal."
+          className="w-full resize-y rounded-lg bg-surface-soft px-3 py-2 text-sm leading-relaxed transition outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-ring/30 disabled:opacity-60"
         />
-      </label>
-      <div className="mt-2 flex items-baseline justify-between gap-3">
-        <p className="text-[13px] text-muted-foreground">
-          {`Redrafts all ${props.count} sends from your instruction. Any send you had approved is unapproved if its copy changes.`}
-        </p>
-        <button
-          type="button"
-          data-testid="regenerate-all"
-          aria-label="Regenerate all sends"
-          disabled={props.disabled || instruction.trim().length === 0}
-          onClick={() => {
-            props.onRegenerate(instruction.trim());
-            setInstruction('');
-          }}
-          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[13px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
-        >
-          {props.regenerating ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <RefreshCw className="size-3.5" aria-hidden />}
-          {props.regenerating ? 'Regenerating…' : 'Regenerate all'}
-        </button>
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            data-testid={scopeAll ? 'regenerate-all' : `regenerate-${props.id}`}
+            aria-label={scopeAll ? 'Regenerate all sends' : `Regenerate ${props.label}`}
+            disabled={props.disabled || instruction.trim().length === 0}
+            onClick={() => {
+              (scopeAll ? props.onRegenerateAll! : props.onRegenerate)(instruction.trim());
+              setInstruction('');
+            }}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[13px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
+          >
+            {props.regenerating ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <RefreshCw className="size-3.5" aria-hidden />}
+            {props.regenerating ? 'Regenerating…' : scopeAll ? 'Regenerate all' : 'Regenerate'}
+          </button>
+        </div>
       </div>
-    </section>
+    </details>
   );
 }
 
@@ -450,14 +498,11 @@ function ItemPane(props: {
   approved?: { onUndo: () => void; label: string } | null;
   /** True when a regenerate here rewrites THIS item and nothing else. */
   scoped?: boolean;
+  /** How many items one instruction can rewrite at once; over one, the ask offers "All". */
+  allCount?: number;
+  /** Rewrites every item from one instruction. */
+  onRegenerateAll?: (instruction: string) => void;
 }) {
-  // The instruction is about THIS send, and the pane is KEYED by content id at
-  // the call site, so moving to another send remounts it empty. An ask typed
-  // against send 3 arriving on send 4 is the one mistake this layout could
-  // newly cause, and a key rules it out where an effect only tidies up after
-  // it.
-  const [instruction, setInstruction] = useState('');
-
   return (
     // `data-comment-field`: the item is a region the selection control can
     // anchor to, so highlighting a sentence in it offers *Ask* /
@@ -478,47 +523,15 @@ function ItemPane(props: {
 
         <aside className="min-w-0 border-t border-rule pt-5 @2xl:border-t-0 @2xl:border-l @2xl:pt-0 @2xl:pl-6">
           {props.canRegenerate && (
-            <div data-testid={`regenerate-${props.item.id}-open`}>
-              <label className="block">
-                <span className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
-                  {`What should ${props.label} do differently?`}
-                </span>
-                <textarea
-                  value={instruction}
-                  onChange={e => setInstruction(e.target.value)}
-                  rows={3}
-                  disabled={props.disabled}
-                  aria-label={`Regenerate instruction for ${props.label}`}
-                  placeholder="e.g. Shorter, and lead with the hiring signal rather than the guide."
-                  className="mt-1.5 w-full resize-y rounded-lg bg-surface-soft px-3 py-2 text-sm leading-relaxed transition outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-ring/30 disabled:opacity-60"
-                />
-              </label>
-              <div className="mt-2 flex justify-end">
-                <button
-                  type="button"
-                  data-testid={`regenerate-${props.item.id}`}
-                  aria-label={`Regenerate ${props.label}`}
-                  disabled={props.disabled || instruction.trim().length === 0}
-                  onClick={() => {
-                    props.onRegenerate(instruction.trim());
-                    setInstruction('');
-                  }}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[13px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
-                >
-                  {props.regenerating ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <RefreshCw className="size-3.5" aria-hidden />}
-                  {props.regenerating ? 'Regenerating…' : 'Regenerate'}
-                </button>
-              </div>
-              {/* What it will actually do, said where the ask is typed. The
-                  old line ("re-runs the work behind the recommendation") was
-                  written when a regenerate redrafted the whole card, and it
-                  was still there after the ask became per-send. */}
-              <p className="mt-1 text-[13px] text-muted-foreground">
-                {props.scoped
-                  ? `This rewrites ${props.label} with your instruction and leaves the others as they are. It holds its place here and re-enables when the new version lands. If the instruction turns out to need new research, the whole card is redrafted and says so.`
-                  : 'This re-runs the work behind the recommendation with your instruction. The item holds its place here and re-enables when the new version lands.'}
-              </p>
-            </div>
+            <AskForChanges
+              id={props.item.id}
+              label={props.label}
+              allCount={props.allCount ?? 1}
+              disabled={props.disabled}
+              regenerating={props.regenerating}
+              onRegenerate={props.onRegenerate}
+              onRegenerateAll={props.onRegenerateAll}
+            />
           )}
 
           <ItemHistory entries={props.history} id={props.item.id} />
@@ -546,6 +559,51 @@ function ItemPane(props: {
           )}
         </aside>
       </div>
+    </div>
+  );
+}
+
+/**
+ * OVERTAKEN BY EVENTS — one line under the decision line, in the shell, for
+ * every kind: what changed since this was proposed (old → new for a field),
+ * with Proceed anyway (approve past it, recorded on the run) and Redraft when
+ * the action can redraft itself. An item its agent redrafts on its next pass
+ * says so instead of offering a button. Never in the action bar as an error:
+ * nothing failed, the world moved.
+ * @param props - The finding and what the person can do about it.
+ * @param props.stale - The finding.
+ * @param props.disabled - Held while busy.
+ * @param props.onProceed - Approve anyway.
+ * @param props.onRedraft - Redraft it, when the action can.
+ */
+export function StaleBanner(props: { stale: ReviewStale; disabled?: boolean; onProceed?: () => void; onRedraft?: () => void }) {
+  const { stale } = props;
+  const changed = (stale.changed ?? []).filter(c => c.from !== undefined || c.to !== undefined);
+  return (
+    <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-l-2 border-waiting py-1 pl-3 text-[13px]" role="status" data-testid="review-stale">
+      <span className="font-medium text-foreground">Changed since it was proposed:</span>
+      <span className="min-w-0 text-foreground/85">
+        {stale.href ? <a href={stale.href} target="_blank" rel="noreferrer" className="underline decoration-border underline-offset-2 hover:decoration-foreground">{stale.line}</a> : stale.line}
+        {changed.map(c => (
+          <span key={c.label} className="ml-2 text-muted-foreground" data-testid="review-stale-change">
+            {`${c.label}: ${c.from ?? '—'} → ${c.to ?? '—'}`}
+          </span>
+        ))}
+      </span>
+      <span className="ml-auto inline-flex items-center gap-1">
+        {props.onProceed && (
+          <button type="button" onClick={props.onProceed} disabled={props.disabled} className="h-8 rounded-lg px-2 text-[13px] text-foreground/80 transition hover:bg-surface-hover hover:text-foreground disabled:opacity-40" data-testid="review-stale-proceed">
+            Proceed anyway
+          </button>
+        )}
+        {stale.canRedraft && props.onRedraft
+          ? (
+              <button type="button" onClick={props.onRedraft} disabled={props.disabled} className="h-8 rounded-lg px-2 text-[13px] text-foreground/80 transition hover:bg-surface-hover hover:text-foreground disabled:opacity-40" data-testid="review-stale-redraft">
+                Redraft
+              </button>
+            )
+          : stale.keepOpen && <span className="text-muted-foreground" data-testid="review-stale-next-pass">The agent will redraft on its next pass</span>}
+      </span>
     </div>
   );
 }
@@ -800,14 +858,19 @@ export function ReviewSurface(props: {
     return () => clearTimeout(timer);
   }, [justChanged]);
 
-  const decide = async (decision: 'approve' | 'reject' | 'done', answer?: { id: string; label: string }, mode?: 'draft' | 'send') => {
+  const decide = async (decision: 'approve' | 'reject' | 'done', answer?: { id: string; label: string }, mode?: 'draft' | 'send', overrideStale?: boolean) => {
     landed.current = false;
     const verbLabel = decision === 'reject' ? rejectVerb : approveVerb;
     chosenMode.current = mode ?? null;
     try {
-      await d.decide(decision, answer
-        ? { answer: answer.id }
-        : mode && outbound ? { mode: { contentId: outbound.contentId, mode } } : undefined);
+      await d.decide(decision, {
+        ...(answer ? { answer: answer.id } : mode && outbound ? { mode: { contentId: outbound.contentId, mode } } : {}),
+        ...(overrideStale ? { overrideStale } : {}),
+      });
+      if (d.wasStale()) {
+        // Nothing ran: the banner under the decision line says what changed.
+        return;
+      }
       if (answer && landed.current) {
         toast.success(`You chose ${answer.label} · ${card.title}`);
         return;
@@ -1035,8 +1098,12 @@ export function ReviewSurface(props: {
       )
     : undefined;
 
+  // How long it has waited leads (speed is what a week-old item lacks), then
+  // the kind's facts a person can read: a fact that is only an id is dropped.
+  const age = decidable ? waitingLabel(run.createdAt) : null;
   const metaCells = [
-    ...(card.provenance ?? []).map(p => ({ label: p.label, value: p.value as ReactNode })),
+    ...(age ? [{ label: 'Waiting', value: <span data-testid="review-waiting">{age.replace(/^Waiting /, '')}</span> as ReactNode }] : []),
+    ...readableFacts(card.provenance ?? []).map(p => ({ label: p.label, value: p.value as ReactNode })),
     ...(props.meta ?? []),
   ];
 
@@ -1083,6 +1150,17 @@ export function ReviewSurface(props: {
   const suggests = suggested ? `${agent ?? 'The agent'} suggests ${SUGGESTION_VERB[suggested]}` : agent ? `Recommended by ${agent}` : null;
   const recommendationLine = [suggests, confidencePct].filter(Boolean).join(' · ') || null;
   const suggestionReason = suggested && run.proposal?.suggestedDecisionReason ? run.proposal.suggestedDecisionReason : null;
+  // THE DECISION LINE, for every kind: who suggests what — the card's own
+  // verb, or its recommendation — the one fact that tipped it, how sure, and
+  // how often you agreed. A card with a decision header says it there.
+  const decision = decisionLine({
+    agent,
+    suggested: suggested ?? null,
+    what: modeChoice && modeVerbs ? modeVerbs.primary.label : card.recommendation?.headline ?? null,
+    tipping: tippingFact([run.proposal?.suggestedDecisionReason, card.recommendation?.detail, run.proposal?.rationale].filter(r => r && !restatesLabel(r, title) && !restatesLabel(r, card.title))),
+    confidence: run.proposal?.confidence ?? null,
+    agreement: alignmentPhrase(run.alignment)?.short ?? null,
+  }) ?? recommendationLine;
 
   /**
    * An id the run recorded, as a name where the loader found one. The ladder
@@ -1172,59 +1250,22 @@ export function ReviewSurface(props: {
       );
     }
     if (id === 'why') {
-      if (brief) {
-        // One Why. The case for the payload, the case for the recommendation
-        // and the agent's advice are three sentences about one decision, and
-        // a phone reads them best as one section.
-        const whyLine = [suggests, confidencePct, suggestionReason].filter(Boolean).join(' · ') || null;
-        const empty = !rationale && !summary && !detail && !whyLine;
-        return (
-          <div data-testid="why-pane">
-            <Section eyebrow="Why" data-testid="why-merged">
-              {rationale && <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{rationale}</p>}
-              {summary && <p className={cn('max-w-3xl leading-relaxed break-words text-foreground/85', rationale && 'mt-3')}>{summary}</p>}
-              {detail && <p className="mt-3 max-w-3xl leading-relaxed break-words text-foreground/85">{detail}</p>}
-              {whyLine && (
-                <p className="mt-3 inline-flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground" data-testid="why-suggestion">
-                  <Sparkles className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  {whyLine}
-                </p>
-              )}
-              {empty && <p className="text-muted-foreground">No rationale recorded for this recommendation.</p>}
-            </Section>
-          </div>
-        );
+      // ONE Why, for every kind: the case for the payload, the reason for the
+      // suggestion and the presenter's own case, each sentence said once
+      // (`distinctSentences`). "The reasoning" beside "Why it suggests that"
+      // read as two arguments that repeated each other. Nothing to say draws
+      // nothing.
+      const lines = distinctSentences([rationale, suggestionReason, detail, summary], [title, card.title]);
+      if (lines.length === 0) {
+        return null;
       }
       return (
         <div data-testid="why-pane">
-          {rationale && (
-            <Section eyebrow="The reasoning">
-              <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{rationale}</p>
-            </Section>
-          )}
-          {/* Not folded into "Why" above: that one is the case for the payload,
-              this is the case for the recommendation, and on a card the agent
-              wants turned down they are different arguments. */}
-          {/* An orphan reason renders nothing: a sentence arguing for an
-              outcome, with no outcome named, tells a reviewer nothing. */}
-          {run.proposal?.suggestedDecision && run.proposal.suggestedDecisionReason && (
-            <Section eyebrow="Why it suggests that" data-testid="suggested-decision-reason">
-              <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{run.proposal.suggestedDecisionReason}</p>
-            </Section>
-          )}
-          {detail && (
-            <Section eyebrow="The recommendation">
-              <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{detail}</p>
-            </Section>
-          )}
-          {summary && (
-            <Section eyebrow="Summary">
-              <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{summary}</p>
-            </Section>
-          )}
-          {!rationale && !(run.proposal?.suggestedDecision && run.proposal.suggestedDecisionReason) && !detail && !summary && (
-            <Section eyebrow="Why"><p className="text-muted-foreground">No rationale recorded for this recommendation.</p></Section>
-          )}
+          <Section eyebrow="Why" data-testid="why-merged">
+            {lines.map((line, i) => (
+              <p key={line} className={cn('max-w-[70ch] leading-relaxed break-words text-foreground/85', i > 0 && 'mt-3')}>{line}</p>
+            ))}
+          </Section>
         </div>
       );
     }
@@ -1233,9 +1274,9 @@ export function ReviewSurface(props: {
         <div data-testid="evidence-pane">
           {/* A message's citations are in its Why, and its To and Cc are in
               its header: said once each. */}
-          {!outbound && (
+          {!outbound && (run.proposal?.evidence ?? []).length > 0 && (
             <Section eyebrow="Citations">
-              <EvidenceRefs sources={run.proposal?.evidence ?? []} empty="No citations recorded." />
+              <EvidenceRefs sources={run.proposal!.evidence!} labels={run.evidenceLabels} />
             </Section>
           )}
           {!outbound && readOnlyFields.length > 0 && (
@@ -1269,7 +1310,7 @@ export function ReviewSurface(props: {
                 !brief && !outbound && !card.recommendation && run.proposal?.confidence !== undefined
                   ? { label: card.confidenceSubject ?? 'Recommendation', value: <ConfidenceMeter value={run.proposal.confidence} label={card.confidenceSubject ?? 'Recommendation'} /> }
                   : null,
-                !brief && !outbound && run.proposal?.suggestedDecision ? { label: 'Agent suggests', value: SUGGESTION_LABEL[run.proposal.suggestedDecision] } : null,
+                !brief && !outbound && run.proposal?.suggestedDecision ? { label: 'Suggests', value: sentenceStart(SUGGESTION_VERB[run.proposal.suggestedDecision]) } : null,
                 { label: 'Run', value: nounCode('action', run.id) },
                 handoff ? { label: 'Who runs it', value: <span data-testid="who-runs-it">{whoRunsIt}</span> } : null,
                 alignmentPhrase(run.alignment)
@@ -1310,6 +1351,8 @@ export function ReviewSurface(props: {
           ? { onUndo: () => void unapproveItem(item.id), label }
           : null}
         scoped={walks}
+        allCount={decidable ? content.filter(i => contentKindEditable(i.kind)).length : 1}
+        onRegenerateAll={instruction => void regenerate(instruction)}
       >
         <Renderer
           item={item}
@@ -1346,10 +1389,10 @@ export function ReviewSurface(props: {
       meta={(
         <MetaRow
           cells={metaCells}
-          recommendation={card.recommendation
+          recommendation={card.recommendation && !decision
             ? { label: card.recommendationLabel ?? 'Recommended action', headline: card.recommendation.headline }
             : null}
-          confidence={run.proposal?.confidence}
+          confidence={decision || brief ? undefined : run.proposal?.confidence}
           confidenceSubject={card.confidenceSubject ?? 'Recommendation'}
         />
       )}
@@ -1414,9 +1457,30 @@ export function ReviewSurface(props: {
           )
         : undefined}
     >
-      {/* A sequence names what it queues before its steps: which sequence,
-          for whom, from which inbox. */}
-      {sequence && (
+      {/* The decision line: what is suggested, the fact that tipped it, how
+          sure, how often you agreed. Every kind, under the header. */}
+      {decision && !brief && (
+        <p className="inline-flex max-w-[70ch] items-start gap-1.5 pt-3 text-[14px] leading-relaxed text-foreground/85" data-testid="review-decision-line">
+          <Sparkles className="mt-1 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          <span>{decision}</span>
+        </p>
+      )}
+
+      {/* Overtaken by events: what changed since it was proposed, right under
+          the decision it changes. */}
+      {decidable && d.stale && (
+        <StaleBanner
+          stale={d.stale}
+          disabled={d.held}
+          onProceed={() => void decide('approve', undefined, modeChoice ? modeVerbs?.primary.mode : undefined, true)}
+          onRedraft={() => void regenerate(`Redraft: ${d.stale!.line}`)}
+        />
+      )}
+
+      {/* A sequence names what it queues before its steps — unless the header
+          already names who and the decision line names the sequence, where a
+          second facts row only repeats them. */}
+      {sequence && !(card.subject && card.recommendation) && (
         <FactList
           layout="inline"
           data-testid="sequence-enrolment"
@@ -1432,7 +1496,7 @@ export function ReviewSurface(props: {
 
       {/* First thing on the card: what approving does, the facts that settle
           it, and the recommendation — before any tab. */}
-      {brief && <DecisionHeader headline={card.headline!} badges={card.badges ?? []} recommendation={recommendationLine} />}
+      {brief && <DecisionHeader headline={card.headline!} badges={card.badges ?? []} recommendation={decision} />}
 
       {props.beforeTabs}
 
@@ -1482,14 +1546,6 @@ export function ReviewSurface(props: {
         // Action first: who suggests what, paired with the verb it means, over
         // the message it answers and the draft. The Why, its citations and
         // the run's bookkeeping fold beneath (`outbound-dossier`).
-        const lead = recommendationLine && (
-          <p className="inline-flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground" data-testid="outbound-why-suggestion">
-            <Sparkles className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            {suggested === 'approve' && modeChoice && modeVerbs
-              ? [`${agent ?? 'The agent'} suggests: ${modeVerbs.primary.label}`, confidencePct].filter(Boolean).join(' · ')
-              : recommendationLine}
-          </p>
-        );
         const artifact = (
           <OutboundMessageArtifact
             outbound={outbound}
@@ -1497,7 +1553,6 @@ export function ReviewSurface(props: {
             edit={edit}
             onEdit={editable ? patch => d.editContent(item.id, patch) : undefined}
             disabled={d.held}
-            lead={lead}
           >
             <Renderer item={item} edit={edit} onEdit={editable ? patch => d.editContent(item.id, patch) : undefined} changed={Boolean(justChanged[item.id])} disabled={d.held} />
           </OutboundMessageArtifact>
@@ -1534,8 +1589,13 @@ export function ReviewSurface(props: {
           {walks && (
             <div className="flex items-baseline justify-between gap-3 pb-2">
               <h2 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{sequence ? 'Steps' : 'Review content'}</h2>
+              {/* What the primary does with the steps still unapproved, said
+                  where the count is: it opens the next one, and the card's
+                  verb runs only once every step is approved. */}
               <span className="text-[13px] text-muted-foreground tabular-nums" data-testid="walk-count">
-                {`${count.approved} of ${count.total} approved`}
+                {count.approved < count.total
+                  ? `${count.approved} of ${count.total} approved · ${approveVerb} runs once every step is approved`
+                  : `${count.total} of ${count.total} approved`}
               </span>
             </div>
           )}
@@ -1583,56 +1643,26 @@ export function ReviewSurface(props: {
         </Tabs>
       )}
 
-      {/* The whole card, when the note is about all of it. Each send has its
-          own Regenerate beside it, and that is the right tool for one send;
-          "take the dashes out everywhere" is not a note about one send, and
-          the only way to say it was to type it four times (ticket 069). The
-          server has always taken a regenerate with no send named as a
-          redraft of every send; this is the first control that reaches it. */}
-      {/* And only while a SEND is what you are looking at. The lead page
-          mounts this shell with a Brief tab beside the sends, and an
-          instruction box about the sends under the research brief was the
-          first thing Valerie noticed (2026-09-23). */}
-      {decidable && d.canRegenerate && active.startsWith('item-') && content.filter(i => contentKindEditable(i.kind)).length > 1 && (
-        <RegenerateAll
-          count={content.filter(i => contentKindEditable(i.kind)).length}
-          disabled={d.held}
-          regenerating={d.regenerating}
-          onRegenerate={instruction => void regenerate(instruction)}
-        />
-      )}
-
-      {/* The case and the citations, under what they are about. Off the tab
-          strip (above), on the page: a recommendation whose evidence needs a
-          tab click is a claim you have to take on trust, and this shell
-          builds both from the run precisely so no card can ship without
-          them. A card with nothing to review — a CRM update, a proposal —
-          has an empty strip and these are the whole screen, which is why
-          they render here rather than in a tab that would be the only one. */}
-      {outbound
-        ? (
-            <details className="mt-6 border-t border-rule pt-2" data-testid="review-dossier">
-              <summary className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground">
-                <ChevronDown className="size-3.5" aria-hidden />
-                {outboundWhy ? 'Why, evidence and run details' : 'Run details'}
-              </summary>
-              {outboundWhy && (
-                <section data-testid="outbound-why" aria-label="Why" className="max-w-[70ch] pt-2">
-                  {outboundWhy.lines.map(line => (
-                    <p key={line} className="mb-2 text-[14px] leading-relaxed break-words text-foreground/85">{line}</p>
-                  ))}
-                  {outboundWhy.evidence.length > 0 && <EvidenceRefs sources={outboundWhy.evidence} labels={run.evidenceLabels} className="mt-1" />}
-                </section>
-              )}
-              {renderPane('evidence')}
-            </details>
-          )
-        : (
-            <div data-testid="review-dossier">
-              {renderPane('why')}
-              {renderPane('evidence')}
-            </div>
-          )}
+      {/* Below the subject, folded, for every kind: the Why, the citations
+          as readable links, the sources and the run's bookkeeping. The
+          decision line above carries the one fact that tipped it, so the
+          fold is for checking, not for deciding. */}
+      <details className="mt-6 border-t border-rule pt-2" data-testid="review-dossier">
+        <summary className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground">
+          <ChevronDown className="size-3.5" aria-hidden />
+          Why, evidence and run details
+        </summary>
+        {outboundWhy && (
+          <section data-testid="outbound-why" aria-label="Why" className="max-w-[70ch] pt-2">
+            {outboundWhy.lines.map(line => (
+              <p key={line} className="mb-2 text-[14px] leading-relaxed break-words text-foreground/85">{line}</p>
+            ))}
+            {outboundWhy.evidence.length > 0 && <EvidenceRefs sources={outboundWhy.evidence} labels={run.evidenceLabels} className="mt-1" />}
+          </section>
+        )}
+        {!outbound && renderPane('why')}
+        {renderPane('evidence')}
+      </details>
     </DetailPage>
   );
 }

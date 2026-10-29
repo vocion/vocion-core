@@ -402,3 +402,32 @@ describe('a Why says each sentence once', () => {
     ]);
   });
 });
+
+describe('the Review item shell', () => {
+  it('drops header facts that are only handles', async () => {
+    const { readableFacts } = await import('./reviewSheetModel');
+
+    expect(readableFacts([{ label: 'Campaign', value: '23900000001' }, { label: 'Lead magnet', value: '820000000001' }, { label: 'Source', value: 'Paid social' }, { label: 'Owner', value: 7 }]))
+      .toEqual([{ label: 'Source', value: 'Paid social' }, { label: 'Owner', value: 7 }]);
+  });
+
+  it('says how long it has waited', async () => {
+    const { waitingLabel } = await import('./reviewSheetModel');
+    const now = new Date('2026-10-29T12:00:00Z');
+
+    expect(waitingLabel('2026-10-22T09:00:00Z', now)).toBe('Waiting 7 days');
+    expect(waitingLabel('2026-10-29T09:00:00Z', now)).toBe('Waiting 3 hours');
+    expect(waitingLabel(null, now)).toBeNull();
+  });
+
+  it('reads the recommendation, the fact that tipped it, how sure and how often you agreed as one line', async () => {
+    const { decisionLine, tippingFact } = await import('./reviewSheetModel');
+    const tipping = tippingFact([null, 'Fit is Poor: enterprise, outside the 20 to 90M band. The rest is detail.']);
+
+    expect(tipping).toBe('Fit is Poor: enterprise, outside the 20 to 90M band');
+    expect(decisionLine({ agent: 'Revenue Lead', suggested: 'approve', what: 'Enroll in Nurture · 4 emails', tipping, confidence: 0.85, agreement: 'You agreed 84 of 97' }))
+      .toBe('Revenue Lead suggests: Enroll in Nurture · 4 emails. Fit is Poor: enterprise, outside the 20 to 90M band · 85% confident · You agreed 84 of 97');
+    expect(decisionLine({ agent: 'Revenue Lead', suggested: 'reject', what: 'Enroll in Nurture', confidence: 0.6 })).toBe('Revenue Lead suggests turning it down · 60% confident');
+    expect(decisionLine({})).toBeNull();
+  });
+});

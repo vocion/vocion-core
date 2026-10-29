@@ -148,8 +148,11 @@ describe('one flat template, every object type', () => {
     const labels = [...tabs].map(t => t.textContent);
 
     // The strip is what there is to review. Why and Evidence are on the page,
-    // under the content, not two tabs beside the four a reviewer came for.
+    // folded under the content, not two tabs beside the four a reviewer came for.
     expect(labels).toEqual(Array.from({ length: n }, (_, i) => `Day ${i * 3}`));
+
+    await page.getByText('Why, evidence and run details').click();
+
     await expect.element(page.getByTestId('why-pane')).toBeVisible();
     await expect.element(page.getByTestId('evidence-pane')).toBeVisible();
   });
@@ -183,7 +186,7 @@ describe('one flat template, every object type', () => {
     await expect.element(page.getByRole('textbox', { name: 'notes' })).toBeVisible();
   });
 
-  it('builds Why and Evidence from the run even when the presenter says nothing, and with no strip at all', async () => {
+  it('builds the run details from the run even when the presenter says nothing, and draws no empty section', async () => {
     const bare: ReviewCardRun = {
       id: 503,
       actionId: 'x.y',
@@ -195,24 +198,30 @@ describe('one flat template, every object type', () => {
     };
     await render(<ReviewSurface run={bare} crumbs={CRUMBS} />);
 
-    // Nothing to review on this card, so there is no strip — and the dossier
-    // is the whole screen rather than a lone tab a reviewer has to open.
+    // Nothing to review on this card, so there is no strip, and a section
+    // with nothing in it is not drawn: no "No citations recorded.".
     expect(page.getByTestId('review-tabs').elements()).toHaveLength(0);
-    await expect.element(page.getByText('No rationale recorded for this recommendation.')).toBeVisible();
-    await expect.element(page.getByText('No citations recorded.')).toBeVisible();
+
+    await page.getByText('Why, evidence and run details').click();
+
     await expect.element(page.getByTestId('run-details')).toBeVisible();
+    expect(page.getByText('No rationale recorded for this recommendation.').elements()).toHaveLength(0);
+    expect(page.getByText('No citations recorded.').elements()).toHaveLength(0);
+    expect(page.getByTestId('why-pane').elements()).toHaveLength(0);
   });
 
-  it('shows provenance, the recommendation and confidence on ONE row', async () => {
-    await render(<ReviewSurface run={enrollment(3)} crumbs={CRUMBS} position="28 of 224" />);
+  it('shows the facts on ONE row and the recommendation, the fact behind it and confidence on the decision line', async () => {
+    await render(<ReviewSurface run={enrollment(3, { createdAt: new Date(Date.now() - 7 * 86_400_000) })} crumbs={CRUMBS} position="28 of 224" />);
 
     const row = page.getByTestId('review-meta').element();
 
     expect(row.textContent).toContain('Source');
     expect(row.textContent).toContain('Paid social');
-    expect(row.textContent).toContain('Sequence to enroll');
-    expect(row.textContent).toContain('Ebook Inbound Nurture');
-    expect(row.querySelector('[data-testid="confidence-meter"]')).not.toBeNull();
+    // How long it has waited leads the facts.
+    await expect.element(page.getByTestId('review-waiting')).toHaveTextContent('7 days');
+    // Said once, on the decision line, not again in the meta row.
+    expect(row.textContent).not.toContain('Ebook Inbound Nurture');
+    await expect.element(page.getByTestId('review-decision-line')).toHaveTextContent('revenue-lead suggests: Ebook Inbound Nurture. An existing sequence, personalized · 58% confident');
     // The queue position sits beside the name, not in the meta row.
     expect(row.textContent).not.toContain('28 of 224');
     await expect.element(page.getByTestId('queue-position')).toBeVisible();
@@ -344,9 +353,8 @@ describe('one flat template, every object type', () => {
     // Not on the bar: one Regenerate there means whichever item its author had in mind.
     expect(page.getByTestId('sticky-action-bar').element().textContent).not.toContain('Regenerate');
 
-    // No disclosure to open — the instruction box is the right column, and it
-    // is open, because a control that hides the copy it acts on was the
-    // defect this layout fixes.
+    // One fold beside the copy, opened when used; the copy stays in view.
+    await page.getByTestId('regenerate-send-2-open').getByText('Ask for changes').click();
     await page.getByRole('textbox', { name: 'Regenerate instruction for Day 3' }).fill('Soften the ask.');
     await page.getByTestId('regenerate-send-2').click();
 
@@ -381,13 +389,15 @@ describe('one flat template, every object type', () => {
     await expect.element(page.getByTestId('history-failure-send-2')).toHaveTextContent('body of send 3: em dash.');
   });
 
-  it('offers Regenerate all under the strip, keyed to no send, and only when there is more than one', async () => {
+  it('offers All steps in the same Ask for changes, keyed to no send, and only when there is more than one', async () => {
     regenerateAction.mockClear();
     await render(<ReviewSurface run={enrollment(3)} crumbs={CRUMBS} />);
 
     // Not on the bar, which keeps one Regenerate from meaning whichever item its author had in mind.
     expect(page.getByTestId('sticky-action-bar').element().textContent).not.toContain('Regenerate');
 
+    await page.getByTestId('regenerate-send-1-open').getByText('Ask for changes').click();
+    await page.getByRole('radio', { name: 'All 3 steps' }).click();
     await page.getByRole('textbox', { name: 'Instruction for regenerating all sends' }).fill('Replace every dash with a comma.');
     await page.getByTestId('regenerate-all').click();
 
@@ -396,7 +406,7 @@ describe('one flat template, every object type', () => {
     expect(regenerateAction.mock.calls[0]![0]).toEqual({ id: 501, feedback: 'Replace every dash with a comma.' });
   });
 
-  it('shows Regenerate all only while a send is the open tab, never under the Brief', async () => {
+  it('asks for changes only while a send is the open tab, never under the Brief', async () => {
     await render(
       <ReviewSurface
         run={enrollment(3)}
@@ -406,19 +416,21 @@ describe('one flat template, every object type', () => {
       />,
     );
 
-    expect(page.getByTestId('regenerate-all-open').query()).toBeNull();
+    expect(page.getByText('Ask for changes').elements()).toHaveLength(0);
 
     await page.getByTestId('tab-item-send-1').click();
 
-    await expect.element(page.getByTestId('regenerate-all-open')).toBeVisible();
+    await expect.element(page.getByTestId('regenerate-send-1-open')).toBeVisible();
   });
 
-  it('draws no Regenerate all on a card with one send: the send\'s own Regenerate is the whole card', async () => {
+  it('offers no All on a card with one send: the send\'s own Regenerate is the whole card', async () => {
     await render(<ReviewSurface run={enrollment(1)} crumbs={CRUMBS} />);
+
+    await page.getByTestId('regenerate-send-1-open').getByText('Ask for changes').click();
 
     await expect.element(page.getByTestId('regenerate-send-1')).toBeVisible();
 
-    expect(page.getByTestId('regenerate-all-open').query()).toBeNull();
+    expect(page.getByRole('radio').elements()).toHaveLength(0);
   });
 
   it('keeps the copy and the instruction box on screen together', async () => {
@@ -442,8 +454,10 @@ describe('one flat template, every object type', () => {
     await render(<ReviewSurface run={enrollment(3)} crumbs={CRUMBS} />);
 
     await page.getByTestId('tab-item-send-2').click();
+    await page.getByTestId('regenerate-send-2-open').getByText('Ask for changes').click();
     await page.getByRole('textbox', { name: 'Regenerate instruction for Day 3' }).fill('Soften the ask.');
     await page.getByTestId('tab-item-send-3').click();
+    await page.getByTestId('regenerate-send-3-open').getByText('Ask for changes').click();
 
     await expect.element(page.getByRole('textbox', { name: 'Regenerate instruction for Day 6' })).toHaveValue('');
   });

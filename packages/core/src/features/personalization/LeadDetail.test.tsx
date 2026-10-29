@@ -249,8 +249,10 @@ describe('the lead workspace — three zones, three tabs', () => {
   it('puts the timeline, the claims and the run details under Evidence', async () => {
     await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Rowan Pike' })} contactHref={null} runState={NO_RUN} />);
 
-    // Under the content, not behind a tab: the strip is what there is to
-    // review, and the evidence for it reads without a click.
+    // Under the content, folded with the rest of the evidence and the run's
+    // details (`docs/design/patterns.md` § Review item): one click to check.
+    await page.getByText('Why, evidence and run details').click();
+
     await expect.element(page.getByText('Enrolled in an automated nurture minutes after becoming an MQL.')).toBeVisible();
     await expect.element(page.getByText('Runs an iGaming marketing agency.')).toBeVisible();
     await expect.element(page.getByTestId('evidence-tab').getByText('Became MQL')).toBeVisible();
@@ -530,8 +532,12 @@ describe('the sequence tab', () => {
 
     expect(labels).not.toContain('Why');
     expect(labels).not.toContain('Evidence');
-    await expect.element(page.getByTestId('why-pane')).toBeVisible();
+
+    await page.getByText('Why, evidence and run details').click();
+
     await expect.element(page.getByTestId('evidence-pane')).toBeVisible();
+    // This run carries no rationale, and an empty section is not drawn.
+    expect(page.getByTestId('why-pane').elements()).toHaveLength(0);
   });
 
   it('a rewrite asked for in the conversation lands HERE, marked edited — the rail reports it, the record shows it', async () => {
@@ -659,6 +665,8 @@ describe('what happened, when nothing is waiting', () => {
     );
 
     await expect.element(page.getByTestId('decision-line')).toHaveTextContent('Enrolled in Ebook Inbound Sequence by reviewer@example.com · Sep 1, 2026');
+
+    await page.getByText('Why, evidence and run details').click();
 
     await expect.element(page.getByText('Approved · brief')).toBeVisible();
     await expect.element(page.getByText('#11 · v3')).toBeVisible();

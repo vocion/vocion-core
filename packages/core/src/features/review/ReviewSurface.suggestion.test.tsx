@@ -56,47 +56,55 @@ function runWith(proposal: ReviewCardRun['proposal']): ReviewCardRun {
   };
 }
 
+/** Unfold the Why, evidence and run details. */
+async function openDossier() {
+  await page.getByText('Why, evidence and run details').click();
+}
+
 describe('the agent recommendation on the review surface', () => {
-  it('puts the advice with the rest of the run\'s facts, under Evidence', async () => {
+  it('says the advice, and the fact that tipped it, on the decision line', async () => {
     await render(<ReviewSurface run={runWith({ confidence: 0.9, suggestedDecision: 'reject', suggestedDecisionReason: REASON })} crumbs={CRUMBS} />);
 
-    // Evidence is on the page now rather than behind a tab, so the advice is
-    // read without a click.
-    await expect.element(page.getByTestId('run-details')).toHaveTextContent('Agent suggests turning down');
+    await expect.element(page.getByTestId('review-decision-line')).toHaveTextContent('listing-scout suggests turning it down. Third listing of this same show this week · 90% confident');
+
+    await openDossier();
+
+    await expect.element(page.getByTestId('run-details')).toHaveTextContent('Turning down');
+    expect(page.getByTestId('run-details').element().textContent).not.toMatch(/Agent suggests/);
   });
 
-  it('gives the reason its own zone under Why, in full', async () => {
+  it('gives the reason in full under Why', async () => {
     // Nothing caps the stored reason, and a model that writes two sentences
-    // where one was asked for must not be cut mid-word. The reason now has a
-    // pane rather than a row, so the whole sentence reads.
+    // where one was asked for must not be cut mid-word.
     const long = `The venue sits outside the coverage area, ${'and the run repeats every Tuesday, '.repeat(9)}so a person should turn it down.`;
 
     await render(<ReviewSurface run={runWith({ confidence: 0.4, suggestedDecision: 'reject', suggestedDecisionReason: long })} crumbs={CRUMBS} />);
 
-    await expect.element(page.getByTestId('suggested-decision-reason')).toHaveTextContent(long);
+    await openDossier();
+
+    await expect.element(page.getByTestId('why-merged')).toHaveTextContent(long);
   });
 
-  it('keeps the reason apart from the rationale, because they argue different things', async () => {
-    // One argues the extraction is right; the other argues the record should
-    // still not be in the queue. Merged, they read as the agent contradicting
-    // itself on a card it wants turned down.
+  it('merges the reason and the rationale into one Why, each sentence once', async () => {
     await render(
       <ReviewSurface
-        run={runWith({ confidence: 0.9, rationale: 'The listing carries a date, a venue and a price.', suggestedDecision: 'reject', suggestedDecisionReason: REASON })}
+        run={runWith({ confidence: 0.9, rationale: `The listing carries a date, a venue and a price. ${REASON}`, suggestedDecision: 'reject', suggestedDecisionReason: REASON })}
         crumbs={CRUMBS}
       />,
     );
 
-    await expect.element(page.getByText('The listing carries a date, a venue and a price.')).toBeVisible();
-    await expect.element(page.getByTestId('suggested-decision-reason')).toHaveTextContent(REASON);
+    await openDossier();
+
+    await expect.element(page.getByTestId('why-merged')).toHaveTextContent('The listing carries a date, a venue and a price.');
+    expect(page.getByTestId('why-merged').element().textContent!.split(REASON)).toHaveLength(2);
+    expect(page.getByText('Why it suggests that').elements()).toHaveLength(0);
   });
 
   it('shows the advice alone for a run proposed before reasons existed', async () => {
     await render(<ReviewSurface run={runWith({ confidence: 0.9, suggestedDecision: 'approve' })} crumbs={CRUMBS} />);
 
-    expect(page.getByTestId('suggested-decision-reason').elements()).toHaveLength(0);
-
-    await expect.element(page.getByTestId('run-details')).toHaveTextContent('Agent suggests approving');
+    await expect.element(page.getByTestId('review-decision-line')).toHaveTextContent('listing-scout suggests approving · 90% confident');
+    expect(page.getByTestId('why-merged').elements()).toHaveLength(0);
   });
 
   it('renders no reason when nothing was recommended', async () => {
@@ -105,7 +113,6 @@ describe('the agent recommendation on the review surface', () => {
     // with no outcome named, tells a reviewer nothing they can act on.
     await render(<ReviewSurface run={runWith({ confidence: 0.9, suggestedDecisionReason: REASON })} crumbs={CRUMBS} />);
 
-    expect(page.getByTestId('suggested-decision-reason').elements()).toHaveLength(0);
     expect(page.getByText(REASON).elements()).toHaveLength(0);
   });
 });

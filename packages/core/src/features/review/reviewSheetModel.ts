@@ -5,7 +5,7 @@ import type { EmailPreviewModel } from '@/services/inbox/emailPreview';
 import type { ReviewContextModel } from '@/services/inbox/reviewContextModel';
 import { looksLikeManualInput } from '@/libs/actions/manual';
 import { nounCode } from '@/libs/codes';
-import { evidenceRef } from '@/libs/preview/evidenceRef';
+import { evidenceRef, looksLikeId } from '@/libs/preview/evidenceRef';
 import { humaniseField } from '@/services/inbox/describeActionRun';
 
 /**
@@ -260,6 +260,81 @@ export function distinctSentences(paragraphs: ReadonlyArray<string | null | unde
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// The Review item shell — the order and rules every kind follows
+// (`docs/design/patterns.md` § Review item). A kind contributes its subject
+// block and its header facts; these decide how they read.
+// ---------------------------------------------------------------------------
+
+/**
+ * Header facts a person can read: a fact whose value is a handle (a campaign
+ * id, a lead-magnet id) is dropped rather than shown as digits. Pure.
+ * @param facts - The kind's facts, in order.
+ */
+export function readableFacts<T extends { label: string; value: unknown }>(facts: readonly T[]): T[] {
+  return facts.filter(f => typeof f.value !== 'string' || (f.value.trim() !== '' && !looksLikeId(f.value)));
+}
+
+/**
+ * How long the item has waited, as the header says it: "Waiting 6 days".
+ * Speed is the problem a week-old lead has, so the age leads. Pure.
+ * @param since - When it was proposed.
+ * @param now - The clock.
+ */
+export function waitingLabel(since: Date | string | null | undefined, now: Date = new Date()): string | null {
+  const at = since ? new Date(since) : null;
+  if (!at || Number.isNaN(at.getTime())) {
+    return null;
+  }
+  const hours = Math.floor(Math.max(0, now.getTime() - at.getTime()) / 3_600_000);
+  if (hours < 1) {
+    return 'Waiting under an hour';
+  }
+  if (hours < 48) {
+    return `Waiting ${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+  return `Waiting ${Math.floor(hours / 24)} days`;
+}
+
+/**
+ * The one sentence that tipped the recommendation: the first sentence of the
+ * reason given for it, else of the case for the payload. Pure.
+ * @param reasons - The reason for the suggestion, then the rationale, then the presenter's detail.
+ */
+export function tippingFact(reasons: ReadonlyArray<string | null | undefined>): string | null {
+  for (const r of reasons) {
+    const first = r?.trim().match(/^[^.!?]+[.!?]?/)?.[0]?.trim();
+    if (first && first.length > 3) {
+      return first.replace(/[.!?]$/, '');
+    }
+  }
+  return null;
+}
+
+/**
+ * The decision line under the header, for every kind: who suggests what (the
+ * card's own verb, or its recommendation), the fact that tipped it, how sure,
+ * and how often you agreed with this agent. One line; empty parts drop. Pure.
+ * @param input - The parts.
+ * @param input.agent - The agent's name.
+ * @param input.suggested - What it suggests.
+ * @param input.what - The verb or the recommendation's headline ("Create draft in Gmail", "Enroll in: …").
+ * @param input.tipping - The fact that tipped it.
+ * @param input.confidence - 0..1.
+ * @param input.agreement - "You agreed 84 of 97", when there is enough history.
+ */
+export function decisionLine(input: { agent?: string | null; suggested?: 'approve' | 'reject' | 'snooze' | null; what?: string | null; tipping?: string | null; confidence?: number | null; agreement?: string | null }): string | null {
+  const who = input.agent ?? 'The agent';
+  const verb = input.suggested === 'reject' ? 'suggests turning it down' : input.suggested === 'snooze' ? 'suggests waiting' : input.what ? 'suggests' : input.suggested === 'approve' ? 'suggests approving' : null;
+  const head = verb ? (input.what && input.suggested !== 'reject' && input.suggested !== 'snooze' ? `${who} ${verb}: ${input.what}` : `${who} ${verb}`) : input.what ?? null;
+  const parts = [
+    head && input.tipping ? `${head}. ${input.tipping}` : head ?? input.tipping,
+    typeof input.confidence === 'number' ? `${Math.round(input.confidence * 100)}% confident` : null,
+    input.agreement,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 /** One of the two ways an email card can be approved. */

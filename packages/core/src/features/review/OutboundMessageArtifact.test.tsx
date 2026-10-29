@@ -116,16 +116,36 @@ describe('a reply draft', () => {
   it('shows the thread folded to its newest message, the rest one tap away', async () => {
     await render(<ReviewSurface run={replyDraft()} crumbs={CRUMBS} />);
 
-    expect(page.getByTestId('outbound-thread-message').all()).toHaveLength(1);
-    await expect.element(page.getByTestId('outbound-thread')).toHaveTextContent('Can we get everyone on a call');
+    await expect.element(page.getByTestId('thread-newest')).toHaveTextContent('Can we get everyone on a call');
+    await expect.element(page.getByTestId('thread-history')).toHaveTextContent('2 earlier messages');
+    expect((page.getByTestId('thread-history').element() as HTMLDetailsElement).open).toBe(false);
 
-    await page.getByTestId('outbound-thread-toggle').click();
+    await page.getByTestId('thread-history').getByText('2 earlier messages').click();
 
-    expect(page.getByTestId('outbound-thread-message').all()).toHaveLength(3);
+    await expect.element(page.getByTestId('thread-line').first()).toBeVisible();
+    expect(page.getByTestId('thread-line').elements()).toHaveLength(2);
   });
 
-  it('says Why once, with the evidence, and never the title again', async () => {
+  it('shows the message it answers whole, above the draft, when the thread was read', async () => {
+    const run = replyDraft();
+    const outbound = run.card.outbound!;
+    await render(<ReviewSurface run={{ ...run, card: { ...run.card, outbound: { ...outbound, thread: { ...outbound.thread!, latest: { from: 'Dana Reyes <dana@kestrel.example>', at: '2026-10-28T23:20:00.000Z', body: 'Slow going on the pilot.\nA referral call Friday may open a licensing deal.' } } } } }} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('thread-latest')).toHaveTextContent('A referral call Friday may open a licensing deal.');
+    await expect.element(page.getByTestId('thread-history')).toHaveTextContent('3 other messages');
+
+    const latest = page.getByTestId('thread-latest').element().getBoundingClientRect();
+    const composer = page.getByTestId('outbound-composer').element().getBoundingClientRect();
+
+    expect(latest.bottom).toBeLessThanOrEqual(composer.top);
+  });
+
+  it('says Why once, with the evidence, folded under the decision', async () => {
     await render(<ReviewSurface run={replyDraft()} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('review-decision-line')).toBeVisible();
+
+    await page.getByTestId('review-dossier').getByText('Why, evidence and run details').click();
 
     await expect.element(page.getByTestId('outbound-why')).toHaveTextContent('nobody has answered');
     expect(visibleText()).not.toMatch(/The reasoning|Why it suggests that/);

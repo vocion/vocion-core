@@ -238,7 +238,8 @@ test('a regenerate keeps the copy it is about to replace, and the ask with it', 
   await page.goto(`/dashboard/inbox/proposal-${runId}`);
   await page.getByTestId('tab-item-send-3').click();
 
-  // The ask is typed beside the copy it is about — no disclosure to open.
+  // The ask is typed beside the copy it is about, in the one Ask for changes fold.
+  await page.getByTestId('regenerate-send-3-open').getByText('Ask for changes').click();
   await page.getByLabel(/Regenerate instruction/).fill('Shorter, and drop the apology.');
   await page.screenshot({ path: 'vitest-test-results/walk-1440-split.png', fullPage: false });
   await page.getByTestId('regenerate-send-3').click();
