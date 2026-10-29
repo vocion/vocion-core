@@ -70,6 +70,21 @@ describe('plugin pages', () => {
     expect(batch?.rowActions.map(a => a.label)).toEqual(['SERP brief', 'Brief', 'Draft']);
   });
 
+  it('the SEO plugin lists Keywords first, then Batches, then Pages, and offers a batch from ticked keywords', () => {
+    workspace('plugins: [seo]\n');
+    const { pages, issues } = readWorkspacePages();
+    const keywords = pages.find(p => p.slug === 'seo-keywords');
+
+    expect(issues).toEqual([]);
+    expect(pages.filter(p => p.nav.section === 'SEO').map(p => p.title)).toEqual(['Keywords', 'Batches', 'Pages']);
+    expect(keywords?.source).toEqual({ kind: 'objects', objectType: 'seo_keyword' });
+    expect(keywords?.icon).not.toBe('search');
+    expect(keywords?.queryFilters?.map(q => q.param)).toEqual(['project', 'status']);
+    expect(keywords?.fields?.map(f => f.key)).toEqual(expect.arrayContaining(['keyword', 'project', 'intent', 'volume', 'competition', 'position', 'status', 'batch', 'checked']));
+    expect(keywords?.rowActions.map(a => a.label)).toEqual(['Page', 'SERP brief']);
+    expect(keywords?.selectionPrompts).toEqual([expect.objectContaining({ label: 'Plan a batch from these', agent: 'seo-strategist', prompt: expect.stringContaining('keyword_ids') })]);
+  });
+
   it('an enabled plugin\'s pages appear with their origin and prose', () => {
     workspace('plugins: [wiki]\n');
     const { pages, issues } = readWorkspacePages();

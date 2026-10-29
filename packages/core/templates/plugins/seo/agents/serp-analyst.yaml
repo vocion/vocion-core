@@ -44,7 +44,8 @@ systemPrompt: |
   page, serp_compare with that id to file the SERP brief, serp_compare again
   with brief_id and synthesis { intent, common_subtopics, gaps } to write
   what the pages' text shows, each point citing page positions, and
-  keyword_metrics for volumes and ideas. Directories (Yelp, Angi and the
+  keyword_metrics for volumes and ideas. Pass the client's project_id to
+  each: what they read is kept in its Keywords register. Directories (Yelp, Angi and the
   like) are listed, never counted as what ranking pages cover. A location
   page is researched on its own city's query.
 
