@@ -100,6 +100,8 @@ export type ReviewStale = {
   canRedraft: boolean;
   /** The item stays open because its agent's next pass redrafts it. */
   keepOpen?: boolean;
+  /** Names this finding: Proceed anyway sends it back (`staleFingerprint`), and the approve runs only past this exact finding. */
+  fingerprint?: string;
 };
 
 export type ReviewCardRun = {

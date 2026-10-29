@@ -2,6 +2,7 @@
 
 import type { ReviewType } from './reviewQueueModel';
 import type { ReviewShortcut } from './reviewShortcuts';
+import type { ReviewStale } from './ReviewSurface';
 import type { UpNextEntry } from './UpNextMenu';
 import type { ActionRevision } from '@/libs/actions/revisions';
 import type { ReviewCard } from '@/libs/actions/types';
@@ -19,7 +20,7 @@ import { describeAction } from './describeAction';
 import { ReviewHeader } from './ReviewHeader';
 import { itemTitle, queuePosition, typeLabel } from './reviewQueueModel';
 import { SHORTCUTS } from './reviewShortcuts';
-import { ReviewSurface } from './ReviewSurface';
+import { ReviewSurface, StaleBanner } from './ReviewSurface';
 import { TypeChips } from './TypeChips';
 import { UpNextMenu } from './UpNextMenu';
 
@@ -44,6 +45,8 @@ export type ActionRun = {
   evidenceLabels?: Record<string, string>;
   /** The other open decisions about the same thread or record (`services/inbox/relatedItems`). */
   related?: RelatedItem[];
+  /** What changed since it was proposed, checked when the page loads (`services/proposals/staleness`). */
+  stale?: ReviewStale | null;
   id: number;
   actionId: string;
   status: string;
@@ -116,6 +119,10 @@ export type ReviewFocusViewProps = {
   steering: boolean;
   busy: boolean;
   onDecide: (decision: 'approve' | 'reject') => void;
+  /** What changed since it was proposed, for an item with no card (a card shows its own). */
+  stale?: ReviewStale | null;
+  /** Approve past it: the person was shown what changed. */
+  onProceedStale?: () => void;
   /**
    * Snooze, on the generic (card-less) proposal. The card owns its own
    * snooze; this is the same verb for everything else. The bar dropped it
@@ -284,6 +291,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
           </button>
         )}
       />
+      {p.stale && <StaleBanner stale={p.stale} disabled={held} onProceed={p.onProceedStale} />}
       {help}
       {chips}
 

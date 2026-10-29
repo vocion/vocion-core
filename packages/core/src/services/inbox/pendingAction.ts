@@ -66,7 +66,7 @@ export async function loadPendingAction(orgId: string, id: number, opts: { userI
   const trail = (row.result ?? {}) as { handoff?: { releasedBy?: unknown }; executed?: { by?: unknown } };
   const evidence = (row.proposal as { evidence?: unknown } | null)?.evidence;
   const citations = Array.isArray(evidence) ? evidence.filter((e): e is string => typeof e === 'string') : [];
-  const [people, accessGranted, agentName, citationLabels, related] = await Promise.all([
+  const [people, accessGranted, agentName, citationLabels, related, stale] = await Promise.all([
     namesFor([row.decidedBy, found.assignedTo, trail.handoff?.releasedBy, trail.executed?.by]),
     // A run that failed for want of access says whether it is there now.
     row.status === 'failed' ? accessGrantedSince(orgId, { actionId: row.actionId, input: row.input, error: row.error ?? null }) : Promise.resolve(null),
@@ -75,6 +75,9 @@ export async function loadPendingAction(orgId: string, id: number, opts: { userI
     // Open ones only, about the record this action is about (its declared
     // subject): a decided card has nothing left to settle beside it.
     row.status === 'pending' ? relatedOpenItems(orgId, proposalSubjectKeys(row), { kind: 'proposal', id: row.id }).catch(() => []) : Promise.resolve([]),
+    // What changed since it was proposed, on the first paint, from a check
+    // at most a few minutes old: the banner is there before anyone presses.
+    import('@/services/proposals/staleness').then(m => m.staleForRead({ ...row, orgId })).catch(() => null),
   ]);
   return {
     id: row.id,
@@ -106,6 +109,7 @@ export async function loadPendingAction(orgId: string, id: number, opts: { userI
     agentName,
     ...(Object.keys(citationLabels).length > 0 ? { evidenceLabels: citationLabels } : {}),
     ...(related.length > 0 ? { related } : {}),
+    ...(stale ? { stale } : {}),
   };
 }
 

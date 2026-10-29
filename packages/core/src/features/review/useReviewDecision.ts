@@ -219,8 +219,10 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
         ...(decision === 'approve' && editedInput ? { editedInput } : {}),
         // Proceed anyway: the person was told what changed and runs it past
         // that; the server records it on the run.
-        ...(decision === 'approve' && opts?.overrideStale ? { overrideStale: true } : {}),
-      } as Parameters<typeof client.review.decideAction>[0])).catch((err: unknown) => {
+        // The fingerprint names exactly what they were shown: anything new
+        // since is answered STALE again rather than run past.
+        ...(decision === 'approve' && opts?.overrideStale ? { overrideStale: true, ...(stale?.fingerprint ? { staleFingerprint: stale.fingerprint } : {}) } : {}),
+      })).catch((err: unknown) => {
         // Nothing ran: what it was proposed on changed. Said on the card,
         // under the decision line, never as a failure.
         if (decision === 'approve' && (err as { code?: string })?.code === 'STALE') {

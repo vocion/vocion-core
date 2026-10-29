@@ -1,6 +1,7 @@
 'use client';
 
 import type { ActionRun } from '@/features/review/ReviewFocusView';
+import type { ReviewStale } from '@/features/review/ReviewSurface';
 import type { ProposalQueueEntry } from '@/services/InboxService';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -143,14 +144,23 @@ export function ReviewFocus(props: {
   };
 
   const once = useSingleFlight();
-  const onDecide = (decision: 'approve' | 'reject') => once(async () => {
+  // What changed since this was proposed: from the page's first-paint check,
+  // or from an approve the server answered STALE. Per run.
+  const [stale, setStale] = useState<ReviewStale | null>(run.stale ?? null);
+  useEffect(() => {
+    setStale(run.stale ?? null);
+  }, [run.id, run.stale]);
+
+  const onDecide = (decision: 'approve' | 'reject', opts?: { overrideStale?: boolean }) => once(async () => {
     setBusy(true);
     const title = describeAction(run).title;
     try {
       const editedInput = decision === 'approve' ? buildEditedInput() : undefined;
+      // Proceed anyway: run past exactly the finding the person was shown.
+      const past = decision === 'approve' && opts?.overrideStale ? { overrideStale: true, ...(stale?.fingerprint ? { staleFingerprint: stale.fingerprint } : {}) } : {};
       // A second press (or another tab) that finds the run already where it
       // was asked to go is the decision landing, not a failure.
-      const outcome = await withMinimumPending(client.review.decideAction({ id: run.id, decision, ...(editedInput ? { editedInput } : {}) }))
+      const outcome = await withMinimumPending(client.review.decideAction({ id: run.id, decision, ...(editedInput ? { editedInput } : {}), ...past }))
         .catch((err: unknown) => {
           if (alreadySettled((err as Error)?.message, decision)) {
             return { execution: undefined };
@@ -172,34 +182,12 @@ export function ReviewFocus(props: {
       showLearnedToast({ decision, actionId: run.actionId, runId: run.id, hasNote: false, undoable: isSelfUpdate(run.actionId) });
       leave();
     } catch (err) {
-      // What it was proposed on changed: nothing ran. Say what, in one line,
-      // and let the person run it anyway (`overrideStale`).
+      // What it was proposed on changed: nothing ran. The shell's banner says
+      // what, under the header, with Proceed anyway (`StaleBanner`), the same
+      // line the card shows: never a toast that leaves with the answer.
       if ((err as { code?: string })?.code === 'STALE') {
-        const editedInput = buildEditedInput();
-        const fingerprint = (err as { data?: { stale?: { fingerprint?: string } } }).data?.stale?.fingerprint;
-        toast.info(`Not run · ${title}`, {
-          description: err instanceof Error ? err.message.replace(/^Not run: /, '') : String(err),
-          duration: 15_000,
-          action: {
-            label: 'Proceed anyway',
-            onClick: () => {
-              void client.review
-                .decideAction({ id: run.id, decision: 'approve', overrideStale: true, ...(fingerprint ? { staleFingerprint: fingerprint } : {}), ...(editedInput ? { editedInput } : {}) })
-                .then((outcome) => {
-                  if (outcome.execution?.status === 'failed') {
-                    toast.error(`Approved, but it failed to run · ${title}`, { description: outcome.execution.error ?? 'It stays on the review queue; Approve again to retry.' });
-                    router.refresh();
-                    return;
-                  }
-                  setDecided(d => d + 1);
-                  toast.success(`Approved · ${title}`, { description: 'Run past what changed; that is recorded on the run.' });
-                  leave();
-                })
-                .catch((e: unknown) => toast.error(`Could not approve · ${title}`, { description: e instanceof Error ? e.message : String(e) }));
-            },
-          },
-        });
-        router.refresh();
+        const found = (err as { data?: { stale?: ReviewStale } }).data?.stale;
+        setStale(found ?? { line: err instanceof Error ? err.message.replace(/^Not run: /, '') : String(err), checkedAt: new Date().toISOString(), canRedraft: false });
         return;
       }
       toast.error(`Could not ${decision === 'approve' ? 'approve' : 'decline'} · ${title}`, { description: err instanceof Error ? err.message : String(err) });
@@ -322,6 +310,8 @@ export function ReviewFocus(props: {
       steering={steering}
       busy={busy}
       onDecide={d => void onDecide(d)}
+      stale={stale}
+      onProceedStale={() => void onDecide('approve', { overrideStale: true })}
       snoozeOpen={snoozeOpen}
       onToggleSnooze={() => setSnoozeOpen(o => !o)}
       onSnooze={d => void onSnooze(d)}

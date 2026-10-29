@@ -48,7 +48,7 @@ function update(over: Partial<ReviewCardRun> = {}): ReviewCardRun {
 describe('an item overtaken by events', () => {
   it('says what changed, old to new, under the decision line, and proceeds past it on request', async () => {
     decideAction.mockReset().mockResolvedValue({ ok: true, execution: { status: 'done' } });
-    await render(<ReviewSurface run={update({ stale: { line: 'Dana Reyes wrote again on Oct 30', changed: [{ label: 'Deal stage', from: 'Proposal sent', to: 'Negotiation' }], checkedAt: '2026-10-30T10:00:00Z', canRedraft: false } })} crumbs={CRUMBS} />);
+    await render(<ReviewSurface run={update({ stale: { line: 'Dana Reyes wrote again on Oct 30', changed: [{ label: 'Deal stage', from: 'Proposal sent', to: 'Negotiation' }], checkedAt: '2026-10-30T10:00:00Z', canRedraft: false, fingerprint: 'fp-dana-oct30' } })} crumbs={CRUMBS} />);
 
     await expect.element(page.getByTestId('review-stale')).toHaveTextContent('Dana Reyes wrote again on Oct 30');
     await expect.element(page.getByTestId('review-stale-change')).toHaveTextContent('Deal stage: Proposal sent → Negotiation');
@@ -63,7 +63,8 @@ describe('an item overtaken by events', () => {
 
     await vi.waitFor(() => expect(decideAction).toHaveBeenCalled());
 
-    expect(decideAction.mock.calls[0]![0]).toMatchObject({ id: 7101, decision: 'approve', overrideStale: true });
+    // Past exactly what was shown: the finding's fingerprint goes back with it.
+    expect(decideAction.mock.calls[0]![0]).toMatchObject({ id: 7101, decision: 'approve', overrideStale: true, staleFingerprint: 'fp-dana-oct30' });
   });
 
   it('offers Redraft when the action can, and says the next pass will when its agent redrafts', async () => {
