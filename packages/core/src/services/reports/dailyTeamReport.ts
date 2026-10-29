@@ -52,6 +52,7 @@ import { agentScopedOnly } from '@/services/BudgetService';
 import { teamReport } from '@/services/TeamReportService';
 import { workforceInsights } from '@/services/workforce/activityInsights';
 import { outcomeInsights } from '@/services/workforce/insights';
+import { learningInsights } from '@/services/workforce/learning';
 import { readWorkforceOutcomes } from '@/services/workforce/ledger';
 import { DAILY_TEAM_REPORT_PUBLISHER, shapeDailyTeamReport } from './dailyTeamReportShape';
 
@@ -302,7 +303,8 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
     ...(performance ? { performance } : {}),
     needsYou,
     outcomeInsights: [
-      ...outcomeInsights(outcomes),
+      ...outcomeInsights(outcomes).slice(0, 3),
+      ...(outcomes.learning ? learningInsights(outcomes.learning).slice(0, 2) : []),
       ...(inventory
         ? workforceInsights(inventory).slice(0, 3).map(({ agent, kind }) => ({
             evidence: `Agent ${agent.slug}: ${agent.reviewDecisions} review decisions in this window.`,

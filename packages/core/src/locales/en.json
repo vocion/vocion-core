@@ -1059,6 +1059,19 @@
     "key": "Stable business key",
     "agent": "Accountable agent",
     "workflow": "Workflow type",
-    "stale": "Linked output changed. Reopen, refresh the source link, and review again. Excluded from current accepted totals."
+    "stale": "Linked output changed. Reopen, refresh the source link, and review again. Excluded from current accepted totals.",
+    "learningTitle": "Learning assets and evidence",
+    "learningNote": "Current accumulated stock, with new feedback for the selected period. Cases are deduplicated within each dataset; datasets may overlap. These counts do not prove improved performance.",
+    "evalCases": "Unique dataset cases",
+    "referenceCases": "Cases with reference answers",
+    "feedbackStock": "Unique feedback received · accumulated",
+    "feedbackReceived": "New feedback · selected period",
+    "learningApproved": "Approved learning candidates · accumulated",
+    "learningEvaluated": "Approved candidates with completed evals",
+    "learningCoverage": "{covered}/{agents} registered agents have cases · {fresh}/{datasets} datasets have fresh results.",
+    "feedbackQueue": "Feedback processing: {pending} pending · {failed} failed · {applied} applied. Applied does not mean validated.",
+    "learningUnknown": "Reviewed gold standards, independent holdout coverage, and validated improvement: not yet measured. A reference answer is not automatically a reviewed gold standard.",
+    "evalDetail": "Dataset v{version} · grader {provider} · latest run {status} · pass rate {rate}",
+    "evalFreshness": "A displayed pass rate requires a successful run on this dataset version after its last edit, within 30 days, with a recorded configuration SHA. It does not prove the current configuration improved."
   }
 }

@@ -48,7 +48,7 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
       </div>
       <p className="text-sm text-muted-foreground">{t('note')}</p>
       {error && <p role="alert">{error}</p>}
-      {report && (
+      {report && report.test === test && (
         <>
           <div className="flex flex-wrap gap-8">
             {(['items', 'accepted', 'blocked'] as const).map(k => (
@@ -73,6 +73,60 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
           >
             {t('export')}
           </button>
+          {report.learning && (
+            <section className="space-y-3 rounded-xl border border-border p-4" aria-label={t('learningTitle')}>
+              <h3 className="font-semibold">{t('learningTitle')}</h3>
+              <p className="text-sm text-muted-foreground">{t('learningNote')}</p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {([
+                  ['evalCases', report.learning.summary.cases],
+                  ['referenceCases', report.learning.summary.referenceCases],
+                  ['feedbackStock', report.learning.feedback.accumulated],
+                  ['feedbackReceived', report.learning.feedback.received],
+                  ['learningApproved', report.learning.candidates.approved],
+                  ['learningEvaluated', report.learning.candidates.eval_completed],
+                ] as const).map(([label, count]) => (
+                  <div key={label} className="rounded-lg bg-muted p-3">
+                    <strong className="block text-xl">{count}</strong>
+                    <span className="text-sm">{t(label)}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm">{t('learningCoverage', { covered: report.learning.summary.agentsWithCases, agents: report.learning.summary.registeredAgents, fresh: report.learning.summary.freshDatasets, datasets: report.learning.summary.datasets })}</p>
+              <p className="text-sm">{t('feedbackQueue', { pending: report.learning.feedback.pending, failed: report.learning.feedback.failed, applied: report.learning.feedback.applied })}</p>
+              <p className="text-sm text-muted-foreground">{t('learningUnknown')}</p>
+              {report.learningRecommendations.map(insight => (
+                <div key={insight.evidence} className="rounded-lg bg-primary/5 p-3 text-sm">
+                  <strong>{insight.evidence}</strong>
+                  <p>{insight.text}</p>
+                  <p className="mt-2 text-muted-foreground">{insight.measure}</p>
+                </div>
+              ))}
+              {report.learning.datasets.map(dataset => (
+                <details key={dataset.id} className="rounded-xl border border-border p-3">
+                  <summary className="cursor-pointer">
+                    <strong>{dataset.slug}</strong>
+                    <span className="ml-3 text-sm text-muted-foreground">
+                      {dataset.agentSlug}
+                      {' '}
+                      ·
+                      {' '}
+                      {dataset.teamSlug ?? t('unknown')}
+                      {' '}
+                      ·
+                      {' '}
+                      {dataset.cases}
+                      {' '}
+                      {t('evalCases')}
+                    </span>
+                  </summary>
+                  <p className="mt-3 text-sm">{t('evalDetail', { version: dataset.version, provider: dataset.provider, status: dataset.latestStatus ?? t('unknown'), rate: dataset.passRate === null ? t('unknown') : `${Math.round(dataset.passRate * 100)}%` })}</p>
+                  <p className="text-sm text-muted-foreground">{t('evalFreshness')}</p>
+                  <p className="text-sm break-all">{dataset.workspaceSha ?? t('unknown')}</p>
+                </details>
+              ))}
+            </section>
+          )}
           {outcomeInsights(report).map(insight => (
             <div key={insight.itemId} className="rounded-xl bg-primary/5 p-4 text-sm">
               <strong>{insight.evidence}</strong>

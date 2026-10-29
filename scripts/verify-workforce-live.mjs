@@ -86,6 +86,15 @@ await check('synthetic rows excluded from business report', async () => {
   assert.equal(r.status, 200);
   const report = await r.json();
   assert.ok(!report.items.some(i => created.some(c => c.itemId === i.id)));
+  assert.equal(report.learning.summary.reviewedGoldStandards, null);
+  assert.equal(report.learning.summary.validatedImprovements, null);
+  assert.ok(report.learning.summary.agentsWithCases <= report.learning.summary.registeredAgents);
+  assert.ok(report.learning.feedback.received <= report.learning.feedback.accumulated);
+  for (const dataset of report.learning.datasets) {
+    assert.ok(dataset.referenceCases <= dataset.cases);
+    assert.ok(dataset.passRate === null || (dataset.fresh && dataset.workspaceSha && dataset.passRate >= 0 && dataset.passRate <= 1));
+    assert.ok(!('items' in dataset));
+  }
 });
 await check('durable evidence and unknown cost semantics', async () => {
   const r = await request('/api/v1/workforce?test=true');
@@ -94,6 +103,7 @@ await check('durable evidence and unknown cost semantics', async () => {
   for (const item of created) {
     assert.ok(report.items.some(i => i.id === item.itemId));
   }
+  assert.equal(report.learning, null);
   const row = report.items.find(i => i.id === first.itemId);
   assert.equal(row.events.length, 2);
   assert.equal(row.activeEffortMinutes, 2);

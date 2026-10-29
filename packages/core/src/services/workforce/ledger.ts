@@ -4,6 +4,7 @@ import { and, asc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { actionRunSchema, agentSchema, workforceEventSchema as events, workforceItemSchema as items, workforceLinkSchema as links, workerRunSchema } from '@/models/Schema';
 import { workforceCommand, WorkforceError } from './contracts';
+import { learningInsights, readWorkforceLearning } from './learning';
 
 function fingerprint(row: { input: unknown; result: unknown; status: string }) {
   return createHash('sha256').update(JSON.stringify({ input: row.input, result: row.result, status: row.status })).digest('hex');
@@ -136,6 +137,7 @@ export async function recordWorkforceCommand(orgId: string, actorId: string, raw
  * @param test
  */
 export async function readWorkforceOutcomes(orgId: string, since: Date, until: Date, test = false) {
+  const learning = test ? null : await readWorkforceLearning(orgId, since, until);
   return db.transaction(async (tx) => {
     const found = await tx.select().from(items).where(and(eq(items.orgId, orgId), eq(items.test, test), gte(items.updatedAt, since), lt(items.updatedAt, until))).orderBy(asc(items.id)).limit(1001);
     const selected = found.slice(0, 1000);
@@ -166,7 +168,7 @@ export async function readWorkforceOutcomes(orgId: string, since: Date, until: D
       return { ...item, evidenceChanged, links: itemLinks, events: itemEvents.map(({ commandHash: _hash, ...e }) => e), linkedWorkerCostCents, costCoverage: 'partial' as const, activeEffortMinutes: evidenceComplete && effort.length ? effort.reduce((s, e) => s + Number(e.data.effortMinutes), 0) : null, effortCoverage: evidenceComplete && reviews.length > 0 && effort.length === reviews.length ? 'reported' as const : 'partial' as const, firstPassAccepted: evidenceComplete && reviews.length ? reviews[0]!.data.status === 'accepted' : null };
     });
     const accepted = rows.filter(i => !i.evidenceChanged && ['accepted', 'corrected'].includes(i.status));
-    return { schemaVersion: 1, workspaceId: orgId, generatedAt: until.toISOString(), window: { from: since.toISOString(), to: until.toISOString() }, test, complete: found.length <= 1000 && evidenceComplete, cohort: 'items updated in window' as const, items: rows, summary: { items: rows.length, accepted: accepted.length, blocked: rows.filter(i => i.status === 'blocked').length, firstPassAccepted: accepted.filter(i => i.firstPassAccepted).length, costPerAcceptedItem: null, netTimeSavedMinutes: null },
+    return { learning, learningRecommendations: learning ? learningInsights(learning) : [], schemaVersion: 1, workspaceId: orgId, generatedAt: until.toISOString(), window: { from: since.toISOString(), to: until.toISOString() }, test, complete: found.length <= 1000 && evidenceComplete, cohort: 'items updated in window' as const, items: rows, summary: { items: rows.length, accepted: accepted.length, blocked: rows.filter(i => i.status === 'blocked').length, firstPassAccepted: accepted.filter(i => i.firstPassAccepted).length, costPerAcceptedItem: null, netTimeSavedMinutes: null },
     };
   }, { isolationLevel: 'repeatable read', accessMode: 'read only' });
 }
