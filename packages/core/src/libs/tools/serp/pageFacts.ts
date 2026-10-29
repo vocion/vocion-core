@@ -73,7 +73,7 @@ function meta($: CheerioAPI, ...keys: string[]): string | null {
  * Every JSON-LD node on the page, `@graph` flattened.
  * @param $ - The parsed page.
  */
-function jsonLdNodes($: CheerioAPI): Array<Record<string, unknown>> {
+export function jsonLdNodes($: CheerioAPI): Array<Record<string, unknown>> {
   const nodes: Array<Record<string, unknown>> = [];
   const visit = (value: unknown): void => {
     if (Array.isArray(value)) {
@@ -101,7 +101,7 @@ function jsonLdNodes($: CheerioAPI): Array<Record<string, unknown>> {
   return nodes;
 }
 
-function typesOf(node: Record<string, unknown>): string[] {
+export function typesOf(node: Record<string, unknown>): string[] {
   const raw = node['@type'];
   const list = Array.isArray(raw) ? raw : [raw];
   return list.filter((t): t is string => typeof t === 'string').map(t => t.replace(/^https?:\/\/schema\.org\//, ''));

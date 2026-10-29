@@ -13,6 +13,7 @@
  *   seo_save_review      the editor's verdict; a pass files the page's sign-off itself;
  *                        FAILS a location page that is a sibling with the city swapped
  *   seo_record_feedback  a note on a page, its scope, and where it was filed — checked, not taken on trust
+ *   seo_propose_profile  the client's SEO profile, pre-filled from their site, as one card a person saves (`seoProfile.ts`)
  *
  * The gate is code (`services/seo/gate.ts`), not a prompt, and so are the
  * asks (`services/seo/signoff.ts`): these tools are the only path that
@@ -47,6 +48,7 @@ import { describeVoiceFindings, draftVoiceFindings } from '@/services/seo/voiceC
 import { findingsMd, followFrom, normaliseFindings, queueSeoWork, SEO_EDITOR_ROUNDS } from '@/services/seo/work';
 import { recordIdArg, recordIdOf } from './recordIdArg';
 import { planFromKeywords, registerLine, seoListKeywordsTool, seoUpdateKeywordsTool } from './seoKeywords';
+import { seoProposeProfileTool } from './seoProfile';
 import { seoReadPageTool } from './seoReadPage';
 
 export const SEO_PLUGIN = 'seo';
@@ -864,6 +866,7 @@ export function seoTools(ctx: RuntimeContext) {
     seoLearnFrontmatterTool(ctx),
     seoListKeywordsTool(ctx),
     seoUpdateKeywordsTool(ctx),
+    seoProposeProfileTool(ctx),
   ];
   // The SEO seats' own tools are never behind tool search: a teammate on its
   // own model gets the lead's tiered set, and a live editor run could not find

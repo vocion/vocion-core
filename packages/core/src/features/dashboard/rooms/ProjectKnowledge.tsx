@@ -29,7 +29,7 @@ async function patchProject(projectId: number, body: Record<string, unknown>): P
   }
 }
 
-function EditButton({ onClick, label }: { onClick: () => void; label: string }) {
+export function EditButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
     <button type="button" onClick={onClick} className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground" aria-label={label}>
       <Pencil className="size-3" aria-hidden />
@@ -72,7 +72,7 @@ function Editor({ value, onChange, onSave, onCancel, busy, placeholder, mono }: 
  * last error. Saving refreshes the page so the agent reads what is shown.
  * @param projectId - The project.
  */
-function useProjectField(projectId: number) {
+export function useProjectField(projectId: number) {
   const router = useRouter();
   const [busy, start] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -105,7 +105,7 @@ export function ProjectInstructions({ projectId, rules }: { projectId: number; r
     field.setEditing(false);
   };
   return (
-    <Section eyebrow="Instructions" action={field.editing ? null : <EditButton label="Edit instructions" onClick={() => field.setEditing(true)} />} data-testid="room-rules">
+    <Section id="instructions" eyebrow="Instructions" action={field.editing ? null : <EditButton label="Edit instructions" onClick={() => field.setEditing(true)} />} data-testid="room-rules">
       {field.editing
         ? (
             <Editor
@@ -148,7 +148,7 @@ export function ProjectWiki({ projectId, notes }: { projectId: number; notes: st
     field.setEditing(false);
   };
   return (
-    <Section eyebrow="Wiki" action={field.editing ? null : <EditButton label="Edit wiki" onClick={() => field.setEditing(true)} />} data-testid="room-notes">
+    <Section id="wiki" eyebrow="Wiki" action={field.editing ? null : <EditButton label="Edit wiki" onClick={() => field.setEditing(true)} />} data-testid="room-notes">
       {field.editing
         ? (
             <Editor

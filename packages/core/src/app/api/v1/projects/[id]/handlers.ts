@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { publishTargetSchema } from '@/libs/publish/targets';
 import { exportDataRoom, getDataRoom, unfileFromDataRoom, updateDataRoom } from '@/services/DataRoomService';
+import { seoProfileSchema } from '@/services/seo/profile';
 
 /**
  * What `/api/v1/projects/:id` and the older `/api/v1/rooms/:id` both answer,
@@ -44,6 +45,9 @@ const PatchSchema = z.object({
   seoCadence: z.object({ pagesPerMonth: z.number().int().min(1).max(200), focus: z.string().trim().max(200).optional() }).nullable().optional(),
   // Each target checked by publishing's own schema (`libs/publish/targets.ts`).
   publishTargets: z.array(publishTargetSchema).max(20).nullable().optional(),
+  // What kind of client this is and what it wants from search; a person's,
+  // like the gate (`services/seo/profile.ts`). Null clears it.
+  seoProfile: seoProfileSchema.nullable().optional(),
   // Only cleared from here (applied or dismissed): a suggestion is learned from the site's posts, never typed.
   publishTargetSuggestion: z.null().optional(),
 });
@@ -53,7 +57,7 @@ const LEARN_WAIT_MS = 8_000;
 
 /**
  * A person editing the project's wiki, instructions, auto-filing, SEO gate,
- * SEO cadence or publish targets from its page.
+ * SEO cadence, SEO profile or publish targets from its page.
  * @param caller - The authenticated caller.
  * @param rawId - The `:id` segment.
  * @param req - The request, for its JSON body.
@@ -67,12 +71,12 @@ export async function patchProject(caller: ApiCaller, rawId: string, req: NextRe
   if (!parsed.success) {
     return NextResponse.json({ error: { code: 'BAD_REQUEST', message: parsed.error.issues.map(i => i.message).join('; ') } }, { status: 400 });
   }
-  const { notes, rules, autoFile, seoGate, seoCadence, publishTargets, publishTargetSuggestion } = parsed.data;
+  const { notes, rules, autoFile, seoGate, seoCadence, seoProfile, publishTargets, publishTargetSuggestion } = parsed.data;
   // The gate, the cadence and the publish targets are a person's, on the
   // project page: a token (an outside system, or anything acting for an
   // agent) may not set them.
-  if ((seoGate !== undefined || seoCadence !== undefined || publishTargets !== undefined || publishTargetSuggestion !== undefined) && caller.source !== 'session') {
-    return NextResponse.json({ error: { code: 'FORBIDDEN', message: 'seoGate, seoCadence and publishTargets are set by a person signed in to the project page.' } }, { status: 403 });
+  if ((seoGate !== undefined || seoCadence !== undefined || seoProfile !== undefined || publishTargets !== undefined || publishTargetSuggestion !== undefined) && caller.source !== 'session') {
+    return NextResponse.json({ error: { code: 'FORBIDDEN', message: 'seoGate, seoCadence, seoProfile and publishTargets are set by a person signed in to the project page.' } }, { status: 403 });
   }
   const current = await getDataRoom(caller.orgId, id);
   if (!current) {
@@ -85,6 +89,7 @@ export async function patchProject(caller: ApiCaller, rawId: string, req: NextRe
     ...(autoFile === undefined ? {} : { autoFile }),
     ...(seoGate === undefined ? {} : { seoGate }),
     ...(seoCadence === undefined ? {} : { seoCadence: seoCadence && { pagesPerMonth: seoCadence.pagesPerMonth, ...(seoCadence.focus ? { focus: seoCadence.focus } : {}) } }),
+    ...(seoProfile === undefined ? {} : { seoProfile: seoProfile && { ...seoProfile, savedAt: new Date().toISOString(), savedBy: caller.actorId } }),
     ...(publishTargets === undefined ? {} : { publishTargets }),
     ...(publishTargetSuggestion === undefined ? {} : { publishTargetSuggestion }),
   });
