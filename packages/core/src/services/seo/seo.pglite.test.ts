@@ -33,6 +33,11 @@ vi.mock('@/services/feedback/duplicateDetection', async importOriginal => ({
   findDuplicateRule: vi.fn(async () => ({ duplicate: false, reason: 'test' })),
 }));
 
+// Load the mocked bus once, before anything saves: installing the app saves
+// the playbook copies, and each save imports it in the background. Several
+// first imports at once can leave the mock built from a half-loaded module,
+// its event names undefined.
+await import('@/services/EventService');
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, agentSchema, askSchema, automationSchema, learningCandidateSchema, modelCallSchema, projectSchema, tenantAccountSchema, trustRuleSchema, workflowSchema } = await import('@/models/Schema');
 const { executeAction, rejectAction } = await import('@/services/ActionService');
