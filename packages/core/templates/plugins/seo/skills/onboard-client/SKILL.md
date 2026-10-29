@@ -6,9 +6,10 @@ description: >-
   site inventoried from its sitemap, the client's voice as sourced lines,
   rules taken from every do and don't in their guides, competitors read from
   Google, services, audience, the content already on the site, and the brand.
-  Asks for what it could not find instead of inventing it. Read before opening
-  a project for a new client.
-version: 4
+  Asks for what it could not find instead of inventing it, and ends with the
+  client's SEO profile (what kind of client, goals ranked) on one card the
+  person saves. Read before opening a project for a new client.
+version: 5
 ---
 
 # Onboarding a client from their website
@@ -120,11 +121,31 @@ Otherwise say which kinds the workspace can publish to today. A repository
 that is private or not connected yet is one line in what is still missing; it
 blocks publishing only, never onboarding.
 
+## 9. The SEO profile, on one card
+
+What kind of client this is and what they want from search decides what the
+team does first: a local services client gets Google Business Profile work
+and location pages, a B2B SaaS client use-case, comparison and integration
+pages, a client who wants to be named in AI answers tracked prompts and
+pages worth citing.
+
+`seo_propose_profile` with the project, once the inventory and competitors
+are in. Code pre-fills what the site says (language, the home page's
+description and schema, the inventory's paths, the competitors Google
+ranked, the publish target). Pass what you read off the client's pages:
+`industry`, `offering`, `audience`, `tone`, and `client_type` or `goals` only
+when the pages make them clear or the person said them, each with where you
+read it in `read_from`. It puts ONE card in front of the person, who edits it
+and saves it. Do not ask the client type or the goals as separate questions:
+they are on the card, with a suggested order to change. Nothing is saved
+until the person saves it; never write it any other way.
+
 ## Done when
 
 The project is named after the client and has the site inventory, its
 authors when the site names them, and the
 pages read as sources, the brand read off the site, a sourced voice block,
 rules citing the guides and pages they came from, competitors read from
-Google, notes with services, audience and the content inventory, and a list
-of what is still missing, said to the person.
+Google, notes with services, audience and the content inventory, the SEO
+profile on its card for the person to save, and a list of what is still
+missing, said to the person.

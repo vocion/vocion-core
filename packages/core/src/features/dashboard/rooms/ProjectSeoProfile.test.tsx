@@ -12,7 +12,10 @@ import '@/styles/global.css';
  */
 
 const refresh = vi.fn();
-vi.mock('@/libs/I18nNavigation', () => ({ useRouter: () => ({ refresh }) }));
+vi.mock('@/libs/I18nNavigation', () => ({
+  useRouter: () => ({ refresh }),
+  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
+}));
 
 const { ProjectSeoProfile, profileFromDraft } = await import('./ProjectSeoProfile');
 
