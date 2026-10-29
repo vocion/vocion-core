@@ -117,6 +117,9 @@ function settledValue(rec: RecordInfo, type: TypeInfo | undefined): string | nul
 /** The action a candidate record's review is made with. */
 const CANDIDATE_ACTION = 'objects.propose_candidate';
 
+/** The largest id a record can have: `business_object.id` is a Postgres integer. */
+const MAX_RECORD_ID = 2_147_483_647;
+
 /** A proposal to file an ask is a question, like the ask itself. */
 const QUESTION_ACTIONS = new Set(['ask.file']);
 
@@ -168,12 +171,20 @@ async function loadFacts(orgId: string, runs: RunForTruth[], asks: AskForTruth[]
     typeBySlug.set(t.slug, info);
   }
 
+  // Only a ref that can name a workspace record is looked up. A CRM id under
+  // a type the workspace does not define (a HubSpot deal is 11 digits) is not
+  // a record ref, and past int4 it would fail the whole query.
   const ids = new Set<number>();
+  const collect = (ref: { type: string | null; id: number }) => {
+    if ((ref.type === null || typeBySlug.has(ref.type)) && ref.id <= MAX_RECORD_ID) {
+      ids.add(ref.id);
+    }
+  };
   for (const r of runs) {
-    runRefs(r).forEach(ref => ids.add(ref.id));
+    runRefs(r).forEach(collect);
   }
   for (const a of asks) {
-    askRefs(a).forEach(ref => ids.add(ref.id));
+    askRefs(a).forEach(collect);
   }
   const candidateRunIds = runs.filter(r => r.actionId === CANDIDATE_ACTION).map(r => r.id);
   const recordCols = {
