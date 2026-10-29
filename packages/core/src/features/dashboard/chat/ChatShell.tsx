@@ -287,8 +287,9 @@ function ChatShellInner({
   // two at most, of which "N things need your attention" is one candidate.
   // Without the server's hints, the plain count stands in.
   // In an app with a front, the front is the attention entry and the app's
-  // brief: the workspace-wide "N things need you" and "latest briefing"
-  // hints would say the same thing for the whole workspace, so they step aside.
+  // brief, and it says what waits outside the app in its own line ("N more
+  // waiting outside GTM"): the workspace-wide "N things need you" and
+  // "latest briefing" hints would say it twice, so they step aside.
   const front = useAppFront(appFronts);
   const hints = front && openingHints ? openingHints.filter(h => h.type !== 'attention' && h.key !== 'next:briefing') : openingHints;
   const nudge = hints

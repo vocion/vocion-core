@@ -80,3 +80,63 @@ export function rememberPlace(storage: StorageLike | null | undefined, slug: str
     // private mode / quota — the nav still works for this page load
   }
 }
+
+/**
+ * Said in this tab whenever the remembered app changes: `storage` events
+ * fire only in OTHER tabs, so a reader in this one (an app's Chat page,
+ * `chat/useAppFront.ts`) listens for this as well.
+ */
+export const NAV_PLACE_EVENT = 'vocion:nav-place';
+
+/**
+ * The app the person is in, per workspace, for the server: the Chat page is
+ * shared by every app and reads it to load only that app's front
+ * (`services/chat/appFront.ts`). `<slug>:<app>`, one workspace at a time.
+ */
+export const NAV_APP_COOKIE = 'vocion_nav_app';
+
+/**
+ * The cookie's value for one workspace's app.
+ * @param slug - The workspace's slug.
+ * @param app - The app the nav shows.
+ */
+export function navAppCookieValue(slug: string, app: string): string {
+  return `${encodeURIComponent(slug)}:${encodeURIComponent(app)}`;
+}
+
+/**
+ * The app the cookie names for this workspace, or null when it names another
+ * workspace, or nothing readable.
+ * @param value - The cookie's value.
+ * @param slug - This workspace's slug.
+ */
+export function appFromNavCookie(value: string | null | undefined, slug: string | null | undefined): string | null {
+  if (!value || !slug) {
+    return null;
+  }
+  const at = value.lastIndexOf(':');
+  if (at <= 0) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(value.slice(0, at)) === slug ? decodeURIComponent(value.slice(at + 1)) || null : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tell this tab and the server which app the person is in here: the cookie
+ * for the next render, the event for a reader already on the page. Called
+ * after `rememberPlace`. Survives a document without cookies.
+ * @param slug - The workspace's slug.
+ * @param app - The app the nav shows.
+ */
+export function announcePlace(slug: string, app: string): void {
+  try {
+    document.cookie = `${NAV_APP_COOKIE}=${navAppCookieValue(slug, app)}; path=/; max-age=31536000; samesite=lax`;
+  } catch {
+    // no document (a test) or cookies blocked: the page still reads storage
+  }
+  globalThis.dispatchEvent?.(new Event(NAV_PLACE_EVENT));
+}

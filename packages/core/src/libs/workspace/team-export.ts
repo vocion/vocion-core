@@ -16,7 +16,7 @@ export type TeamExportRow = {
   leadAgentSlug: string | null;
   accountableUserId: string | null;
   goal?: string | null;
-  /** The app a workspace team works in (migration 0230). */
+  /** The app a workspace team works in (migration 0227). */
   app?: string | null;
   /** @deprecated read only when `measures` is empty — a row applied before migration 0100. */
   kpis?: TeamKpi[] | null;

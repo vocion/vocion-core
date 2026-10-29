@@ -249,11 +249,12 @@ export async function decisionsSection(
  * @param opts.userId - Publisher, when a person triggered it.
  * @param opts.now - The clock.
  * @param opts.timeZone - The workspace's timezone for the date labels.
+ * @param opts.missionRunId
  */
 export async function publishBriefingDocument(
   orgId: string,
   input: PublishBriefingInput,
-  opts: { teamSlug: string | null; agentSlug?: string | null; userId?: string | null; now?: Date; timeZone?: string },
+  opts: { teamSlug: string | null; agentSlug?: string | null; userId?: string | null; now?: Date; timeZone?: string; missionRunId?: number | null },
 ): Promise<{ id: number; doc: BriefingV2; dropped: BriefingIssue[]; replaced: boolean }> {
   const now = opts.now ?? new Date();
   const { dateLabel, updatedLabel } = briefingLabels(now, opts.timeZone ?? 'UTC');
@@ -311,6 +312,8 @@ export async function publishBriefingDocument(
     publishedBy,
     agentSlug: opts.agentSlug ?? null,
     teamSlug: opts.teamSlug,
+    // Which run wrote it, so a stale brief names its own job's failure.
+    missionRunId: opts.missionRunId ?? null,
   };
 
   // A second publish from the same publisher into the same scope minutes

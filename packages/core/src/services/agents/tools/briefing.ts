@@ -72,6 +72,7 @@ export function publishBriefingTool(ctx: RuntimeContext) {
           userId: ctx.userId ?? null,
           // The workspace's (or the person's) day names the brief, not the server's.
           timeZone: ctx.timeZone,
+          missionRunId: ctx.missionRunId ?? null,
         });
         const sections = renderedSections(doc).join(', ');
         const notes = dropped.length > 0 ? `\nThe contract trimmed some of it: ${dropped.map(d => d.message).join('; ')}.` : '';

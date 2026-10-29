@@ -2,7 +2,7 @@
 
 import type { AppFront } from '@/libs/chat/appFront';
 import { useSyncExternalStore } from 'react';
-import { placeIn } from '@/features/dashboard/nav/workspaceMemory';
+import { NAV_PLACE_EVENT, placeIn } from '@/features/dashboard/nav/workspaceMemory';
 import { useWorkspaceSlug } from '@/libs/workspaceSlug';
 
 /**
@@ -14,8 +14,13 @@ function useRememberedApp(): string | null {
   const slug = useWorkspaceSlug();
   return useSyncExternalStore(
     (onChange) => {
+      // Another tab writes storage; this tab's sidebar says so by event.
       window.addEventListener('storage', onChange);
-      return () => window.removeEventListener('storage', onChange);
+      window.addEventListener(NAV_PLACE_EVENT, onChange);
+      return () => {
+        window.removeEventListener('storage', onChange);
+        window.removeEventListener(NAV_PLACE_EVENT, onChange);
+      };
     },
     () => placeIn(globalThis.localStorage, slug)?.app ?? null,
     () => null,

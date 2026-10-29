@@ -27,8 +27,10 @@ export type FrontBriefing = {
   href: string;
   /** True when it was published on the workspace's today. */
   today: boolean;
-  /** "Fri, Oct 23" — every brief not from today carries its date. */
-  dateLabel: string;
+  /** When it was published (ISO), drawn as its day in the person's locale. */
+  publishedAt: string;
+  /** The workspace's zone: the day a brief is from is the workspace's day. */
+  timeZone: string;
   /** The brief's own one-line read (`today.summary`), when it wrote one. */
   headline: string | null;
   /** "Needs your decision": the decisions it put in front of a person. */
@@ -41,21 +43,23 @@ export type FrontBriefing = {
 
 export type AppFront = {
   appId: string;
+  /** The app's name, for "N more waiting outside GTM". */
+  appName: string;
   /** The app's lead agent, asked the attention question by name (never a router guess). */
   leadSlug: string | null;
-  /** What the attention entry sends. */
-  prompt: string;
   counts: AttentionCount[];
   /** Items past the shown counts, and where all of them are. */
   more: { count: number; href: string } | null;
+  /** What waits on a person from outside this app, and where it is. */
+  outside: { count: number; href: string } | null;
   briefing: FrontBriefing | null;
 };
 
 /** The briefing row the front reads. */
-export type BriefingRowInput = { id: number; title: string; createdAt: Date; teamSlug: string | null; document: BriefingV2 | null };
+export type BriefingRowInput = { id: number; title: string; createdAt: Date; teamSlug: string | null; document: BriefingV2 | null; missionRunId: number | null };
 
 /** A Review item as the counts need it (`InboxItem`'s fields). */
-export type WaitingItemInput = { agentSlug: string | null; teamSlug: string | null; actionId?: string; count?: number };
+export type WaitingItemInput = { agentSlug: string | null; actionId?: string };
 
 /** An automation run as the staleness check reads it. */
 export type AutomationRunInput = { id: number; slug: string; kind: string; status: string; startedAt: Date; finishedAt: Date | null; targetRunId: number | null };
@@ -84,15 +88,6 @@ export function pickAppBriefing<T extends Pick<BriefingRowInput, 'createdAt' | '
   return best;
 }
 
-/**
- * The day a brief is from, in the workspace's zone: "Fri, Oct 23".
- * @param d - When it was published.
- * @param timeZone - The workspace's zone.
- */
-export function briefDayLabel(d: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short', month: 'short', day: 'numeric' }).format(d);
-}
-
 function dayKey(d: Date, timeZone: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 }
@@ -115,21 +110,28 @@ export function topMoves(doc: BriefingV2 | null): string[] {
 }
 
 /**
- * Whether the job that writes this brief failed after it: the run that was
- * going when the brief was published names the automation, and that
- * automation's newest run since then decides. A run still going, or one that
- * succeeded, is no failure; a brief no automation wrote has nothing to say.
- * @param publishedAt - When the brief was published.
- * @param runs - Automation runs around and after it.
+ * Whether the job that writes this brief failed after it. The brief names
+ * the mission run that published it (`briefing.mission_run_id`, stamped by
+ * `publish_briefing`); the automation run that dispatched that mission run is
+ * the writer, and only that automation's newest run since the brief decides.
+ * A run still going, or one that succeeded, is no failure; a brief published
+ * outside a mission run names no writer and has nothing to say.
+ * @param brief - When it was published and the mission run that published it.
+ * @param brief.createdAt - When it was published.
+ * @param brief.missionRunId - The mission run that published it, if any.
+ * @param runs - Automation runs: the writer and its automation's later runs.
  * @returns The failed run's page, or null.
  */
-export function failedRunAfter(publishedAt: Date, runs: readonly AutomationRunInput[]): { href: string } | null {
-  const writer = runs.find(r => r.startedAt <= publishedAt && (r.finishedAt === null || r.finishedAt >= publishedAt));
+export function failedRunAfter(brief: { createdAt: Date; missionRunId: number | null }, runs: readonly AutomationRunInput[]): { href: string } | null {
+  if (brief.missionRunId === null) {
+    return null;
+  }
+  const writer = runs.find(r => r.kind === 'mission_check' && r.targetRunId === brief.missionRunId);
   if (!writer) {
     return null;
   }
   const later = runs
-    .filter(r => r.slug === writer.slug && r.id !== writer.id && r.startedAt > publishedAt)
+    .filter(r => r.slug === writer.slug && r.id !== writer.id && r.startedAt > brief.createdAt)
     .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())[0];
   if (!later || later.status !== 'error') {
     return null;
@@ -146,7 +148,7 @@ export function failedRunAfter(publishedAt: Date, runs: readonly AutomationRunIn
  * @param opts - Now, the workspace's zone, and the run log after it.
  * @param opts.now - Now.
  * @param opts.timeZone - The workspace's zone.
- * @param opts.runs - Automation runs since shortly before it was published.
+ * @param opts.runs - The run that wrote it and its automation's runs since.
  */
 export function frontBriefing(row: BriefingRowInput, opts: { now: Date; timeZone: string; runs: readonly AutomationRunInput[] }): FrontBriefing {
   const today = dayKey(row.createdAt, opts.timeZone) === dayKey(opts.now, opts.timeZone);
@@ -155,56 +157,56 @@ export function frontBriefing(row: BriefingRowInput, opts: { now: Date; timeZone
     title: row.title,
     href: briefingHref(row.id),
     today,
-    dateLabel: briefDayLabel(row.createdAt, opts.timeZone),
+    publishedAt: row.createdAt.toISOString(),
+    timeZone: opts.timeZone,
     headline: row.document?.today?.summary?.trim() || null,
     decisions: row.document?.decisions?.judgment.length ?? 0,
     moves: topMoves(row.document),
     // Only a brief that is not today's can be stale.
-    failedRun: today ? null : failedRunAfter(row.createdAt, opts.runs),
+    failedRun: today ? null : failedRunAfter(row, opts.runs),
   };
 }
 
 /**
- * The counts behind the attention entry: what waits on a person from this
- * app's agents and teams, one count per kind of action, largest first. An
- * item a surface decides (`Surface.decides`) links to that surface; the rest
- * link to Review filtered to the app's agents and that kind.
- * @param items - The open Review items (`needsYouItems`).
- * @param scope - The app's agents and teams.
- * @param scope.agents - Agent slugs on the app's teams.
- * @param scope.teams - The app's team slugs.
+ * The counts behind the attention entry: the Review rows this app's agents
+ * left waiting on a person, one count per kind of action, largest first. Rows
+ * are counted, the same unit Review and its badge count. Each count's link
+ * shows exactly the rows it counted: an item a surface decides
+ * (`Surface.decides`) links to that surface; the rest link to Review filtered
+ * to the app's agents and that kind. What waits from outside the app is
+ * counted apart, so the front never hides it.
+ * @param items - The open Review rows (`needsYouItems`).
+ * @param agents - Agent slugs on the app's teams.
  * @param opts - How a kind is named and where a surface decides it.
  * @param opts.label - An action id as a person reads it (`actionLabel`).
  * @param opts.surfaceFor - The surface url that decides an action id, if any.
  */
 export function attentionCounts(
   items: readonly WaitingItemInput[],
-  scope: { agents: readonly string[]; teams: readonly string[] },
+  agents: readonly string[],
   opts: { label: (actionId: string) => string; surfaceFor: (actionId: string) => string | null },
-): { counts: AttentionCount[]; more: AppFront['more'] } {
-  const mine = items.filter(i => (i.agentSlug !== null && scope.agents.includes(i.agentSlug)) || (i.teamSlug !== null && scope.teams.includes(i.teamSlug)));
+): { counts: AttentionCount[]; more: AppFront['more']; outside: AppFront['outside'] } {
+  const mine = items.filter(i => i.agentSlug !== null && agents.includes(i.agentSlug));
+  const outsideCount = items.length - mine.length;
+  const outside = outsideCount > 0 ? { count: outsideCount, href: REVIEW_HREF } : null;
   if (mine.length === 0) {
-    return { counts: [], more: null };
+    return { counts: [], more: null, outside };
   }
-  const agentsParam = [...scope.agents].sort().join(',');
+  const agentsParam = [...agents].sort().join(',');
   const reviewHref = (actionId?: string) => {
-    const q = new URLSearchParams();
-    if (agentsParam) {
-      q.set('agents', agentsParam);
-    }
+    const q = new URLSearchParams({ agents: agentsParam });
     if (actionId) {
       q.set('actionKind', actionId);
     }
-    const qs = q.toString();
-    return qs ? `${REVIEW_HREF}?${qs}` : REVIEW_HREF;
+    return `${REVIEW_HREF}?${q.toString()}`;
   };
   const byKind = new Map<string, number>();
   for (const item of mine) {
     const key = item.actionId ?? '';
-    byKind.set(key, (byKind.get(key) ?? 0) + (item.count ?? 1));
+    byKind.set(key, (byKind.get(key) ?? 0) + 1);
   }
   const ranked = [...byKind].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  // A kind with no action id (an ask, a run to retry) is counted, not named:
+  // A row with no action id (an ask, a run to retry) is counted, not named:
   // it rides in "N more in Review".
   const named = ranked.filter(([id]) => id !== '');
   const counts: AttentionCount[] = named.slice(0, MAX_COUNTS).map(([id, count]) => ({
@@ -213,17 +215,6 @@ export function attentionCounts(
     count,
     href: opts.surfaceFor(id) ?? reviewHref(id),
   }));
-  const total = ranked.reduce((n, [, c]) => n + c, 0);
   const shown = counts.reduce((n, c) => n + c.count, 0);
-  return { counts, more: total > shown ? { count: total - shown, href: reviewHref() } : null };
-}
-
-/**
- * What the attention entry asks the app's lead. Plain words: the structure of
- * the answer is the agent's skill, not the chip's (`chat/synthesis.ts`).
- * @param briefing - The app's brief, when there is one.
- */
-export function attentionPrompt(briefing: Pick<FrontBriefing, 'title' | 'today' | 'dateLabel'> | null): string {
-  const from = briefing ? ` Start from ${briefing.today ? 'today\'s' : `the ${briefing.dateLabel}`} briefing ("${briefing.title}") and` : ' Start from';
-  return `What needs my attention today?${from} what is waiting on me in Review: what is at risk, and the 3 moves that matter most.`;
+  return { counts, more: mine.length > shown ? { count: mine.length - shown, href: reviewHref() } : null, outside };
 }

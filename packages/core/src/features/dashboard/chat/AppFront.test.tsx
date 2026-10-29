@@ -1,8 +1,10 @@
 import type { AppFront as AppFrontData } from '@/libs/chat/appFront';
+import { NextIntlClientProvider } from 'next-intl';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
-import { NAV_WHERE_KEY } from '@/features/dashboard/nav/workspaceMemory';
+import { NAV_PLACE_EVENT, NAV_WHERE_KEY } from '@/features/dashboard/nav/workspaceMemory';
+import en from '@/locales/en.json';
 import '@/styles/global.css';
 
 /**
@@ -20,25 +22,31 @@ const { useAppFront } = await import('./useAppFront');
 
 const FRONT: AppFrontData = {
   appId: 'sales',
+  appName: 'Sales',
   leadSlug: 'pipeline-lead',
-  prompt: 'What needs my attention today? Start from today\'s briefing ("Pipeline Briefing").',
   counts: [
     { key: 'mail.send', label: 'Send email', count: 6, href: '/dashboard/inbox?agents=pipeline-lead&actionKind=mail.send' },
     { key: 'leads.enroll', label: 'Enroll lead', count: 2, href: '/gtm/personalization' },
   ],
   more: { count: 3, href: '/dashboard/inbox?agents=pipeline-lead' },
+  outside: { count: 4, href: '/dashboard/inbox' },
   briefing: {
     id: 12,
     title: 'Pipeline Briefing',
     href: '/dashboard/briefings/12',
     today: false,
-    dateLabel: 'Fri, Oct 23',
+    publishedAt: '2026-10-24T06:00:00.000Z',
+    timeZone: 'America/Los_Angeles',
     headline: 'Two renewals slipped; Northwind wants a revised scope.',
     decisions: 2,
     moves: ['Approve the Northwind scope', 'Send the Kestrel Capital follow-up'],
     failedRun: { href: '/dashboard/missions/runs/42' },
   },
 };
+
+function renderIt(ui: React.ReactNode) {
+  return render(<NextIntlClientProvider locale="en" messages={en} timeZone="UTC">{ui}</NextIntlClientProvider>);
+}
 
 beforeEach(() => {
   localStorage.clear();
@@ -47,14 +55,14 @@ beforeEach(() => {
 describe('AppFront', () => {
   it('opens on the attention entry and asks the app\'s lead by name', async () => {
     const onAsk = vi.fn();
-    render(<AppFront front={FRONT} onAsk={onAsk} />);
+    renderIt(<AppFront front={FRONT} onAsk={onAsk} />);
     await page.getByTestId('app-front-attention').click();
 
-    expect(onAsk).toHaveBeenCalledWith(FRONT.prompt, 'pipeline-lead');
+    expect(onAsk).toHaveBeenCalledWith(expect.stringContaining('Start from the Fri, Oct 23 briefing ("Pipeline Briefing")'), 'pipeline-lead');
   });
 
   it('links each count to where its items are', async () => {
-    render(<AppFront front={FRONT} onAsk={() => {}} />);
+    renderIt(<AppFront front={FRONT} onAsk={() => {}} />);
 
     await expect.element(page.getByTestId('app-front-count').first()).toBeVisible();
 
@@ -65,10 +73,12 @@ describe('AppFront', () => {
       ['2 Enroll lead', '/gtm/personalization'],
     ]);
     await expect.element(page.getByTestId('app-front-more')).toHaveTextContent('3 more in Review');
+    await expect.element(page.getByTestId('app-front-outside')).toHaveTextContent('4 more waiting outside Sales');
+    await expect.element(page.getByTestId('app-front-outside')).toHaveAttribute('href', '/dashboard/inbox');
   });
 
   it('dates a brief from another day and says its run failed, with the run', async () => {
-    render(<AppFront front={FRONT} onAsk={() => {}} />);
+    renderIt(<AppFront front={FRONT} onAsk={() => {}} />);
 
     await expect.element(page.getByTestId('app-front-briefing-date')).toHaveTextContent('Fri, Oct 23');
     await expect.element(page.getByTestId('app-front-briefing-failed').getByRole('link')).toHaveAttribute('href', '/dashboard/missions/runs/42');
@@ -78,7 +88,7 @@ describe('AppFront', () => {
   });
 
   it('shrinks with what there is: no briefing, no briefing block', async () => {
-    render(<AppFront front={{ ...FRONT, briefing: null, more: null }} onAsk={() => {}} />);
+    renderIt(<AppFront front={{ ...FRONT, briefing: null, more: null, outside: null }} onAsk={() => {}} />);
 
     await expect.element(page.getByTestId('app-front-attention')).toBeVisible();
     await expect.element(page.getByTestId('app-front-briefing')).not.toBeInTheDocument();
@@ -97,6 +107,18 @@ describe('useAppFront', () => {
     render(<Probe fronts={{ sales: FRONT }} />);
 
     await expect.element(page.getByTestId('probe')).toHaveTextContent('sales');
+  });
+
+  it('follows an app switch in this tab, which fires no storage event', async () => {
+    localStorage.setItem(NAV_WHERE_KEY, JSON.stringify({ 'northwind-sales': { app: 'sales', path: '/dashboard/chat', at: 1 } }));
+    render(<Probe fronts={{ sales: FRONT }} />);
+
+    await expect.element(page.getByTestId('probe')).toHaveTextContent('sales');
+
+    localStorage.setItem(NAV_WHERE_KEY, JSON.stringify({ 'northwind-sales': { app: 'workforce', path: '/dashboard/chat', at: 2 } }));
+    window.dispatchEvent(new Event(NAV_PLACE_EVENT));
+
+    await expect.element(page.getByTestId('probe')).toHaveTextContent('none');
   });
 
   it('draws none in the core app or before the browser has said', async () => {

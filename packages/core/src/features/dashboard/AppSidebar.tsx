@@ -30,7 +30,7 @@ import { appsLine } from '@/features/dashboard/nav/pickerModel';
 import { PinnableNav } from '@/features/dashboard/nav/PinnableNav';
 import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
 import { useWorkspaceDirectory } from '@/features/dashboard/nav/useWorkspaceDirectory';
-import { placeIn, rememberPlace } from '@/features/dashboard/nav/workspaceMemory';
+import { announcePlace, placeIn, rememberPlace } from '@/features/dashboard/nav/workspaceMemory';
 import { WORKSPACE_HOME } from '@/features/dashboard/nav/workspaceSwitch';
 import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { SETUP_CHANGED_EVENT } from '@/features/dashboard/setupChanged';
@@ -219,6 +219,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   useEffect(() => {
     if (slug && activeAppNav && !lost) {
       rememberPlace(globalThis.localStorage, slug, { app: activeAppNav.id, path: pathname });
+      announcePlace(slug, activeAppNav.id);
     }
   }, [slug, activeAppNav, pathname, lost]);
   const pickApp = (app: RailApp) => {
