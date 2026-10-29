@@ -134,3 +134,101 @@ export function previewRefFor(link: DashboardLink): { type: 'object' | 'record_h
 export function isPlainClick(e: { button: number; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }): boolean {
   return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 }
+
+/** The smallest shape of a markdown tree node {@link remarkLinkAppPaths} needs. */
+type MdNode = { type: string; value?: string; url?: string; children?: MdNode[] };
+
+/**
+ * An in-app path written as text: `/dashboard/…`, or a workspace's
+ * `/w/<slug>/dashboard/…`, starting a word. A link's own text and code
+ * fences are never read (the plugin skips them).
+ */
+const APP_PATH = /(^|[\s([{"'“‘])((?:\/w\/[\w-]+)?\/dashboard(?:[/?#][^\s)\]}<>"'`“”‘’]*)?)/g;
+
+/** What a sentence may end a path with that is not part of it. */
+const TRAILING = /[.,;:!?]+$/;
+
+/**
+ * A readable name for an in-app path: "/dashboard/p/seo-pages?batch=506" →
+ * "Seo pages · batch 506". The route's words, never a lookup.
+ * @param path - The path as written.
+ */
+export function appPathLabel(path: string): string {
+  const [route = '', query = ''] = path.replace(/^\/w\/[^/?#]+/, '').replace(/#.*$/, '').split('?');
+  const words = route.replace(/^\/dashboard/, '').split('/').filter(seg => seg && seg !== 'p').map((seg) => {
+    try {
+      return decodeURIComponent(seg).replace(/[-_]+/g, ' ');
+    } catch {
+      return seg;
+    }
+  });
+  const base = words.join(' › ') || 'Dashboard';
+  const params = [...new URLSearchParams(query).entries()].filter(([k]) => k !== 'preview').map(([k, v]) => `${k.replace(/[-_]+/g, ' ')} ${v}`.trim());
+  return `${base.charAt(0).toUpperCase()}${base.slice(1)}${params.length > 0 ? ` · ${params.join(', ')}` : ''}`;
+}
+
+/**
+ * Split a text node at the in-app paths in it, each one a link.
+ * @param value - The text.
+ */
+function splitAtPaths(value: string): MdNode[] {
+  const out: MdNode[] = [];
+  let last = 0;
+  for (const m of value.matchAll(APP_PATH)) {
+    const raw = m[2]!;
+    const path = raw.replace(TRAILING, '');
+    const start = m.index! + m[1]!.length;
+    if (start > last) {
+      out.push({ type: 'text', value: value.slice(last, start) });
+    }
+    out.push({ type: 'link', url: path, children: [{ type: 'text', value: appPathLabel(path) }] });
+    last = start + path.length;
+  }
+  if (out.length === 0) {
+    return [{ type: 'text', value }];
+  }
+  if (last < value.length) {
+    out.push({ type: 'text', value: value.slice(last) });
+  }
+  return out;
+}
+
+/**
+ * Turn every in-app path an agent wrote as text into a link, at any depth.
+ * Inline code holding nothing but a path is a link too; a fenced block and a
+ * link's own text are left alone.
+ * @param node - The tree, or a branch of it.
+ */
+export function linkAppPaths(node: MdNode): void {
+  if (!node.children || node.type === 'link' || node.type === 'linkReference') {
+    return;
+  }
+  node.children = node.children.flatMap((child) => {
+    if (child.type === 'text' && typeof child.value === 'string') {
+      return splitAtPaths(child.value);
+    }
+    if (child.type === 'inlineCode' && typeof child.value === 'string') {
+      const path = child.value.trim();
+      APP_PATH.lastIndex = 0;
+      const m = APP_PATH.exec(path);
+      APP_PATH.lastIndex = 0;
+      if (m && m.index === 0 && m[1] === '' && m[2] === path) {
+        return [{ type: 'link', url: path, children: [{ type: 'text', value: appPathLabel(path) }] }];
+      }
+      return [child];
+    }
+    linkAppPaths(child);
+    return [child];
+  });
+}
+
+/**
+ * The remark plugin: an in-app path in an answer ("/dashboard/p/seo-pages?batch=506")
+ * renders as the link it names, which the renderer draws as an in-app chip.
+ * 2026-10-29: agents wrote raw paths as text, and nobody could follow them.
+ */
+export function remarkLinkAppPaths() {
+  return (tree: MdNode) => {
+    linkAppPaths(tree);
+  };
+}

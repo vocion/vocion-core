@@ -98,3 +98,24 @@ export function leadName(input: { agentName: string | null | undefined; workspac
 export function isSeededLead(slug: string): boolean {
   return slug === WORKSPACE_LEAD_SLUG;
 }
+
+/**
+ * THE LEAD BADGE an agent wears where leads are listed (Teams & agents, a
+ * profile): what it leads, so two agents never wear the same title. The
+ * seeded lead is the workspace's ("Revenue lead"); a team's lead is its
+ * team's ("SEO lead"), even when it also leads the workspace, which an app
+ * installed into an empty workspace makes it. 2026-10-29: an SEO workspace
+ * showed its SEO strategist and its seeded lead both as "<Workspace> lead".
+ * Null for an agent that leads nothing here.
+ * @param input - The agent and what it leads.
+ * @param input.slug - The agent's slug.
+ * @param input.workspaceLabel - The workspace's short name ({@link leadWorkspaceLabel}).
+ * @param input.ledTeams - The names of the teams it leads, in their order.
+ */
+export function leadBadge(input: { slug: string; workspaceLabel: string; ledTeams: readonly string[] }): string | null {
+  if (isSeededLead(input.slug)) {
+    return `${input.workspaceLabel} lead`;
+  }
+  const team = input.ledTeams[0]?.trim();
+  return team ? `${team} lead` : null;
+}

@@ -222,6 +222,7 @@
     "new_chat": "Nouvelle conversation",
     "open_full_chat": "Ouvrir en plein écran",
     "via": "via {name}",
+    "handed_to": "Je passe la main à {name}",
     "search_mode": "Recherche seule — extraction, sans modèle",
     "app_front_label": "Aujourd’hui",
     "app_front_attention": "Qu’est-ce qui demande mon attention aujourd’hui ?",

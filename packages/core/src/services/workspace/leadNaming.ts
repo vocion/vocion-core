@@ -7,9 +7,9 @@
 
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { isSeededLead, LEAD_PLACEHOLDER_NAME, leadName, leadWorkspaceLabel } from '@/libs/workspace/leadName';
+import { isSeededLead, LEAD_PLACEHOLDER_NAME, leadBadge, leadName, leadWorkspaceLabel } from '@/libs/workspace/leadName';
 import { WORKSPACE_LEAD_SLUG } from '@/libs/workspace/workspaceLead';
-import { agentSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
+import { agentSchema, projectSchema, teamSchema, tenantAccountSchema } from '@/models/Schema';
 
 /**
  * The workspace's short name a lead's role is built from.
@@ -27,14 +27,18 @@ export async function leadWorkspaceLabelFor(orgId: string): Promise<string> {
 
 /**
  * A namer for this workspace's agents: the seeded lead's label, every other
- * agent's own name.
+ * agent's own name, and the lead badge each wears (`leadBadge`).
  * @param orgId - The workspace.
  */
-export async function agentNamer(orgId: string): Promise<{ name: (agent: { slug: string; name: string }) => string; role: string }> {
-  const workspaceLabel = await leadWorkspaceLabelFor(orgId);
+export async function agentNamer(orgId: string): Promise<{ name: (agent: { slug: string; name: string }) => string; role: string; badge: (slug: string) => string | null }> {
+  const [workspaceLabel, teams] = await Promise.all([
+    leadWorkspaceLabelFor(orgId),
+    db.select({ name: teamSchema.name, lead: teamSchema.leadAgentSlug }).from(teamSchema).where(eq(teamSchema.orgId, orgId)).orderBy(teamSchema.id).catch(() => []),
+  ]);
   return {
     name: agent => (isSeededLead(agent.slug) ? leadName({ agentName: agent.name, workspaceLabel }).label : agent.name),
     role: `${workspaceLabel} lead`,
+    badge: slug => leadBadge({ slug, workspaceLabel, ledTeams: teams.filter(t => t.lead === slug).map(t => t.name) }),
   };
 }
 

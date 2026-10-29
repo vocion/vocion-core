@@ -222,6 +222,7 @@
     "new_chat": "New chat",
     "open_full_chat": "Open in full chat",
     "via": "via {name}",
+    "handed_to": "Handing this to {name}",
     "search_mode": "Search only — retrieval, no model in the loop",
     "app_front_label": "Today",
     "app_front_attention": "What needs my attention today?",

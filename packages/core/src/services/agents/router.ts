@@ -10,13 +10,18 @@
  * The order, most structural first:
  *   1. an agent the person names (`namedAgent`), on any turn;
  *   2. a follow-up stays with the thread's agent (`followUpDecision`), unless a
- *      model read finds it turned to work another seat owns (`routeFollowUp`);
+ *      model read finds it turned to work another seat owns, and the thread is
+ *      handed there visibly (`routeFollowUp`, `decidedBy: 'handoff'`); a plain
+ *      follow-up (a short reply, a chip, an answer to an open card) is never read;
  *   3. on a record's page, the type's owner answers (`pageOwnerDecision`);
  *   4. otherwise a model reads the message against the roster — each seat's
  *      description and handles, the record types it answers for and files,
  *      its tools and skills — and returns `{ chosen, confidence, reason }`
  *      (`routeFirstTurn`, `routeRead.ts`). Code routes on those fields; below
- *      {@link ROUTE_CONFIDENCE_BAR} the lead answers.
+ *      {@link ROUTE_CONFIDENCE_BAR} the lead answers. In an app's chat the
+ *      roster is the app's own seats and the app's lead is the lead
+ *      (`appRoster`); the workspace's lead outside the app is a candidate only
+ *      above {@link APP_EXIT_BAR}.
  *
  * The keyword scorer below (`chooseAgent`) is only the fallback for step 4,
  * when the model read fails, times out ({@link ROUTE_READ_TIMEOUT_MS}) or
@@ -63,6 +68,10 @@ export type RoutableAgent = {
    * to such a seat, and the reply never came. Never routed to.
    */
   queued?: boolean;
+  /** The team it sits on (`agent.team_slug`), when it sits on one. */
+  team?: string | null;
+  /** The teams it leads (`team.lead_agent_slug`). Filled by {@link withTeams}. */
+  leadOf?: string[] | null;
 };
 
 /**
@@ -73,9 +82,11 @@ export type RoutableAgent = {
  *   - `page` — the page's record type names its owner;
  *   - `model` — the model read the message against the roster;
  *   - `keywords` — the keyword fallback, because the model read did not answer;
- *   - `roster` — one active agent, nothing to choose.
+ *   - `roster` — one active agent, nothing to choose;
+ *   - `handoff` — a follow-up turned to work another team owns, and the
+ *     thread was handed there, said in the thread (`routeFollowUp`).
  */
-export type RoutingPath = 'named' | 'thread' | 'page' | 'model' | 'keywords' | 'roster' | 'jev';
+export type RoutingPath = 'named' | 'thread' | 'page' | 'model' | 'keywords' | 'roster' | 'jev' | 'handoff';
 
 /** One agent the router weighed, in the order it ranked them. */
 export type RoutingCandidate = {
@@ -112,6 +123,10 @@ export type RoutingDecision = {
    * its pick was not used when the model read decided instead. Never a key.
    */
   jev?: Record<string, unknown>;
+  /** The app whose chat the message was sent in, when routing kept to that app's seats. */
+  app?: string;
+  /** On a hand-off: the agent the thread was with. */
+  handedFrom?: string;
 };
 
 /** Weights. A `handles` entry is authored for exactly this purpose, so it outranks incidental overlap. */
@@ -410,7 +425,7 @@ export function followUpDecision(opts: { agents: RoutableAgent[]; message: strin
   return {
     chosen: thread.slug,
     defaulted: false,
-    reason: `A follow-up in a thread with ${thread.slug} stays with ${thread.slug}; the router picks only a conversation's first turn.`,
+    reason: `A follow-up in a thread with ${thread.slug} stays with ${thread.slug}.`,
     candidates: [],
     surface: opts.surface,
     at,
@@ -521,7 +536,7 @@ export async function typeOwners(orgId: string): Promise<Record<string, string[]
  * The projection of an agent row the router reads.
  * @param row
  */
-export function routableFromRow(row: Pick<AgentRow, 'slug' | 'name' | 'description' | 'handles' | 'suggestions' | 'initiative' | 'active'> & Partial<Pick<AgentRow, 'objectTypeSlugs' | 'skillSlugs' | 'harnessConfig'>>): RoutableAgent {
+export function routableFromRow(row: Pick<AgentRow, 'slug' | 'name' | 'description' | 'handles' | 'suggestions' | 'initiative' | 'active'> & Partial<Pick<AgentRow, 'objectTypeSlugs' | 'skillSlugs' | 'harnessConfig' | 'teamSlug'>>): RoutableAgent {
   return {
     slug: row.slug,
     name: row.name,
@@ -533,6 +548,7 @@ export function routableFromRow(row: Pick<AgentRow, 'slug' | 'name' | 'descripti
     objectTypes: row.objectTypeSlugs ?? null,
     tools: row.harnessConfig?.grantTools ?? null,
     skills: row.skillSlugs ?? null,
+    team: row.teamSlug ?? null,
     queued: normalizeHarnessTarget((row.harnessConfig as { runsOn?: unknown; provider?: unknown } | null | undefined)?.runsOn as string | undefined ?? (row.harnessConfig as { provider?: unknown } | null | undefined)?.provider as string | undefined) === 'external-worker',
   };
 }
@@ -578,8 +594,86 @@ export function workspacePageDecision(opts: { agents: RoutableAgent[]; message: 
   return { chosen: lead.slug, defaulted: false, reason: `The page is the ${page}, which holds every seat's work, so the lead answers and hands off.`, candidates: [], surface: opts.surface, at, decidedBy: 'page' };
 }
 
+/**
+ * Mark the teams each agent leads, from the workspace's team rows. Pure.
+ * @param agents - The roster.
+ * @param teams - The workspace's teams: slug and lead.
+ */
+export function withTeams(agents: RoutableAgent[], teams: ReadonlyArray<{ slug: string; lead: string | null }>): RoutableAgent[] {
+  return agents.map(a => ({ ...a, leadOf: teams.filter(t => t.lead === a.slug).map(t => t.slug) }));
+}
+
+/** The app a chat is in, as routing reads it (`services/chat/appScope.ts`). */
+export type AppScope = {
+  /** The app's id (`templates/apps/<id>`). */
+  id: string;
+  /** What a person calls it ("SEO"). */
+  name: string;
+  /** The teams that work in it. */
+  teams: string[];
+  /** Its lead: who answers its chat by default, setup the app needs included. */
+  leadSlug: string;
+  /** The workspace's lead outside the app, when there is one: a candidate only for work clearly outside every app. */
+  outsideSlug: string | null;
+};
+
+/** What the read is told about the app a chat is in. */
+export type AppNote = { name: string; leadSlug: string; outsideSlug: string | null };
+
+/**
+ * How sure the read must be before a message said in an app's chat goes to
+ * the workspace's lead outside the app. High on purpose: the app's lead owns
+ * everything the app needs, connecting the system it publishes to included.
+ */
+export const APP_EXIT_BAR = 0.85;
+
+/**
+ * AN APP'S CHAT ROUTES WITHIN THE APP FIRST. 2026-10-29, a workspace with the
+ * SEO app: in the app's chat "connect to Github for our projects" went to the
+ * workspace's generic lead ("connecting an external system is workspace
+ * setup"), and every follow-up stayed with it, so the generic lead planned the
+ * SEO team's pages itself. In an app's chat the seats are the app's own teams
+ * and its lead, plus the workspace's lead outside the app, which the caller
+ * accepts only above {@link APP_EXIT_BAR}. Null when the app's lead is not an
+ * active agent here (the whole roster routes then). Pure.
+ * @param agents - The roster, with teams ({@link withTeams}).
+ * @param app - The app the chat is in.
+ */
+export function appRoster(agents: RoutableAgent[], app: AppScope): { seats: RoutableAgent[]; lead: string; outside: string | null } | null {
+  const live = agents.filter(isActive);
+  const inApp = live.filter(a => a.slug === app.leadSlug || (a.team ? app.teams.includes(a.team) : false) || (a.leadOf ?? []).some(t => app.teams.includes(t)));
+  if (!inApp.some(a => a.slug === app.leadSlug)) {
+    return null;
+  }
+  const outside = app.outsideSlug ? live.find(a => a.slug === app.outsideSlug && !inApp.includes(a)) : undefined;
+  return { seats: outside ? [...inApp, outside] : inApp, lead: app.leadSlug, outside: outside?.slug ?? null };
+}
+
+/** Openers of a reply that only continues: an approval, a go-ahead, thanks. Never "no": a correction may move the thread. */
+const CONTINUES = /^(?:yes|yep|yeah|ok|okay|sure|thanks|thank you|great|perfect|approve[ds]?|go ahead|do it|sounds good|looks good|lgtm|continue|proceed|next)\b/i;
+
+/**
+ * A FOLLOW-UP THAT ONLY CONTINUES is never read for a move, so it costs no
+ * model call: a chip the turn offered, an answer to a card still open in the
+ * thread, a short reply ("Approve the keyword plan", "the second one"). Pure.
+ * @param message - The message as typed.
+ * @param opts - How it was sent.
+ * @param opts.chip - It was a suggestion chip the last turn offered.
+ * @param opts.openCard - A card is open in the thread.
+ */
+export function plainFollowUp(message: string, opts: { chip?: boolean; openCard?: boolean } = {}): boolean {
+  if (opts.chip) {
+    return true;
+  }
+  const words = message.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 3) {
+    return true;
+  }
+  return words.length <= 12 && (CONTINUES.test(message.trim()) || opts.openCard === true);
+}
+
 /** The model read `routeFirstTurn` routes on (`routeRead.ts`); a seam for tests. */
-export type RouteReader = (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; thread?: FollowUpThread | null; signal?: AbortSignal }) => Promise<{ chosen: string; confidence: number; reason: string }>;
+export type RouteReader = (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; thread?: FollowUpThread | null; app?: AppNote | null; signal?: AbortSignal }) => Promise<{ chosen: string; confidence: number; reason: string }>;
 
 /** The thread a follow-up arrives in, as the read sees it: who it is with and what that agent said last. */
 export type FollowUpThread = { agentSlug: string; lastReply?: string | null };
@@ -596,30 +690,73 @@ export const ROUTE_READ_TIMEOUT_MS = 2_500;
  * failed call or one slower than {@link ROUTE_READ_TIMEOUT_MS} falls back to
  * the keyword scorer, and the decision says which path decided and why.
  * Null when there is no active agent.
+ *
+ * In an app's chat ({@link appRoster}) the roster is the app's seats, the
+ * app's lead is the default, and the workspace's lead outside the app answers
+ * only on a read at or above {@link APP_EXIT_BAR}.
  * @param opts - The roster and the message.
  * @param opts.orgId - The workspace.
  * @param opts.agents - Every agent the caller may route to; inactive ones are skipped.
  * @param opts.message - The message as typed.
  * @param opts.leadSlug - `project.leadAgentSlug`, the default.
  * @param opts.surface - Where the message came from, for the record.
- * @param deps - Test seams.
- * @param deps.read - The model read; defaults to `readRoute`.
- * @param deps.owners - The workspace's type owners; defaults to {@link typeOwners}.
- * @param deps.intake
- * @param deps.timeoutMs - How long to wait for the read.
- * @param deps.jev - Jev's pick of the seat; defaults to `pickAgent` (null with no key).
+ * @param opts.app - The app the chat is in, when it is in one.
+ * @param deps - Test seams: the read, the type owners, the intake, the timeout and Jev.
  */
 export async function routeFirstTurn(
+  opts: { orgId: string; agents: RoutableAgent[]; message: string; leadSlug?: string | null; surface: string; app?: AppScope | null },
+  deps: FirstTurnDeps = {},
+): Promise<RoutingDecision | null> {
+  const scoped = opts.app ? appRoster(opts.agents, opts.app) : null;
+  if (!opts.app || !scoped) {
+    return routeAmong(opts, null, deps);
+  }
+  const app = opts.app;
+  const decision = await routeAmong({ ...opts, agents: scoped.seats, leadSlug: scoped.lead }, { name: app.name, leadSlug: scoped.lead, outsideSlug: scoped.outside }, deps);
+  if (!decision) {
+    return null;
+  }
+  // The workspace's own lead takes an app's chat only when the read is sure
+  // the work is outside every app; anything less is the app lead's.
+  if (decision.chosen === scoped.outside && (decision.confidence ?? 0) < APP_EXIT_BAR) {
+    return {
+      ...decision,
+      chosen: scoped.lead,
+      defaulted: true,
+      reason: `In the ${app.name} app's chat its lead answers: the read leaned to ${scoped.outside}${decision.confidence !== undefined ? ` at ${decision.confidence}` : ''} (the bar to leave the app is ${APP_EXIT_BAR}): ${decision.reason}`,
+      app: app.id,
+    };
+  }
+  return { ...decision, app: app.id };
+}
+
+/** Test seams for {@link routeFirstTurn}. */
+type FirstTurnDeps = {
+  read?: RouteReader;
+  owners?: (orgId: string) => Promise<Record<string, string[]>>;
+  /** The workspace's front door for new work (`services/chat/intake.ts`); defaults to reading it. */
+  intake?: (orgId: string) => Promise<{ label: string; ownerSlug: string | null } | null>;
+  timeoutMs?: number;
+  /** Jev's pick of the agent (ADR 0006); null when no Jev key is configured. Defaults to `routing/agentPick.ts`. */
+  jev?: (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string }) => Promise<JevAgentPick | null>;
+};
+
+/**
+ * The first turn's routing over one roster: Jev beside the model read, the
+ * keyword fallback behind both.
+ * @param opts - As {@link routeFirstTurn}.
+ * @param opts.orgId - The workspace.
+ * @param opts.agents - The roster to choose from.
+ * @param opts.message - The message.
+ * @param opts.leadSlug - Who answers when nothing fits.
+ * @param opts.surface - Where the message came from.
+ * @param app - The app the chat is in, told to the read.
+ * @param deps - Test seams.
+ */
+async function routeAmong(
   opts: { orgId: string; agents: RoutableAgent[]; message: string; leadSlug?: string | null; surface: string },
-  deps: {
-    read?: RouteReader;
-    owners?: (orgId: string) => Promise<Record<string, string[]>>;
-    /** The workspace's front door for new work (`services/chat/intake.ts`); defaults to reading it. */
-    intake?: (orgId: string) => Promise<{ label: string; ownerSlug: string | null } | null>;
-    timeoutMs?: number;
-    /** Jev's pick of the agent (ADR 0006); null when no Jev key is configured. Defaults to `routing/agentPick.ts`. */
-    jev?: (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string }) => Promise<JevAgentPick | null>;
-  } = {},
+  app: AppNote | null,
+  deps: FirstTurnDeps,
 ): Promise<RoutingDecision | null> {
   const live = opts.agents.filter(isActive);
   if (live.length === 0) {
@@ -669,7 +806,7 @@ export async function routeFirstTurn(
     const pickP = (deps.jev ?? (async input => (await import('@/services/routing/agentPick')).pickAgent(input)))({ orgId: opts.orgId, message: opts.message, agents: seats, leadSlug: lead }).catch(() => null);
     const reader: RouteReader = deps.read ?? (async input => (await import('./routeRead')).readRoute(input));
     const readP = Promise.race([
-      reader({ orgId: opts.orgId, message: opts.message, agents: seats, leadSlug: lead, intake, signal: abort.signal }),
+      reader({ orgId: opts.orgId, message: opts.message, agents: seats, leadSlug: lead, intake, ...(app ? { app } : {}), signal: abort.signal }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           timedOut = true;
@@ -738,7 +875,7 @@ export async function routeFirstTurn(
 export const FOLLOW_UP_MOVE_BAR = 0.7;
 
 /**
- * A FOLLOW-UP THAT TURNS TO ANOTHER SEAT'S WORK MOVES THERE.
+ * A FOLLOW-UP THAT TURNS TO ANOTHER TEAM'S WORK IS HANDED THERE.
  *
  * 2026-10-29, Revenue workspace: the person opened a thread on the marketing
  * briefing, which the marketing lead answered, then wrote "no I want to do
@@ -752,20 +889,35 @@ export const FOLLOW_UP_MOVE_BAR = 0.7;
  * slow read, a pick of the thread's own agent, a pick off the roster or one
  * below {@link FOLLOW_UP_MOVE_BAR} keeps the thread where it is, and the
  * decision says which.
+ *
+ * The same day, in an SEO app's chat, "find me keywords to build SEO pages
+ * for" stayed with the workspace's generic lead, which then planned the SEO
+ * team's pages itself. So, on top:
+ *   - a plain follow-up ({@link plainFollowUp}) is never read: no model call;
+ *   - work that lands on another team goes to that team's lead, who hands it
+ *     on inside the team; a lead whose own team owns the work keeps it;
+ *   - a thread with a lead that sits on no team (the workspace's lead) moves
+ *     to a team's seat at {@link ROUTE_CONFIDENCE_BAR}: its job is handing
+ *     work to the teammate who owns it, never doing it;
+ *   - in an app's chat the seats are the app's ({@link appRoster}).
+ * A move is `decidedBy: 'handoff'`, and the thread says so in one line.
  * @param opts - The roster, the message and the thread.
  * @param opts.orgId - The workspace.
- * @param opts.agents - Every agent the caller may route to.
+ * @param opts.agents - Every agent the caller may route to, with teams ({@link withTeams}).
  * @param opts.message - The message as typed.
  * @param opts.thread - The thread's agent and its last reply.
  * @param opts.leadSlug - `project.leadAgentSlug`.
  * @param opts.surface - Where the message came from, for the record.
+ * @param opts.app - The app the chat is in, when it is in one.
+ * @param opts.chip - The message was a suggestion chip the last turn offered.
+ * @param opts.openCard - A card is open in the thread.
  * @param deps - Test seams.
  * @param deps.read - The model read; defaults to `readRoute`.
  * @param deps.owners - The workspace's type owners; defaults to {@link typeOwners}.
  * @param deps.timeoutMs - How long to wait for the read.
  */
 export async function routeFollowUp(
-  opts: { orgId: string; agents: RoutableAgent[]; message: string; thread: FollowUpThread; leadSlug?: string | null; surface: string },
+  opts: { orgId: string; agents: RoutableAgent[]; message: string; thread: FollowUpThread; leadSlug?: string | null; surface: string; app?: AppScope | null; chip?: boolean; openCard?: boolean },
   deps: { read?: RouteReader; owners?: (orgId: string) => Promise<Record<string, string[]>>; timeoutMs?: number } = {},
 ): Promise<RoutingDecision | null> {
   const live = opts.agents.filter(isActive);
@@ -774,6 +926,8 @@ export async function routeFollowUp(
     return null;
   }
   const at = new Date().toISOString();
+  const scoped = opts.app ? appRoster(opts.agents, opts.app) : null;
+  const appId = scoped && opts.app ? { app: opts.app.id } : {};
   const stay = (why: string, extra: Partial<RoutingDecision> = {}): RoutingDecision => ({
     chosen: current.slug,
     defaulted: false,
@@ -782,12 +936,17 @@ export async function routeFollowUp(
     surface: opts.surface,
     at,
     decidedBy: 'thread',
+    ...appId,
     ...extra,
   });
-  const lead = (opts.leadSlug && live.some(a => a.slug === opts.leadSlug)) ? opts.leadSlug : live[0]!.slug;
-  // The seats it may move to are the ones an unaddressed message may reach,
-  // plus the thread's own agent, whatever its initiative.
-  const seatsOpen = unaddressedSeats(live, lead);
+  if (plainFollowUp(opts.message, { chip: opts.chip, openCard: opts.openCard })) {
+    return stay(opts.chip ? 'it is a suggestion the thread offered.' : opts.openCard ? 'it answers the card open in the thread.' : 'a short reply continues the thread.');
+  }
+  const lead = scoped?.lead ?? ((opts.leadSlug && live.some(a => a.slug === opts.leadSlug)) ? opts.leadSlug : live[0]!.slug);
+  // The seats it may move to are the ones an unaddressed message may reach
+  // (in an app's chat, the app's), plus the thread's own agent, whatever its
+  // initiative.
+  const seatsOpen = unaddressedSeats(scoped?.seats ?? live, lead);
   const open = seatsOpen.some(a => a.slug === current.slug) ? seatsOpen : [current, ...seatsOpen];
   if (open.length === 1) {
     return stay('it is the only agent here that takes unaddressed messages.');
@@ -802,7 +961,7 @@ export async function routeFollowUp(
     const seats = open.map(a => ({ ...a, owns: [...new Set([...(a.owns ?? []), ...(owners[a.slug] ?? [])])] }));
     const reader: RouteReader = deps.read ?? (async input => (await import('./routeRead')).readRoute(input));
     read = await Promise.race([
-      reader({ orgId: opts.orgId, message: opts.message, agents: seats, leadSlug: lead, thread: opts.thread, signal: abort.signal }),
+      reader({ orgId: opts.orgId, message: opts.message, agents: seats, leadSlug: lead, thread: opts.thread, ...(scoped && opts.app ? { app: { name: opts.app.name, leadSlug: scoped.lead, outsideSlug: scoped.outside } } : {}), signal: abort.signal }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           abort.abort();
@@ -825,18 +984,30 @@ export async function routeFollowUp(
     return stay(picked ? read.reason : `the read named ${read.chosen.slice(0, 80)}, which is not an active agent here.`, picked ? { confidence } : {});
   }
   const candidate: RoutingCandidate = { slug: picked.slug, score: confidence, initiative: readInitiative(picked.initiative), matched: [read.reason] };
-  if (confidence < FOLLOW_UP_MOVE_BAR) {
-    return stay(`the model leaned to ${picked.slug} at ${confidence} (the bar to move a thread is ${FOLLOW_UP_MOVE_BAR}): ${read.reason}`, { candidates: [candidate], confidence });
+  // A lead keeps work its own team owns: it hands it on inside the team.
+  if (picked.team && (current.leadOf ?? []).includes(picked.team)) {
+    return stay(`${current.slug} leads the team that owns it (${picked.team}), and hands it on inside the team: ${read.reason}`, { candidates: [candidate], confidence });
   }
+  const leavesApp = scoped !== null && picked.slug === scoped.outside;
+  const teamlessLead = !current.team && (current.leadOf ?? []).length === 0 && Boolean(picked.team);
+  const bar = leavesApp ? APP_EXIT_BAR : teamlessLead ? ROUTE_CONFIDENCE_BAR : FOLLOW_UP_MOVE_BAR;
+  if (confidence < bar) {
+    return stay(`the model leaned to ${picked.slug} at ${confidence} (the bar to move a thread is ${bar}): ${read.reason}`, { candidates: [candidate], confidence });
+  }
+  // Work that lands on another team goes to that team's lead.
+  const teamLead = picked.team && picked.team !== current.team ? live.find(a => (a.leadOf ?? []).includes(picked.team!)) : undefined;
+  const to = teamLead && teamLead.slug !== current.slug ? teamLead : picked;
   return {
-    chosen: picked.slug,
+    chosen: to.slug,
     defaulted: false,
-    reason: `The thread was with ${current.slug}, and this follow-up turned to work ${picked.slug} owns: ${read.reason}`,
+    reason: `The thread was with ${current.slug}, and this follow-up turned to work ${picked.slug} owns${to !== picked ? `, so it goes to ${to.slug}, who leads that team` : ''}: ${read.reason}`,
     candidates: [candidate],
     surface: opts.surface,
     at,
-    decidedBy: 'model',
+    decidedBy: 'handoff',
     confidence,
+    handedFrom: current.slug,
+    ...appId,
   };
 }
 

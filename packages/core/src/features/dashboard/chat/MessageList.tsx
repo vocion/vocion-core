@@ -225,35 +225,37 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
                       </>
                     )
                   : (
-                      <AgentMessage
-                        message={msg}
-                        agentName={agentName}
-                        // A routed turn (`@agent`, `/search`, a delegation) is
-                        // attributed, never re-identified: "via <specialist>" (§9.10)
-                        // — from the turn's stamped agent, not a guess (backlog 009).
-                        // The turn opens with its speaker's avatar and name only
-                        // when the speaker changes to a teammate; the same
-                        // speaker's next turns keep the quiet mark (`speakers.ts`).
-                        via={speakers[i]?.opener ? t('via', { name: speakers[i]!.opener!.name }) : undefined}
-                        opener={speakers[i]?.opener ?? undefined}
-                        writer={speakers[i]?.speaker ?? undefined}
-                        viaReason={msg.routing?.reason}
-                        streaming={streaming && i === lastIdx}
-                        activity={i === lastIdx ? activity : undefined}
-                        onShowSources={onShowSources}
-                        onDigDeeper={onDigDeeper && !streaming ? level => onDigDeeper(i, level) : undefined}
-                        onCitationClick={onCitationClick}
-                        onFeedback={onFeedback}
-                        autonomy={autonomy}
-                        onOpenArtifact={onOpenArtifact}
-                        onBuildCard={onBuildCard}
-                        conversationId={conversationId}
-                        pageRecord={pageRecord}
-                        docked={docked}
-                        latest={i === lastIdx}
-                        onSuggestion={onSuggestion}
-                        threadRecords={i === lastIdx ? threadRecords : undefined}
-                      />
+                      <HandedTo line={msg.routing?.decidedBy === 'handoff' && msg.agentName ? t('handed_to', { name: msg.agentName }) : null} reason={msg.routing?.reason}>
+                        <AgentMessage
+                          message={msg}
+                          agentName={agentName}
+                          // A routed turn (`@agent`, `/search`, a delegation) is
+                          // attributed, never re-identified: "via <specialist>" (§9.10)
+                          // — from the turn's stamped agent, not a guess (backlog 009).
+                          // The turn opens with its speaker's avatar and name only
+                          // when the speaker changes to a teammate; the same
+                          // speaker's next turns keep the quiet mark (`speakers.ts`).
+                          via={speakers[i]?.opener ? t('via', { name: speakers[i]!.opener!.name }) : undefined}
+                          opener={speakers[i]?.opener ?? undefined}
+                          writer={speakers[i]?.speaker ?? undefined}
+                          viaReason={msg.routing?.reason}
+                          streaming={streaming && i === lastIdx}
+                          activity={i === lastIdx ? activity : undefined}
+                          onShowSources={onShowSources}
+                          onDigDeeper={onDigDeeper && !streaming ? level => onDigDeeper(i, level) : undefined}
+                          onCitationClick={onCitationClick}
+                          onFeedback={onFeedback}
+                          autonomy={autonomy}
+                          onOpenArtifact={onOpenArtifact}
+                          onBuildCard={onBuildCard}
+                          conversationId={conversationId}
+                          pageRecord={pageRecord}
+                          docked={docked}
+                          latest={i === lastIdx}
+                          onSuggestion={onSuggestion}
+                          threadRecords={i === lastIdx ? threadRecords : undefined}
+                        />
+                      </HandedTo>
                     )}
                 {blocksAfter(i)}
               </div>
@@ -267,6 +269,28 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
           )}
         </div>
       </ChatAgentsProvider>
+    </div>
+  );
+}
+
+/**
+ * A thread handed to another team's agent says so once, in one quiet line
+ * right above that agent's answer (`routeFollowUp`, `decidedBy: 'handoff'`):
+ * "Handing this to SEO strategist". The reason is on hover. Anything else is
+ * the answer alone.
+ * @param props - The line and the answer.
+ * @param props.line - The words, or null when the thread was not handed over.
+ * @param props.reason - Why it was handed over.
+ * @param props.children - The answer.
+ */
+function HandedTo({ line, reason, children }: { line: string | null; reason?: string; children: React.ReactNode }) {
+  if (!line) {
+    return children;
+  }
+  return (
+    <div className="space-y-2">
+      <p className="text-[12.5px] text-muted-foreground" data-testid="handoff-line" title={reason}>{line}</p>
+      {children}
     </div>
   );
 }

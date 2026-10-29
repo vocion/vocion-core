@@ -19,7 +19,7 @@
  * shape, so the caller can record why it fell back.
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import type { FollowUpThread, RoutableAgent } from './router';
+import type { AppNote, FollowUpThread, RoutableAgent } from './router';
 import { z } from 'zod';
 
 export const RouteReadSchema = z.object({
@@ -49,9 +49,22 @@ const FOLLOW_UP_SYSTEM = [
   'Keep the conversation\'s agent when the message continues, answers, narrows, questions or reacts to its work, however short the message is.',
   'Choose another agent only when the message asks for work that agent plainly owns and the conversation\'s agent does not: judge by the record types each answers for or files, its tools and skills, then its description and what it handles, never by a shared word.',
   'A person correcting course ("no, I want…", "actually, let\'s do…") toward work another agent owns is asking for that agent.',
+  'A conversation\'s agent that sits on no team hands work to the teammate who owns it: when the message asks for work a team\'s seat owns, choose that seat.',
   'Confidence is how sure you are of the agent you chose.',
   'Answer only through the tool.',
 ].join(' ');
+
+/**
+ * What the read is told in an app's chat: the app's lead owns what the app
+ * needs, setup included, and the workspace's lead is for what no app does.
+ * @param app - The app.
+ */
+export function appLine(app: AppNote): string {
+  return [
+    `This conversation is in the ${app.name} app's chat. ${app.leadSlug} leads the ${app.name} app and owns anything the app needs, including setting up what it works with, such as connecting the system it publishes to or reads from.`,
+    app.outsideSlug ? `Choose ${app.outsideSlug} only when the request is clearly about something no app here does; otherwise choose a seat of the ${app.name} app.` : '',
+  ].filter(Boolean).join(' ');
+}
 
 function list(values: ReadonlyArray<string> | null | undefined, max = 12): string {
   return (values ?? []).filter(Boolean).slice(0, max).join(', ');
@@ -64,7 +77,7 @@ function list(values: ReadonlyArray<string> | null | undefined, max = 12): strin
  */
 export function seatLines(agent: RoutableAgent, leadSlug: string | null): string {
   return [
-    `- ${agent.slug} (${agent.name})${agent.slug === leadSlug ? ' — the lead' : ''}`,
+    `- ${agent.slug} (${agent.name})${agent.slug === leadSlug ? ' — the lead' : ''}${(agent.leadOf ?? []).length > 0 ? ` — leads the ${list(agent.leadOf)} team` : agent.team ? ` — on the ${agent.team} team` : ''}`,
     agent.description ? `  does: ${agent.description.replace(/\s+/g, ' ').trim().slice(0, 500)}` : '',
     list(agent.handles) ? `  handles: ${list(agent.handles)}` : '',
     list(agent.owns) ? `  answers for these record types: ${list(agent.owns)}` : '',
@@ -94,10 +107,11 @@ async function classifier(orgId: string): Promise<Model> {
  * @param input.leadSlug - The workspace lead.
  * @param input.intake - Who files new work in this workspace, when a type declares the front door.
  * @param input.thread - On a follow-up: the agent the thread is with and its last reply.
+ * @param input.app - In an app's chat: the app, its lead and the workspace's lead outside it.
  * @param input.signal - Aborts the call when the caller stops waiting.
  * @param model - Injected in tests.
  */
-export async function readRoute(input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; thread?: FollowUpThread | null; signal?: AbortSignal }, model?: Model): Promise<RouteRead> {
+export async function readRoute(input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; thread?: FollowUpThread | null; app?: AppNote | null; signal?: AbortSignal }, model?: Model): Promise<RouteRead> {
   const { tool } = await import('@langchain/core/tools');
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
   const m = model ?? await classifier(input.orgId);
@@ -109,6 +123,7 @@ export async function readRoute(input: { orgId: string; message: string; agents:
     new HumanMessage([
       `The roster:\n${input.agents.map(a => seatLines(a, input.leadSlug)).join('\n')}`,
       ...(input.intake ? [`New work someone wants built, changed or fixed is filed as a ${input.intake.label} by ${input.intake.ownerSlug}: choose ${input.intake.ownerSlug} for a new ask like that.`] : []),
+      ...(input.app ? [appLine(input.app)] : []),
       ...(thread ? [`The conversation is with ${thread.agentSlug}.${thread.lastReply ? ` Its last reply began:\n${thread.lastReply.slice(0, 1_200)}` : ''}`] : []),
       `The person's ${thread ? 'follow-up' : 'message'}:\n${input.message.slice(0, 4_000)}`,
     ].join('\n\n')),

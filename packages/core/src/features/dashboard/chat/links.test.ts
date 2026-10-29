@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyDashboardLink, isPlainClick, previewRefFor } from './links';
+import { appPathLabel, classifyDashboardLink, isPlainClick, linkAppPaths, previewRefFor } from './links';
 
 describe('classifyDashboardLink', () => {
   it('recognises dashboard routes, with and without a locale prefix or origin', () => {
@@ -72,5 +72,40 @@ describe('routine links', () => {
     expect(previewRefFor(classifyDashboardLink('/dashboard/routines/7')!)).toEqual({ type: 'routine', id: '7' });
     expect(previewRefFor(classifyDashboardLink('/en/dashboard/routines/batches/3')!)).toEqual({ type: 'routine_batch', id: '3' });
     expect(classifyDashboardLink('/dashboard/routines')).toMatchObject({ kind: 'page' });
+  });
+});
+
+describe('an in-app path written as text is a link (2026-10-29)', () => {
+  type Node = { type: string; value?: string; url?: string; children?: Node[] };
+  const paragraph = (...children: Node[]): Node => ({ type: 'root', children: [{ type: 'paragraph', children }] });
+  const linked = (tree: Node): Node[] => {
+    linkAppPaths(tree);
+    return tree.children![0]!.children!;
+  };
+
+  it('links the path in a sentence, without the full stop after it', () => {
+    const nodes = linked(paragraph({ type: 'text', value: 'The batch is at /dashboard/p/seo-pages?batch=506.' }));
+
+    expect(nodes).toEqual([
+      { type: 'text', value: 'The batch is at ' },
+      { type: 'link', url: '/dashboard/p/seo-pages?batch=506', children: [{ type: 'text', value: 'Seo pages · batch 506' }] },
+      { type: 'text', value: '.' },
+    ]);
+  });
+
+  it('links a workspace path and a path in inline code, and leaves links and other code alone', () => {
+    expect(linked(paragraph({ type: 'text', value: 'see /w/fernhill/dashboard/teams/seo' }))[1]).toMatchObject({ type: 'link', url: '/w/fernhill/dashboard/teams/seo' });
+    expect(linked(paragraph({ type: 'inlineCode', value: '/dashboard/goals/12' }))[0]).toMatchObject({ type: 'link', url: '/dashboard/goals/12' });
+    expect(linked(paragraph({ type: 'inlineCode', value: 'GET /dashboard/goals/12' }))[0]).toMatchObject({ type: 'inlineCode' });
+
+    const link: Node = { type: 'link', url: '/dashboard/goals/12', children: [{ type: 'text', value: '/dashboard/goals/12' }] };
+
+    expect(linked(paragraph(link))[0]).toEqual(link);
+    expect(linked(paragraph({ type: 'text', value: 'the docs at https://example.test/dashboard/x' }))).toHaveLength(1);
+  });
+
+  it('names the route in its own words', () => {
+    expect(appPathLabel('/dashboard/agents/seo-strategist')).toBe('Agents › seo strategist');
+    expect(appPathLabel('/dashboard')).toBe('Dashboard');
   });
 });

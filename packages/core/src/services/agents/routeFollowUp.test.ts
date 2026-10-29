@@ -68,7 +68,7 @@ describe('the reference case: a correction toward another seat\'s work leaves th
     const model = modelSaying({ chosen: 'follow-up-coordinator', confidence: 0.88, reason: 'They turned from the briefing to lead and email follow-up, which the coordinator owns.' }, seen);
     const decision = await route(input => readRoute(input, model));
 
-    expect(decision).toMatchObject({ chosen: 'follow-up-coordinator', defaulted: false, decidedBy: 'model', confidence: 0.88, surface: 'chat' });
+    expect(decision).toMatchObject({ chosen: 'follow-up-coordinator', defaulted: false, decidedBy: 'handoff', handedFrom: 'marketing-lead', confidence: 0.88, surface: 'chat' });
     expect(decision?.reason).toMatch(/^The thread was with marketing-lead, and this follow-up turned to work follow-up-coordinator owns/);
 
     const [system, human] = seen;

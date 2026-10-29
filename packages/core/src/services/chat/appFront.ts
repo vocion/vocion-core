@@ -34,7 +34,7 @@ const DAY = 24 * 60 * 60 * 1000;
  */
 let pluginTeamsCache: Record<string, string[]> | null = null;
 
-async function pluginTeams(): Promise<Record<string, string[]>> {
+export async function pluginTeams(): Promise<Record<string, string[]>> {
   if (pluginTeamsCache) {
     return pluginTeamsCache;
   }

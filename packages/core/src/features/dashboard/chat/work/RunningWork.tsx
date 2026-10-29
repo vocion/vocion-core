@@ -16,7 +16,8 @@ import { formatElapsed } from '../useElapsed';
  * background task stopped, 1 running ›": "it hides complexity so well, while
  * allowing click to explorability").
  *
- * The chip says how many are running, and how many finished since the
+ * The chip names what runs, in the runs' own words ({@link runningLine}),
+ * then says how many are running and how many finished since the
  * conversation began; tapping it opens the work in the right column's one
  * preview pane (`?preview=conversation:<id>.work`, `libs/preview/workRef.ts`),
  * on top of whatever that pane already showed — a full-screen sheet on a
@@ -85,6 +86,21 @@ export function chipLine(view: WorkView): string | null {
   const finished = f > 0 ? `${f} finished` : null;
   const running = r > 0 ? `${r} running` : null;
   return [finished, running].filter(Boolean).join(', ');
+}
+
+/**
+ * What runs, named in the runs' own words, so the thread says what is
+ * happening without a click: "Researching Google's top results for 3 pages ·
+ * briefs next", then "+1 more". Null when nothing runs. The title is the
+ * run's, as the work list returns it; nothing is renamed here.
+ * @param view - The work.
+ */
+export function runningLine(view: WorkView): string | null {
+  const [first, ...rest] = view.running;
+  if (!first) {
+    return null;
+  }
+  return rest.length > 0 ? `${first.title} + ${rest.length} more` : first.title;
 }
 
 function duration(item: WorkItem, now: number): string {
@@ -160,6 +176,8 @@ export function RunningWorkChip({ view, conversationId }: { view: WorkView | nul
   if (!view || !line || conversationId === null) {
     return null;
   }
+  // The work by name inline; the count and the chevron keep the detail one tap away.
+  const naming = runningLine(view);
   return (
     <button
       type="button"
@@ -168,7 +186,8 @@ export function RunningWorkChip({ view, conversationId }: { view: WorkView | nul
       className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/70 bg-background px-2.5 py-1 text-[12.5px] text-muted-foreground transition hover:text-foreground max-md:min-h-11"
     >
       {view.running.length > 0 && <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />}
-      <span className="truncate">{line}</span>
+      {naming && <span className="min-w-0 truncate text-foreground/85" data-testid="running-work-names">{naming}</span>}
+      <span className={naming ? 'shrink-0' : 'truncate'}>{naming ? `· ${line}` : line}</span>
       <ChevronRight className="size-3.5 shrink-0" aria-hidden />
     </button>
   );

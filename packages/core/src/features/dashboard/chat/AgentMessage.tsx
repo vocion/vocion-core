@@ -31,7 +31,7 @@ import { ArtifactChips } from './ArtifactChips';
 import { CardHistory } from './decisions/CardHistory';
 import { DoneReceipts } from './decisions/DoneReceipts';
 import { foldNarration, liveWorkIndex, segmentTurn } from './interleave';
-import { classifyDashboardLink, isPlainClick, previewRefFor } from './links';
+import { classifyDashboardLink, isPlainClick, previewRefFor, remarkLinkAppPaths } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { ScratchFold } from './ScratchFold';
 import { SelfUpdateChips } from './SelfUpdateChips';
@@ -553,7 +553,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                     // scroller instead (the `table` renderer below).
                     <div key={`text-${seg.index}-${i}`} className={PROSE}>
                       <Markdown
-                        remarkPlugins={[remarkGfm, remarkDropHtmlComments]}
+                        remarkPlugins={[remarkGfm, remarkDropHtmlComments, remarkLinkAppPaths]}
                         // Keep our private citation scheme; react-markdown's default
                         // sanitizer would strip `vocion-cite:` and drop the link.
                         urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}

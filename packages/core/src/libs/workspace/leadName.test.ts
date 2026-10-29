@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSeededLead, leadGivenName, leadName, leadWorkspaceLabel } from './leadName';
+import { isSeededLead, leadBadge, leadGivenName, leadName, leadWorkspaceLabel } from './leadName';
 
 describe('what a workspace\'s lead is called (founder, 2026-10-09)', () => {
   it('is "<workspace> lead", never "Workspace lead"', () => {
@@ -27,5 +27,20 @@ describe('what a workspace\'s lead is called (founder, 2026-10-09)', () => {
   it('applies to the seeded lead only', () => {
     expect(isSeededLead('workspace-lead')).toBe(true);
     expect(isSeededLead('assistant')).toBe(false);
+  });
+});
+
+describe('the lead badge says what an agent leads (2026-10-29)', () => {
+  it('never gives an app\'s lead and the seeded lead the same title', () => {
+    const app = leadBadge({ slug: 'seo-strategist', workspaceLabel: 'Fernhill', ledTeams: ['SEO'] });
+    const seeded = leadBadge({ slug: 'workspace-lead', workspaceLabel: 'Fernhill', ledTeams: [] });
+
+    expect(app).toBe('SEO lead');
+    expect(seeded).toBe('Fernhill lead');
+    expect(app).not.toBe(seeded);
+  });
+
+  it('is nothing for an agent that leads nothing', () => {
+    expect(leadBadge({ slug: 'seo-writer', workspaceLabel: 'Fernhill', ledTeams: [] })).toBeNull();
   });
 });
