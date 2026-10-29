@@ -27,6 +27,7 @@ import type { AssetSource, DeckInput } from '@/services/decks/DeckEngine';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { DECK_FORMAT } from '@/libs/cards/specs';
+import { stepProgress } from '@/libs/chat/stepProgress';
 import { deckVerificationReceipt } from '@/libs/decks/audit';
 import { blobAssetId, claudeSlidesToDeck, isClaudeSlides } from '@/libs/decks/claudeSlides';
 import { deckOpSchema } from '@/libs/decks/edit';
@@ -62,13 +63,7 @@ function coerceJson(v: unknown): unknown {
  * @param name - The tool the step runs under.
  */
 function progressTo(ctx: RuntimeContext, name: string): (note: string) => void {
-  let last: string | null = null;
-  return (note: string) => {
-    if (note !== last) {
-      last = note;
-      ctx.emit({ type: 'step_progress', tool: name, note });
-    }
-  };
+  return stepProgress(ctx.emit, name).note;
 }
 
 /**

@@ -207,6 +207,35 @@ describe('a failed delegation reaches the person', () => {
     expect(delegationFailureNotice([])).toBeNull();
   });
 
+  it('a turn that ended at its card with no words says one line about the card, in code (2026-10-29)', async () => {
+    const sent: AgentEvent[] = [];
+    const answer = vi.fn(async () => 'should not be used');
+    const out = await applyTurnGuarantees({
+      orgId: ORG,
+      agentSlug: 'lead',
+      request: 'connect to github',
+      response: '',
+      toolCalls: [{ tool: 'offer_connection', input: { connector: 'github' }, output: 'Asked them to connect GitHub.' }],
+      handedOff: true,
+      seen: { cards: [{ kind: 'connect', title: 'Connect GitHub' }], artifacts: [] },
+      failures: [],
+      failedDelegations: [],
+      answer,
+      emit: e => sent.push(e),
+    });
+
+    expect(out).toBe('Asked you to connect GitHub. Once it\'s connected, I\'ll carry on from here.');
+    // Streamed, so the live transcript and the stored row say the same thing; no model wrote it.
+    expect(sent).toEqual([{ type: 'response_delta', delta: out }]);
+    expect(answer).not.toHaveBeenCalled();
+  });
+
+  it('a turn with words is left as it was', async () => {
+    const out = await applyTurnGuarantees({ orgId: ORG, agentSlug: 'lead', request: 'connect to github', response: 'Connect GitHub below.', toolCalls: [{ tool: 'offer_connection', input: { connector: 'github' } }], handedOff: true, failures: [], failedDelegations: [], emit: () => {} });
+
+    expect(out).toBe('Connect GitHub below.');
+  });
+
   it('names every specialist that failed, once', () => {
     // The crash path's notice: the turn has no answer to judge.
     const notice = delegationFailureNotice([{ name: 'Pipeline Analyst', message: 'timed out' }, { name: 'Proposal Writer', message: 'timed out' }]);

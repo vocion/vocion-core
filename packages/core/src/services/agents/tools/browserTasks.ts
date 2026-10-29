@@ -28,6 +28,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { browserRunLabel } from '@/libs/browser/run';
+import { stepProgress } from '@/libs/chat/stepProgress';
 import { browserRunsOn } from '@/services/browser/enabled';
 import { containerWaitMs } from './teamThread';
 
@@ -123,6 +124,15 @@ const NAME = { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9_]{0,40}$' };
 type TaskArgs = { task: string; start_url?: string; inputs?: Array<{ name: string; value: string; secret?: boolean }>; outputs?: Array<{ name: string; description: string }>; continue_from_current_page?: boolean };
 type CheckArgs = { run_id: number; wait_seconds?: number; rows?: boolean };
 
+/**
+ * Where a browser run has got to, for the waiting step's line: its newest step, numbered.
+ * @param steps - The run's steps so far.
+ */
+function browserStepNote(steps: readonly { n: number; label: string }[]): string {
+  const s = steps[steps.length - 1];
+  return s ? `step ${s.n} · ${s.label}` : '';
+}
+
 export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[] {
   if (!enabled(ctx) || !ctx.userId) {
     return [];
@@ -171,8 +181,11 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
         if (!asked) {
           return answerOf(view, noteFor('proposed'));
         }
-        ctx.emit({ type: 'step_progress', tool: 'browser_task', note: `${browserRunLabel(view.id)} · started` });
-        const after = await waitForBrowserRun(ctx.orgId, view.id, waitMs) ?? view;
+        // The run's own steps, on this step's line while the call waits on it
+        // ("step 7 · Clicked “Sign in”"), every 15 seconds or so.
+        const progress = stepProgress(ctx.emit, 'browser_task');
+        progress.note(`${browserRunLabel(view.id)} · started`);
+        const after = await waitForBrowserRun(ctx.orgId, view.id, waitMs, steps => progress.pulse(browserStepNote(steps))) ?? view;
         return answerOf(after, noteFor(after.status));
       },
       {
@@ -205,7 +218,8 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
           return `No ${browserRunLabel(args.run_id)} in this workspace.`;
         }
         const wait = Math.min(args.wait_seconds ?? 0, Math.round(waitMs / 1000)) * 1000;
-        const v = wait > 0 && ['queued', 'running'].includes(first.status) ? await waitForBrowserRun(ctx.orgId, args.run_id, wait) ?? first : first;
+        const progress = stepProgress(ctx.emit, 'browser_task_check');
+        const v = wait > 0 && ['queued', 'running'].includes(first.status) ? await waitForBrowserRun(ctx.orgId, args.run_id, wait, steps => progress.pulse(browserStepNote(steps))) ?? first : first;
         return answerOf(v, args.rows ? 'The rows, numbered in the order the page gave them, for you to work from. The person already sees them under the answer: use them, do not write them out again.' : noteFor(v.status), args.rows === true);
       },
       {
