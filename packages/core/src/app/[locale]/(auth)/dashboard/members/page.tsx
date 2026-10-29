@@ -1,6 +1,7 @@
 import { AccountablePerson } from '@/features/members/AccountablePerson';
 import { MembersScreen } from '@/features/members/MembersScreen';
 import { OrgPersonalReach } from '@/features/members/OrgPersonalReach';
+import { OrgUsageReview } from '@/features/members/OrgUsageReview';
 import { clerkAuth } from '@/libs/Auth';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
@@ -31,6 +32,8 @@ export default async function MembersPage() {
       <AccountablePerson />
       {/* The Org's say in its members' one Personal; admins, multi-Org only. */}
       <OrgPersonalReach />
+      {/* "Help improve Vocion": what the daily usage review may read; admins. */}
+      <OrgUsageReview />
     </>
   );
 }

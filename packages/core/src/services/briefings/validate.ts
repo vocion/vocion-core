@@ -356,6 +356,11 @@ export function enforceBriefing(doc: BriefingV2, vocab: RedactionVocabulary = {}
   if (out.exceptions) {
     out.exceptions = { items: out.exceptions.items.map(e => ({ ...e, why: clean(e.why), label: clean(e.label) })) };
   }
+  // A table's cells are prose too — a thread's title, a judge's line — and are
+  // cleaned the same way rather than refused at publish.
+  if (out.detail) {
+    out.detail = { tables: out.detail.tables.map(t => ({ ...t, ...(t.note ? { note: clean(t.note) } : {}), rows: t.rows.map(r => r.map(clean)) })) };
+  }
 
   if (footnotes.length > 0) {
     out.provenance = { sources: out.provenance?.sources ?? [], footnotes, ...(out.provenance?.runs ? { runs: out.provenance.runs } : {}) };

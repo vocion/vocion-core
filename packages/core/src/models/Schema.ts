@@ -277,6 +277,16 @@ export const tenantAccountSchema = pgTable(
      */
     includeInPersonal: boolean('include_in_personal').default(true).notNull(),
     /**
+     * "Help improve Vocion" (0229, docs/guides/usage-review.md): whether the
+     * daily usage review may read this Org's chat content to judge whether
+     * each thread got the person where they wanted. NULL follows the
+     * deployment's default (`VOCION_USAGE_REVIEW_DEFAULT`: on for Vocion
+     * Cloud, off when unset); true or false is an admin's choice and wins.
+     * Off, the review reads metadata only. Read through
+     * `services/usageReview/privacy.ts`, never directly.
+     */
+    usageReviewContent: boolean('usage_review_content'),
+    /**
      * Daily briefs (0203, docs/guides/morning-brief.md): whether this Org's
      * people get a morning brief and an evening wrap at all. On by default;
      * each person's own times and switches sit under it.

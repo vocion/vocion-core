@@ -373,6 +373,24 @@ Still never auto-committed: a person adopts or rejects every candidate at `/dash
   An embedding batch costs a fraction of a cent, and rounding each one up
   billed a $1 sync as $10.
 
+## Daily usage review (the Workspace manager)
+
+The `workspace-manager` plugin is on by default in every shared workspace (`defaultOn` in
+`plugin.yaml`, `services/plugins/defaultPlugins.ts`: new workspaces at creation, existing ones
+once by the boot pass beside the app upgrade; off sticks). Each morning in the workspace's zone a
+code check (`usage-review-check`, no model) raises `usage.review_due` only on a day the workspace
+was used, and the Workspace manager runs `run_usage_review` (`services/usageReview`): facts in
+code (`facts.ts`: turns, time, spend, effort and model per turn from `model_call`, tool failures,
+re-asks by trigram overlap and structure), a forced-tool-call judge (`judge.ts`, classifier, daily
+cap `VOCION_USAGE_REVIEW_DAILY_CENTS`, most friction first) only for Orgs read with content, the
+day published as a briefing under the `workspace-manager` team, and fixes filed as `org.change`
+proposals (`request_capability`, `adopt_rule`, signal `usage`). Nothing is stamped on a thread.
+Content vs metadata is decided in `privacy.ts` only: `VOCION_USAGE_REVIEW_CONTENT_ORGS` override,
+then the Org's "Help improve Vocion" switch (`tenant_account.usage_review_content`), then
+`VOCION_USAGE_REVIEW_DEFAULT` (`on` on Vocion Cloud, off when unset). Threads that read a person's
+own connection are always metadata. The operator roll-up crosses workspaces only through the
+`usageReview` extension seam. See `docs/guides/usage-review.md`.
+
 ## Observability
 
 Self-hosted **Langfuse** (in `infra/docker-compose.platform.yml`) traces every LLM call with normalized tags — `feature:<name>`, `org:<orgId>`, `slug:<slug>` — plus `userId` and `sessionId`. UI at http://localhost:3200; admin login lives in `infra/.env.langfuse.local` (gitignored); project `demo`, keys `pk-lf-vocion-demo` / `sk-lf-vocion-demo`.

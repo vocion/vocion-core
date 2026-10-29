@@ -1,0 +1,9 @@
+# The Workspace manager's own team: its briefings are filed under it, so the
+# daily usage review reads as its own line on Briefings and never as the
+# workspace's main brief.
+name: Workspace manager
+description: >-
+  Looks after the workspace itself: how people use it, where they get stuck,
+  and what would fix it.
+goal: Every chat gets the person where they wanted, the first time.
+lead: workspace-manager

@@ -30,6 +30,7 @@ Eleven ship in core, at `packages/core/templates/plugins/`:
 | **`routines`** | Repeatable work taught once from a narrated Slate recording: the Routine analyst drafts a versioned routine (steps linked to moments, rules, escalation points, inputs, outputs read back), its expert approves it and sets its trust (Drafted, Approved, Autonomous), and it runs for every row of a list in parallel, one browser run each. Escalations reach the expert as Decisions; every write is read back into a receipt; nothing is done twice; a reconciliation finds records not on the list. The Routines app, `/dashboard/routines`, and a team graded on verified runs. See [Routines](./guides/routines.md). | — |
 | **`marketing`** | Paid search run by an agent and approved by a person: the Marketing lead reads the Google Ads account live (`ads_campaigns`, `ads_performance`, `ads_report`), publishes a short update every weekday morning and mails it, and proposes every change as a card (`google_ads.set_budget`, `add_negatives`, `add_keywords`, `set_keyword_status`, `edit_ad_text`, `create_search_campaign`, `ads.set_status`), each validated by Google before it applies and undoable. The Paid Marketing app, `/dashboard/marketing`. See [Paid Marketing](./apps/marketing.md). | — |
 | **`seo`** | SEO pages for every client from one workspace: four seats (a strategist and a writer on Opus 5.5, a SERP analyst and an editor on Sonnet 5.5), `seo_batch` and `seo_page` records on each client's project, the volume gate in code (a sample of 3 signed off first, then 10, then the rest; held while feedback is unfiled), the sign-off ask routed back onto the page, feedback filed to the client's project or the wiki, the model that ran each step on the page, and the SEO and SEO pages pages. The Search Engine Optimization app. See [Search Engine Optimization](./apps/seo.md). | `data-rooms`, `wiki` |
+| **`workspace-manager`** | **On by default** in every shared workspace. The Workspace manager reads how people used the workspace each day — did each chat get them where they wanted, where they had to ask again, which connector or skill was missing — publishes the day on Briefings and files the fixes as proposals (`org.change`). A cheap check in code runs first, so an unused day costs nothing. What it reads follows the Org's "Help improve Vocion" setting. See [Usage review](./guides/usage-review.md). | — |
 | **`red-team`** | A second reader on everything an agent publishes outside — `gmail.send`, `release.announce`, `notify.requester`, `chat.post_message`: a model from a **different vendor** than the one that wrote it reads it against the workspace's voice rules and wiki and returns typed findings. Serious findings send the draft back to the agent once, then to a person; on a person's own word they are advice and it runs. See [Action gates](#action-gates--a-second-reader-before-anything-goes-out). | — |
 | **`dashboards`** | The page a team opens every day: a Dashboard analyst builds a `dashboard` artifact from a sentence (headline figures with how they moved, a chart per trend, the tables people act from, dated and sourced) and writes the recipe that rebuilds it; Refresh re-reads it as the person, a new version each time; the Dashboards page shows one dashboard full width or a row per dashboard; an optional weekday schedule refreshes what is due from the workspace's own sources. The Dashboards app. See [Dashboards](./guides/dashboards.md). | — |
 
@@ -89,6 +90,13 @@ Plugins page, the API or a chat card, sets the whole app up at once
   or only the generic one core seeds (`workspace-lead`), that agent becomes
   the workspace lead, and the receipt says so. A lead a person chose is never
   replaced.
+- **On by default:** a plugin with `defaultOn: true` is written into every new
+  shared workspace when it is created, and added once to every existing
+  shared workspace with no folder by the boot pass that also upgrades
+  installed apps (`services/plugins/defaultPlugins.ts`, run by
+  `startInstalledAppUpgrades`). Off sticks: a plugin a workspace ever
+  installed is never added back. A workspace applied from a folder lists it in
+  `plugins:` like any other. The Workspace manager is the one today.
 - **Turning it off** disables its missions and automations (schedules
   removed) and sets its agents inactive. Every row is kept, so history stays,
   and turning the app on again brings the same rows back. If one of its
@@ -275,6 +283,7 @@ version: 1.0.0
 description: One line — what turning it on gives a person.
 depends: [] # other plugin slugs, loaded first
 lead: wiki-curator # optional: the plugin's agent that leads a workspace it is installed into (Vocion Cloud)
+defaultOn: false # true: on in every shared workspace unless a person turned it off (see below)
 surfaces: [] # core-registered surfaces to switch on (features/navigation/surfaces.ts)
 nav: {section: Workspace} # where ALL its rows sit — pages, owned routes, surfaces. Default Workspace; name an app (GTM) to join it
 recommend:

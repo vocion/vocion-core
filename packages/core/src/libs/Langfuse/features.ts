@@ -98,6 +98,8 @@ export const FEATURES = {
   MEETING_READ: 'meetings.followup_read',
   /** The weekly org review's judgement of what the evidence warrants (`services/orgReview/judge.ts`). */
   ORG_REVIEW: 'org.review',
+  /** The daily usage review's judgement of a chat thread or approval, read only for Orgs that let it read content (`services/usageReview/judge.ts`). */
+  USAGE_REVIEW: 'usage.review',
   /** The walkthrough a seat speaks over a recording it made (`services/artifacts/walkthrough.ts`). */
   RECORDING_WALKTHROUGH: 'recording.walkthrough',
   /** A team thread's reads of each post — did a member mark its part complete, did the lead settle it (`services/teams/threadRead.ts`). */

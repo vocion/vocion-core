@@ -8,6 +8,7 @@ import {
   PERSONAL_RHYTHM_SWEEP_SCHEDULE_ID,
   WORKER_RUN_REAPER_SCHEDULE_ID,
 } from '@/libs/durable/scheduleIds';
+import { usageReviewOperators, usageRollupObservers } from '@/libs/extensions';
 import { langfuseConfig } from '@/libs/Langfuse';
 import { externalWorkersEnabled } from '@/services/WorkerRunService';
 import { JOB } from './catalog';
@@ -34,9 +35,15 @@ import { JOB } from './catalog';
  *     and the resume of runs parked on questions that are now answered.
  *   - Personal rhythm sweep, every five minutes: each person's morning brief
  *     and evening wrap that are due, at their own local times.
+ *   - Usage review roll-up, 15:00 UTC daily, only where an extension names the
+ *     deployment's operator (`usageReview` in `libs/extensions.ts`): every
+ *     workspace's daily usage review, gathered for the operator, by then
+ *     written in the Americas' morning as well as Europe's.
  */
 
 export const DURABLE_PRUNE_SCHEDULE_ID = 'durable-prune';
+
+export const USAGE_REVIEW_ROLLUP_SCHEDULE_ID = 'usage-review-rollup';
 
 /** Every schedule this deployment should have, and those it should not. Pure. */
 export function deploymentSchedules(): { wanted: ScheduleSpec[]; unwanted: string[] } {
@@ -52,6 +59,11 @@ export function deploymentSchedules(): { wanted: ScheduleSpec[]; unwanted: strin
     wanted.push({ name: WORKER_RUN_REAPER_SCHEDULE_ID, cron: '*/5 * * * *', job: JOB.workerRunReaper });
   } else {
     unwanted.push(WORKER_RUN_REAPER_SCHEDULE_ID);
+  }
+  if (usageReviewOperators().length > 0 || usageRollupObservers().length > 0) {
+    wanted.push({ name: USAGE_REVIEW_ROLLUP_SCHEDULE_ID, cron: '0 15 * * *', job: JOB.usageReviewRollup });
+  } else {
+    unwanted.push(USAGE_REVIEW_ROLLUP_SCHEDULE_ID);
   }
   const langfuse = langfuseConfig();
   if (langfuse.enabled && langfuse.retentionDays !== null) {

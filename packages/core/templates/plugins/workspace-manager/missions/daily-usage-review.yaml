@@ -1,0 +1,20 @@
+# A standing GOAL: every day a workspace was used, its admins can read whether
+# people got where they wanted and what would fix it. WHEN lives in the
+# automations (usage-review-check raises usage.review_due only on a day the
+# workspace was used). The report is published by the review itself.
+slug: daily-usage-review
+name: Daily usage review
+description: Each day the workspace was used, one read on whether people got where they wanted, what got in the way, and the fixes to approve.
+status: active
+version: 1
+goal: Every chat gets the person where they wanted, the first time — and when one does not, a person can see why and approve the fix the next morning.
+agent: workspace-manager
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - RUN the review once with run_usage_review; it publishes the report and files the fixes.
+  - 'REPORT in at most three lines from what it returned: threads read, the share that got there, the top friction, the fixes filed, and the report link.'
+  - 'NEVER COUNT: every number comes from the review, which counted in code.'
+desiredArtifacts:
+  - The daily usage review as a briefing
+  - Proposals on Needs you for the fixes the evidence supports

@@ -448,6 +448,15 @@ export const PluginManifestSchema = z.object({
    * `workspace.yaml` names its lead there. Must be one of the plugin's agents.
    */
   lead: SlugSchema.optional(),
+  /**
+   * On in every shared workspace unless a person turned it off: written into
+   * a new workspace's plugins when it is created, and added once to every
+   * existing app-installed workspace by the boot pass
+   * (`services/plugins/defaultPlugins.ts`). A workspace applied from a folder
+   * lists it in `plugins:` like any other. Turning it off sticks: a plugin
+   * that was ever installed in a workspace is never added back.
+   */
+  defaultOn: z.boolean().optional(),
   /** Core-registered surfaces (`features/navigation/surfaces.ts`) this plugin switches on. */
   surfaces: z.array(z.string()).default([]),
   /**

@@ -62,7 +62,7 @@ otherwise), the `org.review` job:
 
 ## The `org.change` action
 
-One action, four kinds, each reversible:
+One action, five kinds, each reversible:
 
 | Kind | What approving does | Undo |
 |---|---|---|
@@ -70,6 +70,7 @@ One action, four kinds, each reversible:
 | `set_budget` | Sets the agent's daily cap (soft and hard) | The previous caps are written back; a row the change created is removed |
 | `hire_agent` | Hires a catalog role at its allowance — `team.hire_agent`'s act | Removes the agent, its budget and any team the hire created |
 | `adopt_rule` | Adopts the rule through the feedback loop's pipeline — `learning.adopt_rule`'s act, duplicate judge and occurrence counting included | Un-adopts it |
+| `request_capability` | Filed by the [daily usage review](usage-review.md), not this one: records that the workspace needs a connector, skill or tool people asked for, for the operator's roll-up and any extension that files it where the platform is built | Withdraws the request |
 
 **It waits for a person.** `org.change` is `medium` risk, so no confidence
 releases it on the platform default. Each kind keys the ladder on its own

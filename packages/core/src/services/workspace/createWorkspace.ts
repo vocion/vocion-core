@@ -94,6 +94,10 @@ export async function createSharedWorkspace(input: { userId: string; accountId: 
     if (inserted) {
       // Opens on its lead. A failure here is healed by the chat's own lazy call.
       await ensureWorkspaceLead(id).catch(() => false);
+      // Core's default plugins (the Workspace manager). A failure is healed by
+      // the boot pass, which adds what a workspace is missing.
+      const { ensureDefaultPluginsFor } = await import('@/services/plugins/defaultPlugins');
+      await ensureDefaultPluginsFor(id, input.userId).catch((err: Error) => console.warn('[workspace] default plugins not turned on yet', { id, error: err.message }));
       return { id, slug, name };
     }
     // Someone took that address at the same moment: read again and retry.

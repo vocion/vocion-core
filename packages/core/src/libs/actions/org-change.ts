@@ -36,6 +36,11 @@
  *   - `adopt_rule` — a standing rule is adopted through the feedback loop's
  *     own pipeline (`learning.adopt_rule`'s act: duplicate judge, occurrence
  *     counting). Undo un-adopts it.
+ *   - `request_capability` — filed by the daily usage review
+ *     (`services/usageReview`) when people's threads needed a connector, skill
+ *     or tool the workspace lacks. Approving records the request — the
+ *     approved run is what the operator's roll-up reads, and an extension may
+ *     file it where the platform is built. Undo withdraws it.
  */
 
 import type { Action, ActionContext } from './types';
@@ -44,10 +49,13 @@ import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { teamHireAgentAction } from './team-hire-agent';
 
 /** What raised a proposal — the review's typed finding, never a word match. */
-export const ORG_SIGNALS = ['idle', 'spend', 'rejections', 'escalations', 'measures'] as const;
+export const ORG_SIGNALS = ['idle', 'spend', 'rejections', 'escalations', 'measures', 'usage'] as const;
 export type OrgSignal = typeof ORG_SIGNALS[number];
 
-export const ORG_CHANGE_KINDS = ['retire_agent', 'set_budget', 'hire_agent', 'adopt_rule'] as const;
+export const ORG_CHANGE_KINDS = ['retire_agent', 'set_budget', 'hire_agent', 'adopt_rule', 'request_capability'] as const;
+
+/** What a `request_capability` change asks for. */
+export const CAPABILITY_REQUESTS = ['connector', 'skill', 'tool'] as const;
 export type OrgChangeKind = typeof ORG_CHANGE_KINDS[number];
 
 const slug = z.string().min(1).max(120);
@@ -82,6 +90,15 @@ export const orgChangeSchema = z.discriminatedUnion('kind', [
     stepName: z.string().min(1).max(120).optional(),
     ruleText: z.string().min(8).max(600),
   }),
+  z.object({
+    kind: z.literal('request_capability'),
+    /** A connector to connect, or a skill or tool the workspace's agents lack. */
+    capability: z.enum(CAPABILITY_REQUESTS),
+    /** What it is, named plainly ("HubSpot", "contract review"). */
+    name: z.string().min(1).max(80),
+    /** What it would let the agents do that people asked for and did not get. */
+    need: z.string().min(1).max(400),
+  }),
 ]);
 export type OrgChange = z.infer<typeof orgChangeSchema>;
 
@@ -107,6 +124,7 @@ export const ORG_CHANGE_LABEL: Readonly<Record<OrgChangeKind, string>> = {
   set_budget: 'Re-scope a budget',
   hire_agent: 'Hire a role',
   adopt_rule: 'Adopt a standing rule',
+  request_capability: 'Request a capability',
 };
 
 /** One word each: the review bar puts the approve verb in the past tense ("Retired · …"). */
@@ -115,6 +133,7 @@ const APPROVE_VERB: Readonly<Record<OrgChangeKind, string>> = {
   set_budget: 'Adjust',
   hire_agent: 'Hire',
   adopt_rule: 'Adopt',
+  request_capability: 'Request',
 };
 
 /**
@@ -126,6 +145,8 @@ export function orgChangeTarget(change: OrgChange): string {
   switch (change.kind) {
     case 'hire_agent':
       return change.catalogSlug;
+    case 'request_capability':
+      return `${change.capability}:${change.name.toLowerCase().replace(/[^a-z0-9 ]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 80)}`;
     case 'adopt_rule':
       return `${change.agentSlug ?? 'workspace'}:${change.ruleText.toLowerCase().replace(/[^a-z0-9 ]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 80)}`;
     default:
@@ -193,7 +214,7 @@ function adoptInput(ctx: ActionContext, input: OrgChangeInput, change: Extract<O
 export const orgChangeAction: Action<typeof orgChangeInput> = {
   id: 'org.change',
   name: 'Change the team',
-  description: 'Retire an agent, re-scope its daily budget, hire a catalog role, or adopt a standing rule — a change to the team itself, filed by the weekly org review with the evidence that raised it. Reversible: Undo puts the team back as it was.',
+  description: 'Retire an agent, re-scope its daily budget, hire a catalog role, adopt a standing rule, or request a connector, skill or tool the agents lacked — a change to the team itself, filed by the weekly org review or the daily usage review with the evidence that raised it. Reversible: Undo puts the team back as it was.',
   inputSchema: orgChangeInput,
   grant: 'manage_workspace',
   external: false,
@@ -211,7 +232,7 @@ export const orgChangeAction: Action<typeof orgChangeInput> = {
     // An agent's own org change needs evidence it cannot write; a person
     // asking for one themselves is their word, and runs.
     if (input.evidence.length === 0 && ctx.proposedBy?.startsWith('agent:')) {
-      return 'an org change has to cite the evidence that raised it, and only the weekly org review can — ask a person, or wait for the review to find it';
+      return 'an org change has to cite the evidence that raised it, and only the org and usage reviews can — ask a person, or wait for a review to find it';
     }
     const change = input.change;
     switch (change.kind) {
@@ -265,6 +286,14 @@ export const orgChangeAction: Action<typeof orgChangeInput> = {
         nextAction = `Hiring adds ${entry?.name ?? change.catalogSlug} from the catalog at ${money(change.dailyCents)} a day. Undo removes it, its budget and any team the hire created.`;
         break;
       }
+      case 'request_capability': {
+        fields.push({ label: change.capability === 'connector' ? 'Connector' : change.capability === 'skill' ? 'Skill' : 'Tool', value: change.name, ...(change.capability === 'connector' ? { href: '/dashboard/connectors' } : {}) });
+        fields.push({ label: 'What it unblocks', value: change.need });
+        nextAction = change.capability === 'connector'
+          ? `Requesting records that this workspace needs ${change.name} and puts it in front of the people who build Vocion; connecting it is one sign-in on Connectors. Undo withdraws the request.`
+          : `Requesting records that this workspace's agents need ${change.name} and puts it in front of the people who build Vocion, with the threads that asked for it. Undo withdraws the request.`;
+        break;
+      }
       default: {
         fields.push({ label: 'Rule', value: change.ruleText });
         if (change.agentSlug) {
@@ -278,7 +307,7 @@ export const orgChangeAction: Action<typeof orgChangeInput> = {
     const asOf = input.asOf ? new Date(input.asOf) : null;
     return {
       title: input.headline,
-      system: 'Org review',
+      system: input.signal === 'usage' ? 'Usage review' : 'Org review',
       headline: input.headline.slice(0, 140),
       badges: [
         { label: ORG_CHANGE_LABEL[change.kind] },
@@ -345,6 +374,14 @@ export const orgChangeAction: Action<typeof orgChangeInput> = {
       }
       case 'hire_agent':
         return { kind: change.kind, ...await teamHireAgentAction.execute(ctx, hireInput(input, change)) };
+      case 'request_capability': {
+        // The request is the approved run itself: the operator's roll-up reads
+        // approved requests across workspaces (`services/usageReview/rollup.ts`),
+        // and an extension may file it where the platform is built.
+        const { capabilityRequested } = await import('@/services/usageReview/rollup');
+        await capabilityRequested({ orgId: ctx.orgId, capability: change.capability, name: change.name, need: change.need, evidence: input.evidence, decidedBy: ctx.reviewedBy ?? null });
+        return { kind: change.kind, capability: change.capability, name: change.name, requested: true, href: change.capability === 'connector' ? '/dashboard/connectors' : '/dashboard/briefings' };
+      }
       default:
         return { kind: change.kind, ...await learningAdoptRuleAction.execute(ctx, adoptInput(ctx, input, change)) };
     }
@@ -394,6 +431,9 @@ export const orgChangeAction: Action<typeof orgChangeInput> = {
       }
       case 'hire_agent':
         return (await teamHireAgentAction.undo?.(ctx, hireInput(input, change), result)) ?? { undone: false };
+      case 'request_capability':
+        // The run reads `undone` from here on, and the roll-up leaves it out.
+        return { undone: true, withdrawn: change.name };
       default:
         return (await learningAdoptRuleAction.undo?.(ctx, adoptInput(ctx, input, change), result)) ?? { undone: false };
     }

@@ -1,0 +1,21 @@
+# The workspace-manager plugin — the workspace looking after itself. Its agent,
+# the Workspace manager, reads how people used the workspace every day and
+# files what would make it better as proposals a person decides. Using the
+# platform should make the platform better.
+#
+# On by default in every shared workspace (`defaultOn`), in the Workforce app
+# (it names no nav section of its own). Turning it off sticks.
+#
+# What it runs:
+#   - usage-review-check — each morning in the workspace's own time zone, a
+#     cheap read in code (no model): was the workspace used yesterday? Only
+#     then does it raise `usage.review_due` (ADR 0008).
+#   - usage-review — answers that event: the Workspace manager runs the daily
+#     usage review (run_usage_review → services/usageReview), which publishes
+#     the day on Briefings and files its fixes on Needs you.
+# No `lead:` on purpose: installing it never makes the manager the workspace's lead.
+slug: workspace-manager
+name: Workspace manager
+version: 1.0.0
+description: Reads how people used the workspace each day — did each chat get them where they wanted, what got in the way — and files the fixes as proposals you decide.
+defaultOn: true

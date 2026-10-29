@@ -22,6 +22,7 @@ export const JOB = {
   needsYouSweep: 'needs-you.sweep',
   missionRunResume: 'mission-run.resume',
   orgReview: 'org.review',
+  usageReviewRollup: 'usage-review.rollup',
   personalRhythmSweep: 'personal.rhythm-sweep',
   personalRhythm: 'personal.rhythm',
   mailThreadStateBackfill: 'mail.thread-state-backfill',
@@ -159,6 +160,16 @@ defineJob<{ orgId: string }>(JOB.orgReview, async (input) => {
   const result = await runOrgReview(input.orgId);
   console.warn(`[durable] ${orgReviewLine(result)}`);
   return result;
+}, { retry: twice });
+
+// The operator's daily roll-up of every workspace's usage review
+// (`services/usageReview/rollup.ts`). Scheduled only where an extension names
+// the operator; it reads the day's reports back and publishes, never re-judges.
+defineJob(JOB.usageReviewRollup, async () => {
+  const { runOperatorRollup } = await import('@/services/usageReview/rollup');
+  const out = await runOperatorRollup();
+  console.warn('[durable] usage review roll-up', 'skipped' in out ? out : { workspaces: out.workspaces, published: out.published.length, mailed: out.mailed.sent });
+  return out;
 }, { retry: twice });
 
 // A person's morning brief and evening wrap (docs/guides/morning-brief.md): the

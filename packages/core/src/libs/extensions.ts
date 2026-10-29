@@ -23,6 +23,7 @@
  * | `orgs.multiOrg` | `services/OrgPolicy.ts`: lifts the single-Org rule |
  * | `signInProviders` | `libs/identity/signInProviders.ts`: more "Continue with …" ways in, under core's invite-only rules |
  * | `branding.whiteLabel` | `services/branding/OrgBrandService.ts`: drops the "Powered by Vocion" mark from sign-in and the sidebar |
+ * | `usageReview` | `services/usageReview/rollup.ts`: who operates this deployment and receives the daily usage roll-up across workspaces, and who hears of it and of approved capability requests |
  *
  * Client-side pieces (a component in the sidebar) cannot come from this list,
  * because it imports server code. They come from `@vocion/enterprise/client`
@@ -35,6 +36,7 @@ import type { ComponentType, ReactNode } from 'react';
 import type { WorkspaceDirectory } from '@/features/dashboard/nav/useWorkspaceDirectory';
 import type { SwitcherAccount, WorkspaceSwitcherTargetPath } from '@/features/dashboard/nav/workspaceSwitch';
 import type { SignInProviderDescriptor } from '@/libs/identity/signInProviders';
+import type { CapabilityRequest, OperatorRollup } from '@/services/usageReview/types';
 import { extensions as built } from '@vocion/enterprise/index';
 
 /** What a budget guard is asked about: the same call `preflightCheck` is. */
@@ -120,6 +122,20 @@ export type VocionExtension = {
    */
   branding?: {
     whiteLabel?: () => boolean;
+  };
+  /**
+   * The daily usage review's operator roll-up (`services/usageReview/rollup.ts`).
+   * Core has no operator: each workspace's review is its own, and nothing
+   * crosses workspaces until an extension names who operates the deployment.
+   * The roll-up never leaves the deployment it was built on.
+   */
+  usageReview?: {
+    /** The operator's people, by email: the roll-up lands on their Briefings and, with mail on, in their inbox. */
+    operators?: () => string[];
+    /** Told the day's roll-up once it is built (an operator console). Errors are logged, never thrown. */
+    onRollup?: (rollup: OperatorRollup) => Promise<void>;
+    /** Told when a person approves a capability request the review filed (to file it where the platform is built). */
+    onCapabilityRequest?: (request: CapabilityRequest) => Promise<void>;
   };
 };
 
@@ -242,4 +258,25 @@ export function extensionWhiteLabel(): boolean {
       return false;
     }
   });
+}
+
+/** The operator's people, by email, every extension's together. A hook that throws names no one. */
+export function usageReviewOperators(): string[] {
+  return [...new Set(extensions().flatMap((e) => {
+    try {
+      return e.usageReview?.operators?.() ?? [];
+    } catch {
+      return [];
+    }
+  }).map(a => a.trim().toLowerCase()).filter(Boolean))];
+}
+
+/** Every roll-up observer, in extension order. */
+export function usageRollupObservers(): Array<(rollup: OperatorRollup) => Promise<void>> {
+  return extensions().flatMap(e => (e.usageReview?.onRollup ? [e.usageReview.onRollup] : []));
+}
+
+/** Every capability-request observer, in extension order. */
+export function capabilityRequestObservers(): Array<(request: CapabilityRequest) => Promise<void>> {
+  return extensions().flatMap(e => (e.usageReview?.onCapabilityRequest ? [e.usageReview.onCapabilityRequest] : []));
 }
