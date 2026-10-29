@@ -8,6 +8,7 @@ import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL } from '@/features/dashboard/ar
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { ProjectInstructions, ProjectPublishing, ProjectWiki } from '@/features/dashboard/rooms/ProjectKnowledge';
+import { ProjectSeoProfile } from '@/features/dashboard/rooms/ProjectSeoProfile';
 import { UnfileSource } from '@/features/dashboard/rooms/UnfileSource';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { deckVerificationChip } from '@/libs/decks/audit';
@@ -37,6 +38,10 @@ import { enabledPluginsForOrg } from '@/services/PluginService';
  * pages are released (`seoGate`) and how many new pages a month are proposed
  * (`seoCadence`) sit in the right column under "Publishing":
  * a person's settings, edited in place there and refused to any agent.
+ * With the SEO app on, the SEO PROFILE follows the status: what kind of client
+ * this is and its goals ranked, which decide what the SEO team does first
+ * (`services/seo/profile.ts`), edited in place and drafted by onboarding on a
+ * card a person saves.
  *
  * The rail opens beside it scoped to the room; "Download context" is the same
  * bundle the agent reads (`renderDataRoom`), which keeps its own order — an
@@ -196,6 +201,14 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
             ? <p className="text-[15px] leading-7 text-foreground">{m.status}</p>
             : <p className="text-sm text-muted-foreground">No status yet. The agent writes one when something happens; a person can ask for it.</p>}
         </Section>
+
+        {seoOn && (
+          <ProjectSeoProfile
+            projectId={room.id}
+            profile={m.seoProfile ?? null}
+            targets={publishTargets.map(t => ({ id: t.id, line: publishTargetLine(t) }))}
+          />
+        )}
 
         <ProjectInstructions projectId={room.id} rules={m.rules ?? []} />
 

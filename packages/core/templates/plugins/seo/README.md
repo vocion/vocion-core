@@ -22,6 +22,14 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   position, each with the date it was read; it follows its page from idea to
   in a batch, published and ranking). The Keywords page lists them first in
   the SEO nav; tick rows and "Plan a batch from these" asks the strategist.
+- **An SEO profile on each client's project**: client type (B2B SaaS, local
+  services, ecommerce), goals ranked, industry, offering, audience, places,
+  language, tone, competitors, website, publish target and links to its
+  guidelines (`services/seo/profile.ts`). Onboarding pre-fills it from the
+  site and puts it on one card a person saves (`seo_propose_profile`,
+  `seo.save_profile`); a person edits it on the project page. The client
+  type and goals decide what comes first, printed in the bundle the seats
+  read.
 - **A signed-off keyword plan**: `seo_plan_batch` files one sign-off showing
   the keyword map (keyword, page type, location, intent, cluster, new page or
   refresh). Nothing is briefed or drafted until a person approves it.

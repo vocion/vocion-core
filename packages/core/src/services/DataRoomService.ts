@@ -43,6 +43,7 @@ import type { StoredPublishTarget } from '@/libs/publish/targets';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import type { Ask } from '@/services/AskService';
 import type { ProjectRecord } from '@/services/BusinessObjectService';
+import type { SeoProfile } from '@/services/seo/profile';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { publishTargetLine } from '@/libs/publish/targets';
@@ -52,6 +53,7 @@ import { businessObjectSchema, businessObjectTypeSchema, knowledgeChunkSchema, k
 import { anchorArtifact, createArtifact, getArtifact, listArtifactsByIds, listArtifactsForRecord } from '@/services/ArtifactService';
 import { listAskGroup, upsertAsk } from '@/services/AskService';
 import { addDocumentLink, createBusinessObject, createObjectType, getBusinessObject, getObjectTypeBySlug, groupRecordsByType, listBusinessObjects, listBusinessObjectsForProject, removeDocumentLink, updateBusinessObject } from '@/services/BusinessObjectService';
+import { cleanSeoProfile, renderSeoProfile } from '@/services/seo/profile';
 
 export const DATA_ROOM_TYPE = 'data_room';
 /** A project's record code: PRJ-12. */
@@ -307,6 +309,14 @@ export type RoomMeta = {
    * never planned for on its own. Set by a person on the project page.
    */
   seoCadence?: SeoCadence;
+  /**
+   * What kind of client this is and what it wants from search: the client
+   * type, ranked goals, offering, audience, places, language, tone,
+   * competitors, website, publish target and links to its guidelines
+   * (`services/seo/profile.ts`). Saved by a person: on the project page, or
+   * on the onboarding card (`seo.save_profile`). No agent write takes it.
+   */
+  seoProfile?: SeoProfile;
   /** How the client writes, each line sourced. Printed at the top of the bundle. */
   voice?: ClientVoice;
   /** The latest site inventory filed on the project. */
@@ -843,6 +853,8 @@ export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & 
    */
   seoGate?: { sample: number; tranche: number } | null;
   seoCadence?: SeoCadence | null;
+  /** The client's SEO profile, saved by a person (the project page, or the card they approved). Null clears it. */
+  seoProfile?: SeoProfile | null;
   publishTargets?: StoredPublishTarget[] | null;
   /** A learned target for a person to apply (`publishTargetSuggestion`); null clears it. Written by code, never by an agent's own words. */
   publishTargetSuggestion?: PublishTargetSuggestion | null;
@@ -952,6 +964,13 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
       delete meta.seoCadence;
     } else {
       meta.seoCadence = patch.seoCadence;
+    }
+  }
+  if (patch.seoProfile !== undefined) {
+    if (patch.seoProfile === null) {
+      delete meta.seoProfile;
+    } else {
+      meta.seoProfile = cleanSeoProfile(patch.seoProfile);
     }
   }
   if (patch.publishTargets !== undefined) {
@@ -1584,6 +1603,11 @@ export function renderDataRoom(room: DataRoomDetail): string {
   }
   // The client's voice first: it decides how every word below is used.
   lines.push(...renderVoice(m.voice));
+  // Then what kind of client this is and what comes first for them.
+  lines.push(...renderSeoProfile(m.seoProfile, (id) => {
+    const t = m.publishTargets?.find(x => x.id === id);
+    return t ? publishTargetLine(t) : null;
+  }));
   if (m.rules?.length) {
     lines.push('## Instructions for this project', '');
     for (const r of m.rules) {
