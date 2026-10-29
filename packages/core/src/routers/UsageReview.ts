@@ -1,6 +1,6 @@
 /**
  * The daily usage review (docs/guides/usage-review.md): the Org's "Help
- * improve Vocion" switch, and the workspace's reports for its admins.
+ * improve Vocion" switch, and a run by hand for a workspace's admins.
  */
 
 import { os } from '@orpc/server';
@@ -30,16 +30,6 @@ export const setSettingRoute = os
     await setUsageReviewContent(accountId, input.on);
     return { ...(await usageReviewSetting(accountId)), canChange: true };
   });
-
-/** This workspace's recent reports, newest first, for its admins. */
-export const reportsRoute = os.handler(async () => {
-  const { orgId, accountId, has } = await guardAuth();
-  if (!has({ role: ORG_ROLE.ADMIN })) {
-    throw ApiError.forbidden();
-  }
-  const { listUsageReports } = await import('@/services/usageReview/reports');
-  return listUsageReports(orgId, accountId ?? null);
-});
 
 /** Run today's review now, by hand. */
 export const runRoute = os.handler(async () => {

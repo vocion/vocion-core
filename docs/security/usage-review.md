@@ -53,7 +53,7 @@ Personal workspaces are never reviewed.
 | Who | What |
 |---|---|
 | The workspace's members | The report on the workspace's Briefings. Shared-workspace threads are already open to them, and a link opens a thread only for someone who could open it anyway |
-| The workspace's admins | The same report, plus Manage → Insights → Usage review, and the fixes on Needs you |
+| The workspace's admins | The same report, reached from Manage → Insights → Usage review, and the fixes on Needs you |
 | The deployment's operator | The daily roll-up, only where an extension names an operator (`usageReview` in `libs/extensions.ts`). Core alone names no one, and nothing crosses workspaces |
 | The model provider the Org configured | Judged threads' text, sent with the workspace's own key when it has one (`buildChatModelForOrg('classifier', …)`), under the provider's no-training API terms. The call is charged to the workspace (`platform:usage.review`) and traced under `feature:usage.review` |
 

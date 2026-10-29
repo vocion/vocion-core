@@ -18,9 +18,9 @@ evidence supports as a proposal a person decides.
   see [plugins.md](../plugins.md)). Turning it off on the Plugins page sticks.
 - **The report.** Each report is a briefing on the workspace's Briefings,
   filed under the Workspace manager's own team, so it never takes the place of
-  the workspace's main brief. Admins also see every day's report under
-  Manage → Insights → **Usage review**, which has a "Review yesterday now"
-  button.
+  the workspace's main brief. Admins reach every day's report from
+  Manage → Insights → **Usage review**, which is the Briefings archive
+  filtered to the manager's team, not a second page.
 - **The fixes.** Each fix is an `org.change` proposal on Needs you, filed on
   the same path the [org review](org-review.md) uses.
 - **Across workspaces.** The operator's daily roll-up gathers every
@@ -198,7 +198,8 @@ yesterday's report contributes numbers only.
 
 ## Run it by hand
 
-- **Admins:** Manage → Insights → Usage review → **Review yesterday now**.
+- **In chat:** ask the Workspace manager ("How did people use this workspace
+  yesterday?"). It runs the review and answers with the link.
 - **Agents:** an agent granted `run_usage_review` (`harness.grantTools`) can
   call the tool.
 - **Over RPC:** `usageReview.run`.

@@ -21,8 +21,9 @@ on the Plugins page sticks.
   and files its fixes on Needs you as `org.change` proposals: a connector,
   skill or tool people needed (`request_capability`), or a standing rule
   that would have prevented the friction (`adopt_rule`).
-- The admins' page, Manage → Insights → **Usage review**, with every day's
-  report and "Review yesterday now".
+- Manage → Insights → **Usage review** for admins: every day's report, in
+  the Briefings archive filtered to the manager's team. Ask the Workspace
+  manager in chat to run one now.
 
 **What it reads** depends on the Org's "Help improve Vocion" setting: chat
 content and metadata, or metadata only. See `docs/guides/usage-review.md`.

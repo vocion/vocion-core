@@ -194,8 +194,9 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   { url: '/dashboard/observability', title: 'Observability', group: 'Insights', icon: LineChart, i18nKey: 'observability', keywords: ['langfuse', 'traces', 'spend'] },
   { url: '/dashboard/autonomy', title: 'Autonomy', group: 'Insights', icon: TrendingUp, i18nKey: 'autonomy', keywords: ['ladder', 'trust', 'promote'] },
   { url: '/dashboard/adoption', title: 'Adoption', group: 'Insights', icon: BarChart3, i18nKey: 'adoption', adminOnly: true, keywords: ['usage', 'logins'] },
-  // The Workspace manager's daily usage review: did each chat get people where they wanted.
-  { url: '/dashboard/usage-review', title: 'Usage review', group: 'Insights', icon: MessageSquare, i18nKey: 'usage_review', adminOnly: true, keywords: ['usage', 'chats', 're-ask', 'outcomes', 'friction', 'workspace manager'] },
+  // The Workspace manager's daily usage reviews: did each chat get people where they wanted. They are
+  // briefings, so this is the Briefings archive filtered to the manager's team, not a second page.
+  { url: '/dashboard/briefings/archive?team=workspace-manager', title: 'Usage review', group: 'Insights', icon: MessageSquare, i18nKey: 'usage_review', adminOnly: true, keywords: ['usage', 'chats', 're-ask', 'outcomes', 'friction', 'workspace manager'] },
 
   // ── MANAGE · Organization — the account itself ──────────────────────────
   { url: '/dashboard/members', title: 'Members', group: 'Organization', icon: UserPlus, i18nKey: 'members', keywords: ['users', 'invite', 'settings'] },
