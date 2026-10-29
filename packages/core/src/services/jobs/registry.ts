@@ -58,6 +58,10 @@
  *     inline), and each email that run proposed raises
  *     `meeting.followup_ready` for the meeting's owner. Subscribed by the
  *     meeting-followup plugin. `services/jobs/meetingFollowup.ts`.
+ *   - `seo-opportunities` — each project with an SEO cadence is checked
+ *     against its pages a month; one behind pace queues the strategist's
+ *     background run for just the pages it is short, one on pace gets
+ *     nothing. Scheduled weekly by the seo plugin. `services/seo/cadence.ts`.
  *
  * (Discovery-call detection, the job that used to live here, became
  * agent-driven — an hourly `checkMission` automation.)
@@ -99,6 +103,8 @@ const JOBS: Record<string, BuiltInJob> = {
   'record-duplicate-check': async (orgId, input) => (await import('@/services/objects/duplicateCheck')).checkNewRecordForDuplicate(orgId, input),
   // The Marketing plugin's four-hourly read of the ad account: raises an event only when something changed (ADR 0008).
   'ads-guard': async (orgId, input) => (await import('./adsGuard')).runAdsGuardJob(orgId, input),
+  // The SEO plugin's weekly cadence check: queues the strategist only for a project behind its pages a month.
+  'seo-opportunities': async (orgId, input) => (await import('@/services/seo/cadence')).runSeoOpportunitiesJob(orgId, input),
   // A workspace whose old automation still names these hears nothing from them: asker-follow says it.
   ...Object.fromEntries(RETIRED_FOLLOW_JOBS.map(name => [name, async () => ({ said: false, reason: `${name} is retired; asker-follow tells the asker` })])),
 };

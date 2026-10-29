@@ -19,6 +19,7 @@ successCriteria:
   - A plan sent back is revised and filed for sign-off again, answering the person's note
   - A draft the editor sends back is revised and reviewed again without a person asking, at most three rounds
   - Nothing past the gate is written, and every hold is said with the gate's line
+  - A project the weekly check found short of its cadence gets a keyword plan of just the pages it is short, researched on Google now, filed for sign-off with seo_plan_batch cadence true; a project on pace or without a cadence gets none
 desiredArtifacts:
   - Briefs and drafts for the pages the gate released
   - One line per batch saying what moved and what waits on a person

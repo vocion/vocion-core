@@ -39,6 +39,9 @@ const PatchSchema = z.object({
   // A person's settings: how the SEO app releases this project's pages, and
   // where they ship. No agent tool writes these (`PERSON_ONLY_FIELDS`).
   seoGate: z.object({ sample: stageSize, tranche: stageSize }).nullable().optional(),
+  // How many new pages a month the client is owed, and the topic to find them
+  // in: the weekly "New page opportunities" automation keeps pace with it.
+  seoCadence: z.object({ pagesPerMonth: z.number().int().min(1).max(200), focus: z.string().trim().max(200).optional() }).nullable().optional(),
   // Each target checked by publishing's own schema (`libs/publish/targets.ts`).
   publishTargets: z.array(publishTargetSchema).max(20).nullable().optional(),
   // Only cleared from here (applied or dismissed): a suggestion is learned from the site's posts, never typed.
@@ -49,8 +52,8 @@ const PatchSchema = z.object({
 const LEARN_WAIT_MS = 8_000;
 
 /**
- * A person editing the project's wiki, instructions, auto-filing, SEO gate or
- * publish targets from its page.
+ * A person editing the project's wiki, instructions, auto-filing, SEO gate,
+ * SEO cadence or publish targets from its page.
  * @param caller - The authenticated caller.
  * @param rawId - The `:id` segment.
  * @param req - The request, for its JSON body.
@@ -64,11 +67,12 @@ export async function patchProject(caller: ApiCaller, rawId: string, req: NextRe
   if (!parsed.success) {
     return NextResponse.json({ error: { code: 'BAD_REQUEST', message: parsed.error.issues.map(i => i.message).join('; ') } }, { status: 400 });
   }
-  const { notes, rules, autoFile, seoGate, publishTargets, publishTargetSuggestion } = parsed.data;
-  // The gate and the publish targets are a person's, on the project page: a
-  // token (an outside system, or anything acting for an agent) may not set them.
-  if ((seoGate !== undefined || publishTargets !== undefined || publishTargetSuggestion !== undefined) && caller.source !== 'session') {
-    return NextResponse.json({ error: { code: 'FORBIDDEN', message: 'seoGate and publishTargets are set by a person signed in to the project page.' } }, { status: 403 });
+  const { notes, rules, autoFile, seoGate, seoCadence, publishTargets, publishTargetSuggestion } = parsed.data;
+  // The gate, the cadence and the publish targets are a person's, on the
+  // project page: a token (an outside system, or anything acting for an
+  // agent) may not set them.
+  if ((seoGate !== undefined || seoCadence !== undefined || publishTargets !== undefined || publishTargetSuggestion !== undefined) && caller.source !== 'session') {
+    return NextResponse.json({ error: { code: 'FORBIDDEN', message: 'seoGate, seoCadence and publishTargets are set by a person signed in to the project page.' } }, { status: 403 });
   }
   const current = await getDataRoom(caller.orgId, id);
   if (!current) {
@@ -80,6 +84,7 @@ export async function patchProject(caller: ApiCaller, rawId: string, req: NextRe
     ...(rules === undefined ? {} : { removeRules: current.meta.rules ?? [], addRules: rules }),
     ...(autoFile === undefined ? {} : { autoFile }),
     ...(seoGate === undefined ? {} : { seoGate }),
+    ...(seoCadence === undefined ? {} : { seoCadence: seoCadence && { pagesPerMonth: seoCadence.pagesPerMonth, ...(seoCadence.focus ? { focus: seoCadence.focus } : {}) } }),
     ...(publishTargets === undefined ? {} : { publishTargets }),
     ...(publishTargetSuggestion === undefined ? {} : { publishTargetSuggestion }),
   });

@@ -33,6 +33,13 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   findings (three rounds, then the person decides with the findings open), a
   redraft withdraws an open ask, and every answer wakes the strategist again
   (`seo-continue` on `seo.work_queued`, its `seo-batches-moving` mission).
+- **New page opportunities on a cadence**: a person sets pages a month (and
+  an optional topic focus) on a client's project. Every Monday in the
+  workspace's zone, `seo-opportunities` counts what is planned or in flight
+  this month and, only for a project behind pace, has the strategist re-read
+  Google and the client's site and propose just the pages it is short as a
+  keyword plan for sign-off. On pace, nothing is proposed and nothing is
+  said; no cadence, no plan.
 - **Local search, in code**: a location page is researched on its own city's
   Google results, its brief carries the client's local substance, and its
   draft fails review when it is a sibling location page with the city
@@ -52,11 +59,15 @@ It turns on the `data-rooms` plugin (Projects kept current) and the Wiki with it
 
 ## Customising
 
-- Gate sizes and publish targets: a person sets them under "Publishing" on
-  the client's project page (for example a sample of 5, then 20). A missing
-  or invalid value falls back to the default. No agent can change either:
-  `update_object` refuses `seoGate` and `publishTargets`, and the project
-  API takes them only from a signed-in person.
+- Gate sizes, cadence and publish targets: a person sets them under
+  "Publishing" on the client's project page (for example a sample of 5,
+  then 20; 8 new pages a month on water heaters). A missing or invalid gate
+  falls back to the default; a project with no cadence gets no plan on its
+  own. No agent can change any of them: `update_object` refuses `seoGate`,
+  `seoCadence` and `publishTargets`, and the project API takes them only
+  from a signed-in person.
+- `seo-continue` is `visibility: system`: the app's internal hand-off, kept
+  out of the Automations register unless an admin shows system automations.
 - A seat's model: patch the agent with `extends: core` in your workspace's
   `agents/<slug>.yaml` and set `harness.model`.
 - House craft rules: seed them in `learnings/seo-feedback.yaml` with

@@ -300,6 +300,13 @@ export type RoomMeta = {
   publishTargetSuggestion?: PublishTargetSuggestion;
   /** How the SEO app releases this project's pages: the sample, then each tranche. Set by a person on the project page. */
   seoGate?: { sample?: number; tranche?: number };
+  /**
+   * How many new SEO pages a month the client is owed, and what to look for
+   * them in (`services/seo/cadence.ts`). The weekly "New page opportunities"
+   * automation proposes just enough to keep pace; a project without one is
+   * never planned for on its own. Set by a person on the project page.
+   */
+  seoCadence?: SeoCadence;
   /** How the client writes, each line sourced. Printed at the top of the bundle. */
   voice?: ClientVoice;
   /** The latest site inventory filed on the project. */
@@ -311,6 +318,9 @@ export type RoomMeta = {
   /** Knowledge documents a person or agent took back out — the collector never re-files these on its own. */
   unfiled?: number[];
 };
+
+/** A client's SEO pace: pages a month, and an optional topic to find them in. */
+export type SeoCadence = { pagesPerMonth: number; focus?: string };
 
 export type DataRoom = {
   id: number;
@@ -832,6 +842,7 @@ export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & 
    * /api/v1/projects/:id`); no agent tool passes them. Null clears one.
    */
   seoGate?: { sample: number; tranche: number } | null;
+  seoCadence?: SeoCadence | null;
   publishTargets?: StoredPublishTarget[] | null;
   /** A learned target for a person to apply (`publishTargetSuggestion`); null clears it. Written by code, never by an agent's own words. */
   publishTargetSuggestion?: PublishTargetSuggestion | null;
@@ -934,6 +945,13 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
       delete meta.seoGate;
     } else {
       meta.seoGate = patch.seoGate;
+    }
+  }
+  if (patch.seoCadence !== undefined) {
+    if (patch.seoCadence === null) {
+      delete meta.seoCadence;
+    } else {
+      meta.seoCadence = patch.seoCadence;
     }
   }
   if (patch.publishTargets !== undefined) {

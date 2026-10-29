@@ -79,6 +79,15 @@ describe('listAppOffers', () => {
     }
   });
 
+  it('lists the automations an app brings a person, never its system plumbing', async () => {
+    await project([]);
+    const seo = (await getAppOffer(ORG, 'seo'))!;
+
+    expect(seo.automations).toContain('New page opportunities');
+    // `visibility: system`: the SEO app's internal hand-off after a sign-off.
+    expect(seo.automations).not.toContain('Continue the SEO work');
+  });
+
   it('knows nothing of an app the catalogue lacks', async () => {
     await project([]);
 

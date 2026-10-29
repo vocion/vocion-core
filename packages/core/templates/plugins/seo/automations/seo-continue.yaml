@@ -4,6 +4,11 @@
 # answered a sign-off. This runs the strategist's standing mission as its own
 # durable run: its own budget on the SEO team's seats, resumable, progress on
 # the batch and page records and in the conversation that started it.
+#
+# It is plumbing, not something a person runs or switches: `visibility:
+# system` keeps it out of the Automations register and the app's "What you
+# get" list. An admin can show it ("Show system automations"); it keeps its
+# own page and every fire is in the run log.
 slug: seo-continue
 name: Continue the SEO work
 label: Picked up the SEO work
@@ -12,9 +17,10 @@ description: >-
   Fires at every SEO hand-off. Writes and reviews the pages the gate
   releases, sends the editor's findings back to the writer and has the editor
   look again (at most three rounds, then the person decides with the open
-  findings), files briefs for an approved plan, and revises a plan a person
-  sent back.
+  findings), files briefs for an approved plan, revises a plan a person sent
+  back, and plans the pages the weekly cadence check found a client short of.
 status: active
+visibility: system
 agent: seo-strategist
 when:
   event: seo.work_queued
@@ -23,11 +29,12 @@ do:
   checkMission: seo-batches-moving
   prompt: >-
     SEO work was queued; the event names why (reason), the batch, and for a
-    revision the page, the round and the editor's findings. Call
-    seo_next_pages for the batch first and do what it lists under writeNow,
-    every page it lists (the sample is all of its pages, not one), one page
-    at a time: hand each teammate the page id, and each reads it with
-    seo_read_page. Research and brief what needs it, then the writer
+    revision the page, the round and the editor's findings. reason
+    opportunities names a project instead of a batch: see the end. Otherwise
+    call seo_next_pages for the batch first and do what it lists under
+    writeNow, every page it lists (the sample is all of its pages, not one),
+    one page at a time: hand each teammate the page id, and each reads it
+    with seo_read_page. Research and brief what needs it, then the writer
     drafts (seo_save_draft with its meta) and the editor reviews
     (seo_save_review with findings). reason revise: the writer revises that
     page answering each finding, then the editor reviews it again; the tools
@@ -36,4 +43,12 @@ do:
     with seo_plan_batch and batch_id; a page sent back, file its note first
     (feedback-to-wiki), then redraft it. When the gate holds, say its line
     and stop. Core says where each batch stands in the conversation it was
-    started from, and only when something changed: do not repeat it.
+    started from, and only when something changed: do not repeat it. reason
+    opportunities: the weekly check found the project (projectId) short of
+    its pages a month by `pages`. Read the project (read_project), re-read
+    its site (site_inventory) for what is new or gone since the inventory on
+    file, and have the SERP analyst re-read Google for the client's core
+    topics, and `focus` when the event names one. Then call seo_plan_batch
+    with project_id, cadence true and at most `pages` pages the client has
+    no page for yet; it files the plan's sign-off. Plan nothing more and say
+    nothing else.

@@ -1650,6 +1650,15 @@ export const AutomationManifestSchema = z.object({
   description: z.string().optional(),
   status: z.enum(['active', 'disabled']).default('active'),
   /**
+   * `listed` (the default) shows in the workspace's Automations register and
+   * an app's "What you get" and "How it is doing" lists. `system` is
+   * plumbing — an app's internal hand-off, like the SEO app resuming its
+   * background writing after a sign-off — kept out of those lists unless an
+   * admin asks for "Show system automations". It still fires, keeps its own
+   * page and is in the run log: hidden from the list, never from the audit.
+   */
+  visibility: z.enum(['listed', 'system']).default('listed'),
+  /**
    * A plugin automation that runs only when one of its plugin's settings is
    * on (`settings:` in plugin.yaml, set per workspace under `pluginSettings:`).
    * Resolved at load: off, the automation is applied `disabled`. A plugin's

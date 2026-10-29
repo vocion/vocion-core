@@ -1450,6 +1450,13 @@
       "when": 1792300225000,
       "tag": "0225_kept_sign_in",
       "breakpoints": true
+    },
+    {
+      "idx": 226,
+      "version": "7",
+      "when": 1792300226000,
+      "tag": "0226_automation_source",
+      "breakpoints": true
     }
   ]
 }
