@@ -9,6 +9,7 @@ import {
   getUserRows,
 } from '@/services/adoption/AdoptionService';
 import { getWorkforceInventory } from '@/services/adoption/WorkforceService';
+import { listProjectsForUser } from '@/services/ProjectService';
 import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -28,7 +29,7 @@ async function guardAdmin() {
   if (!ctx.has({ role: ORG_ROLE.ADMIN })) {
     throw ApiError.forbidden();
   }
-  return { orgId: ctx.orgId, accountId: ctx.accountId };
+  return { orgId: ctx.orgId, accountId: ctx.accountId, userId: ctx.userId };
 }
 
 export const adoptionOverviewRoute = os
@@ -73,9 +74,29 @@ export const adoptionAgentDetailRoute = os
     return getAgentDetail(orgId, accountId, input.agentSlug, input.days);
   });
 
+const WorkforceWindow = z.object({ days: z.union([z.literal(1), z.literal(7), z.literal(30), z.literal(90)]).default(30) });
+
 export const adoptionWorkforceRoute = os
-  .input(WindowInput)
+  .input(WorkforceWindow)
   .handler(async ({ input }) => {
     const { orgId } = await guardAdmin();
     return getWorkforceInventory(orgId, input.days);
   });
+
+/** Aggregate only workspaces this admin can open in the current account. */
+export const workforceOverviewRoute = os.input(WorkforceWindow).handler(async ({ input }) => {
+  const { accountId, userId, orgId } = await guardAdmin();
+  const projects = (await listProjectsForUser(userId)).filter(p => p.accountId === accountId && !p.archived);
+  const workspaces = [];
+  // Bound database concurrency even for accounts with many workspaces.
+  for (let offset = 0; offset < projects.length; offset += 4) {
+    const batch = await Promise.all(projects.slice(offset, offset + 4).map(async project => ({
+      id: project.id,
+      name: project.name,
+      slug: project.slug,
+      report: await getWorkforceInventory(project.id, input.days),
+    })));
+    workspaces.push(...batch);
+  }
+  return { activeId: orgId, workspaces };
+});

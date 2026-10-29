@@ -9,7 +9,7 @@ import { getScorecard } from '@/services/scorecard/ScorecardService';
  * @param orgId - Workspace from the authenticated session.
  * @param days - Validated reporting window.
  */
-export async function getWorkforceInventory(orgId: string, days: AdoptionWindow) {
+export async function getWorkforceInventory(orgId: string, days: AdoptionWindow | 1) {
   const generatedAt = new Date();
   const since = new Date(generatedAt.getTime() - days * 86_400_000);
   const [inventory, teamsResult, coverageResult, amplitude, scorecard] = await Promise.all([

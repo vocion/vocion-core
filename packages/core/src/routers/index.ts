@@ -9,6 +9,7 @@ import {
   adoptionUserDetailRoute,
   adoptionUsersRoute,
   adoptionWorkforceRoute,
+  workforceOverviewRoute,
 } from './Analytics';
 import {
   apply as applyComment,
@@ -506,6 +507,7 @@ export const router = {
   },
   scorecard: {
     workforce: adoptionWorkforceRoute,
+    workforceOverview: workforceOverviewRoute,
     agents: scorecardAgentsRoute,
   },
   review: {
