@@ -53,7 +53,9 @@ export function hasOneClickSignIn(connectorSlug: string): boolean {
  * @returns What the model reads about the card, or null when none was shown.
  */
 export async function connectCardForGap(ctx: RuntimeContext, connectorSlug: string, why?: string): Promise<string | null> {
-  if (isAgentsOwnSchedule(ctx) || !hasOneClickSignIn(connectorSlug)) {
+  // A person in their own conversation: a token caller (an outside MCP
+  // client) or an agent on its own schedule has no card to tap.
+  if (!ctx.conversationId || !ctx.userId || ctx.userId.startsWith('token:') || isAgentsOwnSchedule(ctx) || !hasOneClickSignIn(connectorSlug)) {
     return null;
   }
   const seen = shown.get(ctx) ?? new Set<string>();
@@ -64,8 +66,18 @@ export async function connectCardForGap(ctx: RuntimeContext, connectorSlug: stri
   shown.set(ctx, seen);
   try {
     const { offerConnection } = await import('@/services/agents/tools/offerConnection');
-    const said = await offerConnection(ctx, { connector: connectorSlug, why: why ?? 'It is not connected, and this work needs it.', named: true });
-    return `NOT CONNECTED — THE CARD IS UP: ${said} Say in one line that it is not connected and point at the card; never offer to walk them through it.`;
+    // Only a card that was actually drawn is announced: a team connector the
+    // person cannot connect, or one already connected, draws none.
+    let drawn = false;
+    const emit = ctx.emit;
+    const watching: RuntimeContext = { ...ctx, emit: (event) => {
+      if (event.type === 'card' || event.type === 'decision') {
+        drawn = true;
+      }
+      emit(event);
+    } };
+    const said = await offerConnection(watching, { connector: connectorSlug, why: why ?? 'It is not connected, and this work needs it.', named: true });
+    return drawn ? `NOT CONNECTED — THE CARD IS UP: ${said} Say in one line that it is not connected and point at the card; never offer to walk them through it.` : null;
   } catch {
     return null;
   }
@@ -90,13 +102,31 @@ function resultText(result: unknown): string | null {
  */
 function withLine(result: unknown, line: string): unknown {
   if (typeof result === 'string') {
-    return `${result}\n\n${line}`;
+    return withLineOn(result, line);
   }
   const message = result as { content?: unknown };
   if (message && typeof message.content === 'string') {
-    message.content = `${message.content}\n\n${line}`;
+    message.content = withLineOn(message.content, line);
   }
   return result;
+}
+
+/**
+ * The line on a text result. A JSON object stays JSON, with the line as its
+ * `connectCard` field, so a caller that parses the result still can.
+ * @param text - The result.
+ * @param line - The line.
+ */
+function withLineOn(text: string, line: string): string {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return JSON.stringify({ ...parsed, connectCard: line }, null, 2);
+    }
+  } catch {
+    // Not JSON: the line goes underneath.
+  }
+  return `${text}\n\n${line}`;
 }
 
 /**

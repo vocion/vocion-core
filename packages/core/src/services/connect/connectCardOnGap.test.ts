@@ -90,3 +90,21 @@ describe('a system that is not connected is answered with its connect card (2026
     expect(SHOW_THE_CONNECT_CARD).toContain('offer_connection');
   });
 });
+
+describe('the result stays what its caller reads', () => {
+  it('a JSON result stays JSON, with the card line as a field', async () => {
+    const emit = vi.fn();
+    const jsonTool = tool(async () => JSON.stringify({ total: 0, error: 'no_github_source', message: 'No GitHub source is connected in this workspace.' }), { name: 'github_repo_read', description: 'Read a repository.', schema: z.object({ repo: z.string() }) });
+    const out = JSON.parse(String(await withConnectCardOnGap(jsonTool, turn(emit, { conversationId: 12 })).invoke({ repo: 'a' })));
+
+    expect(out).toMatchObject({ total: 0, connectCard: expect.stringContaining('THE CARD IS UP') });
+  });
+
+  it('an outside client with a workspace token gets no card and an untouched result', async () => {
+    const emit = vi.fn();
+    const out = await withConnectCardOnGap(githubReadTool(), turn(emit, { userId: 'token:42', conversationId: undefined })).invoke({ repo: 'a' });
+
+    expect(emit).not.toHaveBeenCalled();
+    expect(String(out)).toBe('No GitHub source is connected in this workspace, so there is nothing to read.');
+  });
+});
