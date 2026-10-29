@@ -187,6 +187,12 @@ describe('site.publish_page', () => {
     expect((card.content?.[0] as { html: string }).html).toContain('<h2>Weight</h2>');
   });
 
+  it('titles the proposal by the page and the target, never "Site publish page"', async () => {
+    expect(await action.proposalTitle!(ctx, { pageRecordId: 20 })).toBe('Publish "How to Choose a Three-Season Tent" → Northwind site');
+    expect((await action.reviewCard!(ctx, { pageRecordId: 20 })).title).toBe('Publish "How to Choose a Three-Season Tent" → Northwind site');
+    expect(await action.proposalTitle!(ctx, { pageRecordId: 21 })).toBeNull();
+  });
+
   it('refuses to overwrite a page already at the path, unless it is a refresh, and says "replacing"', async () => {
     github['/contents/'] = { status: 200, body: { sha: 'f1' } };
 

@@ -507,6 +507,11 @@ async function proposeActionInTurn(input: {
   if (gate && gate.records.length > 0) {
     storedProposal = { ...(storedProposal ?? {}), gates: gate.records } as typeof storedProposal;
   }
+  // The proposal's own title, when the action can name it better than its input does.
+  const named = await action.proposalTitle?.({ orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, proposedBy, ...(input.turn ? { turn: input.turn } : {}) }, parsed).catch(() => null);
+  if (named?.trim()) {
+    storedProposal = { ...(storedProposal ?? {}), title: named.trim().slice(0, 200) } as typeof storedProposal;
+  }
   const gateHold = input.principal.kind === 'agent' ? gate?.hold ?? null : null;
   const gateAdvice = gate && gate.advice.length > 0 ? { advice: gate.advice } : {};
 

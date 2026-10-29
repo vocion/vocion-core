@@ -1,4 +1,5 @@
 import type { RunSummary } from '@/features/dashboard/inbox/RunDecision';
+import type { SheetExtras } from '@/services/inbox/sheetExtras';
 import type { InboxSort } from '@/services/InboxService';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
@@ -29,6 +30,7 @@ import { loadAnswerListeners } from '@/services/inbox/answerListeners';
 import { parseInboxRef } from '@/services/inbox/inboxRef';
 import { loadPendingAction } from '@/services/inbox/pendingAction';
 import { askGroupHref } from '@/services/inbox/recordKey';
+import { decidersNamed, loadSheetExtras } from '@/services/inbox/sheetExtras';
 import { INBOX_SORTS, kindForAsk, listProposalQueue } from '@/services/InboxService';
 import { getCandidate } from '@/services/LearningCandidateService';
 import { getMissionRun } from '@/services/MissionService';
@@ -93,15 +95,20 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
       // What each answer starts, so the rows say what Approve does instead
       // of "go ahead as proposed" on an ask that proposes nothing.
       const listeners = ask.status === 'open' ? (await loadAnswerListeners(orgId, [ask])).get(ask.id) : undefined;
+      // Who the answer goes back to, and the draft it is about; who answered, by name.
+      const [extras, deciders] = await Promise.all([
+        ask.status === 'open' ? loadSheetExtras(orgId, [ask]) : Promise.resolve(new Map<number, SheetExtras>()),
+        decidersNamed([ask]),
+      ]);
       return (
         <div className="mx-auto w-full max-w-3xl">
           {ask.status === 'open'
-            ? <AskSheet asks={[toSheetAsk(ask, await scoreFor({ orgId, subjectKey: ask.kind, agentSlug: ask.agentSlug }), listeners)]} kind={kind} />
+            ? <AskSheet asks={[toSheetAsk(ask, await scoreFor({ orgId, subjectKey: ask.kind, agentSlug: ask.agentSlug }), listeners, extras.get(ask.id))]} kind={kind} />
             : (
                 <>
                   <ReviewHeader crumbs={decisionCrumbs(kind, ask.title)} title={ask.title} system="Answered" status={ask.status} proposedBy={ask.agentSlug ? `asked by ${ask.agentSlug}` : null} />
                   <div className="mt-4">
-                    <AskReceipt ask={ask} />
+                    <AskReceipt ask={ask} decidedByName={ask.decidedBy ? deciders.get(ask.decidedBy) ?? null : null} />
                   </div>
                   <p className="mt-4 text-xs text-muted-foreground">
                     Filed

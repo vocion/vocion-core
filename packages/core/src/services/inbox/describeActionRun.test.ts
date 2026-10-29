@@ -149,3 +149,22 @@ describe('labels', () => {
     expect(confidenceLabel(null)).toBe('—');
   });
 });
+
+describe('a proposal the action named (SEO walk 2, 2026-10-27)', () => {
+  it('reads the title the action stored on the proposal, never the action id spelled out', () => {
+    const d = describeActionRun({
+      ...base,
+      actionId: 'site.publish_page',
+      input: { pageRecordId: 12 },
+      proposal: { confidence: 0.9, title: 'Publish "Choosing a heat pump" → Northwind blog' },
+    });
+
+    expect(d.title).toBe('Publish "Choosing a heat pump" → Northwind blog');
+  });
+
+  it('falls back to the action id spelled out when nothing named it', () => {
+    const d = describeActionRun({ ...base, actionId: 'site.publish_page', input: { pageRecordId: 12 }, proposal: { confidence: 0.9 } });
+
+    expect(d.title).not.toContain('Choosing');
+  });
+});

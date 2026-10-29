@@ -173,6 +173,7 @@ const authorSchema = z.object({
   name: z.string().min(1).max(120),
   title: z.string().max(160).optional().describe('Their title as the site gives it.'),
   url: z.string().max(500).optional().describe('Their author page on the client\'s site.'),
+  slug: z.string().max(120).optional().describe('Their slug or handle as the site\'s own posts name them (an author: dana-w line in a post\'s frontmatter, or the last part of their author page URL).'),
   topics: z.array(z.string().max(80)).max(12).optional().describe('What they write about, in the client\'s words.'),
   default: z.boolean().optional().describe('The byline a page gets when no one\'s topics fit. One author at most.'),
   source: z.string().max(500).optional().describe('Where it was read: the author page URL or a source id.'),

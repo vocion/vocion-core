@@ -27,6 +27,7 @@ export const JOB = {
   mailThreadStateBackfill: 'mail.thread-state-backfill',
   sitePublishSettle: 'site.publish-settle',
   sitePublishMerge: 'site.publish-merge',
+  askHandBack: 'ask.hand-back',
 } as const;
 
 const twice = { attempts: 2, intervalSeconds: 10, backoff: 2 };
@@ -233,3 +234,10 @@ defineJob<import('@/services/publish/sitePublish').PullFollow>(JOB.sitePublishMe
   }
   return { done: false, line: 'Stopped following the pull request after two weeks; the page stays publishing.' };
 }, { whole: true });
+
+// An answer to an agent's question, given anywhere but that conversation's own turn, goes back to
+// the agent as a follow-up turn in its conversation (`services/inbox/handBack.ts`). Once per ask.
+defineJob<import('@/services/inbox/handBack').HandBackInput>(JOB.askHandBack, async (input) => {
+  const { runHandBack } = await import('@/services/inbox/handBack');
+  return runHandBack(input);
+}, { retry: { attempts: 2, intervalSeconds: 30, backoff: 2 } });

@@ -38,6 +38,7 @@
  * a guess (design principle 11: automation is earned).
  */
 
+import type { PublishTargetSuggestion } from '@/libs/publish/learnTemplate';
 import type { StoredPublishTarget } from '@/libs/publish/targets';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import type { Ask } from '@/services/AskService';
@@ -252,6 +253,8 @@ export type ProjectAuthor = {
   title?: string;
   /** Their author page on the client's site. */
   url?: string;
+  /** Their slug or handle on the client's site (`dana-w`), as the site's posts name them; {authorSlug} in a frontmatter template. */
+  slug?: string;
   /** What they write about, in the client's words. */
   topics?: string[];
   /** The byline a page gets when no one's topics fit. */
@@ -289,6 +292,12 @@ export type RoomMeta = {
   autoFile?: boolean;
   /** Where this project's pages ship (`PublishTarget`). Set by a person on the project page. */
   publishTargets?: StoredPublishTarget[];
+  /**
+   * A GitHub target as the site's own posts teach it (`services/publish/learnTemplate.ts`):
+   * its frontmatter template and path, read from a few existing files. A suggestion only:
+   * a person applies it, or dismisses it, on the project page (Publishing).
+   */
+  publishTargetSuggestion?: PublishTargetSuggestion;
   /** How the SEO app releases this project's pages: the sample, then each tranche. Set by a person on the project page. */
   seoGate?: { sample?: number; tranche?: number };
   /** How the client writes, each line sourced. Printed at the top of the bundle. */
@@ -712,6 +721,7 @@ export function cleanAuthors(list: readonly ProjectAuthor[]): ProjectAuthor[] {
       name,
       ...(a.title?.trim() ? { title: a.title.trim() } : {}),
       ...(a.url?.trim() ? { url: a.url.trim() } : {}),
+      ...(a.slug?.trim() ? { slug: a.slug.trim() } : {}),
       ...(a.topics?.length ? { topics: a.topics.map(t => t.trim()).filter(Boolean) } : {}),
       ...(isDefault ? { default: true } : {}),
       ...(a.source?.trim() ? { source: a.source.trim() } : {}),
@@ -823,6 +833,8 @@ export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & 
    */
   seoGate?: { sample: number; tranche: number } | null;
   publishTargets?: StoredPublishTarget[] | null;
+  /** A learned target for a person to apply (`publishTargetSuggestion`); null clears it. Written by code, never by an agent's own words. */
+  publishTargetSuggestion?: PublishTargetSuggestion | null;
 };
 
 /**
@@ -929,6 +941,13 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
       delete meta.publishTargets;
     } else {
       meta.publishTargets = patch.publishTargets;
+    }
+  }
+  if (patch.publishTargetSuggestion !== undefined) {
+    if (patch.publishTargetSuggestion === null) {
+      delete meta.publishTargetSuggestion;
+    } else {
+      meta.publishTargetSuggestion = patch.publishTargetSuggestion;
     }
   }
   if (patch.domains) {
@@ -1587,7 +1606,7 @@ export function renderDataRoom(room: DataRoomDetail): string {
   if (m.authors?.length) {
     lines.push('## Authors', '', 'Who signs the client\'s pages. A page carries the author it was planned with, else the default.', '');
     for (const a of m.authors) {
-      lines.push(`- **${a.name}**${a.title ? `, ${a.title}` : ''}${a.default ? ' (default)' : ''}${a.topics?.length ? ` — writes on ${a.topics.join(', ')}` : ''}${a.url ? ` · [author page](${a.url})` : ''}${a.source && a.source !== a.url ? ` · from ${a.source}` : ''}`);
+      lines.push(`- **${a.name}**${a.title ? `, ${a.title}` : ''}${a.slug ? ` (\`${a.slug}\`)` : ''}${a.default ? ' (default)' : ''}${a.topics?.length ? ` — writes on ${a.topics.join(', ')}` : ''}${a.url ? ` · [author page](${a.url})` : ''}${a.source && a.source !== a.url ? ` · from ${a.source}` : ''}`);
     }
     lines.push('');
   }

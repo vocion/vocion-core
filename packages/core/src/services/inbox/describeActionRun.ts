@@ -377,7 +377,8 @@ function describeFallback(run: ActionRunLike): ActionDescription {
   const agentSlug = agentOf(run);
   const actionKind = humaniseActionId(run.actionId);
   return {
-    title: ownTitle(rec(run.input)) ?? actionKind,
+    // The title the action named its proposal with (`Action.proposalTitle`), then the payload's own.
+    title: str(run.proposal?.title) ?? ownTitle(rec(run.input)) ?? actionKind,
     subline: [actionKind, agentSlug ? `recommended by ${agentSlug}` : null].filter(Boolean).join(' › '),
     actionKind,
     record: null,

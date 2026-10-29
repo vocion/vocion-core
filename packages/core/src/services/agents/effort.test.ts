@@ -69,6 +69,14 @@ describe('the Auto floor', () => {
     expect(autoFloor({ drafts: false, systems: 1 })).toBeNull();
   });
 
+  it('never puts publishing, sending or changing something outside the workspace on Quick, from the typed fact (2026-10-27)', () => {
+    expect(parseEffort('{"level":"quick","reason":"publish pages","drafts":false,"systems":1,"changes":1,"outward":true}')).toEqual({ level: 'standard', reason: 'changing something outside the workspace' });
+    expect(parseEffort('{"level":"deep","reason":"publish a batch","drafts":false,"systems":1,"outward":true}')).toEqual({ level: 'deep', reason: 'publish a batch' });
+    expect(parseEffort('{"level":"quick","reason":"status","drafts":false,"systems":1,"outward":false}')).toEqual({ level: 'quick', reason: 'status' });
+    expect(parseEffort('{"level":"quick","reason":"status","drafts":false,"systems":1,"outward":"yes"}')).toEqual({ level: 'quick', reason: 'status' });
+    expect(autoFloor({ drafts: false, systems: 1, outward: false })).toBeNull();
+  });
+
   it('never puts a change to many records on Quick, from the typed count', () => {
     expect(parseEffort('{"level":"quick","reason":"clear old items","drafts":false,"systems":1,"changes":64}')).toEqual({ level: 'standard', reason: 'changing many records at once' });
     expect(parseEffort('{"level":"quick","reason":"approve one","drafts":false,"systems":1,"changes":1}')).toEqual({ level: 'quick', reason: 'approve one' });

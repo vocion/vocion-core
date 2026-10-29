@@ -6,7 +6,7 @@ description: >-
   rules, answering the query better than what ranks. Location pages carry
   what is true of their own place. Only pages the volume gate has released.
   Read before writing or redrafting any page.
-version: 5
+version: 6
 ---
 
 # Writing an SEO page
@@ -43,10 +43,13 @@ version: 5
 - Every number and claim traces to the client's material or a dated source in
   the SERP brief. Otherwise cut it.
 - Internal links from the brief, written into the sentences that need them.
-- Signed by the page's byline (seo_read_page shows it); never invent an
-  author.
-- The body is the page and nothing else: no meta block, no front matter. The
-  meta title, meta description and slug go to `seo_save_draft` as fields.
+- The body is the page and nothing else: no byline, no "Author:" or
+  "Category:" line, no meta block, no front matter. Who signs it, its
+  category, tags and excerpt are the page's fields, and publishing writes
+  them into the site's own frontmatter; in the body they would show twice.
+- The byline is the page's (seo_read_page shows it). Pass `author` to
+  `seo_save_draft` only to change it, and only to one of the project's
+  authors; never invent one.
 
 ## The meta
 
@@ -58,6 +61,9 @@ From the brief, checked by `seo_save_draft` before it saves anything:
   is kebab-case, path segments allowed (`fairview/water-heater-repair`),
   unique within the client's project. A redraft keeps the page's meta unless
   you pass new values.
+- `category`: the site's category for the post, one its existing posts
+  already use. `tags` and `excerpt` when the site's posts carry them.
+- `author`: only to sign it with another of the project's authors.
 
 ## Location pages
 

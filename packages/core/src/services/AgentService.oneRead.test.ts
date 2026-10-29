@@ -209,7 +209,7 @@ describe('an act the person asked for that wrote nothing gets one more pass, no 
     const { result } = await run('change this request: add a 25 MB size limit', PAGE, PERSON);
 
     expect(inputs).toHaveLength(2);
-    expect(String(inputs[1]!.messages.at(-1)!.content)).toBe('You were asked to add a size limit to request #41. Do it now with your tools, or say in one line why you can\'t. Never write a tool call as text.');
+    expect(String(inputs[1]!.messages.at(-1)!.content)).toBe('You were asked to add a size limit to request #41. Do it now with your tools — look in ACTIONS and search your tools before deciding you cannot. If it cannot be done, say which step failed and why, in one line. Never write a tool call as text.');
     expect(result.response).toContain('the field is locked');
   });
 

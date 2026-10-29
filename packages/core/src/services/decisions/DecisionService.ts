@@ -239,8 +239,9 @@ export async function waitingElsewhere(orgId: string, userId: string): Promise<D
 
 /**
  * Answer a Decision that waits outside any conversation — from the dock's
- * queue, with no turn after it: whoever asked hears it the way it always
- * did (`ask.decided`, a parked run resuming, the proposal executing).
+ * queue, with no turn after it here: whoever asked hears it the way it always
+ * did (`ask.decided`, a parked run resuming, the proposal executing), and an
+ * agent that asked gets it back as a follow-up turn (`inbox/handBack.ts`).
  * @param opts - The answer.
  * @param opts.orgId - The workspace.
  * @param opts.subject - Ask or proposal.

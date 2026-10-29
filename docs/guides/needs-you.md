@@ -108,6 +108,23 @@ automation, in your name). A parked run shows here once, as its gate — never a
 How a run parks: `POST /api/v1/worker-runs/:id/park` for a worker, the `wait_for_answers` tool for
 an agent ([agent tools](./agent-tools.md#waiting-on-answers--wait_for_answers)).
 
+### Answers go back to the agent that asked
+
+An agent's question answered here (or on a decision sheet, the dock's queue, Slack, email or the
+API) goes back to that agent as a follow-up turn: the answer is written into the conversation the
+question came from — the ask's own, else the one its filing run was in, else a new conversation
+with you — as the same typed decision event a card answer is, and the agent carries on there
+(`services/inbox/handBack.ts`, the `ask.hand-back` job, once per ask). The choice says so before
+you answer: *Your answer goes back to SEO strategist, who carries on.* It stands aside where
+something else already carries the answer on: an answer given in the conversation's own turn, an
+asker that said what each answer does (`ask.outcomes`), a routine's or a gate's own asks, a parked
+run waiting on it, and an automation subscribed to it. "Nothing runs on its own" is said only of a
+question no agent asked.
+
+An ask about an artifact (the first `artifact` in its `object_refs`, such as the draft a sign-off
+approves) shows it on the sheet: a markdown draft is rendered in place, and **Open the draft** opens
+it in the pane. Answered items name who answered (their name, else email), never a user id.
+
 ### Across your workspaces
 
 *All workspaces* (`?scope=all`) is the same open queue gathered from every

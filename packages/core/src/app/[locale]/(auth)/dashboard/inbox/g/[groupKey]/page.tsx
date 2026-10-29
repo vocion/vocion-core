@@ -10,6 +10,7 @@ import { agentKeyOf, scoresByAgentAndKey } from '@/services/alignment/AlignmentS
 import { listAskGroup } from '@/services/AskService';
 import { loadAnswerListeners } from '@/services/inbox/answerListeners';
 import { parseRecordKeyParam } from '@/services/inbox/recordKey';
+import { decidersNamed, loadSheetExtras } from '@/services/inbox/sheetExtras';
 import { kindForAsk } from '@/services/InboxService';
 
 /**
@@ -36,12 +37,15 @@ export default async function AskGroupPage(props: { params: Promise<{ locale: st
   const open = asks.filter(a => a.status === 'open');
   // The asker's alignment on each kind, for the meta row under the question.
   // And what each answer starts, so every row says what it does.
-  const [alignment, listeners] = await Promise.all([
+  // Who each answer goes back to and the draft it is about; who answered the rest, by name.
+  const decided = asks.filter(a => a.status !== 'open');
+  const [alignment, listeners, extras, deciders] = await Promise.all([
     scoresByAgentAndKey(orgId, '30d', new Date(), 'ask'),
     loadAnswerListeners(orgId, open),
+    loadSheetExtras(orgId, open),
+    decidersNamed(decided),
   ]);
-  const sheet = open.map(a => toSheetAsk(a, alignment.get(agentKeyOf(a.agentSlug, a.kind)) ?? null, listeners.get(a.id)));
-  const decided = asks.filter(a => a.status !== 'open');
+  const sheet = open.map(a => toSheetAsk(a, alignment.get(agentKeyOf(a.agentSlug, a.kind)) ?? null, listeners.get(a.id), extras.get(a.id)));
   const title = asks.find(a => a.groupTitle)?.groupTitle ?? groupKey;
   const kind = kindForAsk((open[0] ?? asks[0]!).kind);
 
@@ -58,7 +62,7 @@ export default async function AskGroupPage(props: { params: Promise<{ locale: st
             <span className="text-xs font-normal text-muted-foreground tabular-nums">{decided.length}</span>
           </h2>
           <div className="divide-y divide-border border-y border-border">
-            {decided.map(a => <AskReceipt key={a.id} ask={a} compact />)}
+            {decided.map(a => <AskReceipt key={a.id} ask={a} decidedByName={a.decidedBy ? deciders.get(a.decidedBy) ?? null : null} compact />)}
           </div>
         </section>
       )}

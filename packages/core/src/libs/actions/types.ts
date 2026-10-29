@@ -642,6 +642,15 @@ export type Action<S extends z.ZodType = z.ZodType> = {
     next: { input: z.infer<S>; proposal: Record<string, unknown> | null },
   ) => { input: Record<string, unknown>; proposal: Record<string, unknown> | null };
   /**
+   * The proposal's title, in the words a person reads on every surface that
+   * lists it (the review queue, the dock, a decision sheet), when the input
+   * alone does not say it: `Publish "Choosing a heat pump" → Northwind blog`,
+   * never the action id spelled out. Resolved once, when the run is proposed,
+   * and stored on its proposal (`proposal.title`); null keeps the default.
+   * Must tolerate missing data and never throw.
+   */
+  proposalTitle?: (ctx: ActionContext, input: z.infer<S>) => Promise<string | null>;
+  /**
    * Build the structured review card for a pending run of this action.
    * Runs server-side at queue-list time, so it may resolve fresh context
    * (record labels, deep links) from the input. Must tolerate missing data —
