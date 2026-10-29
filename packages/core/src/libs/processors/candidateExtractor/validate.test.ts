@@ -956,3 +956,78 @@ describe('a source that does not opt into occurrence fields', () => {
     expect(createHash('sha256').update(JSON.stringify([out, single])).digest('hex')).toBe('3f754016d187891c5ce213a5805e8a7dd93d96d670f27fed6f8ae4bd1d381fa2');
   });
 });
+
+describe('a field held to the operator\'s list', () => {
+  const towns = {
+    values: ['Larkfield', 'South Larkfield', 'Bellwater', 'Kestrel County'],
+    normalise: { dropWords: ['ns', 'northshire'], abbreviations: { 's.': 'south' } },
+  };
+  const config = (over: Record<string, unknown> = {}) => configWith({ dropIfNotIn: { venueCity: towns }, ...over });
+  const at = (title: string, venueCity?: unknown) => record({ fields: { title, venueCity } });
+
+  it('drops a record whose value is filled in and not on the list, and counts it per field', () => {
+    const out = run([at('In', 'Bellwater'), at('Out', 'Northwind'), at('Also out', 'Kestrel')], config());
+
+    expect(out.records.map(kept => kept.fields.title)).toEqual(['In']);
+    expect(out.counts['skipped.not_in']).toBe(2);
+    expect(out.counts['skipped.not_in.venueCity']).toBe(2);
+    expect(out.notes).toContain('2 record(s) dropped: "venueCity" is not in the operator\'s list');
+  });
+
+  it('keeps a record that names no value, or one that normalises to nothing', () => {
+    const out = run([at('Unset'), at('Blank', '  '), at('Region only', 'NS'), at('Empty list', [])], config());
+
+    expect(out.records).toHaveLength(4);
+    expect(out.counts['skipped.not_in']).toBeUndefined();
+    expect(out.notes.join(' ')).not.toContain('operator\'s list');
+  });
+
+  it('compares both sides after the field\'s normalise block', () => {
+    const out = run([at('Abbreviated', 'S. Larkfield'), at('Cased', 'LARKFIELD, Northshire'), at('Region kept', 'Kestrel County')], config());
+
+    expect(out.records).toHaveLength(3);
+  });
+
+  it('normalises the operator\'s values too, so an abbreviated list entry still matches', () => {
+    const listed = { values: ['S. Bellwater', 'Larkfield NS'], normalise: towns.normalise };
+    const out = run([at('Spelled out', 'South Bellwater'), at('Bare', 'Larkfield')], configWith({ dropIfNotIn: { venueCity: listed } }));
+
+    expect(out.records.map(kept => kept.fields.title)).toEqual(['Spelled out', 'Bare']);
+  });
+
+  it('compares exactly, beyond case and punctuation, when the rule names no normalise block', () => {
+    const out = run([at('Abbreviated', 'S. Larkfield'), at('Cased', 'larkfield')], configWith({ dropIfNotIn: { venueCity: { values: towns.values } } }));
+
+    expect(out.records.map(kept => kept.fields.title)).toEqual(['Cased']);
+  });
+
+  it('keeps a list value when any of its items is on the list', () => {
+    const out = run([at('Partly', ['Northwind', 'Bellwater']), at('None', ['Northwind'])], config());
+
+    expect(out.records.map(kept => kept.fields.title)).toEqual(['Partly']);
+  });
+
+  it('holds a source default to the list too, since the record carries it', () => {
+    const out = run([at('Defaulted')], config({ defaults: { venueCity: 'Northwind' } }));
+
+    expect(out.records).toHaveLength(0);
+    expect(out.counts['skipped.not_in.venueCity']).toBe(1);
+  });
+
+  it('leaves allowedValues and its count alone', () => {
+    const out = run(
+      [record({ fields: { venueCity: 'Bellwater', categories: ['Music', 'Dance'] } })],
+      config({ allowedValues: { categories: ['Music'] } }),
+    );
+
+    expect(out.records[0]?.fields.categories).toEqual(['Music']);
+    expect(out.counts['skipped.bad_category']).toBe(1);
+    expect(out.counts['skipped.not_in']).toBeUndefined();
+  });
+
+  it('refuses a misspelt key inside a rule, and an empty list', () => {
+    expect(() => configWith({ dropIfNotIn: { venueCity: { values: ['Larkfield'], normalize: {} } } })).toThrow();
+    expect(() => configWith({ dropIfNotIn: { venueCity: { values: [] } } })).toThrow();
+    expect(() => configWith({ dropIfNotIn: { venueCity: { values: [''] } } })).toThrow();
+  });
+});
