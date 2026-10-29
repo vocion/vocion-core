@@ -2,7 +2,8 @@
  * The SEO app's tools — present while the `seo` plugin is on.
  *
  *   seo_read_page        a page whole: its record, findings and feedback, and the text of its SERP brief, brief and draft
- *   seo_plan_batch       a batch and its keyword plan for one project; files the plan's sign-off
+ *   seo_plan_batch       a batch and its keyword plan for one project; files the plan's sign-off;
+ *                        with `cadence`, REFUSES a project with no cadence, on pace, or a plan past what it is short
  *   seo_next_pages       what the project's gate lets be written now, why the rest wait, and the client's adopted rules
  *   seo_start_writing    queue the released pages for the background run (writing never runs in a chat turn)
  *   seo_save_research    the SERP brief artifact on a page; a location page's must be its own city's read
@@ -32,6 +33,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { SERP_BRIEF_FOLDER, serpBriefMeta, SYNTHESIS_END, SYNTHESIS_START } from '@/libs/tools/serp/brief';
 import { anchorArtifact, createArtifact, getArtifact } from '@/services/ArtifactService';
+import { cadencePlanRefusal, readCadenceStanding } from '@/services/seo/cadence';
 import { LOCATION_PAGE_SIMILARITY_LIMIT, nearDuplicates, queryNamesLocation } from '@/services/seo/duplicates';
 import { whyNotWritable } from '@/services/seo/gate';
 import { checkPageMeta } from '@/services/seo/meta';
@@ -253,7 +255,7 @@ type PageInput = z.infer<typeof pageSchema>;
 export function seoPlanBatchTool(ctx: RuntimeContext) {
   return tool(
     async (raw, runtime?: ToolCallRuntime) => {
-      const args = raw as { project_id?: number; batch_id?: number | string; topic: string; destination?: string; why?: string; pages: unknown };
+      const args = raw as { project_id?: number; batch_id?: number | string; topic: string; destination?: string; why?: string; pages: unknown; cadence?: boolean };
       const pages = coerceJson(args.pages) as PageInput[];
       if (!Array.isArray(pages) || pages.length === 0) {
         return 'Not planned: name at least one page (its target keyword).';
@@ -285,6 +287,14 @@ export function seoPlanBatchTool(ctx: RuntimeContext) {
         if (!args.project_id) {
           return 'Not planned: name the client project (project_id), or batch_id to revise a plan that was sent back.';
         }
+        // A plan the weekly cadence check asked for keeps pace and no more:
+        // the count is code's, read now, never the run's word for it.
+        if (args.cadence) {
+          const refusal = cadencePlanRefusal(await readCadenceStanding(ctx.orgId, args.project_id), pages.length);
+          if (refusal) {
+            return refusal;
+          }
+        }
         const { batch, pages: made } = await planSeoBatch(ctx.orgId, by, { projectId: args.project_id, topic: args.topic, destination: args.destination, pages: input, plannedBy });
         const ask = await fileSeoPlanAsk({ orgId: ctx.orgId, batchId: batch.id, agentSlug: seat(ctx, plannedBy), why: args.why });
         const locations = made.filter(p => p.meta.pageType === 'location').length;
@@ -310,6 +320,7 @@ export function seoPlanBatchTool(ctx: RuntimeContext) {
         destination: z.string().max(120).optional().describe('The project\'s publish target id these pages ship to, when it has one.'),
         why: z.string().max(2000).optional().describe('Why these pages, in a few lines a person reads beside the map.'),
         pages: z.array(pageSchema).min(1).max(200),
+        cadence: z.boolean().optional().describe('True when this plan answers the weekly "New page opportunities" check (SEO work queued with reason opportunities). The tool re-reads the project\'s cadence and refuses a project with none, one already on pace, or more pages than it is short.'),
       }),
     },
   );

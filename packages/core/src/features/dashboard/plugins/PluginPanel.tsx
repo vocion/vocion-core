@@ -4,6 +4,9 @@ import type { MeasureReading } from '@/services/team-report';
 import { and, eq, inArray } from 'drizzle-orm';
 import { ChevronDown } from 'lucide-react';
 import { StatusPill } from '@/components/ui/status-pill';
+import { AutomationsList } from '@/features/dashboard/automations/AutomationsList';
+import { planAutomations } from '@/features/dashboard/automations/automationsPlan';
+import { readAutomationRegister, registerHrefFor } from '@/features/dashboard/automations/readRegister';
 import { measureValue } from '@/features/dashboard/team-report/format';
 import { ProvenanceChip } from '@/features/dashboard/team-report/ProvenanceChip';
 import { db } from '@/libs/DB';
@@ -27,10 +30,13 @@ import { actionPill, learningPill, planPluginPanel } from './pluginPanelPlan';
  * plugin's manifest and its directory say what to show, so the fourth plugin
  * costs nothing (principles 6, 7 and 12).
  *
- * Four groups, each derived: the measures its team declared (read exactly as
+ * Five groups, each derived: the measures its team declared (read exactly as
  * the team report reads them, provenance and all), its agents, its skills and
- * playbooks with the path that overrides each one, and what use has taught it
- * — learning candidates on its agents' steps and the proposals people decided.
+ * playbooks with the path that overrides each one, its automations (the
+ * workspace register's own rows narrowed to this plugin, system plumbing left
+ * out, linking to the register filtered to the app — there is no second
+ * register), and what use has taught it — learning candidates on its agents'
+ * steps and the proposals people decided.
  * Collapsed by default: the list underneath is what the page is for
  * (principle 9 — hide complexity, never hide truth).
  *
@@ -75,13 +81,17 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
     };
   });
 
-  const [readings, learnings, actions] = await Promise.all([
+  const [readings, learnings, actions, register] = await Promise.all([
     teams.length > 0
       ? readTeamMeasures(orgId, teams.map(t => ({ teamSlug: t.slug, agentSlugs, measures: t.measures })))
       : Promise.resolve(new Map<string, MeasureReading>()),
     readPluginLearnings(orgId, agentSlugs),
     readPluginActions(orgId, agentSlugs),
+    readAutomationRegister(orgId),
   ]);
+  // The register's rows for this plugin, drawn by the register's own list.
+  const automations = planAutomations({ ...register, now: await currentTime(), filter: { plugin: slug } }).rows;
+  const automationsHref = registerHrefFor(register, slug);
 
   const view = planPluginPanel({
     pluginName: plugin.manifest.name,
@@ -106,6 +116,7 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
           {' · '}
           {view.skills.length}
           {view.skills.length === 1 ? ' skill' : ' skills'}
+          {automations.length > 0 && ` · ${automations.length} ${automations.length === 1 ? 'automation' : 'automations'}`}
         </span>
       </summary>
 
@@ -141,6 +152,15 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
               ))}
         </Group>
 
+        <section className="min-w-0" data-testid="plugin-panel-automations">
+          <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            <Link href={automationsHref} className="hover:text-foreground">Automations</Link>
+          </h3>
+          {automations.length === 0
+            ? <p className="py-2 text-[13px] text-muted-foreground">This feature runs nothing on its own.</p>
+            : <AutomationsList rows={automations} showApp={false} />}
+        </section>
+
         <Group heading="Learned from use" href="/dashboard/learnings">
           {view.nothingLearned
             ? <Nothing>Nothing learned yet — corrections in chat and Review decisions land here.</Nothing>
@@ -174,6 +194,11 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
       </div>
     </details>
   );
+}
+
+/** Now, read once per render: `Date.now()` counts as impure inside a render. */
+async function currentTime(): Promise<number> {
+  return Date.now();
 }
 
 /**

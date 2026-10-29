@@ -34,7 +34,8 @@ import { enabledPluginsForOrg } from '@/services/PluginService';
  * from it; then the OPEN ITEMS, what is still only promised, the timeline,
  * the highlights and the decision logs. Nothing is collapsed on the way down.
  * Where its pages ship (`publishTargets`) and, with the SEO app on, how its
- * pages are released (`seoGate`) sit in the right column under "Publishing":
+ * pages are released (`seoGate`) and how many new pages a month are proposed
+ * (`seoCadence`) sit in the right column under "Publishing":
  * a person's settings, edited in place there and refused to any agent.
  *
  * The rail opens beside it scoped to the room; "Download context" is the same
@@ -150,6 +151,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
             <ProjectPublishing
               projectId={room.id}
               gate={m.seoGate ?? null}
+              cadence={m.seoCadence ?? null}
               targets={publishTargets}
               lines={Object.fromEntries(publishTargets.map(t => [t.id, publishTargetLine(t)]))}
               showGate={seoOn}

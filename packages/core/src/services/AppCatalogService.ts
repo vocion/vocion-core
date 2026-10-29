@@ -75,7 +75,9 @@ export type AppOffer = {
 
 /**
  * Display names of the YAML files under a plugin folder, by the field each
- * kind names itself with; the file's slug when it names none.
+ * kind names itself with; the file's slug when it names none. A file marked
+ * `visibility: system` (an app's internal hand-off) is not something the app
+ * brings a person, so it is left out.
  * @param plugin - The plugin.
  * @param sub - `agents`, `pages`, `automations`.
  * @param field - `name` or `title`.
@@ -92,12 +94,16 @@ function namesIn(plugin: LoadedPlugin, sub: string, field: 'name' | 'title', ski
       const slug = file.replace(/\.ya?ml$/, '');
       try {
         const doc = parseYaml(readFileSync(join(dir, file), 'utf8')) as Record<string, unknown> | null;
+        if (doc?.visibility === 'system') {
+          return null;
+        }
         const value = doc?.[field];
         return typeof value === 'string' && value.trim() ? value.trim() : slug;
       } catch {
         return slug;
       }
     })
+    .filter((name): name is string => name !== null)
     .sort((a, b) => a.localeCompare(b));
 }
 

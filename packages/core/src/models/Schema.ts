@@ -1373,6 +1373,21 @@ export const automationSchema = pgTable(
     /** Owning agent slug. Nullable — `checkMission` inherits the owner from its mission; `job`/`workflow` set it here so the schedule rolls up to an agent. */
     ownerAgentSlug: text('owner_agent_slug'),
     /**
+     * Who installed it: `plugin:<slug>` for an automation an app's plugin
+     * ships (a workspace file overriding that slug keeps the plugin's), else
+     * `workspace`. Stamped at every apply, the same shape
+     * `notification_rule.source` has. Null on a row applied before it
+     * existed: readers fall back to the enabled plugins' contents.
+     */
+    source: text('source'),
+    /**
+     * `listed` shows in the Automations register and an app's lists;
+     * `system` is plumbing (an app's internal hand-off), hidden there unless
+     * an admin asks for it, still on its own page and in the run log.
+     * Authored as `visibility:` on the automation's YAML.
+     */
+    visibility: text('visibility').default('listed').notNull(),
+    /**
      * A person's pause, held apart from the authored `status`. `status` is what
      * the YAML says and is replaced on every apply; this is an operational hold
      * a person placed from the app, and apply leaves it alone. Set together:

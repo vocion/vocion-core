@@ -58,7 +58,12 @@ export type LoadedAgent = AgentManifest & {
 export type LoadedObjectType = ObjectTypeManifest & { resolvedClassificationPrompt: string | null; sourceFile: string; origin: Origin; resolvedCode?: string };
 export type LoadedWorkflow = WorkflowManifest & { sourceFile: string };
 export type LoadedMission = MissionManifest & { sourceFile: string; origin: Origin };
-export type LoadedAutomation = AutomationManifest & { sourceFile: string };
+/**
+ * `source` is who installed it: `plugin:<slug>` for a plugin's automation (a
+ * workspace file overriding that slug keeps it), `workspace` for the
+ * workspace's own. Absent reads as `workspace`.
+ */
+export type LoadedAutomation = AutomationManifest & { sourceFile: string; source?: string };
 
 /**
  * A declared notification kind, and the layer that declared it: `workspace`,
@@ -322,7 +327,10 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
         if (parsed.setting) {
           throw new Error(`automation "${parsed.slug}" (${file}): setting: is for a plugin's automations — a workspace turns its own on or off with status:`);
         }
-        return { ...parsed, sourceFile: file };
+        // A same-slug file replaces the plugin's automation whole, and it is
+        // still that app's automation: the provenance stays the plugin's.
+        const shipped = extras.automations.find(a => a.slug === parsed.slug)?.source;
+        return { ...parsed, sourceFile: file, source: shipped ?? 'workspace' };
       }),
     extras.automations,
     a => a.slug,
@@ -897,7 +905,7 @@ function loadPluginExtras(plugins: LoadedPlugin[], pluginSettings: Record<string
     for (const file of walkDir(join(root, 'automations')).filter(isYamlFile)) {
       const parsed = validateOrThrow(AutomationManifestSchema, parseYaml(readFileSync(file, 'utf8')), file, 'automation');
       claim('automation', parsed.slug, name);
-      out.automations.push({ ...parsed, status: settingAllows(plugin, parsed, pluginSettings) ? parsed.status : 'disabled', sourceFile: file });
+      out.automations.push({ ...parsed, status: settingAllows(plugin, parsed, pluginSettings) ? parsed.status : 'disabled', sourceFile: file, source: `plugin:${name}` });
     }
     for (const file of walkDir(join(root, 'teams')).filter(isYamlFile)) {
       const team = loadTeam(file, null);

@@ -10,7 +10,8 @@ pure procedures, and neither carries its own schedule.
 | **Schema** | `AutomationManifestSchema` — `packages/core/src/libs/workspace/schemas.ts` |
 | **Applied to** | `automation` table |
 | **Runtime** | A durable schedule (DBOS, schema `durable`) or an event match, dispatched through `dispatchDo` |
-| **Surface** | `/dashboard/automation` |
+| **Surface** | `/dashboard/automation` (the register, `?app=<id>` to filter by app), and each app's "How it is doing" panel |
+| **Provenance** | `automation.source`: `plugin:<slug>` for one an app's plugin installed (a workspace file overriding that slug keeps it), `workspace` for the workspace's own. Stamped at every apply (migration 0226) |
 | **Layering** | Workspace-only — a base pack ships no automations |
 
 ## Fields
@@ -21,6 +22,7 @@ pure procedures, and neither carries its own schedule.
 | `name` | string | — | Display name. |
 | `description` | string | — | One-line summary. |
 | `status` | `active` \| `disabled` | `active` | Whether the automation fires. |
+| `visibility` | `listed` \| `system` | `listed` | `system` is plumbing (an app's internal hand-off): it fires as usual but is left out of the Automations register and an app's lists unless an admin shows system automations. It keeps its own page and its run log. See [Automations](../guides/automations.md). |
 | `agent` | agent slug | — | Owning agent. Optional for `checkMission` (the mission already names its owner); set it for `workflow` and `job` automations so the schedule rolls up to a visible agent instead of running ownerless. |
 | `when` | object | required | Exactly one of `schedule` or `event`. |
 | `do` | object | required | Exactly one of `workflow`, `checkMission`, or `job`. |

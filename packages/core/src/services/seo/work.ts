@@ -17,6 +17,8 @@
  *             `SEO_EDITOR_ROUNDS` times, then the sign-off is filed anyway
  *             with the open findings shown, so the person decides
  *   signoff   a person answered a plan or page sign-off
+ *   opportunities  the weekly cadence check found a project behind its
+ *             pages a month (`cadence.ts`): plan just the pages it is short
  */
 
 import type { GateState } from './gate';
@@ -37,7 +39,7 @@ const FINDINGS_MAX = 30;
 
 export type SeoFinding = { issue: string; location?: string; fix?: string };
 
-export type SeoWorkReason = 'write' | 'revise' | 'signoff';
+export type SeoWorkReason = 'write' | 'revise' | 'signoff' | 'opportunities';
 
 /**
  * The editor's findings as the page keeps them: each field trimmed to its

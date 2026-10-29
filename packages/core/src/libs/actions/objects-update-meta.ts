@@ -73,12 +73,13 @@ export const RESERVED_OBJECT_KEYS: ReadonlySet<string> = new Set([
  * Fields a PERSON sets, on a record's own page, by object type: this action —
  * the path every agent write takes (`update_object`) — refuses them whoever
  * the proposal came from, so no trust bar, consent reading or approval can
- * move them. A project's SEO gate sizes and where its pages publish decide
- * what reaches a client's site; a person sets them on the project page
+ * move them. A project's SEO gate sizes, its SEO cadence (how many pages a
+ * month are proposed on their own) and where its pages publish decide what
+ * reaches a client's site; a person sets them on the project page
  * (`PATCH /api/v1/projects/:id`).
  */
 export const PERSON_ONLY_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  data_room: ['seoGate', 'publishTargets'],
+  data_room: ['seoGate', 'seoCadence', 'publishTargets'],
 };
 
 /**

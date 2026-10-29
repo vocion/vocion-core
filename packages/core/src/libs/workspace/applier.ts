@@ -1524,6 +1524,10 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, mod
       ...(automation.doing ? { doing: automation.doing } : {}),
     },
     ownerAgentSlug: automation.agent ?? null,
+    // Who installed it and whether the register lists it: the filter by app
+    // and the system/listed split read these, never the plugin folders.
+    source: automation.source ?? 'workspace',
+    visibility: automation.visibility ?? 'listed',
   };
   if (mode.offline) {
     return 'unknown';
@@ -1553,6 +1557,8 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, mod
     && (existing.description ?? null) === payload.description
     && existing.status === payload.status
     && (existing.ownerAgentSlug ?? null) === payload.ownerAgentSlug
+    && (existing.source ?? null) === payload.source
+    && existing.visibility === payload.visibility
     && canonical(existing.whenConfig) === canonical(payload.whenConfig)
     && canonical(existing.doConfig) === canonical(payload.doConfig)
   ) {

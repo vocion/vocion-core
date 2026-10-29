@@ -13,6 +13,9 @@ import { authApi, isErrorResponse } from '../_shared';
  * real fire: id, kind, status, when it started and finished — a pause or a
  * refused match is not a fire), and `skips` — what the guards refused in the
  * last ten minutes, so a rate-limited automation is visible from the list.
+ * Every automation is here, system ones included (`visibility`), each with
+ * the app that installed it (`source`): the register hides plumbing, the API
+ * keeps it auditable.
  * @param req
  */
 export async function GET(req: Request) {
@@ -35,6 +38,10 @@ export async function GET(req: Request) {
       state: a.status === 'active' && a.pausedAt ? 'paused' : a.status,
       status: a.status,
       ownerAgentSlug: a.ownerAgentSlug,
+      // Who installed it (`plugin:<slug>` | `workspace`) and whether the
+      // register lists it (`listed` | `system`): every row, system ones too.
+      source: a.source,
+      visibility: a.visibility,
       when: a.whenConfig,
       do: a.doConfig,
       paused: pauses.get(a.slug) ?? null,

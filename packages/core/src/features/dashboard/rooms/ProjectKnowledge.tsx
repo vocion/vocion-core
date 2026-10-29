@@ -178,23 +178,28 @@ type Target = { id: string; kind: 'github' | 'squarespace' | 'wordpress'; label?
 export type TargetSuggestion = { target: Target; replaces: string | null; repo: string; read: string[]; notes: string[] };
 
 /**
- * Where the project's pages ship and how the SEO app releases them: a
- * person's settings, set here and nowhere else — an agent's write to either
- * is refused (`PERSON_ONLY_FIELDS`). The same edit-in-place as Instructions
- * and Wiki. The gate shows only where the SEO app is on. A target learned
- * from the site's own posts waits here for the person to apply or dismiss.
+ * Where the project's pages ship, how the SEO app releases them, and how many
+ * new pages a month it proposes on its own: a person's settings, set here and
+ * nowhere else — an agent's write to any of them is refused
+ * (`PERSON_ONLY_FIELDS`). The same edit-in-place as Instructions and Wiki.
+ * The gate and the cadence show only where the SEO app is on. A target
+ * learned from the site's own posts waits here for the person to apply or
+ * dismiss.
  * @param props
  * @param props.projectId - The project.
  * @param props.gate - Its `seoGate`, when set.
+ * @param props.cadence - Its `seoCadence`, when set.
  * @param props.targets - Its publish targets.
  * @param props.lines - Each target in words, by id (`publishTargetLine`).
  * @param props.showGate - The SEO app is on in this workspace.
  * @param props.suggestion - A target learned from the site's posts, waiting on a person.
  */
-export function ProjectPublishing({ projectId, gate, targets, lines, showGate, suggestion = null }: { projectId: number; gate: { sample?: number; tranche?: number } | null; targets: Target[]; lines: Record<string, string>; showGate: boolean; suggestion?: TargetSuggestion | null }) {
+export function ProjectPublishing({ projectId, gate, cadence, targets, lines, showGate, suggestion = null }: { projectId: number; gate: { sample?: number; tranche?: number } | null; cadence?: { pagesPerMonth: number; focus?: string } | null; targets: Target[]; lines: Record<string, string>; showGate: boolean; suggestion?: TargetSuggestion | null }) {
   const field = useProjectField(projectId);
   const [sample, setSample] = useState(String(gate?.sample ?? 3));
   const [tranche, setTranche] = useState(String(gate?.tranche ?? 10));
+  const [perMonth, setPerMonth] = useState(cadence ? String(cadence.pagesPerMonth) : '');
+  const [focus, setFocus] = useState(cadence?.focus ?? '');
   const [json, setJson] = useState(targets.length > 0 ? JSON.stringify(targets, null, 2) : '');
   const [problem, setProblem] = useState<string | null>(null);
   if (!showGate && targets.length === 0 && !field.editing && !suggestion) {
@@ -205,6 +210,8 @@ export function ProjectPublishing({ projectId, gate, targets, lines, showGate, s
   const cancel = () => {
     setSample(String(gate?.sample ?? 3));
     setTranche(String(gate?.tranche ?? 10));
+    setPerMonth(cadence ? String(cadence.pagesPerMonth) : '');
+    setFocus(cadence?.focus ?? '');
     setJson(targets.length > 0 ? JSON.stringify(targets, null, 2) : '');
     setProblem(null);
     field.setEditing(false);
@@ -216,12 +223,26 @@ export function ProjectPublishing({ projectId, gate, targets, lines, showGate, s
       setProblem('Sample and tranche are whole numbers from 1 to 100.');
       return;
     }
+    // Empty pages a month is no cadence: nothing is proposed on its own.
+    const monthly = perMonth.trim() === '' ? 0 : Number(perMonth);
+    if (showGate && !(Number.isInteger(monthly) && monthly >= 0 && monthly <= 200)) {
+      setProblem('Pages a month is a whole number from 1 to 200, or empty for none.');
+      return;
+    }
     if (problems.length > 0) {
       setProblem(null);
       return;
     }
     setProblem(null);
-    field.save({ ...(showGate ? { seoGate: { sample: s, tranche: t } } : {}), publishTargets: json.trim() ? JSON.parse(json) : [] });
+    field.save({
+      ...(showGate
+        ? {
+            seoGate: { sample: s, tranche: t },
+            seoCadence: monthly > 0 ? { pagesPerMonth: monthly, ...(focus.trim() ? { focus: focus.trim() } : {}) } : null,
+          }
+        : {}),
+      publishTargets: json.trim() ? JSON.parse(json) : [],
+    });
   };
   const apply = () => {
     if (!suggestion) {
@@ -249,6 +270,18 @@ export function ProjectPublishing({ projectId, gate, targets, lines, showGate, s
                   </label>
                 </div>
               )}
+              {showGate && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1.5">
+                    New pages a month
+                    <input type="number" min={0} max={200} value={perMonth} placeholder="none" onChange={e => setPerMonth(e.target.value)} className={input} aria-label="New pages a month" />
+                  </label>
+                  <label className="flex min-w-0 flex-1 items-center gap-1.5">
+                    on
+                    <input type="text" maxLength={200} value={focus} placeholder="any topic" onChange={e => setFocus(e.target.value)} className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-sm focus:border-foreground/30 focus:outline-none" aria-label="Topic focus" />
+                  </label>
+                </div>
+              )}
               <Editor value={json} onChange={setJson} onSave={save} onCancel={cancel} busy={field.busy} mono placeholder={PUBLISH_TARGET_EXAMPLE} />
               {problems.length > 0 && (
                 <ul className="space-y-0.5 text-xs text-destructive" data-testid="publish-target-problems">
@@ -263,6 +296,13 @@ export function ProjectPublishing({ projectId, gate, targets, lines, showGate, s
                 <p className="text-foreground">
                   {`SEO pages: a sample of ${gate?.sample ?? 3} for your sign-off, then ${gate?.tranche ?? 10} at a time`}
                   {gate ? null : <span className="text-muted-foreground"> (the default)</span>}
+                </p>
+              )}
+              {showGate && (
+                <p className={cadence ? 'text-foreground' : 'text-muted-foreground'} data-testid="project-seo-cadence">
+                  {cadence
+                    ? `New page opportunities: ${cadence.pagesPerMonth} a month${cadence.focus ? ` on ${cadence.focus}` : ''}, proposed weekly for your sign-off`
+                    : 'No pages a month set: none are proposed on their own'}
                 </p>
               )}
               {targets.length === 0

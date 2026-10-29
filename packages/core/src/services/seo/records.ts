@@ -184,7 +184,8 @@ export type SeoBatchMeta = {
   waitingOnYou?: number;
 };
 
-export type SeoPageRecord = { id: number; title: string; meta: SeoPageMeta };
+/** `createdAt` is when the page was planned; read where a caller counts pages by month (`cadence.ts`). */
+export type SeoPageRecord = { id: number; title: string; meta: SeoPageMeta; createdAt?: Date };
 
 /** A page's byline, as the project keeps its authors (`ProjectAuthor`). */
 export type SeoPageAuthor = { name: string; title?: string; url?: string; slug?: string; from: 'planned' | 'default' | 'writer' };
@@ -330,7 +331,7 @@ export function modelsLine(models: SeoPageMeta['models']): string | undefined {
   return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
-const toPage = (row: { id: number; title: string; metadata: unknown }): SeoPageRecord => ({ id: row.id, title: row.title, meta: (row.metadata ?? {}) as SeoPageMeta });
+const toPage = (row: { id: number; title: string; metadata: unknown; createdAt?: Date }): SeoPageRecord => ({ id: row.id, title: row.title, meta: (row.metadata ?? {}) as SeoPageMeta, ...(row.createdAt ? { createdAt: row.createdAt } : {}) });
 const toBatch = (row: { id: number; title: string; metadata: unknown }): SeoBatchRecord => ({ id: row.id, title: row.title, meta: (row.metadata ?? {}) as SeoBatchMeta });
 
 /**
@@ -376,7 +377,7 @@ async function pagesWhere(orgId: string, key: 'batchId' | 'projectId' | 'draftAr
     return [];
   }
   const rows = await db
-    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, metadata: businessObjectSchema.metadata })
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, metadata: businessObjectSchema.metadata, createdAt: businessObjectSchema.createdAt })
     .from(businessObjectSchema)
     .where(and(
       eq(businessObjectSchema.orgId, orgId),
