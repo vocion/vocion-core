@@ -98,3 +98,83 @@ export function useAnswerOnConnectReturn(input: {
     });
   }, [outcome, ready, decisions, answer, fail, pathname, replaceUrl, handedOff]);
 }
+
+/**
+ * The open sign-in steps and the connector each is for: every option a
+ * connect card opened its login with (`connect:<slug>`).
+ * @param decisions - What the conversation waits on.
+ */
+export function openConnectSteps(decisions: readonly DecisionView[]): Array<{ view: DecisionView; optionId: string; connector: string }> {
+  return decisions.flatMap(view => view.options
+    .filter(o => o.id.startsWith('connect:') && o.id.length > 'connect:'.length)
+    .map(o => ({ view, optionId: o.id, connector: o.id.slice('connect:'.length) })));
+}
+
+/**
+ * CONNECTED BY ANY PATH, THE CARD IS ANSWERED. A sign-in card waits for its
+ * connector; when the workspace reads that connector now — signed in from
+ * another tab, on the Connectors page, or by a callback that landed after the
+ * window closed — the step is answered with its own option, typed, as the
+ * return from a login would. Read when the page regains focus and whenever
+ * `recheckKey` changes (a reply landed), so the card never contradicts it.
+ * @param input - What to watch.
+ * @param input.decisions - The open Decisions of this conversation.
+ * @param input.answer - Answers a Decision, typed.
+ * @param input.status - Reads which connectors are connected now.
+ * @param input.recheckKey - Changes when the surface wants them read again; null holds.
+ */
+export function useAnswerWhenConnected(input: {
+  decisions: readonly DecisionView[];
+  answer: (view: DecisionView, answer: DecisionAnswer) => void;
+  status: (connectors: string[]) => Promise<Array<{ connector: string; connected: boolean }>>;
+  recheckKey: string | number | null;
+}): void {
+  const { decisions, answer, status, recheckKey } = input;
+  const latest = useRef({ decisions, answer, status });
+  useEffect(() => {
+    latest.current = { decisions, answer, status };
+  });
+  const answered = useRef(new Set<string>());
+  const stepsKey = openConnectSteps(decisions).map(s => `${s.view.id}:${s.connector}`).join(',');
+  useEffect(() => {
+    if (!stepsKey) {
+      return;
+    }
+    let live = true;
+    const check = async () => {
+      const steps = openConnectSteps(latest.current.decisions).filter(s => !answered.current.has(`${s.view.id}:${s.optionId}`));
+      if (steps.length === 0) {
+        return;
+      }
+      let read: Array<{ connector: string; connected: boolean }>;
+      try {
+        read = await latest.current.status([...new Set(steps.map(s => s.connector))]);
+      } catch {
+        return;
+      }
+      const connected = new Set(read.filter(r => r.connected).map(r => r.connector));
+      for (const step of steps) {
+        const key = `${step.view.id}:${step.optionId}`;
+        if (live && connected.has(step.connector) && !answered.current.has(key)) {
+          answered.current.add(key);
+          latest.current.answer(step.view, { kind: 'option', optionIds: [step.optionId] });
+        }
+      }
+    };
+    const onBack = () => {
+      if (document.visibilityState === 'visible') {
+        void check();
+      }
+    };
+    window.addEventListener('focus', onBack);
+    document.addEventListener('visibilitychange', onBack);
+    if (recheckKey !== null) {
+      void check();
+    }
+    return () => {
+      live = false;
+      window.removeEventListener('focus', onBack);
+      document.removeEventListener('visibilitychange', onBack);
+    };
+  }, [stepsKey, recheckKey]);
+}

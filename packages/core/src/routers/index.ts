@@ -61,7 +61,7 @@ import {
 import { hintEvent as chatHintEvent, suggestions as chatSuggestions, tagSources as chatTagSources } from './Chat';
 import { getState as getChatWidgetState, setRail as setChatWidgetRail, setState as setChatWidgetState } from './ChatWidget';
 import { addConnectorRoute, googleAdsAccountsRoute, membersOwnConnectionsRoute, revealStoredCredentialRoute, saveSourceRoute as saveConnectedSourceRoute, setMembersOwnConnectionsRoute } from './Connect';
-import { finishConnectionsRoute, planConnectionsRoute, saveConnectionKeyRoute, verifyConnectionRoute } from './ConnectSystems';
+import { connectionStatusRoute, finishConnectionsRoute, planConnectionsRoute, saveConnectionKeyRoute, verifyConnectionRoute } from './ConnectSystems';
 import {
   append as appendConvMessage,
   intake as conversationIntake,
@@ -330,6 +330,7 @@ export const router = {
     plan: planConnectionsRoute,
     saveKey: saveConnectionKeyRoute,
     verify: verifyConnectionRoute,
+    status: connectionStatusRoute,
     finish: finishConnectionsRoute,
   },
   apiTokens: {

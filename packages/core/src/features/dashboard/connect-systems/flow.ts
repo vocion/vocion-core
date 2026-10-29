@@ -44,6 +44,8 @@ export type FlowEvent
     | { type: 'login_returned'; ok: true; needsSettings: boolean }
     | { type: 'login_returned'; ok: false; reason: string }
     | { type: 'verified'; result: ConnectVerification }
+    /** A re-check found the current system connected by another path (a callback after the window closed, another tab, the Connectors page). */
+    | { type: 'found_connected' }
     | { type: 'skip' }
     | { type: 'later' }
     | { type: 'stop' };
@@ -168,6 +170,9 @@ export function reduce(s: FlowState, e: FlowEvent): FlowState {
         return { ...s, step: { at: 'failed', reason: e.reason } };
       }
       return { ...s, step: { at: e.needsSettings ? 'settings' : 'verifying' } };
+    case 'found_connected':
+      // Connected while the card waited: checked like any connect, then on.
+      return s.step.at === 'choose' || s.step.at === 'failed' || s.step.at === 'authorizing' ? { ...s, step: { at: 'verifying' } } : s;
     case 'verified':
       if (s.step.at !== 'verifying') {
         return s;

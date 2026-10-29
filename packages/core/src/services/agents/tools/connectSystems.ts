@@ -31,7 +31,7 @@ export const CONNECTOR_KIND_FIELD = z.enum(['team', 'personal']).optional().desc
 const InputSchema = z.object({
   kind: CONNECTOR_KIND_FIELD,
   named: z.array(z.string().min(1).max(80)).max(20).optional().describe('Connector slugs (from list_capabilities) of systems the person named in their own words, in their order — each one is shown to them as "You named it", so never a system you inferred. Leave out when they named none ("what should I connect?").'),
-  title: z.string().min(3).max(90).optional().describe('The card\'s question, in your words for this person now ("Connect GitHub so the factory can read your repos?"). Compose it from the facts below; leave out only to use a plain default.'),
+  title: z.string().min(3).max(90).optional().describe('The card\'s question, in your words for this person now ("Connect GitHub so I can read your repos?"). Compose it from the facts below; leave out only to use a plain default.'),
   why: z.string().min(3).max(240).optional().describe('One or two lines on why these systems matter to this person now, from the live facts (what is installed, what failed, what the team tried). Leave out to show none.'),
   app: z.string().min(1).max(80).optional().describe('An app id, to walk only the systems that app reads ("connect the systems GTM uses", "set up my software factory"). Setting up an app always passes its id.'),
   steps: z.array(z.object({
@@ -109,7 +109,7 @@ export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<
   if (unknown.length > 0) {
     lines.push(`Not a system this workspace can connect: ${unknown.join(', ')}. Say so in one line; do not invent a way.`);
   }
-  lines.push('Write one short line before the card at most; never claim anything is connected until they say so or list_capabilities shows it.');
+  lines.push('Write one short line before the card at most. Never claim anything is connected on their word: only list_capabilities, read after they say so, shows it.');
   return lines.join(' ');
 }
 

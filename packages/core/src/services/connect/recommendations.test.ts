@@ -156,6 +156,19 @@ describe('ranking from evidence', () => {
     expect(plan.candidates[0]!.unlocks).toEqual([{ app: 'gtm', appName: 'GTM', href: '/dashboard/apps/gtm', added: false, features: ['Pipeline review'] }]);
   });
 
+  it('names no app the workspace has not added as what connecting unlocks (2026-10-29)', async () => {
+    offers = [
+      { id: 'factory', name: 'Build Shop', added: false, connectors: [{ slug: 'github', name: 'GitHub', connected: false, needed: true }], features: [] },
+      { id: 'seo', name: 'Search', added: true, connectors: [{ slug: 'github', name: 'GitHub', connected: false, needed: false }], features: [] },
+    ];
+
+    const plan = await recommendConnections({ orgId: SALES, userId: DANA }, { named: ['github'] }, { resolveMx: noMail });
+    const github = plan.candidates.find(c => c.connector === 'github')!;
+
+    expect(github.unlocks.map(u => u.appName)).toEqual(['Search']);
+    expect(github.evidence.filter(e => e.kind === 'app').map(e => (e as { appName: string }).appName)).toEqual(['Search']);
+  });
+
   it('leaves out what is already connected, and lists it as connected', async () => {
     connectedByOrg.set(SALES, ['slack']);
 

@@ -793,10 +793,23 @@ async function runAgentDeepInScope(opts: {
     })();
     return leads;
   };
+  // WHETHER A SYSTEM IS CONNECTED IS READ, NEVER TAKEN ON SOMEONE'S WORD
+  // (2026-10-29, "It said it did connect" → "GitHub is now connected", with
+  // no GitHub source). A person's turn in a conversation that asked them to
+  // connect something carries those systems' live state; a message that
+  // claims one connected stays off Quick (`connect/connectionTruth.ts`).
+  const connectTruth: Promise<{ note: string; claimed: boolean } | null> = opts.userId && !opts.missionRunId && !opts.userId.startsWith('token:') && typeof opts.conversationId === 'number'
+    ? import('./connect/connectionTruth').then(m => m.connectionTurnNote({ orgId: opts.orgId, conversationId: opts.conversationId!, message: opts.message })).catch(() => null)
+    : Promise.resolve(null);
+  const aboutConnection = async () => {
+    const truth = await connectTruth;
+    return Boolean(truth?.claimed && truth.note);
+  };
   const readRequest = (previous?: string) => Promise.all([
     effortMod.inferEffort({ orgId: opts.orgId, message: opts.message, ...(previous ? { previous } : {}) }),
     leadsTeammates(),
-  ]).then(([read, leads]) => effortMod.answerFloor(effortMod.synthesisLevel(read, { leadsTeammates: leads }), opts.answeredRecords));
+    aboutConnection(),
+  ]).then(([read, leads, connection]) => effortMod.connectionFloor(effortMod.answerFloor(effortMod.synthesisLevel(read, { leadsTeammates: leads }), opts.answeredRecords), connection));
   const autoEffort = effortApplies && personEffort === 'auto'
     ? readRequest([...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'assistant')?.content)
     : null;
@@ -860,7 +873,8 @@ async function runAgentDeepInScope(opts: {
   }
   if (target === 'agentcore-container' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
-    return runOutOfProcess(opts, emit, run => runAgentOnRuntime({ ...opts, conversationHistory: flatHistory(conversationHistory), onEvent: run }));
+    const connection = (await connectTruth)?.note;
+    return runOutOfProcess(opts, emit, run => runAgentOnRuntime({ ...opts, ...(connection ? { message: `${connection}\n\n${opts.message}` } : {}), conversationHistory: flatHistory(conversationHistory), onEvent: run }));
   }
   if (target === 'external-worker') {
     // ADR 0004: Vocion is the control plane, a process it does not host does the
@@ -871,7 +885,8 @@ async function runAgentDeepInScope(opts: {
   }
   if (target === 'aws-managed-harness' && process.env.VOCION_DISABLE_AGENTCORE !== '1') {
     const { runAgentOnAgentCoreHarness } = await import('./agents/providers/agentcore');
-    return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, conversationHistory: flatHistory(conversationHistory), onEvent: run }));
+    const connection = (await connectTruth)?.note;
+    return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, ...(connection ? { message: `${connection}\n\n${opts.message}` } : {}), conversationHistory: flatHistory(conversationHistory), onEvent: run }));
   }
 
   // The person's per-thread choice of model and thinking, mapped onto the
@@ -912,7 +927,7 @@ async function runAgentDeepInScope(opts: {
             return read;
           }
           // Jev sets the level; the facts' floors and the lead's synthesis rule still hold.
-          return effortMod.answerFloor(effortMod.synthesisLevel(effortMod.withJevEffort(read, route.effort, route.detail.reason.slice(0, 80)), { leadsTeammates: await leadsTeammates() }), opts.answeredRecords);
+          return effortMod.connectionFloor(effortMod.answerFloor(effortMod.synthesisLevel(effortMod.withJevEffort(read, route.effort, route.detail.reason.slice(0, 80)), { leadsTeammates: await leadsTeammates() }), opts.answeredRecords), await aboutConnection());
         },
       })
     : null;
@@ -1097,7 +1112,8 @@ async function runAgentDeepInScope(opts: {
   const waitingNote = boundCtx.userId && !boundCtx.missionRunId && typeof opts.conversationId === 'number'
     ? await import('./decisions/revise').then(async m => m.openAsksTurnNote(await m.openAsksIn(opts.orgId, opts.conversationId!))).catch(() => '')
     : '';
-  const userContent = await composeUserContent(`${clock}${effortLine}${goalsNote ? `\n${goalsNote}` : ''}${waitingNote ? `\n${waitingNote}` : ''}\n\n${opts.message}`, opts.attachments ?? []);
+  const connectionNote = (await connectTruth)?.note ?? '';
+  const userContent = await composeUserContent(`${clock}${effortLine}${goalsNote ? `\n${goalsNote}` : ''}${waitingNote ? `\n${waitingNote}` : ''}${connectionNote ? `\n${connectionNote}` : ''}\n\n${opts.message}`, opts.attachments ?? []);
   const input = {
     messages: [
       ...history,

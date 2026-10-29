@@ -11,9 +11,10 @@ import { forgetWalk, recallWalk, rememberWalk } from '@/features/dashboard/conne
 import { useLive } from '@/hooks/useLive';
 import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
 import { decisionKey } from '@/libs/decisions/decision';
+import { client } from '@/libs/Orpc';
 import { isConnectStart, listenForConnectReturn, openConnectTab } from '../connectTabHandoff';
 import { dockPlan } from '../emptyChat';
-import { stepForConnector } from '../useAnswerOnConnectReturn';
+import { stepForConnector, useAnswerWhenConnected } from '../useAnswerOnConnectReturn';
 import { WAITING_NUDGE_ENABLED, WaitingNudge } from '../WaitingNudge';
 import { DecisionCard } from './DecisionCard';
 import { decisionTopics, settledElsewhere, settledElsewhereLine } from './dockLive';
@@ -213,6 +214,26 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
       forgetWalk(conversationId);
     }
   }, [walking, conversationId, openIds]);
+  // THE WALK ENDS WITH ITS DECISION. Answered or set aside any other way — a
+  // typed reply read as its answer, another tab, the agent — the walk leaves
+  // the dock too, rather than sitting open over a settled card (2026-10-29).
+  const walkDecision = walk.active?.decisionId;
+  const closeWalk = walk.close;
+  const seenOpen = useRef<number | null>(null);
+  useEffect(() => {
+    if (walkDecision === undefined) {
+      seenOpen.current = null;
+      return;
+    }
+    const open = openIds.split(',').includes(String(walkDecision));
+    if (open) {
+      seenOpen.current = walkDecision;
+    } else if (seenOpen.current === walkDecision) {
+      seenOpen.current = null;
+      forgetWalk(conversationId);
+      closeWalk();
+    }
+  }, [walkDecision, openIds, conversationId, closeWalk]);
   // A sign-in opened in its own tab: the card waits here, and the step is
   // answered here when that tab hands the outcome back (`connectTabHandoff.ts`).
   const [waitingTab, setWaitingTab] = useState(false);
@@ -315,6 +336,14 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
     answeredHere.current.add(decisionKey(decision));
     session.answerDecision(decision, a);
   };
+  // A sign-in card whose system is connected now, by any path, is answered
+  // here — on focus, and after each reply — never left saying it waits.
+  useAnswerWhenConnected({
+    decisions: session.openDecisions,
+    answer,
+    status: connectors => client.connectSystems.status({ connectors }).then(r => r.connectors),
+    recheckKey: streaming ? null : session.messages.length,
+  });
 
   if (walk.active) {
     const active = walk.active;
@@ -330,7 +359,20 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
           forgetWalk(conversationId);
           walk.close();
         }}
-        onSomethingElse={text => void session.sendMessage(text)}
+        onSomethingElse={(text) => {
+          // "Something else…" is the walk's answer, in their words: recorded
+          // on its Decision (the agent that asked hears it, typed), and the
+          // walk closes. With no Decision behind it, it is their next message.
+          const view = session.openDecisions.find(d => d.id === active.decisionId);
+          forgetWalk(conversationId);
+          walk.close();
+          if (view) {
+            answer(view, { kind: 'free_text', text });
+          } else {
+            void session.sendMessage(text);
+          }
+        }}
+        recheckKey={streaming ? null : session.messages.length}
       />
     );
   }

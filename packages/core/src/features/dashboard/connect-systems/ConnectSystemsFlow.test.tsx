@@ -27,9 +27,22 @@ const plan = vi.fn(async () => PLAN);
 const saveKey = vi.fn(async () => ({ ok: true as const, sourceId: 5 }));
 const verify = vi.fn(async ({ connector }: { connector: string }) => ({ state: 'verified' as const, preview: connector === 'crm' ? 'Found 1,284 deals' : 'Found 12 documents', checks: [] }));
 const finish = vi.fn(async () => ({ marked: true }));
-vi.mock('@/libs/Orpc', () => ({ client: { connectSystems: { plan, saveKey, verify, finish }, connect: { saveSource: vi.fn() } } }));
+/** Whether the workspace reads each system now; nothing connected unless a test says so. */
+const status = vi.fn(async ({ connectors }: { connectors: string[] }) => ({ connectors: connectors.map(connector => ({ connector, connected: false })) }));
+vi.mock('@/libs/Orpc', () => ({ client: { connectSystems: { plan, saveKey, verify, finish, status }, connect: { saveSource: vi.fn() } } }));
 
 const { ConnectSystemsFlow } = await import('./ConnectSystemsFlow');
+
+/** A login window the person closed before its callback came back here. */
+function loginWindowClosedEarly() {
+  const popup = { closed: true, close: vi.fn(), location: { origin: 'https://github.example', search: '' } };
+  return vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+}
+
+/** The walk over Northwind CRM alone, its login one window away. */
+function crmOnly() {
+  plan.mockResolvedValueOnce({ ...PLAN, question: null, candidates: [PLAN.candidates[0]!] });
+}
 
 /** A login window that comes straight back connected, the way the scripted vendor does. */
 function loginWindowThatSucceeds() {
@@ -156,5 +169,60 @@ describe('ConnectSystemsFlow, keyboard only', () => {
     await expect.element(page.getByRole('heading', { name: 'Northwind CRM did not connect' })).toBeVisible();
     await expect.element(page.getByText(/blocked the login window/)).toBeVisible();
     await expect.element(page.getByTestId('decision-option-retry')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('a window closed before its callback is read once more before it says "did not connect": connected, the card moves on (2026-10-29)', async () => {
+    crmOnly();
+    loginWindowClosedEarly();
+    status.mockResolvedValueOnce({ connectors: [{ connector: 'crm', connected: true }] });
+    await render(<ConnectSystemsFlow input={{ named: ['crm'] }} onClose={vi.fn()} verifyBudgetMs={0} closedRecheckMs={0} />);
+
+    await expect.element(page.getByRole('heading', { name: 'Connect Northwind CRM?' })).toBeVisible();
+
+    await userEvent.keyboard('{Enter}');
+
+    await expect.element(page.getByRole('heading', { name: 'Connected 1 of 1.' })).toBeVisible();
+    expect(status).toHaveBeenCalledWith({ connectors: ['crm'] });
+    expect(verify).toHaveBeenCalledWith({ connector: 'crm' });
+  });
+
+  it('a window closed with nothing connected says so, with why, and Try again first', async () => {
+    crmOnly();
+    loginWindowClosedEarly();
+    await render(<ConnectSystemsFlow input={{ named: ['crm'] }} onClose={vi.fn()} verifyBudgetMs={0} closedRecheckMs={0} />);
+
+    await userEvent.keyboard('{Enter}');
+
+    await expect.element(page.getByRole('heading', { name: 'Northwind CRM did not connect' })).toBeVisible();
+    await expect.element(page.getByText('The login window was closed before it finished.')).toBeVisible();
+    expect(status).toHaveBeenCalledOnce();
+  });
+
+  it('connected in another tab: the card moves on when the page regains focus', async () => {
+    crmOnly();
+    await render(<ConnectSystemsFlow input={{ named: ['crm'] }} onClose={vi.fn()} verifyBudgetMs={0} />);
+
+    await expect.element(page.getByRole('heading', { name: 'Connect Northwind CRM?' })).toBeVisible();
+
+    status.mockResolvedValueOnce({ connectors: [{ connector: 'crm', connected: true }] });
+    window.dispatchEvent(new Event('focus'));
+
+    await expect.element(page.getByRole('heading', { name: 'Connected 1 of 1.' })).toBeVisible();
+  });
+
+  it('"Something else…" on a failed step hands their words to the surface, which closes the walk', async () => {
+    crmOnly();
+    loginWindowClosedEarly();
+    const onSomethingElse = vi.fn();
+    await render(<ConnectSystemsFlow input={{ named: ['crm'] }} onClose={vi.fn()} onSomethingElse={onSomethingElse} verifyBudgetMs={0} closedRecheckMs={0} />);
+
+    await userEvent.keyboard('{Enter}');
+
+    await expect.element(page.getByRole('heading', { name: 'Northwind CRM did not connect' })).toBeVisible();
+
+    await userEvent.keyboard('{Tab}');
+    await userEvent.keyboard('It said it did connect{Enter}');
+
+    expect(onSomethingElse).toHaveBeenCalledWith('It said it did connect');
   });
 });

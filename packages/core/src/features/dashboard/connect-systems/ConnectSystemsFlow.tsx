@@ -31,8 +31,19 @@ export type ConnectSystemsFlowProps = {
   decision?: { conversationId: number; decisionId: number } | null;
   /** The walk is over (Done, or closed). */
   onClose: () => void;
-  /** "Something else", in the person's own words: handed to the agent as their next message. */
+  /**
+   * "Something else", in the person's own words: the surface records it as
+   * the answer to the walk's Decision (or hands it to the agent) and closes
+   * the walk — the card never sits open beside an answer it was given.
+   */
   onSomethingElse?: (text: string) => void;
+  /**
+   * Changes when the surface wants the current system read again — a reply
+   * landed, say — so the card never contradicts what the agent just said.
+   */
+  recheckKey?: string | number | null;
+  /** How long after a login window closes with no answer the system is read once more (the callback can land after it closes). */
+  closedRecheckMs?: number;
   /** How long a first sync is waited on before the walk moves on and lets it finish in the background. */
   verifyBudgetMs?: number;
   /** The lead's own why from the turn that raised it, for the first step. */
@@ -46,6 +57,19 @@ export type ConnectSystemsFlowProps = {
 const VERIFY_EVERY_MS = 1500;
 
 /**
+ * Whether the workspace reads this system now, live; false when it cannot be read.
+ * @param connector - The connector slug.
+ */
+async function connectedNow(connector: string): Promise<boolean> {
+  try {
+    const { connectors } = await client.connectSystems.status({ connectors: [connector] });
+    return connectors.some(c => c.connector === connector && c.connected);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * An error as a person reads it: the server's own sentence, never a stack.
  * @param error - What the call threw.
  */
@@ -53,7 +77,7 @@ function messageOf(error: unknown): string {
   return error instanceof Error && error.message ? error.message : 'That did not work. Try again.';
 }
 
-export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, verifyBudgetMs = 12_000, resume = null, onProgress, intro = null }: ConnectSystemsFlowProps) {
+export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, verifyBudgetMs = 12_000, resume = null, onProgress, intro = null, recheckKey = null, closedRecheckMs = 1500 }: ConnectSystemsFlowProps) {
   const [state, dispatch] = useReducer((s: FlowState, e: FlowEvent) => reduce(s, e), INITIAL);
   const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
   const [configValues, setConfigValues] = useState<Record<string, ConfigFieldValue>>({});
@@ -149,7 +173,17 @@ export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, 
     const href = method.kind === 'login' ? method.startHref : method.href;
     const opened = openLoginWindow(href, { closesAsOk: method.kind === 'page' });
     dispatch({ type: 'connect' });
-    void opened.then((outcome) => {
+    void opened.then(async (outcome) => {
+      // CLOSED IS NOT "DID NOT CONNECT" UNTIL IT IS READ (2026-10-29: the
+      // window closed, the card said "GitHub did not connect", and the
+      // callback can land after the window is gone). Read it once more first.
+      if (!outcome.ok && outcome.reason === 'closed') {
+        await new Promise(resolve => setTimeout(resolve, closedRecheckMs));
+        if (await connectedNow(c.connector)) {
+          dispatch({ type: 'login_returned', ok: true, needsSettings: false });
+          return;
+        }
+      }
       if (outcome.ok) {
         const settings = method.kind === 'login' ? method.settingsAfterLogin : [];
         if (settings.length > 0) {
@@ -160,7 +194,44 @@ export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, 
         dispatch({ type: 'login_returned', ok: false, reason: reasonInWords(outcome.reason) });
       }
     });
+  }, [closedRecheckMs]);
+
+  // CONNECTED BY ANY PATH, THE CARD SAYS SO. A system connected in another
+  // tab, on the Connectors page, or by a callback that landed after its
+  // window closed moves the card on — read again when the page regains focus
+  // and whenever the surface asks (a reply landed), never left to a reload.
+  const recheck = useCallback(async () => {
+    const s = stateRef.current;
+    if (s.phase !== 'walk' || (s.step.at !== 'choose' && s.step.at !== 'failed')) {
+      return;
+    }
+    const connector = s.queue[s.index]!.connector;
+    if (!(await connectedNow(connector))) {
+      return;
+    }
+    const now = stateRef.current;
+    if (now.phase === 'walk' && now.queue[now.index]?.connector === connector) {
+      dispatch({ type: 'found_connected' });
+    }
   }, []);
+  useEffect(() => {
+    const onBack = () => {
+      if (document.visibilityState === 'visible') {
+        void recheck();
+      }
+    };
+    window.addEventListener('focus', onBack);
+    document.addEventListener('visibilitychange', onBack);
+    return () => {
+      window.removeEventListener('focus', onBack);
+      document.removeEventListener('visibilitychange', onBack);
+    };
+  }, [recheck]);
+  useEffect(() => {
+    if (recheckKey !== null) {
+      void recheck();
+    }
+  }, [recheckKey, recheck]);
 
   const submitForm = useCallback(async () => {
     const s = stateRef.current;

@@ -13,6 +13,20 @@
       "reply": "GTM reads two systems; here they are, one at a time."
     },
     {
+      "match": "help me connect jira",
+      "steps": [
+        {
+          "tool": "connect_system",
+          "args": {
+            "named": [
+              "jira"
+            ]
+          }
+        }
+      ],
+      "reply": "Jira it is."
+    },
+    {
       "match": "help me connect notion",
       "steps": [
         {

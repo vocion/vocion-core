@@ -42,12 +42,19 @@ export function listCapabilitiesTool(ctx: RuntimeContext) {
       // connected: its connect card is shown with this answer, not offered
       // in words (`services/connect/connectCardOnGap.ts`).
       const asked = input.connector?.trim().toLowerCase();
-      const card = asked && listConnectors().some(c => c.slug === asked) && !connected.has(asked)
+      const gap = asked && listConnectors().some(c => c.slug === asked) && !connected.has(asked);
+      const card = gap
         ? await import('@/services/connect/connectCardOnGap').then(m => m.connectCardForGap(ctx, asked))
+        : null;
+      // What the state shows about it, read now: the last sign-in, or none
+      // back since (`services/connect/connectionTruth.ts`).
+      const state = gap
+        ? await import('@/services/connect/connectionTruth').then(async m => m.connectionLine((await m.liveConnections(ctx.orgId, new Map([[asked, null]])))[0]!)).catch(() => null)
         : null;
       return [
         ...(card ? [card, ''] : []),
-        'PLUGINS (turn one on with recommend_action → plugin.enable {slug}; a person can also do it on /dashboard/apps, where each plugin is a feature of its app):',
+        ...(state ? [`LIVE: ${state}`, ''] : []),
+        'PLUGINS (only ON ones do work here; an off one is only a recommendation — turn one on with recommend_action → plugin.enable {slug}; a person can also do it on /dashboard/apps, where each plugin is a feature of its app):',
         ...plugins,
         '',
         'CONNECTORS (a person connects at /dashboard/connectors — use where_to connect-source for the link):',
