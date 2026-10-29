@@ -22,6 +22,7 @@
 import type { RecentMessage } from '@/libs/sources/mailThreadState';
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { canonicalGmailUrl } from '@/libs/mail/gmailUrl';
 import { MAIL_THREAD_STATE_KIND } from '@/libs/retrieval/facets';
 import { addressOf, recentMessagesOf } from '@/libs/sources/mailThreadState';
 import { knowledgeChunkSchema, knowledgeDocumentSchema } from '@/models/Schema';
@@ -113,7 +114,7 @@ async function toThread(orgId: string, row: Row, matchedBy: ReplyThread['matched
   return {
     threadId: str(m.threadId),
     subject: str(m.subject),
-    href: row.uri,
+    href: canonicalGmailUrl(row.uri),
     counterpart: str(facets.counterpart) || str(m.from),
     mailbox: str(facets.mailbox) || null,
     lastMessageAt: row.lastModifiedAt?.toISOString() ?? null,

@@ -17,6 +17,7 @@ export function toSheetAsk(ask: Ask, alignment?: SheetAsk['alignment'], listener
   return {
     ...(evidence?.thread ? { thread: evidence.thread } : {}),
     ...(evidence && evidence.records.length > 0 ? { records: evidence.records } : {}),
+    ...(evidence && evidence.related.length > 0 ? { related: evidence.related } : {}),
     ...(listeners ? { listeners } : {}),
     ...(extras?.handsBackTo ? { handsBackTo: extras.handsBackTo } : {}),
     ...(extras?.artifact ? { artifact: extras.artifact } : {}),

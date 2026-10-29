@@ -76,6 +76,13 @@ export type ActionContext = {
    * (`result.advice`), because the person's word runs.
    */
   onPersonsWord?: boolean;
+  /**
+   * The card is being drawn for its one decision screen
+   * (`services/inbox/pendingAction.ts`), not for a page of the queue: a
+   * presenter may read the slower evidence a person decides on there (a
+   * reply's whole thread). Present on `reviewCard` only.
+   */
+  detail?: boolean;
 };
 
 /**
@@ -244,8 +251,13 @@ export type OutboundMessage = {
     subject?: string;
     /** Opens the thread in its own system. */
     href?: string;
-    /** The last 1–3 messages, oldest first. */
+    /**
+     * The messages as lines, oldest first: the last 1–3 synced snippets, or on
+     * the decision screen every message but `latest`, each one line.
+     */
     messages: Array<{ from: string; at: string; snippet: string }>;
+    /** The other side's latest message, whole, when the thread was read (the decision screen). */
+    latest?: { from: string; at: string | null; body: string };
   };
   /**
    * The files that go with the message, each one the approver can open before

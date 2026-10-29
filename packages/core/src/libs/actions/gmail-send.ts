@@ -53,8 +53,10 @@
 import type { Action, ReviewCard } from './types';
 import type { GmailThreadMessage } from '@/libs/sources/gmail';
 import type { ReplyThread } from '@/services/mail/replyThread';
+import type { ThreadEvidence } from '@/services/mail/threadEvidence';
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
+import { gmailUrl } from '@/libs/mail/gmailUrl';
 import { nameOf, splitRecipients } from '@/libs/mail/recipients';
 import { resolveGoogleAccessToken } from '@/libs/sources/googleAuth';
 import { addressOf } from '@/libs/sources/mailThreadState';
@@ -233,7 +235,7 @@ async function gmailSignatureFor(baseUrl: string, headers: Record<string, string
  * @param where - `#drafts?compose=<message>` or `#all/<thread>`.
  */
 function gmailLink(mailbox: string | undefined, where: string): string {
-  return `https://mail.google.com/mail/${mailbox ? `u/${encodeURIComponent(mailbox)}/` : ''}${where}`;
+  return gmailUrl(mailbox, where);
 }
 
 /**
@@ -246,6 +248,21 @@ async function replyThreadFor(orgId: string, input: GmailSendInput): Promise<Rep
   try {
     const { findReplyThread } = await import('@/services/mail/replyThread');
     return await findReplyThread(orgId, { threadId: input.threadId, to: input.to, subject: input.subject });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The thread a reply answers, read whole. Never throws: no copy and no Gmail
+ * means the snippets stand.
+ * @param orgId - The workspace.
+ * @param thread - The thread, as its synced state named it.
+ */
+async function threadEvidenceFor(orgId: string, thread: ReplyThread): Promise<ThreadEvidence | null> {
+  try {
+    const { readThreadEvidence } = await import('@/services/mail/threadEvidence');
+    return await readThreadEvidence(orgId, { threadId: thread.threadId, state: thread });
   } catch {
     return null;
   }
@@ -363,6 +380,10 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
   // the signature — one email, never a "Send 1" of a sequence.
   async reviewCard(ctx, input): Promise<ReviewCard> {
     const thread = await replyThreadFor(ctx.orgId, input);
+    // On its decision screen a reply shows what it answers whole: the other
+    // side's latest message in full and the rest as lines, read the way an
+    // ask about the same thread reads it (`services/mail/threadEvidence`).
+    const evidence = ctx.detail && thread ? await threadEvidenceFor(ctx.orgId, thread) : null;
     const to = splitRecipients(input.to);
     const cc = splitRecipients(input.cc);
     const first = to[0] ?? input.to;
@@ -386,9 +407,11 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
         recipientsEditable: true,
         contentId: 'message',
         ...(input.signature ? { signature: input.signature } : {}),
-        ...(thread && thread.messages.length > 0
-          ? { thread: { subject: thread.subject, ...(thread.href ? { href: thread.href } : {}), messages: thread.messages } }
-          : {}),
+        ...(evidence
+          ? { thread: { subject: evidence.subject, href: evidence.href, messages: evidence.history.map(m => ({ from: m.from, at: m.at ?? '', snippet: m.line })), ...(evidence.latest ? { latest: evidence.latest } : {}) } }
+          : thread && thread.messages.length > 0
+            ? { thread: { subject: thread.subject, ...(thread.href ? { href: thread.href } : {}), messages: thread.messages } }
+            : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         modeChoice: true,
         doneLabel: input.draft ? 'Draft created' : 'Sent',

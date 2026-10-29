@@ -1,6 +1,8 @@
+import type { Metadata } from 'next';
 import type { RunSummary } from '@/features/dashboard/inbox/RunDecision';
 import type { SheetExtras } from '@/services/inbox/sheetExtras';
 import type { InboxSort } from '@/services/InboxService';
+import { and, eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { CommentLayerProvider } from '@/features/comments/CommentLayer';
@@ -21,13 +23,16 @@ import { ReviewSurface } from '@/features/review/ReviewSurface';
 import { doneSummary } from '@/libs/actions/doneSummary';
 import { resultLinks } from '@/libs/actions/resultLinks';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { recordLinker } from '@/libs/workspace/recordHref';
+import { actionRunSchema } from '@/models/Schema';
 import { scoreFor } from '@/services/alignment/AlignmentService';
 import { getAsk } from '@/services/AskService';
 import { recordRef } from '@/services/chat/recordContext';
 import { loadAnswerListeners } from '@/services/inbox/answerListeners';
 import { loadAskEvidence } from '@/services/inbox/askEvidence';
+import { describeActionRun } from '@/services/inbox/describeActionRun';
 import { parseInboxRef } from '@/services/inbox/inboxRef';
 import { loadPendingAction } from '@/services/inbox/pendingAction';
 import { askGroupHref } from '@/services/inbox/recordKey';
@@ -54,6 +59,36 @@ import { getWorkflowRun } from '@/services/WorkflowService';
  */
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * The tab and the shell's breadcrumb name the item ("Draft a reply to Dana
+ * Reyes"), never the ref ("Proposal 9265"): the top bar reads its last crumb
+ * from the page title, and without one it humanised the URL segment.
+ * @param props - The route's params.
+ * @param props.params - The inbox ref.
+ */
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await props.params;
+  const { orgId } = await auth();
+  const ref = parseInboxRef(id);
+  if (!orgId || !ref) {
+    return {};
+  }
+  if (ref.kind === 'ask') {
+    const ask = await getAsk(orgId, ref.id).catch(() => null);
+    return ask ? { title: ask.title } : {};
+  }
+  if (ref.kind === 'proposal') {
+    const [row] = await db
+      .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, input: actionRunSchema.input, proposal: actionRunSchema.proposal, invokedBy: actionRunSchema.invokedBy })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.id, ref.id)))
+      .limit(1)
+      .catch(() => []);
+    return row ? { title: describeActionRun({ ...row, proposal: row.proposal as Record<string, unknown> | null }).title } : {};
+  }
+  return {};
+}
 
 type Params = { q?: string; sort?: string; actionKind?: string; agents?: string; kind?: string };
 

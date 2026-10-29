@@ -7,6 +7,7 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { inspectDocument } from '@/libs/documents/sheets';
+import { canonicalGmailUrl } from '@/libs/mail/gmailUrl';
 import { parseSourcesRefId, sourcesMarkdown } from '@/libs/preview/sourcesRef';
 import { parseWorkRefId } from '@/libs/preview/workRef';
 import { canOpenArtifact } from '@/libs/share/audience';
@@ -105,7 +106,7 @@ function documentPreview(ref: RecordRef, doc: KnowledgeDocumentDetail): PreviewD
     ),
     ...body(doc.content),
     href: `/dashboard/search/${doc.id}`,
-    externalHref: doc.uri ?? str('recordingUrl') ?? undefined,
+    externalHref: (doc.uri ? canonicalGmailUrl(doc.uri) : null) ?? str('recordingUrl') ?? undefined,
   };
 }
 

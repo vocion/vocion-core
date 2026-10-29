@@ -233,6 +233,57 @@ export function planDecision(input: { note: string; edited: boolean; draft?: boo
 }
 
 /**
+ * Paragraphs of a Why, each sentence said once. The rationale and the reason
+ * for the suggestion are often the same sentences in a different order, and
+ * joined they read as one paragraph that repeats itself (2026-10-29, a reply
+ * draft's four-line Why). A sentence already said — in an earlier paragraph,
+ * or as the title — is dropped; a paragraph left empty is dropped. Pure.
+ * @param paragraphs - The candidates, in the order they should read.
+ * @param said - What the page already says (the title).
+ */
+export function distinctSentences(paragraphs: ReadonlyArray<string | null | undefined>, said: readonly string[] = []): string[] {
+  const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const seen = new Set(said.map(key).filter(Boolean));
+  const out: string[] = [];
+  for (const p of paragraphs) {
+    const sentences = (p ?? '').trim().match(/[^.!?]+(?:[.!?]+|$)/g) ?? [];
+    const kept = sentences.map(x => x.trim()).filter((x) => {
+      const k = key(x);
+      if (!k || seen.has(k)) {
+        return false;
+      }
+      seen.add(k);
+      return true;
+    });
+    if (kept.length > 0) {
+      out.push(kept.join(' '));
+    }
+  }
+  return out;
+}
+
+/** One of the two ways an email card can be approved. */
+export type OutboundModeVerb = { mode: 'draft' | 'send'; label: string; shortcut?: 'r' };
+
+/**
+ * Send and Create draft, in the order the proposal asked for. The primary is
+ * what was PROPOSED — a draft proposal opens on Create draft, with Send beside
+ * it and no key, so the one keystroke never sends what was offered as a draft
+ * (2026-10-29: a draft reply's primary read Send). A send proposal keeps Send
+ * primary and the draft on `r`.
+ * @param input - The card's outbound message.
+ * @param input.mode - What the proposal asked for.
+ * @param input.system - Where the draft is made ("Gmail").
+ */
+export function outboundModeVerbs(input: { mode: 'draft' | 'send'; system: string }): { primary: OutboundModeVerb; secondary: OutboundModeVerb } {
+  const draft: OutboundModeVerb = { mode: 'draft', label: `Create draft in ${input.system}` };
+  const send: OutboundModeVerb = { mode: 'send', label: 'Send' };
+  return input.mode === 'draft'
+    ? { primary: draft, secondary: send }
+    : { primary: send, secondary: { ...draft, shortcut: 'r' } };
+}
+
+/**
  * The keyboard legend beside the bar. `j` walks the sheet; the verbs decide it.
  * @param plan
  * @param more

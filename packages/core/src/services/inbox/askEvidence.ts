@@ -9,12 +9,9 @@
  * no way to check it from the item. Now the ask names its thread and its
  * records in `object_refs`, and the page reads:
  *
- *   - **The message**: the latest message from the other side, in full, from
- *     the read-through copy `get_gmail_thread` keeps (`services/mail/
- *     threadRead.ts`), its quoted history and signature cut the way inbound
- *     mail is cut (`stripQuotedHistory`).
- *   - **The history**: every other message, who and when and its first line,
- *     and the thread in Gmail.
+ *   - **The message and its thread**: the other side's latest message whole,
+ *     every other message as a line, and the thread in Gmail — the same
+ *     evidence the reply draft's card shows (`services/mail/threadEvidence`).
  *   - **The draft**: a pending `gmail.send` for the same thread (or the same
  *     person), so the reply is one move away.
  *   - **The records**: the CRM deal, contact or company it names, by name.
@@ -28,45 +25,27 @@
  */
 
 import type { Ask } from '@/services/AskService';
+import type { RelatedItem } from '@/services/inbox/relatedItems';
+import type { ThreadEvidence } from '@/services/mail/threadEvidence';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { addressOf } from '@/libs/sources/mailThreadState';
-import { stripQuotedHistory } from '@/libs/surfaces/email';
-import { actionRunSchema, knowledgeChunkSchema, knowledgeDocumentSchema } from '@/models/Schema';
+import { actionRunSchema, knowledgeDocumentSchema } from '@/models/Schema';
 import { inboxHref } from '@/services/inbox/inboxRef';
+import { relatedOpenItems } from '@/services/inbox/relatedItems';
 import { activeThreadWith, findReplyThread } from '@/services/mail/replyThread';
-import { readGmailThread } from '@/services/mail/threadRead';
+import { readThreadEvidence } from '@/services/mail/threadEvidence';
 
-/** The longest message body a page carries; Gmail has the rest. */
-const BODY_MAX = 12_000;
-/** A history line: the opening words, not the message. */
-const LINE_MAX = 160;
-/** How long the page waits on Gmail for a thread that has grown before showing what it has. */
-const LIVE_READ_MS = 5_000;
-
-/** A message on the thread, as the history lists it. */
-export type ThreadLine = { from: string; at: string | null; line: string };
-
-/** The thread an ask is about, as the page shows it. */
-export type AskThread = {
-  threadId: string;
-  subject: string;
-  /** The thread in Gmail. */
-  href: string;
-  /** The other side's latest message, whole; null when no full copy could be read. */
-  latest: { from: string; at: string | null; body: string } | null;
-  /** Every other message, oldest first: the full thread's, else the synced snippets. */
-  history: ThreadLine[];
+/** The thread an ask is about, as the page shows it: the evidence, and the reply waiting on it. */
+export type AskThread = ThreadEvidence & {
   /** A pending reply draft for this thread or this person. */
   draft: { href: string; to: string; subject: string; body: string; mode: 'draft' | 'send' } | null;
-  /** Who a reply goes to, for "Draft a reply". */
-  counterpart: string;
 };
 
 /** A CRM record the ask names, as the preview opens it. */
 export type AskRecord = { type: 'deal' | 'object'; id: string; label: string; noun: string };
 
-export type AskEvidence = { thread: AskThread | null; records: AskRecord[] };
+export type AskEvidence = { thread: AskThread | null; records: AskRecord[]; related: RelatedItem[] };
 
 type Ref = { type: string; id: string };
 
@@ -122,91 +101,6 @@ export function crmKeysOf(refs: readonly Ref[]): string[] {
     }
   }
   return out;
-}
-
-/**
- * A document's text from its chunks, without the overlap the chunker repeats
- * at each boundary (64 tokens, decoded verbatim). Pure.
- * @param chunks - The chunks, in order.
- */
-export function rejoinChunks(chunks: readonly string[]): string {
-  let out = chunks[0] ?? '';
-  for (const next of chunks.slice(1)) {
-    let k = Math.min(out.length, next.length);
-    while (k > 0 && !out.endsWith(next.slice(0, k))) {
-      k--;
-    }
-    out += next.slice(k);
-  }
-  return out;
-}
-
-/** One message of a full thread copy. */
-export type ThreadMessageText = { from: string; to: string; date: string; subject: string; body: string };
-
-const HEADERS = ['From', 'To', 'Cc', 'Date', 'Subject'] as const;
-
-/**
- * A full thread copy (`fetchGmailThreadDoc`'s text: each message its From,
- * To, Cc, Date and Subject lines, then its body, messages split by a `---`
- * line) back into messages. Pure.
- * @param content - The copy's text.
- */
-export function parseThreadText(content: string): ThreadMessageText[] {
-  return content
-    .split(/\n\n---\n\n(?=From: )/)
-    .map((section) => {
-      const lines = section.split('\n');
-      const head: Record<string, string> = {};
-      let i = 0;
-      for (const name of HEADERS) {
-        const line = lines[i] ?? '';
-        if (line.startsWith(`${name}: `) || line === `${name}:`) {
-          head[name] = line.slice(name.length + 1).trim();
-          i++;
-        }
-      }
-      return { from: head.From ?? '', to: head.To ?? '', date: head.Date ?? '', subject: head.Subject ?? '', body: lines.slice(i).join('\n').trim() };
-    })
-    .filter(m => m.from !== '');
-}
-
-function isoOf(date: string): string | null {
-  const t = Date.parse(date);
-  return Number.isFinite(t) ? new Date(t).toISOString() : null;
-}
-
-function firstLine(text: string): string {
-  const line = text.split('\n').map(l => l.trim()).find(Boolean) ?? '';
-  return line.length > LINE_MAX ? `${line.slice(0, LINE_MAX)}…` : line;
-}
-
-/**
- * The message to show and the rest as history, from a full copy. The shown
- * message is the latest one the mailbox did not write. Pure.
- * @param messages - The thread's messages, oldest first.
- * @param mailbox - The owner's address, when known.
- */
-export function splitThread(messages: readonly ThreadMessageText[], mailbox: string | null): Pick<AskThread, 'latest' | 'history'> {
-  const owner = mailbox?.toLowerCase() ?? null;
-  let at = messages.length - 1;
-  if (owner) {
-    while (at >= 0 && addressOf(messages[at]!.from) === owner) {
-      at--;
-    }
-  }
-  if (at < 0) {
-    at = messages.length - 1;
-  }
-  const shown = messages[at];
-  if (!shown) {
-    return { latest: null, history: [] };
-  }
-  const body = stripQuotedHistory(shown.body);
-  return {
-    latest: { from: shown.from, at: isoOf(shown.date), body: body.length > BODY_MAX ? `${body.slice(0, BODY_MAX)}…` : body },
-    history: messages.filter((_, i) => i !== at).map(m => ({ from: m.from, at: isoOf(m.date), line: firstLine(stripQuotedHistory(m.body)) })),
-  };
 }
 
 /**
@@ -294,29 +188,27 @@ async function pendingReply(orgId: string, threadId: string, counterpart: string
 }
 
 /**
- * The thread in Gmail, for a thread whose state carried no link.
- * @param threadId - The thread.
- * @param mailbox - The mailbox, when known.
+ * The thread an ask is about, for a viewer, with the reply waiting on it.
+ * @param orgId - The workspace.
+ * @param ask - The ask.
+ * @param keys - Its CRM keys.
+ * @param userId - The viewer, for the source gate.
  */
-function gmailHref(threadId: string, mailbox: string | null): string {
-  return `https://mail.google.com/mail/${mailbox ? `u/${encodeURIComponent(mailbox)}/` : ''}#all/${encodeURIComponent(threadId)}`;
-}
-
-/**
- * Wait for a promise, but no longer than `ms`; null past it.
- * @param p - The work.
- * @param ms - The wait.
- */
-async function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<null>((resolve) => {
-    timer = setTimeout(resolve, ms, null);
-  });
-  try {
-    return await Promise.race([p.catch(() => null), late]);
-  } finally {
-    clearTimeout(timer);
+async function askThread(orgId: string, ask: Pick<Ask, 'objectRefs' | 'contextUrl'>, keys: string[], userId: string | null): Promise<AskThread | null> {
+  const sources = await readableGmailSources(orgId, userId);
+  if (sources.length === 0) {
+    return null;
   }
+  const pointer = threadPointerOf(ask);
+  let threadId = pointer && 'threadId' in pointer ? pointer.threadId : pointer ? await threadOfMessage(orgId, sources.map(s => s.id), pointer.messageId) : null;
+  let state = threadId ? await findReplyThread(orgId, { threadId }) : null;
+  if (!threadId) {
+    const email = await contactEmail(orgId, keys);
+    state = email ? await activeThreadWith(orgId, email) : null;
+    threadId = state?.threadId || null;
+  }
+  const evidence = threadId ? await readThreadEvidence(orgId, { threadId, state, sources }) : null;
+  return evidence ? { ...evidence, draft: await pendingReply(orgId, evidence.threadId, evidence.counterpart).catch(() => null) } : null;
 }
 
 /**
@@ -326,67 +218,19 @@ async function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
  * @param opts - Who is looking.
  * @param opts.userId - The viewer, for the source gate.
  */
-export async function loadAskEvidence(orgId: string, ask: Pick<Ask, 'objectRefs' | 'contextUrl'>, opts: { userId: string | null }): Promise<AskEvidence> {
+export async function loadAskEvidence(orgId: string, ask: Pick<Ask, 'id' | 'objectRefs' | 'contextUrl'>, opts: { userId: string | null }): Promise<AskEvidence> {
   const keys = crmKeysOf(ask.objectRefs ?? []);
   const { resolveRecordLabels } = await import('@/services/records/recordLabel');
-  const labels = keys.length > 0 ? await resolveRecordLabels(orgId, keys).catch(() => new Map<string, string>()) : new Map<string, string>();
+  const [labels, thread] = await Promise.all([
+    keys.length > 0 ? resolveRecordLabels(orgId, keys).catch(() => new Map<string, string>()) : Promise.resolve(new Map<string, string>()),
+    askThread(orgId, ask, keys, opts.userId),
+  ]);
   const records: AskRecord[] = keys
     .filter(k => labels.has(k))
     .map((k) => {
       const kind = k.slice(0, k.indexOf(':')) as keyof typeof NOUN;
       return { type: kind === 'deals' ? 'deal' : 'object', id: k, label: labels.get(k)!, noun: NOUN[kind] };
     });
-
-  const sources = await readableGmailSources(orgId, opts.userId);
-  if (sources.length === 0) {
-    return { thread: null, records };
-  }
-  const sourceIds = sources.map(s => s.id);
-  const pointer = threadPointerOf(ask);
-  let threadId = pointer && 'threadId' in pointer ? pointer.threadId : pointer ? await threadOfMessage(orgId, sourceIds, pointer.messageId) : null;
-  let state = threadId ? await findReplyThread(orgId, { threadId }) : null;
-  if (!threadId) {
-    const email = await contactEmail(orgId, keys);
-    state = email ? await activeThreadWith(orgId, email) : null;
-    threadId = state?.threadId || null;
-  }
-  if (!threadId) {
-    return { thread: null, records };
-  }
-
-  const read = await within(readGmailThread({
-    orgId,
-    sources,
-    threadId,
-    maxAgeMinutes: 15,
-    currentMessageId: state?.lastMessageId ?? null,
-    read: async (org, documentId) => {
-      const chunks = await db
-        .select({ content: knowledgeChunkSchema.content })
-        .from(knowledgeChunkSchema)
-        .where(and(eq(knowledgeChunkSchema.orgId, org), eq(knowledgeChunkSchema.documentId, documentId)))
-        .orderBy(knowledgeChunkSchema.chunkIdx);
-      return rejoinChunks(chunks.map(c => c.content));
-    },
-  }), LIVE_READ_MS);
-  const messages = read && read.source !== 'none' ? parseThreadText(read.content) : [];
-  if (!state && messages.length === 0) {
-    return { thread: null, records };
-  }
-  const mailbox = state?.mailbox ?? null;
-  const split = messages.length > 0
-    ? splitThread(messages, mailbox)
-    : { latest: null, history: (state?.messages ?? []).map(m => ({ from: m.from, at: m.at, line: firstLine(m.snippet) })) };
-  const counterpart = state?.counterpart || split.latest?.from || '';
-  return {
-    thread: {
-      threadId,
-      subject: state?.subject || messages[0]?.subject || '',
-      href: state?.href ?? gmailHref(threadId, mailbox),
-      ...split,
-      draft: await pendingReply(orgId, threadId, counterpart).catch(() => null),
-      counterpart,
-    },
-    records,
-  };
+  const related = await relatedOpenItems(orgId, [...(thread ? [thread.threadId] : []), ...keys], { kind: 'ask', id: ask.id }).catch(() => []);
+  return { thread, records, related };
 }

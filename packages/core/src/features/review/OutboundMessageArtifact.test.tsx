@@ -271,14 +271,21 @@ describe('send or draft, and what goes with it', () => {
     return { ...run, card: { ...run.card, outbound: { ...run.card.outbound!, modeChoice: true, ...over } } };
   };
 
-  it('offers Send first and the draft beside it, whatever the proposal suggested', async () => {
+  it('opens a draft proposal on Create draft, with Send beside it', async () => {
     await render(<ReviewSurface run={withChoice()} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Create draft in Gmail');
+    await expect.element(page.getByTestId('decide-send')).toHaveTextContent('Send');
+  });
+
+  it('keeps Send first on a send proposal, the draft beside it', async () => {
+    await render(<ReviewSurface run={withChoice({ mode: 'send' })} crumbs={CRUMBS} />);
 
     await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Send');
     await expect.element(page.getByTestId('decide-draft')).toHaveTextContent('Create draft in Gmail');
   });
 
-  it('runs what was pressed: Send carries mode send, the draft (or r) carries mode draft', async () => {
+  it('runs what was pressed: the draft carries mode draft, Send carries mode send', async () => {
     await render(
       <>
         <ReviewSurface run={withChoice()} crumbs={CRUMBS} />
@@ -286,10 +293,10 @@ describe('send or draft, and what goes with it', () => {
       </>,
     );
 
-    await page.getByTestId('decide-draft').click();
+    await page.getByTestId('decide-send').click();
 
     await expect.poll(() => decideAction.mock.calls.length).toBe(1);
-    expect(decideAction.mock.calls[0]![0]).toMatchObject({ decision: 'approve', contentEdits: [{ id: 'message', mode: 'draft' }] });
+    expect(decideAction.mock.calls[0]![0]).toMatchObject({ decision: 'approve', contentEdits: [{ id: 'message', mode: 'send' }] });
   });
 
   it('lists each attachment with what it goes as, and says when one cannot go', async () => {

@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import type { AnswerListeners } from './askOptions';
 import type { AskOption, AskOutcomes } from '@/models/Schema';
 import type { AskRecord, AskThread as SheetThread } from '@/services/inbox/askEvidence';
+import type { RelatedItem } from '@/services/inbox/relatedItems';
 import type { InboxKind } from '@/services/InboxService';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, CornerUpLeft, ExternalLink, RotateCcw, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -14,6 +15,7 @@ import { Notice } from '@/components/ui/notice';
 import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
+import { RelatedItems } from '@/features/review/RelatedItems';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { decisionLegend, planDecision } from '@/features/review/reviewSheetModel';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
@@ -68,6 +70,8 @@ export type SheetAsk = {
   thread?: SheetThread | null;
   /** The CRM records the ask names, by name. */
   records?: AskRecord[];
+  /** The other open decisions about the same thread or records (`services/inbox/relatedItems`). */
+  related?: RelatedItem[];
 };
 
 /** An ask's primary artifact, as the sheet previews it. */
@@ -629,6 +633,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
           {/* The artifact it is about — the draft a sign-off approves — read in place, one move from the pane. */}
           {current.artifact && <AskArtifact artifact={current.artifact} />}
           {/* What an ask about an email is about: the records, then the message itself, its thread and the reply. */}
+          {current.related && <RelatedItems items={current.related} className="mt-4" />}
           {current.records && <AskRecords records={current.records} />}
           {current.thread && <AskThread thread={current.thread} askId={current.id} askTitle={current.title} agentSlug={current.agentSlug} />}
           {context.shown && (

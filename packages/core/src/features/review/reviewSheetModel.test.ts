@@ -367,3 +367,38 @@ describe('contextPaneRows — a context that was never read', () => {
     expect(pane.notes).not.toContain(CONTEXT_PANE_LABELS.notRead);
   });
 });
+
+describe('send or draft, in the order the proposal asked for', () => {
+  it('opens a draft proposal on Create draft, with Send beside it and no key', async () => {
+    const { outboundModeVerbs } = await import('./reviewSheetModel');
+
+    expect(outboundModeVerbs({ mode: 'draft', system: 'Gmail' })).toEqual({
+      primary: { mode: 'draft', label: 'Create draft in Gmail' },
+      secondary: { mode: 'send', label: 'Send' },
+    });
+  });
+
+  it('keeps Send primary on a send proposal, the draft on r', async () => {
+    const { outboundModeVerbs } = await import('./reviewSheetModel');
+
+    expect(outboundModeVerbs({ mode: 'send', system: 'Gmail' })).toEqual({
+      primary: { mode: 'send', label: 'Send' },
+      secondary: { mode: 'draft', label: 'Create draft in Gmail', shortcut: 'r' },
+    });
+  });
+});
+
+describe('a Why says each sentence once', () => {
+  it('drops a sentence the rationale already said, and one that is the title', async () => {
+    const { distinctSentences } = await import('./reviewSheetModel');
+
+    expect(distinctSentences([
+      'Dana replied on Oct 28 after a month. A referral call Friday may open a licensing deal.',
+      'A referral call Friday may open a licensing deal. A reply keeps it warm.',
+      'Draft a reply to Dana Reyes.',
+    ], ['Draft a reply to Dana Reyes'])).toEqual([
+      'Dana replied on Oct 28 after a month. A referral call Friday may open a licensing deal.',
+      'A reply keeps it warm.',
+    ]);
+  });
+});

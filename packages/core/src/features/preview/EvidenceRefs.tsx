@@ -25,10 +25,11 @@ import { useOpenPreviewRef, usePreviewOpener } from './previewState';
  * One citation, as a button that previews it.
  * @param props
  * @param props.source - The citation string as it was recorded.
+ * @param props.label - Its name, when the server resolved one.
  * @param props.className
  */
-export function EvidenceRef(props: { source: string; className?: string }) {
-  const item = evidenceRef(props.source);
+export function EvidenceRef(props: { source: string; label?: string; className?: string }) {
+  const item = evidenceRef(props.source, props.label);
   const open = usePreviewOpener(item.ref);
   const active = useOpenPreviewRef();
   const isOpen = active !== null && previewKey(active) === previewKey(item.ref);
@@ -57,10 +58,11 @@ export function EvidenceRef(props: { source: string; className?: string }) {
  * A list of citations, each openable, with the panel beside it.
  * @param props
  * @param props.sources
+ * @param props.labels - Names the server resolved, by citation.
  * @param props.empty
  * @param props.className
  */
-export function EvidenceRefs(props: { sources: readonly string[]; empty?: string; className?: string }) {
+export function EvidenceRefs(props: { sources: readonly string[]; labels?: Readonly<Record<string, string>>; empty?: string; className?: string }) {
   if (props.sources.length === 0) {
     return props.empty ? <p className="text-sm text-muted-foreground">{props.empty}</p> : null;
   }
@@ -69,7 +71,7 @@ export function EvidenceRefs(props: { sources: readonly string[]; empty?: string
       <ul data-testid="evidence-refs" className={cn('divide-y divide-rule', props.className)}>
         {props.sources.map((source, i) => (
           <li key={`${source}-${i}`}>
-            <EvidenceRef source={source} />
+            <EvidenceRef source={source} label={props.labels?.[source]} />
           </li>
         ))}
       </ul>

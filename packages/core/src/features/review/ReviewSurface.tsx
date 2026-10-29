@@ -6,7 +6,8 @@ import type { Crumb } from '@/components/patterns';
 import type { ActionRevision } from '@/libs/actions/revisions';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { ReviewCard, ReviewContent, ReviewContentEdit } from '@/libs/actions/types';
-import { AlarmClock, Ban, Check, FilePen, Loader2, Pencil, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
+import type { RelatedItem } from '@/services/inbox/relatedItems';
+import { AlarmClock, Ban, Check, ChevronDown, FilePen, Loader2, Pencil, RefreshCw, Send, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ConfidenceMeter, DetailPage, FactList, Section, StatusDot, StickyActionBar } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +26,8 @@ import { contentKindEditable, contentKindRenderer } from './contentKinds';
 import { approvableItems, isChecked, walkApplies, walkCount } from './contentWalk';
 import { ExecutionFailure } from './ExecutionFailure';
 import { OutboundMessageArtifact } from './OutboundMessageArtifact';
+import { RelatedItems } from './RelatedItems';
+import { distinctSentences, outboundModeVerbs } from './reviewSheetModel';
 import { shortcutFor } from './reviewShortcuts';
 import { showLearnedToast } from './showLearnedToast';
 import { useReviewDecision } from './useReviewDecision';
@@ -87,6 +90,12 @@ export type ReviewCardRun = {
   invokedBy: string | null;
   proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: SuggestedDecision; suggestedDecisionReason?: string } | null;
   card: ReviewCard;
+  /** The proposing agent's name, when its row has one (`services/inbox/pendingAction`). */
+  agentName?: string | null;
+  /** Names for the proposal's citations, resolved on the server. */
+  evidenceLabels?: Record<string, string>;
+  /** The other open decisions about the same thread or record. */
+  related?: RelatedItem[];
   /** Server truth for an in-flight regeneration — Date on the feed, ISO over RPC. */
   regeneratingSince?: Date | string | null;
   /** The reviewer's instruction the regeneration is answering. */
@@ -703,10 +712,13 @@ export function ReviewSurface(props: {
   // the tabs.
   const outbound = card.outbound && content.length === 1 && content[0]!.id === card.outbound.contentId ? card.outbound : null;
   const sequence = !outbound ? card.sequence ?? null : null;
-  // Send or draft is the approver's call on a card that offers it: Send is the
-  // primary, the draft a secondary with its own key. Whichever is pressed is
-  // what runs, whatever the proposal suggested.
+  // Send or draft is the approver's call on a card that offers it, and the
+  // primary is what was PROPOSED: a draft proposal's primary creates the
+  // draft and Send is the secondary, with no key of its own, so the one
+  // keystroke never sends what was offered as a draft (2026-10-29: a draft
+  // reply's black primary read Send). Whichever is pressed is what runs.
   const modeChoice = Boolean(outbound?.modeChoice && outbound.channel === 'email' && !awaitingExecution && !choices);
+  const modeVerbs = outbound ? outboundModeVerbs({ mode: outbound.mode === 'draft' ? 'draft' : 'send', system: outbound.system }) : null;
   /** What the last approve chose, for its receipt. */
   const chosenMode = useRef<'draft' | 'send' | null>(null);
   // Read the KEYS off the run, not off the hook's working copy: the copy is
@@ -953,7 +965,7 @@ export function ReviewSurface(props: {
       return;
     }
     if (!walkStep) {
-      void decide('approve', undefined, modeChoice ? 'send' : undefined);
+      void decide('approve', undefined, modeChoice ? modeVerbs?.primary.mode : undefined);
       return;
     }
     if (walkStep.open) {
@@ -999,9 +1011,9 @@ export function ReviewSurface(props: {
       } else if (action === 'edit' && outbound && !props.guided) {
         e.preventDefault();
         editMessage();
-      } else if (action === 'draft' && modeChoice && !heldPrimary) {
+      } else if (action === 'draft' && modeChoice && modeVerbs?.secondary.shortcut && !heldPrimary) {
         e.preventDefault();
-        void decide('approve', undefined, 'draft');
+        void decide('approve', undefined, modeVerbs.secondary.mode);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -1028,7 +1040,8 @@ export function ReviewSurface(props: {
     ...(props.meta ?? []),
   ];
 
-  const agent = run.invokedBy?.replace('agent:', '');
+  // The agent by its name ("Revenue Director"), its slug only when it has none.
+  const agent = run.agentName ?? run.invokedBy?.replace('agent:', '');
   /**
    * The short Why a message carries: one or two sentences of evidence, never
    * the title again, never the same sentence twice. The rationale, the reason
@@ -1040,14 +1053,12 @@ export function ReviewSurface(props: {
     if (!outbound) {
       return null;
     }
-    const lines: string[] = [];
-    for (const candidate of [run.proposal?.rationale, run.proposal?.suggestedDecisionReason, card.recommendation?.detail, card.summary]) {
-      const line = candidate?.trim();
-      if (!line || restatesLabel(line, title) || restatesLabel(line, card.title) || lines.some(l => restatesLabel(line, l) || l.includes(line))) {
-        continue;
-      }
-      lines.push(line);
-    }
+    const candidates = [run.proposal?.rationale, run.proposal?.suggestedDecisionReason, card.recommendation?.detail, card.summary]
+      .map(c => c?.trim())
+      .filter((c): c is string => Boolean(c) && !restatesLabel(c!, title) && !restatesLabel(c!, card.title));
+    // Sentence by sentence: the rationale and the reason for the suggestion
+    // are often the same sentences reordered (`distinctSentences`).
+    const lines = distinctSentences(candidates, [title, card.title]);
     const evidence = run.proposal?.evidence ?? [];
     if (lines.length === 0 && evidence.length === 0) {
       return null;
@@ -1351,7 +1362,7 @@ export function ReviewSurface(props: {
                 // send carries a check, then the card's own verb.
                 // A failed run keeps its verb: the card says what went wrong
                 // and how to fix it, and pressing it again is the retry.
-                'label': choices ? choices[0]!.label : walkStep ? 'Approve' : modeChoice ? 'Send' : approveVerb,
+                'label': choices ? choices[0]!.label : walkStep ? 'Approve' : modeChoice && modeVerbs ? modeVerbs.primary.label : approveVerb,
                 'onClick': pressPrimary,
                 'disabled': heldPrimary,
                 'busy': d.busy,
@@ -1366,8 +1377,8 @@ export function ReviewSurface(props: {
                     { 'label': 'Snooze', 'onClick': () => setSnoozeOpen(o => !o), 'disabled': d.held, 'icon': AlarmClock, 'shortcut': 's' as const, 'data-testid': 'decide-snooze' },
                   ]
                 : [
-                    ...(modeChoice && outbound
-                      ? [{ 'label': `Create draft in ${outbound.system}`, 'onClick': () => void decide('approve', undefined, 'draft'), 'disabled': heldPrimary, 'icon': FilePen, 'shortcut': 'r', 'labelAlways': true, 'data-testid': 'decide-draft' }]
+                    ...(modeChoice && modeVerbs
+                      ? [{ 'label': modeVerbs.secondary.label, 'onClick': () => void decide('approve', undefined, modeVerbs.secondary.mode), 'disabled': heldPrimary, 'icon': modeVerbs.secondary.mode === 'send' ? Send : FilePen, ...(modeVerbs.secondary.shortcut ? { shortcut: modeVerbs.secondary.shortcut } : {}), 'labelAlways': true, 'data-testid': `decide-${modeVerbs.secondary.mode}` }]
                       : []),
                     ...(outbound && !props.guided && contentKindEditable(content[0]!.kind)
                       ? [{ 'label': 'Edit', 'onClick': editMessage, 'disabled': d.held, 'icon': Pencil, 'shortcut': 'e', 'data-testid': 'decide-edit' }]
@@ -1425,6 +1436,9 @@ export function ReviewSurface(props: {
 
       {props.beforeTabs}
 
+      {/* The other open decisions about the same thread or record: one visit settles them all. */}
+      {decidable && run.related && run.related.length > 0 && <RelatedItems items={run.related} className="pt-3" />}
+
       {(d.regenerating || d.regenStale || d.regenError || d.execError || props.hold) && (
         <div className="flex flex-col gap-2 py-4">
           {d.regenerating && (
@@ -1465,20 +1479,16 @@ export function ReviewSurface(props: {
         const Renderer = contentKindRenderer(item.kind);
         const editable = contentKindEditable(item.kind) && !props.guided && decidable;
         const edit = d.contentEdits[item.id];
-        const why = outboundWhy && (
-          <section data-testid="outbound-why" aria-label="Why" className="flex items-start gap-2.5 border-b border-rule pb-3">
-            <Sparkles className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            <div className="min-w-0 flex-1">
-              {outboundWhy.lines.length > 0 && (
-                <p className="max-w-3xl text-[14px] leading-relaxed break-words text-foreground/85">
-                  <span className="font-medium text-foreground">Why: </span>
-                  {outboundWhy.lines.join(' ')}
-                </p>
-              )}
-              {outboundWhy.evidence.length > 0 && <EvidenceRefs sources={outboundWhy.evidence} className="mt-1" />}
-              {recommendationLine && <p className="mt-1 text-[12px] text-muted-foreground" data-testid="outbound-why-suggestion">{recommendationLine}</p>}
-            </div>
-          </section>
+        // Action first: who suggests what, paired with the verb it means, over
+        // the message it answers and the draft. The Why, its citations and
+        // the run's bookkeeping fold beneath (`outbound-dossier`).
+        const lead = recommendationLine && (
+          <p className="inline-flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground" data-testid="outbound-why-suggestion">
+            <Sparkles className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            {suggested === 'approve' && modeChoice && modeVerbs
+              ? [`${agent ?? 'The agent'} suggests: ${modeVerbs.primary.label}`, confidencePct].filter(Boolean).join(' · ')
+              : recommendationLine}
+          </p>
         );
         const artifact = (
           <OutboundMessageArtifact
@@ -1487,7 +1497,7 @@ export function ReviewSurface(props: {
             edit={edit}
             onEdit={editable ? patch => d.editContent(item.id, patch) : undefined}
             disabled={d.held}
-            why={why}
+            lead={lead}
           >
             <Renderer item={item} edit={edit} onEdit={editable ? patch => d.editContent(item.id, patch) : undefined} changed={Boolean(justChanged[item.id])} disabled={d.held} />
           </OutboundMessageArtifact>
@@ -1599,10 +1609,30 @@ export function ReviewSurface(props: {
           them. A card with nothing to review — a CRM update, a proposal —
           has an empty strip and these are the whole screen, which is why
           they render here rather than in a tab that would be the only one. */}
-      <div data-testid="review-dossier">
-        {!outbound && renderPane('why')}
-        {renderPane('evidence')}
-      </div>
+      {outbound
+        ? (
+            <details className="mt-6 border-t border-rule pt-2" data-testid="review-dossier">
+              <summary className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground">
+                <ChevronDown className="size-3.5" aria-hidden />
+                {outboundWhy ? 'Why, evidence and run details' : 'Run details'}
+              </summary>
+              {outboundWhy && (
+                <section data-testid="outbound-why" aria-label="Why" className="max-w-[70ch] pt-2">
+                  {outboundWhy.lines.map(line => (
+                    <p key={line} className="mb-2 text-[14px] leading-relaxed break-words text-foreground/85">{line}</p>
+                  ))}
+                  {outboundWhy.evidence.length > 0 && <EvidenceRefs sources={outboundWhy.evidence} labels={run.evidenceLabels} className="mt-1" />}
+                </section>
+              )}
+              {renderPane('evidence')}
+            </details>
+          )
+        : (
+            <div data-testid="review-dossier">
+              {renderPane('why')}
+              {renderPane('evidence')}
+            </div>
+          )}
     </DetailPage>
   );
 }

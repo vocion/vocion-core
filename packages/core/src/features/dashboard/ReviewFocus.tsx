@@ -302,7 +302,8 @@ export function ReviewFocus(props: {
   return (
     <ReviewFocusView
       loaded
-      crumbs={decisionCrumbs('proposal', record)}
+      // Back to the list keeps the filters it was opened under.
+      crumbs={decisionCrumbs('proposal', record).map((c, i) => (i === 2 ? { ...c, href: listHref } : c))}
       current={run}
       index={index}
       total={queue.length}

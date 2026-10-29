@@ -217,24 +217,55 @@ export function stripQuotedHistory(text: string): string {
   return trimmed || text.trim();
 }
 
+const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: '\'', nbsp: ' ', ndash: '\u2013', mdash: '\u2014', hellip: '\u2026', rsquo: '\u2019', lsquo: '\u2018', rdquo: '\u201D', ldquo: '\u201C' };
+
+/**
+ * HTML entities decoded: the common named few and every numeric one. Gmail's
+ * snippets arrive entity-encoded (`haven&#39;t`, `&lt;a@b.example&gt;`).
+ * @param text - Text that may carry entities.
+ */
+export function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{2,8});/gi, (whole, body: string) => {
+    if (body[0] === '#') {
+      const code = body[1] === 'x' || body[1] === 'X' ? Number.parseInt(body.slice(2), 16) : Number.parseInt(body.slice(1), 10);
+      return Number.isFinite(code) && code > 0 && code <= 0x10FFFF ? String.fromCodePoint(code) : whole;
+    }
+    return NAMED_ENTITIES[body.toLowerCase()] ?? whole;
+  });
+}
+
+/**
+ * A one-line excerpt (a provider's snippet) cut where the quoted history
+ * starts — "On Wed, Sep 16 … wrote:", "-----Original Message-----", a
+ * forwarded "From: … Sent:" block — since a flattened snippet has no lines
+ * for `stripQuotedHistory` to read. Never returns empty when the input had
+ * any text.
+ * @param text - The excerpt.
+ */
+export function cutQuotedInline(text: string): string {
+  const t = text.trim();
+  const at = [
+    /\bOn (?:Mon|Tue|Wed|Thu|Fri|Sat|Sun|\d)[^\n]{0,160}? wrote:/.exec(t)?.index,
+    /-{3,}\s*Original Message/i.exec(t)?.index,
+    /\bFrom: [^\n]{1,160}? Sent: /.exec(t)?.index,
+  ].filter((i): i is number => typeof i === 'number' && i > 0);
+  const cut = at.length > 0 ? t.slice(0, Math.min(...at)).trim() : t;
+  return cut || t;
+}
+
 /**
  * Plain text from HTML when the mail carried no text part. Tags are dropped,
  * block elements become line breaks, entities are decoded for the common few.
  * @param html - HTML body.
  */
 export function htmlToText(html: string): string {
-  return html
+  const text = html
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li|tr|h[1-6]|blockquote)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, '\'')
+    .replace(/<[^>]+>/g, '');
+  return decodeEntities(text)
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

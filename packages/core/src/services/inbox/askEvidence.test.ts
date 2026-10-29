@@ -17,7 +17,10 @@ vi.mock('@/services/SourceCredentialService', () => ({ getCredentialsForSource: 
 
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema } = await import('@/models/Schema');
-const { crmKeysOf, loadAskEvidence, parseThreadText, rejoinChunks, splitThread, threadPointerOf } = await import('./askEvidence');
+const { crmKeysOf, loadAskEvidence, threadPointerOf } = await import('./askEvidence');
+const { parseThreadText, rejoinChunks, splitThread } = await import('@/services/mail/threadEvidence');
+const { idsIn } = await import('@/services/inbox/pendingAction');
+const { threadIdOfCitation } = await import('@/services/preview/evidenceLabels');
 
 const ORG = 'org_ask_evidence';
 const ZERO_VEC = Array.from({ length: 1536 }, () => 0);
@@ -50,7 +53,7 @@ async function seed(opts: { cacheEndsAt?: string } = {}) {
     { orgId: ORG, sourceId: crm!.id, externalId: 'contacts:9001', title: 'Dana Reyes', contentHash: 'c-9001', metadata: { objectType: 'contacts', primaryEmail: 'dana@kestrel.example' } },
   ]);
   const facts = threadFacts('t-42', MESSAGES.map((m, i) => ({ id: `m${i + 1}`, from: m.from, to: m.to, date: new Date(m.date), subject: 'Phase 2 priorities', snippet: m.body.split('\n')[0]!, bulk: false })), 'rowan@northwind.example')!;
-  const state = threadStateDoc(facts, { state: 'needs_my_reply', category: 'sales', ask: 'A licensing call', labelledBy: 'rule' }, { connector: 'gmail', uri: 'https://mail.google.com/mail/u/0/#all/t-42' });
+  const state = threadStateDoc(facts, { state: 'needs_my_reply', category: 'sales', ask: 'A licensing call', labelledBy: 'rule' }, { connector: 'gmail', uri: 'https://mail.google.com/mail/u/rowan%40northwind.example/#all/t-42' });
   await db.insert(knowledgeDocumentSchema).values({ orgId: ORG, sourceId: mail!.id, externalId: state.externalId, title: state.title, uri: state.uri, contentHash: 'state-t-42', metadata: state.metadata as Record<string, unknown>, lastModifiedAt: state.lastModifiedAt });
   // The read-through copy, stored as overlapping chunks the way ingestion stores it.
   const content = MESSAGES.map(section).join('\n\n---\n\n');
@@ -118,13 +121,14 @@ describe('the evidence on an ask\'s page', () => {
     await seed();
     const [run] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'gmail.send', status: 'pending', input: { to: DANA, subject: 'Re: Phase 2 priorities', body: 'Good to hear from you, Dana.', threadId: 't-42', draft: true } }).returning();
 
-    const evidence = await loadAskEvidence(ORG, { objectRefs: [{ type: 'gmail_thread', id: 't-42' }, { type: 'deal', id: '7001' }], contextUrl: null }, { userId: null });
+    const evidence = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-42' }, { type: 'deal', id: '7001' }], contextUrl: null }, { userId: null });
 
     expect(evidence.records).toEqual([{ type: 'deal', id: 'deals:7001', label: 'Kestrel Capital — Phase 2', noun: 'Deal' }]);
     expect(evidence.thread).toMatchObject({
       threadId: 't-42',
       subject: 'Phase 2 priorities',
-      href: 'https://mail.google.com/mail/u/0/#all/t-42',
+      // Filed in the form Gmail 404s on; read back in the one it opens.
+      href: 'https://mail.google.com/mail/?authuser=rowan%40northwind.example#all/t-42',
       counterpart: DANA,
       draft: { href: `/dashboard/inbox/proposal-${run!.id}`, to: DANA, subject: 'Re: Phase 2 priorities', body: 'Good to hear from you, Dana.', mode: 'draft' },
     });
@@ -139,7 +143,7 @@ describe('the evidence on an ask\'s page', () => {
     vi.setSystemTime(new Date('2026-10-29T12:00:00.000Z'));
     await seed();
 
-    const evidence = await loadAskEvidence(ORG, { objectRefs: [{ type: 'contact', id: '9001' }], contextUrl: null }, { userId: null });
+    const evidence = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'contact', id: '9001' }], contextUrl: null }, { userId: null });
 
     expect(evidence.thread).toMatchObject({ threadId: 't-42', draft: null });
     expect(evidence.records).toEqual([{ type: 'object', id: 'contacts:9001', label: 'Dana Reyes', noun: 'Contact' }]);
@@ -148,7 +152,7 @@ describe('the evidence on an ask\'s page', () => {
   it('shows the last copy when the thread has grown and Gmail cannot be asked', async () => {
     await seed({ cacheEndsAt: 'm2' });
 
-    const evidence = await loadAskEvidence(ORG, { objectRefs: [{ type: 'gmail_thread', id: 't-42' }], contextUrl: null }, { userId: null });
+    const evidence = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-42' }], contextUrl: null }, { userId: null });
 
     expect(evidence.thread!.latest!.from).toBe(DANA);
   });
@@ -156,7 +160,16 @@ describe('the evidence on an ask\'s page', () => {
   it('shows no thread for an ask that names none, and nothing for a thread never synced', async () => {
     await seed();
 
-    await expect(loadAskEvidence(ORG, { objectRefs: [{ type: 'deal', id: '7001' }], contextUrl: null }, { userId: null })).resolves.toMatchObject({ thread: null });
-    await expect(loadAskEvidence(ORG, { objectRefs: [{ type: 'gmail_thread', id: 't-404' }], contextUrl: null }, { userId: null })).resolves.toEqual({ thread: null, records: [] });
+    await expect(loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'deal', id: '7001' }], contextUrl: null }, { userId: null })).resolves.toMatchObject({ thread: null });
+    await expect(loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-404' }], contextUrl: null }, { userId: null })).resolves.toEqual({ thread: null, records: [], related: [] });
+  });
+});
+
+describe('what a proposal names, for its neighbours and its chips', () => {
+  it('reads the ids a proposal\'s input names, and the thread a citation names', () => {
+    expect(idsIn({ threadId: 't-42', objectId: 7001, objectType: 'deals', to: 'dana@kestrel.example', id: 'x-1' })).toEqual(['t-42', '7001', 'x-1']);
+    expect(threadIdOfCitation('gmail:thread:19a2b3c4d5e6f708')).toBe('19a2b3c4d5e6f708');
+    expect(threadIdOfCitation('gmail-thread:t-42')).toBe('t-42');
+    expect(threadIdOfCitation('gmail:Re: Phase 2')).toBeNull();
   });
 });

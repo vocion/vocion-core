@@ -96,5 +96,5 @@ export async function readGmailThread(opts: {
   const ref = await ensureSource({ orgId: opts.orgId, slug: credentialed.source.slug });
   const result = await ingestDocument(ref, doc);
   const meta = doc.metadata as Record<string, unknown>;
-  return { source: 'live', upserted: result.status, title: doc.title, fetchedAt: meta.fetchedAt, messageCount: meta.messageCount, content: doc.content };
+  return { source: 'live', upserted: result.status, title: doc.title ?? null, fetchedAt: meta.fetchedAt, messageCount: meta.messageCount, content: doc.content };
 }

@@ -3,8 +3,10 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { policyKeyForRun } from '@/libs/actions/policyKey';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
-import { actionRunSchema, reviewAssignmentSchema, userSchema } from '@/models/Schema';
+import { actionRunSchema, agentSchema, reviewAssignmentSchema, userSchema } from '@/models/Schema';
 import { scoreFor } from '@/services/alignment/AlignmentService';
+import { relatedOpenItems } from '@/services/inbox/relatedItems';
+import { evidenceLabels } from '@/services/preview/evidenceLabels';
 import { accessGrantedSince } from '@/services/review/accessGranted';
 
 /**
@@ -48,7 +50,8 @@ export async function loadPendingAction(orgId: string, id: number): Promise<Acti
       if (!presenter) {
         return undefined;
       }
-      const built = await presenter({ orgId }, row.input).catch(() => undefined);
+      // The decision screen: the presenter may read the evidence a list skips.
+      const built = await presenter({ orgId, detail: true }, row.input).catch(() => undefined);
       return built ? { ...built, canRegenerate: action?.regenerate !== undefined } : undefined;
     })(),
   ]);
@@ -59,10 +62,16 @@ export async function loadPendingAction(orgId: string, id: number): Promise<Acti
   // one query, so the lifecycle under Run details reads "by Rowan Pike"
   // rather than a user id.
   const trail = (row.result ?? {}) as { handoff?: { releasedBy?: unknown }; executed?: { by?: unknown } };
-  const [people, accessGranted] = await Promise.all([
+  const evidence = (row.proposal as { evidence?: unknown } | null)?.evidence;
+  const citations = Array.isArray(evidence) ? evidence.filter((e): e is string => typeof e === 'string') : [];
+  const [people, accessGranted, agentName, citationLabels, related] = await Promise.all([
     namesFor([row.decidedBy, found.assignedTo, trail.handoff?.releasedBy, trail.executed?.by]),
     // A run that failed for want of access says whether it is there now.
     row.status === 'failed' ? accessGrantedSince(orgId, { actionId: row.actionId, input: row.input, error: row.error ?? null }) : Promise.resolve(null),
+    agentSlug ? agentNameOf(orgId, agentSlug) : Promise.resolve(null),
+    citations.length > 0 ? evidenceLabels(orgId, citations).catch(() => ({})) : Promise.resolve({}),
+    // Open ones only: a decided card has nothing left to settle beside it.
+    row.status === 'pending' ? relatedOpenItems(orgId, [...idsIn(row.input), ...citations], { kind: 'proposal', id: row.id }).catch(() => []) : Promise.resolve([]),
   ]);
   return {
     id: row.id,
@@ -91,7 +100,37 @@ export async function loadPendingAction(orgId: string, id: number): Promise<Acti
     executedAt: row.executedAt ?? null,
     assignee: found.assignedTo ? people[found.assignedTo] ?? found.assignedTo : null,
     people,
+    agentName,
+    ...(Object.keys(citationLabels).length > 0 ? { evidenceLabels: citationLabels } : {}),
+    ...(related.length > 0 ? { related } : {}),
   };
+}
+
+/**
+ * The ids a proposal's input names: a value under a key ending in `Id`
+ * (`threadId`, `objectId`), so the decisions about the same thread or record
+ * can be found beside it. Pure.
+ * @param input - The run's input.
+ */
+export function idsIn(input: Record<string, unknown> | null | undefined): string[] {
+  return Object.entries(input ?? {})
+    .filter(([k, v]) => /(?:^id|Id)$/.test(k) && (typeof v === 'string' || typeof v === 'number'))
+    .map(([, v]) => String(v));
+}
+
+/**
+ * An agent's display name, or null when its row has none.
+ * @param orgId - The workspace.
+ * @param slug - The agent.
+ */
+async function agentNameOf(orgId: string, slug: string): Promise<string | null> {
+  const [row] = await db
+    .select({ name: agentSchema.name })
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, slug)))
+    .limit(1)
+    .catch(() => []);
+  return row?.name?.trim() || null;
 }
 
 /**

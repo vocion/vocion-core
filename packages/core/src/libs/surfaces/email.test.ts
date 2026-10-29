@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { bareAddress, htmlToText, normaliseSubject, parseResendPayload, referencedMessageIds, replySubject, stripAngles, stripQuotedHistory, verifySvixSignature } from './email';
+import { bareAddress, cutQuotedInline, decodeEntities, htmlToText, normaliseSubject, parseResendPayload, referencedMessageIds, replySubject, stripAngles, stripQuotedHistory, verifySvixSignature } from './email';
 
 const SECRET = `whsec_${Buffer.from('a-32-byte-test-secret-for-svix!!').toString('base64')}`;
 const BODY = '{"type":"email.received","data":{"email_id":"e1"}}';
@@ -97,5 +97,18 @@ describe('text helpers', () => {
   it('lists referenced Message-IDs, In-Reply-To first, without duplicates', () => {
     expect(referencedMessageIds({ 'In-Reply-To': '<b@x>', 'references': '<a@x> <b@x> <c@x>' })).toEqual(['b@x', 'a@x', 'c@x']);
     expect(referencedMessageIds(undefined)).toEqual([]);
+  });
+});
+
+describe('text a person reads, from what mail providers send', () => {
+  it('decodes the entities Gmail snippets carry', () => {
+    expect(decodeEntities('We haven&#39;t &amp; won&#x27;t &lt;dana@kestrel.example&gt; &bogus;')).toBe('We haven\'t & won\'t <dana@kestrel.example> &bogus;');
+    expect(htmlToText('<p>Don&#39;t&nbsp;wait</p>')).toBe('Don\'t wait');
+  });
+
+  it('cuts a flattened snippet where the quoted history starts', () => {
+    expect(cutQuotedInline('Month sounds good. On Wed, Sep 16, 2026 at 9:00 AM Rowan Pike <rowan@northwind.example> wrote: Hi Dana, month sounds')).toBe('Month sounds good.');
+    expect(cutQuotedInline('Thanks! -----Original Message----- From: Rowan')).toBe('Thanks!');
+    expect(cutQuotedInline('On Wed, Sep 16 Rowan wrote: only quoted')).toBe('On Wed, Sep 16 Rowan wrote: only quoted');
   });
 });

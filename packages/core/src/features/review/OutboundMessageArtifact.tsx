@@ -3,20 +3,21 @@
 import type { ReactNode } from 'react';
 import type { ContentEdit } from './contentKinds';
 import type { OutboundAttachment, OutboundMessage, ReviewContent } from '@/libs/actions/types';
-import { ChevronDown, ExternalLink, Paperclip, TriangleAlert, X } from 'lucide-react';
+import { Paperclip, TriangleAlert, X } from 'lucide-react';
 import { useState } from 'react';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { usePreviewOpener } from '@/features/preview/previewState';
 import { addressIn, nameOf, splitRecipients } from '@/libs/mail/recipients';
 import { cn } from '@/utils/Helpers';
+import { ThreadEvidence } from './ThreadEvidence';
 
 /**
  * THE OUTBOUND MESSAGE, as one artifact — the same shape for every action
  * that puts words in front of someone: a Gmail reply draft, a sent email, a
  * Slack post, a CRM note.
  *
- * Read top to bottom the way the message will be: what it answers (the last
- * messages of the thread, folded to the newest), who it goes to (To and Cc as
+ * Read top to bottom the way the message will be: what it answers (the other
+ * side's latest message whole, the rest of the thread folded, `ThreadEvidence`), who it goes to (To and Cc as
  * chips a reviewer can change), the copy itself (the registered renderer for
  * the item's kind, so editing and the rich body are what every card uses),
  * the signature it will carry, and the files that go with it (each opens in
@@ -33,14 +34,6 @@ import { cn } from '@/utils/Helpers';
  */
 const shortName = (header: string) => nameOf(header) ?? header.trim();
 const split = splitRecipients;
-
-/** One date on the thread, fixed to `en-US` so stories and screenshots read the same everywhere. */
-const WHEN = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-
-function when(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : WHEN.format(d);
-}
 
 /**
  * Recipients as chips: each one removable, and a field after them that takes
@@ -113,58 +106,6 @@ function RecipientRow(props: { label: string; values: string[]; onChange?: (next
 }
 
 /**
- * What the message answers: the newest message open, the ones before it one
- * tap away, each with who wrote it, when, and its opening words.
- * @param props
- * @param props.thread
- */
-function ThreadContext(props: { thread: NonNullable<OutboundMessage['thread']> }) {
-  const { messages } = props.thread;
-  const [open, setOpen] = useState(false);
-  const shown = open ? messages : messages.slice(-1);
-  const earlier = messages.length - 1;
-  return (
-    <section data-testid="outbound-thread" aria-label="The thread this replies to" className="border-b border-rule pb-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="min-w-0 truncate text-[12px] text-muted-foreground">
-          In reply to
-          {props.thread.subject && <span className="text-foreground/80">{` · ${props.thread.subject}`}</span>}
-        </h3>
-        {props.thread.href && (
-          <a href={props.thread.href} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground">
-            Open thread
-            <ExternalLink className="size-3" aria-hidden />
-          </a>
-        )}
-      </div>
-      <ol className="mt-2 flex flex-col gap-2.5">
-        {shown.map(m => (
-          <li key={`${m.from}-${m.at}`} className="min-w-0 border-l-2 border-rule pl-3" data-testid="outbound-thread-message">
-            <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[13px]">
-              <span className="truncate font-medium text-foreground">{shortName(m.from)}</span>
-              <span className="text-[12px] text-muted-foreground tabular-nums">{when(m.at)}</span>
-            </p>
-            <p className={cn('mt-0.5 text-[13px] leading-relaxed break-words text-muted-foreground', !open && 'line-clamp-2')}>{m.snippet}</p>
-          </li>
-        ))}
-      </ol>
-      {(earlier > 0 || shown.some(m => m.snippet.length > 160)) && (
-        <button
-          type="button"
-          onClick={() => setOpen(o => !o)}
-          aria-expanded={open}
-          data-testid="outbound-thread-toggle"
-          className="mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-        >
-          <ChevronDown className={cn('size-3.5 transition-transform', open && 'rotate-180')} aria-hidden />
-          {open ? 'Show less' : earlier > 0 ? `Show ${earlier} earlier message${earlier === 1 ? '' : 's'}` : 'Show all'}
-        </button>
-      )}
-    </section>
-  );
-}
-
-/**
  * One attachment: what it is and what it goes as, opening the artifact in the
  * preview panel. One that cannot go says why, before anyone approves.
  * @param props
@@ -204,8 +145,8 @@ export function OutboundMessageArtifact(props: {
   /** Present when the reviewer may edit; absent, the artifact reads. */
   onEdit?: (patch: ContentEdit) => void;
   disabled?: boolean;
-  /** The short Why, drawn above the thread. */
-  why?: ReactNode;
+  /** The one-line recommendation, drawn above the thread. */
+  lead?: ReactNode;
   /** The copy: the registered renderer for the item's kind, built by the shell. */
   children: ReactNode;
 }) {
@@ -217,8 +158,17 @@ export function OutboundMessageArtifact(props: {
 
   return (
     <div data-testid="outbound-artifact" data-channel={outbound.channel} data-mode={outbound.mode} className="flex flex-col gap-4">
-      {props.why}
-      {outbound.thread && outbound.thread.messages.length > 0 && <ThreadContext thread={outbound.thread} />}
+      {props.lead}
+      {outbound.thread && (outbound.thread.latest || outbound.thread.messages.length > 0) && (
+        <ThreadEvidence
+          heading="In reply to"
+          subject={outbound.thread.subject}
+          href={outbound.thread.href}
+          latest={outbound.thread.latest}
+          lines={outbound.thread.messages.map(m => ({ from: m.from, at: m.at || null, line: m.snippet }))}
+          className="border-b border-rule pb-3"
+        />
+      )}
       <div data-testid="outbound-composer" data-comment-field={item.label} className="min-w-0">
         <RecipientRow
           label="To"
