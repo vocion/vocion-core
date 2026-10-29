@@ -1016,10 +1016,7 @@ async function runWorkProject(orgId: string, runId: number): Promise<number | un
 async function executeActionInScope(
   runId: number,
   orgId: string,
-  opts?: {
-    reviewedBy?: string;
-    externalRef?: { system: string; id: string };
-  },
+  opts?: Parameters<typeof executeAction>[2],
 ): Promise<ActionRunResult> {
   const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, runId)).limit(1);
   if (!run || run.orgId !== orgId) {
