@@ -47,6 +47,14 @@ import { withCallContext } from '@/services/spend/callContext';
 
 const KEEPALIVE_INTERVAL_MS = 15_000;
 
+/**
+ * The note an agent reads when a thread is handed to it.
+ * @param from - Who the thread was with.
+ */
+function handoffNote(from: string): string {
+  return `\n\n--- handed to you ---\nThis thread was with ${from} until now; this message asks for work you own, so it was handed to you. The conversation above is that thread: pick the work up from it, and do not ask them to repeat what they already said.`;
+}
+
 export async function POST(request: Request): Promise<Response> {
   const { userId, orgId } = await auth();
   if (!userId || !orgId) {
@@ -135,6 +143,8 @@ export async function POST(request: Request): Promise<Response> {
   // agent; absent, the lead answers as before.
   let agentSlug = body.agent_slug as string | undefined;
   let routing: import('@/services/agents/router').RoutingDecision | null = null;
+  // The app the person is in, when the turn is routed (`services/chat/appScope.ts`).
+  let appScope: import('@/services/agents/router').AppScope | null = null;
   // The first turn's model read, when nothing structural decided. Not awaited
   // here: the lead's turn starts while it reads (`headStart` below).
   let routerRead: Promise<import('@/services/agents/router').RoutingDecision | null> | null = null;
@@ -193,14 +203,19 @@ export async function POST(request: Request): Promise<Response> {
     }
     const lead = await leadNow;
     if (body.route === true && message.trim()) {
-      const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn, routeFollowUp, workspacePageDecision } = await import('@/services/agents/router');
-      // A follow-up stays with the agent the thread is with; the router
-      // picks only a conversation's first turn, or an agent the person names
-      // (conversation 349: "Please file it now." left the product manager's
-      // thread for change-reviewer on a keyword score).
+      const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn, routeFollowUp, withTeams, workspacePageDecision } = await import('@/services/agents/router');
+      // A follow-up stays with the agent the thread is with unless the person
+      // names another or it is handed off below (conversation 349: "Please
+      // file it now." left the product manager's thread for change-reviewer
+      // on a keyword score).
       const { threadAgentOf } = await import('@/services/ConversationService');
       const threadAgent = typeof body.conversation_id === 'number' ? await threadAgentOf({ orgId, id: body.conversation_id }) : null;
-      const routable = agents.map(routableFromRow);
+      // Who leads which team, and the app the person is in: in an app's chat
+      // the app's own seats answer first (`services/chat/appScope.ts`).
+      const { loadRoutingContext } = await import('@/services/chat/appScope');
+      const routingContext = await loadRoutingContext(orgId, { cookie: request.headers.get('cookie'), agents });
+      appScope = routingContext.app;
+      const routable = withTeams(agents.map(routableFromRow), routingContext.teams);
       // On a record's page the record's owner answers the first turn — the
       // page is the context, a keyword is not (conversation 362).
       const pageRecord = pageContext?.record?.objectType ? { objectType: pageContext.record.objectType, id: pageContext.record.id } : null;
@@ -212,18 +227,22 @@ export async function POST(request: Request): Promise<Response> {
       // what each seat owns (conversation 397: "file it and build it" went
       // to the wiki researcher on a keyword score).
       if (!routing) {
-        routerRead = started(routeFirstTurn({ orgId, agents: routable, message, leadSlug: lead.leadAgentSlug, surface: 'chat' }));
+        routerRead = started(routeFirstTurn({ orgId, agents: routable, message, leadSlug: lead.leadAgentSlug, surface: 'chat', app: appScope }));
       } else if (routing.decidedBy === 'thread') {
-        // …unless the follow-up turned to work another seat owns, which a
+        // …unless the follow-up turned to work another team owns, which a
         // model reads with the thread's last reply in front of it (2026-10-29:
         // "no I want to do lead and email follow up" stayed with the
-        // marketing lead). The thread's agent gets the head start meanwhile.
+        // marketing lead), and the thread is handed there. A plain follow-up
+        // (a chip, an answer to an open card, a short reply) is decided
+        // without a read. The thread's agent gets the head start meanwhile.
         const lastReply = (await historyRead)?.[0].filter(m => m.role === 'assistant').at(-1)?.content ?? null;
-        routerRead = started(routeFollowUp({ orgId, agents: routable, message, thread: { agentSlug: routing.chosen, lastReply }, leadSlug: lead.leadAgentSlug, surface: 'chat' }));
+        routerRead = started(routeFollowUp({ orgId, agents: routable, message, thread: { agentSlug: routing.chosen, lastReply }, leadSlug: lead.leadAgentSlug, surface: 'chat', app: appScope, chip: body.chip === true, openCard: first.kind === 'none' && Boolean(first.open) }));
       }
     }
+    // In an app's chat its lead answers while the router reads.
+    const fallbackLead = appScope && agents.some(a => a.slug === appScope!.leadSlug) ? appScope.leadSlug : lead.leadAgentSlug;
     agentSlug = routing?.chosen
-      ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);
+      ?? ((fallbackLead && agents.some(a => a.slug === fallbackLead)) ? fallbackLead : agents[0]!.slug);
   }
   if (!agentSlug) {
     return new Response(JSON.stringify({ error: 'No agents authored for this project. See /dashboard/chat for setup.' }), { status: 404 });
@@ -359,13 +378,16 @@ export async function POST(request: Request): Promise<Response> {
   // What the turn spent, counted while it runs (`budget/runCost.ts`).
   const turnCost: { cost: RunCostScope | null } = { cost: null };
   const modelMessage = `${withPageContext(messageForModel, pageContext, contextRefs, grounding.text)}${askedForLine(askedFor)}`;
+  // What the agent that answers reads: the message, and on a hand-off a note
+  // that the thread above was another agent's (set once routing lands).
+  let turnMessage = modelMessage;
   const turnPageContext = askedFor.length > 0 ? { ...(pageContext ?? { path: '/dashboard/chat', title: 'Chat' }), askedFor } : pageContext;
   const runTurn = (slug: string, hold?: Promise<boolean>) => {
     const turn = () => runAgentDeep({
       allowedSourceSlugs,
       orgId,
       agentSlug: slug,
-      message: modelMessage,
+      message: turnMessage,
       userId,
       // A person's own chat turn: their own MCP servers join it (`followingSources.ts`).
       personTurn: true,
@@ -418,6 +440,13 @@ export async function POST(request: Request): Promise<Response> {
       headStart = null;
       early.length = 0;
     }
+  }
+  // A HAND-OFF (`routeFollowUp`): the agent that takes the thread reads it
+  // whole, told it was another agent's until now, so it picks the work up
+  // rather than asking the person to say it again.
+  if (routing?.decidedBy === 'handoff' && routing.handedFrom && routing.chosen === agentSlug) {
+    const from = roster.find(a => a.slug === routing!.handedFrom)?.name ?? routing.handedFrom;
+    turnMessage = `${modelMessage}${handoffNote(from)}`;
   }
   if (correction) {
     void reflectOnCorrection({ orgId, agentSlug, userId, correction }).catch(() => {});
@@ -474,7 +503,7 @@ export async function POST(request: Request): Promise<Response> {
   // place below. A ledger that cannot be written changes nothing: the row is
   // then written at the end, as before.
   const turnRow = conversationId !== null
-    ? await beginTurn({ orgId, conversationId, agentSlug, turn: { streamId, userMessageId, request: { message: answered?.source === 'card' ? answerText! : message, messageForModel: modelMessage, agentSlug, userId, allowedSourceSlugs, timeZone, ...(deliverable ? { deliverable } : {}), attachmentIds, ...(modelPrefs ? { modelPrefs } : {}), ...(turnPageContext ? { pageContext: turnPageContext } : {}), autonomy, ...(clientHistory.length > 0 ? { clientHistory } : {}) } } })
+    ? await beginTurn({ orgId, conversationId, agentSlug, turn: { streamId, userMessageId, request: { message: answered?.source === 'card' ? answerText! : message, messageForModel: turnMessage, agentSlug, userId, allowedSourceSlugs, timeZone, ...(deliverable ? { deliverable } : {}), attachmentIds, ...(modelPrefs ? { modelPrefs } : {}), ...(turnPageContext ? { pageContext: turnPageContext } : {}), autonomy, ...(clientHistory.length > 0 ? { clientHistory } : {}) } } })
     : null;
 
   // Multiplex the agent event stream + a 15s keepalive timer into one

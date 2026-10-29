@@ -91,7 +91,9 @@ export default async function AgentDetailPage(props: {
   // The workspace's own lead is named for the workspace ("Revenue lead"),
   // never "Workspace lead" (`libs/workspace/leadName.ts`).
   const namer = await agentNamer(orgId);
-  const roleLabel = isWorkspaceLead ? namer.role : isLead ? 'Lead' : 'Specialist';
+  // What it leads: "SEO lead" for a team's lead, the workspace's name for the
+  // seeded lead, so two agents never wear one title (`leadBadge`).
+  const roleLabel = namer.badge(slug) ?? (isWorkspaceLead ? namer.role : isLead ? 'Lead' : 'Specialist');
   const displayName = namer.name(agent);
   const canName = (await requireOrganization()).has({ role: ORG_ROLE.ADMIN });
 

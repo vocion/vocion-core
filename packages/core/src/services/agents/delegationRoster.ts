@@ -23,6 +23,7 @@
 
 import { and, eq, inArray, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { isSeededLead } from '@/libs/workspace/leadName';
 import { agentSchema, projectSchema, teamSchema } from '@/models/Schema';
 
 export type DelegateEntry = {
@@ -141,7 +142,11 @@ export async function deriveDelegationRoster(orgId: string, lead: AgentRow): Pro
     .from(projectSchema)
     .where(eq(projectSchema.id, orgId))
     .limit(1);
-  const isWorkspaceLead = project?.leadAgentSlug === lead.slug;
+  // The seeded lead is the workspace's lead in role even when an app's lead
+  // took `project.lead_agent_slug` (an app installed into an empty workspace
+  // adopts its lead): it still hands work to the teams, so it reaches them.
+  // 2026-10-29: with no roster it planned an SEO team's pages itself.
+  const isWorkspaceLead = project?.leadAgentSlug === lead.slug || isSeededLead(lead.slug);
 
   // Every query orders by id: the roster's order is a product contract (the
   // rail's delegate rows, the lead's routing list) and PGlite returns index

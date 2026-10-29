@@ -13,7 +13,7 @@ vi.mock('@/features/preview/previewState', () => ({ openPreview: vi.fn() }));
 
 const { client } = await import('@/libs/Orpc');
 const { openPreview } = await import('@/features/preview/previewState');
-const { chipLine, ConversationWork, ConversationWorkPane, RunningWorkChip, RunningWorkPanel } = await import('./RunningWork');
+const { chipLine, ConversationWork, ConversationWorkPane, RunningWorkChip, RunningWorkPanel, runningLine } = await import('./RunningWork');
 
 const now = Date.now();
 const item = (over: Partial<WorkItem>): WorkItem => ({
@@ -51,6 +51,25 @@ describe('what the chip says', () => {
     expect(chipLine({ running: [VIEW.running[0]!], finished: [] })).toBe('1 running');
     expect(chipLine({ running: [], finished: VIEW.finished })).toBe('1 finished');
     expect(chipLine({ running: [], finished: [] })).toBeNull();
+  });
+});
+
+describe('what runs, by name (2026-10-29)', () => {
+  it('names the running work in its own words, then how many more', () => {
+    expect(runningLine(VIEW)).toBe('Reconcile the Northwind invoices + 1 more');
+    expect(runningLine({ running: [VIEW.running[0]!], finished: [] })).toBe('Reconcile the Northwind invoices');
+    expect(runningLine({ running: [], finished: VIEW.finished })).toBeNull();
+  });
+
+  it('the chip says what runs inline, and still opens the detail', async () => {
+    await render(<RunningWorkChip view={{ running: [item({ title: 'Researching Google\'s top results for 3 pages · briefs next' })], finished: [] }} conversationId={12} />);
+
+    await expect.element(page.getByTestId('running-work-names')).toHaveTextContent('Researching Google\'s top results for 3 pages · briefs next');
+    await expect.element(page.getByTestId('running-work-chip')).toHaveTextContent('· 1 running');
+
+    await userEvent.click(page.getByTestId('running-work-chip'));
+
+    expect(openPreview).toHaveBeenCalledWith({ type: 'conversation', id: '12.work' }, expect.any(HTMLElement));
   });
 });
 

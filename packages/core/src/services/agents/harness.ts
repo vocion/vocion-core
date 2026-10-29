@@ -438,6 +438,13 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
       ? `Who you are: your name is ${n.given}, and you are the ${n.role}. Introduce yourself as "${n.given}, the ${n.role}" — never as a "workspace lead".`
       : `Who you are: you are the ${n.role}. Introduce yourself as "the ${n.role}" — never as a "workspace lead".`;
     systemPrompt = [systemPrompt, who].filter(Boolean).join('\n\n');
+    // It hands domain work to the team that owns it, never does it (2026-10-29:
+    // it planned an SEO team's pages itself). Routing hands the thread over
+    // too (`routeFollowUp`); this is the turn's own half.
+    const owners = roster.delegates.filter(d => d.source === 'team-lead').map(d => d.slug);
+    if (owners.length > 0) {
+      systemPrompt = `${systemPrompt}\n\nWork a team here owns is that team's, not yours (team leads: ${owners.join(', ')}). Asked for it, consult its lead or say in one line that you are handing it to them; never plan, research or write that work yourself.`;
+    }
   }
 
   // THE CLOCK (CORE, all agents).

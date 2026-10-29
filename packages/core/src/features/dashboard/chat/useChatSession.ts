@@ -163,6 +163,8 @@ type PersistedMessageRow = {
   artifacts?: ChatMessageArtifact[];
   /** Which agent spoke an assistant turn, as the runtime stamped it (backlog 009); null before the column existed. */
   agentSlug?: string | null;
+  /** On a person's message: who the workspace picked to answer it, and why. */
+  routingJson?: RoutingDecision | null;
 };
 
 /**
@@ -174,7 +176,10 @@ type PersistedMessageRow = {
  */
 function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) => string): { messages: ChatMessage[]; documents: IndexedDocument[] } {
   const documents: IndexedDocument[] = [];
-  const messages: ChatMessage[] = rows.map((row) => {
+  const messages: ChatMessage[] = rows.map((row, at) => {
+    // The decision rides the person's message; its answer is the next row,
+    // so a hand-off line and the reason come back after a reload as they were live.
+    const routing = row.role === 'assistant' && at > 0 && rows[at - 1]!.role === 'user' ? rows[at - 1]!.routingJson ?? undefined : undefined;
     const runsRaw = Array.isArray(row.runsJson) ? (row.runsJson as AgentRun[]) : [];
     const runs = runsRaw.length > 0
       // A stored `state` wins: a step that failed must still read as failed
@@ -239,6 +244,7 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
       // Who spoke, from the row — so "via <specialist>" survives a reload and
       // says the same thing it said live (backlog 009).
       ...(row.role === 'assistant' && row.agentSlug ? { agentSlug: row.agentSlug, agentName: nameOf(row.agentSlug) } : {}),
+      ...(routing ? { routing } : {}),
     };
   });
   return { messages, documents };
@@ -1552,7 +1558,7 @@ export function useChatSession({
    * typing, and the server records the answer and runs the agent that asked
    * (`services/decisions/answersFirst.ts`).
    */
-  const sendMessage = useCallback(async (raw: string, decision?: { view: DecisionView; answer: DecisionAnswer; via?: 'chat_chip' }) => {
+  const sendMessage = useCallback(async (raw: string, decision?: { view: DecisionView; answer: DecisionAnswer; via?: 'chat_chip' }, sentAs?: { chip?: boolean }) => {
     // Read the ref, not `isStreaming`: ⌘⏎ (stop-and-send) calls handleStop and
     // sendMessage in the same handler, before React has re-rendered.
     // THE HIGHLIGHTED PASSAGE IS PART OF WHAT WAS SAID (Chris, 2026-09-29: "I
@@ -1673,6 +1679,9 @@ export function useChatSession({
           // (`services/agents/router.ts`). The reply is attributed to whoever
           // answers, exactly as an `@mention` is; the reason rides with it.
           ...(!routed && !isSearchOnly && !decision ? { route: true } : {}),
+          // A chip the last turn offered continues its thread: the router
+          // keeps it with that agent without reading it again.
+          ...(sentAs?.chip ? { chip: true } : {}),
           // The turn's deliverable contract (0102) — a typed field, decided
           // before the turn runs, not a judgement the model makes during it.
           deliverable,
@@ -2366,7 +2375,7 @@ export function useChatSession({
       void sendMessage('', { view: bound, answer: { kind: 'option', optionIds: [s.answers.optionId] }, via: 'chat_chip' });
       return;
     }
-    void sendMessage(s.prompt);
+    void sendMessage(s.prompt, undefined, { chip: true });
   }, [sendMessage, openDecisions]);
 
   /**

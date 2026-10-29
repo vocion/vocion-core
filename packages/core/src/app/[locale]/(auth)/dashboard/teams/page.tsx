@@ -53,7 +53,9 @@ export default async function TeamsPage(props: {
   const workspace = { ...rawWorkspace, lead: rawWorkspace.lead ? named(rawWorkspace.lead) : null };
   const teams = rawTeams.map(team => ({ ...team, lead: team.lead ? named(team.lead) : null, members: team.members.map(named) }));
   const agents: TeamAgent[] = (rawAgents as TeamAgent[]).map(a => named(a));
-  const leadRole = namer?.role ?? '';
+  // What the band's lead leads: "SEO lead" for an app's lead that also leads
+  // the workspace, so it never wears the seeded lead's title (`leadBadge`).
+  const leadRole = namer ? (workspace.leadAgentSlug ? namer.badge(workspace.leadAgentSlug) : null) ?? namer.role : '';
 
   const ungrouped = ungroupedAgents(agents, teams, workspace.leadAgentSlug);
 
