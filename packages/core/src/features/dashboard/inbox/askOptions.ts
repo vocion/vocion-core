@@ -33,14 +33,17 @@ export type AnswerListeners = Record<string, string[]>;
  * the sentence is read off `listeners`, never assumed. When the page did not
  * look, it says only what is certain.
  * The asker's own line wins (`ask.outcomes`): an ask whose answer resumes
- * work says what happens ("The briefs start"), never "nothing runs".
+ * work says what happens ("The briefs start"), never "nothing runs". An ask
+ * an agent filed goes back to that agent, who carries on (`handsBackTo`);
+ * "nothing runs" is said only when nobody is there to resume.
  * @param ask - The asker, for "recorded for …".
  * @param ask.agentSlug
  * @param ask.outcomes - What each answer does, when the asker said.
+ * @param ask.handsBackTo - The asking agent's name, when the answer goes back to it.
  * @param decision - The decision id.
  * @param listeners - What each answer starts, when the page looked.
  */
-export function consequenceOf(ask: { agentSlug: string | null; outcomes?: AskOutcomes | null }, decision: string, listeners?: AnswerListeners): string {
+export function consequenceOf(ask: { agentSlug: string | null; outcomes?: AskOutcomes | null; handsBackTo?: string | null }, decision: string, listeners?: AnswerListeners): string {
   // The asker said what this answer does: an answer that resumes its work.
   const said = outcomeLine(ask.outcomes, decision);
   if (said) {
@@ -49,6 +52,10 @@ export function consequenceOf(ask: { agentSlug: string | null; outcomes?: AskOut
   const names = listeners?.[decision];
   if (names && names.length > 0) {
     return `Starts ${names.map(n => `“${n}”`).join(' and ')}.`;
+  }
+  // An agent asked: the answer goes back to it as a follow-up turn (`services/inbox/handBack.ts`).
+  if (ask.handsBackTo) {
+    return `Your answer goes back to ${ask.handsBackTo}, who carries on.`;
   }
   const recorded = `Your answer is recorded for ${ask.agentSlug ?? 'whoever asked'}`;
   return names ? `${recorded}; nothing runs on its own.` : `${recorded}.`;
@@ -73,9 +80,10 @@ export function outcomeLine(outcomes: AskOutcomes | null | undefined, decision: 
  * @param ask - The asker.
  * @param ask.agentSlug
  * @param ask.outcomes
+ * @param ask.handsBackTo
  * @param listeners - What each answer starts, when the page looked.
  */
-export function fixedRowsFor(ask: { agentSlug: string | null; outcomes?: AskOutcomes | null }, listeners?: AnswerListeners): AskOption[] {
+export function fixedRowsFor(ask: { agentSlug: string | null; outcomes?: AskOutcomes | null; handsBackTo?: string | null }, listeners?: AnswerListeners): AskOption[] {
   return [
     { id: 'approve', label: 'Approve', description: `Yes. ${consequenceOf(ask, 'approve', listeners)}` },
     { id: 'reject', label: 'Reject', description: `No. ${consequenceOf(ask, 'reject', listeners)}` },

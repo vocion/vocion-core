@@ -697,6 +697,9 @@ async function settleWaitersOn(row: Ask): Promise<void> {
     // queued to continue (`services/seo/signoff.ts`).
     await import('@/services/seo/signoff').then(m => m.onSeoAskSettled(row)).catch(() => undefined);
   }
+  // An agent's question answered anywhere but its own conversation's turn:
+  // the answer goes back to it as a follow-up turn (`services/inbox/handBack.ts`).
+  void import('@/services/inbox/handBack').then(m => m.handBackAnswer(row)).catch(() => undefined);
   try {
     const { onAskSettled } = await import('@/services/needsYou/ResumeGateService');
     await onAskSettled(row);

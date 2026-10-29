@@ -17,6 +17,7 @@ import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { decisionLegend, planDecision } from '@/features/review/reviewSheetModel';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
 import { kindForAsk } from '@/services/inbox/kinds';
+import { AskArtifact } from './AskArtifact';
 import { consequenceOf, fixedRowsFor, labelFor, OTHER } from './askOptions';
 import { firstParagraph, isNearDuplicate, sentenceCase, splitBody, splitContext } from './askText';
 import { DECISION_VERBS } from './decisionVerbs';
@@ -57,7 +58,14 @@ export type SheetAsk = {
   listeners?: AnswerListeners;
   /** What each answer does, in the asker's words, when its answer resumes work (`ask.outcomes`). */
   outcomes?: AskOutcomes | null;
+  /** The asking agent's name, when the answer goes back to it as a follow-up turn (`services/inbox/handBack.ts`). */
+  handsBackTo?: string | null;
+  /** The artifact the ask is about (the first in its `object_refs`): a sign-off shows its draft. */
+  artifact?: SheetArtifact | null;
 };
+
+/** An ask's primary artifact, as the sheet previews it. */
+export type SheetArtifact = { id: number; title: string; kind: string; version: number; markdown?: string };
 
 type Answer = { decision: string; note: string };
 type Outcome = { ok: true; sentBack?: boolean } | { ok: false; error: string };
@@ -612,6 +620,8 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
               anything that talks about it. */}
           {workNode && <div className="mt-4" data-testid="ask-work">{workNode}</div>}
           {whyNode ?? (leadNode && <div className="mt-4 mb-4">{leadNode}</div>)}
+          {/* The artifact it is about — the draft a sign-off approves — read in place, one move from the pane. */}
+          {current.artifact && <AskArtifact artifact={current.artifact} />}
           {context.shown && (
             <div className="prose prose-sm mt-4 max-w-none overflow-x-auto dark:prose-invert" data-testid="ask-context-table">
               <Markdown remarkPlugins={[remarkGfm]}>{context.shown}</Markdown>
