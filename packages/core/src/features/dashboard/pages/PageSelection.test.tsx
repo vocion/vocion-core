@@ -16,7 +16,10 @@ import '@/styles/global.css';
 const opened = vi.hoisted(() => [] as unknown[]);
 const pushed = vi.hoisted(() => [] as string[]);
 vi.mock('@/features/dashboard/chat/agentSurface', () => ({ openAgentSurface: (req: unknown) => opened.push(req) }));
-vi.mock('@/libs/I18nNavigation', () => ({ useRouter: () => ({ push: (href: string) => pushed.push(href) }) }));
+vi.mock('@/libs/I18nNavigation', () => ({
+  Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
+  useRouter: () => ({ push: (href: string) => pushed.push(href) }),
+}));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: (href: string) => pushed.push(href) }) }));
 
 const { PageSelection, selectionMessage } = await import('./PageSelection');
