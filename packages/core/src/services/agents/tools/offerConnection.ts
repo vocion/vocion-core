@@ -23,20 +23,32 @@ import { CONNECTOR_KIND_FIELD } from './connectSystems';
  * this conversation (#1080). One connect path, not a second one in chat.
  * @param connectorSlug - e.g. "github".
  * @param conversationId - The current conversation, when the turn has one.
+ * @param projectId - The turn's project: the connection is made for it.
  * @returns An in-app URL.
  */
-export function connectHref(connectorSlug: string, conversationId: number | undefined): string {
-  return `/dashboard/connectors?add=${encodeURIComponent(connectorSlug)}&returnTo=${encodeURIComponent(returnPath(conversationId))}`;
+export function connectHref(connectorSlug: string, conversationId: number | undefined, projectId?: number | null): string {
+  return `/dashboard/connectors?add=${encodeURIComponent(connectorSlug)}${projectParam(projectId)}&returnTo=${encodeURIComponent(returnPath(conversationId))}`;
+}
+
+/**
+ * The Connectors page's `project` param: a card offered in a project's work
+ * connects for that project (`connectionScope.ts`), so the connection it
+ * makes serves this work and no other client's.
+ * @param projectId - The turn's project, if any.
+ */
+function projectParam(projectId: number | null | undefined): string {
+  return projectId ? `&project=${projectId}` : '';
 }
 
 /**
  * The Connectors page's token form for one connector, back to this conversation.
  * @param connectorSlug - e.g. "notion".
  * @param conversationId - The current conversation, when the turn has one.
+ * @param projectId - The turn's project: the connection is made for it.
  * @returns An in-app URL.
  */
-export function pasteHref(connectorSlug: string, conversationId: number | undefined): string {
-  return `/dashboard/connectors?add=${encodeURIComponent(connectorSlug)}&paste=1&returnTo=${encodeURIComponent(returnPath(conversationId))}`;
+export function pasteHref(connectorSlug: string, conversationId: number | undefined, projectId?: number | null): string {
+  return `/dashboard/connectors?add=${encodeURIComponent(connectorSlug)}&paste=1${projectParam(projectId)}&returnTo=${encodeURIComponent(returnPath(conversationId))}`;
 }
 
 /**
@@ -104,7 +116,7 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
     return `${name} is a team connector, and only a workspace admin connects team connectors. Ask an admin to connect it in Team connectors.`;
   }
   // A source whose login was revoked or expired is not connected: fall through and offer the login again.
-  if (await connectorHasLiveSource(ctx.orgId, connector.slug)) {
+  if (await connectorHasLiveSource(ctx.orgId, connector.slug, { projectId: ctx.workProjectId ?? null })) {
     return `${name} is already connected; nothing to offer.`;
   }
   const how = howToConnectFor(connector.slug);
@@ -121,7 +133,7 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
     // add flow, which shows the sign-in button and what an admin must set up.
     // The key is the second button, never the only one.
     if (how?.login && option) {
-      const href = connectHref(connector.slug, ctx.conversationId);
+      const href = connectHref(connector.slug, ctx.conversationId, ctx.workProjectId);
       const note = loginSetupNote(option);
       const card: Card = {
         id: newCardId(),
@@ -133,7 +145,7 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
         source,
         href,
         hrefLabel: `Connect ${name}`,
-        ...(how.paste ? { secondaryHref: pasteHref(connector.slug, ctx.conversationId), secondaryHrefLabel: 'Use an API key instead' } : {}),
+        ...(how.paste ? { secondaryHref: pasteHref(connector.slug, ctx.conversationId, ctx.workProjectId), secondaryHrefLabel: 'Use an API key instead' } : {}),
         state: 'proposed',
       };
       ctx.emit({ type: 'card', card });
@@ -142,7 +154,7 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
     // No login at all for this connector: the vendor takes a key, so the
     // button opens its token form. A connector with nothing to paste keeps
     // the plain Connectors link.
-    const href = how?.paste ? pasteHref(connector.slug, ctx.conversationId) : connectHref(connector.slug, ctx.conversationId);
+    const href = how?.paste ? pasteHref(connector.slug, ctx.conversationId, ctx.workProjectId) : connectHref(connector.slug, ctx.conversationId, ctx.workProjectId);
     const body = how?.paste ? { body: pasteBody(how.paste) } : {};
     const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, ...body, ...brand, actions: [], source, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
     ctx.emit({ type: 'card', card });
@@ -161,7 +173,7 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
   }
   const returnTo = returnPath(ctx.conversationId);
   const cardId = newCardId();
-  const href = connectStartHref({ provider: login.provider, connector: connector.slug, returnTo, conversationId: ctx.conversationId, cardId });
+  const href = connectStartHref({ provider: login.provider, connector: connector.slug, returnTo, conversationId: ctx.conversationId, cardId, projectId: ctx.workProjectId ?? null });
   const failed = (await lastConnectAttempts(ctx.orgId)).get(connector.slug);
   const lastAttempt = failed && !failed.ok && failed.summary ? { at: failed.at.toISOString(), reason: failed.reason ?? 'unknown', summary: failed.summary } : undefined;
   // THE CARD IS ITS TITLE AND ITS BUTTONS (Jamie, 2026-10-07, crossing out
@@ -181,7 +193,7 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
     // A connector with nothing to paste offers its login alone.
     ...(how?.paste
       ? {
-          secondaryHref: `/dashboard/connectors?add=${encodeURIComponent(connector.slug)}&paste=1&returnTo=${encodeURIComponent(returnTo)}`,
+          secondaryHref: pasteHref(connector.slug, ctx.conversationId, ctx.workProjectId),
           secondaryHrefLabel: 'Use an API key instead',
         }
       : {}),

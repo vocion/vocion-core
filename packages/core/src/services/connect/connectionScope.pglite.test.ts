@@ -217,6 +217,17 @@ describe('publishing across projects', () => {
   });
 });
 
+describe('the connect card in a reply', () => {
+  it('judges "already connected" by the work\'s scope, so another project\'s connection leaves this project offered its own', async () => {
+    const { connectorHasLiveSource } = await import('@/services/connect/createSourceOnLogin');
+    await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'notion-northwind', configJson: { _connector: 'notion' }, apiTokenId: 'tok-northwind', dataRoomId: northwind });
+
+    expect(await connectorHasLiveSource(ORG, 'notion', { projectId: northwind })).toBe(true);
+    expect(await connectorHasLiveSource(ORG, 'notion', { projectId: kestrel })).toBe(false);
+    expect(await connectorHasLiveSource(ORG, 'notion')).toBe(true);
+  });
+});
+
 describe('the work\'s project', () => {
   it('is named outright by a run\'s input, an SEO page\'s or batch\'s projectId', async () => {
     expect(await scope.workProjectFor(ORG, { projectId: northwind })).toBe(northwind);

@@ -109,12 +109,18 @@ export async function newestLiveCredential(orgId: string, platformId: string): P
  * credential counts when the old `source_credential` of its connector is live.
  * @param orgId - The workspace.
  * @param connector - Connector slug.
+ * @param scope - The work's scope, when the question is for a piece of work; omitted, any connection counts.
+ * @param scope.projectId
  */
-export async function connectorHasLiveSource(orgId: string, connector: string): Promise<boolean> {
+export async function connectorHasLiveSource(orgId: string, connector: string, scope?: { projectId: number | null }): Promise<boolean> {
+  // For a piece of work, only the connections it may use count (`connectionScope.ts`):
+  // another project's GitHub leaves this project's GitHub not connected.
+  const { inScopeWhere } = await import('@/services/connect/connectionScope');
+  const inScope = scope ? [inScopeWhere(scope)] : [];
   const sources = await db
     .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
     .from(knowledgeSourceSchema)
-    .where(and(eq(knowledgeSourceSchema.orgId, orgId), sourceIsOfConnector(connector)));
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), sourceIsOfConnector(connector), ...inScope));
   if (sources.length === 0) {
     return false;
   }
@@ -125,6 +131,7 @@ export async function connectorHasLiveSource(orgId: string, connector: string): 
     .where(and(
       eq(knowledgeSourceSchema.orgId, orgId),
       sourceIsOfConnector(connector),
+      ...inScope,
       isNull(apiTokenSchema.revokedAt),
       or(isNull(apiTokenSchema.expiresAt), gt(apiTokenSchema.expiresAt, new Date())),
     ))
