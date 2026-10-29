@@ -40,7 +40,7 @@ export function WorkforceInventoryPanel({ report, workspaceSlug }: { report: Wor
           <strong className="block">{agent.name}</strong>
           <span className="line-clamp-1 text-xs text-muted-foreground">{agent.purpose ?? t('missingPurpose')}</span>
         </span>
-        <span className="rounded-full bg-muted px-2 py-1 text-xs">{t(agent.enabled === null ? 'unknown' : agent.enabled ? 'enabled' : 'disabled')}</span>
+        <span className="rounded-full bg-muted px-2 py-1 text-xs">{agent.enabled === null ? t('unknown') : agent.enabled ? t('enabled') : t('disabled')}</span>
         <span className="text-right text-sm">
           <strong className="block">
             {agent.reviewDecisions}
