@@ -8,6 +8,7 @@ import {
   getUserDetail,
   getUserRows,
 } from '@/services/adoption/AdoptionService';
+import { getWorkforceInventory } from '@/services/adoption/WorkforceService';
 import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -70,4 +71,11 @@ export const adoptionAgentDetailRoute = os
   .handler(async ({ input }) => {
     const { orgId, accountId } = await guardAdmin();
     return getAgentDetail(orgId, accountId, input.agentSlug, input.days);
+  });
+
+export const adoptionWorkforceRoute = os
+  .input(WindowInput)
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAdmin();
+    return getWorkforceInventory(orgId, input.days);
   });

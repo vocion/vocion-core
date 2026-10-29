@@ -8,6 +8,7 @@ import {
   adoptionTrendRoute,
   adoptionUserDetailRoute,
   adoptionUsersRoute,
+  adoptionWorkforceRoute,
 } from './Analytics';
 import {
   apply as applyComment,
@@ -504,6 +505,7 @@ export const router = {
     undoDefault: inboxUndoDefaultRoute,
   },
   scorecard: {
+    workforce: adoptionWorkforceRoute,
     agents: scorecardAgentsRoute,
   },
   review: {

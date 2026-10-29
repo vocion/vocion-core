@@ -1,6 +1,8 @@
 import { setRequestLocale } from 'next-intl/server';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { ScorecardTable } from '@/features/scorecard/ScorecardTable';
+import { WorkforcePerformance } from '@/features/scorecard/WorkforcePerformance';
+import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
 
 /**
@@ -16,15 +18,15 @@ import { requireOrganization } from '@/utils/Auth';
 export default async function ScorecardPage(props: { params: Promise<{ locale: string }> }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
-  await requireOrganization();
+  const { has } = await requireOrganization();
 
   return (
     <>
       <TitleBar
-        title="Scorecard"
-        description="How each agent is doing — how often people go with its recommendations, how sure it is, and how much it is used"
+        title="Workforce performance"
+        description="Agent activity, reviewed output, quality and cost — with measurement gaps made explicit"
       />
-      <ScorecardTable />
+      {has({ role: ORG_ROLE.ADMIN }) ? <WorkforcePerformance /> : <ScorecardTable />}
     </>
   );
 }
