@@ -19,11 +19,14 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { ARTIFACT_KINDS } from '@/libs/cards/specs';
 import { checkChart, refusalText } from '@/libs/charts/checks';
 import { reviewChart } from '@/libs/charts/review';
 import { chartSpecSchema } from '@/libs/charts/spec';
+import { reviewDashboard } from '@/libs/dashboards/checks';
+import { dashboardSpecSchema } from '@/libs/dashboards/spec';
 import { SOURCE_ARTIFACT_KINDS } from '@/libs/workspace/source';
-import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload, updateArtifact } from '@/services/ArtifactService';
+import { ArtifactError, getArtifact, listArtifacts, listArtifactsForConversation, toPayload, updateArtifact } from '@/services/ArtifactService';
 import { isRecordBodyArtifact as isRecordBody } from '@/services/objects/recordBody';
 import { chartReviewImage, withImage } from '../toolResultImages';
 import { pageRecordIds, reviseRecordBody } from './recordWrite';
@@ -84,7 +87,7 @@ async function resolve(ctx: RuntimeContext, id: number | undefined): Promise<{ i
       return { id: last.id };
     }
   }
-  return { error: 'No artifact is open and none exists in this conversation. Create one with render_table / render_markdown / render_chart / render_record first.' };
+  return { error: 'No artifact is open and none exists in this conversation. Create one with render_table / render_markdown / render_chart / render_dashboard / render_record first.' };
 }
 
 export function readArtifactTool(ctx: RuntimeContext) {
@@ -197,6 +200,18 @@ export function updateArtifactTool(ctx: RuntimeContext) {
             chartReview = `\n\n${reviewChart(parsed.data, { revised: true, withImage: chartImage !== null }).text}`;
           }
         }
+        // A dashboard's charts are held to the same refusals; the rest are
+        // notes on the receipt, as when it was made.
+        if (target?.kind === 'dashboard' && spec !== undefined) {
+          const parsed = dashboardSpecSchema.safeParse(spec);
+          const review = parsed.success ? reviewDashboard(parsed.data) : null;
+          if (review?.refusals.length) {
+            return `update_artifact refused.\n${review.refusals.map(r => `- ${r}`).join('\n')}\nFix the data and call again.`;
+          }
+          if (review?.notes.length) {
+            chartReview = `\n\nNotes on what was drawn:\n${review.notes.slice(0, 12).map(n => `- ${n}`).join('\n')}`;
+          }
+        }
         if (spec === undefined && args.content_markdown === undefined && args.title === undefined && args.folder === undefined) {
           return 'update_artifact needs at least one of `spec`, `content_markdown`, `title` or `folder`.';
         }
@@ -238,6 +253,47 @@ export function updateArtifactTool(ctx: RuntimeContext) {
   );
 }
 
+/**
+ * `list_artifacts` — what the workspace has made, so an agent can find a
+ * dashboard to refresh or a table someone mentioned by name without the
+ * person pasting an id. Titles and facts only; `read_artifact` reads one.
+ * @param ctx - The turn.
+ */
+export function listArtifactsTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const rows = await listArtifacts({
+        orgId: ctx.orgId,
+        kinds: args.kind ? [args.kind] : null,
+        folder: args.folder ?? null,
+        search: args.search ?? null,
+        visibility: args.kind === 'dashboard' ? 'all' : 'user',
+        limit: Math.min(args.limit ?? 30, 100),
+      });
+      return JSON.stringify(rows.map(r => ({
+        id: r.id,
+        kind: r.kind,
+        title: r.title,
+        folder: r.folder,
+        version: r.version,
+        updatedAt: r.updatedAt,
+        // What a dashboard needs to be found and refreshed: when its numbers are from, and how often.
+        ...(r.kind === 'dashboard' ? { asOf: r.spec.asOf ?? null, cadence: (r.spec.refresh as { cadence?: string } | undefined)?.cadence ?? 'on-request' } : {}),
+      })));
+    },
+    {
+      name: 'list_artifacts',
+      description: 'List the workspace\'s artifacts — dashboards, tables, charts, documents — newest edit first, as {id, kind, title, folder, version, updatedAt}; dashboards also give asOf and cadence. Use it to find one by name or kind ("which dashboards do we have", "refresh the executive dashboard"), then read_artifact(id).',
+      schema: z.object({
+        kind: z.enum(ARTIFACT_KINDS).optional().describe('Only this kind, e.g. "dashboard"'),
+        folder: z.string().max(120).optional().describe('Only this folder and its subfolders'),
+        search: z.string().max(120).optional().describe('A piece of the title'),
+        limit: z.number().int().min(1).max(100).optional(),
+      }),
+    },
+  );
+}
+
 export function editArtifactTools(ctx: RuntimeContext) {
-  return [readArtifactTool(ctx), updateArtifactTool(ctx)];
+  return [readArtifactTool(ctx), updateArtifactTool(ctx), listArtifactsTool(ctx)];
 }

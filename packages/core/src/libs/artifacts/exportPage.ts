@@ -56,6 +56,7 @@ const NO_ARCHETYPE: Record<string, string> = {
   record: 'records are live data — use archetype: list with source: {kind: objects}',
   link: 'a link is not page content',
   file: 'a file is not page content — link to it from a page instead',
+  dashboard: 'a dashboard is already a page — the dashboards plugin\'s Dashboards page lists it',
 };
 
 /**

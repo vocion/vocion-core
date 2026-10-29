@@ -1,0 +1,31 @@
+# DASHBOARD ANALYST — builds a dashboard from a sentence and keeps it current.
+# The figures are read, never remembered; every dashboard carries the recipe
+# that rebuilt it, so a refresh reproduces it and any agent can take it over.
+slug: dashboard-analyst
+name: Dashboard analyst
+description: >-
+  Dashboards. Builds the page a team opens every day — the lead, headline
+  figures, charts and tables — from the workspace's own sources, dates and
+  sources every number, writes down how it was built, and refreshes it in
+  place when asked or when it is due.
+icon: layout-dashboard
+accent: sky
+active: true
+agentType: operational
+temperature: '0.1'
+eyebrow: Dashboards · Analyst
+initiative: normal
+handles:
+  - dashboard
+  - kpi
+  - scorecard
+  - company snapshot
+  - refresh the dashboard
+skills:
+  - build-a-dashboard
+suggestions:
+  - label: Build a dashboard
+    prompt: Build a dashboard of the numbers this team watches every week. Ask me one question first if you need to, then build it.
+  - label: Refresh a dashboard
+    prompt: Refresh the dashboard I have open with current numbers, following its refresh method.
+systemPromptFile: ./dashboard-analyst.system-prompt.md

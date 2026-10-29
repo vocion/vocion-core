@@ -75,6 +75,8 @@ const KNOWN: Record<string, StepLabels> = {
   export_artifact_xlsx: { running: 'Exporting the spreadsheet…', done: 'Exported the spreadsheet' },
   render_table: { running: 'Building the table…', done: 'Built the table' },
   render_chart: { running: 'Drawing the chart…', done: 'Drew the chart' },
+  render_dashboard: { running: 'Building the dashboard…', done: 'Built the dashboard' },
+  list_artifacts: { running: 'Finding the artifacts…', done: 'Found the artifacts' },
   render_record: { running: 'Laying out the record…', done: 'Laid out the record' },
   create_artifact: { running: 'Creating the artifact…', done: 'Created the artifact' },
   update_artifact: { running: 'Updating the artifact…', done: 'Updated the artifact' },

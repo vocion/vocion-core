@@ -28,6 +28,7 @@ Every page derives from a core page shape rather than inventing one:
 | `markdown` | the docs page | a sibling `.md` file |
 | `report` | one record's whole story, at `/dashboard/p/<slug>/<id>` | the records that tell it |
 | `overview` | an ordered list of typed panels - the control plane | the records the panels name, plus decisions and the human-load fold |
+| `dashboards` | the workspace's dashboards as pages: one is the page, several are rows that open at `/dashboard/p/<slug>/<id>` ([dashboards](./guides/dashboards.md)) | `dashboard` artifacts, optionally one `source.folder` |
 
 A deployment can host several projects on one mounted `WORKSPACE_PATH`. That
 folder's own `pages/` (and its plugins' pages) list only for the project the

@@ -10,29 +10,14 @@
 import { z } from 'zod';
 import { chartSpecSchema } from '@/libs/charts/spec';
 import { formatBytes, formatOf } from '@/libs/chat/attachmentFormats';
+import { dashboardSpecSchema } from '@/libs/dashboards/spec';
 import { artifactHref } from '@/libs/tools/artifacts/url';
+import { cellValueSchema, dataTableSpecSchema } from './tableSpec';
 
-/** A cell value. Dates arrive as ISO strings; the table formats by column type. */
-export const cellValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-export type CellValue = z.infer<typeof cellValueSchema>;
-
-export const dataTableSpecSchema = z.object({
-  title: z.string().optional(),
-  columns: z.array(z.object({
-    key: z.string().min(1),
-    label: z.string().optional(),
-    /** Drives alignment + formatting. `href` renders the cell as a link to another column's URL. */
-    type: z.enum(['text', 'number', 'currency', 'percent', 'date', 'badge', 'link']).optional(),
-    /** For `link` columns: the key of the column that holds the URL. */
-    hrefKey: z.string().optional(),
-  })).min(1).max(24),
-  rows: z.array(z.record(z.string(), cellValueSchema)).max(2000),
-  caption: z.string().optional(),
-  /** Column key to sort by initially. */
-  sortBy: z.string().optional(),
-  sortDir: z.enum(['asc', 'desc']).optional(),
-});
-export type DataTableSpec = z.infer<typeof dataTableSpecSchema>;
+// The table spec lives in its own module so the dashboard spec (`libs/dashboards`),
+// which holds tables, can import it without importing this registry.
+export { cellValueSchema, dataTableSpecSchema } from './tableSpec';
+export type { CellValue, DataTableSpec } from './tableSpec';
 
 export const markdownSpecSchema = z.object({
   title: z.string().optional(),
@@ -89,6 +74,11 @@ export type MarkdownSpec = z.infer<typeof markdownSpecSchema>;
 // card, the chart artifact, a document's chart block and a deck slide.
 export { chartSpecSchema } from '@/libs/charts/spec';
 export type { ChartSpec } from '@/libs/charts/spec';
+
+// The dashboard spec lives with the dashboard (`libs/dashboards`): stats, charts
+// and tables arranged in tabs, dated, with how to build it again.
+export { dashboardSpecSchema } from '@/libs/dashboards/spec';
+export type { DashboardSpec } from '@/libs/dashboards/spec';
 
 export const recordSpecSchema = z.object({
   /** Entity type label, e.g. "Deal", "Contact", "Agent", "Mission". */
@@ -472,7 +462,7 @@ export const playbookSpecSchema = z.object({
 });
 export type PlaybookSourceSpec = z.infer<typeof playbookSpecSchema>;
 
-export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'sequence', 'document', 'deck', 'mission', 'playbook'] as const;
+export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'sequence', 'document', 'deck', 'mission', 'playbook', 'dashboard'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /** Card slug per artifact kind — the `__card` the canvas/chat resolve with. */
@@ -488,6 +478,7 @@ export const CARD_SLUG_FOR_KIND: Record<ArtifactKind, string> = {
   deck: 'deck',
   mission: 'mission',
   playbook: 'playbook',
+  dashboard: 'dashboard',
 };
 
 export const SPEC_SCHEMA_FOR_KIND = {
@@ -502,6 +493,7 @@ export const SPEC_SCHEMA_FOR_KIND = {
   deck: deckSpecSchema,
   mission: missionSpecSchema,
   playbook: playbookSpecSchema,
+  dashboard: dashboardSpecSchema,
 } as const;
 
 /**
@@ -512,7 +504,7 @@ export const SPEC_SCHEMA_FOR_KIND = {
  * @param artifactId - The row id, when the payload is for a stored artifact.
  */
 export function cardPayloadFor(kind: ArtifactKind, spec: Record<string, unknown>, artifactId?: number): Record<string, unknown> {
-  if (kind === 'document' || kind === 'deck') {
+  if (kind === 'document' || kind === 'deck' || kind === 'dashboard') {
     // The frame needs to know which artifact a selection is about; the row
     // id is not part of the spec, so it rides in under a reserved key.
     return { __card: CARD_SLUG_FOR_KIND[kind], ...spec, ...(artifactId ? { __artifactId: artifactId } : {}) };
