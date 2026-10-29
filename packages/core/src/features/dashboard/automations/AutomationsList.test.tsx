@@ -81,7 +81,7 @@ describe('AutomationsList', () => {
     // Each row names its app on the register.
     await expect.element(page.getByTestId('automation-row-deploy-answer')).toHaveTextContent('Software Factory');
 
-    await page.getByText('Search Engine Optimization').click();
+    await page.getByRole('button', { name: /^Search Engine Optimization/ }).click();
 
     await vi.waitFor(() => expect(replace).toHaveBeenCalledWith(expect.stringMatching(/[?&]app=seo$/)));
 
