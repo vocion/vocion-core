@@ -113,11 +113,24 @@ jobs:
       # (#1497). This is the last raise the 16 GB runner allows with margin: the
       # structural fix is under way (dashboard routes stop compiling the whole
       # agent tool registry), not another raise.
+      # 2026-10-29, budget kept at 14000: the production build stopped writing
+      # source maps nobody reads (next.config.ts, `turbopackSourceMaps`). They
+      # were 1.55 GB of the 2.4 GB server output and about 4.4 GB of the
+      # compile's peak (phys footprint 14.4 GB -> 10.0 GB on an 18-CPU Mac).
+      # CI measured main at 13,890 MB before; this PR (#1537) measured 9,621 MB.
+      # The step fails if server source maps come back, so the cut holds.
       - name: Build memory
         env:
           BUILD_PEAK_RSS_BUDGET_MB: '14000'
         run: |
           set -euo pipefail
+          maps=$(find packages/core/.next/server -name '*.js.map' | wc -l)
+          server_mb=$(du -sm packages/core/.next/server | cut -f1)
+          echo "next build: .next/server is ${server_mb} MB with ${maps} source maps"
+          if [ "${maps}" -gt 0 ]; then
+            echo "::error::The production build wrote ${maps} server source maps. They cost about 4 GB of build memory and nothing reads them; see turbopackSourceMaps in packages/core/next.config.ts."
+            exit 1
+          fi
           peak_mb=$(( $(awk -F': ' '/Maximum resident set size/{print $2}' "$RUNNER_TEMP/build-time.txt") / 1024 ))
           wall=$(awk -F': ' '/Elapsed \(wall clock\)/{print $2}' "$RUNNER_TEMP/build-time.txt")
           echo "next build: peak RSS ${peak_mb} MB (budget ${BUILD_PEAK_RSS_BUDGET_MB} MB), ${wall}"

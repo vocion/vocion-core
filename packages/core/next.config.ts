@@ -105,6 +105,22 @@ const baseConfig: NextConfig = {
     // on a fresh 2-CPU runner compiled slower, 11.3 min against 4.5 cold).
     // The deploy passes VOCION_BUILD_FS_CACHE=0 to skip it.
     turbopackFileSystemCacheForBuild: !process.env.CI && process.env.VOCION_BUILD_FS_CACHE !== '0',
+    // No source maps from a production build unless something reads them.
+    // They were most of what the build made and held: 1.55 GB of .js.map
+    // beside 0.5 GB of server JavaScript, and they took the compile's peak
+    // from about 10.1 GB to 14.4 GB (measured 2026-10-29, phys footprint on
+    // an 18-CPU Mac; CI's peak RSS was 13,890 MB against a 14,000 budget).
+    // Nothing reads them at run time: the server never enables Node's source
+    // maps (no --enable-source-maps, `serverSourceMaps` off), so Next's error
+    // inspection finds none, and the browser bundle never shipped any
+    // (`productionBrowserSourceMaps` is off). The one reader is Sentry's
+    // upload, so a build with Sentry on keeps them, and
+    // VOCION_BUILD_SOURCE_MAPS=1 brings them back to read a build-time
+    // prerender error against the source. Dev is unaffected.
+    turbopackSourceMaps:
+      process.env.NODE_ENV !== 'production'
+      || !process.env.NEXT_PUBLIC_SENTRY_DISABLED
+      || process.env.VOCION_BUILD_SOURCE_MAPS === '1',
   },
   outputFileTracingIncludes: {
     // demo/**: the hosted demo sandbox's baked PGlite seed, recorded LLM

@@ -227,6 +227,10 @@ export function runCheck(srcDir: string = resolve(fileURLToPath(import.meta.url)
     return 1;
   }
   process.stdout.write(`check:route-graph — ${reaches.length} routes reach ${total} modules in all; libs/Auth.ts reaches ${reachOf(graph, 'libs/Auth.ts')}.\n`);
+  // The heaviest routes, so a diff of this output against main's shows which
+  // route started reaching more.
+  const top = [...reaches].sort((a, b) => b.reach - a.reach || a.entry.localeCompare(b.entry)).slice(0, 10);
+  process.stdout.write(`Top ${top.length} routes by modules reached:\n${top.map(r => `  ${String(r.reach).padStart(5)}  ${r.entry}`).join('\n')}\n`);
   return 0;
 }
 
