@@ -5,7 +5,7 @@ import type { SignInAccess } from '@/features/branding/AuthBrand';
 import type { SignInProviderOption } from '@/libs/identity/signInProviders';
 import { signIn } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -101,6 +101,15 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
   const [sentTo, setSentTo] = useState<string | null>(linkSent ? '' : null);
   const [error, setError] = useState<string | null>(() => (outcome ? say(signInMessage(outcome)) : null));
   const [submitting, setSubmitting] = useState(false);
+  // The fields are uncontrolled, and a submit reads what they hold. The
+  // server's form is on screen before React hydrates it, and a person, a
+  // password manager or a test can fill it in that gap; a controlled field
+  // kept React's empty state and was wiped on the next render (filling the
+  // password), so "Sign in" then did nothing: the browser refused the empty
+  // required email. The state only remembers the values for when a field
+  // comes back (switching to the link and back, "Use a different email").
+  const emailField = useRef<HTMLInputElement>(null);
+  const passwordField = useRef<HTMLInputElement>(null);
   // An Org's own sign-in: its name in the subtitle, its accent on the button.
   const accentButton = useAccentButtonClass();
   const target = useSignInTarget() ?? access?.org ?? null;
@@ -110,13 +119,19 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
       setEmail(hint.email);
       setPassword(hint.password);
       setMode('password');
+      if (emailField.current) {
+        emailField.current.value = hint.email;
+      }
+      if (passwordField.current) {
+        passwordField.current.value = hint.password;
+      }
     }
   };
 
-  const onPasswordSubmit = async () => {
+  const onPasswordSubmit = async (typedEmail: string, typedPassword: string) => {
     const res = await signIn('credentials', {
-      email,
-      password,
+      email: typedEmail,
+      password: typedPassword,
       redirect: false,
       callbackUrl,
     });
@@ -129,8 +144,8 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
     }
   };
 
-  const onLinkSubmit = async () => {
-    const res = await signIn(EMAIL_LINK_PROVIDER_ID, { email, redirect: false, callbackUrl });
+  const onLinkSubmit = async (typedEmail: string) => {
+    const res = await signIn(EMAIL_LINK_PROVIDER_ID, { email: typedEmail, redirect: false, callbackUrl });
     const params = res?.error && res.url ? new URL(res.url, window.location.origin).searchParams : null;
     if (res?.error) {
       setError(say(signInMessage({
@@ -140,15 +155,20 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
       return;
     }
     // The same answer whether or not the address has a login.
-    setSentTo(email);
+    setSentTo(typedEmail);
   };
 
-  const onSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const fields = new FormData(e.currentTarget);
+    const typedEmail = String(fields.get('email') ?? '');
+    const typedPassword = String(fields.get('password') ?? '');
+    setEmail(typedEmail);
+    setPassword(typedPassword);
     setError(null);
     setSubmitting(true);
     try {
-      await (mode === 'link' ? onLinkSubmit() : onPasswordSubmit());
+      await (mode === 'link' ? onLinkSubmit(typedEmail) : onPasswordSubmit(typedEmail, typedPassword));
     } catch {
       setError(say(signInMessage({ error: 'Unknown' })));
     }
@@ -196,7 +216,7 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
               <form onSubmit={onSubmit} className="space-y-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="email">{t('email')}</Label>
-                  <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
+                  <Input ref={emailField} id="email" name="email" type="email" defaultValue={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
                 </div>
                 {mode === 'password' && (
                   <div className="space-y-1.5">
@@ -208,9 +228,11 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
                     </div>
                     <div className="relative">
                       <Input
+                        ref={passwordField}
                         id="password"
+                        name="password"
                         type={showPassword ? 'text' : 'password'}
-                        value={password}
+                        defaultValue={password}
                         onChange={e => setPassword(e.target.value)}
                         required
                         autoComplete="current-password"
