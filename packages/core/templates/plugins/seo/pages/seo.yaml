@@ -3,9 +3,10 @@
 # are written onto the batch by core (`services/seo/records.ts`) on every page
 # write, from the pages themselves, so this page reads what the tools enforce.
 slug: seo
-title: SEO
+# The section header already says SEO; the row names what is here.
+title: Batches
 description: Every batch of pages for every client, where its gate stands, and what is waiting on you.
-icon: search
+icon: layers
 nav: {section: SEO, order: 1}
 archetype: list
 source: {kind: objects, objectType: seo_batch}

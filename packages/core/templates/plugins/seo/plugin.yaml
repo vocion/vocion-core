@@ -20,7 +20,7 @@
 # rules and voice, the gate sizes per project (`seoGate`), and where each
 # client's pages publish.
 slug: seo
-name: SEO pages
+name: SEO
 version: 1.0.0
 description: SEO pages for every client from one workspace. Research what ranks on Google, plan pages on the strongest model, write in each client's voice and rules, get your feedback on the first three before the rest are written, and ship to the client's site with your sign-off.
 depends: [data-rooms, wiki]

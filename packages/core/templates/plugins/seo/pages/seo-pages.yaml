@@ -4,7 +4,7 @@
 # ("Northwind Outfitters: Trail shoes · 3 of 40 written · waiting on your
 # feedback on the first 3"), so the gate reads as the heading over its pages.
 slug: seo-pages
-title: SEO pages
+title: Pages
 description: Each page with its keyword, its type and location, the URL it targets, where it stands, which model planned, wrote and reviewed it, and links to its SERP brief, brief, draft, pull request and live page.
 icon: file-text
 nav: {section: SEO, order: 2}
