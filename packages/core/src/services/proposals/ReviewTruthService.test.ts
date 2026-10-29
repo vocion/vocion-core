@@ -195,6 +195,23 @@ describe('what the sweep closes, and why', () => {
     expect((await askRow(crm)).status).toBe('open');
   });
 
+  it('reads a CRM id too large for a record id as no record, and still sweeps the rest', async () => {
+    const t = await types();
+    const gone = await record(t.request, 'Export to CSV');
+    await db.delete(businessObjectSchema).where(eq(businessObjectSchema.id, gone));
+    const orphan = await run('objects.update', { id: gone, metadata: { state: 'triaged' } });
+    const crm = await ask('Move the Contoso Supply deal to Nurture?', [{ type: 'deal', id: '61401684571' }]);
+    const typed = await ask('Close this request?', [{ type: 'request', id: '61401684571' }]);
+    const write = await run('objects.update', { id: 61401684571, metadata: { state: 'triaged' } });
+
+    await sweep();
+
+    expect((await runRow(orphan)).status).toBe('closed');
+    expect((await askRow(crm)).status).toBe('open');
+    expect((await askRow(typed)).status).not.toBe('open');
+    expect((await runRow(write)).status).toBe('closed');
+  });
+
   it('closes an older item superseded by a newer one with the same dedup key, linking the newer', async () => {
     const older = await run('ask.file', { title: 'Build bulk invite?' }, { dedupKey: 'ask.file:recommendation/7' });
     const newer = await run('ask.file', { title: 'Build bulk invite? (refreshed)' }, { dedupKey: 'ask.file:recommendation/7' });
