@@ -315,6 +315,13 @@ describe('one primary, and the walk is what it does', () => {
     expect(approveContent.mock.calls[0]![0]).toMatchObject({ contentId: 'send-2' });
   });
 
+  it('keeps the count a count, and says beside it what the primary does with the steps not yet approved', async () => {
+    await render(<ReviewSurface run={enrollment(4)} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('walk-count')).toHaveTextContent(/^0 of 4 approved$/);
+    await expect.element(page.getByTestId('walk-note')).toHaveTextContent('runs once every step is approved');
+  });
+
   it('says what an ask for changes rewrites by its scope, not a paragraph', async () => {
     // The sentence beside the ask described the old card-wide behaviour, and
     // the reviewer read it as the promise it was: a note typed under send 4

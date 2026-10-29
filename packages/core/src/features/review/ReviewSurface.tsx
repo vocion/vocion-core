@@ -1613,10 +1613,9 @@ export function ReviewSurface(props: {
               {/* What the primary does with the steps still unapproved, said
                   where the count is: it opens the next one, and the card's
                   verb runs only once every step is approved. */}
-              <span className="text-[13px] text-muted-foreground tabular-nums" data-testid="walk-count">
-                {count.approved < count.total
-                  ? `${count.approved} of ${count.total} approved · ${approveVerb} runs once every step is approved`
-                  : `${count.total} of ${count.total} approved`}
+              <span className="text-[13px] text-muted-foreground">
+                <span className="tabular-nums" data-testid="walk-count">{`${count.approved} of ${count.total} approved`}</span>
+                {count.approved < count.total && <span data-testid="walk-note">{` · ${approveVerb} runs once every step is approved`}</span>}
               </span>
             </div>
           )}
