@@ -260,7 +260,7 @@ function StepCard({ step, result, children }: { step: WorkflowStep | RepeatInner
                 <p className="text-sm text-muted-foreground italic">
                   {status === 'pending' && 'Not yet started.'}
                   {status === 'running' && 'Running…'}
-                  {status === 'awaiting_approval' && 'Waiting on a person: the Decision is on Needs you.'}
+                  {status === 'awaiting_approval' && (step.type === 'action' ? 'Waiting on a person: the action\'s card is on Needs you.' : 'Waiting on a person: the Decision is on Needs you.')}
                   {status === 'skipped' && `Skipped: ${result?.skippedBecause ?? 'its condition was false'}.`}
                   {status === 'completed' && '(no output)'}
                 </p>

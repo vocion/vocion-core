@@ -153,6 +153,11 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
   if (run.status !== 'paused') {
     throw new WorkflowRunNotResumableError(runId, `status is ${run.status}, not paused`);
   }
+  // A run waiting on an action's card moves when the card is decided: the
+  // action is what was asked for, and resuming past it would skip it.
+  if (run.pauseReason?.startsWith('awaiting_action:')) {
+    throw new WorkflowRunNotResumableError(runId, `it waits on the card for its "${run.pauseReason.slice('awaiting_action:'.length)}" step: approve or turn that down instead`);
+  }
 
   // Mark the current (approve | ask) step complete and advance the cursor —
   // otherwise the loop would sit on the same step and re-pause.
@@ -218,9 +223,18 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
     await closeWorkflowAsks(orgId, runId, 'The run was resumed from its page.').catch((err: Error) => console.warn('[workflow] the run\'s Decision was not closed', { runId, message: err.message }));
   }
 
-  // The run's durable owner advances it: a message to the run waiting on its
-  // mailbox, or — for a run paused before runs were durable — a start, which
-  // advances from the cursor just claimed.
+  await wakeDurableRun(orgId, runId);
+  return settled(runId, opts.wait === false ? 0 : undefined);
+}
+
+/**
+ * The run's durable owner advances it: a message to the run waiting on its
+ * mailbox, or — for a run paused before runs were durable — a start, which
+ * advances from the cursor just claimed.
+ * @param orgId - The workspace.
+ * @param runId - The workflow run.
+ */
+async function wakeDurableRun(orgId: string, runId: number): Promise<void> {
   const { durable, durableIdFor } = await import('@/libs/durable');
   const id = durableIdFor(orgId, 'workflow-run', runId);
   if ((await durable().state(id)) === 'pending') {
@@ -228,7 +242,97 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
   } else {
     await startDurableRun(orgId, runId);
   }
-  return settled(runId, opts.wait === false ? 0 : undefined);
+}
+
+/**
+ * Where a step sits: at the top, or inside a repeat group.
+ * @param steps - The workflow's steps.
+ * @param name - The step's name.
+ */
+function locateStep(steps: WorkflowStep[], name: string): { index: number; inner?: number } | null {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
+    if (step.name === name) {
+      return { index: i };
+    }
+    if (step.type === 'repeat') {
+      const j = step.steps.findIndex(s => s.name === name);
+      if (j >= 0) {
+        return { index: i, inner: j };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * An action a step proposed was decided, ran or failed while the run waited
+ * on it (`workflows/actionSteps.ts`): record what came of it and move the
+ * run. Done goes on; turned down stops the run with the reason; failed fails
+ * the step — the run, or inside a repeat group a round. A run that is not
+ * waiting on this action (it moved, or was stopped) is left alone.
+ * @param runId - The workflow run.
+ * @param orgId - The workspace.
+ * @param stepName - The action step.
+ * @param actionRunId - The action run it waits on.
+ * @param outcome - What came of it.
+ */
+export async function settleActionStep(runId: number, orgId: string, stepName: string, actionRunId: number, outcome: import('@/services/workflows/actionSteps').ActionStepOutcome): Promise<void> {
+  const [run] = await db.select().from(workflowRunSchema).where(and(eq(workflowRunSchema.id, runId), eq(workflowRunSchema.orgId, orgId)));
+  if (!run || run.status !== 'paused' || run.pauseReason !== `awaiting_action:${stepName}`) {
+    return;
+  }
+  const stepResults = { ...(run.stepResults as Record<string, StepResult>) };
+  const prev = stepResults[stepName];
+  if (!prev || (prev.output as { actionRunId?: number } | undefined)?.actionRunId !== actionRunId) {
+    return;
+  }
+  const [wf] = await db.select().from(workflowSchema).where(eq(workflowSchema.id, run.workflowId));
+  const where = locateStep((wf?.steps ?? []) as unknown as WorkflowStep[], stepName);
+  if (!where) {
+    return;
+  }
+  const finishedAt = new Date().toISOString();
+  if (outcome.kind === 'rejected') {
+    stepResults[stepName] = { ...prev, status: 'failed', output: outcome.output, error: outcome.reason, finishedAt };
+    await db.update(workflowRunSchema).set({ stepResults }).where(and(eq(workflowRunSchema.id, runId), eq(workflowRunSchema.status, 'paused')));
+    await cancelWorkflow(runId, orgId, `"${prev.label ?? stepName}" was turned down: ${outcome.reason}`);
+    return;
+  }
+  const inGroup = where.inner !== undefined;
+  if (outcome.kind === 'failed' && !inGroup) {
+    stepResults[stepName] = { ...prev, status: 'failed', output: outcome.output, error: outcome.error, finishedAt };
+    await db.update(workflowRunSchema)
+      .set({ stepResults, status: 'failed', error: `step "${prev.label ?? stepName}" failed: ${outcome.error}`, completedAt: new Date(), pauseReason: null, pausedAt: null })
+      .where(and(eq(workflowRunSchema.id, runId), eq(workflowRunSchema.status, 'paused')));
+    return;
+  }
+  stepResults[stepName] = outcome.kind === 'done'
+    ? { ...prev, status: 'completed', output: outcome.output, finishedAt }
+    : { ...prev, status: 'failed', output: outcome.output, error: outcome.kind === 'failed' ? outcome.error : undefined, finishedAt };
+  let currentStep = where.index + 1;
+  if (inGroup) {
+    // The group picks up after this step, where its `until` is read first.
+    const group = steps0(wf)[where.index]!;
+    const g = stepResults[group.name];
+    stepResults[group.name] = { ...g!, repeat: { ...(g?.repeat ?? { round: 1, max: 1 }), next: where.inner! + 1 } };
+    currentStep = where.index;
+  }
+  const claimed = await db.update(workflowRunSchema)
+    .set({ status: 'running', pauseReason: null, pausedAt: null, stepResults, currentStep })
+    .where(and(eq(workflowRunSchema.id, runId), eq(workflowRunSchema.orgId, orgId), eq(workflowRunSchema.status, 'paused')))
+    .returning({ id: workflowRunSchema.id });
+  if (claimed.length > 0) {
+    await wakeDurableRun(orgId, runId);
+  }
+}
+
+/**
+ * A workflow row's steps.
+ * @param wf - The workflow row.
+ */
+function steps0(wf: typeof workflowSchema.$inferSelect | undefined): WorkflowStep[] {
+  return (wf?.steps ?? []) as unknown as WorkflowStep[];
 }
 
 export async function cancelWorkflow(runId: number, orgId: string, reason?: string): Promise<WorkflowRunSummary> {
@@ -245,6 +349,13 @@ export async function cancelWorkflow(runId: number, orgId: string, reason?: stri
   await durable().cancel(durableIdFor(orgId, 'workflow-run', runId)).catch((err: Error) => console.warn('[workflow] the durable run was not cancelled', { runId, message: err.message }));
   const { closeWorkflowAsks } = await import('@/services/workflows/approvals');
   await closeWorkflowAsks(orgId, runId, reason ? `The run was stopped: ${reason}` : 'The run was stopped.').catch((err: Error) => console.warn('[workflow] the run\'s Decision was not closed', { runId, message: err.message }));
+  // A card the run was waiting on is withdrawn with it: nothing is left to approve.
+  const waitingOn = run.pauseReason?.startsWith('awaiting_action:') ? (run.stepResults as Record<string, StepResult>)[run.pauseReason.slice('awaiting_action:'.length)] : undefined;
+  const actionRunId = (waitingOn?.output as { actionRunId?: number } | undefined)?.actionRunId;
+  if (typeof actionRunId === 'number') {
+    const { rejectAction } = await import('@/services/ActionService');
+    await rejectAction(actionRunId, orgId, reason ? `The workflow run was stopped: ${reason}` : 'The workflow run was stopped.', { reviewedBy: `workflow:${runId}` }).catch((err: Error) => console.warn('[workflow] the action card was not withdrawn', { runId, actionRunId, message: err.message }));
+  }
   return summarize(run);
 }
 
@@ -559,8 +670,7 @@ async function runStep(state: RunState, step: WorkflowStep, cursor: number): Pro
   if (step.type === 'ask') {
     return askStep(state, step, cursor);
   }
-  await runWork(state, step);
-  return 'done';
+  return runWork(state, step, cursor);
 }
 
 /**
@@ -603,8 +713,9 @@ async function skipped(state: RunState, step: WorkflowStep | RepeatInnerWorkflow
  * legacy agent rows from before 0.2).
  * @param state - The run.
  * @param step - The step.
+ * @param cursor
  */
-async function runWork(state: RunState, step: WorkflowStep | RepeatInnerWorkflowStep): Promise<void> {
+async function runWork(state: RunState, step: WorkflowStep | RepeatInnerWorkflowStep, cursor: number): Promise<StepOutcome> {
   const { run, scope } = state;
   const name = step.name;
   if (step.type === 'agent') {
@@ -612,10 +723,10 @@ async function runWork(state: RunState, step: WorkflowStep | RepeatInnerWorkflow
       // A row authored on v1.54 (`agent` + `prompt` + `outputAs`): run as the text step it was.
       const legacy = step as unknown as AgentWorkflowStep & { prompt: string; outputAs?: string };
       await runAgentWork(state, { ...legacy, task: legacy.prompt }, legacy.outputAs);
-      return;
+      return 'done';
     }
     await runAgentWork(state, step);
-    return;
+    return 'done';
   }
   if (step.type === 'sync') {
     // Freshness gate: incrementally sync the named sources so downstream
@@ -642,7 +753,7 @@ async function runWork(state: RunState, step: WorkflowStep | RepeatInnerWorkflow
       }
     }
     finishStep(state, name, results);
-    return;
+    return 'done';
   }
   if (step.type === 'action' && step.action === 'routine.run') {
     // An action that runs: the routine for the rows given, as a batch under its approved version
@@ -661,14 +772,18 @@ async function runWork(state: RunState, step: WorkflowStep | RepeatInnerWorkflow
     const by = run.createdBy && !['mcp', 'system'].includes(run.createdBy) && !run.createdBy.includes(':') ? run.createdBy : (routine.expert?.userId ?? run.createdBy ?? 'system');
     const batch = await startRoutineBatch({ orgId: run.orgId, userId: by, routineId: routine.id, rows, shared, conversationId: null });
     finishStep(state, name, { batchId: batch.id, routine: routine.name, rows: batch.total, url: `/dashboard/routines/batches/${batch.id}` });
-    return;
+    return 'done';
   }
   if (step.type === 'action' && step.action === 'workflow.start') {
     finishStep(state, name, await fanOut(state, step));
-    return;
+    return 'done';
+  }
+  if (step.type === 'action' && await isRegisteredAction(step.action)) {
+    return runRegisteredAction(state, step, cursor);
   }
   if (step.type === 'action') {
-    // v1 stub: record the intent but take no side effect. Output carries
+    // An id no action is registered under: record the intent, take no side
+    // effect. Output carries
     // a `__card: 'send-stub'` discriminator so the run-detail page
     // renders it via the Cards SDK (libs/cards) — see
     // libs/cards/firstParty/sendStub.tsx for the renderer.
@@ -691,6 +806,74 @@ async function runWork(state: RunState, step: WorkflowStep | RepeatInnerWorkflow
       },
     });
   }
+  return 'done';
+}
+
+/**
+ * Whether an action id is registered (loaded lazily: the registry is large).
+ * @param id - The step's `action`.
+ */
+async function isRegisteredAction(id: string): Promise<boolean> {
+  const { getAction } = await import('@/libs/actions/registry');
+  return Boolean(getAction(id));
+}
+
+/**
+ * A registered action, run for real (`workflows/actionSteps.ts`): proposed as
+ * the owning agent, so the trust ladder decides between running it now and
+ * waiting on its card. Its result is the step's output. Waiting pauses the
+ * run (`awaiting_action:<step>`) until the card is decided. A failure fails
+ * the step: the run, or inside a repeat group, the round.
+ * @param state - The run.
+ * @param step - The action step.
+ * @param cursor - Its top-level index.
+ */
+async function runRegisteredAction(state: RunState, step: Extract<WorkflowStep, { type: 'action' }> | Extract<RepeatInnerWorkflowStep, { type: 'action' }>, cursor: number): Promise<StepOutcome> {
+  const { runActionStep } = await import('@/services/workflows/actionSteps');
+  const prev = state.stepResults[step.name];
+  // A restart while the step proposed: its run is already on the step, so it is not proposed twice.
+  const outcome = await runActionStep({
+    orgId: state.run.orgId,
+    runId: state.run.id,
+    workflow: { slug: state.workflow.slug, agent: state.workflow.ownerAgentSlug },
+    step: step.name,
+    label: prev?.label ?? step.name,
+    actionId: step.action,
+    input: interpolateValue(step.input, state.scope) as Record<string, unknown>,
+    confidence: step.confidence === undefined ? undefined : interpolateString(String(step.confidence), state.scope),
+    ...(state.scope.repeat ? { round: state.scope.repeat.round } : {}),
+  });
+  if (outcome.kind === 'done') {
+    finishStep(state, step.name, outcome.output);
+    return 'done';
+  }
+  if (outcome.kind === 'waiting') {
+    state.stepResults[step.name] = { ...state.stepResults[step.name]!, status: 'awaiting_approval', output: outcome.output };
+    const paused = await persistState(state.run.id, {
+      stepResults: state.stepResults,
+      currentStep: cursor,
+      status: 'paused',
+      pauseReason: `awaiting_action:${step.name}`,
+      pausedAt: new Date(),
+    });
+    if (!paused) {
+      throw new RunStopped();
+    }
+    // Decided in the moment between proposing and pausing: move on now.
+    if (typeof outcome.output.actionRunId === 'number') {
+      const { onWorkflowActionSettled } = await import('@/services/workflows/actionSteps');
+      await onWorkflowActionSettled(state.run.orgId, outcome.output.actionRunId);
+    }
+    return 'paused';
+  }
+  const error = outcome.kind === 'failed' ? outcome.error : outcome.reason;
+  state.stepResults[step.name] = { ...state.stepResults[step.name]!, status: 'failed', output: outcome.output, error, finishedAt: new Date().toISOString() };
+  if (state.scope.repeat && outcome.kind === 'failed') {
+    // A failed round: the group's `until`, `max` and `onExhausted` decide.
+    state.scope.steps[step.name] = { output: outcome.output };
+    return 'done';
+  }
+  throw new StepFailed(step.name, error);
 }
 
 /**
@@ -768,6 +951,18 @@ async function runRepeat(state: RunState, group: RepeatWorkflowStep, cursor: num
     }
   };
 
+  // Picked up after a step that settled while the run waited (an action's
+  // card): `until` is read after it, as after any step of the group.
+  if (resuming && place.next > 0) {
+    state.scope.repeat = { round: place.round, max: group.max };
+    const done = untilHolds(group, state);
+    delete state.scope.repeat;
+    if (done) {
+      conclude(true);
+      return 'done';
+    }
+  }
+
   for (;;) {
     state.scope.repeat = { round: place.round, max: group.max };
     try {
@@ -775,7 +970,10 @@ async function runRepeat(state: RunState, group: RepeatWorkflowStep, cursor: num
         const inner = group.steps[place.next]!;
         if (!(await skipped(state, inner, cursor))) {
           await beginStep(state, inner, cursor, place.round);
-          await runWork(state, inner);
+          // An action waiting on its card pauses the run here, inside the group.
+          if (await runWork(state, inner, cursor) === 'paused') {
+            return 'paused';
+          }
         }
         const done = untilHolds(group, state);
         state.stepResults[group.name] = { ...state.stepResults[group.name]!, repeat: { ...place, next: place.next + 1 } };
@@ -1017,7 +1215,8 @@ function collectOutputs(steps: WorkflowStep[], results: Record<string, StepResul
   const out: Record<string, { output: unknown }> = {};
   for (const [name, r] of Object.entries(results)) {
     // A step re-running in a new round still reads as its last round's result.
-    if (r.status === 'completed' && r.output !== undefined) {
+    // A failed action keeps its output (`ok: false`, the error) for a group's `until`.
+    if ((r.status === 'completed' || r.status === 'failed') && r.output !== undefined) {
       out[alias.get(name) ?? name] = { output: r.output };
     } else if (r.previous?.length) {
       const last = [...r.previous].reverse().find(p => p.status === 'completed' && p.output !== undefined);

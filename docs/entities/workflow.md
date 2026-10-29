@@ -58,7 +58,7 @@ Six types exist:
 | `repeat` | `steps`, `until`, `max`, optional `onExhausted` | Runs its steps again until `until` holds, at most `max` rounds. See below. |
 | `approve` | `prompt`, optional `reviews` | Pauses on a Decision (`ask`, kind `approval`) on Needs you. `reviews` names the earlier step whose output is laid out on the card. Approving resumes the run; rejecting or skipping stops it. |
 | `ask` | `prompt`, optional `default`, optional `outputAs` | Pauses until a human supplies text. When `default` interpolates to a non-empty string, the step completes with that value and never pauses — so one workflow serves both an automated caller and a person starting it by hand. `outputAs` names the variable (defaults to the step name). |
-| `action` | `action` (registered id, e.g. `gmail.send`), `input` | A connector-backed action. `workflow.start` (one child run per item) and `routine.run` (a routine batch) run; other ids record what they would do. |
+| `action` | `action` (registered id, e.g. `site.publish_page`), `input`, optional `confidence` | Runs the registered action, proposed as the owning agent, so the trust ladder runs it now or holds it on its card; the run waits on the card (`awaiting_action:<step>`). An outward or irreversible action always waits and is never "Always allow". The output is `{ ok, status, actionRunId, action, result }`. See below. `workflow.start` (one child run per item) and `routine.run` (a routine batch) run in the engine; an unregistered id records what it would do. |
 | `sync` | `sources` (min 1) | Incrementally syncs the named sources first, so later steps read live data instead of a stale index. Per-source failures degrade gracefully: the step records them and the run continues on the existing index. |
 
 There is no `skill` step. Skills are read by the agent on its own judgement —
@@ -79,11 +79,31 @@ Registered action ids are listed in [trust rules](./trust.md); the source of tru
 
 The turn runs as `workflow:<slug>:<runId>`, charged to the run (`model_call.run_kind = workflow_run`). The step records `agent`: the model that answered, the effort, the cost, the tool calls and every try at the result with its trace.
 
+### `action`
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| `action` | action id | required | A registered action (`packages/core/src/libs/actions/`). |
+| `input` | object | `{}` | Its input, interpolated; validated by the action's own schema. |
+| `confidence` | 0–1, or a reference | `1` | What the trust ladder weighs against a rule's floor. |
+
+How it runs (`services/workflows/actionSteps.ts`): proposed through
+`ActionService.proposeAction` as `agent:<owner>` (or `workflow:<slug>`),
+`invokedBy: workflow:<slug>:<runId>`, one run per step and round. The ladder
+runs it now, or the run pauses until its card is decided: approved and done
+continues, turned down cancels the run with the reason, a failed execution
+fails the step. An action that is on the never-auto list, requires approval,
+or is external without an Undo (`libs/actions/outward.ts`) is always held, and
+its card never offers "Always allow". A failed action fails the run, except
+inside a repeat group, where it is a failed round (`output.ok` false) and the
+group's `until`, `max` and `onExhausted` decide. The run page's Resume does
+not move a run waiting on a card, and cancelling the run withdraws the card.
+
 ### `repeat`
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `steps` | `agent` \| `action` \| `sync` steps (min 1) | required | Run in order, each round. No gates, no nested groups. |
+| `steps` | `agent` \| `action` \| `sync` steps (min 1) | required | Run in order, each round. No gates, no nested groups. An action held on its card waits inside the group; a failed action is a failed round. |
 | `until` | condition | required | Checked after each of the group's steps; the group stops as soon as it holds. |
 | `max` | int 1–10 | required | The most rounds. |
 | `onExhausted` | `continue` \| `fail` | `continue` | When `max` rounds ran and `until` never held: go on to the next step, or fail the run. |
@@ -148,15 +168,21 @@ steps:
     type: ask
     prompt: Paste the discovery call transcript.
     default: '{{input.transcript}}'
-  - name: review-draft
-    type: approve
-    prompt: Approve the follow-up email before it sends.
-    reviews: transcript
+  - name: draft
+    type: agent
+    agent: revenue-lead
+    task: Draft the follow-up email for this discovery call. {{steps.transcript.output}}
+    output:
+      type: object
+      required: [to, subject, body]
+      properties: {to: {type: string}, subject: {type: string}, body: {type: string}}
   - name: send
     type: action
     action: gmail.send
     input:
-      body: '{{steps.review-draft.output.body}}'
+      to: '{{steps.draft.output.to}}'
+      subject: '{{steps.draft.output.subject}}'
+      body: '{{steps.draft.output.body}}'
 ```
 
 ## Rules

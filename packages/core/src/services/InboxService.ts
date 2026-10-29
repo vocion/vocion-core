@@ -593,7 +593,8 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
     })),
     // A run waiting at an approve step is its Decision, not that AND a
     // "run paused" row (`services/workflows/approvals.ts`).
-    ...workflows.filter(w => !asks.some(a => a.sourceRef?.startsWith(`workflow-run:${w.id}:`))).map((w): InboxItem => ({
+    // A run waiting on an action's card is that card, already on the list.
+    ...workflows.filter(w => !w.pauseReason?.startsWith('awaiting_action:') && !asks.some(a => a.sourceRef?.startsWith(`workflow-run:${w.id}:`))).map((w): InboxItem => ({
       key: `workflow:${w.id}`,
       kind: 'run',
       shape: 'single',

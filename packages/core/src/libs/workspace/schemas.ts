@@ -1450,11 +1450,28 @@ const AskStepSchema = z.object({
   outputAs: z.string().optional(),
 });
 
+/**
+ * A REGISTERED ACTION, RUN FOR REAL (`services/workflows/actionSteps.ts`). It
+ * is proposed the way an agent's `propose_action` is, as the workflow's owning
+ * agent, so the trust ladder decides: it runs now, or the run waits on the
+ * action's own card until a person approves or turns it down. An action that
+ * goes out or cannot be undone always waits (`libs/actions/outward.ts`). The
+ * action's result is the step's output. `workflow.start` and `routine.run`
+ * run in the engine itself; an id no action is registered under records what
+ * it would have done.
+ */
 const ActionStepSchema = z.object({
   ...stepBase,
   type: z.literal('action'),
-  action: z.string().describe('registered action id, e.g. `gmail.send_email`'),
+  action: z.string().describe('registered action id, e.g. `site.publish_page`'),
   input: z.record(z.string(), z.unknown()).default({}),
+  /**
+   * How sure the procedure is, 0–1, for the trust ladder's bar: a number, or
+   * a reference such as `{{steps.review.output.confidence}}`. Default 1: the
+   * procedure asks for this step outright, and the kind's rung, risk and
+   * reversibility decide.
+   */
+  confidence: z.union([z.number().min(0).max(1), z.string().min(1)]).optional(),
 });
 
 const SyncStepSchema = z.object({
@@ -1501,7 +1518,11 @@ const AgentStepSchema = z.object({
   tools: z.array(z.string().min(1)).min(1).optional(),
 });
 
-/** What a repeat group may hold: work, not gates. A person's gate goes after the group. */
+/**
+ * What a repeat group may hold: work, not gates. A person's gate goes after
+ * the group. (An action held for its card waits inside the group; a failed
+ * action is a failed round, not a failed run.)
+ */
 const RepeatInnerStepSchema = z.discriminatedUnion('type', [AgentStepSchema, ActionStepSchema, SyncStepSchema]);
 
 /**

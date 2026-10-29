@@ -1,8 +1,9 @@
 /**
  * A four-step workflow end to end on the test database (ADR 0011): an agent
  * researches, a bounded repeat has the editor review until it passes, a
- * person signs off on a Decision, and an action records the publish. The
- * agents are stand-ins; everything else is real — the durable run, the ask,
+ * person signs off on a Decision, and an action step records a note (an id
+ * no action is registered under; the real publish is `seoExample.pglite.test.ts`).
+ * The agents are stand-ins; everything else is real — the durable run, the ask,
  * the decision path, the run's labels. Every name here is fictional.
  */
 import type { AgentTurnRequest } from './agentRunner';
@@ -52,7 +53,7 @@ const PIPELINE = [
     ],
   },
   { name: 'signoff', type: 'approve', label: 'Sign off the page', prompt: 'Sign off "{{input.keyword}}" for Northwind Home Services.', reviews: 'review' },
-  { name: 'publish', type: 'action', action: 'site.publish_page', when: '{{input.target}} != \'none\'', input: { pageRecordId: '{{input.page_id}}', note: '{{steps.signoff.output.note}}' } },
+  { name: 'publish', type: 'action', action: 'crm.note_publish', when: '{{input.target}} != \'none\'', input: { pageRecordId: '{{input.page_id}}', note: '{{steps.signoff.output.note}}' } },
 ];
 
 /**
@@ -133,7 +134,7 @@ describe('an SEO page pipeline as a workflow', () => {
 
     expect(done?.status).toBe('completed');
     expect(done?.stepResults.signoff).toMatchObject({ status: 'completed', output: { approved: true, approvedBy: PERSON, note: 'Ship it after the hours check.', via: 'chat' } });
-    expect(done?.stepResults.publish).toMatchObject({ status: 'completed', output: { input: { pageRecordId: 88, note: 'Ship it after the hours check.' }, envelope: { action: 'site.publish_page' } } });
+    expect(done?.stepResults.publish).toMatchObject({ status: 'completed', output: { input: { pageRecordId: 88, note: 'Ship it after the hours check.' }, envelope: { action: 'crm.note_publish' } } });
   });
 
   it('a rejected sign-off stops the run with the reason, and nothing publishes', async () => {

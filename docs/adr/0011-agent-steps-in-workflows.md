@@ -107,8 +107,9 @@ which task comes next.
   a lead turn deciding the next move.
 - The SEO plugin still runs as missions and automations. Converting it to a
   workflow is a separate change.
-- `action` steps other than `workflow.start` and `routine.run` still record
-  intent. Running a registered action under its trust rule from a step is the
-  next change; until then a workflow's publish is a recorded intent.
+- `action` steps run their registered action, proposed as the owning agent,
+  so the trust ladder decides between running it now and holding it on its
+  card; an outward or irreversible action is always held and never "Always
+  allow" (added after this ADR, `services/workflows/actionSteps.ts`).
 - A step's turn runs in-process when it names `tools`, since the catalog is
   built there, as a turn with a model override does.

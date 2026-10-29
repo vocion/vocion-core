@@ -421,6 +421,11 @@ async function proposeActionInTurn(input: {
     matchedRules?: Array<{ id: string; title?: string; text: string; evidence?: string }>;
     /** The mission run that proposed it, when a run did. */
     missionRunId?: number;
+    /**
+     * The workflow run and step that proposed it (`services/workflows/actionSteps.ts`):
+     * when the run is decided, executed or fails, that step hears it and the run moves.
+     */
+    workflow?: { runId: number; step: string };
   };
   /**
    * Upsert key for agent-suggested actions — (object type + id + action slug).
@@ -451,6 +456,12 @@ async function proposeActionInTurn(input: {
   internal?: boolean;
   /** What the proposing agent turn has read, for a gate's `readThisTurn` (`ActionContext.turn`). */
   turn?: ActionContext['turn'];
+  /**
+   * Hold this run for a person whatever the trust ladder says, with the reason
+   * the card gives. A workflow step holds an outward or irreversible action
+   * this way (`libs/actions/outward.ts`). Only ever keeps a run waiting.
+   */
+  hold?: string;
 }): Promise<ProposeResult> {
   const action = getAction(input.actionId);
   let storedProposal = withOrigin(proposalForStorage(input.proposal), input.origin);
@@ -552,7 +563,7 @@ async function proposeActionInTurn(input: {
   if (named?.trim()) {
     storedProposal = { ...(storedProposal ?? {}), title: named.trim().slice(0, 200) } as typeof storedProposal;
   }
-  const gateHold = input.principal.kind === 'agent' ? gate?.hold ?? null : null;
+  const gateHold = (input.principal.kind === 'agent' ? gate?.hold ?? null : null) ?? (input.hold?.trim() || null);
   const gateAdvice = gate && gate.advice.length > 0 ? { advice: gate.advice } : {};
 
   // Upsert-by-key: a re-surfaced owed action updates its existing OPEN row
@@ -949,6 +960,25 @@ export async function clearsTrustBar(opts: { orgId: string; actionId: string; in
 }
 
 /**
+ * A run a workflow step proposed has settled (done, failed, turned down): the
+ * step hears it, and its run moves on (`services/workflows/actionSteps.ts`).
+ * Fire and forget: the action's outcome is already written, and a workflow
+ * that cannot move says so on its own run.
+ * @param orgId - The workspace.
+ * @param runId - The action run.
+ * @param proposal - Its stored proposal, which names the workflow step.
+ */
+function tellWorkflow(orgId: string, runId: number, proposal: unknown): void {
+  const link = (proposal as { workflow?: { runId?: unknown } } | null)?.workflow;
+  if (!link || typeof link.runId !== 'number') {
+    return;
+  }
+  void import('@/services/workflows/actionSteps')
+    .then(m => m.onWorkflowActionSettled(orgId, runId))
+    .catch((err: Error) => console.warn('[ActionService] a workflow did not hear its action settle', { runId, message: err.message }));
+}
+
+/**
  * Execute a proposed action (called on approval, or directly for non-gated).
  * Resolves the source's vault credentials, runs the action, records the result.
  * @param runId
@@ -1126,6 +1156,7 @@ export async function executeAction(
     // noun in the class (`libs/actions/selfUpdate.ts`) is therefore in the
     // log, and countable, with no new `track()` call of its own.
     void trackSelfUpdate({ orgId, run, runId, result, mode: opts?.reviewedBy ? 'approved' : 'auto' });
+    tellWorkflow(orgId, runId, run.proposal);
     return { runId, status: 'done', result: { ...result, ...past } };
   } catch (err) {
     // What it was approved on stopped being true as it ran (`libs/actions/stale.ts`):
@@ -1141,6 +1172,7 @@ export async function executeAction(
       .update(actionRunSchema)
       .set({ status: 'failed', error: message, executedAt: new Date() })
       .where(eq(actionRunSchema.id, runId));
+    tellWorkflow(orgId, runId, run.proposal);
     // The error rides the return so the surface that clicked Approve can SAY
     // the execution failed — a silent failed row cost three days once.
     return { runId, status: 'failed', result: null, error: message };
@@ -1231,6 +1263,7 @@ export async function completeAction(
     .update(actionRunSchema)
     .set({ status: 'done', result, error: null, executedAt })
     .where(eq(actionRunSchema.id, runId));
+  tellWorkflow(orgId, runId, run.proposal);
   return { runId, status: 'done', result };
 }
 
@@ -1340,10 +1373,11 @@ export async function rejectAction(runId: number, orgId: string, reason?: string
     })
     // On the status just read, so a decision that lands in between wins.
     .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, found.status)))
-    .returning({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, invokedBy: actionRunSchema.invokedBy });
+    .returning({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, invokedBy: actionRunSchema.invokedBy, proposal: actionRunSchema.proposal });
   if (!run) {
     throw new ActionError('INVALID_STATE', `action_run ${runId} was decided while it was being turned down; nothing changed`);
   }
+  tellWorkflow(orgId, runId, run.proposal);
   const action = getAction(run.actionId);
   await action?.onRejected?.(
     { orgId, invokedBy: run.invokedBy ?? undefined, reviewedBy: opts?.reviewedBy },
