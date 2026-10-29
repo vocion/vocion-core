@@ -988,6 +988,13 @@ describe('a field held to the operator\'s list', () => {
     expect(out.records).toHaveLength(3);
   });
 
+  it('normalises the operator\'s values too, so an abbreviated list entry still matches', () => {
+    const listed = { values: ['S. Bellwater', 'Larkfield NS'], normalise: towns.normalise };
+    const out = run([at('Spelled out', 'South Bellwater'), at('Bare', 'Larkfield')], configWith({ dropIfNotIn: { venueCity: listed } }));
+
+    expect(out.records.map(kept => kept.fields.title)).toEqual(['Spelled out', 'Bare']);
+  });
+
   it('compares exactly, beyond case and punctuation, when the rule names no normalise block', () => {
     const out = run([at('Abbreviated', 'S. Larkfield'), at('Cased', 'larkfield')], configWith({ dropIfNotIn: { venueCity: { values: towns.values } } }));
 
