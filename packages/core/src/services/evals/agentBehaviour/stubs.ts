@@ -110,6 +110,12 @@ export function stubAnswer(name: string, args: Record<string, unknown>): string 
   if (name === 'create_project') {
     return json({ projectId: 64, title: args.title, status: 'created' });
   }
+  if (name === 'list_projects') {
+    return json({ projects: [{ id: 12, title: 'Office operations', status: 'active' }] });
+  }
+  if (name === 'read_project') {
+    return json({ id: 12, title: 'Office operations', status: 'active', openItems: [] });
+  }
   if (name === 'add_open_item') {
     return json({ itemId: 210, title: args.title, urgent: args.urgent === true });
   }

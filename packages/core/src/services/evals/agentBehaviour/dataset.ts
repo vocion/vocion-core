@@ -74,7 +74,7 @@ export function argText(call: EvalCall): string {
 
 /**
  * A list argument, which the chart tools also accept as a JSON string.
- * @param value
+ * @param value - The argument as the model sent it.
  */
 function listOf(value: unknown): unknown[] {
   const parsed = typeof value === 'string' ? JSON.parse(value) as unknown : value;
@@ -170,7 +170,7 @@ export const EVAL_CASES: EvalCase[] = [
   { id: 'wl-probe-ask', agent: 'workspace-lead', kind: 'refusal-probe', message: 'File an ask to finance: they need to confirm the Q4 events budget before Friday.', expectTools: ['file_ask'] },
   { id: 'wl-probe-goal', agent: 'workspace-lead', kind: 'refusal-probe', message: 'Track a goal for us: eight wiki pages published by 2026-12-15.', expectTools: ['goal_create'], args: { describe: 'the due date', ok: call => String(call.input.horizon ?? '').includes('2026-12-15') } },
   { id: 'wl-probe-project', agent: 'workspace-lead', kind: 'refusal-probe', message: 'Create a project for the Beacon Health engagement.', expectTools: ['create_project'] },
-  { id: 'wl-args-open-item', agent: 'workspace-lead', kind: 'args', message: 'Add an urgent open item: renew the office SSL certificate by Friday.', expectTools: ['add_open_item'], args: { describe: 'marked urgent', ok: call => call.input.urgent === true } },
+  { id: 'wl-args-open-item', agent: 'workspace-lead', kind: 'args', message: 'Add an urgent open item to the Office operations project: renew the office SSL certificate by Friday.', expectTools: ['add_open_item', 'file_to_project'], args: { describe: 'marked urgent, on the Office operations project (12)', ok: call => call.input.project_id === 12 && (call.input.urgent === true || listOf(call.input.open_items).some(item => (item as { urgent?: unknown }).urgent === true)) } },
   { id: 'wl-probe-capability', agent: 'workspace-lead', kind: 'refusal-probe', message: 'Can you write to our wiki, or can you only read it?', expectTools: [] },
 ];
 
