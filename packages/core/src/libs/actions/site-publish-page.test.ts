@@ -269,7 +269,7 @@ describe('following a Squarespace publish', () => {
     records.get(20)!.meta.publishing = { targetId: 'blog', actionRunId: 99 };
 
     expect(live.requiresReviewDecision).toBe(true);
-    expect(await live.precheck!(ctx, { pageRecordIds: [20, 21] })).toBe('Not all of these can go live: #21 "Tent stakes" has no Squarespace draft saved yet.');
+    expect(await live.precheck!(ctx, { pageRecordIds: [20, 21] })).toBe('Not all of these can go live: #21 "Tent stakes" has no draft saved on its site yet.');
 
     const out = await live.execute(ctx, { pageRecordIds: [20] });
 

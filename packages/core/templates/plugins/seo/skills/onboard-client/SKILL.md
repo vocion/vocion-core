@@ -9,7 +9,7 @@ description: >-
   Asks for what it could not find instead of inventing it, and ends with the
   client's SEO profile (what kind of client, goals ranked) on one card the
   person saves. Read before opening a project for a new client.
-version: 5
+version: 6
 ---
 
 # Onboarding a client from their website
@@ -113,13 +113,25 @@ message, naming exactly what is missing. When they send one, do step 4 for it.
 ## 8. Where pages publish
 
 Where pages publish is the person's to set, under Publishing on the project.
-If the site is built from a GitHub repository the workspace has connected,
-run `seo_learn_frontmatter` with the repository and the folder its posts are
-in: it reads two or three posts and proposes the target with the site's own
-frontmatter, which waits there for the person to apply. Say so in one line.
-Otherwise say which kinds the workspace can publish to today. A repository
-that is private or not connected yet is one line in what is still missing; it
-blocks publishing only, never onboarding.
+The site's pages say what it runs on (a `webflow.io` address or Webflow's
+markup, Squarespace's, a static site built from a repository). The options:
+
+- **GitHub** (a site built from a repository): with GitHub connected, run
+  `seo_learn_frontmatter` with the repository and the folder its posts are
+  in. It reads two or three posts and proposes the target with the site's
+  own frontmatter.
+- **Webflow**: with Webflow connected, run `seo_learn_frontmatter` with
+  `webflow_site` (the site's address). It finds the blog collection and
+  proposes which field takes the body, summary, SEO title and description,
+  author, date and main image, read from the collection and its latest post.
+- **Squarespace**: the site's address and blog path; publishing signs in to
+  its editor.
+
+Either proposal waits under Publishing for the person to apply. Say so in
+one line. When the site's system is not connected, show the connect card
+(`offer_connection` with `github` or `webflow`) once; a site that is private
+or not connected yet is one line in what is still missing. It blocks
+publishing only, never onboarding.
 
 ## 9. The SEO profile, on one card
 

@@ -53,6 +53,8 @@ function serverClientPair(provider: ConnectProviderId): { clientId?: string; cli
       return { clientId: Env.LINKEDIN_CLIENT_ID, clientSecret: Env.LINKEDIN_CLIENT_SECRET };
     case 'meta':
       return { clientId: Env.META_APP_ID, clientSecret: Env.META_APP_SECRET };
+    case 'webflow':
+      return { clientId: Env.WEBFLOW_CLIENT_ID, clientSecret: Env.WEBFLOW_CLIENT_SECRET };
     default:
       return {};
   }

@@ -47,6 +47,7 @@ import { squarespaceConnector } from './squarespace';
 import { strapiConnector } from './strapi';
 import { stripeConnector } from './stripe';
 import { webConnector } from './web';
+import { webflowConnector } from './webflow';
 import { workdayConnector } from './workday';
 import { xeroConnector } from './xero';
 import { zoomConnector } from './zoom';
@@ -114,3 +115,6 @@ registerConnector(metaAdsConnector);
 // A client's Squarespace site: its pages read through the public JSON, and
 // blog posts published as drafts by a browser run (`site.publish_page`).
 registerConnector(squarespaceConnector);
+// A client's Webflow site: approved pages saved as draft CMS items through the
+// Data API, live on a second approval (`site.publish_page`, `site.publish_live`).
+registerConnector(webflowConnector);

@@ -52,6 +52,7 @@ about a mark is altered.
 | `squarespace` | Squarespace | simple-icons, from https://www.squarespace.com/logo-guidelines | CC0-1.0 (drawing) | https://www.squarespace.com/brand-guidelines |
 | `strapi` | Strapi | simple-icons, from https://handbook.strapi.io/strapi-brand-book-2022/strapi-logo | CC0-1.0 (drawing) | https://handbook.strapi.io/strapi-brand-book-2022 |
 | `stripe` | Stripe | simple-icons, from https://stripe.com/newsroom/information | CC0-1.0 (drawing) | — |
+| `webflow` | Webflow | simple-icons, from https://brand-at.webflow.io/resources#logos | CC0-1.0 (drawing) | https://brand-at.webflow.io |
 | `xero` | Xero | simple-icons, from https://www.xero.com/uk/about/media/downloads | CC0-1.0 (drawing) | — |
 | `zoom` | Zoom | simple-icons, from https://brand.zoom.us/media-library/ | CC0-1.0 (drawing) | https://brand.zoom.us/usage-legal/ |
 

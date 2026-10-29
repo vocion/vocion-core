@@ -140,14 +140,15 @@ schema:
       description: >-
         Where this project's pages ship, under "Publishing" on the project
         page. Set by a person there; an agent's write to it is refused. `config` is the kind's own (a GitHub repo, base
-        branch, path and format; a Squarespace site URL and blog path);
+        branch, path and format; a Squarespace site URL and blog path; a
+        Webflow site, blog collection and field mapping);
         WordPress is named here and not yet wired.
       items:
         type: object
         required: [id, kind]
         properties:
           id: {type: string}
-          kind: {type: string, enum: [github, squarespace, wordpress]}
+          kind: {type: string, enum: [github, squarespace, webflow, wordpress]}
           label: {type: string}
           config: {type: object}
     autoFile:

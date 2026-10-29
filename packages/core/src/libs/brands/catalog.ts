@@ -55,6 +55,7 @@ import {
   siSquarespace,
   siStrapi,
   siStripe,
+  siWebflow,
   siXero,
   siZoom,
 } from 'simple-icons';
@@ -107,6 +108,8 @@ const BRANDS = {
   squarespace: { icon: siSquarespace },
   strapi: { icon: siStrapi },
   stripe: { icon: siStripe },
+  // simple-icons draws Webflow from a relative moveto; written absolute (then a relative lineto, the same shape) as every other mark is.
+  webflow: { icon: { ...siWebflow, path: siWebflow.path.replace(/^m24 4\.515/, 'M24 4.515l') } },
   xero: { icon: siXero },
   zoom: { icon: siZoom },
 

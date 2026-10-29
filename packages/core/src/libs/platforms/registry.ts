@@ -83,6 +83,9 @@ export type CredentialPlatformId
   // A client's Squarespace site: an editor login for publishing, and an
   // optional developer API key that names the site (`libs/sources/squarespace.ts`).
     | 'squarespace'
+  // A client's Webflow sites: a Data API login (or a pasted site token) that
+  // writes CMS items, for publishing (`libs/sources/webflow.ts`).
+    | 'webflow'
     | 'xero'
     | 'netsuite'
     | 'ramp'
@@ -1086,6 +1089,34 @@ const PLATFORMS: readonly CredentialPlatform[] = [
       { name: 'password', label: 'Password', pattern: null, shapeHint: 'is the account\'s password', secret: true },
       { name: 'apiKey', label: 'Developer API key', pattern: null, shapeHint: 'is a Squarespace developer API key', secret: true, optional: true },
     ],
+  },
+  {
+    id: 'webflow',
+    label: 'Webflow',
+    brand: 'webflow',
+    keySource: 'supplied',
+    // One login reaches every site picked on Webflow's consent screen.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['webflow'],
+    howToConnect: {
+      login: {
+        provider: 'webflow',
+        access: ['sites:read', 'cms:read', 'cms:write'],
+        settingsAfterLogin: [],
+      },
+      paste: {
+        credential: 'Site API token',
+        access: ['CMS: read and write', 'Sites: read'],
+        // Made in the site's settings: Apps & integrations → API access → Generate API token.
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Webflow site API token',
+    helpText: 'Log in with Webflow and pick the client\'s site. A site API token (the site\'s settings → Apps & integrations → API access, with CMS read and write) is the advanced path, for one site whose owner will not authorize an app. Publishing saves each page as a draft item in the blog collection; it goes live only on a second approval.',
+    fields: [{ name: 'token', label: 'Site API token', pattern: /^\S{20,}$/, shapeHint: 'is a token with no spaces', secret: true }],
   },
   {
     id: 'xero',

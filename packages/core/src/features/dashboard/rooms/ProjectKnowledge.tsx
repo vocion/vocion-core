@@ -173,10 +173,28 @@ export function ProjectWiki({ projectId, notes }: { projectId: number; notes: st
   );
 }
 
-type Target = { id: string; kind: 'github' | 'squarespace' | 'wordpress'; label?: string; config?: Record<string, unknown> };
+type Target = { id: string; kind: 'github' | 'squarespace' | 'webflow' | 'wordpress'; label?: string; config?: Record<string, unknown> };
 
 /** A target learned from the site's own posts, waiting on a person (`publishTargetSuggestion`). */
-export type TargetSuggestion = { target: Target; replaces: string | null; repo: string; read: string[]; notes: string[] };
+export type TargetSuggestion = { target: Target; replaces: string | null; repo: string; read: string[]; notes: string[]; from?: string };
+
+/**
+ * What a learned target says in its first line, and what it shows below: a
+ * GitHub target's frontmatter, a Webflow target's field mapping.
+ * @param suggestion - The suggestion.
+ */
+function suggestionSummary(suggestion: TargetSuggestion): { line: string; shown: unknown } {
+  const config = suggestion.target.config ?? {};
+  if (suggestion.target.kind === 'webflow') {
+    const fields = (config.fields ?? {}) as Record<string, unknown>;
+    const posts = suggestion.read.length > 0 ? ` and ${suggestion.read.length === 1 ? 'its latest post' : `its ${suggestion.read.length} latest posts`}` : '';
+    return { line: `Learned from ${suggestion.from ?? suggestion.repo}${posts}: ${Object.keys(fields).length} fields mapped, posts at ${String(config.siteUrl ?? '')}${String(config.collectionPath ?? '')}/….`, shown: fields };
+  }
+  return {
+    line: `Learned from ${suggestion.read.length} ${suggestion.read.length === 1 ? 'post' : 'posts'} in ${suggestion.repo}: ${Object.keys((config.frontmatter ?? {}) as Record<string, unknown>).length} frontmatter keys, path ${String(config.path ?? '')}.`,
+    shown: config.frontmatter ?? {},
+  };
+}
 
 /**
  * Where the project's pages ship, how the SEO app releases them, and how many
@@ -314,8 +332,8 @@ export function ProjectPublishing({ projectId, gate, cadence, targets, lines, sh
           )}
       {suggestion && !field.editing && (
         <div className="mt-3 border-t border-rule pt-3 text-sm" data-testid="publish-target-suggestion">
-          <p className="text-foreground">{`Learned from ${suggestion.read.length} ${suggestion.read.length === 1 ? 'post' : 'posts'} in ${suggestion.repo}: ${Object.keys((suggestion.target.config?.frontmatter ?? {}) as Record<string, unknown>).length} frontmatter keys, path ${String(suggestion.target.config?.path ?? '')}.`}</p>
-          <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-surface-soft p-2 font-mono text-[12px]">{JSON.stringify(suggestion.target.config?.frontmatter ?? {}, null, 2)}</pre>
+          <p className="text-foreground">{suggestionSummary(suggestion).line}</p>
+          <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-surface-soft p-2 font-mono text-[12px]">{JSON.stringify(suggestionSummary(suggestion).shown, null, 2)}</pre>
           {suggestion.notes.length > 0 && <p className="mt-1 text-xs text-muted-foreground">{`To check: ${suggestion.notes.join(' ')}`}</p>}
           <div className="mt-2 flex items-center gap-2">
             <button type="button" onClick={apply} disabled={field.busy} className={buttonVariants({ size: 'sm' })}>{suggestion.replaces ? `Apply to ${suggestion.replaces}` : 'Add this target'}</button>

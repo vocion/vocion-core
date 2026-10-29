@@ -695,6 +695,8 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
   // The finance and people families. Most are read live and need nothing
   // beyond the credential, which Connect takes.
   'stripe': [],
+  // A client's Webflow sites (`libs/sources/webflow.ts`): the login picks them, so nothing to set.
+  'webflow': [],
   // A client's Squarespace site (`libs/sources/squarespace.ts`). The login and
   // the optional API key are the credential, which Connect takes.
   'squarespace': [
