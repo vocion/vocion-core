@@ -153,6 +153,17 @@ export const candidateExtractorConfigSchema = z.object({
     /** Keep a record whose start is past while THIS field is still in the future. */
     keepIfField: FieldName.optional(),
   }).strict().optional(),
+  /**
+   * Drop a record whose value in this field is filled in but is none of these
+   * values, both sides compared after `normalise`. A blank value, or one that
+   * normalises to nothing, is kept: the record named nothing to compare. A
+   * list value is kept when any of its items is in the list. Unlike
+   * `allowedValues`, the list is never shown to the model.
+   */
+  dropIfNotIn: z.record(FieldName, z.object({
+    values: z.array(z.string().min(1)).min(1).max(500),
+    normalise: NormaliseRule.optional(),
+  }).strict()).optional(),
   /** Per-field enums the model's answer is held to. */
   allowedValues: z.record(FieldName, z.array(z.string().min(1)).min(1)).optional(),
   /** What an out-of-enum value costs: the value, or the whole record. */

@@ -32,6 +32,7 @@ import { normaliseForKey, pageKey } from '@/libs/actions/objects-propose-candida
 import { dayPlus } from '@/libs/time/zone';
 import { RULE_EVIDENCE_CAP } from './config';
 import { calendarDayOf } from './knownCards';
+import { matchKeyOf } from './normalise';
 import { expandOccurrences } from './occurrences';
 
 /** An adopted rule a record cites, with the text the model was shown. */
@@ -191,6 +192,38 @@ function shownImages(images: unknown): Set<string> {
 function isBlank(value: unknown): boolean {
   return value === undefined || value === null || (typeof value === 'string' && value.trim() === '')
     || (Array.isArray(value) && value.length === 0);
+}
+
+/**
+ * The `dropIfNotIn` check, with each list normalised once per call.
+ *
+ * Answers the first field whose filled-in value is in none of its list, or
+ * undefined to keep the record. A value that normalises to nothing named
+ * nothing to compare and is kept, like a blank one; a list value is kept when
+ * any of its items is in the list.
+ * @param rules - The config's `dropIfNotIn`.
+ */
+function notInListCheck(rules: CandidateExtractorConfig['dropIfNotIn']): (fields: Record<string, unknown>) => string | undefined {
+  const lists = Object.entries(rules ?? {}).map(([field, rule]) => ({
+    field,
+    rule: rule.normalise,
+    allowed: new Set(rule.values.map(value => matchKeyOf(value, rule.normalise)).filter(key => key !== undefined)),
+  }));
+  return (fields) => {
+    for (const { field, rule, allowed } of lists) {
+      const value = fields[field];
+      if (isBlank(value)) {
+        continue;
+      }
+      const printed = (Array.isArray(value) ? value : [value])
+        .map(item => matchKeyOf(item, rule))
+        .filter(item => item !== undefined);
+      if (printed.length > 0 && !printed.some(item => allowed.has(item))) {
+        return field;
+      }
+    }
+    return undefined;
+  };
 }
 
 /**
@@ -393,6 +426,7 @@ export function validateRecords(opts: {
     const needle = squash(quote);
     return needle.length > 0 && pageHaystack.includes(needle);
   };
+  const notInList = notInListCheck(config.dropIfNotIn);
   const horizon = dayPlus(opts.today, config.recurrenceHorizonDays);
   const ownKey = pageKey(opts.ownUrl);
   const entryKey = pageKey(opts.entryUrl);
@@ -448,6 +482,13 @@ export function validateRecords(opts: {
         bump('skipped.beyond_horizon');
         continue;
       }
+    }
+
+    const outside = notInList(record.fields);
+    if (outside) {
+      bump('skipped.not_in');
+      bump(`skipped.not_in.${outside}`);
+      continue;
     }
 
     let dropped = false;
@@ -639,6 +680,13 @@ export function validateRecords(opts: {
 
     kept.push(record);
     originOf.set(record, origin);
+  }
+
+  for (const field of Object.keys(config.dropIfNotIn ?? {})) {
+    const dropped = counts[`skipped.not_in.${field}`];
+    if (dropped) {
+      notes.push(`${dropped} record(s) dropped: "${field}" is not in the operator's list`);
+    }
   }
 
   let records = kept;

@@ -27,44 +27,13 @@ import type { CandidateExtractorConfig } from './config';
 import type { ValidatedRecord } from './validate';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { CANDIDATE_STATUS, normaliseForKey } from '@/libs/actions/objects-propose-candidate';
-
-/** How a value is compared, per the rule's `normalise` block for that field. */
-type NormaliseRule = {
-  dropWords?: string[];
-  abbreviations?: Record<string, string>;
-};
+import { normaliseForMatch } from './normalise';
 
 /** One approved object, as the resolver compares it. */
 type ApprovedObject = {
   title: string;
   fields: Record<string, unknown>;
 };
-
-/**
- * Escape a literal for use inside a regular expression.
- * @param text - The literal to escape.
- */
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * Collapse a value the way the tenant's own matcher does, then the way the
- * dedup key does, so the answer is comparable on both sides.
- * @param value - The printed value.
- * @param rule - The per-field normalise block, if the config declared one.
- */
-export function normaliseForMatch(value: unknown, rule: NormaliseRule | undefined): string {
-  let text = String(value ?? '').toLowerCase();
-  for (const [from, to] of Object.entries(rule?.abbreviations ?? {})) {
-    // Left boundary only: `s.` has to match at the start of a word, but its
-    // own trailing dot is not a word character, so `\b` after it never fires.
-    text = text.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(from.toLowerCase())}`, 'gu'), to.toLowerCase());
-  }
-  const drop = new Set((rule?.dropWords ?? []).map(word => word.toLowerCase()));
-  const kept = text.split(/\s+/).filter(token => token !== '' && !drop.has(token.replace(/[^\p{L}\p{N}&]/gu, '')));
-  return normaliseForKey(kept.join(' '));
-}
 
 /**
  * Every approved object of a type, loaded once per sync.
