@@ -21,7 +21,8 @@ export const USAGE_REVIEW_TOOL = 'run_usage_review';
 function runUsageReviewTool(ctx: RuntimeContext): StructuredToolInterface {
   return tool(
     async () => {
-      const [{ runUsageReview }, { briefingHref }] = await Promise.all([import('@/services/usageReview/UsageReviewService'), import('@/services/briefings/links')]);
+      const [{ usageReview }, { briefingHref }] = await Promise.all([import('@/libs/usageReviewBridge'), import('@/services/briefings/links')]);
+      const { runUsageReview } = await usageReview();
       const r = await runUsageReview(ctx.orgId);
       if (r.skipped) {
         const why = {

@@ -37,7 +37,8 @@ export const runRoute = os.handler(async () => {
   if (!has({ role: ORG_ROLE.ADMIN })) {
     throw ApiError.forbidden();
   }
-  const { runUsageReview, usageReviewLine } = await import('@/services/usageReview/UsageReviewService');
+  const { usageReview } = await import('@/libs/usageReviewBridge');
+  const { runUsageReview, usageReviewLine } = await usageReview();
   const r = await runUsageReview(orgId);
   return { skipped: r.skipped ?? null, briefingId: r.briefingId ?? null, line: usageReviewLine(r) };
 });

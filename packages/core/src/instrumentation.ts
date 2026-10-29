@@ -30,6 +30,10 @@ export async function register() {
     // (`libs/eventBridge.ts`). Awaited: it is in place before the first request.
     const [{ provideEventBus }, { emitEvent }] = await Promise.all([import('./libs/eventBridge'), import('./services/EventService')]);
     provideEventBus(emitEvent);
+    // The daily usage review, for the tool, job and action hubs that must not
+    // compile it into every route (`libs/usageReviewBridge.ts`).
+    const [{ provideUsageReview }, usageReviewApi] = await Promise.all([import('./libs/usageReviewBridge'), import('./services/usageReview/api')]);
+    provideUsageReview(usageReviewApi);
     // The one durable executor (backlog 054): resumes waiting runs after every deploy.
     // Never awaited: a database that is slow to answer must not hold the server's boot.
     void import('./libs/durable/executor').then(m => m.startDurableExecutor());

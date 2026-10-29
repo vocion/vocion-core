@@ -378,7 +378,8 @@ export const orgChangeAction: Action<typeof orgChangeInput> = {
         // The request is the approved run itself: the operator's roll-up reads
         // approved requests across workspaces (`services/usageReview/rollup.ts`),
         // and an extension may file it where the platform is built.
-        const { capabilityRequested } = await import('@/services/usageReview/rollup');
+        const { usageReview } = await import('@/libs/usageReviewBridge');
+        const { capabilityRequested } = await usageReview();
         await capabilityRequested({ orgId: ctx.orgId, capability: change.capability, name: change.name, need: change.need, evidence: input.evidence, decidedBy: ctx.reviewedBy ?? null });
         return { kind: change.kind, capability: change.capability, name: change.name, requested: true, href: change.capability === 'connector' ? '/dashboard/connectors' : '/dashboard/briefings' };
       }

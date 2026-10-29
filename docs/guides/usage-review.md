@@ -218,3 +218,4 @@ yesterday's report contributes numbers only.
 | The morning check | `services/jobs/usageReviewCheck.ts` |
 | The plugin | `packages/core/templates/plugins/workspace-manager/` |
 | Default-on plugins | `services/plugins/defaultPlugins.ts` |
+| How the tool, jobs and action reach it without compiling it into every route | `libs/usageReviewBridge.ts`, handed over by `instrumentation.ts` |

@@ -166,7 +166,8 @@ defineJob<{ orgId: string }>(JOB.orgReview, async (input) => {
 // (`services/usageReview/rollup.ts`). Scheduled only where an extension names
 // the operator; it reads the day's reports back and publishes, never re-judges.
 defineJob(JOB.usageReviewRollup, async () => {
-  const { runOperatorRollup } = await import('@/services/usageReview/rollup');
+  const { usageReview } = await import('@/libs/usageReviewBridge');
+  const { runOperatorRollup } = await usageReview();
   const out = await runOperatorRollup();
   console.warn('[durable] usage review roll-up', 'skipped' in out ? out : { workspaces: out.workspaces, published: out.published.length, mailed: out.mailed.sent });
   return out;
