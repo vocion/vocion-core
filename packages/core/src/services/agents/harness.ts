@@ -31,6 +31,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { SubAgent } from 'deepagents';
 import type { AgentMiddleware } from 'langchain';
 import type { HandOffGuard } from './handOff';
+import type { ToolLoadingSummary } from './toolLoading';
 import type { FilingType } from './tools/fileRecord';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
@@ -89,8 +90,6 @@ import { canonicalToolNames, createToolAliasMiddleware, TOOL_ALIASES } from './t
 //
 // Keep the cache small: each blueprint holds a model plus N subagent
 // descriptions, so the working set per org should stay tight.
-/** What an agent handed deferred tools is told, the lead and a teammate alike. */
-const TOOL_SEARCH_NOTE = 'You have more tools than the ones listed: search for one with tool_search_tool_bm25 before saying you cannot do something.';
 
 const BLUEPRINT_CACHE_LIMIT = 16;
 const blueprintCache = new Map<string, AgentBlueprint>();
@@ -232,6 +231,10 @@ export type CompiledAgentGraph = {
   ctx: RuntimeContext;
   /** The teammates it may consult, slug to name, for the steps that name them. */
   teammateNames?: Record<string, string>;
+  /** How this turn's tools were loaded (`toolLoading.ts`), for `run_meta` and the trace. */
+  toolLoading?: ToolLoadingSummary;
+  /** Every domain tool name the turn has, loaded or deferred: a call to any other is to an unknown tool. */
+  toolNames?: string[];
 };
 
 /**
@@ -296,6 +299,8 @@ type AgentBlueprint = {
   sourceKinds?: Record<string, string>;
   /** The tools this agent keeps loaded; the rest are found by tool search (`toolTiers.ts`). Null defers nothing. */
   hotTools?: string[] | null;
+  /** In `core` tool loading, the text of the agent's skills and playbooks: a tool they name stays loaded (`toolLoading.ts`). */
+  skillText?: string;
   /** This agent's model with thinking off, for calls that read tool results (`effort.ts`). Absent when it would be the same model. */
   stepModel?: Awaited<ReturnType<typeof buildChatModelForOrg>>;
   /** The model teammates do legwork on (`effort.ts`). Absent keeps them on this agent's model. */
@@ -631,7 +636,17 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
     definition.subagentSpecs = definition.subagentSpecs.map(spec => (skills[spec.name] ? { ...spec, skills: [teammateSkillRoot(spec.name)] } : spec));
   }
 
-  return { ...definition, model, hasMounts, hotTools, ...(stepModel ? { stepModel } : {}), ...(legworkModel ? { legworkModel } : {}) };
+  // In `core` tool loading a tool the agent's skills or playbooks name stays
+  // loaded, as one its prompt names does. Read once per blueprint; never
+  // in the default mode, which reads only the prompt.
+  const { resolveToolLoading } = await import('./toolLoading');
+  const skillText = hasMounts && resolveToolLoading(row.harnessConfig as Record<string, unknown>) === 'core'
+    ? await mountSkills({ orgId, skillSlugs: row.skillSlugs ?? [], playbookSlugs: row.playbookSlugs ?? [] })
+        .then(files => Object.values(files).join('\n'))
+        .catch(() => undefined)
+    : undefined;
+
+  return { ...definition, model, hasMounts, hotTools, ...(skillText ? { skillText } : {}), ...(stepModel ? { stepModel } : {}), ...(legworkModel ? { legworkModel } : {}) };
 }
 
 /**
@@ -752,11 +767,12 @@ export async function compileAgentForRequest(
   // `interrupts`, which keeps the tool but gates execution).
   const excludeTools = new Set(canonicalToolNames(ctx.harnessConfig.excludeTools));
   const domainTools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
-  const tools = await tieredTools(blueprint, ctx, domainTools);
+  const { tools, loading, searchNote } = await tieredTools(blueprint, ctx, domainTools);
   // Deferred tools are invisible until searched for: without this line the
   // model told a person it could not make an image while generate_image sat
   // behind the search (live test, 2026-10-04). Stable per agent, so cached.
   const deferring = tools.length > domainTools.length;
+  const TOOL_SEARCH_NOTE = searchNote;
   // Specialists answer with the SAME tool surface as the lead, on this
   // request's context — a delegate must not read more than the person who
   // asked.
@@ -838,41 +854,51 @@ export async function compileAgentForRequest(
     ...(blueprint.hasMounts ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
 
-  return { graph, agentRow: blueprint.agentRow, ctx, teammateNames: blueprint.teammateNames ?? {} };
+  return { graph, agentRow: blueprint.agentRow, ctx, teammateNames: blueprint.teammateNames ?? {}, toolLoading: loading, toolNames: domainTools.map(t => t.name) };
 }
 
 /**
- * The turn's tools as the model will read them (`toolTiers.ts`): on the
- * direct Anthropic API, the ones this agent uses stay loaded — with whatever
- * it was granted by name — and the rest wait behind tool search. Any other
- * provider, an agent with no history yet, or `harness.toolSearch: false`
- * carries every tool in full, as before.
+ * The turn's tools as the model will read them (`toolLoading.ts`, ADR 0009).
+ * Only on the direct Anthropic API, where tool search runs: any other
+ * provider carries every tool in full. `harness.toolLoading` picks the mode;
+ * the default, `history`, is the behaviour from before the mode existed (the
+ * tools this agent used lately, its grants and the tools its prompt names
+ * stay loaded; no history defers nothing).
  * @param blueprint - The agent's cached parts.
  * @param ctx - This request's context.
  * @param tools - The turn's tools.
  */
-async function tieredTools<T extends StructuredToolInterface>(blueprint: AgentBlueprint, ctx: RuntimeContext, tools: T[]): Promise<T[]> {
-  const harness = ctx.harnessConfig as { toolSearch?: boolean; grantTools?: string[] };
-  if (!blueprint.hotTools?.length || harness.toolSearch === false) {
-    return tools;
-  }
+async function tieredTools<T extends StructuredToolInterface>(blueprint: AgentBlueprint, ctx: RuntimeContext, tools: T[]): Promise<{ tools: T[]; loading: ToolLoadingSummary; searchNote: string }> {
+  const { planToolLoading, resolveToolLoading, summarizePlan, toolSearchNote } = await import('./toolLoading');
+  const harness = ctx.harnessConfig as { toolSearch?: boolean; toolLoading?: string; grantTools?: string[] };
+  const mode = resolveToolLoading(harness);
   const { ChatAnthropic } = await import('@langchain/anthropic');
-  if (!(blueprint.model instanceof ChatAnthropic)) {
-    return tools;
-  }
+  const searchable = blueprint.model instanceof ChatAnthropic;
   const { TOOL_SEARCH, deferColdTools, namedInPrompt } = await import('./toolTiers');
-  // What the agent used lately, what it was granted, and what its own prompt
-  // tells it to use (`namedInPrompt`).
   const { expandGrants } = await import('./tools/grantGroups');
   // Old names (a renamed tool's history, grant or prompt) count as the tool they became.
   const names = [...tools.map(t => t.name), ...Object.keys(TOOL_ALIASES)];
-  const keep = new Set(canonicalToolNames([...blueprint.hotTools, ...expandGrants(harness.grantTools ?? []), ...namedInPrompt(blueprint.agentRow.systemPrompt, names)]));
-  if (tools.every(t => keep.has(t.name))) {
-    return tools;
+  const named = canonicalToolNames([
+    ...namedInPrompt(blueprint.agentRow.systemPrompt, names),
+    ...(mode === 'core' ? namedInPrompt(blueprint.skillText, names) : []),
+  ]);
+  const plan = planToolLoading({
+    mode: searchable ? mode : 'all',
+    tools,
+    hot: blueprint.hotTools ? canonicalToolNames(blueprint.hotTools) : null,
+    grants: canonicalToolNames(expandGrants(harness.grantTools ?? [])),
+    named,
+  });
+  const loading = summarizePlan(plan);
+  if (!plan.keep) {
+    return { tools, loading, searchNote: toolSearchNote(plan) };
+  }
+  if (plan.overBudget) {
+    console.warn('agent turn: the tools this agent must keep loaded are over the budget (ADR 0009)', { orgId: ctx.orgId, agentSlug: blueprint.agentRow.slug, loaded: plan.loaded, loadedTokens: loading.loadedTokens });
   }
   // Anthropic runs the search itself; this entry only puts it in the request.
   const search = makeTool(async () => '', { name: TOOL_SEARCH.name, description: 'Server-side tool search.', schema: z.object({}), extras: { providerToolDefinition: TOOL_SEARCH } }) as unknown as T;
-  return deferColdTools(tools, keep, search);
+  return { tools: deferColdTools(tools, plan.keep, search), loading, searchNote: toolSearchNote(plan) };
 }
 
 /**

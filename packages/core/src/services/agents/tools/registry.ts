@@ -184,35 +184,50 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
   return [...tools, ...filing].map(t => withToolCallRecord(t as StructuredToolInterface, ctx));
 }
 
+/**
+ * Tag a group of tools with the family the search note names it by, and
+ * whether it is a declared connector's (`toolLoading.ts`, ADR 0009). Tags
+ * only: the tools are unchanged.
+ * @param family - What the search note calls the group.
+ * @param tools - The group.
+ * @param connector - Whether the group reads or writes a declared source.
+ */
+function inFamily<T>(family: string, tools: readonly T[], connector = false): T[] {
+  for (const t of tools as unknown as Array<{ metadata?: Record<string, unknown> }>) {
+    t.metadata = { ...t.metadata, toolFamily: family, ...(connector ? { connectorTool: true } : {}) };
+  }
+  return [...tools];
+}
+
 function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
   return [
     searchKnowledgeTool(ctx),
-    webSearchTool(ctx),
-    fetchUrlTool(ctx),
+    ...inFamily('Web', [webSearchTool(ctx)]),
+    ...inFamily('Web', [fetchUrlTool(ctx)]),
     // The same URL, handled as BYTES: a logo or a product shot, verified and
     // returned as a data URI a document can hold. `fetch_url` is a prose
     // reader and hands an image back as mojibake (2026-09-19).
-    fetchImageTool(ctx),
-    crawlSiteTool(ctx),
+    ...inFamily('Web', [fetchImageTool(ctx)]),
+    ...inFamily('Web', [crawlSiteTool(ctx)]),
     // A company's own site, read rather than recalled. Source-gated like the
     // other paid providers would be, except that brand lookup is useful to
     // every agent that writes TO a company, so it ships on by default and
     // reports plainly when no Firecrawl key is configured.
-    brandLookupTool(ctx),
+    ...inFamily('Brand and voice', [brandLookupTool(ctx)]),
     // The workspace's own brand guide (brand.yaml) — palette, logos, voice —
     // the shape a client-facing document needs. Read-only; on for every agent.
-    getBrandTool(ctx),
+    ...inFamily('Brand and voice', [getBrandTool(ctx)]),
     // Where in Vocion a person does something, as a link — so an answer never
     // describes a screen it could have linked to. Read-only; on for every agent.
     whereToTool(ctx),
-    setVoiceTool(ctx),
+    ...inFamily('Brand and voice', [setVoiceTool(ctx)]),
     // What the workspace could turn on — plugins and connectors, on or off —
     // so a gap becomes a recommendation instead of a workaround. Read-only.
     listCapabilitiesTool(ctx),
-    offerConnectionTool(ctx),
+    ...inFamily('Setup and connections', [offerConnectionTool(ctx)]),
     // Several systems at once, walked one at a time above the composer and
     // verified as they go ("Connect your systems"). Generic over the registries.
-    connectSystemTool(ctx),
+    ...inFamily('Setup and connections', [connectSystemTool(ctx)]),
     // What the agent's connected sources actually reach — the repositories,
     // project keys and channels in scope, checked live against the grant
     // where the vendor can be asked (a GitHub App installation). "Which
@@ -222,17 +237,17 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // What a plugin that is on still needs before it works, from the plugin's
     // own `setup:` declaration, with the link for each step — the same answer
     // the "Set up your <plugin>" chip is built from. Read-only.
-    describeSetupTool(ctx),
-    generateImageTool(ctx),
-    findScreenshotsTool(ctx),
+    ...inFamily('Setup and connections', [describeSetupTool(ctx)]),
+    ...inFamily('Images', [generateImageTool(ctx)]),
+    ...inFamily('Images', [findScreenshotsTool(ctx)]),
     // A mockup is the real screen with only the change drawn in, filed on the
     // request it is for (request #224, 2026-09-29). For agents with requests.
-    ...drawMockupTools(ctx),
+    ...inFamily('Mockups and diagrams', drawMockupTools(ctx)),
     // A product's architecture, as a typed graph the platform draws and files
     // on the product (plugin 3.31.0). Granted to the seat that maps the code.
-    ...drawArchitectureTools(ctx),
-    runCodeTool(ctx),
-    createArtifactTool(ctx),
+    ...inFamily('Mockups and diagrams', drawArchitectureTools(ctx)),
+    ...inFamily('Code and files', [runCodeTool(ctx)]),
+    ...inFamily('Charts and artifacts', [createArtifactTool(ctx)]),
     lookupObjectsTool(ctx),
     // Files dropped into chat (badges, cards, notes, sheets) read into typed
     // records with per-field provenance; what it cannot settle is one Decision
@@ -241,56 +256,56 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // The write beside the read: declared fields on a record of a type the
     // agent works with, through the `objects.update_meta` action. Empty for
     // an agent with no object types.
-    ...readObjectTools(ctx),
-    ...updateObjectTools(ctx),
+    ...inFamily('Records', readObjectTools(ctx)),
+    ...inFamily('Records', updateObjectTools(ctx)),
     // Granted-only: QA's verdict on a pull request, bound to its head, and the
     // merge card on approve — one call, so the review cannot end unrecorded.
-    ...recordVerdictTools(ctx),
+    ...inFamily('Records', recordVerdictTools(ctx)),
     // Granted-only: a product's production URLs and QA sign-in (never the
     // password, which only the worker reads, over the API).
-    ...productAccessTools(ctx),
+    ...inFamily('Product access', productAccessTools(ctx)),
     // Granted-only: a shipped release looked at on the live product as the QA
     // account (the browser tools), and what QA saw, line by line with its
     // evidence, written on the release and its features (record_live_check).
-    ...liveBrowserTools(ctx),
+    ...inFamily('Browser', liveBrowserTools(ctx)),
     // Granted or switched on (`VOCION_BROWSER_RUNS`): a task handed to the person's own browser,
     // watched live beside the conversation, with its steps that submit held for their approval.
-    ...browserTaskTools(ctx),
+    ...inFamily('Browser', browserTaskTools(ctx)),
     // The routines plugin (or `VOCION_ROUTINES`): teach a routine from a Slate recording, approve it,
     // run it for many rows at once, follow the batch, write its report.
-    ...routineTools(ctx),
-    ...recordLiveCheckTools(ctx),
+    ...inFamily('Routines', routineTools(ctx)),
+    ...inFamily('Product access', recordLiveCheckTools(ctx)),
     // Granted-only: production errors from the workspace's Sentry — issues by
     // project, environment, release and time, and one issue's latest event
     // (sentry_issues, sentry_issue).
-    ...sentryTools(ctx),
+    ...inFamily('Sentry', sentryTools(ctx), true),
     // The code host (`libs/connectors/families.ts`): a pull request, its diff
     // and a file at a ref for any agent with a repo source in scope; the
     // checks' logs and the pipeline runs granted-only (backlog 049).
-    ...repoTools(ctx),
+    ...inFamily('Code host', repoTools(ctx), true),
     // Source-gated: the connected issue tracker, live — an issue whole, a
     // search inside its projects, an attachment (`services/tracker/provider.ts`).
-    ...trackerTools(ctx),
+    ...inFamily('Issue tracker', trackerTools(ctx), true),
     // Source-gated — the chat family's reads (a thread, a file on it) for an
     // agent whose sources include a chat; its writes are actions.
-    ...chatTools(ctx),
+    ...inFamily('Team chat', chatTools(ctx), true),
     // Source-gated — the finance family (billing, books, spend, payables) and
     // the people family (the HR system of record), live and read-only, for an
     // agent whose sources include one (`services/finance`, `services/people`).
-    ...financeTools(ctx),
-    ...peopleTools(ctx),
+    ...inFamily('Finance', financeTools(ctx), true),
+    ...inFamily('People and HR', peopleTools(ctx), true),
     // One person across the three families — chat user, tracker account,
     // code-host login — by email. Present with any of the three in scope.
-    ...lookupPersonTools(ctx),
-    listLearningStepsTool(ctx),
-    getLearningsTool(ctx),
-    checkLearningDedupTool(ctx),
-    addLearningTool(ctx),
-    updateLearningTool(ctx),
-    removeLearningTool(ctx),
-    rememberPreferenceTool(ctx),
-    listRecentRunsTool(ctx),
-    listRunFeedbackTool(ctx),
+    ...inFamily('People lookup', lookupPersonTools(ctx)),
+    ...inFamily('Learnings', [listLearningStepsTool(ctx)]),
+    ...inFamily('Learnings', [getLearningsTool(ctx)]),
+    ...inFamily('Learnings', [checkLearningDedupTool(ctx)]),
+    ...inFamily('Learnings', [addLearningTool(ctx)]),
+    ...inFamily('Learnings', [updateLearningTool(ctx)]),
+    ...inFamily('Learnings', [removeLearningTool(ctx)]),
+    ...inFamily('Learnings', [rememberPreferenceTool(ctx)]),
+    ...inFamily('Runs and feedback', [listRecentRunsTool(ctx)]),
+    ...inFamily('Runs and feedback', [listRunFeedbackTool(ctx)]),
     requestHumanReviewTool(ctx),
     // A question for a person on Needs you, and its withdrawal — through the
     // `ask.file` / `ask.withdraw` actions, so the trust ladder decides whether
@@ -299,7 +314,7 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     withdrawAskTool(ctx),
     // In a mission run only: everything left waits on asks, so stop spending
     // until they are answered (`needsYou/ResumeGateService.ts`).
-    ...waitForAnswersTools(ctx),
+    ...inFamily('Asks', waitForAnswersTools(ctx)),
     // A question a lead puts to its specialists together, settled by a rule
     // and recorded as one run (`services/teams/TeamThreadService.ts`). The
     // tool refuses an agent with no team, and a turn already in a thread.
@@ -314,12 +329,12 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     pageContextTool(ctx),
     // Every interaction should teach the system something (design principle 11):
     // feedback said anywhere becomes a proposed rule and a recommendation.
-    fileFeedbackTool(ctx),
+    ...inFamily('Runs and feedback', [fileFeedbackTool(ctx)]),
     // Artifacts (0095/0101): render_* creates one, read_artifact/update_artifact
     // change the one already open. No side effect outside the conversation, so
     // on for every agent.
-    ...renderArtifactTools(ctx),
-    ...editArtifactTools(ctx),
+    ...inFamily('Charts and artifacts', renderArtifactTools(ctx)),
+    ...inFamily('Charts and artifacts', editArtifactTools(ctx)),
     // Files the person attached: the message carries a preview, this reads
     // the whole stored original — every row of a sheet, filtered, counted or
     // paged. Reads only, inside the workspace, so on for every agent.
@@ -328,77 +343,77 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // in (render_document / read_document / edit_document / verify_document /
     // export_document_pdf). Same rule as render_*: no side effect outside the
     // conversation, so on for every agent.
-    ...documentTools(ctx),
+    ...inFamily('Documents', documentTools(ctx)),
     // Decks: 16:9 slides (vocion-deck/1) with the same loop — render_deck /
     // read_deck / edit_deck / verify_deck / export_deck_pdf — and the
     // editor-neutral round trip for decks AND documents (deck_checkout /
     // deck_checkin). red_team_document reads both kinds. Same rule: no side
     // effect outside the workspace, so on for every agent.
-    ...deckTools(ctx),
+    ...inFamily('Decks', deckTools(ctx)),
     // The office adapters: export_pptx / import_pptx for decks, export_docx /
     // import_docx for documents (services/deliverables/adapters.ts). Optional,
     // never on the path to the PDF; the same in-workspace rule, so on for
     // every agent.
-    ...deliverableAdapterTools(ctx),
+    ...inFamily('Office files', deliverableAdapterTools(ctx)),
     // An artifact's tables as an .xlsx file artifact, the header's
     // "Download as Excel" for an agent. Writes only a file beside it.
-    exportArtifactXlsxTool(ctx),
+    ...inFamily('Office files', [exportArtifactXlsxTool(ctx)]),
     // Projects: the source of record per client or engagement. Reads and
     // filing are in-workspace writes (records, links, artifacts, asks) —
     // nothing leaves. A core workspace noun, so on in every workspace whatever
     // its plugins: a project opened in one app is worked from every other.
     // The `data-rooms` plugin adds the keeper, the skill and auto-filing.
-    ...projectTools(ctx),
+    ...inFamily('Projects', projectTools(ctx)),
     // A released call's record, for the meeting follow-up writer. Present
     // while the `meeting-followup` plugin is on; the tool itself refuses a
     // call nobody released (`meetingRecord.ts`).
     ...(ctx.enabledPlugins?.includes('meeting-followup') ? [readMeetingRecordTool(ctx)] : []),
     // The workspace wiki — long-term context. Present while the `wiki` plugin is on.
-    ...wikiTools(ctx),
+    ...inFamily('Wiki', wikiTools(ctx)),
     // The SEO app: batches and pages as records, the volume gate in code, the
     // model that ran each step. Present while the `seo` plugin is on.
-    ...(ctx.enabledPlugins?.includes('seo') ? seoTools(ctx) : []),
+    ...(ctx.enabledPlugins?.includes('seo') ? inFamily('SEO', seoTools(ctx)) : []),
     // Missions and playbooks edit like artifacts: read the file, write it back
     // whole through the `workspace.write_*` actions (reviewed by default).
-    ...workspaceSourceTools(ctx),
-    updateMissionNotesTool(ctx),
-    publishBriefingTool(ctx),
-    getBriefingTool(ctx),
-    refreshBriefingTool(ctx),
-    freshenSourceTool(ctx),
+    ...inFamily('Missions and playbooks', workspaceSourceTools(ctx)),
+    ...inFamily('Missions and playbooks', [updateMissionNotesTool(ctx)]),
+    ...inFamily('Briefings', [publishBriefingTool(ctx)]),
+    ...inFamily('Briefings', [getBriefingTool(ctx)]),
+    ...inFamily('Briefings', [refreshBriefingTool(ctx)]),
+    ...inFamily('Setup and connections', [freshenSourceTool(ctx)]),
     // Source-gated — empty unless a HubSpot source is in the agent's scope.
-    ...crmTools(ctx),
-    ...hubspotDirectTools(ctx),
+    ...inFamily('HubSpot', crmTools(ctx), true),
+    ...inFamily('HubSpot', hubspotDirectTools(ctx), true),
     // Source-gated — empty unless an Apollo source is in the agent's scope.
-    ...apolloTools(ctx),
+    ...inFamily('Apollo', apolloTools(ctx), true),
     // Source-gated — the live reads every `rest` source in scope declares,
     // plus its action catalog. Empty without one (`ctx.restSources`).
-    ...restTools(ctx),
-    ...mcpTools(ctx),
+    ...inFamily('REST sources', restTools(ctx), true),
+    ...inFamily('MCP servers', mcpTools(ctx), true),
     // Source-gated — the PostHog daily mirror, summed. Empty without a posthog source.
-    ...posthogCountTools(ctx),
+    ...inFamily('Product analytics', posthogCountTools(ctx), true),
     // Source-gated read-through caches (zoom / gmail / drive sources in scope).
-    ...zoomTools(ctx),
-    ...gmailTools(ctx),
-    ...driveTools(ctx),
-    ...calendarTools(ctx),
+    ...inFamily('Zoom', zoomTools(ctx), true),
+    ...inFamily('Gmail', gmailTools(ctx), true),
+    ...inFamily('Drive', driveTools(ctx), true),
+    ...inFamily('Calendar', calendarTools(ctx), true),
     // Granted-only (harness.grantTools) — empty for agents without the grant.
-    ...discoveryTools(ctx),
-    ...personalizationTools(ctx),
+    ...inFamily('Discovery', discoveryTools(ctx)),
+    ...inFamily('Lead queue', personalizationTools(ctx)),
     // Granted-only (`harness.grantTools: [serp]`): Google's results page, the
     // pages on it compared into a SERP brief, keyword volume — paid per call.
-    ...serpTools(ctx),
+    ...inFamily('Search rankings', serpTools(ctx)),
     // With the `serp` grant: the client's competitors, counted in code from
     // the searches serp_search already made, recorded on the project.
-    ...competitorTools(ctx),
+    ...inFamily('Competitors', competitorTools(ctx)),
     // Granted-only: a client's whole site from its sitemap, every page's
     // basics in one dated table filed on the project.
-    ...siteInventoryTools(ctx),
+    ...inFamily('Site inventory', siteInventoryTools(ctx)),
     // Granted-only: reference-based kit verification + the Rekognition second opinion.
-    ...kitVisionTools(ctx),
+    ...inFamily('Photo QC', kitVisionTools(ctx)),
     // Personal workspaces only: the person's own assistant lists and asks the
     // shared workspaces they can act in (list_my_workspaces, ask_workspace).
-    ...assistantTools(ctx),
+    ...inFamily('Other workspaces', assistantTools(ctx)),
     // Whenever a person is in the turn: what is waiting on them, read from the
     // queue, asks and notifications — in this workspace, or in a personal
     // workspace across all of theirs. Never a search.
@@ -409,28 +424,28 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     queryStateTool(ctx),
     // Whenever a person is in the turn: the Review queue as the page shows it,
     // and many of its decisions declined on one card (`reviewQueue.ts`).
-    ...reviewQueueTools(ctx),
+    ...inFamily('Review queue', reviewQueueTools(ctx)),
     // Granted-only: what agents proposed to send outside, decided or not, with
     // where each landed, for a voice pass that diffs it against what was sent.
-    ...outboundHistoryTools(ctx),
+    ...inFamily('Outbound history', outboundHistoryTools(ctx)),
     // Whenever a person is in the turn: their goals — drafted as a Decision,
     // linked, read live, moved (`services/objectives/GoalService.ts`).
-    ...goalTools(ctx),
+    ...inFamily('Goals', goalTools(ctx)),
     // Personal workspaces only: the person's OWN mail, calendar, files, Slack
     // DMs and GitHub, read live with their own login (`personalCredential`),
     // never a workspace's source. Drafts mail, never sends.
-    ...personalConnectionTools(ctx),
+    ...inFamily('Personal connections', personalConnectionTools(ctx)),
     // Granted-only, shared workspaces only: the workspace lead's setup — where
     // the workspace stands and what it could add (setup_options), and the plan
     // as one-click cards (propose_setup).
-    ...setupWorkspaceTools(ctx),
+    ...inFamily('Workspace setup', setupWorkspaceTools(ctx)),
     // Source-gated — a business's numbers, one shape per family whatever the
     // vendor: the warehouse (one read-only SQL tool and a schema browser), product
     // analytics (events, counts, funnels, cohorts) and the ad platform
     // (campaigns and their spend; pausing is the `ads.set_status` action).
-    ...warehouseTools(ctx),
-    ...analyticsTools(ctx),
-    ...adsTools(ctx),
+    ...inFamily('Warehouse', warehouseTools(ctx), true),
+    ...inFamily('Product analytics', analyticsTools(ctx), true),
+    ...inFamily('Ads', adsTools(ctx), true),
   ] as StructuredToolInterface[];
 }
 

@@ -194,6 +194,40 @@ function its API route calls, needs the same `approve` capability, and records t
 decider. `review-tools.test.ts` holds the parity table; a review verb added to one surface and not
 the others fails it.
 
+## Which tools a turn loads
+
+An agent holds 90 to 135 tools; a turn does not carry all of them in full. On the direct Anthropic
+API some are **deferred**: the model sees them only through Anthropic's tool search, and loads one
+the moment it needs it. `harness.toolLoading` on the agent, or `defaults.toolLoading` on the
+workspace, decides which ([ADR 0009](../adr/0009-tool-loading.md), `services/agents/toolLoading.ts`):
+
+| Mode | Loaded in full |
+|---|---|
+| `history` (default) | What the agent used in its last 30 days, its grants, the tools its prompt names, and tools marked `alwaysLoaded`. An agent with no history loads everything. |
+| `core` | The core tier (the action, ask and decision tools, `query_state`, `search_knowledge`, `lookup_objects`, `page_context`, `where_to`, `list_capabilities`, `describe_sources`), grants, tools named in the prompt, skills or playbooks, recent use, and every declared connector's tools, within 40 tools or 64k characters. The search note lists what is deferred, by family. |
+| `all` | Everything (`toolSearch: false` means the same). |
+
+```yaml
+defaults:
+  toolLoading: core # every agent in the workspace
+---
+harness:
+  toolLoading: all # one agent, overriding the workspace
+```
+
+- **Over the budget**, `core` keeps the core tier, grants and named tools whatever it costs, then
+  adds recent use, then whole connector families while they fit. A family that does not fit is
+  deferred whole and named in the note. Grants and named tools alone over the budget are logged
+  (`overBudget`); fix that in the agent (fewer grants, or a teammate).
+- **A tool an agent must always see** is better named in its prompt or a skill than marked
+  `alwaysLoaded`, which loads it for every agent.
+- **What a turn did** is on its trace: the mode, how many tools were loaded and deferred, the tool
+  searches it ran, calls to a tool it does not have, and tool errors. `run_meta` carries the
+  loading.
+- **Measure** an agent's catalog with `tsx src/scripts/measure-tools.ts [workspace-dir]`, and check
+  a change with the `agent-behaviour` eval (`src/scripts/eval-agent-behaviour.ts`, needs
+  `ANTHROPIC_API_KEY`). CI holds the catalog's caps (`toolMeasure.test.ts`).
+
 ## Related
 
 [Trust rules](../entities/trust.md) · [Earned autonomy](./earned-autonomy.md) ·

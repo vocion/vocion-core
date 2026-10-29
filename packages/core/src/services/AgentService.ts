@@ -663,11 +663,14 @@ async function runAgentDeepInScope(opts: {
    * usage through their own channels and leave this undefined.
    */
   usage?: RunUsage;
+  /** What the turn did with its tools (ADR 0009): searches, calls to unknown tools, errors. */
+  toolStats?: import('./agents/toolLoading').TurnToolStats;
 }> {
   // Local import keeps the legacy `runAgent` path from pulling
   // deepagents/LangChain modules at module-load time. (Cuts cold-start
   // for callers that never use the new runtime.)
   const { buildInitialFiles, compileAgentForRequest } = await import('./agents/harness');
+  const { emptyTurnToolStats, HARNESS_BUILTIN_TOOLS, noteModelToolUse } = await import('./agents/toolLoading');
   const { createLangfuseCallback } = await import('@/libs/Langfuse');
   const { chargeUsage, preflightCheck } = await import('./BudgetService');
   const { BudgetGateCallback, budgetRefusalMessage, TurnBudgetGuard } = await import('./agents/budgetStop');
@@ -945,6 +948,10 @@ async function runAgentDeepInScope(opts: {
   // with a trace whose last word was "Delegating…".
   const failures: TurnFailure[] = [];
   const failedDelegations: FailedDelegation[] = [];
+  // What the turn did with its tools, for the trace (ADR 0009): searches it
+  // ran, calls to a tool it does not have, and errors.
+  const toolStats = emptyTurnToolStats();
+  const knownTools = () => new Set([...(compiled.toolNames ?? []), ...HARNESS_BUILTIN_TOOLS]);
 
   // Reads the caps again after every charged model call and, once one is
   // crossed, stops the stream before the next model call — the preflight above
@@ -1023,7 +1030,7 @@ async function runAgentDeepInScope(opts: {
     const chosen = chatModelOptionsWithOverride(harness ?? {}, modelOverride);
     const provider = chosen.provider ?? resolveProvider('main');
     // The abstract levels are what the person sees; the concrete id is a detail they can expand.
-    emit({ type: 'run_meta', model: chosen.model ?? resolvedModelId('main'), provider, strength: turnPrefs.strength, thinking: turnPrefs.effort, ...(effortDecision ? { effort: { level: effortDecision.level, chosenBy: effortDecision.chosenBy, ...(effortDecision.reason ? { reason: effortDecision.reason } : {}) } } : {}) });
+    emit({ type: 'run_meta', model: chosen.model ?? resolvedModelId('main'), provider, strength: turnPrefs.strength, thinking: turnPrefs.effort, ...(effortDecision ? { effort: { level: effortDecision.level, chosenBy: effortDecision.chosenBy, ...(effortDecision.reason ? { reason: effortDecision.reason } : {}) } } : {}), ...(compiled.toolLoading ? { tools: compiled.toolLoading } : {}) });
   }
 
   const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
@@ -1264,6 +1271,9 @@ async function runAgentDeepInScope(opts: {
       }
       if (ev.event === 'on_chat_model_end' && stopReasonOf(ev.data?.output) === 'refusal') {
         refused = true;
+      }
+      if (ev.event === 'on_chat_model_end' && compiled.toolNames) {
+        noteModelToolUse(toolStats, ev.data?.output, knownTools());
       }
       // The pass's final state, for the next re-entry to continue from.
       if (ev.event === 'on_chain_end' && ((ev as { parent_ids?: unknown[] }).parent_ids ?? []).length === 0) {
@@ -1841,7 +1851,8 @@ async function runAgentDeepInScope(opts: {
       emit({ type: 'trace_node', id: `source-check-${trace.id}`, actor: { id: 'lead', kind: 'lead', name: compiled.agentRow.name ?? compiled.agentRow.slug ?? 'Assistant' }, kind: 'tool', status: 'done', tool: 'source_check', startedAt: now - grounding.ms, endedAt: now, ...step } as never);
     }
   }
-  trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length }, metadata: { usage: runUsageSummary(usage), ...(effortResult ? { effort: effortResult } : {}), ...(grounding ? { grounding: { ran: grounding.ran, ms: grounding.ms, flags: grounding.flags } } : {}) } });
+  toolStats.toolErrors = failures.filter(f => f.tool !== 'task').length;
+  trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length }, metadata: { usage: runUsageSummary(usage), tools: { ...compiled.toolLoading, ...toolStats }, ...(effortResult ? { effort: effortResult } : {}), ...(grounding ? { grounding: { ran: grounding.ran, ms: grounding.ms, flags: grounding.flags } } : {}) } });
   if (effortResult) {
     emit({ type: 'effort_result', ...effortResult });
   }
@@ -1942,6 +1953,7 @@ async function runAgentDeepInScope(opts: {
     traceId: trace.id,
     toolCalls: toolCallLog,
     usage,
+    toolStats,
   };
 }
 
