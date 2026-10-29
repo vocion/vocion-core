@@ -16,6 +16,8 @@
  *   seo_propose_profile  the client's SEO profile, pre-filled from their site, as one card a person saves (`seoProfile.ts`)
  *   seo_run_audit        the client's site audited in code, filed as an seo_audit record and a shareable report (`seoAudit.ts`)
  *   seo_update_findings  a finding's Fix it (a page in a batch, or a task), or a person's verdict on it
+ *   seo_save_prompts, seo_list_prompts, seo_import_prompts, seo_export_prompts
+ *                        the Prompts register: AI-answer prompts per client (`seoPrompts.ts`)
  *
  * The gate is code (`services/seo/gate.ts`), not a prompt, and so are the
  * asks (`services/seo/signoff.ts`): these tools are the only path that
@@ -52,6 +54,7 @@ import { recordIdArg, recordIdOf } from './recordIdArg';
 import { seoRunAuditTool, seoUpdateFindingsTool } from './seoAudit';
 import { planFromKeywords, registerLine, seoListKeywordsTool, seoUpdateKeywordsTool } from './seoKeywords';
 import { seoProposeProfileTool } from './seoProfile';
+import { seoPromptTools } from './seoPrompts';
 import { seoReadPageTool } from './seoReadPage';
 
 export const SEO_PLUGIN = 'seo';
@@ -872,6 +875,7 @@ export function seoTools(ctx: RuntimeContext) {
     seoProposeProfileTool(ctx),
     seoRunAuditTool(ctx),
     seoUpdateFindingsTool(ctx),
+    ...seoPromptTools(ctx),
   ];
   // The SEO seats' own tools are never behind tool search: a teammate on its
   // own model gets the lead's tiered set, and a live editor run could not find

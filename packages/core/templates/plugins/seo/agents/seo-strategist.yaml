@@ -27,6 +27,8 @@ handles:
   - landing pages
   - onboard a client
   - seo audit
+  - ai prompts
+  - brand radar
   - site audit
   - plan pages
   - pages waiting on me
@@ -34,6 +36,7 @@ initiative: high
 skills:
   - onboard-client
   - audit-site
+  - ai-prompts
   - serp-research
   - page-brief
   - feedback-to-wiki
@@ -42,6 +45,7 @@ skills:
 objectTypes:
   - seo_audit
   - seo_batch
+  - seo_prompt
   - seo_page
   - data_room
 learningSteps:
@@ -99,6 +103,11 @@ systemPrompt: |
      shareable report; say the headline and the recommended next steps, and
      act on a finding with seo_update_findings (plan_page or make_task).
      A new client's first run is onboard, audit, report, next steps.
+  1c. ai-prompts: when being named in AI answers matters to the client (its
+     profile's goals), the questions buyers ask AI assistants, by group,
+     saved with seo_save_prompts in the same turn you propose them, never
+     only in chat or an artifact. A Brand Radar CSV the person drops goes in
+     with seo_import_prompts; seo_export_prompts gives one back.
   2. serp-research (the SERP analyst does the legwork): serp_search,
      keyword_cluster (one page per cluster), serp_compare to file the SERP
      brief, then serp_compare with brief_id and the synthesis (intent, common

@@ -1,0 +1,82 @@
+slug: seo_prompt
+label: AI prompt
+description: >-
+  One question buyers ask an AI assistant ("best invoicing tool for creative
+  agencies"), tracked for one client's project: its group (category,
+  shortlist, problem, comparison, brand), intent and the platforms it is
+  tracked on, and whether the client is mentioned or cited in the answer,
+  which competitors are, and when that was checked and with what. Code writes
+  it (`services/seo/prompts.ts`): the strategist's proposed prompts are saved
+  the moment they are proposed, and an Ahrefs Brand Radar export is imported
+  into it; the prompt and its project are the key, so saving or importing
+  again refreshes the row rather than adding one.
+icon: radar
+schema:
+  type: object
+  properties:
+    projectId:
+      type: integer
+      description: The client's project.
+    projectName:
+      type: string
+      description: The client.
+    prompt:
+      type: string
+      description: The question, as a buyer would ask it.
+    promptKey:
+      type: string
+      description: The prompt as it is compared; one row per key per project.
+      x-display: {hidden: true}
+    group:
+      type: string
+      enum: [category, shortlist, problem, comparison, brand]
+      x-labels: {category: Category, shortlist: Shortlist, problem: Problem, comparison: Comparison, brand: Brand}
+    intent:
+      type: string
+    platforms:
+      type: array
+      items: {type: string, enum: [chatgpt, google_ai_overviews, google_ai_mode, perplexity, gemini, copilot, claude]}
+      description: Where it is tracked.
+    visibility:
+      type: string
+      enum: [cited, mentioned, absent, unchecked]
+      x-display: {label: Client, format: badge, tones: {cited: ok, mentioned: info, absent: warn, unchecked: muted}}
+      x-labels: {cited: Cited, mentioned: Mentioned, absent: Not mentioned, unchecked: Not checked}
+    mentioned:
+      type: boolean
+      description: The client is named in the answer, when last checked.
+    cited:
+      type: boolean
+      description: A page of the client's is cited as a source, when last checked.
+    citedUrls:
+      type: array
+      items: {type: string}
+    competitorsMentioned:
+      type: array
+      items: {type: string}
+      description: Competitors named in the answer, when last checked.
+    checkedAt:
+      type: string
+      format: date-time
+      description: When the mention data was read.
+    checkedWith:
+      type: string
+      description: What it was read with (an Ahrefs Brand Radar export, …).
+    source:
+      type: string
+      enum: [agent, imported]
+      x-labels: {agent: Proposed by the strategist, imported: Imported}
+    status:
+      type: string
+      enum: [tracked, dropped]
+      x-labels: {tracked: Tracked, dropped: Dropped}
+      x-groups:
+        - {key: tracked, label: Tracked, role: progress, default: true, in: [tracked]}
+        - {key: dropped, label: Dropped, role: archived, in: [dropped]}
+    why:
+      type: object
+      description: Why it is tracked, or why it was dropped, with when and by whom.
+      properties:
+        text: {type: string}
+        at: {type: string, format: date-time}
+        by: {type: string}
