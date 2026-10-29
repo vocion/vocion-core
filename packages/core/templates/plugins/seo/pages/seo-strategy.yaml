@@ -30,4 +30,4 @@ rowActions:
 empty:
   text: No strategies yet. Ask the SEO strategist to draft a client's strategy; it becomes a goal you own, with milestones that complete as the work does.
 prompts:
-  - {label: Draft a client's strategy, prompt: 'Draft an SEO strategy for a client as a goal with milestones. First ask me which client and the horizon (a quarter or a date).', agent: seo-strategist}
+  - {label: Draft a client's strategy, prompt: Draft an SEO strategy for a client as a goal with milestones. First ask me which client and the horizon (a quarter or a date)., agent: seo-strategist}
