@@ -130,7 +130,7 @@ export function gmailTools(ctx: RuntimeContext) {
     },
     {
       name: 'get_gmail_thread',
-      description: 'Get the FULL text of one Gmail thread (every message: headers + body) by thread id or any message id in it. Read-through cache: answers from the synced mirror when a copy was fetched within max_age_minutes (source: "cache"), otherwise fetches live from Gmail and upserts it into the index (source: "live", with the upsert status). Use when you need the verbatim conversation rather than search snippets or the metadata-only synced snippets, and ALWAYS before you say what a message says, when it came, or that it could not be read: a snippet is a fragment of the message, not the message.',
+      description: 'Get the FULL text of one Gmail thread (every message: headers + body) by thread id or any message id in it. Read-through cache: answers from the synced mirror when a copy was fetched within max_age_minutes (source: "cache"), otherwise fetches live from Gmail and upserts it into the index (source: "live", with the upsert status). Use when you need the verbatim conversation rather than search snippets or the metadata-only synced snippets, and always before describing a message: a snippet is not the message.',
       schema: z.object({
         thread_id: z.string().optional().describe('Gmail thread id (preferred).'),
         message_id: z.string().optional().describe('Any Gmail message id in the thread — resolved to its thread.'),
