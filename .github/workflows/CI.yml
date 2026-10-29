@@ -402,15 +402,14 @@ jobs:
     # per shard, so the limit has to cover those 8, setup and the upload. It used
     # to be 10 with no Playwright cap, and a red run hit this limit before
     # Playwright could print its summary.
-    # `needs: [build]` again (#631 had removed it). Starting the shards with
-    # the build saved about 70s on an idle queue, but on the org's 20-job
-    # plan three shards sat on runner slots for up to 11 minutes while the
-    # build they waited for queued behind them, and failed with "Gave up
-    # waiting for Build". The wait step stays: it returns at once now, and
-    # still finds the output for a re-run of only the failed shards.
-    # Playwright's 8 minutes, setup and the upload.
-    needs: [build]
-    timeout-minutes: 14
+    # No `needs: [build]`. A shard starts with the build, pulls the
+    # Playwright image, starts Postgres and restores node_modules (about 70s)
+    # while the build runs, and waits only for the build output, in the
+    # "Wait for the build output" step below (#631). So this limit now also
+    # covers the wait: up to the build's own 10 minutes, then Playwright's 8,
+    # plus setup and the upload. 20 leaves room for all three; a normal run
+    # waits 3–4 minutes.
+    timeout-minutes: 20
     # The wait step reads this run's jobs and the cache list.
     permissions:
       contents: read
