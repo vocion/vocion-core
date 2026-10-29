@@ -214,6 +214,8 @@ type FailedLoginInput = {
   provider: ConnectProvider;
   connectorSlug: string;
   reason: string;
+  /** The failure in words, when the caller knows more than the code says. */
+  summary?: string;
   card?: ChatCard;
   /**
    * When the login's state was signed. A success for this connector recorded
@@ -255,14 +257,14 @@ async function writeFailure(tx: DbTransaction, input: FailedLoginInput): Promise
   if (await succeededSinceStateIssued(tx, input)) {
     return;
   }
-  await recordConnectAttempt({ orgId: input.orgId, userId: input.userId, provider: input.provider.id, providerLabel: input.provider.label, connector: input.connectorSlug, ok: false, reason: input.reason, tx });
+  await recordConnectAttempt({ orgId: input.orgId, userId: input.userId, provider: input.provider.id, providerLabel: input.provider.label, connector: input.connectorSlug, ok: false, reason: input.reason, ...(input.summary ? { summary: input.summary } : {}), tx });
   if (input.card) {
     await markCardRun({
       orgId: input.orgId,
       conversationId: input.card.conversationId,
       cardId: input.card.cardId,
       expectState: 'proposed',
-      patch: { lastAttempt: { at: new Date().toISOString(), reason: input.reason, summary: connectFailureSummary(input.provider.label, input.reason) } },
+      patch: { lastAttempt: { at: new Date().toISOString(), reason: input.reason, summary: input.summary ?? connectFailureSummary(input.provider.label, input.reason) } },
       tx,
     });
   }
@@ -280,6 +282,7 @@ async function writeFailure(tx: DbTransaction, input: FailedLoginInput): Promise
  * @param input.provider - The provider the login was with.
  * @param input.connectorSlug - The connector it was for.
  * @param input.reason - The short reason code.
+ * @param input.summary - The failure in words, when known beyond the code.
  * @param input.card - The chat card it came from, when it did.
  * @param input.stateIssuedAt - When the login's state was signed.
  */

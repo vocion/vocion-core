@@ -39,6 +39,10 @@ recommend:
     - feedback on a client's page keeps being given twice, or lost between writers
   # Search Console first: it is free, and it is the client's own rankings.
   connectors: [search-console, github, squarespace, ahrefs]
+  # Only publishing reads these: never asked for while researching, planning,
+  # briefing, drafting or reviewing; the publish step asks when the project's
+  # target needs one.
+  publishOnly: [github, squarespace]
 
 starters:
   - label: Onboard a new client from their website

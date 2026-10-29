@@ -272,3 +272,27 @@ export function samplePaths(paths: readonly string[], folder: string, n = 3): st
     .sort()
     .slice(-n);
 }
+
+/**
+ * The folder a site keeps its posts in, when nobody named it: the folder with
+ * the most markdown posts directly in it (two at least), a `blog`, `posts` or
+ * `articles` folder first on a tie. Null when there is none. Pure.
+ * @param paths - Every file path in the repository.
+ */
+export function postsFolderOf(paths: readonly string[]): string | null {
+  const counts = new Map<string, number>();
+  for (const p of paths) {
+    if (!/\.(?:mdx?|markdown)$/i.test(p) || /(?:^|\/)(?:readme|changelog|license|contributing)\.[^/]+$/i.test(p) || /(?:^|\/)(?:node_modules|\.github|docs?)\//i.test(p)) {
+      continue;
+    }
+    const at = p.lastIndexOf('/');
+    if (at <= 0) {
+      continue;
+    }
+    const folder = p.slice(0, at);
+    counts.set(folder, (counts.get(folder) ?? 0) + 1);
+  }
+  const named = (f: string) => (/(?:^|\/)(?:blog|posts|articles)$/i.test(f) ? 1 : 0);
+  const best = [...counts].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1] || named(b[0]) - named(a[0]) || a[0].localeCompare(b[0]))[0];
+  return best ? best[0] : null;
+}

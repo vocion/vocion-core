@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dateFormatOfValue, folderOf, pathPatternOf, samplePaths, templateFrom } from './learnTemplate';
+import { dateFormatOfValue, folderOf, pathPatternOf, postsFolderOf, samplePaths, templateFrom } from './learnTemplate';
 
 /** Three posts from a fictional Astro site (Northwind Home Services). */
 const POSTS = [
@@ -51,5 +51,16 @@ describe('a post\'s date style is copied exactly', () => {
     const one = templateFrom([{ path: 'src/content/blog/a.mdx', text: '---\ndate: 2026-10-28\nlastUpdatedDate: "October 28, 2026"\n---\n\nBody.' }])!;
 
     expect(one.frontmatter).toEqual({ date: '{date:YYYY-MM-DD}', lastUpdatedDate: '{date:MMMM D, YYYY}' });
+  });
+});
+
+describe('the folder a site keeps its posts in, when nobody named it (a repo just picked)', () => {
+  it('is the folder with the most posts, a blog folder first on a tie', () => {
+    expect(postsFolderOf(['README.md', 'src/content/blog/a.mdx', 'src/content/blog/b.mdx', 'src/content/blog/c.mdx', 'src/pages/about.md', 'src/pages/contact.md'])).toBe('src/content/blog');
+    expect(postsFolderOf(['notes/a.md', 'notes/b.md', 'posts/a.md', 'posts/b.md'])).toBe('posts');
+  });
+
+  it('is none when no folder holds two posts, and never docs or a readme', () => {
+    expect(postsFolderOf(['README.md', 'src/a.md', 'docs/a.md', 'docs/b.md', 'CHANGELOG.md'])).toBeNull();
   });
 });

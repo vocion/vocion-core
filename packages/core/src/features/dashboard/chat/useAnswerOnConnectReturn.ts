@@ -32,12 +32,25 @@ export function withoutConnectParams(search: string): string {
  */
 export function stepForConnector(decisions: readonly DecisionView[], connector: string): { view: DecisionView; optionId: string } | null {
   for (const view of decisions) {
-    const option = view.options.find(o => o.id === `connect:${connector}` || o.id === `paste:${connector}`);
+    // `install:` and `request:` are the coverage card's (`services/connect/githubInstall.ts`).
+    const option = view.options.find(o => o.id === `connect:${connector}` || o.id === `paste:${connector}` || o.id === `install:${connector}` || o.id === `request:${connector}`);
     if (option) {
       return { view, optionId: option.id };
     }
   }
   return null;
+}
+
+/**
+ * What the card says when a connect came back without connecting. A GitHub
+ * install sent to an owner for approval is waiting, not failed.
+ * @param outcome - How the connect came back.
+ */
+export function connectReturnLine(outcome: ConnectReturn): string {
+  if (outcome.reason === 'installation_requested') {
+    return 'Install requested: waiting for an owner of the organization to approve it. Once they do, connect again here to pick it up.';
+  }
+  return `Connecting ${outcome.connector} didn't work (${outcome.reason ?? 'no reason given'}). Try again from the card.`;
 }
 
 /**
@@ -93,7 +106,7 @@ export function useAnswerOnConnectReturn(input: {
       } else if (outcome.ok) {
         answer(step.view, { kind: 'option', optionIds: [step.optionId] });
       } else {
-        fail(`Connecting ${outcome.connector} didn't work (${outcome.reason ?? 'no reason given'}). Try again from the card.`);
+        fail(connectReturnLine(outcome));
       }
     });
   }, [outcome, ready, decisions, answer, fail, pathname, replaceUrl, handedOff]);

@@ -370,3 +370,43 @@ describe('offer_connection and the two kinds', () => {
     expect(emit).not.toHaveBeenCalled();
   });
 });
+
+describe('offer_connection — GitHub only at publish, and one ask per system', () => {
+  const cards = (emit: ReturnType<typeof vi.fn>) => emit.mock.calls.map(c => c[0]).filter((e: { type: string }) => e.type === 'card');
+
+  it('the SEO strategist researching a keyword list gets no GitHub card, and is told to carry on', async () => {
+    const emit = vi.fn();
+    const seo = { ...ctxWith(emit), agentSlug: 'seo-strategist', conversationId: 301 } as RuntimeContext;
+
+    const out = String(await offerConnectionTool(seo).invoke({ connector: 'github', why: 'To read the client\'s site.' }));
+
+    expect(out).toMatch(/^Not asked: GitHub is only needed to publish/);
+    expect(cards(emit)).toHaveLength(0);
+  });
+
+  it('at the publish step the strategist is let through to the connect flow', async () => {
+    const emit = vi.fn();
+    const seo = { ...ctxWith(emit), agentSlug: 'seo-strategist', conversationId: 302 } as RuntimeContext;
+    const { markPublishStep } = await import('@/services/connect/connectAskGate');
+    markPublishStep(seo, 'github', 12);
+
+    const out = String(await offerConnectionTool(seo).invoke({ connector: 'github', why: 'To open the page\'s pull request.' }));
+
+    // A GitHub login exists by now in this file, so the flow asks for repositories rather than drawing a login card.
+    expect(out).not.toMatch(/^Not asked/);
+    expect(out).toMatch(/GitHub/);
+  });
+
+  it('after a person skipped connecting it here, it is not asked again: the existing state comes back instead', async () => {
+    const { askSchema } = await import('@/models/Schema');
+    await db.insert(askSchema).values({ orgId: ORG, kind: 'setup', title: 'Connect GitHub', conversationId: 303, status: 'skipped', decidedAt: new Date(), options: [{ id: 'connect:github', label: 'Log in with GitHub', href: '/api/connect/github/start?connector=github' }] });
+    const emit = vi.fn();
+    const here = { ...ctxWith(emit), conversationId: 303 } as RuntimeContext;
+
+    const out = String(await offerConnectionTool(here).invoke({ connector: 'github', why: 'x' }));
+
+    expect(out).toMatch(/^Not asked: they skipped connecting GitHub on [A-Z][a-z]{2} \d+ \(ask #\d+\)/);
+    expect(out).toMatch(/say in one line what you did instead/);
+    expect(cards(emit)).toHaveLength(0);
+  });
+});

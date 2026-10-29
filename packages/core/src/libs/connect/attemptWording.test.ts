@@ -19,6 +19,7 @@ describe('connectFailureSummary', () => {
     ['provider_unreachable', 'GitHub could not be reached, so nothing was connected'],
     ['source_not_created', 'GitHub logged in, but its source could not be created. Add it from Connectors'],
     ['server_error', 'GitHub refused the login (server_error)'],
+    ['installation_requested', 'Install requested: waiting for an owner of the GitHub organization to approve it'],
   ])('%s', (reason, expected) => {
     expect(connectFailureSummary('GitHub', reason)).toBe(expected);
   });

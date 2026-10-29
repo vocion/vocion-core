@@ -63,6 +63,17 @@ function landAt(request: NextRequest, origin: string, outcome: { ok: true } | { 
  */
 async function failAndLand(request: NextRequest, origin: string, failed: FailedLogin, landing: Landing) {
   try {
+    // A GitHub install sent to an owner for approval is a waiting state, said
+    // with the organization it waits on, on the card and the connector.
+    if (failed.provider.id === 'github' && failed.reason === 'installation_requested') {
+      const { noteRequestOnAsk, requestedOrg, requestedSummary } = await (await import('@/libs/connectAskBridge')).connectAsk();
+      const summary = requestedSummary(await requestedOrg(failed.orgId, failed.card?.conversationId));
+      await recordFailedLogin({ ...failed, summary });
+      if (failed.card) {
+        await noteRequestOnAsk(failed.orgId, failed.card.conversationId, summary);
+      }
+      return landAt(request, origin, { ok: false, reason: failed.reason }, landing);
+    }
     await recordFailedLogin(failed);
   } catch (error) {
     console.error('[connect] could not record the failed login', {
@@ -128,6 +139,28 @@ async function storeAndLand(request: NextRequest, origin: string, done: Paramete
   }
   if (personal) {
     return landAt(request, origin, { ok: true }, landing);
+  }
+  // A GITHUB INSTALL IS FINISHED HERE: its repositories become the source
+  // agents read, and a Project's repository it does not cover gets its card
+  // in the conversation it came from (`services/connect/githubInstall.ts`).
+  if (provider.id === 'github') {
+    const { finishGithubInstall } = await (await import('@/libs/connectAskBridge')).connectAsk();
+    const { connectStartHref } = await import('@/libs/connect/returnTo');
+    const finished = await finishGithubInstall({
+      orgId,
+      userId,
+      credentials: done.exchanged.credentials as Record<string, unknown>,
+      ...(card ? { conversationId: card.conversationId } : {}),
+      ...(projectId ? { projectId } : {}),
+      startHref: connectStartHref({ provider: 'github', connector: 'github', returnTo: landing.returnTo ?? null, ...(card ? { conversationId: card.conversationId } : {}), ...(projectId ? { projectId } : {}) }),
+    });
+    if (finished.failed) {
+      console.error('[connect] the GitHub install was stored but its source was not', { reason: finished.failed });
+    }
+    if (finished.sourceSaved && card) {
+      await approveCard(orgId, userId, provider, connectorSlug, card);
+    }
+    return landAt(request, origin, { ok: true }, finished.sourceSaved ? { ...landing, returnTo: withoutAddParam(landing.returnTo) } : landing);
   }
   // A connector that needs no picks has its source now; one that does is finished in chat or on the Connectors form.
   const made = await createSourceWhenNoConfigNeeded({ orgId, userId, connector: connectorSlug, linkedSourceIds: outcome.linkedSourceIds, ...(projectId ? { projectId } : {}) });

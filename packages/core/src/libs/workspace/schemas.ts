@@ -482,6 +482,14 @@ export const PluginManifestSchema = z.object({
   recommend: z.object({
     when: z.array(z.string().min(1)).default([]),
     connectors: z.array(z.string().min(1)).default([]),
+    /**
+     * Connectors only the publish step reads (SEO: the client's GitHub repo
+     * or Squarespace site). The plugin's agents never ask for them while
+     * they research, plan, brief, draft or review: a connect card for one
+     * is shown only when an action that `connects` it could not run for want
+     * of it (`services/connect/connectAskGate.ts`).
+     */
+    publishOnly: z.array(z.string().min(1)).optional(),
   }).default({ when: [], connectors: [] }),
   /**
    * The moments this plugin tells a person about — the only events that

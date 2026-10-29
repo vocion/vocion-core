@@ -119,6 +119,8 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
   inputSchema: publishPageInput,
   grant: 'publish_page',
   external: true,
+  // The publish step is where the site's system is asked for, and only there.
+  connects: ['github', 'squarespace'],
   // Held for a person unless a person signed this page's current words off.
   async holdForPerson(ctx, raw) {
     const pageId = Number((raw as { pageRecordId?: unknown }).pageRecordId);
@@ -321,6 +323,8 @@ export const sitePublishLiveAction: Action<typeof publishLiveInput> = {
   inputSchema: publishLiveInput,
   grant: 'publish_page',
   external: true,
+  // The publish step is where the site's system is asked for, and only there.
+  connects: ['github', 'squarespace'],
   approvalRequired: true,
   requiresReviewDecision: true,
   dedupKeyFor: input => `${PUBLISH_LIVE_ACTION_ID}:${[...new Set(input.pageRecordIds)].sort((a, b) => a - b).join(',')}`,
