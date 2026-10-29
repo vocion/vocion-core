@@ -113,6 +113,7 @@ describe('the live line on a long turn', () => {
     await vi.waitFor(() => expect(session!.isStreaming).toBe(false));
 
     await expect.element(line()).not.toBeInTheDocument();
-    await expect.element(page.getByTestId('work-group')).toHaveTextContent('2 steps');
+    await expect.element(page.getByTestId('work-group')).toHaveTextContent('Checked what Ahrefs can do and read Google\'s results for 12 keywords');
+    await expect.element(page.getByRole('button', { name: /· 2 steps/ })).toBeInTheDocument();
   });
 });
