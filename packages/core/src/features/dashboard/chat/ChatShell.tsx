@@ -38,7 +38,7 @@ import { transcriptOf } from './transcript';
 import { useAnswerOnConnectReturn } from './useAnswerOnConnectReturn';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
-import { usePersonFirstName, WaitingNudge } from './WaitingNudge';
+import { usePersonFirstName, WAITING_NUDGE_ENABLED, WaitingNudge } from './WaitingNudge';
 import { workBlock } from './work/RunningWork';
 
 /**
@@ -279,7 +279,7 @@ function ChatShellInner({
   // Without the server's hints, the plain count stands in.
   const nudge = openingHints
     ? (openingHints.length > 0 ? <OpeningHints hints={openingHints} onSend={session.handlePickSuggestion} /> : null)
-    : waitingCount > 0 ? <WaitingNudge count={waitingCount} /> : null;
+    : WAITING_NUDGE_ENABLED && waitingCount > 0 ? <WaitingNudge count={waitingCount} /> : null;
   // A lead-only workspace opens on its own setup chip — unless the person
   // already started a setup and left it: then the ranker's "Resume setting up
   // … →" takes that one place (`objectives/ObjectiveStrip`).

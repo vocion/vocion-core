@@ -14,7 +14,7 @@ import { decisionKey } from '@/libs/decisions/decision';
 import { isConnectStart, listenForConnectReturn, openConnectTab } from '../connectTabHandoff';
 import { dockPlan } from '../emptyChat';
 import { stepForConnector } from '../useAnswerOnConnectReturn';
-import { WaitingNudge } from '../WaitingNudge';
+import { WAITING_NUDGE_ENABLED, WaitingNudge } from '../WaitingNudge';
 import { DecisionCard } from './DecisionCard';
 import { decisionTopics, settledElsewhere, settledElsewhereLine } from './dockLive';
 import { DoneReceipts } from './DoneReceipts';
@@ -334,7 +334,7 @@ export function ConversationDecisions({ session }: { session: DockSession }) {
       />
     );
   }
-  if (plan.nudge !== null && !session.dockNotice) {
+  if (WAITING_NUDGE_ENABLED && plan.nudge !== null && !session.dockNotice) {
     return (
       <div className="mb-2 flex justify-center" data-testid="decision-dock-nudge">
         <WaitingNudge count={plan.nudge} />
