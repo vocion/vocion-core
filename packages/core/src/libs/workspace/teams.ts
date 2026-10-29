@@ -21,6 +21,7 @@ type TeamsTeam = {
   slug: string;
   lead?: string;
   accountableUser?: string;
+  app?: string;
   sourceFile: string;
 };
 
@@ -29,7 +30,7 @@ type TeamsManifest = {
   accountableUser?: string;
 };
 
-export function assertTeams(agents: TeamsAgent[], teams: TeamsTeam[], manifest: TeamsManifest): void {
+export function assertTeams(agents: TeamsAgent[], teams: TeamsTeam[], manifest: TeamsManifest, appIds?: readonly string[]): void {
   const errors: string[] = [];
   const agentSlugs = new Set(agents.map(a => a.slug));
   const teamSlugs = new Set(teams.map(t => t.slug));
@@ -38,6 +39,15 @@ export function assertTeams(agents: TeamsAgent[], teams: TeamsTeam[], manifest: 
   for (const team of teams) {
     if (team.lead !== undefined && !agentSlugs.has(team.lead)) {
       errors.push(`${team.sourceFile}: team "${team.slug}" has unknown lead "${team.lead}" — no agent with that slug in this workspace`);
+    }
+  }
+
+  // A team's app must be one this core ships (checked when the catalogue is known).
+  if (appIds) {
+    for (const team of teams) {
+      if (team.app !== undefined && !appIds.includes(team.app)) {
+        errors.push(`${team.sourceFile}: team "${team.slug}" names unknown app "${team.app}" — this core ships: ${appIds.join(', ') || 'none'}`);
+      }
     }
   }
 

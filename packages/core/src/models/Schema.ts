@@ -1304,6 +1304,13 @@ export const teamSchema = pgTable(
     /** The team's standing goal, authored as `goal:` in teams/<slug>.yaml. */
     goal: text('goal'),
     /**
+     * The app this team works in, when its file names one (`app:` in
+     * teams/<slug>.yaml, an app id; migration 0230). NULL = the app of the
+     * plugin that ships the team, else the core app
+     * (`features/navigation/appTeams.ts`).
+     */
+    app: text('app'),
+    /**
      * @deprecated Legacy `kpis:` (F3) — worker-reported counts only. Kept for
      * one release so rows applied before `measures` existed still read; the
      * report folds them in as `agent-reported` measures when `measures` is

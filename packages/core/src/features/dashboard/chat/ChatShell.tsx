@@ -2,6 +2,7 @@
 
 import type { AgentSurfaceRequest } from './agentSurface';
 import type { AgentOption, ChatAttachment } from './types';
+import type { AppFront as AppFrontData } from '@/libs/chat/appFront';
 import type { OpeningHint } from '@/libs/chat/openingHints';
 import type { ConnectReturn } from '@/libs/connect/returnTo';
 import type { PageContext } from '@/services/chat/pageContext';
@@ -18,6 +19,7 @@ import { setLiveSources } from '@/libs/preview/liveSources';
 import { parseSourcesRefId, sourcesPreviewRef } from '@/libs/preview/sourcesRef';
 import { AboutRecordChip } from './AboutRecordChip';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, takeChatAbout } from './agentSurface';
+import { AppFront } from './AppFront';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
 import { ChatComposer } from './ChatComposer';
 import { ChatDropZone } from './ChatDropZone';
@@ -36,6 +38,7 @@ import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './rout
 import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
 import { useAnswerOnConnectReturn } from './useAnswerOnConnectReturn';
+import { useAppFront } from './useAppFront';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
 import { usePersonFirstName, WAITING_NUDGE_ENABLED, WaitingNudge } from './WaitingNudge';
@@ -91,6 +94,8 @@ export type ChatShellProps = {
   startNew?: boolean;
   /** The ranked opening hints for an empty conversation (`services/chat/openingHints.ts`). */
   openingHints?: OpeningHint[];
+  /** Each installed app's front, by app id (`services/chat/appFront.ts`); the page draws the one it is in. */
+  appFronts?: Record<string, AppFrontData>;
   /**
    * `?objective=connect-systems` — a link from an app's page, the checklist or
    * the Connectors page, as the person's own words ("Help me connect the
@@ -128,6 +133,7 @@ export type ChatShellProps = {
  * @param props.connectReturn - How a connect this thread started came back.
  * @param props.openingAsk - A link's ask, sent once as the person's first message.
  * @param props.openingHints - The ranked opening hints.
+ * @param props.appFronts - Each installed app's front, by app id.
  */
 export function ChatShell({
   agents,
@@ -140,6 +146,7 @@ export function ChatShell({
   connectReturn,
   openingAsk = null,
   openingHints,
+  appFronts,
 }: ChatShellProps) {
   if (agents.length === 0) {
     return <NoAgentsToChatWith />;
@@ -157,6 +164,7 @@ export function ChatShell({
       connectReturn={connectReturn}
       openingAsk={openingAsk}
       openingHints={openingHints}
+      appFronts={appFronts}
     />
   );
 }
@@ -191,6 +199,7 @@ function ChatShellInner({
   connectReturn,
   openingAsk = null,
   openingHints,
+  appFronts,
 }: ChatShellProps) {
   const t = useTranslations('Chat');
   const router = useRouter();
@@ -277,8 +286,13 @@ function ChatShellInner({
   // The opening hint (`libs/chat/openingHints.ts`): one ranked suggestion,
   // two at most, of which "N things need your attention" is one candidate.
   // Without the server's hints, the plain count stands in.
-  const nudge = openingHints
-    ? (openingHints.length > 0 ? <OpeningHints hints={openingHints} onSend={session.handlePickSuggestion} /> : null)
+  // In an app with a front, the front is the attention entry and the app's
+  // brief: the workspace-wide "N things need you" and "latest briefing"
+  // hints would say the same thing for the whole workspace, so they step aside.
+  const front = useAppFront(appFronts);
+  const hints = front && openingHints ? openingHints.filter(h => h.type !== 'attention' && h.key !== 'next:briefing') : openingHints;
+  const nudge = hints
+    ? (hints.length > 0 ? <OpeningHints hints={hints} onSend={session.handlePickSuggestion} /> : null)
     : WAITING_NUDGE_ENABLED && waitingCount > 0 ? <WaitingNudge count={waitingCount} /> : null;
   // A lead-only workspace opens on its own setup chip — unless the person
   // already started a setup and left it: then the ranker's "Resume setting up
@@ -477,6 +491,7 @@ function ChatShellInner({
                                   team={team}
                                   secondLine={teamLine({ workspace: agents.find(a => a.workspaceLabel)?.workspaceLabel ?? session.workspaceName, members: team }, (key, values) => t(key, values))}
                                   nudge={nudge}
+                                  top={front ? <AppFront front={front} onAsk={session.askAgent} /> : null}
                                 />
                               )}
                         </>

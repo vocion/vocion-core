@@ -25,7 +25,7 @@ const ORG = 'proj_roundtrip';
 const CHRIS = { id: 'usr-rt-chris', name: 'Chris Fitkin', email: 'chris@metacto.com' };
 const LILI = { id: 'usr-rt-lili', name: 'Lili Chen', email: 'lili@metacto.com' };
 
-const REVENUE_OPS_YAML = 'name: Revenue Operations\ndescription: Pipeline, follow-ups, and buyer insight.\nlead: revenue-lead\n';
+const REVENUE_OPS_YAML = 'name: Revenue Operations\ndescription: Pipeline, follow-ups, and buyer insight.\nlead: revenue-lead\napp: gtm\n';
 const MARKETING_YAML = `name: Marketing\nlead: marketing-lead\naccountableUser: ${LILI.email}\n`;
 
 function writeFixtureWorkspace(): string {
@@ -72,9 +72,10 @@ describe('teams workspace apply → export round-trip', () => {
     // Team rows: explicit owner stored; inherited owner stored as NULL.
     const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, ORG)).orderBy(teamSchema.slug);
 
-    expect(teams.map(t => ({ slug: t.slug, lead: t.leadAgentSlug, owner: t.accountableUserId }))).toEqual([
-      { slug: 'marketing', lead: 'marketing-lead', owner: LILI.id },
-      { slug: 'revenue-ops', lead: 'revenue-lead', owner: null },
+    // A workspace team's `app:` is stored as written; one that names none is NULL.
+    expect(teams.map(t => ({ slug: t.slug, lead: t.leadAgentSlug, owner: t.accountableUserId, app: t.app }))).toEqual([
+      { slug: 'marketing', lead: 'marketing-lead', owner: LILI.id, app: null },
+      { slug: 'revenue-ops', lead: 'revenue-lead', owner: null, app: 'gtm' },
     ]);
 
     // Workspace lead + default owner landed on the project row.

@@ -6,7 +6,7 @@ import { loadWorkspace } from './loader';
 import { assertTeams, effectiveTeamSlug } from './teams';
 
 const agent = (slug: string, team?: string) => ({ slug, team, sourceFile: `agents/${slug}.yaml` });
-const team = (slug: string, overrides: Partial<{ lead: string; accountableUser: string }> = {}) => ({
+const team = (slug: string, overrides: Partial<{ lead: string; accountableUser: string; app: string }> = {}) => ({
   slug,
   sourceFile: `teams/${slug}.yaml`,
   ...overrides,
@@ -19,6 +19,11 @@ describe('assertTeams', () => {
       [team('revenue-ops', { lead: 'revenue-lead' })],
       { lead: 'revenue-lead' },
     )).not.toThrow();
+  });
+
+  it('accepts a team that names an app this core ships, and rejects one it does not', () => {
+    expect(() => assertTeams([], [team('pipeline', { app: 'sales' })], {}, ['home', 'sales'])).not.toThrow();
+    expect(() => assertTeams([], [team('pipeline', { app: 'retired' })], {}, ['home', 'sales'])).toThrow(/names unknown app "retired"/);
   });
 
   it('rejects an agent team: ref that names a missing team — and says which', () => {

@@ -2038,6 +2038,16 @@ export function useChatSession({
     void sendMessage(prompt);
   }, [sendMessage]);
 
+  // An ask addressed to one agent by name (an app's attention entry asks the
+  // app's lead): that ONE turn goes to it, the way a page hand-off does; the
+  // conversation stays with the workspace agent.
+  const askAgent = useCallback((prompt: string, agentSlug: string | null) => {
+    if (agentSlug && agentSlug !== agent.slug && agents.some(a => a.slug === agentSlug)) {
+      routeOnceRef.current = agentSlug;
+    }
+    handlePickSuggestion(prompt);
+  }, [handlePickSuggestion, agent.slug, agents]);
+
   // Handoff from another page (e.g. the Briefings composer): a stashed
   // { question, contextTitle, context } starts this chat — the context rides
   // inside the first message. A stashed `agentSlug` (the brief's team lead)
@@ -2407,6 +2417,8 @@ export function useChatSession({
   return {
     /** Build it on a card a turn drew (`ArtifactChips`). */
     buildFromCard,
+    /** Send an ask whose one turn goes to the named agent. */
+    askAgent,
     /** The agent this chat is talking to right now. */
     agent,
     /** Chips for the empty state — the picked agent's own, else the workspace set. */

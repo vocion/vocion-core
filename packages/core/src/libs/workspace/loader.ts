@@ -12,6 +12,7 @@ import { parse as parseYaml } from 'yaml';
 import { isSurfaceId, SURFACE_IDS } from '@/features/navigation/surfaces';
 import { assignTypeCodes } from '@/libs/codes';
 import { fromRepoRoot } from '@/libs/repo-root';
+import { listAppIds } from './apps';
 import { composeKind, resolveActivation } from './compose';
 import { assertEvalCheckPaths } from './evalCheckPaths';
 import { assertAgentHierarchy } from './hierarchy';
@@ -408,7 +409,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   assertUniqueSlugs(agents, 'agent');
   assertAgentHierarchy(agents);
   assertUniqueSlugs(teams, 'team');
-  assertTeams(agents, teams, manifest);
+  assertTeams(agents, teams, manifest, listAppIds());
   assertUniqueSlugs(skills, 'skill');
   assertUniqueSlugs(objectTypes, 'object type');
   const objectTypeCodes = assertTypeCodes(objectTypes);

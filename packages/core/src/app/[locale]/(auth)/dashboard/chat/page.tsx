@@ -8,6 +8,7 @@ import { askOf } from '@/libs/chat/ask';
 import { connectReturnOutcome } from '@/libs/connect/returnTo';
 import { connectSystemsAsk, connectSystemsInputOf } from '@/libs/connect/systemsLink';
 import { listArtifactsByIds } from '@/services/ArtifactService';
+import { loadAppFronts } from '@/services/chat/appFront';
 import { attachmentFromArtifact } from '@/services/chat/attachments';
 import { loadOpeningHints } from '@/services/chat/openingHints';
 import { buildWorkspaceChips } from '@/services/chat/suggestions';
@@ -83,6 +84,11 @@ export default async function ChatPage(props: {
     ? await loadOpeningHints({ orgId, userId, isAdmin: has({ role: ORG_ROLE.ADMIN }), leadSpoken }).catch(() => [])
     : [];
 
+  // Each app's front (its attention counts and its teams' briefing), for the
+  // app the person is in, which only the browser knows (`services/chat/appFront.ts`).
+  // No model call; a failed read leaves the fronts out.
+  const appFronts = orgId ? await loadAppFronts(orgId).catch(() => ({})) : {};
+
   // `?attach=<ids>` — files the phone's share sheet already uploaded
   // (`/api/mobile/share`) start in the composer as chips. Only this
   // workspace's person-authored `file` artifacts qualify, the same rule the
@@ -111,6 +117,7 @@ export default async function ChatPage(props: {
         startNew={startNew === '1'}
         openingAsk={openingAsk}
         openingHints={openingHints}
+        appFronts={appFronts}
       />
     </div>
   );

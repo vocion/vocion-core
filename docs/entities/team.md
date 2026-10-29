@@ -28,6 +28,7 @@ the `team` table.
 | `lead` | slug | no | The agent leading this team — the **AI team lead**. A team may exist before its lead is chosen (rendered "no lead yet"). |
 | `accountableUser` | email | no | The **accountable owner** — the human. Resolved to a user id at apply. Omit to inherit `accountableUser` from `workspace.yaml`. |
 | `goal` | string | no | The team's **mission**, one sentence. Shown under the team's name on the team report, beneath the workspace's `goal:`. |
+| `app` | app id | no | The **app** this team works in (`gtm`). A team a plugin ships already belongs to that plugin's app; name one for a workspace's own team, and the app's Chat page leads with this team's briefing and counts what its agents left waiting. Omitted, the team stays with the core app. Checked against the apps this core ships. |
 | `measures` | measure[] | no (default `[]`) | What the team is graded on, each with a target and a **source** saying where the reading comes from. Keys are unique within a team. Readings are computed at report time, never stored. |
 | `kpis` | kpi[] | deprecated | Alias for one release. Each entry is read as an `agent-reported` measure (its `all` window becomes `quarter`). Export writes `measures:`. |
 
