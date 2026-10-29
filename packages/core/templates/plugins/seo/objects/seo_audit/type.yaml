@@ -1,0 +1,87 @@
+slug: seo_audit
+label: SEO audit
+description: >-
+  One audit of one client's site, on the day it ran: what is wrong, each
+  finding with its category (technical, content, AI visibility, local and
+  Google Business Profile), severity, the evidence that shows it, the page it
+  is on and when it was checked, and its status (open, fixed, dismissed).
+  Code writes it (`seo_run_audit`, `services/seo/audits.ts`): every run is
+  its own record, a person's dismissals carry forward to the next run, and a
+  finding a later run no longer finds is marked fixed here. A finding's Fix
+  it plans a page in a batch or makes a task on the project, and links it.
+  The report beside it is the shareable version, with the recommended next
+  steps.
+icon: list-checks
+schema:
+  type: object
+  properties:
+    projectId:
+      type: integer
+      description: The client's project.
+    projectName:
+      type: string
+      description: The client.
+    site:
+      type: string
+      format: uri
+      description: The site audited.
+    report:
+      type: string
+      description: The audit as a person reads it — the counts, the recommended next steps, and every finding with its evidence, pages, status and Fix it.
+      x-display: {role: prose, format: text, label: Report}
+    openCount:
+      type: integer
+      description: Findings still open.
+    highCount:
+      type: integer
+      description: Open findings of high severity.
+    nextSteps:
+      type: array
+      items: {type: string}
+      description: The recommended next steps, in the order to work them.
+    pagesRead:
+      type: integer
+      description: Pages read from the sitemap.
+    reportArtifactId:
+      type: integer
+      description: The shareable report.
+    inventoryArtifactId:
+      type: integer
+      description: The site inventory the run read.
+    previousAuditId:
+      type: integer
+      description: The run this one followed.
+    checkedAt:
+      type: string
+      format: date-time
+      description: When the site was read.
+    findings:
+      type: array
+      description: Every finding, keyed by its check and page.
+      x-display: {hidden: true}
+      items:
+        type: object
+        properties:
+          key: {type: string}
+          check: {type: string}
+          category: {type: string, enum: [technical, content, ai_visibility, local]}
+          severity: {type: string, enum: [high, medium, low]}
+          title: {type: string}
+          evidence: {type: string}
+          url: {type: string}
+          urls: {type: array, items: {type: string}}
+          checkedAt: {type: string, format: date-time}
+          status: {type: string, enum: [open, fixed, dismissed]}
+          statusAt: {type: string, format: date-time}
+          statusBy: {type: string}
+          statusNote: {type: string}
+          fix:
+            type: object
+            properties:
+              kind: {type: string, enum: [page, task]}
+              id: {type: integer}
+              href: {type: string}
+              at: {type: string, format: date-time}
+    counts:
+      type: object
+      x-display: {hidden: true}

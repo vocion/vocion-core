@@ -10,7 +10,7 @@ slug: seo-keywords
 title: Keywords
 description: Every keyword researched for each client, with its volume, who ranks and where the client does, when that was read, and the batch and page it went into.
 icon: tags
-nav: {section: SEO, order: 0}
+nav: {section: SEO, order: 2}
 archetype: list
 source: {kind: objects, objectType: seo_keyword}
 sort: {field: meta.volume, dir: desc}

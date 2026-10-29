@@ -14,6 +14,8 @@
  *                        FAILS a location page that is a sibling with the city swapped
  *   seo_record_feedback  a note on a page, its scope, and where it was filed — checked, not taken on trust
  *   seo_propose_profile  the client's SEO profile, pre-filled from their site, as one card a person saves (`seoProfile.ts`)
+ *   seo_run_audit        the client's site audited in code, filed as an seo_audit record and a shareable report (`seoAudit.ts`)
+ *   seo_update_findings  a finding's Fix it (a page in a batch, or a task), or a person's verdict on it
  *
  * The gate is code (`services/seo/gate.ts`), not a prompt, and so are the
  * asks (`services/seo/signoff.ts`): these tools are the only path that
@@ -47,6 +49,7 @@ import { fileSeoPlanAsk, fileSeoSignoffAsk, withdrawPageAsks } from '@/services/
 import { describeVoiceFindings, draftVoiceFindings } from '@/services/seo/voiceCheck';
 import { findingsMd, followFrom, normaliseFindings, queueSeoWork, SEO_EDITOR_ROUNDS } from '@/services/seo/work';
 import { recordIdArg, recordIdOf } from './recordIdArg';
+import { seoRunAuditTool, seoUpdateFindingsTool } from './seoAudit';
 import { planFromKeywords, registerLine, seoListKeywordsTool, seoUpdateKeywordsTool } from './seoKeywords';
 import { seoProposeProfileTool } from './seoProfile';
 import { seoReadPageTool } from './seoReadPage';
@@ -867,6 +870,8 @@ export function seoTools(ctx: RuntimeContext) {
     seoListKeywordsTool(ctx),
     seoUpdateKeywordsTool(ctx),
     seoProposeProfileTool(ctx),
+    seoRunAuditTool(ctx),
+    seoUpdateFindingsTool(ctx),
   ];
   // The SEO seats' own tools are never behind tool search: a teammate on its
   // own model gets the lead's tiered set, and a live editor run could not find

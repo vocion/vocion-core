@@ -32,6 +32,7 @@ recommend:
     - a person asks for SEO pages, blog posts or landing pages meant to rank for a keyword
     - an agency onboards a client and the brand, voice and rules live in people's heads
     - someone asks what the top Google results for a keyword cover before writing
+    - someone wants a client's site audited, with a report and what to fix first
     - pages were written in bulk and came back wrong because nobody saw the first few
     - feedback on a client's page keeps being given twice, or lost between writers
   connectors: [github, squarespace]
@@ -39,7 +40,7 @@ recommend:
 starters:
   - label: Onboard a new client from their website
     prompt: 'Onboard a new client from their website: '
+  - label: Audit a client's site
+    prompt: Audit a client's site. First ask me which client (an existing one, or a new client to onboard from their website), then run the audit and give me the report and the recommended next steps.
   - label: Plan pages for a client
     prompt: Plan a batch of SEO pages for a client. First ask me which client (an existing one, or a new client to onboard from their website), then the topic, then research what ranks before proposing the pages.
-  - label: Show pages waiting on me
-    prompt: Which SEO pages are waiting on my sign-off or my feedback, in every batch? Link each one.

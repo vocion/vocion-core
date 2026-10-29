@@ -30,6 +30,17 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   `seo.save_profile`); a person edits it on the project page. The client
   type and goals decide what comes first, printed in the bundle the seats
   read.
+- **Audits** (`seo_audit`, one record per run per client): `seo_run_audit`
+  reads the whole site, the home page's Organization schema, robots.txt and
+  Google's results for the client's name, and checks them in code
+  (technical, content, AI visibility, local and Google Business Profile).
+  Each finding has its severity, evidence, page, date and status (open,
+  fixed, dismissed); a dismissal carries to the next run, and what a later
+  run no longer finds is marked fixed. A shareable report artifact leads
+  with the recommended next steps, in the order the client's profile puts
+  first; a finding's Fix it (`seo_update_findings`) plans a page in a batch
+  or makes a task on the project and links it. The Audits page lists every
+  run; the project page shows the latest.
 - **A signed-off keyword plan**: `seo_plan_batch` files one sign-off showing
   the keyword map (keyword, page type, location, intent, cluster, new page or
   refresh). Nothing is briefed or drafted until a person approves it.
@@ -58,7 +69,7 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   draft fails review when it is a sibling location page with the city
   swapped (70% or more the same). A plan that targets a keyword or URL the
   project already has is refused unless it is a refresh.
-- **Skills**: `onboard-client`, `serp-research`, `page-brief`, `write-page`,
+- **Skills**: `onboard-client`, `audit-site`, `serp-research`, `page-brief`, `write-page`,
   `review-page`, `feedback-to-wiki`, `publish-page`.
 - **The learning step `seo-feedback`**: craft notes from sign-offs become
   candidate rules, tagged with their project; adopted ones mount for the

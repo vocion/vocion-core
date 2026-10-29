@@ -7,7 +7,7 @@ slug: seo
 title: Batches
 description: Every batch of pages for every client, where its gate stands, and what is waiting on you.
 icon: layers
-nav: {section: SEO, order: 1}
+nav: {section: SEO, order: 4}
 archetype: list
 source: {kind: objects, objectType: seo_batch}
 sort: {field: createdAt, dir: desc}

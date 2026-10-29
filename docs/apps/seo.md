@@ -70,6 +70,23 @@ Keyword research is kept, not left in the chat it was done in. The **Keywords** 
 - **The why, dated.** `seo_update_keywords` keeps why a keyword is worth a page, or why it was dropped, with the date and who said it; a keyword whose page is in a batch is not dropped there (its page is discarded on its sign-off). `seo_list_keywords` reads a project's register.
 - **Where it came from.** `chat`, `weekly` (the weekly opportunities run: its research and its `cadence` plan) or `imported`.
 
+## Audits: what is wrong, and what to fix first
+
+"Audit and report, then recommended next steps." `seo_run_audit` (`services/agents/tools/seoAudit.ts`) reads the client's whole site again (the site inventory, a new version of the same artifact), the home page's Organization schema, robots.txt and Google's first page for the client's name, and the checks in `services/seo/audit.ts` turn what was read into findings:
+
+| Category | Checks |
+|---|---|
+| Technical | pages that did not load, noindex (high on the home page), canonicals pointing elsewhere, no sitemap, robots.txt shutting every crawler out, not first on Google for its own name |
+| Content | missing titles, meta descriptions and H1s, more than one H1, the same title, H1 or meta description on several pages, thin pages (under 300 words) |
+| AI visibility | no Organization schema on the home page, one with no description or one that shares no words with the profile's offering (it should say what the business is now), no sameAs profiles, AI answer engines' crawlers (GPTBot, ClaudeBot, PerplexityBot, …) disallowed |
+| Local and Google Business Profile | for a local client or a GBP goal: no LocalBusiness schema, no phone or address in it, a place on the profile with no page naming it |
+
+A check whose read failed (no SERP provider, the home page did not answer) makes no finding, and the tool says it did not run. Each run is its own **`seo_audit`** record (`services/seo/audits.ts`, unique per project and run through the external key `seo-audit`), holding its findings: category, severity, title, evidence, the page or pages (25 listed at most), `checkedAt`, and status `open`, `fixed` or `dismissed` with when, who and why. A finding's key is its check and page, so a later run carries a dismissal forward and marks fixed, on the run that found it, whatever it no longer finds (`carryForward`). Statuses move only as `nextFindingStatus` allows: a fixed finding is reopened before it is dismissed, and the other way round.
+
+The run files a **shareable report** (a markdown artifact on the audit's record, folder `seo/audits`): the counts, the **recommended next steps** (open findings, high first, then what the client's profile puts first: local findings for a local client, AI-visibility findings when AI answers is a goal), and every finding with its evidence, pages, status and **Fix it**. Fix it opens a chat that calls `seo_update_findings`: `plan_page` plans a page in one batch with its sign-off (a missing location page suggests its own keyword), `make_task` files an open item on the project; either is linked on the finding, which stays open until a later run no longer finds it or a person marks it fixed. `dismiss` needs a reason.
+
+The **Audits** page lists every run by client (open, high, by category, checked), with the report one click away, and "Fix these" on ticked rows. The project page shows the latest audit's headline and next steps. A new client's first run is onboard, audit, report, next steps (`audit-site`), and the SEO chat offers "Audit a client's site".
+
 ## The keyword plan
 
 `seo_plan_batch` creates the batch in `plan_review` and files ONE sign-off ask (`seo-plan:<batch>:<round>`) whose context is the keyword map: keyword, page type (`location`, `service`, `blog`, `landing`, `other`), location, intent, cluster, and the target — a new page or the live URL it refreshes. The map is on the card, not behind Details: the decision sheet shows a table that heads an ask's `contextMd` (`splitContext`) and keeps the reasoning after it in Details. Each SEO ask says what its answers do (`ask.outcomes`, migration 0224: "The briefs start…", "It re-plans with your note…"), in place of the generic "Your answer is recorded …; nothing runs on its own", which any ask can do. Briefs and drafts are refused until it is approved; SERP research may go on meanwhile. **Revise** holds the batch with the person's note on it (`plan.note`); the strategist answers it with `seo_plan_batch` and `batch_id`, which replaces the proposed pages and files the next round. **Discard** takes the batch's pages out.

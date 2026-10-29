@@ -107,18 +107,18 @@ describe('the shipped catalogue', () => {
 });
 
 describe('the SEO plugin', () => {
-  it('counts what it ships: four seats, the three records, the skills, the learning step and the pages', () => {
+  it('counts what it ships: four seats, the four records, the skills, the learning step and the pages', () => {
     const seo = loadPlugin('seo');
     const contents = pluginContents(seo);
 
     expect(seo.manifest.depends).toEqual(['data-rooms', 'wiki']);
     expect(seo.manifest.lead).toBe('seo-strategist');
     expect(contents.agents).toEqual(['seo-editor', 'seo-strategist', 'seo-writer', 'serp-analyst']);
-    expect(contents.objectTypes).toEqual(['seo_batch', 'seo_keyword', 'seo_page']);
-    expect(contents.skills).toEqual(['feedback-to-wiki', 'onboard-client', 'page-brief', 'publish-page', 'review-page', 'serp-research', 'write-page']);
-    expect(contents.pages).toEqual(['seo', 'seo-keywords', 'seo-pages']);
+    expect(contents.objectTypes).toEqual(['seo_audit', 'seo_batch', 'seo_keyword', 'seo_page']);
+    expect(contents.skills).toEqual(['audit-site', 'feedback-to-wiki', 'onboard-client', 'page-brief', 'publish-page', 'review-page', 'serp-research', 'write-page']);
+    expect(contents.pages).toEqual(['seo', 'seo-audits', 'seo-keywords', 'seo-pages']);
     expect(contents.hasTrust).toBe(true);
-    expect(seo.manifest.starters?.map(s => s.label)).toEqual(['Onboard a new client from their website', 'Plan pages for a client', 'Show pages waiting on me']);
+    expect(seo.manifest.starters?.map(s => s.label)).toEqual(['Onboard a new client from their website', 'Audit a client\'s site', 'Plan pages for a client']);
   });
 });
 

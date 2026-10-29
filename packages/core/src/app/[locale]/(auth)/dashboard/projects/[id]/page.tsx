@@ -103,6 +103,9 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
   const workGroups = groupRecordsByType(room.work ?? []);
   const publishTargets = m.publishTargets ?? [];
   const seoOn = (await enabledPluginsForOrg(orgId).catch(() => [] as string[])).includes('seo');
+  // The client's latest SEO audit, when the SEO app is on: its headline,
+  // next steps and report, one move from the project.
+  const latestAudit = seoOn ? (await (await import('@/services/seo/audits')).listProjectAudits(orgId, room.id).catch(() => []))[0] ?? null : null;
   const open = room.items.filter(i => i.status === 'open');
   const done = room.items.filter(i => i.status !== 'open');
   // Deliverables and documents are one fact: a deliverable naming an artifact
@@ -208,6 +211,21 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
             profile={m.seoProfile ?? null}
             targets={publishTargets.map(t => ({ id: t.id, line: publishTargetLine(t) }))}
           />
+        )}
+
+        {latestAudit && (
+          <Section eyebrow="Latest audit" data-testid="project-latest-audit">
+            <p className="text-sm text-foreground">
+              <a href={`/dashboard/objects/${latestAudit.id}`} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{latestAudit.title}</a>
+              {` · ${latestAudit.meta.openCount} open, ${latestAudit.meta.highCount} high · checked ${latestAudit.meta.checkedAt.slice(0, 10)}`}
+              {latestAudit.meta.reportArtifactId ? <a href={`/dashboard/artifacts/${latestAudit.meta.reportArtifactId}`} className="ml-2 text-xs text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">Report</a> : null}
+            </p>
+            {latestAudit.meta.nextSteps.length > 0 && (
+              <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-foreground">
+                {latestAudit.meta.nextSteps.slice(0, 3).map(step => <li key={step}>{step}</li>)}
+              </ol>
+            )}
+          </Section>
         )}
 
         <ProjectInstructions projectId={room.id} rules={m.rules ?? []} />

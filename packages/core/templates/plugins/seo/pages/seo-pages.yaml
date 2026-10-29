@@ -7,7 +7,7 @@ slug: seo-pages
 title: Pages
 description: Each page with its keyword, its type and location, the URL it targets, where it stands, which model planned, wrote and reviewed it, and links to its SERP brief, brief, draft, pull request and live page.
 icon: file-text
-nav: {section: SEO, order: 2}
+nav: {section: SEO, order: 5}
 archetype: list
 source: {kind: objects, objectType: seo_page}
 sort: {field: meta.order, dir: asc}
