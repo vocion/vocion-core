@@ -334,3 +334,24 @@ API.
     and a login holding the broader `calendar.readonly` still serving Calendar;
   - `services/briefings/personalDelivery.test.ts`: the scheduled brief, the
     Org switch, and nothing sent on an empty day.
+
+## 9. The daily usage review
+
+The [daily usage review](../guides/usage-review.md) reads how people used a
+shared workspace. Its chat-content mode follows the Org's "Help improve
+Vocion" setting. Whatever that setting says, Google user data never reaches
+the review's model or its reports, for three reasons:
+
+- **Personal workspaces are never reviewed.** That is where a person's own
+  connections are used (`UsageReviewService.runUsageReview` skips a
+  `personal` workspace).
+- **A thread that read a person's own connection is metadata only.** If a
+  thread's tool calls include any tool in `PERSONAL_CONNECTIONS`
+  (`libs/personal/connections.ts`), the thread is never judged and never
+  named. Its report row is a number and an agent, with counts and timings.
+  This covers a thread in a shared workspace that read a person's mail
+  through a source that follows them. The test is
+  `services/usageReview/UsageReviewService.test.ts`, "never judges a thread
+  that read a person's own connection".
+- **Nothing is stamped on a thread.** The review writes only its own report,
+  so it keeps no copy of a thread's content.

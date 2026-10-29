@@ -1,0 +1,14 @@
+# The daily usage review, on a day the workspace was used.
+slug: usage-review
+name: Daily usage review
+description: When the workspace was used yesterday, the Workspace manager reads how it went and files the fixes as proposals.
+status: active
+agent: workspace-manager
+when:
+  event: usage.review_due
+do:
+  checkMission: daily-usage-review
+  requireTool: run_usage_review
+  prompt: >-
+    The workspace was used yesterday. Run the daily usage review once with
+    run_usage_review and report what it returned in at most three lines.

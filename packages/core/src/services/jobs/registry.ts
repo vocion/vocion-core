@@ -52,6 +52,9 @@
  *     voice, off the event's path, when a voice is connected. Subscribed by
  *     the software-factory plugin when its `narrateRecordings` setting is on.
  *     `services/jobs/narrateRecording.ts`.
+ *   - `usage-review-check` — was the workspace used in the last day? Only
+ *     then `usage.review_due` is raised and the workspace-manager plugin's
+ *     review runs. `services/jobs/usageReviewCheck.ts`.
  *   - `meeting-followup` — a captured meeting (`meeting.transcript_ready`) is
  *     read by the classifier; one with a client or prospect after which a
  *     follow-up is owed raises `meeting.followup_owed` (its drafting runs
@@ -105,6 +108,8 @@ const JOBS: Record<string, BuiltInJob> = {
   'ads-guard': async (orgId, input) => (await import('./adsGuard')).runAdsGuardJob(orgId, input),
   // The SEO plugin's weekly cadence check: queues the strategist only for a project behind its pages a month.
   'seo-opportunities': async (orgId, input) => (await import('@/services/seo/cadence')).runSeoOpportunitiesJob(orgId, input),
+  // The Workspace manager's morning check: raises the daily usage review only on a day the workspace was used (ADR 0008).
+  'usage-review-check': async (orgId, input) => (await (await import('@/libs/usageReviewBridge')).usageReview()).runUsageReviewCheckJob(orgId, input),
   // A workspace whose old automation still names these hears nothing from them: asker-follow says it.
   ...Object.fromEntries(RETIRED_FOLLOW_JOBS.map(name => [name, async () => ({ said: false, reason: `${name} is retired; asker-follow tells the asker` })])),
 };

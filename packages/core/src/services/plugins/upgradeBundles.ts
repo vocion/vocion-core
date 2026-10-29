@@ -37,6 +37,7 @@ import { withAdvisoryLock } from '@/libs/advisoryLock';
 import { db } from '@/libs/DB';
 import { listPluginSlugs, loadPlugin, resolvePlugins } from '@/libs/workspace/plugins';
 import { projectSchema, workspaceVersionSchema } from '@/models/Schema';
+import { ensureDefaultPlugins } from './defaultPlugins';
 import { APP_INSTALL_SOURCE_PREFIX, appHistory, appliedFromFolder, applyAppBundles, disableBundleItems, flushRuntime, pluginTemplateHash, recordBundle } from './installBundle';
 
 /** Who an upgrade's version row says applied it. */
@@ -62,7 +63,7 @@ export type AppUpgrade = {
 
 export type AppUpgradeRun
   = | { skipped: 'locked' }
-    | { checked: number; upgraded: AppUpgrade[]; failed: Array<{ orgId: string; message: string }> };
+    | { checked: number; upgraded: AppUpgrade[]; failed: Array<{ orgId: string; message: string }>; defaults?: Awaited<ReturnType<typeof ensureDefaultPlugins>> };
 
 /**
  * Bring every installed app up to this image's templates (or only these
@@ -73,6 +74,9 @@ export type AppUpgradeRun
  */
 export async function upgradeInstalledApps(opts: { orgIds?: readonly string[] } = {}): Promise<AppUpgradeRun> {
   const run = await withAdvisoryLock(LOCK, async () => {
+    // Plugins on by default reach every workspace first, once each
+    // (`defaultPlugins.ts`); from then on they are installed apps like any other.
+    const defaults = opts.orgIds ? undefined : await ensureDefaultPlugins();
     const orgIds = opts.orgIds ?? (await db
       .selectDistinct({ orgId: workspaceVersionSchema.orgId })
       .from(workspaceVersionSchema)
@@ -89,7 +93,7 @@ export async function upgradeInstalledApps(opts: { orgIds?: readonly string[] } 
         failed.push({ orgId, message: (err as Error).message });
       }
     }
-    return { checked: orgIds.length, upgraded, failed };
+    return { checked: orgIds.length, upgraded, failed, ...(defaults ? { defaults } : {}) };
   });
   return run.ran ? run.value : { skipped: 'locked' };
 }
@@ -155,6 +159,12 @@ export function startInstalledAppUpgrades(): void {
       if ('skipped' in out) {
         console.warn('[apps] upgrade pass skipped: another process holds it');
         return;
+      }
+      for (const d of out.defaults?.added ?? []) {
+        console.warn('[apps] default plugins turned on', d);
+      }
+      for (const f of out.defaults?.failed ?? []) {
+        console.error('[apps] could not turn on the default plugins', f);
       }
       for (const u of out.upgraded) {
         console.warn('[apps] installed app moved to this version', { orgId: u.orgId, plugins: u.plugins, kept: u.kept.length, retired: u.retired, errors: u.errors });

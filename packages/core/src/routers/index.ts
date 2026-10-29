@@ -171,6 +171,7 @@ import { reset as resetSetupRoute, state as setupStateRoute } from './Setup';
 import { by as spendBy } from './Spend';
 import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
+import { runRoute as usageReviewRunRoute, setSettingRoute as usageReviewSetSettingRoute, settingRoute as usageReviewSettingRoute } from './UsageReview';
 import { stopRoute as stopWorkRoute, forConversationRoute as workForConversationRoute } from './Work';
 import { applyNow as applyWorkspaceNow, pause as pauseWorkspaceRoute, readPrimitive, resume as resumeWorkspaceRoute, driftDiff as workspaceDriftDiff, driftStatus as workspaceDriftStatus, pauseState as workspacePauseState, writeFile } from './Workspace';
 
@@ -495,6 +496,11 @@ export const router = {
     getState: getChatWidgetState,
     setState: setChatWidgetState,
     setRail: setChatWidgetRail,
+  },
+  usageReview: {
+    setting: usageReviewSettingRoute,
+    setSetting: usageReviewSetSettingRoute,
+    run: usageReviewRunRoute,
   },
   briefings: {
     regenerate: briefingsRegenerateRoute,

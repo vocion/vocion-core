@@ -1,0 +1,18 @@
+# Each morning, in the workspace's own time zone, a cheap read in code — no
+# model: did anyone use this workspace in the last day? Only then is
+# usage.review_due raised, and usage-review answers it (ADR 0008). An unused
+# workspace costs nothing.
+#
+# Plumbing, not something a person runs or switches: `visibility: system`
+# keeps it out of the Automations register; usage-review is the one listed.
+slug: usage-review-check
+name: Usage review check
+description: Each morning, checks whether the workspace was used yesterday and starts the daily usage review only when it was.
+status: active
+visibility: system
+agent: workspace-manager
+when:
+  schedule: '0 6 * * *'
+  timezone: workspace
+do:
+  job: usage-review-check

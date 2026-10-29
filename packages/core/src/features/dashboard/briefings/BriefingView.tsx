@@ -93,7 +93,7 @@ export function BriefingView({ doc, liveDecisions, history, publisher }: {
                   <tbody>
                     {table.rows.map(row => (
                       <tr key={row.join('|')} className="border-b border-rule/60">
-                        {row.map((cell, j) => <td key={`${table.columns[j] ?? j}-${cell}`} className="py-1.5 pr-3 align-top tabular-nums">{cell}</td>)}
+                        {row.map((cell, j) => <td key={`${table.columns[j] ?? j}-${cell}`} className="py-1.5 pr-3 align-top tabular-nums"><Cell text={cell} /></td>)}
                       </tr>
                     ))}
                   </tbody>
@@ -259,6 +259,18 @@ export function BriefingView({ doc, liveDecisions, history, publisher }: {
                   <span className="font-medium">{e.label}</span>
                   <span>{` — ${e.why}`}</span>
                   {e.owner && <span className="text-muted-foreground">{` (${e.owner})`}</span>}
+                  {/* What the claim rests on, one move away (principle 10). */}
+                  {e.evidence.some(r => r.href) && (
+                    <span className="text-muted-foreground">
+                      {' · '}
+                      {e.evidence.filter(r => r.href).map((r, i) => (
+                        <span key={r.id}>
+                          {i > 0 && ', '}
+                          <Link href={r.href!} className="underline decoration-border underline-offset-2 hover:text-foreground">{r.label}</Link>
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -335,4 +347,33 @@ function side(v: number | string | null, unit?: string): string {
     return 'gone';
   }
   return typeof v === 'number' ? formatValue(v, unit) : v;
+}
+
+/**
+ * A table cell: plain text, or links written `[label](href)` — the evidence a row rests on, one move away.
+ * @param props - The cell.
+ * @param props.text - Its text, as the briefing stores it.
+ */
+function Cell(props: { text: string }) {
+  const parts: Array<{ at: number; text: string }> = [];
+  let at = 0;
+  for (const text of props.text.split(/(\[[^\]]+\]\([^)\s]+\))/g)) {
+    if (text) {
+      parts.push({ at, text });
+    }
+    at += text.length;
+  }
+  if (parts.length === 1 && !parts[0]!.text.startsWith('[')) {
+    return <>{props.text}</>;
+  }
+  return (
+    <>
+      {parts.map((part) => {
+        const m = part.text.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+        return m
+          ? <Link key={part.at} href={m[2]!} className="underline decoration-border underline-offset-2 hover:text-foreground">{m[1]}</Link>
+          : <span key={part.at}>{part.text}</span>;
+      })}
+    </>
+  );
 }

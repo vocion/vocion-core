@@ -87,7 +87,7 @@ describe('dashboardNav registry', () => {
       ['/dashboard/teams', '/dashboard/missions', '/dashboard/workflows', '/dashboard/automation'],
       ['/dashboard/connectors', '/dashboard/objects', '/dashboard/learnings', '/dashboard/workspace'],
       ['/dashboard/skills', '/dashboard/evals', '/dashboard/apps'],
-      ['/dashboard/team-report', '/dashboard/activity', '/dashboard/observability', '/dashboard/autonomy', '/dashboard/adoption'],
+      ['/dashboard/team-report', '/dashboard/activity', '/dashboard/observability', '/dashboard/autonomy', '/dashboard/adoption', '/dashboard/briefings/archive?team=workspace-manager'],
       ['/dashboard/members', '/dashboard/brand', '/dashboard/developers', '/api-docs', '/dashboard/admin'],
     ]);
     expect(tabsOf('/dashboard/teams').map(r => r.url)).toEqual(['/dashboard/teams', '/dashboard/agents', '/dashboard/hire']);

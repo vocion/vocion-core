@@ -120,6 +120,7 @@ import { openTeamThreadTool } from './teamThread';
 import { canonicalToolNames } from './toolAliases';
 import { trackerTools } from './trackerTools';
 import { updateObjectTools } from './updateObject';
+import { usageReviewTools } from './usageReview';
 import { waitForAnswersTools } from './waitForAnswers';
 import { waitingOnMeTools } from './waitingOnMe';
 import { warehouseTools } from './warehouseTools';
@@ -412,6 +413,8 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted-only: a client's whole site from its sitemap, every page's
     // basics in one dated table filed on the project.
     ...inFamily('Site inventory', siteInventoryTools(ctx)),
+    // The Workspace manager's daily usage review (granted by name: `run_usage_review`).
+    ...inFamily('Workspace manager', usageReviewTools(ctx)),
     // Granted-only: reference-based kit verification + the Rekognition second opinion.
     ...inFamily('Photo QC', kitVisionTools(ctx)),
     // Personal workspaces only: the person's own assistant lists and asks the

@@ -142,6 +142,20 @@ export const Env = createEnv({
      */
     VOCION_AUTO_JOIN_DOMAINS: z.string().optional(),
     /**
+     * The daily usage review (docs/guides/usage-review.md,
+     * `services/usageReview/privacy.ts`). `VOCION_USAGE_REVIEW_DEFAULT` is
+     * whether an Org that has not chosen lets the review read chat content:
+     * `on` for Vocion Cloud (its app env sets it), off when unset, so a
+     * self-hosted install starts with it off. `VOCION_USAGE_REVIEW_CONTENT_ORGS`
+     * (comma list of Org ids or slugs) is the operator's override: those Orgs
+     * are read with content whatever their setting — the operator's own Orgs.
+     * `VOCION_USAGE_REVIEW_DAILY_CENTS` caps what one workspace's review may
+     * spend on the judge in a day (default 50).
+     */
+    VOCION_USAGE_REVIEW_DEFAULT: z.string().optional(),
+    VOCION_USAGE_REVIEW_CONTENT_ORGS: z.string().optional(),
+    VOCION_USAGE_REVIEW_DAILY_CENTS: z.string().optional(),
+    /**
      * Email as a chat surface (`libs/surfaces/email.ts`). Ships dark:
      * `VOCION_EMAIL_SURFACE=1` turns the Resend inbound webhook on;
      * `VOCION_MAIL_DOMAIN` is the domain workspaces may claim addresses on;
@@ -263,6 +277,9 @@ export const Env = createEnv({
     VOCION_MAIL_FROM: process.env.VOCION_MAIL_FROM,
     VOCION_MAIL_SINK_DIR: process.env.VOCION_MAIL_SINK_DIR,
     VOCION_AUTO_JOIN_DOMAINS: process.env.VOCION_AUTO_JOIN_DOMAINS,
+    VOCION_USAGE_REVIEW_DEFAULT: process.env.VOCION_USAGE_REVIEW_DEFAULT,
+    VOCION_USAGE_REVIEW_CONTENT_ORGS: process.env.VOCION_USAGE_REVIEW_CONTENT_ORGS,
+    VOCION_USAGE_REVIEW_DAILY_CENTS: process.env.VOCION_USAGE_REVIEW_DAILY_CENTS,
     VOCION_EMAIL_SURFACE: process.env.VOCION_EMAIL_SURFACE,
     VOCION_MAIL_DOMAIN: process.env.VOCION_MAIL_DOMAIN,
     RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET,

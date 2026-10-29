@@ -96,7 +96,7 @@ describe('the proposal path', () => {
       principal: { kind: 'agent', id: 'agent:deal-desk', scope: { orgId: ORG }, grants: ['*'], autonomy: 2 },
       invokedBy: 'agent:deal-desk',
       proposal: { confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: 'x' },
-    })).rejects.toThrow(/only the weekly org review can/);
+    })).rejects.toThrow(/only the org and usage reviews can/);
 
     expect(await orgChangeAction.precheck!({ orgId: ORG, proposedBy: 'usr-lili' }, orgChangeAction.inputSchema.parse({ ...input, evidence: [] }))).toBeUndefined();
   });
