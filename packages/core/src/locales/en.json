@@ -1033,7 +1033,7 @@
     "items": "Registered items",
     "accepted": "Accepted, including corrected",
     "blocked": "Blocked",
-    "capped": "Snapshot capped at 1,000 items; these are not workspace totals.",
+    "capped": "Snapshot or evidence history capped; these are not complete workspace totals.",
     "export": "Export evidence snapshot",
     "attempts": "linked attempts",
     "rubric": "Acceptance criteria",
@@ -1049,7 +1049,7 @@
     "action": "Action proposal",
     "worker": "Worker run",
     "sourceId": "Source record ID",
-    "link": "Link attempt",
+    "link": "Link or refresh attempt",
     "outcome": "Human outcome",
     "reason": "Reason category",
     "evidence": "Evidence and explanation",
@@ -1058,6 +1058,7 @@
     "register": "Register work item",
     "key": "Stable business key",
     "agent": "Accountable agent",
-    "workflow": "Workflow type"
+    "workflow": "Workflow type",
+    "stale": "Linked output changed. Reopen, refresh the source link, and review again. Excluded from current accepted totals."
   }
 }

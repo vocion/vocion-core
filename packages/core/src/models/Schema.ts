@@ -6104,6 +6104,7 @@ export const workforceLinkSchema = pgTable('workforce_link', {
   itemId: text('item_id').notNull().references(() => workforceItemSchema.id),
   kind: text('kind').notNull(),
   sourceId: integer('source_id').notNull(),
+  sourceDigest: text('source_digest').notNull(),
 }, t => [primaryKey({ columns: [t.orgId, t.kind, t.sourceId] })]);
 
 // Append-only events are the durable export. Event keys are scoped to a workspace.

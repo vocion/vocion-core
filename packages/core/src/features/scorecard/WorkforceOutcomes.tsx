@@ -99,6 +99,7 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
                 </span>
               </summary>
               <div className="mt-4 space-y-3 text-sm">
+                {item.evidenceChanged && <p role="alert">{t('stale')}</p>}
                 <p>
                   {t('rubric')}
                   :

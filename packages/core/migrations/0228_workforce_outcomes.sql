@@ -14,7 +14,7 @@ CREATE INDEX IF NOT EXISTS "workforce_item_org_updated_idx" ON "workforce_item" 
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "workforce_link" (
  "org_id" text NOT NULL, "item_id" text NOT NULL REFERENCES "workforce_item"("id"),
- "kind" text NOT NULL, "source_id" integer NOT NULL,
+ "kind" text NOT NULL, "source_id" integer NOT NULL, "source_digest" text NOT NULL,
  PRIMARY KEY ("org_id", "kind", "source_id")
 );
 --> statement-breakpoint

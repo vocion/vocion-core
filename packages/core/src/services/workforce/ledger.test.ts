@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -103,4 +104,25 @@ it('serializes concurrent replay and rejects one of two competing decisions', as
   const decisions = await Promise.allSettled([record(org, actor, { ...review, eventKey: 'race-a' }), record(org, actor, { ...review, eventKey: 'race-b' })]);
 
   expect(decisions.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+});
+
+it('refuses changed evidence and invalidates stale acceptance until explicit refresh and review', async () => {
+  const item = await record(org, actor, create('source-revision'));
+  const [run] = await db.insert(workerRunSchema).values({ orgId: org, agentSlug: 'specialist', status: 'completed', result: { answer: 'original' } }).returning();
+  await record(org, actor, { kind: 'link', itemId: item.itemId, version: 0, eventKey: 'source-v1', sourceKind: 'worker', sourceId: run!.id });
+  const review = { kind: 'review' as const, itemId: item.itemId, version: 1, eventKey: 'source-accept', status: 'accepted' as const, reason: 'meets-rubric' as const, evidence: 'Original output checked' };
+  await db.update(workerRunSchema).set({ result: { answer: 'changed' } }).where(eq(workerRunSchema.id, run!.id));
+
+  await expect(record(org, actor, review)).rejects.toMatchObject({ status: 409 });
+
+  await record(org, actor, { kind: 'link', itemId: item.itemId, version: 1, eventKey: 'source-v2', sourceKind: 'worker', sourceId: run!.id });
+  await record(org, actor, { ...review, version: 2 });
+
+  expect((await readAll()).items.find(i => i.id === item.itemId)?.evidenceChanged).toBe(false);
+
+  await db.update(workerRunSchema).set({ result: { answer: 'changed after review' } }).where(eq(workerRunSchema.id, run!.id));
+  const report = await readAll();
+
+  expect(report.items.find(i => i.id === item.itemId)?.evidenceChanged).toBe(true);
+  expect(outcomeInsights(report)[0]?.itemId).toBe(item.itemId);
 });

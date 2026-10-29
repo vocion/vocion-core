@@ -17,6 +17,9 @@ const remedies: Record<string, string> = {
  */
 export function outcomeInsights(report: Report) {
   const suggestions = report.items.flatMap((item) => {
+    if (item.evidenceChanged) {
+      return [{ itemId: item.id, priority: 0, text: 'Reopen any decided outcome, refresh the linked evidence and review the changed output against the rubric.', evidence: `Work ${item.key}: linked evidence changed after attachment.`, measure: 'Do not count stale acceptance as current accepted work.' }];
+    }
     const last = item.events.filter(e => e.kind === 'review').at(-1);
     if (last && ['blocked', 'rejected', 'corrected'].includes(item.status)) {
       const reason = String(last.data.reason);

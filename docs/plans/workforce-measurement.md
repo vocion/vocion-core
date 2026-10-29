@@ -227,7 +227,10 @@ An append-only event ledger records registration, links and human reviews. Each
 command has a workspace-scoped idempotency key and expected item revision.
 Identical retries return the original receipt; changed payloads, stale revisions,
 cross-workspace sources and duplicate source attribution are rejected. Terminal
-outcomes must be explicitly reopened before they can be changed. Review decisions
+outcomes must be explicitly reopened before they can be changed. Source fingerprints
+record the linked input, output and execution state. Changed evidence blocks
+acceptance; a later change flags the old outcome and removes it from current
+accepted totals until the source is refreshed and reviewed again. Review decisions
 are human attestations, not independent correctness evaluations. API tokens may
 register and link work but cannot attest a human review.
 

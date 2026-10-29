@@ -5,6 +5,10 @@ import { db } from '@/libs/DB';
 import { actionRunSchema, agentSchema, workforceEventSchema as events, workforceItemSchema as items, workforceLinkSchema as links, workerRunSchema } from '@/models/Schema';
 import { workforceCommand, WorkforceError } from './contracts';
 
+function fingerprint(row: { input: unknown; result: unknown; status: string }) {
+  return createHash('sha256').update(JSON.stringify({ input: row.input, result: row.result, status: row.status })).digest('hex');
+}
+
 function fail(status: number, message: string): never {
   throw new WorkforceError(status, message);
 }
@@ -35,6 +39,7 @@ export async function recordWorkforceCommand(orgId: string, actorId: string, raw
       }
       return { itemId: previous.itemId, version: previous.version, replayed: true };
     }
+    let commandData: Record<string, unknown> = command;
     let itemId: string;
     let version: number;
     if (command.kind === 'create') {
@@ -78,16 +83,33 @@ export async function recordWorkforceCommand(orgId: string, actorId: string, raw
           fail(409, 'Reopen a decided item before changing its evidence');
         }
         const source = command.sourceKind === 'worker' ? workerRunSchema : actionRunSchema;
-        const [row] = await tx.select({ id: source.id }).from(source).where(and(eq(source.orgId, orgId), eq(source.id, command.sourceId)));
+        const [row] = await tx.select({ id: source.id, input: source.input, result: source.result, status: source.status }).from(source).where(and(eq(source.orgId, orgId), eq(source.id, command.sourceId)));
         if (!row) {
           fail(404, 'Source not found in this workspace');
         }
         const [used] = await tx.select().from(links).where(and(eq(links.orgId, orgId), eq(links.kind, command.sourceKind), eq(links.sourceId, command.sourceId)));
-        if (used) {
+        if (used && used.itemId !== itemId) {
           fail(409, 'Source already belongs to a work item');
         }
-        await tx.insert(links).values({ orgId, itemId, kind: command.sourceKind, sourceId: command.sourceId });
+        const sourceDigest = fingerprint(row);
+        if (used) {
+          await tx.update(links).set({ sourceDigest }).where(and(eq(links.orgId, orgId), eq(links.kind, command.sourceKind), eq(links.sourceId, command.sourceId)));
+        } else {
+          await tx.insert(links).values({ orgId, itemId, kind: command.sourceKind, sourceId: command.sourceId, sourceDigest });
+        }
+        // Persist the exact evidence revision in the immutable event as well.
+        commandData = { ...command, sourceDigest };
       } else {
+        if (['accepted', 'corrected'].includes(command.status)) {
+          const attached = await tx.select().from(links).where(and(eq(links.orgId, orgId), eq(links.itemId, itemId)));
+          for (const link of attached) {
+            const source = link.kind === 'worker' ? workerRunSchema : actionRunSchema;
+            const [row] = await tx.select({ input: source.input, result: source.result, status: source.status }).from(source).where(and(eq(source.orgId, orgId), eq(source.id, link.sourceId))).for('share');
+            if (!row || fingerprint(row) !== link.sourceDigest) {
+              fail(409, 'Linked evidence changed; link the source again to review its current version');
+            }
+          }
+        }
         const terminal = ['accepted', 'corrected', 'rejected'].includes(item.status);
         if (terminal !== (command.status === 'reopened')) {
           fail(409, terminal ? 'Reopen before revising an outcome' : 'Only decided items can be reopened');
@@ -101,7 +123,7 @@ export async function recordWorkforceCommand(orgId: string, actorId: string, raw
       }
       await tx.update(items).set({ version, updatedAt: new Date(), ...(command.kind === 'review' ? { status: command.status } : {}) }).where(and(eq(items.orgId, orgId), eq(items.id, itemId)));
     }
-    await tx.insert(events).values({ orgId, itemId, eventKey: command.eventKey, commandHash: hash, version, kind: command.kind, actorId, data: command });
+    await tx.insert(events).values({ orgId, itemId, eventKey: command.eventKey, commandHash: hash, version, kind: command.kind, actorId, data: commandData });
     return { itemId, version, replayed: false };
   });
 }
@@ -126,18 +148,24 @@ export async function readWorkforceOutcomes(orgId: string, since: Date, until: D
       : [[], []];
     const evidenceComplete = history.length <= 10000 && linked.length <= 10000;
     const workerIds = linked.filter(l => l.kind === 'worker').map(l => l.sourceId);
-    const workers = workerIds.length ? await tx.select({ id: workerRunSchema.id, cents: workerRunSchema.cents, status: workerRunSchema.status }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.id, workerIds))) : [];
+    const actionIds = linked.filter(l => l.kind === 'action').map(l => l.sourceId);
+    const actions = actionIds.length ? await tx.select({ id: actionRunSchema.id, input: actionRunSchema.input, result: actionRunSchema.result, status: actionRunSchema.status }).from(actionRunSchema).where(and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.id, actionIds))) : [];
+    const workers = workerIds.length ? await tx.select({ id: workerRunSchema.id, cents: workerRunSchema.cents, input: workerRunSchema.input, result: workerRunSchema.result, status: workerRunSchema.status }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.id, workerIds))) : [];
     const rows = selected.map((item) => {
       const itemEvents = history.filter(e => e.itemId === item.id);
       const itemLinks = linked.filter(l => l.itemId === item.id);
+      const evidenceChanged = itemLinks.some((link) => {
+        const source = (link.kind === 'worker' ? workers : actions).find(r => r.id === link.sourceId);
+        return !source || fingerprint(source) !== link.sourceDigest;
+      });
       const attempts = itemLinks.filter(l => l.kind === 'worker').map(l => workers.find(w => w.id === l.sourceId));
       const reviews = itemEvents.filter(e => e.kind === 'review');
       const effort = reviews.filter(e => typeof e.data.effortMinutes === 'number');
       // This is linked-worker cost, not total model/tool/vendor spend.
       const linkedWorkerCostCents = evidenceComplete && attempts.length && attempts.every(w => w && w.cents !== null) ? attempts.reduce((s, w) => s + Number(w!.cents), 0) : null;
-      return { ...item, links: itemLinks, events: itemEvents.map(({ commandHash: _hash, ...e }) => e), linkedWorkerCostCents, costCoverage: 'partial' as const, activeEffortMinutes: evidenceComplete && effort.length ? effort.reduce((s, e) => s + Number(e.data.effortMinutes), 0) : null, effortCoverage: evidenceComplete && reviews.length > 0 && effort.length === reviews.length ? 'reported' as const : 'partial' as const, firstPassAccepted: evidenceComplete && reviews.length ? reviews[0]!.data.status === 'accepted' : null };
+      return { ...item, evidenceChanged, links: itemLinks, events: itemEvents.map(({ commandHash: _hash, ...e }) => e), linkedWorkerCostCents, costCoverage: 'partial' as const, activeEffortMinutes: evidenceComplete && effort.length ? effort.reduce((s, e) => s + Number(e.data.effortMinutes), 0) : null, effortCoverage: evidenceComplete && reviews.length > 0 && effort.length === reviews.length ? 'reported' as const : 'partial' as const, firstPassAccepted: evidenceComplete && reviews.length ? reviews[0]!.data.status === 'accepted' : null };
     });
-    const accepted = rows.filter(i => ['accepted', 'corrected'].includes(i.status));
+    const accepted = rows.filter(i => !i.evidenceChanged && ['accepted', 'corrected'].includes(i.status));
     return { schemaVersion: 1, workspaceId: orgId, generatedAt: until.toISOString(), window: { from: since.toISOString(), to: until.toISOString() }, test, complete: found.length <= 1000 && evidenceComplete, cohort: 'items updated in window' as const, items: rows, summary: { items: rows.length, accepted: accepted.length, blocked: rows.filter(i => i.status === 'blocked').length, firstPassAccepted: accepted.filter(i => i.firstPassAccepted).length, costPerAcceptedItem: null, netTimeSavedMinutes: null },
     };
   }, { isolationLevel: 'repeatable read', accessMode: 'read only' });
