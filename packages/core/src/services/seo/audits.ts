@@ -65,6 +65,23 @@ export function derived(id: number, m: Pick<SeoAuditMeta, 'findings' | 'projectN
   };
 }
 
+/**
+ * The audit's row status, which a strategy milestone linked to it reads:
+ * `resolved` once no high finding is open, `active` while one is. Then the
+ * project's strategy is read again.
+ * @param orgId - The workspace.
+ * @param id - The audit.
+ * @param meta - Its meta as written.
+ */
+async function settleRowStatus(orgId: string, id: number, meta: SeoAuditMeta | null): Promise<void> {
+  if (!meta) {
+    return;
+  }
+  const { DONE_STATUS, refreshStrategy, setRowStatus } = await import('./strategy');
+  await setRowStatus(orgId, id, meta.highCount === 0 ? DONE_STATUS.audit : 'active');
+  await refreshStrategy(orgId, meta.projectId);
+}
+
 const toRecord = (r: { id: number; title: string; metadata: unknown; createdAt: Date }): SeoAuditRecord => ({ id: r.id, title: r.title, meta: r.metadata as SeoAuditMeta, createdAt: r.createdAt });
 
 /**
@@ -140,7 +157,8 @@ export async function fileAudit(orgId: string, run: AuditRun): Promise<{ audit: 
     id = existing!.id;
   }
   // The report's Fix it links name the record, known only now.
-  await mergeMeta<SeoAuditMeta>(orgId, id, current => derived(id, current, run.project.profile));
+  const written = await mergeMeta<SeoAuditMeta>(orgId, id, current => derived(id, current, run.project.profile));
+  await settleRowStatus(orgId, id, written);
   if (previous && resolved.length) {
     await moveFindings(orgId, previous.id, resolved, { kind: 'not_found' }, { by: run.by, note: `not found on the run of ${run.checkedAt.slice(0, 10)}` }, run.project.profile);
   }
@@ -192,5 +210,7 @@ export async function moveFindings(orgId: string, auditId: number, keys: readonl
     }
     return { findings, ...derived(auditId, { ...current, findings }, profile) };
   });
+  const audit = await getAudit(orgId, auditId);
+  await settleRowStatus(orgId, auditId, audit?.meta ?? null);
   return moves;
 }

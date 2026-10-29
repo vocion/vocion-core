@@ -1,0 +1,33 @@
+# Each client's SEO strategy: the goal a person owns for it, where it stands,
+# its milestones and the strategy document. An ordinary `list` over the
+# `seo_strategy` noun; code writes the rows (`services/seo/strategy.ts`) and
+# reads the goal again whenever the SEO work moves.
+slug: seo-strategy
+title: Strategy
+description: Each client's SEO goal, how far along it is, and the strategy behind it.
+icon: target
+nav: {section: SEO, order: 0}
+archetype: list
+source: {kind: objects, objectType: seo_strategy}
+sort: {field: meta.projectName, dir: asc}
+primary: {field: goal, subtitle: [progress]}
+stats:
+  - {label: Clients, kind: count}
+  - {label: Active, kind: countWhere, where: {field: meta.goalStatus, op: eq, value: active}}
+  - {label: Waiting on a card, kind: countWhere, where: {field: meta.goalStatus, op: eq, value: drafted}}
+fields:
+  - {key: goal, label: Goal, from: meta.goalTitle}
+  - {key: progress, label: Progress, from: meta.progressLine}
+  - {key: project, label: Client, from: meta.projectName}
+  - {key: horizon, label: Due, from: meta.horizon}
+  - {key: status, label: Status, from: meta.goalStatus, format: badge, tones: {drafted: warn, active: info, paused: muted, done: ok, dropped: muted}}
+  - {key: updated, label: Updated, from: meta.updatedAt, format: date}
+rowLink: /dashboard/objects/{id}
+rowActions:
+  - {label: Goal, href: '/dashboard/goals/{meta.goalId}'}
+  - {label: Strategy document, href: '/dashboard/artifacts/{meta.documentArtifactId}'}
+  - {label: Project, href: '/dashboard/projects/{meta.projectId}'}
+empty:
+  text: No strategies yet. Ask the SEO strategist to draft a client's strategy; it becomes a goal you own, with milestones that complete as the work does.
+prompts:
+  - {label: Draft a client's strategy, prompt: 'Draft an SEO strategy for a client as a goal with milestones. First ask me which client and the horizon (a quarter or a date).', agent: seo-strategist}

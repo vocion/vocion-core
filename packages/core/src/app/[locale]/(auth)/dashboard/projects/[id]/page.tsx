@@ -106,6 +106,8 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
   // The client's latest SEO audit, when the SEO app is on: its headline,
   // next steps and report, one move from the project.
   const latestAudit = seoOn ? (await (await import('@/services/seo/audits')).listProjectAudits(orgId, room.id).catch(() => []))[0] ?? null : null;
+  // The client's strategy goal: where it stands, its milestones, its document.
+  const strategy = seoOn ? await (await import('@/services/seo/strategy')).getStrategy(orgId, room.id).catch(() => null) : null;
   const open = room.items.filter(i => i.status === 'open');
   const done = room.items.filter(i => i.status !== 'open');
   // Deliverables and documents are one fact: a deliverable naming an artifact
@@ -211,6 +213,34 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
             profile={m.seoProfile ?? null}
             targets={publishTargets.map(t => ({ id: t.id, line: publishTargetLine(t) }))}
           />
+        )}
+
+        {seoOn && (
+          <Section eyebrow="Strategy" data-testid="project-strategy">
+            {strategy
+              ? (
+                  <>
+                    <p className="text-sm text-foreground">
+                      {strategy.meta.goalId
+                        ? <a href={`/dashboard/goals/${strategy.meta.goalId}`} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{strategy.meta.goalTitle}</a>
+                        : strategy.meta.goalTitle}
+                      <span className="text-muted-foreground">{` · ${strategy.meta.goalStatus === 'drafted' ? 'waiting on the goal card' : strategy.meta.progressLine}`}</span>
+                      {strategy.meta.documentArtifactId ? <a href={`/dashboard/artifacts/${strategy.meta.documentArtifactId}`} className="ml-2 text-xs text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">Strategy document</a> : null}
+                    </p>
+                    {strategy.meta.milestones.length > 0 && (
+                      <ul className="mt-2 space-y-1 text-sm">
+                        {strategy.meta.milestones.map(ms => (
+                          <li key={ms.label} className={`flex gap-2 ${ms.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+                            <span aria-hidden>{ms.done ? '✓' : '·'}</span>
+                            {ms.href ? <a href={ms.href} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{ms.label}</a> : <span>{ms.label}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )
+              : <p className="text-sm text-muted-foreground">No strategy yet. Ask the SEO strategist to draft one: it becomes a goal you own, with milestones that complete as the linked work does.</p>}
+          </Section>
         )}
 
         {latestAudit && (

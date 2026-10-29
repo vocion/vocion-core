@@ -1,0 +1,52 @@
+slug: seo_strategy
+label: SEO strategy
+description: >-
+  One client's SEO strategy: the goal a person owns for it (an outcome with a
+  horizon, "named in AI answers for agency invoicing in Q1 2027"), how far
+  along it is, its milestones each linked to the work that completes it (the
+  audit's high findings fixed, a batch live, a prompt the client is named
+  for), and the strategy document on the project. Code writes it
+  (`seo_draft_strategy`, `services/seo/strategy.ts`), one per project, and
+  reads the goal again whenever the SEO work moves.
+icon: target
+schema:
+  type: object
+  properties:
+    projectId:
+      type: integer
+      description: The client's project.
+    projectName:
+      type: string
+      description: The client.
+    goalTitle:
+      type: string
+      description: The goal, in words.
+    horizon:
+      type: string
+      description: When it is due.
+    goalStatus:
+      type: string
+      enum: [drafted, active, paused, done, dropped]
+      x-display: {label: Goal, format: badge, tones: {drafted: warn, active: info, paused: muted, done: ok, dropped: muted}}
+      x-labels: {drafted: Waiting on the card, active: Active, paused: Paused, done: Done, dropped: Dropped}
+    progressLine:
+      type: string
+      description: Where it stands, as the goal reads it.
+    goalId:
+      type: integer
+      description: The goal, once a person approved it.
+    documentArtifactId:
+      type: integer
+      description: The strategy document.
+    milestones:
+      type: array
+      description: Each milestone, done or not, with the work it is linked to.
+      items:
+        type: object
+        properties:
+          label: {type: string}
+          done: {type: boolean}
+          href: {type: string}
+    updatedAt:
+      type: string
+      format: date-time
