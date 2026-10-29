@@ -5,10 +5,11 @@ import { turnAttribution } from './routing';
  * WHO IS SPEAKING, turn by turn — the agent avatars in chat (founder,
  * 2026-10-09), drawn with the same `AgentDot` as the empty chat's team.
  *
- * A turn opens with its speaker's avatar and name ("Dana · Pricing") only when
- * the speaker CHANGES to a teammate — the lead handed off or routed to a
- * specialist. The same speaker's next turns keep the quiet brand mark, and so
- * does the lead (founder, 2026-09-18: no name on every turn).
+ * Every turn names its speaker, with its own dot (Chris, 2026-10-29: a
+ * follow-up that showed only a dot left the person asking who answered). A
+ * turn whose speaker CHANGES to a teammate — the lead handed off or routed to
+ * a specialist — is its `opener`, which also carries why on hover; the same
+ * speaker's next turns, and the lead's, carry the name without the opener.
  *
  * Pure, so the transcript, the writing line and the tests agree.
  */

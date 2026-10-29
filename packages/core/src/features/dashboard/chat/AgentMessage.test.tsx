@@ -85,7 +85,7 @@ describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', ()
     expect(document.querySelector('[data-testid="speaker-opener"] [data-slot="agent-dot"]')).not.toBeNull();
   });
 
-  it('keeps the quiet mark when the same speaker carries on, and on the lead\'s own turns', async () => {
+  it('names the speaker when the same speaker carries on, and on the lead\'s own turns (2026-10-29)', async () => {
     await render(
       <AgentMessage
         agentName="Revenue"
@@ -95,6 +95,20 @@ describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', ()
 
     await expect.element(page.getByText('Pipeline is up 12%.')).toBeInTheDocument();
     expect(page.getByTestId('speaker-opener').query()).toBeNull();
+    await expect.element(page.getByTestId('speaker-name')).toHaveTextContent('Revenue');
+  });
+
+  it('names a follow-up\'s writer beside its dot, not only on hover', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        writer={{ name: 'Marketing lead', accent: 'violet' }}
+        message={{ role: 'assistant', content: 'Paid search is over plan.', runs: [{ type: 'text', text: 'Paid search is over plan.' }] }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('speaker-name')).toHaveTextContent('Marketing lead');
+    expect(document.querySelector('[data-testid="speaker-name"] [data-slot="agent-dot"]')).not.toBeNull();
   });
 
   it('says who is writing, with their dot at work and their name on hover', async () => {

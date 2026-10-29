@@ -9,7 +9,8 @@
  *
  * The order, most structural first:
  *   1. an agent the person names (`namedAgent`), on any turn;
- *   2. a follow-up stays with the thread's agent (`followUpDecision`);
+ *   2. a follow-up stays with the thread's agent (`followUpDecision`), unless a
+ *      model read finds it turned to work another seat owns (`routeFollowUp`);
  *   3. on a record's page, the type's owner answers (`pageOwnerDecision`);
  *   4. otherwise a model reads the message against the roster — each seat's
  *      description and handles, the record types it answers for and files,
@@ -578,7 +579,10 @@ export function workspacePageDecision(opts: { agents: RoutableAgent[]; message: 
 }
 
 /** The model read `routeFirstTurn` routes on (`routeRead.ts`); a seam for tests. */
-export type RouteReader = (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; signal?: AbortSignal }) => Promise<{ chosen: string; confidence: number; reason: string }>;
+export type RouteReader = (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; thread?: FollowUpThread | null; signal?: AbortSignal }) => Promise<{ chosen: string; confidence: number; reason: string }>;
+
+/** The thread a follow-up arrives in, as the read sees it: who it is with and what that agent said last. */
+export type FollowUpThread = { agentSlug: string; lastReply?: string | null };
 
 /** Below this confidence the model is guessing, and the lead answers. */
 export const ROUTE_CONFIDENCE_BAR = 0.5;
@@ -723,6 +727,116 @@ export async function routeFirstTurn(
     decidedBy: 'model',
     confidence,
     ...(jevDetail ? { jev: jevDetail } : {}),
+  };
+}
+
+/**
+ * How sure the read must be before a follow-up leaves the thread's agent.
+ * Higher than {@link ROUTE_CONFIDENCE_BAR}: staying is the default, and a
+ * thread that moves on a guess loses the work its agent already did.
+ */
+export const FOLLOW_UP_MOVE_BAR = 0.7;
+
+/**
+ * A FOLLOW-UP THAT TURNS TO ANOTHER SEAT'S WORK MOVES THERE.
+ *
+ * 2026-10-29, Revenue workspace: the person opened a thread on the marketing
+ * briefing, which the marketing lead answered, then wrote "no I want to do
+ * lead and email follow up". `followUpDecision` kept it with the marketing
+ * lead, which answered about ad spend and asked for a CRM filter, while the
+ * roster has seats that own lead and email follow-up. Staying stays the
+ * default (conversation 349: "Please file it now." must not leave the product
+ * manager), so the move is read, never matched: the same small model that
+ * routes a first turn is told who the thread is with and what it said last,
+ * and the thread moves only on a confident pick of another seat. A failed or
+ * slow read, a pick of the thread's own agent, a pick off the roster or one
+ * below {@link FOLLOW_UP_MOVE_BAR} keeps the thread where it is, and the
+ * decision says which.
+ * @param opts - The roster, the message and the thread.
+ * @param opts.orgId - The workspace.
+ * @param opts.agents - Every agent the caller may route to.
+ * @param opts.message - The message as typed.
+ * @param opts.thread - The thread's agent and its last reply.
+ * @param opts.leadSlug - `project.leadAgentSlug`.
+ * @param opts.surface - Where the message came from, for the record.
+ * @param deps - Test seams.
+ * @param deps.read - The model read; defaults to `readRoute`.
+ * @param deps.owners - The workspace's type owners; defaults to {@link typeOwners}.
+ * @param deps.timeoutMs - How long to wait for the read.
+ */
+export async function routeFollowUp(
+  opts: { orgId: string; agents: RoutableAgent[]; message: string; thread: FollowUpThread; leadSlug?: string | null; surface: string },
+  deps: { read?: RouteReader; owners?: (orgId: string) => Promise<Record<string, string[]>>; timeoutMs?: number } = {},
+): Promise<RoutingDecision | null> {
+  const live = opts.agents.filter(isActive);
+  const current = live.find(a => a.slug === opts.thread.agentSlug);
+  if (!current) {
+    return null;
+  }
+  const at = new Date().toISOString();
+  const stay = (why: string, extra: Partial<RoutingDecision> = {}): RoutingDecision => ({
+    chosen: current.slug,
+    defaulted: false,
+    reason: `A follow-up in a thread with ${current.slug} stays with ${current.slug}: ${why}`,
+    candidates: [],
+    surface: opts.surface,
+    at,
+    decidedBy: 'thread',
+    ...extra,
+  });
+  const lead = (opts.leadSlug && live.some(a => a.slug === opts.leadSlug)) ? opts.leadSlug : live[0]!.slug;
+  // The seats it may move to are the ones an unaddressed message may reach,
+  // plus the thread's own agent, whatever its initiative.
+  const seatsOpen = unaddressedSeats(live, lead);
+  const open = seatsOpen.some(a => a.slug === current.slug) ? seatsOpen : [current, ...seatsOpen];
+  if (open.length === 1) {
+    return stay('it is the only agent here that takes unaddressed messages.');
+  }
+
+  const timeoutMs = deps.timeoutMs ?? ROUTE_READ_TIMEOUT_MS;
+  const abort = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let read: { chosen: string; confidence: number; reason: string };
+  try {
+    const owners = await (deps.owners ?? typeOwners)(opts.orgId);
+    const seats = open.map(a => ({ ...a, owns: [...new Set([...(a.owns ?? []), ...(owners[a.slug] ?? [])])] }));
+    const reader: RouteReader = deps.read ?? (async input => (await import('./routeRead')).readRoute(input));
+    read = await Promise.race([
+      reader({ orgId: opts.orgId, message: opts.message, agents: seats, leadSlug: lead, thread: opts.thread, signal: abort.signal }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          abort.abort();
+          reject(new Error(`timed out after ${timeoutMs} ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (err) {
+    const why = ((err as Error)?.message || 'failed').slice(0, 160);
+    return stay(`the read of whether it moved did not answer (${why}).`, { fallback: why });
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+
+  const confidence = Math.round(read.confidence * 100) / 100;
+  const picked = open.find(a => a.slug === read.chosen.trim());
+  if (!picked || picked.slug === current.slug) {
+    return stay(picked ? read.reason : `the read named ${read.chosen.slice(0, 80)}, which is not an active agent here.`, picked ? { confidence } : {});
+  }
+  const candidate: RoutingCandidate = { slug: picked.slug, score: confidence, initiative: readInitiative(picked.initiative), matched: [read.reason] };
+  if (confidence < FOLLOW_UP_MOVE_BAR) {
+    return stay(`the model leaned to ${picked.slug} at ${confidence} (the bar to move a thread is ${FOLLOW_UP_MOVE_BAR}): ${read.reason}`, { candidates: [candidate], confidence });
+  }
+  return {
+    chosen: picked.slug,
+    defaulted: false,
+    reason: `The thread was with ${current.slug}, and this follow-up turned to work ${picked.slug} owns: ${read.reason}`,
+    candidates: [candidate],
+    surface: opts.surface,
+    at,
+    decidedBy: 'model',
+    confidence,
   };
 }
 
