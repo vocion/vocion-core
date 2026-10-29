@@ -12,7 +12,7 @@
 # file by slug.
 slug: finance
 name: Finance
-version: 1.0.0
+version: 1.0.1
 description: A finance team that codes expenses, books payroll, closes the month and reports to the board, proposing every change to the books for your approval.
 nav: {section: Finance, order: 0}
 recommend:
