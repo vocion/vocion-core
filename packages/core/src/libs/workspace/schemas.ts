@@ -267,6 +267,12 @@ export const WorkspaceManifestSchema = z.object({
      * such agent at apply time.
      */
     turnEffort: z.enum(['auto', 'quick', 'standard', 'deep']).optional(),
+    /**
+     * How every agent's tools are loaded when its own `harness.toolLoading`
+     * says nothing (ADR 0009, `services/agents/toolLoading.ts`). Unset is
+     * `history`, the behaviour from before the setting existed.
+     */
+    toolLoading: z.enum(['core', 'history', 'all']).optional(),
     turnCeilings: z.object({
       quick: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
       standard: z.object({ seconds: z.number().int().positive().optional(), cents: z.number().int().positive().optional() }).optional(),
@@ -1210,6 +1216,17 @@ export const AgentManifestSchema = z.object({
      * `services/agents/effort.ts` for what each level sets.
      */
     turnEffort: z.enum(['auto', 'quick', 'standard', 'deep']).optional(),
+    /**
+     * Which tools a turn carries in full; the rest wait behind tool search
+     * (ADR 0009, `services/agents/toolLoading.ts`). `history` (the default):
+     * what the agent used lately, its grants and the tools its prompt names.
+     * `core`: the core tier, every declared connector, grants, tools named in
+     * the prompt, skills or playbooks, and recent use, within a budget.
+     * `all`: nothing deferred. Unset takes the workspace's
+     * `defaults.toolLoading`, then `history`. Direct Anthropic only; any
+     * other provider loads every tool.
+     */
+    toolLoading: z.enum(['core', 'history', 'all']).optional(),
     /**
      * Move a level's two hard ceilings — wall clock (seconds) and spend
      * (cents) — past which the turn answers with what it has. Unset takes

@@ -142,9 +142,9 @@ async function run(ctx: RuntimeContext, objectType: CrmObjectType, args: ToolArg
   }, null, 2);
 }
 
-const FRESHNESS = 'Reads the synced CRM mirror, so `as_of` is the last sync time — call freshen_source("hubspot") first if the question implies "right now". When `mirror_stale` is present the mirror has fallen behind its own sync schedule: report `mirror_staleness` alongside the count, because records created since that sync are not in it.';
-const HONESTY = 'Anything listed in `unavailable_fields` is NOT synced for these records: say the field is unavailable rather than estimating it. Report `total` (the exact COUNT), never the number of records shown.';
-const ROUTING = 'Routing: FETCHING a record goes to the source, COUNTING goes here (the mirror). One specific person → hubspot_get_contact; find people by name → hubspot_search_contacts; one account, its deals, or its activity → hubspot_get_company / hubspot_company_deals / hubspot_company_activity; how many / how much / broken down by → the hubspot_count_* tools.';
+const FRESHNESS = '`as_of` is the last sync: call freshen_source("hubspot") first for "right now". When `mirror_stale` is present, report `mirror_staleness` with the count: records since that sync are missing.';
+const HONESTY = 'A field in `unavailable_fields` is not synced: say so, never estimate it. Report `total` (the exact count), never the number of records shown.';
+const ROUTING = 'Counting goes here; fetching goes to the source: one person → hubspot_get_contact; people by name → hubspot_search_contacts; one account, its deals or activity → hubspot_get_company / hubspot_company_deals / hubspot_company_activity.';
 
 export function hubspotCountContactsTool(ctx: RuntimeContext) {
   return tool(

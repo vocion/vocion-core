@@ -133,7 +133,7 @@ const highlightSchema = z.object({
 
 const voiceLineSchema = z.object({
   text: z.string().min(1).max(300),
-  source: z.string().min(1).max(500).describe('Where it was read: the page URL, or a source id from read_project ("doc:12"). A line you cannot source, leave out.'),
+  source: z.string().min(1).max(500).describe('Page URL or read_project source id ("doc:12"). Leave out a line you cannot source.'),
 });
 
 const neverClaimSchema = voiceLineSchema.extend({

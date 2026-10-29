@@ -1080,6 +1080,8 @@ export const agentSchema = pgTable(
       promptCache?: boolean;
       /** How hard a turn works when the person leaves the gauge on Auto (`services/agents/effort.ts`); `auto` reads it from the request. */
       turnEffort?: 'auto' | 'quick' | 'standard' | 'deep';
+      /** Which tools a turn carries in full (ADR 0009, `services/agents/toolLoading.ts`); unset is `history`. */
+      toolLoading?: 'core' | 'history' | 'all';
       /** Per-level ceilings, moving the built-in wall-clock and spend ceilings (`effort.ts` ENVELOPES). */
       turnCeilings?: Partial<Record<'quick' | 'standard' | 'deep', { seconds?: number; cents?: number }>>;
       /** What dynamic routing may pick from (ADR 0006, `libs/workspace/schemas.ts` `RouteModelSchema`). */
