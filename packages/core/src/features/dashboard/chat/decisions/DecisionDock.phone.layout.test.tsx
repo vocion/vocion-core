@@ -123,13 +123,13 @@ describe('what waits elsewhere, mid-conversation', () => {
     expect(page.getByTestId('waiting-nudge').elements()).toHaveLength(0);
   });
 
-  it('is one quiet chip once the turn lands, and opens Review — never a card docked by a tap', async () => {
+  it('shows nothing once the turn lands: no card docked by a tap, and the waiting chip is off', async () => {
     await page.viewport(390, 844);
     await render(<Phone s={session()} />);
 
     expect(page.getByTestId('decision-card').elements()).toHaveLength(0);
-    await expect.element(page.getByTestId('waiting-nudge')).toHaveTextContent('1 thing waiting on you');
-    await expect.element(page.getByRole('link', { name: /1 thing waiting on you/ })).toHaveAttribute('href', '/dashboard/inbox');
+    // WAITING_NUDGE_ENABLED is off: Review keeps the count.
+    expect(page.getByTestId('waiting-nudge').elements()).toHaveLength(0);
     expect(page.getByTestId('waiting-nudge-open').elements()).toHaveLength(0);
   });
 
