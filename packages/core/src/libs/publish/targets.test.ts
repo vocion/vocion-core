@@ -1,6 +1,7 @@
 import type { GithubTarget } from './targets';
 import { describe, expect, it } from 'vitest';
-import { emptyPlaceholders, escapeForMdx, fillTemplate, formatDate, formatOf, publishTargetLine, publishTargetSchema, publishTargetsOf, readTimeOf, renderPageFile, resolvePublishTarget, slugify, squarespaceBlogUrl, stripBylineBlock, stripMetaBlock, wordCount } from './targets';
+import { renderPageFile } from './pageFile';
+import { emptyPlaceholders, escapeForMdx, fillTemplate, formatDate, formatOf, publishTargetLine, publishTargetSchema, publishTargetsOf, readTimeOf, resolvePublishTarget, slugify, squarespaceBlogUrl, stripBylineBlock, stripMetaBlock, wordCount } from './targets';
 
 const github = {
   id: 'site',

@@ -308,7 +308,8 @@ export async function markdownToHtml(markdown: string): Promise<string> {
  * @param plan - The plan; its target must be github.
  */
 export async function pageFileFor(plan: PublishPlan): Promise<{ path: string; format: string; content: string }> {
-  const { formatOf, renderPageFile } = await import('@/libs/publish/targets');
+  const { formatOf } = await import('@/libs/publish/targets');
+  const { renderPageFile } = await import('@/libs/publish/pageFile');
   if (plan.target.kind !== 'github') {
     throw new Error('not a GitHub target');
   }
