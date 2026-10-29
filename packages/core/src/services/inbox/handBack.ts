@@ -30,7 +30,7 @@ import type { Ask } from '@/services/AskService';
 const IN_TURN_CHANNELS = new Set(['card', 'composer', 'chat_chip']);
 
 /** Asks whose answer is carried on by their own filer, by source ref. */
-const SELF_CONTINUING_PREFIXES = ['routine-', 'resume-gate:', 'seo-page:', 'seo-plan:'];
+const SELF_CONTINUING_PREFIXES = ['routine-', 'resume-gate:', 'seo-page:', 'seo-plan:', 'workflow-run:'];
 
 /** Statuses that are an answer (or a person's choice not to give one). */
 const ANSWERED = new Set(['approved', 'rejected', 'done', 'skipped']);

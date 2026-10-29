@@ -1408,6 +1408,7 @@ async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, mode: App
     steps: workflow.steps as unknown as Array<Record<string, unknown>>,
     inputSchema: workflow.inputSchema ?? null,
     ownerAgentSlug: workflow.agent ?? null,
+    runLabel: workflow.runLabel ?? null,
   };
   if (mode.offline) {
     return 'unknown';
@@ -2046,6 +2047,7 @@ function isWorkflowEqual(a: typeof workflowSchema.$inferSelect, b: Record<string
     steps: a.steps,
     inputSchema: a.inputSchema,
     ownerAgentSlug: a.ownerAgentSlug ?? null,
+    runLabel: a.runLabel ?? null,
   }) === canonical({
     name: b.name,
     description: b.description,
@@ -2055,6 +2057,7 @@ function isWorkflowEqual(a: typeof workflowSchema.$inferSelect, b: Record<string
     steps: b.steps,
     inputSchema: b.inputSchema,
     ownerAgentSlug: b.ownerAgentSlug ?? null,
+    runLabel: b.runLabel ?? null,
   });
 }
 

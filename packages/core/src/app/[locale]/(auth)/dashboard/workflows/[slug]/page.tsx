@@ -1,4 +1,5 @@
 import type { StepperStep } from '@/components/ui/stepper';
+import type { RepeatInnerWorkflowStep, WorkflowStep } from '@/libs/workspace/schemas';
 import { Activity, ArrowLeft, Compass, PlayCircle } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
@@ -84,17 +85,16 @@ export default async function WorkflowDetailPage(props: {
       <div className="mb-6">
         <div className="mb-3 font-display text-sm font-semibold">Steps</div>
         <Stepper
-          steps={workflow.steps.map((step, i): StepperStep => {
+          steps={workflow.steps.flatMap((step, i): StepperStep[] => {
             const key = `${step.name}-${i}`;
-            if (step.type === 'action' && 'action' in step) {
-              return { key, type: 'action', title: step.name, subtitle: `action: ${step.action}` };
+            const when = step.when ? ` · when ${step.when}` : '';
+            if (step.type === 'repeat') {
+              return [
+                { key, type: 'repeat', title: step.label ?? step.name, subtitle: `until ${step.until} · at most ${step.max} rounds${step.onExhausted === 'fail' ? ', then fail' : ', then go on'}${when}` },
+                ...step.steps.map((inner, j): StepperStep => ({ key: `${key}-${j}`, type: inner.type, nested: true, title: inner.label ?? inner.name, subtitle: stepSubtitle(inner) })),
+              ];
             }
-            // Final branch: 'approve' type (narrowed by exhaustion of the
-            // other two). 'prompt' check is defensive — older context rows
-            // might lack it.
-            const name = (step as { name: string }).name;
-            const prompt = (step as { prompt?: string }).prompt;
-            return { key, type: 'approve', title: name, subtitle: prompt ?? 'Human approval required' };
+            return [{ key, type: step.type, title: step.label ?? step.name, subtitle: `${stepSubtitle(step)}${when}` }];
           })}
         />
       </div>
@@ -130,4 +130,21 @@ export default async function WorkflowDetailPage(props: {
       )}
     </>
   );
+}
+
+/**
+ * A step's second line on the definition: who or what does it.
+ * @param step - The step as authored.
+ */
+function stepSubtitle(step: Exclude<WorkflowStep, { type: 'repeat' }> | RepeatInnerWorkflowStep): string {
+  switch (step.type) {
+    case 'agent':
+      return `${step.agent}${step.effort && step.effort !== 'auto' ? ` · ${step.effort}` : ''}${step.output ? ' · returns a typed result' : ''}`;
+    case 'action':
+      return `action: ${step.action}`;
+    case 'sync':
+      return `refresh ${step.sources.join(', ')}`;
+    default:
+      return step.prompt ?? 'A person decides';
+  }
 }

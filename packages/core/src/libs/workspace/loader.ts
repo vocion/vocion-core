@@ -41,6 +41,7 @@ import { computeWorkspaceSha } from './sha';
 import { assertTeams } from './teams';
 import { readWorkspaceTextFile } from './template-vars';
 import { loadWikiPages } from './wiki-pages';
+import { assertWorkflowSteps } from './workflowSteps';
 
 export type LoadedAgent = AgentManifest & {
   resolvedSystemPrompt: string;
@@ -427,6 +428,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   assertUniqueSlugs(sources, 'source');
   assertOwnership(agents, automations, workflows);
   assertDoTargets(automations, missions, workflows);
+  assertWorkflowSteps(agents, workflows);
 
   // Provenance: fold the pinned base-pack version into the workspace sha so
   // `workspace_sha` still answers "exactly what ran" — a workspace on

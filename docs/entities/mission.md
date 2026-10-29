@@ -87,7 +87,7 @@ it again.
 | Use | When |
 |---|---|
 | **Mission** | The work is open-ended and judgement-heavy, and the same responsibility recurs. |
-| **[Workflow](./workflow.md)** | The steps are fixed and identical every run. |
+| **[Workflow](./workflow.md)** | The steps are fixed and identical every run, even when agents do them: each `agent` step gives an agent one bounded task (ADR 0011). A mission that keeps running the same steps graduates to one. |
 | **[Automation](./automation.md)** | You need to say *when* something happens. Missions and workflows carry no trigger logic of their own (a mission's legacy `schedule` loads as an automation). |
 
 ## Rules

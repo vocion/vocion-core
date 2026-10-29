@@ -7,6 +7,7 @@ import { agentSkillsNameError } from '@/libs/skills/name';
 import { isDayZone, isRelativeDay } from '@/libs/time/relativeDay';
 import { isValidTimeZone } from '@/libs/time/zone';
 import { TINTS } from '@/libs/tints';
+import { parseCondition, referencedPaths } from '@/libs/workflows/expressions';
 import { harnessTargetSchema } from '@/services/agents/harnessTarget';
 
 export const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
@@ -1380,18 +1381,48 @@ const InterpolatableStringSchema = z.string().describe(
 );
 
 /**
- * Step types — workflows are DETERMINISTIC: same structure every run.
- * Open-ended agent work belongs in missions, never in a workflow step.
- *   - `skill`   — invoke a skill (typed LLM call) with interpolated input
+ * Step types — workflows are DETERMINISTIC: the same structure on every run.
+ * Open-ended goals belong in missions; a fixed procedure that needs agents is
+ * a workflow whose `agent` steps give each agent one bounded task (ADR 0011).
+ *   - `agent`   — one agent, one task, a durable turn with its own envelope
+ *   - `repeat`  — a group of steps run again until a condition, at most `max` rounds
  *   - `sync`    — refresh named sources so downstream steps read live data
- *   - `approve` — HITL pause; workflow resumes after runtime_approve
+ *   - `approve` — HITL pause; a Decision the person approves or rejects
  *   - `ask`     — HITL input; pause until a human supplies text
  *   - `action`  — connector-backed action (v1 = registered stubs only)
+ *
+ * Every step may carry a `label` (what a person reads while it runs,
+ * interpolated) and a `when` (the step is skipped when it is false).
  */
-const ApproveStepSchema = z.object({
+
+/**
+ * A step's `when` or a repeat group's `until`: one comparison or one value
+ * (`libs/workflows/expressions.ts`). Checked here, so a typo fails at
+ * `workspace:check` rather than skipping a step at run time.
+ */
+const ConditionSchema = z.string().min(1).superRefine((source, ctx) => {
+  const parsed = parseCondition(source);
+  if (!parsed.ok) {
+    ctx.addIssue({ code: 'custom', message: parsed.error });
+  }
+}).describe('one comparison, e.g. {{steps.review.output.verdict}} == \'pass\'');
+
+/** Fields every step carries. */
+const stepBase = {
   name: SlugSchema,
+  /**
+   * What a person reads while the step runs, interpolated: "Editor review ·
+   * round {{repeat.round}} of {{repeat.max}}". Falls back to the step's name.
+   */
+  label: z.string().min(1).optional(),
+  /** Skip the step when this is false: `{{input.target}} != 'none'`. */
+  when: ConditionSchema.optional(),
+};
+
+const ApproveStepSchema = z.object({
+  ...stepBase,
   type: z.literal('approve'),
-  prompt: z.string().describe('what is being approved — shown in the review queue'),
+  prompt: z.string().describe('what is being approved — shown on the Decision, interpolated'),
   /** Optional — reference to prior step whose output is being reviewed. */
   reviews: z.string().optional(),
 });
@@ -1404,7 +1435,7 @@ const ApproveStepSchema = z.object({
  * authoring time — only the data comes from the human.
  */
 const AskStepSchema = z.object({
-  name: SlugSchema,
+  ...stepBase,
   type: z.literal('ask'),
   prompt: z.string().describe('what to ask the human — shown in the review queue'),
   /**
@@ -1420,14 +1451,14 @@ const AskStepSchema = z.object({
 });
 
 const ActionStepSchema = z.object({
-  name: SlugSchema,
+  ...stepBase,
   type: z.literal('action'),
   action: z.string().describe('registered action id, e.g. `gmail.send_email`'),
   input: z.record(z.string(), z.unknown()).default({}),
 });
 
 const SyncStepSchema = z.object({
-  name: SlugSchema,
+  ...stepBase,
   type: z.literal('sync'),
   /**
    * Source slugs to incrementally sync before downstream steps read. Gives a
@@ -1438,7 +1469,61 @@ const SyncStepSchema = z.object({
   sources: z.array(z.string()).min(1),
 });
 
-const WorkflowStepSchema = z.discriminatedUnion('type', [ApproveStepSchema, AskStepSchema, ActionStepSchema, SyncStepSchema]);
+/**
+ * The shape an agent step must answer with: a JSON Schema whose top level is
+ * an object, so later steps read `{{steps.<name>.output.<field>}}`. Compiled
+ * when the workflow is checked (`libs/workspace/workflowSteps.ts`).
+ */
+const StepOutputSchema = z.record(z.string(), z.unknown()).superRefine((schema, ctx) => {
+  if (schema.type !== 'object') {
+    ctx.addIssue({ code: 'custom', message: 'an agent step\'s output must be a JSON Schema with type: object, so later steps can read its fields' });
+  }
+});
+
+/**
+ * ONE AGENT, ONE BOUNDED TASK (ADR 0011). The agent runs a durable turn on
+ * its own tools and skills — the step names no skill — and, when `output` is
+ * given, must end with a JSON object of that shape, validated and retried
+ * once on a bad shape. The result is `{{steps.<name>.output.*}}`.
+ */
+const AgentStepSchema = z.object({
+  ...stepBase,
+  type: z.literal('agent'),
+  /** The agent that does the task. Must resolve in this workspace. */
+  agent: SlugSchema,
+  /** The instruction, interpolated: "Research Google's top results for page {{input.page_id}}". */
+  task: z.string().min(1),
+  /** The JSON Schema the agent's result must match. Absent: the reply's text is the output. */
+  output: StepOutputSchema.optional(),
+  /** How hard the turn works: Quick, Standard, Deep, or Auto (read from the task). Default auto. */
+  effort: z.enum(['auto', 'quick', 'standard', 'deep']).optional(),
+  /** Only these tools, by name. Absent: the agent's own tools. */
+  tools: z.array(z.string().min(1)).min(1).optional(),
+});
+
+/** What a repeat group may hold: work, not gates. A person's gate goes after the group. */
+const RepeatInnerStepSchema = z.discriminatedUnion('type', [AgentStepSchema, ActionStepSchema, SyncStepSchema]);
+
+/**
+ * A BOUNDED REPEAT. Its steps run in order, again and again, until `until`
+ * holds — checked after each of its steps, so the group stops the moment the
+ * condition is met — or `max` rounds have run. Then `onExhausted` says what
+ * happens: `continue` to the next step (a sign-off that carries the open
+ * findings), or `fail` the run. Not a loop language: no nesting, no gates.
+ */
+const RepeatStepSchema = z.object({
+  ...stepBase,
+  type: z.literal('repeat'),
+  /** Stop when this holds: `{{steps.review.output.verdict}} == 'pass'`. */
+  until: ConditionSchema,
+  /** The most rounds. Required: a repeat without a ceiling is not a bounded procedure. */
+  max: z.number().int().min(1).max(10),
+  /** When `max` rounds ran and `until` never held. Default `continue`. */
+  onExhausted: z.enum(['continue', 'fail']).default('continue'),
+  steps: z.array(RepeatInnerStepSchema).min(1),
+});
+
+const WorkflowStepSchema = z.discriminatedUnion('type', [ApproveStepSchema, AskStepSchema, ActionStepSchema, SyncStepSchema, AgentStepSchema, RepeatStepSchema]);
 
 const ManualTriggerSchema = z.object({
   type: z.literal('manual').default('manual'),
@@ -1754,13 +1839,52 @@ export const WorkflowManifestSchema = z.object({
   version: z.number().int().positive().default(1),
   /** Owning agent slug — the agent this procedure belongs to. Validated to exist. */
   agent: SlugSchema.optional(),
+  /**
+   * What each run is called, interpolated from its input when it starts:
+   * `"{{input.batch_ref}} · page {{input.index}} of {{input.total}}"`. Shown
+   * in the workflows pages, Activity and the chat's running-work line, as the
+   * run's `runLabel` (`libs/work/runLabel.ts`). Absent: the workflow's name.
+   */
+  runLabel: z.string().min(1).optional(),
   trigger: WorkflowTriggerSchema,
   steps: z.array(WorkflowStepSchema).min(1),
   /** Optional input JSON Schema for manual triggers. */
   inputSchema: z.record(z.string(), z.unknown()).optional(),
+}).superRefine((wf, ctx) => {
+  // One name, one step: a name is how a later step reads an output, and how
+  // a run records a result.
+  const names = new Set<string>();
+  const aliases = new Set<string>();
+  const visit = (step: { name: string; type: string; outputAs?: string; steps?: Array<{ name: string; type: string }> }, path: Array<string | number>) => {
+    if (names.has(step.name)) {
+      ctx.addIssue({ code: 'custom', path: [...path, 'name'], message: `step name "${step.name}" is used twice; every step in a workflow, inside a repeat group or not, needs its own name` });
+    }
+    names.add(step.name);
+    if (step.outputAs) {
+      aliases.add(step.outputAs);
+    }
+    (step.steps ?? []).forEach((inner, i) => visit(inner, [...path, 'steps', i]));
+  };
+  wf.steps.forEach((step, i) => visit(step as never, ['steps', i]));
+  // A reference to a step that does not exist reads as nothing, forever.
+  const known = new Set([...names, ...aliases]);
+  const strings = (v: unknown): string[] => typeof v === 'string' ? [v] : Array.isArray(v) ? v.flatMap(strings) : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : [];
+  wf.steps.forEach((step, i) => {
+    for (const text of strings(step)) {
+      for (const ref of referencedPaths(text)) {
+        const [root, stepName] = ref.split('.');
+        if (root === 'steps' && stepName && !known.has(stepName)) {
+          ctx.addIssue({ code: 'custom', path: ['steps', i], message: `{{${ref}}} names step "${stepName}", and no step in this workflow has that name` });
+        }
+      }
+    }
+  });
 });
 export type WorkflowManifest = z.infer<typeof WorkflowManifestSchema>;
 export type WorkflowStep = z.infer<typeof WorkflowStepSchema>;
+export type AgentWorkflowStep = z.infer<typeof AgentStepSchema>;
+export type RepeatWorkflowStep = z.infer<typeof RepeatStepSchema>;
+export type RepeatInnerWorkflowStep = z.infer<typeof RepeatInnerStepSchema>;
 export type WorkflowTrigger = z.infer<typeof WorkflowTriggerSchema>;
 
 /** Mission templates — open-ended team work starting points. */

@@ -335,6 +335,8 @@ export type AgentRequest = {
   timeZone?: string;
   /** A turn a person started in chat: their own MCP servers join it (`followingSources.ts`). */
   personTurn?: boolean;
+  /** Only these domain tools, by name, this turn (a workflow's `agent` step). Absent: the agent's own. */
+  toolAllowlist?: string[];
 };
 
 /**
@@ -783,7 +785,10 @@ export async function compileAgentForRequest(
   // reaches the model's catalog, so the agent can't even offer it (vs.
   // `interrupts`, which keeps the tool but gates execution).
   const excludeTools = new Set(canonicalToolNames(ctx.harnessConfig.excludeTools));
-  const domainTools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
+  // A workflow's `agent` step may narrow the belt to the tools it names; the
+  // grants and exclusions above still decide what exists to be named.
+  const allowTools = request.toolAllowlist?.length ? new Set(canonicalToolNames(request.toolAllowlist)) : null;
+  const domainTools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name) && (!allowTools || allowTools.has(t.name)));
   const { tools, loading, searchNote } = await tieredTools(blueprint, ctx, domainTools);
   // Deferred tools are invisible until searched for: without this line the
   // model told a person it could not make an image while generate_image sat

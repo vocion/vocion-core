@@ -1,35 +1,37 @@
-import type { WorkflowManifest, WorkflowStep } from '@/libs/workspace/schemas';
+import type { StepResult } from '@/libs/workflows/stepResult';
+import type { AgentWorkflowStep, RepeatInnerWorkflowStep, RepeatWorkflowStep, WorkflowManifest, WorkflowStep } from '@/libs/workspace/schemas';
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { evaluateCondition, interpolateString, interpolateText, interpolateValue } from '@/libs/workflows/expressions';
+import { isSettled } from '@/libs/workflows/stepResult';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { workflowRunSchema, workflowSchema } from '@/models/Schema';
 
 /**
- * Workflow execution. v1 scope:
- *   - Sequential step execution (no parallel)
- *   - Step types: `approve`, `ask`, `action`, `sync`
- *   - `action` steps are stubs — they record intent but perform no side effects
- *     (v2 wires concrete actions: gmail.send_email, hubspot.update_deal, etc.)
- *   - No durable scheduler — if the process dies mid-run, the run is stuck at
- *     its last persisted state. Fine for MetaCTO's volume today; Temporal or
- *     a resumer worker arrives with Phase 6 scale-out.
- *   - Approval gating: `approve` steps pause the run; approveWorkflowStep()
- *     resumes from where it left off.
+ * Workflow execution — a fixed procedure, the same structure on every run.
+ *
+ *   - Steps run in order: `agent` (one agent, one bounded task, ADR 0011),
+ *     `repeat` (a group run again until a condition, at most `max` rounds),
+ *     `sync`, `action`, and the human gates `approve` and `ask`.
+ *   - Any step may carry a `when` (skipped when false) and a `label` (what a
+ *     person reads while it runs). A run's own label comes from the
+ *     workflow's `runLabel`, interpolated from its input at start.
+ *   - `action` steps are stubs that record intent, except the ones that run:
+ *     `routine.run` (a routine batch) and `workflow.start` (one child run per
+ *     item — fan-out).
+ *   - Durable: each run is owned by a durable run (`workflows/durableWorkflowRun.ts`)
+ *     that advances it, waits on its gate, and survives restarts. Every
+ *     finished step is persisted before the next starts, so a restart re-runs
+ *     only the step it interrupted (and says so on the step: `attempt`).
+ *   - Approval gating: an `approve` step pauses the run on a Decision
+ *     (`workflows/approvals.ts`); answering it resumes or stops the run.
  *
  * Persistence model: one `workflow_run` row per execution. `step_results` is
- * a JSONB map keyed by step name so we can write partial state as we go and
- * the caller can see intermediate outputs without normalized joins.
+ * a JSONB map keyed by step name (`libs/workflows/stepResult.ts`) so partial
+ * state is written as it goes and the run page reads it without joins.
  */
 
-type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'awaiting_approval';
-type StepResult = {
-  status: StepStatus;
-  output?: unknown;
-  startedAt?: string;
-  finishedAt?: string;
-  error?: string;
-  skillRunId?: number;
-};
+export type { StepResult };
 
 export type StartWorkflowOpts = {
   orgId: string;
@@ -43,6 +45,8 @@ export type WorkflowRunSummary = {
   id: number;
   workflowId: number;
   workflowSlug: string;
+  /** What this run is called (`input.runLabel`, from the workflow's `runLabel`), or null. */
+  runLabel: string | null;
   status: 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
   currentStep: number | null;
   pauseReason: string | null;
@@ -52,6 +56,15 @@ export type WorkflowRunSummary = {
   createdAt: Date;
   completedAt: Date | null;
 };
+
+/** The input key a run's label rides on — the same one an automation fire's does (`libs/work/runLabel.ts`). */
+export const RUN_LABEL_INPUT_KEY = 'runLabel';
+
+/** A step started this many times without finishing (a restart each time) fails rather than loop. */
+const MAX_STEP_STARTS = 3;
+
+/** The most child runs one `workflow.start` step may start. */
+const MAX_FAN_OUT = 50;
 
 /**
  * Raised when the run is no longer `paused` — another resume claimed it, or
@@ -66,7 +79,11 @@ export class WorkflowRunNotResumableError extends Error {
   }
 }
 
-export async function startWorkflow(opts: StartWorkflowOpts): Promise<WorkflowRunSummary> {
+/**
+ * Create a run and hand it to its durable owner, without waiting on it.
+ * @param opts - What to start.
+ */
+async function createWorkflowRun(opts: StartWorkflowOpts): Promise<{ id: number; runLabel: string | null }> {
   const workflow = await db.query.workflowSchema.findFirst({
     where: and(eq(workflowSchema.orgId, opts.orgId), eq(workflowSchema.slug, opts.slug)),
   });
@@ -78,12 +95,22 @@ export async function startWorkflow(opts: StartWorkflowOpts): Promise<WorkflowRu
   }
 
   const workspaceSha = await getCurrentWorkspaceSha(opts.orgId);
+  const input = { ...(opts.input ?? {}) };
+  const triggerContext = opts.triggerContext ?? {};
+  // The run is named once, from what it was started with. A caller that
+  // already knows the record names it itself (`input.runLabel`).
+  if (workflow.runLabel && typeof input[RUN_LABEL_INPUT_KEY] !== 'string') {
+    const label = interpolateText(workflow.runLabel, { input, trigger: triggerContext, steps: {} }).replace(/\s+/g, ' ').trim();
+    if (label) {
+      input[RUN_LABEL_INPUT_KEY] = label;
+    }
+  }
 
   const [run] = await db.insert(workflowRunSchema).values({
     orgId: opts.orgId,
     workflowId: workflow.id,
-    input: opts.input ?? {},
-    triggerContext: opts.triggerContext ?? {},
+    input,
+    triggerContext,
     status: 'running',
     currentStep: 0,
     stepResults: {},
@@ -92,10 +119,30 @@ export async function startWorkflow(opts: StartWorkflowOpts): Promise<WorkflowRu
   }).returning();
 
   await startDurableRun(opts.orgId, run!.id);
-  return settled(run!.id);
+  return { id: run!.id, runLabel: typeof input[RUN_LABEL_INPUT_KEY] === 'string' ? input[RUN_LABEL_INPUT_KEY] as string : null };
 }
 
-export async function resumeWorkflow(runId: number, orgId: string, payload?: { input?: string }): Promise<WorkflowRunSummary> {
+export async function startWorkflow(opts: StartWorkflowOpts): Promise<WorkflowRunSummary> {
+  const { id } = await createWorkflowRun(opts);
+  return settled(id);
+}
+
+/**
+ * Resume a paused run. An `ask` step resumes with the person's text; an
+ * `approve` step with who approved it, when the caller knows.
+ * @param runId - The run.
+ * @param orgId - The workspace.
+ * @param payload - The answer.
+ * @param payload.input - An ask step's text.
+ * @param payload.approval - An approve step's approval: who, their note, where, and the Decision.
+ * @param payload.approval.by - Who approved.
+ * @param payload.approval.note - Their note.
+ * @param payload.approval.via - Where they answered.
+ * @param payload.approval.askId - The Decision they answered.
+ * @param opts - How long the caller is held.
+ * @param opts.wait - False: return as soon as the run is moving, without waiting for it to settle (a Decision's answer, which a person is not waiting on here).
+ */
+export async function resumeWorkflow(runId: number, orgId: string, payload?: { input?: string; approval?: { by: string; note?: string | null; via?: string | null; askId?: number } }, opts: { wait?: boolean } = {}): Promise<WorkflowRunSummary> {
   const [run] = await db
     .select()
     .from(workflowRunSchema)
@@ -121,15 +168,20 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
       throw new Error(`workflow_run ${runId} is awaiting input for step "${currentStep.name}"; pass { input } to resume`);
     }
     stepResults[currentStep.name] = {
-      ...stepResults[currentStep.name],
+      ...stepResults[currentStep.name]!,
       status: 'completed',
       output: payload.input,
       finishedAt: new Date().toISOString(),
     };
   } else if (currentStep && currentStep.type === 'approve') {
+    const previous = stepResults[currentStep.name];
+    const shown = previous?.output && typeof previous.output === 'object' ? previous.output as Record<string, unknown> : {};
     stepResults[currentStep.name] = {
-      ...stepResults[currentStep.name],
+      ...previous!,
       status: 'completed',
+      // Who approved, and what they said, is the step's output: a later step
+      // can carry the note (`{{steps.<name>.output.note}}`).
+      output: { ...shown, approved: true, ...(payload?.approval ? { approvedBy: payload.approval.by, note: payload.approval.note ?? null, via: payload.approval.via ?? null } : {}) },
       finishedAt: new Date().toISOString(),
     };
   }
@@ -159,6 +211,13 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
     throw new WorkflowRunNotResumableError(runId, 'another request already resumed it, or its status changed since this request read it');
   }
 
+  // Resumed somewhere other than its Decision (the review queue, the API):
+  // the Decision closes, so nobody answers it again.
+  if (!payload?.approval?.askId) {
+    const { closeWorkflowAsks } = await import('@/services/workflows/approvals');
+    await closeWorkflowAsks(orgId, runId, 'The run was resumed from its page.').catch((err: Error) => console.warn('[workflow] the run\'s Decision was not closed', { runId, message: err.message }));
+  }
+
   // The run's durable owner advances it: a message to the run waiting on its
   // mailbox, or — for a run paused before runs were durable — a start, which
   // advances from the cursor just claimed.
@@ -169,7 +228,7 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
   } else {
     await startDurableRun(orgId, runId);
   }
-  return settled(runId);
+  return settled(runId, opts.wait === false ? 0 : undefined);
 }
 
 export async function cancelWorkflow(runId: number, orgId: string, reason?: string): Promise<WorkflowRunSummary> {
@@ -184,6 +243,8 @@ export async function cancelWorkflow(runId: number, orgId: string, reason?: stri
   // A person's cancel ends the durable run too, so nothing resumes it.
   const { durable, durableIdFor } = await import('@/libs/durable');
   await durable().cancel(durableIdFor(orgId, 'workflow-run', runId)).catch((err: Error) => console.warn('[workflow] the durable run was not cancelled', { runId, message: err.message }));
+  const { closeWorkflowAsks } = await import('@/services/workflows/approvals');
+  await closeWorkflowAsks(orgId, runId, reason ? `The run was stopped: ${reason}` : 'The run was stopped.').catch((err: Error) => console.warn('[workflow] the run\'s Decision was not closed', { runId, message: err.message }));
   return summarize(run);
 }
 
@@ -251,21 +312,102 @@ async function settled(runId: number, waitMs = 60_000): Promise<WorkflowRunSumma
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* The engine                                                          */
+/* ------------------------------------------------------------------ */
+
+type Scope = {
+  input: Record<string, unknown>;
+  steps: Record<string, { output: unknown }>;
+  trigger: Record<string, unknown>;
+  repeat?: { round: number; max: number };
+};
+
+/** One segment's working state. */
+type RunState = {
+  run: typeof workflowRunSchema.$inferSelect;
+  workflow: typeof workflowSchema.$inferSelect;
+  stepResults: Record<string, StepResult>;
+  scope: Scope;
+  runLabel: string | null;
+  /** The top-level step being run. */
+  cursor: number;
+};
+
+/** What running one step did to the run. */
+type StepOutcome = 'done' | 'paused';
+
+/** The run stopped being this segment's to write (a person cancelled it): stop, write nothing more. */
+class RunStopped extends Error {
+  constructor() {
+    super('the run was stopped while a step ran');
+    this.name = 'RunStopped';
+  }
+}
+
+/** A step's failure, with the step it happened in. */
+class StepFailed extends Error {
+  constructor(public readonly step: string, message: string) {
+    super(message);
+    this.name = 'StepFailed';
+  }
+}
+
+/**
+ * The first sentence of a text, as a short label.
+ * @param text - A task or a prompt.
+ */
+function firstSentence(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  const end = flat.search(/[.!?](\s|$)/);
+  const sentence = end > 0 ? flat.slice(0, end) : flat;
+  return sentence.length > 90 ? `${sentence.slice(0, 89).trimEnd()}…` : sentence;
+}
+
+/**
+ * What a person reads for a step while it runs: its authored `label`,
+ * interpolated, else the first sentence of what it does. Inside a repeat
+ * group the round is said unless the label says it itself.
+ * @param step - The step.
+ * @param scope - What the run can read.
+ */
+function stepLabel(step: WorkflowStep | RepeatInnerWorkflowStep, scope: Scope): string {
+  const authored = step.label ? interpolateText(step.label, scope).replace(/\s+/g, ' ').trim() : '';
+  const fallback = step.type === 'agent'
+    ? firstSentence(interpolateText(step.task ?? (step as { prompt?: string }).prompt ?? '', scope))
+    : step.type === 'approve' || step.type === 'ask'
+      ? firstSentence(interpolateText(step.prompt, scope))
+      : step.type === 'sync'
+        ? `Refreshing ${step.sources.join(', ')}`
+        : step.name;
+  const label = authored || fallback || step.name;
+  if (scope.repeat && !(step.label ?? '').includes('repeat.')) {
+    return `${label} · round ${scope.repeat.round} of ${scope.repeat.max}`;
+  }
+  return label;
+}
+
 /**
  * One segment of a run: picks up at currentStep and runs forward until either:
  *   - steps array exhausted → status = completed
- *   - an approve step is hit → status = paused (caller resumes later)
+ *   - an approve or ask step is hit → status = paused (resumed later)
  *   - a step throws → status = failed
  *
  * The durable run (`workflows/durableWorkflowRun.ts`) calls it on start and
- * after each resume. A pure function of (run state + workflow definition), so
- * a segment replayed after a crash picks up from the persisted cursor.
- * @param runId
+ * after each resume. A function of (run state + workflow definition), so a
+ * segment replayed after a crash picks up from the persisted cursor: every
+ * finished step is written before the next one starts, and the step a crash
+ * interrupted runs again.
+ * @param runId - The workflow run.
  */
 export async function advanceWorkflowRun(runId: number): Promise<WorkflowRunSummary> {
   const [run] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
   if (!run) {
     throw new Error(`workflow_run ${runId} not found after start`);
+  }
+  // A run a person stopped (or that already ended) is not advanced again.
+  if (run.status !== 'running') {
+    return summarize(run);
   }
   const [workflow] = await db.select().from(workflowSchema).where(eq(workflowSchema.id, run.workflowId));
   if (!workflow) {
@@ -275,200 +417,56 @@ export async function advanceWorkflowRun(runId: number): Promise<WorkflowRunSumm
   const steps = (workflow.steps ?? []) as unknown as WorkflowStep[];
   const stepResults: Record<string, StepResult> = { ...(run.stepResults as Record<string, StepResult>) };
   const input = (run.input as Record<string, unknown>) ?? {};
-  const triggerContext = (run.triggerContext as Record<string, unknown>) ?? {};
-  const scope = { input, steps: collectOutputs(stepResults), trigger: triggerContext };
+  const state: RunState = {
+    run,
+    workflow,
+    stepResults,
+    scope: { input, steps: collectOutputs(steps, stepResults), trigger: (run.triggerContext as Record<string, unknown>) ?? {} },
+    runLabel: typeof input[RUN_LABEL_INPUT_KEY] === 'string' ? input[RUN_LABEL_INPUT_KEY] as string : null,
+    cursor: run.currentStep ?? 0,
+  };
+  const current = async () => {
+    const [row] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
+    return summarize(row!);
+  };
 
-  let cursor = run.currentStep ?? 0;
-
+  let cursor = state.cursor;
   while (cursor < steps.length) {
     const step = steps[cursor]!;
-    const name = step.name;
-
-    stepResults[name] = {
-      ...stepResults[name],
-      status: 'running',
-      startedAt: new Date().toISOString(),
-    };
-    await persistState(runId, { stepResults, currentStep: cursor });
-
+    state.cursor = cursor;
     try {
-      if (step.type === 'sync') {
-        // Freshness gate: incrementally sync the named sources so downstream
-        // agent steps read live data (last-hours mail, current CRM state),
-        // not index-freshness. Per-source failures are recorded, not fatal —
-        // a dead connector degrades the read; it shouldn't kill the briefing.
-        const { runSync } = await import('@/services/SourceSyncService');
-        const { knowledgeSourceSchema } = await import('@/models/Schema');
-        const results: Record<string, string> = {};
-        for (const slug of step.sources) {
-          try {
-            const [src] = await db
-              .select({ id: knowledgeSourceSchema.id })
-              .from(knowledgeSourceSchema)
-              .where(and(eq(knowledgeSourceSchema.orgId, run.orgId), eq(knowledgeSourceSchema.slug, slug)));
-            if (!src) {
-              results[slug] = 'unknown source';
-              continue;
-            }
-            const r = await runSync({ orgId: run.orgId, sourceId: src.id, incremental: true });
-            results[slug] = `synced (${r.created} new, ${r.updated} updated${r.errors ? `, ${r.errors} errors` : ''})`;
-          } catch (err) {
-            results[slug] = `sync failed: ${(err as Error).message.slice(0, 120)}`;
-          }
-        }
-        const output = results;
-        stepResults[name] = {
-          status: 'completed',
-          output,
-          startedAt: stepResults[name]!.startedAt,
-          finishedAt: new Date().toISOString(),
-        };
-        scope.steps[name] = { output };
-      } else if ((step as { type: string }).type === 'agent') {
-        // DEPRECATED (v1.55): workflows are deterministic; open-ended agent
-        // work belongs in missions. The authoring schema no longer accepts
-        // `agent` steps — this case only tolerates DB rows authored on v1.54.
-        const legacy = step as unknown as { agent: string; prompt: string; outputAs?: string };
-        const { runAgentDeep } = await import('@/services/AgentService');
-        const resolved = interpolateString(legacy.prompt, scope);
-        const prompt = typeof resolved === 'string' ? resolved : JSON.stringify(resolved);
-        const { withCallContext } = await import('@/services/spend/callContext');
-        const result = await withCallContext({ runKind: 'workflow_run', runId }, () => runAgentDeep({
-          orgId: run.orgId,
-          agentSlug: legacy.agent,
-          message: prompt,
-          userId: `workflow:${workflow.slug}:${runId}`,
-        }));
-        const output = result.response;
-        stepResults[name] = {
-          status: 'completed',
-          output,
-          startedAt: stepResults[name]!.startedAt,
-          finishedAt: new Date().toISOString(),
-        };
-        scope.steps[legacy.outputAs ?? name] = { output };
-      } else if (step.type === 'approve') {
-        stepResults[name] = {
-          ...stepResults[name],
-          status: 'awaiting_approval',
-          output: { prompt: step.prompt, reviews: step.reviews },
-        };
-        await persistState(runId, {
-          stepResults,
-          currentStep: cursor,
-          status: 'paused',
-          pauseReason: `awaiting_approval:${name}`,
-          pausedAt: new Date(),
-        });
+      const outcome = await runStep(state, step, cursor);
+      if (outcome === 'paused') {
         const [paused] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
         return summarize(paused!);
-      } else if (step.type === 'ask') {
-        // An ask whose `default` already resolves doesn't ask: an automated
-        // caller that supplied the data (e.g. discovery detection handing over
-        // a transcript it is already authorized to read) shouldn't make a human
-        // paste in what the system is holding. Falls through to the pause when
-        // the template resolves to nothing, so a manual start still works.
-        const prefill = step.default === undefined ? undefined : interpolateValue(step.default, scope);
-        if (typeof prefill === 'string' && prefill.trim().length > 0) {
-          stepResults[name] = {
-            status: 'completed',
-            output: prefill,
-            startedAt: stepResults[name]!.startedAt,
-            finishedAt: new Date().toISOString(),
-          };
-          scope.steps[step.outputAs ?? name] = { output: prefill };
-          cursor += 1;
-          continue;
-        }
-        // Human input as a step: pause the run in Review until a human
-        // supplies text via resumeWorkflow(runId, orgId, { input }). Reuses
-        // the `awaiting_approval` StepStatus; the `kind: 'ask'` discriminator
-        // tells the review UI to render a textarea instead of an approve
-        // button. The supplied text replaces this output on resume.
-        stepResults[name] = {
-          ...stepResults[name],
-          status: 'awaiting_approval',
-          output: { prompt: step.prompt, kind: 'ask' },
-        };
-        await persistState(runId, {
-          stepResults,
-          currentStep: cursor,
-          status: 'paused',
-          pauseReason: `awaiting_input:${name}`,
-          pausedAt: new Date(),
-        });
-        const [paused] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
-        return summarize(paused!);
-      } else if (step.type === 'action' && step.action === 'routine.run') {
-        // An action that runs: the routine for the rows given, as a batch under its approved version
-        // and trust level (`services/routines/RoutineService.ts`). The step completes once the batch
-        // is started; its runs report on the batch, and its escalations reach the routine's expert.
-        const actionInput = interpolateRecord(step.input as Record<string, unknown>, scope);
-        const { findRoutine } = await import('@/services/routines/routineReads');
-        const { startRoutineBatch } = await import('@/services/routines/RoutineService');
-        const routine = await findRoutine(run.orgId, String(actionInput.routine ?? ''));
-        if (!routine) {
-          throw new Error(`routine.run: no routine "${String(actionInput.routine ?? '')}"`);
-        }
-        const rawRows = typeof actionInput.rows === 'string' ? JSON.parse(actionInput.rows) as unknown : actionInput.rows;
-        const rows = (Array.isArray(rawRows) ? rawRows : []).filter((x): x is Record<string, string> => Boolean(x) && typeof x === 'object');
-        const shared = actionInput.shared && typeof actionInput.shared === 'object' ? actionInput.shared as Record<string, string> : {};
-        const by = run.createdBy && !['mcp', 'system'].includes(run.createdBy) && !run.createdBy.includes(':') ? run.createdBy : (routine.expert?.userId ?? run.createdBy ?? 'system');
-        const batch = await startRoutineBatch({ orgId: run.orgId, userId: by, routineId: routine.id, rows, shared, conversationId: null });
-        const output = { batchId: batch.id, routine: routine.name, rows: batch.total, url: `/dashboard/routines/batches/${batch.id}` };
-        stepResults[name] = { status: 'completed', output, startedAt: stepResults[name]!.startedAt, finishedAt: new Date().toISOString() };
-        scope.steps[name] = { output };
-      } else if (step.type === 'action') {
-        // v1 stub: record the intent but take no side effect. Output carries
-        // a `__card: 'send-stub'` discriminator so the run-detail page
-        // renders it via the Cards SDK (libs/cards) — see
-        // libs/cards/firstParty/sendStub.tsx for the renderer.
-        const actionInput = interpolateRecord(step.input as Record<string, unknown>, scope);
-        const recordedAt = new Date().toISOString();
-        const toRaw = actionInput.to_customer ?? actionInput.to;
-        const subjectRaw = actionInput.subject;
-        const bodyRaw = actionInput.body ?? actionInput.body_from_step;
-        const output = {
-          __card: 'send-stub' as const,
-          stubbed: true as const,
-          /** The exact interpolated step input — the audit record of what the action WOULD have done. */
-          input: actionInput,
-          envelope: {
-            to: typeof toRaw === 'string' ? toRaw : undefined,
-            subject: typeof subjectRaw === 'string' ? subjectRaw : undefined,
-            body: typeof bodyRaw === 'string' ? bodyRaw : JSON.stringify(actionInput, null, 2),
-            sent_at: recordedAt,
-            action: step.action,
-          },
-        };
-        stepResults[name] = {
-          status: 'completed',
-          output,
-          startedAt: stepResults[name]!.startedAt,
-          finishedAt: recordedAt,
-        };
-        scope.steps[name] = { output };
       }
     } catch (err) {
+      if (err instanceof RunStopped) {
+        return current();
+      }
       const message = err instanceof Error ? err.message : String(err);
-      stepResults[name] = {
-        ...stepResults[name],
-        status: 'failed',
-        error: message,
-        finishedAt: new Date().toISOString(),
-      };
+      const failedStep = err instanceof StepFailed ? err.step : step.name;
+      const finishedAt = new Date().toISOString();
+      stepResults[failedStep] = { ...stepResults[failedStep]!, status: 'failed', error: message, finishedAt };
+      // A step inside a repeat group failed: so did the group.
+      if (failedStep !== step.name && stepResults[step.name]) {
+        stepResults[step.name] = { ...stepResults[step.name]!, status: 'failed', error: `"${stepResults[failedStep]?.label ?? failedStep}" failed`, finishedAt };
+      }
       await persistState(runId, {
         stepResults,
         currentStep: cursor,
         status: 'failed',
-        error: `step "${name}" failed: ${message}`,
+        error: `step "${stepResults[failedStep]?.label ?? failedStep}" failed: ${message}`,
         completedAt: new Date(),
       });
       const [failed] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
       return summarize(failed!);
     }
-
     cursor += 1;
+    // Written before the next step starts: a restart from here re-runs nothing that finished.
+    if (!(await persistState(runId, { stepResults, currentStep: cursor }))) {
+      return current();
+    }
   }
 
   await persistState(runId, {
@@ -481,6 +479,488 @@ export async function advanceWorkflowRun(runId: number): Promise<WorkflowRunSumm
   return summarize(done!);
 }
 
+/**
+ * Begin a step: its label, its start, and how many times it was started. A
+ * step found `running` was interrupted (the process stopped mid-step) and
+ * runs again; past {@link MAX_STEP_STARTS} it fails instead of looping.
+ * @param state - The run.
+ * @param step - The step.
+ * @param cursor - The top-level step index, persisted with it.
+ * @param round - Inside a repeat group, the round.
+ */
+async function beginStep(state: RunState, step: WorkflowStep | RepeatInnerWorkflowStep, cursor: number, round?: number): Promise<StepResult> {
+  const prev = state.stepResults[step.name];
+  const interrupted = prev?.status === 'running' && (round === undefined || prev.round === round);
+  const attempt = interrupted ? (prev.attempt ?? 1) + 1 : 1;
+  const label = stepLabel(step, state.scope);
+  const previous = carryPrevious(prev, round);
+  const result: StepResult = {
+    status: 'running',
+    label,
+    startedAt: interrupted && prev.startedAt ? prev.startedAt : new Date().toISOString(),
+    attempt,
+    ...(round !== undefined ? { round } : {}),
+    ...(previous?.length ? { previous } : {}),
+    // What an interrupted step had already done (a fan-out's started runs) is kept.
+    ...(interrupted && prev.output !== undefined ? { output: prev.output } : {}),
+  };
+  state.stepResults[step.name] = result;
+  if (attempt > MAX_STEP_STARTS) {
+    throw new StepFailed(step.name, `it was interrupted ${attempt - 1} times before it could finish, so it was not started again`);
+  }
+  if (!(await persistState(state.run.id, { stepResults: state.stepResults, currentStep: cursor }))) {
+    throw new RunStopped();
+  }
+  return result;
+}
+
+/**
+ * A repeated step's earlier rounds, with the last one added when a new round begins.
+ * @param prev - The step's result so far.
+ * @param round - The round starting, or undefined outside a repeat group.
+ */
+function carryPrevious(prev: StepResult | undefined, round: number | undefined): StepResult['previous'] {
+  if (round !== undefined && prev && prev.round !== undefined && prev.round !== round && isSettled(prev.status)) {
+    return [...(prev.previous ?? []), { round: prev.round, status: prev.status, ...(prev.output !== undefined ? { output: prev.output } : {}), ...(prev.error ? { error: prev.error } : {}), ...(prev.finishedAt ? { finishedAt: prev.finishedAt } : {}) }];
+  }
+  return prev?.previous;
+}
+
+/**
+ * Finish a step with its output, and make the output readable downstream.
+ * @param state - The run.
+ * @param name - The step.
+ * @param output - What it produced.
+ * @param extra - More to record on the result.
+ * @param alias - The name later steps read it by, when not its own.
+ */
+function finishStep(state: RunState, name: string, output: unknown, extra: Partial<StepResult> = {}, alias?: string): void {
+  state.stepResults[name] = { ...state.stepResults[name]!, ...extra, status: 'completed', output, finishedAt: new Date().toISOString() };
+  state.scope.steps[alias ?? name] = { output };
+}
+
+/**
+ * Run one top-level step.
+ * @param state - The run.
+ * @param step - The step.
+ * @param cursor - Its index.
+ */
+async function runStep(state: RunState, step: WorkflowStep, cursor: number): Promise<StepOutcome> {
+  if (await skipped(state, step, cursor)) {
+    return 'done';
+  }
+  if (step.type === 'repeat') {
+    return runRepeat(state, step, cursor);
+  }
+  await beginStep(state, step, cursor);
+  if (step.type === 'approve') {
+    return pauseForApproval(state, step, cursor);
+  }
+  if (step.type === 'ask') {
+    return askStep(state, step, cursor);
+  }
+  await runWork(state, step);
+  return 'done';
+}
+
+/**
+ * Skip a step whose `when` is false; say so on it.
+ * @param state - The run.
+ * @param step - The step.
+ * @param cursor - Its top-level index.
+ */
+async function skipped(state: RunState, step: WorkflowStep | RepeatInnerWorkflowStep, cursor: number): Promise<boolean> {
+  if (!step.when) {
+    return false;
+  }
+  let holds: boolean;
+  try {
+    holds = evaluateCondition(step.when, state.scope);
+  } catch (err) {
+    throw new StepFailed(step.name, `its condition could not be read: ${(err as Error).message}`);
+  }
+  if (holds) {
+    return false;
+  }
+  const prev = state.stepResults[step.name];
+  const previous = carryPrevious(prev, state.scope.repeat?.round);
+  state.stepResults[step.name] = {
+    ...(previous?.length ? { previous } : {}),
+    ...(state.scope.repeat ? { round: state.scope.repeat.round } : {}),
+    status: 'skipped',
+    label: stepLabel(step, state.scope),
+    skippedBecause: step.when,
+    finishedAt: new Date().toISOString(),
+  };
+  if (!(await persistState(state.run.id, { stepResults: state.stepResults, currentStep: cursor }))) {
+    throw new RunStopped();
+  }
+  return true;
+}
+
+/**
+ * The work steps, which finish on their own: agent, sync, action (and the
+ * legacy agent rows from before 0.2).
+ * @param state - The run.
+ * @param step - The step.
+ */
+async function runWork(state: RunState, step: WorkflowStep | RepeatInnerWorkflowStep): Promise<void> {
+  const { run, scope } = state;
+  const name = step.name;
+  if (step.type === 'agent') {
+    if ((step as { task?: string }).task === undefined && (step as { prompt?: string }).prompt !== undefined) {
+      // A row authored on v1.54 (`agent` + `prompt` + `outputAs`): run as the text step it was.
+      const legacy = step as unknown as AgentWorkflowStep & { prompt: string; outputAs?: string };
+      await runAgentWork(state, { ...legacy, task: legacy.prompt }, legacy.outputAs);
+      return;
+    }
+    await runAgentWork(state, step);
+    return;
+  }
+  if (step.type === 'sync') {
+    // Freshness gate: incrementally sync the named sources so downstream
+    // agent steps read live data (last-hours mail, current CRM state),
+    // not index-freshness. Per-source failures are recorded, not fatal —
+    // a dead connector degrades the read; it shouldn't kill the briefing.
+    const { runSync } = await import('@/services/SourceSyncService');
+    const { knowledgeSourceSchema } = await import('@/models/Schema');
+    const results: Record<string, string> = {};
+    for (const slug of step.sources) {
+      try {
+        const [src] = await db
+          .select({ id: knowledgeSourceSchema.id })
+          .from(knowledgeSourceSchema)
+          .where(and(eq(knowledgeSourceSchema.orgId, run.orgId), eq(knowledgeSourceSchema.slug, slug)));
+        if (!src) {
+          results[slug] = 'unknown source';
+          continue;
+        }
+        const r = await runSync({ orgId: run.orgId, sourceId: src.id, incremental: true });
+        results[slug] = `synced (${r.created} new, ${r.updated} updated${r.errors ? `, ${r.errors} errors` : ''})`;
+      } catch (err) {
+        results[slug] = `sync failed: ${(err as Error).message.slice(0, 120)}`;
+      }
+    }
+    finishStep(state, name, results);
+    return;
+  }
+  if (step.type === 'action' && step.action === 'routine.run') {
+    // An action that runs: the routine for the rows given, as a batch under its approved version
+    // and trust level (`services/routines/RoutineService.ts`). The step completes once the batch
+    // is started; its runs report on the batch, and its escalations reach the routine's expert.
+    const actionInput = interpolateValue(step.input, scope) as Record<string, unknown>;
+    const { findRoutine } = await import('@/services/routines/routineReads');
+    const { startRoutineBatch } = await import('@/services/routines/RoutineService');
+    const routine = await findRoutine(run.orgId, String(actionInput.routine ?? ''));
+    if (!routine) {
+      throw new StepFailed(name, `routine.run: no routine "${String(actionInput.routine ?? '')}"`);
+    }
+    const rawRows = typeof actionInput.rows === 'string' ? JSON.parse(actionInput.rows) as unknown : actionInput.rows;
+    const rows = (Array.isArray(rawRows) ? rawRows : []).filter((x): x is Record<string, string> => Boolean(x) && typeof x === 'object');
+    const shared = actionInput.shared && typeof actionInput.shared === 'object' ? actionInput.shared as Record<string, string> : {};
+    const by = run.createdBy && !['mcp', 'system'].includes(run.createdBy) && !run.createdBy.includes(':') ? run.createdBy : (routine.expert?.userId ?? run.createdBy ?? 'system');
+    const batch = await startRoutineBatch({ orgId: run.orgId, userId: by, routineId: routine.id, rows, shared, conversationId: null });
+    finishStep(state, name, { batchId: batch.id, routine: routine.name, rows: batch.total, url: `/dashboard/routines/batches/${batch.id}` });
+    return;
+  }
+  if (step.type === 'action' && step.action === 'workflow.start') {
+    finishStep(state, name, await fanOut(state, step));
+    return;
+  }
+  if (step.type === 'action') {
+    // v1 stub: record the intent but take no side effect. Output carries
+    // a `__card: 'send-stub'` discriminator so the run-detail page
+    // renders it via the Cards SDK (libs/cards) — see
+    // libs/cards/firstParty/sendStub.tsx for the renderer.
+    const actionInput = interpolateValue(step.input, scope) as Record<string, unknown>;
+    const recordedAt = new Date().toISOString();
+    const toRaw = actionInput.to_customer ?? actionInput.to;
+    const subjectRaw = actionInput.subject;
+    const bodyRaw = actionInput.body ?? actionInput.body_from_step;
+    finishStep(state, name, {
+      __card: 'send-stub' as const,
+      stubbed: true as const,
+      /** The exact interpolated step input — the audit record of what the action WOULD have done. */
+      input: actionInput,
+      envelope: {
+        to: typeof toRaw === 'string' ? toRaw : undefined,
+        subject: typeof subjectRaw === 'string' ? subjectRaw : undefined,
+        body: typeof bodyRaw === 'string' ? bodyRaw : JSON.stringify(actionInput, null, 2),
+        sent_at: recordedAt,
+        action: step.action,
+      },
+    });
+  }
+}
+
+/**
+ * An agent step: one agent, one bounded task, its result validated
+ * (`workflows/agentStep.ts`), charged to this run.
+ * @param state - The run.
+ * @param step - The step.
+ * @param alias - A legacy row's `outputAs`.
+ */
+async function runAgentWork(state: RunState, step: AgentWorkflowStep, alias?: string): Promise<void> {
+  const [{ AgentStepError, runAgentStep }, { runAgentTurn }] = await Promise.all([
+    import('@/services/workflows/agentStep'),
+    import('@/services/workflows/agentRunner'),
+  ]);
+  const toAgent = (r: { agent: string; attempts: Array<{ at: string; traceId: string; ok: boolean; problem?: string }>; model?: string; effort?: string; microCents?: number; toolCalls: number }): StepResult['agent'] => ({
+    slug: r.agent,
+    attempts: r.attempts,
+    toolCalls: r.toolCalls,
+    ...(r.model ? { model: r.model } : {}),
+    ...(r.effort ? { effort: r.effort } : {}),
+    ...(typeof r.microCents === 'number' ? { microCents: r.microCents } : {}),
+  });
+  try {
+    const record = await runAgentStep({
+      orgId: state.run.orgId,
+      runId: state.run.id,
+      workflow: { slug: state.workflow.slug, name: state.workflow.name },
+      runLabel: state.runLabel,
+      stepLabel: state.stepResults[step.name]?.label ?? step.name,
+      step,
+      task: interpolateText(step.task, state.scope),
+      turn: runAgentTurn,
+    });
+    finishStep(state, step.name, record.output, { agent: toAgent(record) }, alias);
+  } catch (err) {
+    if (err instanceof AgentStepError) {
+      state.stepResults[step.name] = { ...state.stepResults[step.name]!, agent: toAgent(err.record) };
+    }
+    throw new StepFailed(step.name, err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
+ * A bounded repeat: its steps in order, round after round, until `until`
+ * holds — read after each of its steps — or `max` rounds have run. Its place
+ * (round, next step) is persisted after every step, so a restart picks the
+ * group up where it was.
+ * @param state - The run.
+ * @param group - The repeat step.
+ * @param cursor - Its top-level index.
+ */
+async function runRepeat(state: RunState, group: RepeatWorkflowStep, cursor: number): Promise<StepOutcome> {
+  const prev = state.stepResults[group.name];
+  const resuming = prev?.status === 'running' && prev.repeat;
+  const place = resuming ? { ...prev.repeat! } : { round: 1, max: group.max, next: 0 };
+  const base = stepLabel(group, state.scope);
+  const groupLabel = () => `${base} · round ${place.round} of ${group.max}`;
+  state.stepResults[group.name] = {
+    status: 'running',
+    label: groupLabel(),
+    startedAt: resuming && prev.startedAt ? prev.startedAt : new Date().toISOString(),
+    attempt: resuming ? (prev.attempt ?? 1) : 1,
+    repeat: place,
+  };
+  if (!(await persistState(state.run.id, { stepResults: state.stepResults, currentStep: cursor }))) {
+    throw new RunStopped();
+  }
+
+  const conclude = (satisfied: boolean) => {
+    const output = { rounds: place.round, satisfied, exhausted: !satisfied };
+    finishStep(state, group.name, output, { label: `${base} · ${satisfied ? `done in ${place.round} of ${group.max} ${group.max === 1 ? 'round' : 'rounds'}` : `all ${group.max} rounds ran`}`, repeat: { ...place, satisfied, exhausted: !satisfied } });
+    if (!satisfied && group.onExhausted === 'fail') {
+      state.stepResults[group.name] = { ...state.stepResults[group.name]!, status: 'failed', error: `${group.max} rounds ran and "${group.until}" never held` };
+      throw new StepFailed(group.name, `${group.max} ${group.max === 1 ? 'round' : 'rounds'} ran and "${group.until}" never held`);
+    }
+  };
+
+  for (;;) {
+    state.scope.repeat = { round: place.round, max: group.max };
+    try {
+      for (; place.next < group.steps.length; place.next++) {
+        const inner = group.steps[place.next]!;
+        if (!(await skipped(state, inner, cursor))) {
+          await beginStep(state, inner, cursor, place.round);
+          await runWork(state, inner);
+        }
+        const done = untilHolds(group, state);
+        state.stepResults[group.name] = { ...state.stepResults[group.name]!, repeat: { ...place, next: place.next + 1 } };
+        if (!(await persistState(state.run.id, { stepResults: state.stepResults, currentStep: cursor }))) {
+          throw new RunStopped();
+        }
+        if (done) {
+          conclude(true);
+          return 'done';
+        }
+      }
+    } finally {
+      delete state.scope.repeat;
+    }
+    if (place.round >= group.max) {
+      conclude(false);
+      return 'done';
+    }
+    place.round += 1;
+    place.next = 0;
+    state.stepResults[group.name] = { ...state.stepResults[group.name]!, label: groupLabel(), repeat: { ...place } };
+    if (!(await persistState(state.run.id, { stepResults: state.stepResults, currentStep: cursor }))) {
+      throw new RunStopped();
+    }
+  }
+}
+
+/**
+ * Whether a repeat group's `until` holds now.
+ * @param group - The group.
+ * @param state - The run.
+ */
+function untilHolds(group: RepeatWorkflowStep, state: RunState): boolean {
+  try {
+    return evaluateCondition(group.until, state.scope);
+  } catch (err) {
+    throw new StepFailed(group.name, `its "until" could not be read: ${(err as Error).message}`);
+  }
+}
+
+/**
+ * Pause on an approve step's Decision.
+ * @param state - The run.
+ * @param step - The approve step.
+ * @param cursor - Its index.
+ */
+async function pauseForApproval(state: RunState, step: Extract<WorkflowStep, { type: 'approve' }>, cursor: number): Promise<StepOutcome> {
+  const prompt = interpolateText(step.prompt, state.scope);
+  const label = state.stepResults[step.name]?.label ?? step.name;
+  const reviewed = step.reviews && state.scope.steps[step.reviews]
+    ? { label: state.stepResults[step.reviews]?.label ?? step.reviews, output: state.scope.steps[step.reviews]!.output }
+    : null;
+  let askId: number | undefined;
+  try {
+    const { fileApprovalAsk } = await import('@/services/workflows/approvals');
+    askId = await fileApprovalAsk({
+      orgId: state.run.orgId,
+      runId: state.run.id,
+      workflow: { slug: state.workflow.slug, name: state.workflow.name, agent: state.workflow.ownerAgentSlug },
+      runLabel: state.runLabel,
+      step: step.name,
+      label,
+      prompt,
+      reviewed,
+    });
+  } catch (err) {
+    // The run still waits where the review queue shows it; the card is a
+    // second way in, and its absence is said on the step.
+    console.warn('[workflow] the approval Decision was not filed', { runId: state.run.id, step: step.name, message: (err as Error).message });
+  }
+  state.stepResults[step.name] = {
+    ...state.stepResults[step.name]!,
+    status: 'awaiting_approval',
+    output: { prompt, reviews: step.reviews },
+    ...(askId ? { askId } : {}),
+  };
+  await persistState(state.run.id, {
+    stepResults: state.stepResults,
+    currentStep: cursor,
+    status: 'paused',
+    pauseReason: `awaiting_approval:${step.name}`,
+    pausedAt: new Date(),
+  });
+  return 'paused';
+}
+
+/**
+ * An ask step: completes with its `default` when that resolves, else pauses
+ * for a person's text.
+ * @param state - The run.
+ * @param step - The ask step.
+ * @param cursor - Its index.
+ */
+async function askStep(state: RunState, step: Extract<WorkflowStep, { type: 'ask' }>, cursor: number): Promise<StepOutcome> {
+  // An ask whose `default` already resolves doesn't ask: an automated
+  // caller that supplied the data (e.g. discovery detection handing over
+  // a transcript it is already authorized to read) shouldn't make a human
+  // paste in what the system is holding. Falls through to the pause when
+  // the template resolves to nothing, so a manual start still works.
+  const prefill = step.default === undefined ? undefined : interpolateString(step.default, state.scope);
+  if (typeof prefill === 'string' && prefill.trim().length > 0) {
+    finishStep(state, step.name, prefill, {}, step.outputAs ?? step.name);
+    return 'done';
+  }
+  // Human input as a step: pause the run in Review until a human supplies
+  // text via resumeWorkflow(runId, orgId, { input }). Reuses the
+  // `awaiting_approval` StepStatus; the `kind: 'ask'` discriminator tells the
+  // review UI to render a textarea instead of an approve button. The
+  // supplied text replaces this output on resume.
+  state.stepResults[step.name] = {
+    ...state.stepResults[step.name]!,
+    status: 'awaiting_approval',
+    output: { prompt: interpolateText(step.prompt, state.scope), kind: 'ask' },
+  };
+  await persistState(state.run.id, {
+    stepResults: state.stepResults,
+    currentStep: cursor,
+    status: 'paused',
+    pauseReason: `awaiting_input:${step.name}`,
+    pausedAt: new Date(),
+  });
+  return 'paused';
+}
+
+/**
+ * FAN-OUT: `action: workflow.start` starts one child run of a workflow per
+ * item, each named by its own input. The step finishes once they are
+ * started; each child runs, pauses and is decided on its own, and names this
+ * run as its parent (`trigger.parentRunId`).
+ *
+ * Input: `workflow` (slug), `items` (a list, or JSON of one), optional
+ * `input` (shared by every child). Each child's input is the shared input,
+ * then the item's own fields when it is an object, then `item`, `index`
+ * (from 1) and `total`.
+ * @param state - The run.
+ * @param step - The action step.
+ */
+async function fanOut(state: RunState, step: Extract<WorkflowStep, { type: 'action' }> | Extract<RepeatInnerWorkflowStep, { type: 'action' }>): Promise<{ workflow: string; count: number; runs: Array<{ id: number; label: string | null }> }> {
+  const actionInput = interpolateValue(step.input, state.scope) as Record<string, unknown>;
+  const slug = String(actionInput.workflow ?? '').trim();
+  if (!slug) {
+    throw new StepFailed(step.name, 'workflow.start needs `workflow`: the slug of the workflow to start for each item');
+  }
+  if (slug === state.workflow.slug) {
+    throw new StepFailed(step.name, 'workflow.start cannot start the workflow it runs in');
+  }
+  const raw = typeof actionInput.items === 'string'
+    ? (() => {
+        try {
+          return JSON.parse(actionInput.items as string) as unknown;
+        } catch {
+          return undefined;
+        }
+      })()
+    : actionInput.items;
+  if (!Array.isArray(raw)) {
+    throw new StepFailed(step.name, 'workflow.start needs `items`: a list, one child run per item');
+  }
+  if (raw.length > MAX_FAN_OUT) {
+    throw new StepFailed(step.name, `workflow.start was given ${raw.length} items; it starts at most ${MAX_FAN_OUT} runs at once`);
+  }
+  const shared = actionInput.input && typeof actionInput.input === 'object' && !Array.isArray(actionInput.input) ? actionInput.input as Record<string, unknown> : {};
+  // A replayed segment must not start the children twice: the ones already
+  // started are on the step, written after each start.
+  const prior = (state.stepResults[step.name]?.output as { runs?: Array<{ id: number; label: string | null }> } | undefined)?.runs ?? [];
+  const runs = [...prior];
+  for (let i = runs.length; i < raw.length; i++) {
+    const item = raw[i];
+    const own = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
+    const child = await createWorkflowRun({
+      orgId: state.run.orgId,
+      slug,
+      input: { ...shared, ...own, item, index: i + 1, total: raw.length },
+      triggerContext: { trigger: 'workflow', parentRunId: state.run.id, parentWorkflow: state.workflow.slug, parentStep: step.name },
+      invokedBy: state.run.createdBy ?? `workflow:${state.workflow.slug}`,
+    });
+    runs.push({ id: child.id, label: child.runLabel });
+    state.stepResults[step.name] = { ...state.stepResults[step.name]!, output: { workflow: slug, count: runs.length, runs } };
+    if (!(await persistState(state.run.id, { stepResults: state.stepResults, currentStep: state.cursor }))) {
+      throw new RunStopped();
+    }
+  }
+  return { workflow: slug, count: runs.length, runs };
+}
+
 type PersistPatch = {
   stepResults: Record<string, StepResult>;
   currentStep: number;
@@ -491,7 +971,13 @@ type PersistPatch = {
   completedAt?: Date;
 };
 
-async function persistState(runId: number, patch: PersistPatch): Promise<void> {
+/**
+ * Write the run's state, only while the run is still running: a run a person
+ * stopped stays stopped, and the segment learns it (false) and stops too.
+ * @param runId - The run.
+ * @param patch - What to write.
+ */
+async function persistState(runId: number, patch: PersistPatch): Promise<boolean> {
   const update: Record<string, unknown> = {
     stepResults: patch.stepResults,
     currentStep: patch.currentStep,
@@ -511,70 +997,36 @@ async function persistState(runId: number, patch: PersistPatch): Promise<void> {
   if (patch.completedAt !== undefined) {
     update.completedAt = patch.completedAt;
   }
-  await db.update(workflowRunSchema).set(update).where(eq(workflowRunSchema.id, runId));
-}
-
-function collectOutputs(results: Record<string, StepResult>): Record<string, { output: unknown }> {
-  const out: Record<string, { output: unknown }> = {};
-  for (const [name, r] of Object.entries(results)) {
-    if (r.status === 'completed' && r.output !== undefined) {
-      out[name] = { output: r.output };
-    }
-  }
-  return out;
+  const written = await db.update(workflowRunSchema).set(update).where(and(eq(workflowRunSchema.id, runId), eq(workflowRunSchema.status, 'running'))).returning({ id: workflowRunSchema.id });
+  return written.length > 0;
 }
 
 /**
- * Interpolate `{{expr}}` references in every string leaf of a record.
- * Supports dotted paths into `input`, `steps.<name>.output`, `trigger`, or
- * `steps.<name>.output.<field>`. Non-string leaves pass through unchanged.
- * @param value
- * @param scope
+ * What a resumed segment can read: every finished step's output, under the
+ * name later steps read it by (an ask's `outputAs`).
+ * @param steps - The workflow's steps.
+ * @param results - The run's results.
  */
-function interpolateRecord(value: Record<string, unknown>, scope: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value)) {
-    out[k] = interpolateValue(v, scope);
+function collectOutputs(steps: WorkflowStep[], results: Record<string, StepResult>): Record<string, { output: unknown }> {
+  const alias = new Map<string, string>();
+  for (const s of steps) {
+    if (s.type === 'ask' && s.outputAs) {
+      alias.set(s.name, s.outputAs);
+    }
+  }
+  const out: Record<string, { output: unknown }> = {};
+  for (const [name, r] of Object.entries(results)) {
+    // A step re-running in a new round still reads as its last round's result.
+    if (r.status === 'completed' && r.output !== undefined) {
+      out[alias.get(name) ?? name] = { output: r.output };
+    } else if (r.previous?.length) {
+      const last = [...r.previous].reverse().find(p => p.status === 'completed' && p.output !== undefined);
+      if (last) {
+        out[name] = { output: last.output };
+      }
+    }
   }
   return out;
-}
-
-function interpolateValue(value: unknown, scope: Record<string, unknown>): unknown {
-  if (typeof value === 'string') {
-    return interpolateString(value, scope);
-  }
-  if (Array.isArray(value)) {
-    return value.map(v => interpolateValue(v, scope));
-  }
-  if (value && typeof value === 'object') {
-    return interpolateRecord(value as Record<string, unknown>, scope);
-  }
-  return value;
-}
-
-function interpolateString(template: string, scope: Record<string, unknown>): unknown {
-  // Whole-string match returns the referenced value verbatim (keeps types)
-  // — so `{{steps.summary.output}}` returns an object, not its string repr.
-  const wholeMatch = /^\{\{\s*([\w.]+)\s*\}\}$/.exec(template);
-  if (wholeMatch) {
-    return resolvePath(scope, wholeMatch[1]!);
-  }
-  return template.replaceAll(/\{\{\s*([\w.]+)\s*\}\}/g, (_, path) => {
-    const v = resolvePath(scope, path as string);
-    return v === undefined || v === null ? '' : typeof v === 'string' ? v : JSON.stringify(v);
-  });
-}
-
-function resolvePath(scope: Record<string, unknown>, path: string): unknown {
-  const segments = path.split('.');
-  let current: unknown = scope;
-  for (const seg of segments) {
-    if (current === null || current === undefined || typeof current !== 'object') {
-      return undefined;
-    }
-    current = (current as Record<string, unknown>)[seg];
-  }
-  return current;
 }
 
 function summarize(row: typeof workflowRunSchema.$inferSelect): WorkflowRunSummary {
@@ -582,6 +1034,7 @@ function summarize(row: typeof workflowRunSchema.$inferSelect): WorkflowRunSumma
     id: row.id,
     workflowId: row.workflowId,
     workflowSlug: '', // filled by caller if needed
+    runLabel: typeof (row.input as Record<string, unknown> | null)?.[RUN_LABEL_INPUT_KEY] === 'string' ? (row.input as Record<string, string>)[RUN_LABEL_INPUT_KEY]! : null,
     status: row.status as WorkflowRunSummary['status'],
     currentStep: row.currentStep,
     pauseReason: row.pauseReason,
@@ -651,6 +1104,7 @@ export async function getWorkflow(orgId: string, slug: string): Promise<Workflow
     status: (row.status ?? 'active') as WorkflowManifest['status'],
     version: row.version ?? 1,
     agent: row.ownerAgentSlug ?? undefined,
+    runLabel: row.runLabel ?? undefined,
     trigger: row.trigger as WorkflowManifest['trigger'],
     steps: row.steps as unknown as WorkflowManifest['steps'],
     inputSchema: row.inputSchema ?? undefined,

@@ -691,6 +691,14 @@ async function settleWaitersOn(row: Ask): Promise<void> {
       logger.warn('a routine could not hear an answered ask', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
     });
   }
+  if (row.sourceRef?.startsWith('workflow-run:')) {
+    // A workflow run waits at an approve step on this answer: approving
+    // resumes it, rejecting stops it (`services/workflows/approvals.ts`).
+    void import('@/services/workflows/approvals').then(m => m.onWorkflowAskSettled(row)).catch(async (err) => {
+      const { logger } = await import('@/libs/Logger');
+      logger.warn('a workflow run could not hear an answered ask', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
+    });
+  }
   if (isSeoSignoffSource(row.sourceRef)) {
     // An SEO sign-off — a drafted page or a batch's keyword plan: the page or
     // batch moves, its project's gate is read again, and the strategist is

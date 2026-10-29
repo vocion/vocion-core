@@ -634,6 +634,14 @@ async function runAgentDeepInScope(opts: {
    */
   modelOverride?: import('./agents/harness').ModelOverride;
   /**
+   * Only these tools, by name, for this ONE turn (a workflow's `agent` step,
+   * `services/workflows/agentStep.ts`). The agent's own grants and exclusions
+   * still apply first; deepagents' file tools stay, so skills are still read.
+   * Pins the turn to the in-process loop, where the catalog is built, as a
+   * model override does.
+   */
+  toolAllowlist?: string[];
+  /**
    * The conversation's model preferences (`libs/llm/modelPrefs.ts`): how
    * strong a model, how much it thinks. Applied only on the in-process loop
    * — never moving a turn off the harness the agent runs on — and only when
@@ -857,7 +865,7 @@ async function runAgentDeepInScope(opts: {
   const harness = agentRow?.harnessConfig;
   // A model override pins the turn to the in-process loop, whatever the agent's
   // harness says — see the option's doc comment.
-  const target = opts.modelOverride
+  const target = opts.modelOverride || opts.toolAllowlist?.length
     ? 'in-process'
     : normalizeHarnessTarget(process.env.VOCION_AGENT_PROVIDER)
       ?? normalizeHarnessTarget(harness?.runsOn ?? harness?.provider)
@@ -962,6 +970,7 @@ async function runAgentDeepInScope(opts: {
       turnMessage: opts.message,
       timeZone: opts.timeZone,
       personTurn: opts.personTurn,
+      ...(opts.toolAllowlist?.length ? { toolAllowlist: opts.toolAllowlist } : {}),
     },
     { modelOverride, handOff: handOffGuard, turnMiddleware, ...(synthesisDue ? { synthesisDue } : {}) },
   );
@@ -1545,6 +1554,7 @@ async function runAgentDeepInScope(opts: {
             turnMessage: opts.message,
             timeZone: opts.timeZone,
             personTurn: opts.personTurn,
+            ...(opts.toolAllowlist?.length ? { toolAllowlist: opts.toolAllowlist } : {}),
           },
           { modelOverride: { ...(modelOverride ?? {}), model: fallback, provider }, handOff: handOffGuard, turnMiddleware, ...(synthesisDue ? { synthesisDue } : {}) },
         );
@@ -1636,6 +1646,7 @@ async function runAgentDeepInScope(opts: {
             turnMessage: opts.message,
             timeZone: opts.timeZone,
             personTurn: opts.personTurn,
+            ...(opts.toolAllowlist?.length ? { toolAllowlist: opts.toolAllowlist } : {}),
           },
           // A ModelOverride names its model; without one the provider lookup
           // trims undefined and the turn dies (MCP turn, 2026-09-25 04:26Z,
