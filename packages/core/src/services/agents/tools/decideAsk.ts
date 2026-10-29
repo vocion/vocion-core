@@ -64,7 +64,7 @@ export function decideAskTool(ctx: RuntimeContext) {
     },
     {
       name: 'decide_ask',
-      description: 'Answer an open ask (a question, an approval or a sign-off waiting on the person, e.g. a Stopped ask on a request, a plan to sign off) on the person\'s behalf, in their own turn — when their message says the answer ("approve the plan", "leave it stopped", an option\'s label; a revise is "other" with their words as the note). The same answer as the ask\'s own buttons: an option that carries an action runs it as the person, and the ask\'s follow-up runs. Never file a new ask for something an open one already asks: answer that one. Refuses an answer they did not say. Never on your own schedule.',
+      description: 'Answer an open ask (a question, approval or sign-off waiting on the person) for them, in their own turn, when their message says the answer ("approve the plan", an option\'s label; a revise is "other" with their words as the note). Same as the ask\'s own buttons: an option\'s action runs as the person, then the follow-up. Never file a new ask an open one already asks: answer that one. Refuses an answer they did not say.',
       metadata: { alwaysLoaded: true },
       schema: z.object({
         id: z.number().int().positive().describe('The ask id'),
