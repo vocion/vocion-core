@@ -127,6 +127,7 @@ describe('researchPatch', () => {
       intentFrom: 'dataforseo',
       metricsCheckedAt: READ,
     });
+
     // Ahrefs gives no Google Ads competition: a later Ahrefs read clears it.
     const ahrefs = researchPatch(row({ competition: 'high', metricsCheckedAt: READ }), { keyword: 'boiler repair', metrics: { ...metrics, checkedAt: LATER, source: 'ahrefs' } }, []);
 
