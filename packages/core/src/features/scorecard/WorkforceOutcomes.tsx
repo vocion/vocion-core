@@ -3,6 +3,7 @@
 import type { WorkforceCommand } from '@/services/workforce/contracts';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { outcomeInsights } from '@/services/workforce/insights';
 
@@ -208,12 +209,13 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
                 </p>
                 {item.missionRuns.map(run => (
                   <div key={run.id} className="rounded-lg border p-3">
-                    <strong>
+                    <Link href={`/dashboard/missions/runs/${run.id}`} className="font-medium underline">
                       {t('mission')}
                       {' '}
                       #
                       {run.id}
-                    </strong>
+                      {' →'}
+                    </Link>
                     <p>
                       {run.status}
                       {' '}
