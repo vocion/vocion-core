@@ -222,6 +222,25 @@ Installing on an organization you do not own files a **request** to its
 owners; the callback says so and stores nothing until an owner approves and
 GitHub sends them to the Setup URL.
 
+### Switching to a different GitHub App
+
+An installation belongs to the app it was installed from. Point
+`GITHUB_APP_*` at a new app and every workspace connected through the old one
+stops syncing: GitHub answers 404 when the new app asks for a token.
+
+To keep them working, also set the old app as the legacy app:
+`GITHUB_LEGACY_APP_ID`, `GITHUB_LEGACY_APP_PRIVATE_KEY_BASE64`, and
+optionally `GITHUB_LEGACY_APP_SLUG` for display. When the current app gets a
+404 for an installation, Vocion mints the token with the legacy app instead
+and remembers that for the life of the process. Stored credentials are not
+changed. New installs, the connect flow, OAuth and the webhook use only the
+current app.
+
+The first time per process that the legacy app serves an installation, the
+log says so at info level and names the account. **Test connection** adds a
+note too. Once every account has installed the new app and reconnected,
+remove the `GITHUB_LEGACY_APP_*` variables.
+
 ## Asking an agent what it reaches
 
 "Which repositories do you have access to?" is answered by the `describe_sources`

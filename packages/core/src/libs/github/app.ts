@@ -13,6 +13,12 @@
  * The private key arrives base64-encoded in `GITHUB_APP_PRIVATE_KEY_BASE64`
  * because a PEM has newlines and every env store mangles those differently.
  * It is decoded once, held in module memory, and never logged.
+ *
+ * A deployment that switched GitHub Apps can name the previous one in
+ * `GITHUB_LEGACY_APP_*`. It is used for one thing: minting tokens for an
+ * installation the current app answers 404 for, so workspaces connected
+ * through the old app keep syncing until each account installs the new one.
+ * Never for new installs, the connect flow, OAuth or webhooks.
  */
 
 import { Buffer } from 'node:buffer';
@@ -58,6 +64,30 @@ export function githubAppConfig(): GithubAppConfig | null {
   return { appId, slug, privateKey, clientId, clientSecret };
 }
 
+/**
+ * The previous GitHub App, kept only to mint tokens for installations made
+ * before the deployment switched apps. `GITHUB_LEGACY_APP_SLUG` is for
+ * display. Optional: absent means there is no legacy app.
+ */
+export const GITHUB_LEGACY_APP_ENV = ['GITHUB_LEGACY_APP_ID', 'GITHUB_LEGACY_APP_PRIVATE_KEY_BASE64'] as const;
+
+export type GithubLegacyAppConfig = Pick<GithubAppConfig, 'appId' | 'privateKey'> & { slug?: string };
+
+/** The legacy app as the environment describes it, or null when it is not set (or its key is not a PEM). */
+export function githubLegacyAppConfig(): GithubLegacyAppConfig | null {
+  const appId = process.env.GITHUB_LEGACY_APP_ID?.trim();
+  const keyBase64 = process.env.GITHUB_LEGACY_APP_PRIVATE_KEY_BASE64?.trim();
+  if (!appId || !keyBase64) {
+    return null;
+  }
+  const privateKey = Buffer.from(keyBase64, 'base64').toString('utf8');
+  if (!privateKey.includes('PRIVATE KEY')) {
+    return null;
+  }
+  const slug = process.env.GITHUB_LEGACY_APP_SLUG?.trim() || undefined;
+  return { appId, privateKey, slug };
+}
+
 /** Whether the deployment can act as a GitHub App at all. */
 export function appConfigured(): boolean {
   return githubAppConfig() !== null;
@@ -73,7 +103,7 @@ function base64url(input: Buffer | string): string {
  * @param config - The app; defaults to the environment's.
  * @param now - Unix seconds, for tests.
  */
-export function appJwt(config: GithubAppConfig | null = githubAppConfig(), now: number = Math.floor(Date.now() / 1000)): string {
+export function appJwt(config: Pick<GithubAppConfig, 'appId' | 'privateKey'> | null = githubAppConfig(), now: number = Math.floor(Date.now() / 1000)): string {
   if (!config) {
     throw new Error(`GitHub App is not configured: set ${GITHUB_APP_ENV.join(', ')}.`);
   }
@@ -90,9 +120,17 @@ type CachedToken = { token: string; expiresAt: number };
 /** Installation token cache, keyed by API host and installation id: an Enterprise host mints its own. */
 const tokenCache = new Map<string, CachedToken>();
 
-/** Forget every minted token. For tests. */
+/**
+ * Installations the legacy app answered for, keyed like `tokenCache`, with
+ * the account when it could be read. Process lifetime, never persisted: the
+ * first mint after a restart tries the current app again.
+ */
+const legacyInstallations = new Map<string, { account?: string }>();
+
+/** Forget every minted token and which app owns which installation. For tests. */
 export function clearInstallationTokenCache(): void {
   tokenCache.clear();
+  legacyInstallations.clear();
 }
 
 /** How long before GitHub's expiry a cached token stops being reused. */
@@ -118,9 +156,34 @@ export async function installationToken(installationId: string, opts?: { baseUrl
   if (cached && cached.expiresAt - REFRESH_MARGIN_MS > now) {
     return cached.token;
   }
-  const config = githubAppConfig();
-  const jwt = appJwt(config, Math.floor(now / 1000));
-  const res = await fetch(`${baseUrl}/app/installations/${encodeURIComponent(installationId)}/access_tokens`, {
+  const nowSeconds = Math.floor(now / 1000);
+  const legacy = githubLegacyAppConfig();
+  if (!legacy || !legacyInstallations.has(cacheKey)) {
+    const res = await mintRequest(baseUrl, installationId, appJwt(githubAppConfig(), nowSeconds));
+    // Only a 404 means "not this app's installation"; anything else is the
+    // current app's answer and stands.
+    if (res.ok || res.status !== 404 || !legacy) {
+      return acceptMint(res, installationId, cacheKey, now);
+    }
+    const legacyRes = await mintRequest(baseUrl, installationId, appJwt(legacy, nowSeconds));
+    if (!legacyRes.ok) {
+      // Neither app owns it: report what the current app said.
+      return acceptMint(res, installationId, cacheKey, now);
+    }
+    const token = await acceptMint(legacyRes, installationId, cacheKey, now);
+    await noteLegacyInstallation(baseUrl, installationId, cacheKey, legacy, nowSeconds);
+    return token;
+  }
+  const res = await mintRequest(baseUrl, installationId, appJwt(legacy, nowSeconds));
+  if (!res.ok) {
+    // Ask the current app first again next time: the account may have moved.
+    legacyInstallations.delete(cacheKey);
+  }
+  return acceptMint(res, installationId, cacheKey, now);
+}
+
+function mintRequest(baseUrl: string, installationId: string, jwt: string): Promise<Response> {
+  return fetch(`${baseUrl}/app/installations/${encodeURIComponent(installationId)}/access_tokens`, {
     method: 'POST',
     headers: {
       'authorization': `Bearer ${jwt}`,
@@ -129,6 +192,9 @@ export async function installationToken(installationId: string, opts?: { baseUrl
       'user-agent': 'vocion-github-app',
     },
   });
+}
+
+async function acceptMint(res: Response, installationId: string, cacheKey: string, now: number): Promise<string> {
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`GitHub refused to mint a token for installation ${installationId} (${res.status}): ${text.slice(0, 200)}`);
@@ -140,6 +206,54 @@ export async function installationToken(installationId: string, opts?: { baseUrl
   const expiresAt = body.expires_at ? Date.parse(body.expires_at) : now + 60 * 60_000;
   tokenCache.set(cacheKey, { token: body.token, expiresAt: Number.isNaN(expiresAt) ? now + 60 * 60_000 : expiresAt });
   return body.token;
+}
+
+/**
+ * Remember that the legacy app serves this installation, read its account
+ * (best effort) and log it once per process.
+ * @param baseUrl - API host.
+ * @param installationId - The installation.
+ * @param cacheKey - Its `tokenCache` key.
+ * @param legacy - The legacy app.
+ * @param nowSeconds - Unix seconds, for the JWT.
+ */
+async function noteLegacyInstallation(baseUrl: string, installationId: string, cacheKey: string, legacy: GithubLegacyAppConfig, nowSeconds: number): Promise<void> {
+  let account: string | undefined;
+  try {
+    const res = await fetch(`${baseUrl}/app/installations/${encodeURIComponent(installationId)}`, {
+      headers: { 'authorization': `Bearer ${appJwt(legacy, nowSeconds)}`, 'accept': 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'vocion-github-app' },
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { account?: { login?: string } | null };
+      account = body.account?.login || undefined;
+    }
+  } catch {
+    // The account only makes the log line friendlier.
+  }
+  legacyInstallations.set(cacheKey, { account });
+  const message = `installation ${installationId} served by the legacy GitHub App; reinstall the current app on ${account ?? 'its account'} to retire it`;
+  try {
+    const { logger } = await import('@/libs/Logger');
+    logger.info(message, { installationId, account, legacyApp: legacy.slug ?? legacy.appId });
+  } catch {
+    // Logging never costs a sync its token.
+  }
+}
+
+/**
+ * When the legacy app is what serves this installation in this process, a
+ * short note saying so (for Test connection); null otherwise.
+ * @param installationId - The installation, as GitHub numbers it.
+ * @param baseUrl - API host; defaults to github.com.
+ */
+export function legacyInstallationNote(installationId: string, baseUrl?: string): string | null {
+  const entry = legacyInstallations.get(`${(baseUrl ?? DEFAULT_API_URL).replace(/\/+$/, '')}|${installationId}`);
+  if (!entry) {
+    return null;
+  }
+  const slug = githubLegacyAppConfig()?.slug;
+  const app = slug ? `the earlier GitHub App (${slug})` : 'the earlier GitHub App';
+  return `This connection is an installation of ${app}. It keeps working; reinstall the current app on ${entry.account ?? 'the account'} to retire it.`;
 }
 
 /**

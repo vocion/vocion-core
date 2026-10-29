@@ -9,10 +9,12 @@ import { Buffer } from 'node:buffer';
 import { createVerify, generateKeyPairSync } from 'node:crypto';
 import process from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { appConfigured, appJwt, clearInstallationTokenCache, githubAppConfig, installationIdFrom, installationToken } from './app';
+import { appConfigured, appJwt, clearInstallationTokenCache, githubAppConfig, installationIdFrom, installationToken, legacyInstallationNote } from './app';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const PEM = privateKey.export({ type: 'pkcs1', format: 'pem' }).toString();
+
+vi.mock('@/libs/Logger', () => ({ logger: { info: vi.fn() } }));
 
 function base64urlDecode(s: string): string {
   return Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
@@ -28,7 +30,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const name of ['GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_PRIVATE_KEY_BASE64', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_CLIENT_SECRET']) {
+  for (const name of ['GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_PRIVATE_KEY_BASE64', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_CLIENT_SECRET', 'GITHUB_LEGACY_APP_ID', 'GITHUB_LEGACY_APP_SLUG', 'GITHUB_LEGACY_APP_PRIVATE_KEY_BASE64']) {
     delete process.env[name];
   }
   vi.unstubAllGlobals();
@@ -120,5 +122,99 @@ describe('installationIdFrom', () => {
     expect(installationIdFrom({ installationId: 42 })).toBe('42');
     expect(installationIdFrom({ token: 'ghp_x' })).toBeUndefined();
     expect(installationIdFrom(undefined)).toBeUndefined();
+  });
+});
+
+describe('installationToken with a legacy GitHub App', () => {
+  // The app id a request's JWT was signed for.
+  function issuer(init?: RequestInit): string {
+    const jwt = String((init?.headers as Record<string, string>).authorization).replace(/^Bearer /, '');
+    return JSON.parse(base64urlDecode(jwt.split('.')[1]!)).iss;
+  }
+
+  // Primary app 12345 owns `primary`; legacy app 999 owns `legacy`; every other pair is GitHub's 404.
+  function github(owned: { primary?: string[]; legacy?: string[] }) {
+    return vi.fn(async (url: string, init?: RequestInit) => {
+      const id = /installations\/(\d+)/.exec(url)![1]!;
+      const app = issuer(init);
+      const owns = app === '12345' ? owned.primary?.includes(id) : owned.legacy?.includes(id);
+      if (!owns) {
+        return new Response('{"message":"Not Found"}', { status: 404 });
+      }
+      if (url.endsWith('/access_tokens')) {
+        return new Response(JSON.stringify({ token: `ghs_${app}_${id}`, expires_at: '2026-09-30T11:00:00Z' }), { status: 201 });
+      }
+      return new Response(JSON.stringify({ id: Number(id), account: { login: 'example-org' } }));
+    });
+  }
+
+  function setLegacyApp(): void {
+    process.env.GITHUB_LEGACY_APP_ID = '999';
+    process.env.GITHUB_LEGACY_APP_SLUG = 'vocion-agents-old';
+    process.env.GITHUB_LEGACY_APP_PRIVATE_KEY_BASE64 = Buffer.from(PEM).toString('base64');
+  }
+
+  const now = Date.parse('2026-09-30T10:00:00Z');
+
+  it('uses the current app alone when it owns the installation', async () => {
+    setLegacyApp();
+    const fetchMock = github({ primary: ['777'], legacy: ['777'] });
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await installationToken('777', { now })).toBe('ghs_12345_777');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(legacyInstallationNote('777')).toBeNull();
+  });
+
+  it('falls back to the legacy app on a 404, logs once, and goes straight to it on the next mint', async () => {
+    setLegacyApp();
+    const fetchMock = github({ legacy: ['555'] });
+    vi.stubGlobal('fetch', fetchMock);
+    const { logger } = await import('@/libs/Logger');
+    vi.mocked(logger.info).mockClear();
+
+    expect(await installationToken('555', { now })).toBe('ghs_999_555');
+    expect(fetchMock.mock.calls.map(([url, init]) => `${issuer(init)} ${url}`)).toEqual([
+      '12345 https://api.github.com/app/installations/555/access_tokens',
+      '999 https://api.github.com/app/installations/555/access_tokens',
+      '999 https://api.github.com/app/installations/555',
+    ]);
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(logger.info).mock.calls[0]![0]).toBe('installation 555 served by the legacy GitHub App; reinstall the current app on example-org to retire it');
+    expect(legacyInstallationNote('555')).toMatch(/earlier GitHub App \(vocion-agents-old\).*reinstall the current app on example-org/);
+
+    fetchMock.mockClear();
+
+    // Past the cached token's refresh margin: a fresh mint, from the legacy app only.
+    expect(await installationToken('555', { now: now + 56 * 60_000 })).toBe('ghs_999_555');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(issuer(fetchMock.mock.calls[0]![1])).toBe('999');
+    expect(logger.info).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the current app\'s error when neither app owns the installation', async () => {
+    setLegacyApp();
+    vi.stubGlobal('fetch', github({}));
+
+    await expect(installationToken('404', { now })).rejects.toThrow('GitHub refused to mint a token for installation 404 (404): {"message":"Not Found"}');
+    expect(legacyInstallationNote('404')).toBeNull();
+  });
+
+  it('does not try a legacy app on errors other than 404', async () => {
+    setLegacyApp();
+    const fetchMock = vi.fn(async () => new Response('{"message":"Bad credentials"}', { status: 401 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(installationToken('777', { now })).rejects.toThrow(/installation 777 \(401\)/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('without a legacy app, a 404 is the error it always was, after one request', async () => {
+    const fetchMock = github({ legacy: ['555'] });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(installationToken('555', { now })).rejects.toThrow('GitHub refused to mint a token for installation 555 (404): {"message":"Not Found"}');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(legacyInstallationNote('555')).toBeNull();
   });
 });

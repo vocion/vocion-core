@@ -18,6 +18,7 @@ vi.mock('@/services/EventService', () => ({
 vi.mock('@/libs/github/app', () => ({
   installationIdFrom: (c?: Record<string, unknown>) => (typeof c?.installationId === 'string' ? c.installationId : undefined),
   installationToken: vi.fn(async (id: string) => `ghs_minted_${id}`),
+  legacyInstallationNote: () => null,
 }));
 
 const { emitEvent } = await import('@/services/EventService');
