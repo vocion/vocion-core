@@ -38,6 +38,8 @@ export async function GET(req: Request) {
  * Requires workspace administrator access; review commands require a session.
  * Body is a strict workforce command with kind create, link or review and eventKey.
  * Create requires key, workflow, title, agentSlug, rubric and configurationVersion.
+ * Optional baselineKind is assumed (sample size 0) or measured (positive sample size);
+ * both require baselineMinutes and baselineEvidence. Omitted provenance is unverified.
  * Link requires itemId, version, sourceKind and sourceId. Review requires itemId,
  * version, status, reason and evidence; effortMinutes records active effort only.
  * Exact event replay returns its existing receipt; changed payloads or stale revisions

@@ -2,6 +2,7 @@ import type { WorkforceCommand } from './contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { and, asc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { runCostCents } from '@/libs/worker/runCost';
 import { actionRunSchema, agentSchema, workforceEventSchema as events, workforceItemSchema as items, workforceLinkSchema as links, workerRunSchema } from '@/models/Schema';
 import { workforceCommand, WorkforceError } from './contracts';
 import { learningInsights, readWorkforceLearning } from './learning';
@@ -27,7 +28,21 @@ export async function recordWorkforceCommand(orgId: string, actorId: string, raw
   }
   const command = parsed.data;
   if (command.kind === 'create' && Boolean(command.baselineMinutes) !== Boolean(command.baselineEvidence)) {
-    fail(400, 'A baseline requires both measured minutes and evidence');
+    fail(400, 'A baseline requires both minutes and source or rationale');
+  }
+  if (command.kind === 'create') {
+    if ((command.baselineKind !== undefined || command.baselineSampleSize !== undefined) && !command.baselineMinutes) {
+      fail(400, 'Baseline provenance requires baseline minutes and evidence');
+    }
+    if (command.baselineKind === 'measured' && !(command.baselineSampleSize && command.baselineSampleSize > 0)) {
+      fail(400, 'A measured baseline requires a positive sample size');
+    }
+    if (command.baselineKind === 'assumed' && command.baselineSampleSize !== 0) {
+      fail(400, 'An assumed baseline requires sample size zero');
+    }
+    if (command.baselineSampleSize !== undefined && !command.baselineKind) {
+      fail(400, 'A sample size requires an explicit baseline kind');
+    }
   }
   const hash = createHash('sha256').update(JSON.stringify(command)).digest('hex');
   return db.transaction(async (tx) => {
@@ -161,11 +176,16 @@ export async function readWorkforceOutcomes(orgId: string, since: Date, until: D
         return !source || fingerprint(source) !== link.sourceDigest;
       });
       const attempts = itemLinks.filter(l => l.kind === 'worker').map(l => workers.find(w => w.id === l.sourceId));
+      // Provenance lives in the immutable registration event. Legacy registrations
+      // are unverified: never infer measurement from a free-text evidence field.
+      const registration = itemEvents.find(e => e.kind === 'create');
+      const baselineKind: 'assumed' | 'measured' | 'unverified' = evidenceComplete && registration && ['assumed', 'measured'].includes(String(registration.data.baselineKind)) ? registration.data.baselineKind as 'assumed' | 'measured' : 'unverified';
+      const baselineSampleSize = baselineKind !== 'unverified' && typeof registration?.data.baselineSampleSize === 'number' ? registration.data.baselineSampleSize : null;
       const reviews = itemEvents.filter(e => e.kind === 'review');
       const effort = reviews.filter(e => typeof e.data.effortMinutes === 'number');
       // This is linked-worker cost, not total model/tool/vendor spend.
-      const linkedWorkerCostCents = evidenceComplete && attempts.length && attempts.every(w => w && w.cents !== null) ? attempts.reduce((s, w) => s + Number(w!.cents), 0) : null;
-      return { ...item, evidenceChanged, links: itemLinks, events: itemEvents.map(({ commandHash: _hash, ...e }) => e), linkedWorkerCostCents, costCoverage: 'partial' as const, activeEffortMinutes: evidenceComplete && effort.length ? effort.reduce((s, e) => s + Number(e.data.effortMinutes), 0) : null, effortCoverage: evidenceComplete && reviews.length > 0 && effort.length === reviews.length ? 'reported' as const : 'partial' as const, firstPassAccepted: evidenceComplete && reviews.length ? reviews[0]!.data.status === 'accepted' : null };
+      const linkedWorkerCostCents = evidenceComplete && attempts.length && attempts.every(w => w && runCostCents(w) !== null) ? attempts.reduce((s, w) => s + runCostCents(w!)!, 0) : null;
+      return { ...item, baselineKind, baselineSampleSize, evidenceChanged, links: itemLinks, events: itemEvents.map(({ commandHash: _hash, ...e }) => e), linkedWorkerCostCents, costCoverage: 'partial' as const, activeEffortMinutes: evidenceComplete && effort.length ? effort.reduce((s, e) => s + Number(e.data.effortMinutes), 0) : null, effortCoverage: evidenceComplete && reviews.length > 0 && effort.length === reviews.length ? 'reported' as const : 'partial' as const, firstPassAccepted: evidenceComplete && reviews.length ? reviews[0]!.data.status === 'accepted' : null };
     });
     const accepted = rows.filter(i => !i.evidenceChanged && ['accepted', 'corrected'].includes(i.status));
     return { learning, learningRecommendations: learning ? learningInsights(learning) : [], schemaVersion: 1, workspaceId: orgId, generatedAt: until.toISOString(), window: { from: since.toISOString(), to: until.toISOString() }, test, complete: found.length <= 1000 && evidenceComplete, cohort: 'items updated in window' as const, items: rows, summary: { items: rows.length, accepted: accepted.length, blocked: rows.filter(i => i.status === 'blocked').length, firstPassAccepted: accepted.filter(i => i.firstPassAccepted).length, costPerAcceptedItem: null, netTimeSavedMinutes: null },

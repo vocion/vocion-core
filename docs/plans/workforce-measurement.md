@@ -1,6 +1,7 @@
 # Workforce measurement: four-sprint implementation plan
 
-Status: proposed delivery plan; Sprint 1 implementation accompanies this document.
+Status: Sprint 1 delivered; Sprint 2 outcome and learning contracts delivered, with
+runtime capture and real pilot verification still in progress.
 Sprint lengths are team planning decisions, not a four-week promise.
 
 ## Outcome and architecture
@@ -48,7 +49,7 @@ saved. Model-graded quality must be calibrated against independent human labels.
 | Sprint | Scope | Exit evidence |
 | --- | --- | --- |
 | 1 — Inventory and coverage | Reconcile deployed workforce; expose unused agents, enabled state, ownership, purpose, observed activity and measurement gaps; verify instrumentation | Workspace inventory exports, deployment/version register, ownership review and end-to-end event verification |
-| 2 — Work and outcome contracts | Instrument three representative workflows: human-assisted, scheduled and multi-agent; work-item IDs, acceptance/correction reasons, review effort, baselines, durable outcome export | Same item traceable across delegates/retries without double-counting; measured baseline and acceptance rubric per workflow |
+| 2 — Work and outcome contracts | Instrument three representative workflows: human-assisted, scheduled and multi-agent; work-item IDs, acceptance/correction reasons, review effort, baselines, durable outcome export | Same item traceable across delegates/retries without double-counting; explicitly sourced measured baseline or approved planning assumption, plus acceptance rubric per workflow |
 | 3 — Operational and executive scorecards | In-product actionable scorecards, Amplitude adoption views, sampled quality checks and central outcome reporting | Owners can trace summary metrics to evidence; authorization, freshness and reconciliation checks pass |
 | 4 — Improvement cycle | Fix a demonstrated bottleneck, evaluate comparable cases, roll out or revert; expand/fix/retire decision | Before/after evidence, decision log and next backlog; decide whether a dedicated central portal is needed |
 
@@ -220,8 +221,8 @@ The new `workforce_item` is an explicitly registered business item, independent 
 worker attempts and action proposals. A workspace-unique business key identifies
 it; linked source records may belong to only one item. Delegates and retries link
 to the same item. Registration captures workflow type, accountable agent/team,
-configuration version, acceptance criteria and an optional measured manual baseline
-with its evidence. The baseline is not invented from execution duration.
+configuration version, acceptance criteria and an optional manual baseline
+with its source or rationale, basis (assumed or measured) and timed sample size. The baseline is not invented from execution duration.
 
 An append-only event ledger records registration, links and human reviews. Each
 command has a workspace-scoped idempotency key and expected item revision.
@@ -255,17 +256,44 @@ windows no longer silently reuse a 24-hour performance reading.
 
 | Pilot | Stable item and linked evidence | Acceptance rubric | Manual baseline |
 | --- | --- | --- | --- |
-| Human-assisted classification | One business record; link its action proposal and any attempts | Reviewer verifies required fields against the source; corrections record category and reason | Time representative manual cases; record sample and source |
-| Scheduled briefing | One scheduled occurrence; link the producing worker and retries | Reviewer checks required sections, source freshness and unsupported claims | Measure the same briefing preparation manually |
-| Multi-agent proposal | One requested proposal; link every contributing worker and resulting action | Reviewer checks requirements, supported claims, pricing assumptions and completeness | Measure comparable proposal scope, including revision effort |
+| Human-assisted classification | One business record; link its action proposal and any attempts | Reviewer verifies required fields against the source; corrections record category and reason | Planning assumption: 3 minutes per straightforward classification; timed sample 0 |
+| Scheduled briefing | One scheduled occurrence; link the producing worker and retries | Reviewer checks required sections, source freshness and unsupported claims | Planning assumption: 30 minutes for one recurring briefing; timed sample 0 |
+| Multi-agent proposal | One requested proposal; link every contributing worker and resulting action | Reviewer checks requirements, supported claims, pricing assumptions and completeness | Planning assumption: 120 minutes for an initial proposal draft; timed sample 0 |
 
 Registration and linkage are explicit in this release. The API can be called by
 an adapter, but this is **not automatic capture across every existing agent or
 scheduler**. An owner must register actual pilot work and attach its sources.
-Business baselines, sufficient review samples, full model/tool/vendor cost
-attribution, automatic runtime propagation and delivery to central analytics remain
-acceptance work; synthetic fixtures cannot establish them. Do not call the full
-Sprint 2 business exit criteria complete until those records exist.
+The sponsor approved planning assumptions in place of timed manual samples on
+2026-10-29. This closes the baseline-definition requirement, not measured economic
+impact. Real pilot source linkage, review provenance and runtime propagation still
+need verification; synthetic fixtures cannot establish them. Central analytics delivery
+belongs to Sprint 3. Full model/tool/vendor attribution remains an explicitly tracked
+economics gap, not a reason to present partial worker spend as total cost.
+
+### Provisional baseline policy
+
+These are planning estimates chosen for the pilot, not industry benchmarks:
+
+- Classification: 3 minutes for reading a straightforward transaction, choosing a
+  category and recording it; excludes reconciliation and exception investigation.
+- Briefing: 30 minutes for checking routine sources and assembling the regular
+  sections; excludes new research and unusual incident investigation.
+- Proposal: 120 minutes for an initial draft from available discovery notes and an
+  established template; excludes discovery meetings, new pricing work and revisions.
+
+All three have timed sample size **0**. Store `baselineKind: assumed`,
+`baselineSampleSize: 0` and the scope/rationale in the registration event. Do not
+hardcode these values as defaults for unrelated workflows. For planning sensitivity,
+compare half and twice each assumption; this is a scenario range, not a confidence
+interval. A measured registration requires a positive sample size and evidence.
+Older records without structured provenance display **unverified**, never measured.
+
+Estimated gross manual workload is accepted, scope-matched items multiplied by the
+assumed minutes. It is not net savings. Missing active effort, tool costs, exception
+work or eligible-work denominators remain unknown. The dashboard continues to leave
+realized savings unset. Replace assumptions when comparable observations are available;
+do not rewrite historical registration evidence. Review the assumptions after the
+first 10 comparable items or at the next sprint review, whichever comes first.
 
 ### Adversarial release gates
 

@@ -52,7 +52,7 @@ assert.ok(agentSlug, 'No agent available in QA workspace');
 const prefix = `redteam-${randomUUID()}`;
 const created = [];
 for (const workflow of ['human-assisted', 'scheduled', 'multi-agent']) {
-  const command = { kind: 'create', key: `${prefix}-${workflow}`, eventKey: `${prefix}-${workflow}`, title: `Synthetic ${workflow} verification`, agentSlug, workflow, rubric: 'Synthetic fixture: required fields and source evidence checked. No external business action.', configurationVersion: 'redteam-fixture-v1', test: true };
+  const command = { kind: 'create', key: `${prefix}-${workflow}`, eventKey: `${prefix}-${workflow}`, title: `Synthetic ${workflow} verification`, agentSlug, workflow, rubric: 'Synthetic fixture: required fields and source evidence checked. No external business action.', configurationVersion: 'redteam-fixture-v1', baselineMinutes: 30, baselineKind: 'assumed', baselineSampleSize: 0, baselineEvidence: 'Synthetic planning assumption; no measured sample.', test: true };
   await check(`register ${workflow}`, async () => {
     const response = await request('/api/v1/workforce', command);
     assert.equal(response.status, 200);
@@ -60,6 +60,12 @@ for (const workflow of ['human-assisted', 'scheduled', 'multi-agent']) {
   });
 }
 const first = created[0];
+await check('measured baseline without observations rejected', async () => {
+  assert.equal((await request('/api/v1/workforce', { ...first.command, key: `${prefix}-invalid-measurement`, eventKey: `${prefix}-invalid-measurement`, baselineKind: 'measured' })).status, 400);
+});
+await check('assumed baseline with fabricated sample rejected', async () => {
+  assert.equal((await request('/api/v1/workforce', { ...first.command, key: `${prefix}-invalid-assumption`, eventKey: `${prefix}-invalid-assumption`, baselineSampleSize: 10 })).status, 400);
+});
 await check('idempotent replay', async () => {
   const r = await request('/api/v1/workforce', first.command);
   assert.equal(r.status, 200);
@@ -107,6 +113,9 @@ await check('durable evidence and unknown cost semantics', async () => {
   const row = report.items.find(i => i.id === first.itemId);
   assert.equal(row.events.length, 2);
   assert.equal(row.activeEffortMinutes, 2);
+  assert.equal(row.baselineKind, 'assumed');
+  assert.equal(row.baselineSampleSize, 0);
+  assert.equal(report.summary.netTimeSavedMinutes, null);
   assert.equal(row.linkedWorkerCostCents, null);
   assert.ok(!JSON.stringify(report).includes('commandHash'));
 });

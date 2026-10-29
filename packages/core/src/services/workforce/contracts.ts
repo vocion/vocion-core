@@ -16,6 +16,8 @@ export const workforceCommand = z.discriminatedUnion('kind', [
     configurationVersion: key,
     baselineMinutes: z.number().int().min(1).max(10080).optional(),
     baselineEvidence: text.optional(),
+    baselineKind: z.enum(['assumed', 'measured']).optional(),
+    baselineSampleSize: z.number().int().min(0).max(1000000).optional(),
     test: z.boolean().default(false),
   }).strict(),
   z.object({ ...revision, kind: z.literal('link'), sourceKind: z.enum(['action', 'worker']), sourceId: z.number().int().positive() }).strict(),

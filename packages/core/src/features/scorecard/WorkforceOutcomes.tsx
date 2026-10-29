@@ -175,6 +175,12 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
                   :
                   {' '}
                   {item.baselineMinutes ?? t('unknown')}
+                  {' · '}
+                  {t(item.baselineKind)}
+                  {' · '}
+                  {t('sampleSize')}
+                  {': '}
+                  {item.baselineSampleSize ?? t('unknown')}
                   {' '}
                   ·
                   {' '}
@@ -275,7 +281,7 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
             e.preventDefault();
             const form = e.currentTarget;
             const f = new FormData(form);
-            void save({ kind: 'create', eventKey: crypto.randomUUID(), key: String(f.get('key')), title: String(f.get('title')), agentSlug: String(f.get('agent')), workflow: f.get('workflow') as 'human-assisted', rubric: String(f.get('rubric')), configurationVersion: String(f.get('version')), test, ...(f.get('baseline') ? { baselineMinutes: Number(f.get('baseline')), baselineEvidence: String(f.get('baselineEvidence')) } : {}) }, form);
+            void save({ kind: 'create', eventKey: crypto.randomUUID(), key: String(f.get('key')), title: String(f.get('title')), agentSlug: String(f.get('agent')), workflow: f.get('workflow') as 'human-assisted', rubric: String(f.get('rubric')), configurationVersion: String(f.get('version')), test, ...(f.get('baseline') ? { baselineMinutes: Number(f.get('baseline')), baselineEvidence: String(f.get('baselineEvidence')), baselineKind: f.get('baselineKind') as 'assumed' | 'measured', baselineSampleSize: Number(f.get('baselineSampleSize')) } : {}) }, form);
           }}
         >
           {(['title', 'key', 'rubric', 'version'] as const).map(name => (
@@ -296,6 +302,18 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
             {t('baseline')}
             <input name="baseline" type="number" min="1" max="10080" className={inputClass} />
           </label>
+          <label>
+            {t('baselineKind')}
+            <select name="baselineKind" defaultValue="assumed" className={inputClass}>
+              <option value="assumed">{t('assumed')}</option>
+              <option value="measured">{t('measured')}</option>
+            </select>
+          </label>
+          <label>
+            {t('sampleSize')}
+            <input name="baselineSampleSize" type="number" min="0" max="1000000" defaultValue="0" className={inputClass} />
+          </label>
+          <p className="text-muted-foreground sm:col-span-2">{t('baselineGuidance')}</p>
           <label>
             {t('baselineEvidence')}
             <textarea name="baselineEvidence" maxLength={2000} className={inputClass} />
