@@ -112,7 +112,8 @@ export const INFER_SYSTEM = [
   'When unsure between two, pick the lower one: the person can always ask to dig deeper.',
   'A short message that turns the conversation to new work ("no, I want to work on the renewals instead") is a new request: judge it by the work it asks for, not by its length or by the earlier exchange.',
   'Also say seven facts about the request: "drafts" is true when it asks to write, revise or soften something a person will send or read (an email, a note, a reply, a draft already proposed); "systems" is how many distinct systems or sources it needs checked (Gmail and HubSpot is 2; "confirm with the company knowledge base" after an earlier answer adds one); "changes" is how many records it asks to change, decide, dismiss, approve or delete (0 for a question; "approve this one" is 1; "clear out everything older than a week" or "decline all of these" is many, so say 10 or more); "teams" is how many different teams\' or functions\' work the answer has to bring together (a status across pipeline, pitches and referrals is 3; how my go-to-market is going, across founder outreach and pipeline, is 2; one team\'s queue, one deal or one person is 1); "owed" is true when it asks what is owed, open, pending or left to do on a client, account, person, deal or project ("what do I owe on Kestrel", "where are we with Dana", "anything open for the Northwind deal"); "analysis" is "chart" when it asks for a chart, graph or visual, or an analysis to look at (a forecast, a breakdown, a bridge), "multi" when that analysis spans more than one statement or scenario (the P&L and the balance sheet; low, base and high cases; actuals against the year\'s forecast), and "none" otherwise; "outward" is true when it asks to publish, send, post, merge or otherwise change something outside this workspace (publish these pages to the site, send the email, post it to Slack, open the pull request, update the CRM), and false for a question or for work that stays here.',
-  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>, "changes": <number>, "teams": <number>, "owed": true | false, "analysis": "none" | "chart" | "multi", "outward": true | false}.',
+  'One more fact: "connects" is true when it asks whether a system is connected or can be used for something, or asks to connect, sign in to or set one up — including a question about whether work can be published or sent through it, which "outward" leaves false ("are we connected to GitHub?", "can we publish to their site?", "hook up HubSpot") — and false otherwise.',
+  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>, "changes": <number>, "teams": <number>, "owed": true | false, "analysis": "none" | "chart" | "multi", "outward": true | false, "connects": true | false}.',
 ].join(' ');
 
 /** Test seam: one small-model call returning its text. */
@@ -178,6 +179,11 @@ function keepFloor(read: AutoRead, floor: { level: EffortLevel; reason: string }
  * And on 2026-10-27 "publish these pages" ran Quick, and the fast model did
  * not know publishing is a proposed `site.publish_page`: a request to publish,
  * send or change something outside the workspace is never Quick.
+ * And on 2026-10-29 "are we connected to publish <client> on GitHub?" ran
+ * Quick on the fast model, which read what the workspace could add and
+ * offered to "walk you through it" instead of showing the sign-in card. A
+ * question about connecting a system, or whether work can go out through
+ * one, is never Quick.
  * @param facts - What the read said about the request.
  * @param facts.drafts - It writes or revises something a person will send.
  * @param facts.systems - How many systems it needs checked.
@@ -185,8 +191,9 @@ function keepFloor(read: AutoRead, floor: { level: EffortLevel; reason: string }
  * @param facts.owed - It asks what is owed or open on an account, person or deal.
  * @param facts.analysis - It asks for a chart or an analysis (`chart`), across more than one statement or scenario (`multi`).
  * @param facts.outward - It asks to publish, send or change something outside the workspace.
+ * @param facts.connects - It asks whether a system is connected, or to connect one, or whether work can be published or sent through it.
  */
-export function autoFloor(facts: { drafts: boolean; systems: number; changes?: number; owed?: boolean; analysis?: Analysis; outward?: boolean }): { level: EffortLevel; reason: string } | null {
+export function autoFloor(facts: { drafts: boolean; systems: number; changes?: number; owed?: boolean; analysis?: Analysis; outward?: boolean; connects?: boolean }): { level: EffortLevel; reason: string } | null {
   if (facts.analysis === 'multi') {
     return { level: 'deep', reason: 'analysis across statements or scenarios' };
   }
@@ -207,6 +214,9 @@ export function autoFloor(facts: { drafts: boolean; systems: number; changes?: n
   }
   if (facts.owed) {
     return { level: 'standard', reason: 'reading everything open on it' };
+  }
+  if (facts.connects) {
+    return { level: 'standard', reason: 'checking a connection' };
   }
   return null;
 }
@@ -286,9 +296,9 @@ export function parseEffort(raw: string): AutoRead | null {
       return null;
     }
     const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 80) : '';
-    const facts = parsed as { drafts?: unknown; systems?: unknown; changes?: unknown; teams?: unknown; owed?: unknown; analysis?: unknown; outward?: unknown };
+    const facts = parsed as { drafts?: unknown; systems?: unknown; changes?: unknown; teams?: unknown; owed?: unknown; analysis?: unknown; outward?: unknown; connects?: unknown };
     const analysis: Analysis = facts.analysis === 'chart' || facts.analysis === 'multi' ? facts.analysis : 'none';
-    const floor = autoFloor({ drafts: facts.drafts === true, systems: typeof facts.systems === 'number' ? facts.systems : 1, changes: typeof facts.changes === 'number' ? facts.changes : 0, owed: facts.owed === true, analysis, outward: facts.outward === true });
+    const floor = autoFloor({ drafts: facts.drafts === true, systems: typeof facts.systems === 'number' ? facts.systems : 1, changes: typeof facts.changes === 'number' ? facts.changes : 0, owed: facts.owed === true, analysis, outward: facts.outward === true, connects: facts.connects === true });
     const teams = typeof facts.teams === 'number' && Number.isFinite(facts.teams) ? { teams: Math.max(0, Math.round(facts.teams)) } : {};
     if (floor && EFFORT_LEVELS.indexOf(parsed.level as EffortLevel) < EFFORT_LEVELS.indexOf(floor.level)) {
       return keepFloor({ level: floor.level, reason: floor.reason, ...teams }, floor);

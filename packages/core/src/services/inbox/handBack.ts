@@ -26,8 +26,8 @@
 import type { DecisionAnswer } from '@/libs/decisions/decision';
 import type { Ask } from '@/services/AskService';
 
-/** Where a decision taken in the conversation's own turn came from; that turn already ran the agent. */
-const IN_TURN_CHANNELS = new Set(['card', 'composer']);
+/** Where a decision taken in the conversation's own turn came from; that turn already ran the agent. A chip bound to the card is the card's answer. */
+const IN_TURN_CHANNELS = new Set(['card', 'composer', 'chat_chip']);
 
 /** Asks whose answer is carried on by their own filer, by source ref. */
 const SELF_CONTINUING_PREFIXES = ['routine-', 'resume-gate:', 'seo-page:', 'seo-plan:'];
@@ -74,6 +74,11 @@ export function handsBackNow(ask: HandBackAsk & Pick<Ask, 'status' | 'decidedBy'
   }
   // Answered in its own conversation's turn: that turn is the follow-up.
   if (ask.conversationId && IN_TURN_CHANNELS.has(ask.decidedVia ?? '')) {
+    return false;
+  }
+  // Recorded by an agent from the person's own words (`decide_ask`): that
+  // agent's turn is running now and says what the answer did.
+  if (ask.decidedVia === 'chat') {
     return false;
   }
   return !found.parked && !found.subscribed;

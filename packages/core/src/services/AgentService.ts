@@ -398,16 +398,29 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
 /**
  * Hand the follow-ups the reply ended with to the person as one typed event
  * (`libs/chat/suggestions.ts`): the last `<suggest>` block wins, and none
- * means no event. No model call: the agent wrote them in its own reply.
+ * means no event. The agent wrote them in its own reply; while one of its
+ * Decisions is open in the conversation, a chip that answers it is bound to
+ * its option in code (`services/decisions/chipAnswers.ts`), so tapping it
+ * decides the card rather than sending words.
  * @param bodies - Every `<suggest>` block's text, in order.
  * @param emit - The turn's emit.
+ * @param opts - The turn.
+ * @param opts.orgId - The workspace.
+ * @param opts.agentSlug - The agent that wrote them.
+ * @param opts.userId - The person.
+ * @param opts.conversationId - The conversation.
+ * @param opts.missionRunId - Set on an agent's own schedule: nobody taps a chip there.
  */
-function emitSuggestions(bodies: readonly string[], emit: (event: AgentEvent) => void): void {
+async function emitSuggestions(bodies: readonly string[], emit: (event: AgentEvent) => void, opts: { orgId: string; agentSlug: string; userId?: string; conversationId?: number; missionRunId?: number | null }): Promise<void> {
   const last = [...bodies].reverse().find(b => b.trim());
-  const items = last ? parseSuggestions(last) : [];
-  if (items.length > 0) {
-    emit({ type: 'suggestions', items });
+  const parsed = last ? parseSuggestions(last) : [];
+  if (parsed.length === 0) {
+    return;
   }
+  const person = opts.userId && !opts.missionRunId && !opts.userId.startsWith('token:') ? opts.userId : null;
+  const { bindChipsToOpenDecision } = await import('./decisions/chipAnswers');
+  const items = await bindChipsToOpenDecision({ orgId: opts.orgId, conversationId: opts.conversationId ?? null, userId: person, agentSlug: opts.agentSlug }, parsed);
+  emit({ type: 'suggestions', items });
 }
 
 /**
@@ -466,7 +479,7 @@ async function runOutOfProcess(
   const tail = streamer.flush();
   heldCalls.push(...tail.calls);
   suggestBodies.push(...tail.suggest);
-  emitSuggestions(suggestBodies, emit);
+  await emitSuggestions(suggestBodies, emit, opts);
   if (tail.thinking) {
     emit({ type: 'thinking_delta', delta: tail.thinking });
   }
@@ -1727,7 +1740,7 @@ async function runAgentDeepInScope(opts: {
     finalText += tail.answer;
     emit({ type: 'response_delta', delta: tail.answer });
   }
-  emitSuggestions(suggestBodies, emit);
+  await emitSuggestions(suggestBodies, emit, opts);
   finalText = normalizeAnswerHtml(finalText).trim();
   // A TOOL CALL WRITTEN AS TEXT IS STILL THE CALL (conversation 355). The
   // streamer held every block back; any that reached the text another way is

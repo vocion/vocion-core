@@ -142,6 +142,50 @@ export function serpBriefMeta(md: string): SerpBriefMeta | null {
   }
 }
 
+/**
+ * A page's length, or why it has none: a page whose text arrives by script
+ * reads as empty to a plain fetch, which is not a zero-word page.
+ * @param f - What was read off the page.
+ */
+function wordsOf(f: PageFacts): string {
+  return f.wordCount === 0 ? 'no text without a browser (script-rendered)' : f.wordCount.toLocaleString('en-US');
+}
+
+/**
+ * The page's own latest date: updated, else published (said so), else the
+ * date Google showed, else "not stated".
+ * @param f - What was read off the page.
+ * @param p - The compared page.
+ */
+function datedOf(f: PageFacts, p: ComparedPage): string {
+  const updated = day(f.updated);
+  if (updated) {
+    return `${updated} (updated)`;
+  }
+  const published = day(f.published) || p.serpDate;
+  return published ? `${published} (published)` : 'not stated';
+}
+
+/**
+ * Everything else read off one page, as one line under its heading: what the
+ * main table leaves out so it fits the pane.
+ * @param f - What was read off the page.
+ * @param p - The compared page.
+ */
+function pageDetails(f: PageFacts, p: ComparedPage): string {
+  const h2s = f.outline.filter(h => h.level === 2).length;
+  return [
+    `**Words** ${wordsOf(f)}`,
+    `**H2s** ${h2s}`,
+    `**Schema** ${cell(f.schemaTypes.join(', ') || 'none')}`,
+    `**FAQ** ${f.faq.present ? `yes (${f.faq.via})` : 'no'}`,
+    `**Images** ${f.imagesCount}`,
+    `**Links in / out** ${f.links.internal} / ${f.links.external}`,
+    `**Published** ${cell(day(f.published) || p.serpDate || 'not stated')}`,
+    `**Updated** ${cell(day(f.updated) || 'not stated')}`,
+  ].join(' · ');
+}
+
 function cite(positions: number[], pages: ComparedPage[]): string {
   return positions
     .map(p => pages.find(x => x.position === p))
@@ -169,21 +213,20 @@ export function renderSerpBrief(serp: SerpResult, pages: ComparedPage[]): string
     lines.push('', `> ${serp.note}`);
   }
 
+  // FOUR COLUMNS, SO THE TABLE FITS THE PANE (2026-10-29: ten columns ran
+  // off the artifact pane). What else was read off each page is listed under
+  // it in "Each page" below.
   lines.push('', '## The pages', '');
-  lines.push('| # | Page | Words | H2s | Schema | FAQ | Images | Links in / out | Published | Updated |');
-  lines.push('|---|---|---|---|---|---|---|---|---|---|');
+  lines.push('| # | Page | Words | Dated |');
+  lines.push('|---|---|---|---|');
   for (const p of pages) {
     const f = p.facts;
     const page = `[${linkText(f?.title || p.serpTitle)}](${p.url}) · ${cell(p.domain)}${p.directory ? ' · directory' : ''}`;
     if (!f) {
-      lines.push(`| ${p.position} | ${page} | could not read: ${cell(p.error ?? 'no HTML')} | | | | | | ${cell(p.serpDate ?? '')} | |`);
+      lines.push(`| ${p.position} | ${page} | could not read: ${cell(p.error ?? 'no HTML')} | ${cell(p.serpDate ?? '')} |`);
       continue;
     }
-    const h2s = f.outline.filter(h => h.level === 2).length;
-    // A page whose text arrives by script reads as empty to a plain fetch; say
-    // that rather than report a zero-word page.
-    const words = f.wordCount === 0 ? 'no text without a browser (script-rendered)' : f.wordCount.toLocaleString('en-US');
-    lines.push(`| ${p.position} | ${page} | ${words} | ${h2s} | ${cell(f.schemaTypes.join(', ') || 'none')} | ${f.faq.present ? `yes (${f.faq.via})` : 'no'} | ${f.imagesCount} | ${f.links.internal} / ${f.links.external} | ${cell(day(f.published) || p.serpDate || 'not stated')} | ${cell(day(f.updated) || 'not stated')} |`);
+    lines.push(`| ${p.position} | ${page} | ${wordsOf(f)} | ${cell(datedOf(f, p))} |`);
   }
 
   const directories = pages.filter(p => p.directory);
@@ -244,10 +287,11 @@ export function renderSerpBrief(serp: SerpResult, pages: ComparedPage[]): string
     }
   }
 
-  lines.push('', '## Each page\'s outline');
+  lines.push('', '## Each page');
   for (const p of pages.filter(x => x.facts)) {
     const f = p.facts!;
     lines.push('', `### ${p.position}. [${linkText(f.title || p.serpTitle)}](${p.url})`, '');
+    lines.push(pageDetails(f, p), '');
     if (f.metaDescription) {
       lines.push(`Meta description: ${cell(f.metaDescription)}`, '');
     }

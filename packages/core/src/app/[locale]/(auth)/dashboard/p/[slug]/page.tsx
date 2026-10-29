@@ -21,6 +21,7 @@ import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 // Aliased at build time: the workspace's own pages/components/registry.tsx
 // when it ships one, the in-repo empty stub otherwise (see next.config.ts).
 import { nounCode } from '@/libs/codes';
@@ -854,13 +855,13 @@ export default async function WorkspacePage(props: {
               <details className="mt-8 border-t border-border/70 pt-4">
                 <summary className="cursor-pointer list-none text-sm font-medium text-muted-foreground hover:text-foreground">About this data</summary>
                 <div className="mt-3 max-w-3xl text-sm text-muted-foreground">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{content}</ReactMarkdown>
                 </div>
               </details>
             )
           : (
               <div className="mb-6 max-w-3xl text-sm text-muted-foreground">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{content}</ReactMarkdown>
               </div>
             )
       )
@@ -888,7 +889,7 @@ export default async function WorkspacePage(props: {
 
       {content && manifest.archetype === 'markdown' && (
         <article className="prose prose-sm max-w-3xl dark:prose-invert">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{content}</ReactMarkdown>
         </article>
       )}
       {!rowsLead && about}
@@ -999,7 +1000,7 @@ export default async function WorkspacePage(props: {
         <details className="mb-6 max-w-3xl rounded-lg border border-border p-4">
           <summary className="cursor-pointer text-sm font-medium">How these numbers are computed</summary>
           <div className="prose prose-sm mt-3 max-w-none dark:prose-invert">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{methodology}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{methodology}</ReactMarkdown>
           </div>
         </details>
       )}

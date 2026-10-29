@@ -24,7 +24,7 @@ import { listSources } from '@/services/SourceSyncService';
 
 export function listCapabilitiesTool(ctx: RuntimeContext) {
   return tool(
-    async () => {
+    async (input: { connector?: string } = {}) => {
       const enabled = new Set(ctx.enabledPlugins ?? []);
       const plugins = listPlugins().map((p) => {
         const on = enabled.has(p.manifest.slug);
@@ -38,7 +38,15 @@ export function listCapabilitiesTool(ctx: RuntimeContext) {
       });
       const connected = new Set((await listSources(ctx.orgId)).map(connectorOfSource));
       const connectors = listConnectors().map(c => `- ${c.name ?? c.slug} (${c.slug}) — ${connected.has(c.slug) ? 'connected' : 'not connected'}`);
+      // A system the person asked about, or the work needs, that is not
+      // connected: its connect card is shown with this answer, not offered
+      // in words (`services/connect/connectCardOnGap.ts`).
+      const asked = input.connector?.trim().toLowerCase();
+      const card = asked && listConnectors().some(c => c.slug === asked) && !connected.has(asked)
+        ? await import('@/services/connect/connectCardOnGap').then(m => m.connectCardForGap(ctx, asked))
+        : null;
       return [
+        ...(card ? [card, ''] : []),
         'PLUGINS (turn one on with recommend_action → plugin.enable {slug}; a person can also do it on /dashboard/apps, where each plugin is a feature of its app):',
         ...plugins,
         '',
@@ -48,8 +56,10 @@ export function listCapabilitiesTool(ctx: RuntimeContext) {
     },
     {
       name: 'list_capabilities',
-      description: 'What this workspace could turn on: every plugin (wiki, projects, proposals…) with whether it is on, what it adds and when it helps, and every connector with whether it is connected. Call it when a conversation asks for something a plugin or connector would do better — then recommend turning it on (recommend_action with plugin.enable) or connecting (where_to), instead of working around the gap.',
-      schema: z.object({}),
+      description: 'What this workspace could turn on: every plugin (wiki, projects, proposals…) with whether it is on, what it adds and when it helps, and every connector with whether it is connected. Call it when a conversation asks for something a plugin or connector would do better — then recommend turning it on (recommend_action with plugin.enable) or connecting, instead of working around the gap. Name the system the person asked about, or the work needs, in `connector`: when it is not connected its connect card is shown with this answer.',
+      schema: z.object({
+        connector: z.string().max(80).optional().describe('The connector slug the person asked about or the work needs ("github"), when there is one. Not connected: its one-click connect card is shown in this turn.'),
+      }),
     },
   );
 }

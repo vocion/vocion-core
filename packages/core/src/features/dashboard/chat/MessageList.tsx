@@ -42,6 +42,8 @@ export type MessageListProps = {
   ownAgentSlug?: string;
   /** The record the page beside the conversation is about: it refreshes itself, so a turn's follow chips leave it out. */
   pageRecord?: FollowExclude | null;
+  /** The asks docked in this conversation: their card stands for them, so no turn draws a follow chip for one. */
+  docked?: readonly FollowExclude[];
   /** Provided when streaming so the latest message scrolls into view. */
   streaming?: boolean;
   /** Live status line while streaming — rendered in the last agent message's work timeline. */
@@ -81,7 +83,7 @@ const PIN_THRESHOLD = 48;
 /** No roster: the transcript draws no teammate avatars. */
 const NO_AGENTS: readonly AgentOption[] = [];
 
-export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onDigDeeper, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, onBuildCard, onSuggestion, conversationId, pageRecord, agents }: MessageListProps) {
+export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onDigDeeper, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, onBuildCard, onSuggestion, conversationId, pageRecord, docked, agents }: MessageListProps) {
   const speakers = useMemo(() => speakersOf(messages, { slug: ownAgentSlug, name: agentName }, agents), [messages, ownAgentSlug, agentName, agents]);
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -247,6 +249,7 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
                         onBuildCard={onBuildCard}
                         conversationId={conversationId}
                         pageRecord={pageRecord}
+                        docked={docked}
                         latest={i === lastIdx}
                         onSuggestion={onSuggestion}
                         threadRecords={i === lastIdx ? threadRecords : undefined}

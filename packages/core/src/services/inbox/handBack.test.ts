@@ -72,6 +72,9 @@ describe('which answers go back to the agent that asked', () => {
   it('is not handed back twice: an answer in the conversation\'s own turn already ran the agent', () => {
     expect(handsBackNow(ask({ conversationId: 12, decidedVia: 'card' }), nothingElse)).toBe(false);
     expect(handsBackNow(ask({ conversationId: 12, decidedVia: 'composer' }), nothingElse)).toBe(false);
+    expect(handsBackNow(ask({ conversationId: 12, decidedVia: 'chat_chip' }), nothingElse)).toBe(false);
+    // Recorded by decide_ask from the person's words: the agent's own turn is the follow-up.
+    expect(handsBackNow(ask({ decidedVia: 'chat' }), nothingElse)).toBe(false);
     // The same docked question answered from Needs you goes back into that conversation.
     expect(handsBackNow(ask({ conversationId: 12, decidedVia: 'needs_you' }), nothingElse)).toBe(true);
   });

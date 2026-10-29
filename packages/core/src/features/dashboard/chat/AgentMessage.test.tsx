@@ -296,6 +296,31 @@ describe('one live line per turn (Chris, 2026-10-08: "Can we combine that into 1
   const looked = { id: 'a', actor, kind: 'tool' as const, status: 'done' as const, label: 'Looked up 3 deals', anchor: 0 };
   const searching = { id: 'b', actor, kind: 'search' as const, status: 'start' as const, label: 'Searching the CRM…', anchor: 0 };
 
+  // 2026-10-29: a long turn wrote a line and two artifact chips, then kept
+  // working; the chips were the last thing on screen and the turn read as done.
+  it('sits under the artifacts a still-running turn made, so they never read as the end', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: '', runs: [], trace: [looked, searching], artifacts: [{ id: 52, title: 'Northwind keyword map', kind: 'document', version: 1 }] }}
+        streaming
+        activity="Searching the CRM…"
+      />,
+    );
+
+    const lines = page.getByTestId('streaming-indicator');
+
+    await expect.element(lines).toHaveTextContent('Searching the CRM…');
+
+    expect(lines.elements()).toHaveLength(1);
+
+    const chip = document.querySelector('[data-artifact-chips]');
+    const after = document.querySelector('[data-testid="live-line-after-chips"]');
+
+    expect(after).not.toBeNull();
+    expect(chip && after ? Boolean(chip.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING) : false).toBe(true);
+  });
+
   it('rides the newest group while it is the last thing in the turn — no second line under it', async () => {
     const screen = await render(
       <AgentMessage

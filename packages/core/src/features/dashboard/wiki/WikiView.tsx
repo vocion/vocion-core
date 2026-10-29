@@ -5,6 +5,7 @@ import { BookOpen, ChevronLeft, ChevronRight, History, Pencil, Search } from 'lu
 import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { Link } from '@/libs/I18nNavigation';
 import { filterWikiPages, orderWikiPages, rewriteWikiLink, wikiHome, wikiNeighbours, wikiSections } from '@/libs/wiki/reading';
 import { cn } from '@/utils/Helpers';
@@ -105,7 +106,7 @@ export function WikiView({ base, pages, current, guideHref, editBase }: Props) {
 
   const md = (body: string) => (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkDropHtmlComments]}
       components={{
         a: ({ href, children, ...rest }) => {
           const to = href ? rewriteWikiLink(href, pages, base) : href;

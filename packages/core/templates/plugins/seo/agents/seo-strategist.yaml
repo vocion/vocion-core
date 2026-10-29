@@ -90,8 +90,10 @@ systemPrompt: |
      sign-off for a person. Then STOP: brief nothing, draft nothing and hand
      nothing to the writer until they approve the plan; seo_save_brief and
      seo_save_draft refuse until then, and you are woken when they answer.
-     Tell the person the plan is waiting on their card. Revise answers their
-     note with seo_plan_batch and batch_id.
+     Tell the person the plan is waiting on their card. When they answer it
+     in words here ("approve the plan", a change to make), record their
+     answer on that ask with decide_ask; never file another ask for it.
+     Revise answers their note with seo_plan_batch and batch_id.
   4. page-brief: one brief per released page (seo_save_brief). Read a page
      with seo_read_page before you brief, revise or route anything on it:
      it has the record, findings, feedback and the full SERP brief, brief

@@ -132,8 +132,10 @@ async function templatesOffered(orgId: string) {
 /**
  * Where the workspace stands and what it could add, for the lead to plan from.
  * @param ctx - The turn.
+ * @param input
+ * @param input.connector
  */
-export async function setupOptions(ctx: RuntimeContext): Promise<string> {
+export async function setupOptions(ctx: RuntimeContext, input: { connector?: string } = {}): Promise<string> {
   const [{ gettingStartedFor }, { safeListApps }, { listPlugins }, { listConnectors }, { listUnhired }] = await Promise.all([
     import('@/services/workspace/gettingStarted'),
     import('@/libs/workspace/apps'),
@@ -157,7 +159,15 @@ export async function setupOptions(ctx: RuntimeContext): Promise<string> {
   const steps = Object.fromEntries(state.steps.map(s => [s.id, s.done]));
   const branded = steps.brand === true;
 
+  // The system the person asked about, not connected: its connect card is
+  // shown with this answer (`services/connect/connectCardOnGap.ts`), never
+  // offered as steps (2026-10-29, "Want me to walk you through it?").
+  const asked = input.connector?.trim().toLowerCase();
+  const card = asked && listConnectors().some(c => c.slug === asked) && !connected.has(asked)
+    ? await import('@/services/connect/connectCardOnGap').then(m => m.connectCardForGap(ctx, asked))
+    : null;
   const lines = [
+    ...(card ? [card, ''] : []),
     `WHERE THIS WORKSPACE STANDS (${state.done} of ${state.total} first steps):`,
     `- Connect a system: ${said(steps.connect === true)}${connected.size > 0 ? ` (${[...connected].join(', ')})` : ''}`,
     `- Add an app or template: ${said(steps.app === true)}${on.size > 0 ? ` (${[...on].join(', ')} on)` : ''}`,
@@ -522,10 +532,12 @@ export function setupWorkspaceTools(ctx: RuntimeContext) {
   }
   const grants = new Set(ctx.harnessConfig.grantTools ?? []);
   const all = [
-    tool(async () => setupOptions(ctx), {
+    tool(async (input: { connector?: string }) => setupOptions(ctx, input), {
       name: SETUP_OPTIONS_TOOL,
-      description: 'Where this workspace stands on its first steps (a system connected, an app or template added, an agent hired, someone invited) and what it could add: apps, app templates with their interview questions, plugins, systems to connect, catalog roles to hire, and whether this person may invite. Call it before planning a setup; read-only.',
-      schema: z.object({}),
+      description: 'Where this workspace stands on its first steps (a system connected, an app or template added, an agent hired, someone invited) and what it could add: apps, app templates with their interview questions, plugins, systems to connect, catalog roles to hire, and whether this person may invite. Call it before planning a setup; read-only. Name the system the person asked about in `connector`: when it is not connected its connect card is shown with this answer.',
+      schema: z.object({
+        connector: z.string().max(80).optional().describe('The connector slug the person asked about or the work needs ("github"), when there is one. Not connected: its one-click connect card is shown in this turn.'),
+      }),
     }),
     tool(async (input: { steps: SetupStep[] }) => proposeSetup(ctx, input), {
       name: PROPOSE_SETUP_TOOL,

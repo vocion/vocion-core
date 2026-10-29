@@ -25,6 +25,7 @@ import { RecordLifecycle } from '@/features/dashboard/objects/RecordLifecycle';
 import { useVersionRefresh } from '@/features/dashboard/versions/VersionWatch';
 import { RoutineBatchView } from '@/features/routines/RoutineBatchView';
 import { RoutineView } from '@/features/routines/RoutineView';
+import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { describeRef } from '@/libs/preview/describeRef';
@@ -150,7 +151,7 @@ function PeekLink({ href, children }: { href?: string; children?: React.ReactNod
 function Md({ text }: { text: string }) {
   return (
     <div className="prose prose-sm max-w-none dark:prose-invert">
-      <Markdown remarkPlugins={[remarkGfm]} components={{ a: PeekLink }}>{text}</Markdown>
+      <Markdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]} components={{ a: PeekLink }}>{text}</Markdown>
     </div>
   );
 }

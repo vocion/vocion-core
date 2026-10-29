@@ -14,7 +14,7 @@ const { decideAskTool } = await import('./decideAsk');
 
 // Whether the person said to answer the ask this way is a model's reading of
 // their words (`turnJudge.saidToDecide`); here, the messages it reads as consent.
-const CONSENTING = new Set(['approve, fix and run', 'leave it stopped for now', 'approve']);
+const CONSENTING = new Set(['approve, fix and run', 'leave it stopped for now', 'approve', 'approve the plan']);
 vi.mock('../turnJudge', () => ({
   saidToDecide: vi.fn(async ({ messages }: { messages: string[] }) => ({ said: CONSENTING.has(messages[0] ?? ''), quote: null })),
 }));
@@ -31,7 +31,7 @@ describe('decide_ask — the person answers an ask by saying so', () => {
     const out = await decideAskTool(said('approve, fix and run')).invoke({ id: 221, decision: 'approve', note: 'approve, fix and run' });
 
     expect(out).toMatch(/^Decided ask #221/);
-    expect(decideAsk).toHaveBeenCalledWith({ orgId: 'org', id: 221, decision: 'approve', note: 'approve, fix and run', decidedBy: 'usr-1' });
+    expect(decideAsk).toHaveBeenCalledWith({ orgId: 'org', id: 221, decision: 'approve', note: 'approve, fix and run', decidedBy: 'usr-1', via: 'chat' });
   });
 
   it('an option is answered by its label', async () => {
@@ -58,5 +58,27 @@ describe('decide_ask — the person answers an ask by saying so', () => {
 
     expect(await decideAskTool(mission).invoke({ id: 221, decision: 'approve' })).toMatch(/^Refused: only a person/);
     expect(decideAsk).not.toHaveBeenCalled();
+  });
+
+  it('a sign-off is answered in the person\'s own words, recorded as chat (the keyword plan, 2026-10-29)', async () => {
+    const plan = { id: 371, orgId: 'org', status: 'open', kind: 'signoff', title: 'Sign off the keyword plan: Northwind trail running shoes', options: [], sourceRef: 'seo-plan:12:1', decision: null };
+    getAsk.mockResolvedValueOnce(plan as never);
+    decideAsk.mockResolvedValueOnce({ ...plan, status: 'approved', decision: 'approve', decisionNote: null, objectRefs: [{ type: 'object', id: '12' }] } as never);
+
+    const out = await decideAskTool(said('approve the plan')).invoke({ id: 371, decision: 'approve' });
+
+    expect(out).toMatch(/^Decided ask #371/);
+    expect(decideAsk).toHaveBeenCalledWith({ orgId: 'org', id: 371, decision: 'approve', note: null, decidedBy: 'usr-1', via: 'chat' });
+  });
+
+  it('refuses in a turn no person started — an automation or a background run', async () => {
+    const automation = { orgId: 'org', conversationId: 378, connectorSources: [], turnMessage: 'approve the plan' } as never;
+
+    expect(await decideAskTool(automation).invoke({ id: 371, decision: 'approve' })).toMatch(/^Refused: only a person/);
+    expect(decideAsk).not.toHaveBeenCalled();
+  });
+
+  it('is always loaded, never behind a tool search', () => {
+    expect(decideAskTool(said('approve')).metadata).toMatchObject({ alwaysLoaded: true });
   });
 });

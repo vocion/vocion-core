@@ -27,6 +27,7 @@
 import type { SeoBatchMeta, SeoFeedback, SeoPageMeta, SeoPageRecord, SeoSignoff, SeoSignoffAsk } from './records';
 import type { SeoFinding } from './work';
 import type { Ask } from '@/services/AskService';
+import type { AskHere } from '@/services/decisions/askHere';
 import { and, eq, like } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { askSchema } from '@/models/Schema';
@@ -204,8 +205,9 @@ export async function withdrawPageAsks(orgId: string, pageId: number, why: strin
  * @param opts.agentSlug - The seat asking.
  * @param opts.notes - What the editor checked, in a few lines.
  * @param opts.openFindings - The editor's findings still open when its rounds ran out: the person decides with them in view.
+ * @param opts.here - The person's conversation, when their own turn filed it: the card docks there (`decisions/askHere.ts`).
  */
-export async function fileSeoSignoffAsk(opts: { orgId: string; page: SeoPageRecord; agentSlug?: string | null; notes?: string; openFindings?: readonly SeoFinding[] }): Promise<{ askId: number; sourceRef: string } | null> {
+export async function fileSeoSignoffAsk(opts: { orgId: string; page: SeoPageRecord; agentSlug?: string | null; notes?: string; openFindings?: readonly SeoFinding[]; here?: AskHere | null }): Promise<{ askId: number; sourceRef: string } | null> {
   const { orgId, page } = opts;
   const draft = page.meta.draftArtifactId;
   if (typeof draft !== 'number') {
@@ -243,6 +245,7 @@ export async function fileSeoSignoffAsk(opts: { orgId: string; page: SeoPageReco
       ].filter(Boolean).join('\n\n') || null,
       allowOther: true,
       outcomes: PAGE_OUTCOMES,
+      ...(opts.here ? { conversationId: opts.here.conversationId, ownerUserId: opts.here.ownerUserId } : {}),
     },
   });
   const shown: SeoSignoffAsk = { askId: ask.id, round, draftArtifactId: draft, version: words.version, hash: words.hash, at: new Date().toISOString() };
@@ -276,8 +279,9 @@ export function planTable(rows: readonly PlanRow[]): string {
  * @param opts.batchId - The batch.
  * @param opts.agentSlug - The seat asking.
  * @param opts.why - The strategist's reasoning, in a few lines.
+ * @param opts.here - The person's conversation, when their own turn planned it: the card docks there (`decisions/askHere.ts`).
  */
-export async function fileSeoPlanAsk(opts: { orgId: string; batchId: number; agentSlug?: string | null; why?: string }): Promise<{ askId: number; sourceRef: string } | null> {
+export async function fileSeoPlanAsk(opts: { orgId: string; batchId: number; agentSlug?: string | null; why?: string; here?: AskHere | null }): Promise<{ askId: number; sourceRef: string } | null> {
   const batch = await getSeoBatch(opts.orgId, opts.batchId);
   if (!batch?.meta.plan) {
     return null;
@@ -321,6 +325,7 @@ export async function fileSeoPlanAsk(opts: { orgId: string; batchId: number; age
       contextMd: [planTable(rows), opts.why?.trim() ? `**Why these pages:** ${opts.why.trim().slice(0, 1500)}` : null].filter(Boolean).join('\n\n'),
       allowOther: true,
       outcomes: PLAN_OUTCOMES,
+      ...(opts.here ? { conversationId: opts.here.conversationId, ownerUserId: opts.here.ownerUserId } : {}),
     },
   });
   await mergeMeta<SeoBatchMeta>(opts.orgId, batch.id, cur => ({ plan: { ...(cur.plan ?? { state: 'plan_review', round }), askId: ask.id } }));

@@ -22,7 +22,7 @@
  */
 
 import type { AnsweredDecision } from './DecisionService';
-import type { DecisionView } from '@/libs/decisions/decision';
+import type { DecisionChannel, DecisionView } from '@/libs/decisions/decision';
 import type { DecisionAnswerReading } from '@/services/agents/turnJudge';
 import { readDecisionAnswerWire } from '@/libs/decisions/decision';
 
@@ -32,8 +32,12 @@ const SET_ASIDE_KINDS = new Set<DecisionView['kind']>(['question', 'choice', 'se
 export type AnswersFirst
   /** Not an answer: route the turn as usual. `open` is what still waits, when anything does. */
   = | { kind: 'none'; open: DecisionView | null; setAside?: AnsweredDecision }
-    /** An answer, recorded. `card`: keys or a click, nothing typed. `composer`: their typed words, read as the answer. */
-    | { kind: 'answered'; source: 'card' | 'composer'; answered: AnsweredDecision }
+    /**
+     * An answer, recorded. `card`: typed, nothing for a model to read — the
+     * card's keys or a click, or a follow-up chip bound to the card's option
+     * (`via` says which). `composer`: their typed words, read as the answer.
+     */
+    | { kind: 'answered'; source: 'card' | 'composer'; via?: DecisionChannel; answered: AnsweredDecision }
     /** A card's answer that cannot be taken — not found here, already decided, or not an answer it takes. */
     | { kind: 'refused'; status: 400 | 404 | 409; message: string };
 
@@ -65,8 +69,10 @@ export async function answersFirst(opts: {
       return { kind: 'refused', status: 404, message: 'No such decision in this conversation' };
     }
     try {
-      const answered = await answerDecision({ orgId: opts.orgId, conversationId: opts.conversationId, id: typed.id, subject: typed.subject, answer: typed.answer, by: opts.userId, via: 'card' });
-      return { kind: 'answered', source: 'card', answered };
+      // A chip bound to the card's option is the same typed answer, given
+      // from under the reply: recorded as `chat_chip`, with no model between.
+      const answered = await answerDecision({ orgId: opts.orgId, conversationId: opts.conversationId, id: typed.id, subject: typed.subject, answer: typed.answer, by: opts.userId, via: typed.via });
+      return { kind: 'answered', source: 'card', via: typed.via, answered };
     } catch (err) {
       if (err instanceof DecisionError) {
         return { kind: 'refused', status: err.code === 'NOT_FOUND' ? 404 : err.code === 'CONFLICT' ? 409 : 400, message: err.message };
