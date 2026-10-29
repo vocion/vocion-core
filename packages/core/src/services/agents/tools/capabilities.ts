@@ -56,9 +56,9 @@ export function listCapabilitiesTool(ctx: RuntimeContext) {
     },
     {
       name: 'list_capabilities',
-      description: 'What this workspace could turn on: every plugin (wiki, projects, proposals…) with whether it is on, what it adds and when it helps, and every connector with whether it is connected. Call it when a conversation asks for something a plugin or connector would do better — then recommend turning it on (recommend_action with plugin.enable) or connecting, instead of working around the gap. Name the system the person asked about, or the work needs, in `connector`: when it is not connected its connect card is shown with this answer.',
+      description: 'What this workspace could turn on: every plugin (wiki, projects, proposals…) with whether it is on, what it adds and when it helps, and every connector with whether it is connected. Call it when a conversation asks for something a plugin or connector would do better — then recommend turning it on (recommend_action with plugin.enable) or connecting, instead of working around the gap.',
       schema: z.object({
-        connector: z.string().max(80).optional().describe('The connector slug the person asked about or the work needs ("github"), when there is one. Not connected: its one-click connect card is shown in this turn.'),
+        connector: z.string().max(80).optional().describe('The connector the person asked about or the work needs ("github"). Not connected: its connect card shows in this turn.'),
       }),
     },
   );
