@@ -8,6 +8,14 @@ on:
   pull_request:
     branches: [main, next, '[0-9]+.x']
 
+# A newer push to a pull request cancels the run it supersedes. The org's
+# plan runs 20 jobs at once across every repository and a run is about 14,
+# so a stale run holds slots a current one is queued for. main, next and
+# the N.x lines group by commit, so every release keeps its full run.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Two build jobs rather than one matrix, so E2E waits only for the build it
   # restores. `needs` cannot name one leg of a matrix, and with [22.x, 24.x]
@@ -139,6 +147,10 @@ jobs:
 
   build-node-20:
     name: Build with 20.x
+    # Pushes only. Nothing waits on it, and on a pull request it held a
+    # runner slot for 6-8 minutes to prove what the push to main proves
+    # again before any release.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -390,14 +402,15 @@ jobs:
     # per shard, so the limit has to cover those 8, setup and the upload. It used
     # to be 10 with no Playwright cap, and a red run hit this limit before
     # Playwright could print its summary.
-    # No `needs: [build]`. A shard starts with the build, pulls the
-    # Playwright image, starts Postgres and restores node_modules (about 70s)
-    # while the build runs, and waits only for the build output, in the
-    # "Wait for the build output" step below (#631). So this limit now also
-    # covers the wait: up to the build's own 10 minutes, then Playwright's 8,
-    # plus setup and the upload. 20 leaves room for all three; a normal run
-    # waits 3–4 minutes.
-    timeout-minutes: 20
+    # `needs: [build]` again (#631 had removed it). Starting the shards with
+    # the build saved about 70s on an idle queue, but on the org's 20-job
+    # plan three shards sat on runner slots for up to 11 minutes while the
+    # build they waited for queued behind them, and failed with "Gave up
+    # waiting for Build". The wait step stays: it returns at once now, and
+    # still finds the output for a re-run of only the failed shards.
+    # Playwright's 8 minutes, setup and the upload.
+    needs: [build]
+    timeout-minutes: 14
     # The wait step reads this run's jobs and the cache list.
     permissions:
       contents: read
