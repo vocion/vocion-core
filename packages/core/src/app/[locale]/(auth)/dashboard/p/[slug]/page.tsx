@@ -577,6 +577,13 @@ export default async function WorkspacePage(props: {
     );
   }
 
+  // DASHBOARDS, read as pages: with one, the page is that dashboard; with
+  // several, a row each with its lead (features/dashboard/dashboards).
+  if (manifest.archetype === 'dashboards') {
+    const { DashboardsIndex } = await import('@/features/dashboard/dashboards/DashboardsPage');
+    return <DashboardsIndex orgId={orgId} manifest={manifest} />;
+  }
+
   // WHAT DRIVES A PLUGIN, on one page: its seats, skills, automations, trust
   // rules, what it learned and its measures as tabs, with how it is doing,
   // what needs attention and what changed beside them. Declared by the

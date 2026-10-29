@@ -22,6 +22,8 @@ import { z } from 'zod';
 import { checkChart, refusalText } from '@/libs/charts/checks';
 import { reviewChart } from '@/libs/charts/review';
 import { CHART_TYPES, chartSpecSchema } from '@/libs/charts/spec';
+import { countsLine, reviewDashboard } from '@/libs/dashboards/checks';
+import { DASHBOARD_CADENCES, DASHBOARD_FOLDER, dashboardSpecSchema } from '@/libs/dashboards/spec';
 import { artifactTitle } from '@/services/artifacts/title';
 import { ArtifactError, createArtifact, toPayload } from '@/services/ArtifactService';
 import { chartReviewImage, withImage } from '../toolResultImages';
@@ -53,7 +55,7 @@ export function authorOf(ctx: RuntimeContext): { kind: 'agent' | 'human'; id: st
 
 async function persistAndEmit(
   ctx: RuntimeContext,
-  kind: 'table' | 'markdown' | 'chart' | 'record',
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'dashboard',
   modelTitle: string,
   spec: unknown,
   summary: string,
@@ -78,7 +80,7 @@ export async function renderMarkdownArtifact(ctx: RuntimeContext, title: string,
 
 async function persistArtifact(
   ctx: RuntimeContext,
-  kind: 'table' | 'markdown' | 'chart' | 'record',
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'dashboard',
   modelTitle: string,
   spec: unknown,
   summary: string,
@@ -130,7 +132,9 @@ async function persistArtifact(
       // Same provenance rule as create_artifact: a table or chart rendered
       // inside an unattended mission run is work output, not something a
       // person went looking for.
-      visibility: ctx.missionRunId ? 'system' : 'user',
+      // A dashboard is the exception: it is made to be opened every day,
+      // whoever built it.
+      visibility: ctx.missionRunId && kind !== 'dashboard' ? 'system' : 'user',
       changeSummary: 'Created',
     });
     ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
@@ -298,6 +302,66 @@ export function renderRecordTool(ctx: RuntimeContext) {
   );
 }
 
+/**
+ * What `render_dashboard` tells the model: what a dashboard is for, its
+ * shape, and the recipe that lets the next refresh rebuild it. Stands on its
+ * own like the chart method; the dashboards plugin's skill is the long form.
+ */
+export const RENDER_DASHBOARD_DESCRIPTION = [
+  'Create a DASHBOARD artifact: a page a team opens every day — the lead, headline figures, charts and tables, in tabs — dated, sourced, and kept current by refreshing it in place.',
+  'Use it when someone wants to watch numbers over time (a company snapshot, a pipeline view, a team\'s week), not for a one-off answer (render_chart or render_table) or a deliverable to send (render_document).',
+  'Shape: tabs [{label, sections [{title, note, blocks}]}]; one tab draws no tab bar. A block is {type: "stats", items}, {type: "chart", chart: <a render_chart spec>}, {type: "table", table: <a render_table spec>} or {type: "text", md}.',
+  'A figure: {label, value (a number, null when it could not be read), format currency|percent|number, delta {value, format, against "vs August", better up|down|neither}, target {value}, note "Sep 2026, accrual", source}. Use display only for a figure that is not one number ("1 / 5"). Colour comes from delta and better; never write tone yourself.',
+  'Lead with the outcome: summary is two or three sentences of what the numbers say, figures in **bold**. Title each chart with its finding. Put the most important figures first; four to seven to a row. Every chart carries format, source and asOf. Read each range once (a monthly split in one call), never one call per month; every figure ties to a read you made in this turn.',
+  'Always write refresh {cadence, method}: method is the recipe — each figure\'s definition, the exact reads (tool, report, filters, basis), the judgement calls — so the next refresh reproduces this dashboard rather than reinventing it. asOf is when you read the numbers.',
+  'To refresh or change a dashboard: read_artifact, then update_artifact with the whole spec (a new version of the same dashboard), never a second render. Charts are held to render_chart\'s refusals; the receipt notes anything else for you to judge.',
+].join(' ');
+
+const dashboardBlockArg = z.record(z.string(), z.unknown());
+
+export function renderDashboardTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const tabs = coerceJson(args.tabs);
+      const refresh = args.refresh === undefined ? undefined : coerceJson(args.refresh);
+      const spec = Object.fromEntries(Object.entries({
+        title: args.title,
+        summary: args.summary,
+        sources: args.sources,
+        asOf: args.asOf,
+        tabs: Array.isArray(tabs) ? tabs.map(t => coerceJson(t)) : tabs,
+        refresh,
+      }).filter(([, v]) => v !== undefined));
+      const parsed = dashboardSpecSchema.safeParse(spec);
+      if (!parsed.success) {
+        return `render_dashboard rejected: invalid dashboard spec — ${parsed.error.issues.slice(0, 12).map(i => `${i.path.join('.') || 'spec'}: ${i.message}`).join('; ')}. Fix the payload and call again.`;
+      }
+      const review = reviewDashboard(parsed.data);
+      if (review.refusals.length) {
+        return `render_dashboard refused.\n${review.refusals.map(r => `- ${r}`).join('\n')}\nFix the data and call render_dashboard again.`;
+      }
+      const receipt = await persistAndEmit(ctx, 'dashboard', args.title, parsed.data, countsLine(review.counts), args.folder ?? DASHBOARD_FOLDER);
+      if (!receipt.startsWith('Rendered') || !review.notes.length) {
+        return receipt;
+      }
+      return `${receipt}\n\nNotes on what was drawn — judge them, and revise once with update_artifact if they matter:\n${review.notes.slice(0, 20).map(n => `- ${n}`).join('\n')}`;
+    },
+    {
+      name: 'render_dashboard',
+      description: RENDER_DASHBOARD_DESCRIPTION,
+      schema: z.object({
+        title: z.string().min(1).max(120).describe('What it watches, e.g. "Executive view"'),
+        summary: z.string().max(1200).optional().describe('The lead: two or three sentences of what the numbers say today, figures in **bold**'),
+        sources: z.string().max(400).optional().describe('One line: where the numbers come from and how fresh each source is'),
+        asOf: z.string().describe('When the numbers were read, ISO date or date-time'),
+        tabs: z.union([z.array(z.union([z.object({ label: z.string(), sections: z.array(z.object({ title: z.string().optional(), note: z.string().optional(), blocks: z.array(dashboardBlockArg) })) }), z.string()])), z.string()]).describe('[{label, sections: [{title, note, blocks: [...]}]}] (array; a JSON string is tolerated)'),
+        refresh: z.union([z.object({ cadence: z.enum(DASHBOARD_CADENCES).optional(), method: z.string() }), z.string()]).optional().describe('{cadence: daily|weekly|monthly|on-request, method: the recipe to rebuild it}'),
+        folder: z.string().max(120).optional().describe(`Where it is filed; default "${DASHBOARD_FOLDER}", which the Dashboards page lists`),
+      }),
+    },
+  );
+}
+
 export function renderArtifactTools(ctx: RuntimeContext) {
-  return [renderTableTool(ctx), renderMarkdownTool(ctx), renderChartTool(ctx), renderRecordTool(ctx)];
+  return [renderTableTool(ctx), renderMarkdownTool(ctx), renderChartTool(ctx), renderDashboardTool(ctx), renderRecordTool(ctx)];
 }

@@ -1,0 +1,42 @@
+# Dashboards — the page a team opens every day, kept current by an agent.
+#
+# 2026-10-29: the Executive group was running Metacto from a dashboard built
+# by hand in another tool — revenue, margin, operating income, pipeline,
+# initiatives ranked — and kept current by asking for it again. Everything on
+# it Vocion already draws, so the plugin is small (the production-watch rule:
+# start simple): one seat, one skill, one page, one optional schedule.
+#
+# Core ships the MECHANISM: the `dashboard` artifact kind (figures, charts and
+# tables in tabs, dated and sourced, with the recipe that rebuilds it), the
+# `render_dashboard` tool every agent has, `update_artifact` for a refresh as
+# a new version, and the `dashboards` page archetype. This plugin ships the
+# MEANING: who builds and keeps them, how (the skill), where people find them,
+# and when they refresh on their own.
+#
+# 0.1.0 — the first version.
+slug: dashboards
+name: Dashboards
+version: 0.1.0
+description: Dashboards your team opens every day — headline figures, charts and tables, dated and sourced — built from a sentence and kept current by an analyst who keeps the recipe, each refresh a new version.
+depends: []
+surfaces: []
+nav: {section: Dashboards, order: 0}
+recommend:
+  when:
+    - a person asks for the same numbers more than once (revenue this month, pipeline, margin, what is at risk)
+    - a person asks for a dashboard, a KPI view, a scorecard or a company snapshot
+    - a team rebuilds a status view or an exec summary by hand every week
+  connectors: []
+
+settings:
+  scheduledRefresh:
+    type: boolean
+    default: false
+    label: Refresh dashboards on their cadence
+    description: Each weekday morning the Dashboard analyst refreshes every dashboard that is due (daily ones every weekday, weekly ones on Monday, monthly ones on the 1st). Only sources the workspace connects are read on a schedule; a dashboard built on someone's own sign-in is refreshed when they press Refresh.
+
+# First asks offered by the composer once this plugin is on.
+starters:
+  - label: Build a dashboard
+    prompt: 'Build a dashboard of '
+  - label: What dashboards do we have?

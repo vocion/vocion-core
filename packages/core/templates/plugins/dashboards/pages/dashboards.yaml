@@ -1,0 +1,12 @@
+# Dashboards. Every dashboard in the workspace's `dashboards` folder, read as
+# a page: with one, the page is that dashboard, full width; with several, a
+# row each with its lead and when its numbers are as of. Drawn by core's
+# `dashboards` archetype; a dashboard's history, sharing and pinning are the
+# artifact's own, one link away.
+slug: dashboards
+title: Dashboards
+description: The numbers this workspace watches, dated and sourced, kept current by the Dashboard analyst.
+icon: layout-dashboard
+nav: {section: Dashboards, order: 0}
+archetype: dashboards
+source: {kind: artifacts, folder: dashboards}
