@@ -12,6 +12,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { summarizeResult } from '@/features/dashboard/automationResult';
 import { db } from '@/libs/DB';
 import { runTitle } from '@/libs/factory/runTitle';
+import { hasOwnLabel, RUN_LABEL_KEY, runLabel } from '@/libs/work/runLabel';
 import {
   automationRunSchema,
   automationSchema,
@@ -179,8 +180,21 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
     // `automation_run` row is the only evidence it happened.
     need('automation')
       ? db
-          .select()
+          .select({
+            id: automationRunSchema.id,
+            slug: automationRunSchema.slug,
+            status: automationRunSchema.status,
+            invokedBy: automationRunSchema.invokedBy,
+            result: automationRunSchema.result,
+            error: automationRunSchema.error,
+            startedAt: automationRunSchema.startedAt,
+            // What the fire was doing, to what (`libs/work/runLabel.ts`).
+            given: sql<string | null>`${automationRunSchema.input} ->> ${RUN_LABEL_KEY}`,
+            name: automationSchema.name,
+            doing: sql<string | null>`${automationSchema.doConfig} ->> 'doing'`,
+          })
           .from(automationRunSchema)
+          .leftJoin(automationSchema, and(eq(automationSchema.orgId, automationRunSchema.orgId), eq(automationSchema.slug, automationRunSchema.slug)))
           .where(automationWhere())
           .orderBy(desc(automationRunSchema.startedAt))
           .limit(limit)
@@ -213,10 +227,11 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
     ...missionRuns.map((r): ActivityItem => ({
       kind: 'mission',
       key: `mission-${r.id}`,
-      // What the run did, in the automation's words — never `<slug>: <charter>`.
-      title: r.automationName
+      // What the run did: its own label when the code that knew the record gave
+      // it one, else the automation's words — never `<slug>: <charter>`.
+      title: r.automationName && !hasOwnLabel(r.title, { name: r.automationName, doing: r.doing })
         ? runTitle({ kind: 'agent', status: r.status ?? 'running', label: r.label ?? r.automationName, doing: r.doing ?? r.automationName })
-        : r.title ?? r.missionSlug ?? 'Mission run',
+        : runLabel({ stored: r.title, fallback: 'Mission run' }),
       slug: r.missionSlug ?? null,
       status: r.status ?? 'running',
       invokedBy: r.createdBy,
@@ -227,7 +242,7 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
       kind: 'workflow',
       key: `workflow-${r.id}`,
       // What the run is called, and the step it is on (`services/workflows/labels.ts`).
-      title: r.runLabel?.trim() || r.workflowName || r.workflowSlug,
+      title: runLabel({ given: r.runLabel, name: r.workflowName, fallback: 'Workflow run' }),
       slug: r.workflowSlug,
       status: r.status,
       invokedBy: r.createdBy,
@@ -266,7 +281,7 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
     ...automationRuns.map((a): ActivityItem => ({
       kind: 'automation',
       key: `automation-${a.id}`,
-      title: `Automation: ${a.slug}`,
+      title: runLabel({ given: a.given, doing: a.doing, name: a.name, fallback: 'Automation run' }),
       slug: a.slug,
       status: a.status === 'ok' ? 'completed' : a.status === 'error' ? 'failed' : 'running',
       invokedBy: a.invokedBy,

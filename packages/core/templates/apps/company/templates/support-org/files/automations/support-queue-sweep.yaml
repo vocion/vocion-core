@@ -1,5 +1,5 @@
 slug: support-queue-sweep
-name: Weekday queue sweep
+name: Check every new ticket gets a first reply each weekday
 description: >-
   Wakes the Support lead every weekday morning to keep the first-reply mission.
 status: active

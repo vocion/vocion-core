@@ -2,7 +2,7 @@
 # Each event rings once (the guard's dedupe key); the result is mailed when
 # the check finishes, like the daily update.
 slug: marketing-alert
-name: Marketing alert
+name: Explain an ad account alert and propose the fix
 description: When an ad is limited, spend runs off budget or a campaign's first conversion lands, the Marketing lead says what happened and proposes the fix.
 status: active
 agent: marketing-lead

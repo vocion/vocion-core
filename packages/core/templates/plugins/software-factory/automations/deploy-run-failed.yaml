@@ -6,7 +6,7 @@
 # before the plugin had a seat for it (backlog 049); it is the Release
 # engineer's now. A workspace that needs its own words overrides it by slug.
 slug: deploy-run-failed
-name: A failed deploy is an incident
+name: File an incident for a failed deploy
 label: Answered the failed deploy
 doing: Answering the failed deploy
 description: >-

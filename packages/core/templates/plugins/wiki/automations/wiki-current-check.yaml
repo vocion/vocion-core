@@ -1,6 +1,6 @@
 # The cadence of the "The wiki is true, small and read" mission (moved from its schedule: in 8.0).
 slug: wiki-current-check
-name: The wiki is true, small and read (scheduled check)
+name: Check the wiki is true, small and read
 status: active
 agent: wiki-curator
 when:

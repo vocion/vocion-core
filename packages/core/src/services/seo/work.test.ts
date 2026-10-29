@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { seoRunReport } from './work';
+import { seoRunLabel, seoRunReport } from './work';
 
 const gate = (over: Partial<Parameters<typeof seoRunReport>[1]> = {}) => ({
   stage: 'sample' as const,
@@ -32,5 +32,29 @@ describe('what a background run says in the conversation', () => {
 
     expect(moved?.text).toContain('2 pages are waiting on your sign-off');
     expect(moved?.state).not.toBe(first.state);
+  });
+});
+
+describe('what a background run is called while it runs', () => {
+  const batch = 'SB-506 Northwind Home Services: Boiler care';
+
+  it('names an approved plan\'s run by its research and briefs, the batch and the pages', () => {
+    expect(seoRunLabel('signoff', { kind: 'plan', plan: 'approved', writable: 3 }, { batch }))
+      .toBe('Researching Google results and writing briefs · SB-506 Northwind Home Services: Boiler care (3 pages)');
+  });
+
+  it('names each hand-off by what is done, to what', () => {
+    expect(seoRunLabel('write', { writable: 1 }, { batch })).toBe(`Drafting and reviewing 1 page · ${batch}`);
+    expect(seoRunLabel('revise', { round: 2, of: 3 }, { batch, page: 'How often to service a boiler' }))
+      .toBe(`Revising “How often to service a boiler” from the editor's notes (round 2 of 3) · ${batch}`);
+    expect(seoRunLabel('signoff', { kind: 'plan', plan: 'revise' }, { batch })).toBe(`Revising the keyword plan from your note · ${batch}`);
+    expect(seoRunLabel('signoff', { kind: 'page', signoff: 'revise' }, { batch, page: 'Boiler noises' })).toBe(`Filing your note and redrafting “Boiler noises” · ${batch}`);
+    expect(seoRunLabel('signoff', { kind: 'page', signoff: 'approve', writable: 2 }, { batch })).toBe(`Drafting and reviewing the next 2 pages · ${batch}`);
+    expect(seoRunLabel('opportunities', { pages: 2 }, { project: 'Northwind Home Services' })).toBe('Researching Google and planning 2 new pages · Northwind Home Services');
+  });
+
+  it('leaves the run to its automation\'s words when the record is unknown', () => {
+    expect(seoRunLabel('write', { writable: 3 }, {})).toBeNull();
+    expect(seoRunLabel('signoff', { kind: 'plan', plan: 'discarded' }, { batch })).toBeNull();
   });
 });

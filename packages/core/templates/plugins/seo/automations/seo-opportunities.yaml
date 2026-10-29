@@ -7,9 +7,9 @@
 # gets nothing, and a project without a cadence is never planned for. What
 # each check found, project by project, is the run's result.
 slug: seo-opportunities
-name: New page opportunities
-label: Checked the SEO pace
-doing: Checking the SEO pace
+name: Propose new SEO pages for clients behind their monthly pace
+label: Checked each client's SEO page pace
+doing: Checking each client's SEO page pace
 description: >-
   Weekly, for every client project with pages a month set, finds what Google
   and the client's site say is worth a page and proposes just enough to keep

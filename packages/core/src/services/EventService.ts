@@ -645,6 +645,8 @@ export type AutomationRunCompletedPayload = {
   automationRunId: number;
   /** The automation's slug. */
   slug: string;
+  /** What the run was doing, to what, in words (`libs/work/runLabel.ts`) — what a notification names it by. */
+  label: string;
   kind: 'mission_check';
   missionRunId: number;
   missionRunStatus: string;

@@ -3,7 +3,7 @@
 # limited, spend running off its budget, a young campaign's first conversion —
 # and marketing-alert answers it (ADR 0008).
 slug: marketing-guard
-name: Ad account guard
+name: Check ad approvals, budget pacing and first conversions
 description: Every four hours, checks ad approvals, budget pacing and first conversions, and raises an alert only when something changed.
 status: active
 agent: marketing-lead

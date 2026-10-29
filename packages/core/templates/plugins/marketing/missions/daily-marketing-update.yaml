@@ -3,7 +3,7 @@
 # the weekend summary, the guard's alerts); WHERE the result goes is
 # `deliver:` below, sent when each check finishes (ADR 0008).
 slug: daily-marketing-update
-name: Daily marketing update
+name: Publish the daily marketing update
 description: Every weekday morning, one short read on paid search — what was spent, what it bought, what was wasted, and the one change to make.
 status: active
 version: 1

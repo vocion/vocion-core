@@ -2,7 +2,7 @@
 # automatic attempts starts again; approving builds again as them, carrying the
 # note they wrote into the objective.
 slug: factory-recovery-answered
-name: A stop was answered
+name: Resume a stopped build after a person answers
 description: >-
   When a person decides the factory's "Stopped" ask, start the count again and,
   on approve, build again as them with their note. Deterministic: a built-in

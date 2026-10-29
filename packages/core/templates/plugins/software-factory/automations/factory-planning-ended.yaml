@@ -6,7 +6,7 @@
 # what stopped the last attempt. After the limit, one ask names every attempt.
 # Deterministic: a built-in job, the same logic the hourly sweep runs.
 slug: factory-planning-ended
-name: A planning run ended
+name: Build, re-plan or ask a person after a planning run ends
 description: >-
   When the run that writes a request's plan finishes, carry the request on:
   build from the approved plan, or plan again with what stopped the last

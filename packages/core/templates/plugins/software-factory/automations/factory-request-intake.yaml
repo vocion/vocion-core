@@ -1,12 +1,12 @@
 slug: factory-request-intake
-name: A request arrived
+name: Triage a request that arrived from outside
 label: Triaged it
 doing: Triaging it
 description: >-
   The intake shape for the request noun: something outside posted a
   `request.created` event — a form on a product site, a store-review poller,
   a mailbox rule, a GitHub webhook — and the PM triages it while the
-  asker's words are fresh, rather than waiting for the afternoon tick. Core
+  asker's words are fresh, rather than waiting for the afternoon check. Core
   ships no intake adapter; the event is one an outside caller posts to
   `/api/v1/events` with the new record's id, and a workspace overrides this
   file by slug to name its own event and filter. A request written inside

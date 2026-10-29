@@ -4,7 +4,7 @@
 # looks (backlog 043). A QA run that never called record_live_check is a failure
 # too, with that as its reason. Deterministic: a built-in job.
 slug: release-live-check-ended
-name: A live check ended
+name: Retry or record the result of a release's live check
 description: >-
   When QA's live check of a release ends, check what it saw: seen, once more
   with the reason, or the reason written on the release and its features.

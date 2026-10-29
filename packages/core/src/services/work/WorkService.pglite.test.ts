@@ -10,7 +10,7 @@ vi.mock('@/libs/DB');
 
 const { eq } = await import('drizzle-orm');
 const { db } = await import('@/libs/DB');
-const { automationRunSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } = await import('@/models/Schema');
+const { automationRunSchema, automationSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } = await import('@/models/Schema');
 const { stopWork, workSince } = await import('@/services/work/WorkService');
 
 const ORG = 'org_work_northwind';
@@ -28,6 +28,7 @@ beforeEach(async () => {
   await db.delete(workflowRunSchema);
   await db.delete(workflowSchema);
   await db.delete(automationRunSchema);
+  await db.delete(automationSchema);
 });
 
 describe('what the chip lists', () => {
@@ -51,6 +52,29 @@ describe('what the chip lists', () => {
     expect(view.running.find(i => i.kind === 'mission')).toMatchObject({ canStop: true, href: expect.stringMatching(/^\/dashboard\/missions\/runs\/\d+$/) });
     // A dry run is a rehearsal, not work.
     expect([...view.running, ...view.finished].some(i => i.kind === 'automation')).toBe(false);
+  });
+});
+
+describe('what each run is called', () => {
+  it('names a run by the work and the record it is on, and one piece of work once', async () => {
+    const now = Date.now();
+    await db.insert(automationSchema).values({ orgId: ORG, slug: 'seo-continue', name: 'Research, brief, draft and review released SEO pages', whenConfig: { event: 'seo.work_queued' }, doConfig: { checkMission: 'seo-batches-moving', doing: 'Researching, briefing and drafting SEO pages' } });
+    await db.insert(automationSchema).values({ orgId: ORG, slug: 'weekly-pages-check', name: 'Propose new SEO pages for clients behind their monthly pace', whenConfig: { schedule: '0 7 * * 1' }, doConfig: { job: 'seo-opportunities' } });
+    const label = 'Researching Google results and writing briefs · SB-506 Northwind Home Services: Boiler care (3 pages)';
+    const [fire] = await db.insert(automationRunSchema).values({ orgId: ORG, slug: 'seo-continue', kind: 'mission_check', status: 'running', input: { reason: 'signoff', batchId: 506, runLabel: label }, startedAt: new Date(now - 60_000) }).returning({ id: automationRunSchema.id });
+    await db.insert(missionRunSchema).values({ orgId: ORG, title: label, brief: 'b', status: 'running', team: { lead: 'seo-strategist', members: [] }, causedBy: [{ automationSlug: 'seo-continue', automationRunId: fire!.id }], createdAt: new Date(now - 50_000) });
+    // A run from before runs carried their own label: `<slug>: <charter>`.
+    await db.insert(missionRunSchema).values({ orgId: ORG, title: 'seo-continue: Every client\'s SEO pages keep moving', brief: 'b', status: 'running', team: { lead: 'seo-strategist', members: [] }, causedBy: [{ automationSlug: 'seo-continue' }], createdAt: new Date(now - 40_000) });
+    await db.insert(automationRunSchema).values({ orgId: ORG, slug: 'weekly-pages-check', kind: 'job', status: 'running', startedAt: new Date(now - 30_000) });
+
+    const view = await workSince(ORG, new Date(now - HOUR));
+    const titles = view.running.map(i => `${i.what}: ${i.title}`).sort();
+
+    expect(titles).toEqual([
+      'Automation: Propose new SEO pages for clients behind their monthly pace',
+      `Mission: ${label}`,
+      'Mission: Researching, briefing and drafting SEO pages',
+    ]);
   });
 });
 

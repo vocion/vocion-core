@@ -41,7 +41,7 @@ const PatchSchema = z.object({
   // where they ship. No agent tool writes these (`PERSON_ONLY_FIELDS`).
   seoGate: z.object({ sample: stageSize, tranche: stageSize }).nullable().optional(),
   // How many new pages a month the client is owed, and the topic to find them
-  // in: the weekly "New page opportunities" automation keeps pace with it.
+  // in: the weekly "Propose new SEO pages for clients behind their monthly pace" automation keeps pace with it.
   seoCadence: z.object({ pagesPerMonth: z.number().int().min(1).max(200), focus: z.string().trim().max(200).optional() }).nullable().optional(),
   // Each target checked by publishing's own schema (`libs/publish/targets.ts`).
   publishTargets: z.array(publishTargetSchema).max(20).nullable().optional(),

@@ -1,5 +1,5 @@
 slug: queue-sweep
-name: Weekday queue sweep
+name: Triage the support queue and check SLAs each weekday
 description: >-
   The only place time lives. Wakes the Support Director every weekday
   morning to check the standing mission.

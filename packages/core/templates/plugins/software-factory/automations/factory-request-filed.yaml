@@ -11,7 +11,7 @@
 # (`factory-request-intake`). A plan the rule requires comes first, on the same
 # path (the dispatch plans instead of sending a contract the worker refuses).
 slug: factory-request-filed
-name: A request was filed
+name: Start work on a newly filed request
 description: >-
   The moment a request record exists, start the fix a person asked for in chat,
   or put the Build card in front of a person — in code, not by the PM choosing

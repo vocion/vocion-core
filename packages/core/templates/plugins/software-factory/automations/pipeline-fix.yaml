@@ -10,7 +10,7 @@
 # the undo. What the run did is read back when it ends
 # (`pipeline-fix-ended`), never taken on its word.
 slug: pipeline-fix
-name: The pipeline's owner fixes the pipeline
+name: Fix the CI pipeline when the failure is in the pipeline
 label: Fixed the pipeline
 doing: Fixing the pipeline
 description: >-

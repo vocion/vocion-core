@@ -35,18 +35,16 @@ plugin that ships its slug until the next apply stamps it.
 ## System automations
 
 Some automations are plumbing: an app's internal hand-off rather than
-something a person runs or switches. The SEO app's **Continue the SEO work**
-is one: it resumes background writing after a sign-off. Such an automation
-says so in its YAML:
+something a person runs or switches. Such an automation says so in its YAML:
 
 ```yaml
-slug: seo-continue
-name: Continue the SEO work
+slug: invoice-sync-handoff
+name: Match synced invoices to their purchase orders
 visibility: system
 when:
-  event: seo.work_queued
+  event: invoices.synced
 do:
-  checkMission: seo-batches-moving
+  job: match-invoices
 ```
 
 A system automation fires like any other, but it is left out of the register,
@@ -60,5 +58,5 @@ run log, and `GET /api/v1/automations` returns every automation with its
 ## Related
 
 - [Automation](../entities/automation.md) — the YAML, its triggers and guards.
-- [Search Engine Optimization](../apps/seo.md) — the weekly "New page
-  opportunities" automation and the system hand-off.
+- [Search Engine Optimization](../apps/seo.md) — the weekly "Propose new
+  SEO pages for clients behind their monthly pace" automation and the system hand-off.

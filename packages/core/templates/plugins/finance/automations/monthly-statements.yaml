@@ -1,5 +1,5 @@
 slug: monthly-statements
-name: Monthly statements
+name: Draft last month's statements
 description: Drafts last month's P&L and balance sheet to each monthly recipient after the close.
 status: active
 setting: monthlyStatements

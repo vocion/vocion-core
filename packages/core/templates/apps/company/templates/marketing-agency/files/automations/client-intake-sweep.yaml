@@ -1,5 +1,5 @@
 slug: client-intake-sweep
-name: Weekday client intake
+name: Turn new client asks into briefs each weekday
 description: >-
   Wakes the Intake coordinator every weekday morning to turn new client asks
   into work.
