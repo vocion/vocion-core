@@ -3,8 +3,10 @@
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { WorkforceInventoryPanel } from '@/features/adoption/WorkforceInventoryPanel';
+import { workspaceUrl } from '@/libs/links';
 import { client } from '@/libs/Orpc';
 import { hasRecordedWork, workforceInsights } from './workforceInsights';
+import { WorkforceOutcomes } from './WorkforceOutcomes';
 
 type Overview = Awaited<ReturnType<typeof client.scorecard.workforceOverview>>;
 
@@ -66,7 +68,13 @@ export function WorkforcePerformance() {
         : !overview
             ? <p role="status">{t('loading')}</p>
             : selected
-              ? <WorkforceInventoryPanel key={`${selected.id}-${days}`} report={selected.report} workspaceSlug={selected.slug} />
+              ? (
+                  <>
+                    <WorkforceInventoryPanel key={`${selected.id}-${days}`} report={selected.report} workspaceSlug={selected.slug} />
+                    {selected.id === overview.activeId && <WorkforceOutcomes key={`${selected.id}-${days}`} days={days} agents={selected.report.agents} />}
+                    {selected.id !== overview.activeId && <a className="text-primary underline" href={workspaceUrl(selected.slug, '/dashboard/scorecard')}>{d('openOutcomes')}</a>}
+                  </>
+                )
               : (
                   <section className="space-y-4">
                     <div className="rounded-2xl bg-primary/5 p-6">

@@ -136,7 +136,7 @@ export function performanceLine(t: TeamPerformance): string {
   } else {
     bits.push('no measure yet');
   }
-  bits.push(t.humanLoad.interventions === 0 ? 'no human interventions' : `${reviewTime(t.humanLoad.reviewMs)} review over ${plural(t.humanLoad.interventions, 'intervention')}`);
+  bits.push(t.humanLoad.interventions === 0 ? 'no human interventions' : `${reviewTime(t.humanLoad.reviewMs)} decision waiting over ${plural(t.humanLoad.interventions, 'intervention')}`);
   if (t.costPerOutcomeCents !== null && t.primary) {
     const per = t.primary.unit && t.primary.unit !== '$' && t.primary.unit !== '%' ? t.primary.unit.replace(/s$/, '') : t.primary.label.toLowerCase().replace(/s$/, '');
     bits.push(`${usd(Math.round(t.costPerOutcomeCents))}/${per}`);
@@ -222,7 +222,7 @@ export function reportSections(data: DailyTeamReportData): ReportSections {
     if (perf.goalProgress !== null) {
       head.push(`**${Math.round(perf.goalProgress * 100)}%** goal progress`);
     }
-    head.push(`**${reviewTime(perf.humanReviewMs)}** human review`);
+    head.push(`**${reviewTime(perf.humanReviewMs)}** decision waiting`);
     if (perf.autoCompletedRate !== null) {
       head.push(`**${Math.round(perf.autoCompletedRate * 100)}%** of work needed nobody`);
     }
@@ -322,6 +322,9 @@ export function reportSections(data: DailyTeamReportData): ReportSections {
 
   // --- What happens next --------------------------------------------------
   const next: string[] = [];
+  for (const insight of data.outcomeInsights ?? []) {
+    next.push(`${insight.evidence} ${insight.text} Check: ${insight.measure}`);
+  }
   if (needsYou.total > 0) {
     next.push(`Decide the ${plural(needsYou.total, 'item')} in the [inbox](${data.links.inbox}) — that is what unblocks the team.`);
   } else {
