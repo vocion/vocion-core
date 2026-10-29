@@ -162,6 +162,7 @@ describe('Connected', () => {
       source(1, 'github', { projectId: 7, projectTitle: 'Northwind Home Services' }),
       source(2, 'web', { authKind: 'none' }),
     ], { projects: [{ id: 7, title: 'Northwind Home Services' }, { id: 8, title: 'Kestrel Capital' }], onScope });
+    await section('connected-section');
 
     expect(row('github').textContent).toContain('Northwind Home Services');
     expect(row('web').textContent).toContain('Whole workspace');
