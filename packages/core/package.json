@@ -56,6 +56,7 @@
     "google:oauth": "dotenv -c -- tsx src/scripts/google-oauth.ts",
     "sync:source": "dotenv -c -- tsx src/scripts/sync-source.ts",
     "kit:inspect": "dotenv -c -- tsx src/scripts/kit-inspect.ts",
+    "squarespace:session": "tsx src/scripts/squarespace-session.ts",
     "workspace:scaffold": "tsx src/scripts/scaffold-workspace.ts",
     "workspace:apply": "dotenv -c -- tsx src/scripts/apply-workspace.ts",
     "workspace:check": "dotenv -c -- tsx src/scripts/apply-workspace.ts --dry-run",

@@ -1,3 +1,4 @@
+import type { KeptSignInStatus } from '@/libs/browser/keptSignIn';
 import type { GrantSummary } from '@/libs/connect/provider';
 import type { ConnectorCategory } from '@/libs/sources/types';
 /**
@@ -72,6 +73,12 @@ export type Source = {
   inspectNote: string | null;
   /** The latest sync run for this source, whoever started it. Null if never synced. */
   sync: SourceSync | null;
+  /**
+   * The kept sign-in of a connector that takes one (Squarespace): when it was
+   * saved, from where, and whether a run found it expired. Null for every
+   * other connector; absent on cores older than 2026-10-29.
+   */
+  signIn?: KeptSignInStatus | null;
 };
 
 /** One connector the server offers, connected or not. */
@@ -181,10 +188,11 @@ export type ConnectionProblem
     | 'missing-permissions'
     | 'sync-failed'
     | 'sync-stopped'
-    | 'items-not-saved';
+    | 'items-not-saved'
+    | 'sign-in-needed';
 
 /** The one fix a row offers, or null when it needs none. */
-export type ConnectionFix = 'reconnect' | 'connect' | 'retry' | null;
+export type ConnectionFix = 'reconnect' | 'connect' | 'retry' | 'sign-in' | null;
 
 /** One connection on the page. */
 export type ConnectionRow = {
@@ -211,7 +219,12 @@ export function problemOf(source: Source): ConnectionProblem | null {
   if (source.credentialBroken === 'expired') {
     return 'expired';
   }
-  if (source.authKind !== 'none' && !source.credentialConnected) {
+  // A run found the site's sign-in page and could not get past it: a person signs in again.
+  if (source.signIn?.needsSignIn) {
+    return 'sign-in-needed';
+  }
+  // A kept sign-in is a way in on its own: a site connected only by one is connected.
+  if (source.authKind !== 'none' && !source.credentialConnected && !source.signIn?.kept) {
     return 'not-connected';
   }
   const sync = source.sync;
@@ -244,6 +257,8 @@ export function fixFor(source: Source, problem: ConnectionProblem | null): Conne
       return 'reconnect';
     case 'not-connected':
       return 'connect';
+    case 'sign-in-needed':
+      return 'sign-in';
     case 'sync-failed':
       return offersReconnect(source) ? 'reconnect' : 'retry';
     default:

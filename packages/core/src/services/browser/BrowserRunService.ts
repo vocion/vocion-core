@@ -34,6 +34,7 @@
 
 import type { SavedBrowser } from './browserEngine';
 import type { ApprovedAhead } from './browserLoop';
+import type { RunSignIn } from './keptSignIn';
 import type { BrowserInput, BrowserOutputSpec, BrowserRunStatus, BrowserRunView, BrowserStep, BrowserWaiting } from '@/libs/browser/run';
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
@@ -44,7 +45,7 @@ import { asRootRun } from '@/libs/agents/rootRun';
 import { BROWSER_RUN_LIMITS, browserRunLabel, isLive, SECRET_MASK } from '@/libs/browser/run';
 import { db } from '@/libs/DB';
 import { browserRunSchema } from '@/models/Schema';
-import { claim, closeBrowserSession, existingSession, openBrowserSession, releaseBrowserSession, saveBrowser, screenshot, sessionKeyOf } from './browserEngine';
+import { claim, closeBrowserSession, existingSession, openBrowserSession, openWithSignIn, releaseBrowserSession, saveBrowser, screenshot, sessionKeyOf } from './browserEngine';
 import { isStale, STALE_MS, toView } from './runReads';
 
 type Row = typeof browserRunSchema.$inferSelect;
@@ -71,7 +72,7 @@ export class BrowserRunError extends Error {}
 type Answer = { kind: 'approved' } | { kind: 'denied'; note?: string } | { kind: 'answer'; text: string } | { kind: 'stopped' } | { kind: 'timeout' };
 
 /** What a checkpoint holds, sealed: the writes approved ahead ride here, where no page or model can change them. */
-type Checkpoint = { secrets: Record<string, string>; notes: string[]; browser: SavedBrowser | null; approvedAhead?: ApprovedAhead | null };
+type Checkpoint = { secrets: Record<string, string>; notes: string[]; browser: SavedBrowser | null; approvedAhead?: ApprovedAhead | null; keptSignIn?: RunSignIn | null };
 
 /** Where a resumed run picks up. */
 type Resume = { browser: SavedBrowser | null; notes: string[]; waiting: BrowserWaiting | null };
@@ -87,6 +88,8 @@ type Live = {
   secrets: Record<string, string>;
   /** Writes a person approved before the run started (`CreateBrowserRun.approvedAhead`). */
   approvedAhead: ApprovedAhead | null;
+  /** The kept sign-in the run starts from and saves back to (`keptSignIn.ts`). */
+  keptSignIn: RunSignIn | null;
   notes: string[];
   steps: BrowserStep[];
   /** A tool call is waiting on this run: it hands the result over, so the run does not also post it. */
@@ -204,6 +207,13 @@ export type CreateBrowserRun = {
    * publishes still waits. Sealed with the secrets, never shown to the model.
    */
   approvedAhead?: ApprovedAhead | null;
+  /**
+   * A kept sign-in on a connector (`services/browser/keptSignIn.ts`): loaded
+   * into the browser before the first step, so the run starts signed in, and
+   * saved back from the browser when the run ends done, so a sign-in that
+   * gets used stays alive. Sealed with the secrets.
+   */
+  keptSignIn?: RunSignIn | null;
 };
 
 /**
@@ -230,7 +240,8 @@ export async function createBrowserRun(input: CreateBrowserRun): Promise<Browser
   }
   // Sealed from the start, so a suggestion's Start and a restarted run both still have them.
   const approvedAhead = input.approvedAhead && input.approvedAhead.writes.length > 0 ? input.approvedAhead : null;
-  const checkpoint = Object.keys(secrets).length > 0 || approvedAhead ? await seal(input.orgId, { secrets, notes: [], browser: null, approvedAhead }) : null;
+  const keptSignIn = input.keptSignIn ?? null;
+  const checkpoint = Object.keys(secrets).length > 0 || approvedAhead || keptSignIn ? await seal(input.orgId, { secrets, notes: [], browser: null, approvedAhead, keptSignIn }) : null;
   const [row] = await db.insert(browserRunSchema).values({
     orgId: input.orgId,
     userId: input.userId,
@@ -247,7 +258,7 @@ export async function createBrowserRun(input: CreateBrowserRun): Promise<Browser
     ...(input.start ? { runnerId: RUNNER_ID, heartbeatAt: new Date() } : {}),
   }).returning();
   if (input.start) {
-    begin(row!, secrets, input.continuing ?? false, null, approvedAhead);
+    begin(row!, secrets, input.continuing ?? false, null, approvedAhead, keptSignIn);
     return toView(row!);
   }
   return toView(row!);
@@ -282,7 +293,7 @@ export async function startBrowserRun(orgId: string, userId: string, id: number)
   if (!claimed) {
     throw new BrowserRunError(`${browserRunLabel(id)} has already been started.`);
   }
-  begin(claimed, secrets, false, null, sealed?.approvedAhead ?? null);
+  begin(claimed, secrets, false, null, sealed?.approvedAhead ?? null, sealed?.keptSignIn ?? null);
   return toView(claimed);
 }
 
@@ -435,7 +446,7 @@ async function checkpoint(l: Live, force = false): Promise<void> {
   try {
     const s = existingSession(l.key);
     const browser = s ? await saveBrowser(s) : null;
-    await patch(l.id, { checkpoint: await seal(l.orgId, { secrets: l.secrets, notes: l.notes, browser, approvedAhead: l.approvedAhead }) });
+    await patch(l.id, { checkpoint: await seal(l.orgId, { secrets: l.secrets, notes: l.notes, browser, approvedAhead: l.approvedAhead, keptSignIn: l.keptSignIn }) });
   } catch (e) {
     console.warn('[browser] checkpoint not written', { run: l.id, reason: (e as Error).message });
   }
@@ -464,9 +475,9 @@ function wroteAfterApproval(steps: BrowserStep[]): boolean {
   return steps.some(s => s.kind === 'approval' && s.ok && /^(?:Approved by the person|Inside the routine|Approved ahead)/.test(s.label));
 }
 
-function begin(row: Row, secrets: Record<string, string>, continuing: boolean, resume: Resume | null, approvedAhead: ApprovedAhead | null): void {
+function begin(row: Row, secrets: Record<string, string>, continuing: boolean, resume: Resume | null, approvedAhead: ApprovedAhead | null, keptSignIn: RunSignIn | null = null): void {
   const key = sessionKeyOf(row);
-  const l: Live = { id: row.id, orgId: row.orgId, userId: row.userId, key, stop: false, answer: null, secrets, approvedAhead, notes: resume?.notes ?? [], steps: [...(row.steps ?? [])], heldByCall: 0, listeners: new Set(), beat: null, lastCheckpoint: 0 };
+  const l: Live = { id: row.id, orgId: row.orgId, userId: row.userId, key, stop: false, answer: null, secrets, approvedAhead, keptSignIn, notes: resume?.notes ?? [], steps: [...(row.steps ?? [])], heldByCall: 0, listeners: new Set(), beat: null, lastCheckpoint: 0 };
   live.set(row.id, l);
   // The beat that says this process is driving it; a stopped beat lets another process pick it up.
   l.beat = setInterval(() => {
@@ -525,7 +536,10 @@ function awaitPerson(l: Live): Promise<Answer> {
 }
 
 async function drive(row: Row, l: Live, continuing: boolean, resume: Resume | null): Promise<void> {
-  const session = await openBrowserSession(l.key, {}, resume?.browser ?? null);
+  // A kept sign-in goes into the browser before the first step. A run picked up after a restart
+  // already has its own browser back from its checkpoint, which is newer.
+  const kept = l.keptSignIn && !resume ? await openKeptSignInFor(row.orgId, l.keptSignIn) : null;
+  const session = kept ? await openWithSignIn(l.key, kept.state) : await openBrowserSession(l.key, {}, resume?.browser ?? null);
   if (!claim(session)) {
     throw new Error('the browser is busy with another run');
   }
@@ -539,6 +553,9 @@ async function drive(row: Row, l: Live, continuing: boolean, resume: Resume | nu
   };
   if (resume) {
     await step({ kind: 'note', label: `Picked up again after the app restarted${resume.browser ? `, back on ${hostOf(resume.browser.url)}` : ''}`, ok: true });
+  }
+  if (l.keptSignIn && !resume) {
+    await step({ kind: 'note', label: kept ? `Started signed in to ${l.keptSignIn.vendor} with the kept sign-in${kept.savedAt ? ` saved ${kept.savedAt.slice(0, 10)}` : ''}${kept.savedFrom ? ` from ${kept.savedFrom}` : ''}` : `No kept ${l.keptSignIn.vendor} sign-in to start from: the run signs in itself`, ok: true });
   }
 
   // A run that was waiting on the person when its process went away waits again, as it was.
@@ -592,6 +609,7 @@ async function drive(row: Row, l: Live, continuing: boolean, resume: Resume | nu
     ...(resume ? { resume: { done: l.steps.map(s => s.label), notes: l.notes, approved } } : {}),
     ...(routine ? { routine } : {}),
     ...(l.approvedAhead ? { approvedAhead: l.approvedAhead } : {}),
+    ...(kept && l.keptSignIn ? { keptSignIn: { vendor: l.keptSignIn.vendor, savedAt: kept.savedAt } } : {}),
   }, {
     now: () => Date.now(),
     stopped: () => l.stop,
@@ -640,6 +658,12 @@ type Ending = { status: 'done'; summary: string; result: Record<string, unknown>
 
 async function finish(row: Row, l: Live, out: Ending): Promise<void> {
   const shot = await keepShot(row.orgId, l.key);
+  // A run that ended well saves its sign-in back, refreshed, for the next run to start from.
+  const browser = l.keptSignIn && out.status === 'done' ? existingSession(l.key) : null;
+  if (browser && l.keptSignIn) {
+    const { keepSignInAfterRun } = await import('./keptSignIn');
+    await keepSignInAfterRun({ orgId: row.orgId, signIn: l.keptSignIn, browser, runLabel: browserRunLabel(row.id) });
+  }
   const status: BrowserRunStatus = out.status;
   await patch(row.id, {
     status,
@@ -662,6 +686,16 @@ async function finish(row: Row, l: Live, out: Ending): Promise<void> {
   if (!heldByCall(row.id) && !row.routineRunId) {
     await announce(row, status, resultMessage(row, out.summary, 'result' in out ? out.result : null, status)).catch(() => {});
   }
+}
+
+/**
+ * A run's kept sign-in, opened; null when there is none to start from. Never throws.
+ * @param orgId - The workspace.
+ * @param signIn - What the run carries.
+ */
+async function openKeptSignInFor(orgId: string, signIn: RunSignIn) {
+  const { openKeptSignIn } = await import('./keptSignIn');
+  return openKeptSignIn(orgId, signIn.sourceId).catch(() => null);
 }
 
 function hostOf(url: string): string {
@@ -706,7 +740,7 @@ async function adopt(id: number): Promise<void> {
     return;
   }
   console.warn('[browser] picking up a run after a restart', { run: id, status: row.status, resumes: row.resumes });
-  begin(row, saved?.secrets ?? {}, false, { browser: saved?.browser ?? null, notes: saved?.notes ?? [], waiting: row.status === 'waiting' ? row.waiting ?? null : null }, saved?.approvedAhead ?? null);
+  begin(row, saved?.secrets ?? {}, false, { browser: saved?.browser ?? null, notes: saved?.notes ?? [], waiting: row.status === 'waiting' ? row.waiting ?? null : null }, saved?.approvedAhead ?? null, saved?.keptSignIn ?? null);
 }
 
 let keeper: ReturnType<typeof setInterval> | null = null;

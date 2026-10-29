@@ -77,6 +77,8 @@ export type ConnectorListProps = {
   onEdit: (source: Source) => void;
   /** Store or replace the credential a connection uses. */
   onConnect: (source: Source) => void;
+  /** Sign a connection that keeps a sign-in in again (Squarespace); Connect when not given. */
+  onSignIn?: (source: Source) => void;
   onPause: (source: Source, paused: boolean) => void;
   onDisconnect: (source: Source) => void;
 };
@@ -167,8 +169,8 @@ function ConnectionItem(props: ConnectorListProps & { row: ConnectionRow; rows: 
     busy ? t('syncing') : tile.syncless ? null : source.lastSyncedAt ? t('synced', { when: relativeTime(source.lastSyncedAt, locale, props.now) }) : row.status === 'working' ? t('never_synced') : null,
   ].filter(Boolean).join(' · ');
 
-  const fixLabel = row.fix === 'reconnect' ? t('fix_reconnect') : row.fix === 'connect' ? t('fix_connect') : row.fix === 'retry' ? t('fix_retry') : null;
-  const fix = () => (row.fix === 'retry' ? props.onSync(source) : props.onConnect(source));
+  const fixLabel = row.fix === 'reconnect' ? t('fix_reconnect') : row.fix === 'connect' ? t('fix_connect') : row.fix === 'retry' ? t('fix_retry') : row.fix === 'sign-in' ? t('fix_sign_in') : null;
+  const fix = () => (row.fix === 'retry' ? props.onSync(source) : row.fix === 'sign-in' ? (props.onSignIn ?? props.onConnect)(source) : props.onConnect(source));
 
   const menu: RowMenuItem[] = [
     { label: t('menu_manage'), icon: Settings2, onClick: () => setOpen(true) },
@@ -234,6 +236,7 @@ function StatusLine({ row }: { row: ConnectionRow }) {
     'sync-failed': t('problem_sync_failed'),
     'sync-stopped': t('problem_sync_stopped'),
     'items-not-saved': t('problem_items_not_saved'),
+    'sign-in-needed': t('problem_sign_in_needed'),
   };
   if (row.status === 'paused') {
     return (

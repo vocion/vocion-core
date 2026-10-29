@@ -504,6 +504,7 @@ async function startOrQueue(orgId: string, owner: RunOwner, spec: import('./squa
     start,
     continuing: start && continuing,
     approvedAhead: spec.approvedAhead,
+    keptSignIn: spec.keptSignIn ?? null,
   });
   const queued = await waitingPublishRuns(orgId, owner.userId);
   if (queued.length > 0) {
@@ -587,21 +588,33 @@ export async function squarespaceSlugCheck(plan: PublishPlan): Promise<string | 
 }
 
 /**
+ * The workspace's Squarespace editor login, from the vault, or null when none is stored.
+ * @param orgId - The workspace.
+ */
+export async function squarespaceLogin(orgId: string): Promise<{ email: string; password: string } | null> {
+  const { getCredentialsForSource } = await import('@/services/SourceCredentialService');
+  const login = await getCredentialsForSource(orgId, 'squarespace').catch(() => undefined) as Record<string, unknown> | undefined;
+  return typeof login?.email === 'string' && typeof login?.password === 'string' ? { email: login.email, password: login.password } : null;
+}
+
+/**
  * Start the Squarespace draft run, or queue it behind the person's other
- * publish runs, and the job that follows it.
+ * publish runs, and the job that follows it. The run starts from the site's
+ * kept sign-in when its connector holds one, and types the login only when
+ * that is missing or expired (`squarespaceSignIn.ts`).
  * @param orgId - The workspace.
  * @param plan - The plan; its target must be squarespace.
- * @param login - The editor login, from the vault.
- * @param login.email - The account's email.
- * @param login.password - Its password.
+ * @param login - The editor login, from the vault, or null when none is stored.
  * @param owner - Whose browser it runs in.
  * @param actionRunId - The publish run, stamped when the post is confirmed live.
  */
-export async function startSquarespaceDraft(orgId: string, plan: PublishPlan, login: { email: string; password: string }, owner: RunOwner, actionRunId: number | null = null) {
+export async function startSquarespaceDraft(orgId: string, plan: PublishPlan, login: { email: string; password: string } | null, owner: RunOwner, actionRunId: number | null = null) {
   if (plan.target.kind !== 'squarespace') {
     throw new Error('not a Squarespace target');
   }
   const { draftRun, postUrlOf } = await import('./squarespaceTask');
+  const { runSignInOf, squarespaceConnectionFor } = await import('./squarespaceSignIn');
+  const connection = await squarespaceConnectionFor(orgId, plan.target.config.siteUrl).catch(() => null);
   const blogPath = plan.target.config.blogPath ?? '/blog';
   const post = {
     siteUrl: plan.target.config.siteUrl,
@@ -613,8 +626,9 @@ export async function startSquarespaceDraft(orgId: string, plan: PublishPlan, lo
     seoTitle: plan.page.metaTitle ?? plan.page.title,
     seoDescription: plan.page.description,
   };
-  const { run, queued } = await startOrQueue(orgId, owner, draftRun(post, login));
-  const followed = await follow({ orgId, phase: 'draft', browserRunId: run.id, pageRecordId: plan.page.recordId, siteUrl: plan.target.config.siteUrl, blogPath, slug: plan.page.slug, title: plan.page.title, owner, actionRunId });
+  const spec = { ...draftRun(post, { kept: connection?.signIn.kept === true, login }), keptSignIn: runSignInOf(connection) };
+  const { run, queued } = await startOrQueue(orgId, owner, spec);
+  const followed = await follow({ orgId, phase: 'draft', browserRunId: run.id, pageRecordId: plan.page.recordId, siteUrl: plan.target.config.siteUrl, blogPath, slug: plan.page.slug, title: plan.page.title, owner, actionRunId, signInSourceId: connection?.sourceId ?? null });
   return { browserRunId: run.id, postUrl: postUrlOf(post), followed, queued };
 }
 
@@ -631,10 +645,15 @@ export type LivePost = { pageRecordId: number; siteUrl: string; blogPath: string
  */
 export async function startSquarespaceLive(orgId: string, posts: LivePost[], owner: RunOwner): Promise<Array<{ pageRecordId: number; browserRunId: number; queued: boolean }>> {
   const { liveRun } = await import('./squarespaceTask');
+  const { runSignInOf, squarespaceConnectionFor } = await import('./squarespaceSignIn');
+  const login = await squarespaceLogin(orgId);
   const started: Array<{ pageRecordId: number; browserRunId: number; queued: boolean }> = [];
   for (const p of posts) {
-    const { run, queued } = await startOrQueue(orgId, owner, liveRun(p), true);
-    await follow({ orgId, phase: 'live', browserRunId: run.id, pageRecordId: p.pageRecordId, siteUrl: p.siteUrl, blogPath: p.blogPath, slug: p.slug, title: p.title, owner, actionRunId: p.actionRunId });
+    // The same kept sign-in as the draft run: going live starts signed in too.
+    const connection = await squarespaceConnectionFor(orgId, p.siteUrl).catch(() => null);
+    const spec = { ...liveRun(p, { kept: connection?.signIn.kept === true, login }), keptSignIn: runSignInOf(connection) };
+    const { run, queued } = await startOrQueue(orgId, owner, spec, true);
+    await follow({ orgId, phase: 'live', browserRunId: run.id, pageRecordId: p.pageRecordId, siteUrl: p.siteUrl, blogPath: p.blogPath, slug: p.slug, title: p.title, owner, actionRunId: p.actionRunId, signInSourceId: connection?.sourceId ?? null });
     await recordOnPage(orgId, p.pageRecordId, { publishing: { kind: 'squarespace', phase: 'live', browserRunId: run.id, href: `/dashboard/browser/${run.id}`, at: new Date().toISOString(), note: queued ? 'Going live: waiting its turn in your browser.' : 'Going live.' } });
     started.push({ pageRecordId: p.pageRecordId, browserRunId: run.id, queued });
   }
@@ -654,6 +673,8 @@ export type SettleInput = {
   owner: RunOwner;
   /** The `site.publish_page` run, stamped when the post is confirmed live. */
   actionRunId?: number | null;
+  /** The site's Squarespace connector, whose kept sign-in the run used; marked when it needs a fresh one. */
+  signInSourceId?: number | null;
 };
 
 /**
@@ -692,6 +713,11 @@ export async function settlePublishRun(input: SettleInput): Promise<{ done: bool
     await markRunLive(input.orgId, input.actionRunId, { at, url: live.url, how: 'read-back' });
     return { done: true, line };
   }
+  const { needsFreshSignIn } = await import('./squarespaceSignIn');
+  if (needsFreshSignIn(run)) {
+    // Not a failure: the work waits on a person signing in again, and carries on by itself after.
+    return waitOnSignIn(input, runRef, at);
+  }
   if (run.status !== 'done') {
     const line = `The ${input.phase === 'draft' ? 'draft' : 'going-live'} run ${run.status === 'stopped' ? 'was stopped' : `could not finish: ${run.error ?? run.summary ?? 'no reason given'}`}.${input.phase === 'live' ? ' The post stays a draft in Squarespace.' : ''}`;
     await recordOnPage(input.orgId, input.pageRecordId, { status: input.phase === 'draft' ? 'approved' : 'publishing', publishing: { kind: 'squarespace', phase: input.phase, ...runRef, at, error: line } });
@@ -713,5 +739,35 @@ export async function settlePublishRun(input: SettleInput): Promise<{ done: bool
     ? `The run published "${input.title}", but ${input.blogPath}?format=json does not list it yet${found.why ? ` (${found.why})` : ''}; it should be at ${postUrlOf(input)}.`
     : `"${input.title}" stays a draft in Squarespace: it was not published.`;
   await recordOnPage(input.orgId, input.pageRecordId, { status: 'publishing', publishing: { kind: 'squarespace', phase: 'live', ...runRef, at, note: line } });
+  return { done: true, line };
+}
+
+/**
+ * A publish run Squarespace would not sign in: the connector says it needs a
+ * fresh sign-in, and the page waits on it, publishing, with everything it
+ * needs to carry on once a person has signed in (`resumeWaitingOnSignIn`).
+ * @param input - The run and the page.
+ * @param runRef - The run, as the page links it.
+ * @param runRef.browserRunId - The run.
+ * @param runRef.href - Its page.
+ * @param at - When.
+ */
+async function waitOnSignIn(input: SettleInput, runRef: { browserRunId: number; href: string }, at: string): Promise<{ done: boolean; line: string }> {
+  const { freshSignInLine } = await import('./squarespaceSignIn');
+  const { markSignInNeeded } = await import('@/services/browser/keptSignIn');
+  const line = freshSignInLine(input.siteUrl, Boolean(input.signInSourceId));
+  if (input.signInSourceId) {
+    await markSignInNeeded(input.orgId, input.signInSourceId, `Squarespace showed its sign-in page to browser run ${input.browserRunId} and would not sign it in.`).catch(error => console.warn('[publish] the connector could not be marked', { reason: (error as Error).message }));
+  }
+  const waiting: import('./squarespaceSignIn').WaitingOnSignIn = {
+    waitingOn: 'sign-in',
+    site: input.siteUrl,
+    signInSourceId: input.signInSourceId ?? null,
+    phase: input.phase,
+    owner: input.owner,
+    actionRunId: input.actionRunId ?? null,
+    ...(input.phase === 'live' ? { post: { siteUrl: input.siteUrl, blogPath: input.blogPath, slug: input.slug, title: input.title } } : {}),
+  };
+  await recordOnPage(input.orgId, input.pageRecordId, { status: 'publishing', publishing: { kind: 'squarespace', ...waiting, ...runRef, at, note: line } });
   return { done: true, line };
 }

@@ -15,6 +15,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { grantSummaryForSource } from '@/libs/connect/summary';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listConnectors } from '@/libs/sources/registry';
+import { keptSignInStatuses } from '@/services/browser/keptSignIn';
 import { startSourceSyncing } from '@/services/connect/newSourceSync';
 import { credentialStatusForOrg } from '@/services/SourceCredentialService';
 import { addSource, chunkCountsForOrg, documentCountsForOrg, latestSyncStateForOrg, listSources } from '@/services/SourceSyncService';
@@ -29,6 +30,7 @@ export async function GET() {
   const docCounts = await documentCountsForOrg(orgId);
   const chunkCounts = await chunkCountsForOrg(orgId);
   const syncState = await latestSyncStateForOrg(orgId);
+  const signIns = await keptSignInStatuses(orgId);
   const connectorBySlug = new Map(listConnectors().map(c => [c.slug, c]));
   // Decorate each source with its connector's auth requirement, whether a live
   // credential is stored, the object type it pulls, and how many documents it
@@ -77,6 +79,9 @@ export async function GET() {
       // The last run's state, so the page can show a sync it did not start —
       // another tab's, the scheduler's, or one still going after a reload.
       sync: syncState[s.id] ?? null,
+      // A connector that keeps a sign-in (Squarespace): when it was saved, from
+      // where, and whether a run found it expired. Never the cookies.
+      signIn: signIns[s.id] ?? null,
     };
   }));
   const connectors = listConnectors().map(c => ({

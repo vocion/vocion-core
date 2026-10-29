@@ -22,7 +22,7 @@ const post = {
 };
 
 describe('the draft run', () => {
-  const spec = draftRun(post, PRACTICE_BLOG_SIGN_IN);
+  const spec = draftRun(post, { kept: false, login: PRACTICE_BLOG_SIGN_IN });
 
   it('signs in to the editor with the password and the article as secrets, so the model reads neither', () => {
     expect(spec.startUrl).toBe('https://site.northwind-outfitters.test/config/pages');
@@ -31,7 +31,7 @@ describe('the draft run', () => {
     expect(spec.task).toContain('{{password}}');
     expect(spec.task).toContain('{{body_html}}');
     expect(spec.task).not.toContain('Under 2 kg');
-    expect(spec.outputs.map(o => o.name)).toEqual(['post_url', 'editor_url', 'post_slug', 'status']);
+    expect(spec.outputs.map(o => o.name)).toEqual(['post_url', 'editor_url', 'post_slug', 'status', 'sign_in']);
   });
 
   it('finds this page\'s own post by its slug, names every field as 7.1 names them, and never publishes', () => {
@@ -55,6 +55,42 @@ describe('the draft run', () => {
     }
 
     expect(isPublishTask(spec.task)).toBe(true);
+  });
+});
+
+describe('signing in', () => {
+  it('starts from a kept sign-in and types the password only if the site asks, once', () => {
+    const spec = draftRun(post, { kept: true, login: PRACTICE_BLOG_SIGN_IN });
+
+    expect(spec.task).toContain('starts signed in with a kept Squarespace sign-in');
+    expect(spec.task).toContain('log in, once');
+    expect(spec.task).toContain('sign_in "refused"');
+    expect(spec.secretNames).toEqual(['password', 'body_html']);
+  });
+
+  it('with a kept sign-in and no stored login, asks for no password and gives up on the login page', () => {
+    const spec = draftRun(post, { kept: true, login: null });
+
+    expect(spec.inputs).not.toHaveProperty('password');
+    expect(spec.inputs).not.toHaveProperty('email');
+    expect(spec.secretNames).toEqual(['body_html']);
+    expect(spec.task).not.toContain('{{password}}');
+    expect(spec.task).toContain('there is no password to type');
+  });
+
+  it('with no kept sign-in still tries the stored password once, as before', () => {
+    const spec = draftRun(post, { kept: false, login: PRACTICE_BLOG_SIGN_IN });
+
+    expect(spec.task).not.toContain('kept Squarespace sign-in');
+    expect(spec.task).toContain('type the email input and {{password}}, and log in, once');
+  });
+
+  it('going live signs in the same way, and owes the same sign_in output', () => {
+    const spec = liveRun(post, { kept: true, login: PRACTICE_BLOG_SIGN_IN });
+
+    expect(spec.task).toContain('kept Squarespace sign-in');
+    expect(spec.secretNames).toEqual(['password']);
+    expect(spec.outputs.map(o => o.name)).toContain('sign_in');
   });
 });
 

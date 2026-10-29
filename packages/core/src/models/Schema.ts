@@ -1,4 +1,5 @@
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import type { KeptSignInColumn } from '@/libs/browser/keptSignIn';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { BriefAudio } from '@/services/briefings/audio/types';
 import type { BriefingV2 } from '@/services/briefings/document';
@@ -3107,6 +3108,16 @@ export const knowledgeSourceSchema = pgTable(
      * workspace syncs.
      */
     apiTokenExclusive: boolean('api_token_exclusive').default(false).notNull(),
+    /**
+     * A kept sign-in (`services/browser/keptSignIn.ts`): the browser state of
+     * the connector's site, signed in by a person, sealed under the
+     * workspace's key, so the browser runs that publish to the site start
+     * signed in (a site that refuses a password typed from a data centre:
+     * Squarespace). Beside the seal, in the clear, only when and where it was
+     * saved and whether a run found it expired. Null for every connector that
+     * keeps none. Never read by `listSources`.
+     */
+    keptSignIn: jsonb('kept_sign_in').$type<KeptSignInColumn>(),
     enabled: text('enabled').default('true').notNull(),
     lastSyncedAt: timestamp('last_synced_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
