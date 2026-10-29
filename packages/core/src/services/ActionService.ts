@@ -32,6 +32,7 @@ import { db } from '@/libs/DB';
 import { actionRunSchema, projectSchema } from '@/models/Schema';
 import { agentSlugFromPrincipal } from '@/services/adoption/attribution';
 import { AuthzDeniedError, enforce } from '@/services/authz';
+import { withWorkProject, workProjectId } from '@/services/connect/connectionScope';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 import { assertWorkspaceRunning } from '@/services/workspacePause';
 
@@ -454,6 +455,12 @@ async function proposeActionInTurn(input: {
 }): Promise<ProposeResult> {
   const action = getAction(input.actionId);
   let storedProposal = withOrigin(proposalForStorage(input.proposal), input.origin);
+  // Proposed in a project's work: it runs as that project's work when it is
+  // approved later, with that project's connections (`connectionScope.ts`).
+  const proposedFor = workProjectId();
+  if (proposedFor !== null) {
+    storedProposal = { ...(storedProposal ?? {}), workProjectId: proposedFor } as typeof storedProposal;
+  }
   if (!action) {
     throw new ActionError('UNKNOWN_ACTION', `No registered action: ${input.actionId}`);
   }
@@ -990,6 +997,30 @@ export async function executeAction(
     staleGate?: { proceed: StaleView | null };
   },
 ): Promise<ActionRunResult> {
+  return withWorkProject(await runWorkProject(orgId, runId), () => executeActionInScope(runId, orgId, opts));
+}
+
+/**
+ * The project a run was proposed in (`proposal.workProjectId`), so approving
+ * it later runs it as that project's work; undefined when it was proposed in
+ * none, which leaves the approver's own scope.
+ * @param orgId - The workspace.
+ * @param runId - The run.
+ */
+async function runWorkProject(orgId: string, runId: number): Promise<number | undefined> {
+  const [row] = await db.select({ proposal: actionRunSchema.proposal }).from(actionRunSchema).where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId))).limit(1);
+  const id = (row?.proposal as { workProjectId?: unknown } | null | undefined)?.workProjectId;
+  return typeof id === 'number' && Number.isInteger(id) && id > 0 ? id : undefined;
+}
+
+async function executeActionInScope(
+  runId: number,
+  orgId: string,
+  opts?: {
+    reviewedBy?: string;
+    externalRef?: { system: string; id: string };
+  },
+): Promise<ActionRunResult> {
   const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, runId)).limit(1);
   if (!run || run.orgId !== orgId) {
     throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);
@@ -1368,6 +1399,10 @@ export async function rejectAction(runId: number, orgId: string, reason?: string
  * @param opts.by - The person undoing it.
  */
 export async function undoAction(runId: number, orgId: string, opts: { by: string }): Promise<ActionRunResult> {
+  return withWorkProject(await runWorkProject(orgId, runId), () => undoActionInScope(runId, orgId, opts));
+}
+
+async function undoActionInScope(runId: number, orgId: string, opts: { by: string }): Promise<ActionRunResult> {
   const [run] = await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId))).limit(1);
   if (!run) {
     throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);

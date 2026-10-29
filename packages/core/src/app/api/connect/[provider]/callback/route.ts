@@ -103,8 +103,9 @@ async function approveCard(orgId: string, userId: string, provider: ConnectProvi
  * @param issuedAt - When the login's state was signed.
  * @param landing - Where to land.
  * @param personal
+ * @param projectId - The Project the connect started for: the source the login makes is its.
  */
-async function storeAndLand(request: NextRequest, origin: string, done: Parameters<typeof completeLogin>[0], issuedAt: Date, landing: Landing, personal = false) {
+async function storeAndLand(request: NextRequest, origin: string, done: Parameters<typeof completeLogin>[0], issuedAt: Date, landing: Landing, personal = false, projectId?: number) {
   const { orgId, userId, provider, connectorSlug, card } = done;
   // A connector that makes its own source approves the card only once that
   // source exists. A personal login makes none: the person's assistant reads it live.
@@ -129,7 +130,7 @@ async function storeAndLand(request: NextRequest, origin: string, done: Paramete
     return landAt(request, origin, { ok: true }, landing);
   }
   // A connector that needs no picks has its source now; one that does is finished in chat or on the Connectors form.
-  const made = await createSourceWhenNoConfigNeeded({ orgId, userId, connector: connectorSlug, linkedSourceIds: outcome.linkedSourceIds });
+  const made = await createSourceWhenNoConfigNeeded({ orgId, userId, connector: connectorSlug, linkedSourceIds: outcome.linkedSourceIds, ...(projectId ? { projectId } : {}) });
   if (made.failed) {
     // The login is stored and valid; the person is told the source is missing. No stateIssuedAt: this is a real failure after the success.
     return failAndLand(request, origin, { orgId, userId, provider, connectorSlug, card, reason: 'source_not_created' }, landing);
@@ -258,5 +259,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     issuedAt,
     landing,
     personal,
+    payload.projectId,
   );
 }

@@ -1623,6 +1623,13 @@ export const missionRunSchema = pgTable('mission_run', {
   projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
   /** Nullable — missions can start ad-hoc from a freeform brief (no template). */
   missionId: integer('mission_id').references(() => missionSchema.id, { onDelete: 'set null' }),
+  /**
+   * The Project this run works for (a `data_room` record), when it was started
+   * for one: its turns use that project's connections (`connectionScope.ts`).
+   * Null for a run of no project. `set null` on delete: the run's history
+   * stays, and a run with no project reaches no project's connections.
+   */
+  dataRoomId: integer('data_room_id').references(() => businessObjectSchema.id, { onDelete: 'set null' }),
   title: text('title').notNull(),
   /** The natural-language assignment the owner gave. */
   brief: text('brief').notNull(),
@@ -3114,6 +3121,15 @@ export const knowledgeSourceSchema = pgTable(
      * keeps none. Never read by `listSources`.
      */
     keptSignIn: jsonb('kept_sign_in').$type<KeptSignInColumn>(),
+    /**
+     * The Project this connection belongs to (a `business_object` of type
+     * `data_room`), or null for the whole workspace. Set, only work for that
+     * project uses it: its token, its kept sign-in, its tools and what it
+     * synced (`services/connect/connectionScope.ts`, the one resolver).
+     * Named by the internal type because `project_id` above is the workspace.
+     * Cascades: a project's connection never outlives it as a workspace-wide one.
+     */
+    dataRoomId: integer('data_room_id').references(() => businessObjectSchema.id, { onDelete: 'cascade' }),
     enabled: text('enabled').default('true').notNull(),
     lastSyncedAt: timestamp('last_synced_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -3959,6 +3975,11 @@ export const actionRunSchema = pgTable(
       agentSlug?: string;
       /** The mission run that proposed it, when a run did (`tools/proposeAction.ts`). */
       missionRunId?: number;
+      /**
+       * The Project whose work proposed it (`services/connect/connectionScope.ts`):
+       * approved later, it runs as that project's work, with its connections.
+       */
+      workProjectId?: number;
       /**
        * What the agent thinks the reviewer should DO with this item, as
        * opposed to how sure it is that its payload is right. Confidence

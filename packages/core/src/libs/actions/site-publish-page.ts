@@ -79,15 +79,18 @@ function ownerOf(ctx: { reviewedBy?: string; origin?: { userId?: string | null; 
 }
 
 /**
- * How a Squarespace publish signs in to this site: the stored login, and
- * whether the site's connector keeps a sign-in. Null when it has neither.
+ * How a Squarespace publish signs in to this site, for the page's project:
+ * the stored login, and whether the site's connector keeps a sign-in — each
+ * one this project may use (`connectionScope.ts`). Null when it has neither.
  * @param orgId - The workspace.
  * @param siteUrl - The site.
+ * @param projectId - The project the page belongs to.
  */
-async function squarespaceSignIn(orgId: string, siteUrl: string) {
+async function squarespaceSignIn(orgId: string, siteUrl: string, projectId: number) {
   const { squarespaceLogin } = await import('@/services/publish/sitePublish');
   const { squarespaceConnectionFor } = await import('@/services/publish/squarespaceSignIn');
-  const [login, connection] = await Promise.all([squarespaceLogin(orgId), squarespaceConnectionFor(orgId, siteUrl).catch(() => null)]);
+  const scope = { projectId };
+  const [login, connection] = await Promise.all([squarespaceLogin(orgId, scope), squarespaceConnectionFor(orgId, siteUrl, scope).catch(() => null)]);
   return login || connection?.signIn.kept ? { login, kept: connection?.signIn.kept === true } : null;
 }
 
@@ -132,7 +135,7 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
     if (plan.target.kind === 'github') {
       return (await githubPreflight(ctx.orgId, plan)).why;
     }
-    if (plan.target.kind === 'squarespace' && !await squarespaceSignIn(ctx.orgId, plan.target.config.siteUrl)) {
+    if (plan.target.kind === 'squarespace' && !await squarespaceSignIn(ctx.orgId, plan.target.config.siteUrl, plan.project.id)) {
       return NO_LOGIN;
     }
     return (await squarespaceSlugCheck(plan)) ?? undefined;
@@ -208,13 +211,13 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
     }
     const { plan } = planned;
     const at = new Date().toISOString();
-    const base = { targetId: plan.target.id, kind: plan.target.kind, pageRecordId: plan.page.recordId, slug: plan.page.slug, before: plan.before };
+    const base = { targetId: plan.target.id, kind: plan.target.kind, pageRecordId: plan.page.recordId, projectId: plan.project.id, slug: plan.page.slug, before: plan.before };
     if (plan.target.kind === 'github') {
       const opened = await publishToGithub(ctx.orgId, plan, ctx.reviewedBy ?? null);
       const line = `${opened.created ? 'Opened' : 'Added a commit to'} ${opened.url.replace('https://github.com/', '')}: ${opened.replaced ? 'replacing' : 'adding'} ${opened.path}. The client's team merges it; Undo closes it.`;
       await recordOnPage(ctx.orgId, plan.page.recordId, { status: 'publishing', pullRequestUrl: opened.url, publishing: { kind: 'github', targetId: plan.target.id, branch: opened.branch, path: opened.path, replaced: opened.replaced, at, by: ctx.reviewedBy ?? ctx.invokedBy ?? null, actionRunId: ctx.runId ?? null } });
       // Published when the client's team merges it: followed, never merged from here.
-      await followPull({ orgId: ctx.orgId, repo: opened.repo, number: opened.number, url: opened.url, pageRecordId: plan.page.recordId, actionRunId: ctx.runId ?? null });
+      await followPull({ orgId: ctx.orgId, repo: opened.repo, number: opened.number, url: opened.url, pageRecordId: plan.page.recordId, actionRunId: ctx.runId ?? null, projectId: plan.project.id });
       // The Done line reads this (`libs/decisions/receipt.ts` `outcomeOf`): "Pull request opened: <link>".
       const receipt = { text: opened.created ? 'Pull request opened' : 'Pull request updated', href: opened.url, linkLabel: `${opened.repo}#${opened.number}` };
       return { ...base, published: false, url: opened.url, repo: opened.repo, branch: opened.branch, number: opened.number, path: opened.path, created: opened.created, replaced: opened.replaced, line, receipt };
@@ -223,7 +226,7 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
       throw new Error('Publishing to this kind of target is not built yet.');
     }
     const owner = ownerOf(ctx);
-    const signIn = await squarespaceSignIn(ctx.orgId, plan.target.config.siteUrl);
+    const signIn = await squarespaceSignIn(ctx.orgId, plan.target.config.siteUrl, plan.project.id);
     if (!signIn) {
       throw new Error(NO_LOGIN);
     }
@@ -243,7 +246,10 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
       return { note: 'A Squarespace post is the site\'s once saved: delete it in the Squarespace editor if it should go.' };
     }
     const { discardChange } = await import('@/services/factory/githubChange');
-    const out = await discardChange(ctx.orgId, { url: result.url, repo: result.repo, branch: result.branch });
+    // The page's project's work, as the publish was: its connection closes it.
+    const { withWorkProject } = await import('@/services/connect/connectionScope');
+    const projectId = typeof result.projectId === 'number' ? result.projectId : undefined;
+    const out = await withWorkProject(projectId, () => discardChange(ctx.orgId, { url: result.url as string, repo: result.repo as string, branch: result.branch as string }));
     const before = (result.before ?? null) as { status?: unknown; pullRequestUrl?: unknown } | null;
     const { recordOnPage } = await import('@/services/publish/sitePublish');
     await recordOnPage(ctx.orgId, typeof result.pageRecordId === 'number' ? result.pageRecordId : null, { status: before?.status ?? 'approved', pullRequestUrl: before?.pullRequestUrl ?? null, publishing: { kind: 'github', withdrawnAt: new Date().toISOString(), url: result.url, revertUrl: out.revertUrl } });

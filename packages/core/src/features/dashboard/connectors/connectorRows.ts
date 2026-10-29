@@ -79,7 +79,18 @@ export type Source = {
    * other connector; absent on cores older than 2026-10-29.
    */
   signIn?: KeptSignInStatus | null;
+  /**
+   * The Project this connection belongs to — only that project's work uses it
+   * (`services/connect/connectionScope.ts`) — or null for the whole
+   * workspace. Absent on cores older than 2026-10-29.
+   */
+  projectId?: number | null;
+  /** That project's name, for the row. */
+  projectTitle?: string | null;
 };
+
+/** A Project a connection can belong to. */
+export type ScopeProject = { id: number; title: string };
 
 /** One connector the server offers, connected or not. */
 export type ConnectorTile = {

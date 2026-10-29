@@ -35,6 +35,12 @@ export type CallContext = {
   /** The agent whose work this is, when a call site does not name it. */
   agentSlug?: string | null;
   traceId?: string | null;
+  /**
+   * The Project this work is for (a `data_room` record's id), or null for none.
+   * Read by the connection resolver (`services/connect/connectionScope.ts`): a
+   * project's connections serve only that project's work.
+   */
+  workProjectId?: number | null;
 };
 
 const storage = new AsyncLocalStorage<CallContext>();

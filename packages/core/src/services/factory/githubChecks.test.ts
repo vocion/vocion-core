@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/services/agents/tools/githubPullRead', async importOriginal => ({
   ...(await importOriginal<typeof import('@/services/agents/tools/githubPullRead')>()),
   tokenForRepo: vi.fn(async () => 'github_pat_fixture'),
+  repoAccess: vi.fn(async () => ({ token: 'github_pat_fixture', refusal: null })),
 }));
 
 const { branchHead, dispatchWorkflow, jobOf, listWorkflowRuns, logTailFor, parseRunUrl, readCheckLogs, rerunFailedJobs, runJobs, workflowRef } = await import('./githubChecks');

@@ -84,9 +84,14 @@ export async function runJob(call: JobCall, ctx: Pick<DurableContext, 'workflowI
   if (call.afterMs && call.afterMs > 0) {
     await ctx.sleep(call.afterMs);
   }
-  return spec.whole
+  // A job started for a project (`input.projectId`, or its workflow's input's)
+  // is that project's work: it uses that project's connections and no other's
+  // (`services/connect/connectionScope.ts`). Any other job is work for none.
+  const { jobWorkProject, withWorkProject } = await import('@/services/connect/connectionScope');
+  const projectId = await jobWorkProject(call.input);
+  return withWorkProject(projectId, () => spec.whole
     ? spec.handler(call.input ?? {}, jctx)
-    : jctx.step(call.job, () => spec.handler(call.input ?? {}, jctx), spec.retry);
+    : jctx.step(call.job, () => spec.handler(call.input ?? {}, jctx), spec.retry));
 }
 
 /** The one-off start: `vocion.job` under the caller's id. */

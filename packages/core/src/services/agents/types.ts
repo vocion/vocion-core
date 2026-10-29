@@ -487,6 +487,19 @@ export type RuntimeContext = {
   /** Persisted conversation this turn belongs to — stamped on tool_call rows. */
   conversationId?: number;
   /**
+   * The Project this turn's work is for (a `data_room` record's id), or null
+   * for none (`services/connect/connectionScope.ts` `workProjectFor`). The
+   * agent's sources are already narrowed to what this work may use; the
+   * credential lookups read the same id off the call context.
+   */
+  workProjectId?: number | null;
+  /**
+   * Source slugs this turn's work may not use: connections another project
+   * holds. Dropped from `connectorSources` and the rest at build, and kept
+   * out of retrieval (`search_knowledge`).
+   */
+  withheldSourceSlugs?: string[];
+  /**
    * Where the person is in the app for THIS turn (page, record, selection,
    * @-mentions) — read by the `page_context` tool. Set per request in
    * `compileAgentForRequest`; undefined for schedules, MCP and API callers.

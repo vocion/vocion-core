@@ -281,6 +281,7 @@ export async function listMissionRunReportsForMission(
  * @param opts.invokedBy
  * @param opts.mode
  * @param opts.causedBy
+ * @param opts.projectId
  */
 export async function startMission(opts: {
   orgId: string;
@@ -305,6 +306,12 @@ export async function startMission(opts: {
    * never fired again by its completion.
    */
   causedBy?: CausalChain | null;
+  /**
+   * The Project this run works for: its turns use that project's connections
+   * and no other project's (`services/connect/connectionScope.ts`). An id that
+   * is not a project of this workspace is dropped, never trusted.
+   */
+  projectId?: number | null;
 }): Promise<MissionRunSummary> {
   // The workspace off switch, before the planner and before any model call:
   // a mission run IS the factory working, whoever asked for it — the API, MCP
@@ -362,9 +369,15 @@ export async function startMission(opts: {
   // final answer can name each lead-less team instead of dropping it.
   const brief = rosterNote ? `${opts.brief}\n\n${rosterNote}` : opts.brief;
 
+  // Named, else the project of the work that started it (a project's chat
+  // reaching for a mission): the run keeps that project through every resume.
+  const { isProject, withWorkProject, workProjectId } = await import('@/services/connect/connectionScope');
+  const wanted = opts.projectId !== undefined ? opts.projectId : workProjectId();
+  const dataRoomId = wanted && await isProject(opts.orgId, wanted) ? wanted : null;
   const [run] = await db.insert(missionRunSchema).values({
     orgId: opts.orgId,
     missionId,
+    dataRoomId,
     title: opts.title ?? opts.brief.slice(0, 80),
     brief,
     goal,
@@ -389,7 +402,7 @@ export async function startMission(opts: {
         dependsOn: [],
       }]
     // The planner's turn is the run's spend too (`budget/runCost.ts`).
-    : await withRunCost({ missionRunId: run!.id }, () => planMission({ orgId: opts.orgId, brief, goal, team, userId: opts.invokedBy }));
+    : await withRunCost({ missionRunId: run!.id }, () => withWorkProject(dataRoomId, () => planMission({ orgId: opts.orgId, brief, goal, team, userId: opts.invokedBy })));
   await db.update(missionRunSchema).set({ plan: { tasks }, status: 'running' }).where(eq(missionRunSchema.id, run!.id));
   await executeMissionRun(run!.id, opts.orgId);
 

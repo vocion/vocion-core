@@ -2242,11 +2242,24 @@ function modelOverrideForPrefs(
  * The turn itself is {@link runAgentDeepInScope}.
  * @param opts - The turn, as `runAgentDeepInScope` takes it.
  */
-export async function runAgentDeep(opts: Parameters<typeof runAgentDeepInScope>[0]): ReturnType<typeof runAgentDeepInScope> {
+export async function runAgentDeep(opts: Parameters<typeof runAgentDeepInScope>[0] & {
+  /**
+   * The Project this turn works for, when the caller knows it. Otherwise read
+   * from what the turn belongs to — its mission run, its conversation, the
+   * page — and failing those the work it runs inside (a job for a project).
+   * It decides which connections the turn may use (`connectionScope.ts`).
+   */
+  workProjectId?: number | null;
+}): ReturnType<typeof runAgentDeepInScope> {
+  const { workProjectId: named, ...turn } = opts;
+  const { turnWorkProject } = await import('./connect/connectionScope');
+  const own = named !== undefined ? named : await turnWorkProject(opts.orgId, { conversationId: opts.conversationId, missionRunId: opts.missionRunId, pageContext: opts.pageContext });
   return withCallContext({
     userId: personIdOf(opts.userId),
     agentSlug: opts.agentSlug,
     ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
     ...(opts.missionRunId ? { runKind: 'mission_run' as const, runId: opts.missionRunId } : {}),
-  }, () => runAgentDeepInScope(opts));
+    // A project the turn names wins; none keeps the project of the work it runs in.
+    ...(own !== null || named !== undefined ? { workProjectId: own } : {}),
+  }, () => runAgentDeepInScope(turn));
 }

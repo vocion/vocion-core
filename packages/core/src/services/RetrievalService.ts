@@ -72,6 +72,12 @@ export type SearchOptions = {
    */
   allowedSourceSlugs?: string[];
   /**
+   * Sources whose content this search never returns: in an agent turn, the
+   * connections another project holds (`RuntimeContext.withheldSourceSlugs`,
+   * `services/connect/connectionScope.ts`). Applied after every other filter.
+   */
+  excludeSourceSlugs?: string[];
+  /**
    * Scope to a client account. The cross-client isolation boundary: with a
    * `clientId`, retrieval returns org-wide/shared docs (client_id IS NULL) plus
    * that client's docs — never another client's. WITHOUT a `clientId`, only
@@ -296,17 +302,19 @@ function scopeCond(scope: Scope) {
 
 async function resolveSourceFilter(opts: SearchOptions): Promise<number[] | null> {
   const slugs = opts.sourceSlugs ?? (opts.sourceSlug ? [opts.sourceSlug] : null);
-  if (!slugs) {
+  const excluded = new Set(opts.excludeSourceSlugs ?? []);
+  if (!slugs && excluded.size === 0) {
     return null;
   }
+  // Every source when none was asked for, less the excluded: the excluded
+  // ones are never searched, however the request was put.
   const rows = await db
-    .select({ id: knowledgeSourceSchema.id })
+    .select({ id: knowledgeSourceSchema.id, slug: knowledgeSourceSchema.slug })
     .from(knowledgeSourceSchema)
-    .where(and(
-      eq(knowledgeSourceSchema.orgId, opts.orgId),
-      inArray(knowledgeSourceSchema.slug, slugs),
-    ));
-  return rows.map(r => r.id);
+    .where(slugs
+      ? and(eq(knowledgeSourceSchema.orgId, opts.orgId), inArray(knowledgeSourceSchema.slug, slugs))
+      : eq(knowledgeSourceSchema.orgId, opts.orgId));
+  return rows.filter(r => !excluded.has(r.slug)).map(r => r.id);
 }
 
 /**

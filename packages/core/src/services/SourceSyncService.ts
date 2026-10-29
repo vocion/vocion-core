@@ -733,7 +733,24 @@ function resolveProcessor(sourceId: number, config: Record<string, unknown>): Re
   };
 }
 
-export async function runSync(opts: {
+/**
+ * Sync one source. A connection that belongs to a project syncs as that
+ * project's work (`connectionScope.ts`): every credential it reads and the
+ * collector that files what it brought are fenced to that project, so client
+ * A's sync never files into client B's project.
+ * @param opts - What `runSyncInScope` takes.
+ */
+export async function runSync(opts: Parameters<typeof runSyncInScope>[0]): Promise<SyncResult> {
+  const [scoped] = await db.select({ dataRoomId: knowledgeSourceSchema.dataRoomId })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.id, opts.sourceId), eq(knowledgeSourceSchema.orgId, opts.orgId)))
+    .limit(1);
+  const { withWorkProject } = await import('@/services/connect/connectionScope');
+  // A whole-workspace connection's sync is work for no project.
+  return withWorkProject(scoped?.dataRoomId ?? null, () => runSyncInScope(opts));
+}
+
+async function runSyncInScope(opts: {
   orgId: string;
   sourceId: number;
   /**
@@ -1424,6 +1441,8 @@ export async function listSources(orgId: string): Promise<Array<{
   lastSyncedAt: Date | null;
   enabled: string;
   createdAt: Date;
+  /** The Project the connection belongs to, or null for the whole workspace (`connectionScope.ts`). */
+  projectId: number | null;
 }>> {
   const rows = await db
     .select({
@@ -1434,6 +1453,7 @@ export async function listSources(orgId: string): Promise<Array<{
       lastSyncedAt: knowledgeSourceSchema.lastSyncedAt,
       enabled: knowledgeSourceSchema.enabled,
       createdAt: knowledgeSourceSchema.createdAt,
+      dataRoomId: knowledgeSourceSchema.dataRoomId,
     })
     .from(knowledgeSourceSchema)
     .where(eq(knowledgeSourceSchema.orgId, orgId));
@@ -1445,6 +1465,7 @@ export async function listSources(orgId: string): Promise<Array<{
     lastSyncedAt: r.lastSyncedAt,
     enabled: r.enabled,
     createdAt: r.createdAt,
+    projectId: r.dataRoomId ?? null,
   }));
 }
 

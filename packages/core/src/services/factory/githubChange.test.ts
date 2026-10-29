@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/services/agents/tools/githubPullRead', async importOriginal => ({
   ...(await importOriginal<typeof import('@/services/agents/tools/githubPullRead')>()),
   tokenForRepo: vi.fn(async () => 'test-token'),
+  repoAccess: vi.fn(async () => ({ token: 'test-token', refusal: null })),
 }));
 
 const { branchFor, cleanPath, discardChange, openChangePull, PAGE_BRANCH_PREFIX, PIPELINE_BRANCH_PREFIX } = await import('./githubChange');

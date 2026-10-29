@@ -15,6 +15,8 @@ vi.mock('@/services/SourceCredentialService', () => ({ credentialStatusForOrg: v
 vi.mock('@/libs/connect/summary', () => ({ grantSummaryForSource: vi.fn(async () => null) }));
 vi.mock('@/services/connect/newSourceSync', () => ({ startSourceSyncing: vi.fn() }));
 vi.mock('@/services/browser/keptSignIn', () => ({ keptSignInStatuses: vi.fn(async () => ({})) }));
+vi.mock('@/services/DataRoomService', () => ({ listDataRooms: vi.fn(async () => []) }));
+vi.mock('@/services/connect/connectionScope', () => ({ isProject: vi.fn(async () => true), setConnectionScope: vi.fn(async () => ({ ok: true, projectTitle: 'Northwind Home Services' })) }));
 vi.mock('@/services/SourceSyncService', () => ({
   addSource: vi.fn(),
   chunkCountsForOrg: vi.fn(async () => ({})),
@@ -29,6 +31,8 @@ const { credentialStatusForOrg } = await import('@/services/SourceCredentialServ
 const { grantSummaryForSource } = await import('@/libs/connect/summary');
 const { startSourceSyncing } = await import('@/services/connect/newSourceSync');
 const { addSource, documentCountsForOrg, latestSyncStateForOrg, listSources } = await import('@/services/SourceSyncService');
+const { listDataRooms } = await import('@/services/DataRoomService');
+const { isProject, setConnectionScope } = await import('@/services/connect/connectionScope');
 const { GET, POST } = await import('./route');
 
 const signedIn = {
@@ -59,6 +63,7 @@ beforeEach(() => {
       lastSyncedAt: null,
       enabled: 'true',
       createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      projectId: null,
     },
   ]);
   vi.mocked(credentialStatusForOrg).mockResolvedValue({
@@ -110,6 +115,7 @@ describe('GET /rpc/sources', () => {
         lastSyncedAt: null,
         enabled: 'true',
         createdAt: new Date('2026-08-01T00:00:00.000Z'),
+        projectId: null,
       },
     ]);
     vi.mocked(credentialStatusForOrg).mockResolvedValue({ bySourceId: {}, byConnectorSlug: {} });
@@ -155,9 +161,9 @@ describe('GET /rpc/sources', () => {
       { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey' },
     ] as never);
     vi.mocked(listSources).mockResolvedValue([
-      { id: 1, slug: 'github', kind: 'github', config: { repos: ['The-NocoCompany/warranty-app'] }, lastSyncedAt: null, enabled: 'true', createdAt: new Date('2026-09-30T00:00:00.000Z') },
-      { id: 2, slug: 'kb-strapi', kind: 'strapi', config: { _connector: 'strapi' }, lastSyncedAt: null, enabled: 'true', createdAt: new Date('2026-08-01T00:00:00.000Z') },
-      { id: 3, slug: 'github-later', kind: 'github', config: { repos: [] }, lastSyncedAt: null, enabled: 'true', createdAt: new Date('2026-09-30T00:00:00.000Z') },
+      { id: 1, slug: 'github', kind: 'github', config: { repos: ['The-NocoCompany/warranty-app'] }, lastSyncedAt: null, enabled: 'true', createdAt: new Date('2026-09-30T00:00:00.000Z'), projectId: null },
+      { id: 2, slug: 'kb-strapi', kind: 'strapi', config: { _connector: 'strapi' }, lastSyncedAt: null, enabled: 'true', createdAt: new Date('2026-08-01T00:00:00.000Z'), projectId: null },
+      { id: 3, slug: 'github-later', kind: 'github', config: { repos: [] }, lastSyncedAt: null, enabled: 'true', createdAt: new Date('2026-09-30T00:00:00.000Z'), projectId: null },
     ]);
     vi.mocked(credentialStatusForOrg).mockResolvedValue({
       bySourceId: {
@@ -180,6 +186,19 @@ describe('GET /rpc/sources', () => {
     expect(bySlug['github-later'].grant).toBeNull();
     expect(grantSummaryForSource).toHaveBeenCalledTimes(1);
     expect(grantSummaryForSource).toHaveBeenCalledWith({ orgId: 'org_1', sourceSlug: 'github', connectorSlug: 'github' });
+  });
+
+  it('says whose each connection is — the whole workspace, or one project by name — and lists the projects to choose from', async () => {
+    vi.mocked(listDataRooms).mockResolvedValue([{ id: 7, title: 'Northwind Home Services' }] as never);
+    vi.mocked(listSources).mockResolvedValue([
+      { id: 1, slug: 'kb-strapi', kind: 'strapi', config: { _connector: 'strapi' }, lastSyncedAt: null, enabled: 'true', createdAt: new Date('2026-08-01T00:00:00.000Z'), projectId: null },
+      { id: 2, slug: 'github-api-github-com', kind: 'github', config: { _connector: 'github', repos: ['example-org/northwind-site'] }, lastSyncedAt: null, enabled: 'true', createdAt: new Date('2026-10-29T00:00:00.000Z'), projectId: 7 },
+    ]);
+
+    const body = await (await GET()).json();
+
+    expect(body.projects).toEqual([{ id: 7, title: 'Northwind Home Services' }]);
+    expect(body.sources.map((s: { projectId: number | null; projectTitle: string | null }) => [s.projectId, s.projectTitle])).toEqual([[null, null], [7, 'Northwind Home Services']]);
   });
 
   it('refuses a caller with no workspace', async () => {
@@ -244,5 +263,36 @@ describe('POST /rpc/sources', () => {
 
     expect(response.status).toBe(400);
     expect(startSourceSyncing).not.toHaveBeenCalled();
+  });
+
+  it('a connection added for a project belongs to it before its first sync starts', async () => {
+    vi.mocked(addSource).mockResolvedValue({ id: 17, slug: 'web-northwind' });
+    vi.mocked(startSourceSyncing).mockResolvedValue('started');
+    const order: string[] = [];
+    vi.mocked(setConnectionScope).mockImplementation(async () => {
+      order.push('scope');
+      return { ok: true, projectTitle: 'Northwind Home Services' };
+    });
+    vi.mocked(startSourceSyncing).mockImplementation(async () => {
+      order.push('sync');
+      return 'started';
+    });
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'web', configJson: { baseUrl: 'https://northwind-home.example' }, projectId: 7 }) });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(setConnectionScope).toHaveBeenCalledWith('org_1', 17, 7);
+    expect(order).toEqual(['scope', 'sync']);
+  });
+
+  it('refuses a project id that is not a project here, and saves nothing', async () => {
+    vi.mocked(isProject).mockResolvedValue(false);
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'web', configJson: { baseUrl: 'https://northwind-home.example' }, projectId: 99 }) });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    expect(addSource).not.toHaveBeenCalled();
   });
 });

@@ -1,11 +1,14 @@
 /**
  * `/rpc/sources` — list + create source connectors.
  *
- *   GET  → { sources, connectors }
+ *   GET  → { sources, connectors, projects }
  *           - `sources`: this org's configured rows, each with its latest sync run
+ *             and its scope (`projectId`, `projectTitle`; null is the whole workspace)
+ *           - `projects`: the workspace's Projects, for the scope picker
  *           - `connectors`: built-in picker tiles (web, drive, ...)
- *   POST → create a new source row from { kind, slug?, configJson, startSyncing? }
- *           (admins only); it starts syncing unless `startSyncing` is false.
+ *   POST → create a new source row from { kind, slug?, configJson, startSyncing?, projectId? }
+ *           (admins only); it starts syncing unless `startSyncing` is false, and
+ *           belongs to `projectId`'s Project when one is named.
  *
  * The Sources page reads `GET` to populate the table; the
  * Add-Source dialog posts here.
@@ -16,7 +19,9 @@ import { grantSummaryForSource } from '@/libs/connect/summary';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listConnectors } from '@/libs/sources/registry';
 import { keptSignInStatuses } from '@/services/browser/keptSignIn';
+import { isProject, setConnectionScope } from '@/services/connect/connectionScope';
 import { startSourceSyncing } from '@/services/connect/newSourceSync';
+import { listDataRooms } from '@/services/DataRoomService';
 import { credentialStatusForOrg } from '@/services/SourceCredentialService';
 import { addSource, chunkCountsForOrg, documentCountsForOrg, latestSyncStateForOrg, listSources } from '@/services/SourceSyncService';
 
@@ -31,6 +36,10 @@ export async function GET() {
   const chunkCounts = await chunkCountsForOrg(orgId);
   const syncState = await latestSyncStateForOrg(orgId);
   const signIns = await keptSignInStatuses(orgId);
+  // Every project a connection can belong to, for the scope picker, and the
+  // title of each connection's own (`connectionScope.ts`).
+  const projects = (await listDataRooms(orgId)).map(r => ({ id: r.id, title: r.title }));
+  const projectTitle = new Map(projects.map(p => [p.id, p.title]));
   const connectorBySlug = new Map(listConnectors().map(c => [c.slug, c]));
   // Decorate each source with its connector's auth requirement, whether a live
   // credential is stored, the object type it pulls, and how many documents it
@@ -82,6 +91,8 @@ export async function GET() {
       // A connector that keeps a sign-in (Squarespace): when it was saved, from
       // where, and whether a run found it expired. Never the cookies.
       signIn: signIns[s.id] ?? null,
+      // Whose it is: the whole workspace's (null), or one project's, by name.
+      projectTitle: s.projectId === null ? null : (projectTitle.get(s.projectId) ?? `Project #${s.projectId}`),
     };
   }));
   const connectors = listConnectors().map(c => ({
@@ -102,7 +113,7 @@ export async function GET() {
     // the page marks the ones a failed run named as missing.
     requiredScopes: c.requiredScopes ? [...c.requiredScopes] : null,
   }));
-  return Response.json({ sources: withStatus, connectors });
+  return Response.json({ sources: withStatus, connectors, projects });
 }
 
 export async function POST(req: Request) {
@@ -126,6 +137,8 @@ export async function POST(req: Request) {
      * of starting with no credential and being skipped.
      */
     startSyncing?: boolean;
+    /** The Project the connection belongs to; absent or null for the whole workspace. */
+    projectId?: number | null;
   };
   try {
     body = await req.json();
@@ -135,6 +148,10 @@ export async function POST(req: Request) {
   if (!body.kind || !body.configJson) {
     return Response.json({ error: 'Missing kind or configJson' }, { status: 400 });
   }
+  const projectId = typeof body.projectId === 'number' && Number.isInteger(body.projectId) && body.projectId > 0 ? body.projectId : null;
+  if (projectId !== null && !await isProject(orgId, projectId)) {
+    return Response.json({ error: `#${projectId} is not a project in this workspace.` }, { status: 400 });
+  }
   try {
     const created = await addSource({
       orgId,
@@ -142,6 +159,10 @@ export async function POST(req: Request) {
       slug: body.slug,
       configJson: body.configJson,
     });
+    // In its project before its first sync, so that sync is already the project's work.
+    if (projectId !== null) {
+      await setConnectionScope(orgId, created.id, projectId);
+    }
     if (body.startSyncing === false) {
       return Response.json({ source: created, firstSync: null });
     }

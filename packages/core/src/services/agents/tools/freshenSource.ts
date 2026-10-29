@@ -15,6 +15,7 @@ import { and, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { knowledgeSourceSchema } from '@/models/Schema';
+import { inScopeWhere, scopeOf } from '@/services/connect/connectionScope';
 
 export function freshenSourceTool(ctx: RuntimeContext) {
   return tool(
@@ -31,6 +32,8 @@ export function freshenSourceTool(ctx: RuntimeContext) {
         .from(knowledgeSourceSchema)
         .where(and(
           eq(knowledgeSourceSchema.orgId, ctx.orgId),
+          // The current work's connections only (`connectionScope.ts`).
+          inScopeWhere(scopeOf()),
           or(
             eq(knowledgeSourceSchema.slug, slug),
             sql`${knowledgeSourceSchema.configJson} ->> '_connector' = ${slug}`,

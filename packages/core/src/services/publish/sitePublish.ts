@@ -190,6 +190,12 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
   if (resolved.target.kind === 'wordpress') {
     return { ok: false, why: 'Publishing to WordPress is not built yet: this project\'s target is WordPress.' };
   }
+  // The target's connection must be one this project may use: the
+  // workspace's or this project's own, never another client's.
+  const outOfScope = await publishTargetScopeRefusal(orgId, project.id, resolved.target);
+  if (outOfScope) {
+    return { ok: false, why: outOfScope };
+  }
 
   const artifactId = input.artifactId ?? num(pageMeta.draftArtifactId);
   if (!artifactId) {
@@ -286,6 +292,32 @@ export function bylineOf(pageMeta: Meta, projectMeta: Meta): { name: string; slu
   return { name, slug: ownSlug ?? text(known?.slug) ?? slugify(name) };
 }
 
+/**
+ * Why a project's publish target cannot publish for it: the connection that
+ * serves the target — the GitHub connection listing its repository, the
+ * Squarespace connector for its site — belongs to another project
+ * (`services/connect/connectionScope.ts`). Null when the target's connection
+ * is the workspace's or this project's, and when there is none yet (saying
+ * how to connect one is the publish's own job).
+ * @param orgId - The workspace.
+ * @param projectId - The project the target is on.
+ * @param target - The target.
+ * @param target.kind - Its kind.
+ * @param target.config - Its config.
+ */
+export async function publishTargetScopeRefusal(orgId: string, projectId: number, target: { kind: string; config: Record<string, unknown> }): Promise<string | null> {
+  const scope = { projectId };
+  if (target.kind === 'github' && typeof target.config.repo === 'string') {
+    const { repoScopeRefusal } = await import('@/services/agents/tools/githubPullRead');
+    return repoScopeRefusal(orgId, target.config.repo, scope);
+  }
+  if (target.kind === 'squarespace' && typeof target.config.siteUrl === 'string') {
+    const { squarespaceConnectionFor, squarespaceOutOfScope } = await import('./squarespaceSignIn');
+    return await squarespaceConnectionFor(orgId, target.config.siteUrl, scope) ? null : squarespaceOutOfScope(orgId, target.config.siteUrl, scope);
+  }
+  return null;
+}
+
 /** No inline styles: the page takes the site's own. */
 const NO_STYLES = { h1: '', h2: '', h3: '', p: '', ul: '', ol: '', li: '', a: '', code: '', hr: '', table: '', th: '', td: '', blockquote: '' };
 
@@ -363,7 +395,16 @@ export async function markRunLive(orgId: string, runId: number | null | undefine
 }
 
 /** What the merge follower carries: the pull request a page went out in. */
-export type PullFollow = { orgId: string; repo: string; number: number; url: string; pageRecordId: number | null; actionRunId?: number | null };
+export type PullFollow = {
+  orgId: string;
+  repo: string;
+  number: number;
+  url: string;
+  pageRecordId: number | null;
+  actionRunId?: number | null;
+  /** The page's project: the follow job reads the pull request as that project's work (`libs/durable/jobs.ts`). */
+  projectId?: number | null;
+};
 
 /**
  * Start following a page's pull request until the client's team merges or closes it.
@@ -458,6 +499,12 @@ export function pageBranchOf(plan: Pick<PublishPlan, 'page'>): string {
  * @param plan - The plan; its target must be github.
  */
 export async function githubPreflight(orgId: string, plan: PublishPlan): Promise<{ file: { path: string; format: string; content: string }; branch: string; base: string; exists: boolean | null; why?: string }> {
+  // The project's work: its repository is read with a connection this project may use.
+  const { withWorkProject } = await import('@/services/connect/connectionScope');
+  return withWorkProject(plan.project.id, () => githubPreflightInScope(orgId, plan));
+}
+
+async function githubPreflightInScope(orgId: string, plan: PublishPlan): Promise<{ file: { path: string; format: string; content: string }; branch: string; base: string; exists: boolean | null; why?: string }> {
   if (plan.target.kind !== 'github') {
     throw new Error('not a GitHub target');
   }
@@ -489,6 +536,12 @@ export async function githubPreflight(orgId: string, plan: PublishPlan): Promise
  * @param by - Who approved it, for the description.
  */
 export async function publishToGithub(orgId: string, plan: PublishPlan, by: string | null) {
+  // The project's work: the pull request opens with a connection this project may use, or not at all.
+  const { withWorkProject } = await import('@/services/connect/connectionScope');
+  return withWorkProject(plan.project.id, () => publishToGithubInScope(orgId, plan, by));
+}
+
+async function publishToGithubInScope(orgId: string, plan: PublishPlan, by: string | null) {
   if (plan.target.kind !== 'github') {
     throw new Error('not a GitHub target');
   }
@@ -635,10 +688,13 @@ export async function squarespaceSlugCheck(plan: PublishPlan): Promise<string | 
 /**
  * The workspace's Squarespace editor login, from the vault, or null when none is stored.
  * @param orgId - The workspace.
+ * @param scope - The work's scope (`connectionScope.ts`); the current work's when omitted.
+ * @param scope.projectId - The project the publish is for.
  */
-export async function squarespaceLogin(orgId: string): Promise<{ email: string; password: string } | null> {
+export async function squarespaceLogin(orgId: string, scope?: { projectId: number | null }): Promise<{ email: string; password: string } | null> {
   const { getCredentialsForSource } = await import('@/services/SourceCredentialService');
-  const login = await getCredentialsForSource(orgId, 'squarespace').catch(() => undefined) as Record<string, unknown> | undefined;
+  // Another project's login is refused by the resolver, and reads as none here.
+  const login = await getCredentialsForSource(orgId, 'squarespace', scope).catch(() => undefined) as Record<string, unknown> | undefined;
   return typeof login?.email === 'string' && typeof login?.password === 'string' ? { email: login.email, password: login.password } : null;
 }
 
@@ -659,7 +715,7 @@ export async function startSquarespaceDraft(orgId: string, plan: PublishPlan, lo
   }
   const { draftRun, postUrlOf } = await import('./squarespaceTask');
   const { runSignInOf, squarespaceConnectionFor } = await import('./squarespaceSignIn');
-  const connection = await squarespaceConnectionFor(orgId, plan.target.config.siteUrl).catch(() => null);
+  const connection = await squarespaceConnectionFor(orgId, plan.target.config.siteUrl, { projectId: plan.project.id }).catch(() => null);
   const blogPath = plan.target.config.blogPath ?? '/blog';
   const post = {
     siteUrl: plan.target.config.siteUrl,
@@ -691,11 +747,14 @@ export type LivePost = { pageRecordId: number; siteUrl: string; blogPath: string
 export async function startSquarespaceLive(orgId: string, posts: LivePost[], owner: RunOwner): Promise<Array<{ pageRecordId: number; browserRunId: number; queued: boolean }>> {
   const { liveRun } = await import('./squarespaceTask');
   const { runSignInOf, squarespaceConnectionFor } = await import('./squarespaceSignIn');
-  const login = await squarespaceLogin(orgId);
+  const { projectOfRecord } = await import('@/services/connect/connectionScope');
   const started: Array<{ pageRecordId: number; browserRunId: number; queued: boolean }> = [];
   for (const p of posts) {
+    // Each post is its page's project's work: that project's sign-in and login, never another's.
+    const scope = { projectId: await projectOfRecord(orgId, p.pageRecordId).catch(() => null) };
+    const login = await squarespaceLogin(orgId, scope);
     // The same kept sign-in as the draft run: going live starts signed in too.
-    const connection = await squarespaceConnectionFor(orgId, p.siteUrl).catch(() => null);
+    const connection = await squarespaceConnectionFor(orgId, p.siteUrl, scope).catch(() => null);
     const spec = { ...liveRun(p, { kept: connection?.signIn.kept === true, login }), keptSignIn: runSignInOf(connection) };
     const { run, queued } = await startOrQueue(orgId, owner, spec, true);
     await follow({ orgId, phase: 'live', browserRunId: run.id, pageRecordId: p.pageRecordId, siteUrl: p.siteUrl, blogPath: p.blogPath, slug: p.slug, title: p.title, owner, actionRunId: p.actionRunId, signInSourceId: connection?.sourceId ?? null });

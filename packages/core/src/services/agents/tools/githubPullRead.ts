@@ -10,13 +10,13 @@
  * reviewing a description.
  *
  * Only a repository the workspace's enabled `github` source lists is read,
- * with that source's token — never the server's, never another org's.
+ * with that source's token — never the server's, never another org's, and
+ * never a connection another project holds (`connectionScope.ts`).
  */
 
-import { and, eq } from 'drizzle-orm';
-import { db } from '@/libs/DB';
+import type { ConnectionScope } from '@/services/connect/connectionScope';
 import { resolveGithubToken } from '@/libs/github/client';
-import { knowledgeSourceSchema } from '@/models/Schema';
+import { connectionsFor, connectionsWithheld, outOfScopeLine } from '@/services/connect/connectionScope';
 
 const PR_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/files|\.diff|\.patch)?\/?(?:[?#].*)?$/i;
 // Enough for a factory-sized change; a reviewer drowned in diff runs out of
@@ -48,48 +48,99 @@ export function isGithubSource(row: { slug?: string | null; config?: unknown }):
   return connector === 'github' || row.slug === 'github';
 }
 
-export async function tokenForRepo(orgId: string, fullName: string): Promise<string | null> {
-  const rows = (await db
-    .select({ slug: knowledgeSourceSchema.slug, config: knowledgeSourceSchema.configJson, apiTokenId: knowledgeSourceSchema.apiTokenId })
-    .from(knowledgeSourceSchema)
-    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.enabled, 'true')))).filter(isGithubSource);
+/**
+ * The GitHub connections this work may use that list a repository, in the
+ * resolver's order (`services/connect/connectionScope.ts`): the workspace's and
+ * the work's own project's, never another project's.
+ * @param orgId - The workspace.
+ * @param fullName - `owner/name`.
+ * @param scope - The work's scope; the current work's when omitted.
+ */
+async function githubConnectionsListing(orgId: string, fullName: string, scope?: Partial<ConnectionScope> | null) {
   const wanted = fullName.toLowerCase();
-  const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
-  for (const row of rows) {
-    const repos = Array.isArray((row.config as { repos?: unknown })?.repos) ? ((row.config as { repos: string[] }).repos) : [];
-    if (!repos.some(r => r.toLowerCase() === wanted)) {
-      continue;
-    }
-    const creds = await getCredentialsForConnector({ orgId, connectorSlug: 'github', apiTokenId: row.apiTokenId }).catch(() => undefined);
-    const token = (await resolveGithubToken(creds as Record<string, unknown> | undefined).catch(() => undefined)) ?? null;
-    if (token) {
-      return token;
-    }
-  }
-  return null;
+  const lists = (config: unknown) => (Array.isArray((config as { repos?: unknown } | null)?.repos) ? (config as { repos: unknown[] }).repos.map(String) : [])
+    .some(r => r.toLowerCase() === wanted);
+  const rows = (await connectionsFor(orgId, scope)).filter(r => isGithubSource({ slug: r.slug, config: r.configJson }) && lists(r.configJson));
+  return { rows };
 }
 
 /**
- * The settings of the workspace's `github` source that lists a repository —
- * its deploy branch and branch prefix — read from the same rows as its token.
- * Null when no enabled source lists it.
+ * Why no token serves a repository for this work when one exists: the GitHub
+ * connection that lists it belongs to another project. Null when none does —
+ * the repository is simply not connected.
  * @param orgId - The workspace.
  * @param fullName - `owner/name`.
+ * @param scope - The work's scope; the current work's when omitted.
  */
-export async function sourceConfigForRepo(orgId: string, fullName: string): Promise<{ deployBranch: string | null; branchPrefix: string | null } | null> {
-  const rows = (await db
-    .select({ slug: knowledgeSourceSchema.slug, config: knowledgeSourceSchema.configJson })
-    .from(knowledgeSourceSchema)
-    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.enabled, 'true')))).filter(isGithubSource);
+export async function repoOutOfScope(orgId: string, fullName: string, scope?: Partial<ConnectionScope> | null): Promise<string | null> {
   const wanted = fullName.toLowerCase();
+  const withheld = (await connectionsWithheld(orgId, scope)).find(r => isGithubSource({ slug: r.slug, config: r.configJson })
+    && Array.isArray((r.configJson as { repos?: unknown })?.repos)
+    && (r.configJson as { repos: unknown[] }).repos.some(x => String(x).toLowerCase() === wanted));
+  return withheld ? outOfScopeLine(`GitHub for ${fullName}`, withheld.projectTitle) : null;
+}
+
+/**
+ * Why a repository cannot be used for this work although it is connected: no
+ * GitHub connection in scope lists it, and one another project holds does.
+ * Null when one in scope lists it, and when none lists it at all.
+ * @param orgId - The workspace.
+ * @param fullName - `owner/name`.
+ * @param scope - The work's scope; the current work's when omitted.
+ */
+export async function repoScopeRefusal(orgId: string, fullName: string, scope?: Partial<ConnectionScope> | null): Promise<string | null> {
+  const { rows } = await githubConnectionsListing(orgId, fullName, scope);
+  return rows.length > 0 ? null : repoOutOfScope(orgId, fullName, scope);
+}
+
+/**
+ * The token for a repository, for THIS work: the first GitHub connection in
+ * scope that lists it and has a working credential, else null with the reason
+ * when the repository is connected for another project. Use this where the
+ * reason can reach a person; {@link tokenForRepo} where only the token matters.
+ * @param orgId - The workspace.
+ * @param fullName - `owner/name`.
+ * @param scope - The work's scope; the current work's when omitted.
+ */
+export async function repoAccess(orgId: string, fullName: string, scope?: Partial<ConnectionScope> | null): Promise<{ token: string; refusal: null } | { token: null; refusal: string | null }> {
+  const { rows } = await githubConnectionsListing(orgId, fullName, scope);
+  const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
   for (const row of rows) {
-    const config = (row.config ?? {}) as { repos?: unknown; deployBranch?: unknown; branchPrefix?: unknown };
-    const repos = Array.isArray(config.repos) ? config.repos.map(String) : [];
-    if (repos.some(r => r.toLowerCase() === wanted)) {
-      return { deployBranch: typeof config.deployBranch === 'string' && config.deployBranch.trim() ? config.deployBranch.trim() : null, branchPrefix: typeof config.branchPrefix === 'string' && config.branchPrefix.trim() ? config.branchPrefix.trim() : null };
+    const creds = await getCredentialsForConnector({ orgId, connectorSlug: 'github', apiTokenId: row.apiTokenId }).catch(() => undefined);
+    const token = (await resolveGithubToken(creds as Record<string, unknown> | undefined).catch(() => undefined)) ?? null;
+    if (token) {
+      return { token, refusal: null };
     }
   }
-  return null;
+  return { token: null, refusal: rows.length === 0 ? await repoOutOfScope(orgId, fullName, scope).catch(() => null) : null };
+}
+
+/**
+ * The workspace's token for a repository, for the current work (see
+ * {@link repoAccess}); null when no connection in scope lists it.
+ * @param orgId - The workspace.
+ * @param fullName - `owner/name`.
+ * @param scope - The work's scope; the current work's when omitted.
+ */
+export async function tokenForRepo(orgId: string, fullName: string, scope?: Partial<ConnectionScope> | null): Promise<string | null> {
+  return (await repoAccess(orgId, fullName, scope)).token;
+}
+
+/**
+ * The settings of the GitHub connection that lists a repository — its deploy
+ * branch and branch prefix — read from the same rows as its token, through the
+ * same resolver. Null when no connection in scope lists it.
+ * @param orgId - The workspace.
+ * @param fullName - `owner/name`.
+ * @param scope - The work's scope; the current work's when omitted.
+ */
+export async function sourceConfigForRepo(orgId: string, fullName: string, scope?: Partial<ConnectionScope> | null): Promise<{ deployBranch: string | null; branchPrefix: string | null } | null> {
+  const [row] = (await githubConnectionsListing(orgId, fullName, scope)).rows;
+  if (!row) {
+    return null;
+  }
+  const config = (row.configJson ?? {}) as { deployBranch?: unknown; branchPrefix?: unknown };
+  return { deployBranch: typeof config.deployBranch === 'string' && config.deployBranch.trim() ? config.deployBranch.trim() : null, branchPrefix: typeof config.branchPrefix === 'string' && config.branchPrefix.trim() ? config.branchPrefix.trim() : null };
 }
 
 /**
@@ -122,7 +173,8 @@ export async function readPullHead(orgId: string, url: string): Promise<{ sha: s
 /**
  * The pull request as text a reviewer reads: title, state, branches, body,
  * then the unified diff. Null when the URL is not a pull request on a
- * repository this workspace connected, so the caller falls back to the web.
+ * repository this workspace connected, so the caller falls back to the web;
+ * the refusal when the repository is connected for another project.
  * @param orgId - The workspace.
  * @param url - A github.com pull request URL.
  */
@@ -131,10 +183,12 @@ export async function readConnectedPull(orgId: string, url: string): Promise<str
   if (!pr) {
     return null;
   }
-  const token = await tokenForRepo(orgId, `${pr.owner}/${pr.repo}`);
-  if (!token) {
-    return null;
+  const access = await repoAccess(orgId, `${pr.owner}/${pr.repo}`);
+  if (!access.token) {
+    // Connected for another project: said, never a silent read of the public web.
+    return access.refusal;
   }
+  const token = access.token;
   const base = `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`;
   const headers = { 'authorization': `Bearer ${token}`, 'x-github-api-version': '2022-11-28', 'user-agent': 'vocion' };
   const [metaRes, diffRes] = await Promise.all([

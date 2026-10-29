@@ -37,6 +37,12 @@ export type CreateSourceInput = {
    * a pick lands on the source it fits.
    */
   createNew?: boolean;
+  /**
+   * The Project a NEW source is for (`connectionScope.ts`); absent or null for
+   * the whole workspace. With one, the pick always makes a new source: adding
+   * it to an existing source would hand it to that source's scope instead.
+   */
+  projectId?: number | null;
 };
 
 export type CreateSourceOutcome
@@ -368,9 +374,13 @@ export async function createSourceOnLogin(input: CreateSourceInput): Promise<Cre
   if (refusal) {
     return { ok: false, reason: refusal };
   }
+  const { isProject, setConnectionScope } = await import('@/services/connect/connectionScope');
+  if (input.projectId && !await isProject(input.orgId, input.projectId)) {
+    return { ok: false, reason: `#${input.projectId} is not a project in this workspace, so the connection was not added.` };
+  }
   const platform = platformForConnectorSlug(input.connector)!;
   const credential = (await newestLiveCredential(input.orgId, platform.id))!;
-  const target = await resolveTarget(input);
+  const target = await resolveTarget(input.projectId ? { ...input, createNew: true } : input);
   if (target.kind === 'refuse') {
     return { ok: false, reason: target.reason };
   }
@@ -386,6 +396,10 @@ export async function createSourceOnLogin(input: CreateSourceInput): Promise<Cre
   // would hold the source and the new full sync would be skipped.
   if (target.kind === 'merge') {
     await supersedeRunningSync(input.orgId, saved.sourceId, 'A new pick was added to this source');
+  }
+  // In its project before its first sync, so that sync is already the project's work.
+  if (input.projectId && target.kind !== 'merge') {
+    await setConnectionScope(input.orgId, saved.sourceId, input.projectId);
   }
   const firstSync = await startSourceSyncing({ orgId: input.orgId, sourceId: saved.sourceId, sourceSlug: saved.slug, connectorSlug: input.connector });
   return target.kind === 'merge'
@@ -463,15 +477,16 @@ export function loginMakesItsSource(connector: string): boolean {
  * @param input.userId - The admin who logged in.
  * @param input.connector - The connector the login is for.
  * @param input.linkedSourceIds - The sources the login linked.
+ * @param input.projectId - The Project the connect started for, when it did: the source is made for it.
  * @returns Whether a source was made, or `failed` with a plain reason when one
  * should have been and could not be (refused or thrown). The login stands.
  */
-export async function createSourceWhenNoConfigNeeded(input: { orgId: string; userId: string; connector: string; linkedSourceIds: readonly number[] }): Promise<{ created: boolean; failed?: string }> {
+export async function createSourceWhenNoConfigNeeded(input: { orgId: string; userId: string; connector: string; linkedSourceIds: readonly number[]; projectId?: number | null }): Promise<{ created: boolean; failed?: string }> {
   if (input.linkedSourceIds.length > 0 || !loginMakesItsSource(input.connector)) {
     return { created: false };
   }
   try {
-    const saved = await createSourceOnLogin({ orgId: input.orgId, actorUserId: input.userId, connector: input.connector, config: {} });
+    const saved = await createSourceOnLogin({ orgId: input.orgId, actorUserId: input.userId, connector: input.connector, config: {}, ...(input.projectId ? { projectId: input.projectId } : {}) });
     if (saved.ok) {
       return { created: saved.created };
     }

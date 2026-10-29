@@ -1,5 +1,5 @@
 /**
- * GET /api/connect/[provider]/start?connector=<slug>|source=<slug>[&access=<name>][&returnTo=/dashboard/...][&conversation=<id>&card=<id>]
+ * GET /api/connect/[provider]/start?connector=<slug>|source=<slug>[&access=<name>][&returnTo=/dashboard/...][&conversation=<id>&card=<id>][&project=<id>]
  *
  * Sends a workspace admin to the vendor to log in (#1080). It can start from a
  * connector alone: the login is stored first and sources are linked to it
@@ -94,6 +94,22 @@ function cardFromQuery(params: URLSearchParams): { conversationId?: number; card
 function accessFromQuery(params: URLSearchParams): { access?: string } {
   const access = params.get('access')?.trim() ?? '';
   return /^[a-z][\w-]{0,31}$/.test(access) ? { access } : {};
+}
+
+/**
+ * The Project the connect is for ("Connect for this project", `?project=<id>`),
+ * when the query names one of this workspace's. Anything else is dropped: the
+ * connection is then the whole workspace's.
+ * @param orgId - The workspace.
+ * @param params - The start route's query string.
+ */
+async function projectFromQuery(orgId: string, params: URLSearchParams): Promise<number | null> {
+  const raw = params.get('project') ?? '';
+  if (!/^[1-9]\d{0,9}$/.test(raw)) {
+    return null;
+  }
+  const { isProject } = await import('@/services/connect/connectionScope');
+  return await isProject(orgId, Number(raw)) ? Number(raw) : null;
 }
 
 /**
@@ -201,6 +217,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   const { origin } = where;
   const returnTo = safeReturnPath(req.nextUrl.searchParams.get('returnTo'));
   const card = cardFromQuery(req.nextUrl.searchParams);
+  const projectId = await projectFromQuery(orgId, req.nextUrl.searchParams);
   const state = signState({
     provider: provider.id,
     orgId,
@@ -210,6 +227,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     ...(returnTo ? { returnTo } : {}),
     ...card,
     ...(client ? { loginClientId: client.clientId } : {}),
+    ...(projectId ? { projectId } : {}),
   });
   const codeChallenge = provider.pkce ? pkceChallengeFor(pkceVerifierFor(state)) : undefined;
   return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(origin, provider.id), connector: target.connectorSlug, ...accessFromQuery(req.nextUrl.searchParams), ...(codeChallenge ? { codeChallenge } : {}), ...(client ? { client } : {}) }), 302);

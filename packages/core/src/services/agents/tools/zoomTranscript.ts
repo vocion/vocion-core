@@ -27,6 +27,7 @@ import {
   knowledgeDocumentSchema,
   knowledgeSourceSchema,
 } from '@/models/Schema';
+import { inScopeWhere, scopeOf } from '@/services/connect/connectionScope';
 import { ensureSource, ingestDocument } from '@/services/IngestionService';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 
@@ -50,6 +51,8 @@ export async function sourcesForConnector(orgId: string, connector: string): Pro
     .from(knowledgeSourceSchema)
     .where(and(
       eq(knowledgeSourceSchema.orgId, orgId),
+      // The current work's connections only (`connectionScope.ts`).
+      inScopeWhere(scopeOf()),
       or(
         eq(knowledgeSourceSchema.slug, connector),
         sql`${knowledgeSourceSchema.configJson} ->> '_connector' = ${connector}`,

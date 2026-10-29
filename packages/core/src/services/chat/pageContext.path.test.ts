@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readPageContext, recordFromPath } from './pageContext';
+import { readPageContext, recordFromPath, scopeRefToRecord } from './pageContext';
 
 describe('the page always names its record', () => {
   it('reads the record from the path when the page did not register one (Chris, 2026-09-28: feature #40)', () => {
@@ -17,5 +17,17 @@ describe('the page always names its record', () => {
 
   it('never overrides a record the page registered itself', () => {
     expect(readPageContext({ path: '/dashboard/p/feature/40', title: 't', record: { type: 'deal', id: '9' } })?.record).toMatchObject({ type: 'deal', id: '9' });
+  });
+});
+
+describe('a project page and a conversation scoped to a project name the project', () => {
+  it('reads /dashboard/projects/<id> as that Project, so a conversation started there is scoped to it', () => {
+    expect(recordFromPath('/w/agency/dashboard/projects/12', 'Northwind Home Services')).toEqual({ type: 'object', id: '12', label: 'Northwind Home Services', href: '/dashboard/projects/12', objectType: 'data_room' });
+    expect(recordFromPath('/dashboard/projects')).toBeNull();
+  });
+
+  it('reads a project:<id> scope as that Project\'s record, never as an object named "project:12"', () => {
+    expect(scopeRefToRecord('project:12')).toEqual({ type: 'object', id: '12', objectType: 'data_room', href: '/dashboard/projects/12' });
+    expect(scopeRefToRecord('contacts:9412')).toEqual({ type: 'object', id: 'contacts:9412' });
   });
 });

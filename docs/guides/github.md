@@ -253,6 +253,20 @@ that the app was not granted is named as such; so is one the app was granted
 that the source does not list. The same tool describes a `jira` or `slack`
 source from its config and grant. Nothing secret is read into the answer.
 
+## A GitHub connection for one project
+
+An agency's GitHub connection for one client belongs to that client's
+Project (Connectors → Manage → **Scope**, or **Connect for this project** on
+the project's page). Its token then serves only that project's work: a chat
+scoped to the project, an SEO page or batch of it, a mission run started for
+it. Every other piece of work that reaches for one of its repositories — a
+pull request read, a repository page, the factory's `ghFor`, a publish — is
+refused with the project named: "GitHub for example-org/northwind-site is
+connected for project Northwind Home Services, not for this work." A
+whole-workspace connection keeps serving every piece of work. The resolver is
+`services/connect/connectionScope.ts`; `repoAccess` returns the token or the
+refusal, and `tokenForRepo` / `sourceConfigForRepo` read through it.
+
 ## The repo family: what an agent reads and writes
 
 GitHub is the first provider of the **repo family** — the code host, named for
@@ -375,6 +389,10 @@ artifactId, slug, title, metaDescription }`. Fields given explicitly win over
 the record's. The repository must be listed by the workspace's github source,
 whose token (or the GitHub App installation) needs Contents: write and Pull
 requests: write. Squarespace sites are covered in [Squarespace](./squarespace.md).
+
+A GitHub publish target is the project's work: the pull request opens with a
+connection the project may use, and saving a target whose repository only
+another project's connection lists is refused, naming that project.
 
 ## The webhook — the same events, sooner
 

@@ -46,6 +46,8 @@ export const start = os
     missionSlug: z.string().optional(),
     team: TeamInput.optional(),
     autonomyLevel: z.number().int().min(1).max(5).optional(),
+    /** The Project the run works for: it uses that project's connections. */
+    projectId: z.number().int().positive().optional(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();

@@ -280,7 +280,9 @@
     "ask_team": "Ask the team…",
     "ask_agent": "Ask {name}…",
     "named_lead_and_team_on_it": "{name} and the team are on it.",
-    "ask_assistant": "Ask your assistant…"
+    "ask_assistant": "Ask your assistant…",
+    "project_chip": "{name}",
+    "project_chip_hint": "This conversation works for {name}: it uses that project's connections and the workspace's, never another project's."
   },
   "Onboarding": {
     "starter_setup_prompt": "Set up this workspace with me.",
@@ -804,7 +806,15 @@
     "members_own_title": "Members' own connections",
     "members_own_on": "On. A server the Org declares elsewhere that answers each person as themselves joins a member's own turns here, read with their own sign-in. Write tools never come with it.",
     "members_own_off": "Off. Members' turns here use only the sources this workspace declares.",
-    "members_own_failed": "The setting could not be saved. Try again."
+    "members_own_failed": "The setting could not be saved. Try again.",
+    "scope_label": "Scope",
+    "scope_workspace": "Whole workspace",
+    "scope_project": "{name}",
+    "scope_only_project": "Only work and chats for {name} use this connection.",
+    "scoped_toast": "{name} now belongs to {project}. Only its work uses it.",
+    "scoped_workspace_toast": "{name} now serves the whole workspace.",
+    "connecting_for": "New connections here belong to {name}: only its work and chats use them.",
+    "connecting_for_workspace_instead": "Whole workspace instead"
   },
   "WorkspacesPage": {
     "title": "All workspaces",

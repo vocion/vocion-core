@@ -12,9 +12,11 @@ import { UnfileSource } from '@/features/dashboard/rooms/UnfileSource';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { deckVerificationChip } from '@/libs/decks/audit';
 import { redTeamChip, verificationChip } from '@/libs/documents/audit';
+import { listConnectors } from '@/libs/sources/registry';
 import { artifactHref } from '@/libs/tools/artifacts/url';
 import { cleanFontRoles } from '@/libs/tools/brand/fontNames';
 import { groupRecordsByType } from '@/services/BusinessObjectService';
+import { connectionsFor } from '@/services/connect/connectionScope';
 import { getDataRoomDetail, projectHref, publishTargetLine, roomAnchor, roomDeliverables } from '@/services/DataRoomService';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
 import { enabledPluginsForOrg } from '@/services/PluginService';
@@ -59,7 +61,13 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
   }
   const m = room.meta;
   const anchor = roomAnchor(m);
-  const record = { type: 'object' as const, id: String(room.id), label: room.title, href: projectHref(room.id) };
+  const record = { type: 'object' as const, id: String(room.id), label: room.title, href: projectHref(room.id), objectType: 'data_room' };
+  // Its own connections — only this project's work and chats use them — and
+  // how many the whole workspace lends it (`services/connect/connectionScope.ts`).
+  const reachable = await connectionsFor(orgId, { projectId: room.id }, { includeDisabled: true });
+  const ownConnections = reachable.filter(c => c.dataRoomId === room.id);
+  const workspaceConnections = reachable.length - ownConnections.length;
+  const connectorName = new Map(listConnectors().map(c => [c.slug, c.name]));
   const allSources = [...(m.sources ?? [])].sort((a, b) => b.rating - a.rating || (b.date ?? '').localeCompare(a.date ?? ''));
   // Brand & guidelines: the documents a writer must follow, filed at ⭐⭐⭐ —
   // an attachment or a note, never a call or a thread (those are Sources,
@@ -143,6 +151,8 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
               <Download className="size-3.5" aria-hidden />
               Download context
             </a>
+            {/* A conversation scoped to the project: it uses this project's connections and names it in its header. */}
+            <AskAboutThis record={record} label="Ask about this project" />
             <AskAboutThis record={record} label="Draft a document" prompt="Draft the proposal for this engagement from its project." agentSlug="proposal-writer" />
           </div>
         )}
@@ -157,6 +167,33 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
               showGate={seoOn}
               suggestion={m.publishTargetSuggestion ? { target: m.publishTargetSuggestion.target, replaces: m.publishTargetSuggestion.replaces, repo: m.publishTargetSuggestion.repo, read: m.publishTargetSuggestion.read, notes: m.publishTargetSuggestion.notes } : null}
             />
+            <Section
+              eyebrow="Connections"
+              tone="quiet"
+              action={<a href={`/dashboard/connectors?project=${room.id}`} className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" data-testid="connect-for-project">Connect for this project</a>}
+              data-testid="project-connections"
+            >
+              {ownConnections.length > 0 && (
+                <ListRows>
+                  {ownConnections.map((c) => {
+                    const connector = String((c.configJson as { _connector?: unknown })._connector ?? c.kind);
+                    return (
+                      <ListRow
+                        key={c.id}
+                        href="/dashboard/connectors"
+                        title={connectorName.get(connector) ?? connector}
+                        subline={<Subline segments={[c.slug, c.enabled === 'true' ? null : 'paused']} />}
+                      />
+                    );
+                  })}
+                </ListRows>
+              )}
+              <p className="mt-1 text-sm text-muted-foreground">
+                {ownConnections.length === 0
+                  ? `None of its own. Its work uses the workspace's ${workspaceConnections} ${workspaceConnections === 1 ? 'connection' : 'connections'}; one connected here is used only for this project.`
+                  : `Only this project's work and chats use ${ownConnections.length === 1 ? 'it' : 'these'}, beside the workspace's ${workspaceConnections}.`}
+              </p>
+            </Section>
             <Section eyebrow="Entity" tone="quiet">
               {anchor
                 ? (

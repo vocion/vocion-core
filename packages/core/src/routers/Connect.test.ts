@@ -100,7 +100,14 @@ describe('connect.addConnector', () => {
     const result = await call(pasted, addConnectorRoute);
 
     expect(result).toEqual({ ok: true, sourceId: 8, firstSync: 'failed' });
-    expect(createSourceWithCredential).toHaveBeenCalledWith({ orgId: ORG, actorUserId: 'usr-9', ...pasted });
+    expect(createSourceWithCredential).toHaveBeenCalledWith({ orgId: ORG, actorUserId: 'usr-9', ...pasted, projectId: null });
+  });
+
+  it('carries the Project a connection is for, so it is born in that project', async () => {
+    vi.mocked(createSourceWithCredential).mockResolvedValue({ ok: true, sourceId: 9, slug: 'hubspot-2', firstSync: 'started' });
+    await call({ ...pasted, projectId: 7 }, addConnectorRoute);
+
+    expect(createSourceWithCredential).toHaveBeenCalledWith(expect.objectContaining({ projectId: 7 }));
   });
 
   it('shows the refusal sentence inline for a member, or for a credential write that failed', async () => {

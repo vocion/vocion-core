@@ -50,6 +50,13 @@ export type TenantClaim = {
    * so the container can carry it but never set it.
    */
   personTurn?: boolean;
+  /**
+   * The Project this invocation works for (`services/connect/connectionScope.ts`):
+   * the endpoint runs each tool as that project's work, so it reaches that
+   * project's connections and no other's. Signed, so the container can carry
+   * it but never widen it. Absent: work for no project.
+   */
+  workProjectId?: number;
   /** Unix ms expiry. Claims are per-invocation and short-lived. */
   exp: number;
 };

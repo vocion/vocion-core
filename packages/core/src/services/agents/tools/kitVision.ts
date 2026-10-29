@@ -38,6 +38,7 @@ import { metadataFromKey, parseS3Config } from '@/libs/sources/s3';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { chargeAnthropicCall } from '@/services/budget/chargeModelCall';
 import { createBusinessObject, updateBusinessObject } from '@/services/BusinessObjectService';
+import { inScopeWhere, scopeOf } from '@/services/connect/connectionScope';
 import { getNamespace, listNamespaces } from '@/services/MemoryService';
 import { recordHref } from '@/services/objects/recordHref';
 
@@ -54,7 +55,8 @@ type S3Source = { bucket: string; region?: string; prefix: string; cfg: ReturnTy
  */
 export async function orgS3Source(orgId: string): Promise<S3Source | null> {
   const src = await db.query.knowledgeSourceSchema.findFirst({
-    where: and(eq(knowledgeSourceSchema.orgId, orgId), sql`${knowledgeSourceSchema.configJson} ->> '_connector' = 's3'`),
+    // The current work's connections only (`connectionScope.ts`).
+    where: and(eq(knowledgeSourceSchema.orgId, orgId), inScopeWhere(scopeOf()), sql`${knowledgeSourceSchema.configJson} ->> '_connector' = 's3'`),
   });
   if (!src) {
     return null;

@@ -1,7 +1,7 @@
 'use client';
 
 import type { FailedAttempt } from '../LastAttemptLine';
-import type { CatalogEntry, ConnectionProblem, ConnectionRow, Source } from './connectorRows';
+import type { CatalogEntry, ConnectionProblem, ConnectionRow, ScopeProject, Source } from './connectorRows';
 import type { RowMenuItem } from '@/components/patterns';
 import type { GrantSummary } from '@/libs/connect/provider';
 import type { ConnectorCategory } from '@/libs/sources/types';
@@ -32,6 +32,7 @@ import { cn } from '@/utils/Helpers';
 import { LastAttemptLine } from '../LastAttemptLine';
 import { connectorIcon } from './connectorIcon';
 import { categoriesIn, describeSourceConfig, filterCatalog, instanceLabel, relativeTime } from './connectorRows';
+import { ScopeSelect, scopeWords } from './connectScope';
 
 /**
  * The Connectors page (founder, 2026-10-09: "clear, concise, simple, easy to
@@ -81,6 +82,10 @@ export type ConnectorListProps = {
   onSignIn?: (source: Source) => void;
   onPause: (source: Source, paused: boolean) => void;
   onDisconnect: (source: Source) => void;
+  /** The workspace's Projects, for a connection's scope; none, and scope is not offered. */
+  projects?: ScopeProject[];
+  /** Move a connection to a Project, or to the whole workspace with null. */
+  onScope?: (source: Source, projectId: number | null) => void;
 };
 
 export function ConnectorList(props: ConnectorListProps) {
@@ -163,6 +168,8 @@ function ConnectionItem(props: ConnectorListProps & { row: ConnectionRow; rows: 
   const busy = row.syncing || props.syncingId === source.id;
 
   const meta = [
+    // Whose it is, said on every row once the workspace has projects: only that project's work uses it.
+    (props.projects?.length ?? 0) > 0 || source.projectTitle ? scopeWords(source.projectTitle, t('scope_workspace')) : null,
     usedBy.length > 0 ? t('used_by', { names: usedBy.join(', ') }) : null,
     // A sync time only where it says something: when there is one, or on a
     // working connection that has not run yet.
@@ -278,6 +285,9 @@ function ManagePanel(props: ConnectorListProps & { row: ConnectionRow; id: strin
   return (
     <div id={props.id} className="mb-3 ml-11 flex flex-col gap-3 text-sm" data-testid="manage-panel">
       {source.grant?.account && <p className="text-[13px] text-muted-foreground">{t('connected_as', { account: source.grant.account })}</p>}
+      {props.isAdmin && props.onScope && (props.projects?.length ?? 0) > 0
+        ? <ScopeSelect id={`scope-${source.id}`} projects={props.projects!} value={source.projectId ?? null} onChange={projectId => props.onScope!(source, projectId)} />
+        : source.projectTitle ? <p className="text-[13px] text-muted-foreground">{t('scope_only_project', { name: source.projectTitle })}</p> : null}
       {props.isAdmin && (
         <div className="flex flex-wrap gap-2">
           {source.syncless

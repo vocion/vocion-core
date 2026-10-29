@@ -56,8 +56,13 @@ export const get = os
     // A Done line says what its run is now: one undone since reads Undone.
     const { withLiveReceipts } = await import('@/services/decisions/liveReceipts');
     const live = await withLiveReceipts(orgId, messages);
+    // The Project the conversation is scoped to, by name, for its header chip (`connectionScope.ts`).
+    const { projectOfScopeRef, projectTitles } = await import('@/services/connect/connectionScope');
+    const scopedTo = projectOfScopeRef(conv.scopeRef);
+    const projectTitle = scopedTo === null ? undefined : (await projectTitles(orgId, [scopedTo])).get(scopedTo);
     return {
       ...conv,
+      project: scopedTo !== null && projectTitle ? { id: scopedTo, title: projectTitle } : null,
       // Whether a turn is running for it now: a client waits for a reply only then.
       answering: answeringIn(orgId, input.id),
       messages: live.map(m => ({

@@ -7,19 +7,12 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/libs/DB', () => ({
-  db: {
-    select: () => ({
-      from: () => ({
-        where: async () => [{ slug: 'github-api-github-com', apiTokenId: null, config: { _connector: 'github', repos: ['northwind/orders-api'] } }],
-      }),
-    }),
-  },
+// The connections this work may use (`connectionScope.ts`): one GitHub connection for the workspace.
+vi.mock('@/services/connect/connectionScope', () => ({
+  connectionsFor: vi.fn(async () => [{ slug: 'github-api-github-com', apiTokenId: null, configJson: { _connector: 'github', repos: ['northwind/orders-api'] }, dataRoomId: null }]),
+  connectionsWithheld: vi.fn(async () => []),
+  outOfScopeLine: vi.fn(),
 }));
-vi.mock('@/models/Schema', () => ({
-  knowledgeSourceSchema: { configJson: 'config_json', apiTokenId: 'api_token_id', orgId: 'org_id', slug: 'slug', enabled: 'enabled' },
-}));
-vi.mock('drizzle-orm', () => ({ and: () => undefined, eq: () => undefined }));
 vi.mock('@/services/SourceCredentialService', () => ({
   getCredentialsForConnector: vi.fn(async () => ({ installationId: '777' })),
 }));

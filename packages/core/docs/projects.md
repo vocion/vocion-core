@@ -77,6 +77,57 @@ the other **Sources** by weight; **Work**; **Open items**; then what is only
 promised, the timeline, the highlights and the decision logs. **Publishes to**
 sits in the right column, read-only, when `publishTargets` holds any.
 
+## Connections that belong to a project
+
+An agency runs many clients in one workspace, and client A's GitHub or
+Squarespace must never be usable for client B's work. So a connection (a
+`knowledge_source` row) can belong to one project: `data_room_id`, the
+project's record id. Null is the whole workspace, which is every connection
+made before this (migration `0231_connection_project.sql`). It is named after
+the internal type because `knowledge_source.project_id` is the workspace.
+
+**The rule, in one place** (`services/connect/connectionScope.ts`): work for
+project P may use the workspace's connections and P's, never another
+project's; work for no project uses the workspace's only.
+`connectionsFor(orgId, { projectId })` is the resolver, and every credential
+lookup that serves work reads through it:
+
+| What | Where |
+|---|---|
+| A GitHub token for a repository, and its deploy branch | `repoAccess` / `tokenForRepo` / `sourceConfigForRepo` (`githubPullRead.ts`), so `ghFor`, the factory, the runners and repo reads |
+| A credential named by slug (the direct tools, the action runner) | `resolveApiTokenIdForSource` |
+| The connector families (tracker, finance, ads, analytics, warehouse, chat, people, repo) | `familySourcesForOrg` |
+| Publishing: the GitHub pull request, the Squarespace sign-in and login | `publishTargetScopeRefusal`, `squarespaceConnectionFor`, `squarespaceLogin` |
+| An agent turn's sources and its retrieval | `runtimeContextFromScope` drops withheld slugs; `search_knowledge` excludes them |
+| A sync, and what the collector files after it | a project's connection syncs as that project's work and files only into it |
+
+**The work's project** is decided where work starts and rides the call
+context (`workProjectId`) to every lookup below it, and the agent's
+`RuntimeContext` (`workProjectId`, `withheldSourceSlugs`); across the
+AgentCore container it is signed into the tool claim. In order:
+
+1. a project named outright: an SEO page's or batch's `projectId`, a job's
+   input (`libs/durable/jobs.ts`), a mission run started for one
+   (`mission_run.data_room_id`, `startMission({ projectId })`);
+2. the conversation's scope: `scope_ref` `project:<id>`, set when a
+   conversation is started on a project's page or a record of one;
+3. the record the conversation was opened about, then the record the page
+   shows — a project, or a record whose `metadata.projectId` names one.
+
+Nothing named means the workspace's connections only.
+
+**Refusals say so**, naming the project (principle 10): "GitHub for
+example-org/northwind-site is connected for project Northwind Home Services,
+not for this work." A tool returns it, a publish stops on it, and a project's
+publish target is refused when it is saved.
+
+**On the page.** The project's **Connections** section lists its own
+connections; **Connect for this project** opens Connectors with the project
+chosen (`?project=<id>`), through a vendor's login too. **Ask about this
+project** opens a conversation scoped to it, and the conversation's header
+shows the project chip. On Connectors every row says "Whole workspace" or the
+project's name, and Manage moves it (`Scope: Whole workspace / Project ▾`).
+
 ## Records belong to a project
 
 Any `business_object` belongs to a project by carrying the project's id in

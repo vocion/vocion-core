@@ -33,6 +33,7 @@ import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
 import { ConversationObjective } from './objectives/ObjectiveStrip';
 import { OpeningHints } from './OpeningHints';
+import { ProjectChip } from './ProjectChip';
 import { QuotedPassage } from './QuotedPassage';
 import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { useComposerTags } from './tagSearch';
@@ -428,6 +429,8 @@ function ChatShellInner({
             className="max-w-[min(28rem,50vw)] text-[13px] font-medium"
             testId="chat-title"
           />
+          {/* The Project the thread works for: its turns use that project's connections. */}
+          <ProjectChip project={session.conversationProject} />
         </ShellBarTitlePortal>
       )}
       {/* The single small chat menu — portaled into the shell top bar beside

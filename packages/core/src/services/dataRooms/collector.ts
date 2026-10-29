@@ -225,7 +225,12 @@ export type CollectReport = { filed: number; asked: number; roomsOpened: number;
  */
 export async function collectAfterSync(orgId: string, payload: SourceSyncCompletedPayload): Promise<CollectReport> {
   const report: CollectReport = { filed: 0, asked: 0, roomsOpened: 0, scanned: 0 };
-  const rooms = await listDataRooms(orgId);
+  // A connection that belongs to a project files only into that project
+  // (`connectionScope.ts`): client A's mail never lands in client B's project,
+  // and it opens no new projects of its own.
+  const { connectionProject } = await import('@/services/connect/connectionScope');
+  const ownProject = await connectionProject(orgId, payload.sourceId);
+  const rooms = (await listDataRooms(orgId)).filter(r => !ownProject || r.id === ownProject.id);
   const since = new Date(Date.now() - COLLECT_WINDOW_DAYS * 86_400_000);
   const cutoff = new Date(payload.completedAt);
   // Everything this run touched, OR everything else in the window that is
@@ -258,6 +263,9 @@ export async function collectAfterSync(orgId: string, payload: SourceSyncComplet
   report.scanned = touched.length;
 
   if (payload.connector === 'hubspot') {
+    if (ownProject) {
+      return report;
+    }
     const deals = touched.filter(d => str(d.metadata?.objectType) === 'deals').map(d => ({ ...d, metadata: d.metadata ?? {} }));
     for (const plan of planDealRooms(deals, rooms)) {
       const room = await createDataRoom(orgId, 'collector', {

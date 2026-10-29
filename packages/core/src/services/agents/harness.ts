@@ -66,7 +66,7 @@ import { FINISH_THE_READ } from './finishTheRead';
 import { createHandOffMiddleware } from './handOff';
 import { createMemoryDigestMiddleware } from './memoryDigest';
 import { PROGRESS_WORDS } from './progressWords';
-import { agentScope, createEvidenceHandoffMiddleware, createLookupMemoMiddleware, runtimeContextFromScope } from './runtimeContext';
+import { agentScope, createEvidenceHandoffMiddleware, createLookupMemoMiddleware, runtimeContextFromScope, workScopeFor } from './runtimeContext';
 import { NO_SCREEN_CLAIMS } from './screenClaims';
 import { createSeenImagesMiddleware, takesToolResultImages } from './toolResultImages';
 import { buildDomainTools } from './tools/registry';
@@ -337,6 +337,8 @@ export type AgentRequest = {
   personTurn?: boolean;
   /** Only these domain tools, by name, this turn (a workflow's `agent` step). Absent: the agent's own. */
   toolAllowlist?: string[];
+  /** The Project this work is for, or null for none; the call context's when omitted (`connectionScope.ts`). */
+  workProjectId?: number | null;
 };
 
 /**
@@ -701,11 +703,15 @@ async function getBlueprint(orgId: string, agentSlug: string): Promise<AgentBlue
  * @param blueprint - The agent's cached, request-independent parts.
  * @param request - What this one request brings.
  * @param followingMcp
+ * @param work - The work's project and the connections it may not use (`workScopeFor`).
+ * @param work.workProjectId
+ * @param work.withheldSourceSlugs
  */
-function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: AgentRequest, followingMcp?: RuntimeContext['followingMcp']): RuntimeContext {
+function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: AgentRequest, followingMcp?: RuntimeContext['followingMcp'], work?: { workProjectId: number | null; withheldSourceSlugs: string[] }): RuntimeContext {
   const { personTurn: _personTurn, ...rest } = request;
   return runtimeContextFromScope(orgId, blueprint.agentRow, blueprint, {
     ...rest,
+    ...work,
     ...(followingMcp && followingMcp.length > 0 ? { followingMcp } : {}),
     provider: 'local',
     // Delegation attribution for this turn only: the tool-call record reads
@@ -771,7 +777,10 @@ export async function compileAgentForRequest(
           return [];
         })
     : undefined;
-  const ctx = buildRequestContext(orgId, blueprint, request, followingMcp);
+  // Which connections this turn's work may use, read per request: the blueprint
+  // is cached, and a connection moved into a project must leave the next turn.
+  const work = await workScopeFor(orgId, request.workProjectId);
+  const ctx = buildRequestContext(orgId, blueprint, request, followingMcp, work);
   // A tool may show this turn's model a picture (a chart's review) only where
   // the model's API takes an image in a tool result (`toolResultImages.ts`).
   ctx.toolResultImages = takesToolResultImages(blueprint.model);

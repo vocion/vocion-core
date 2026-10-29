@@ -46,7 +46,7 @@ import { TurnBudgetGuard } from '../budgetStop';
 import { signClaim } from '../claims';
 import { buildAgentDefinition, buildInitialFiles } from '../harness';
 import { memoryMountPaths } from '../memoryDigest';
-import { runtimeContextFromScope } from '../runtimeContext';
+import { runtimeContextFromScope, workScopeFor } from '../runtimeContext';
 import { buildToolCatalog } from '../tools/registry';
 
 /**
@@ -138,7 +138,12 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   const followingMcp = opts.personTurn && !opts.missionRunId
     ? await followingMcpSources({ userId: opts.userId, orgId: opts.orgId, personTurn: true }).catch(() => [])
     : [];
+  // The work's project (set where the turn started, `runAgentDeep`) and the
+  // connections it may not use, so the catalog offers no tool for another
+  // project's connection; the claim carries the project to the endpoint.
+  const work = await workScopeFor(opts.orgId);
   const catalog = buildToolCatalog(runtimeContextFromScope(opts.orgId, row, definition, {
+    ...work,
     userId: opts.userId,
     allowedSourceSlugs: opts.allowedSourceSlugs,
     missionSlug: opts.missionSlug,
@@ -160,6 +165,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     timeZone,
     pageContext: opts.pageContext,
     ...(opts.personTurn && !opts.missionRunId ? { personTurn: true } : {}),
+    ...(work.workProjectId !== null ? { workProjectId: work.workProjectId } : {}),
   });
 
   const files = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
