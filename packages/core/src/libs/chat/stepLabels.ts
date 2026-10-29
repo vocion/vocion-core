@@ -242,6 +242,11 @@ export function personFacingStepLabels(tool: string, args: Record<string, unknow
       const n = typeof args?.top === 'number' ? args.top : 10;
       return { running: `Reading the top ${n} pages${q ? ` for ${q}` : ''}…`, done: `Read the top ${n} pages${q ? ` for ${q}` : ''}` };
     }
+    case 'keyword_cluster': {
+      const count = Array.isArray(args?.keywords) ? args.keywords.length : 0;
+      const what = count > 0 ? `${count} keyword${count === 1 ? '' : 's'}` : 'the keywords';
+      return { running: `Reading Google's results for ${what}…`, done: `Read Google's results for ${what}` };
+    }
     case 'keyword_metrics': {
       const count = Array.isArray(args?.keywords) ? args.keywords.length : 0;
       const what = count === 1 && typeof (args!.keywords as unknown[])[0] === 'string' ? quoted((args!.keywords as string[])[0]) : `${count || 'the'} keywords`;
@@ -411,7 +416,15 @@ export function stepLabelFor(labels: StepLabels, status: 'start' | 'progress' | 
  */
 export function stepProgressLabel(label: string, progress?: string | null): string {
   const note = progress?.trim();
-  return note ? `${label} ${note}` : label;
+  if (!note) {
+    return label;
+  }
+  // A bare count from a loop (`libs/chat/stepProgress.ts`) reads as where the
+  // step has got to: `Reading Google's results for 12 keywords (4 of 12)`.
+  if (/^\d+ of \d+$/.test(note)) {
+    return `${label.replace(/(?:…|\.\.\.)\s*$/, '')} (${note})`;
+  }
+  return `${label} ${note}`;
 }
 
 /** Words a label may not use: they claim an outcome the call alone cannot know. */

@@ -381,8 +381,9 @@ async function answerRow(row: Row, decision: { kind: 'approve' } | { kind: 'deny
  * @param orgId - The workspace.
  * @param id - The run.
  * @param ms - The longest to wait.
+ * @param onSteps - Hears the run's steps each time they change while it waits (the chat's progress line).
  */
-export async function waitForBrowserRun(orgId: string, id: number, ms: number): Promise<BrowserRunView | null> {
+export async function waitForBrowserRun(orgId: string, id: number, ms: number, onSteps?: (steps: readonly BrowserStep[]) => void): Promise<BrowserRunView | null> {
   const l = live.get(id);
   if (l) {
     l.heldByCall += 1;
@@ -395,6 +396,9 @@ export async function waitForBrowserRun(orgId: string, id: number, ms: number): 
           resolve();
         }
         async function check() {
+          if (onSteps && l!.steps.length > 0) {
+            onSteps(l!.steps);
+          }
           const [r] = await db.select({ status: browserRunSchema.status }).from(browserRunSchema).where(eq(browserRunSchema.id, id)).limit(1);
           if (!r || !['queued', 'running'].includes(r.status)) {
             done();

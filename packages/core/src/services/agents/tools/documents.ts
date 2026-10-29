@@ -27,6 +27,7 @@ import type { GateDecision } from '@/services/deliverables/gate';
 import type { ChartNotes } from '@/services/documents/DocumentEngine';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { stepProgress } from '@/libs/chat/stepProgress';
 import { DocumentEditError, documentOpSchema } from '@/libs/documents/edit';
 import { stripFramework } from '@/libs/documents/framework';
 import { inspectDocument, outlineText, parseSheets } from '@/libs/documents/sheets';
@@ -68,14 +69,7 @@ function coerceJson(v: unknown): unknown {
  * @param tool - The tool name the step is running under.
  */
 function progressTo(ctx: RuntimeContext, tool: string): (note: string) => void {
-  let last: string | null = null;
-  return (note: string) => {
-    if (note === last) {
-      return;
-    }
-    last = note;
-    ctx.emit({ type: 'step_progress', tool, note });
-  };
+  return stepProgress(ctx.emit, tool).note;
 }
 
 /**

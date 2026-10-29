@@ -267,6 +267,12 @@ export type TurnGuaranteeInput = {
   cardTools?: readonly import('@langchain/core/tools').StructuredToolInterface[];
   /** Where the answer pass's calls are run and recorded. */
   onToolCall?: (call: import('./agents/answerBackstop').AnswerPassCall) => Promise<void>;
+  /**
+   * What the turn put in front of the person — its cards and documents
+   * (`libs/chat/turnFallbackLine.ts` `observeTurnEvent`) — for the line a
+   * turn with no words ends on.
+   */
+  seen?: Pick<import('@/libs/chat/turnFallbackLine').TurnSeen, 'cards' | 'artifacts'>;
 };
 
 /** What the person reads when the model declined their request. */
@@ -392,6 +398,15 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
     }
   }
 
+  // NO SILENT TURNS. A turn that put a card up, or ran its steps, and wrote
+  // nothing ends on one line made from what it did, in code — never another
+  // model call (`libs/chat/turnFallbackLine.ts`). Streamed like every other
+  // sentence here, so the transcript and the stored row agree.
+  const { fallbackTurnLine, saidNothing } = await import('@/libs/chat/turnFallbackLine');
+  if (saidNothing(text)) {
+    append(fallbackTurnLine({ cards: [...(input.seen?.cards ?? [])], artifacts: [...(input.seen?.artifacts ?? [])], steps: input.toolCalls.map(c => ({ tool: c.tool, input: c.input, output: c.output })) }));
+  }
+
   return text;
 }
 
@@ -452,7 +467,10 @@ async function runOutOfProcess(
   // hold no tools in this process to run it with, so it is said, not dropped.
   const heldCalls: import('./agents/textToolCalls').TextCall[] = [];
   const suggestBodies: string[] = [];
+  const { emptyTurnSeen, observeTurnEvent } = await import('@/libs/chat/turnFallbackLine');
+  const seen = emptyTurnSeen();
   const gated = (event: AgentEvent): void => {
+    observeTurnEvent(seen, event);
     if (event.type === 'tool_error') {
       failures.push({ tool: event.tool, message: event.message });
     }
@@ -509,6 +527,7 @@ async function runOutOfProcess(
     // hand-off surfaces there as an ordinary tool failure.
     failedDelegations: [],
     emit,
+    seen,
   });
   const done: Extract<AgentEvent, { type: 'done' }> = held ?? { type: 'done', response, traceId: result.traceId };
   emit({ ...done, response });
@@ -698,6 +717,10 @@ async function runAgentDeepInScope(opts: {
   // window in which it emits its `documents` event via ctx.emit).
   let activeSpecialist: string | null = null;
   const emittedCards: string[] = [];
+  // What the turn put in front of the person, for the line a wordless turn
+  // ends on (`libs/chat/turnFallbackLine.ts`).
+  const { emptyTurnSeen, observeTurnEvent } = await import('@/libs/chat/turnFallbackLine');
+  const turnSeen = emptyTurnSeen();
   // Records the turn made (a project, a proposal) — linked at the end of the
   // answer if the model forgot to (`appendRecordLinks`).
   const createdRecords: import('@/services/chat/pageContext').RecordRef[] = [];
@@ -720,6 +743,7 @@ async function runAgentDeepInScope(opts: {
         }
       }
     }
+    observeTurnEvent(turnSeen, event);
     if (event.type === 'recommended_action') {
       emittedCards.push(event.recommendation.label);
       handOffGuard.handOff(event.recommendation.label);
@@ -1821,6 +1845,7 @@ async function runAgentDeepInScope(opts: {
     // tools, so a card it means is a real call (conversation 384).
     ...(graphMessages ? { messages: graphMessages } : {}),
     cardTools: answerPassTools,
+    seen: turnSeen,
     onToolCall: async (call) => {
       const tool = answerPassTools.find(t => t.name === call.name);
       if (!tool) {

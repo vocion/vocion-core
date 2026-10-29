@@ -35,7 +35,7 @@ import { askedForFromRefs, isIntentTag } from './composerTags';
 import { CONVERSATION_APPENDED_EVENT } from './conversationAppended';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
-import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
+import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress, summarizeLiveTrace } from './traceReducer';
 import { useSendQueue } from './useSendQueue';
 import { describeToolCall } from './WorkTimeline';
 
@@ -740,8 +740,24 @@ export function useChatSession({
         const merged = mergeTraceNode(map.get(node.id), node);
         map.set(node.id, merged);
         traceDirtyRef.current = true;
-        setActivity(liveStepLabel(merged));
+        // The line says what is running, never what has finished: a landed
+        // step's past-tense label held the line for ninety seconds on
+        // 2026-10-29 ("Checked what Ahrefs can do") while the turn went on.
+        // Cleared, the line falls back to the step still running, the
+        // agent's own words, or Thinking (`WorkTimeline` `TraceTimeline`).
+        const others = merged.status === 'start' || merged.status === 'progress' ? null : summarizeLiveTrace([...map.values()]).current;
+        const running = others ? (others.kind === 'reason' ? null : others) : (merged.status === 'start' || merged.status === 'progress' ? merged : null);
+        setActivity(running ? liveStepLabel(running) : null);
         scheduleFlush();
+        return;
+      }
+      case 'composing': {
+        // The model is writing a call — a whole brief as its argument can take
+        // a minute — and its name is already known: say what it is about to do.
+        const name = String(evt.tool ?? '');
+        if (name) {
+          setActivity(describeToolCall(name, {}, true).label);
+        }
         return;
       }
       case 'step_progress': {
@@ -828,6 +844,8 @@ export function useChatSession({
       }
       case 'tool_end': {
         flushDeltas();
+        // Landed: the line moves on from it (see `trace_node`).
+        setActivity(null);
         const name = String(evt.tool ?? 'tool');
         const output = String(evt.output ?? '');
         appendToLatestAgent((m) => {

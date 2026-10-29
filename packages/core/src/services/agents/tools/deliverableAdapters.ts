@@ -17,6 +17,7 @@ import type { RuntimeContext } from '../types';
 import type { DeckSpec } from '@/libs/cards/specs';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { stepProgress } from '@/libs/chat/stepProgress';
 import { ArtifactError, listArtifactsForConversation, toPayload } from '@/services/ArtifactService';
 import { DeckEditError, deckReceipt } from '@/services/decks/DeckEngine';
 import { AdapterFileError, exportDeckPptx, exportDocumentDocx, importDeckPptx, importDocumentDocx, readFileArtifact } from '@/services/deliverables/adapters';
@@ -30,13 +31,7 @@ import { authorOf } from './renderArtifacts';
  * @param name - The tool the step runs under.
  */
 function progressTo(ctx: RuntimeContext, name: string): (note: string) => void {
-  let last: string | null = null;
-  return (note: string) => {
-    if (note !== last) {
-      last = note;
-      ctx.emit({ type: 'step_progress', tool: name, note });
-    }
-  };
+  return stepProgress(ctx.emit, name).note;
 }
 
 /**

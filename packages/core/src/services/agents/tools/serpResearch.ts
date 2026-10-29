@@ -40,6 +40,7 @@ import type { SerpOrganicResult, SerpQuery, SerpResult } from '@/libs/tools/serp
 import { createHash } from 'node:crypto';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { stepProgress } from '@/libs/chat/stepProgress';
 import { mapWithConcurrency } from '@/libs/concurrency';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { getBrowseProvider } from '@/libs/tools/browse/registry';
@@ -301,7 +302,7 @@ const synthesisSchema = z.object({
  */
 async function readPages(ctx: RuntimeContext, results: SerpOrganicResult[]): Promise<ComparedPage[]> {
   const provider = getBrowseProvider();
-  return mapWithConcurrency(results, COMPARE_CONCURRENCY, async (r): Promise<ComparedPage> => {
+  const readPage = async (r: SerpOrganicResult): Promise<ComparedPage> => {
     const base = { position: r.position, url: r.url, domain: r.domain, serpTitle: r.title, ...(r.date ? { serpDate: r.date } : {}), ...(isDirectoryDomain(r.domain || r.url) ? { directory: true } : {}) };
     try {
       const raw = await provider.fetchHtml(r.url, { orgId: ctx.orgId });
@@ -309,6 +310,15 @@ async function readPages(ctx: RuntimeContext, results: SerpOrganicResult[]): Pro
     } catch (err) {
       return { ...base, facts: null, error: (err as Error).message?.slice(0, 160) || 'could not be read' };
     }
+  };
+  // Where the reading has got to, on the step's own line: "(4 of 10)".
+  const progress = stepProgress(ctx.emit, 'serp_compare');
+  let read = 0;
+  return mapWithConcurrency(results, COMPARE_CONCURRENCY, async (r) => {
+    const page = await readPage(r);
+    read += 1;
+    progress.count(read, results.length);
+    return page;
   });
 }
 
@@ -488,12 +498,18 @@ function keywordClusterTool(ctx: RuntimeContext) {
       if (keywords.length > CLUSTER_MAX) {
         return `keyword_cluster reads one results page per keyword; ${keywords.length} is more than the ${CLUSTER_MAX} one call may read. Split the list.`;
       }
+      // One results page per keyword: the step's line says how far it has read.
+      const progress = stepProgress(ctx.emit, 'keyword_cluster');
+      let done = 0;
       const read = await mapWithConcurrency(keywords, COMPARE_CONCURRENCY, async (keyword) => {
         try {
           const { serp, cached } = await cachedSearch(ctx, { query: keyword, location: args.location, language: args.language, country: args.country, num: 10 }, true);
           return { keyword, serp, cached };
         } catch (err) {
           return { keyword, error: err };
+        } finally {
+          done += 1;
+          progress.count(done, keywords.length);
         }
       });
       const failed = read.filter((r): r is { keyword: string; error: unknown } => 'error' in r);
