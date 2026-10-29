@@ -58,12 +58,20 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   of 10; then the rest. A page sent back with changes holds new drafts until
   its feedback is verifiably filed. A sign-off is bound to the draft's words:
   an edit afterwards puts the page back to review with a new ask.
-- **Hand-offs in code, work in the background**: writing and review never
-  run in a chat turn (`seo_start_writing` queues them); the editor's pass
-  files the page's ask, a fix queues the writer's revision with the editor's
-  findings (three rounds, then the person decides with the findings open), a
-  redraft withdraws an open ask, and every answer wakes the strategist again
-  (`seo-continue` on `seo.work_queued`, its `seo-batches-moving` mission).
+- **One workflow run per page** (`workflows/`, started in code by
+  `services/seo/pipeline.ts`): writing never runs in a chat turn;
+  `seo_start_writing`, an approved plan or a sign-off that releases more
+  pages starts `seo-batch`, which starts one `seo-page` run per page the
+  gate released: research, brief, draft, the editor's review (at most three
+  rounds, then the person decides with the findings open), the person's
+  ONE sign-off (the run's approve step), the sign-off recorded on the page
+  in code bound to its words (`seo.record_signoff`), and `site.publish_page`
+  as an unmerged pull request or a Squarespace draft, on the trust rule with
+  no second card. Squarespace's going live (`site.publish_live`) is always
+  its own card. A page sent back at sign-off gets a redraft run that files
+  the note first; a plan sent back is revised by `seo-plan`. The hidden
+  `seo-continue` automation is retired; a workspace not yet upgraded keeps
+  the old event until it is.
 - **New page opportunities on a cadence**: a person sets pages a month (and
   an optional topic focus) on a client's project. Every Monday in the
   workspace's zone, `seo-opportunities` counts what is planned or in flight
@@ -97,8 +105,8 @@ It turns on the `data-rooms` plugin (Projects kept current) and the Wiki with it
   own. No agent can change any of them: `update_object` refuses `seoGate`,
   `seoCadence` and `publishTargets`, and the project API takes them only
   from a signed-in person.
-- `seo-continue` is `visibility: system`: the app's internal hand-off, kept
-  out of the Automations register unless an admin shows system automations.
+- The pipeline's workflows are the workspace's to change: a
+  `workflows/<slug>/workflow.yaml` of the same slug in the workspace wins.
 - A seat's model: patch the agent with `extends: core` in your workspace's
   `agents/<slug>.yaml` and set `harness.model`.
 - House craft rules: seed them in `learnings/seo-feedback.yaml` with

@@ -354,7 +354,10 @@ export async function onSeoDraftRevised(orgId: string, artifactId: number): Prom
     for (const page of pages) {
       const m = page.meta;
       const signed = m.status === 'approved' && m.signoff?.decision === 'approve' && m.signoff.hash && m.signoff.hash !== words.hash;
-      const asked = m.status === 'in_review' && m.signoffAsk && m.signoffAsk.round === (m.draftRound ?? 1) && m.signoffAsk.hash !== words.hash;
+      // A sign-off asked on the page's workflow run (askId 0) is that run's:
+      // its recording step refuses words that changed since, so no second
+      // card is filed here.
+      const asked = m.status === 'in_review' && m.signoffAsk && m.signoffAsk.askId !== 0 && m.signoffAsk.round === (m.draftRound ?? 1) && m.signoffAsk.hash !== words.hash;
       if (!signed && !asked) {
         continue;
       }
@@ -379,6 +382,54 @@ export async function onSeoDraftRevised(orgId: string, artifactId: number): Prom
  */
 async function announceSettled(row: Ask, payload: Record<string, unknown>): Promise<void> {
   await queueSeoWork(row.orgId, 'signoff', { askId: row.id, decision: row.decision ?? null, ...payload }, `signoff:${row.id}`);
+}
+
+/**
+ * A page's sign-off answered on its workflow run's approve step (the
+ * `seo-page` run). Approving goes on in the run itself
+ * (`seo.record_signoff`, then publishing). Rejecting it is the person sending
+ * the page back: their note goes on the page, it reads "changes requested",
+ * and its redraft run starts, which files the note before anything is
+ * redrafted. Anything else is left alone. Never throws.
+ * @param row - The settled ask.
+ */
+export async function onSeoWorkflowAskSettled(row: Ask): Promise<void> {
+  try {
+    const m = /^workflow-run:(\d+):signoff$/.exec(row.sourceRef ?? '');
+    if (!m || (row.status !== 'rejected' && row.status !== 'skipped')) {
+      return;
+    }
+    const { workflowRunSchema, workflowSchema } = await import('@/models/Schema');
+    const [run] = await db
+      .select({ input: workflowRunSchema.input, slug: workflowSchema.slug })
+      .from(workflowRunSchema)
+      .innerJoin(workflowSchema, eq(workflowSchema.id, workflowRunSchema.workflowId))
+      .where(and(eq(workflowRunSchema.orgId, row.orgId), eq(workflowRunSchema.id, Number(m[1]))))
+      .limit(1);
+    const pageId = Number((run?.input as { page_id?: unknown } | undefined)?.page_id);
+    if (run?.slug !== 'seo-page' || !Number.isInteger(pageId)) {
+      return;
+    }
+    const page = await getSeoPage(row.orgId, pageId);
+    if (!page || typeof page.meta.draftArtifactId !== 'number') {
+      return;
+    }
+    const at = new Date().toISOString();
+    const note = row.decisionNote?.trim() || (row.status === 'skipped' ? 'Skipped at sign-off without a note.' : 'Sent back at sign-off without a note.');
+    const draft = page.meta.draftArtifactId;
+    await patchSeoPage(row.orgId, page, current => ({
+      status: 'changes_requested',
+      editorRounds: 0,
+      signoff: { decision: 'revise', by: row.decidedBy ?? null, at, askId: row.id, draftArtifactId: draft, round: current.draftRound ?? 1 },
+      feedback: [...(current.feedback ?? []), { at, by: row.decidedBy ?? null, note, filedTo: null, askId: row.id, draftArtifactId: draft }],
+    }));
+    await refreshSeoBatch(row.orgId, page.meta.batchId);
+    const { startRedraft } = await import('./pipeline');
+    await startRedraft(row.orgId, page.id);
+  } catch (err) {
+    const { logger } = await import('@/libs/Logger');
+    logger.warn('an SEO page could not hear its run\'s sign-off', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 /**

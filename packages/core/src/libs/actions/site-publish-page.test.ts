@@ -142,9 +142,12 @@ beforeEach(() => {
 const ctx = { orgId: 'org_nw', reviewedBy: 'user_1', runId: 99 };
 
 describe('site.publish_page', () => {
-  it('is asked on its card every time, even when a person says "publish it" in chat', () => {
-    expect(action.approvalRequired).toBe(true);
-    expect(action.requiresReviewDecision).toBe(true);
+  it('runs on a page\'s one sign-off, and holds anything else for a person', () => {
+    // A person approves a page once, on its sign-off; the trust rule then
+    // publishes it as a draft. Everything else waits on its card.
+    expect(action.approvalRequired).toBeUndefined();
+    expect(action.requiresReviewDecision).toBeUndefined();
+    expect(typeof action.holdForPerson).toBe('function');
     expect(action.inputSchema.safeParse({ slug: 'tents' }).success).toBe(false);
   });
 

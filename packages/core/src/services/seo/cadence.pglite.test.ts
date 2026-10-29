@@ -14,6 +14,10 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 vi.mock('@/services/chat/synthesis', () => ({ invalidateChipCache: vi.fn() }));
+// These tests read the hand-off as the event it raises for a workspace not
+// yet on the pipeline's workflows (`pipeline.ts`); the workflows are tested
+// in pipeline.pglite.test.ts.
+vi.mock('./pipeline', async importOriginal => ({ ...await importOriginal<typeof import('./pipeline')>(), startSeoPipeline: vi.fn(async () => false) }));
 // The strategist is woken by an event; record it rather than run an agent.
 const emitted = vi.hoisted(() => [] as Array<{ type: string; payload?: Record<string, unknown>; dedupeKey?: string }>);
 vi.mock('@/services/EventService', async (importOriginal) => {
@@ -81,13 +85,14 @@ beforeAll(async () => {
 });
 
 describe('the SEO app\'s automations in the one register', () => {
-  it('stamps each with the app that installed it; the weekly check is listed, the hand-off is system plumbing', async () => {
+  it('stamps each with the app that installed it; the weekly check is listed, and the hidden hand-off is gone', async () => {
     const rows = await db.select().from(automationSchema).where(and(eq(automationSchema.orgId, ORG), like(automationSchema.slug, 'seo-%')));
     const bySlug = new Map(rows.map(r => [r.slug, r]));
 
     expect(bySlug.get('seo-opportunities')).toMatchObject({ source: 'plugin:seo', visibility: 'listed', name: 'New page opportunities', status: 'active' });
     expect(bySlug.get('seo-opportunities')?.whenConfig).toMatchObject({ schedule: '0 7 * * 1', timezone: 'America/Chicago' });
-    expect(bySlug.get('seo-continue')).toMatchObject({ source: 'plugin:seo', visibility: 'system' });
+    // The page pipeline is workflows now (`pipeline.ts`): no hidden automation.
+    expect(bySlug.has('seo-continue')).toBe(false);
 
     // Everything an app install wrote names the plugin it came from.
     const all = await db.select({ slug: automationSchema.slug, source: automationSchema.source }).from(automationSchema).where(eq(automationSchema.orgId, ORG));

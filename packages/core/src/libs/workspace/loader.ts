@@ -269,13 +269,23 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       return { ...parsed, resolvedClassificationPrompt, sourceFile: entry.sourceFile, origin: entry.origin };
     });
 
-  const workflows = walkDir(join(abs, 'workflows'))
-    .filter(f => (basename(f) === 'workflow.yaml' || basename(f) === 'workflow.yml'))
+  const isWorkflowFile = (f: string) => basename(f) === 'workflow.yaml' || basename(f) === 'workflow.yml';
+  const authoredWorkflows = walkDir(join(abs, 'workflows'))
+    .filter(isWorkflowFile)
     .map((file) => {
       files.push(file);
       const parsed = parseFile(file, WorkflowManifestSchema, 'workflow');
       return { ...parsed, sourceFile: file };
     });
+  // A plugin's workflows (`<plugin>/workflows/<slug>/workflow.yaml`) join the
+  // workspace's, the way its agents and missions do; a workspace workflow of
+  // the same slug is the workspace's own version and wins.
+  const authoredSlugs = new Set(authoredWorkflows.map(w => w.slug));
+  const pluginWorkflows = plugins.flatMap(plugin => walkDir(join(plugin.sourcePath, 'workflows'))
+    .filter(isWorkflowFile)
+    .map(file => ({ ...parseFile(file, WorkflowManifestSchema, 'workflow'), sourceFile: file }))
+    .filter(w => !authoredSlugs.has(w.slug)));
+  const workflows = [...authoredWorkflows, ...pluginWorkflows];
 
   const missions = composeEntries('mission', join(abs, 'missions'), isYamlFile, layer?.full.missions, layer?.active.missions, files)
     .map((entry) => {

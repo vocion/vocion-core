@@ -1,6 +1,11 @@
 /**
  * SEO work that runs in the BACKGROUND, never inside a person's chat turn.
  *
+ * Each hand-off below now starts the pipeline's workflows (`pipeline.ts`):
+ * one run per released page, the editor's rounds and the person's sign-off
+ * inside it. What follows describes the event the hand-off still raises for
+ * a workspace whose SEO app has not been upgraded to them.
+ *
  * Writing and reviewing a batch is many strong-model calls; inside a chat
  * turn it ran into the turn's spend ceiling mid-review (dev run, 2026-10-27).
  * So the hand-offs are code: each one raises `seo.work_queued`, and the SEO
@@ -85,6 +90,12 @@ export function findingsMd(findings: readonly SeoFinding[]): string {
  */
 export async function queueSeoWork(orgId: string, reason: SeoWorkReason, payload: Record<string, unknown>, dedupeKey: string): Promise<boolean> {
   try {
+    // The pipeline's workflows, where the SEO app has them (`pipeline.ts`).
+    const { startSeoPipeline } = await import('./pipeline');
+    if (await startSeoPipeline(orgId, reason, payload)) {
+      return true;
+    }
+    // Not upgraded yet: the old background automation answers the event.
     const { emitEvent, SEO_WORK_QUEUED } = await import('@/services/EventService');
     await emitEvent({ orgId, type: SEO_WORK_QUEUED, payload: { reason, ...payload }, dedupeKey: `${SEO_WORK_QUEUED}:${dedupeKey}`, invokedBy: SEO_WORK_INVOKER, dispatchMode: 'auto' });
     return true;

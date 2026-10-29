@@ -1,0 +1,165 @@
+# One SEO page, from research to the client's site: research, brief, draft,
+# the editor's review (at most three rounds), the person's sign-off, then
+# publishing as an unmerged pull request or a Squarespace draft, and for
+# Squarespace going live on its own card. Started by code for each page the
+# volume gate releases (`services/seo/pipeline.ts`), one run per page; the
+# gate stays code: `seo_save_draft` refuses a page it has not released.
+slug: seo-page
+name: Write and publish one SEO page
+description: Research, brief, draft, the editor's review and your sign-off for one page, then the page goes to the client's site as a draft.
+agent: seo-strategist
+runLabel: '{{input.batch_ref}} · page {{input.index}} of {{input.total}}: {{input.keyword}}'
+trigger:
+  type: manual
+inputSchema:
+  type: object
+  required: [page_id, keyword, batch_id, reason]
+  properties:
+    page_id: {type: integer}
+    keyword: {type: string}
+    location: {type: string}
+    page_type: {type: string}
+    client: {type: string}
+    batch_id: {type: integer}
+    batch_ref: {type: string}
+    reason: {type: string, enum: [write, redraft, revise]}
+    has_research: {type: boolean}
+    has_brief: {type: boolean}
+    publish_target: {type: string}
+    target_kind: {type: string}
+steps:
+  - name: feedback
+    type: agent
+    label: Filing your note before the redraft
+    when: "{{input.reason}} == 'redraft'"
+    agent: seo-strategist
+    task: >-
+      Page {{input.page_id}} ("{{input.keyword}}") was sent back at sign-off.
+      Read it with seo_read_page and file the person's note where it belongs
+      (feedback-to-wiki, seo_record_feedback), so the redraft answers it.
+    effort: standard
+    output:
+      type: object
+      required: [filed]
+      properties:
+        filed: {type: boolean}
+
+  - name: research
+    type: agent
+    label: Researching Google's top results for "{{input.keyword}}"
+    when: '{{input.has_research}} == false'
+    agent: serp-analyst
+    task: >-
+      Research Google's top results for "{{input.keyword}}" for page
+      {{input.page_id}} (a {{input.page_type}} page; a location page is read
+      on its own place's results: "{{input.location}}"), file the SERP
+      brief with serp_compare and save it on the page with seo_save_research.
+    effort: standard
+    output:
+      type: object
+      required: [serpArtifactId]
+      properties:
+        serpArtifactId: {type: integer}
+
+  - name: brief
+    type: agent
+    label: Writing the page brief
+    when: '{{input.has_brief}} == false'
+    agent: seo-strategist
+    task: >-
+      Write the brief for page {{input.page_id}} ("{{input.keyword}}") from
+      its SERP brief and the client's project (page-brief), and save it with
+      seo_save_brief.
+    effort: deep
+    output:
+      type: object
+      required: [briefArtifactId]
+      properties:
+        briefArtifactId: {type: integer}
+
+  - name: draft
+    type: agent
+    label: Writing the draft
+    agent: seo-writer
+    task: >-
+      Write page {{input.page_id}} ("{{input.keyword}}") for {{input.client}}
+      (write-page): read it with seo_read_page first. When it was sent back
+      (reason {{input.reason}}), redraft it answering every note and finding
+      it lists. Save it with seo_save_draft.
+    effort: deep
+    output:
+      type: object
+      required: [draftArtifactId]
+      properties:
+        draftArtifactId: {type: integer}
+
+  - name: edit
+    type: repeat
+    label: The editor's review
+    until: "{{steps.review.output.verdict}} == 'pass'"
+    max: 3
+    onExhausted: continue
+    steps:
+      - name: review
+        type: agent
+        agent: seo-editor
+        task: >-
+          Review page {{input.page_id}}'s current draft (review-page): read it
+          with seo_read_page, check it against the client's rules, voice,
+          guidelines and the SERP brief, and record your verdict with
+          seo_save_review. Report the verdict seo_save_review recorded, and
+          whether it said this is the final round.
+        effort: standard
+        output:
+          type: object
+          required: [verdict, final, findings]
+          properties:
+            verdict: {enum: [pass, fix]}
+            final: {type: boolean}
+            findings: {type: array, items: {type: string}}
+      - name: revise
+        type: agent
+        label: Revising from the editor's findings
+        when: '{{steps.review.output.final}} == false'
+        agent: seo-writer
+        task: >-
+          Revise page {{input.page_id}}'s draft to resolve the editor's
+          findings: {{steps.review.output.findings}}. Read it with
+          seo_read_page and save the revision with seo_save_draft.
+        effort: deep
+
+  - name: signoff
+    type: approve
+    label: Sign off the page
+    prompt: >-
+      Sign off "{{input.keyword}}" for {{input.client}}: the draft is
+      /dashboard/artifacts/{{steps.draft.output.draftArtifactId}} and the page
+      /dashboard/objects/{{input.page_id}}. Approving publishes it as a draft
+      on the client's site (an unmerged pull request, or a Squarespace draft
+      that is not live). Reject with a note to send it back to the writer.
+    reviews: review
+
+  - name: record
+    type: action
+    label: Recording your sign-off on the page
+    action: seo.record_signoff
+    input:
+      pageRecordId: '{{input.page_id}}'
+      approvedBy: '{{steps.signoff.output.approvedBy}}'
+      note: '{{steps.signoff.output.note}}'
+
+  - name: publish
+    type: action
+    label: Publishing it as a draft on the client's site
+    when: "{{input.publish_target}} != 'none'"
+    action: site.publish_page
+    input:
+      pageRecordId: '{{input.page_id}}'
+
+  - name: go-live
+    type: action
+    label: Making the Squarespace post live
+    when: "{{input.target_kind}} == 'squarespace'"
+    action: site.publish_live
+    input:
+      pageRecordIds: ['{{input.page_id}}']

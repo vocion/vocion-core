@@ -1,0 +1,32 @@
+# A keyword plan a person sent back, revised from their note and filed for
+# sign-off again. Started by code when the plan's sign-off is answered with
+# a change (`services/seo/pipeline.ts`).
+slug: seo-plan
+name: Revise a keyword plan
+description: Revises a batch's keyword plan from your note and files it for your sign-off again.
+agent: seo-strategist
+runLabel: 'Revising the plan of batch #{{input.batch_id}}'
+trigger:
+  type: manual
+inputSchema:
+  type: object
+  required: [batch_id]
+  properties:
+    batch_id: {type: integer}
+    note: {type: string}
+steps:
+  - name: revise
+    type: agent
+    label: Revising the keyword plan from your note
+    agent: seo-strategist
+    task: >-
+      A person sent back the keyword plan of batch {{input.batch_id}} with
+      this note: "{{input.note}}". Read the batch, answer the note, and file
+      the whole revised plan with seo_plan_batch and batch_id. It files the
+      sign-off; file nothing else.
+    effort: deep
+    output:
+      type: object
+      required: [pages]
+      properties:
+        pages: {type: integer}

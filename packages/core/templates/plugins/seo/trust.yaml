@@ -25,17 +25,26 @@ rules:
     rung: execute-within-bounds
     risk: low
 
-  # PUBLISHING. A page going to a client's site is public and under the
-  # client's name. Opening a pull request or saving a Squarespace draft is
-  # reversible, but it lands in the client's own system, so it is asked every
-  # time; it may earn its way to running within bounds once the ledger shows
-  # pages approved and published unchanged. Written ahead of the action
-  # (`site.publish_page`, the publishing PR), the way growth-loop writes its
-  # `growth.publish.*` bars, so nothing here changes the day it registers.
+  # THE SIGN-OFF, RECORDED. The person approved the page on its workflow
+  # run's sign-off step; this writes that approval onto the page in code,
+  # bound to the words they were shown (`seo.record_signoff`). It refuses a
+  # draft that changed since, and Undo puts the page back to its sign-off.
+  - action: seo.record_signoff
+    autoApproveAbove: 0.5
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+
+  # PUBLISHING AS A DRAFT. A person approves a page ONCE, on its run's
+  # sign-off step; publishing it then opens an unmerged pull request on the
+  # client's repository or saves a Squarespace draft that is not live. Both
+  # stay in the client's hands, and Undo closes the pull request, so it runs
+  # on the sign-off without a second card. The action itself refuses any page
+  # without a person's sign-off on its current words (`signedOff`).
   - action: site.publish_page
     autoApproveAbove: 0.95
-    enabled: false
-    rung: execute-with-approval
+    enabled: true
+    rung: execute-within-bounds
     risk: medium
   # Going live: drafted Squarespace posts made public. Not reversible from
   # here (a live post is the site's), so it is asked every time and never

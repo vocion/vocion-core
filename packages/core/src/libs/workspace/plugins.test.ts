@@ -668,12 +668,15 @@ describe('loadWorkspace with the SEO app', () => {
     expect(team.measures.find(m => m.key === 'drafts_written')!.dimension).toBe('velocity');
   });
 
-  it('holds a direct write to a page and every publish for a person', () => {
+  it('holds a direct write to a page for a person; a signed-off page publishes as a draft on its own, and going live is always asked', () => {
     const ws = loadWorkspace(makeWorkspace('plugins: [seo]\naccountableUser: ops@northwind.example\n'));
     const rule = (action: string) => ws.trust?.rules.find(r => r.action === action);
 
     expect(rule('objects.update_meta.seo_page')).toMatchObject({ enabled: false, rung: 'execute-with-approval' });
-    expect(rule('site.publish_page')).toMatchObject({ enabled: false, rung: 'execute-with-approval' });
+    // A person approves a page once, on its run's sign-off; publishing it as an
+    // unmerged pull request or a not-live draft then runs on that.
+    expect(rule('seo.record_signoff')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', risk: 'low' });
+    expect(rule('site.publish_page')).toMatchObject({ enabled: true, rung: 'execute-within-bounds' });
     expect(rule('site.publish_live')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'high' });
   });
 
