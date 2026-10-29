@@ -829,7 +829,8 @@ export async function listInbox(orgId: string, query: InboxQuery = {}): Promise<
   ]);
   const { items: open, reclassified, policyGaps } = admitted(candidates);
   const snoozed = proposalItems(snoozedRows, 'snoozed');
-  const decided = [...proposalItems(decidedRows, 'decided'), ...expiredClosureItems(expiredClosures), ...decidedAsks, ...decidedRules];
+  // Who decided, by name (else email), never a raw user id.
+  const decided = await withDeciderNames([...proposalItems(decidedRows, 'decided'), ...expiredClosureItems(expiredClosures), ...decidedAsks, ...decidedRules]);
   const tabs: Record<InboxTab, number> = { open: open.length, snoozed: snoozed.length, decided: decided.length };
 
   const all = tab === 'open' ? open : tab === 'snoozed' ? snoozed : decided;
@@ -851,6 +852,18 @@ export async function listInbox(orgId: string, query: InboxQuery = {}): Promise<
   }
 
   return { items, counts, total: items.length, tabs, failedOpen: open.filter(isFailedProposal).length, facets, reclassified: tab === 'open' ? reclassified : [], policyGaps: tab === 'open' ? policyGaps : [] };
+}
+
+/**
+ * Decided rows with the person who decided named: their name, else their
+ * email. Ids that are not a person (an agent, the trust bar, a default) and
+ * ids that no longer resolve are left as they were.
+ * @param items - Decided rows.
+ */
+async function withDeciderNames(items: InboxItem[]): Promise<InboxItem[]> {
+  const { decidersNamed } = await import('@/services/inbox/sheetExtras');
+  const names = await decidersNamed(items.map(i => ({ decidedBy: i.decidedBy ?? null })));
+  return names.size === 0 ? items : items.map(i => (i.decidedBy && names.has(i.decidedBy) ? { ...i, decidedBy: names.get(i.decidedBy)! } : i));
 }
 
 /** The open queue as a decline from chat reads it (`services/inbox/queueSelection.ts`). */

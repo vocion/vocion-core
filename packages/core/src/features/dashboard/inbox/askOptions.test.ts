@@ -70,3 +70,23 @@ describe('an ask that says what its answer does', () => {
     expect(consequenceOf({ agentSlug: 'seo-strategist', outcomes: null }, 'approve', { approve: [] })).toBe('Your answer is recorded for seo-strategist; nothing runs on its own.');
   });
 });
+
+describe('an agent\'s question goes back to it (SEO walk 2, 2026-10-27)', () => {
+  it('says the answer goes back to the asking agent, who carries on', () => {
+    const ask = { agentSlug: 'seo-strategist', handsBackTo: 'SEO strategist' };
+
+    expect(consequenceOf(ask, OTHER, { other: [] })).toBe('Your answer goes back to SEO strategist, who carries on.');
+    expect(consequenceOf(ask, OTHER, { other: [] })).not.toMatch(/nothing runs/i);
+  });
+
+  it('keeps "nothing runs" only for an ask with no agent to resume', () => {
+    expect(consequenceOf({ agentSlug: null }, OTHER, { other: [] })).toMatch(/nothing runs on its own/);
+  });
+
+  it('lets the asker\'s own line and a subscribed automation speak first', () => {
+    const ask = { agentSlug: 'seo-strategist', handsBackTo: 'SEO strategist', outcomes: { onApprove: 'The briefs start.' } };
+
+    expect(consequenceOf(ask, 'approve')).toBe('The briefs start.');
+    expect(consequenceOf({ agentSlug: 'seo-strategist', handsBackTo: 'SEO strategist' }, 'approve', { approve: ['File the answer'] })).toBe('Starts “File the answer”.');
+  });
+});

@@ -8,7 +8,7 @@ description: >-
   Google, services, audience, the content already on the site, and the brand.
   Asks for what it could not find instead of inventing it. Read before opening
   a project for a new client.
-version: 3
+version: 4
 ---
 
 # Onboarding a client from their website
@@ -111,10 +111,14 @@ message, naming exactly what is missing. When they send one, do step 4 for it.
 
 ## 8. Where pages publish
 
-If the person names the site's repository or platform, record it on the
-project as a publish target, and say which kinds the workspace can publish to
-today. A repository that is private or not connected yet is one line in what
-is still missing; it blocks publishing only, never onboarding.
+Where pages publish is the person's to set, under Publishing on the project.
+If the site is built from a GitHub repository the workspace has connected,
+run `seo_learn_frontmatter` with the repository and the folder its posts are
+in: it reads two or three posts and proposes the target with the site's own
+frontmatter, which waits there for the person to apply. Say so in one line.
+Otherwise say which kinds the workspace can publish to today. A repository
+that is private or not connected yet is one line in what is still missing; it
+blocks publishing only, never onboarding.
 
 ## Done when
 

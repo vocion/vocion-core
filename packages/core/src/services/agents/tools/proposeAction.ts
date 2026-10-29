@@ -352,11 +352,17 @@ async function runProposalInner(
     const { actionIsUndoable, actionLabel } = await import('@/libs/actions/undoable');
     const { undoSentence } = await import('@/libs/decisions/receipt');
     const undoable = actionIsUndoable(action_id, action_input as Record<string, unknown>);
-    const receipt = (label: string, href?: string) => {
+    // One Done line: the record by name (the link), what changed, Undo where real; why it ran is a tooltip.
+    const why = asPerson ? 'Done as you asked.' : 'Within this agent\'s trust bar, so it ran without a card.';
+    const receipt = async (label: string, href?: string, record?: { label: string; href?: string }) => {
       if (res.status === 'done' && !isSelfUpdate(action_id)) {
-        ctx.emit({ type: 'receipt', receipt: { runId: res.runId, actionId: action_id, label, undoable, ...(href ? { href } : {}) } });
+        const { receiptFor } = await import('@/services/decisions/receiptFor');
+        const base = { runId: res.runId, actionId: action_id, label, undoable, why, ...(href ? { href } : {}), ...(record ? { record } : {}) };
+        ctx.emit({ type: 'receipt', receipt: await receiptFor(ctx.orgId, base, { actionId: action_id, input: action_input, result: res.result, invokedBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId }) });
       }
     };
+    /** What the agent is told about the Done line, so it never says it twice. */
+    const doneLine = 'The Done line under your reply already says what was done, links the record and offers Undo where it is real: do not repeat it, do not name the run (ACT-…), do not explain why it ran without waiting, and do not paste the record link. Add only what the person needs beyond it, often nothing.';
     const created = createdRecordOf(res.result);
     if (created) {
       const { recordHref } = await import('@/services/objects/recordHref');
@@ -366,13 +372,13 @@ async function runProposalInner(
       if (href) {
         ctx.emit({ type: 'record_created', record: { type: 'object', id: String(created.id), label: created.title ? `${name} — ${created.title}` : name, href } });
       }
-      receipt(`Filed ${name}${created.title ? ` — ${created.title}` : ''}`, href);
+      await receipt(`Filed ${name}${created.title ? ` — ${created.title}` : ''}`, href, { label: created.title ? `${name} — ${created.title}` : name, ...(href ? { href } : {}) });
       // WHAT FILING STARTED (run 2, 2026-10-01): a person's request builds by
       // default, and the agent that never heard offered "the dispatch card".
       // The factory's intake is waited on briefly and said here.
       const { filingReceipt } = await import('@/services/factory/carry');
       const started = await filingReceipt(ctx.orgId, { objectType: created.objectType, id: Number(created.id) }, { name, href: href ?? null }).catch(() => null);
-      return withAdvice(`${action_id} is DONE: filed as ${name} (${nounCode('action', res.runId)}, confidence ${confidence})${href ? `, open at ${href}` : ''}.${created.title ? ` Title: ${created.title}.` : ''} It was within bounds, so it ran without waiting — the record exists now; no approval is pending. Tell the person it is filed as ${name}${href ? ` and give them the link [${name}](${href})` : ''}. ${undoSentence(undoable)}${started ? `\n\n${started}` : ''}`);
+      return withAdvice(`${action_id} is DONE: filed as ${name}.${created.title ? ` Title: ${created.title}.` : ''} The record exists now; no approval is pending. ${doneLine} ${undoable ? '' : undoSentence(false)}${started ? `\n\n${started}` : ''}`);
     }
     // The record it moved, linked, so the person can follow it there.
     // The action names the record it moved (`result.record`); core names no type.
@@ -382,8 +388,9 @@ async function runProposalInner(
     const moved = movedType && Number.isInteger(movedId) && movedId > 0
       ? await import('@/services/objects/recordHref').then(m => m.recordHref(ctx.orgId, { objectType: movedType, id: movedId })).catch(() => null)
       : null;
-    receipt(req.label?.trim() || actionLabel(action_id), moved ?? undefined);
-    return `${action_id} is DONE (${nounCode('action', res.runId)}${asPerson ? ', as the person asked' : `, confidence ${confidence}`}) — it ran without waiting. ${undoSentence(undoable)}${moved ? ` Give the person this link to follow it: [${await codeForRecord(ctx.orgId, movedId).catch(() => null) ?? `${movedType!.replace(/[_-]+/g, ' ')} #${movedId}`}](${moved}).` : ''} Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
+    const movedName = moved ? await codeForRecord(ctx.orgId, movedId).catch(() => null) ?? `${movedType!.replace(/[_-]+/g, ' ')} #${movedId}` : null;
+    await receipt(req.label?.trim() || actionLabel(action_id), moved ?? undefined, moved && movedName ? { label: movedName, href: moved } : undefined);
+    return `${action_id} is DONE (${nounCode('action', res.runId)}${asPerson ? ', as the person asked' : ''}). ${doneLine} ${undoable ? '' : undoSentence(false)} Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
   } catch (err) {
     if (err instanceof ActionError) {
       return opts.refused ? opts.refused(err.code, err.message) : `Proposal refused (${err.code}): ${err.message}`;

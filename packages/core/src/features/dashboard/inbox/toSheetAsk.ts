@@ -7,10 +7,15 @@ import type { Ask } from '@/services/AskService';
  * @param ask
  * @param alignment - The asker's 30-day alignment on this kind, when the page looked it up.
  * @param listeners - What each answer starts (`services/inbox/answerListeners`), when the page looked it up.
+ * @param extras - Who the answer goes back to, and the draft it is about (`services/inbox/sheetExtras`).
+ * @param extras.handsBackTo - The asking agent's name, when the answer goes back to it.
+ * @param extras.artifact - The ask's primary artifact.
  */
-export function toSheetAsk(ask: Ask, alignment?: SheetAsk['alignment'], listeners?: SheetAsk['listeners']): SheetAsk {
+export function toSheetAsk(ask: Ask, alignment?: SheetAsk['alignment'], listeners?: SheetAsk['listeners'], extras?: { handsBackTo: string | null; artifact: SheetAsk['artifact'] }): SheetAsk {
   return {
     ...(listeners ? { listeners } : {}),
+    ...(extras?.handsBackTo ? { handsBackTo: extras.handsBackTo } : {}),
+    ...(extras?.artifact ? { artifact: extras.artifact } : {}),
     alignment: alignment ?? null,
     id: ask.id,
     kind: ask.kind,

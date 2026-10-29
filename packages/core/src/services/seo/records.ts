@@ -109,6 +109,12 @@ export type SeoPageMeta = {
   target?: string;
   /** Who signs the page: the project's author it was planned with, else the project's default. Unset while the project names none. */
   author?: SeoPageAuthor;
+  /** The site's category for the post, given by the writer with the draft; publishing writes it into the frontmatter, never the body. */
+  category?: string;
+  /** The post's tags, given by the writer with the draft. */
+  tags?: string[];
+  /** The listing blurb, when the site shows one apart from the meta description. */
+  excerpt?: string;
   status: SeoPageStatus;
   serpArtifactId?: number;
   briefArtifactId?: number;
@@ -181,7 +187,7 @@ export type SeoBatchMeta = {
 export type SeoPageRecord = { id: number; title: string; meta: SeoPageMeta };
 
 /** A page's byline, as the project keeps its authors (`ProjectAuthor`). */
-export type SeoPageAuthor = { name: string; title?: string; url?: string; from: 'planned' | 'default' };
+export type SeoPageAuthor = { name: string; title?: string; url?: string; slug?: string; from: 'planned' | 'default' | 'writer' };
 
 /**
  * The byline for a planned page: the project author the plan named (by name,
@@ -191,7 +197,7 @@ export type SeoPageAuthor = { name: string; title?: string; url?: string; from: 
  * @param named - The author the plan named for this page, if any.
  */
 export function bylineFor(authors: readonly ProjectAuthor[] | undefined, named?: string | null): SeoPageAuthor | null {
-  const pick = (a: ProjectAuthor, from: SeoPageAuthor['from']): SeoPageAuthor => ({ name: a.name, ...(a.title ? { title: a.title } : {}), ...(a.url ? { url: a.url } : {}), from });
+  const pick = (a: ProjectAuthor, from: SeoPageAuthor['from']): SeoPageAuthor => ({ name: a.name, ...(a.title ? { title: a.title } : {}), ...(a.url ? { url: a.url } : {}), ...(a.slug ? { slug: a.slug } : {}), from });
   const chosen = named?.trim() ? (authors ?? []).find(a => sameName(a.name, named)) : undefined;
   if (chosen) {
     return pick(chosen, 'planned');
