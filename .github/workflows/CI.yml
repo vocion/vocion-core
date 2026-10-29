@@ -8,6 +8,14 @@ on:
   pull_request:
     branches: [main, next, '[0-9]+.x']
 
+# A newer push to a pull request cancels the run it supersedes. The org's
+# plan runs 20 jobs at once across every repository and a run is about 14,
+# so a stale run holds slots a current one is queued for. main, next and
+# the N.x lines group by commit, so every release keeps its full run.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Two build jobs rather than one matrix, so E2E waits only for the build it
   # restores. `needs` cannot name one leg of a matrix, and with [22.x, 24.x]
@@ -139,6 +147,10 @@ jobs:
 
   build-node-20:
     name: Build with 20.x
+    # Pushes only. Nothing waits on it, and on a pull request it held a
+    # runner slot for 6-8 minutes to prove what the push to main proves
+    # again before any release.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
