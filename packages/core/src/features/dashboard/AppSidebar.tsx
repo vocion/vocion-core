@@ -442,7 +442,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
         {headerApp && !headerApp.core && (
           <div data-testid="app-header" className="flex items-center gap-2 px-2 pt-1.5 group-data-[collapsible=icon]:hidden">
             <LetterTile name={headerApp.name} icon={iconByName(headerApp.icon)} tint={headerApp.tint} size="sm" />
-            <span className="truncate text-[13px] font-semibold text-foreground">{headerApp.name}</span>
+            <span className="truncate text-[13px] font-semibold text-foreground" title={headerApp.name}>{headerApp.shortName ?? headerApp.name}</span>
           </div>
         )}
       </SidebarHeader>

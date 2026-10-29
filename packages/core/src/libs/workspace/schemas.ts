@@ -539,6 +539,12 @@ export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 export const AppManifestSchema = z.object({
   id: SlugSchema,
   name: z.string().min(1),
+  /**
+   * What the sidebar's app header says when the name is too long for it
+   * ("SEO" for Search Engine Optimization). The full name stays everywhere
+   * there is room, and as the header's tooltip.
+   */
+  shortName: z.string().min(1).max(24).optional(),
   /** lucide icon name, resolved by `features/dashboard/iconByName.ts`. */
   icon: z.string().min(1),
   /**

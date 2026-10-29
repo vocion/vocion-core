@@ -4,7 +4,10 @@
 # workspace: every batch and page belongs to a client's project.
 id: seo
 name: Search Engine Optimization
-icon: search
+# The header and rail have no room for the full name.
+shortName: SEO
+# Rankings climbing; a magnifier reads as site search.
+icon: trending-up
 tint: mint
 order: 8
 description: Pages that rank, researched against Google's top results, written in each client's voice, and shipped to their site with your sign-off.
