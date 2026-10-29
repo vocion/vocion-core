@@ -1,0 +1,48 @@
+# Every keyword researched for every client, kept once per project: what
+# the research tools read (volume, competition, the top results and where
+# the client ranks, each with the date it was read), where it went (its
+# batch and page), and why it is worth a page. An ordinary `list` over the
+# `seo_keyword` noun; code writes the rows (`services/seo/keywords.ts`), from
+# the research tools and from the pages, so this reads what was researched
+# and planned, never what someone remembered to save. Tick rows and "Plan a
+# batch from these" asks the strategist with them.
+slug: seo-keywords
+title: Keywords
+description: Every keyword researched for each client, with its volume, who ranks and where the client does, when that was read, and the batch and page it went into.
+icon: tags
+nav: {section: SEO, order: 0}
+archetype: list
+source: {kind: objects, objectType: seo_keyword}
+sort: {field: meta.volume, dir: desc}
+groupBy: meta.projectName
+queryFilters:
+  - {param: project, field: meta.projectId, label: Project, picker: {labelFrom: meta.projectName}}
+  - {param: status, field: meta.status, label: Status, picker: {labelFrom: meta.statusLabel}}
+primary: {field: keyword, subtitle: [why]}
+stats:
+  - {label: Keywords, kind: count}
+  - {label: Ideas, kind: countWhere, where: {field: meta.status, op: eq, value: idea}}
+  - {label: In a batch, kind: countWhere, where: {field: meta.status, op: eq, value: in_batch}}
+  - {label: Ranking, kind: countWhere, where: {field: meta.status, op: eq, value: ranking}}
+fields:
+  - {key: keyword, label: Keyword, from: meta.keyword}
+  - {key: why, label: Why, from: meta.why.text}
+  - {key: project, label: Project, from: meta.projectName}
+  - {key: intent, label: Intent, from: meta.intent}
+  - {key: volume, label: Volume, from: meta.volume, format: mono}
+  # Google Ads competition, the one difficulty figure the provider gives.
+  - {key: competition, label: Competition, from: meta.competition, format: badge, tones: {low: ok, medium: warn, high: bad}}
+  - {key: position, label: Client position, from: meta.clientPosition, format: mono}
+  - {key: status, label: Status, from: meta.status, format: badge, tones: {idea: muted, in_batch: info, published: ok, ranking: ok, dropped: muted}}
+  - {key: batch, label: Batch, from: meta.batchTitle}
+  - {key: checked, label: Checked, from: meta.checkedAt, format: date}
+rowLink: /dashboard/objects/{id}
+rowActions:
+  - {label: Page, href: '/dashboard/objects/{meta.pageId}'}
+  - {label: SERP brief, href: '/dashboard/artifacts/{meta.serpArtifactId}'}
+selectionPrompts:
+  - {label: Plan a batch from these, prompt: 'Plan a batch of SEO pages from these keywords (seo_plan_batch with their keyword_ids). Ask me what you need first, such as the topic or each page''s type.', agent: seo-strategist}
+empty:
+  text: No keywords yet. Ask the SEO strategist to find keywords for a client; everything it researches is kept here.
+prompts:
+  - {label: Find keywords, prompt: 'Find keywords to build SEO pages for a client. First ask me which client, then research what people search and what ranks.', agent: seo-strategist}

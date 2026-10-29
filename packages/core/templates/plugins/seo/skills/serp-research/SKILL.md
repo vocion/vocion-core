@@ -7,7 +7,7 @@ description: >-
   which keywords belong on one page, and search volume when the provider has
   it, as a dated SERP brief with every claim linked. Carries on without volume
   and never invents a number. Read before planning a batch or briefing a page.
-version: 4
+version: 5
 ---
 
 # Researching what ranks
@@ -48,6 +48,19 @@ A page is planned against what already ranks, never against a guess.
 5. `keyword_metrics({ keywords, location?, language? })` for the target and
    the candidate secondary keywords, with keyword ideas when DataForSEO is
    configured.
+
+## The Keywords register
+
+Pass the client's `project_id` to `serp_search`, `keyword_cluster` and
+`keyword_metrics`. Every keyword they read is kept, in code, in that
+project's Keywords register (one row per keyword, refreshed on every read):
+the top results and where the client ranks with the date they were read,
+the volume and competition, the cluster. The result says how many were
+kept. Read the register first (`seo_list_keywords`) rather than researching
+a topic again, and say why a keyword is worth a page, or why it is dropped,
+with `seo_update_keywords`. A person can tick rows on the Keywords page and
+ask for a batch from them: plan it with `seo_plan_batch` and their
+`keyword_ids`.
 
 ## Directories are not competitors
 

@@ -1007,6 +1007,14 @@ export const PageManifestSchema = z.object({
    * sent (to `agent` when named). The words are the workspace's to manage.
    */
   prompts: z.array(z.object({ label: z.string().min(1).max(40), prompt: z.string().min(1), agent: z.string().optional() })).optional(),
+  /**
+   * Asks about the rows a person ticks: each row of a table gets a checkbox,
+   * and once one is ticked these show as buttons. Each opens a NEW chat with
+   * its prompt and the ticked rows (their names and record ids, and the rows
+   * as the chat's records) already sent to `agent` — "Plan a batch from
+   * these" on the SEO keywords.
+   */
+  selectionPrompts: z.array(z.object({ label: z.string().min(1).max(40), prompt: z.string().min(1), agent: z.string().optional() })).min(1).optional(),
   queryFilters: z.array(z.object({
     param: z.string().min(1),
     field: z.string().min(1),
@@ -1063,6 +1071,7 @@ export const PageManifestSchema = z.object({
   .refine(m => m.groupOrder === undefined || !!m.groupBy, { message: 'groupOrder orders groupBy\'s groups — it needs groupBy', path: ['groupOrder'] })
   .refine(m => m.layout === 'table' || m.fields === undefined || m.fields.every(f => !f.total), { message: 'a block layout has no column to total under', path: ['layout'] })
   .refine(m => m.derive === undefined || m.archetype === 'list', { message: 'derive is for list pages, the ones with rows to derive from', path: ['derive'] })
+  .refine(m => m.selectionPrompts === undefined || (m.archetype === 'list' && m.layout === 'table' && m.source?.kind === 'objects'), { message: 'selectionPrompts ask about ticked records: a list of records drawn as a table', path: ['selectionPrompts'] })
   .refine(
     m => m.feed === undefined
       || [...m.feed.aside, ...m.feed.lines, m.feed.summary, m.feed.note].filter((k): k is string => k !== undefined).every(k => (m.fields ?? []).some(f => f.key === k)),

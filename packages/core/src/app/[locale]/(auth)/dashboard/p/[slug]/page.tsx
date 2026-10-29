@@ -14,6 +14,7 @@ import { PageFeed } from '@/features/dashboard/pages/PageFeed';
 import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
 import { PageMonitorBlocks } from '@/features/dashboard/pages/PageMonitorBlocks';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
+import { PageSelection } from '@/features/dashboard/pages/PageSelection';
 import { PageTable } from '@/features/dashboard/pages/PageTable';
 import { WatchEmpty } from '@/features/dashboard/pages/WatchEmpty';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
@@ -1064,6 +1065,7 @@ export default async function WorkspacePage(props: {
         // again inside itself, and the lane's note rides on the panel rather
         // than growing the tab into a sentence.
         const tabbed = manifest.groupsAs === 'tabs' && groups.length > 1;
+        const selectable = Boolean(manifest.selectionPrompts?.length) && manifest.layout === 'table';
         const panel = (g: typeof groups[number], gi: number, groupLabel: string | null) => (
           <Rows
             key={g.label ?? '__all'}
@@ -1078,12 +1080,17 @@ export default async function WorkspacePage(props: {
             groupLabel={groupLabel}
             now={now}
             links={links}
+            selectable={selectable}
           />
         );
+        // Ticked rows and what to ask about them (`selectionPrompts`), across every group.
+        const selecting = (children: React.ReactNode) => (selectable
+          ? <PageSelection prompts={manifest.selectionPrompts!} page={manifest.title} objectType={manifest.source?.kind === 'objects' ? manifest.source.objectType : undefined}>{children}</PageSelection>
+          : children);
         if (!tabbed) {
-          return groups.map((g, gi) => panel(g, gi, g.label));
+          return selecting(groups.map((g, gi) => panel(g, gi, g.label)));
         }
-        return (
+        return selecting(
           <PageGroupTabs
             groups={groups.map((g, gi) => ({
               key: groupTabKey(g.label, gi),
@@ -1093,7 +1100,7 @@ export default async function WorkspacePage(props: {
               note: typeof g.rows[0]?.meta?.laneNote === 'string' ? g.rows[0].meta.laneNote : null,
               children: panel(g, gi, null),
             }))}
-          />
+          />,
         );
       })()}
 

@@ -182,6 +182,8 @@ export type SeoBatchMeta = {
   /** Pages by status, for the SEO home. */
   counts?: Record<string, number>;
   waitingOnYou?: number;
+  /** `weekly` when the weekly opportunities check asked for it; its keywords enter the register so. */
+  source?: 'weekly';
 };
 
 /** `createdAt` is when the page was planned; read where a caller counts pages by month (`cadence.ts`). */
@@ -474,6 +476,8 @@ export type PlanBatchInput = {
   destination?: string;
   pages: PlannedPage[];
   plannedBy?: SeoModelStamp | null;
+  /** `weekly` when the plan answers the weekly opportunities check. */
+  source?: 'weekly';
 };
 
 /** A plan that would make two pages compete for one keyword or one URL. */
@@ -644,6 +648,7 @@ export async function planSeoBatch(orgId: string, userId: string, input: PlanBat
     ...(input.destination ? { destination: input.destination } : {}),
     status: 'plan_review',
     plan: { state: 'plan_review', round: 1 },
+    ...(input.source ? { source: input.source } : {}),
   };
   const batchRow = await createBusinessObject({ typeSlug: SEO_BATCH_TYPE, title: `${project.title}: ${input.topic}`, metadata: batchMeta }, orgId, userId);
   const batchId = batchRow!.id;
@@ -863,6 +868,10 @@ export async function refreshSeoProject(orgId: string, projectId: number, now: D
       }
     }
   }
+  // The Keywords register follows the pages: each planned keyword linked to
+  // its batch and page, its status the page's (`keywords.ts`).
+  const { syncProjectKeywords } = await import('./keywords');
+  await syncProjectKeywords(orgId, projectId, read);
   return read;
 }
 

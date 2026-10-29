@@ -4,6 +4,7 @@ import { FactList, RecordCode } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { LinkRow } from '@/features/dashboard/LinkRow';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
+import { SelectRowBox } from '@/features/dashboard/pages/PageSelection';
 import { computeTotals, fieldAlign, interpolateHref, isEmptyValue, priorityClass, resolveField, resolveRowActionHref, tableLayout } from '@/libs/workspace/pageFields';
 
 /**
@@ -90,13 +91,15 @@ function RowDetails({ row, details, now, links }: { row: PageRow; details: PageF
  * line above the table is still summed.
  * @param root0.layout - The drawn layout.
  * @param root0.extra - 1 when the row carries a trailing chevron cell.
+ * @param root0.lead - The row leads with a checkbox cell.
  */
-function TotalsRow({ rows, fields, layout, extra }: { rows: PageRow[]; fields: PageField[]; layout: TableLayout; extra: number }) {
+function TotalsRow({ rows, fields, layout, extra, lead = false }: { rows: PageRow[]; fields: PageField[]; layout: TableLayout; extra: number; lead?: boolean }) {
   const totals = computeTotals(rows, fields);
   const labelKey = layout.columns.find(f => !f.total)?.key;
   return (
     <tfoot>
       <tr className="border-t border-border bg-muted/40">
+        {lead && <td />}
         {layout.primary && (
           <td className="sticky left-0 z-10 bg-muted/40 px-4 py-2 text-xs">
             <span className="font-medium text-muted-foreground">Total</span>
@@ -133,8 +136,9 @@ function TotalsRow({ rows, fields, layout, extra }: { rows: PageRow[]; fields: P
  * @param root0.links - Resolved record references, by key.
  * @param root0.groupLabel - The group heading, on a grouped page.
  * @param root0.id - DOM id for the section.
+ * @param root0.selectable - Draw a checkbox on each row, for the page's `selectionPrompts` (inside a `PageSelection`).
  */
-export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now, links, groupLabel, id }: {
+export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now, links, groupLabel, id, selectable = false }: {
   /** Accepted for parity with `PageBlocks`; a table draws its actions as a column either way. */
   rowActionsAs?: 'links' | 'menu';
   /** Accepted for parity with `PageBlocks`. */
@@ -148,9 +152,17 @@ export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now
   links?: LinkMap;
   groupLabel?: string | null;
   id?: string;
+  selectable?: boolean;
 }) {
   const layout = tableLayout(rows, fields, primary);
-  const span = layout.columns.length + (layout.primary ? 1 : 0) + rowActions.length + (rowLink ? 1 : 0);
+  // The checkbox rides in the pinned first cell, or leads the row when there is none.
+  const boxCell = selectable && !layout.primary;
+  const span = layout.columns.length + (layout.primary ? 1 : 0) + rowActions.length + (rowLink ? 1 : 0) + (boxCell ? 1 : 0);
+  const nameOf = (row: PageRow): string => {
+    const v = layout.primary ? resolveField(row, layout.primary.from ?? layout.primary.key) : undefined;
+    return typeof v === 'string' && v !== '' ? v : String(row.title ?? row.id);
+  };
+  const box = (row: PageRow) => (selectable ? <SelectRowBox id={String(row.id)} label={nameOf(row)} /> : null);
   const hasTotals = fields.some(f => f.total);
 
   return (
@@ -166,6 +178,7 @@ export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-border bg-muted/40">
+              {boxCell && <th scope="col" className="w-8 px-2 py-2"><span className="sr-only">Select</span></th>}
               {layout.primary && (
                 <th scope="col" className="sticky left-0 z-10 w-[55%] min-w-64 bg-muted/40 px-4 py-2 text-xs font-medium text-muted-foreground">
                   {layout.primary.label ?? layout.primary.key}
@@ -196,10 +209,12 @@ export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now
             )}
             {rows.map((row) => {
               const cells = [
+                boxCell ? <td key="__select" className="w-8 px-2 py-2.5">{box(row)}</td> : null,
                 layout.primary
                   ? (
                       <td key="__primary" className="sticky left-0 z-10 w-[55%] min-w-64 bg-background px-4 py-2.5 group-hover:bg-muted/40">
                         <div className="flex items-baseline gap-2 text-sm font-medium text-foreground">
+                          {box(row)}
                           <RecordCode code={row.code} className="text-xs" />
                           <FieldValue row={row} field={layout.primary} now={now} links={links} />
                         </div>
@@ -256,7 +271,7 @@ export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now
             })}
           </tbody>
           {hasTotals && rows.length > 0 && (
-            <TotalsRow rows={rows} fields={fields} layout={layout} extra={rowActions.length + (rowLink ? 1 : 0)} />
+            <TotalsRow rows={rows} fields={fields} layout={layout} extra={rowActions.length + (rowLink ? 1 : 0)} lead={boxCell} />
           )}
         </table>
       </div>

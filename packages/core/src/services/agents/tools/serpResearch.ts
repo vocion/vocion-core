@@ -26,6 +26,11 @@
  *     from DataForSEO; anywhere else it says plainly that they could not be
  *     established.
  *
+ * With the SEO app on, every keyword these read is kept in the client
+ * project's Keywords register, in code, as part of the call
+ * (`keywordRegister.ts`): the results with the date they were read, the
+ * volume, the cluster. Research done in a chat leaves its rows behind.
+ *
  * Results pages are cached per run (`cachedSearch`): clustering ten keywords
  * and then comparing one of them reads that page once.
  *
@@ -49,6 +54,7 @@ import { isDirectoryDomain } from '@/libs/tools/serp/directories';
 import { extractPageFacts } from '@/libs/tools/serp/pageFacts';
 import { keywordIdeas, keywordMetrics, searchSerp } from '@/libs/tools/serp/registry';
 import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '@/libs/tools/types';
+import { keepResearch, serpResearch } from './keywordRegister';
 import { authorOf, renderMarkdownArtifact } from './renderArtifacts';
 
 /** The grant that puts all three on an agent's belt. */
@@ -244,6 +250,9 @@ function failure(err: unknown): string {
   return `SERP research failed: ${(err as Error).message ?? 'unknown error'}. Do not substitute remembered rankings.`;
 }
 
+/** Which client's register the research is kept in. */
+const projectArg = z.number().int().positive().optional().describe('The client project (list_projects) this is for: what it reads is kept in that project\'s Keywords register.');
+
 const whereArgs = {
   location: z.string().max(120).optional().describe('Where the search is made from, as Google names places: "Denver, Colorado, United States". Omit for the country as a whole.'),
   language: z.string().min(2).max(8).optional().describe('Interface language, ISO 639-1 (Google `hl`), e.g. "en".'),
@@ -259,9 +268,10 @@ function serpSearchTool(ctx: RuntimeContext) {
         const id = serpResultIdOf(serp);
         remember(id, serp);
         const directoryPositions = serp.organic.filter(r => isDirectoryDomain(r.domain)).map(r => r.position);
+        const kept = await keepResearch(ctx, args.project_id, [serpResearch(serp)]);
         // JSON, with the page first: `serp_compare` finds it again by id in
         // the tool-call record, which keeps the first 10,000 characters.
-        return JSON.stringify({ serpResultId: id, serp, ...(directoryPositions.length ? { directoryPositions } : {}) });
+        return JSON.stringify({ serpResultId: id, serp, ...(directoryPositions.length ? { directoryPositions } : {}), ...kept });
       } catch (err) {
         return failure(err);
       }
@@ -278,6 +288,7 @@ function serpSearchTool(ctx: RuntimeContext) {
         query: z.string().min(1).max(400).describe('The search query, exactly as a person would type it'),
         ...whereArgs,
         num: z.number().int().min(1).max(100).optional().describe('How many organic results (default 10)'),
+        project_id: projectArg,
       }),
     },
   );
@@ -400,6 +411,7 @@ function serpCompareTool(ctx: RuntimeContext) {
           }
           serp = (await cachedSearch(ctx, { query: args.query, location: args.location, language: args.language, country: args.country, device: args.device, num: 10 }, true)).serp;
         }
+        const kept = await keepResearch(ctx, undefined, [serpResearch(serp)]);
         const top = serp.organic.slice(0, args.top ?? 10);
         if (top.length === 0) {
           return `The results page for "${serp.query}" had no organic results to compare.`;
@@ -443,6 +455,7 @@ function serpCompareTool(ctx: RuntimeContext) {
           sharedTerms: termTable(pages, serp.query),
           peopleAlsoAsk: serp.peopleAlsoAsk.map(q => q.question),
           receipt,
+          ...kept,
           next: artifactId === null
             ? 'The brief could not be filed; report the facts above instead.'
             : [
@@ -504,6 +517,12 @@ function keywordClusterTool(ctx: RuntimeContext) {
       const ok = read.filter((r): r is { keyword: string; serp: SerpResult; cached: boolean } => 'serp' in r);
       const clusters = clusterKeywords(ok.map(r => ({ keyword: r.keyword, urls: r.serp.organic.slice(0, 10).map(o => o.url) })), { minShared: SHARED_URLS_FOR_ONE_PAGE });
       const idOf = new Map(ok.map(r => [r.keyword, serpResultIdOf(r.serp)]));
+      const headOf = new Map(clusters.flatMap(c => c.members.map(m => [m.keyword, c.head] as const)));
+      const kept = await keepResearch(ctx, args.project_id, ok.map((r) => {
+        const read = serpResearch(r.serp);
+        const head = headOf.get(r.keyword);
+        return { ...read, keyword: r.keyword, ...(head ? { cluster: { head, checkedAt: r.serp.retrievedAt } } : {}) };
+      }));
       return JSON.stringify({
         rule: `Keywords whose Google top 10s share ${SHARED_URLS_FOR_ONE_PAGE} or more URLs belong on one page; each joins the cluster whose head it overlaps most.`,
         provider: ok[0]!.serp.provider,
@@ -517,6 +536,7 @@ function keywordClusterTool(ctx: RuntimeContext) {
         })),
         ...(failed.length ? { couldNotRead: failed.map(f => ({ keyword: f.keyword, why: failure(f.error) })) } : {}),
         next: 'Plan one page per cluster (seo_plan_batch): the head as the target keyword, the rest as its secondary keywords. A keyword alone in its cluster gets its own page or is dropped. Each serpResultId can go straight to serp_compare without searching again.',
+        ...kept,
       });
     },
     {
@@ -530,6 +550,7 @@ function keywordClusterTool(ctx: RuntimeContext) {
         location: whereArgs.location,
         language: whereArgs.language,
         country: whereArgs.country,
+        project_id: projectArg,
       }),
     },
   );
@@ -553,10 +574,14 @@ function keywordMetricsTool(ctx: RuntimeContext) {
           ideasOut = { ideas: null, ideasUnavailable: ideas.reason };
         }
         if (!outcome.ok) {
-          return JSON.stringify({ ok: false, keywords, reason: outcome.reason, ...ideasOut });
+          // Looked at, with nothing established: the rows say so by having no volume.
+          const kept = await keepResearch(ctx, args.project_id, keywords.map(keyword => ({ keyword })));
+          return JSON.stringify({ ok: false, keywords, reason: outcome.reason, ...ideasOut, ...kept });
         }
         await charge(ctx, 'serp/dataforseo-search-volume', outcome.result.billedUnits);
-        return JSON.stringify({ ok: true, source: 'Google Ads data via DataForSEO', ...outcome.result, ...ideasOut });
+        const r = outcome.result;
+        const kept = await keepResearch(ctx, args.project_id, r.metrics.map(m => ({ keyword: m.keyword, metrics: { checkedAt: r.retrievedAt, volume: m.searchVolume, competition: m.competition, competitionIndex: m.competitionIndex, cpc: m.cpc, location: r.location, language: r.language } })));
+        return JSON.stringify({ ok: true, source: 'Google Ads data via DataForSEO', ...r, ...ideasOut, ...kept });
       } catch (err) {
         return failure(err).replace('SERP research', 'Keyword metrics').replace('remembered rankings', 'estimated volumes');
       }
@@ -569,6 +594,7 @@ function keywordMetricsTool(ctx: RuntimeContext) {
         location: z.string().max(120).optional().describe('As Google names places: "United States" (default), "Denver, Colorado, United States"'),
         language: z.string().min(2).max(8).optional().describe('ISO 639-1, default "en"'),
         ideas: z.boolean().optional().describe('Also fetch keyword ideas for these keywords (default true; another paid call)'),
+        project_id: projectArg,
       }),
     },
   );

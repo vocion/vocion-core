@@ -390,6 +390,7 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
  * @param root0.links - Resolved record references, by key.
  * @param root0.groupLabel - The group heading, on a grouped page.
  * @param root0.id - DOM id for the section.
+ * @param root0.selectable - Accepted for parity with `PageTable`.
  */
 export function PageBlocks({ rows, fields, primary, rowLink, rowActions = [], rowActionsAs = 'links', omitConstants = [], now, links, groupLabel, id }: {
   rows: PageRow[];
@@ -404,6 +405,8 @@ export function PageBlocks({ rows, fields, primary, rowLink, rowActions = [], ro
   links?: LinkMap;
   groupLabel?: string | null;
   id?: string;
+  /** Accepted for parity with `PageTable`; ticking rows is a table's (`selectionPrompts`). */
+  selectable?: boolean;
 }) {
   const layout = tableLayout(rows, fields, primary, now);
   return (

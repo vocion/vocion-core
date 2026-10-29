@@ -11,12 +11,17 @@ client's site with a person's sign-off. The **Search Engine Optimization** app.
   and writes briefs on Opus 5.5), the SERP analyst (research legwork on
   Sonnet 5.5, granted the `serp` tools), the SEO writer (Opus 5.5) and the
   SEO editor (Sonnet 5.5), who checks every draft before a person sees it.
-- **Two records**, both carrying `projectId`: `seo_batch` (a set of pages for
-  one client and topic, with its gate) and `seo_page` (one keyword, its page
+- **Three records**, each carrying `projectId`: `seo_batch` (a set of pages for
+  one client and topic, with its gate), `seo_page` (one keyword, its page
   type, location and target URL, its status, the SERP brief, brief and draft
   artifacts, the model that ran each
   step, every feedback note with where it was filed, and the pull request and
-  live URL once published).
+  live URL once published) and `seo_keyword` (the Keywords register: every
+  keyword researched for a client, once, kept by the research tools in code
+  with its volume, competition, cluster, top results and the client's
+  position, each with the date it was read; it follows its page from idea to
+  in a batch, published and ranking). The Keywords page lists them first in
+  the SEO nav; tick rows and "Plan a batch from these" asks the strategist.
 - **A signed-off keyword plan**: `seo_plan_batch` files one sign-off showing
   the keyword map (keyword, page type, location, intent, cluster, new page or
   refresh). Nothing is briefed or drafted until a person approves it.

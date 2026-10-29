@@ -3,7 +3,8 @@
  *
  *   seo_read_page        a page whole: its record, findings and feedback, and the text of its SERP brief, brief and draft
  *   seo_plan_batch       a batch and its keyword plan for one project; files the plan's sign-off;
- *                        with `cadence`, REFUSES a project with no cadence, on pace, or a plan past what it is short
+ *                        with `cadence`, REFUSES a project with no cadence, on pace, or a plan past what it is short;
+ *                        with `keyword_ids`, plans from Keywords register rows (`seoKeywords.ts`)
  *   seo_next_pages       what the project's gate lets be written now, why the rest wait, and the client's adopted rules
  *   seo_start_writing    queue the released pages for the background run (writing never runs in a chat turn)
  *   seo_save_research    the SERP brief artifact on a page; a location page's must be its own city's read
@@ -45,6 +46,7 @@ import { fileSeoPlanAsk, fileSeoSignoffAsk, withdrawPageAsks } from '@/services/
 import { describeVoiceFindings, draftVoiceFindings } from '@/services/seo/voiceCheck';
 import { findingsMd, followFrom, normaliseFindings, queueSeoWork, SEO_EDITOR_ROUNDS } from '@/services/seo/work';
 import { recordIdArg, recordIdOf } from './recordIdArg';
+import { planFromKeywords, registerLine, seoListKeywordsTool, seoUpdateKeywordsTool } from './seoKeywords';
 import { seoReadPageTool } from './seoReadPage';
 
 export const SEO_PLUGIN = 'seo';
@@ -266,11 +268,17 @@ function planAskLine(askId: number, docked: boolean): string {
 export function seoPlanBatchTool(ctx: RuntimeContext) {
   return tool(
     async (raw, runtime?: ToolCallRuntime) => {
-      const args = raw as { project_id?: number; batch_id?: number | string; topic: string; destination?: string; why?: string; pages: unknown; cadence?: boolean };
-      const pages = coerceJson(args.pages) as PageInput[];
-      if (!Array.isArray(pages) || pages.length === 0) {
-        return 'Not planned: name at least one page (its target keyword).';
+      const args = raw as { project_id?: number; batch_id?: number | string; topic: string; destination?: string; why?: string; pages?: unknown; cadence?: boolean; keyword_ids?: number[] };
+      // Planned from Keywords register rows: their pages when the plan gives none.
+      const fromRegister = await planFromKeywords(ctx, args.keyword_ids, args.project_id, coerceJson(args.pages) as PageInput[] | undefined);
+      if (typeof fromRegister === 'string') {
+        return fromRegister;
       }
+      const pages = fromRegister.pages as PageInput[];
+      if (!Array.isArray(pages) || pages.length === 0) {
+        return 'Not planned: name at least one page (its target keyword), or keyword_ids from the Keywords register.';
+      }
+      args.project_id ??= fromRegister.projectId;
       const placeless = pages.filter(p => p.page_type === 'location' && !p.location?.trim());
       if (placeless.length > 0) {
         return `Not planned: ${placeless.map(p => `"${p.keyword}"`).join(', ')} ${placeless.length === 1 ? 'is a location page' : 'are location pages'} with no location. Give each the city or service area it is for.`;
@@ -308,7 +316,7 @@ export function seoPlanBatchTool(ctx: RuntimeContext) {
             return refusal;
           }
         }
-        const { batch, pages: made } = await planSeoBatch(ctx.orgId, by, { projectId: args.project_id, topic: args.topic, destination: args.destination, pages: input, plannedBy });
+        const { batch, pages: made } = await planSeoBatch(ctx.orgId, by, { projectId: args.project_id, topic: args.topic, destination: args.destination, pages: input, plannedBy, ...(args.cadence ? { source: 'weekly' as const } : {}) });
         const here = await askHere(ctx);
         const ask = await fileSeoPlanAsk({ orgId: ctx.orgId, batchId: batch.id, agentSlug: seat(ctx, plannedBy), why: args.why, here });
         const docked = ask && here ? await showDocked(ctx, ask.askId) : false;
@@ -317,6 +325,7 @@ export function seoPlanBatchTool(ctx: RuntimeContext) {
         return [
           `Planned batch #${batch.id} "${batch.title}" with ${made.length} pages (${batchHref(batch.id)}).`,
           `Filed the keyword plan's sign-off for a person${ask ? ` (ask #${ask.askId})` : ''}: the map of keyword, page type, location, intent, cluster and target.`,
+          registerLine(batch.meta.projectId),
           'STOP HERE: brief and draft nothing until they approve it — seo_save_brief and seo_save_draft refuse until then, and you are woken when they answer. Do not file another ask for it. SERP research may go on meanwhile (seo_save_research).',
           ask ? planAskLine(ask.askId, docked).trim() : null,
           unsigned > 0 ? `${unsigned === made.length ? 'No page has' : `${unsigned} ${unsigned === 1 ? 'page has' : 'pages have'}`} a byline: the project names no default author. Read the client's author pages and set them once with update_project authors (one marked default); ask the person only if the site names none. Never ask per batch.` : null,
@@ -328,14 +337,15 @@ export function seoPlanBatchTool(ctx: RuntimeContext) {
     },
     {
       name: 'seo_plan_batch',
-      description: 'Plan a batch of SEO pages for one client project: a batch and one proposed page per target keyword, in writing order, each with its page type, location, intent, cluster and whether it refreshes a live page. Files ONE sign-off ask showing the keyword map; then stop: nothing is briefed or drafted until a person approves it, and you are woken when they answer. Refuses a keyword the project already has a page for in another open batch or live, or a URL another page lives at, unless the page is marked `refresh` with the `existing_url` it rewrites. To revise a plan a person sent back, pass batch_id with the whole revised list. Use after the SERP research for the topic (keyword_cluster first, so each page targets one cluster).',
+      description: 'Plan a batch of SEO pages for one client project: a batch and one proposed page per target keyword, in writing order, each with its page type, location, intent, cluster and whether it refreshes a live page. From Keywords register rows: pass keyword_ids (pages optional; give pages to set types and locations). Files ONE sign-off ask showing the keyword map; then stop: nothing is briefed or drafted until a person approves it, and you are woken when they answer. Refuses a keyword the project already has a page for in another open batch or live, or a URL another page lives at, unless the page is marked `refresh` with the `existing_url` it rewrites. To revise a plan a person sent back, pass batch_id with the whole revised list. Use after the SERP research for the topic (keyword_cluster first, so each page targets one cluster).',
       schema: z.object({
         project_id: z.number().int().positive().optional().describe('The client project (list_projects) the pages are for. Not needed with batch_id.'),
         batch_id: recordIdArg('A batch whose plan was sent back, to revise it').optional(),
         topic: z.string().min(1).max(200).describe('What the batch covers, in a few words, e.g. "Trail running shoes".'),
         destination: z.string().max(120).optional().describe('The project\'s publish target id these pages ship to, when it has one.'),
         why: z.string().max(2000).optional().describe('Why these pages, in a few lines a person reads beside the map.'),
-        pages: z.array(pageSchema).min(1).max(200),
+        pages: z.array(pageSchema).min(1).max(200).optional().describe('The pages; built from keyword_ids when left out.'),
+        keyword_ids: z.array(z.number().int().positive()).min(1).max(200).optional().describe('Keywords register rows to plan from (seo_list_keywords), in writing order.'),
         cadence: z.boolean().optional().describe('True when this plan answers the weekly "New page opportunities" check (SEO work queued with reason opportunities). The tool re-reads the project\'s cadence and refuses a project with none, one already on pace, or more pages than it is short.'),
       }),
     },
@@ -852,6 +862,8 @@ export function seoTools(ctx: RuntimeContext) {
     seoSaveReviewTool(ctx),
     seoRecordFeedbackTool(ctx),
     seoLearnFrontmatterTool(ctx),
+    seoListKeywordsTool(ctx),
+    seoUpdateKeywordsTool(ctx),
   ];
   // The SEO seats' own tools are never behind tool search: a teammate on its
   // own model gets the lead's tiered set, and a live editor run could not find

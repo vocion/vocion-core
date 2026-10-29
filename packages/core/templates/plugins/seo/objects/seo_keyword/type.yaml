@@ -1,0 +1,111 @@
+slug: seo_keyword
+label: SEO keyword
+description: >-
+  One keyword researched for one client's project, kept once: the keyword
+  and its project are the key (`services/seo/keywords.ts`), so researching it
+  again refreshes the row rather than adding one. Code writes it from what
+  the research tools read (serp_search, keyword_cluster, keyword_metrics,
+  serp_compare): its volume and competition, its cluster, the top results
+  with the date they were read, and where the client's own site ranks. It
+  follows its page once it is planned: in a batch, published, ranking. Every
+  fact that can go stale carries the date it was read, and the note on why
+  it is worth a page (or why it was dropped) carries its date too. The SERP
+  brief stays on the page; the row links to it.
+icon: tags
+schema:
+  type: object
+  properties:
+    projectId:
+      type: integer
+      description: The client's project.
+    keyword:
+      type: string
+      description: The search query, as people type it.
+    keywordKey:
+      type: string
+      description: The keyword as it is compared (case, spacing and punctuation gone); one row per key per project.
+    intent:
+      type: string
+      description: What the searcher wants — informational, commercial, transactional or navigational.
+    volume:
+      type: integer
+      description: Average monthly searches, from Google Ads data. Empty when the provider could not establish it.
+    competition:
+      type: string
+      enum: [low, medium, high]
+      description: Google Ads competition for the keyword, when the provider gives it.
+    competitionIndex:
+      type: integer
+      description: Google Ads competition index, 0 to 100, when the provider gives it.
+    cpc:
+      type: number
+      description: Average cost per click in USD, when the provider gives it.
+    metricsCheckedAt:
+      type: string
+      format: date-time
+      description: When the volume and competition were read.
+    location:
+      type: string
+      description: Where the search was read from, as Google names places.
+    language:
+      type: string
+      description: The interface language it was read in.
+    cluster:
+      type: string
+      description: The head keyword of its cluster (keyword_cluster) — the page it belongs on.
+    clusterCheckedAt:
+      type: string
+      format: date-time
+    topResults:
+      type: array
+      description: Google's top results for it when last read, best first.
+      items:
+        type: object
+        properties:
+          position: {type: integer}
+          url: {type: string}
+          title: {type: string}
+    serpCheckedAt:
+      type: string
+      format: date-time
+      description: When Google's results were last read for it.
+    clientPosition:
+      type: integer
+      description: Where the client's own site ranked when last read; empty when it was not in the results read.
+    clientUrl:
+      type: string
+      description: The client's page that ranked.
+    status:
+      type: string
+      enum: [idea, in_batch, published, ranking, dropped]
+      x-display: {label: Status, format: badge, tones: {idea: muted, in_batch: info, published: ok, ranking: ok, dropped: muted}}
+      x-labels: {idea: Idea, in_batch: In a batch, published: Published, ranking: Ranking, dropped: Dropped}
+      x-groups:
+        - {key: progress, label: In a batch, role: progress, in: [in_batch]}
+        - {key: proposed, label: Ideas, role: proposed, default: true, in: [idea]}
+        - {key: done, label: Live, role: done, in: [published, ranking]}
+        - {key: archived, label: Dropped, role: archived, in: [dropped]}
+    batchId:
+      type: integer
+      description: The batch it was planned in.
+    pageId:
+      type: integer
+      description: Its page.
+    serpArtifactId:
+      type: integer
+      description: The page's SERP brief, linked from here and kept on the page.
+    publishedUrl:
+      type: string
+      description: The live page, once published.
+    source:
+      type: string
+      enum: [chat, weekly, imported]
+      x-labels: {chat: Research in chat, weekly: Weekly opportunities, imported: Imported}
+      description: Where it was first researched.
+    why:
+      type: object
+      description: Why it is worth a page, or why it was dropped, with when it was said and by whom.
+      properties:
+        text: {type: string}
+        at: {type: string, format: date-time}
+        by: {type: string}
