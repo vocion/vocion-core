@@ -165,6 +165,10 @@
       "description": "Endpoints under /api/v1/workflows."
     },
     {
+      "name": "workforce",
+      "description": "Endpoints under /api/v1/workforce."
+    },
+    {
       "name": "workspace",
       "description": "Endpoints under /api/v1/workspace."
     }
@@ -9356,6 +9360,151 @@
                     "description": "Read by this endpoint; see the description for what it must contain."
                   }
                 },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workforce": {
+      "get": {
+        "operationId": "get_workforce",
+        "summary": "Read workspace business outcomes and learning evidence.",
+        "tags": [
+          "workforce"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read workspace business outcomes and learning evidence.\nRequires workspace administrator access. Outcome rows cover items updated in the\nwindow; learning assets are current stock. Missing gold-standard provenance and\nvalidated improvement remain null. No raw eval cases or feedback payloads are returned.\nQuery parameters:\n- `days` — Rolling window: 1, 7, 30 or 90; default 7.\n- `test` — true selects synthetic outcome records only and omits learning metrics.",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "description": "Rolling window: 1, 7, 30 or 90; default 7.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "test",
+            "in": "query",
+            "required": false,
+            "description": "true selects synthetic outcome records only and omits learning metrics.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_workforce",
+        "summary": "Register work, attach evidence or record a human outcome.",
+        "tags": [
+          "workforce"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Register work, attach evidence or record a human outcome.\nRequires workspace administrator access; review commands require a session.\nBody is a strict workforce command with kind create, link or review and eventKey.\nCreate requires key, workflow, title, agentSlug, rubric and configurationVersion.\nLink requires itemId, version, sourceKind and sourceId. Review requires itemId,\nversion, status, reason and evidence; effortMinutes records active effort only.\nExact event replay returns its existing receipt; changed payloads or stale revisions\nreturn 409, and foreign or missing items return 404. Synthetic create uses test=true.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "A JSON object. This endpoint reads its fields dynamically, so they are described in the prose above.",
+                "properties": {},
                 "additionalProperties": true
               }
             }

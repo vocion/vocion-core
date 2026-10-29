@@ -4,8 +4,15 @@ import { readWorkforceOutcomes, recordWorkforceCommand } from '@/services/workfo
 import { authApi, isErrorResponse, jsonError, readJsonBody, requireWorkspaceAdmin, writeApiErrorResponse } from '../_shared';
 
 /**
- * Full metadata snapshot for reconciliation. Replay exports by workspace + eventKey.
- * @param req
+ * GET /api/v1/workforce
+ * Read workspace business outcomes and learning evidence.
+ * Requires workspace administrator access. Outcome rows cover items updated in the
+ * window; learning assets are current stock. Missing gold-standard provenance and
+ * validated improvement remain null. No raw eval cases or feedback payloads are returned.
+ * Query parameters:
+ * - `days` — Rolling window: 1, 7, 30 or 90; default 7.
+ * - `test` — true selects synthetic outcome records only and omits learning metrics.
+ * @param req - The authenticated request.
  */
 export async function GET(req: Request) {
   const caller = await authApi(req);
@@ -25,6 +32,18 @@ export async function GET(req: Request) {
   return NextResponse.json(await readWorkforceOutcomes(caller.orgId, new Date(until.getTime() - days * 86_400_000), until, params.get('test') === 'true'), { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
+/**
+ * POST /api/v1/workforce
+ * Register work, attach evidence or record a human outcome.
+ * Requires workspace administrator access; review commands require a session.
+ * Body is a strict workforce command with kind create, link or review and eventKey.
+ * Create requires key, workflow, title, agentSlug, rubric and configurationVersion.
+ * Link requires itemId, version, sourceKind and sourceId. Review requires itemId,
+ * version, status, reason and evidence; effortMinutes records active effort only.
+ * Exact event replay returns its existing receipt; changed payloads or stale revisions
+ * return 409, and foreign or missing items return 404. Synthetic create uses test=true.
+ * @param req - The authenticated request.
+ */
 export async function POST(req: Request) {
   const caller = await authApi(req);
   if (isErrorResponse(caller)) {
