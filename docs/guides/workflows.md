@@ -23,7 +23,7 @@ This guide is how the pieces fit.
 | `repeat` | A group of steps runs again until a condition holds, at most `max` rounds. |
 | `approve` | The run waits on a person's Decision: approve to go on, reject to stop. |
 | `ask` | The run waits for a person's text, unless its `default` already resolves. |
-| `action` | A registered action. `workflow.start` and `routine.run` run; the others record what they would do. |
+| `action` | A registered action, run for real: the trust ladder runs it now or holds it on its card. |
 | `sync` | Refresh named sources, so later steps read live data. |
 
 Any step can carry a `label` (what a person reads while it runs) and a `when`
@@ -105,9 +105,50 @@ open findings), and `onExhausted: fail` fails the run. Inside the group,
 step's label says "round 2 of 3" on its own.
 
 A group holds `agent`, `action` and `sync` steps. A person's gate goes after
-the group, not inside it, and groups do not nest. After the group,
+the group, not inside it, and groups do not nest. An action held on its card
+waits inside the group, and a failed action is a failed round: the group goes
+on, `{{steps.<name>.output.ok}}` is false, and `until`, `max` and
+`onExhausted` decide. After the group,
 `{{steps.edit.output.rounds}}` is how many rounds ran and
 `{{steps.edit.output.satisfied}}` whether `until` held.
+
+## An action step
+
+```yaml
+- name: publish
+  type: action
+  label: Publishing the page
+  when: "{{input.publish_target}} != 'none'"
+  action: site.publish_page
+  input:
+    pageRecordId: '{{input.page_id}}'
+```
+
+The step proposes the registered action the way an agent's `propose_action`
+does, as the workflow's owning agent, so **the trust ladder decides**: a kind
+the ladder releases runs now, and anything else waits on the action's own
+card in Review and on Needs you, where it is approved or turned down like
+every other card. The run waits with it (the step reads "Waiting on a
+person"). Approving runs the action and the run goes on; turning it down stops
+the run with the reason; stopping the run withdraws the card.
+
+- **What goes out or cannot be undone always waits.** An action on the
+  platform's never-auto list, one that says every run needs a person, or one
+  that reaches outside the workspace with no Undo (`site.publish_live`, a
+  sent email) is held for a person whatever the trust rule, and its card never
+  offers "Always allow".
+- **The result is the step's output:** `{{steps.publish.output.ok}}`,
+  `.status` (`done`, `failed`, …), `.actionRunId`, and `.result`, the
+  action's own result (`{{steps.publish.output.result.url}}`).
+- **A failure fails the step:** an input the action refuses, its own check,
+  or an execution that throws. Outside a repeat group that fails the run with
+  the action's words; inside one it is a failed round.
+- **`confidence`** (0–1, or a reference such as
+  `{{steps.review.output.confidence}}`) is what the ladder weighs against a
+  trust rule's floor. The default is 1: the procedure asks for the step
+  outright, and the kind's rung, risk and reversibility decide.
+- `workflow.start` and `routine.run` run in the engine itself. An id no action
+  is registered under records what it would have done.
 
 ## Conditions
 
@@ -313,6 +354,9 @@ sign-off; a page still failing after the third round goes to its sign-off with
 the editor's open findings on the card. Rejecting a sign-off stops that page's
 run and no other.
 
-`publish` names `site.publish_page`. Today an `action` step records what it
-would do and runs only `workflow.start` and `routine.run`; running a
-registered action from a step under its trust rule is the next change.
+`publish` runs `site.publish_page` for real. Publishing reaches the client's
+site, so after the sign-off the run waits once more, on the publish card
+itself ("Publish "Boiler repair in Larkfield" → Northwind site"): what
+reaches a client's site is approved on its own card. Approving it opens the
+pull request (or saves the Squarespace draft), and the step's output carries
+the action's result, its link included.

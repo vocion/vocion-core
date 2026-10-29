@@ -10,7 +10,8 @@
  * alignment evidence or every run of the kind keeps its Undo (Jamie,
  * 2026-10-26: "I don't want to have to be allow once all the time" — the
  * person's own "always" is the evidence, scoped and revocable). Anywhere
- * else the option is simply not there.
+ * else the option is simply not there, and it is never there for a kind that
+ * goes out or cannot be undone (`libs/actions/outward.ts`).
  *
  * Choosing it promotes the kind, then runs this one as Allow once. Scoped to
  * the workspace.
@@ -39,6 +40,13 @@ async function workspaceName(orgId: string): Promise<string> {
  */
 async function promotion(orgId: string, userId: string | null, actionId: string | null): Promise<{ to: string; earned: boolean } | null> {
   if (!userId || !actionId) {
+    return null;
+  }
+  // An action that goes out or cannot be undone is approved every time: no
+  // "always" (`libs/actions/outward.ts`).
+  const [{ getAction }, { isOutwardOrIrreversible }] = await Promise.all([import('@/libs/actions/registry'), import('@/libs/actions/outward')]);
+  const action = getAction(actionId);
+  if (action && isOutwardOrIrreversible(action)) {
     return null;
   }
   try {

@@ -55,4 +55,4 @@ steps:
     input:
       to: '{{input.to}}'
       subject: 'Cobalt platform {{input.version}} is out'
-      body: '{{steps.approve-release.output.body}}'
+      body: '{{steps.release-notes.output}}'

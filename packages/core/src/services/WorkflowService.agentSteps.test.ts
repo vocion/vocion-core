@@ -144,7 +144,7 @@ describe('workflow agent steps', () => {
   });
 
   it('skips a step whose when is false, and runs it when true', async () => {
-    const steps = [{ name: 'publish', type: 'action', action: 'site.publish_page', when: '{{input.target}} != \'none\'', input: { page: '{{input.page_id}}' } }, { name: 'after', type: 'action', action: 'log', input: {} }];
+    const steps = [{ name: 'publish', type: 'action', action: 'crm.note_publish', when: '{{input.target}} != \'none\'', input: { page: '{{input.page_id}}' } }, { name: 'after', type: 'action', action: 'log', input: {} }];
     await seed('page', steps);
 
     const skipped = await startWorkflow({ orgId: ORG, slug: 'page', input: { target: 'none', page_id: 4 } });

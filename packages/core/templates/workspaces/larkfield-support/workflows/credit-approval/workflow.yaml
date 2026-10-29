@@ -45,7 +45,7 @@ steps:
     type: action
     action: hubspot.update
     input:
-      objectType: company
+      objectType: companies
       objectId: '{{input.accountId}}'
       properties:
-        support_credit_note: '{{steps.approve-amount.output.body}}'
+        support_credit_note: '{{steps.recommendation.output}}'

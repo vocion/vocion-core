@@ -304,6 +304,8 @@ async function listWorkflowPlane(orgId: string, opts: ListOptions, now: Date, ca
   const where = and(
     eq(workflowRunSchema.orgId, orgId),
     eq(workflowRunSchema.status, PENDING_STATUS.workflow),
+    // A run waiting on an action's card is decided on that card, in the action plane.
+    sql`coalesce(${workflowRunSchema.pauseReason}, '') not like 'awaiting_action:%'`,
     ...routingFilters(opts, now),
   );
   const query = db
