@@ -169,6 +169,27 @@ export function withLongLivedPrefix(messages: BaseMessage[], ttl: PrefixCacheTtl
   return changed ? out : messages;
 }
 
+/**
+ * A system prompt carrying the prefix breakpoint a live turn's system prompt
+ * carries: the last block marked `ephemeral`, as deepagents'
+ * `createCacheBreakpointMiddleware` marks it on every model call of the
+ * agent graph. `CachingChatAnthropic` then gives it `prefixCacheTtl()`.
+ *
+ * For a caller that drives the model without the graph (the
+ * `agent-behaviour` eval), so its first call of a turn reads the prefix from
+ * the cache the way production's does. Without it every first call is cold
+ * and a cost comparison measures the wrong thing.
+ * @param content - The system prompt, as text or blocks.
+ */
+export function systemWithPrefixBreakpoint(content: string | Array<Record<string, unknown>>): SystemMessage {
+  const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : [...content];
+  if (blocks.length === 0) {
+    return new SystemMessage({ content: '' });
+  }
+  blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: { type: 'ephemeral' } };
+  return new SystemMessage({ content: blocks as never });
+}
+
 /** The raw event the stream tap adds after `message_start`, passed through LangChain as a provider event. */
 const ONE_HOUR_WRITE_EVENT = 'vocion_cache_creation_1h';
 

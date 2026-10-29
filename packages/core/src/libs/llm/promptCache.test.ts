@@ -35,6 +35,7 @@ import {
   minimumCacheableTokens,
   prefixCacheTtl,
   promptCacheAllowed,
+  systemWithPrefixBreakpoint,
   tapOneHourCacheWrites,
   withCacheControl,
   withLongLivedPrefix,
@@ -460,5 +461,25 @@ describe('cachingChatAnthropic against a scripted vendor', () => {
     const message = await model.invoke([markedSystem(), new HumanMessage('What do I owe replies to?')]);
 
     expect(oneHourCacheWritesOf(message)).toBe(36_500);
+  });
+});
+
+describe('systemWithPrefixBreakpoint', () => {
+  it('marks the last block the way the graph\'s breakpoint middleware does', () => {
+    const message = systemWithPrefixBreakpoint('You analyze the pipeline.');
+
+    expect(message.content).toEqual([{ type: 'text', text: 'You analyze the pipeline.', cache_control: { type: 'ephemeral' } }]);
+  });
+
+  it('marks only the last of several blocks', () => {
+    const message = systemWithPrefixBreakpoint([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }]);
+
+    expect(message.content).toEqual([{ type: 'text', text: 'a' }, { type: 'text', text: 'b', cache_control: { type: 'ephemeral' } }]);
+  });
+
+  it('is then given the one-hour prefix TTL, like a live turn', () => {
+    const [marked] = withLongLivedPrefix([systemWithPrefixBreakpoint('prefix')], '1h');
+
+    expect((marked!.content as Array<{ cache_control?: unknown }>)[0]!.cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
   });
 });

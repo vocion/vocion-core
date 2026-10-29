@@ -17,10 +17,11 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { EvalAgent, EvalCase, EvalLevel } from './dataset';
 import type { CaseRun } from './score';
 import type { ToolLoading } from '@/services/agents/toolLoading';
-import { HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
+import { HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { tool as makeTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { buildChatModel } from '@/libs/llm';
+import { systemWithPrefixBreakpoint } from '@/libs/llm/promptCache';
 import { modelIdOf, tokenUsageOf } from '@/libs/llm/usage';
 import { tokenCostCents } from '@/libs/pricing';
 import { emptyTurnToolStats, noteModelToolUse, planToolLoading, toolSearchNote } from '@/services/agents/toolLoading';
@@ -113,7 +114,9 @@ export async function runCase(opts: { agent: EvalAgent; evalCase: EvalCase; mode
   const spec = levelModel(level);
   const model = opts.model ?? buildChatModel(spec.role, { provider: 'anthropic', ...(spec.thinking ? { thinking: spec.thinking } : {}) });
   const bound = (model as unknown as StreamingModel).bindTools(tools);
-  const messages: unknown[] = [new SystemMessage(systemPrompt), new HumanMessage(evalCase.message)];
+  // The prefix breakpoint a live turn's system prompt carries, so a case's
+  // first call reads the agent's prefix from the cache as production does.
+  const messages: unknown[] = [systemWithPrefixBreakpoint(systemPrompt), new HumanMessage(evalCase.message)];
   const calls: CaseRun['calls'] = [];
   const startedAt = Date.now();
   let firstTokenMs = 0;

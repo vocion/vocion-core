@@ -167,5 +167,5 @@ platform's shared prompt rules or per-turn middleware.
 
 ## Not in scope
 
-Model routing and effort levels; live evals of production agents; which
-connector actions exist; renaming tools for search.
+Model routing and effort levels; live evals of production agents (ADR 0010);
+which connector actions exist; renaming tools for search.

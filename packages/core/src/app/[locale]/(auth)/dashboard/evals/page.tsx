@@ -77,6 +77,9 @@ export default async function EvalsPage(props: Props) {
             Clear
           </Link>
         )}
+        <Link href="/dashboard/evals/live" className="ml-auto text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" data-testid="evals-live-link">
+          Live agents
+        </Link>
       </form>
 
       {datasets.length === 0
