@@ -6077,3 +6077,45 @@ export const recordDuplicateCheckSchema = pgTable(
     index('record_duplicate_check_object_idx').on(table.orgId, table.objectId),
   ],
 );
+
+// Business work identity is independent of attempts, delegates and approvals.
+export const workforceItemSchema = pgTable('workforce_item', {
+  id: text('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  key: text('key').notNull(),
+  workflow: text('workflow').notNull(),
+  title: text('title').notNull(),
+  agentSlug: text('agent_slug').notNull(),
+  teamSlug: text('team_slug'),
+  rubric: text('rubric').notNull(),
+  configurationVersion: text('configuration_version').notNull(),
+  baselineMinutes: integer('baseline_minutes'),
+  baselineEvidence: text('baseline_evidence'),
+  test: boolean('test').default(false).notNull(),
+  version: integer('version').default(0).notNull(),
+  status: text('status').default('open').notNull(),
+  createdBy: text('created_by').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+}, t => [uniqueIndex('workforce_item_org_key_idx').on(t.orgId, t.key), index('workforce_item_org_updated_idx').on(t.orgId, t.updatedAt)]);
+
+export const workforceLinkSchema = pgTable('workforce_link', {
+  orgId: text('org_id').notNull(),
+  itemId: text('item_id').notNull().references(() => workforceItemSchema.id),
+  kind: text('kind').notNull(),
+  sourceId: integer('source_id').notNull(),
+}, t => [primaryKey({ columns: [t.orgId, t.kind, t.sourceId] })]);
+
+// Append-only events are the durable export. Event keys are scoped to a workspace.
+export const workforceEventSchema = pgTable('workforce_event', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  itemId: text('item_id').notNull().references(() => workforceItemSchema.id),
+  eventKey: text('event_key').notNull(),
+  commandHash: text('command_hash').notNull(),
+  version: integer('version').notNull(),
+  kind: text('kind').notNull(),
+  actorId: text('actor_id').notNull(),
+  data: jsonb('data').$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+}, t => [uniqueIndex('workforce_event_org_key_idx').on(t.orgId, t.eventKey), uniqueIndex('workforce_event_item_version_idx').on(t.itemId, t.version)]);

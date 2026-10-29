@@ -14,6 +14,7 @@
     "packages/plugins/*"
   ],
   "scripts": {
+    "verify:workforce:live": "node scripts/verify-workforce-live.mjs",
     "dev": "npm run dev --workspace @vocion/core",
     "dev:next": "npm run dev:next --workspace @vocion/core",
     "dev:agent-runtime": "npm run dev --workspace @vocion/agent-runtime",

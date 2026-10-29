@@ -1,4 +1,4 @@
-import { os } from '@orpc/server';
+import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
 import {
   getAgentDetail,
@@ -10,6 +10,7 @@ import {
 } from '@/services/adoption/AdoptionService';
 import { getWorkforceInventory } from '@/services/adoption/WorkforceService';
 import { listProjectsForUser } from '@/services/ProjectService';
+import { workforceCommand, WorkforceError } from '@/services/workforce/contracts';
 import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -99,4 +100,24 @@ export const workforceOverviewRoute = os.input(WorkforceWindow).handler(async ({
     workspaces.push(...batch);
   }
   return { activeId: orgId, workspaces };
+});
+
+export const workforceOutcomesRoute = os.input(WorkforceWindow.extend({ test: z.boolean().default(false) })).handler(async ({ input }) => {
+  const { orgId } = await guardAdmin();
+  const { readWorkforceOutcomes } = await import('@/services/workforce/ledger');
+  const until = new Date();
+  return readWorkforceOutcomes(orgId, new Date(until.getTime() - input.days * 86_400_000), until, input.test);
+});
+
+export const workforceRecordRoute = os.input(workforceCommand).handler(async ({ input }) => {
+  const { orgId, userId } = await guardAdmin();
+  const { recordWorkforceCommand } = await import('@/services/workforce/ledger');
+  try {
+    return await recordWorkforceCommand(orgId, userId, input);
+  } catch (error) {
+    if (error instanceof WorkforceError) {
+      throw new ORPCError(error.status === 409 ? 'CONFLICT' : error.status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST', { status: error.status, message: error.message });
+    }
+    throw error;
+  }
 });

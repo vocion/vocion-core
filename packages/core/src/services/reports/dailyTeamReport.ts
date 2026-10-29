@@ -45,10 +45,14 @@ import {
   workerRunSchema,
   workflowRunSchema,
 } from '@/models/Schema';
+import { getWorkforceInventory } from '@/services/adoption/WorkforceService';
 import { briefingHref } from '@/services/briefings/links';
 import { parseStoredDocument } from '@/services/briefings/store';
 import { agentScopedOnly } from '@/services/BudgetService';
 import { teamReport } from '@/services/TeamReportService';
+import { workforceInsights } from '@/services/workforce/activityInsights';
+import { outcomeInsights } from '@/services/workforce/insights';
+import { readWorkforceOutcomes } from '@/services/workforce/ledger';
 import { DAILY_TEAM_REPORT_PUBLISHER, shapeDailyTeamReport } from './dailyTeamReportShape';
 
 export { DAILY_TEAM_REPORT_PUBLISHER, shapeDailyTeamReport } from './dailyTeamReportShape';
@@ -59,11 +63,18 @@ export type { AgentRow, BudgetRow, DailyTeamReportData, MemberStats, NeedsYou, P
  * is a daily, so the activity window is 24h; each measure reads its own
  * authored window regardless.
  * @param orgId - Project id.
+ * @param since
  * @param until - The clock the report is read at.
  */
-async function fetchPerformance(orgId: string, until: Date): Promise<PerformanceSummary | undefined> {
+async function fetchPerformance(orgId: string, since: Date, until: Date): Promise<PerformanceSummary | undefined> {
   try {
-    const r = await teamReport(orgId, '24h', until);
+    const hours = (until.getTime() - since.getTime()) / 3_600_000;
+    // Do not label a 24-hour reading as a custom reporting window.
+    const window = hours === 24 ? '24h' : hours === 168 ? '7d' : hours === 720 ? '30d' : null;
+    if (!window) {
+      return undefined;
+    }
+    const r = await teamReport(orgId, window, until);
     return {
       goal: r.goal,
       setupNeeded: r.setup.needed,
@@ -256,7 +267,7 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
     accountableEmail = u?.email ?? null;
   }
 
-  const [agents, teams, budgets, runs, needsYou, rollupRows, performance] = await Promise.all([
+  const [agents, teams, budgets, runs, needsYou, rollupRows, performance, outcomes, inventory] = await Promise.all([
     db.select({ slug: agentSchema.slug, name: agentSchema.name, teamSlug: agentSchema.teamSlug, active: agentSchema.active }).from(agentSchema).where(eq(agentSchema.orgId, orgId)),
     db.select({ slug: teamSchema.slug, name: teamSchema.name, leadAgentSlug: teamSchema.leadAgentSlug }).from(teamSchema).where(eq(teamSchema.orgId, orgId)),
     db.select({ agentSlug: agentBudgetSchema.agentSlug, period: agentBudgetSchema.period, currentMicroCents: agentBudgetSchema.currentMicroCents, currentTokens: agentBudgetSchema.currentTokens, hardCentsLimit: agentBudgetSchema.hardCentsLimit })
@@ -265,7 +276,11 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
     fetchWorkerRuns(orgId, w),
     fetchNeedsYou(orgId),
     fetchBriefing(orgId, since, until, opts.briefing),
-    fetchPerformance(orgId, until),
+    fetchPerformance(orgId, since, until),
+    readWorkforceOutcomes(orgId, since, until),
+    [1, 7, 30, 90].includes((until.getTime() - since.getTime()) / 86_400_000)
+      ? getWorkforceInventory(orgId, (until.getTime() - since.getTime()) / 86_400_000 as 1 | 7 | 30 | 90)
+      : Promise.resolve(null),
   ]);
   const rollup = rollupRows;
 
@@ -286,6 +301,20 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
     ...shaped,
     ...(performance ? { performance } : {}),
     needsYou,
+    outcomeInsights: [
+      ...outcomeInsights(outcomes),
+      ...(inventory
+        ? workforceInsights(inventory).slice(0, 3).map(({ agent, kind }) => ({
+            evidence: `Agent ${agent.slug}: ${agent.reviewDecisions} review decisions in this window.`,
+            text: kind === 'activation'
+              ? 'Check eligible demand, routing and expected cadence before prompting more activity.'
+              : kind === 'corrections'
+                ? 'Inspect corrected and rejected examples; identify whether context, source access or a playbook step needs changing.'
+                : 'Collect a representative human review sample against explicit acceptance criteria before drawing a quality conclusion.',
+            measure: 'Compare accepted business items and active human effort, not messages or tokens.',
+          }))
+        : []),
+    ].slice(0, 5),
     rollup,
     links: { inbox: link('/dashboard/inbox'), teamReport: link('/dashboard/team-report'), briefings: link('/dashboard/briefings') },
     generatedAt: new Date(),

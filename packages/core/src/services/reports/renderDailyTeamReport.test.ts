@@ -166,9 +166,9 @@ describe('renderDailyTeamReport', () => {
     expect(s.performance.setup).toBeNull();
     expect(s.performance.headline).toEqual([
       'Goal: Be found first for AI-workforce-in-production.',
-      '**1 / 2** teams on target · **88%** goal progress · **2h 18m** human review · **78%** of work needed nobody · **3** need attention',
+      '**1 / 2** teams on target · **88%** goal progress · **2h 18m** decision waiting · **78%** of work needed nobody · **3** need attention',
     ]);
-    expect(s.performance.teams[0]).toBe('**Executive** — 8 / 10 Merged PRs · 80% of weekly target · ↑3 vs prior · human-confirmed · 17 min review over 12 interventions · $6.14/PR · **2 items need you**');
+    expect(s.performance.teams[0]).toBe('**Executive** — 8 / 10 Merged PRs · 80% of weekly target · ↑3 vs prior · human-confirmed · 17 min decision waiting over 12 interventions · $6.14/PR · **2 items need you**');
     expect(s.performance.teams[1]).toBe('**Content** — 3 / 3 Posts published · 100% of weekly target ✓ · agent-reported — the worker\'s own count · no human interventions · $4.67/post');
     expect(s.performance.teams[2]).toBe('**Board** — no measure yet · no human interventions · $31.30 operating cost · **1 item needs you**');
     expect(performanceLine({ slug: 'q', name: 'Quiet', mission: null, primary: null, humanLoad: { interventions: 0, reviewMs: 0, interventionRate: null, autonomousCompletionRate: null }, cents: 0, costPerOutcomeCents: null, needsYou: 0 })).toBe('**Quiet** — no measure yet · no human interventions · no spend in the window');
@@ -176,7 +176,7 @@ describe('renderDailyTeamReport', () => {
     expect(reviewTime(20_000)).toBe('<1 min');
     expect(reviewTime(46 * 60_000)).toBe('46 min');
     expect(performanceLine({ slug: 'x', name: 'X', mission: null, primary: { label: 'Pipeline', value: 417_000, target: 1_500_000, unit: '$', attainment: 0.278, met: false, provenance: 'verified', trend: null, delta: null, window: 'quarter' }, humanLoad: { interventions: 1, reviewMs: 60_000, interventionRate: null, autonomousCompletionRate: null }, cents: 38_400, costPerOutcomeCents: null, needsYou: 0 }))
-      .toBe('**X** — $417,000 / $1,500,000 Pipeline · 28% of quarterly target · verified · 1 min review over 1 intervention · $384 operating cost');
+      .toBe('**X** — $417,000 / $1,500,000 Pipeline · 28% of quarterly target · verified · 1 min decision waiting over 1 intervention · $384 operating cost');
   });
 
   it('performance: setup copy when the workspace is not measured, and when the read failed', () => {
@@ -322,4 +322,17 @@ describe('renderDailyTeamReport', () => {
   it('is stable — snapshot of the whole mail', () => {
     expect(renderDailyTeamReport(fixture())).toMatchSnapshot();
   });
+});
+
+it('includes evidence-based improvements in both daily and weekly report rendering', () => {
+  const data = fixture();
+  data.outcomeInsights = [{ evidence: 'Synthetic work: blocked; reviewer category data-access.', text: 'Verify permissions and freshness before changing instructions.', measure: 'Compare recurrence and active effort.' }];
+  const daily = renderDailyTeamReport(data);
+
+  expect(daily.markdown).toContain('Verify permissions and freshness');
+  expect(daily.html).toContain('Verify permissions and freshness');
+
+  data.window.since = new Date(data.window.until.getTime() - 7 * 86_400_000);
+
+  expect(renderDailyTeamReport(data).markdown).toContain('Compare recurrence and active effort.');
 });

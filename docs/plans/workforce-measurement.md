@@ -213,3 +213,65 @@ renderers for richer insights rather than creating a competing scheduler or appr
 queue. The lightweight dashboard triage prompts are not yet part of their digests.
 The measurement contracts above describe needed coverage and linkage, not a claim
 that none of those events or capabilities already exist in core.
+
+## Sprint 2 implementation and acceptance
+
+The new `workforce_item` is an explicitly registered business item, independent of
+worker attempts and action proposals. A workspace-unique business key identifies
+it; linked source records may belong to only one item. Delegates and retries link
+to the same item. Registration captures workflow type, accountable agent/team,
+configuration version, acceptance criteria and an optional measured manual baseline
+with its evidence. The baseline is not invented from execution duration.
+
+An append-only event ledger records registration, links and human reviews. Each
+command has a workspace-scoped idempotency key and expected item revision.
+Identical retries return the original receipt; changed payloads, stale revisions,
+cross-workspace sources and duplicate source attribution are rejected. Terminal
+outcomes must be explicitly reopened before they can be changed. Review decisions
+are human attestations, not independent correctness evaluations. API tokens may
+register and link work but cannot attest a human review.
+
+The Scorecard workspace view provides expandable work objects, registration, source
+linking, review with structured reason and evidence, and JSON export. Synthetic
+records are stored separately by an immutable test flag and excluded from ordinary
+reports. Active effort is human-reported minutes, distinct from decision waiting.
+Worker spend is explicitly partial; missing spend and net savings remain unknown.
+The cohort is items updated in the reporting window, not a claim of all eligible
+work or total business throughput. Snapshots are capped at 1,000 items and identify
+incompleteness. They are a durable reconciliation interface, not an acknowledgment
+that a central analytics service received the events.
+
+Daily reports and seven-day report runs consume the same deterministic improvement
+rules as Scorecard. Suggestions refer to reviewer categories, missing measurements
+and activity/review coverage. Notes cannot supply executable recommendations.
+Existing schedules and recipients remain in place. No parallel email scheduler is
+introduced. The report's decision-latency labels are corrected, and custom report
+windows no longer silently reuse a 24-hour performance reading.
+
+### Three pilot procedures
+
+| Pilot | Stable item and linked evidence | Acceptance rubric | Manual baseline |
+| --- | --- | --- | --- |
+| Human-assisted classification | One business record; link its action proposal and any attempts | Reviewer verifies required fields against the source; corrections record category and reason | Time representative manual cases; record sample and source |
+| Scheduled briefing | One scheduled occurrence; link the producing worker and retries | Reviewer checks required sections, source freshness and unsupported claims | Measure the same briefing preparation manually |
+| Multi-agent proposal | One requested proposal; link every contributing worker and resulting action | Reviewer checks requirements, supported claims, pricing assumptions and completeness | Measure comparable proposal scope, including revision effort |
+
+Registration and linkage are explicit in this release. The API can be called by
+an adapter, but this is **not automatic capture across every existing agent or
+scheduler**. An owner must register actual pilot work and attach its sources.
+Business baselines, sufficient review samples, full model/tool/vendor cost
+attribution, automatic runtime propagation and delivery to central analytics remain
+acceptance work; synthetic fixtures cannot establish them. Do not call the full
+Sprint 2 business exit criteria complete until those records exist.
+
+### Adversarial release gates
+
+Exercise real migrated storage and HTTP handlers: missing/member authentication,
+invalid bearer with valid session, forged workspace fields, colliding tenant keys,
+foreign item/source IDs, payload conflicts, parallel retries, concurrent decisions,
+double-linked attempts, completion without acceptance, terminal-state reopening,
+unknown cost, missing baseline, synthetic exclusion and hostile evidence text.
+Run live smoke verification through the signed-in QA account using test-flagged
+records only. Never approve a real business action or send an external message as
+part of a measurement test. Preserve failure evidence and distinguish local,
+live-API and live-browser checks in the release report.

@@ -108,6 +108,7 @@ export type DailyTeamReportData = {
   window: ReportWindow;
   /** Goal attainment, human load and cost per outcome per team. Absent when the report could not be read. */
   performance?: PerformanceSummary;
+  outcomeInsights?: { evidence: string; text: string; measure: string }[];
   totals: {
     runs: number;
     completed: number;
