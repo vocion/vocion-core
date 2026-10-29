@@ -140,7 +140,7 @@ describe('the hand-off card, pending', () => {
     expect(page.getByTestId('step-2').element().querySelector('pre')).toBeNull();
   });
 
-  it('has ONE Why, with the suggestion inline, rather than the reasoning beside why it suggests that', async () => {
+  it('has ONE Why section, the rationale and the reason each on its own labelled line, in their own words', async () => {
     await render(<ReviewSurface run={handoff()} crumbs={CRUMBS} />);
 
     await page.getByText('Why, evidence and run details').click();
@@ -152,8 +152,8 @@ describe('the hand-off card, pending', () => {
     expect(why.querySelectorAll('[data-pattern="section"]')).toHaveLength(1);
     expect(why.textContent).toContain('The rename needs the domain before the marketing site can move, and the name is free today.');
     expect(why.textContent).not.toContain('The reasoning');
-    expect(why.textContent).not.toContain('Why it suggests that');
-    expect(page.getByTestId('suggested-decision-reason').elements()).toHaveLength(0);
+    await expect.element(page.getByTestId('suggested-decision-reason')).toHaveTextContent('Why it suggests approving');
+    await expect.element(page.getByTestId('suggested-decision-reason')).toHaveTextContent('Fourteen dollars a year and nothing depends on it yet.');
     // The advice, and the fact that tipped it, lead: on the decision header, not under Why.
     await expect.element(page.getByTestId('decision-recommendation')).toHaveTextContent('Fourteen dollars a year and nothing depends on it yet · 90% confident');
     await expect.element(page.getByTestId('decision-recommendation')).toHaveTextContent('send-lead suggests');

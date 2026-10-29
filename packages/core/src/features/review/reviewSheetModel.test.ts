@@ -388,27 +388,32 @@ describe('send or draft, in the order the proposal asked for', () => {
   });
 });
 
-describe('a Why says each sentence once', () => {
-  it('drops a sentence the rationale already said, and one that is the title', async () => {
-    const { distinctSentences } = await import('./reviewSheetModel');
+describe('a Why in its authors\' own words', () => {
+  it('keeps the rationale and the reason as two labelled lines, whole, never merged or cut', async () => {
+    const { whyLines } = await import('./reviewSheetModel');
+    const rationale = 'Dana replied on Oct 28 after a month. The deal is worth $1.5M.';
+    const reason = 'A referral call Friday may open a licensing deal. The deal is worth $1.5M.';
 
-    expect(distinctSentences([
-      'Dana replied on Oct 28 after a month. A referral call Friday may open a licensing deal.',
-      'A referral call Friday may open a licensing deal. A reply keeps it warm.',
-      'Draft a reply to Dana Reyes.',
-    ], ['Draft a reply to Dana Reyes'])).toEqual([
-      'Dana replied on Oct 28 after a month. A referral call Friday may open a licensing deal.',
-      'A reply keeps it warm.',
+    expect(whyLines({ rationale, reason, suggestedVerb: 'approving', titles: ['Draft a reply to Dana Reyes'] })).toEqual([
+      { kind: 'rationale', label: 'Why', text: rationale },
+      { kind: 'reason', label: 'Why it suggests approving', text: reason },
     ]);
+  });
+
+  it('leaves out only a line that is the title, or the same text as one before it, and keeps any script', async () => {
+    const { whyLines } = await import('./reviewSheetModel');
+
+    expect(whyLines({ rationale: 'Draft a reply to Dana Reyes', reason: 'Same.', detail: 'Same.', summary: 'Ответ ждут с понедельника.', titles: ['Draft a reply to Dana Reyes'] }).map(l => l.kind))
+      .toEqual(['reason', 'summary']);
   });
 });
 
 describe('the Review item shell', () => {
-  it('drops header facts that are only handles', async () => {
+  it('drops only the facts its presenter marked as handles, never by the look of the value', async () => {
     const { readableFacts } = await import('./reviewSheetModel');
 
-    expect(readableFacts([{ label: 'Campaign', value: '23900000001' }, { label: 'Lead magnet', value: '820000000001' }, { label: 'Source', value: 'Paid social' }, { label: 'Owner', value: 7 }]))
-      .toEqual([{ label: 'Source', value: 'Paid social' }, { label: 'Owner', value: 7 }]);
+    expect(readableFacts([{ label: 'Campaign', value: '23900000001', handle: true }, { label: 'Order', value: '100245' }, { label: 'Source', value: 'Paid social' }, { label: 'Owner', value: '' }]))
+      .toEqual([{ label: 'Order', value: '100245' }, { label: 'Source', value: 'Paid social' }]);
   });
 
   it('says how long it has waited', async () => {
@@ -425,6 +430,7 @@ describe('the Review item shell', () => {
     const tipping = tippingFact([null, 'Fit is Poor: enterprise, outside the 20 to 90M band. The rest is detail.']);
 
     expect(tipping).toBe('Fit is Poor: enterprise, outside the 20 to 90M band');
+    expect(tippingFact(['The deal is worth $1.5M, up from v2.1 of the quote. More.'])).toBe('The deal is worth $1.5M, up from v2.1 of the quote');
     expect(decisionLine({ agent: 'Revenue Lead', suggested: 'approve', what: 'Enroll in Nurture · 4 emails', tipping, confidence: 0.85, agreement: 'You agreed 84 of 97' }))
       .toBe('Revenue Lead suggests: Enroll in Nurture · 4 emails. Fit is Poor: enterprise, outside the 20 to 90M band · 85% confident · You agreed 84 of 97');
     expect(decisionLine({ agent: 'Revenue Lead', suggested: 'reject', what: 'Enroll in Nurture', confidence: 0.6 })).toBe('Revenue Lead suggests turning it down · 60% confident');

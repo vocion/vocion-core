@@ -6,7 +6,11 @@ const voiceRulesFor = vi.fn();
 vi.mock('@/libs/writing/loadVoiceRules', () => ({ voiceRulesFor: (...args: unknown[]) => voiceRulesFor(...args) }));
 vi.mock('@/services/mail/replyThread', () => ({ findReplyThread: (...args: unknown[]) => findReplyThread(...args) }));
 const readThreadEvidence = vi.fn();
-vi.mock('@/services/mail/threadEvidence', () => ({ readThreadEvidence: (...args: unknown[]) => readThreadEvidence(...args) }));
+const readableGmailSources = vi.fn();
+vi.mock('@/services/mail/threadEvidence', () => ({
+  readThreadEvidence: (...args: unknown[]) => readThreadEvidence(...args),
+  readableGmailSources: (...args: unknown[]) => readableGmailSources(...args),
+}));
 
 const resolveAttachments = vi.fn();
 const describeAttachments = vi.fn();
@@ -44,6 +48,7 @@ const THREAD = {
   href: 'https://mail.google.com/mail/u/rowan%40northwind.example/#all/t-42',
   counterpart: 'Dana Reyes <dana@kestrel.example>',
   mailbox: 'rowan@northwind.example',
+  sourceId: 11,
   lastMessageAt: '2026-10-08T18:14:00.000Z',
   messages: [{ from: 'Dana Reyes <dana@kestrel.example>', at: '2026-10-08T18:14:00.000Z', snippet: 'Can we get everyone on a call early next week?' }],
   matchedBy: 'id' as const,
@@ -52,6 +57,7 @@ const THREAD = {
 beforeEach(() => {
   findReplyThread.mockReset().mockResolvedValue(null);
   readThreadEvidence.mockReset().mockResolvedValue(null);
+  readableGmailSources.mockReset().mockResolvedValue([{ id: 11, slug: 'gmail' }]);
   resolveAttachments.mockReset().mockResolvedValue([]);
   describeAttachments.mockReset().mockResolvedValue([]);
   voiceRulesFor.mockReset().mockResolvedValue({ never: [{ id: 'colon', pattern: /:[ \t]+[a-z]/, reason: 'A colon in prose.' }], maxWordsPerSend: 5 });
@@ -174,7 +180,7 @@ describe('gmailSendAction', () => {
     });
 
     const list = await gmailSendAction.reviewCard!({ orgId: 'o' }, parse({ to: 'dana@kestrel.example', subject: 'Re: Phase 2 priorities', body: 'hello', draft: true, threadId: 't-42' }));
-    const detail = await gmailSendAction.reviewCard!({ orgId: 'o', detail: true }, parse({ to: 'dana@kestrel.example', subject: 'Re: Phase 2 priorities', body: 'hello', draft: true, threadId: 't-42' }));
+    const detail = await gmailSendAction.reviewCard!({ orgId: 'o', detail: true, viewerId: 'user-rowan' }, parse({ to: 'dana@kestrel.example', subject: 'Re: Phase 2 priorities', body: 'hello', draft: true, threadId: 't-42' }));
 
     // A page of the queue keeps the synced lines and reads nothing more.
     expect(list.outbound?.thread?.latest).toBeUndefined();
@@ -185,6 +191,17 @@ describe('gmailSendAction', () => {
       latest: { from: 'Dana Reyes <dana@kestrel.example>', at: '2026-10-28T23:20:00.000Z', body: 'Slow going on the pilot.\nA referral call Friday may open a licensing deal.' },
       messages: [{ from: 'Rowan Pike <rowan@northwind.example>', at: '2026-08-28T16:00:00.000Z', snippet: 'Here are the two options.' }],
     });
+  });
+
+  it('on its decision screen, shows nothing of a thread whose mailbox the viewer may not read, not even the synced lines', async () => {
+    findReplyThread.mockResolvedValue(THREAD);
+    readableGmailSources.mockResolvedValue([{ id: 12, slug: 'gmail-iris' }]);
+
+    const card = await gmailSendAction.reviewCard!({ orgId: 'o', detail: true, viewerId: 'user-iris' }, parse({ to: 'dana@kestrel.example', subject: 'Re: Phase 2 priorities', body: 'hello', draft: true, threadId: 't-42' }));
+
+    expect(card.outbound?.thread).toBeUndefined();
+    expect(readThreadEvidence).not.toHaveBeenCalled();
+    expect(readableGmailSources).toHaveBeenCalledWith('o', 'user-iris');
   });
 
   it('presents a reply draft as the outbound artifact: who, the thread, the copy, the signature — never "Send 1"', async () => {

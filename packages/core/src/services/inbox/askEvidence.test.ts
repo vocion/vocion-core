@@ -16,16 +16,20 @@ vi.mock('@/libs/DB');
 vi.mock('@/services/SourceCredentialService', () => ({ getCredentialsForSource: vi.fn(async () => null) }));
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema } = await import('@/models/Schema');
+const { actionRunSchema, knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, userSchema } = await import('@/models/Schema');
 const { crmKeysOf, loadAskEvidence, threadPointerOf } = await import('./askEvidence');
 const { parseThreadText, rejoinChunks, splitThread } = await import('@/services/mail/threadEvidence');
-const { idsIn } = await import('@/services/inbox/pendingAction');
-const { threadIdOfCitation } = await import('@/services/preview/evidenceLabels');
+const { evidenceLabels, threadIdOfCitation } = await import('@/services/preview/evidenceLabels');
 
 const ORG = 'org_ask_evidence';
 const ZERO_VEC = Array.from({ length: 1536 }, () => 0);
 const ROWAN = 'Rowan Pike <rowan@northwind.example>';
 const DANA = 'Dana Reyes <dana@kestrel.example>';
+/** The mailbox's owner, who may read it. */
+const ROWAN_ID = 'user-rowan';
+/** A colleague the mailbox is restricted from. */
+const IRIS_ID = 'user-iris';
+const VIEWER = { userId: ROWAN_ID };
 
 /**
  * A message as `fetchGmailThreadDoc` writes it into the thread copy.
@@ -46,8 +50,10 @@ const MESSAGES = [
 ];
 
 async function seed(opts: { cacheEndsAt?: string } = {}) {
+  await db.insert(userSchema).values([{ id: ROWAN_ID, email: 'rowan@northwind.example', name: 'Rowan Pike' }, { id: IRIS_ID, email: 'iris@northwind.example', name: 'Iris Nakamura' }]);
   const [crm] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'hubspot-deals', kind: 'plugin', configJson: { _connector: 'hubspot' } }).returning();
-  const [mail] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'gmail', kind: 'plugin', configJson: { _connector: 'gmail' } }).returning();
+  // Rowan's mailbox, restricted to Rowan.
+  const [mail] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'gmail', kind: 'plugin', configJson: { _connector: 'gmail' }, accessPolicy: { visibility: 'restricted', users: ['rowan@northwind.example'] } }).returning();
   await db.insert(knowledgeDocumentSchema).values([
     { orgId: ORG, sourceId: crm!.id, externalId: 'deals:7001', title: 'Kestrel Capital — Phase 2', contentHash: 'd-7001', metadata: { objectType: 'deals' } },
     { orgId: ORG, sourceId: crm!.id, externalId: 'contacts:9001', title: 'Dana Reyes', contentHash: 'c-9001', metadata: { objectType: 'contacts', primaryEmail: 'dana@kestrel.example' } },
@@ -78,6 +84,7 @@ afterEach(async () => {
   await db.delete(knowledgeChunkSchema);
   await db.delete(knowledgeDocumentSchema);
   await db.delete(knowledgeSourceSchema);
+  await db.delete(userSchema);
 });
 
 describe('what an ask says it is about', () => {
@@ -114,6 +121,14 @@ describe('reading a thread copy back', () => {
       { from: DANA, at: '2026-09-08T18:00:00.000Z', line: 'Thanks, reviewing with the board.' },
     ]);
   });
+
+  it('never shows the owner\'s own message as the other side\'s: not without the owner\'s address, not when only the owner wrote', () => {
+    const messages = parseThreadText(MESSAGES.map(section).join('\n\n---\n\n'));
+
+    expect(splitThread(messages, null).latest).toBeNull();
+    expect(splitThread(messages, null).history).toHaveLength(3);
+    expect(splitThread(messages.filter(m => m.from === ROWAN), 'rowan@northwind.example').latest).toBeNull();
+  });
 });
 
 describe('the evidence on an ask\'s page', () => {
@@ -121,7 +136,7 @@ describe('the evidence on an ask\'s page', () => {
     await seed();
     const [run] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'gmail.send', status: 'pending', input: { to: DANA, subject: 'Re: Phase 2 priorities', body: 'Good to hear from you, Dana.', threadId: 't-42', draft: true } }).returning();
 
-    const evidence = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-42' }, { type: 'deal', id: '7001' }], contextUrl: null }, { userId: null });
+    const evidence = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-42' }, { type: 'deal', id: '7001' }], contextUrl: null }, VIEWER);
 
     expect(evidence.records).toEqual([{ type: 'deal', id: 'deals:7001', label: 'Kestrel Capital — Phase 2', noun: 'Deal' }]);
     expect(evidence.thread).toMatchObject({
@@ -143,7 +158,7 @@ describe('the evidence on an ask\'s page', () => {
     vi.setSystemTime(new Date('2026-10-29T12:00:00.000Z'));
     await seed();
 
-    const evidence = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'contact', id: '9001' }], contextUrl: null }, { userId: null });
+    const evidence = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'contact', id: '9001' }], contextUrl: null }, VIEWER);
 
     expect(evidence.thread).toMatchObject({ threadId: 't-42', draft: null });
     expect(evidence.records).toEqual([{ type: 'object', id: 'contacts:9001', label: 'Dana Reyes', noun: 'Contact' }]);
@@ -152,22 +167,55 @@ describe('the evidence on an ask\'s page', () => {
   it('shows the last copy when the thread has grown and Gmail cannot be asked', async () => {
     await seed({ cacheEndsAt: 'm2' });
 
-    const evidence = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-42' }], contextUrl: null }, { userId: null });
+    const evidence = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-42' }], contextUrl: null }, VIEWER);
 
     expect(evidence.thread!.latest!.from).toBe(DANA);
+  });
+
+  it('shows nothing of a mailbox the viewer may not read: no state, no copy, no draft', async () => {
+    await seed();
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'gmail.send', status: 'pending', input: { to: DANA, subject: 'Re: Phase 2 priorities', body: 'Private draft.', threadId: 't-42', draft: true } });
+
+    const asIris = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-42' }], contextUrl: null }, { userId: IRIS_ID });
+    const byContact = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'contact', id: '9001' }], contextUrl: null }, { userId: IRIS_ID });
+    const noViewer = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-42' }], contextUrl: null }, { userId: null });
+
+    expect(asIris.thread).toBeNull();
+    expect(byContact.thread).toBeNull();
+    expect(noViewer.thread).toBeNull();
+    // Nothing read out of the mailbox: no message, no snippet, no draft body.
+    // (The draft's own Review row, which every member sees in the queue, may
+    // still be named among the related items.)
+    expect(JSON.stringify([asIris.thread, byContact.thread, noViewer.thread])).not.toMatch(/Phase 2 priorities|Private draft|licensing|referral/);
+    expect(JSON.stringify([asIris, byContact, noViewer])).not.toMatch(/Private draft|licensing|referral/);
+  });
+
+  it('names a cited thread by its subject only for a viewer who may read its mailbox', async () => {
+    await seed();
+
+    await expect(evidenceLabels(ORG, ['gmail:thread:t-42', 'deals:7001'], ROWAN_ID)).resolves.toEqual({ 'gmail:thread:t-42': 'Phase 2 priorities', 'deals:7001': 'Kestrel Capital — Phase 2' });
+    await expect(evidenceLabels(ORG, ['gmail:thread:t-42'], IRIS_ID)).resolves.toEqual({});
+  });
+
+  it('shows only a draft in this thread, never one to the same person on another subject', async () => {
+    await seed();
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'gmail.send', status: 'pending', input: { to: DANA, subject: 'Conference dinner', body: 'Another conversation.', draft: true } });
+
+    const evidence = await loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-42' }], contextUrl: null }, VIEWER);
+
+    expect(evidence.thread).toMatchObject({ threadId: 't-42', draft: null });
   });
 
   it('shows no thread for an ask that names none, and nothing for a thread never synced', async () => {
     await seed();
 
-    await expect(loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'deal', id: '7001' }], contextUrl: null }, { userId: null })).resolves.toMatchObject({ thread: null });
-    await expect(loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-404' }], contextUrl: null }, { userId: null })).resolves.toEqual({ thread: null, records: [], related: [] });
+    await expect(loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'deal', id: '7001' }], contextUrl: null }, VIEWER)).resolves.toMatchObject({ thread: null });
+    await expect(loadAskEvidence(ORG, { id: 1, objectRefs: [{ type: 'gmail_thread', id: 't-404' }], contextUrl: null }, VIEWER)).resolves.toEqual({ thread: null, records: [], related: [] });
   });
 });
 
 describe('what a proposal names, for its neighbours and its chips', () => {
-  it('reads the ids a proposal\'s input names, and the thread a citation names', () => {
-    expect(idsIn({ threadId: 't-42', objectId: 7001, objectType: 'deals', to: 'dana@kestrel.example', id: 'x-1' })).toEqual(['t-42', '7001', 'x-1']);
+  it('reads the thread a citation names', () => {
     expect(threadIdOfCitation('gmail:thread:19a2b3c4d5e6f708')).toBe('19a2b3c4d5e6f708');
     expect(threadIdOfCitation('gmail-thread:t-42')).toBe('t-42');
     expect(threadIdOfCitation('gmail:Re: Phase 2')).toBeNull();

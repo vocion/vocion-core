@@ -5,7 +5,7 @@ import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema, agentSchema, reviewAssignmentSchema, userSchema } from '@/models/Schema';
 import { scoreFor } from '@/services/alignment/AlignmentService';
-import { relatedOpenItems } from '@/services/inbox/relatedItems';
+import { proposalSubjectKeys, relatedOpenItems } from '@/services/inbox/relatedItems';
 import { evidenceLabels } from '@/services/preview/evidenceLabels';
 import { accessGrantedSince } from '@/services/review/accessGranted';
 
@@ -21,9 +21,11 @@ import { accessGrantedSince } from '@/services/review/accessGranted';
  * by the presenter, so no card can claim what its action does not implement.
  * @param orgId
  * @param id
+ * @param opts - Who the decision screen is drawn for.
+ * @param opts.userId - The viewer: evidence read from a mailbox goes through their grants.
  * @returns The run, or null when the org does not own it.
  */
-export async function loadPendingAction(orgId: string, id: number): Promise<ActionRun | null> {
+export async function loadPendingAction(orgId: string, id: number, opts: { userId?: string | null } = {}): Promise<ActionRun | null> {
   const [found] = await db
     .select({ run: actionRunSchema, assignedTo: reviewAssignmentSchema.assignedTo })
     .from(actionRunSchema)
@@ -51,7 +53,7 @@ export async function loadPendingAction(orgId: string, id: number): Promise<Acti
         return undefined;
       }
       // The decision screen: the presenter may read the evidence a list skips.
-      const built = await presenter({ orgId, detail: true }, row.input).catch(() => undefined);
+      const built = await presenter({ orgId, detail: true, ...(opts.userId ? { viewerId: opts.userId } : {}) }, row.input).catch(() => undefined);
       return built ? { ...built, canRegenerate: action?.regenerate !== undefined } : undefined;
     })(),
   ]);
@@ -69,9 +71,10 @@ export async function loadPendingAction(orgId: string, id: number): Promise<Acti
     // A run that failed for want of access says whether it is there now.
     row.status === 'failed' ? accessGrantedSince(orgId, { actionId: row.actionId, input: row.input, error: row.error ?? null }) : Promise.resolve(null),
     agentSlug ? agentNameOf(orgId, agentSlug) : Promise.resolve(null),
-    citations.length > 0 ? evidenceLabels(orgId, citations).catch(() => ({})) : Promise.resolve({}),
-    // Open ones only: a decided card has nothing left to settle beside it.
-    row.status === 'pending' ? relatedOpenItems(orgId, [...idsIn(row.input), ...citations], { kind: 'proposal', id: row.id }).catch(() => []) : Promise.resolve([]),
+    citations.length > 0 ? evidenceLabels(orgId, citations, opts.userId ?? null).catch(() => ({})) : Promise.resolve({}),
+    // Open ones only, about the record this action is about (its declared
+    // subject): a decided card has nothing left to settle beside it.
+    row.status === 'pending' ? relatedOpenItems(orgId, proposalSubjectKeys(row), { kind: 'proposal', id: row.id }).catch(() => []) : Promise.resolve([]),
   ]);
   return {
     id: row.id,
@@ -104,18 +107,6 @@ export async function loadPendingAction(orgId: string, id: number): Promise<Acti
     ...(Object.keys(citationLabels).length > 0 ? { evidenceLabels: citationLabels } : {}),
     ...(related.length > 0 ? { related } : {}),
   };
-}
-
-/**
- * The ids a proposal's input names: a value under a key ending in `Id`
- * (`threadId`, `objectId`), so the decisions about the same thread or record
- * can be found beside it. Pure.
- * @param input - The run's input.
- */
-export function idsIn(input: Record<string, unknown> | null | undefined): string[] {
-  return Object.entries(input ?? {})
-    .filter(([k, v]) => /(?:^id|Id)$/.test(k) && (typeof v === 'string' || typeof v === 'number'))
-    .map(([, v]) => String(v));
 }
 
 /**

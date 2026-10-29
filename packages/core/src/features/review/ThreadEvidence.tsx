@@ -1,4 +1,7 @@
+'use client';
+
 import { ChevronDown, ExternalLink } from 'lucide-react';
+import { useState } from 'react';
 import { nameOf } from '@/libs/mail/recipients';
 import { cn } from '@/utils/Helpers';
 
@@ -23,8 +26,9 @@ export type ThreadEvidenceLine = { from: string; at: string | null; line: string
  * The other side's latest message is the evidence, so it is shown whole, at a
  * reading measure, with who and when. Every other message is one line in a
  * fold ("12 earlier messages"), and the thread opens in Gmail. Without a
- * whole message (the thread was never read) the newest line stands open and
- * the rest fold; a part with nothing to show is not drawn.
+ * whole message (a page of the queue, or a thread never read) the newest
+ * message stands open at two lines with Show all, and the rest fold; a part
+ * with nothing to show is not drawn.
  * @param props - The thread.
  * @param props.heading - What the thread is to this decision ("In reply to").
  * @param props.subject - Its subject.
@@ -72,11 +76,7 @@ export function ThreadEvidence(props: {
         </article>
       )}
 
-      {open && (
-        <div className="mt-1 max-w-[70ch] border-l-2 border-rule pl-3" data-testid="thread-newest">
-          <ThreadLine line={open} />
-        </div>
-      )}
+      {open && <NewestLine line={open} />}
 
       {folded.length > 0 && (
         <details className="mt-2" data-testid="thread-history">
@@ -94,6 +94,33 @@ export function ThreadEvidence(props: {
         </details>
       )}
     </section>
+  );
+}
+
+/** Past this many characters, two lines may hide the rest. */
+const CLAMP_CHARS = 140;
+
+/**
+ * The newest message when no whole copy was read: two lines, and Show all.
+ * @param props - The line.
+ * @param props.line - The newest message.
+ */
+function NewestLine({ line }: { line: ThreadEvidenceLine }) {
+  const [all, setAll] = useState(false);
+  const long = line.line.length > CLAMP_CHARS;
+  return (
+    <div className="mt-1 max-w-[70ch] border-l-2 border-rule pl-3" data-testid="thread-newest">
+      <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[13px]">
+        <span className="truncate font-medium text-foreground">{shortName(line.from)}</span>
+        <span className="text-[12px] text-muted-foreground tabular-nums">{when(line.at)}</span>
+      </p>
+      {line.line && <p className={cn('mt-0.5 text-[13px] leading-relaxed break-words text-muted-foreground', !all && 'line-clamp-2')}>{line.line}</p>}
+      {long && (
+        <button type="button" onClick={() => setAll(a => !a)} aria-expanded={all} className="mt-1 text-[12px] text-muted-foreground hover:text-foreground" data-testid="thread-newest-toggle">
+          {all ? 'Show less' : 'Show all'}
+        </button>
+      )}
+    </div>
   );
 }
 

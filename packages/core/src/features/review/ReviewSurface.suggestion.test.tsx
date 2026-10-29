@@ -85,19 +85,19 @@ describe('the agent recommendation on the review surface', () => {
     await expect.element(page.getByTestId('why-merged')).toHaveTextContent(long);
   });
 
-  it('merges the reason and the rationale into one Why, each sentence once', async () => {
+  it('keeps the reason and the rationale as two labelled lines, word for word', async () => {
+    const rationale = `The listing carries a date, a venue and a price. ${REASON}`;
     await render(
       <ReviewSurface
-        run={runWith({ confidence: 0.9, rationale: `The listing carries a date, a venue and a price. ${REASON}`, suggestedDecision: 'reject', suggestedDecisionReason: REASON })}
+        run={runWith({ confidence: 0.9, rationale, suggestedDecision: 'reject', suggestedDecisionReason: REASON })}
         crumbs={CRUMBS}
       />,
     );
 
     await openDossier();
 
-    await expect.element(page.getByTestId('why-merged')).toHaveTextContent('The listing carries a date, a venue and a price.');
-    expect(page.getByTestId('why-merged').element().textContent!.split(REASON)).toHaveLength(2);
-    expect(page.getByText('Why it suggests that').elements()).toHaveLength(0);
+    await expect.element(page.getByTestId('why-rationale')).toHaveTextContent(rationale);
+    await expect.element(page.getByTestId('suggested-decision-reason')).toHaveTextContent(`Why it suggests turning down${REASON}`);
   });
 
   it('shows the advice alone for a run proposed before reasons existed', async () => {

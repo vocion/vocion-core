@@ -102,6 +102,8 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
   name: 'Update HubSpot record',
   description: 'Update properties on a HubSpot deal, contact, or company.',
   inputSchema: hubspotUpdateInput,
+  // The record it writes, by the mirror's own key.
+  subjectRefs: input => [`${input.objectType}:${input.objectId}`],
   grant: 'update_crm',
   external: true,
   sourceSlug: 'hubspot',

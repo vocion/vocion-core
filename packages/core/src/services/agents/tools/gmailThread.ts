@@ -114,7 +114,14 @@ export function gmailTools(ctx: RuntimeContext) {
       }
       return JSON.stringify({
         source: 'cache',
-        ...(read.stale ? { stale: true, note: 'No gmail credentials to refresh — this is the last synced copy and newer replies may be missing.' } : {}),
+        ...(read.stale
+          ? {
+              stale: true,
+              note: read.staleBecause === 'live_failed'
+                ? `Gmail did not answer the refresh — this is the copy fetched at ${String(read.fetchedAt ?? 'an unknown time')} and newer replies may be missing.`
+                : 'No gmail credentials to refresh — this is the last synced copy and newer replies may be missing.',
+            }
+          : {}),
         title: read.title,
         fetchedAt: read.fetchedAt,
         messageCount: read.messageCount,

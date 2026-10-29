@@ -4,8 +4,9 @@ import type { ActionChange } from '@/services/inbox/describeActionRun';
 import type { EmailPreviewModel } from '@/services/inbox/emailPreview';
 import type { ReviewContextModel } from '@/services/inbox/reviewContextModel';
 import { looksLikeManualInput } from '@/libs/actions/manual';
+import { restatesLabel } from '@/libs/actions/restatesLabel';
 import { nounCode } from '@/libs/codes';
-import { evidenceRef, looksLikeId } from '@/libs/preview/evidenceRef';
+import { evidenceRef } from '@/libs/preview/evidenceRef';
 import { humaniseField } from '@/services/inbox/describeActionRun';
 
 /**
@@ -232,32 +233,39 @@ export function planDecision(input: { note: string; edited: boolean; draft?: boo
   };
 }
 
+/** One labelled line of a Why, in the words its author wrote. */
+export type WhyLine = { kind: 'rationale' | 'reason' | 'detail' | 'summary'; label: string; text: string };
+
 /**
- * Paragraphs of a Why, each sentence said once. The rationale and the reason
- * for the suggestion are often the same sentences in a different order, and
- * joined they read as one paragraph that repeats itself (2026-10-29, a reply
- * draft's four-line Why). A sentence already said — in an earlier paragraph,
- * or as the title — is dropped; a paragraph left empty is dropped. Pure.
- * @param paragraphs - The candidates, in the order they should read.
- * @param said - What the page already says (the title).
+ * The Why, as labelled lines in their authors' own words: the case for the
+ * payload (the rationale), the reason for the suggestion, and the presenter's
+ * own case and summary. Never merged, cut or rewritten (CLAUDE.md: no editing
+ * an agent's words after it writes them). A line is left out only when it is
+ * empty, says nothing but the title, or is the very same text as a line
+ * before it. A reason that restates its rationale is fixed where it is
+ * written (`propose_action`'s `suggested_decision_reason`), not here. Pure.
+ * @param input - What the run and the card carry.
+ * @param input.rationale - The case for the payload.
+ * @param input.reason - The reason for the suggestion.
+ * @param input.suggestedVerb - The suggestion, as a verb ("approving").
+ * @param input.detail - The presenter's case for its recommendation.
+ * @param input.summary - The presenter's summary.
+ * @param input.titles - What the page already says as its title.
  */
-export function distinctSentences(paragraphs: ReadonlyArray<string | null | undefined>, said: readonly string[] = []): string[] {
-  const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const seen = new Set(said.map(key).filter(Boolean));
-  const out: string[] = [];
-  for (const p of paragraphs) {
-    const sentences = (p ?? '').trim().match(/[^.!?]+(?:[.!?]+|$)/g) ?? [];
-    const kept = sentences.map(x => x.trim()).filter((x) => {
-      const k = key(x);
-      if (!k || seen.has(k)) {
-        return false;
-      }
-      seen.add(k);
-      return true;
-    });
-    if (kept.length > 0) {
-      out.push(kept.join(' '));
+export function whyLines(input: { rationale?: string | null; reason?: string | null; suggestedVerb?: string | null; detail?: string | null; summary?: string | null; titles: ReadonlyArray<string | null | undefined> }): WhyLine[] {
+  const candidates: WhyLine[] = [
+    { kind: 'rationale', label: 'Why', text: input.rationale ?? '' },
+    { kind: 'reason', label: input.suggestedVerb ? `Why it suggests ${input.suggestedVerb}` : 'Why it suggests that', text: input.reason ?? '' },
+    { kind: 'detail', label: 'The recommendation', text: input.detail ?? '' },
+    { kind: 'summary', label: 'Summary', text: input.summary ?? '' },
+  ];
+  const out: WhyLine[] = [];
+  for (const c of candidates) {
+    const text = c.text.trim();
+    if (!text || input.titles.some(t => t && restatesLabel(text, t)) || out.some(o => o.text === text)) {
+      continue;
     }
+    out.push({ ...c, text });
   }
   return out;
 }
@@ -269,12 +277,14 @@ export function distinctSentences(paragraphs: ReadonlyArray<string | null | unde
 // ---------------------------------------------------------------------------
 
 /**
- * Header facts a person can read: a fact whose value is a handle (a campaign
- * id, a lead-magnet id) is dropped rather than shown as digits. Pure.
+ * Header facts a person can read: a fact its presenter marked as an internal
+ * handle (`handle: true`, a campaign id where no name is known) is dropped,
+ * and so is an empty one. Nothing is guessed from the value: an order
+ * number, a count or an amount is a real value. Pure.
  * @param facts - The kind's facts, in order.
  */
-export function readableFacts<T extends { label: string; value: unknown }>(facts: readonly T[]): T[] {
-  return facts.filter(f => typeof f.value !== 'string' || (f.value.trim() !== '' && !looksLikeId(f.value)));
+export function readableFacts<T extends { label: string; value: unknown; handle?: boolean }>(facts: readonly T[]): T[] {
+  return facts.filter(f => !f.handle && !(typeof f.value === 'string' && f.value.trim() === ''));
 }
 
 /**
@@ -305,7 +315,9 @@ export function waitingLabel(since: Date | string | null | undefined, now: Date 
  */
 export function tippingFact(reasons: ReadonlyArray<string | null | undefined>): string | null {
   for (const r of reasons) {
-    const first = r?.trim().match(/^[^.!?]+[.!?]?/)?.[0]?.trim();
+    // A sentence ends at . ! or ? followed by a space or the end: "$1.5M"
+    // and "v2.1" are not sentence ends.
+    const first = r?.trim().match(/^[\s\S]+?(?:[.!?](?=\s|$)|$)/)?.[0]?.trim();
     if (first && first.length > 3) {
       return first.replace(/[.!?]$/, '');
     }

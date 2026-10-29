@@ -89,4 +89,37 @@ describe('an item overtaken by events', () => {
     await expect.element(page.getByTestId('review-stale')).toHaveTextContent('Dana Reyes wrote again on Oct 30');
     expect(page.getByTestId('execution-failure').elements()).toHaveLength(0);
   });
+
+  it('proceeds through the primary: a walk with steps still unapproved opens the next one rather than approving', async () => {
+    decideAction.mockReset().mockResolvedValue({ ok: true, execution: { status: 'done' } });
+    const walk = update({
+      actionId: 'personalization.enroll',
+      card: {
+        title: 'New MQL ready to enroll',
+        fields: [],
+        verbs: { approve: 'Enroll', reject: 'Decline' },
+        content: [
+          { kind: 'email', id: 'send-1', label: 'Day 0', subject: 'One', body: 'First.' },
+          { kind: 'email', id: 'send-2', label: 'Day 3', subject: 'Two', body: 'Second.' },
+        ],
+      },
+      stale: { line: 'Already in a sequence', checkedAt: '2026-10-30T10:00:00Z', canRedraft: false },
+    });
+    await render(<ReviewSurface run={walk} crumbs={CRUMBS} />);
+
+    await page.getByTestId('review-stale-proceed').click();
+
+    await new Promise(r => setTimeout(r, 300));
+
+    expect(decideAction).not.toHaveBeenCalled();
+  });
+});
+
+describe('a card with no content to read', () => {
+  it('shows its fields as the subject, open, not folded under the run\'s details', async () => {
+    await render(<ReviewSurface run={update({ card: { title: 'Pause the Kestrel retargeting ad', system: 'Ads', fields: [{ label: 'Ad', value: 'Kestrel retargeting · Spring' }, { label: 'Status', value: 'Active → Paused' }], verbs: { approve: 'Pause', reject: 'Decline' } } })} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('review-subject-fields')).toBeVisible();
+    await expect.element(page.getByTestId('review-subject-fields')).toHaveTextContent('Active → Paused');
+  });
 });

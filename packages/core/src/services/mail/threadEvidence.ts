@@ -24,7 +24,6 @@ import { gmailThreadUrl } from '@/libs/mail/gmailUrl';
 import { addressOf } from '@/libs/sources/mailThreadState';
 import { decodeEntities, stripQuotedHistory } from '@/libs/surfaces/email';
 import { knowledgeChunkSchema } from '@/models/Schema';
-import { sourcesForConnector } from '@/services/agents/tools/zoomTranscript';
 import { findReplyThread } from './replyThread';
 import { readGmailThread } from './threadRead';
 
@@ -114,24 +113,25 @@ function firstLine(text: string): string {
 
 /**
  * The message to show and the rest as history, from a full copy. The shown
- * message is the latest one the mailbox did not write. Pure.
+ * message is the latest one the mailbox did not write. Without the owner's
+ * address no message can be told apart as the other side's, and with only
+ * the owner's own messages there is none: either way no message is shown as
+ * theirs, and every message is a line. Pure.
  * @param messages - The thread's messages, oldest first.
  * @param mailbox - The owner's address, when known.
  */
 export function splitThread(messages: readonly ThreadMessageText[], mailbox: string | null): Pick<ThreadEvidence, 'latest' | 'history'> {
-  const owner = mailbox?.toLowerCase() ?? null;
-  let at = messages.length - 1;
+  const owner = mailbox?.toLowerCase() || null;
+  let at = -1;
   if (owner) {
+    at = messages.length - 1;
     while (at >= 0 && addressOf(messages[at]!.from) === owner) {
       at--;
     }
   }
-  if (at < 0) {
-    at = messages.length - 1;
-  }
-  const shown = messages[at];
+  const shown = at >= 0 ? messages[at] : undefined;
   if (!shown) {
-    return { latest: null, history: [] };
+    return { latest: null, history: messages.map(m => ({ from: m.from, at: isoOf(m.date), line: firstLine(stripQuotedHistory(m.body)) })) };
   }
   const body = stripQuotedHistory(shown.body);
   return {
@@ -172,26 +172,55 @@ async function copyText(orgId: string, documentId: number): Promise<string> {
 }
 
 /**
+ * The gmail sources a viewer may read: every gmail source, less the ones its
+ * access policy keeps from them (`allowedSourceSlugsForUser`). No viewer
+ * reads nothing.
+ * @param orgId - The workspace.
+ * @param userId - The viewer.
+ */
+export async function readableGmailSources(orgId: string, userId: string | null | undefined): Promise<SourceRow[]> {
+  if (!userId) {
+    return [];
+  }
+  const { sourcesForConnector } = await import('@/services/agents/tools/zoomTranscript');
+  const sources = await sourcesForConnector(orgId, 'gmail');
+  if (sources.length === 0) {
+    return [];
+  }
+  const { allowedSourceSlugsForUser } = await import('@/services/SourceAccessService');
+  const allowed = new Set(await allowedSourceSlugsForUser(orgId, userId));
+  return sources.filter(s => allowed.has(s.slug));
+}
+
+/**
  * One thread as evidence, or null when neither its state nor a copy of it is
  * in the index.
  * @param orgId - The workspace.
  * @param opts - Which thread.
  * @param opts.threadId - The Gmail thread.
- * @param opts.state - Its synced state, when the caller already read it.
- * @param opts.sources - The gmail sources the reader may read (default: every one).
+ * @param opts.state - Its synced state, when the caller already read it through the same sources.
+ * @param opts.sources - The gmail sources the reader may read (`readableGmailSources`). The
+ * state, the cached copy and the live read all come from these, and from nothing else: a
+ * reader without the mailbox gets no evidence, never a fallback.
  */
-export async function readThreadEvidence(orgId: string, opts: { threadId: string; state?: ReplyThread | null; sources?: SourceRow[] }): Promise<ThreadEvidence | null> {
-  const sources = opts.sources ?? await sourcesForConnector(orgId, 'gmail');
+export async function readThreadEvidence(orgId: string, opts: { threadId: string; state?: ReplyThread | null; sources: SourceRow[] }): Promise<ThreadEvidence | null> {
+  const { sources } = opts;
   if (sources.length === 0) {
     return null;
   }
-  const state = opts.state === undefined ? await findReplyThread(orgId, { threadId: opts.threadId }).catch(() => null) : opts.state;
+  const sourceIds = sources.map(s => s.id);
+  const state = opts.state === undefined ? await findReplyThread(orgId, { threadId: opts.threadId }, { sourceIds }).catch(() => null) : opts.state;
+  // A state read through another scope is not this reader's to see.
+  if (state?.sourceId !== undefined && !sourceIds.includes(state.sourceId)) {
+    return null;
+  }
   const read = await within(readGmailThread({
     orgId,
     sources,
     threadId: opts.threadId,
     maxAgeMinutes: 15,
     currentMessageId: state?.lastMessageId ?? null,
+    ...(state?.sourceId !== undefined ? { mailboxSourceId: state.sourceId } : {}),
     read: copyText,
   }), LIVE_READ_MS);
   const messages = read && read.source !== 'none' ? parseThreadText(read.content) : [];
@@ -201,7 +230,10 @@ export async function readThreadEvidence(orgId: string, opts: { threadId: string
   const mailbox = state?.mailbox ?? null;
   const split = messages.length > 0
     ? splitThread(messages, mailbox)
-    : { latest: null, history: (state?.messages ?? []).map(m => ({ from: m.from, at: m.at, line: firstLine(m.snippet) })) };
+    // Without a full copy, the synced snippets as they are: a snippet is
+    // already short, and cutting it again left one line with no way to read
+    // the rest.
+    : { latest: null, history: (state?.messages ?? []).map(m => ({ from: m.from, at: m.at, line: m.snippet })) };
   return {
     threadId: opts.threadId,
     subject: state?.subject || messages[0]?.subject || '',

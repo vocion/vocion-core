@@ -406,17 +406,26 @@ and a gap a kind finds is closed in the shell, not beside it (principle 6).
    message in full, every other message as one line in a fold, Open in
    Gmail); the steps of a sequence; the field change. Reading text keeps a
    ~70ch measure.
-5. **Related open items** on the same thread or record, one link each
-   (`RelatedItems`), so one visit settles them all.
-6. **Folded below:** one merged Why (each sentence said once,
-   `distinctSentences`), the citations as readable names (`evidenceLabels`),
-   sources, run details.
+   A card with no content items (a CRM change, an ad paused) IS its fields:
+   they are its subject, open on the page, never folded.
+5. **Related open items** on the same subject, one link each
+   (`RelatedItems`), so one visit settles them all. The subject is what the
+   action declares (`Action.subjectRefs`) or the ask names, matched by exact
+   record key — never a key-suffix scrape or a substring of the input.
+6. **Folded below:** one Why section with the rationale and the reason for
+   the suggestion as separate labelled lines, word for word (`whyLines`;
+   repetition is fixed where the agent writes them, not by editing them),
+   the citations as readable names (`evidenceLabels`), sources, run details.
 
 **The rules.**
 
 - A section with nothing in it is not drawn ("No citations recorded." is gone).
-- A raw id is never the visible text: a fact whose value is a handle is
-  dropped (`readableFacts`), a citation reads by its record's name.
+- A raw id is never the visible text: a fact the presenter marks
+  `handle: true` is dropped (`readableFacts`; nothing is guessed from the
+  value), a citation reads by its record's name.
+- Evidence read from a mailbox goes through the viewer's source grants
+  (`readableGmailSources`): the thread's state, its copy and a draft in it.
+  No access is no evidence, never a fallback.
 - The primary verb is the card's own (Enroll, Update, Create draft in Gmail)
   and matches the proposal: a draft proposal opens on Create draft, with Send
   secondary and no key (`outboundModeVerbs`).

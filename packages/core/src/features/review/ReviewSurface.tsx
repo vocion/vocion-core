@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import type { WhyLine } from './reviewSheetModel';
 import type { ReviewOutcome } from './useReviewDecision';
 import type { Crumb } from '@/components/patterns';
 import type { ActionRevision } from '@/libs/actions/revisions';
@@ -27,7 +28,7 @@ import { approvableItems, isChecked, walkApplies, walkCount } from './contentWal
 import { ExecutionFailure } from './ExecutionFailure';
 import { OutboundMessageArtifact } from './OutboundMessageArtifact';
 import { RelatedItems } from './RelatedItems';
-import { decisionLine, distinctSentences, outboundModeVerbs, readableFacts, tippingFact, waitingLabel } from './reviewSheetModel';
+import { decisionLine, outboundModeVerbs, readableFacts, tippingFact, waitingLabel, whyLines } from './reviewSheetModel';
 import { shortcutFor } from './reviewShortcuts';
 import { showLearnedToast } from './showLearnedToast';
 import { useReviewDecision } from './useReviewDecision';
@@ -564,6 +565,24 @@ function ItemPane(props: {
 }
 
 /**
+ * The Why's lines, each under its label, each in its author's words.
+ * @param props - The lines.
+ * @param props.lines - From `whyLines`.
+ */
+function WhyList(props: { lines: readonly WhyLine[] }) {
+  return (
+    <dl className="flex max-w-[70ch] flex-col gap-3">
+      {props.lines.map(l => (
+        <div key={l.kind} data-testid={l.kind === 'reason' ? 'suggested-decision-reason' : `why-${l.kind}`}>
+          <dt className="text-[12px] text-muted-foreground">{l.label}</dt>
+          <dd className="mt-0.5 leading-relaxed break-words whitespace-pre-line text-foreground/85">{l.text}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
  * OVERTAKEN BY EVENTS — one line under the decision line, in the shell, for
  * every kind: what changed since this was proposed (old → new for a field),
  * with Proceed anyway (approve past it, recorded on the run) and Redraft when
@@ -779,6 +798,14 @@ export function ReviewSurface(props: {
   const modeVerbs = outbound ? outboundModeVerbs({ mode: outbound.mode === 'draft' ? 'draft' : 'send', system: outbound.system }) : null;
   /** What the last approve chose, for its receipt. */
   const chosenMode = useRef<'draft' | 'send' | null>(null);
+  /**
+   * The person pressed Proceed anyway on what changed: the approval the
+   * primary's path ends in runs past the stale check. Per run.
+   */
+  const proceedPastStale = useRef(false);
+  useEffect(() => {
+    proceedPastStale.current = false;
+  }, [run.id]);
   // Read the KEYS off the run, not off the hook's working copy: the copy is
   // seeded in an effect, so deriving the tabs from it would open the screen on
   // Why for one paint and leave a fields-only type there.
@@ -858,7 +885,8 @@ export function ReviewSurface(props: {
     return () => clearTimeout(timer);
   }, [justChanged]);
 
-  const decide = async (decision: 'approve' | 'reject' | 'done', answer?: { id: string; label: string }, mode?: 'draft' | 'send', overrideStale?: boolean) => {
+  const decide = async (decision: 'approve' | 'reject' | 'done', answer?: { id: string; label: string }, mode?: 'draft' | 'send') => {
+    const overrideStale = decision === 'approve' && proceedPastStale.current;
     landed.current = false;
     const verbLabel = decision === 'reject' ? rejectVerb : approveVerb;
     chosenMode.current = mode ?? null;
@@ -1017,8 +1045,21 @@ export function ReviewSurface(props: {
     : null;
   const heldPrimary = d.held || Boolean(props.hold);
 
-  /** What the bar's primary does: the next step of the walk, or the decision. */
-  const pressPrimary = () => {
+  /**
+   * What the bar's primary does: the next step of the walk, or the decision.
+   * @param opts
+   * @param opts.proceedPastStale
+   */
+  const pressPrimary = (opts?: { proceedPastStale?: boolean }) => {
+    // Proceed anyway is the primary, pressed knowing what changed: the same
+    // path (a walk still opens the next unapproved step, a held primary stays
+    // held), and the approval that path ends in runs past the stale check.
+    if (opts?.proceedPastStale) {
+      if (heldPrimary) {
+        return;
+      }
+      proceedPastStale.current = true;
+    }
     if (awaitingExecution) {
       void decide('done');
       return;
@@ -1109,29 +1150,6 @@ export function ReviewSurface(props: {
 
   // The agent by its name ("Revenue Director"), its slug only when it has none.
   const agent = run.agentName ?? run.invokedBy?.replace('agent:', '');
-  /**
-   * The short Why a message carries: one or two sentences of evidence, never
-   * the title again, never the same sentence twice. The rationale, the reason
-   * for the suggestion and the presenter's own case are often one sentence
-   * written three ways; each is kept only if it says something the title and
-   * the ones before it did not. Nothing left, and no citation, means no Why.
-   */
-  const outboundWhy = (() => {
-    if (!outbound) {
-      return null;
-    }
-    const candidates = [run.proposal?.rationale, run.proposal?.suggestedDecisionReason, card.recommendation?.detail, card.summary]
-      .map(c => c?.trim())
-      .filter((c): c is string => Boolean(c) && !restatesLabel(c!, title) && !restatesLabel(c!, card.title));
-    // Sentence by sentence: the rationale and the reason for the suggestion
-    // are often the same sentences reordered (`distinctSentences`).
-    const lines = distinctSentences(candidates, [title, card.title]);
-    const evidence = run.proposal?.evidence ?? [];
-    if (lines.length === 0 && evidence.length === 0) {
-      return null;
-    }
-    return { lines: lines.slice(0, 2), evidence };
-  })();
   // Said once. Most presenters build the recommendation's detail and the
   // summary out of the same sentence the run already carries as its
   // rationale, and three copies of one paragraph under one tab reads as three
@@ -1142,6 +1160,10 @@ export function ReviewSurface(props: {
   // A read-only field that is also an editable property is shown once — in the
   // Changes pane — so "industry" does not read twice.
   const readOnlyFields = d.hasProperties ? (card.fields ?? []).filter(f => !propertyKeys.includes(f.label)) : (card.fields ?? []);
+  // A card with no content items (a CRM change, an ad paused, an app
+  // installed) IS its fields: they are what is approved, so they are the
+  // subject, open on the page, never folded under the run's details.
+  const fieldsAreSubject = content.length === 0 && readOnlyFields.length > 0;
 
   // The recommendation, said once: "send-lead suggests approving · 90%
   // confident". The reason joins it under Why, where there is room to read it.
@@ -1150,6 +1172,11 @@ export function ReviewSurface(props: {
   const suggests = suggested ? `${agent ?? 'The agent'} suggests ${SUGGESTION_VERB[suggested]}` : agent ? `Recommended by ${agent}` : null;
   const recommendationLine = [suggests, confidencePct].filter(Boolean).join(' · ') || null;
   const suggestionReason = suggested && run.proposal?.suggestedDecisionReason ? run.proposal.suggestedDecisionReason : null;
+  // The Why, as labelled lines in their authors' own words (`whyLines`): the
+  // case for the payload and the reason for the suggestion side by side,
+  // never merged or cut.
+  const why = whyLines({ rationale, reason: suggestionReason, suggestedVerb: suggested ? SUGGESTION_VERB[suggested] : null, detail, summary, titles: [title, card.title] });
+  const citations = run.proposal?.evidence ?? [];
   // THE DECISION LINE, for every kind: who suggests what — the card's own
   // verb, or its recommendation — the one fact that tipped it, how sure, and
   // how often you agreed. A card with a decision header says it there.
@@ -1250,21 +1277,15 @@ export function ReviewSurface(props: {
       );
     }
     if (id === 'why') {
-      // ONE Why, for every kind: the case for the payload, the reason for the
-      // suggestion and the presenter's own case, each sentence said once
-      // (`distinctSentences`). "The reasoning" beside "Why it suggests that"
-      // read as two arguments that repeated each other. Nothing to say draws
-      // nothing.
-      const lines = distinctSentences([rationale, suggestionReason, detail, summary], [title, card.title]);
-      if (lines.length === 0) {
+      // ONE Why section for every kind, each line labelled and in its
+      // author's words. Nothing to say draws nothing.
+      if (why.length === 0) {
         return null;
       }
       return (
         <div data-testid="why-pane">
           <Section eyebrow="Why" data-testid="why-merged">
-            {lines.map((line, i) => (
-              <p key={line} className={cn('max-w-[70ch] leading-relaxed break-words text-foreground/85', i > 0 && 'mt-3')}>{line}</p>
-            ))}
+            <WhyList lines={why} />
           </Section>
         </div>
       );
@@ -1279,7 +1300,7 @@ export function ReviewSurface(props: {
               <EvidenceRefs sources={run.proposal!.evidence!} labels={run.evidenceLabels} />
             </Section>
           )}
-          {!outbound && readOnlyFields.length > 0 && (
+          {!outbound && !fieldsAreSubject && readOnlyFields.length > 0 && (
             <Section eyebrow="Details">
               <FactList facts={readOnlyFields.map(f => ({ label: f.label, value: f.value, href: f.href }))} />
             </Section>
@@ -1406,7 +1427,7 @@ export function ReviewSurface(props: {
                 // A failed run keeps its verb: the card says what went wrong
                 // and how to fix it, and pressing it again is the retry.
                 'label': choices ? choices[0]!.label : walkStep ? 'Approve' : modeChoice && modeVerbs ? modeVerbs.primary.label : approveVerb,
-                'onClick': pressPrimary,
+                'onClick': () => pressPrimary(),
                 'disabled': heldPrimary,
                 'busy': d.busy,
                 'icon': Check,
@@ -1472,7 +1493,7 @@ export function ReviewSurface(props: {
         <StaleBanner
           stale={d.stale}
           disabled={d.held}
-          onProceed={() => void decide('approve', undefined, modeChoice ? modeVerbs?.primary.mode : undefined, true)}
+          onProceed={() => pressPrimary({ proceedPastStale: true })}
           onRedraft={() => void regenerate(`Redraft: ${d.stale!.line}`)}
         />
       )}
@@ -1643,6 +1664,12 @@ export function ReviewSurface(props: {
         </Tabs>
       )}
 
+      {fieldsAreSubject && (
+        <Section eyebrow="What approving does" data-testid="review-subject-fields">
+          <FactList facts={readOnlyFields.map(f => ({ label: f.label, value: f.value, href: f.href }))} />
+        </Section>
+      )}
+
       {/* Below the subject, folded, for every kind: the Why, the citations
           as readable links, the sources and the run's bookkeeping. The
           decision line above carries the one fact that tipped it, so the
@@ -1652,12 +1679,10 @@ export function ReviewSurface(props: {
           <ChevronDown className="size-3.5" aria-hidden />
           Why, evidence and run details
         </summary>
-        {outboundWhy && (
-          <section data-testid="outbound-why" aria-label="Why" className="max-w-[70ch] pt-2">
-            {outboundWhy.lines.map(line => (
-              <p key={line} className="mb-2 text-[14px] leading-relaxed break-words text-foreground/85">{line}</p>
-            ))}
-            {outboundWhy.evidence.length > 0 && <EvidenceRefs sources={outboundWhy.evidence} labels={run.evidenceLabels} className="mt-1" />}
+        {outbound && (why.length > 0 || citations.length > 0) && (
+          <section data-testid="outbound-why" aria-label="Why" className="pt-2">
+            <WhyList lines={why} />
+            {citations.length > 0 && <EvidenceRefs sources={citations} labels={run.evidenceLabels} className="mt-1" />}
           </section>
         )}
         {!outbound && renderPane('why')}

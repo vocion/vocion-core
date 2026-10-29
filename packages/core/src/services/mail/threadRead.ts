@@ -25,8 +25,13 @@ export type ThreadCopy = {
   content: string;
 };
 
+/**
+ * A cached copy is `stale` when it is past its TTL and could not be refreshed:
+ * no credentials for the thread's mailbox, or Gmail refused or did not answer
+ * (`staleBecause`); its `fetchedAt` says how old it is.
+ */
 export type ThreadRead
-  = | ({ source: 'cache'; stale?: true } & ThreadCopy)
+  = | ({ source: 'cache'; stale?: true; staleBecause?: 'no_credentials' | 'live_failed' } & ThreadCopy)
     | ({ source: 'live'; upserted: string } & ThreadCopy)
     | { source: 'none'; reason: 'no_credentials' | 'not_found' };
 
@@ -40,6 +45,7 @@ export type ThreadRead
  * @param opts.forceRefresh - Skip the cache.
  * @param opts.currentMessageId - The thread's last message as the caller knows it; a copy ending there is current at any age.
  * @param opts.credentialed - Credentials the caller already looked up.
+ * @param opts.mailboxSourceId - The source whose sync filed the thread: its credentials, and only its, read it live.
  * @param opts.read - How a cached copy's text is read back (default: its chunks, joined).
  */
 export async function readGmailThread(opts: {
@@ -50,6 +56,7 @@ export async function readGmailThread(opts: {
   forceRefresh?: boolean;
   currentMessageId?: string | null;
   credentialed?: Awaited<ReturnType<typeof firstCredentialed>>;
+  mailboxSourceId?: number;
   read?: (orgId: string, documentId: number) => Promise<string>;
 }): Promise<ThreadRead> {
   const read = opts.read ?? reassembleDocument;
@@ -84,14 +91,28 @@ export async function readGmailThread(opts: {
     return { source: 'cache', ...await copy() };
   }
 
-  const credentialed = opts.credentialed ?? await firstCredentialed(opts.orgId, opts.sources);
+  // The thread's own mailbox reads it: another connected mailbox's token
+  // cannot see this thread, and trying one is a wasted (or wrong) call.
+  const mailbox = opts.mailboxSourceId === undefined ? opts.sources : opts.sources.filter(s => s.id === opts.mailboxSourceId);
+  const credentialed = opts.credentialed ?? await firstCredentialed(opts.orgId, mailbox);
   if (!credentialed) {
-    return cached ? { source: 'cache', stale: true, ...await copy() } : { source: 'none', reason: 'no_credentials' };
+    return cached ? { source: 'cache', stale: true, staleBecause: 'no_credentials', ...await copy() } : { source: 'none', reason: 'no_credentials' };
   }
 
-  const doc = await fetchGmailThreadDoc({ orgId: opts.orgId, credentials: credentialed.credentials, threadId: opts.threadId });
+  // A live read that fails (a refused token, a rate limit, Gmail down, the
+  // thread gone) never throws away a copy that can still be read: the last
+  // copy answers, marked stale with its age.
+  let doc: Awaited<ReturnType<typeof fetchGmailThreadDoc>>;
+  try {
+    doc = await fetchGmailThreadDoc({ orgId: opts.orgId, credentials: credentialed.credentials, threadId: opts.threadId });
+  } catch (err) {
+    if (cached) {
+      return { source: 'cache', stale: true, staleBecause: 'live_failed', ...await copy() };
+    }
+    throw err;
+  }
   if (!doc) {
-    return { source: 'none', reason: 'not_found' };
+    return cached ? { source: 'cache', stale: true, staleBecause: 'live_failed', ...await copy() } : { source: 'none', reason: 'not_found' };
   }
   const ref = await ensureSource({ orgId: opts.orgId, slug: credentialed.source.slug });
   const result = await ingestDocument(ref, doc);

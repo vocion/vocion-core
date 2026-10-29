@@ -171,7 +171,7 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
     }
 
     case 'proposal': {
-      const run = await loadPendingAction(orgId, ref.id);
+      const run = await loadPendingAction(orgId, ref.id, { userId });
       if (!run) {
         notFound();
       }
