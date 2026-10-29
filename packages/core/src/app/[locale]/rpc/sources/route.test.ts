@@ -14,6 +14,7 @@ vi.mock('@/libs/sources/registry', () => ({ listConnectors: vi.fn() }));
 vi.mock('@/services/SourceCredentialService', () => ({ credentialStatusForOrg: vi.fn() }));
 vi.mock('@/libs/connect/summary', () => ({ grantSummaryForSource: vi.fn(async () => null) }));
 vi.mock('@/services/connect/newSourceSync', () => ({ startSourceSyncing: vi.fn() }));
+vi.mock('@/services/browser/keptSignIn', () => ({ keptSignInStatuses: vi.fn(async () => ({})) }));
 vi.mock('@/services/SourceSyncService', () => ({
   addSource: vi.fn(),
   chunkCountsForOrg: vi.fn(async () => ({})),

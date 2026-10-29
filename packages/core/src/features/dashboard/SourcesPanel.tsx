@@ -25,6 +25,7 @@ import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { Notice } from '@/components/ui/notice';
 import { toast } from '@/components/ui/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { keptSignInSpecFor } from '@/libs/browser/keptSignIn';
 import { connectStartHref, returnUrl, safeReturnPath } from '@/libs/connect/returnTo';
 import {
   buildConfigFromFields,
@@ -39,6 +40,7 @@ import { connectorIcon } from './connectors/connectorIcon';
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnections, catalogEntries, connectorSlugFor } from './connectors/connectorRows';
 import { GoogleAdsAccountPicker } from './connectors/GoogleAdsAccountPicker';
+import { KeptSignInSection, SignInAgainDialog, uploadSessionFile } from './connectors/KeptSignIn';
 import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
 import { firstSyncNotice, firstSyncRunOf, firstSyncWatchAfter, firstSyncWatchAfterSave, withoutStartedNotice, withStartedNoticeExpired } from './firstSyncWatch';
 
@@ -117,6 +119,7 @@ export function SourcesPanel({ connectInfo = {}, timeZone, overview = NO_OVERVIE
   const [addingKind, setAddingKind] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [connectingSource, setConnectingSource] = useState<Source | null>(null);
+  const [signingInSource, setSigningInSource] = useState<Source | null>(null);
   const [testingSource, setTestingSource] = useState<Source | null>(null);
   const [editingSource, setEditingSource] = useState<Source | null>(null);
   // Connections disconnected in this tab whose delete waits out its Undo.
@@ -378,6 +381,7 @@ export function SourcesPanel({ connectInfo = {}, timeZone, overview = NO_OVERVIE
               onTest={setTestingSource}
               onEdit={setEditingSource}
               onConnect={setConnectingSource}
+              onSignIn={setSigningInSource}
               onPause={(s, paused) => void handlePause(s, paused)}
               onDisconnect={handleDisconnect}
             />
@@ -417,6 +421,17 @@ export function SourcesPanel({ connectInfo = {}, timeZone, overview = NO_OVERVIE
                 // rather than leaving stale documents until someone notices.
                 await handleSync(editedId);
               }}
+            />
+          )
+        : null}
+      {signingInSource && keptSignInSpecFor(connectorSlugFor(signingInSource))
+        ? (
+            <SignInAgainDialog
+              source={signingInSource}
+              spec={keptSignInSpecFor(connectorSlugFor(signingInSource))!}
+              name={connectorNameFor(connectors, connectorSlugFor(signingInSource)) ?? signingInSource.slug}
+              onClose={() => setSigningInSource(null)}
+              onUploaded={() => void refresh()}
             />
           )
         : null}
@@ -1712,6 +1727,9 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
   ));
 
   const [advancedShown, setAdvancedShown] = useState(false);
+  // A connector that keeps a sign-in (Squarespace) takes a session file behind Advanced.
+  const signInSpec = keptSignInSpecFor(kind);
+  const [sessionFile, setSessionFile] = useState<unknown | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Only a NEW source asks for a credential here; an edit keeps the one it has.
@@ -1753,6 +1771,18 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
     setValues(current => ({ ...current, [key]: value }));
   };
 
+  // A session file picked before the connection existed is kept once it does. A refusal is said,
+  // and the connection stays saved: the file can be uploaded again from its row.
+  const keepPickedSession = async (sourceId: number | null | undefined) => {
+    if (sessionFile === null || !sourceId) {
+      return;
+    }
+    const up = await uploadSessionFile(sourceId, sessionFile);
+    if (!up.ok) {
+      toast.error(`Connected, but the session file was not kept: ${up.why}`);
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (missingLabels.length > 0 || credentialMissing.length > 0) {
@@ -1764,7 +1794,9 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
       // The connector and its credential are one request and one transaction; a
       // refusal throws with the sentence the server wrote and is shown as it is.
       if (credentialInputs.length > 0) {
-        await onAdded(await addConnectorWithCredential(kind, config, credential));
+        const added = await addConnectorWithCredential(kind, config, credential);
+        await keepPickedSession(added?.sourceId);
+        await onAdded(added);
         return;
       }
       const saved = await savePastedOrEdited({ existing, kind, config });
@@ -1772,6 +1804,7 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
         setError(saved.error);
         return;
       }
+      await keepPickedSession(saved.sourceId);
       await onAdded({ sourceId: saved.sourceId, firstSync: saved.firstSync });
     } catch (err) {
       // A network failure throws rather than returning a message. Without this
@@ -1808,7 +1841,7 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
         />
       ))}
 
-      {advancedFields.length > 0
+      {advancedFields.length > 0 || signInSpec
         ? (
             <div className="rounded-lg border border-dashed">
               <button
@@ -1831,6 +1864,16 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
                           onChange={value => setFieldValue(field.key, value)}
                         />
                       ))}
+                      {signInSpec
+                        ? (
+                            <KeptSignInSection
+                              spec={signInSpec}
+                              site={typeof values.siteUrl === 'string' && values.siteUrl ? values.siteUrl : null}
+                              source={existing}
+                              onPicked={setSessionFile}
+                            />
+                          )
+                        : null}
                     </div>
                   )
                 : null}

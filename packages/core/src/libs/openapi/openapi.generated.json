@@ -149,6 +149,10 @@
       "description": "Endpoints under /api/v1/spend."
     },
     {
+      "name": "squarespace",
+      "description": "Endpoints under /api/v1/squarespace."
+    },
+    {
       "name": "vision",
       "description": "Endpoints under /api/v1/vision."
     },
@@ -8088,6 +8092,109 @@
         "x-required-capability": [
           "manage_sources"
         ]
+      }
+    },
+    "/api/v1/squarespace/session": {
+      "put": {
+        "operationId": "put_squarespace_session",
+        "summary": "Keep a Squarespace sign-in on the workspace's connector for a site, so the browser runs that publish to it start signed in.",
+        "tags": [
+          "squarespace"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on our side. Codes: `SESSION_SAVE_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Keep a Squarespace sign-in on the workspace's connector for a site, so the\nbrowser runs that publish to it start signed in. Squarespace has no API for\nposts and refuses a password typed from a data centre, so a person signs in\non their own machine and this takes the result: what\n`npm run squarespace:session` sends (`docs/guides/squarespace.md`).\n\nBody: `{ site, state, workspace?, savedFrom? }`. `site` is the site's\naddress, matched by host to the workspace's Squarespace connector. `state`\nis the browser's storage state (Playwright's `storageState`: `cookies` and\n`origins`), or the CLI's `--out` file around it; every cookie and origin must\nbe on squarespace.com, or the whole session is refused. `workspace`, when\ngiven, is the slug or id the sender meant, checked against the token's.\nThe state is sealed under the workspace's key; it is never returned.\n\nAnswers `{ session: { site, connector, savedAt, savedFrom, cookies, resumed } }`,\nwhere `resumed` lists the pages that were waiting on a fresh sign-in and now\ncarry on. 404 when the workspace has no Squarespace connector for the site.\nA 400 names the bad field in `error.details.field`.\n\nRequires a workspace admin, as the Developers page does.\nAuth: tenant API token or dashboard session.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "savedFrom": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "site": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "state": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "workspace": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/vision/model": {

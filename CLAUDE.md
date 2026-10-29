@@ -239,7 +239,10 @@ reaches the model; only public addresses load. The browser runs in its own conta
 (`VOCION_BROWSER_ENDPOINT`, the `browser` service), never in the app; a run seals a checkpoint
 after each step and is picked up by the next process after a restart. One live run per person, one
 browser per person kept between runs. On with `VOCION_BROWSER_RUNS=on`, or per agent with
-`harness.grantTools: [browser_tasks]`.
+`harness.grantTools: [browser_tasks]`. A connector can keep a sign-in (`services/browser/keptSignIn.ts`,
+`knowledge_source.kept_sign_in`, sealed): a run carrying `keptSignIn` loads it before its first
+step and saves it back when it ends done. Squarespace publishing starts from one, because
+Squarespace refuses a password typed from a data centre (`docs/guides/squarespace.md`).
 
 ## Routines (the routines plugin)
 

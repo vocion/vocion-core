@@ -78,13 +78,20 @@ function ownerOf(ctx: { reviewedBy?: string; origin?: { userId?: string | null; 
   return { userId, conversationId: ctx.origin?.conversationId ?? null, agentSlug: ctx.invokedBy?.startsWith('agent:') ? ctx.invokedBy.slice('agent:'.length) : null };
 }
 
-async function squarespaceLogin(orgId: string): Promise<{ email: string; password: string } | null> {
-  const { getCredentialsForSource } = await import('@/services/SourceCredentialService');
-  const login = await getCredentialsForSource(orgId, 'squarespace').catch(() => undefined) as Record<string, unknown> | undefined;
-  return typeof login?.email === 'string' && typeof login?.password === 'string' ? { email: login.email, password: login.password } : null;
+/**
+ * How a Squarespace publish signs in to this site: the stored login, and
+ * whether the site's connector keeps a sign-in. Null when it has neither.
+ * @param orgId - The workspace.
+ * @param siteUrl - The site.
+ */
+async function squarespaceSignIn(orgId: string, siteUrl: string) {
+  const { squarespaceLogin } = await import('@/services/publish/sitePublish');
+  const { squarespaceConnectionFor } = await import('@/services/publish/squarespaceSignIn');
+  const [login, connection] = await Promise.all([squarespaceLogin(orgId), squarespaceConnectionFor(orgId, siteUrl).catch(() => null)]);
+  return login || connection?.signIn.kept ? { login, kept: connection?.signIn.kept === true } : null;
 }
 
-const NO_LOGIN = 'No Squarespace editor login is stored. Connect Squarespace (Connectors → Squarespace) with the email and password of an account that can edit the site; publishing signs in to the editor with it.';
+const NO_LOGIN = 'There is no way to sign in to this Squarespace site yet. Connect it under Connectors → Squarespace and sign in once (Sign in again, or Upload a session file under Advanced), or store the email and password of an account that can edit it; publishing signs in to the editor with that.';
 
 export const sitePublishPageAction: Action<typeof publishPageInput> = {
   id: PUBLISH_PAGE_ACTION_ID,
@@ -107,7 +114,7 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
     if (plan.target.kind === 'github') {
       return (await githubPreflight(ctx.orgId, plan)).why;
     }
-    if (!await squarespaceLogin(ctx.orgId)) {
+    if (plan.target.kind === 'squarespace' && !await squarespaceSignIn(ctx.orgId, plan.target.config.siteUrl)) {
       return NO_LOGIN;
     }
     return (await squarespaceSlugCheck(plan)) ?? undefined;
@@ -161,7 +168,7 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
       title: `Save "${plan.page.title}" as a draft on ${siteUrl.replace(/^https:\/\//, '')}`,
       system: 'Squarespace',
       object: { title: plan.page.title, subtitle: `${plan.project.title} · ${blogPath}/${plan.page.slug}`, section: 'Pages' },
-      headline: 'Save this post as a draft in the site\'s Squarespace editor, signed in with the stored login. It never goes live here: going live is its own card, for the drafted posts together.',
+      headline: 'Save this post as a draft in the site\'s Squarespace editor, signed in with the site\'s kept sign-in (or the stored login). It never goes live here: going live is its own card, for the drafted posts together.',
       badges: [{ label: 'Squarespace' }, { label: 'Draft only' }, { label: 'No Undo once saved', tone: 'warn' }],
       fields: [
         { label: 'Target', value: publishTargetLine(plan.target), href: `${siteUrl.replace(/\/+$/, '')}${blogPath}` },
@@ -196,15 +203,15 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
       throw new Error('Publishing to this kind of target is not built yet.');
     }
     const owner = ownerOf(ctx);
-    const login = await squarespaceLogin(ctx.orgId);
-    if (!login) {
+    const signIn = await squarespaceSignIn(ctx.orgId, plan.target.config.siteUrl);
+    if (!signIn) {
       throw new Error(NO_LOGIN);
     }
     const taken = await squarespaceSlugCheck(plan);
     if (taken) {
       throw new Error(taken);
     }
-    const started = await startSquarespaceDraft(ctx.orgId, plan, login, owner, ctx.runId ?? null);
+    const started = await startSquarespaceDraft(ctx.orgId, plan, signIn.login, owner, ctx.runId ?? null);
     await recordOnPage(ctx.orgId, plan.page.recordId, { status: 'publishing', publishing: { kind: 'squarespace', phase: 'draft', targetId: plan.target.id, browserRunId: started.browserRunId, href: `/dashboard/browser/${started.browserRunId}`, at, by: owner.userId, actionRunId: ctx.runId ?? null, ...(started.queued ? { note: 'Waiting its turn in your browser.' } : {}) } });
     const line = `Browser run ${started.browserRunId} ${started.queued ? 'is queued to save' : 'is saving'} "${plan.page.title}" as a draft on ${plan.target.config.siteUrl}.${started.followed ? '' : ' Its result will not be read back on its own: check the run.'}`;
     return { ...base, published: false, browserRunId: started.browserRunId, queued: started.queued, link: `/dashboard/browser/${started.browserRunId}`, postUrl: started.postUrl, line };

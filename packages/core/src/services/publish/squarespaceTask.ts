@@ -9,8 +9,11 @@
  *    starting a post, and Save only while the editor shows the post as a draft
  *    (`Post · Draft`), read off the page at the click. Any click or choice
  *    naming Publish or Schedule waits for the person whatever its role. It
- *    signs in with the stored login (secret inputs: the model types
- *    `{{password}}` and never reads it), finds this page's own post by its URL
+ *    starts signed in from the site's kept sign-in (`squarespaceSignIn.ts`);
+ *    only when there is none, or it expired, does it type the stored login,
+ *    once (secret inputs: the model types `{{password}}` and never reads it),
+ *    and a refused login ends the run with `sign_in: refused`, so the page
+ *    waits on a person signing in again. It finds this page's own post by its URL
  *    slug or adds one, writes the title, the body (pasted as HTML, so headings
  *    stay headings), the excerpt, the SEO title and description and the URL
  *    slug, and saves it as a draft.
@@ -26,6 +29,8 @@
  */
 
 import type { ApprovedAhead } from '@/services/browser/browserLoop';
+import type { RunSignIn } from '@/services/browser/keptSignIn';
+import { SIGN_IN_REFUSED } from './squarespaceSignIn';
 
 const exact = (buttons: string[]) => buttons.map(button => ({ button, match: 'exact' as const }));
 
@@ -82,7 +87,41 @@ export type PublishRunSpec = {
   secretNames: string[];
   outputs: Array<{ name: string; description: string }>;
   approvedAhead: ApprovedAhead | null;
+  /** The site's kept sign-in, loaded before the first step and saved back after (`keptSignIn.ts`). */
+  keptSignIn?: RunSignIn | null;
 };
+
+/** The editor login, from the vault, when one is stored. */
+export type SquarespaceLogin = { email: string; password: string };
+
+/** How a publish run signs in: from a kept sign-in, with the stored login, both, or neither. */
+export type SignInPlan = { kept: boolean; login: SquarespaceLogin | null };
+
+/** The output every publish run owes about its sign-in, which the settle job routes on. */
+const SIGN_IN_OUTPUT = { name: 'sign_in', description: `"${SIGN_IN_REFUSED}" when Squarespace would not sign this browser in (its login page refused the login, or there was no login to type); otherwise "ok"` };
+
+/**
+ * The task's words for signing in: start signed in when a sign-in is kept,
+ * else type the login once; a refusal ends the run with `sign_in: refused`.
+ * @param plan - How it signs in.
+ */
+function signInStep(plan: SignInPlan): string {
+  const start = plan.kept
+    ? 'The browser starts signed in with a kept Squarespace sign-in, so the editor should open. If Squarespace shows its login page instead, that sign-in has expired: '
+    : 'If Squarespace shows its login page: ';
+  const login = plan.login
+    ? 'type the email input and {{password}}, and log in, once. If Squarespace asks for a verification code, ask the person for it. If it refuses the login (it says the email or password is incorrect, or will not sign this browser in), do not try again: give_up saying so, with result sign_in "refused".'
+    : 'there is no password to type, so give_up at once saying Squarespace needs a fresh sign-in, with result sign_in "refused".';
+  return `${start}${login}`;
+}
+
+/**
+ * The inputs and secrets a sign-in needs: the login only when there is one.
+ * @param plan - How it signs in.
+ */
+function signInInputs(plan: SignInPlan): { inputs: Record<string, string>; secretNames: string[] } {
+  return plan.login ? { inputs: { email: plan.login.email, password: plan.login.password }, secretNames: ['password'] } : { inputs: {}, secretNames: [] };
+}
 
 function site(url: string): string {
   return url.replace(/\/+$/, '');
@@ -97,24 +136,23 @@ export function postUrlOf(post: Pick<SquarespacePost, 'siteUrl' | 'blogPath' | '
 }
 
 /**
- * The draft run: sign in, write the post, save it as a draft.
+ * The draft run: start signed in (or sign in), write the post, save it as a draft.
  * @param post - The post.
- * @param login - The editor login, from the vault.
- * @param login.email - The account's email.
- * @param login.password - Its password: a secret input.
+ * @param signIn - How it signs in: the kept sign-in, the stored login (a secret input), or both.
  */
-export function draftRun(post: SquarespacePost, login: { email: string; password: string }): PublishRunSpec {
+export function draftRun(post: SquarespacePost, signIn: SignInPlan): PublishRunSpec {
   const editorUrl = `${site(post.siteUrl)}/config/pages`;
+  const login = signInInputs(signIn);
   const task = [
     `${DRAFT_OPENER} ${site(post.siteUrl)}, in its editor. Never publish it in this task.`,
-    `1. Open ${editorUrl}. If asked to log in, type the email input and {{password}}, and log in. If Squarespace asks for a verification code, ask the person for it. Close any cookie banner, "What's new" or tips dialog in the way.`,
+    `1. Open ${editorUrl}. ${signInStep(signIn)} Close any cookie banner, "What's new" or tips dialog in the way.`,
     `2. This page's post is the one at ${postUrlOf(post)}, by its URL slug, whatever its title. Open that address: signed in, a draft shows too. If it shows a post, it is this page's own: press Edit on it and update it in place. If it is published or scheduled, stop and give_up saying it is already live. If it says the page is not found, go to the Pages panel, open the blog whose address is ${post.blogPath} (marked Blog), and press Add blog post: Squarespace creates the draft at once. Never open or change any other post, a "No Title" draft included.`,
     '3. The post shows in the page preview. If the preview has an Edit button, press it: the top bar then shows PUBLISH, Save and Exit. Click the title ("Enter a post title…") and type the post_title input once; it goes in whole.',
     '4. Click the body ("Write here…") and type {{body_html}} exactly as written, with the braces: the browser pastes the article in, headings and lists kept. Do not retype it or type it anywhere else.',
     '5. Open Blog Post Settings: click the post\'s name and status in the middle of the top bar (press Escape first if the page preview has the focus). Content: set Excerpt to the excerpt input, and further down set Post URL to the blog path and the url_slug input, e.g. /blog/the-slug. SEO: set SEO title to seo_title and SEO description to seo_description. Then press SAVE (or CLOSE) at the top left of that panel.',
     '6. The post must stay a Draft: never press PUBLISH, never choose Published or Scheduled. Press Escape, then Save in the top bar. The top bar should then show the title and "Post · Draft".',
     'If a click fails twice, look at the page again instead of repeating it: the element has moved or a panel is open.',
-    '7. Finish with the outputs: post_url is the address it will have when live, editor_url is the address the editor shows the post at, post_slug is the URL slug the post settings show, status is the status the editor shows after saving (draft).',
+    '7. Finish with the outputs: post_url is the address it will have when live, editor_url is the address the editor shows the post at, post_slug is the URL slug the post settings show, status is the status the editor shows after saving (draft), sign_in is ok.',
   ].join('\n');
   return {
     task,
@@ -122,8 +160,7 @@ export function draftRun(post: SquarespacePost, login: { email: string; password
     inputs: {
       site_url: site(post.siteUrl),
       blog_path: post.blogPath,
-      email: login.email,
-      password: login.password,
+      ...login.inputs,
       post_title: post.title,
       url_slug: post.slug,
       excerpt: post.excerpt,
@@ -132,12 +169,13 @@ export function draftRun(post: SquarespacePost, login: { email: string; password
       body_html: post.bodyHtml,
       post_url: postUrlOf(post),
     },
-    secretNames: ['password', 'body_html'],
+    secretNames: [...login.secretNames, 'body_html'],
     outputs: [
       { name: 'post_url', description: 'The address the post will have once live' },
       { name: 'editor_url', description: 'The editor address the draft is open at' },
       { name: 'post_slug', description: 'The URL slug the post\'s settings show' },
       { name: 'status', description: 'The post\'s status as the editor shows it after saving: draft, published or other' },
+      SIGN_IN_OUTPUT,
     ],
     approvedAhead: DRAFT_APPROVED_AHEAD,
   };
@@ -149,25 +187,28 @@ export const LIVE_WRITES: ApprovedAhead['writes'] = exact(['Publish', 'Publish n
 /**
  * The going-live run: open this page's own draft, by its slug, and publish it.
  * The go-live card's approval covers its Publish click, and only while this
- * post's title is on the page.
+ * post's title is on the page. Signs in as the draft run does.
  * @param post - The post.
+ * @param signIn - How it signs in.
  */
-export function liveRun(post: Pick<SquarespacePost, 'siteUrl' | 'blogPath' | 'title' | 'slug'>): PublishRunSpec {
+export function liveRun(post: Pick<SquarespacePost, 'siteUrl' | 'blogPath' | 'title' | 'slug'>, signIn: SignInPlan = { kept: false, login: null }): PublishRunSpec {
   const start = postUrlOf(post);
+  const login = signInInputs(signIn);
   const task = [
     `${LIVE_OPENER} "${post.title}" on the Squarespace site ${site(post.siteUrl)}.`,
-    `1. Open ${start}: signed in, the draft shows there. If asked to log in, stop and give_up saying the sign-in expired. If it is not found, or it is already published, give_up and say so.`,
+    `1. Open ${start}: signed in, the draft shows there. ${signInStep(signIn)} Then open ${start} again. If it is not found, or it is already published, give_up and say so.`,
     '2. Press Edit if the preview has it, then press PUBLISH in the top bar (and Publish or Confirm if it asks). Publish only this post.',
-    '3. Finish with the outputs: status is published when the top bar shows it published, else draft; post_url is its public address.',
+    '3. Finish with the outputs: status is published when the top bar shows it published, else draft; post_url is its public address; sign_in is ok.',
   ].join('\n');
   return {
     task,
     startUrl: start,
-    inputs: { site_url: site(post.siteUrl), blog_path: post.blogPath, post_title: post.title, post_url: postUrlOf(post) },
-    secretNames: [],
+    inputs: { site_url: site(post.siteUrl), blog_path: post.blogPath, post_title: post.title, post_url: postUrlOf(post), ...login.inputs },
+    secretNames: login.secretNames,
     outputs: [
       { name: 'status', description: 'published, or draft when it was not published' },
       { name: 'post_url', description: 'The post\'s public address' },
+      SIGN_IN_OUTPUT,
     ],
     approvedAhead: { reason: 'going live approved on Review', writes: [], whilePageShows: { text: post.title, writes: LIVE_WRITES } },
   };
