@@ -37,6 +37,7 @@ import type { GithubClient } from '@/libs/github/client';
 import type { GithubEvent, GithubPullRequest, GithubWorkflowRun } from '@/libs/github/events';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
+import { installationIdFrom, legacyInstallationNote } from '@/libs/github/app';
 import { createGithubClient, GITHUB_API_URL, resolveGithubToken, splitRepo } from '@/libs/github/client';
 import {
   checksCompletedEvent,
@@ -349,7 +350,8 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
   inspectNote: 'Reads one pull request, one commit\'s check runs and one Actions run per repository to prove the token holds each permission. Nothing is saved.',
 
   async inspect({ config, credentials }) {
-    const token = await resolveGithubToken(credentials, { baseUrl: typeof config.baseUrl === 'string' && config.baseUrl.trim() !== '' ? config.baseUrl.trim() : undefined });
+    const host = typeof config.baseUrl === 'string' && config.baseUrl.trim() !== '' ? config.baseUrl.trim() : undefined;
+    const token = await resolveGithubToken(credentials, { baseUrl: host });
     if (!token) {
       throw new InspectInputError('A GitHub access token is required — a fine-grained personal access token from github.com/settings/personal-access-tokens, or a GitHub App installation token.');
     }
@@ -374,6 +376,12 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
           inspection.checks.push(check(`granted:${repo}`, `${repo} granted to the installation`, false, 'The GitHub App installation does not include this repository. Add it under the installation\'s repository access on GitHub, or remove it from the source.'));
         }
       }
+    }
+    // Served by the deployment's previous GitHub App: works, but say so.
+    const installationId = credentials?.token || credentials?.accessToken ? undefined : installationIdFrom(credentials);
+    const legacyNote = installationId ? legacyInstallationNote(installationId, host) : null;
+    if (legacyNote) {
+      inspection.note = inspection.note ? `${inspection.note} ${legacyNote}` : legacyNote;
     }
     return inspection;
   },
