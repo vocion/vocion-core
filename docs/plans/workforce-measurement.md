@@ -218,7 +218,7 @@ that none of those events or capabilities already exist in core.
 ## Sprint 2 implementation and acceptance
 
 The new `workforce_item` is an explicitly registered business item, independent of
-worker attempts and action proposals. A workspace-unique business key identifies
+worker attempts, native mission runs and action proposals. A workspace-unique business key identifies
 it; linked source records may belong to only one item. Delegates and retries link
 to the same item. Registration captures workflow type, accountable agent/team,
 configuration version, acceptance criteria and an optional manual baseline
@@ -239,7 +239,12 @@ The Scorecard workspace view provides expandable work objects, registration, sou
 linking, review with structured reason and evidence, and JSON export. Synthetic
 records are stored separately by an immutable test flag and excluded from ordinary
 reports. Active effort is human-reported minutes, distinct from decision waiting.
-Worker spend is explicitly partial; missing spend and net savings remain unknown.
+Native mission links preserve their persisted task graph, assigned task owners and separately observed agents from tenant-scoped mission model calls,
+configuration SHA and recorded mission model cost. Scheduled and multi-agent runs
+can be linked directly, without inventing external-worker records. Task changes
+invalidate an earlier evidence attachment or acceptance just as action changes do.
+Mission model cost and linked-worker cost stay separate because their scopes may
+overlap; never add them together. Worker spend is explicitly partial; missing spend and net savings remain unknown.
 The cohort is items updated in the reporting window, not a claim of all eligible
 work or total business throughput. Snapshots are capped at 1,000 items and identify
 incompleteness. They are a durable reconciliation interface, not an acknowledgment
@@ -257,8 +262,8 @@ windows no longer silently reuse a 24-hour performance reading.
 | Pilot | Stable item and linked evidence | Acceptance rubric | Manual baseline |
 | --- | --- | --- | --- |
 | Human-assisted classification | One business record; link its action proposal and any attempts | Reviewer verifies required fields against the source; corrections record category and reason | Planning assumption: 3 minutes per straightforward classification; timed sample 0 |
-| Scheduled briefing | One scheduled occurrence; link the producing worker and retries | Reviewer checks required sections, source freshness and unsupported claims | Planning assumption: 30 minutes for one recurring briefing; timed sample 0 |
-| Multi-agent proposal | One requested proposal; link every contributing worker and resulting action | Reviewer checks requirements, supported claims, pricing assumptions and completeness | Planning assumption: 120 minutes for an initial proposal draft; timed sample 0 |
+| Scheduled briefing | One scheduled occurrence; link its native mission run and explicit retry runs | Reviewer checks required sections, source freshness and unsupported claims | Planning assumption: 30 minutes for one recurring briefing; timed sample 0 |
+| Multi-agent proposal | One requested proposal; link its native mission task graph, external workers and resulting actions | Reviewer checks requirements, supported claims, pricing assumptions and completeness | Planning assumption: 120 minutes for an initial proposal draft; timed sample 0 |
 
 Registration and linkage are explicit in this release. The API can be called by
 an adapter, but this is **not automatic capture across every existing agent or

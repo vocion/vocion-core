@@ -40,7 +40,8 @@ export async function GET(req: Request) {
  * Create requires key, workflow, title, agentSlug, rubric and configurationVersion.
  * Optional baselineKind is assumed (sample size 0) or measured (positive sample size);
  * both require baselineMinutes and baselineEvidence. Omitted provenance is unverified.
- * Link requires itemId, version, sourceKind and sourceId. Review requires itemId,
+ * Link requires itemId, version, sourceKind (action, worker or mission) and sourceId.
+ * Mission links include persisted task-graph evidence; task completion is not acceptance. Review requires itemId,
  * version, status, reason and evidence; effortMinutes records active effort only.
  * Exact event replay returns its existing receipt; changed payloads or stale revisions
  * return 409, and foreign or missing items return 404. Synthetic create uses test=true.

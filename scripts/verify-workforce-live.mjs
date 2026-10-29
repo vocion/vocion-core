@@ -80,6 +80,9 @@ const review = { kind: 'review', itemId: first.itemId, version: 0, eventKey: `${
 await check('hostile evidence stored as data', async () => assert.equal((await request('/api/v1/workforce', review)).status, 200));
 await check('stale version rejected', async () => assert.equal((await request('/api/v1/workforce', { ...review, eventKey: `${prefix}-stale` })).status, 409));
 await check('foreign or nonexistent item hidden', async () => assert.equal((await request('/api/v1/workforce', { ...review, itemId: randomUUID(), eventKey: `${prefix}-missing` })).status, 404));
+await check('missing mission evidence remains hidden', async () => {
+  assert.equal((await request('/api/v1/workforce', { kind: 'link', itemId: first.itemId, version: 1, eventKey: `${prefix}-missing-mission`, sourceKind: 'mission', sourceId: 2147483647 })).status, 404);
+});
 const second = created[1];
 const acceptance = { kind: 'review', itemId: second.itemId, version: 0, status: 'accepted', reason: 'meets-rubric', evidence: 'Synthetic fixture validated; this is not business value.', effortMinutes: 1 };
 await check('concurrent decisions accept once', async () => {
@@ -117,6 +120,7 @@ await check('durable evidence and unknown cost semantics', async () => {
   assert.equal(row.baselineSampleSize, 0);
   assert.equal(report.summary.netTimeSavedMinutes, null);
   assert.equal(row.linkedWorkerCostCents, null);
+  assert.deepEqual(row.missionRuns, []);
   assert.ok(!JSON.stringify(report).includes('commandHash'));
 });
 process.stdout.write(`${JSON.stringify({ result: 'passed', checkCount: checks.length, syntheticItemIds: created.map(i => i.itemId), checks })}\n`);

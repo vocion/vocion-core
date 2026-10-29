@@ -3,6 +3,7 @@
 import type { WorkforceCommand } from '@/services/workforce/contracts';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { outcomeInsights } from '@/services/workforce/insights';
 
@@ -206,6 +207,53 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
                   {' '}
                   {t('partial')}
                 </p>
+                {item.missionRuns.map(run => (
+                  <div key={run.id} className="rounded-lg border p-3">
+                    <Link href={`/dashboard/missions/runs/${run.id}`} className="font-medium underline">
+                      {t('mission')}
+                      {' '}
+                      #
+                      {run.id}
+                      {' →'}
+                    </Link>
+                    <p>
+                      {run.status}
+                      {' '}
+                      ·
+                      {' '}
+                      {run.completedTasks}
+                      /
+                      {run.tasks}
+                      {' '}
+                      {t('missionTasks')}
+                    </p>
+                    <p>
+                      {t('missionPlanned')}
+                      :
+                      {' '}
+                      {run.agents.join(', ') || t('unknown')}
+                    </p>
+                    <p>
+                      {t('missionObserved')}
+                      :
+                      {' '}
+                      {run.recordedAgents.join(', ') || t('unknown')}
+                    </p>
+                    <p>
+                      {t('version')}
+                      :
+                      {' '}
+                      {run.configurationVersion ?? t('unknown')}
+                    </p>
+                    <p>
+                      {t('missionCost')}
+                      :
+                      {' '}
+                      {run.modelCostCents === null ? t('unknown') : `$${(run.modelCostCents / 100).toFixed(4)}`}
+                    </p>
+                    <p className="text-muted-foreground">{t('missionCostScope')}</p>
+                  </div>
+                ))}
                 <ol className="space-y-2">
                   {item.events.map(event => (
                     <li key={event.id} className="rounded-lg bg-muted p-3">
@@ -224,7 +272,7 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
                     e.preventDefault();
                     const form = e.currentTarget;
                     const f = new FormData(form);
-                    void save({ kind: 'link', itemId: item.id, version: item.version, eventKey: crypto.randomUUID(), sourceKind: f.get('sourceKind') as 'action' | 'worker', sourceId: Number(f.get('sourceId')) }, form);
+                    void save({ kind: 'link', itemId: item.id, version: item.version, eventKey: crypto.randomUUID(), sourceKind: f.get('sourceKind') as 'action' | 'worker' | 'mission', sourceId: Number(f.get('sourceId')) }, form);
                   }}
                 >
                   <label>
@@ -232,6 +280,7 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
                     <select name="sourceKind" className={inputClass}>
                       <option value="action">{t('action')}</option>
                       <option value="worker">{t('worker')}</option>
+                      <option value="mission">{t('mission')}</option>
                     </select>
                   </label>
                   <label>
