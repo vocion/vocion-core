@@ -45,3 +45,11 @@ describe('the frontmatter template a site\'s own posts teach (SEO walk 2)', () =
     expect(templateFrom([{ path: 'a.md', text: 'No frontmatter.' }])).toBeNull();
   });
 });
+
+describe('a post\'s date style is copied exactly', () => {
+  it('maps a date to the page\'s date in the posts\' own format, even from one post', () => {
+    const one = templateFrom([{ path: 'src/content/blog/a.mdx', text: '---\ndate: 2026-10-28\nlastUpdatedDate: "October 28, 2026"\n---\n\nBody.' }])!;
+
+    expect(one.frontmatter).toEqual({ date: '{date:YYYY-MM-DD}', lastUpdatedDate: '{date:MMMM D, YYYY}' });
+  });
+});

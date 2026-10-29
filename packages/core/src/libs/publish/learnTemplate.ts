@@ -173,6 +173,12 @@ function templateLevel(samples: Array<Record<string, unknown>>, prefix: string, 
       continue;
     }
     const values = samples.map(s => s[key]);
+    // A date is the page's date, never a literal copied from a post, even when the posts read agree.
+    const dateStyle = values.every(v => typeof v === 'string') ? values.map(dateFormatOfValue) : [];
+    if (dateStyle.length > 0 && dateStyle.every(d => d !== null && d === dateStyle[0])) {
+      out[key] = dateStyle[0];
+      continue;
+    }
     if (values.every(v => same(v, values[0]))) {
       // Constant across the posts: a literal (a layout, a draft flag, a default image).
       out[key] = values[0];

@@ -1,5 +1,6 @@
+import type { GithubTarget } from './targets';
 import { describe, expect, it } from 'vitest';
-import { emptyPlaceholders, escapeForMdx, fillTemplate, formatDate, formatOf, publishTargetLine, publishTargetsOf, readTimeOf, renderPageFile, resolvePublishTarget, slugify, squarespaceBlogUrl, stripBylineBlock, stripMetaBlock, wordCount } from './targets';
+import { emptyPlaceholders, escapeForMdx, fillTemplate, formatDate, formatOf, publishTargetLine, publishTargetSchema, publishTargetsOf, readTimeOf, renderPageFile, resolvePublishTarget, slugify, squarespaceBlogUrl, stripBylineBlock, stripMetaBlock, wordCount } from './targets';
 
 const github = {
   id: 'site',
@@ -222,5 +223,23 @@ describe('a target in a line', () => {
   it('says the label once', () => {
     expect(publishTargetLine({ id: 'blog', kind: 'github', label: 'Northwind blog', config: { repo: 'example-org/northwind-site' } })).toBe('Northwind blog — GitHub example-org/northwind-site');
     expect(publishTargetLine({ id: 'blog', kind: 'github', config: { repo: 'example-org/northwind-site' } })).toBe('GitHub example-org/northwind-site');
+  });
+});
+
+describe('a date reaches the site as a string (first real publish, 2026-10-28: an Astro build refused a bare YAML date)', () => {
+  it('quotes every date, in the target\'s format, so a YAML 1.1 reader keeps it a string', async () => {
+    const { parse } = await import('yaml');
+    const target = publishTargetSchema.parse({ id: 'site', kind: 'github', config: { repo: 'example-org/northwind-site', path: 'src/content/blog/{slug}.mdx', frontmatter: { title: '{title}', date: '{date:MMMM D, YYYY}', lastUpdatedDate: '{date}', author: '{authorSlug}', category: '{category}' } } }) as GithubTarget;
+    const file = renderPageFile(target, { title: 'Drain care', description: 'Keep drains clear.', slug: 'drain-care', at: new Date('2026-10-28T12:00:00Z'), author: 'Dana Reyes', authorSlug: 'dana-r', category: 'Plumbing' }, { markdown: 'Body.' });
+
+    expect(file.content).toContain('date: "October 28, 2026"');
+    expect(file.content).toContain('lastUpdatedDate: "2026-10-28"');
+
+    const fm = parse(file.content.split('---')[1]!, { schema: 'yaml-1.1' }) as Record<string, unknown>;
+
+    expect(typeof fm.date).toBe('string');
+    expect(typeof fm.lastUpdatedDate).toBe('string');
+    expect(Number.isNaN(Date.parse(fm.date as string))).toBe(false);
+    expect(fm.author).toBe('dana-r');
   });
 });
