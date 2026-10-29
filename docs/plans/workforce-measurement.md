@@ -163,3 +163,53 @@ view. The admin workforce table shows recorded model/tool activity, review
 decisions, accepted-as-is rate and ledger model cost. Work-item throughput, human
 review effort and business value remain explicitly unmeasured until Sprint 2.
 Existing member scorecards retain their permissions. No new telemetry is sent.
+
+## Workforce dashboard and improvement loop
+
+The operational view is workspace → team → agent. Workspace and team object rows
+show recorded activity coverage; expandable agent rows expose evidence and links
+to the agent, review queue and playbooks. This is not a people-adoption leaderboard.
+The overview includes only accessible, non-archived workspaces in the current
+organization, with admin authorization before any aggregation.
+
+Daily (rolling 24 hours) and weekly (rolling seven days) windows support triage.
+Initial deterministic prompts identify enabled agents with no recorded work over
+at least seven days, activity without review decisions, small review samples, and
+at least five decisions with below 80% accepted as-is. These thresholds prompt an
+investigation; they are not quality guarantees or statistical confidence. Disabled
+agents do not generate utilization recommendations. Every prompt includes evidence,
+a concrete next action, and what to measure after intervening.
+
+The dashboard currently recalculates from recorded evidence on load. It does not
+send scheduled digests, persist assigned improvements, or establish causal impact.
+Activity counts must never be relabeled as completed tasks or financial value.
+
+### Next measurement contracts
+
+- Adoption: eligible task demand, routing, expected cadence and repeat useful output.
+- Feedback: reviewed artifact/version, correction category and reviewer explanation.
+- Approvals: queued, decided and resumed timestamps; accountable reviewer; blocked work.
+- Chat: recurring task intent linked to resulting work and reusable playbook versions.
+- Context/data: cited source versions, retrieval/access failures and evidence of missing
+  facts in reviewed outputs. More context is not automatically an improvement.
+- Improvement: owner, hypothesis, linked evidence, changed configuration version,
+  baseline, evaluation examples, success measure and follow-up date.
+
+Daily exceptions should highlight newly blocked work, failed runs and overdue
+approvals when those events are instrumented. The weekly review should pick one
+improvement per team, compare like-for-like outcomes, and check last week's change.
+Persist this loop in the platform; send only attributed events to external analytics.
+A later digest should read the same scoped evidence and improvement records as the
+interactive dashboard, deduplicate unchanged findings and link back to the exact work.
+
+### Reuse the existing reporting and review machinery
+
+Core already has `TeamReportService`, scheduled daily team reports and the weekly
+`org.review` job. The team report reads configured outcome measures, human
+interventions and goal progress; `services/orgReview` reads rejection explanations,
+escalations, idle work, spend and team measures to file `org.change` proposals.
+The dashboard links to those existing surfaces. Extend their shared evidence and
+renderers for richer insights rather than creating a competing scheduler or approval
+queue. The lightweight dashboard triage prompts are not yet part of their digests.
+The measurement contracts above describe needed coverage and linkage, not a claim
+that none of those events or capabilities already exist in core.
