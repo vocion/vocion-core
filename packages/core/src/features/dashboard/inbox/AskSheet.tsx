@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import type { AnswerListeners } from './askOptions';
 import type { AskOption, AskOutcomes } from '@/models/Schema';
+import type { AskRecord, AskThread as SheetThread } from '@/services/inbox/askEvidence';
 import type { InboxKind } from '@/services/InboxService';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, CornerUpLeft, ExternalLink, RotateCcw, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -20,6 +21,7 @@ import { kindForAsk } from '@/services/inbox/kinds';
 import { AskArtifact } from './AskArtifact';
 import { consequenceOf, fixedRowsFor, labelFor, OTHER } from './askOptions';
 import { firstParagraph, isNearDuplicate, sentenceCase, splitBody, splitContext } from './askText';
+import { AskRecords, AskThread } from './AskThread';
 import { DECISION_VERBS } from './decisionVerbs';
 import { decisionCrumbs, KIND_LABEL, riskTone } from './inboxMeta';
 import { withMinimumPending } from './pending';
@@ -62,6 +64,10 @@ export type SheetAsk = {
   handsBackTo?: string | null;
   /** The artifact the ask is about (the first in its `object_refs`): a sign-off shows its draft. */
   artifact?: SheetArtifact | null;
+  /** The email thread the ask is about, read for its page (`services/inbox/askEvidence`). */
+  thread?: SheetThread | null;
+  /** The CRM records the ask names, by name. */
+  records?: AskRecord[];
 };
 
 /** An ask's primary artifact, as the sheet previews it. */
@@ -622,6 +628,9 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
           {whyNode ?? (leadNode && <div className="mt-4 mb-4">{leadNode}</div>)}
           {/* The artifact it is about — the draft a sign-off approves — read in place, one move from the pane. */}
           {current.artifact && <AskArtifact artifact={current.artifact} />}
+          {/* What an ask about an email is about: the records, then the message itself, its thread and the reply. */}
+          {current.records && <AskRecords records={current.records} />}
+          {current.thread && <AskThread thread={current.thread} askId={current.id} askTitle={current.title} agentSlug={current.agentSlug} />}
           {context.shown && (
             <div className="prose prose-sm mt-4 max-w-none overflow-x-auto dark:prose-invert" data-testid="ask-context-table">
               <Markdown remarkPlugins={[remarkGfm]}>{context.shown}</Markdown>

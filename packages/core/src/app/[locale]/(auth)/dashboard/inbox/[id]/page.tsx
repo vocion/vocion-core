@@ -27,6 +27,7 @@ import { scoreFor } from '@/services/alignment/AlignmentService';
 import { getAsk } from '@/services/AskService';
 import { recordRef } from '@/services/chat/recordContext';
 import { loadAnswerListeners } from '@/services/inbox/answerListeners';
+import { loadAskEvidence } from '@/services/inbox/askEvidence';
 import { parseInboxRef } from '@/services/inbox/inboxRef';
 import { loadPendingAction } from '@/services/inbox/pendingAction';
 import { askGroupHref } from '@/services/inbox/recordKey';
@@ -79,7 +80,7 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
   const { locale, id } = await props.params;
   const sp = await props.searchParams;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, userId } = await auth();
   const ref = parseInboxRef(id);
   if (!orgId || !ref) {
     notFound();
@@ -95,15 +96,17 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
       // What each answer starts, so the rows say what Approve does instead
       // of "go ahead as proposed" on an ask that proposes nothing.
       const listeners = ask.status === 'open' ? (await loadAnswerListeners(orgId, [ask])).get(ask.id) : undefined;
-      // Who the answer goes back to, and the draft it is about; who answered, by name.
-      const [extras, deciders] = await Promise.all([
+      // Who the answer goes back to, and the draft it is about; who answered,
+      // by name; and the email and records it is about, read whole.
+      const [extras, deciders, evidence] = await Promise.all([
         ask.status === 'open' ? loadSheetExtras(orgId, [ask]) : Promise.resolve(new Map<number, SheetExtras>()),
         decidersNamed([ask]),
+        ask.status === 'open' ? loadAskEvidence(orgId, ask, { userId: userId ?? null }).catch(() => undefined) : Promise.resolve(undefined),
       ]);
       return (
         <div className="mx-auto w-full max-w-3xl">
           {ask.status === 'open'
-            ? <AskSheet asks={[toSheetAsk(ask, await scoreFor({ orgId, subjectKey: ask.kind, agentSlug: ask.agentSlug }), listeners, extras.get(ask.id))]} kind={kind} />
+            ? <AskSheet asks={[toSheetAsk(ask, await scoreFor({ orgId, subjectKey: ask.kind, agentSlug: ask.agentSlug }), listeners, extras.get(ask.id), evidence)]} kind={kind} />
             : (
                 <>
                   <ReviewHeader crumbs={decisionCrumbs(kind, ask.title)} title={ask.title} system="Answered" status={ask.status} proposedBy={ask.agentSlug ? `asked by ${ask.agentSlug}` : null} />

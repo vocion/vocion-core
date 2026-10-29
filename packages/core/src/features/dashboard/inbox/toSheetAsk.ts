@@ -1,5 +1,6 @@
 import type { SheetAsk } from '@/features/dashboard/inbox/AskSheet';
 import type { Ask } from '@/services/AskService';
+import type { AskEvidence } from '@/services/inbox/askEvidence';
 
 /**
  * The slice of an ask the client stepper needs — no decision fields, no
@@ -10,9 +11,12 @@ import type { Ask } from '@/services/AskService';
  * @param extras - Who the answer goes back to, and the draft it is about (`services/inbox/sheetExtras`).
  * @param extras.handsBackTo - The asking agent's name, when the answer goes back to it.
  * @param extras.artifact - The ask's primary artifact.
+ * @param evidence - The thread and records it is about (`services/inbox/askEvidence`), when the page read them.
  */
-export function toSheetAsk(ask: Ask, alignment?: SheetAsk['alignment'], listeners?: SheetAsk['listeners'], extras?: { handsBackTo: string | null; artifact: SheetAsk['artifact'] }): SheetAsk {
+export function toSheetAsk(ask: Ask, alignment?: SheetAsk['alignment'], listeners?: SheetAsk['listeners'], extras?: { handsBackTo: string | null; artifact: SheetAsk['artifact'] }, evidence?: AskEvidence): SheetAsk {
   return {
+    ...(evidence?.thread ? { thread: evidence.thread } : {}),
+    ...(evidence && evidence.records.length > 0 ? { records: evidence.records } : {}),
     ...(listeners ? { listeners } : {}),
     ...(extras?.handsBackTo ? { handsBackTo: extras.handsBackTo } : {}),
     ...(extras?.artifact ? { artifact: extras.artifact } : {}),

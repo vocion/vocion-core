@@ -36,6 +36,8 @@ export type ReplyThread = {
   /** The mailbox the thread was read from — who the reply goes out as. */
   mailbox: string | null;
   lastMessageAt: string | null;
+  /** The thread's last message id, as sync last saw it: a full copy ending there is current. */
+  lastMessageId?: string | null;
   /** The last few messages, oldest first. */
   messages: RecentMessage[];
   /** How the thread was found: by the id the draft named, or by who and what it is about. */
@@ -115,6 +117,7 @@ async function toThread(orgId: string, row: Row, matchedBy: ReplyThread['matched
     counterpart: str(facets.counterpart) || str(m.from),
     mailbox: str(facets.mailbox) || null,
     lastMessageAt: row.lastModifiedAt?.toISOString() ?? null,
+    lastMessageId: str(facets.last_message_id) || null,
     messages: recentMessagesOf(m, content).slice(-3),
     matchedBy,
   };

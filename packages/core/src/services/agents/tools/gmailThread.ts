@@ -21,10 +21,10 @@ import { tool } from '@langchain/core/tools';
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { fetchGmailThreadDoc, resolveThreadIdForMessage } from '@/libs/sources/gmail';
+import { resolveThreadIdForMessage } from '@/libs/sources/gmail';
 import { knowledgeDocumentSchema } from '@/models/Schema';
-import { ensureSource, ingestDocument } from '@/services/IngestionService';
-import { firstCredentialed, reassembleDocument, sourcesForConnector } from './zoomTranscript';
+import { readGmailThread } from '@/services/mail/threadRead';
+import { firstCredentialed, sourcesForConnector } from './zoomTranscript';
 
 /** A source slug that belongs to the Gmail connector family. */
 const GMAIL_SLUG = /^gmail(?:$|-)/;
@@ -89,78 +89,41 @@ export function gmailTools(ctx: RuntimeContext) {
         }
       }
 
-      const [cached] = await db
-        .select({
-          id: knowledgeDocumentSchema.id,
-          title: knowledgeDocumentSchema.title,
-          metadata: knowledgeDocumentSchema.metadata,
-        })
-        .from(knowledgeDocumentSchema)
-        .where(and(
-          eq(knowledgeDocumentSchema.orgId, ctx.orgId),
-          inArray(knowledgeDocumentSchema.sourceId, sourceIds),
-          eq(knowledgeDocumentSchema.externalId, `gmail-thread:${threadId}`),
-        ))
-        .limit(1);
-
-      const ttlMs = (max_age_minutes ?? 15) * 60_000;
-      const fetchedAt = typeof cached?.metadata?.fetchedAt === 'string'
-        ? Date.parse(cached.metadata.fetchedAt)
-        : Number.NaN;
-      const fresh = Number.isFinite(fetchedAt) && Date.now() - fetchedAt < ttlMs;
-
-      if (cached && fresh && !force_refresh) {
-        const content = await reassembleDocument(ctx.orgId, cached.id);
+      const read = await readGmailThread({
+        orgId: ctx.orgId,
+        sources,
+        threadId: threadId!,
+        maxAgeMinutes: max_age_minutes,
+        forceRefresh: force_refresh,
+        credentialed,
+      });
+      if (read.source === 'none') {
+        return read.reason === 'not_found'
+          ? `Gmail has no thread with id "${threadId}".`
+          : 'No gmail credentials are stored for this workspace, and no synced copy of that thread exists.';
+      }
+      if (read.source === 'live') {
         return JSON.stringify({
-          source: 'cache',
-          title: cached.title,
-          fetchedAt: cached.metadata?.fetchedAt ?? null,
-          messageCount: cached.metadata?.messageCount ?? null,
-          content,
+          source: 'live',
+          upserted: read.upserted,
+          title: read.title,
+          fetchedAt: read.fetchedAt,
+          messageCount: read.messageCount,
+          content: read.content,
         }, null, 2);
       }
-
-      credentialed = credentialed ?? await firstCredentialed(ctx.orgId, sources);
-      if (!credentialed) {
-        if (cached) {
-          const content = await reassembleDocument(ctx.orgId, cached.id);
-          return JSON.stringify({
-            source: 'cache',
-            stale: true,
-            note: 'No gmail credentials to refresh — this is the last synced copy and newer replies may be missing.',
-            title: cached.title,
-            fetchedAt: cached.metadata?.fetchedAt ?? null,
-            messageCount: cached.metadata?.messageCount ?? null,
-            content,
-          }, null, 2);
-        }
-        return 'No gmail credentials are stored for this workspace, and no synced copy of that thread exists.';
-      }
-
-      const doc = await fetchGmailThreadDoc({
-        orgId: ctx.orgId,
-        credentials: credentialed.credentials,
-        threadId: threadId!,
-      });
-      if (!doc) {
-        return `Gmail has no thread with id "${threadId}".`;
-      }
-
-      const ref = await ensureSource({ orgId: ctx.orgId, slug: credentialed.source.slug });
-      const result = await ingestDocument(ref, doc);
-      const meta = doc.metadata as Record<string, unknown>;
       return JSON.stringify({
-        source: 'live',
-        upserted: result.status,
-        title: doc.title,
-        fetchedAt: meta.fetchedAt,
-        messageCount: meta.messageCount,
-        content: doc.content,
+        source: 'cache',
+        ...(read.stale ? { stale: true, note: 'No gmail credentials to refresh — this is the last synced copy and newer replies may be missing.' } : {}),
+        title: read.title,
+        fetchedAt: read.fetchedAt,
+        messageCount: read.messageCount,
+        content: read.content,
       }, null, 2);
     },
     {
       name: 'get_gmail_thread',
-      description: 'Get the FULL text of one Gmail thread (every message: headers + body) by thread id or any message id in it. Read-through cache: answers from the synced mirror when a copy was fetched within max_age_minutes (source: "cache"), otherwise fetches live from Gmail and upserts it into the index (source: "live", with the upsert status). Use when you need the verbatim conversation rather than search snippets or the metadata-only synced snippets.',
+      description: 'Get the FULL text of one Gmail thread (every message: headers + body) by thread id or any message id in it. Read-through cache: answers from the synced mirror when a copy was fetched within max_age_minutes (source: "cache"), otherwise fetches live from Gmail and upserts it into the index (source: "live", with the upsert status). Use when you need the verbatim conversation rather than search snippets or the metadata-only synced snippets, and ALWAYS before you say what a message says, when it came, or that it could not be read: a snippet is a fragment of the message, not the message.',
       schema: z.object({
         thread_id: z.string().optional().describe('Gmail thread id (preferred).'),
         message_id: z.string().optional().describe('Any Gmail message id in the thread — resolved to its thread.'),
