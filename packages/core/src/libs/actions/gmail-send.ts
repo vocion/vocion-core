@@ -346,7 +346,10 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
     const { voiceRulesFor } = await import('@/libs/writing/loadVoiceRules');
     const { lintSends } = await import('@/libs/writing/voiceRules');
     const rules = await voiceRulesFor(ctx.orgId);
-    const { ok, report, count } = lintSends([{ step: 1, subject: input.subject, body: input.body }], { ...rules, maxWordsPerSend: undefined, maxAsksPerSend: undefined });
+    // A reply's subject is the thread's own, behind the mail client's "Re: " or
+    // "Fwd: "; only what the agent wrote after it is the agent's voice.
+    const subject = input.subject.replace(/^\s*(?:(?:re|fwd?):\s*)+/i, '');
+    const { ok, report, count } = lintSends([{ step: 1, subject, body: input.body }], { ...rules, maxWordsPerSend: undefined, maxAsksPerSend: undefined });
     if (ok) {
       return;
     }

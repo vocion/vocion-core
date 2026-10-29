@@ -290,6 +290,13 @@ describe('voice at the door', () => {
     expect(out).toContain('A colon in prose.');
   });
 
+  it('reads a reply\'s Re: or Fwd: as the mail client\'s, not as a colon the agent wrote', async () => {
+    const reply = { ...draft, subject: 'Re: Fwd: northwind rollout plan', body: 'Hi Dana,\n\nThanks for the update. Good luck on Friday.' };
+
+    await expect(gmailSendAction.precheck!({ orgId: 'o', proposedBy: 'agent:revenue-lead' }, parse(reply))).resolves.toBeUndefined();
+    await expect(gmailSendAction.precheck!({ orgId: 'o', proposedBy: 'agent:revenue-lead' }, parse({ ...reply, subject: 'Re: what I heard: more capacity' }))).resolves.toMatch(/NOTHING WAS SAVED/);
+  });
+
   it('never holds a person\'s own words, and leaves length to the writer', async () => {
     await expect(gmailSendAction.precheck!({ orgId: 'o', proposedBy: 'usr-1' }, parse(draft))).resolves.toBeUndefined();
     await expect(gmailSendAction.precheck!({ orgId: 'o', proposedBy: 'agent:revenue-lead' }, parse({ ...draft, body: 'Hi Dana,\n\nHere is what I heard on the call, and the three things we agreed to do next week.' }))).resolves.toBeUndefined();
