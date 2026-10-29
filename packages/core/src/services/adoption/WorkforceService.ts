@@ -2,6 +2,7 @@ import type { AdoptionWindow } from './AdoptionService';
 import { sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { amplitudeKeyStatus } from '@/services/analytics/amplitudeKey';
+import { getScorecard } from '@/services/scorecard/ScorecardService';
 
 /**
  * Configuration and recorded activity are evidence, never proof of delivered value.
@@ -11,7 +12,7 @@ import { amplitudeKeyStatus } from '@/services/analytics/amplitudeKey';
 export async function getWorkforceInventory(orgId: string, days: AdoptionWindow) {
   const generatedAt = new Date();
   const since = new Date(generatedAt.getTime() - days * 86_400_000);
-  const [inventory, teamsResult, coverageResult, amplitude] = await Promise.all([
+  const [inventory, teamsResult, coverageResult, amplitude, scorecard] = await Promise.all([
     db.execute(sql`
       WITH activity AS (
         SELECT agent_slug, count(*) AS events, max(created_at) AS last_activity_at
@@ -26,17 +27,23 @@ export async function getWorkforceInventory(orgId: string, days: AdoptionWindow)
         WHERE org_id = ${orgId} AND created_at >= ${since} AND created_at < ${generatedAt}
         GROUP BY agent_slug
       )
+      , spend AS (
+        SELECT agent_slug, count(*)::int AS model_calls, sum(micro_cents) AS micro_cents, max(created_at) AS last_model_at
+        FROM model_call WHERE org_id = ${orgId} AND created_at >= ${since} AND created_at < ${generatedAt}
+        GROUP BY agent_slug
+      )
       SELECT a.slug, a.name, a.description, a.active, a.team_slug,
         a.skill_slugs, a.playbook_slugs,
         COALESCE(t.accountable_user_id, p.accountable_user_id) AS owner_user_id,
         COALESCE(x.events, 0)::int AS human_events,
         COALESCE(c.calls, 0)::int AS tool_calls,
-        x.last_activity_at, c.last_tool_at
+        x.last_activity_at, c.last_tool_at, s.model_calls, s.micro_cents, s.last_model_at
       FROM agent a
       LEFT JOIN team t ON t.org_id = a.org_id AND t.slug = a.team_slug
       LEFT JOIN project p ON p.id = a.org_id
       LEFT JOIN activity x ON x.agent_slug = a.slug
       LEFT JOIN tools c ON c.agent_slug = a.slug
+      LEFT JOIN spend s ON s.agent_slug = a.slug
       WHERE a.org_id = ${orgId}
       ORDER BY a.name, a.slug
     `),
@@ -54,6 +61,7 @@ export async function getWorkforceInventory(orgId: string, days: AdoptionWindow)
       WHERE org_id = ${orgId} AND created_at >= ${since} AND created_at < ${generatedAt}
     `),
     amplitudeKeyStatus(orgId),
+    getScorecard(orgId, { from: since, to: generatedAt }),
   ]);
   const agents = inventory.rows.map(r => ({
     slug: String(r.slug),
@@ -66,6 +74,11 @@ export async function getWorkforceInventory(orgId: string, days: AdoptionWindow)
     playbooks: (r.playbook_slugs ?? []) as string[],
     humanEvents: Number(r.human_events),
     toolCalls: Number(r.tool_calls),
+    modelCalls: Number(r.model_calls ?? 0),
+    modelCostUsd: r.micro_cents == null ? null : Number(r.micro_cents) / 100_000_000,
+    reviewDecisions: scorecard.rows.find(a => a.agentSlug === r.slug)?.reviewDecisions ?? 0,
+    acceptedAsIsRate: scorecard.rows.find(a => a.agentSlug === r.slug)?.acceptedAsIsRate ?? null,
+    lastModelCallAt: r.last_model_at == null ? null : new Date(r.last_model_at as string).toISOString(),
     lastHumanActivityAt: r.last_activity_at == null ? null : new Date(r.last_activity_at as string).toISOString(),
     lastToolCallAt: r.last_tool_at == null ? null : new Date(r.last_tool_at as string).toISOString(),
   }));

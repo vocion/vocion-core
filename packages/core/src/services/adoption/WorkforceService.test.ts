@@ -6,11 +6,12 @@ vi.mock('@/services/analytics/amplitudeKey', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { agentSchema, teamSchema, projectSchema, tenantAccountSchema, userSchema, userActivityEventSchema, toolCallSchema } = await import('@/models/Schema');
+const { agentSchema, teamSchema, projectSchema, tenantAccountSchema, userSchema, userActivityEventSchema, toolCallSchema, modelCallSchema } = await import('@/models/Schema');
 const { getWorkforceInventory } = await import('./WorkforceService');
 const now = new Date();
 
 beforeEach(async () => {
+  await db.delete(modelCallSchema);
   await db.delete(toolCallSchema);
   await db.delete(userActivityEventSchema);
   await db.delete(agentSchema);
@@ -75,4 +76,15 @@ describe('workforce inventory', () => {
     expect(report.teams.some(a => a.name === 'Other tenant')).toBe(false);
     expect(report.window.days).toBe(7);
   });
+});
+
+it('attributes ledger model cost and autonomous model-only activity without counting another workspace', async () => {
+  await db.insert(modelCallSchema).values([
+    { orgId: 'a', agentSlug: 'used', feature: 'agent.turn', model: 'test', microCents: 125000000, createdAt: now },
+    { orgId: 'b', agentSlug: 'used', feature: 'agent.turn', model: 'test', microCents: 900000000, createdAt: now },
+  ]);
+  const report = await getWorkforceInventory('a', 30);
+
+  expect(report.agents.find(a => a.slug === 'used')).toMatchObject({ modelCalls: 1, modelCostUsd: 1.25, toolCalls: 0 });
+  expect(report.agents.find(a => a.slug === 'unused')?.modelCostUsd).toBeNull();
 });

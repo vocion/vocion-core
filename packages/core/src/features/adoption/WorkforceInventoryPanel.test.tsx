@@ -12,7 +12,7 @@ it('shows unused disabled agents and unverified delivery without claiming health
     workspaceId: 'example',
     generatedAt: '2026-10-29T12:00:00Z',
     window: { days: 30, from: '2026-09-29T12:00:00Z', to: '2026-10-29T12:00:00Z' },
-    agents: [{ slug: 'writer', name: 'Draft writer', purpose: null, enabled: false, teamSlug: null, ownerUserId: null, skills: [], playbooks: [], humanEvents: 0, toolCalls: 0, lastHumanActivityAt: null, lastToolCallAt: null }],
+    agents: [{ slug: 'writer', name: 'Draft writer', purpose: null, enabled: false, teamSlug: null, ownerUserId: null, skills: [], playbooks: [], humanEvents: 0, toolCalls: 0, modelCalls: 0, modelCostUsd: null, reviewDecisions: 0, acceptedAsIsRate: null, lastModelCallAt: null, lastHumanActivityAt: null, lastToolCallAt: null }],
     teams: [],
     coverage: { localEvents: 0, lastLocalEventAt: null, unlinkedAgentEvents: 0, completeness: 'unverified', amplitudeConfiguration: 'instance', amplitudeDelivery: 'unverified' },
   };

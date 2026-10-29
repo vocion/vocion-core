@@ -56,7 +56,7 @@ saved. Model-graded quality must be calibrated against independent human labels.
 
 ### Scope and decisions
 
-Extend the existing admin-only Adoption surface and router, using the deployed
+Extend the Scorecard surface with an admin-only workforce endpoint, using the deployed
 workspace's database. Do not seed invented agents or assume authored repository
 configuration is live. Keep all configured agents in the report, including disabled
 and unused agents, and all teams including teams with no members. Resolve team
@@ -90,7 +90,7 @@ visible indicators, not a completeness test.
 - Time windows exclude older and future events. Report is read-only.
 - Team ownership inheritance, missing owners/goals, and empty teams are represented.
 - Export contains no prompts, tool payloads, emails, secrets or analytics key hints.
-- Existing Adoption charts continue to work; no migration or new vendor is required.
+- Existing Adoption charts remain unchanged; no migration or new vendor is required.
 
 ### Production verification and rollout
 
@@ -102,8 +102,8 @@ software must not silently assign them.
 1. Record each instance hostname, environment, deployed core SHA, included workspace
    IDs and workspace configuration version. Include migrated/cloud workspaces.
 2. Deploy the reviewed change through the normal release process. As an admin,
-   open Adoption in each workspace, select the agreed baseline window, and export
-   the report. Confirm ordinary members cannot call `adoption.workforce`.
+   open Scorecard in each workspace, select the agreed baseline window, and export
+   the report. Confirm ordinary members cannot call `scorecard.workforce`.
 3. Compare exports with the authored inventory. Mark configured-only, enabled,
    disabled, moved, missing and duplicate entries. Preserve evidence timestamps.
    An unobserved agent requires investigation, not automatic retirement.
@@ -155,3 +155,11 @@ tokens or agent-count leaderboards.
 - [Human and unattended actor identities](https://github.com/vocion/vocion-core/pull/1482)
 - [Amplitude Agent Analytics](https://amplitude.com/docs/amplitude-ai/agent-analytics/overview)
 - [Langfuse evaluation](https://langfuse.com/docs/evaluation/overview)
+
+## Product placement decision
+
+Workforce performance lives in Scorecard. Adoption remains the people-adoption
+view. The admin workforce table shows recorded model/tool activity, review
+decisions, accepted-as-is rate and ledger model cost. Work-item throughput, human
+review effort and business value remain explicitly unmeasured until Sprint 2.
+Existing member scorecards retain their permissions. No new telemetry is sent.

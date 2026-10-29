@@ -173,7 +173,6 @@ import { applyNow as applyWorkspaceNow, pause as pauseWorkspaceRoute, readPrimit
 
 export const router = {
   adoption: {
-    workforce: adoptionWorkforceRoute,
     overview: adoptionOverviewRoute,
     users: adoptionUsersRoute,
     agents: adoptionAgentsRoute,
@@ -506,6 +505,7 @@ export const router = {
     undoDefault: inboxUndoDefaultRoute,
   },
   scorecard: {
+    workforce: adoptionWorkforceRoute,
     agents: scorecardAgentsRoute,
   },
   review: {
