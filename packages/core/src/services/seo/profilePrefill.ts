@@ -72,3 +72,44 @@ export function inventoryUrls(md: string): string[] {
   }
   return [...seen];
 }
+
+/** What the home page's structured data says about the business, for the audit's AI-visibility and local checks. */
+export type HomepageSchema = {
+  /** Organization-like types declared (Organization, LocalBusiness and its subtypes, Corporation). */
+  orgTypes: string[];
+  /** The Organization's own `description`, as written. */
+  orgDescription: string | null;
+  /** The Organization's `name`. */
+  orgName: string | null;
+  /** Profiles its `sameAs` links. */
+  sameAs: number;
+  telephone: string | null;
+  /** An address with a street or locality. */
+  hasAddress: boolean;
+};
+
+const ORG_TYPE = /^(?:Organization|Corporation|LocalBusiness|OnlineBusiness|OnlineStore|ProfessionalService|NGO|EducationalOrganization|MedicalOrganization)$|Business$|Service$|Store$|Contractor$|Plumber$|Electrician$|Dentist$|Attorney$|Restaurant$|Locksmith$/;
+
+/**
+ * The home page's Organization schema, read. Pure.
+ * @param html - The home page as served.
+ */
+export function homepageSchema(html: string): HomepageSchema {
+  const $ = load(html);
+  const nodes = jsonLdNodes($).filter(n => typesOf(n).some(t => ORG_TYPE.test(t)));
+  const str = (k: string) => {
+    for (const n of nodes) {
+      const v = n[k];
+      if (typeof v === 'string' && v.trim()) {
+        return v.trim();
+      }
+    }
+    return null;
+  };
+  const sameAs = nodes.flatMap(n => (Array.isArray(n.sameAs) ? n.sameAs : typeof n.sameAs === 'string' ? [n.sameAs] : [])).length;
+  const hasAddress = nodes.some((n) => {
+    const a = n.address as Record<string, unknown> | string | undefined;
+    return typeof a === 'string' ? a.trim().length > 0 : Boolean(a && (a.streetAddress || a.addressLocality));
+  });
+  return { orgTypes: [...new Set(nodes.flatMap(typesOf))], orgDescription: str('description'), orgName: str('name'), sameAs, telephone: str('telephone'), hasAddress };
+}

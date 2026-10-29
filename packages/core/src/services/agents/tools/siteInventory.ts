@@ -18,7 +18,8 @@
 
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
-import type { InventoryFetchers } from '@/libs/tools/site/inventory';
+import type { InventoryFetchers, SiteInventory } from '@/libs/tools/site/inventory';
+import type { RoomMeta } from '@/services/DataRoomService';
 import { Buffer } from 'node:buffer';
 import { gunzipSync } from 'node:zlib';
 import { tool } from '@langchain/core/tools';
@@ -46,7 +47,7 @@ const MAX_SITEMAP_BYTES = 20 * 1024 * 1024;
  * null when the site has none (any HTTP error).
  * @param url - The file.
  */
-async function fetchText(url: string): Promise<string | null> {
+export async function fetchText(url: string): Promise<string | null> {
   try {
     const { res } = await fetchPublic(url, { headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/xml,text/xml,text/plain,*/*' } });
     const bytes = await readCapped(res, MAX_SITEMAP_BYTES);
@@ -72,6 +73,85 @@ export function inventoryFetchers(ctx: RuntimeContext): InventoryFetchers {
   };
 }
 
+/** What one inventory run filed, or why it could not. */
+export type ProjectInventory = { ok: true; inv: SiteInventory; artifactId: number; title: string } | { ok: false; message: string };
+
+/**
+ * Read a project's whole site and file it on the project: the dated artifact
+ * (one per site; a second read is a new version), filed as a source and
+ * recorded as the project's inventory. The site inventory tool and the SEO
+ * audit both run it.
+ * @param ctx - The turn.
+ * @param room - The project.
+ * @param room.id
+ * @param room.meta
+ * @param opts - The site (default the project's first domain) and the cap.
+ * @param opts.url
+ * @param opts.cap
+ */
+export async function inventoryProject(ctx: RuntimeContext, room: { id: number; meta: RoomMeta }, opts: { url?: string; cap?: number } = {}): Promise<ProjectInventory> {
+  const site = opts.url ?? room.meta.domains?.[0];
+  if (!site) {
+    return { ok: false, message: `Project #${room.id} has no domain. Pass the site's url.` };
+  }
+  let origin: string;
+  try {
+    origin = siteOrigin(site);
+  } catch {
+    return { ok: false, message: `"${site}" is not a site address.` };
+  }
+  const cap = opts.cap ?? DEFAULT_INVENTORY_CAP;
+  let inv: SiteInventory;
+  try {
+    inv = await readInventory(origin, inventoryFetchers(ctx), { cap });
+  } catch (err) {
+    if (err instanceof ToolProviderKeyUnavailableError) {
+      return { ok: false, message: `${err.message}. A workspace admin can re-enter it under API credentials.` };
+    }
+    if (err instanceof ProviderNotConfiguredError) {
+      return { ok: false, message: `Browse is not configured (${err.message}).` };
+    }
+    return { ok: false, message: `Could not read ${origin}: ${(err as Error).message ?? 'unknown error'}. Say the inventory could not be made; do not list pages from memory.` };
+  }
+  if (inv.rows.length === 0) {
+    return { ok: false, message: `${origin} listed no pages: no sitemap, nothing in robots.txt, and a crawl from the home page read nothing. Say so; do not list pages from memory.` };
+  }
+  const md = renderInventory(inv);
+  const title = `Site inventory · ${inv.site}`;
+  // One inventory per site: a second read is a new version of the same
+  // artifact (its history keeps the last), never a second artifact.
+  const held = room.meta.siteInventory?.site === inv.site ? room.meta.siteInventory.artifactId : null;
+  let artifactId: number | null = null;
+  if (held) {
+    const updated = await updateArtifact({ orgId: ctx.orgId, id: held, contentMarkdown: md, author: authorOf(ctx), changeSummary: `Read again ${inv.readAt.slice(0, 10)}`, runId: ctx.traceId ?? null }).catch(() => null);
+    if (updated) {
+      artifactId = held;
+      ctx.emit({ type: 'artifact', artifact: toPayload(updated.artifact) });
+    }
+  }
+  if (artifactId === null) {
+    const made = await renderMarkdownArtifact(ctx, title, md, SITE_INVENTORY_FOLDER);
+    if (made.artifactId === null) {
+      return { ok: false, message: `The inventory of ${inv.site} was read (${inv.rows.length} pages) but could not be filed: ${made.receipt}` };
+    }
+    artifactId = made.artifactId;
+  }
+  // Filed as one of the project's sources (it lands on the project, and
+  // the writer can open it by id), and recorded as its inventory.
+  await fileToDataRoom(ctx.orgId, room.id, { artifactId, title, kind: 'note', rating: 2, channel: 'site_inventory', date: inv.readAt.slice(0, 10), note: `${inv.rows.length} pages from the ${inv.from}`, author: authorOf(ctx) });
+  await updateDataRoom(ctx.orgId, room.id, {
+    siteInventory: {
+      artifactId,
+      site: inv.site,
+      readAt: inv.readAt,
+      pages: inv.rows.length,
+      from: inv.from,
+      ...(inv.cappedAt ? { cappedAt: inv.cappedAt, listed: inv.listed } : {}),
+    },
+  });
+  return { ok: true, inv, artifactId, title };
+}
+
 function siteInventoryTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -79,65 +159,11 @@ function siteInventoryTool(ctx: RuntimeContext) {
       if (!room) {
         return `No project #${args.project_id} in this workspace.`;
       }
-      const site = args.url ?? room.meta.domains?.[0];
-      if (!site) {
-        return `Project #${room.id} has no domain. Pass the site's url.`;
+      const run = await inventoryProject(ctx, room, { url: args.url, cap: args.max_pages });
+      if (!run.ok) {
+        return run.message;
       }
-      let origin: string;
-      try {
-        origin = siteOrigin(site);
-      } catch {
-        return `"${site}" is not a site address.`;
-      }
-      const cap = args.max_pages ?? DEFAULT_INVENTORY_CAP;
-      let inv: Awaited<ReturnType<typeof readInventory>>;
-      try {
-        inv = await readInventory(origin, inventoryFetchers(ctx), { cap });
-      } catch (err) {
-        if (err instanceof ToolProviderKeyUnavailableError) {
-          return `${err.message}. A workspace admin can re-enter it under API credentials.`;
-        }
-        if (err instanceof ProviderNotConfiguredError) {
-          return `Browse is not configured (${err.message}).`;
-        }
-        return `Could not read ${origin}: ${(err as Error).message ?? 'unknown error'}. Say the inventory could not be made; do not list pages from memory.`;
-      }
-      if (inv.rows.length === 0) {
-        return `${origin} listed no pages: no sitemap, nothing in robots.txt, and a crawl from the home page read nothing. Say so; do not list pages from memory.`;
-      }
-      const md = renderInventory(inv);
-      const title = `Site inventory · ${inv.site}`;
-      // One inventory per site: a second read is a new version of the same
-      // artifact (its history keeps the last), never a second artifact.
-      const held = room.meta.siteInventory?.site === inv.site ? room.meta.siteInventory.artifactId : null;
-      let artifactId: number | null = null;
-      if (held) {
-        const updated = await updateArtifact({ orgId: ctx.orgId, id: held, contentMarkdown: md, author: authorOf(ctx), changeSummary: `Read again ${inv.readAt.slice(0, 10)}`, runId: ctx.traceId ?? null }).catch(() => null);
-        if (updated) {
-          artifactId = held;
-          ctx.emit({ type: 'artifact', artifact: toPayload(updated.artifact) });
-        }
-      }
-      if (artifactId === null) {
-        const made = await renderMarkdownArtifact(ctx, title, md, SITE_INVENTORY_FOLDER);
-        if (made.artifactId === null) {
-          return `The inventory of ${inv.site} was read (${inv.rows.length} pages) but could not be filed: ${made.receipt}`;
-        }
-        artifactId = made.artifactId;
-      }
-      // Filed as one of the project's sources (it lands on the project, and
-      // the writer can open it by id), and recorded as its inventory.
-      await fileToDataRoom(ctx.orgId, room.id, { artifactId, title, kind: 'note', rating: 2, channel: 'site_inventory', date: inv.readAt.slice(0, 10), note: `${inv.rows.length} pages from the ${inv.from}`, author: authorOf(ctx) });
-      await updateDataRoom(ctx.orgId, room.id, {
-        siteInventory: {
-          artifactId,
-          site: inv.site,
-          readAt: inv.readAt,
-          pages: inv.rows.length,
-          from: inv.from,
-          ...(inv.cappedAt ? { cappedAt: inv.cappedAt, listed: inv.listed } : {}),
-        },
-      });
+      const { inv, artifactId, title } = run;
       const issues = inventoryIssues(inv.rows);
       return JSON.stringify({
         inventory: { artifactId, href: `/dashboard/artifacts/${artifactId}`, title },

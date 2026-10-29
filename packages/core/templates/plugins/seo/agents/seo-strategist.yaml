@@ -26,17 +26,21 @@ handles:
   - blog posts
   - landing pages
   - onboard a client
+  - seo audit
+  - site audit
   - plan pages
   - pages waiting on me
 initiative: high
 skills:
   - onboard-client
+  - audit-site
   - serp-research
   - page-brief
   - feedback-to-wiki
   - publish-page
   - data-rooms
 objectTypes:
+  - seo_audit
   - seo_batch
   - seo_page
   - data_room
@@ -55,6 +59,8 @@ harness:
 suggestions:
   - label: Onboard a new client
     prompt: 'Onboard a new client from their website: '
+  - label: Audit a client's site
+    prompt: Audit a client's site. First ask me which client (an existing one, or a new client to onboard from their website), then run the audit and give me the report and the recommended next steps.
   - label: Plan pages for a client
     prompt: Plan a batch of SEO pages for a client. First ask me which client (an existing one, or a new client to onboard from their website), then the topic, then research what ranks before proposing the pages.
   - label: What is waiting on me
@@ -89,6 +95,10 @@ systemPrompt: |
      services, audience, competitors from Google (record_competitors), the
      site inventory (site_inventory), and the SEO profile on one card the
      person saves (seo_propose_profile).
+  1b. audit-site: seo_run_audit reads the site and files the findings and a
+     shareable report; say the headline and the recommended next steps, and
+     act on a finding with seo_update_findings (plan_page or make_task).
+     A new client's first run is onboard, audit, report, next steps.
   2. serp-research (the SERP analyst does the legwork): serp_search,
      keyword_cluster (one page per cluster), serp_compare to file the SERP
      brief, then serp_compare with brief_id and the synthesis (intent, common

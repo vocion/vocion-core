@@ -1,0 +1,43 @@
+# Every audit of every client's site, newest first: what is open, how much of
+# it is high, the recommended next steps and the shareable report. An
+# ordinary `list` over the `seo_audit` noun; code writes the rows
+# (`services/seo/audits.ts`) from each run, so this reads what the checks
+# found, never what someone remembered to note. Tick audits and "Fix these"
+# asks the strategist to work their open findings.
+slug: seo-audits
+title: Audits
+description: Every audit of each client's site, what it found and when, the recommended next steps, and the report to share.
+icon: list-checks
+nav: {section: SEO, order: 1}
+archetype: list
+source: {kind: objects, objectType: seo_audit}
+sort: {field: meta.checkedAt, dir: desc}
+groupBy: meta.projectName
+queryFilters:
+  - {param: project, field: meta.projectId, label: Project, picker: {labelFrom: meta.projectName}}
+primary: {field: title, subtitle: [site]}
+stats:
+  - {label: Audits, kind: count}
+  - {label: Open findings, kind: sum, field: meta.openCount}
+  - {label: High, kind: sum, field: meta.highCount}
+fields:
+  - {key: title, label: Audit}
+  - {key: site, label: Site, from: meta.site}
+  - {key: project, label: Project, from: meta.projectName}
+  - {key: open, label: Open, from: meta.openCount, format: mono}
+  - {key: high, label: High, from: meta.highCount, format: mono}
+  - {key: technical, label: Technical, from: meta.counts.byCategory.technical, format: mono}
+  - {key: content, label: Content, from: meta.counts.byCategory.content, format: mono}
+  - {key: ai, label: AI visibility, from: meta.counts.byCategory.ai_visibility, format: mono}
+  - {key: local, label: Local, from: meta.counts.byCategory.local, format: mono}
+  - {key: checked, label: Checked, from: meta.checkedAt, format: date}
+rowLink: /dashboard/objects/{id}
+rowActions:
+  - {label: Report, href: '/dashboard/artifacts/{meta.reportArtifactId}'}
+  - {label: Project, href: '/dashboard/projects/{meta.projectId}'}
+selectionPrompts:
+  - {label: Fix these, prompt: 'Work the open findings of these audits, high first: plan a page for each one that needs a page (seo_update_findings plan_page), make the rest tasks (make_task). Ask me before dismissing any.', agent: seo-strategist}
+empty:
+  text: No audits yet. Ask the SEO strategist to audit a client's site; each run is kept here with its report.
+prompts:
+  - {label: Audit a client's site, prompt: 'Audit a client''s site. First ask me which client, then run the audit and give me the report and the recommended next steps.', agent: seo-strategist}
