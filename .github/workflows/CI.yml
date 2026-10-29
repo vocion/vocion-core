@@ -107,9 +107,15 @@ jobs:
       # modules (services/seo/meta.ts and work.ts, under 10 KB), so the line
       # was simply reached, not crossed by something that started reaching
       # the server.
+      # 13600 → 14000 (2026-10-29, v8.11): main and every open PR measured
+      # 13,6xx MB (#1498 13,615) after the SEO work, analytics (#1493), learning
+      # candidates (#1494), REST trust (#1495) and the Squarespace kept sign-in
+      # (#1497). This is the last raise the 16 GB runner allows with margin: the
+      # structural fix is under way (dashboard routes stop compiling the whole
+      # agent tool registry), not another raise.
       - name: Build memory
         env:
-          BUILD_PEAK_RSS_BUDGET_MB: '13600'
+          BUILD_PEAK_RSS_BUDGET_MB: '14000'
         run: |
           set -euo pipefail
           peak_mb=$(( $(awk -F': ' '/Maximum resident set size/{print $2}' "$RUNNER_TEMP/build-time.txt") / 1024 ))
