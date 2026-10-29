@@ -76,7 +76,7 @@ beforeEach(() => {
 });
 
 describe('an empty chat on a phone', () => {
-  it('is a mark, one line and one soft chip by the composer: no heading, no starters, no cards, no badge', async () => {
+  it('is a mark and one line: no heading, no starters, no cards, no chip, no badge', async () => {
     await page.viewport(PHONE.width, PHONE.height);
     await render(<Shell />);
 
@@ -86,10 +86,10 @@ describe('an empty chat on a phone', () => {
     // The only buttons in the empty pane are the chip's own dismiss: no starters.
     const empty = page.getByTestId('chat-empty-state');
 
-    expect(empty.getByRole('button').elements().map(b => b.getAttribute('data-testid'))).toEqual(['waiting-nudge-dismiss']);
+    expect(empty.getByRole('button').elements()).toHaveLength(0);
     await expect.element(page.getByPlaceholder('Ask the team…')).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/Ask Northwind/i);
-    await expect.element(page.getByTestId('waiting-nudge')).toHaveTextContent('3 things waiting on you');
+    expect(page.getByTestId('waiting-nudge').elements()).toHaveLength(0);
 
     expect(page.getByTestId('recommended-action-card').elements()).toHaveLength(0);
     expect(page.getByTestId('recommended-action-stack').elements()).toHaveLength(0);
@@ -125,10 +125,7 @@ describe('an empty chat on a phone', () => {
 
     expect(Math.abs((line.top + line.bottom) / 2 - middle)).toBeLessThan(pane.height * 0.2);
 
-    const chip = (await page.getByTestId('waiting-nudge').element() as HTMLElement).getBoundingClientRect();
-
-    expect(chip.top).toBeGreaterThan(line.bottom);
-    expect(box.top - chip.bottom).toBeLessThan(80);
+    expect(box.top).toBeGreaterThan(line.bottom);
 
     const doc = document.scrollingElement!;
 
