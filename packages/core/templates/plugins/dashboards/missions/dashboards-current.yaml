@@ -1,0 +1,19 @@
+slug: dashboards-current
+name: Every dashboard is current
+description: >-
+  The Dashboard analyst's standing responsibility: a dashboard people open is
+  as fresh as its cadence promises, rebuilt from its own recipe.
+goal: >-
+  Every dashboard with a daily, weekly or monthly cadence is no older than
+  that cadence, refreshed in place from its refresh method — the same reads,
+  the same definitions — with the lead rewritten for today's numbers.
+agent: dashboard-analyst
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Every due dashboard has a new version whose asOf is today, written with update_artifact on the same artifact
+  - Every figure ties to a read made in that refresh; a figure that could not be read is null and the lead says so
+  - A dashboard whose method needs a person's own sign-in is left as it is and named, never filled from memory
+  - No new dashboard is made by a check
+desiredArtifacts:
+  - A new version of each due dashboard, with a change summary of what moved

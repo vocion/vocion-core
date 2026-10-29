@@ -9,6 +9,14 @@ import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { firstNameOf, waitingNudgeCount } from './emptyChat';
 
+/**
+ * Off (2026-10-29, Chris): the chip's count disagreed with Review's, it stayed
+ * after the person started chatting, and it drove nothing in the chat itself.
+ * Review's own count is the one place the number lives until the chip earns
+ * its way back by docking the cards in the conversation.
+ */
+export const WAITING_NUDGE_ENABLED = false;
+
 /** Session-storage key: the person waved the nudge away in this browser session. */
 const DISMISSED_KEY = 'vocion:waiting-nudge-dismissed';
 

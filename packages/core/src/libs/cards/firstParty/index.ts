@@ -10,6 +10,7 @@
 
 import { registerCard } from '../registry';
 import { chartCard } from './chart';
+import { dashboardCard } from './dashboard';
 import { dataTableCard } from './dataTable';
 import { deckCard } from './deck';
 import { documentCard } from './document';
@@ -55,6 +56,9 @@ export function registerFirstPartyCards(): void {
   // SKILL.md, mirrored so they edit like artifacts.
   registerCard(missionCard);
   registerCard(playbookCard);
+  // The dashboard (render_dashboard) — figures, charts and tables in tabs,
+  // kept current by an agent.
+  registerCard(dashboardCard);
   registered = true;
 }
 

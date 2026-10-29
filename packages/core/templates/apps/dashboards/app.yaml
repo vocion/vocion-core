@@ -1,0 +1,11 @@
+# Dashboards: the numbers a team watches, dated and sourced, kept current by
+# an agent. Installed in a workspace when the dashboards plugin is on there.
+id: dashboards
+name: Dashboards
+icon: layout-dashboard
+tint: sky
+order: 9
+description: The numbers your team watches every day, built from a sentence, dated and sourced, and kept current by an analyst.
+plugins: [dashboards]
+entry: /dashboard/p/dashboards
+nav: [Dashboards]

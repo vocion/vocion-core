@@ -43,7 +43,10 @@ function formatCell(v: CellValue, type: DataTableSpec['columns'][number]['type']
       return Number.isFinite(n) ? n.toLocaleString() : String(v);
     }
     case 'date': {
-      const d = new Date(String(v));
+      // A date with no time is that calendar day wherever it is read: parsed
+      // as UTC midnight it showed the day before west of Greenwich.
+      const raw = String(v);
+      const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00` : raw);
       return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     }
     default:

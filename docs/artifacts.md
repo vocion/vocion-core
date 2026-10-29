@@ -29,14 +29,15 @@ The artifact model fixes that with three ideas:
 
 | Piece | Where | What it does |
 |---|---|---|
-| `artifact` table | `0095_artifact.sql` + `0101_artifact_version.sql`, `models/Schema.ts` | id, org, conversation, message, `kind` (`table` \| `markdown` \| `chart` \| `record` \| `link` \| `file` \| `sequence` \| `document` \| `deck` \| `mission` \| `playbook`), `title`, `spec` jsonb, `url` (files), `folder`, `current_version`, `head_version_id`, `last_author_kind`/`last_author_id` |
+| `artifact` table | `0095_artifact.sql` + `0101_artifact_version.sql`, `models/Schema.ts` | id, org, conversation, message, `kind` (`table` \| `markdown` \| `chart` \| `record` \| `link` \| `file` \| `sequence` \| `document` \| `deck` \| `mission` \| `playbook` \| `dashboard`), `title`, `spec` jsonb, `url` (files), `folder`, `current_version`, `head_version_id`, `last_author_kind`/`last_author_id` |
 | `artifact_version` table | `0101_artifact_version.sql` | one immutable row per edit: `version`, `title`, `spec`, `author_kind` (`agent` \| `human` \| `system`), `author_id`, `run_id`, `message_id`, `change_summary` |
 | Card specs | `libs/cards/specs.ts` | zod schemas per kind — the tool validates with them, the card renders with them, the row stores what passes them |
 | Cards | `libs/cards/firstParty/{dataTable,markdown,chart,record,link}.tsx` | surfaces `chat` (dense) and `artifact` (full). `resolveCard()` is the only render path |
 | Create tools | `services/agents/tools/renderArtifacts.ts` | `render_table`, `render_markdown`, `render_chart`, `render_record` — validate, persist, emit `{ type: 'artifact' }`, return a one-line receipt |
 | Guarantee | `services/agents/deliverableBackstop.ts` + `AgentService#applyTurnGuarantees` | a turn sent with `deliverable: 'artifact'` ends with one — wrapped, composed, or an explicit stub |
 | Deliverables | `services/documents/DocumentEngine.ts`, `services/decks/DeckEngine.ts`, `services/deliverables/` | the two client deliverable kinds: `document` (US-Letter sheets) and `deck` (16:9 slides, [`decks.md`](./decks.md)). Every write is render-verified and the verdict stored on the version; both share the red team, the export gate, PDF filing and check-out/check-in |
-| Edit tools | `services/agents/tools/editArtifacts.ts` | `read_artifact`, `update_artifact` — how the agent changes what is already open |
+| Edit tools | `services/agents/tools/editArtifacts.ts` | `read_artifact`, `update_artifact` — how the agent changes what is already open; `list_artifacts` — how it finds one by kind, folder or title |
+| Dashboards | `libs/dashboards/`, `render_dashboard` | figures, charts and tables in tabs, dated and sourced, with the recipe that rebuilds them ([guides/dashboards.md](./guides/dashboards.md)) |
 | File tool | `services/agents/tools/createArtifact.ts` | `create_artifact` makes a downloadable FILE (CSV/SVG/doc) and records it as a `file` artifact. Unrelated to the live-artifact family, despite the name (it is a registered capability id in `libs/tools/catalog.ts`) |
 | Event | `services/agents/types.ts` `AgentEvent` | `{ type: 'artifact'; artifact; pending?; delta? }` |
 | Service | `services/ArtifactService.ts` | create / update / restore / list / versions / folders — the ONE door for agent and human writes |

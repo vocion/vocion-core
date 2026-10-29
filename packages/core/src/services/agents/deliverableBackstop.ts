@@ -41,6 +41,7 @@ export const ARTIFACT_TOOLS: ReadonlySet<string> = new Set([
   'render_table',
   'render_markdown',
   'render_chart',
+  'render_dashboard',
   'render_record',
   'create_artifact',
   'update_artifact',

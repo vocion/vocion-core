@@ -376,10 +376,10 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // The writing agent's own avatar and name, not a bare "Writing…".
   const bottomLine = activity ?? liveNote ?? (segments[segments.length - 1]?.kind === 'text' ? (writer ? `${writer.name} is writing…` : 'Writing…') : 'Thinking…');
 
-  // A small brand mark carries the speaker (2026-09-18) — the uppercase name
-  // on every turn was the same two words a hundred times; the surface's
-  // header says it once. The name stays for a screen reader and on hover,
-  // and a routed turn is still attributed ("via …", §9.10).
+  // Every turn opens with its speaker's face and name, in sentence case (the
+  // uppercase name on every turn, 2026-09-18, was too loud; no name at all,
+  // 2026-10-29, left a follow-up unattributed). A routed turn is still
+  // attributed ("via …", §9.10).
   return (
     <div className="group flex" data-testid="assistant-message">
       {/* Width comes from the column in MessageList, not a second cap here. */}
@@ -402,18 +402,20 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                   {(viaReason || opener.eyebrow) && <TooltipContent side="bottom" align="start" collisionPadding={8}>{[opener.eyebrow, viaReason].filter(Boolean).join(' · ')}</TooltipContent>}
                 </Tooltip>
               )
-            // The same speaker's next turns keep a quiet mark, now its own
-            // dot (polish pass, 2026-10-23: one face per agent). The live line
+            // The same speaker's next turns keep its own dot (polish pass,
+            // 2026-10-23: one face per agent) and its name beside it: every
+            // answer names the agent that wrote it (Chris, 2026-10-29: a
+            // follow-up showed only the dot and the model). The live line
             // carries the spark while the turn runs; when it ends this dot
             // lets the spark go, back to the agent's colour.
-            : writer
-              ? (
-                  <span className="inline-flex" title={writer.name} data-agent-mark>
-                    <AgentDot name={writer.name} accent={writer.accent} size="sm" decorative settling={settling} />
-                    <span className="sr-only">{writer.name}</span>
-                  </span>
-                )
-              : <AgentMark name={agentName} />}
+            : (
+                <span data-testid="speaker-name" className="inline-flex items-center gap-1.5 tracking-normal normal-case">
+                  {writer
+                    ? <AgentDot name={writer.name} accent={writer.accent} size="sm" decorative settling={settling} />
+                    : <AgentMark name={agentName} decorative />}
+                  <span className="font-medium text-foreground/85">{writer?.name ?? agentName}</span>
+                </span>
+              )}
           {timestamp && <span className="tracking-normal text-muted-foreground/60 normal-case tabular-nums">{formatTime(timestamp)}</span>}
           {/* The turn's meta sits on the right, one quiet line (polish pass,
               2026-10-23): sources, then the level, model and time. */}

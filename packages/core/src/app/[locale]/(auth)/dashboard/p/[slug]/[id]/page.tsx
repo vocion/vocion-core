@@ -64,6 +64,14 @@ export default async function WorkspaceReportPage(props: {
   }
 
   const manifest = await readPageForOrg(slug, orgId);
+  // One dashboard of a dashboards page, by its artifact id.
+  if (manifest?.archetype === 'dashboards') {
+    if (!/^\d+$/.test(id)) {
+      return notFound();
+    }
+    const { DashboardById } = await import('@/features/dashboard/dashboards/DashboardsPage');
+    return (await DashboardById({ orgId, manifest, id: Number(id) })) ?? notFound();
+  }
   // A wiki page by slug: the same rail, this page open.
   if (manifest?.archetype === 'wiki' && manifest.source?.kind === 'artifacts' && manifest.source.folder) {
     const { loadWikiReadingPages } = await import('@/services/wiki/wikiReading');

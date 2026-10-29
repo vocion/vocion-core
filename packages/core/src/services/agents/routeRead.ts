@@ -19,7 +19,7 @@
  * shape, so the caller can record why it fell back.
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import type { RoutableAgent } from './router';
+import type { FollowUpThread, RoutableAgent } from './router';
 import { z } from 'zod';
 
 export const RouteReadSchema = z.object({
@@ -36,6 +36,20 @@ const SYSTEM = [
   'Judge what the person wants done, then which agent owns that work: the record types it answers for or files, its tools and skills, then its description and what it handles.',
   'A request to file, build, change or ship something goes to the agent that owns that kind of record, not to one whose description shares a word with the message.',
   'When nothing on the roster clearly fits, choose the lead with a low confidence.',
+  'Answer only through the tool.',
+].join(' ');
+
+/**
+ * A follow-up's read (`routeFollowUp`): the same roster, told who the thread
+ * is with. Staying is the default; moving is for a message that asks for
+ * another seat's work, which a correction of course most often is.
+ */
+const FOLLOW_UP_SYSTEM = [
+  'You decide which agent on a work app\'s roster answers a follow-up message in a conversation that is already with one of them.',
+  'Keep the conversation\'s agent when the message continues, answers, narrows, questions or reacts to its work, however short the message is.',
+  'Choose another agent only when the message asks for work that agent plainly owns and the conversation\'s agent does not: judge by the record types each answers for or files, its tools and skills, then its description and what it handles, never by a shared word.',
+  'A person correcting course ("no, I want…", "actually, let\'s do…") toward work another agent owns is asking for that agent.',
+  'Confidence is how sure you are of the agent you chose.',
   'Answer only through the tool.',
 ].join(' ');
 
@@ -79,21 +93,24 @@ async function classifier(orgId: string): Promise<Model> {
  * @param input.agents - The active roster, with what each seat owns.
  * @param input.leadSlug - The workspace lead.
  * @param input.intake - Who files new work in this workspace, when a type declares the front door.
+ * @param input.thread - On a follow-up: the agent the thread is with and its last reply.
  * @param input.signal - Aborts the call when the caller stops waiting.
  * @param model - Injected in tests.
  */
-export async function readRoute(input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; signal?: AbortSignal }, model?: Model): Promise<RouteRead> {
+export async function readRoute(input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; thread?: FollowUpThread | null; signal?: AbortSignal }, model?: Model): Promise<RouteRead> {
   const { tool } = await import('@langchain/core/tools');
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
   const m = model ?? await classifier(input.orgId);
   const report = tool(async () => 'recorded', { name: 'report_route', description: 'Report which agent should answer the message.', schema: RouteReadSchema as never });
   const bound = m.bindTools!([report], { tool_choice: 'report_route' } as never);
+  const thread = input.thread ?? null;
   const res = await bound.invoke([
-    new SystemMessage(SYSTEM),
+    new SystemMessage(thread ? FOLLOW_UP_SYSTEM : SYSTEM),
     new HumanMessage([
       `The roster:\n${input.agents.map(a => seatLines(a, input.leadSlug)).join('\n')}`,
       ...(input.intake ? [`New work someone wants built, changed or fixed is filed as a ${input.intake.label} by ${input.intake.ownerSlug}: choose ${input.intake.ownerSlug} for a new ask like that.`] : []),
-      `The person's message:\n${input.message.slice(0, 4_000)}`,
+      ...(thread ? [`The conversation is with ${thread.agentSlug}.${thread.lastReply ? ` Its last reply began:\n${thread.lastReply.slice(0, 1_200)}` : ''}`] : []),
+      `The person's ${thread ? 'follow-up' : 'message'}:\n${input.message.slice(0, 4_000)}`,
     ].join('\n\n')),
   ], { signal: input.signal } as never) as { tool_calls?: Array<{ name: string; args: unknown }> };
   if (!model) {

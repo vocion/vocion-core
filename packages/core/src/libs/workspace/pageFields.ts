@@ -761,7 +761,7 @@ export const PageManifestSchema = z.object({
    * redirects to `href`. It exists so a plugin can seat a core surface (the
    * team report) beside its own pages without duplicating it.
    */
-  archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report', 'wiki', 'configure', 'metrics', 'engines']),
+  archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report', 'wiki', 'configure', 'metrics', 'engines', 'dashboards']),
   /**
    * Whether this page carries its plugin's "How <plugin> is doing" panel.
    * On by default; a plugin with many pages keeps it on one of them (the
@@ -1055,6 +1055,7 @@ export const PageManifestSchema = z.object({
   .refine(m => (m.archetype === 'metrics') === (m.metrics !== undefined), { message: 'a metrics page needs metrics.items, and only a metrics page declares them', path: ['metrics'] })
   .refine(m => m.archetype !== 'report' || m.report !== undefined, { message: 'a report page needs report.subject — the record whose story it tells', path: ['report'] })
   // A wiki is a folder of markdown pages read as pages: the source names the folder, nothing else is declared.
+  .refine(m => m.archetype !== 'dashboards' || m.source === undefined || m.source.kind === 'artifacts', { message: 'a dashboards page reads dashboards: source is {kind: artifacts, folder: <name>} or omitted', path: ['source'] })
   .refine(m => m.archetype !== 'wiki' || (m.source !== undefined && m.source.kind === 'artifacts' && typeof m.source.folder === 'string'), { message: 'a wiki page needs source: {kind: artifacts, folder: <name>} — the folder its pages live in', path: ['source'] })
   .refine(m => m.live === undefined || m.archetype === 'list' || m.archetype === 'queue', { message: 'live is for list and queue pages — the ones with rows to re-read', path: ['live'] })
   .refine(m => m.layout === 'table' || m.archetype === 'list', { message: 'layout: block is for list pages, the ones with rows to draw', path: ['layout'] })

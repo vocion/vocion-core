@@ -132,17 +132,10 @@ describe('ChatShell', () => {
 
     await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent(/^(Good (morning|afternoon|evening)|Welcome back)\.$/);
 
-    const nudge = page.getByTestId('waiting-nudge');
-
-    await expect.element(nudge.getByRole('link', { name: '3 things waiting on you' })).toHaveAttribute('href', '/dashboard/inbox');
+    // The waiting chip is off (WAITING_NUDGE_ENABLED): nothing waits in the chat, and no cards either.
+    expect(page.getByTestId('waiting-nudge').elements()).toHaveLength(0);
     expect(page.getByRole('dialog').elements()).toHaveLength(0);
     expect(page.getByText('Create product: Northwind Traders').elements()).toHaveLength(0);
-
-    // Dismissible: gone for this browser session.
-    await nudge.getByRole('button', { name: 'Not now' }).click();
-
-    expect(page.getByTestId('waiting-nudge').elements()).toHaveLength(0);
-    expect(sessionStorage.getItem('vocion:waiting-nudge-dismissed')).toBe('1');
   });
 
   it('draws no dock when nothing waits', async () => {

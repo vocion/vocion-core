@@ -151,19 +151,15 @@ test('the setup Decision docks alone, readable and reachable on a phone; what wa
 
   await shot(page, '04-reloaded');
 
-  // Answered by touch: the turn lands, and the review is one quiet chip.
+  // Answered by touch: the turn lands, and nothing is docked for the review
+  // (the waiting chip is off, WAITING_NUDGE_ENABLED; Review keeps the count).
   await page.getByRole('dialog', { name: QUESTION }).getByRole('option', { name: /Northwind API/ }).tap();
   await page.getByRole('dialog', { name: QUESTION }).getByTestId('decision-submit').tap();
 
   await expect(page.getByText('Including the Northwind API.')).toBeVisible({ timeout: 120_000 });
   await expect(page.getByRole('button', { name: 'Stop generating' })).toBeHidden({ timeout: 60_000 });
-  await expect(page.getByTestId('waiting-nudge')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('waiting-nudge')).toHaveCount(0);
   await expect(review).toHaveCount(0);
 
-  await shot(page, '05-chip');
-
-  // A tap answers it where it lives — Review — never a card docked here
-  // without a turn (founder, 2026-10-09: chips are prompts, not shortcuts).
-  await expect(page.getByRole('link', { name: /thing waiting on you/ })).toHaveAttribute('href', /\/dashboard\/inbox$/);
-  await expect(review).toHaveCount(0);
+  await shot(page, '05-landed');
 });
