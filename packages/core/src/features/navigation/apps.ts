@@ -27,10 +27,10 @@ import { PLUGIN_NAV_WORKSPACE } from './pluginNav';
 import { SURFACES } from './surfaces';
 
 /** What an app needs to be resolved — the manifest, minus the prose. */
-export type AppDefinition = Pick<AppManifest, 'id' | 'name' | 'icon' | 'order' | 'core' | 'hidden' | 'plugins' | 'surfaces' | 'entry' | 'nav'> & Partial<Pick<AppManifest, 'tint'>>;
+export type AppDefinition = Pick<AppManifest, 'id' | 'name' | 'icon' | 'order' | 'core' | 'hidden' | 'plugins' | 'surfaces' | 'entry' | 'nav'> & Partial<Pick<AppManifest, 'tint' | 'shortName'>>;
 
 /** What the rail draws for one app, and where it opens in a workspace that has it. */
-export type AppSummary = { id: string; name: string; icon: string; order: number; core: boolean; entry: string; tint: Tint };
+export type AppSummary = { id: string; name: string; shortName?: string; icon: string; order: number; core: boolean; entry: string; tint: Tint };
 
 /** A workspace in an app's picker. */
 export type AppWorkspace = { projectId: string; slug: string; name: string };
@@ -66,8 +66,8 @@ export function coreApp<T extends Pick<AppDefinition, 'core'>>(apps: readonly T[
  * The rail's view of an app.
  * @param app - Its manifest.
  */
-export function appSummary(app: Pick<AppDefinition, 'id' | 'name' | 'icon' | 'order' | 'core' | 'entry' | 'tint'>): AppSummary {
-  return { id: app.id, name: app.name, icon: app.icon, order: app.order, core: app.core, entry: app.entry, tint: resolveTint(app.tint, app.id) };
+export function appSummary(app: Pick<AppDefinition, 'id' | 'name' | 'shortName' | 'icon' | 'order' | 'core' | 'entry' | 'tint'>): AppSummary {
+  return { id: app.id, name: app.name, ...(app.shortName ? { shortName: app.shortName } : {}), icon: app.icon, order: app.order, core: app.core, entry: app.entry, tint: resolveTint(app.tint, app.id) };
 }
 
 /**
