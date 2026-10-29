@@ -85,12 +85,18 @@ export default async function ObservabilityPage(props: {
     ? (async () => {
         const { from, to } = periodRange(spendState.period);
         const { jevKeyStatus } = await import('@/services/routing/jevKey');
-        const [summary, keys] = await Promise.all([
-          routingSummary({ scope: spendState.scope === 'org' ? { accountId: accountId! } : { orgId }, from, to }),
+        const { jevHealth, jevOutcomes } = await import('@/services/routing/health');
+        const scope = spendState.scope === 'org' ? { accountId: accountId! } : { orgId };
+        const [summary, keys, decisions, outcomes] = await Promise.all([
+          routingSummary({ scope, from, to }),
           jevKeyStatus(orgId).catch(() => null),
+          jevHealth({ scope, from, to }).catch(() => null),
+          jevOutcomes({ scope, from, to }).catch(() => null),
         ]);
         const hint = keys?.effective === 'workspace' ? keys.workspace?.hint ?? null : keys?.instance?.hint ?? null;
-        return { summary, status: routingStatusLine(keys ? { effective: keys.effective, hint } : null) };
+        // Is Jev live (ADR 0006, health): only once a key is set; Check now for admins.
+        const health = keys?.effective && decisions && outcomes ? { decisions, outcomes, canCheck: has({ role: ORG_ROLE.ADMIN }) } : null;
+        return { summary, status: routingStatusLine(keys ? { effective: keys.effective, hint } : null), health };
       })().catch(() => null)
     : Promise.resolve(null);
 
@@ -204,7 +210,7 @@ export default async function ObservabilityPage(props: {
 
         {spend && <SpendView state={spendState} result={spend} canReadOrg={canReadOrg} filterLabel={filterLabel} />}
 
-        {routing && <RoutingSection summary={routing.summary} status={routing.status} periodLabel={spendState.period === 'today' ? 'today' : `last ${spendState.period.replace('d', ' days')}`} />}
+        {routing && <RoutingSection summary={routing.summary} status={routing.status} health={routing.health} periodLabel={spendState.period === 'today' ? 'today' : `last ${spendState.period.replace('d', ' days')}`} />}
 
         {platformSurfaces.length > 0 && (
           <div>

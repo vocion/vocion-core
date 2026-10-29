@@ -160,7 +160,7 @@ import {
   undoActionRoute,
 } from './Review';
 import { actOnRoutineRoute, answerRoutineFindingRoute, answerRoutineRunRoute, getRoutineBatchRoute, getRoutineRoute, listRoutinesRoute, practiceRoutineRoute, routineReportRoute, runRoutineRoute, teachRoutineRoute } from './Routines';
-import { removeKey as removeRoutingKeyRoute, status as routingStatusRoute, saveKey as saveRoutingKeyRoute } from './Routing';
+import { checkNow as checkRoutingNowRoute, removeKey as removeRoutingKeyRoute, status as routingStatusRoute, saveKey as saveRoutingKeyRoute } from './Routing';
 import { glanceRoute as runGlanceRoute, logRoute as runLogRoute } from './Runs';
 import { scorecardAgentsRoute } from './Scorecard';
 import { reset as resetSetupRoute, state as setupStateRoute } from './Setup';
@@ -349,6 +349,7 @@ export const router = {
     status: routingStatusRoute,
     saveKey: saveRoutingKeyRoute,
     removeKey: removeRoutingKeyRoute,
+    checkNow: checkRoutingNowRoute,
   },
   // The Org's brand — Brand settings (admins of the caller's Org only).
   branding: {
