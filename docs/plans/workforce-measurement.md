@@ -1,7 +1,9 @@
 # Workforce measurement: four-sprint implementation plan
 
-Status: Sprint 1 delivered; Sprint 2 outcome and learning contracts delivered, with
-runtime capture and real pilot verification still in progress.
+Status: Sprint 1 delivered; Sprint 2 measurement instrumentation delivered and
+live-verified across human-assisted, scheduled and multi-agent pilot work.
+This closes the engineering measurement scope, not business quality acceptance,
+automatic capture of every workflow, or measured economic impact.
 Sprint lengths are team planning decisions, not a four-week promise.
 
 ## Outcome and architecture
@@ -270,10 +272,45 @@ an adapter, but this is **not automatic capture across every existing agent or
 scheduler**. An owner must register actual pilot work and attach its sources.
 The sponsor approved planning assumptions in place of timed manual samples on
 2026-10-29. This closes the baseline-definition requirement, not measured economic
-impact. Real pilot source linkage, review provenance and runtime propagation still
-need verification; synthetic fixtures cannot establish them. Central analytics delivery
+impact. Real source links have now been verified for a historical human-assisted
+action, a failed scheduled occurrence and a completed draft-only team run with a
+separate interrupted attempt. Both team attempts remain one business item. No new
+human acceptance was fabricated for these records. Central analytics delivery
 belongs to Sprint 3. Full model/tool/vendor attribution remains an explicitly tracked
 economics gap, not a reason to present partial worker spend as total cost.
+
+### Live closure and improvement backlog
+
+The final release passed 17 live adversarial API checks, including tenant forgery,
+idempotency, stale revisions, concurrent decisions, synthetic exclusion and invalid
+baseline provenance. Native mission cards and their workspace-scoped drilldown were
+also verified in the browser. Local tests cover mission source drift, tenant-scoped
+contributors, and several attempts attached to one item. Execution and human
+quality acceptance remain separate.
+
+The team pilot completed five tasks but did not meet its draft rubric: its final
+memo exceeded the word limit and the lead reported missing the full independent
+review. The runtime passes only the first 600 characters of each prior output into
+the next task. Preserve these as observed quality findings, not accepted throughput
+or validated learning. A short internal memo uses a separate 30-minute assumption
+with zero timed samples; it does not inherit the full proposal's 120-minute estimate.
+
+Prioritize these operational improvements in Sprint 3 alongside the scorecards:
+
+- Deliver full, referenced review findings to synthesis and verify each finding's
+  disposition; enforce output limits with deterministic checks.
+- Version and refresh the brief against shipped capabilities so the next plan does
+  not propose implementing work that has already shipped.
+- Make planned mission execution durable or reconcile interrupted runs. The live
+  pilot exposed a run left marked running after an app restart; retain cancelled
+  attempts and link a retry to the same item. Wait for deployment completion, not
+  only a changed version endpoint, before starting release-validation work.
+- Make draft outputs and review findings directly available at the outcome-review
+  surface. The native run page currently emphasizes the task graph; persisted task
+  outputs are available through the run API and need a clearer operator presentation.
+
+These findings are an improvement backlog, not a claim that the agents' business
+performance has improved. Keep the pilot outcomes open pending human review.
 
 ### Provisional baseline policy
 
