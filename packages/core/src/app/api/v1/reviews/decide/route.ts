@@ -76,6 +76,7 @@ export async function POST(req: Request) {
         : undefined,
       externalRef: readExternalRef(body.externalRef),
       overrideStale: body.overrideStale === true ? true : undefined,
+      staleFingerprint: typeof body.staleFingerprint === 'string' ? body.staleFingerprint.slice(0, 64) : undefined,
     }));
   } catch (e) {
     return writeApiErrorResponse(e);

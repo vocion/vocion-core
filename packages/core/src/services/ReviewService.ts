@@ -654,8 +654,10 @@ export type ReviewDetail = ReviewItem & {
  * @param orgId
  * @param kind
  * @param id
+ * @param opts - How the stale finding is read.
+ * @param opts.liveStale - False for a background reader: the stored finding only, no outside call.
  */
-export async function getReviewDetail(orgId: string, kind: ReviewKind, id: number): Promise<ReviewDetail | null> {
+export async function getReviewDetail(orgId: string, kind: ReviewKind, id: number, opts: { liveStale?: boolean } = {}): Promise<ReviewDetail | null> {
   const [assignment] = await db
     .select()
     .from(reviewAssignmentSchema)
@@ -694,7 +696,11 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       suggestedDecisionReason: parseSuggestedDecisionReason(row.proposal?.suggestedDecisionReason),
       approvedByAgent: row.approvedByAgent,
       card: withGateFindings(await renderActionCard(orgId, row.actionId, row.input ?? {}), row.proposal as Record<string, unknown> | null),
-      stale: await (await import('@/services/proposals/staleness')).staleForRead(row),
+      // Opening the item checks live (cached a few minutes); a background
+      // reader (`liveStale: false`) reads only what was last checked.
+      stale: opts.liveStale === false
+        ? (await import('@/services/proposals/staleness')).storedStaleForRead(row)
+        : await (await import('@/services/proposals/staleness')).staleForRead(row),
       alignment: await scoreFor({
         orgId,
         subjectKey: policyKeyForRun(row.actionId, row.input),
@@ -1001,6 +1007,7 @@ class ReviewDecisionError extends Error {
  * @param opts.externalRef.system
  * @param opts.externalRef.id
  * @param opts.overrideStale
+ * @param opts.staleFingerprint
  */
 export async function decide(
   item: { kind: ReviewKind; id: number },
@@ -1033,6 +1040,8 @@ export async function decide(
      * with what changed instead of running.
      */
     overrideStale?: boolean;
+    /** The finding the person proceeded past, as the STALE answer named it. */
+    staleFingerprint?: string;
   },
 ): Promise<DecideResult> {
   // A decision taken from an agent's turn counts on the turn, and a turn the
@@ -1084,34 +1093,20 @@ export async function decide(
         // STILL TRUE? Asked before anything about the decision is recorded:
         // an approve that answers "this changed since" decided nothing, so it
         // leaves no approved copy, no label verdicts and no learning behind.
-        if (!opts?.overrideStale) {
-          const stale = await staleBeforeApprove(item.id, orgId);
-          if (stale) {
-            return { execution: { status: 'stale', error: stale.line, result: null, stale } };
-          }
+        // A "Proceed anyway" is checked again too, and runs only past what
+        // the person was shown (`gateApprove`).
+        const gate = await approveGate(item.id, orgId, reviewedBy, { override: opts?.overrideStale, fingerprint: opts?.staleFingerprint });
+        if (gate && 'stale' in gate) {
+          return { execution: { status: 'stale', error: gate.stale.line, result: null, stale: gate.stale } };
         }
         // BEFORE the write, and only here: `updateActionInput` replaces
         // `input` wholesale and `onProposed` rewrites the object's metadata
         // after it, so this is the last moment the values the proposer wrote
         // still exist anywhere.
         labels = await labelVerdicts(item.id, orgId, opts?.editedInput);
-        // Pin what the human actually approved (0112). Written BEFORE the
-        // execution, because the artifacts on screen at the moment of the
-        // click are what was authorised; a regeneration landing a second
-        // later must not be able to rewrite the answer to "what did they
-        // approve". Best-effort: a decision must never fail on its audit
-        // trail, and a run with no artifacts simply pins nothing.
-        await (await import('@/services/personalization/artifacts'))
-          .pinLeadArtifactsForRun(orgId, item.id)
-          .catch(() => []);
-        // The approved copy, filed before the payload it describes is replaced.
-        // Same window as `labelVerdicts` above and for the same reason: after
-        // `updateActionInput` the input is the approved one and the question
-        // "what did this run actually send" has no column that answers it.
-        // A reviewer who walked every send finds their own approvals already
-        // there; one who clicked straight through gets the record made for
-        // them. Best effort — a decision never fails on its audit trail.
-        await recordApprovedCopy(item.id, orgId, opts?.editedInput, reviewedBy);
+        // The words the agent wrote, kept for the voice diff filed once the
+        // approve has run (`updateActionInput` replaces them below).
+        const proposed = opts?.editedInput ? await proposedCopy(item.id, orgId) : null;
         // Edit-then-approve: if the operator edited the draft in the queue,
         // persist the edited payload FIRST (re-validated in ActionService),
         // so executeAction — which re-reads the row — sends what they see.
@@ -1122,23 +1117,39 @@ export async function decide(
           if (opts.learn !== false) {
             corrections = await readCorrections(item.id, orgId, opts.editedInput);
           }
-          // Same "last moment both versions exist" window as labelVerdicts,
-          // and the reason this has to live here: `updateActionInput` replaces
-          // `input` wholesale, so after the next line the words the agent
-          // wrote are gone. The words the reviewer DELETED are the only
-          // first-hand evidence about voice this system ever gets; every
-          // deletion becomes a proposed rule a person adopts, never an
-          // automatic one. Never blocks the approve.
-          await recordVoiceEditDiff(item.id, orgId, opts.editedInput, reviewedBy);
           await updateActionInput(item.id, orgId, opts.editedInput);
         }
-        const outcome = await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef, overrideStale: opts?.overrideStale, staleChecked: !opts?.overrideStale });
+        const outcome = await executeAction(item.id, orgId, {
+          reviewedBy,
+          externalRef: opts?.externalRef,
+          overrideStale: opts?.overrideStale,
+          staleFingerprint: opts?.staleFingerprint,
+          ...(gate ? { staleGate: gate } : {}),
+        });
         // An approve whose execution failed is NOT a completed decision to the
         // person who clicked it — the outcome rides back so the surface says so.
         execution = { status: outcome.status, error: outcome.error ?? (outcome.stale?.line ?? null), result: outcome.result ?? null, ...(outcome.stale ? { stale: outcome.stale } : {}) };
         // What it was approved on stopped being true as it ran: no decision was taken.
         if (outcome.status === 'stale' || (outcome.status === 'pending' && outcome.stale)) {
           return { execution };
+        }
+        // WHAT WAS APPROVED, FILED ONCE IT RAN. Only after an execution that
+        // went through (or a hand-off released), so an approve answered
+        // stale, or one that failed and is approved again, files each once.
+        // Best effort: a decision never fails on its audit trail.
+        if (outcome.status === 'done' || outcome.status === 'awaiting_execution') {
+          // Pin the artifacts behind what was approved (0112).
+          await (await import('@/services/personalization/artifacts'))
+            .pinLeadArtifactsForRun(orgId, item.id)
+            .catch(() => []);
+          // The approved copy: the input that ran is the approved one.
+          await recordApprovedCopy(item.id, orgId, opts?.editedInput, reviewedBy);
+          // The words the reviewer DELETED are the only first-hand evidence
+          // about voice this system ever gets; every deletion becomes a
+          // proposed rule a person adopts, never an automatic one.
+          if (opts?.editedInput && proposed) {
+            await recordVoiceEditDiff(item.id, orgId, opts.editedInput, reviewedBy, proposed);
+          }
         }
       } else {
         await rejectAction(item.id, orgId, opts?.reason?.trim() || opts?.note, { reviewedBy });
@@ -1197,20 +1208,28 @@ export async function decide(
 }
 
 /**
- * What changed since this pending run was proposed, checked now, or null when
- * it still holds, its action has no check, or the basis was read moments ago.
- * A run that is not open answers null and the execute path says why.
+ * A person's approve, checked before anything about it is recorded: answer
+ * stale, or run (past what they proceeded past). Null when there is nothing
+ * to check here — a run that is not open (the execute path says why), an
+ * action with no check, or a machine deciding (the execute path holds it).
  * @param runId - The run.
  * @param orgId - Its tenant.
+ * @param reviewedBy - Who is approving.
+ * @param opts - What they sent.
+ * @param opts.override - They chose to proceed anyway.
+ * @param opts.fingerprint - The finding they proceeded past.
  */
-async function staleBeforeApprove(runId: number, orgId: string) {
-  const { getAction } = await import('@/libs/actions/registry');
+async function approveGate(runId: number, orgId: string, reviewedBy: string, opts: { override?: boolean; fingerprint?: string }) {
+  const [{ getAction }, { decidedByMachine }] = await Promise.all([import('@/libs/actions/registry'), import('@/libs/actions/decider')]);
+  if (decidedByMachine(reviewedBy)) {
+    return null;
+  }
   const [run] = await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId))).limit(1);
   if (!run || (run.status !== 'pending' && run.status !== 'failed') || !getAction(run.actionId)?.stillHolds) {
     return null;
   }
-  const { basisIsFresh, checkStillHolds } = await import('@/services/proposals/staleness');
-  return basisIsFresh(run.proposal) ? null : checkStillHolds(run);
+  const { gateApprove } = await import('@/services/proposals/staleness');
+  return gateApprove(run, opts);
 }
 
 /**
@@ -1777,19 +1796,17 @@ async function recordApprovedCopy(
  * @param orgId - The project id.
  * @param editedInput - What the reviewer approved.
  * @param reviewedBy - Who approved it.
+ * @param proposed
  */
 async function recordVoiceEditDiff(
   runId: number,
   orgId: string,
   editedInput: Record<string, unknown>,
   reviewedBy?: string,
+  proposed?: ProposedCopy,
 ): Promise<void> {
   try {
-    const [row] = await db
-      .select({ input: actionRunSchema.input, proposal: actionRunSchema.proposal, invokedBy: actionRunSchema.invokedBy })
-      .from(actionRunSchema)
-      .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
-      .limit(1);
+    const row = proposed ?? await proposedCopy(runId, orgId);
     if (!row) {
       return;
     }
@@ -1811,6 +1828,23 @@ async function recordVoiceEditDiff(
       error: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+type ProposedCopy = { input: Record<string, unknown> | null; proposal: { agentSlug?: string } | null; invokedBy: string | null };
+
+/**
+ * The run as the agent proposed it, read before an edit replaces its input.
+ * @param runId - The run.
+ * @param orgId - Its tenant.
+ */
+async function proposedCopy(runId: number, orgId: string): Promise<ProposedCopy | null> {
+  const [row] = await db
+    .select({ input: actionRunSchema.input, proposal: actionRunSchema.proposal, invokedBy: actionRunSchema.invokedBy })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+    .limit(1)
+    .catch(() => []);
+  return row ? { input: (row.input ?? null) as Record<string, unknown> | null, proposal: (row.proposal ?? null) as { agentSlug?: string } | null, invokedBy: row.invokedBy } : null;
 }
 
 /** Learning step a proposal trains when its agent declares no `learningSteps` of its own. */

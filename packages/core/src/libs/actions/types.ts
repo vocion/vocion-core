@@ -67,6 +67,15 @@ export type ActionContext = {
    * contact is already in) does it only when this names it, by its `code`.
    */
   proceededPast?: StaleFinding;
+  /**
+   * The run executes on a person's own word: they asked for it themselves
+   * (their tap, their words in chat, their token), not through a review card
+   * and not on an agent's, the ladder's or a clock's decision. Present on
+   * `execute` only. A condition an action would hold an agent's run for is
+   * advice here: the run goes ahead and says what it found in one line
+   * (`result.advice`), because the person's word runs.
+   */
+  onPersonsWord?: boolean;
 };
 
 /**

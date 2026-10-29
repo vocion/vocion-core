@@ -625,15 +625,24 @@ function alreadyEnrolled(name: string, sequence: { id: string | null; name: stri
 }
 
 /**
- * The name of the sequence a contact is in, as far as the sender's library can see.
+ * THE SEQUENCE A CONTACT IS IN, read one way for the check and the
+ * enrollment alike, so the code a person proceeds past at the check is the
+ * code the enrollment compares at execute. The id is the portal-wide
+ * `hs_latest_sequence_enrolled`, else the sequence the enrollments API names
+ * for the card's sender; the name is that API's, best effort (the sender's
+ * library may not see a foreign enrollment).
  * @param client - HubSpot.
  * @param hubspotId - The contact.
- * @param userId - The sender's HubSpot user, when known.
+ * @param latestSequenceId - `hs_latest_sequence_enrolled`, when HubSpot gave one.
+ * @param userId - The card's sender's HubSpot user, when known.
  */
-async function enrolledSequenceName(client: HubspotClient, hubspotId: string, userId?: string): Promise<string | null> {
+async function enrolledSequence(client: HubspotClient, hubspotId: string, latestSequenceId: string | null, userId?: string): Promise<{ id: string | null; name: string | null }> {
   const { getContactEnrollment } = await import('@/libs/hubspot/sequences');
   const detail = await getContactEnrollment(client, hubspotId, userId).catch(() => null);
-  return detail?.ok ? detail.data.sequenceName ?? null : null;
+  return {
+    id: latestSequenceId || (detail?.ok ? detail.data.sequenceId ?? null : null),
+    name: detail?.ok ? detail.data.sequenceName ?? null : null,
+  };
 }
 
 export const personalizationEnrollAction: Action<typeof enrollInput> = {
@@ -731,11 +740,20 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     if (after(state.lastReplied)) {
       return { line: `${name} replied${onEnrollDay(state.lastReplied)}, after this was proposed` };
     }
+    // A meeting is news when the signal CHANGED since the basis: HubSpot's
+    // timestamp is the meeting's own date (often in the future), so it is
+    // compared with what the basis held, never with when this was proposed.
+    // With no basis there is nothing to compare, and nothing is claimed.
     const { readMeetingSignal } = await import('@/services/HandoffTriggerService');
     const meeting = readMeetingSignal(state.meeting);
     const wasMeeting = readMeetingSignal(was?.meeting ?? null);
-    if (meeting.kind === 'time' ? (meeting.at !== null && meeting.at.getTime() > since) : (meeting.set && !(wasMeeting.kind === 'flag' && wasMeeting.set))) {
-      return { line: `${name} booked a meeting${meeting.kind === 'time' ? onEnrollDay(meeting.at!.toISOString()) : ''}, after this was proposed` };
+    const booked = !was
+      ? false
+      : meeting.kind === 'time'
+        ? meeting.at !== null && (wasMeeting.kind !== 'time' || wasMeeting.at === null || wasMeeting.at.getTime() !== meeting.at.getTime())
+        : meeting.set && !(wasMeeting.kind === 'flag' && wasMeeting.set);
+    if (booked) {
+      return { line: `${name} booked a meeting since this was proposed${meeting.kind === 'time' ? ` (meeting${onEnrollDay(meeting.at!.toISOString())})` : ''}` };
     }
     if (state.lifecycleStage && PAST_NURTURE_STAGES.has(state.lifecycleStage) && state.lifecycleStage !== was?.lifecycleStage) {
       return {
@@ -744,8 +762,7 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       };
     }
     if (state.enrolled) {
-      const sequenceName = await enrolledSequenceName(client, hubspotId, input.hubspotUserId);
-      return alreadyEnrolled(name, { id: state.latestSequenceId, name: sequenceName }, enrolledSince, input.sequenceName);
+      return alreadyEnrolled(name, await enrolledSequence(client, hubspotId, state.latestSequenceId, input.hubspotUserId), enrolledSince, input.sequenceName);
     }
     if (after(state.lastContacted)) {
       return { line: `${name} was contacted${onEnrollDay(state.lastContacted)}, after this was proposed (HubSpot's last contacted)` };
@@ -1071,25 +1088,27 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     // automations race this review flow (observed 2026-09-14: a workflow
     // auto-enrolled the lead hours before the human approved, and the approved
     // enrollment bounced with CONTACT_ALREADY_ENROLLED). Replacing it was once
-    // silent; it risked a double sequence on a lead who had moved on in the
-    // days the card waited. Now the reviewed enrollment replaces the current
-    // one only when the person was told which sequence it is and proceeded
-    // anyway (`ctx.proceededPast`, carrying this sequence's code). Otherwise
-    // the run goes back to Review with that line (`StaleError`), never failed.
+    // silent for every decider; it risked a double sequence on a lead who had
+    // moved on in the days the card waited. Now:
+    //   - a person's own word runs: it replaces, and the run says what it
+    //     replaced in one line (`result.advice`);
+    //   - a person approving the card replaces only after they were told which
+    //     sequence it is and proceeded anyway (`ctx.proceededPast`, carrying
+    //     this sequence's code);
+    //   - anything else (an agent, the ladder, a clock) goes back to Review
+    //     with the line (`StaleError`), never failed.
     const { readSequenceEnrollmentState, requestUnenroll } = await import('@/libs/hubspot/unenrollBridge');
     let replacedSequence: { sequenceId: string | null; sequenceName: string | null } | null = null;
+    let advice: string | null = null;
     const enrollmentState = await readSequenceEnrollmentState(client, hubspotId);
     if (enrollmentState.ok && enrollmentState.data.enrolled) {
-      // Best-effort detail for the result; the sender's library may not see a
-      // foreign enrollment.
-      const { getContactEnrollment } = await import('@/libs/hubspot/sequences');
-      const detail = await getContactEnrollment(client, hubspotId, hubspotUserId);
-      replacedSequence = {
-        sequenceId: enrollmentState.data.latestSequenceId || (detail.ok && detail.data.sequenceId) || null,
-        sequenceName: detail.ok ? detail.data.sequenceName ?? null : null,
-      };
-      const finding = alreadyEnrolled(input.contactName, { id: replacedSequence.sequenceId, name: replacedSequence.sequenceName }, null, input.sequenceName);
-      if (ctx.proceededPast?.code !== finding.code) {
+      // The same reading the check made, so the codes agree.
+      const current = await enrolledSequence(client, hubspotId, enrollmentState.data.latestSequenceId, input.hubspotUserId);
+      replacedSequence = { sequenceId: current.id, sequenceName: current.name };
+      const finding = alreadyEnrolled(input.contactName, current, null, input.sequenceName);
+      if (ctx.onPersonsWord) {
+        advice = `${input.contactName} was already in ${current.name ? `'${current.name}'` : current.id ? `sequence ${current.id}` : 'another sequence'}; it was replaced with '${input.sequenceName}'.`;
+      } else if (ctx.proceededPast?.code !== finding.code) {
         throw new StaleError(finding);
       }
       const unenrolled = await requestUnenroll(client, { contactId: hubspotId });
@@ -1201,6 +1220,8 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       ...(note.ok ? {} : { noteError: note.message }),
       // The sequence this reviewed enrollment displaced, when there was one.
       replacedSequence,
+      // On a person's own word: what it found and did, in one line to tell them.
+      ...(advice ? { advice } : {}),
     };
   },
 };

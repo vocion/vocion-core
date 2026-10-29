@@ -404,9 +404,11 @@ export type ReviewSweepResult = {
  * @param opts.now
  * @param opts.orgId
  * @param opts.stillWaitingAfterMs
+ * @param opts.staleChecks - How many runs the overtaken pass checks (`staleChecksPerSweep`).
+ * @param opts.staleBudgetMs - How long the overtaken pass may take (`STALE_PASS_BUDGET_MS`).
  * @param opts.staleChecks
  */
-export async function sweepReviewQueue(opts: { now?: Date; orgId?: string; stillWaitingAfterMs?: number; staleChecks?: number } = {}): Promise<ReviewSweepResult> {
+export async function sweepReviewQueue(opts: { now?: Date; orgId?: string; stillWaitingAfterMs?: number; staleChecks?: number; staleBudgetMs?: number } = {}): Promise<ReviewSweepResult> {
   const now = opts.now ?? new Date();
   const bound = opts.stillWaitingAfterMs ?? stillWaitingAfterMs();
   const result: ReviewSweepResult = { closed: [], surfaced: [], markedStale: [] };
@@ -505,7 +507,7 @@ export async function sweepReviewQueue(opts: { now?: Date; orgId?: string; still
       }
     }
   }
-  await sweepOvertaken(stillTrue, now, opts.staleChecks ?? staleChecksPerSweep(), result);
+  await sweepOvertaken(stillTrue, now, opts.staleChecks ?? staleChecksPerSweep(), result, opts.staleBudgetMs);
   return result;
 }
 
@@ -520,18 +522,29 @@ type SweptRun = {
   regeneratingSince: Date | null;
 };
 
+/** How many overtaken checks run at once. */
+const STALE_CHECK_CONCURRENCY = 4;
+
+/** The most the overtaken pass may add to the sweep, which runs inside the reaper. */
+export const STALE_PASS_BUDGET_MS = 25_000;
+
 /**
  * Ask `stillHolds` of up to `limit` still-true runs, the longest unchecked
- * first, skipping any checked within the read cache or being redrafted. An
- * overtaken run is closed with what changed through the same close-with-reason
- * path as every other gone item, unless its action keeps it open, in which
- * case the finding is on the run (written by the check) and it stays.
+ * first. A basis read counts as a check, so a run proposed or redrafted
+ * within the read cache is skipped, as is one being redrafted. Checks run a
+ * few at a time, and the pass stops waiting at its time budget: a check still
+ * out then finishes on its own and records what it found on the run, but
+ * closes nothing in this pass. An overtaken run is closed with what changed
+ * through the same close-with-reason path as every other gone item, unless its
+ * action keeps it open, in which case the finding is on the run (written by
+ * the check) and it stays.
  * @param runs - The still-true pending runs, every org.
  * @param now - The clock.
  * @param limit - How many to check this pass.
  * @param result - Where closures and marks are reported.
+ * @param budgetMs - How long the pass may take.
  */
-async function sweepOvertaken(runs: SweptRun[], now: Date, limit: number, result: ReviewSweepResult): Promise<void> {
+async function sweepOvertaken(runs: SweptRun[], now: Date, limit: number, result: ReviewSweepResult, budgetMs = STALE_PASS_BUDGET_MS): Promise<void> {
   if (limit <= 0 || runs.length === 0) {
     return;
   }
@@ -540,24 +553,30 @@ async function sweepOvertaken(runs: SweptRun[], now: Date, limit: number, result
     import('@/libs/actions/regenerating'),
     import('./staleness'),
   ]);
-  const lastChecked = (r: SweptRun) => {
-    const at = (r.proposal as { staleCheckedAt?: unknown } | null)?.staleCheckedAt;
-    const t = typeof at === 'string' ? Date.parse(at) : Number.NaN;
+  const at = (v: unknown) => {
+    const t = typeof v === 'string' ? Date.parse(v) : Number.NaN;
     return Number.isFinite(t) ? t : 0;
+  };
+  const lastChecked = (r: SweptRun) => {
+    const p = r.proposal as { staleCheckedAt?: unknown; basisAt?: unknown } | null;
+    return Math.max(at(p?.staleCheckedAt), at(p?.basisAt));
   };
   const due = runs
     .filter(r => getAction(r.actionId)?.stillHolds && !isRegeneratingFresh(r.regeneratingSince, now))
     .filter(r => now.getTime() - lastChecked(r) >= staleness.STALE_CACHE_MS)
     .sort((a, b) => lastChecked(a) - lastChecked(b) || a.createdAt.getTime() - b.createdAt.getTime())
     .slice(0, limit);
-  for (const run of due) {
+  let next = 0;
+  // Set by the budget timer; an object so every closure reads the same flag.
+  const pass = { stopped: false };
+  const one = async (run: SweptRun) => {
     const stale = await staleness.checkStillHolds(run, { now }).catch(() => null);
-    if (!stale) {
-      continue;
+    if (!stale || pass.stopped) {
+      return;
     }
     if (stale.keepOpen) {
       result.markedStale.push({ id: run.id, orgId: run.orgId, line: stale.line });
-      continue;
+      return;
     }
     const why = `what it was proposed on changed: ${stale.line}`;
     const link = stale.href ?? null;
@@ -575,5 +594,23 @@ async function sweepOvertaken(runs: SweptRun[], now: Date, limit: number, result
     if (closed.length > 0) {
       result.closed.push({ kind: 'run', id: run.id, orgId: run.orgId, why, link });
     }
+  };
+  const worker = async () => {
+    while (!pass.stopped && next < due.length) {
+      await one(due[next++]!);
+    }
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      pass.stopped = true;
+      resolve();
+    }, budgetMs);
+  });
+  try {
+    await Promise.race([Promise.all(Array.from({ length: Math.min(STALE_CHECK_CONCURRENCY, due.length) }, worker)), budget]);
+  } finally {
+    pass.stopped = true;
+    clearTimeout(timer);
   }
 }

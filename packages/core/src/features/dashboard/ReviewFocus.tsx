@@ -176,6 +176,7 @@ export function ReviewFocus(props: {
       // and let the person run it anyway (`overrideStale`).
       if ((err as { code?: string })?.code === 'STALE') {
         const editedInput = buildEditedInput();
+        const fingerprint = (err as { data?: { stale?: { fingerprint?: string } } }).data?.stale?.fingerprint;
         toast.info(`Not run · ${title}`, {
           description: err instanceof Error ? err.message.replace(/^Not run: /, '') : String(err),
           duration: 15_000,
@@ -183,7 +184,7 @@ export function ReviewFocus(props: {
             label: 'Proceed anyway',
             onClick: () => {
               void client.review
-                .decideAction({ id: run.id, decision: 'approve', overrideStale: true, ...(editedInput ? { editedInput } : {}) })
+                .decideAction({ id: run.id, decision: 'approve', overrideStale: true, ...(fingerprint ? { staleFingerprint: fingerprint } : {}), ...(editedInput ? { editedInput } : {}) })
                 .then((outcome) => {
                   if (outcome.execution?.status === 'failed') {
                     toast.error(`Approved, but it failed to run · ${title}`, { description: outcome.execution.error ?? 'It stays on the review queue; Approve again to retry.' });

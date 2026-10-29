@@ -29,8 +29,9 @@ registerAction({
   grant: 'test_write',
   external: true,
   stillHolds: async (_ctx, input) => {
-    checked.push(input.key);
-    const v = verdicts.get(input.key) ?? null;
+    const key = (input as { key: string }).key;
+    checked.push(key);
+    const v = verdicts.get(key) ?? null;
     if (v === 'throw') {
       throw new Error('down');
     }
@@ -48,7 +49,7 @@ registerAction({
   execute: async () => ({ ok: true }),
 });
 
-async function run(key: string, opts: { actionId?: string; createdAt?: Date; checkedAt?: Date; regeneratingSince?: Date } = {}) {
+async function run(key: string, opts: { actionId?: string; createdAt?: Date; checkedAt?: Date; basisAt?: Date; regeneratingSince?: Date } = {}) {
   const [row] = await db.insert(actionRunSchema).values({
     orgId: ORG,
     actionId: opts.actionId ?? 'test.sweep-stale',
@@ -56,7 +57,7 @@ async function run(key: string, opts: { actionId?: string; createdAt?: Date; che
     status: 'pending',
     invokedBy: 'agent:inbox-triage',
     createdAt: opts.createdAt ?? new Date(NOW.getTime() - DAY),
-    proposal: opts.checkedAt ? { staleCheckedAt: opts.checkedAt.toISOString() } : null,
+    proposal: opts.checkedAt || opts.basisAt ? { ...(opts.checkedAt ? { staleCheckedAt: opts.checkedAt.toISOString() } : {}), ...(opts.basisAt ? { basisAt: opts.basisAt.toISOString() } : {}) } : null,
     regeneratingSince: opts.regeneratingSince ?? null,
   } as never).returning({ id: actionRunSchema.id });
   return row!.id;
@@ -133,7 +134,68 @@ describe('bounded, oldest check first', () => {
     await run('never-old', { createdAt: new Date(NOW.getTime() - 5 * DAY) });
     await sweep(3);
 
-    expect(checked).toEqual(['never-old', 'never-new', 'old-check']);
+    expect(checked.sort()).toEqual(['never-new', 'never-old', 'old-check']);
+  });
+
+  it('a basis read within the interval counts as a check: a run just proposed or redrafted is not re-checked', async () => {
+    await run('just-redrafted', { basisAt: new Date(NOW.getTime() - 60_000) });
+    await run('old-basis', { basisAt: new Date(NOW.getTime() - 2 * DAY) });
+    await sweep();
+
+    expect(checked).toEqual(['old-basis']);
+  });
+
+  it('runs checks a few at a time, never all at once', async () => {
+    let inFlight = 0;
+    let most = 0;
+    registerAction({
+      id: 'test.sweep-slow',
+      name: 'Slow',
+      description: 'test',
+      inputSchema: z.object({ key: z.string() }),
+      grant: 'test_write',
+      external: true,
+      stillHolds: async () => {
+        inFlight += 1;
+        most = Math.max(most, inFlight);
+        await new Promise(resolve => setTimeout(resolve, 20));
+        inFlight -= 1;
+        return null;
+      },
+      execute: async () => ({ ok: true }),
+    });
+    for (let i = 0; i < 10; i++) {
+      await run(`slow-${i}`, { actionId: 'test.sweep-slow' });
+    }
+    await sweep();
+
+    expect(most).toBe(4);
+  });
+
+  it('stops waiting at its time budget and closes nothing late', async () => {
+    registerAction({
+      id: 'test.sweep-hang',
+      name: 'Hang',
+      description: 'test',
+      inputSchema: z.object({ key: z.string() }),
+      grant: 'test_write',
+      external: true,
+      stillHolds: async () => {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        return { line: 'changed late' };
+      },
+      execute: async () => ({ ok: true }),
+    });
+    const id = await run('hang', { actionId: 'test.sweep-hang' });
+    const started = Date.now();
+    const out = await svc.sweepReviewQueue({ now: NOW, orgId: ORG, stillWaitingAfterMs: 30 * DAY, staleBudgetMs: 50 });
+
+    expect(Date.now() - started).toBeLessThan(250);
+    expect(out.closed).toEqual([]);
+
+    await new Promise(resolve => setTimeout(resolve, 400));
+
+    expect((await rowOf(id)).status).toBe('pending');
   });
 
   it('skips a run checked within the read cache, one being redrafted, and an action with no check', async () => {

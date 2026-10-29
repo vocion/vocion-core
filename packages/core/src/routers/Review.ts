@@ -340,8 +340,6 @@ export const actionStatusRoute = os
         proposal: actionRunSchema.proposal,
         input: actionRunSchema.input,
         result: actionRunSchema.result,
-        createdAt: actionRunSchema.createdAt,
-        invokedBy: actionRunSchema.invokedBy,
         name: userSchema.name,
         email: userSchema.email,
       })
@@ -395,9 +393,9 @@ export const actionStatusRoute = os
       regeneratingSince: row.regeneratingSince?.toISOString() ?? null,
       regenerateNote: row.regenerateNote,
       regenerateError: row.regenerateError ?? null,
-      // What changed since it was proposed, while it waits and no longer
-      // holds as proposed: from a check at most a few minutes old.
-      stale: await (await import('@/services/proposals/staleness')).staleForRead({ ...row, id: input.id, orgId, input: (row.input ?? {}) as Record<string, unknown> }),
+      // What changed since it was proposed, as last checked. Never a live
+      // call here: every card polls this. Opening the item checks live.
+      stale: (await import('@/services/proposals/staleness')).storedStaleForRead(row),
     };
   });
 
@@ -505,6 +503,8 @@ export const decideActionRoute = os
      * person was told what (a `STALE` answer) and proceeds anyway.
      */
     overrideStale: z.boolean().optional(),
+    /** The finding proceeded past, as the STALE answer named it (`data.stale.fingerprint`). */
+    staleFingerprint: z.string().max(64).optional(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
@@ -566,6 +566,7 @@ export const decideActionRoute = os
         editedInput: input.decision === 'approve' ? editedInput : undefined,
         resultUrl: input.decision === 'done' ? input.resultUrl : undefined,
         overrideStale: input.decision === 'approve' ? input.overrideStale : undefined,
+        staleFingerprint: input.decision === 'approve' ? input.staleFingerprint : undefined,
       });
     } catch (err) {
       // Marking done what was never released, or approving twice, is a state

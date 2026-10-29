@@ -118,6 +118,15 @@ describe('gmail.send: stillHolds', () => {
     expect(decodeURIComponent(String((f.mock.calls[0] as unknown as [string])[0]))).toContain('in:sent to:dana@kestrel.example after:');
   });
 
+  it('an email the owner sent after the inbound message but before the draft is not news to the draft', async () => {
+    threadHolds(base);
+    // Sent at 08:45: after Dana's 08:30 message, before the 09:00 draft.
+    const f = sentSearchHolds([{ id: 'x9', at: '2026-10-28T08:45:00.000Z' }]);
+
+    await expect(gmailSendAction.stillHolds!(CTX, input, basis)).resolves.toBeNull();
+    expect(decodeURIComponent(String((f.mock.calls[0] as unknown as [string])[0]))).toContain(`after:${Math.floor(CTX.proposedAt.getTime() / 1000)}`);
+  });
+
   it('a sent hit from before the basis on the same day does not count', async () => {
     threadHolds(base);
     sentSearchHolds([{ id: 'x9', at: '2026-10-28T08:00:00.000Z' }]);

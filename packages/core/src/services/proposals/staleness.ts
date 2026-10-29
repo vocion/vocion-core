@@ -29,6 +29,7 @@
  */
 
 import type { Action, ActionContext, StaleFinding } from '@/libs/actions/types';
+import { createHash } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
@@ -40,6 +41,12 @@ export type StaleView = StaleFinding & {
   checkedAt: string;
   /** The action can redraft the item itself (`Action.regenerate`), so a Redraft button has somewhere to go. */
   canRedraft: boolean;
+  /**
+   * Names this exact finding. A "Proceed anyway" sends it back
+   * (`staleFingerprint`), and the approve runs only if the check made then
+   * finds the same thing: anything new is answered as stale again.
+   */
+  fingerprint: string;
 };
 
 /** How long one check answers for, on the read path. */
@@ -89,23 +96,27 @@ async function credentialsFor(orgId: string, action: Action, input: Record<strin
 
 /**
  * What the recommendation assumes, read now, for the proposal envelope. Null
- * when the action declares no `basisFor`, returns nothing, or cannot read it:
- * a failing read never blocks a proposal.
+ * only when the action declares no `basisFor`. `basisAt` is always the moment
+ * of this proposal, even when the read fails or returns nothing (`basis` is
+ * then null): a check with no basis compares the world against `basisAt`, so a
+ * redraft is never judged against the moment the run was first created. A
+ * failing read never blocks a proposal.
  * @param action - The action being proposed.
  * @param ctx - Who is proposing, in which workspace.
  * @param input - Its parsed input.
  */
-export async function captureBasis(action: Action, ctx: ActionContext, input: Record<string, unknown>): Promise<{ basis: Record<string, unknown>; basisAt: string } | null> {
+export async function captureBasis(action: Action, ctx: ActionContext, input: Record<string, unknown>): Promise<{ basis: Record<string, unknown> | null; basisAt: string } | null> {
   if (!action.basisFor) {
     return null;
   }
+  const basisAt = new Date().toISOString();
   try {
     const credentials = ctx.credentials ?? await credentialsFor(ctx.orgId, action, input);
     const basis = await inTime(action.basisFor({ ...ctx, credentials }, input), `${action.id} basisFor`);
-    return basis ? { basis, basisAt: new Date().toISOString() } : null;
+    return { basis: basis ?? null, basisAt };
   } catch (err) {
     console.warn(`[staleness] ${action.id}: could not read what the recommendation assumes; stored without a basis`, err instanceof Error ? err.message : err);
-    return null;
+    return { basis: null, basisAt };
   }
 }
 
@@ -119,14 +130,18 @@ export function storedStale(proposal: unknown): StaleView | null {
 }
 
 /**
- * Was the basis read so recently that checking again would read the same world?
+ * Was the basis read so recently that checking again would read the same
+ * world? Read off `basisAt`; a run with none (an action that reads no basis,
+ * or a run that did not wait) by when it was created, when that is given.
  * @param proposal - The run's proposal.
  * @param now - The clock.
+ * @param createdAt - When the run was created.
  */
-export function basisIsFresh(proposal: unknown, now: Date = new Date()): boolean {
+export function basisIsFresh(proposal: unknown, now: Date = new Date(), createdAt?: Date): boolean {
   const at = (proposal as StaleKeys | null)?.basisAt;
   const t = typeof at === 'string' ? Date.parse(at) : Number.NaN;
-  return Number.isFinite(t) && now.getTime() - t < FRESH_BASIS_MS;
+  const since = Number.isFinite(t) ? t : createdAt?.getTime() ?? Number.NaN;
+  return Number.isFinite(since) && now.getTime() - since < FRESH_BASIS_MS;
 }
 
 export type RunForStaleness = {
@@ -214,7 +229,64 @@ export function viewOf(action: Action | undefined, finding: StaleFinding, checke
     ...(finding.code ? { code: finding.code } : {}),
     checkedAt,
     canRedraft: action?.regenerate !== undefined,
+    fingerprint: fingerprintOf(finding),
   };
+}
+
+/**
+ * A short stable name for a finding: its code and its line.
+ * @param finding - What a check said.
+ */
+export function fingerprintOf(finding: StaleFinding): string {
+  return createHash('sha256').update(`${finding.code ?? ''}\u0000${finding.line.trim()}`).digest('hex').slice(0, 16);
+}
+
+/** What a person's approve may do: answer stale, or run (past `proceed`, when they proceeded past something). */
+export type ApproveGate = { stale: StaleView } | { proceed: StaleView | null };
+
+/**
+ * A PERSON'S APPROVE, checked now. Always re-checks (unless the basis was read
+ * moments ago): a "Proceed anyway" runs only when the check made now finds
+ * exactly what the person was shown — the fingerprint they send back, else
+ * the finding stored on the run, which is what every surface showed them.
+ * Anything new, or a proceed with nothing behind it, is answered as stale.
+ * A check that cannot be made lets it run (fail open).
+ * @param run - The run, as stored.
+ * @param opts - What the person sent.
+ * @param opts.override - They chose to proceed anyway.
+ * @param opts.fingerprint - The finding they proceeded past, from the STALE answer.
+ */
+export async function gateApprove(run: RunForStaleness, opts: { override?: boolean; fingerprint?: string } = {}): Promise<ApproveGate> {
+  if (!getAction(run.actionId)?.stillHolds) {
+    return { proceed: null };
+  }
+  // What the person was shown: the finding on the run, when the fingerprint
+  // they sent (if any) names it. Read before the check overwrites it.
+  const stored = storedStale(run.proposal);
+  const shown = opts.override && stored && (!opts.fingerprint || stored.fingerprint === opts.fingerprint) ? stored : null;
+  if (!opts.override && basisIsFresh(run.proposal, new Date(), run.createdAt)) {
+    return { proceed: null };
+  }
+  const now = await checkStillHolds(run);
+  if (!now) {
+    // Nothing found now (or the check could not be made): it runs, carrying
+    // what the person proceeded past, so the action's own guard at execute
+    // (`ctx.proceededPast`) recognises it.
+    return { proceed: shown };
+  }
+  return shown && now.fingerprint === shown.fingerprint ? { proceed: now } : { stale: now };
+}
+
+/**
+ * The stale finding already stored on an open run, with no outside call:
+ * for what polls (a card's status) or runs in the background. The live check
+ * belongs to opening the item and to approving it.
+ * @param run - The run, with its status and proposal.
+ * @param run.status - Its status.
+ * @param run.proposal - Its proposal.
+ */
+export function storedStaleForRead(run: { status: string; proposal: unknown }): StaleView | null {
+  return run.status === 'pending' || run.status === 'failed' ? storedStale(run.proposal) : null;
 }
 
 /**

@@ -110,11 +110,12 @@ export function reviewTools(config: McpConfig, identity?: { userId: string; prin
         edited_input: z.record(z.string(), z.unknown()).optional(),
         result_url: z.string().url().optional(),
         learn: z.boolean().optional().describe('Whether a reason trains the learning classifier (default true). Pass false for bulk or canned decisions.'),
-        override_stale: z.boolean().optional().describe('On approve: run it although what it was proposed on changed. An approve without it answers STALE with what changed and runs nothing; pass true only once the person has heard that and still wants it.'),
+        override_stale: z.boolean().optional().describe('On approve: run it although what it was proposed on changed. An approve without it answers STALE with what changed and runs nothing; pass true only once the person has heard that and still wants it, with stale_fingerprint from that answer.'),
+        stale_fingerprint: z.string().max(64).optional().describe('With override_stale: the fingerprint the STALE answer named, so only what the person heard is proceeded past.'),
       },
       handler: async (input) => {
         const { apiDecideReview } = await import('@/services/writeApi');
-        const i = input as { kind: 'action' | 'workflow' | 'mission'; id: number; action: 'approve' | 'reject' | 'done'; reason?: string; edited_input?: Record<string, unknown>; result_url?: string; learn?: boolean; override_stale?: boolean };
+        const i = input as { kind: 'action' | 'workflow' | 'mission'; id: number; action: 'approve' | 'reject' | 'done'; reason?: string; edited_input?: Record<string, unknown>; result_url?: string; learn?: boolean; override_stale?: boolean; stale_fingerprint?: string };
         return asApi(() => apiDecideReview(caller, {
           kind: i.kind,
           id: i.id,
@@ -124,6 +125,7 @@ export function reviewTools(config: McpConfig, identity?: { userId: string; prin
           resultUrl: i.result_url,
           learn: i.learn,
           overrideStale: i.override_stale,
+          staleFingerprint: i.stale_fingerprint,
         }));
       },
     },

@@ -10,16 +10,22 @@ vi.mock('@/libs/DB');
 vi.mock('@/services/MissionService', () => ({ cancelMission: vi.fn(), resumeMission: vi.fn() }));
 vi.mock('@/services/SkillService', () => ({ approveSkillRun: vi.fn(), rejectSkillRun: vi.fn() }));
 vi.mock('@/services/WorkflowService', () => ({ cancelWorkflow: vi.fn(), resumeWorkflow: vi.fn() }));
+const audit = vi.hoisted(() => ({ approvedCopy: vi.fn(async () => {}), voiceEdits: vi.fn(async () => {}), pins: vi.fn(async () => []) }));
+vi.mock('@/services/review/contentRecord', async importOriginal => ({ ...await importOriginal<typeof import('@/services/review/contentRecord')>(), recordApprovedRevisions: audit.approvedCopy }));
+vi.mock('@/services/feedback/voiceLearning', async importOriginal => ({ ...await importOriginal<typeof import('@/services/feedback/voiceLearning')>(), recordVoiceEdits: audit.voiceEdits }));
+vi.mock('@/services/personalization/artifacts', async importOriginal => ({ ...await importOriginal<typeof import('@/services/personalization/artifacts')>(), pinLeadArtifactsForRun: audit.pins }));
 
 const { db } = await import('@/libs/DB');
 const { actionRunSchema } = await import('@/models/Schema');
 const { registerAction } = await import('@/libs/actions/registry');
 const { decide, getReviewDetail } = await import('@/services/ReviewService');
 const { eq } = await import('drizzle-orm');
+const { StaleError } = await import('@/libs/actions/stale');
 
 let moved = false;
 let checks = 0;
 let executed = 0;
+let raiseOnExecute = false;
 registerAction({
   id: 'test.review-stale',
   name: 'Test review stale',
@@ -31,7 +37,11 @@ registerAction({
     checks += 1;
     return moved ? { line: 'Dana Reyes wrote again on Oct 30', href: 'https://mail.example.test/t/1', keepOpen: true } : null;
   },
+  applyContentEdits: input => input,
   execute: async () => {
+    if (raiseOnExecute) {
+      throw new StaleError({ line: 'Already in a sequence since Oct 25', code: 'already_enrolled:5501' });
+    }
     executed += 1;
     return { ok: true };
   },
@@ -51,6 +61,10 @@ beforeEach(async () => {
   moved = false;
   checks = 0;
   executed = 0;
+  raiseOnExecute = false;
+  audit.approvedCopy.mockClear();
+  audit.voiceEdits.mockClear();
+  audit.pins.mockClear();
 });
 
 afterAll(async () => {
@@ -118,5 +132,54 @@ describe('read × stale', () => {
 
     expect(read?.stale).toBeNull();
     expect(checks).toBe(0);
+  });
+});
+
+describe('the audit trail is filed only once the approve ran', () => {
+  it('an approve answered stale by the action as it ran files no approved copy, voice diff or pin; Proceed anyway files each once', async () => {
+    const id = await pending();
+    raiseOnExecute = true;
+    const first = await decide({ kind: 'action', id }, 'approve', ORG, { reviewedBy: 'user_avery', editedInput: { value: 'edited' } });
+
+    expect(first.execution?.status).toBe('stale');
+    expect(audit.approvedCopy).not.toHaveBeenCalled();
+    expect(audit.voiceEdits).not.toHaveBeenCalled();
+    expect(audit.pins).not.toHaveBeenCalled();
+
+    raiseOnExecute = false;
+    const second = await decide({ kind: 'action', id }, 'approve', ORG, { reviewedBy: 'user_avery', editedInput: { value: 'edited again' }, overrideStale: true, staleFingerprint: first.execution!.stale!.fingerprint });
+
+    expect(second.execution?.status).toBe('done');
+    expect(audit.approvedCopy).toHaveBeenCalledTimes(1);
+    expect(audit.voiceEdits).toHaveBeenCalledTimes(1);
+    expect((audit.voiceEdits.mock.calls[0] as unknown as [unknown])[0]).toMatchObject({ before: { value: 'edited' }, after: { value: 'edited again' } });
+    expect(audit.pins).toHaveBeenCalledTimes(1);
+  });
+
+  it('an approve answered stale before running files nothing', async () => {
+    const id = await pending();
+    moved = true;
+    await decide({ kind: 'action', id }, 'approve', ORG, { reviewedBy: 'user_avery', editedInput: { value: 'edited' } });
+
+    expect(audit.approvedCopy).not.toHaveBeenCalled();
+    expect(audit.voiceEdits).not.toHaveBeenCalled();
+    expect(audit.pins).not.toHaveBeenCalled();
+  });
+});
+
+describe('background reads never call out', () => {
+  it('getReviewDetail with liveStale: false serves the stored finding and makes no check', async () => {
+    const id = await pending();
+    moved = true;
+    const none = await getReviewDetail(ORG, 'action', id, { liveStale: false });
+
+    expect(none?.stale).toBeNull();
+    expect(checks).toBe(0);
+
+    await getReviewDetail(ORG, 'action', id);
+    const stored = await getReviewDetail(ORG, 'action', id, { liveStale: false });
+
+    expect(stored?.stale?.line).toBe('Dana Reyes wrote again on Oct 30');
+    expect(checks).toBe(1);
   });
 });

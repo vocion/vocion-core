@@ -378,6 +378,61 @@ describe('Enroll (approve → execute)', () => {
     expect(vi.mocked(requestUnenroll)).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ contactId: '9412' }));
   });
 
+  it('the code the person proceeds past matches at execute when the portal property is empty (one derivation)', async () => {
+    await seedLead();
+    vi.mocked(readSequenceEnrollmentState).mockResolvedValue({ ok: true, data: { enrolled: true, latestSequenceId: null } });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/enrollments/contact/')) {
+        return res({ id: 'enr-old', sequenceId: '5501', sequenceName: 'Q4 Nurture' });
+      }
+      if (String(url).includes('/enrollments')) {
+        return res({ id: 'enr-2' });
+      }
+      return res({ id: 'note-1' });
+    }));
+    const proposed = await proposeAction({ orgId: ORG, actionId: 'personalization.enroll', principal: agent(), input: enrollInput() });
+    const first = await executeAction(proposed.runId!, ORG, { reviewedBy: 'user_jamie' });
+
+    expect(first.stale?.code).toBe('already_enrolled:5501');
+
+    const executed = await executeAction(proposed.runId!, ORG, { reviewedBy: 'user_jamie', overrideStale: true, staleFingerprint: first.stale!.fingerprint });
+
+    expect(executed.status).toBe('done');
+    expect(executed.result).toMatchObject({ replacedSequence: { sequenceId: '5501', sequenceName: 'Q4 Nurture' } });
+  });
+
+  it('on the person\'s own word it replaces the sequence and says so in one line, never held', async () => {
+    await seedLead();
+    vi.mocked(readSequenceEnrollmentState).mockResolvedValue({ ok: true, data: { enrolled: true, latestSequenceId: '5501' } });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/enrollments/contact/')) {
+        return res({ id: 'enr-old', sequenceId: '5501', sequenceName: 'Q4 Nurture' });
+      }
+      if (String(url).includes('/enrollments')) {
+        return res({ id: 'enr-2' });
+      }
+      return res({ id: 'note-1' });
+    }));
+    const [run] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'personalization.enroll', input: enrollInput(), status: 'approved', invokedBy: 'usr-jamie', sourceSlug: 'hubspot' }).returning({ id: actionRunSchema.id });
+    const executed = await executeAction(run!.id, ORG);
+
+    expect(executed.status).toBe('done');
+    expect(executed.result?.advice).toBe('Dana Whitfield was already in \'Q4 Nurture\'; it was replaced with \'AI-Readiness Nurture\'.');
+    expect(vi.mocked(requestUnenroll)).toHaveBeenCalled();
+  });
+
+  it('an agent\'s own decision (no reviewer, agent invoker) is held, not replaced', async () => {
+    await seedLead();
+    vi.mocked(readSequenceEnrollmentState).mockResolvedValue({ ok: true, data: { enrolled: true, latestSequenceId: '5501' } });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (String(url).includes('/enrollments/contact/') ? res({ sequenceId: '5501', sequenceName: 'Q4 Nurture' }) : res({}))));
+    const [run] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'personalization.enroll', input: enrollInput(), status: 'approved', invokedBy: 'agent:revenue-lead', sourceSlug: 'hubspot' }).returning({ id: actionRunSchema.id });
+    const executed = await executeAction(run!.id, ORG);
+
+    expect(executed.status).toBe('pending');
+    expect(executed.stale?.code).toBe('already_enrolled:5501');
+    expect(vi.mocked(requestUnenroll)).not.toHaveBeenCalled();
+  });
+
   it('an unenroll that does not complete stops the enrollment: run failed, nothing enrolled', async () => {
     await seedLead();
     vi.mocked(readSequenceEnrollmentState).mockResolvedValue({ ok: true, data: { enrolled: true, latestSequenceId: '307395867' } });

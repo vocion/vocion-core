@@ -443,7 +443,11 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
   // new email to them. Gmail not answering throws, which reads as "holds".
   async stillHolds(ctx, input, basis) {
     const b = basis as ThreadBasis | null;
-    const since = b?.latestAt ? new Date(b.latestAt) : (ctx.proposedAt ?? new Date());
+    // When the reply was drafted (`basisAt`), never the thread's latest
+    // message: an email the owner sent elsewhere between that message and the
+    // draft is not news to the draft, and counting it would mark every redraft
+    // stale again.
+    const since = ctx.proposedAt ?? new Date();
     const threadId = b?.threadId ?? input.threadId ?? (await replyThreadFor(ctx.orgId, input))?.threadId ?? null;
     const mailbox = typeof ctx.credentials?.email === 'string' ? ctx.credentials.email : undefined;
     const known = new Set(b?.messageIds ?? []);

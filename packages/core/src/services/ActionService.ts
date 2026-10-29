@@ -173,7 +173,9 @@ function withFreshBasis(
   const { stale: _stale, staleCheckedAt: _checked, basis: _basis, basisAt: _basisAt, ...rest } = stored.proposal;
   return {
     input: stored.input,
-    proposal: { ...rest, ...(next?.basis ? { basis: next.basis, basisAt: next.basisAt } : {}) },
+    // `basisAt` is stamped whenever the action reads a basis, even when the
+    // read failed: the redraft is judged from now, not from the first proposal.
+    proposal: { ...rest, ...(next?.basis ? { basis: next.basis } : {}), ...(next?.basisAt ? { basisAt: next.basisAt } : {}) },
   };
 }
 
@@ -582,7 +584,7 @@ async function proposeActionInTurn(input: {
     const { captureBasis } = await import('@/services/proposals/staleness');
     const read = await captureBasis(action, { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, proposedBy }, parsed as Record<string, unknown>);
     if (read) {
-      storedProposal = { ...(storedProposal ?? {}), basis: read.basis, basisAt: read.basisAt } as typeof storedProposal;
+      storedProposal = { ...(storedProposal ?? {}), ...(read.basis ? { basis: read.basis } : {}), basisAt: read.basisAt } as typeof storedProposal;
     }
   }
   const keyIdentifiesOneRecord = action.dedupAgainstDecided?.keyIsTrustworthy?.(parsed) ?? true;
@@ -958,6 +960,9 @@ export async function clearsTrustBar(opts: { orgId: string; actionId: string; in
  * @param opts.externalRef.id
  * @param opts.overrideStale
  * @param opts.staleChecked
+ * @param opts.staleFingerprint
+ * @param opts.staleGate
+ * @param opts.staleGate.proceed
  */
 export async function executeAction(
   runId: number,
@@ -968,15 +973,21 @@ export async function executeAction(
     externalRef?: { system: string; id: string };
     /**
      * The person was told what changed since this was proposed and runs it
-     * anyway ("Proceed anyway"). Recorded on the result, and handed to the
-     * action as `ctx.proceededPast`. Ignored for a machine's approval.
+     * anyway ("Proceed anyway"). The check is made again: it runs only if it
+     * finds exactly what they were shown (`staleFingerprint`, else the finding
+     * stored on the run); anything new answers `stale` again. Recorded on the
+     * result and handed to the action as `ctx.proceededPast`. Ignored for a
+     * machine's approval.
      */
     overrideStale?: boolean;
+    /** The finding the person proceeded past, as the STALE answer named it (`StaleView.fingerprint`). */
+    staleFingerprint?: string;
     /**
-     * The caller checked `stillHolds` a moment ago and it held
-     * (`ReviewService.decide`), so it is not asked twice.
+     * The caller already made the person's check a moment ago
+     * (`ReviewService.decide`, `gateApprove`) and it let the run through, so
+     * it is not made twice.
      */
-    staleChecked?: boolean;
+    staleGate?: { proceed: StaleView | null };
   },
 ): Promise<ActionRunResult> {
   const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, runId)).limit(1);
@@ -1031,17 +1042,28 @@ export async function executeAction(
   // told what changed and may proceed anyway; an agent's approval, the trust
   // ladder's or a decision clock's does not run, and the run goes back to
   // Review carrying the line. A basis read moments ago is not read again.
-  const byMachine = opts?.reviewedBy ? decidedByMachine(opts.reviewedBy) : run.approvedByAgent === true;
+  //
+  // Who decided: a person through Review (`reviewedBy`, a person), a machine
+  // (an agent, the ladder, a clock), or nobody, which is a person's own word
+  // unless the run was proposed by a machine running within its autonomy.
+  const byMachine = opts?.reviewedBy ? decidedByMachine(opts.reviewedBy) : run.approvedByAgent === true || decidedByMachine(run.invokedBy);
   const byPerson = Boolean(opts?.reviewedBy) && !byMachine;
-  const staleness = action.stillHolds && (byPerson || byMachine) ? await import('@/services/proposals/staleness') : null;
+  const onPersonsWord = !opts?.reviewedBy && !byMachine;
   let proceededPast: StaleView | undefined;
-  if (staleness) {
-    if (byPerson && opts?.overrideStale) {
-      proceededPast = staleness.storedStale(run.proposal) ?? undefined;
-    } else if (!opts?.staleChecked && !staleness.basisIsFresh(run.proposal)) {
+  if (action.stillHolds && (byPerson || byMachine)) {
+    const staleness = await import('@/services/proposals/staleness');
+    if (byPerson) {
+      // A person's approve re-checks, and proceeds past only what they were shown.
+      const gate = opts?.staleGate ?? await staleness.gateApprove(run, { override: opts?.overrideStale, fingerprint: opts?.staleFingerprint });
+      if ('stale' in gate) {
+        return heldAsStale(runId, orgId, gate.stale, false);
+      }
+      proceededPast = gate.proceed ?? undefined;
+    } else if (!staleness.basisIsFresh(run.proposal, new Date(), run.createdAt)) {
+      // A run proposed moments ago reads the world it was proposed in.
       const stale = await staleness.checkStillHolds(run);
       if (stale) {
-        return heldAsStale(runId, orgId, stale, byMachine);
+        return heldAsStale(runId, orgId, stale, true);
       }
     }
   }
@@ -1089,10 +1111,11 @@ export async function executeAction(
       externalRef: opts?.externalRef,
       origin: ((run.proposal ?? {}) as { origin?: ActionOrigin }).origin,
       ...(proceededPast ? { proceededPast } : {}),
+      ...(onPersonsWord ? { onPersonsWord: true } : {}),
     }, run.input);
     // Who ran it past what changed, and what that was, on the run for good.
-    const past = byPerson && opts?.overrideStale
-      ? { proceededPastStale: { line: proceededPast?.line ?? null, changed: proceededPast?.changed ?? null, code: proceededPast?.code ?? null, by: opts.reviewedBy, at: new Date().toISOString() } }
+    const past = byPerson && proceededPast
+      ? { proceededPastStale: { line: proceededPast.line, changed: proceededPast.changed ?? null, code: proceededPast.code ?? null, by: opts?.reviewedBy, at: new Date().toISOString() } }
       : {};
     const kept = { ...result, ...past, ...(earlierFailures.length > 0 ? { failedAttempts: earlierFailures } : {}) };
     await db
@@ -1111,6 +1134,8 @@ export async function executeAction(
       const { viewOf } = await import('@/services/proposals/staleness');
       return heldAsStale(runId, orgId, viewOf(action, err.finding, new Date().toISOString()), byMachine);
     }
+    // (A person's own word is never held this way: an action reads
+    // `ctx.onPersonsWord` and runs, saying what it found as `result.advice`.)
     const message = err instanceof Error ? err.message : String(err);
     await db
       .update(actionRunSchema)

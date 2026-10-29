@@ -287,6 +287,8 @@ export type DecideInput = {
    * with what changed (`error.details.stale`) and runs nothing.
    */
   overrideStale?: boolean;
+  /** The finding proceeded past, as the STALE answer named it (`error.details.stale.fingerprint`). */
+  staleFingerprint?: string;
 };
 
 /**
@@ -326,6 +328,7 @@ export async function apiDecideReview(
         externalRef: input.action !== 'reject' ? input.externalRef : undefined,
         resultUrl: input.action === 'done' ? input.resultUrl : undefined,
         overrideStale: input.action === 'approve' ? input.overrideStale : undefined,
+        staleFingerprint: input.action === 'approve' ? input.staleFingerprint : undefined,
       },
     );
   } catch (error) {
@@ -342,7 +345,7 @@ export async function apiDecideReview(
   }
   const stale = outcome?.execution?.stale;
   if (stale && (outcome.execution?.status === 'stale' || outcome.execution?.status === 'pending')) {
-    throw new WriteApiError(409, 'STALE', `Not run: ${stale.line}. Approve again with overrideStale to run it anyway.`, { stale });
+    throw new WriteApiError(409, 'STALE', `Not run: ${stale.line}. Approve again with overrideStale (and staleFingerprint ${stale.fingerprint}) to run it anyway.`, { stale });
   }
 
   const reviews = await ReviewService.listPending(caller.orgId);

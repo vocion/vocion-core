@@ -56,7 +56,7 @@ async function proposeAged(): Promise<number> {
   const out = await proposeAction({ orgId: ORG, actionId: 'test.stale-write', input: { value: 'x' }, principal: agent() });
   const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, out.runId));
   const proposal = { ...(row!.proposal as Record<string, unknown>), basisAt: new Date(Date.now() - 3 * 86_400_000).toISOString() };
-  await db.update(actionRunSchema).set({ proposal }).where(eq(actionRunSchema.id, out.runId));
+  await db.update(actionRunSchema).set({ proposal: proposal as never }).where(eq(actionRunSchema.id, out.runId));
   return out.runId;
 }
 
@@ -227,5 +227,110 @@ describe('a basis read moments ago is not read again', () => {
 
     expect(done.status).toBe('done');
     expect(checks).toBe(0);
+  });
+});
+
+describe('proceed anyway re-checks, and proceeds only past what the person was shown', () => {
+  it('something new since the STALE answer is answered as stale again, with the new line', async () => {
+    const id = await proposeAged();
+    world = { stage: 'Closed won' };
+    const first = await executeAction(id, ORG, { reviewedBy: 'user_avery' });
+    world = { stage: 'Closed lost' };
+    const out = await executeAction(id, ORG, { reviewedBy: 'user_avery', overrideStale: true, staleFingerprint: first.stale!.fingerprint });
+
+    expect(out.status).toBe('stale');
+    expect(out.stale?.line).toContain('Closed lost');
+    expect(executions).toHaveLength(0);
+  });
+
+  it('overrideStale with no STALE answer before it is a normal approve: checked, and stale', async () => {
+    const id = await proposeAged();
+    world = { stage: 'Closed won' };
+    const out = await executeAction(id, ORG, { reviewedBy: 'user_avery', overrideStale: true });
+
+    expect(out.status).toBe('stale');
+    expect(executions).toHaveLength(0);
+  });
+
+  it('a fingerprint that names a different finding does not proceed', async () => {
+    const id = await proposeAged();
+    world = { stage: 'Closed won' };
+    await executeAction(id, ORG, { reviewedBy: 'user_avery' });
+    const out = await executeAction(id, ORG, { reviewedBy: 'user_avery', overrideStale: true, staleFingerprint: 'not-that-one' });
+
+    expect(out.status).toBe('stale');
+  });
+
+  it('overrideStale on an item that holds just runs, recording nothing proceeded past', async () => {
+    const id = await proposeAged();
+    const out = await executeAction(id, ORG, { reviewedBy: 'user_avery', overrideStale: true });
+
+    expect(out.status).toBe('done');
+    expect(out.result?.proceededPastStale).toBeUndefined();
+  });
+});
+
+describe('a refresh whose basis cannot be read is judged from the refresh, not the first proposal', () => {
+  it('stamps basisAt now and keeps no stale basis', async () => {
+    let fail = false;
+    registerAction({
+      id: 'test.stale-flaky-basis',
+      name: 'Flaky basis',
+      description: 'test',
+      inputSchema: z.object({ value: z.string() }),
+      grant: 'test_write',
+      external: true,
+      basisFor: async () => {
+        if (fail) {
+          throw new Error('down');
+        }
+        return { v: 1 };
+      },
+      stillHolds: async () => null,
+      execute: async () => ({ ok: true }),
+    });
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.stale-flaky-basis', input: { value: 'x' }, principal: agent(), dedupKey: 'flaky' });
+    await db.update(actionRunSchema).set({ proposal: { basis: { v: 1 }, basisAt: '2026-10-01T00:00:00.000Z' } as never }).where(eq(actionRunSchema.id, first.runId));
+    fail = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const before = Date.now();
+    await proposeAction({ orgId: ORG, actionId: 'test.stale-flaky-basis', input: { value: 'y' }, principal: agent(), dedupKey: 'flaky' });
+    warn.mockRestore();
+    const p = (await rowOf(first.runId)).proposal as { basis?: unknown; basisAt?: string };
+
+    expect(p.basis).toBeUndefined();
+    expect(Date.parse(p.basisAt!)).toBeGreaterThanOrEqual(before - 1000);
+  });
+});
+
+describe('a person\'s own word', () => {
+  it('a StaleError on a run nobody reviewed returns the line, so the tool can say it', async () => {
+    const [row] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'test.stale-write', input: { value: 'x' }, status: 'approved', invokedBy: 'usr-avery' }).returning({ id: actionRunSchema.id });
+    executeRaises = new StaleError({ line: 'Already in a sequence since Oct 25', code: 'already_enrolled:1' });
+    const out = await executeAction(row!.id, ORG);
+
+    expect(out).toMatchObject({ status: 'stale', stale: { line: 'Already in a sequence since Oct 25' } });
+  });
+
+  it('the action is told it runs on the person\'s word; an agent\'s own run is not', async () => {
+    const seen: boolean[] = [];
+    registerAction({
+      id: 'test.stale-word',
+      name: 'Word',
+      description: 'test',
+      inputSchema: z.object({ value: z.string() }),
+      grant: 'test_write',
+      external: true,
+      execute: async (ctx) => {
+        seen.push(ctx.onPersonsWord === true);
+        return { ok: true };
+      },
+    });
+    const [mine] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'test.stale-word', input: { value: 'x' }, status: 'approved', invokedBy: 'usr-avery' }).returning({ id: actionRunSchema.id });
+    const [theirs] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'test.stale-word', input: { value: 'x' }, status: 'approved', invokedBy: 'agent:deals-desk' }).returning({ id: actionRunSchema.id });
+    await executeAction(mine!.id, ORG);
+    await executeAction(theirs!.id, ORG);
+
+    expect(seen).toEqual([true, false]);
   });
 });

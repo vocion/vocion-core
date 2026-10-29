@@ -117,7 +117,27 @@ describe('personalization.enroll: stillHolds', () => {
     hubspotHolds({ ...quiet, hs_latest_meeting_activity: String(Date.parse('2026-10-26T15:00:00.000Z')) });
     const out = await personalizationEnrollAction.stillHolds!(CTX, input, basis);
 
-    expect(out?.line).toBe('Dana Whitfield booked a meeting on Oct 26, after this was proposed');
+    expect(out?.line).toBe('Dana Whitfield booked a meeting since this was proposed (meeting on Oct 26)');
+  });
+
+  it('a meeting already on the books when proposed, dated in the future, is not news', async () => {
+    const future = String(Date.parse('2026-11-12T15:00:00.000Z'));
+    hubspotHolds({ ...quiet, hs_latest_meeting_activity: future });
+
+    await expect(personalizationEnrollAction.stillHolds!(CTX, input, { ...basis, meeting: future })).resolves.toBeNull();
+  });
+
+  it('with no basis, a meeting date is not read as a booking', async () => {
+    hubspotHolds({ ...quiet, hs_latest_meeting_activity: String(Date.parse('2026-11-12T15:00:00.000Z')) });
+
+    await expect(personalizationEnrollAction.stillHolds!(CTX, input, null)).resolves.toBeNull();
+  });
+
+  it('the check and the enrollment derive the same code when the portal property is empty', async () => {
+    hubspotHolds({ ...quiet, hs_sequences_is_enrolled: 'true', hs_latest_sequence_enrolled: null }, { sequenceId: '5501', sequenceName: 'Q4 Nurture' });
+    const out = await personalizationEnrollAction.stillHolds!(CTX, input, basis);
+
+    expect(out?.code).toBe('already_enrolled:5501');
   });
 
   it('advanced past the nurture band', async () => {

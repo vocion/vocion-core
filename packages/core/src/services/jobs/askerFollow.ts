@@ -130,7 +130,7 @@ const defaultDeps: AskerFollowDeps = {
       return null;
     }
     const { getReviewDetail } = await import('@/services/ReviewService');
-    const detail = await getReviewDetail(orgId, 'action', card.runId).catch(() => null);
+    const detail = await getReviewDetail(orgId, 'action', card.runId, { liveStale: false }).catch(() => null);
     const shown = (detail?.card ?? null) as import('@/libs/actions/types').ReviewCard | null;
     const video = shown?.content?.find((c): c is Extract<import('@/libs/actions/types').ReviewContent, { kind: 'video' }> => c.kind === 'video') ?? null;
     const { cardMockups } = await import('@/services/chat/cardPictures');
