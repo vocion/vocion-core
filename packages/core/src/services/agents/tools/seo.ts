@@ -25,8 +25,9 @@
  */
 
 import type { RuntimeContext } from '../types';
+import type { ProjectAuthor } from '@/services/DataRoomService';
 import type { ToolCallRuntime } from '@/services/seo/modelThatRan';
-import type { SeoFeedback, SeoPageRecord, SeoPageType } from '@/services/seo/records';
+import type { SeoFeedback, SeoPageAuthor, SeoPageRecord, SeoPageType } from '@/services/seo/records';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { SERP_BRIEF_FOLDER, serpBriefMeta, SYNTHESIS_END, SYNTHESIS_START } from '@/libs/tools/serp/brief';
@@ -36,7 +37,7 @@ import { whyNotWritable } from '@/services/seo/gate';
 import { checkPageMeta } from '@/services/seo/meta';
 import { modelThatRan } from '@/services/seo/modelThatRan';
 import { readSeoProject, seoProjectHref } from '@/services/seo/projects';
-import { feedbackCheck, getSeoBatch, getSeoPage, listProjectSeoPages, listSeoPages, patchSeoPage, pathKey, planApproved, planSeoBatch, readSeoGate, refreshSeoBatch, revisePlan, SEO_LEARNING_STEP, SEO_PAGE_TYPES, SeoSetupError } from '@/services/seo/records';
+import { bylineFor, feedbackCheck, getSeoBatch, getSeoPage, listProjectSeoPages, listSeoPages, patchSeoPage, pathKey, planApproved, planSeoBatch, readSeoGate, refreshSeoBatch, revisePlan, SEO_LEARNING_STEP, SEO_PAGE_TYPES, SeoSetupError } from '@/services/seo/records';
 import { fileSeoPlanAsk, fileSeoSignoffAsk, withdrawPageAsks } from '@/services/seo/signoff';
 import { describeVoiceFindings, draftVoiceFindings } from '@/services/seo/voiceCheck';
 import { findingsMd, followFrom, normaliseFindings, queueSeoWork, SEO_EDITOR_ROUNDS } from '@/services/seo/work';
@@ -458,7 +459,7 @@ export function seoSaveBriefTool(ctx: RuntimeContext) {
 export function seoSaveDraftTool(ctx: RuntimeContext) {
   return tool(
     async (raw, runtime?: ToolCallRuntime) => {
-      const { page_id, draft_artifact_id, meta_title, meta_description, slug } = raw as { page_id: number | string; draft_artifact_id: number; meta_title?: string; meta_description?: string; slug?: string };
+      const { page_id, draft_artifact_id, meta_title, meta_description, slug, author, category, tags, excerpt } = raw as { page_id: number | string; draft_artifact_id: number; meta_title?: string; meta_description?: string; slug?: string; author?: string; category?: string; tags?: string[]; excerpt?: string };
       const elsewhere = backgroundOnly(ctx, 'saved');
       if (elsewhere) {
         return elsewhere;
@@ -493,6 +494,19 @@ export function seoSaveDraftTool(ctx: RuntimeContext) {
       if (!meta.value) {
         return `Not saved: page #${page.id}'s meta does not pass — ${meta.problems.join('; ')}. Pass meta_title (at most 60 characters), meta_description (at most 155) and slug (kebab-case, unique in the project; the planned slug stands when you leave it out) with the draft.`;
       }
+      // The byline and the category are the page's fields, written into the
+      // site's frontmatter when it publishes; the body carries neither.
+      let byline: SeoPageAuthor | undefined;
+      if (author?.trim()) {
+        const project = await readSeoProject(ctx.orgId, page.meta.projectId);
+        const authors = Array.isArray(project?.meta.authors) ? project.meta.authors as ProjectAuthor[] : [];
+        const found = bylineFor(authors, author);
+        if (found?.from !== 'planned') {
+          return `Not saved: "${author.trim()}" is not one of the project's authors (${authors.map(a => a.name).join(', ') || 'it names none'}). Name one of them, or leave author out and the page keeps ${page.meta.author ? `"${page.meta.author.name}"` : 'no byline'}; never invent an author.`;
+        }
+        byline = { ...found, from: 'writer' };
+      }
+      const cleanTags = [...new Set((tags ?? []).map(t => t.trim()).filter(Boolean))];
       const bad = await artifactArg(ctx, draft_artifact_id, page, 'draft', 'draft');
       if (bad) {
         return bad;
@@ -508,11 +522,15 @@ export function seoSaveDraftTool(ctx: RuntimeContext) {
         signoffAsk: undefined,
         review: undefined,
         ...meta.value!,
+        ...(byline ? { author: byline } : {}),
+        ...(category?.trim() ? { category: category.trim() } : {}),
+        ...(cleanTags.length > 0 ? { tags: cleanTags } : {}),
+        ...(excerpt?.trim() ? { excerpt: excerpt.trim() } : {}),
         ...(ran ? { models: { write: ran } } : {}),
       }));
       const gate = await refreshSeoBatch(ctx.orgId, page.meta.batchId);
       return [
-        `Draft ${artifactLink(draft_artifact_id)} (round ${saved.meta.draftRound}) is on page #${page.id} "${page.meta.keyword}"${ran ? `, written on ${ran.name}${ran.source === 'configured' ? ' (the seat\'s configured model; no call logged)' : ''}` : ''}, with its meta title, description and slug /${meta.value.slug}.`,
+        `Draft ${artifactLink(draft_artifact_id)} (round ${saved.meta.draftRound}) is on page #${page.id} "${page.meta.keyword}"${ran ? `, written on ${ran.name}${ran.source === 'configured' ? ' (the seat\'s configured model; no call logged)' : ''}` : ''}, with its meta title, description and slug /${meta.value.slug}${saved.meta.author ? `, signed ${saved.meta.author.name}` : ''}${saved.meta.category ? `, in ${saved.meta.category}` : ''}.`,
         meta.warnings.length > 0 ? `Note: ${meta.warnings.join('; ')}.` : null,
         'Next: the editor checks it against the project\'s rules, brand, guidelines and the SERP brief (seo_save_review) before a person sees it.',
         gate ? `Gate: ${gate.line}.` : null,
@@ -520,13 +538,17 @@ export function seoSaveDraftTool(ctx: RuntimeContext) {
     },
     {
       name: 'seo_save_draft',
-      description: 'Attach a written draft (a markdown artifact, the page body only) to an SEO page with its meta title, meta description and slug, and send it to review. Refuses a page whose keyword plan is not signed off, a page the project\'s gate has not released (past the sample or tranche, or while feedback anywhere in the project waits to be filed), a page with no brief, and meta that does not pass. Records the model that wrote it.',
+      description: 'Attach a written draft (a markdown artifact, the page body only: no byline, category or meta lines in it) to an SEO page with its meta title, meta description and slug, and its author, category, tags and excerpt as fields, and send it to review. Refuses a page whose keyword plan is not signed off, a page the project\'s gate has not released (past the sample or tranche, or while feedback anywhere in the project waits to be filed), a page with no brief, and meta that does not pass. Records the model that wrote it.',
       schema: z.object({
         page_id: recordIdArg('The SEO page'),
         draft_artifact_id: z.number().int().positive(),
         meta_title: z.string().max(200).optional().describe('At most 60 characters. Required on the first draft; a redraft keeps the page\'s when left out.'),
         meta_description: z.string().max(400).optional().describe('At most 155 characters.'),
         slug: z.string().max(200).optional().describe('kebab-case, e.g. trail-running-shoes; unique within the project.'),
+        author: z.string().max(120).optional().describe('Who signs it, when not the page\'s byline already (seo_read_page shows it): one of the project\'s authors by name. Never in the body.'),
+        category: z.string().max(120).optional().describe('The site\'s category for the post, one the site already uses (its posts and inventory show them). Never in the body.'),
+        tags: z.array(z.string().max(60)).max(12).optional().describe('The post\'s tags, in the site\'s own words.'),
+        excerpt: z.string().max(400).optional().describe('The listing blurb, when the site shows one apart from the meta description.'),
       }),
     },
   );
@@ -751,6 +773,42 @@ export function seoRecordFeedbackTool(ctx: RuntimeContext) {
  * The SEO app's tool set.
  * @param ctx - The turn.
  */
+/**
+ * Learn a project's GitHub target from the site's own posts: two or three
+ * files in the folder are read through the workspace's GitHub connection and
+ * their frontmatter becomes the template. It is a SUGGESTION on the project's
+ * Publishing for a person to apply; the target itself is never written here.
+ * @param ctx - The turn.
+ */
+export function seoLearnFrontmatterTool(ctx: RuntimeContext) {
+  return tool(
+    async (raw) => {
+      const { project_id, target_id, repo, folder, base_branch } = raw as { project_id: number | string; target_id?: string; repo?: string; folder?: string; base_branch?: string };
+      const ref = await recordIdOf(ctx.orgId, project_id);
+      if ('reason' in ref) {
+        return `Not learned: no such project (${ref.reason}).`;
+      }
+      const projectId = ref.id;
+      const { suggestPublishTarget } = await import('@/services/publish/learnTemplate');
+      const out = await suggestPublishTarget(ctx.orgId, projectId, { targetId: target_id, repo, folder, baseBranch: base_branch, by: ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId ?? null });
+      return out.ok
+        ? `${out.line} Tell the person in one line that it waits for them under Publishing on the project (${seoProjectHref(projectId)}).`
+        : `Not learned: ${out.why}`;
+    },
+    {
+      name: 'seo_learn_frontmatter',
+      description: 'Read two or three existing posts in a client\'s GitHub repository (the folder its posts live in) and propose the publish target\'s frontmatter template from them: the same keys, values that vary per post mapped to placeholders ({title}, {date:MMMM D, YYYY}, {author}, {tags} …), constant values kept as literals. Run it when onboarding a client whose site is in a connected GitHub repository, or when a GitHub target has no frontmatter. The result waits on the project\'s Publishing for a person to apply; nothing is set on their behalf.',
+      schema: z.object({
+        project_id: recordIdArg('The project'),
+        target_id: z.string().max(64).optional().describe('The project\'s GitHub target to learn for, when it has one.'),
+        repo: z.string().max(200).optional().describe('owner/name, when the project has no GitHub target yet.'),
+        folder: z.string().max(300).optional().describe('The folder the site\'s posts are in, e.g. src/content/blog.'),
+        base_branch: z.string().max(200).optional(),
+      }),
+    },
+  );
+}
+
 export function seoTools(ctx: RuntimeContext) {
   const tools = [
     seoReadPageTool(ctx),
@@ -762,6 +820,7 @@ export function seoTools(ctx: RuntimeContext) {
     seoSaveDraftTool(ctx),
     seoSaveReviewTool(ctx),
     seoRecordFeedbackTool(ctx),
+    seoLearnFrontmatterTool(ctx),
   ];
   // The SEO seats' own tools are never behind tool search: a teammate on its
   // own model gets the lead's tiered set, and a live editor run could not find

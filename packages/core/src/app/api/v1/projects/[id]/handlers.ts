@@ -41,7 +41,12 @@ const PatchSchema = z.object({
   seoGate: z.object({ sample: stageSize, tranche: stageSize }).nullable().optional(),
   // Each target checked by publishing's own schema (`libs/publish/targets.ts`).
   publishTargets: z.array(publishTargetSchema).max(20).nullable().optional(),
+  // Only cleared from here (applied or dismissed): a suggestion is learned from the site's posts, never typed.
+  publishTargetSuggestion: z.null().optional(),
 });
+
+/** How long a save waits for the template to be learned before it answers without it. */
+const LEARN_WAIT_MS = 8_000;
 
 /**
  * A person editing the project's wiki, instructions, auto-filing, SEO gate or
@@ -59,10 +64,10 @@ export async function patchProject(caller: ApiCaller, rawId: string, req: NextRe
   if (!parsed.success) {
     return NextResponse.json({ error: { code: 'BAD_REQUEST', message: parsed.error.issues.map(i => i.message).join('; ') } }, { status: 400 });
   }
-  const { notes, rules, autoFile, seoGate, publishTargets } = parsed.data;
+  const { notes, rules, autoFile, seoGate, publishTargets, publishTargetSuggestion } = parsed.data;
   // The gate and the publish targets are a person's, on the project page: a
   // token (an outside system, or anything acting for an agent) may not set them.
-  if ((seoGate !== undefined || publishTargets !== undefined) && caller.source !== 'session') {
+  if ((seoGate !== undefined || publishTargets !== undefined || publishTargetSuggestion !== undefined) && caller.source !== 'session') {
     return NextResponse.json({ error: { code: 'FORBIDDEN', message: 'seoGate and publishTargets are set by a person signed in to the project page.' } }, { status: 403 });
   }
   const current = await getDataRoom(caller.orgId, id);
@@ -76,7 +81,19 @@ export async function patchProject(caller: ApiCaller, rawId: string, req: NextRe
     ...(autoFile === undefined ? {} : { autoFile }),
     ...(seoGate === undefined ? {} : { seoGate }),
     ...(publishTargets === undefined ? {} : { publishTargets }),
+    ...(publishTargetSuggestion === undefined ? {} : { publishTargetSuggestion }),
   });
+  // A GitHub target saved with no frontmatter: learn it from the site's own
+  // posts, as a suggestion the person applies on this page.
+  const blank = (publishTargets ?? []).find(t => t.kind === 'github' && Object.keys(t.config.frontmatter ?? {}).length === 0);
+  if (blank && caller.source === 'session') {
+    const { suggestPublishTarget } = await import('@/services/publish/learnTemplate');
+    const learning = suggestPublishTarget(caller.orgId, id, { targetId: blank.id, by: caller.actorId }).catch(() => null);
+    const learned = await Promise.race([learning, new Promise<null>(resolve => setTimeout(resolve, LEARN_WAIT_MS, null))]);
+    if (learned?.ok) {
+      return NextResponse.json({ ...room, meta: { ...room?.meta, publishTargetSuggestion: learned.suggestion } });
+    }
+  }
   return NextResponse.json(room);
 }
 

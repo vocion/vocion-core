@@ -21,6 +21,7 @@
  */
 
 import type { PageFields, PublishTarget } from '@/libs/publish/targets';
+import { slugify } from '@/libs/publish/targets';
 
 export type PublishRequest = {
   pageRecordId?: number;
@@ -142,7 +143,7 @@ async function projectHasSeoPages(orgId: string, projectId: number): Promise<boo
  */
 export async function planPublish(orgId: string, input: PublishRequest, now: Date = new Date()): Promise<{ ok: true; plan: PublishPlan } | { ok: false; why: string }> {
   const { readRecord } = await import('@/libs/actions/factory-dispatch');
-  const { resolvePublishTarget, slugify, SLUG_RE } = await import('@/libs/publish/targets');
+  const { resolvePublishTarget, SLUG_RE } = await import('@/libs/publish/targets');
 
   let pageMeta: Meta = {};
   let pageTitle: string | null = null;
@@ -210,8 +211,9 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
   if (signed.contentHash && signed.contentHash !== await contentHashOf(raw)) {
     return { ok: false, why: 'The draft\'s text is not the text that was signed off: a person signs off on it as it stands first.' };
   }
-  const { stripMetaBlock } = await import('@/libs/publish/targets');
-  const markdown = stripMetaBlock(raw);
+  const { emptyPlaceholders, stripBylineBlock, stripMetaBlock, wordCount } = await import('@/libs/publish/targets');
+  // The body is the page: a trailing meta block and a leading byline are the page's fields, written into the frontmatter.
+  const markdown = stripBylineBlock(stripMetaBlock(raw));
   const pageType = text(pageMeta.pageType);
   if (resolved.target.kind === 'squarespace' && pageType && NOT_A_POST.has(pageType)) {
     return { ok: false, why: `This is a ${pageType} page, and the project's Squarespace target publishes blog posts only. Publish it to a target that takes site pages, or add it in Squarespace by hand from the approved draft.` };
@@ -230,16 +232,58 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
   const given = text(input.metaDescription);
   const recorded = text(pageMeta.metaDescription);
   const description = given ?? recorded ?? firstParagraph(markdown);
+  const byline = bylineOf(pageMeta, project.meta);
+  const fields = { author: byline?.name ?? null, authorSlug: byline?.slug ?? null, category: text(pageMeta.category), excerpt: text(pageMeta.excerpt), tags: tagsOf(pageMeta.tags), words: wordCount(markdown) };
+  if (resolved.target.kind === 'github') {
+    const empty = emptyPlaceholders(resolved.target, { title, metaTitle, description, slug, at: now, ...fields });
+    if (empty.length > 0) {
+      const needs = [...new Set(empty.map(n => (n === 'authorSlug' ? 'author' : n)))];
+      return { ok: false, why: `The site's frontmatter needs ${needs.join(' and ')}, and "${title}" has none: ${needs.map(n => (n === 'category' ? 'give the page its category (seo_save_draft category)' : 'name its author, or mark one of the project\'s authors the default')).join('; ')}.` };
+    }
+  }
   return {
     ok: true,
     plan: {
       project: { id: project.id, title: project.title },
       target: resolved.target,
-      page: { recordId: input.pageRecordId ?? null, title, metaTitle, slug, description, descriptionFrom: given ? 'given' : recorded ? 'record' : 'first paragraph', keyword: text(pageMeta.keyword), at: now, refresh: input.refresh === true || pageMeta.refresh === true || Boolean(existingUrl), publishedUrl: text(pageMeta.publishedUrl), existingUrl, draftUrl: text(pageMeta.squarespaceDraftUrl) },
+      page: { recordId: input.pageRecordId ?? null, title, metaTitle, slug, description, ...fields, descriptionFrom: given ? 'given' : recorded ? 'record' : 'first paragraph', keyword: text(pageMeta.keyword), at: now, refresh: input.refresh === true || pageMeta.refresh === true || Boolean(existingUrl), publishedUrl: text(pageMeta.publishedUrl), existingUrl, draftUrl: text(pageMeta.squarespaceDraftUrl) },
       draft: { artifactId, title: artifact.title, version: artifact.currentVersion, markdown },
       before: input.pageRecordId ? { status: pageMeta.status ?? null, pullRequestUrl: pageMeta.pullRequestUrl ?? null, publishedUrl: pageMeta.publishedUrl ?? null } : null,
     },
   };
+}
+
+/**
+ * A page's tags as a list: the record's `tags`, a list or a comma-separated line.
+ * @param value - `metadata.tags`.
+ */
+export function tagsOf(value: unknown): string[] {
+  const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+  return [...new Set(list.filter((t): t is string => typeof t === 'string').map(t => t.trim()).filter(Boolean))];
+}
+
+type AuthorLike = { name?: unknown; slug?: unknown; default?: unknown };
+
+/**
+ * Who signs the page, with the author's slug on the site: the page's byline
+ * (`author`, a name or `{ name }`), else the project's default author. The
+ * slug is the project author's `slug` when it names one, else the name
+ * slugified. Null when neither names anyone.
+ * @param pageMeta - The page record's metadata.
+ * @param projectMeta - The project's metadata, with its `authors`.
+ */
+export function bylineOf(pageMeta: Meta, projectMeta: Meta): { name: string; slug: string } | null {
+  const authors = (Array.isArray(projectMeta.authors) ? projectMeta.authors : []) as AuthorLike[];
+  const key = (s: unknown) => (typeof s === 'string' ? s.normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '') : '');
+  const own = pageMeta.author;
+  const named = text(typeof own === 'object' && own ? (own as AuthorLike).name : own);
+  const known = named ? authors.find(a => key(a.name) && key(a.name) === key(named)) : authors.find(a => a.default === true) ?? (authors.length === 1 ? authors[0] : undefined);
+  const name = named ?? text(known?.name);
+  if (!name) {
+    return null;
+  }
+  const ownSlug = typeof own === 'object' && own ? text((own as AuthorLike).slug) : null;
+  return { name, slug: ownSlug ?? text(known?.slug) ?? slugify(name) };
 }
 
 /** No inline styles: the page takes the site's own. */

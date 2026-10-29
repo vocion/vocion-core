@@ -13,7 +13,15 @@
  *   written; `frontmatter` is the template the site's own files use, mirrored
  *   key for key from two or three existing files when the client is onboarded.
  *   Its values are literals, or placeholders a page fills in: {title},
- *   {metaTitle}, {description}, {slug}, {date}, {datetime}, {keyword}.
+ *   {metaTitle}, {description}, {slug}, {keyword}, {date} (YYYY-MM-DD),
+ *   {datetime} (ISO), {date:<format>} ({date:MMMM D, YYYY} is "July 8,
+ *   2026"; tokens YYYY, MMMM, MMM, MM, M, DD, D, and ISO), {author} (the
+ *   byline's name), {authorSlug} (that author's slug on the project, else
+ *   the name slugified), {category}, {excerpt} (the page's, else its
+ *   description), {readTime} ("5 min read", at 200 words a minute) and
+ *   {tags} (a value that is exactly "{tags}" is written as a list; inside a
+ *   longer string they are joined with ", "). Strings are written quoted, so
+ *   a date string stays a string, never a YAML date.
  * - `squarespace`: a draft post on the site's blog, written in the editor by a
  *   browser run, since Squarespace has no API for posts.
  * - `wordpress`: declared so a project can say so; nothing publishes there yet.
@@ -29,10 +37,55 @@ export const PAGE_FORMATS = ['mdx', 'md', 'html'] as const;
 export type PageFormat = (typeof PAGE_FORMATS)[number];
 
 /** The values a page fills a template with. */
-export const PAGE_PLACEHOLDERS = ['title', 'metaTitle', 'description', 'slug', 'date', 'datetime', 'keyword'] as const;
+export const PAGE_PLACEHOLDERS = ['title', 'metaTitle', 'description', 'slug', 'date', 'datetime', 'keyword', 'author', 'authorSlug', 'category', 'excerpt', 'readTime', 'tags'] as const;
 type Placeholder = (typeof PAGE_PLACEHOLDERS)[number];
 
-const PLACEHOLDER_RE = /\{(\w+)\}/g;
+/** Placeholders a page may leave empty without the file being wrong; the rest of these a site's schema usually requires. */
+const NEEDS_A_VALUE: readonly Placeholder[] = ['author', 'authorSlug', 'category'];
+
+/** `{name}` or `{name:format}`; only a date takes a format. */
+const PLACEHOLDER_RE = /\{(\w+)(?::([^{}\n]+))?\}/g;
+
+const DATE_TOKEN_RE = /YYYY|MMMM|MMM|MM|M|DD|D/g;
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/**
+ * Whether a date format can be written: tokens (YYYY, MMMM, MMM, MM, M, DD, D)
+ * and punctuation, or `ISO`.
+ * @param format - The format after `date:`.
+ */
+function dateFormatOk(format: string): boolean {
+  const f = format.trim();
+  return f === 'ISO' || (/YYYY|M|D/.test(f) && !/[a-z]/i.test(f.replace(DATE_TOKEN_RE, '')));
+}
+
+/**
+ * A date written in a format (UTC, as `{date}` always was): `MMMM D, YYYY`
+ * is "July 8, 2026", `YYYY-MM-DD` is "2026-07-08", `ISO` the full timestamp.
+ * @param at - The date.
+ * @param format - The format.
+ */
+export function formatDate(at: Date, format: string): string {
+  const f = format.trim();
+  if (f === 'ISO') {
+    return at.toISOString();
+  }
+  const y = at.getUTCFullYear();
+  const m = at.getUTCMonth();
+  const d = at.getUTCDate();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return f.replace(DATE_TOKEN_RE, (t) => {
+    switch (t) {
+      case 'YYYY': return String(y);
+      case 'MMMM': return MONTHS[m]!;
+      case 'MMM': return MONTHS[m]!.slice(0, 3);
+      case 'MM': return pad(m + 1);
+      case 'M': return String(m + 1);
+      case 'DD': return pad(d);
+      default: return String(d);
+    }
+  });
+}
 
 /** A target's id: what a page or a batch names it by. */
 const targetIdSchema = z.string().regex(/^[a-z0-9][\w-]{0,62}$/i, 'a short id: letters, digits, - and _');
@@ -42,7 +95,17 @@ const targetIdSchema = z.string().regex(/^[a-z0-9][\w-]{0,62}$/i, 'a short id: l
  * @param text - A template string.
  */
 function unknownPlaceholders(text: string): string[] {
-  return [...text.matchAll(PLACEHOLDER_RE)].map(m => m[1]!).filter(name => !(PAGE_PLACEHOLDERS as readonly string[]).includes(name));
+  return [...text.matchAll(PLACEHOLDER_RE)]
+    .filter(m => !(PAGE_PLACEHOLDERS as readonly string[]).includes(m[1]!) || (m[2] !== undefined && (m[1] !== 'date' || !dateFormatOk(m[2]))))
+    .map(m => (m[2] === undefined ? m[1]! : `${m[1]}:${m[2]}`));
+}
+
+/**
+ * The placeholders a template uses, by name.
+ * @param text - A template string.
+ */
+function placeholdersIn(text: string): string[] {
+  return [...text.matchAll(PLACEHOLDER_RE)].map(m => m[1]!);
 }
 
 /**
@@ -203,7 +266,36 @@ export type PageFields = {
   keyword?: string | null;
   /** When it is published; `date` and `datetime` are read from it. */
   at: Date;
+  /** The byline's name. */
+  author?: string | null;
+  /** The byline's slug or handle on the site (the project's author `slug`, else the name slugified). */
+  authorSlug?: string | null;
+  category?: string | null;
+  /** The listing blurb; the description when none was written. */
+  excerpt?: string | null;
+  tags?: readonly string[] | null;
+  /** The body's word count, for {readTime}. */
+  words?: number | null;
 };
+
+/** Words a reader gets through in a minute, for {readTime}. */
+export const WORDS_PER_MINUTE = 200;
+
+/**
+ * "5 min read" for a body of this many words, never under one minute.
+ * @param words - The word count.
+ */
+export function readTimeOf(words: number): string {
+  return `${Math.max(1, Math.round(words / WORDS_PER_MINUTE))} min read`;
+}
+
+/**
+ * How many words a markdown body has, markup aside.
+ * @param markdown - The body.
+ */
+export function wordCount(markdown: string): number {
+  return markdown.replace(/```[\s\S]*?```/g, ' ').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[#>*_`~|-]/g, ' ').split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w)).length;
+}
 
 function valuesOf(page: PageFields): Record<Placeholder, string> {
   return {
@@ -214,6 +306,12 @@ function valuesOf(page: PageFields): Record<Placeholder, string> {
     date: page.at.toISOString().slice(0, 10),
     datetime: page.at.toISOString(),
     keyword: page.keyword ?? '',
+    author: page.author?.trim() ?? '',
+    authorSlug: page.authorSlug?.trim() || (page.author?.trim() ? slugify(page.author) : ''),
+    category: page.category?.trim() ?? '',
+    excerpt: page.excerpt?.trim() || page.description,
+    readTime: typeof page.words === 'number' && page.words > 0 ? readTimeOf(page.words) : '',
+    tags: (page.tags ?? []).join(', '),
   };
 }
 
@@ -224,16 +322,39 @@ function valuesOf(page: PageFields): Record<Placeholder, string> {
  */
 export function fillTemplate(text: string, page: PageFields): string {
   const values = valuesOf(page);
-  return text.replace(PLACEHOLDER_RE, (m, name: string) => (name in values ? values[name as Placeholder] : m));
+  return text.replace(PLACEHOLDER_RE, (m, name: string, format?: string) => {
+    if (format !== undefined) {
+      return name === 'date' && dateFormatOk(format) ? formatDate(page.at, format) : m;
+    }
+    return name in values ? values[name as Placeholder] : m;
+  });
+}
+
+/**
+ * The placeholders a target uses (in its path or its frontmatter) that this
+ * page has no value for, among those a site's schema needs filled: {author},
+ * {authorSlug}, {category}. Publishing says so instead of writing an empty
+ * field the site's build would reject.
+ * @param target - The GitHub target.
+ * @param page - The page.
+ */
+export function emptyPlaceholders(target: GithubTarget, page: PageFields): string[] {
+  const values = valuesOf(page);
+  const used = new Set([target.config.path, ...stringsIn(target.config.frontmatter ?? {})].flatMap(placeholdersIn));
+  return NEEDS_A_VALUE.filter(name => used.has(name) && !values[name]);
 }
 
 /**
  * A frontmatter template filled in: strings filled, lists and maps filled
- * through, everything else (a number, a boolean, a date) kept as written.
+ * through, everything else (a number, a boolean, a date) kept as written. A
+ * value that is exactly "{tags}" becomes the page's tags as a list.
  * @param value - A template value.
  * @param page - The page.
  */
 function fillValue(value: unknown, page: PageFields): unknown {
+  if (value === '{tags}') {
+    return [...(page.tags ?? [])];
+  }
   if (typeof value === 'string') {
     return fillTemplate(value, page);
   }
@@ -297,6 +418,41 @@ export function stripMetaBlock(markdown: string): string {
   return lines.slice(0, end).join('\n').trim();
 }
 
+const BYLINE_LABEL = String.raw`(?:author|authors|by|written\s+by|byline|category|categories|tags?|published|date|reading\s+time|read\s+time)`;
+/** A labelled byline line ("**Author:** Jane", "Category: Plumbing", "*By:* Jane | **Category:** X"). */
+const BYLINE_LINE_RE = new RegExp(String.raw`^\s*(?:[-*]\s+)?(?:\*\*|__|\*|_)?${BYLINE_LABEL}(?:\*\*|__|\*|_)?\s*:`, 'i');
+
+/**
+ * The body without a byline block at its top ("**Author:** …", "**Category:**
+ * …", "Tags: …", before or just after the H1, and a rule under it): the
+ * author and category are the page's fields, written into the site's
+ * frontmatter, and a body that carries them too shows them twice.
+ * @param markdown - The draft.
+ */
+export function stripBylineBlock(markdown: string): string {
+  const lines = markdown.replace(/^\s+/, '').split('\n');
+  let i = 0;
+  const head: string[] = [];
+  if (/^#\s+\S/.test(lines[0] ?? '')) {
+    head.push(lines[0]!);
+    i = 1;
+  }
+  let j = i;
+  let stripped = false;
+  while (j < lines.length && (lines[j]!.trim() === '' || BYLINE_LINE_RE.test(lines[j]!))) {
+    stripped ||= BYLINE_LINE_RE.test(lines[j]!);
+    j += 1;
+  }
+  if (!stripped) {
+    return markdown.trim();
+  }
+  if (j < lines.length && /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(lines[j]!)) {
+    j += 1;
+  }
+  const rest = lines.slice(j).join('\n').trim();
+  return head.length > 0 ? `${head[0]}\n\n${rest}`.trim() : rest;
+}
+
 /**
  * Markdown made safe to read as MDX: outside code, a brace would open an
  * expression and a bare `<` a component, so both are escaped; tags and
@@ -340,8 +496,9 @@ export function renderPageFile(target: GithubTarget, page: PageFields, body: { m
   const path = fillTemplate(target.config.path, page);
   const template = target.config.frontmatter ?? {};
   const frontmatter = renderFrontmatter(template, page);
-  const head = Object.keys(frontmatter).length > 0 ? `---\n${stringify(frontmatter, { lineWidth: 0 }).trimEnd()}\n---\n\n` : '';
-  const markdown = bodyWithoutTitle(body.markdown, template);
+  // Strings quoted: "July 8, 2026" or "2026-07-08" stays the string the site's schema reads, never a YAML date.
+  const head = Object.keys(frontmatter).length > 0 ? `---\n${stringify(frontmatter, { lineWidth: 0, defaultStringType: 'QUOTE_DOUBLE', defaultKeyType: 'PLAIN' }).trimEnd()}\n---\n\n` : '';
+  const markdown = bodyWithoutTitle(stripBylineBlock(body.markdown), template);
   if (format === 'html') {
     if (body.html === undefined) {
       throw new Error('an html target needs the body rendered as HTML');
