@@ -298,12 +298,29 @@ publishTargets:
         draft: false
 ```
 
-- **The template is the site's own.** When a client is onboarded, the agent
-  reads two or three files in that folder (`repo_read_tree`, `repo_read_file`)
-  and copies their frontmatter keys exactly. Values are literals, or a
-  placeholder a page fills in: `{title}`, `{description}`, `{slug}`, `{date}`,
-  `{datetime}`, `{keyword}`. Anything else is refused when the target is read,
-  with the target named.
+- **The template is the site's own, learned from it.** When a person saves a
+  GitHub target with no frontmatter, or the SEO strategist onboards a client
+  whose repository is connected (`seo_learn_frontmatter`), two or three posts
+  in that folder are read through the workspace's GitHub connection and their
+  frontmatter becomes the template (`libs/publish/learnTemplate.ts`): the same
+  keys, a value that varies per post mapped to its placeholder, a constant one
+  (a layout, a draft flag, a default image) kept as a literal. It is a
+  suggestion on the project's **Publishing** with Apply and Dismiss
+  (`publishTargetSuggestion`); nothing writes the target for the person.
+- **Placeholders.** `{title}`, `{metaTitle}`, `{description}`, `{slug}`,
+  `{keyword}`, `{date}` (YYYY-MM-DD), `{datetime}` (ISO), `{date:<format>}`
+  (`{date:MMMM D, YYYY}` is "July 8, 2026"; tokens YYYY, MMMM, MMM, MM, M, DD,
+  D, and `ISO`), `{author}` (the byline's name), `{authorSlug}` (that author's
+  `slug` on the project, else the name slugified), `{category}`, `{excerpt}`
+  (else the description), `{readTime}` ("5 min read", 200 words a minute) and
+  `{tags}` (a value that is exactly `"{tags}"` is written as a list). Strings
+  are written quoted, so a date string stays a string, never a YAML date. A
+  template that needs `{author}` or `{category}` and a page that has none is
+  refused with the reason, before a broken file reaches the site's build.
+  Anything else is refused when the target is read, with the target named.
+- **The byline is a field, not body.** A leading "**Author:** … **Category:**
+  …" block in a draft is stripped on publish; the writer gives author,
+  category, tags and excerpt to `seo_save_draft` as the page's fields.
 - **The body is the draft artifact's markdown.** Its leading `# Title` is
   dropped when the frontmatter already carries the title. `mdx` escapes braces
   and stray `<` outside code; `html` renders the markdown with the small
