@@ -91,7 +91,7 @@ export function reviewTools(config: McpConfig, identity?: { userId: string; prin
     {
       name: 'review_get',
       title: 'Read one review item',
-      description: 'One item in the Review queue, whole: what it would do, why the agent proposed it, its input and its state. Same as GET /api/v1/reviews/:kind/:id.',
+      description: 'One item in the Review queue, whole: what it would do, why the agent proposed it, its input and its state, and `stale` (what changed since it was proposed) when it no longer holds as proposed. Same as GET /api/v1/reviews/:kind/:id.',
       inputSchema: { kind, id: z.number().int().positive() },
       handler: async (input) => {
         const { apiGetReview } = await import('@/services/writeApi');
@@ -110,10 +110,12 @@ export function reviewTools(config: McpConfig, identity?: { userId: string; prin
         edited_input: z.record(z.string(), z.unknown()).optional(),
         result_url: z.string().url().optional(),
         learn: z.boolean().optional().describe('Whether a reason trains the learning classifier (default true). Pass false for bulk or canned decisions.'),
+        override_stale: z.boolean().optional().describe('On approve: run it although what it was proposed on changed. An approve without it answers STALE with what changed and runs nothing; pass true only once the person has heard that and still wants it, with stale_fingerprint from that answer.'),
+        stale_fingerprint: z.string().max(64).optional().describe('With override_stale: the fingerprint the STALE answer named, so only what the person heard is proceeded past.'),
       },
       handler: async (input) => {
         const { apiDecideReview } = await import('@/services/writeApi');
-        const i = input as { kind: 'action' | 'workflow' | 'mission'; id: number; action: 'approve' | 'reject' | 'done'; reason?: string; edited_input?: Record<string, unknown>; result_url?: string; learn?: boolean };
+        const i = input as { kind: 'action' | 'workflow' | 'mission'; id: number; action: 'approve' | 'reject' | 'done'; reason?: string; edited_input?: Record<string, unknown>; result_url?: string; learn?: boolean; override_stale?: boolean; stale_fingerprint?: string };
         return asApi(() => apiDecideReview(caller, {
           kind: i.kind,
           id: i.id,
@@ -122,6 +124,8 @@ export function reviewTools(config: McpConfig, identity?: { userId: string; prin
           editedInput: i.edited_input,
           resultUrl: i.result_url,
           learn: i.learn,
+          overrideStale: i.override_stale,
+          staleFingerprint: i.stale_fingerprint,
         }));
       },
     },

@@ -25,11 +25,13 @@
  * gets exactly one corrective retry before the turn fails loudly.
  */
 
-import type { Action } from './types';
+import type { Action, ActionContext, StaleFinding } from './types';
+import type { HubspotClient } from '@/libs/hubspot/client';
 import type { VoiceRules } from '@/libs/writing/voiceRules';
 import { z } from 'zod';
 import { voiceRulesFor } from '@/libs/writing/loadVoiceRules';
 import { lintSends, outboundCopy } from '@/libs/writing/voiceRules';
+import { StaleError } from './stale';
 
 const sendSchema = z.object({
   step: z.number().int().positive(),
@@ -508,6 +510,141 @@ export function conversationRefusal(contactName: string, c: ActiveConversation):
   ].join(' ');
 }
 
+/**
+ * The HubSpot client this action writes with: the `hubspot` source's vault
+ * token (a login refreshed first), else any credentialed hubspot-family source.
+ * @param ctx - The action context.
+ * @throws {Error} When no HubSpot credentials are connected.
+ */
+async function enrollClient(ctx: ActionContext): Promise<HubspotClient> {
+  const { createHubspotClient } = await import('@/libs/hubspot/client');
+  const { hubspotClientForOrg, hubspotTokenForActionSlug } = await import('@/services/agents/tools/hubspotDirect');
+  const token = await hubspotTokenForActionSlug(ctx.orgId, 'hubspot', ctx.credentials);
+  if (token) {
+    return createHubspotClient({ token });
+  }
+  const resolved = await hubspotClientForOrg(ctx.orgId);
+  if (!resolved.ok) {
+    throw new Error('personalization.enroll requires connected HubSpot credentials (credentials.token)');
+  }
+  return resolved.client;
+}
+
+/** Lifecycle stages past the band a nurture sequence is for: someone there is a sales conversation, not a lead. */
+const PAST_NURTURE_STAGES = new Set(['opportunity', 'customer', 'evangelist']);
+
+/** What an enrollment recommendation assumed about the contact. */
+type ContactBasis = {
+  enrolled: boolean;
+  latestSequenceId: string | null;
+  lifecycleStage: string | null;
+  lastReplied: string | null;
+  meeting: string | null;
+  lastContacted: string | null;
+  optedOut: boolean;
+};
+
+const ENROLL_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+/**
+ * HubSpot stamps a date as ISO 8601 or epoch milliseconds.
+ * @param v
+ */
+function hubspotTime(v: string | null | undefined): number | null {
+  if (!v) {
+    return null;
+  }
+  const t = /^\d{10,}$/.test(v) ? Number(v) : Date.parse(v);
+  return Number.isFinite(t) ? t : null;
+}
+
+function onEnrollDay(v: string | null | undefined): string {
+  const t = hubspotTime(v);
+  return t === null ? '' : ` on ${ENROLL_DAY.format(new Date(t))}`;
+}
+
+/**
+ * The contact's state as HubSpot holds it now: enrollment, lifecycle, last
+ * reply, meeting signal, last contacted, opt-out. The reply and meeting
+ * properties are the workspace's own (`handoffSignals` on the contacts
+ * source), the ones the handoff watcher reads.
+ * @param ctx - The action context.
+ * @param contactRef - `contacts:<id>`.
+ * @throws {Error} When HubSpot cannot be read.
+ */
+async function contactState(ctx: ActionContext, contactRef: string): Promise<{ client: HubspotClient; hubspotId: string; state: ContactBasis; enrolledSince: string | null }> {
+  const hubspotId = contactRef.split(':')[1];
+  if (!hubspotId) {
+    throw new Error(`contactRef "${contactRef}" carries no HubSpot id`);
+  }
+  const client = await enrollClient(ctx);
+  const signals = ((await contactsSourceConfig(ctx.orgId)) as { handoffSignals?: { replyProperty?: string; meetingProperty?: string } }).handoffSignals ?? {};
+  const replyProperty = signals.replyProperty || 'hs_sales_email_last_replied';
+  const meetingProperty = signals.meetingProperty || 'hs_latest_meeting_activity';
+  const props = ['hs_sequences_is_enrolled', 'hs_latest_sequence_enrolled', 'hs_latest_sequence_enrolled_date', 'lifecyclestage', replyProperty, meetingProperty, 'notes_last_contacted', 'hs_email_optout'];
+  const res = await client.get<{ properties?: Record<string, string | null> }>(`/crm/v3/objects/contacts/${hubspotId}`, { properties: props.join(',') });
+  if (!res.ok) {
+    throw new Error(`HubSpot contact read failed: ${res.message}`);
+  }
+  const p = res.data.properties ?? {};
+  return {
+    client,
+    hubspotId,
+    enrolledSince: p.hs_latest_sequence_enrolled_date ?? null,
+    state: {
+      enrolled: p.hs_sequences_is_enrolled === 'true',
+      latestSequenceId: p.hs_latest_sequence_enrolled ?? null,
+      lifecycleStage: p.lifecyclestage ?? null,
+      lastReplied: p[replyProperty] ?? null,
+      meeting: p[meetingProperty] ?? null,
+      lastContacted: p.notes_last_contacted ?? null,
+      optedOut: p.hs_email_optout === 'true',
+    },
+  };
+}
+
+/**
+ * "Already in sequence …": the finding both the check and the enrollment
+ * itself raise, with the `code` a person's "Proceed anyway" carries back. The
+ * code names the sequence, so proceeding past one never replaces another.
+ * @param name - Who.
+ * @param sequence - The sequence they are in.
+ * @param sequence.id - Its id, when HubSpot gave one.
+ * @param sequence.name - Its name, when the sender's library can see it.
+ * @param since - When they were enrolled, when known.
+ * @param replacing - The sequence this recommendation would enroll them in.
+ */
+function alreadyEnrolled(name: string, sequence: { id: string | null; name: string | null }, since: string | null, replacing: string): StaleFinding {
+  const label = sequence.name ? `'${sequence.name}'` : sequence.id ? `sequence ${sequence.id}` : 'another sequence';
+  return {
+    line: `${name} is already in ${label}${since ? ` since${onEnrollDay(since).replace(/^ on/, '')}` : ''}. Proceeding replaces it with '${replacing}'`,
+    changed: [{ label: 'Sequence', to: sequence.name ?? sequence.id ?? 'another sequence' }],
+    keepOpen: true,
+    code: `already_enrolled:${sequence.id ?? 'unknown'}`,
+  };
+}
+
+/**
+ * THE SEQUENCE A CONTACT IS IN, read one way for the check and the
+ * enrollment alike, so the code a person proceeds past at the check is the
+ * code the enrollment compares at execute. The id is the portal-wide
+ * `hs_latest_sequence_enrolled`, else the sequence the enrollments API names
+ * for the card's sender; the name is that API's, best effort (the sender's
+ * library may not see a foreign enrollment).
+ * @param client - HubSpot.
+ * @param hubspotId - The contact.
+ * @param latestSequenceId - `hs_latest_sequence_enrolled`, when HubSpot gave one.
+ * @param userId - The card's sender's HubSpot user, when known.
+ */
+async function enrolledSequence(client: HubspotClient, hubspotId: string, latestSequenceId: string | null, userId?: string): Promise<{ id: string | null; name: string | null }> {
+  const { getContactEnrollment } = await import('@/libs/hubspot/sequences');
+  const detail = await getContactEnrollment(client, hubspotId, userId).catch(() => null);
+  return {
+    id: latestSequenceId || (detail?.ok ? detail.data.sequenceId ?? null : null),
+    name: detail?.ok ? detail.data.sequenceName ?? null : null,
+  };
+}
+
 export const personalizationEnrollAction: Action<typeof enrollInput> = {
   id: 'personalization.enroll',
   name: 'Enroll MQL in sequence',
@@ -579,6 +716,63 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
   },
 
   sourceSlug: 'hubspot',
+  // What the recommendation assumed about the contact when it was drafted.
+  async basisFor(ctx, input) {
+    const { state } = await contactState(ctx, input.contactRef);
+    return state as unknown as Record<string, unknown>;
+  },
+  // Stale when the lead moved on in the days it waited: unsubscribed, replied,
+  // booked a meeting, advanced past the nurture band, was contacted, or is
+  // now in an email thread (each closed by the sweep with the line); or is
+  // already in a sequence (kept open: replacing it is the person's call).
+  async stillHolds(ctx, input, basis) {
+    const was = basis as ContactBasis | null;
+    const since = ctx.proposedAt?.getTime() ?? Date.now();
+    const { client, hubspotId, state, enrolledSince } = await contactState(ctx, input.contactRef);
+    const name = input.contactName;
+    const after = (v: string | null) => {
+      const t = hubspotTime(v);
+      return t !== null && t > since;
+    };
+    if (state.optedOut && !was?.optedOut) {
+      return { line: `${name} unsubscribed from email since this was proposed` };
+    }
+    if (after(state.lastReplied)) {
+      return { line: `${name} replied${onEnrollDay(state.lastReplied)}, after this was proposed` };
+    }
+    // A meeting is news when the signal CHANGED since the basis: HubSpot's
+    // timestamp is the meeting's own date (often in the future), so it is
+    // compared with what the basis held, never with when this was proposed.
+    // With no basis there is nothing to compare, and nothing is claimed.
+    const { readMeetingSignal } = await import('@/services/HandoffTriggerService');
+    const meeting = readMeetingSignal(state.meeting);
+    const wasMeeting = readMeetingSignal(was?.meeting ?? null);
+    const booked = !was
+      ? false
+      : meeting.kind === 'time'
+        ? meeting.at !== null && (wasMeeting.kind !== 'time' || wasMeeting.at === null || wasMeeting.at.getTime() !== meeting.at.getTime())
+        : meeting.set && !(wasMeeting.kind === 'flag' && wasMeeting.set);
+    if (booked) {
+      return { line: `${name} booked a meeting since this was proposed${meeting.kind === 'time' ? ` (meeting${onEnrollDay(meeting.at!.toISOString())})` : ''}` };
+    }
+    if (state.lifecycleStage && PAST_NURTURE_STAGES.has(state.lifecycleStage) && state.lifecycleStage !== was?.lifecycleStage) {
+      return {
+        line: `${name}'s lifecycle stage moved from ${was?.lifecycleStage ?? 'unknown'} to ${state.lifecycleStage} since this was proposed`,
+        changed: [{ label: 'Lifecycle stage', ...(was?.lifecycleStage ? { from: was.lifecycleStage } : {}), to: state.lifecycleStage }],
+      };
+    }
+    if (state.enrolled) {
+      return alreadyEnrolled(name, await enrolledSequence(client, hubspotId, state.latestSequenceId, input.hubspotUserId), enrolledSince, input.sequenceName);
+    }
+    if (after(state.lastContacted)) {
+      return { line: `${name} was contacted${onEnrollDay(state.lastContacted)}, after this was proposed (HubSpot's last contacted)` };
+    }
+    const conversation = await activeConversationOf(ctx.orgId, input.contactRef);
+    if (conversation?.lastMessageAt && Date.parse(conversation.lastMessageAt) > since) {
+      return { line: `${name} is now in an email thread, "${conversation.subject}"${onEnrollDay(conversation.lastMessageAt)}; answer it there rather than enroll` };
+    }
+    return null;
+  },
   // One queue item per contact: a re-fired sweep updates the pending item in
   // place, never duplicates it.
   dedupKeyFor: input => `personalization.enroll:${input.contactRef}`,
@@ -893,20 +1087,30 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     // HubSpot allows ONE active sequence per contact, and the portal's own
     // automations race this review flow (observed 2026-09-14: a workflow
     // auto-enrolled the lead hours before the human approved, and the approved
-    // enrollment bounced with CONTACT_ALREADY_ENROLLED). The reviewed
-    // enrollment wins: unenroll first via the workflow bridge, then enroll.
+    // enrollment bounced with CONTACT_ALREADY_ENROLLED). Replacing it was once
+    // silent for every decider; it risked a double sequence on a lead who had
+    // moved on in the days the card waited. Now:
+    //   - a person's own word runs: it replaces, and the run says what it
+    //     replaced in one line (`result.advice`);
+    //   - a person approving the card replaces only after they were told which
+    //     sequence it is and proceeded anyway (`ctx.proceededPast`, carrying
+    //     this sequence's code);
+    //   - anything else (an agent, the ladder, a clock) goes back to Review
+    //     with the line (`StaleError`), never failed.
     const { readSequenceEnrollmentState, requestUnenroll } = await import('@/libs/hubspot/unenrollBridge');
     let replacedSequence: { sequenceId: string | null; sequenceName: string | null } | null = null;
+    let advice: string | null = null;
     const enrollmentState = await readSequenceEnrollmentState(client, hubspotId);
     if (enrollmentState.ok && enrollmentState.data.enrolled) {
-      // Best-effort detail for the result; the sender's library may not see a
-      // foreign enrollment, and the replace proceeds either way.
-      const { getContactEnrollment } = await import('@/libs/hubspot/sequences');
-      const detail = await getContactEnrollment(client, hubspotId, hubspotUserId);
-      replacedSequence = {
-        sequenceId: (detail.ok && detail.data.sequenceId) || enrollmentState.data.latestSequenceId,
-        sequenceName: detail.ok ? detail.data.sequenceName ?? null : null,
-      };
+      // The same reading the check made, so the codes agree.
+      const current = await enrolledSequence(client, hubspotId, enrollmentState.data.latestSequenceId, input.hubspotUserId);
+      replacedSequence = { sequenceId: current.id, sequenceName: current.name };
+      const finding = alreadyEnrolled(input.contactName, current, null, input.sequenceName);
+      if (ctx.onPersonsWord) {
+        advice = `${input.contactName} was already in ${current.name ? `'${current.name}'` : current.id ? `sequence ${current.id}` : 'another sequence'}; it was replaced with '${input.sequenceName}'.`;
+      } else if (ctx.proceededPast?.code !== finding.code) {
+        throw new StaleError(finding);
+      }
       const unenrolled = await requestUnenroll(client, { contactId: hubspotId });
       if (!unenrolled.ok) {
         throw new Error(`Not enrolled: the contact is already in ${replacedSequence.sequenceName ?? `sequence ${replacedSequence.sequenceId ?? '(unknown)'}`} and the unenroll did not complete — ${unenrolled.message}`);
@@ -1016,6 +1220,8 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       ...(note.ok ? {} : { noteError: note.message }),
       // The sequence this reviewed enrollment displaced, when there was one.
       replacedSequence,
+      // On a person's own word: what it found and did, in one line to tell them.
+      ...(advice ? { advice } : {}),
     };
   },
 };

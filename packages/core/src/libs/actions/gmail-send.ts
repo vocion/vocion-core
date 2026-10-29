@@ -51,6 +51,7 @@
  */
 
 import type { Action, ReviewCard } from './types';
+import type { GmailThreadMessage } from '@/libs/sources/gmail';
 import type { ReplyThread } from '@/services/mail/replyThread';
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
@@ -252,6 +253,70 @@ async function replyThreadFor(orgId: string, input: GmailSendInput): Promise<Rep
 
 type Header = { name: string; value: string };
 
+const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+/**
+ * `Oct 30`, or nothing when the time is unknown.
+ * @param at
+ */
+function onDay(at: string | null | undefined): string {
+  const t = at ? Date.parse(at) : Number.NaN;
+  return Number.isFinite(t) ? ` on ${DAY.format(new Date(t))}` : '';
+}
+
+/** What a basis records about the thread a reply answers. */
+type ThreadBasis = { threadId: string | null; messageIds: string[]; latestMessageId: string | null; latestAt: string | null };
+
+/**
+ * The thread as Gmail holds it now, read through the same fetch the
+ * `get_gmail_thread` read-through uses. Null when Gmail has no such thread;
+ * throws when Gmail cannot be read.
+ * @param ctx - The action context.
+ * @param ctx.orgId - The workspace.
+ * @param ctx.credentials - The mailbox's credentials.
+ * @param threadId - The thread.
+ */
+async function liveThread(ctx: { orgId: string; credentials?: Record<string, unknown> }, threadId: string): Promise<GmailThreadMessage[] | null> {
+  const { fetchGmailThreadDoc } = await import('@/libs/sources/gmail');
+  const doc = await fetchGmailThreadDoc({ orgId: ctx.orgId, credentials: ctx.credentials, threadId });
+  if (!doc) {
+    return null;
+  }
+  const messages = (doc.metadata as { messages?: GmailThreadMessage[] }).messages;
+  return Array.isArray(messages) ? messages : [];
+}
+
+/**
+ * The newest message the mailbox sent to this address after `since`, outside
+ * the messages already counted, or null. One search, plus one read for its
+ * date when there is a hit.
+ * @param ctx - The action context.
+ * @param ctx.orgId - The workspace.
+ * @param ctx.credentials - The mailbox's credentials.
+ * @param address - The recipient.
+ * @param since - The basis moment.
+ * @param known - Message ids already accounted for (the thread's).
+ * @param baseUrl - The Gmail API base.
+ */
+async function sentToSince(ctx: { orgId: string; credentials?: Record<string, unknown> }, address: string, since: Date, known: Set<string>, baseUrl: string): Promise<{ id: string; at: string | null } | null> {
+  const token = await resolveGoogleAccessToken(ctx.credentials, ctx.orgId);
+  const headers = { authorization: `Bearer ${token}` };
+  const q = `in:sent to:${address} after:${Math.floor(since.getTime() / 1000)}`;
+  const res = await fetch(`${baseUrl}/users/me/messages?maxResults=5&q=${encodeURIComponent(q)}`, { headers });
+  if (!res.ok) {
+    throw new Error(`Gmail search failed: ${res.status}`);
+  }
+  const hit = ((await res.json()) as { messages?: Array<{ id: string }> }).messages?.find(m => !known.has(m.id));
+  if (!hit) {
+    return null;
+  }
+  const one = await fetch(`${baseUrl}/users/me/messages/${encodeURIComponent(hit.id)}?format=minimal`, { headers });
+  const internalDate = one.ok ? ((await one.json()) as { internalDate?: string }).internalDate : undefined;
+  const at = internalDate ? new Date(Number(internalDate)).toISOString() : null;
+  // Gmail's `after:` is by day; the exact moment decides.
+  return at && Date.parse(at) <= since.getTime() ? null : { id: hit.id, at };
+}
+
 /**
  * The headers that thread a reply under the thread's last message. Read-only
  * (`gmail.readonly` covers it). Null when Gmail does not answer, and the
@@ -359,6 +424,62 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
       report,
       'Rewrite the email without those constructions and propose again. Do not paraphrase a banned phrase back in.',
     ].join('\n');
+  },
+  // What the reply assumed: the thread as it stood when it was drafted.
+  async basisFor(ctx, input) {
+    const threadId = input.threadId ?? (await replyThreadFor(ctx.orgId, input))?.threadId ?? null;
+    const messages = threadId ? (await liveThread(ctx, threadId)) ?? [] : [];
+    const settled = messages.filter(m => !m.draft);
+    const latest = settled.at(-1);
+    const basis: ThreadBasis = {
+      threadId,
+      messageIds: messages.map(m => m.id),
+      latestMessageId: latest?.id ?? null,
+      latestAt: latest?.at ?? null,
+    };
+    return basis;
+  },
+  // Stale when the thread moved after the draft was written: the other side
+  // wrote again (it stays open, marked, so its agent's next pass redrafts it
+  // on the same key), a draft appeared in the thread (a person's call), or the
+  // mailbox already answered, in the thread (closed: nothing is owed) or in a
+  // new email to them. Gmail not answering throws, which reads as "holds".
+  async stillHolds(ctx, input, basis) {
+    const b = basis as ThreadBasis | null;
+    // When the reply was drafted (`basisAt`), never the thread's latest
+    // message: an email the owner sent elsewhere between that message and the
+    // draft is not news to the draft, and counting it would mark every redraft
+    // stale again.
+    const since = ctx.proposedAt ?? new Date();
+    const threadId = b?.threadId ?? input.threadId ?? (await replyThreadFor(ctx.orgId, input))?.threadId ?? null;
+    const mailbox = typeof ctx.credentials?.email === 'string' ? ctx.credentials.email : undefined;
+    const known = new Set(b?.messageIds ?? []);
+    const messages = threadId ? (await liveThread(ctx, threadId)) ?? [] : [];
+    // New since the basis: by id when the basis listed the thread, else by time.
+    const fresh = messages.filter(m => (b ? !known.has(m.id) : m.at !== null && Date.parse(m.at) > since.getTime()));
+    const inbound = fresh.filter(m => !m.sent && !m.draft).at(-1);
+    const replied = fresh.filter(m => m.sent && !m.draft).at(-1);
+    const draft = fresh.filter(m => m.draft).at(-1);
+    const href = threadId ? gmailLink(mailbox, `#all/${threadId}`) : undefined;
+    const who = (from: string) => nameOf(from) ?? addressOf(from);
+    if (inbound) {
+      const after = replied && replied.at && inbound.at && Date.parse(replied.at) < Date.parse(inbound.at) ? `, after you replied${onDay(replied.at)}` : '';
+      return { line: `${who(inbound.from)} wrote again${onDay(inbound.at)}${after}`, ...(href ? { href } : {}), keepOpen: true, code: 'thread_moved' };
+    }
+    if (replied) {
+      return { line: `You already replied in this thread${onDay(replied.at)}`, ...(href ? { href } : {}), code: 'already_replied' };
+    }
+    if (draft) {
+      return { line: `There is already a draft in this thread, saved${onDay(draft.at)}`, ...(href ? { href } : {}), keepOpen: true, code: 'draft_exists' };
+    }
+    const to = addressOf(splitRecipients(input.to)[0] ?? input.to);
+    if (to.includes('@')) {
+      const sent = await sentToSince(ctx, to, since, new Set(messages.map(m => m.id)), input.baseUrl);
+      if (sent) {
+        return { line: `You emailed ${to}${onDay(sent.at)}, after this was drafted`, href: gmailLink(mailbox, `#all/${sent.id}`), keepOpen: true, code: 'emailed_since' };
+      }
+    }
+    return null;
   },
   applyContentEdits(input, edits) {
     const edit = edits.find(e => e.id === 'message');

@@ -448,9 +448,11 @@ export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'o
     }
     lines.push(effect.status === 'done'
       ? 'The approved action already executed. Report its result; do not submit or propose it again.'
-      : effect.status === 'failed'
-        ? 'The approved execution FAILED. It is not pending or processing. Report the failure; inspect the provider receipt and state before proposing a recovery. Never repeat a write through a read tool or assume another attempt is authorized.'
-        : 'Report this exact execution state. Do not claim completion or submit the action again.');
+      : effect.status === 'stale'
+        ? 'It did NOT run and is still pending: what it was proposed on changed (the Error line says what). Tell the person in one line and ask whether to run it anyway or have it redrafted; with their word, decide_proposal with override_stale: true runs it.'
+        : effect.status === 'failed'
+          ? 'The approved execution FAILED. It is not pending or processing. Report the failure; inspect the provider receipt and state before proposing a recovery. Never repeat a write through a read tool or assume another attempt is authorized.'
+          : 'Report this exact execution state. Do not claim completion or submit the action again.');
   } else {
     lines.push('This is their answer to the question you asked. Act on it now; do not ask it again.');
   }

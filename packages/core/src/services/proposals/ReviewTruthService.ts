@@ -28,6 +28,15 @@ import { inboxHref } from '@/services/inbox/inboxRef';
  *                  out of scope, merged. A write is not closed this way: a
  *                  "tell the asker it shipped" is still owed after it ships.
  *   superseded   — a newer item of the same action carries the same dedup key
+ *   overtaken    — what it was proposed on changed (`Action.stillHolds`,
+ *                  `services/proposals/staleness.ts`): the other side wrote
+ *                  again, a field it would overwrite moved. Checked for a
+ *                  bounded number of runs per pass, the longest unchecked
+ *                  first, because each check reads an outside system. A
+ *                  finding the action marks `keepOpen` (a reply whose thread
+ *                  moved is redrafted by its agent's next pass; a person may
+ *                  still want an enrollment over a sequence the contact joined)
+ *                  is marked on the run and stays in Review with its line.
  *
  * "Settled" is the workspace's word, never core's: an object type declares
  * `x-settled: {field, in: [...]}` on its schema (principle 7 — the next kind
@@ -51,6 +60,12 @@ export const REVIEW_SWEEPER = 'system:review-sweep';
 
 /** An action run's status once the sweep closed it. */
 export const CLOSED_STATUS = 'closed';
+
+/** How many runs a pass asks `stillHolds` of. `VOCION_REVIEW_STALE_CHECKS` overrides. */
+export function staleChecksPerSweep(): number {
+  const n = Number(process.env.VOCION_REVIEW_STALE_CHECKS);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 20;
+}
 
 /** A true item older than this is surfaced once. `VOCION_REVIEW_STILL_WAITING_DAYS` overrides. */
 export function stillWaitingAfterMs(): number {
@@ -387,6 +402,8 @@ export async function assessReviewItems(orgId: string, items: { runs: RunForTrut
 export type ReviewSweepResult = {
   closed: Array<{ kind: 'run' | 'ask'; id: number; orgId: string; why: string; link: string | null; expired?: boolean }>;
   surfaced: Array<{ kind: 'run' | 'ask'; id: number; orgId: string; since: Date }>;
+  /** Runs whose recommendation was overtaken and stay open, marked with what changed. */
+  markedStale: Array<{ id: number; orgId: string; line: string }>;
 };
 
 /**
@@ -398,11 +415,15 @@ export type ReviewSweepResult = {
  * @param opts.now
  * @param opts.orgId
  * @param opts.stillWaitingAfterMs
+ * @param opts.staleChecks - How many runs the overtaken pass checks (`staleChecksPerSweep`).
+ * @param opts.staleBudgetMs - How long the overtaken pass may take (`STALE_PASS_BUDGET_MS`).
+ * @param opts.staleChecks
  */
-export async function sweepReviewQueue(opts: { now?: Date; orgId?: string; stillWaitingAfterMs?: number } = {}): Promise<ReviewSweepResult> {
+export async function sweepReviewQueue(opts: { now?: Date; orgId?: string; stillWaitingAfterMs?: number; staleChecks?: number; staleBudgetMs?: number } = {}): Promise<ReviewSweepResult> {
   const now = opts.now ?? new Date();
   const bound = opts.stillWaitingAfterMs ?? stillWaitingAfterMs();
-  const result: ReviewSweepResult = { closed: [], surfaced: [] };
+  const result: ReviewSweepResult = { closed: [], surfaced: [], markedStale: [] };
+  const stillTrue: SweptRun[] = [];
 
   const [runs, asks] = await Promise.all([
     db
@@ -415,6 +436,8 @@ export async function sweepReviewQueue(opts: { now?: Date; orgId?: string; still
         expiresAt: actionRunSchema.expiresAt,
         createdAt: actionRunSchema.createdAt,
         proposal: actionRunSchema.proposal,
+        invokedBy: actionRunSchema.invokedBy,
+        regeneratingSince: actionRunSchema.regeneratingSince,
       })
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.status, 'pending'), opts.orgId ? eq(actionRunSchema.orgId, opts.orgId) : undefined)),
@@ -459,6 +482,7 @@ export async function sweepReviewQueue(opts: { now?: Date; orgId?: string; still
         }
         continue;
       }
+      stillTrue.push(run);
       const proposal = (run.proposal ?? {}) as Record<string, unknown>;
       if (now.getTime() - run.createdAt.getTime() > bound && !proposal.stillWaitingSince) {
         await db
@@ -494,5 +518,110 @@ export async function sweepReviewQueue(opts: { now?: Date; orgId?: string; still
       }
     }
   }
+  await sweepOvertaken(stillTrue, now, opts.staleChecks ?? staleChecksPerSweep(), result, opts.staleBudgetMs);
   return result;
+}
+
+type SweptRun = {
+  id: number;
+  orgId: string;
+  actionId: string;
+  input: Record<string, unknown> | null;
+  proposal: unknown;
+  createdAt: Date;
+  invokedBy: string | null;
+  regeneratingSince: Date | null;
+};
+
+/** How many overtaken checks run at once. */
+const STALE_CHECK_CONCURRENCY = 4;
+
+/** The most the overtaken pass may add to the sweep, which runs inside the reaper. */
+export const STALE_PASS_BUDGET_MS = 25_000;
+
+/**
+ * Ask `stillHolds` of up to `limit` still-true runs, the longest unchecked
+ * first. A basis read counts as a check, so a run proposed or redrafted
+ * within the read cache is skipped, as is one being redrafted. Checks run a
+ * few at a time, and the pass stops waiting at its time budget: a check still
+ * out then finishes on its own and records what it found on the run, but
+ * closes nothing in this pass. An overtaken run is closed with what changed
+ * through the same close-with-reason path as every other gone item, unless its
+ * action keeps it open, in which case the finding is on the run (written by
+ * the check) and it stays.
+ * @param runs - The still-true pending runs, every org.
+ * @param now - The clock.
+ * @param limit - How many to check this pass.
+ * @param result - Where closures and marks are reported.
+ * @param budgetMs - How long the pass may take.
+ */
+async function sweepOvertaken(runs: SweptRun[], now: Date, limit: number, result: ReviewSweepResult, budgetMs = STALE_PASS_BUDGET_MS): Promise<void> {
+  if (limit <= 0 || runs.length === 0) {
+    return;
+  }
+  const [{ getAction }, { isRegeneratingFresh }, staleness] = await Promise.all([
+    import('@/libs/actions/registry'),
+    import('@/libs/actions/regenerating'),
+    import('./staleness'),
+  ]);
+  const at = (v: unknown) => {
+    const t = typeof v === 'string' ? Date.parse(v) : Number.NaN;
+    return Number.isFinite(t) ? t : 0;
+  };
+  const lastChecked = (r: SweptRun) => {
+    const p = r.proposal as { staleCheckedAt?: unknown; basisAt?: unknown } | null;
+    return Math.max(at(p?.staleCheckedAt), at(p?.basisAt));
+  };
+  const due = runs
+    .filter(r => getAction(r.actionId)?.stillHolds && !isRegeneratingFresh(r.regeneratingSince, now))
+    .filter(r => now.getTime() - lastChecked(r) >= staleness.STALE_CACHE_MS)
+    .sort((a, b) => lastChecked(a) - lastChecked(b) || a.createdAt.getTime() - b.createdAt.getTime())
+    .slice(0, limit);
+  let next = 0;
+  // Set by the budget timer; an object so every closure reads the same flag.
+  const pass = { stopped: false };
+  const one = async (run: SweptRun) => {
+    const stale = await staleness.checkStillHolds(run, { now }).catch(() => null);
+    if (!stale || pass.stopped) {
+      return;
+    }
+    if (stale.keepOpen) {
+      result.markedStale.push({ id: run.id, orgId: run.orgId, line: stale.line });
+      return;
+    }
+    const why = `what it was proposed on changed: ${stale.line}`;
+    const link = stale.href ?? null;
+    const closed = await db
+      .update(actionRunSchema)
+      .set({
+        status: CLOSED_STATUS,
+        error: `closed: ${why}${link ? ` — ${link}` : ''}`,
+        decidedBy: REVIEW_SWEEPER,
+        decidedAt: now,
+        result: { closed: { why, link, by: REVIEW_SWEEPER, at: now.toISOString(), sweptAt: now.toISOString(), rule: 'stale', ...(stale.changed ? { changed: stale.changed } : {}) } },
+      })
+      .where(and(eq(actionRunSchema.id, run.id), eq(actionRunSchema.orgId, run.orgId), eq(actionRunSchema.status, 'pending')))
+      .returning({ id: actionRunSchema.id });
+    if (closed.length > 0) {
+      result.closed.push({ kind: 'run', id: run.id, orgId: run.orgId, why, link });
+    }
+  };
+  const worker = async () => {
+    while (!pass.stopped && next < due.length) {
+      await one(due[next++]!);
+    }
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      pass.stopped = true;
+      resolve();
+    }, budgetMs);
+  });
+  try {
+    await Promise.race([Promise.all(Array.from({ length: Math.min(STALE_CHECK_CONCURRENCY, due.length) }, worker)), budget]);
+  } finally {
+    pass.stopped = true;
+    clearTimeout(timer);
+  }
 }

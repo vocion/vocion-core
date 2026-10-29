@@ -279,6 +279,12 @@ async function runProposalInner(
       },
     });
     gateAdvice.push(...(res.advice ?? []));
+    // What the action found and did on the person's word, in its own one line
+    // (`result.advice`): the agent tells them, Undo where the kind has one.
+    const actionAdvice = res.status === 'done' && typeof res.result?.advice === 'string' ? res.result.advice.trim() : '';
+    if (actionAdvice) {
+      gateAdvice.push(`Tell the person, in one line: ${actionAdvice}`);
+    }
     ctx.emit({
       type: 'tool_progress',
       tool: opts.tool,
@@ -305,6 +311,13 @@ async function runProposalInner(
     }
     if (res.outcome === 'refreshed') {
       return `${nounCode('action', res.runId)} for ${action_id} was updated in place — it was already waiting for approval, and now carries this payload (confidence ${confidence}). No new review item was created. Do NOT claim the change was made.`;
+    }
+    // NOT RUN: what it was proposed on changed (`Action.stillHolds`), or the
+    // action found it so as it ran. The line and what changed go to the agent,
+    // so it can tell the person rather than report a bare status.
+    if (res.stale && (res.status === 'stale' || res.status === 'pending')) {
+      const changed = res.stale.changed?.length ? ` What changed: ${res.stale.changed.map(c => `${c.label}${c.from !== undefined ? ` ${c.from}` : ''}${c.to !== undefined ? ` to ${c.to}` : ''}`).join('; ')}.` : '';
+      return `${action_id} did NOT run (${nounCode('action', res.runId)}): ${res.stale.line}.${changed}${res.stale.href ? ` See ${res.stale.href}.` : ''} It is waiting in Review. Tell the person this in one line and ask whether to run it anyway or have it redrafted; do not claim it ran.`;
     }
     if (res.status === 'pending') {
       // THE APPROVAL COMES TO THE CONVERSATION. A proposal that waits on a

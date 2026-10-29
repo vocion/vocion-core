@@ -15,7 +15,7 @@ export async function reapMissionRunsActivity(): Promise<{ reaped: number; refir
   const { reaped, refired } = await reapStaleMissionRuns(now);
   const review = await sweepReviewQueue({ now }).catch((error: unknown) => {
     console.error('[reapMissionRuns] review sweep failed', error);
-    return { closed: [], surfaced: [] };
+    return { closed: [], surfaced: [], markedStale: [] };
   });
   return { reaped, refired, reviewClosed: review.closed.length, reviewSurfaced: review.surfaced.length };
 }

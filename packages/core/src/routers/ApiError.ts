@@ -12,4 +12,14 @@ export const ApiError = {
     new ORPCError(API_ERROR_CODE.BAD_REQUEST, { status: 400, message }),
   tooManyRequests: (message: string, retryAfterSeconds: number) =>
     new ORPCError(API_ERROR_CODE.TOO_MANY_REQUESTS, { status: 429, message, data: { retryAfterSeconds } }),
+  /**
+   * Nothing ran: what the item was proposed on changed. The message is the
+   * one line a person reads; `data.stale` carries it typed (what changed,
+   * where to see it, whether it can be redrafted) for a surface that offers
+   * "Proceed anyway" (approve again with `overrideStale`) and "Redraft".
+   * @param stale
+   * @param stale.line
+   */
+  stale: (stale: { line: string; [key: string]: unknown }) =>
+    new ORPCError(API_ERROR_CODE.STALE, { status: 409, message: `Not run: ${stale.line}`, data: { stale } }),
 };

@@ -172,6 +172,36 @@ export function ReviewFocus(props: {
       showLearnedToast({ decision, actionId: run.actionId, runId: run.id, hasNote: false, undoable: isSelfUpdate(run.actionId) });
       leave();
     } catch (err) {
+      // What it was proposed on changed: nothing ran. Say what, in one line,
+      // and let the person run it anyway (`overrideStale`).
+      if ((err as { code?: string })?.code === 'STALE') {
+        const editedInput = buildEditedInput();
+        const fingerprint = (err as { data?: { stale?: { fingerprint?: string } } }).data?.stale?.fingerprint;
+        toast.info(`Not run · ${title}`, {
+          description: err instanceof Error ? err.message.replace(/^Not run: /, '') : String(err),
+          duration: 15_000,
+          action: {
+            label: 'Proceed anyway',
+            onClick: () => {
+              void client.review
+                .decideAction({ id: run.id, decision: 'approve', overrideStale: true, ...(fingerprint ? { staleFingerprint: fingerprint } : {}), ...(editedInput ? { editedInput } : {}) })
+                .then((outcome) => {
+                  if (outcome.execution?.status === 'failed') {
+                    toast.error(`Approved, but it failed to run · ${title}`, { description: outcome.execution.error ?? 'It stays on the review queue; Approve again to retry.' });
+                    router.refresh();
+                    return;
+                  }
+                  setDecided(d => d + 1);
+                  toast.success(`Approved · ${title}`, { description: 'Run past what changed; that is recorded on the run.' });
+                  leave();
+                })
+                .catch((e: unknown) => toast.error(`Could not approve · ${title}`, { description: e instanceof Error ? e.message : String(e) }));
+            },
+          },
+        });
+        router.refresh();
+        return;
+      }
       toast.error(`Could not ${decision === 'approve' ? 'approve' : 'decline'} · ${title}`, { description: err instanceof Error ? err.message : String(err) });
     } finally {
       setBusy(false);

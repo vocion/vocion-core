@@ -6795,10 +6795,16 @@
                   "learn": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
+                  "overrideStale": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
                   "reason": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "resultUrl": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "staleFingerprint": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   }
                 },
