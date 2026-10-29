@@ -52,7 +52,7 @@ export const ahrefsConnector: SourceConnector<typeof ahrefsConfigSchema> = {
   slug: 'ahrefs',
   name: 'Ahrefs',
   description: 'Your Ahrefs numbers, read live: keyword volume, difficulty and traffic potential, the keywords a domain ranks for, and the AI answers that mention a brand (Brand Radar). Uses your Ahrefs plan\'s API units.',
-  icon: 'TrendingUp',
+  icon: 'Radar',
   category: 'data-analytics',
   brand: 'ahrefs',
   authKind: 'apikey',

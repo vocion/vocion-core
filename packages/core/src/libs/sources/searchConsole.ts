@@ -24,7 +24,7 @@ export const searchConsoleConnector: SourceConnector<typeof searchConsoleConfigS
   slug: 'search-console',
   name: 'Google Search Console',
   description: 'What a site already gets from Google search, read live: the queries it shows for, its pages, and their clicks, impressions, click-through rate and position. Free, and the client\'s own numbers.',
-  icon: 'Search',
+  icon: 'BarChart3',
   category: 'data-analytics',
   brand: 'google',
   authKind: 'oauth',
