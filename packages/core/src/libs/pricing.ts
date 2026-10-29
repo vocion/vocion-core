@@ -151,6 +151,10 @@ export const PRICING: Readonly<Record<string, Readonly<PricingTier>>> = {
   'serp/dataforseo-search-volume': { inputCentsPerMillion: 9_000_000, outputCentsPerMillion: 0 },
   'serp/dataforseo-keyword-ideas': { inputCentsPerMillion: 9_000_000, outputCentsPerMillion: 0 },
   'serp/serpapi': { inputCentsPerMillion: 1_500_000, outputCentsPerMillion: 0 },
+  // DataForSEO reports what each call cost (`cost`, USD), so keyword numbers
+  // are charged at that figure rather than a list price: one unit is one
+  // micro-dollar ($0.000001), i.e. 100 cents per million units.
+  'serp/dataforseo-usd': { inputCentsPerMillion: 100, outputCentsPerMillion: 0 },
 
   // Deliberately NOT priced: `amazon.titan-embed-text-v1`, the Bedrock
   // embedding default. AWS publishes Titan embedding pricing behind a

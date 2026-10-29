@@ -111,6 +111,7 @@ import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { sentryTools } from './sentry';
 import { seoTools } from './seo';
+import { seoDataTools } from './seoData';
 import { serpTools } from './serpResearch';
 import { setupWorkspaceTools } from './setupWorkspace';
 import { setVoiceTool } from './setVoice';
@@ -407,6 +408,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted-only (`harness.grantTools: [serp]`): Google's results page, the
     // pages on it compared into a SERP brief, keyword volume — paid per call.
     ...inFamily('Search rankings', serpTools(ctx)),
+    // With the `serp` grant: what the client already has — its Search
+    // Console, the workspace's Ahrefs — read live; each says when not connected.
+    ...inFamily('Search rankings', seoDataTools(ctx)),
     // With the `serp` grant: the client's competitors, counted in code from
     // the searches serp_search already made, recorded on the project.
     ...inFamily('Competitors', competitorTools(ctx)),

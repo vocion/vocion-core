@@ -39,6 +39,7 @@ export const GOOGLE_LOGIN_SCOPES: Record<string, readonly string[]> = {
   'google-calendar': ['https://www.googleapis.com/auth/calendar.events.readonly'],
   'ga4': ['https://www.googleapis.com/auth/analytics.readonly'],
   'google-ads': ['https://www.googleapis.com/auth/adwords'],
+  'search-console': ['https://www.googleapis.com/auth/webmasters.readonly'],
 };
 
 /**
@@ -58,6 +59,7 @@ const CONNECTOR_NAMES: Record<string, string> = {
   'drive': 'Google Drive',
   'google-calendar': 'Google Calendar',
   'ga4': 'Google Analytics',
+  'search-console': 'Google Search Console',
 };
 
 /**
@@ -135,7 +137,7 @@ function hasEveryScope(granted: string, required: readonly string[]): boolean {
 
 export const googleProvider: ConnectProvider = {
   id: 'google',
-  connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'],
+  connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads', 'search-console'],
   label: 'Google',
   requiredEnv: ['GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET'],
   configured: () => googleClient() !== null,

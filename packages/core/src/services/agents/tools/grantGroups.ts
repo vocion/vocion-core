@@ -5,10 +5,11 @@
  * granted tool loaded, and a group grant has to keep every tool in it.
  */
 
+import { SEO_DATA_TOOL_NAMES } from './seoData';
 import { SERP_GRANT, SERP_TOOL_NAMES } from './serpResearch';
 
 const GROUPS: Readonly<Record<string, readonly string[]>> = {
-  [SERP_GRANT]: SERP_TOOL_NAMES,
+  [SERP_GRANT]: [...SERP_TOOL_NAMES, ...SEO_DATA_TOOL_NAMES],
 };
 
 /**

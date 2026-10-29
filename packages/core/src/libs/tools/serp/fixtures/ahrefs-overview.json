@@ -1,0 +1,6 @@
+{
+  "keywords": [
+    { "keyword": "wide hiking boots", "volume": 8700, "difficulty": 41, "traffic_potential": 15000, "cpc": 135, "intents": { "informational": false, "navigational": false, "commercial": true, "transactional": true, "branded": false, "local": false }, "serp_features": ["ai_overview", "shopping", "question"] },
+    { "keyword": "extra wide trail shoes", "volume": 60, "difficulty": null, "traffic_potential": null, "cpc": null, "intents": null, "serp_features": null }
+  ]
+}

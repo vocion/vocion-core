@@ -113,6 +113,9 @@ export type CredentialPlatformId
     | 'serper'
     | 'serpapi'
     | 'dataforseo'
+  // A workspace's own Ahrefs (`libs/tools/serp/ahrefs.ts`): keyword numbers,
+  // a domain's organic keywords and Brand Radar, on the workspace's licence.
+    | 'ahrefs'
   // Login apps (#1080). A workspace's own OAuth app at a vendor, so its "Log
   // in with <vendor>" runs on the workspace's client ID and secret instead of
   // the server's env. One live per vendor: saving a new one replaces the old.
@@ -135,7 +138,7 @@ export type CredentialPlatformId
  * Only the providers that bill someone appear here. `builtin` browse and the
  * calculator call nothing and need no key, so no platform claims them.
  */
-export type CredentialToolProvider = 'tavily' | 'brave' | 'firecrawl' | 'openai' | 'serper' | 'serpapi' | 'dataforseo';
+export type CredentialToolProvider = 'tavily' | 'brave' | 'firecrawl' | 'openai' | 'serper' | 'serpapi' | 'dataforseo' | 'ahrefs';
 
 /**
  * Where a platform's secret comes from.
@@ -1269,7 +1272,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     brand: 'google',
     keySource: 'supplied',
     credentialsPerOrg: 'many',
-    connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'],
+    connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads', 'search-console'],
     // Mail hosted here says the workspace lives in this suite: offer its mail, calendar and files.
     discovery: { mailHosts: ['google.com', 'googlemail.com'], connectors: ['gmail', 'google-calendar', 'drive'] },
     howToConnect: {
@@ -1287,6 +1290,10 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         'google-calendar': { provider: 'google', access: ['https://www.googleapis.com/auth/calendar.events.readonly'], settingsAfterLogin: [] },
         'ga4': { provider: 'google', access: ['https://www.googleapis.com/auth/analytics.readonly'], settingsAfterLogin: [{ key: 'propertyId', label: 'Analytics property' }] },
         'google-ads': { provider: 'google', access: ['https://www.googleapis.com/auth/adwords'], settingsAfterLogin: [{ key: 'customerId', label: 'Ads account' }] },
+        // Its own connector and scope, never a widened Analytics one. The
+        // property is picked per client project in chat, so the login alone
+        // makes the source.
+        'search-console': { provider: 'google', access: ['https://www.googleapis.com/auth/webmasters.readonly'], settingsAfterLogin: [] },
       },
       paste: {
         credential: 'OAuth client and refresh token',
@@ -1909,6 +1916,30 @@ const PLATFORMS: readonly CredentialPlatform[] = [
       { name: 'login', label: 'API login', pattern: null, shapeHint: 'is the API login shown under API Access', secret: false },
       { name: 'password', label: 'API password', pattern: null, shapeHint: 'is the API password shown under API Access', secret: true },
     ],
+  },
+  {
+    id: 'ahrefs',
+    label: 'Ahrefs',
+    brand: 'ahrefs',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    // A connector (it is in the catalog, with a connect card) whose tools
+    // read live, and a tool provider (`keyword_metrics` prefers its numbers).
+    connectorSlugs: ['ahrefs'],
+    credentialsShareable: false,
+    llmProvider: null,
+    toolProvider: 'ahrefs',
+    keyPattern: null,
+    keyShapeHint: 'is any non-empty API key',
+    helpText: 'Your Ahrefs API key, from Ahrefs → Account settings → API keys. Keyword numbers, organic keywords and Brand Radar are read on your Ahrefs plan and count against its API units. Ahrefs has no sign-in for apps, so a key is the way to connect it; API access needs a plan that includes it.',
+    fields: singleKeyField('Ahrefs API key', null, 'is any non-empty API key'),
+    howToConnect: {
+      paste: {
+        credential: 'API key',
+        access: ['Keywords Explorer', 'Site Explorer', 'Brand Radar (optional)'],
+        getItAt: { url: 'https://app.ahrefs.com/account/api-keys', steps: ['Open Account settings → API keys in Ahrefs.', 'Create a key and copy it.'] },
+      },
+    },
   },
   {
     id: 'app-login',

@@ -113,6 +113,28 @@ describe('researchPatch', () => {
     expect(patch.metricsCheckedAt).toBe(LATER);
   });
 
+  it('keeps difficulty, the trend, intent and the AI Overview with their source, and never overwrites a person\'s intent', () => {
+    const metrics = { checkedAt: READ, volume: 1300, competition: null, competitionIndex: null, cpc: 6.2, kd: 38, intent: 'commercial', trend: [{ year: 2026, month: 9, volume: 1600 }], serpFeatures: ['ai_overview', 'local_pack'], aiOverview: { present: true, citedDomains: null }, source: 'dataforseo' as const };
+
+    expect(researchPatch(row(), { keyword: 'boiler repair', metrics }, [])).toMatchObject({
+      volume: 1300,
+      kd: 38,
+      volumeTrend: [{ year: 2026, month: 9, volume: 1600 }],
+      serpFeatures: ['ai_overview', 'local_pack'],
+      aiOverview: { present: true, citedDomains: null },
+      metricsSource: 'dataforseo',
+      intent: 'commercial',
+      intentFrom: 'dataforseo',
+      metricsCheckedAt: READ,
+    });
+    // Ahrefs gives no Google Ads competition: a later Ahrefs read clears it.
+    const ahrefs = researchPatch(row({ competition: 'high', metricsCheckedAt: READ }), { keyword: 'boiler repair', metrics: { ...metrics, checkedAt: LATER, source: 'ahrefs' } }, []);
+
+    expect('competition' in ahrefs && ahrefs.competition === undefined).toBe(true);
+    expect(researchPatch(row({ intent: 'transactional' }), { keyword: 'boiler repair', metrics }, [])).not.toHaveProperty('intent');
+    expect(researchPatch(row({ intent: 'informational', intentFrom: 'ahrefs' }), { keyword: 'boiler repair', metrics }, [])).toMatchObject({ intent: 'commercial', intentFrom: 'dataforseo' });
+  });
+
   it('keeps the cluster head with the date it was read', () => {
     expect(researchPatch(row(), { keyword: 'boiler repair', cluster: { head: 'boiler repair near me', checkedAt: READ } }, [])).toEqual({ cluster: 'boiler repair near me', clusterCheckedAt: READ, checkedAt: READ });
   });

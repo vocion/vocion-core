@@ -1,0 +1,5 @@
+{
+  "ai_responses": [
+    { "question": "who fixes water heaters near fairview", "response": "Northwind Home Services and Lakeside Plumbing are both well reviewed...", "data_source": "google_ai_overviews", "volume": 90, "links": ["https://northwind-home.example/", { "url": "https://lakeside-plumbing.example/" }], "last_updated": "2026-10-21" }
+  ]
+}

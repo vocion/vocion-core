@@ -1,7 +1,8 @@
 /**
  * `/rpc/sources/login-choices?connector=<slug>` — the choices the workspace's
  * stored login for a connector offers its source settings: the ad accounts
- * a LinkedIn or Meta login reaches, by name and id (`libs/connect/loginChoices.ts`).
+ * a LinkedIn or Meta login reaches, by name and id (`libs/connect/loginChoices.ts`),
+ * and the Search Console properties a Google login can read.
  * Names and ids only; the token never leaves the server. An empty list when
  * no login is stored, so the form falls back to typed entry.
  */
@@ -17,6 +18,17 @@ export async function GET(request: Request) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const connector = new URL(request.url).searchParams.get('connector') ?? '';
+  if (connector === 'search-console') {
+    // Google's login stores no list of properties: read it from Search Console.
+    try {
+      const { searchConsoleSites } = await import('@/services/seo/searchConsole');
+      const { propertyLabel } = await import('@/libs/searchConsole/client');
+      const { sites } = await searchConsoleSites(orgId);
+      return Response.json({ choices: sites.map(s => ({ value: s.siteUrl, label: propertyLabel(s.siteUrl) })) });
+    } catch {
+      return Response.json({ choices: [] });
+    }
+  }
   const platform = platformForConnectorSlug(connector);
   if (!platform || !platform.howToConnect?.login) {
     return Response.json({ choices: [] });

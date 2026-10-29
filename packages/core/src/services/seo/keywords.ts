@@ -22,6 +22,7 @@
  */
 
 import type { PlannedPage, SeoBatchRecord, SeoPageRecord, SeoPageStatus } from './records';
+import type { KeywordDataSource } from '@/libs/tools/serp/types';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { businessObjectSchema } from '@/models/Schema';
@@ -54,7 +55,20 @@ export type SeoKeywordMeta = {
   keyword: string;
   keywordKey: string;
   intent?: string;
+  /** Set when a keyword data vendor wrote the intent: a person's or a page's intent is never overwritten by one. */
+  intentFrom?: KeywordDataSource;
   volume?: number;
+  /** The last months' volume, newest first (up to 12), from the same read as `volume`. */
+  volumeTrend?: Array<{ year: number; month: number; volume: number | null }>;
+  /** SEO keyword difficulty, 0–100, on the vendor's own scale. */
+  kd?: number;
+  /** Whether Google shows an AI Overview for it, and the domains it cites when the page was read (null: not read). */
+  aiOverview?: { present: boolean; citedDomains: string[] | null };
+  /** The SERP features Google shows for it, from the vendor's last look. */
+  serpFeatures?: string[];
+  /** Who measured the numbers above (`metricsCheckedAt` is when). */
+  metricsSource?: KeywordDataSource;
+  /** Google Ads competition: only when Google Ads data is the source. */
   competition?: 'low' | 'medium' | 'high';
   competitionIndex?: number;
   cpc?: number;
@@ -86,7 +100,21 @@ export type SeoKeywordRecord = { id: number; title: string; meta: SeoKeywordMeta
 export type KeywordResearch = {
   keyword: string;
   serp?: { checkedAt: string; results: Array<KeywordResult & { domain?: string }>; location?: string; language?: string };
-  metrics?: { checkedAt: string; volume: number | null; competition: string | null; competitionIndex: number | null; cpc: number | null; location?: string; language?: string };
+  metrics?: {
+    checkedAt: string;
+    volume: number | null;
+    competition: string | null;
+    competitionIndex: number | null;
+    cpc: number | null;
+    location?: string;
+    language?: string;
+    kd?: number | null;
+    intent?: string | null;
+    trend?: Array<{ year: number; month: number; volume: number | null }> | null;
+    serpFeatures?: string[] | null;
+    aiOverview?: { present: boolean; citedDomains: string[] | null } | null;
+    source?: KeywordDataSource;
+  };
   cluster?: { head: string; checkedAt: string };
 };
 
@@ -195,6 +223,15 @@ export function researchPatch(current: SeoKeywordMeta, r: KeywordResearch, clien
     patch.competition = level === 'low' || level === 'medium' || level === 'high' ? level : undefined;
     patch.competitionIndex = typeof r.metrics.competitionIndex === 'number' ? r.metrics.competitionIndex : undefined;
     patch.cpc = typeof r.metrics.cpc === 'number' ? r.metrics.cpc : undefined;
+    patch.kd = typeof r.metrics.kd === 'number' ? r.metrics.kd : undefined;
+    patch.volumeTrend = r.metrics.trend?.length ? r.metrics.trend : undefined;
+    patch.serpFeatures = r.metrics.serpFeatures ?? undefined;
+    patch.aiOverview = r.metrics.aiOverview ?? undefined;
+    patch.metricsSource = r.metrics.source;
+    if (r.metrics.intent && r.metrics.source && (!current.intent || current.intentFrom)) {
+      patch.intent = r.metrics.intent;
+      patch.intentFrom = r.metrics.source;
+    }
     patch.metricsCheckedAt = r.metrics.checkedAt;
     if (r.metrics.location && !patch.location && !current.location) {
       patch.location = r.metrics.location;
@@ -489,6 +526,8 @@ export async function updateKeywords(orgId: string, ids: readonly number[], chan
       }
       if (change.intent?.trim()) {
         patch.intent = change.intent.trim();
+        // A person's intent stands: no vendor read overwrites it.
+        patch.intentFrom = undefined;
       }
       return patch;
     });

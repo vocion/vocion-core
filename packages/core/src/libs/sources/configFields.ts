@@ -885,6 +885,21 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
     ...warehouseConfigFields('schema', 'marts, finance'),
   ],
 
+  // SEO data is read live and syncs nothing (`docs/guides/seo-data.md`). A
+  // client's property is picked for its Project in chat; this is only the
+  // default for work with no project.
+  'search-console': [
+    {
+      key: 'siteUrl',
+      label: 'Default property',
+      type: 'text',
+      choicesFromLogin: true,
+      placeholder: 'sc-domain:example.com',
+      help: 'Optional. Each client project picks its own property the first time its work reads Search Console.',
+    },
+  ],
+  'ahrefs': [],
+
   // Product analytics is read live and syncs nothing.
   'mixpanel': [
     {
