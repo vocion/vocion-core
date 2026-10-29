@@ -26,6 +26,7 @@ import { reviewAgenda } from '@/services/inbox/reviewAgenda';
 import { groupByRecord, listExpiredClosures, listReviewRows } from '@/services/inbox/reviewRows';
 import { runningClocks } from '@/services/needsYou/DecisionClockService';
 import { parkedRunIds } from '@/services/needsYou/ResumeGateService';
+import { runLabelSql } from '@/services/workflows/labels';
 
 /**
  * InboxService — THE list of everything waiting on a person, wherever it is
@@ -550,7 +551,7 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       .from(missionRunSchema)
       .where(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.status, ['paused', 'awaiting_review']))),
     db
-      .select({ id: workflowRunSchema.id, status: workflowRunSchema.status, pauseReason: workflowRunSchema.pauseReason, pausedAt: workflowRunSchema.pausedAt, at: workflowRunSchema.updatedAt, slug: workflowSchema.slug, name: workflowSchema.name })
+      .select({ id: workflowRunSchema.id, status: workflowRunSchema.status, pauseReason: workflowRunSchema.pauseReason, pausedAt: workflowRunSchema.pausedAt, at: workflowRunSchema.updatedAt, slug: workflowSchema.slug, name: workflowSchema.name, label: runLabelSql })
       .from(workflowRunSchema)
       .leftJoin(workflowSchema, eq(workflowSchema.id, workflowRunSchema.workflowId))
       .where(and(eq(workflowRunSchema.orgId, orgId), eq(workflowRunSchema.status, 'paused'))),
@@ -590,12 +591,14 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       at: m.pausedAt ?? m.at,
       href: inboxHref('mission', m.id),
     })),
-    ...workflows.map((w): InboxItem => ({
+    // A run waiting at an approve step is its Decision, not that AND a
+    // "run paused" row (`services/workflows/approvals.ts`).
+    ...workflows.filter(w => !asks.some(a => a.sourceRef?.startsWith(`workflow-run:${w.id}:`))).map((w): InboxItem => ({
       key: `workflow:${w.id}`,
       kind: 'run',
       shape: 'single',
       ref: { kind: 'workflow', id: w.id },
-      title: `${w.name ?? w.slug ?? 'Workflow'} — run #${w.id}`,
+      title: w.label?.trim() || `${w.name ?? w.slug ?? 'Workflow'} — run #${w.id}`,
       subline: w.pauseReason ?? 'Workflow paused at an approval gate',
       agentSlug: null,
       teamSlug: null,

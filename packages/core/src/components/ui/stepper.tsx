@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { GitBranch, ShieldCheck, Zap } from 'lucide-react';
+import { Bot, GitBranch, MessageSquareText, RefreshCw, Repeat, ShieldCheck } from 'lucide-react';
 import { cn } from '@/utils/Helpers';
 
 /**
@@ -9,8 +9,8 @@ import { cn } from '@/utils/Helpers';
  * future-state concern.
  *
  * Each step has:
- *   - a type-coded icon (skill=Zap/amber, approve=ShieldCheck/teal,
- *     action=GitBranch/neutral)
+ *   - a type-coded icon (agent=Bot, repeat=Repeat, approve=ShieldCheck/teal,
+ *     ask=MessageSquareText/teal, action=GitBranch, sync=RefreshCw)
  *   - a name + optional secondary line (skill slug, action name)
  *   - an optional aggregate slot ("ran N times · M paused") shown to
  *     the right when run history exists
@@ -20,7 +20,7 @@ import { cn } from '@/utils/Helpers';
  * the eye fixates immediately.
  */
 
-export type StepperStepType = 'skill' | 'approve' | 'action';
+export type StepperStepType = 'agent' | 'repeat' | 'approve' | 'ask' | 'action' | 'sync';
 
 export type StepperStep = {
   /** Stable key (step name in most cases). */
@@ -33,6 +33,8 @@ export type StepperStep = {
   aggregate?: ReactNode;
   /** Optional one-line output preview. */
   outputPreview?: string;
+  /** Indented under the step before it: a repeat group's own steps. */
+  nested?: boolean;
 };
 
 type Props = {
@@ -48,13 +50,21 @@ const TYPE_SPEC: Record<StepperStepType, {
   badgeLabel: string;
   badgeClass: string;
 }> = {
-  skill: {
-    icon: Zap,
-    iconBg: 'bg-[var(--brand-amber-tint)]',
-    iconFg: 'text-[var(--brand-amber-deep)]',
+  agent: {
+    icon: Bot,
+    iconBg: 'bg-muted',
+    iconFg: 'text-foreground',
     rowBg: 'bg-background',
-    badgeLabel: 'Operation',
-    badgeClass: 'border-[var(--brand-amber)]/30 bg-[var(--brand-amber-tint)] text-[var(--brand-amber-deep)]',
+    badgeLabel: 'Agent',
+    badgeClass: 'border-border bg-muted text-foreground',
+  },
+  repeat: {
+    icon: Repeat,
+    iconBg: 'bg-muted',
+    iconFg: 'text-muted-foreground',
+    rowBg: 'bg-background',
+    badgeLabel: 'Repeat',
+    badgeClass: 'border-border bg-muted text-muted-foreground',
   },
   approve: {
     icon: ShieldCheck,
@@ -65,12 +75,28 @@ const TYPE_SPEC: Record<StepperStepType, {
     badgeLabel: 'Approval gate',
     badgeClass: 'border-[var(--brand-teal)]/30 bg-[var(--brand-teal-tint)] text-[var(--brand-teal-deep)]',
   },
+  ask: {
+    icon: MessageSquareText,
+    iconBg: 'bg-[var(--brand-teal-tint)]',
+    iconFg: 'text-[var(--brand-teal-deep)]',
+    rowBg: 'bg-[var(--brand-amber-tint)]/40',
+    badgeLabel: 'A person answers',
+    badgeClass: 'border-[var(--brand-teal)]/30 bg-[var(--brand-teal-tint)] text-[var(--brand-teal-deep)]',
+  },
   action: {
     icon: GitBranch,
     iconBg: 'bg-muted',
     iconFg: 'text-muted-foreground',
     rowBg: 'bg-background',
     badgeLabel: 'Action',
+    badgeClass: 'border-border bg-muted text-muted-foreground',
+  },
+  sync: {
+    icon: RefreshCw,
+    iconBg: 'bg-muted',
+    iconFg: 'text-muted-foreground',
+    rowBg: 'bg-background',
+    badgeLabel: 'Refresh',
     badgeClass: 'border-border bg-muted text-muted-foreground',
   },
 };
@@ -83,7 +109,7 @@ export function Stepper({ steps, className }: Props) {
         const Icon = spec.icon;
         const isLast = i === steps.length - 1;
         return (
-          <li key={step.key} className="relative flex gap-3">
+          <li key={step.key} className={cn('relative flex gap-3', step.nested && 'ml-8')}>
             {/* Connecting line between step icons */}
             {!isLast && (
               <span

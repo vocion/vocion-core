@@ -25,6 +25,7 @@ import {
   workflowRunSchema,
   workflowSchema,
 } from '@/models/Schema';
+import { currentStepLabelSql, runLabelSql } from '@/services/workflows/labels';
 
 export type ActivityKind = 'mission' | 'workflow' | 'event' | 'sync' | 'tool' | 'automation' | 'worker';
 
@@ -130,6 +131,8 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
             error: workflowRunSchema.error,
             workflowSlug: workflowSchema.slug,
             workflowName: workflowSchema.name,
+            runLabel: runLabelSql,
+            stepLabel: currentStepLabelSql,
           })
           .from(workflowRunSchema)
           .innerJoin(workflowSchema, eq(workflowRunSchema.workflowId, workflowSchema.id))
@@ -223,13 +226,14 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
     ...workflowRuns.map((r): ActivityItem => ({
       kind: 'workflow',
       key: `workflow-${r.id}`,
-      title: r.workflowName ?? r.workflowSlug,
+      // What the run is called, and the step it is on (`services/workflows/labels.ts`).
+      title: r.runLabel?.trim() || r.workflowName || r.workflowSlug,
       slug: r.workflowSlug,
       status: r.status,
       invokedBy: r.createdBy,
       href: `/dashboard/workflows/${r.workflowSlug}/runs/${r.id}`,
       at: r.createdAt ?? new Date(0),
-      detail: r.error ?? undefined,
+      detail: r.error ?? r.stepLabel ?? undefined,
     })),
     ...events.map((e): ActivityItem => ({
       kind: 'event',

@@ -1483,14 +1483,21 @@ export const workflowSchema = pgTable(
      */
     trigger: jsonb('trigger').$type<Record<string, unknown>>().notNull(),
     /**
-     * Array of step definitions. Each: { name, type, ...typeSpecific }.
-     * Step types: `skill` (run a skill), `approve` (HITL gate), `action` (connector action, v1 stubbed).
+     * Array of step definitions as authored. Each: { name, type, label?, when?, ...typeSpecific }.
+     * Step types: `agent`, `repeat`, `approve`, `ask`, `action`, `sync` (`WorkflowManifestSchema`).
      */
     steps: jsonb('steps').$type<Array<Record<string, unknown>>>().notNull(),
     /** Default input schema for manual triggers — JSON Schema. */
     inputSchema: jsonb('input_schema').$type<Record<string, unknown>>(),
     /** Owning agent slug — the agent this procedure belongs to. Nullable for legacy/unowned workflows. */
     ownerAgentSlug: text('owner_agent_slug'),
+    /**
+     * What each run is called, interpolated from its input when it starts
+     * (`runLabel:` in workflow.yaml): "{{input.batch_ref}} · page {{input.index}}
+     * of {{input.total}}". The result rides the run's `input.runLabel`
+     * (`libs/work/runLabel.ts`). Null: the workflow's name.
+     */
+    runLabel: text('run_label'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1516,17 +1523,10 @@ export const workflowRunSchema = pgTable('workflow_run', {
   /** `running` | `paused` | `completed` | `failed` | `cancelled` */
   status: text('status').default('running').notNull(),
   /**
-   * Step-indexed results — { [step_name]: { status, output, startedAt, finishedAt, error?, skillRunId? } }.
+   * Step-indexed results — { [step_name]: StepResult } (`libs/workflows/stepResult.ts`).
    * JSONB so we can write partial state as we go; promoted to normalized rows in v2 if needed.
    */
-  stepResults: jsonb('step_results').$type<Record<string, {
-    status: 'pending' | 'running' | 'completed' | 'failed' | 'awaiting_approval';
-    output?: unknown;
-    startedAt?: string;
-    finishedAt?: string;
-    error?: string;
-    skillRunId?: number;
-  }>>().default({}),
+  stepResults: jsonb('step_results').$type<Record<string, import('@/libs/workflows/stepResult').StepResult>>().default({}),
   /** Index of the current step (0-based). Null when completed/failed. */
   currentStep: integer('current_step').default(0),
   /** When paused, why — e.g. `awaiting_approval:step_name`. */

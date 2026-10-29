@@ -30,6 +30,7 @@ import { chargeModelCall } from '@/services/budget/chargeModelCall';
 import { describeProposedRecord, fieldEdits, MAX_FIELD_EDITS } from '@/services/feedback/editLearning';
 import { gateCardFields } from '@/services/gates/actionGate';
 import { cancelMission, resumeMission } from '@/services/MissionService';
+import { runLabelSql } from '@/services/workflows/labels';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
 
 export type ReviewKind = 'workflow' | 'mission' | 'action';
@@ -313,6 +314,8 @@ async function listWorkflowPlane(orgId: string, opts: ListOptions, now: Date, ca
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
       createdAt: workflowRunSchema.createdAt,
+      // What the run is called (`runLabel:`, `services/WorkflowService.ts`).
+      label: runLabelSql,
     })
     .from(workflowRunSchema)
     .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'workflow', workflowRunSchema.id))
@@ -324,7 +327,7 @@ async function listWorkflowPlane(orgId: string, opts: ListOptions, now: Date, ca
     kind: 'workflow' as const,
     id: row.id,
     orgId,
-    title: `Workflow run #${row.id}`,
+    title: row.label?.trim() || `Workflow run #${row.id}`,
     status: row.status,
     assignedTo: row.assignedTo,
     snoozedUntil: row.snoozedUntil,

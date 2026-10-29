@@ -1,4 +1,6 @@
-import { ArrowLeft, CheckCircle2, Circle, Loader2, OctagonAlert, ShieldCheck } from 'lucide-react';
+import type { StepResult, StepStatus } from '@/libs/workflows/stepResult';
+import type { RepeatInnerWorkflowStep, WorkflowStep } from '@/libs/workspace/schemas';
+import { ArrowLeft, CheckCircle2, Circle, Loader2, OctagonAlert, ShieldCheck, SkipForward } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { FactList } from '@/components/patterns';
@@ -8,27 +10,20 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { resolveCard } from '@/libs/cards';
 import { Link } from '@/libs/I18nNavigation';
+import { modelName } from '@/libs/llm/modelPrefs';
 import { getWorkflow, getWorkflowRun } from '@/services/WorkflowService';
 
 type Props = {
   params: Promise<{ locale: string; slug: string; runId: string }>;
 };
 
-type StepResult = {
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'awaiting_approval';
-  output?: unknown;
-  startedAt?: string;
-  finishedAt?: string;
-  error?: string;
-  skillRunId?: number;
-};
-
-const STATUS_META: Record<StepResult['status'], { label: string; icon: React.ReactNode; dot: string }> = {
-  pending: { label: 'Pending', icon: <Circle className="size-4 text-muted-foreground" />, dot: 'bg-muted' },
-  running: { label: 'Running', icon: <Loader2 className="size-4 animate-spin text-muted-foreground" />, dot: 'bg-muted-foreground/60' },
-  completed: { label: 'Completed', icon: <CheckCircle2 className="size-4 text-pass" />, dot: 'bg-pass' },
-  failed: { label: 'Failed', icon: <OctagonAlert className="size-4 text-fail" />, dot: 'bg-fail' },
-  awaiting_approval: { label: 'Awaiting approval', icon: <ShieldCheck className="size-4 text-waiting" />, dot: 'bg-waiting' },
+const STATUS_META: Record<StepStatus, { label: string; icon: React.ReactNode }> = {
+  pending: { label: 'Pending', icon: <Circle className="size-4 text-muted-foreground" /> },
+  running: { label: 'Running', icon: <Loader2 className="size-4 animate-spin text-muted-foreground" /> },
+  completed: { label: 'Completed', icon: <CheckCircle2 className="size-4 text-pass" /> },
+  failed: { label: 'Failed', icon: <OctagonAlert className="size-4 text-fail" /> },
+  awaiting_approval: { label: 'Waiting on a person', icon: <ShieldCheck className="size-4 text-waiting" /> },
+  skipped: { label: 'Skipped', icon: <SkipForward className="size-4 text-muted-foreground" /> },
 };
 
 const RUN_STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -78,7 +73,7 @@ export default async function WorkflowRunDetailPage(props: Props) {
       <TitleBar
         title={(
           <div className="flex items-center gap-3">
-            <span>{workflow.name}</span>
+            <span>{run.runLabel ?? workflow.name}</span>
             <span className="font-mono text-sm text-muted-foreground">
               run #
               {run.id}
@@ -134,59 +129,17 @@ export default async function WorkflowRunDetailPage(props: Props) {
       <section>
         <h2 className="mb-3 font-display text-sm font-semibold">Steps</h2>
         <ol className="space-y-4">
-          {workflow.steps.map((step) => {
-            const result = stepResults[step.name];
-            const status = (result?.status ?? 'pending');
-            const meta = STATUS_META[status];
-            const kindLabel = step.type === 'action' && 'action' in step
-              ? `action · ${step.action}`
-              : 'approval';
-            const card = result?.output !== undefined
-              ? resolveCard(result.output, { surface: 'workflow-run' })
-              : null;
-            return (
-              <li key={step.name} className="rounded-xl border border-border bg-background">
-                <header className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    {meta.icon}
-                    <div>
-                      <div className="font-semibold">{step.name}</div>
-                      <div className="font-mono text-xs text-muted-foreground">{kindLabel}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">{meta.label}</span>
-                    {card && (
-                      <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-muted-foreground" title={card.fallbackReason ?? `Rendered via ${card.source}`}>
-                        card ·
-                        {' '}
-                        {card.slug}
-                      </span>
-                    )}
-                  </div>
-                </header>
-                <div className="px-4 py-4">
-                  {result?.error && (
-                    <pre className="mb-3 overflow-x-auto rounded bg-fail-soft p-3 font-mono text-xs whitespace-pre-wrap text-fail">
-                      {result.error}
-                    </pre>
-                  )}
-                  {card
-                    ? (
-                        <card.renderer.Renderer data={card.data as never} surface="workflow-run" />
-                      )
-                    : (
-                        <p className="text-sm text-muted-foreground italic">
-                          {status === 'pending' && 'Not yet started.'}
-                          {status === 'running' && 'Running…'}
-                          {status === 'awaiting_approval' && 'Paused for human approval. Review the previous step\'s draft, then approve or reject on the review queue (/dashboard/inbox?kind=run).'}
-                          {status === 'completed' && '(no output)'}
-                        </p>
-                      )}
-                </div>
-              </li>
-            );
-          })}
+          {workflow.steps.map(step => (
+            <StepCard key={step.name} step={step} result={stepResults[step.name]}>
+              {step.type === 'repeat' && (
+                <ol className="mt-3 space-y-3 border-l border-border pl-4">
+                  {step.steps.map(inner => (
+                    <StepCard key={inner.name} step={inner} result={stepResults[inner.name]} />
+                  ))}
+                </ol>
+              )}
+            </StepCard>
+          ))}
         </ol>
       </section>
 
@@ -201,6 +154,120 @@ export default async function WorkflowRunDetailPage(props: Props) {
         />
       </section>
     </>
+  );
+}
+
+/**
+ * What kind of step this is, in a few words: who does it, and how.
+ * @param step - The step as authored.
+ */
+function kindLine(step: WorkflowStep | RepeatInnerWorkflowStep): string {
+  switch (step.type) {
+    case 'agent':
+      return `agent · ${step.agent}${step.effort && step.effort !== 'auto' ? ` · ${step.effort}` : ''}`;
+    case 'repeat':
+      return `repeat until ${step.until} · at most ${step.max} ${step.max === 1 ? 'round' : 'rounds'}`;
+    case 'action':
+      return `action · ${step.action}`;
+    case 'sync':
+      return `sync · ${step.sources.join(', ')}`;
+    case 'ask':
+      return 'a person answers';
+    default:
+      return 'a person approves';
+  }
+}
+
+/**
+ * Dollars from micro-cents (a millionth of a cent).
+ * @param microCents - The cost.
+ */
+function dollars(microCents: number): string {
+  const d = microCents / 100_000_000;
+  return d < 0.01 ? '<$0.01' : `$${d.toFixed(2)}`;
+}
+
+/**
+ * One step of the run: its label, what kind of step it is, how it went, and
+ * what it produced — with an agent step's model, effort, cost and tries.
+ * @param props - The step and its result.
+ * @param props.step - The step as authored.
+ * @param props.result - What the run recorded for it.
+ * @param props.children - A repeat group's own steps.
+ */
+function StepCard({ step, result, children }: { step: WorkflowStep | RepeatInnerWorkflowStep; result?: StepResult; children?: React.ReactNode }) {
+  const status = result?.status ?? 'pending';
+  const meta = STATUS_META[status];
+  const card = result?.output !== undefined && step.type !== 'repeat'
+    ? resolveCard(result.output, { surface: 'workflow-run' })
+    : null;
+  const agent = result?.agent;
+  const facts = [
+    agent?.model ? modelName(agent.model) : null,
+    agent?.effort ? agent.effort[0]!.toUpperCase() + agent.effort.slice(1) : null,
+    typeof agent?.microCents === 'number' ? dollars(agent.microCents) : null,
+    agent && agent.attempts.length > 1 ? `${agent.attempts.length} tries at the result` : null,
+    result?.attempt && result.attempt > 1 ? `started ${result.attempt} times (a restart interrupted it)` : null,
+    result?.previous?.length ? `${result.previous.length} earlier ${result.previous.length === 1 ? 'round' : 'rounds'}` : null,
+    step.when ? `when ${step.when}` : null,
+  ].filter(Boolean);
+  return (
+    <li className="rounded-xl border border-border bg-background">
+      <header className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-3">
+        <div className="flex items-center gap-3">
+          {meta.icon}
+          <div>
+            <div className="font-semibold">{result?.label ?? step.label ?? step.name}</div>
+            <div className="font-mono text-xs text-muted-foreground">{kindLine(step)}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">{meta.label}</span>
+          {card && (
+            <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-muted-foreground" title={card.fallbackReason ?? `Rendered via ${card.source}`}>
+              card ·
+              {' '}
+              {card.slug}
+            </span>
+          )}
+        </div>
+      </header>
+      <div className="px-4 py-4">
+        {facts.length > 0 && <p className="mb-3 text-xs text-muted-foreground">{facts.join(' · ')}</p>}
+        {result?.error && (
+          <pre className="mb-3 overflow-x-auto rounded bg-fail-soft p-3 font-mono text-xs whitespace-pre-wrap text-fail">
+            {result.error}
+          </pre>
+        )}
+        {agent?.attempts.filter(a => a.problem).map(a => (
+          <p key={a.at} className="mb-2 text-xs text-muted-foreground">
+            A try did not match the result's shape:
+            {' '}
+            {a.problem}
+          </p>
+        ))}
+        {step.type === 'repeat'
+          ? (result?.output !== undefined && (
+              <p className="text-sm text-muted-foreground">
+                {(result.output as { satisfied?: boolean }).satisfied ? 'The condition held; the group stopped.' : 'Every round ran and the condition never held.'}
+              </p>
+            ))
+          : card
+            ? (
+                <card.renderer.Renderer data={card.data as never} surface="workflow-run" />
+              )
+            : (
+                <p className="text-sm text-muted-foreground italic">
+                  {status === 'pending' && 'Not yet started.'}
+                  {status === 'running' && 'Running…'}
+                  {status === 'awaiting_approval' && 'Waiting on a person: the Decision is on Needs you.'}
+                  {status === 'skipped' && `Skipped: ${result?.skippedBecause ?? 'its condition was false'}.`}
+                  {status === 'completed' && '(no output)'}
+                </p>
+              )}
+        {children}
+      </div>
+    </li>
   );
 }
 
