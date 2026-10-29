@@ -13,7 +13,7 @@ import { db } from '@/libs/DB';
 import { startJob } from '@/libs/durable/jobs';
 import { automationRefireWorkflowIdFor } from '@/libs/durable/scheduleIds';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
-import { automationRunSchema, missionRunSchema, missionSchema, toolCallSchema, workflowSchema } from '@/models/Schema';
+import { automationRunSchema, missionRunSchema, missionSchema, projectSchema, toolCallSchema, workflowSchema } from '@/models/Schema';
 import { withRunCost } from './budget/runCost';
 import { clampAutonomyLevel } from './missions/autonomy';
 import { planMission } from './missions/planner';
@@ -337,6 +337,19 @@ export async function startMission(opts: {
     goal = template.goal;
     autonomyLevel = autonomyLevel ?? (template.autonomyPolicy as { level?: number } | null)?.level;
     charter = { successCriteria: template.successCriteria ?? [], name: template.name };
+  }
+  if (!team && !opts.missionSlug) {
+    // The brief form's ad-hoc path has no template or explicit roster.
+    // Resolve only this workspace's configured lead and existing team.
+    const [project] = await db.select({ lead: projectSchema.leadAgentSlug })
+      .from(projectSchema)
+      .where(eq(projectSchema.id, opts.orgId))
+      .limit(1);
+    if (project?.lead) {
+      const roster = await resolveMissionRoster(opts.orgId, project.lead);
+      team = roster.team;
+      rosterNote = leadlessTeamsNote(roster.leadlessTeams);
+    }
   }
   if (!team?.lead) {
     throw new Error('a mission needs an agent (or a template slug)');

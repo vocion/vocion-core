@@ -210,6 +210,31 @@ describe('mission roster resolution from the team table (F1 slice 2)', () => {
     expect(run.plan!.tasks.at(-1)!.output).toBe(`done: ${DIRECTOR}`);
   });
 
+  it('runs an ad-hoc brief through this workspace lead and preserves draft-only autonomy', async () => {
+    mockRun.mockImplementation(async ({ agentSlug, message }) => ({
+      response: message.includes('planning an open-ended mission') ? LEADS_PLAN_JSON : `done: ${agentSlug}`,
+      traceId: `trace-${agentSlug}`,
+      toolCalls: [],
+    }) as Awaited<ReturnType<typeof runAgentDeep>>);
+
+    const run = await startMission({ orgId: ORG2, brief: 'Draft an internal decision memo.', autonomyLevel: 1 });
+
+    expect(run.team).toEqual({ lead: DIRECTOR, members: TEAM_LEADS });
+    expect(run.autonomyPolicy).toEqual({ level: 1 });
+    expect(run.missionId).toBeNull();
+    expect(run.status).toBe('completed');
+    expect(run.brief).toContain('Founder GTM team has no lead yet');
+    expect(new Set(mockRun.mock.calls.slice(1).map(call => call[0].agentSlug))).toEqual(new Set([DIRECTOR, ...TEAM_LEADS]));
+  });
+
+  it('does not borrow another workspace lead when the requesting workspace has none', async () => {
+    await expect(startMission({ orgId: 'unconfigured-workspace', brief: 'Draft a memo.' }))
+      .rejects
+      .toThrow('a mission needs an agent');
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(await db.select().from(missionRunSchema)).toEqual([]);
+  });
+
   it('keeps the parentAgentSlug reverse-lookup for a lead that is not the workspace lead', async () => {
     await db.insert(agentSchema).values([
       { orgId: ORG2, slug: 'revenue-lead', name: 'Revenue Lead', systemPrompt: 'x' },
