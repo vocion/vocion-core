@@ -25,6 +25,10 @@ export function outcomeInsights(report: Report) {
       const reason = String(last.data.reason);
       return [{ itemId: item.id, priority: item.status === 'blocked' ? 1 : 2, text: remedies[reason] ?? remedies.other!, evidence: `Work ${item.key}: ${item.status}; reviewer category ${reason}.`, measure: 'Compare acceptance, recurrence of this reason and active human effort on the same workflow and rubric.' }];
     }
+    const failedMissions = item.missionRuns.filter(run => run.status === 'failed');
+    if (failedMissions.length) {
+      return [{ itemId: item.id, priority: 1, text: 'Inspect the failed mission and its task trace; resolve the execution or source-access failure before retrying.', evidence: `Work ${item.key}: failed mission runs ${failedMissions.map(run => run.id).join(', ')}.`, measure: 'Track completed runs separately from reviewed, accepted business outcomes.' }];
+    }
     if (item.status === 'open' || item.status === 'reopened') {
       return [{ itemId: item.id, priority: 3, text: 'Review the output against its acceptance criteria; execution completion alone cannot establish useful work.', evidence: `Work ${item.key}: no current accepted outcome.`, measure: 'Record accepted, corrected, rejected or blocked with evidence.' }];
     }

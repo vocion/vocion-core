@@ -20,7 +20,7 @@ export const workforceCommand = z.discriminatedUnion('kind', [
     baselineSampleSize: z.number().int().min(0).max(1000000).optional(),
     test: z.boolean().default(false),
   }).strict(),
-  z.object({ ...revision, kind: z.literal('link'), sourceKind: z.enum(['action', 'worker']), sourceId: z.number().int().positive() }).strict(),
+  z.object({ ...revision, kind: z.literal('link'), sourceKind: z.enum(['action', 'worker', 'mission']), sourceId: z.number().int().positive() }).strict(),
   z.object({
     ...revision,
     kind: z.literal('review'),

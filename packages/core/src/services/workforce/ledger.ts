@@ -3,12 +3,58 @@ import { createHash, randomUUID } from 'node:crypto';
 import { and, asc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { runCostCents } from '@/libs/worker/runCost';
-import { actionRunSchema, agentSchema, workforceEventSchema as events, workforceItemSchema as items, workforceLinkSchema as links, workerRunSchema } from '@/models/Schema';
+import { actionRunSchema, agentSchema, workforceEventSchema as events, workforceItemSchema as items, workforceLinkSchema as links, missionRunSchema, modelCallSchema, workerRunSchema } from '@/models/Schema';
 import { workforceCommand, WorkforceError } from './contracts';
 import { learningInsights, readWorkforceLearning } from './learning';
 
 function fingerprint(row: { input: unknown; result: unknown; status: string }) {
   return createHash('sha256').update(JSON.stringify({ input: row.input, result: row.result, status: row.status })).digest('hex');
+}
+
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type SourceKind = Extract<WorkforceCommand, { kind: 'link' }>['sourceKind'];
+
+/**
+ * Normalize native mission evidence without changing older action/worker fingerprints.
+ * @param tx
+ * @param orgId
+ * @param kind
+ * @param ids
+ * @param lock
+ */
+async function sourceRows(tx: Transaction, orgId: string, kind: SourceKind, ids: number[], lock = false) {
+  if (kind === 'mission') {
+    const query = tx.select().from(missionRunSchema).where(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.id, ids)));
+    const rows = await (lock ? query.for('share') : query);
+    const contributors = await tx.selectDistinct({ runId: modelCallSchema.runId, agentSlug: modelCallSchema.agentSlug }).from(modelCallSchema).where(and(eq(modelCallSchema.orgId, orgId), eq(modelCallSchema.runKind, 'mission_run'), inArray(modelCallSchema.runId, rows.map(row => String(row.id)))));
+    const agentsFor = (id: number) => contributors.filter(c => c.runId === String(id) && c.agentSlug).map(c => c.agentSlug!).sort();
+    return rows.map(row => ({
+      id: row.id,
+      input: { brief: row.brief, goal: row.goal, team: row.team, workspaceSha: row.workspaceSha, autonomyPolicy: row.autonomyPolicy, recordedAgents: agentsFor(row.id) },
+      result: { plan: row.plan, artifacts: row.artifacts, error: row.error },
+      status: row.status,
+      cents: null as number | null,
+      mission: {
+        id: row.id,
+        status: row.status,
+        configurationVersion: row.workspaceSha,
+        tasks: row.plan?.tasks.length ?? 0,
+        completedTasks: row.plan?.tasks.filter(t => t.status === 'completed').length ?? 0,
+        agents: [...new Set(row.plan?.tasks.map(t => t.ownerAgentSlug) ?? [])].sort(),
+        recordedAgents: agentsFor(row.id),
+        // Recorded mission model spend only. Never add to worker totals: scopes can overlap.
+        modelCostCents: row.microCents === null ? null : row.microCents / 1_000_000,
+      },
+    }));
+  }
+  if (kind === 'worker') {
+    const query = tx.select({ id: workerRunSchema.id, input: workerRunSchema.input, result: workerRunSchema.result, status: workerRunSchema.status, cents: workerRunSchema.cents }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.id, ids)));
+    const rows = await (lock ? query.for('share') : query);
+    return rows.map(row => ({ id: row.id, input: row.input, result: row.result, status: row.status, cents: row.cents, mission: null }));
+  }
+  const query = tx.select({ id: actionRunSchema.id, input: actionRunSchema.input, result: actionRunSchema.result, status: actionRunSchema.status }).from(actionRunSchema).where(and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.id, ids)));
+  const rows = await (lock ? query.for('share') : query);
+  return rows.map(row => ({ id: row.id, input: row.input, result: row.result, status: row.status, cents: null as number | null, mission: null }));
 }
 
 function fail(status: number, message: string): never {
@@ -98,8 +144,7 @@ export async function recordWorkforceCommand(orgId: string, actorId: string, raw
         if (['accepted', 'corrected', 'rejected'].includes(item.status)) {
           fail(409, 'Reopen a decided item before changing its evidence');
         }
-        const source = command.sourceKind === 'worker' ? workerRunSchema : actionRunSchema;
-        const [row] = await tx.select({ id: source.id, input: source.input, result: source.result, status: source.status }).from(source).where(and(eq(source.orgId, orgId), eq(source.id, command.sourceId)));
+        const [row] = await sourceRows(tx, orgId, command.sourceKind, [command.sourceId]);
         if (!row) {
           fail(404, 'Source not found in this workspace');
         }
@@ -119,8 +164,10 @@ export async function recordWorkforceCommand(orgId: string, actorId: string, raw
         if (['accepted', 'corrected'].includes(command.status)) {
           const attached = await tx.select().from(links).where(and(eq(links.orgId, orgId), eq(links.itemId, itemId)));
           for (const link of attached) {
-            const source = link.kind === 'worker' ? workerRunSchema : actionRunSchema;
-            const [row] = await tx.select({ input: source.input, result: source.result, status: source.status }).from(source).where(and(eq(source.orgId, orgId), eq(source.id, link.sourceId))).for('share');
+            if (!['action', 'worker', 'mission'].includes(link.kind)) {
+              fail(409, 'Unrecognized evidence source; refresh the work item');
+            }
+            const [row] = await sourceRows(tx, orgId, link.kind as SourceKind, [link.sourceId], true);
             if (!row || fingerprint(row) !== link.sourceDigest) {
               fail(409, 'Linked evidence changed; link the source again to review its current version');
             }
@@ -166,13 +213,17 @@ export async function readWorkforceOutcomes(orgId: string, since: Date, until: D
     const evidenceComplete = history.length <= 10000 && linked.length <= 10000;
     const workerIds = linked.filter(l => l.kind === 'worker').map(l => l.sourceId);
     const actionIds = linked.filter(l => l.kind === 'action').map(l => l.sourceId);
-    const actions = actionIds.length ? await tx.select({ id: actionRunSchema.id, input: actionRunSchema.input, result: actionRunSchema.result, status: actionRunSchema.status }).from(actionRunSchema).where(and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.id, actionIds))) : [];
-    const workers = workerIds.length ? await tx.select({ id: workerRunSchema.id, cents: workerRunSchema.cents, input: workerRunSchema.input, result: workerRunSchema.result, status: workerRunSchema.status }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.id, workerIds))) : [];
+    const missionIds = linked.filter(l => l.kind === 'mission').map(l => l.sourceId);
+    const [actions, workers, missions] = await Promise.all([
+      actionIds.length ? sourceRows(tx, orgId, 'action', actionIds) : [],
+      workerIds.length ? sourceRows(tx, orgId, 'worker', workerIds) : [],
+      missionIds.length ? sourceRows(tx, orgId, 'mission', missionIds) : [],
+    ]);
     const rows = selected.map((item) => {
       const itemEvents = history.filter(e => e.itemId === item.id);
       const itemLinks = linked.filter(l => l.itemId === item.id);
       const evidenceChanged = itemLinks.some((link) => {
-        const source = (link.kind === 'worker' ? workers : actions).find(r => r.id === link.sourceId);
+        const source = (link.kind === 'worker' ? workers : link.kind === 'mission' ? missions : link.kind === 'action' ? actions : []).find(r => r.id === link.sourceId);
         return !source || fingerprint(source) !== link.sourceDigest;
       });
       const attempts = itemLinks.filter(l => l.kind === 'worker').map(l => workers.find(w => w.id === l.sourceId));
@@ -185,7 +236,7 @@ export async function readWorkforceOutcomes(orgId: string, since: Date, until: D
       const effort = reviews.filter(e => typeof e.data.effortMinutes === 'number');
       // This is linked-worker cost, not total model/tool/vendor spend.
       const linkedWorkerCostCents = evidenceComplete && attempts.length && attempts.every(w => w && runCostCents(w) !== null) ? attempts.reduce((s, w) => s + runCostCents(w!)!, 0) : null;
-      return { ...item, baselineKind, baselineSampleSize, evidenceChanged, links: itemLinks, events: itemEvents.map(({ commandHash: _hash, ...e }) => e), linkedWorkerCostCents, costCoverage: 'partial' as const, activeEffortMinutes: evidenceComplete && effort.length ? effort.reduce((s, e) => s + Number(e.data.effortMinutes), 0) : null, effortCoverage: evidenceComplete && reviews.length > 0 && effort.length === reviews.length ? 'reported' as const : 'partial' as const, firstPassAccepted: evidenceComplete && reviews.length ? reviews[0]!.data.status === 'accepted' : null };
+      return { ...item, missionRuns: missions.filter(m => itemLinks.some(l => l.kind === 'mission' && l.sourceId === m.id)).flatMap(m => m.mission ? [m.mission] : []), baselineKind, baselineSampleSize, evidenceChanged, links: itemLinks, events: itemEvents.map(({ commandHash: _hash, ...e }) => e), linkedWorkerCostCents, costCoverage: 'partial' as const, activeEffortMinutes: evidenceComplete && effort.length ? effort.reduce((s, e) => s + Number(e.data.effortMinutes), 0) : null, effortCoverage: evidenceComplete && reviews.length > 0 && effort.length === reviews.length ? 'reported' as const : 'partial' as const, firstPassAccepted: evidenceComplete && reviews.length ? reviews[0]!.data.status === 'accepted' : null };
     });
     const accepted = rows.filter(i => !i.evidenceChanged && ['accepted', 'corrected'].includes(i.status));
     return { learning, learningRecommendations: learning ? learningInsights(learning) : [], schemaVersion: 1, workspaceId: orgId, generatedAt: until.toISOString(), window: { from: since.toISOString(), to: until.toISOString() }, test, complete: found.length <= 1000 && evidenceComplete, cohort: 'items updated in window' as const, items: rows, summary: { items: rows.length, accepted: accepted.length, blocked: rows.filter(i => i.status === 'blocked').length, firstPassAccepted: accepted.filter(i => i.firstPassAccepted).length, costPerAcceptedItem: null, netTimeSavedMinutes: null },
