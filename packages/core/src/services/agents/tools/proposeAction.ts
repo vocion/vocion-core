@@ -350,6 +350,18 @@ async function runProposalInner(
     }
     if (res.status !== 'done') {
       const error = 'error' in res && typeof res.error === 'string' ? ` Error: ${res.error}` : '';
+      // A RUN THAT FAILED SAYS SO UNDER THE TURN, typed: "Didn't run. <record>:
+      // <why>" (a teammate's walk, 2026-10-30: a failed update was answered
+      // "queued for approval"). The line is the truth whatever the reply says.
+      if (res.status === 'failed') {
+        const { failureReason } = await import('@/libs/decisions/receipt');
+        const { actionLabel } = await import('@/libs/actions/undoable');
+        const { receiptFor } = await import('@/services/decisions/receiptFor');
+        const reason = 'error' in res && typeof res.error === 'string' ? failureReason(res.error) : undefined;
+        const described = await receiptFor(ctx.orgId, { runId: res.runId, actionId: action_id, label: actionLabel(action_id), undoable: false }, { actionId: action_id, input: action_input, result: null, invokedBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId });
+        ctx.emit({ type: 'receipt', receipt: { runId: res.runId, actionId: action_id, label: described.label, undoable: false, status: 'failed', ...(described.record ? { record: { label: described.record.label } } : {}), ...(reason ? { error: reason } : {}) } });
+        return `${action_id} FAILED (${nounCode('action', res.runId)}): nothing changed, and nothing is queued or waiting for approval. The line under your reply already says it did not run and why. Tell the person in one line what failed and what you will try next; never say it was queued, approved or done.${error}`;
+      }
       return `${action_id} is ${res.status.toUpperCase()} (${nounCode('action', res.runId)}). Do not claim success or that the requested change occurred.${error}`;
     }
     // A DONE THAT MADE A RECORD SAYS WHICH, WITH ITS LINK. Conversation

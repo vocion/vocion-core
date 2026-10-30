@@ -43,12 +43,21 @@ export async function receiptFor(orgId: string, base: DoneReceipt, run: { action
       }
     }
     const changes: ReceiptChange[] = described.record ? described.changes.map(c => ({ field: humaniseField(c.field), to: c.to, ...(c.from !== undefined ? { from: c.from } : {}) })) : [];
-    const record = base.record ?? (described.record ? { label: described.record.name, ...(base.href ? { href: base.href } : {}) } : undefined);
+    // A name the run read live (`result.name`) beats an id spelled out: a deal
+    // made a minute ago is not in the mirror yet (a teammate's walk, 2026-10-30:
+    // "Deal 67204827168 updated").
+    const liveName = typeof obj(run.result)?.name === 'string' && (obj(run.result)!.name as string).trim() ? (obj(run.result)!.name as string).trim() : null;
+    const label = described.record?.fromId && liveName ? liveName : described.record?.name;
+    // The name opens the record: in the app when it is one of ours, else on its own page (`result.url`).
+    const ownPage = typeof obj(run.result)?.url === 'string' && /^https:\/\//.test(obj(run.result)!.url as string) ? obj(run.result)!.url as string : undefined;
+    const href = base.href ?? ownPage;
+    const record = base.record ?? (described.record && label ? { label, ...(href ? { href } : {}) } : undefined);
     return {
       ...base,
       ...(record ? { record } : {}),
       ...(changes.length > 0 ? { changes } : {}),
       ...(outcome ? { outcome } : {}),
+      ...(described.creates ? { created: true } : {}),
     };
   } catch {
     return base;

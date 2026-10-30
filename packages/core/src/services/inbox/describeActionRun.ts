@@ -92,6 +92,8 @@ export type ActionDescription = {
   agentSlug: string | null;
   rationale: string | null;
   evidence: string[];
+  /** The action makes the record rather than changing one, so a receipt says "created". */
+  creates?: boolean;
 };
 
 /** How each HubSpot object type reads when only its id is known. */
@@ -137,6 +139,32 @@ export function valueLabel(value: unknown): string {
   }
   const s = typeof value === 'string' ? value : typeof value === 'object' ? JSON.stringify(value) : String(value);
   return s.length > 60 ? `${s.slice(0, 57)}…` : s;
+}
+
+/** HubSpot properties stored as a 0–1 fraction that people read as a percentage. */
+const HUBSPOT_FRACTION_FIELDS = new Set(['hs_deal_stage_probability', 'hs_forecast_probability']);
+
+/**
+ * A HubSpot property value as a person reads it: an amount as money, a
+ * probability as a percentage, everything else as {@link valueLabel} has it
+ * ("Amount: $120,000 → $80,000", "Deal stage probability: 70% → 90%", a
+ * teammate's walk, 2026-10-30, where the Done line read "120000 → 80000" and
+ * "0 → 0.9").
+ * @param field - The property.
+ * @param value - Its value, as the payload or the CRM has it.
+ * @param currency - The record's currency, for an amount.
+ */
+export function hubspotValueLabel(field: string, value: unknown, currency: string | null): string {
+  const n = num(value);
+  if (n !== null && field === 'amount') {
+    return amountLabel(n, currency ?? 'USD');
+  }
+  if (n !== null && HUBSPOT_FRACTION_FIELDS.has(field)) {
+    // HubSpot keeps 0.9; an agent sometimes writes 90. Both read 90%.
+    const pct = n <= 1 ? n * 100 : n;
+    return `${Number.isInteger(pct) ? pct : Number(pct.toFixed(1))}%`;
+  }
+  return valueLabel(value);
 }
 
 /**
@@ -204,6 +232,9 @@ function hubspotRecordName(objectType: string, objectId: string, properties: Rec
   return found ? { name: found, idLabel, fromId: false } : { name: idLabel, idLabel, fromId: true };
 }
 
+/** Fields that name the record rather than change it — not listed as changes. */
+const HUBSPOT_IDENTITY_FIELDS = new Set(['dealname', 'firstname', 'lastname', 'email', 'name', 'domain']);
+
 /**
  * A new CRM record: named by what it will be called, with every property it
  * is created with as a change from nothing.
@@ -216,7 +247,11 @@ function describeHubspotCreate(run: ActionRunLike): ActionDescription {
   const named = hubspotRecordName(objectType, 'new', properties, {});
   const kindWord = HUBSPOT_OBJECT_KIND[objectType] ?? 'record';
   const name = named.fromId ? `new ${kindWord}` : named.name;
-  const changes: ActionChange[] = Object.entries(properties).map(([field, to]) => ({ field, to: valueLabel(to) }));
+  const currency = str(properties.deal_currency_code) ?? 'USD';
+  // The name is the record, not a change to it: "Northwind renewal created: Amount: $120,000".
+  const changes: ActionChange[] = Object.entries(properties)
+    .filter(([field]) => !(HUBSPOT_IDENTITY_FIELDS.has(field) && Object.keys(properties).length > 1))
+    .map(([field, to]) => ({ field, to: hubspotValueLabel(field, to, currency) }));
   const agentSlug = agentOf(run);
   const amount = num(properties.amount);
   return {
@@ -231,11 +266,9 @@ function describeHubspotCreate(run: ActionRunLike): ActionDescription {
     agentSlug,
     rationale: str(run.proposal?.rationale),
     evidence: Array.isArray(run.proposal?.evidence) ? run.proposal.evidence.filter((e): e is string => typeof e === 'string') : [],
+    creates: true,
   };
 }
-
-/** Fields that name the record rather than change it — not listed as changes. */
-const HUBSPOT_IDENTITY_FIELDS = new Set(['dealname', 'firstname', 'lastname', 'email', 'name', 'domain']);
 
 function describeHubspotUpdate(run: ActionRunLike, opts?: DescribeOptions): ActionDescription {
   const input = rec(run.input);
@@ -250,14 +283,13 @@ function describeHubspotUpdate(run: ActionRunLike, opts?: DescribeOptions): Acti
   const resolved = named.fromId ? opts?.recordNames?.get(key) : undefined;
   const name = resolved ?? named.name;
   const fromId = named.fromId && resolved === undefined;
+  const currency = str(properties.deal_currency_code) ?? str(before.deal_currency_code) ?? 'USD';
   const changes: ActionChange[] = Object.entries(properties)
     .filter(([field]) => !(HUBSPOT_IDENTITY_FIELDS.has(field) && Object.keys(properties).length > 1))
-    .map(([field, to]) => ({ field, to: valueLabel(to), ...(field in before ? { from: valueLabel(before[field]) } : {}) }));
-  // Money reads as money on the row; everything else as the CRM has it.
-  const shown = (c: ActionChange, v: string) => (c.field === 'amount' && num(v) !== null ? amountLabel(num(v), str(properties.deal_currency_code) ?? 'USD') : v);
+    .map(([field, to]) => ({ field, to: hubspotValueLabel(field, to, currency), ...(field in before ? { from: hubspotValueLabel(field, before[field], currency) } : {}) }));
   const changeText = changes
     .slice(0, 3)
-    .map(c => `${humaniseField(c.field)}: ${c.from !== undefined ? `${shown(c, c.from)} → ` : ''}${shown(c, c.to)}`)
+    .map(c => `${humaniseField(c.field)}: ${c.from !== undefined ? `${c.from} → ` : ''}${c.to}`)
     .join(', ');
   const more = changes.length > 3 ? ` +${changes.length - 3} more` : '';
   const agentSlug = agentOf(run);

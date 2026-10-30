@@ -11,6 +11,7 @@
 import type { Action, ActionContext } from './types';
 import { z } from 'zod';
 import { createHubspotClient } from '@/libs/hubspot/client';
+import { hubspotRecordUrl } from '@/libs/hubspot/recordUrl';
 
 /**
  * The HubSpot token for this run: a pasted private-app token as stored, or a
@@ -22,6 +23,31 @@ import { createHubspotClient } from '@/libs/hubspot/client';
 export async function freshHubspotToken(ctx: ActionContext): Promise<string | undefined> {
   const { hubspotTokenForActionSlug } = await hubspotDirect();
   return hubspotTokenForActionSlug(ctx.orgId, 'hubspot', ctx.credentials);
+}
+
+/**
+ * The portal the workspace's HubSpot source names, when its config says.
+ * @param ctx - The run.
+ */
+export async function configuredHubspotPortal(ctx: ActionContext): Promise<unknown> {
+  const { hubspotSourcesForOrg } = await hubspotDirect();
+  return (await hubspotSourcesForOrg(ctx.orgId).catch(() => [])).map(s => s.configJson?.portalId).find(p => p !== undefined && p !== null);
+}
+
+/** The properties that NAME a record of each type, read so a receipt can say which one changed. */
+export const HUBSPOT_NAME_PROPERTIES: Record<string, string[]> = { deals: ['dealname'], contacts: ['firstname', 'lastname', 'email'], companies: ['name', 'domain'] };
+
+/**
+ * A record's name from its properties: a deal's name, a person's name or email, a company's name.
+ * @param objectType - Its type.
+ * @param props - Its properties.
+ */
+export function hubspotNameOf(objectType: string, props: Record<string, string | null | undefined>): string | null {
+  const v = (k: string) => (props[k] ?? '').trim();
+  const name = objectType === 'contacts'
+    ? ([v('firstname'), v('lastname')].filter(Boolean).join(' ') || v('email'))
+    : (HUBSPOT_NAME_PROPERTIES[objectType] ?? []).map(v).find(Boolean) ?? '';
+  return name || null;
 }
 
 /**
@@ -55,6 +81,14 @@ type HubspotUpdateInput = z.infer<typeof hubspotUpdateInput>;
  * One property value as a person reads it.
  * @param value
  */
+/**
+ * Property values as strings, the way HubSpot reads them back.
+ * @param props - What the update writes.
+ */
+function stringProps(props: Record<string, string | number | boolean | null>): Record<string, string | null> {
+  return Object.fromEntries(Object.entries(props).map(([k, v]) => [k, v === null ? null : String(v)]));
+}
+
 function shown(value: string | null | undefined): string {
   return value === null || value === undefined || value === '' ? '(empty)' : value;
 }
@@ -164,13 +198,18 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
     // What the record said BEFORE, so the run can be undone. Best-effort: a
     // read that fails must not block the write a person or the ladder just
     // approved — the run then records that it has nothing to restore.
+    // The same read names the record, so the receipt says which deal changed
+    // even when the mirror has not seen it yet.
     let previous: Record<string, string | null> | null = null;
+    let name: string | null = null;
+    const nameKeys = HUBSPOT_NAME_PROPERTIES[input.objectType] ?? [];
     const before = await client.get<{ properties?: Record<string, string | null> }>(
       `/crm/v3/objects/${input.objectType}/${input.objectId}`,
-      { properties: keys.join(',') },
+      { properties: [...new Set([...keys, ...nameKeys])].join(',') },
     );
     if (before.ok) {
       previous = Object.fromEntries(keys.map(k => [k, before.data.properties?.[k] ?? null]));
+      name = hubspotNameOf(input.objectType, { ...before.data.properties, ...stringProps(input.properties) });
     }
     const res = await client.patch<{ id?: string; updatedAt?: string }>(
       `/crm/v3/objects/${input.objectType}/${input.objectId}`,
@@ -181,12 +220,18 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
       throw new Error(`HubSpot update failed: ${res.message}`);
     }
     const body = res.data;
+    const objectId = body.id ?? input.objectId;
+    const url = await hubspotRecordUrl(client, input.objectType, objectId, await configuredHubspotPortal(ctx));
     return {
       objectType: input.objectType,
-      objectId: body.id ?? input.objectId,
+      objectId,
+      // A HubSpot id, not a workspace record's (`libs/actions/resultLinks.ts`).
+      ref: `${input.objectType}:${objectId}`,
       updated: keys,
       updatedAt: body.updatedAt ?? null,
       previous,
+      ...(name ? { name } : {}),
+      ...(url ? { url } : {}),
     };
   },
   // Reversible: the previous values go back. This is what lets a confident
