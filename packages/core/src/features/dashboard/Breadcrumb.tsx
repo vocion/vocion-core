@@ -67,7 +67,7 @@ export function Breadcrumb({ workspaceName, brandName = null }: { workspaceName?
   }
 
   return (
-    <nav aria-label="Breadcrumb" className="flex max-w-full min-w-0 items-center overflow-x-auto text-[12px] sm:text-[13px]">
+    <nav aria-label="Breadcrumb" className="flex max-w-full min-w-0 items-center overflow-x-auto text-[12px] [scrollbar-width:none] sm:text-[13px] [&::-webkit-scrollbar]:hidden">
       <ol className="flex min-w-max items-center gap-1">
         {crumbs.map((c, i) => {
           const last = i === crumbs.length - 1;
