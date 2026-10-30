@@ -75,6 +75,14 @@ describe('a client\'s strategy goal', () => {
     expect(row.meta).toMatchObject({ goalStatus: 'drafted', goalTitle: 'Tally Books named in AI answers for agency invoicing in Q1 2027', documentArtifactId: expect.any(Number) });
   });
 
+  it('waits on the person: the goal card never runs on its own, whatever the ladder would release', async () => {
+    const { willExecuteOnItsOwn } = await import('@/services/ActionService');
+    const onItsOwn = await willExecuteOnItsOwn({ orgId: ORG, actionId: card!.actionId, input: card!.input as never, principal: { kind: 'agent', id: 'agent:seo-strategist', scope: { orgId: ORG }, grants: ['*'], autonomy: 2 } as never, proposal: { confidence: 0.8 } });
+
+    expect(onItsOwn).toBe(false);
+    expect((await getStrategy(ORG, projectId))!.meta).toMatchObject({ goalStatus: 'drafted' });
+  });
+
   it('finds the goal once the person approves the card, and completes each milestone when its own work does', async () => {
     const run = await goalCreateAction.execute({ orgId: ORG, invokedBy: USER, origin: { userId: USER } } as never, card!.input) as { goalId: number };
     const found = (await refreshStrategy(ORG, projectId))!;

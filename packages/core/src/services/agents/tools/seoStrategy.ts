@@ -106,7 +106,7 @@ export function seoDraftStrategyTool(ctx: RuntimeContext) {
         milestones: milestones.map(m => ({ label: m.label, done: false, ...(m.link ? { href: `/dashboard/objects/${m.link.id}` } : {}) })),
         ...(documentArtifactId ? { documentArtifactId } : {}),
         ...(held?.meta.goalId && held.meta.goalTitle !== title ? { goalId: undefined } : {}),
-      }, ctx.userId);
+      }, `agent:${ctx.agentSlug ?? 'seo-strategist'}`);
       ctx.emit({
         type: 'recommended_action',
         recommendation: {

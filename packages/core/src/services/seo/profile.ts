@@ -28,10 +28,11 @@
 
 import { z } from 'zod';
 
-export const SEO_CLIENT_TYPES = ['b2b_saas', 'local_services', 'ecommerce', 'other'] as const;
+export const SEO_CLIENT_TYPES = ['b2b_services', 'b2b_saas', 'local_services', 'ecommerce', 'other'] as const;
 export type SeoClientType = typeof SEO_CLIENT_TYPES[number];
 
 export const CLIENT_TYPE_LABEL: Record<SeoClientType, string> = {
+  b2b_services: 'B2B services',
   b2b_saas: 'B2B SaaS',
   local_services: 'Local services',
   ecommerce: 'Ecommerce',
@@ -234,33 +235,65 @@ export type SiteSignals = {
   urls?: string[];
   /** The home page's URL. */
   homepage?: string;
+  /** The home page's main text, capped: what it says the business is and to whom. */
+  text?: string;
+  /** Its schema gives a street address (a place customers come to, or a base a trade works from). */
+  hasStreetAddress?: boolean;
 };
 
-/** schema.org types that make a business local (LocalBusiness and its common subtypes). */
-const LOCAL_TYPES = /^(?:LocalBusiness|HomeAndConstructionBusiness|ProfessionalService|HVACBusiness|Plumber|Electrician|RoofingContractor|GeneralContractor|HousePainter|Locksmith|MovingCompany|AutoRepair|AutomotiveBusiness|Dentist|MedicalClinic|Physician|LegalService|Attorney|AccountingService|FinancialService|RealEstateAgent|Restaurant|FoodEstablishment|HealthAndBeautyBusiness|BeautySalon|DaySpa|ChildCare|EmergencyService|CleaningService|PestControl|LandscapingBusiness|Store)$/;
-const SAAS_TYPES = /^(?:SoftwareApplication|WebApplication|SaaS)$/;
-const COMMERCE_TYPES = /^(?:Product|ProductGroup|Offer|AggregateOffer|OfferCatalog|ItemList|OnlineStore)$/;
+/** schema.org types that make a business local. ProfessionalService is not one: consultancies and agencies declare it too. */
+const LOCAL_TYPES = /^(?:LocalBusiness|HomeAndConstructionBusiness|HVACBusiness|Plumber|Electrician|RoofingContractor|GeneralContractor|HousePainter|Locksmith|MovingCompany|AutoRepair|AutomotiveBusiness|Dentist|MedicalClinic|Physician|Attorney|RealEstateAgent|Restaurant|FoodEstablishment|HealthAndBeautyBusiness|BeautySalon|DaySpa|ChildCare|EmergencyService|CleaningService|PestControl|LandscapingBusiness)$/;
+const SAAS_TYPES = /^(?:SoftwareApplication|WebApplication|MobileApplication|SaaS)$/;
+/** Offer and OfferCatalog are left out: service firms list their services with them. */
+const COMMERCE_TYPES = /^(?:Product|ProductGroup|AggregateOffer|OnlineStore|ShoppingCenter)$/;
 
-const SAAS_PATHS = /\/(?:pricing|integrations?|demo|book-a-demo|request-a-demo|docs|developers|api|changelog|features|use-cases|solutions|compare|vs|alternatives|signup|sign-up|login|free-trial|trial)(?:\/|$)/i;
-const COMMERCE_PATHS = /\/(?:products?|collections?|shop|store|cart|checkout|category|catalog)(?:\/|$)/i;
+const SAAS_PATHS = /\/(?:pricing|integrations?|demo|book-a-demo|request-a-demo|docs|developers|api|changelog|signup|sign-up|login|free-trial|trial|app)(?:\/|$)/i;
+const COMMERCE_PATHS = /\/(?:products?|collections?|shop|cart|checkout|category|catalog)(?:\/|$)/i;
 const LOCAL_PATHS = /\/(?:locations?|service-areas?|areas-we-serve|areas-served|near-me|cities|our-locations)(?:\/|$)/i;
+const B2B_PATHS = /\/(?:case-studies|case-study|clients|our-work|work|industries|insights|services|solutions|consulting|engagements?)(?:\/|$)/i;
+
+/** What a site's words say, by kind of client: each pattern one signal, said as found. */
+const WORDS: Record<Exclude<SeoClientType, 'other'>, Array<{ re: RegExp; says: string }>> = {
+  b2b_services: [
+    { re: /\b(?:ceos?|coos?|cfos?|ctos?|cmos?|cios?|vps?|vice presidents?|c-suite|executives?|leadership teams?)\b/, says: 'buyer titles' },
+    { re: /\b(?:mid-market|enterprises?|b2b|for (?:growing )?(?:companies|businesses|organizations|teams))\b/, says: 'business buyers' },
+    { re: /\b(?:consult(?:ing|ancy|ants?)?|advisory|agency|fractional|managed services|professional services|partner for|acceleration partner)\b/, says: 'service-firm language' },
+    { re: /\b(?:book a (?:call|consultation|strategy call)|schedule a call|talk to (?:an expert|us|our team)|let'?s talk|get a proposal)\b/, says: 'a call-to-talk CTA' },
+    { re: /\b(?:case stud(?:y|ies)|our clients|client results|engagements?)\b/, says: 'case studies' },
+  ],
+  b2b_saas: [
+    { re: /\b(?:free trial|start (?:your|a) (?:free )?trial|sign up free|get started free)\b/, says: 'a free-trial CTA' },
+    { re: /\b(?:book a demo|request a demo|get a demo|see a demo|watch the demo)\b/, says: 'a demo CTA' },
+    { re: /\b(?:integrates? with|integrations|api|sdk)\b/, says: 'integrations or an API' },
+    { re: /\b(?:per (?:user|seat)|pricing plans?|\/mo(?:nth)?\b|billed annually)/, says: 'plan pricing' },
+    { re: /\b(?:software|platform|dashboard|saas|app for)\b/, says: 'product language' },
+  ],
+  local_services: [
+    { re: /\b(?:near (?:you|me)|in your area|local(?:ly owned)?)\b/, says: 'local language' },
+    { re: /\b(?:same[- ]day|free (?:estimate|quote)s?|24\/7|emergency service)\b/, says: 'a service-call offer' },
+    { re: /\b(?:call (?:us )?(?:now|today)|request service|book (?:a|your) (?:service|appointment))\b/, says: 'a call-or-book CTA' },
+    { re: /\b(?:licensed (?:and|&) insured|service area|serving [a-z]+(?: [a-z]+)? and (?:the )?surrounding)\b/, says: 'a service area' },
+  ],
+  ecommerce: [
+    { re: /\b(?:add to (?:cart|bag)|shop now|in stock|out of stock)\b/, says: 'shopping CTAs' },
+    { re: /\b(?:free shipping|free returns|ships in|checkout)\b/, says: 'shipping and checkout' },
+  ],
+};
+
+export type ClientTypeReading = { type: SeoClientType; why: string; score: number };
 
 /**
- * Which kind of client the site reads as, and why — or null when it gives no
- * clear signal. Schema the home page declares is strongest; the inventory's
- * paths count when two or more of a kind agree. Pure.
+ * Which kind of client the site reads as, scored on what it shows: the home
+ * page's schema, the inventory's paths, and its words (buyer titles,
+ * service-firm or product language, demo, trial, call or cart CTAs, a
+ * service area). A kind wins only with enough evidence and a clear lead over
+ * the next; otherwise null, and the card asks the person to choose. A place
+ * named in the schema is never enough to call a client local. Pure.
  * @param s - The site's signals.
  */
-export function detectClientType(s: SiteSignals): { type: SeoClientType; why: string } | null {
+export function detectClientType(s: SiteSignals): ClientTypeReading | null {
   const types = s.schemaTypes ?? [];
-  const local = types.filter(t => LOCAL_TYPES.test(t));
-  if (local.length) {
-    return { type: 'local_services', why: `the home page declares ${local.join(', ')} schema` };
-  }
-  const saas = types.filter(t => SAAS_TYPES.test(t));
-  if (saas.length) {
-    return { type: 'b2b_saas', why: `the home page declares ${saas.join(', ')} schema` };
-  }
+  const text = [s.title, s.description, s.text].filter(Boolean).join(' ').toLowerCase();
   const paths = (s.urls ?? []).map((u) => {
     try {
       return new URL(u).pathname;
@@ -268,37 +301,73 @@ export function detectClientType(s: SiteSignals): { type: SeoClientType; why: st
       return '';
     }
   });
-  const count = (re: RegExp) => uniq(paths.filter(p => re.test(p)).map(p => p.match(re)![0].replace(/\/$/, '')));
-  const scores: Array<{ type: SeoClientType; hits: string[] }> = [
-    { type: 'ecommerce', hits: [...count(COMMERCE_PATHS), ...types.filter(t => COMMERCE_TYPES.test(t))] },
-    { type: 'b2b_saas', hits: count(SAAS_PATHS) },
-    { type: 'local_services', hits: count(LOCAL_PATHS) },
-  ];
-  const best = scores.sort((a, b) => b.hits.length - a.hits.length)[0]!;
-  if (best.hits.length >= 2 && best.hits.length > (scores[1]?.hits.length ?? 0)) {
-    return { type: best.type, why: `the site has ${best.hits.slice(0, 4).join(', ')}` };
+  const pathHits = (re: RegExp) => uniq(paths.filter(p => re.test(p)).map(p => p.match(re)![0].replace(/\/$/, '')));
+  const wordHits = (kind: keyof typeof WORDS) => WORDS[kind].filter(w => w.re.test(text)).map(w => w.says);
+  const score: Record<Exclude<SeoClientType, 'other'>, { n: number; why: string[] }> = {
+    b2b_services: { n: 0, why: [] },
+    b2b_saas: { n: 0, why: [] },
+    local_services: { n: 0, why: [] },
+    ecommerce: { n: 0, why: [] },
+  };
+  const add = (k: keyof typeof score, n: number, why: string) => {
+    if (n > 0) {
+      score[k].n += n;
+      score[k].why.push(why);
+    }
+  };
+  const local = types.filter(t => LOCAL_TYPES.test(t));
+  add('local_services', local.length ? 3 : 0, `${local.join(', ')} schema on the home page`);
+  const saas = types.filter(t => SAAS_TYPES.test(t));
+  add('b2b_saas', saas.length ? 3 : 0, `${saas.join(', ')} schema on the home page`);
+  const commerce = types.filter(t => COMMERCE_TYPES.test(t));
+  add('ecommerce', commerce.length ? 3 : 0, `${commerce.join(', ')} schema on the home page`);
+  add('b2b_services', types.includes('ProfessionalService') ? 1 : 0, 'ProfessionalService schema');
+  for (const [kind, re] of [['b2b_saas', SAAS_PATHS], ['ecommerce', COMMERCE_PATHS], ['local_services', LOCAL_PATHS], ['b2b_services', B2B_PATHS]] as const) {
+    const hits = pathHits(re);
+    add(kind, Math.min(hits.length, 3), `pages ${hits.slice(0, 4).join(', ')}`);
   }
-  if ((s.places ?? []).length > 0) {
-    return { type: 'local_services', why: `the home page's schema names ${s.places!.slice(0, 3).join(', ')}` };
+  for (const kind of Object.keys(WORDS) as Array<keyof typeof WORDS>) {
+    const hits = wordHits(kind);
+    add(kind, hits.length, `its words: ${hits.join(', ')}`);
   }
-  return null;
+  // A street address supports a local reading; it never makes one.
+  if (s.hasStreetAddress && score.local_services.n > 0) {
+    add('local_services', 1, 'a street address in its schema');
+  }
+  const ranked = (Object.entries(score) as Array<[keyof typeof score, { n: number; why: string[] }]>).sort((a, b) => b[1].n - a[1].n);
+  const [first, second] = ranked;
+  if (!first || first[1].n < 3 || first[1].n - (second?.[1].n ?? 0) < 2) {
+    return null;
+  }
+  return { type: first[0], why: first[1].why.join('; '), score: first[1].n };
 }
+
+/** Words that say the client sells expertise or AI, where being cited in AI answers matters. */
+const EXPERTISE = /\b(?:ai|artificial intelligence|machine learning|llms?|genai|expert(?:s|ise)?|thought leadership|consult(?:ing|ancy|ants?)?|advisory|research)\b/;
 
 /**
  * The goals a client of this kind usually ranks first — a suggestion on the
- * card, the person's to reorder. Pure.
+ * card, the person's to reorder — and why. A B2B firm that sells expertise or
+ * AI gets "Named in AI answers" second. Pure.
  * @param type - The client type.
+ * @param s - The site's signals, for its words.
  */
-export function suggestedGoals(type: SeoClientType | undefined): SeoGoal[] {
+export function suggestedGoals(type: SeoClientType | undefined, s: SiteSignals = {}): { goals: SeoGoal[]; why: string } {
+  const text = [s.title, s.description, s.text].filter(Boolean).join(' ').toLowerCase();
+  const expertise = EXPERTISE.test(text);
   switch (type) {
     case 'local_services':
-      return ['google_business_profile', 'organic_leads'];
+      return { goals: ['google_business_profile', 'organic_leads'], why: 'a local services client is found on the map first: reorder them' };
+    case 'b2b_services':
+      return expertise
+        ? { goals: ['organic_leads', 'ai_answers'], why: 'a B2B services firm whose site sells expertise or AI: leads first, then being named in AI answers; reorder them' }
+        : { goals: ['organic_leads'], why: 'a B2B services firm wins leads from search first: reorder them' };
     case 'b2b_saas':
-      return ['organic_leads', 'ai_answers'];
+      return { goals: ['organic_leads', 'ai_answers'], why: 'a B2B SaaS client: leads from search, then being named when buyers ask AI assistants; reorder them' };
     case 'ecommerce':
-      return ['rankings', 'organic_leads'];
+      return { goals: ['rankings', 'organic_leads'], why: 'an ecommerce client: category rankings, then sales from search; reorder them' };
     default:
-      return ['organic_leads'];
+      return { goals: ['organic_leads'], why: 'a starting point until you choose the client type: choose and reorder them' };
   }
 }
 
@@ -357,9 +426,14 @@ export function prefillSeoProfile(project: ProfileProjectFacts, site: SiteSignal
   if (detected) {
     out.clientType = detected.type;
     evidence.clientType = detected.why;
+  } else {
+    // Unsure is said, never guessed: the person chooses.
+    out.clientType = 'other';
+    evidence.clientType = 'the site does not say clearly: please choose';
   }
-  out.goals = suggestedGoals(out.clientType);
-  evidence.goals = out.clientType ? `what a ${CLIENT_TYPE_LABEL[out.clientType]} client usually ranks first: reorder them` : 'a starting point: reorder them';
+  const goals = suggestedGoals(detected?.type, site);
+  out.goals = goals.goals;
+  evidence.goals = goals.why;
   if (site.places?.length && out.clientType === 'local_services') {
     out.locations = uniq(site.places);
     evidence.locations = 'the home page\'s schema (address and area served)';
@@ -473,9 +547,11 @@ export function seoPriorities(p: SeoProfile | undefined): SeoPriorities {
     } else if (g === 'organic_leads') {
       lines.push(type === 'b2b_saas'
         ? 'Organic leads: bottom-of-funnel pages first (use cases, comparisons, alternatives, integrations), each with the demo or trial call to action.'
-        : type === 'ecommerce'
-          ? 'Organic leads: category and buying-guide pages that end at a product, before blog posts.'
-          : `Organic leads: service pages${where} with the client's call to action, before blog posts.`);
+        : type === 'b2b_services'
+          ? 'Organic leads: a page for each service and the problem it solves for the buyer named on the site, with case-study proof and the call-to-talk, before blog posts.'
+          : type === 'ecommerce'
+            ? 'Organic leads: category and buying-guide pages that end at a product, before blog posts.'
+            : `Organic leads: service pages${where} with the client's call to action, before blog posts.`);
       add(type === 'b2b_saas' ? 'landing' : 'service');
     } else if (g === 'ai_answers') {
       lines.push('Named in AI answers: track the prompts buyers ask AI assistants (category, shortlist, problem, comparison, brand); write pages worth citing (a clear definition up front, sourced facts and numbers, an FAQ); the Organization schema says what the business is now.');
@@ -493,6 +569,9 @@ export function seoPriorities(p: SeoProfile | undefined): SeoPriorities {
       playbooks.add('location-pages-without-doorways');
     }
     add('location', 'service');
+  } else if (type === 'b2b_services') {
+    lines.push('A B2B services client: service and expertise pages, case studies with results, "how to choose" and comparison pages, and authored pieces that show what the firm knows; local and Google Business Profile work only if a person asks for it.');
+    add('service', 'landing', 'blog');
   } else if (type === 'b2b_saas') {
     lines.push('A B2B SaaS client: use-case, comparison ("vs" and alternatives) and integration pages carry the plan; blog posts support them.');
     add('landing', 'blog');
@@ -563,20 +642,27 @@ export function profileFacts(p: SeoProfile, publishTargetLine: (id: string) => s
  * @param publishTargetLine - The publish target in words, by id.
  */
 export function profileDraftText(p: SeoProfile, publishTargetLine: (id: string) => string | null = () => null): string {
+  // Where each value was read rides at the end of its line, so the person sees
+  // it beside the value; an edit reads the line without it (`applyProfileDraft`).
+  const from = (k: SeoProfileField, also?: string) => {
+    const said = p.evidence?.[k]?.replace(/[()]/g, '').trim();
+    const parts = [said ? `read from: ${said}` : null, also ?? null].filter(Boolean);
+    return parts.length ? `  (${parts.join('; ')})` : '';
+  };
   const lines = [
-    `Client type: ${p.clientType ? CLIENT_TYPE_LABEL[p.clientType] : ''}  (B2B SaaS, Local services, Ecommerce or Other)`,
-    `Industry: ${p.industry ?? ''}`,
-    `Goals, most important first: ${(p.goals ?? []).map(g => GOAL_LABEL[g]).join(', ')}  (Organic leads, Google Business Profile, Named in AI answers, Rankings, Other)`,
-    `Offering: ${p.offering ?? ''}`,
-    `Audience: ${p.audience ?? ''}`,
-    `Locations: ${(p.locations ?? []).join(', ')}`,
-    `Language: ${p.language ?? ''}`,
-    `Tone: ${p.tone ?? ''}`,
-    `Competitors: ${(p.competitors ?? []).join(', ')}`,
-    `Website: ${p.website ?? ''}`,
+    `Client type: ${p.clientType ? CLIENT_TYPE_LABEL[p.clientType] : ''}${from('clientType', 'choose B2B services, B2B SaaS, Local services, Ecommerce or Other')}`,
+    `Industry: ${p.industry ?? ''}${from('industry')}`,
+    `Goals, most important first: ${(p.goals ?? []).map(g => GOAL_LABEL[g]).join(', ')}${from('goals', 'Organic leads, Google Business Profile, Named in AI answers, Rankings, Other')}`,
+    `Offering: ${p.offering ?? ''}${from('offering')}`,
+    `Audience: ${p.audience ?? ''}${from('audience')}`,
+    `Locations: ${(p.locations ?? []).join(', ')}${from('locations')}`,
+    `Language: ${p.language ?? ''}${from('language')}`,
+    `Tone: ${p.tone ?? ''}${from('tone')}`,
+    `Competitors: ${(p.competitors ?? []).join(', ')}${from('competitors')}`,
+    `Website: ${p.website ?? ''}${from('website')}`,
   ];
   if (p.publishTarget) {
-    lines.push(`Publishes to: ${publishTargetLine(p.publishTarget) ?? p.publishTarget}`);
+    lines.push(`Publishes to: ${publishTargetLine(p.publishTarget) ?? p.publishTarget}${from('publishTarget')}`);
   }
   return lines.join('\n');
 }
@@ -599,7 +685,10 @@ export function clientTypeFrom(raw: string): SeoClientType | null {
   if (/saas|software/.test(n)) {
     return 'b2b_saas';
   }
-  if (/local|service/.test(n)) {
+  if (/b2b|consult|agency|advisory|professional|firm/.test(n)) {
+    return 'b2b_services';
+  }
+  if (/local|trade|homeservice/.test(n)) {
     return 'local_services';
   }
   if (/commerce|shop|store|retail/.test(n)) {

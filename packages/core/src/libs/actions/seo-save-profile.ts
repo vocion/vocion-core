@@ -2,6 +2,7 @@ import type { Action, ReviewCard } from './types';
 import type { SeoProfile } from '@/services/seo/profile';
 import { z } from 'zod';
 import { applyProfileDraft, cleanSeoProfile, FIELD_LABEL, missingFields, profileDraftText, seoPriorities, seoProfileSchema } from '@/services/seo/profile';
+import { decidedByMachine } from './decider';
 
 /**
  * seo.save_profile — a client's SEO profile, pre-filled from their site, as
@@ -33,6 +34,17 @@ export type SeoSaveProfileInput = z.infer<typeof input>;
 
 const lineFor = (i: SeoSaveProfileInput) => (id: string) => i.target_lines?.[id] ?? null;
 
+/**
+ * The person who saved it: the reviewer who decided the card, when that is a
+ * person. Null for anything else — an agent, a trust rule, a token.
+ * @param ctx - The run.
+ * @param ctx.reviewedBy - Who decided it on its card.
+ */
+export function savedByOf(ctx: { reviewedBy?: string }): string | null {
+  const by = ctx.reviewedBy?.trim();
+  return by && !decidedByMachine(by) && !by.includes(':') ? by : null;
+}
+
 export const seoSaveProfileAction: Action<typeof input> = {
   id: SEO_SAVE_PROFILE_ACTION_ID,
   name: 'Save a client\'s SEO profile',
@@ -41,6 +53,10 @@ export const seoSaveProfileAction: Action<typeof input> = {
   grant: 'update_object',
   external: false,
   approvalRequired: true,
+  // Only a person's Save writes it: no trust rule, rung, confidence or word
+  // in chat runs it in their place (`isNeverAuto`). A live run on 2026-10-29
+  // had the ladder save it as the strategist and stamp the person's name on it.
+  requiresReviewDecision: true,
   dedupKeyFor: i => `seo.save_profile:${i.project_id}`,
   async precheck(ctx, i) {
     const { getProject } = await import('@/services/DataRoomService');
@@ -51,7 +67,6 @@ export const seoSaveProfileAction: Action<typeof input> = {
     const name = i.project_title ?? `project #${i.project_id}`;
     const missing = missingFields(profile);
     const priorities = seoPriorities(profile).lines;
-    const read = Object.entries(profile.evidence ?? {}).map(([k, v]) => `${FIELD_LABEL[k as keyof typeof FIELD_LABEL] ?? k}: ${v}`);
     return {
       title: `Save the SEO profile: ${name}`,
       system: 'Projects',
@@ -63,7 +78,6 @@ export const seoSaveProfileAction: Action<typeof input> = {
       fields: [
         ...(priorities.length ? [{ label: 'What comes first', value: priorities.map((l, n) => `${n + 1}. ${l.split(':')[0]}`).join('  ') }] : []),
         ...(missing.length ? [{ label: 'Still empty', value: missing.map(k => FIELD_LABEL[k]).join(', ') }] : []),
-        ...(read.length ? [{ label: 'Where it was read', value: read.join(' · ') }] : []),
       ],
       links: [{ label: name, href: `/dashboard/projects/${i.project_id}` }, ...(profile.guidelines ?? [])],
       nextAction: 'Saving keeps it on the project, where you can change it any time.',
@@ -80,9 +94,14 @@ export const seoSaveProfileAction: Action<typeof input> = {
     if (!room) {
       throw new Error(`No project #${i.project_id} in this workspace.`);
     }
+    // Saved by the person who pressed Save on the card, and only by them: an
+    // agent's decision is never written under a person's name.
+    const by = savedByOf(ctx);
+    if (!by) {
+      throw new Error('The SEO profile is saved by a person pressing Save on its card; nobody did.');
+    }
     const previous: SeoProfile | null = room.meta.seoProfile ?? null;
-    const by = ctx.reviewedBy ?? ctx.origin?.userId ?? ctx.invokedBy ?? undefined;
-    await updateDataRoom(ctx.orgId, room.id, { seoProfile: { ...cleanSeoProfile(i.profile), savedAt: new Date().toISOString(), ...(by ? { savedBy: by } : {}) } });
+    await updateDataRoom(ctx.orgId, room.id, { seoProfile: { ...cleanSeoProfile(i.profile), savedAt: new Date().toISOString(), savedBy: by } });
     return { projectId: room.id, previous, href: `/dashboard/projects/${room.id}`, line: `Saved the SEO profile on ${room.title}.` };
   },
   async undo(ctx, i, result) {
