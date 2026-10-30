@@ -7,6 +7,7 @@ import { WorkforceInventoryPanel } from '@/features/adoption/WorkforceInventoryP
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { workspaceUrl } from '@/libs/links';
 import { client } from '@/libs/Orpc';
+import { useWorkspaceSlug } from '@/libs/workspaceSlug';
 import { operatingPath, operatingPeriod, operatingTotals } from './operatingModel';
 import { WorkforceOutcomes } from './WorkforceOutcomes';
 
@@ -21,7 +22,8 @@ export function WorkforcePerformance() {
   const scope = params.get('scope');
   const team = params.get('team');
   const work = params.get('work');
-  const requestKey = `${days}:${scope ?? ''}`;
+  const workspaceSlug = useWorkspaceSlug();
+  const requestKey = `${workspaceSlug ?? ''}:${days}:${scope ?? ''}`;
   const [snapshot, setSnapshot] = useState<{ key: string; data: Overview | null; failed: boolean } | null>(null);
   const overview = snapshot?.key === requestKey ? snapshot.data : null;
   const failed = snapshot?.key === requestKey && snapshot.failed;
@@ -52,7 +54,7 @@ export function WorkforcePerformance() {
   const money = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value);
   const teamName = selected ? (team === '' ? t('unassigned') : selected.report.teams.find(t => t.slug === team)?.name) : undefined;
   const selectedWork = work === null ? null : items.find(item => item.id === work);
-  const invalid = overview && ((scope !== null && !selected) || (team !== null && (!selected || teamName === undefined)) || (work !== null && !selectedWork));
+  const invalid = overview && ((scope !== null && !selected) || (team !== null && (!selected || teamName === undefined)) || (work !== null && (!selected || !selectedWork)));
   const priorities = workspaces.flatMap(w => w.outcomes.priorities.filter(p => items.some(item => item.workspace.id === w.id && item.id === p.itemId)).map(p => ({ ...p, workspace: w }))).sort((a, b) => a.priority - b.priority).slice(0, 5);
   const metricCards = [
     { title: t('accepted'), value: totals.accepted, note: t('acceptedNote', { total: totals.items }), link: '#work-portfolio' },
