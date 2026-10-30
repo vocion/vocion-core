@@ -1,7 +1,7 @@
 'use client';
 
 import type { ConnectInfo } from './ConnectByLogin';
-import type { ConnectorTile, Source } from './connectors/connectorRows';
+import type { ConnectorTile, ScopeProject, Source } from './connectors/connectorRows';
 import type { ConnectOutcome } from './connectOutcome';
 import type { FirstSyncWatch, SavedSource, SyncOutcome } from './firstSyncWatch';
 import type { ConfigField, ConfigFieldOption, ConfigFieldValue } from '@/libs/sources/configFields';
@@ -39,6 +39,7 @@ import { addConnectorWithCredential, ConnectCredential, credentialInputsFor, fai
 import { connectorIcon } from './connectors/connectorIcon';
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnections, catalogEntries, connectorSlugFor } from './connectors/connectorRows';
+import { ConnectScopeContext, ConnectScopePicker, keepConnectProject, keptConnectProject, useConnectScope } from './connectors/connectScope';
 import { GoogleAdsAccountPicker } from './connectors/GoogleAdsAccountPicker';
 import { KeptSignInSection, SignInAgainDialog, uploadSessionFile } from './connectors/KeptSignIn';
 import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
@@ -136,9 +137,24 @@ export function SourcesPanel({ connectInfo = {}, timeZone, overview = NO_OVERVIE
   const [returnTo, setReturnTo] = useState<string | null>(null);
   // `?paste=1` opens the add form with the first credential input focused.
   const [pasteFirst, setPasteFirst] = useState(false);
+  // Whose a new connection is: the whole workspace's, or one Project's
+  // (`connectScope.tsx`). `?project=<id>` ("Connect for this project") sets
+  // it, and it is kept in the tab so a vendor's login round trip keeps it.
+  const [projects, setProjects] = useState<ScopeProject[]>([]);
+  const [connectProject, setConnectProjectState] = useState<number | null>(null);
+  const setConnectProject = useCallback((projectId: number | null) => {
+    setConnectProjectState(projectId);
+    keepConnectProject(projectId);
+  }, []);
+  const connectScope = useMemo(() => ({ projects, projectId: connectProject, setProjectId: setConnectProject }), [projects, connectProject, setConnectProject]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    // Named by the link, else kept from before a vendor's login this visit is the return of.
+    const askedProject = Number(params.get('project') ?? '');
+    const returning = params.has('connect') || params.has('add');
+    const forProject = Number.isInteger(askedProject) && askedProject > 0 ? askedProject : returning ? keptConnectProject() : null;
+    setConnectProject(forProject);
     const back = safeReturnPath(params.get('returnTo'));
     if (back) {
       setReturnTo(back);
@@ -152,7 +168,7 @@ export function SourcesPanel({ connectInfo = {}, timeZone, overview = NO_OVERVIE
       setPasteFirst(true);
     }
     const outcome = readConnectOutcome(window.location.search);
-    if (!outcome && !add && !back && !pasteRequested) {
+    if (!outcome && !add && !back && !pasteRequested && !params.has('project')) {
       return;
     }
     if (outcome) {
@@ -166,8 +182,9 @@ export function SourcesPanel({ connectInfo = {}, timeZone, overview = NO_OVERVIE
     url.searchParams.delete('source');
     url.searchParams.delete('connector');
     url.searchParams.delete('paste');
+    url.searchParams.delete('project');
     window.history.replaceState(null, '', url.toString());
-  }, []);
+  }, [setConnectProject]);
 
   const refresh = useCallback(async (): Promise<Source[]> => {
     setLoading(true);
@@ -176,6 +193,7 @@ export function SourcesPanel({ connectInfo = {}, timeZone, overview = NO_OVERVIE
       const data = await res.json();
       setSources(data.sources ?? []);
       setConnectors(data.connectors ?? []);
+      setProjects(data.projects ?? []);
       return data.sources ?? [];
     } finally {
       setLoading(false);
@@ -305,6 +323,23 @@ export function SourcesPanel({ connectInfo = {}, timeZone, overview = NO_OVERVIE
     }
   }, [connectors, refreshQuietly, t]);
 
+  const handleScope = useCallback(async (source: Source, projectId: number | null) => {
+    const name = connectors.find(c => c.slug === connectorSlugFor(source))?.name ?? source.slug;
+    setError(null);
+    try {
+      const res = await fetch(`/rpc/sources/${source.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? t('action_failed', { name }));
+        return;
+      }
+      await refreshQuietly();
+      toast.success(data.projectTitle ? t('scoped_toast', { name, project: data.projectTitle }) : t('scoped_workspace_toast', { name }));
+    } catch {
+      setError(t('action_failed', { name }));
+    }
+  }, [connectors, refreshQuietly, t]);
+
   const handleSync = useCallback(async (id: number) => {
     setSyncingId(id);
     setError(null);
@@ -328,135 +363,155 @@ export function SourcesPanel({ connectInfo = {}, timeZone, overview = NO_OVERVIE
     }
   }, [refresh]);
 
+  const connectProjectTitle = connectProject === null ? null : (projects.find(p => p.id === connectProject)?.title ?? null);
   return (
-    <div className="flex flex-col gap-4">
-      {connectOutcome
-        ? (
-            <Notice
-              role="status"
-              tone={connectOutcome.ok ? 'pass' : 'fail'}
-              action={(
-                <button type="button" onClick={() => setConnectOutcome(null)} className="text-xs underline-offset-2 hover:underline">
-                  Dismiss
-                </button>
-              )}
-            >
-              {connectOutcomeMessage({ ...connectOutcome, source: connectorNameFor(connectors, connectOutcome.source) })}
-            </Notice>
-          )
-        : null}
-      {error
-        ? (
-            <Notice tone="fail">{error}</Notice>
-          )
-        : null}
+    <ConnectScopeContext value={connectScope}>
+      <div className="flex flex-col gap-4">
+        {connectProjectTitle
+          ? (
+              <Notice
+                role="status"
+                tone="info"
+                action={(
+                  <button type="button" onClick={() => setConnectProject(null)} className="text-xs underline-offset-2 hover:underline" data-testid="connect-for-workspace">
+                    {t('connecting_for_workspace_instead')}
+                  </button>
+                )}
+              >
+                {t('connecting_for', { name: connectProjectTitle })}
+              </Notice>
+            )
+          : null}
+        {connectOutcome
+          ? (
+              <Notice
+                role="status"
+                tone={connectOutcome.ok ? 'pass' : 'fail'}
+                action={(
+                  <button type="button" onClick={() => setConnectOutcome(null)} className="text-xs underline-offset-2 hover:underline">
+                    Dismiss
+                  </button>
+                )}
+              >
+                {connectOutcomeMessage({ ...connectOutcome, source: connectorNameFor(connectors, connectOutcome.source) })}
+              </Notice>
+            )
+          : null}
+        {error
+          ? (
+              <Notice tone="fail">{error}</Notice>
+            )
+          : null}
 
-      {syncOutcome
-        ? (
-            <Notice tone={syncOutcome.hadErrors ? 'warn' : 'info'}>
-              {syncOutcome.message}
-            </Notice>
-          )
-        : null}
+        {syncOutcome
+          ? (
+              <Notice tone={syncOutcome.hadErrors ? 'warn' : 'info'}>
+                {syncOutcome.message}
+              </Notice>
+            )
+          : null}
 
-      {loading
-        ? (
-            <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Loading connectors…
-            </div>
-          )
-        : (
-            <ConnectorList
-              connections={connections}
-              catalog={catalog}
-              recommended={overview.recommended}
-              usedBy={overview.usedBy}
-              isAdmin={isAdmin}
-              syncingId={syncingId}
-              lastAttempts={failedAttempts(connectInfo)}
-              timeZone={timeZone}
-              onConnectNew={slug => setAddingKind(slug)}
-              onSync={s => void handleSync(s.id)}
-              onTest={setTestingSource}
-              onEdit={setEditingSource}
-              onConnect={setConnectingSource}
-              onSignIn={setSigningInSource}
-              onPause={(s, paused) => void handlePause(s, paused)}
-              onDisconnect={handleDisconnect}
-            />
-          )}
+        {loading
+          ? (
+              <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Loading connectors…
+              </div>
+            )
+          : (
+              <ConnectorList
+                connections={connections}
+                catalog={catalog}
+                recommended={overview.recommended}
+                usedBy={overview.usedBy}
+                isAdmin={isAdmin}
+                syncingId={syncingId}
+                lastAttempts={failedAttempts(connectInfo)}
+                timeZone={timeZone}
+                onConnectNew={slug => setAddingKind(slug)}
+                onSync={s => void handleSync(s.id)}
+                onTest={setTestingSource}
+                onEdit={setEditingSource}
+                onConnect={setConnectingSource}
+                onSignIn={setSigningInSource}
+                onPause={(s, paused) => void handlePause(s, paused)}
+                onDisconnect={handleDisconnect}
+                projects={projects}
+                onScope={(s, projectId) => void handleScope(s, projectId)}
+              />
+            )}
 
-      {addingKind
-        ? (
-            <AddSourceDialog
-              kind={addingKind}
-              connector={connectors.find(c => c.slug === addingKind) ?? null}
-              connectInfo={connectInfo[addingKind]}
-              pasteFirst={pasteFirst}
-              onClose={() => setAddingKind(null)}
-              onAdded={async (saved) => {
-                setAddingKind(null);
-                await refresh();
-                setSyncOutcome(firstSyncNotice(saved?.firstSync));
-                setFirstSyncSourceId(saved?.sourceId ?? null);
-                setFirstSyncWatch(firstSyncWatchAfterSave(saved?.firstSync));
-              }}
-            />
-          )
-        : null}
-      {editingSource
-        ? (
-            <AddSourceDialog
-              kind={connectorSlugFor(editingSource)}
-              connector={connectors.find(c => c.slug === connectorSlugFor(editingSource)) ?? null}
-              existing={editingSource}
-              onClose={() => setEditingSource(null)}
-              onAdded={async () => {
-                const editedId = editingSource.id;
-                setEditingSource(null);
-                await refresh();
-                // New settings, new picture: the saved edit already stopped any
-                // run reading the old config, so read the source again now
-                // rather than leaving stale documents until someone notices.
-                await handleSync(editedId);
-              }}
-            />
-          )
-        : null}
-      {signingInSource && keptSignInSpecFor(connectorSlugFor(signingInSource))
-        ? (
-            <SignInAgainDialog
-              source={signingInSource}
-              spec={keptSignInSpecFor(connectorSlugFor(signingInSource))!}
-              name={connectorNameFor(connectors, connectorSlugFor(signingInSource)) ?? signingInSource.slug}
-              onClose={() => setSigningInSource(null)}
-              onUploaded={() => void refresh()}
-            />
-          )
-        : null}
-      {testingSource
-        ? <TestSourceDialog source={testingSource} onClose={() => setTestingSource(null)} />
-        : null}
-      {connectingSource
-        ? (
-            <ConnectCredentialDialog
-              source={connectingSource}
-              name={connectorNameFor(connectors, connectorSlugFor(connectingSource)) ?? connectingSource.slug}
-              returnTo={returnTo}
-              onClose={() => setConnectingSource(null)}
-              onConnected={async () => {
-                setConnectingSource(null);
-                if (returnTo) {
-                  window.location.assign(returnUrl('', { ok: true }, { source: connectingSource.slug, returnTo }));
-                  return;
-                }
-                await refresh();
-              }}
-            />
-          )
-        : null}
-    </div>
+        {addingKind
+          ? (
+              <AddSourceDialog
+                kind={addingKind}
+                connector={connectors.find(c => c.slug === addingKind) ?? null}
+                connectInfo={connectInfo[addingKind]}
+                pasteFirst={pasteFirst}
+                onClose={() => setAddingKind(null)}
+                onAdded={async (saved) => {
+                  setAddingKind(null);
+                  await refresh();
+                  setSyncOutcome(firstSyncNotice(saved?.firstSync));
+                  setFirstSyncSourceId(saved?.sourceId ?? null);
+                  setFirstSyncWatch(firstSyncWatchAfterSave(saved?.firstSync));
+                }}
+              />
+            )
+          : null}
+        {editingSource
+          ? (
+              <AddSourceDialog
+                kind={connectorSlugFor(editingSource)}
+                connector={connectors.find(c => c.slug === connectorSlugFor(editingSource)) ?? null}
+                existing={editingSource}
+                onClose={() => setEditingSource(null)}
+                onAdded={async () => {
+                  const editedId = editingSource.id;
+                  setEditingSource(null);
+                  await refresh();
+                  // New settings, new picture: the saved edit already stopped any
+                  // run reading the old config, so read the source again now
+                  // rather than leaving stale documents until someone notices.
+                  await handleSync(editedId);
+                }}
+              />
+            )
+          : null}
+        {signingInSource && keptSignInSpecFor(connectorSlugFor(signingInSource))
+          ? (
+              <SignInAgainDialog
+                source={signingInSource}
+                spec={keptSignInSpecFor(connectorSlugFor(signingInSource))!}
+                name={connectorNameFor(connectors, connectorSlugFor(signingInSource)) ?? signingInSource.slug}
+                onClose={() => setSigningInSource(null)}
+                onUploaded={() => void refresh()}
+              />
+            )
+          : null}
+        {testingSource
+          ? <TestSourceDialog source={testingSource} onClose={() => setTestingSource(null)} />
+          : null}
+        {connectingSource
+          ? (
+              <ConnectCredentialDialog
+                source={connectingSource}
+                name={connectorNameFor(connectors, connectorSlugFor(connectingSource)) ?? connectingSource.slug}
+                returnTo={returnTo}
+                onClose={() => setConnectingSource(null)}
+                onConnected={async () => {
+                  setConnectingSource(null);
+                  if (returnTo) {
+                    window.location.assign(returnUrl('', { ok: true }, { source: connectingSource.slug, returnTo }));
+                    return;
+                  }
+                  await refresh();
+                }}
+              />
+            )
+          : null}
+      </div>
+    </ConnectScopeContext>
   );
 }
 
@@ -1113,16 +1168,18 @@ function stopWaitingForFirstSync(
  * @param kind - Connector slug.
  * @param configJson - The connector's own config blob.
  * @param startSyncing - False when a credential is stored next, so the first sync waits for it.
+ * @param projectId - The Project the connection is for, or null for the whole workspace.
  */
 async function createSourceReturningId(
   kind: string,
   configJson: Record<string, unknown>,
   startSyncing = true,
+  projectId: number | null = null,
 ): Promise<{ id: number | null; error: string | null; firstSync: string | null }> {
   const res = await fetch('/rpc/sources', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind, configJson, startSyncing }),
+    body: JSON.stringify({ kind, configJson, startSyncing, ...(projectId === null ? {} : { projectId }) }),
   });
   const data = await res.json();
   if (!res.ok) {
@@ -1157,13 +1214,14 @@ async function startSyncingAfterCredential(sourceId: number): Promise<string> {
  * @param input.existing - The source being edited, or null when adding.
  * @param input.kind - Connector slug.
  * @param input.config - The connector's config blob.
+ * @param input.projectId - The Project a new connection is for, or null for the whole workspace.
  * @returns The server's message on failure (null on success), the source, and a new one's `firstSync`.
  */
-async function savePastedOrEdited(input: { existing: Source | null; kind: string; config: Record<string, unknown> }): Promise<{ error: string | null } & SavedSource> {
+async function savePastedOrEdited(input: { existing: Source | null; kind: string; config: Record<string, unknown>; projectId: number | null }): Promise<{ error: string | null } & SavedSource> {
   if (input.existing) {
     return { error: await updateSourceConfig(input.existing.id, input.config), sourceId: input.existing.id, firstSync: null };
   }
-  return createSource(input.kind, input.config);
+  return createSource(input.kind, input.config, input.projectId);
 }
 
 /**
@@ -1205,9 +1263,10 @@ async function deleteSourceById(sourceId: number): Promise<string | null> {
  * success) and whether its first sync started.
  * @param kind - Connector slug.
  * @param configJson - The connector's own config blob.
+ * @param projectId - The Project the connection is for, or null for the whole workspace.
  */
-async function createSource(kind: string, configJson: Record<string, unknown>): Promise<{ error: string | null } & SavedSource> {
-  const { id, error, firstSync } = await createSourceReturningId(kind, configJson);
+async function createSource(kind: string, configJson: Record<string, unknown>, projectId: number | null): Promise<{ error: string | null } & SavedSource> {
+  const { id, error, firstSync } = await createSourceReturningId(kind, configJson, true, projectId);
   return { error, sourceId: id, firstSync };
 }
 
@@ -1227,6 +1286,7 @@ async function createSource(kind: string, configJson: Record<string, unknown>): 
  * @param root0.canSubmit
  * @param root0.onClose
  * @param root0.onSubmit
+ * @param root0.showScope
  * @param root0.children
  */
 function AddSourceDialogFrame({
@@ -1240,8 +1300,11 @@ function AddSourceDialogFrame({
   canSubmit,
   onClose,
   onSubmit,
+  showScope = false,
   children,
 }: {
+  /** Offer "Scope: Whole workspace / Project" — on a new connection; Manage moves an existing one. */
+  showScope?: boolean;
   title: string;
   /** A small mark before the title: the connector's tile. */
   lead?: React.ReactNode;
@@ -1269,6 +1332,7 @@ function AddSourceDialogFrame({
             <DialogTitle className="font-display text-lg">{title}</DialogTitle>
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+            <ConnectScopePicker show={showScope} />
             {notice
               ? (
                   <p className="rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
@@ -1424,6 +1488,7 @@ function AddWebSourceDialog({ kind, title, lead, existing, onClose, onAdded }: {
   onClose: () => void;
   onAdded: (saved?: SavedSource) => Promise<void> | void;
 }) {
+  const connectScope = useConnectScope();
   const existingConfig = (existing?.config ?? {}) as {
     urls?: string[];
     crawl?: { startUrl?: string; maxPages?: number };
@@ -1444,7 +1509,7 @@ function AddWebSourceDialog({ kind, title, lead, existing, onClose, onAdded }: {
         : { urls: [url] };
       const saved = existing
         ? { error: await updateSourceConfig(existing.id, configJson), sourceId: existing.id, firstSync: null }
-        : await createSource(kind, configJson);
+        : await createSource(kind, configJson, connectScope.projectId);
       if (saved.error) {
         setError(saved.error);
         return;
@@ -1462,6 +1527,7 @@ function AddWebSourceDialog({ kind, title, lead, existing, onClose, onAdded }: {
       error={error}
       requirement={url.trim().length > 0 ? null : 'a URL to read'}
       submitLabel={existing ? 'Save changes' : 'Connect'}
+      showScope={!existing}
       notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
       canSubmit={url.trim().length > 0}
@@ -1720,6 +1786,7 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
   onClose: () => void;
   onAdded: (saved?: SavedSource) => Promise<void> | void;
 }) {
+  const connectScope = useConnectScope();
   const [values, setValues] = useState<Record<string, ConfigFieldValue>>(() => (
     existing
       ? fieldValuesFromConfig(fields, (existing.config ?? {}) as Record<string, unknown>)
@@ -1794,12 +1861,12 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
       // The connector and its credential are one request and one transaction; a
       // refusal throws with the sentence the server wrote and is shown as it is.
       if (credentialInputs.length > 0) {
-        const added = await addConnectorWithCredential(kind, config, credential);
+        const added = await addConnectorWithCredential(kind, config, credential, connectScope.projectId);
         await keepPickedSession(added?.sourceId);
         await onAdded(added);
         return;
       }
-      const saved = await savePastedOrEdited({ existing, kind, config });
+      const saved = await savePastedOrEdited({ existing, kind, config, projectId: connectScope.projectId });
       if (saved.error) {
         setError(saved.error);
         return;
@@ -1823,6 +1890,7 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
       error={error}
       requirement={describeMissingFields([...credentialMissing, ...missingLabels])}
       submitLabel={existing ? 'Save changes' : 'Connect'}
+      showScope={!existing}
       notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
       canSubmit={missingLabels.length === 0 && credentialMissing.length === 0}
@@ -2060,6 +2128,7 @@ function AddStrapiSourceDialog({ kind, title, lead, existing, onClose, onAdded }
   onClose: () => void;
   onAdded: (saved?: SavedSource) => Promise<void> | void;
 }) {
+  const connectScope = useConnectScope();
   const existingConfig = (existing?.config ?? {}) as {
     baseUrl?: string;
     collections?: string[];
@@ -2286,7 +2355,7 @@ function AddStrapiSourceDialog({ kind, title, lead, existing, onClose, onAdded }
         // A new connector has to exist before a credential can name it, and
         // its first sync waits for that credential: started any sooner, it
         // would find none and be skipped.
-        const created = await createSourceReturningId(kind, configJson, !willWriteCredential);
+        const created = await createSourceReturningId(kind, configJson, !willWriteCredential, connectScope.projectId);
         if (created.error || created.id === null) {
           setError(created.error ?? 'Failed to create connector');
           return;
@@ -2325,6 +2394,7 @@ function AddStrapiSourceDialog({ kind, title, lead, existing, onClose, onAdded }
       error={error}
       requirement={requirement}
       submitLabel={existing ? 'Save changes' : 'Connect'}
+      showScope={!existing}
       notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
       canSubmit={connectionReady && chosen.length > 0 && failedChecks.length === 0}

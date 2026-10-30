@@ -82,6 +82,18 @@ export async function patchProject(caller: ApiCaller, rawId: string, req: NextRe
   if (!current) {
     return notFound();
   }
+  // A target this project could never publish to: its connection belongs to
+  // another project (`connectionScope.ts`). Said now, naming that project,
+  // rather than at the first publish.
+  if (publishTargets) {
+    const { publishTargetScopeRefusal } = await import('@/services/publish/sitePublish');
+    for (const target of publishTargets) {
+      const refusal = await publishTargetScopeRefusal(caller.orgId, id, target as { kind: string; config: Record<string, unknown> });
+      if (refusal) {
+        return NextResponse.json({ error: { code: 'BAD_REQUEST', message: `${target.label ?? target.kind}: ${refusal} Connect it for this project, or for the whole workspace, under Connectors.` } }, { status: 400 });
+      }
+    }
+  }
   const room = await updateDataRoom(caller.orgId, id, {
     ...(notes === undefined ? {} : { notes }),
     // Instructions are replaced as a whole from the page: the textarea is the list.

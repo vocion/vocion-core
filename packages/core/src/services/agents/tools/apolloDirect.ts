@@ -23,6 +23,7 @@ import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { resolveApolloAuth } from '@/libs/sources/apollo';
 import { knowledgeSourceSchema } from '@/models/Schema';
+import { inScopeWhere, scopeOf } from '@/services/connect/connectionScope';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 
 /** A source slug that belongs to the Apollo connector family. */
@@ -83,6 +84,8 @@ export async function apolloSourcesForOrg(orgId: string): Promise<ApolloSourceRo
     .from(knowledgeSourceSchema)
     .where(and(
       eq(knowledgeSourceSchema.orgId, orgId),
+      // The current work's connections only (`connectionScope.ts`).
+      inScopeWhere(scopeOf()),
       or(
         sql`${knowledgeSourceSchema.slug} ~ '^apollo(-|$)'`,
         sql`${knowledgeSourceSchema.configJson} ->> '_connector' = 'apollo'`,

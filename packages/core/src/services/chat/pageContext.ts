@@ -333,6 +333,10 @@ export function recordFromPath(path: string, title = '', pageType?: (pageSlug: s
   if (object) {
     return { type: 'object', id: object[1]!, label: title || `#${object[1]}`, href: `/dashboard/objects/${object[1]}` };
   }
+  const project = /^\/dashboard\/projects\/(\d+)\/?$/.exec(p);
+  if (project) {
+    return { type: 'object', id: project[1]!, label: title || `Project #${project[1]}`, href: `/dashboard/projects/${project[1]}`, objectType: 'data_room' };
+  }
   const agentRun = /^\/dashboard\/p\/runs\/agent-(\d+)\/?$/.exec(p);
   if (agentRun) {
     return { type: 'mission_run', id: agentRun[1]!, label: title || `Agent run #${agentRun[1]}`, href: `/dashboard/p/runs/agent-${agentRun[1]}` };
@@ -475,13 +479,18 @@ export function pageShowsRecord(ctx: PageContext | null | undefined, ref: Record
 
 /**
  * `contacts:9412` → a record ref. Contacts/companies/deals map onto the
- * one CRM record type the context knows; anything else stays an `object`.
+ * one CRM record type the context knows; `project:12` is that Project's
+ * record; anything else stays an `object`.
  * @param scopeRef - The dock's scope ref.
  */
 export function scopeRefToRecord(scopeRef: string): RecordRef | null {
   const [kind, id] = scopeRef.split(':', 2);
   if (!kind || !id) {
     return null;
+  }
+  // A conversation about a Project (`project:<id>`, `connectionScope.ts`) is about that record.
+  if (kind === 'project' && /^\d{1,10}$/.test(id)) {
+    return { type: 'object', id, objectType: 'data_room', href: `/dashboard/projects/${id}` };
   }
   const type: RecordType = kind === 'deals' ? 'deal' : 'object';
   return { type, id: `${kind}:${id}`.slice(0, MAX_ID) };

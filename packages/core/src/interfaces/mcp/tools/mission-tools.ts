@@ -42,16 +42,18 @@ export function missionTools(config: McpConfig): ToolModule[] {
         missionSlug: z.string().optional(),
         team: z.object({ lead: z.string(), members: z.array(z.string()).default([]) }).optional(),
         autonomyLevel: z.number().int().min(1).max(5).optional(),
+        projectId: z.number().int().positive().optional().describe('The Project the run works for: it uses that project\'s connections and no other project\'s.'),
       },
       handler: async (input) => {
-        const { brief, title, missionSlug, team, autonomyLevel } = input as {
+        const { brief, title, missionSlug, team, autonomyLevel, projectId } = input as {
           brief: string;
           title?: string;
           missionSlug?: string;
           team?: { lead: string; members: string[] };
           autonomyLevel?: number;
+          projectId?: number;
         };
-        return startMission({ orgId: config.orgId, brief, title, missionSlug, team, autonomyLevel, invokedBy: 'mcp' });
+        return startMission({ orgId: config.orgId, brief, title, missionSlug, team, autonomyLevel, projectId, invokedBy: 'mcp' });
       },
     },
     {

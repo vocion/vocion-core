@@ -36,6 +36,12 @@ export type ConnectStatePayload = {
    * in between. Not a secret: the vendor's authorize URL carries it too.
    */
   loginClientId?: string;
+  /**
+   * The Project the connect started for ("Connect for this project"): the
+   * source the login makes belongs to it (`connectionScope.ts`). Checked
+   * against the workspace again when the source is made.
+   */
+  projectId?: number;
   /** Unix milliseconds. */
   exp: number;
 };
@@ -77,6 +83,7 @@ function sign(payload: string): string {
  * @param input.userId - The person who started it.
  * @param input.returnTo - Optional `/dashboard` path to land on afterwards.
  * @param input.loginClientId - The client ID of the app the login runs on, when it runs on one.
+ * @param input.projectId - The Project the connect is for, when it started from one.
  * @param now - Injected for tests.
  */
 export function signState(
@@ -90,6 +97,7 @@ export function signState(
     conversationId?: number;
     cardId?: string;
     loginClientId?: string;
+    projectId?: number;
   },
   now: number = Date.now(),
 ): string {
@@ -104,6 +112,7 @@ export function signState(
     ...(input.conversationId !== undefined ? { conversationId: input.conversationId } : {}),
     ...(input.cardId ? { cardId: input.cardId } : {}),
     ...(input.loginClientId ? { loginClientId: input.loginClientId } : {}),
+    ...(input.projectId ? { projectId: input.projectId } : {}),
     nonce: randomBytes(16).toString('hex'),
     exp: now + TTL_MS,
   };
@@ -157,6 +166,7 @@ export function verifyState(
     || (payload.conversationId !== undefined && !Number.isSafeInteger(payload.conversationId))
     || (payload.cardId !== undefined && typeof payload.cardId !== 'string')
     || (payload.loginClientId !== undefined && typeof payload.loginClientId !== 'string')
+    || (payload.projectId !== undefined && !(Number.isSafeInteger(payload.projectId) && payload.projectId > 0))
     || typeof payload.userId !== 'string'
     || typeof payload.nonce !== 'string'
     || typeof payload.exp !== 'number'

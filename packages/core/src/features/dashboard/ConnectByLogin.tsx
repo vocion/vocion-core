@@ -7,6 +7,7 @@ import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { connectStartHref } from '@/libs/connect/returnTo';
 import { client, noStoreClient } from '@/libs/Orpc';
 import { accessForDisplay, afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { useConnectScope } from './connectors/connectScope';
 import { ProviderLoginButton } from './ProviderLoginButton';
 
 /**
@@ -161,9 +162,10 @@ function maskedTail(hint: string): string {
  * @param connector - Connector slug.
  * @param config - What the person filled in.
  * @param draft - The credential choice.
+ * @param projectId - The Project the connection is for, or null for the whole workspace.
  */
-export async function addConnectorWithCredential(connector: string, config: Record<string, unknown>, draft: CredentialDraft): Promise<{ sourceId: number | null; firstSync: string | null }> {
-  const saved = await client.connect.addConnector({ connector, config, credential: credentialChoiceOf(draft) });
+export async function addConnectorWithCredential(connector: string, config: Record<string, unknown>, draft: CredentialDraft, projectId: number | null = null): Promise<{ sourceId: number | null; firstSync: string | null }> {
+  const saved = await client.connect.addConnector({ connector, config, credential: credentialChoiceOf(draft), ...(projectId === null ? {} : { projectId }) });
   return { sourceId: saved.sourceId, firstSync: saved.firstSync };
 }
 
@@ -386,6 +388,7 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
   setDraft: (update: (current: CredentialDraft) => CredentialDraft) => void;
   focusFirst: boolean;
 }) {
+  const { projectId } = useConnectScope();
   const how = howToConnectFor(connector);
   if (!how) {
     return null;
@@ -403,7 +406,8 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
       />
     );
   }
-  const href = login ? connectStartHref({ provider: login.provider, connector, returnTo: `/dashboard/connectors?add=${connector}` }) : null;
+  // A connect for a Project carries it through the vendor's login, so the source the login makes is the project's.
+  const href = login ? connectStartHref({ provider: login.provider, connector, returnTo: `/dashboard/connectors?add=${connector}${projectId === null ? '' : `&project=${projectId}`}`, projectId }) : null;
   const inputs = credentialInputsFor(connector);
   return (
     <ConnectCredentialChoice

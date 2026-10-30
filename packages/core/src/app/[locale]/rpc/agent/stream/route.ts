@@ -16,6 +16,7 @@
 import type { AgentEvent } from '@/services/agents/types';
 import type { RunCostScope } from '@/services/budget/runCost';
 import type { HistoryTurn } from '@/services/chat/historyTools';
+import type { PageContext } from '@/services/chat/pageContext';
 import type { CollectedDoc } from '@/services/chat/runCollector';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { featureOf } from '@/libs/analytics/featureOf';
@@ -283,12 +284,17 @@ export async function POST(request: Request): Promise<Response> {
   // of its own before it (`useChatSession`). Its agent is the one the
   // composer named, as that call recorded; the turn's speaker is on the rows.
   if (conversationId === null && body.create_conversation === true) {
+    // A conversation started on a project's page (or a record of one) is
+    // about that project: scoped to it, so its turns use that project's
+    // connections and its header names it (`connectionScope.ts`).
+    const askedScope = typeof body.scope_ref === 'string' && body.scope_ref ? body.scope_ref.slice(0, 120) : null;
+    const scopeRef = askedScope ?? await projectScopeOfPage(orgId, pageContext);
     const conv = await createConversation({
       orgId,
       agentSlug: typeof body.agent_slug === 'string' && body.agent_slug ? body.agent_slug : agentSlug,
       createdBy: userId,
       context: pageContext,
-      ...(typeof body.scope_ref === 'string' && body.scope_ref ? { scopeRef: body.scope_ref.slice(0, 120) } : {}),
+      ...(scopeRef ? { scopeRef } : {}),
     });
     conversationId = conv.id;
     // The person's standing choice, when it is not the default the row is
@@ -369,6 +375,12 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const [allowedSourceSlugs, grounding] = await Promise.all([allowedSourceSlugsRead, groundingRead]);
+  // The project this turn works for — the conversation's, else the page's —
+  // read once: it decides which connections the turn may use
+  // (`connectionScope.ts`), and the header says it (`stream_meta.project`).
+  const { projectTitles, turnWorkProject } = await import('@/services/connect/connectionScope');
+  const workProjectId = await turnWorkProject(orgId, { conversationId, pageContext });
+  const workProject = workProjectId === null ? null : { id: workProjectId, title: (await projectTitles(orgId, [workProjectId])).get(workProjectId) ?? `Project #${workProjectId}` };
 
   // The turn, for whichever agent answers. Its events go to `sink` once the
   // stream is open; until then they wait in `early`, in order.
@@ -385,6 +397,7 @@ export async function POST(request: Request): Promise<Response> {
   const runTurn = (slug: string, hold?: Promise<boolean>) => {
     const turn = () => runAgentDeep({
       allowedSourceSlugs,
+      workProjectId,
       orgId,
       agentSlug: slug,
       message: turnMessage,
@@ -625,7 +638,7 @@ export async function POST(request: Request): Promise<Response> {
       // the client stashes it and never reduces it into the transcript).
       // A thread created with this turn names itself here, so the client never
       // spends a round trip creating it first.
-      safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'stream_meta', streamId, ...(conversationId !== null ? { conversationId } : {}) })}\n\n`));
+      safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'stream_meta', streamId, ...(conversationId !== null ? { conversationId } : {}), ...(workProject ? { project: workProject } : {}) })}\n\n`));
       // Then who answers, when the workspace decided: the client renders the
       // turn under that agent's name, and the reason rides with it.
       if (routing && routedAgent) {
@@ -890,4 +903,19 @@ export async function POST(request: Request): Promise<Response> {
       'X-Accel-Buffering': 'no',
     },
   });
+}
+
+/**
+ * The scope ref of the project a page is about — the project itself, or the
+ * project its record belongs to — or null.
+ * @param orgId - The workspace.
+ * @param pageContext - Where the person started the conversation.
+ */
+async function projectScopeOfPage(orgId: string, pageContext: PageContext | null | undefined): Promise<string | null> {
+  if (!pageContext?.record) {
+    return null;
+  }
+  const { projectScopeRef, workProjectFor } = await import('@/services/connect/connectionScope');
+  const projectId = await workProjectFor(orgId, { records: [pageContext.record] });
+  return projectId === null ? null : projectScopeRef(projectId);
 }

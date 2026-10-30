@@ -495,7 +495,7 @@ export function useChatSession({
   // written here (first send, rename). The recent list wins when it holds the
   // thread, since it is refetched after every turn; this covers a thread too
   // old to be in it.
-  const [threadMeta, setThreadMeta] = useState<{ id: number; title: string; titleSource: ConversationTitleSource } | null>(null);
+  const [threadMeta, setThreadMeta] = useState<{ id: number; title: string; titleSource: ConversationTitleSource; project?: ThreadProject | null } | null>(null);
   // Bumped to refetch the recent list while a new thread's generated name is
   // on its way (it is written in the background after the first reply).
   const [titleTick, setTitleTick] = useState(0);
@@ -1776,7 +1776,11 @@ export function useChatSession({
                 setActiveConversation(agent.slug, evt.conversationId);
                 // The name the server is about to give it — the first message,
                 // cut — shown now rather than after the turn lands.
-                setThreadMeta({ id: evt.conversationId, title: firstMessageTitle(text), titleSource: 'auto' });
+                setThreadMeta({ id: evt.conversationId, title: firstMessageTitle(text), titleSource: 'auto', project: readThreadProject(evt.project) });
+              } else if (readThreadProject(evt.project) && conversationIdRef.current !== null) {
+                // An open thread whose turn works for a project (`connectionScope.ts`): the header says so.
+                const project = readThreadProject(evt.project);
+                setThreadMeta(meta => (meta && meta.id === conversationIdRef.current ? { ...meta, project } : meta));
               }
               // Resume handle — stash it; replayed events are counted below
               // so a reconnect asks only for what it missed.
@@ -2278,6 +2282,8 @@ export function useChatSession({
     ? null
     : listedThread?.title ?? (threadMeta?.id === conversationId ? threadMeta.title : null);
   const conversationTitleSource = listedThread?.titleSource ?? (threadMeta?.id === conversationId ? threadMeta.titleSource : undefined);
+  // The Project the open thread works for, when it works for one: its turns use that project's connections.
+  const conversationProject = conversationId !== null && threadMeta?.id === conversationId ? threadMeta.project ?? null : null;
 
   // A generated name is written a second or two after the first reply lands,
   // in the background. While the open thread's name is still the first-message
@@ -2303,7 +2309,7 @@ export function useChatSession({
       return;
     }
     const previous = { list: recentChats, meta: threadMeta };
-    setThreadMeta({ id, title, titleSource: 'person' });
+    setThreadMeta({ id, title, titleSource: 'person', project: threadMeta?.id === id ? threadMeta.project : null });
     setRecentChats(rows => rows.map(r => (r.id === id ? { ...r, title, titleSource: 'person' } : r)));
     try {
       await client.conversations.rename({ id, title });
@@ -2535,6 +2541,8 @@ export function useChatSession({
     conversationTitle,
     /** Name the open thread (sets its title source to `person`). */
     renameConversation,
+    /** The Project the open thread works for (`connectionScope.ts`), for the header chip; null for none. */
+    conversationProject,
     sendMessage,
     sendSuggestion,
     handleStop,
@@ -2590,13 +2598,25 @@ export function useChatSession({
  * The name a persisted conversation carries, and who wrote it.
  * @param conv - A conversation row as the router returns it.
  */
-function readThreadMeta(conv: unknown): { id: number; title: string; titleSource: ConversationTitleSource } | null {
-  const c = conv as { id?: unknown; title?: unknown; titleSource?: unknown } | null;
+function readThreadMeta(conv: unknown): { id: number; title: string; titleSource: ConversationTitleSource; project: ThreadProject | null } | null {
+  const c = conv as { id?: unknown; title?: unknown; titleSource?: unknown; project?: unknown } | null;
   if (typeof c?.id !== 'number' || typeof c.title !== 'string') {
     return null;
   }
   const source = c.titleSource === 'generated' || c.titleSource === 'person' ? c.titleSource : 'auto';
-  return { id: c.id, title: c.title, titleSource: source };
+  return { id: c.id, title: c.title, titleSource: source, project: readThreadProject(c.project) };
+}
+
+/** The Project a thread works for, as the header chip shows it. */
+export type ThreadProject = { id: number; title: string };
+
+/**
+ * A thread's project off the wire (`conversations.get`, `stream_meta`), or null.
+ * @param raw - `{ id, title }`, or anything else.
+ */
+export function readThreadProject(raw: unknown): ThreadProject | null {
+  const p = raw as { id?: unknown; title?: unknown } | null | undefined;
+  return typeof p?.id === 'number' && typeof p.title === 'string' && p.title ? { id: p.id, title: p.title } : null;
 }
 
 /**

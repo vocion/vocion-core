@@ -137,6 +137,17 @@ Connect your systems"), written as a `decision` row with what happened. No turn
 runs then; a reload, and the agent's next turn, read it from there. Stopped
 before Done, the Decision stays docked — Start opens the walk again.
 
+## Whose a connection is
+
+A connection belongs to the whole workspace, or to one Project: then only
+that project's work and chats use it, and every other piece of work is told
+"GitHub for example-org/northwind-site is connected for project Northwind Home
+Services, not for this work." Choose it on the Connect form or in a
+connection's Manage (**Scope: Whole workspace / Project ▾**), or start from the
+project's page with **Connect for this project**, which carries the project
+through a vendor's login. The walk-through connects for the whole workspace.
+How work finds its project is in [Projects](../../packages/core/docs/projects.md#connections-that-belong-to-a-project).
+
 ## Pieces
 
 | | |

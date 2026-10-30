@@ -21,6 +21,7 @@ import type { AgentEvent } from './types';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema } from '@/models/Schema';
+import { withWorkProject } from '@/services/connect/connectionScope';
 import { noteConnectionNeeded } from '@/services/connect/triedAndFailed';
 import { verifyClaim } from './claims';
 import { runtimeContextForAgent } from './runtimeContext';
@@ -70,6 +71,8 @@ export async function executeToolCall(opts: {
     : [];
   const ctx = await runtimeContextForAgent(claim.orgId, row, {
     ...(followingMcp.length > 0 ? { followingMcp } : {}),
+    // The work's project comes from the signed claim alone; none is none.
+    workProjectId: claim.workProjectId ?? null,
     userId: claim.userId,
     allowedSourceSlugs: claim.allowedSourceSlugs,
     missionSlug: claim.missionSlug,
@@ -93,10 +96,12 @@ export async function executeToolCall(opts: {
   try {
     // The ns rides in as config metadata so the tool-call record can
     // attribute a delegated specialist's call, mirroring the local loop.
-    const raw = await toolObj.invoke(
+    // Run as the claim's project's work, so every credential the tool looks
+    // up is resolved for it (`connectionScope.ts`).
+    const raw = await withWorkProject(ctx.workProjectId ?? null, () => toolObj.invoke(
       input as never,
       opts.ns ? ({ metadata: { checkpoint_ns: opts.ns } } as never) : undefined,
-    );
+    ));
     const output = typeof raw === 'string' ? raw : JSON.stringify(raw);
     // A call that could not run for want of a connection is what agents
     // tried and failed — the same record the in-process loop writes.

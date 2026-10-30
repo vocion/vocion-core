@@ -25,6 +25,7 @@ import { createHubspotClient, noHubspotCredentials, tokenFromCredentials } from 
 import { logger } from '@/libs/Logger';
 import { resolveHubspotToken } from '@/libs/sources/hubspot';
 import { knowledgeSourceSchema } from '@/models/Schema';
+import { inScopeWhere, scopeOf } from '@/services/connect/connectionScope';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 import { hasHubspotSource } from './crm';
 
@@ -66,6 +67,8 @@ export async function hubspotSourcesForOrg(orgId: string): Promise<HubspotSource
     .from(knowledgeSourceSchema)
     .where(and(
       eq(knowledgeSourceSchema.orgId, orgId),
+      // The current work's connections only (`connectionScope.ts`).
+      inScopeWhere(scopeOf()),
       or(
         sql`${knowledgeSourceSchema.slug} ~ '^hubspot(-|$)'`,
         sql`${knowledgeSourceSchema.configJson} ->> '_connector' = 'hubspot'`,

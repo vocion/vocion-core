@@ -2,7 +2,9 @@
  * `/rpc/sources/[id]` — edit or delete one configured source.
  *
  *   PATCH  → replace the source's config from { configJson }; stops a run in
- *              progress, since it is reading the config being replaced
+ *              progress, since it is reading the config being replaced.
+ *              `{ projectId }` alone moves the connection to a Project, or to
+ *              the whole workspace with null.
  *   DELETE → remove the source and everything ingested from it
  *
  * The Sources page's Edit dialog posts here. Editing a source is how a changed
@@ -49,11 +51,24 @@ export async function PATCH(
   if (sourceId === null) {
     return Response.json({ error: 'Bad source id' }, { status: 400 });
   }
-  let body: { configJson?: Record<string, unknown> };
+  let body: { configJson?: Record<string, unknown>; projectId?: unknown };
   try {
     body = await req.json();
   } catch {
     return Response.json({ error: 'Bad JSON' }, { status: 400 });
+  }
+  // Scope alone: which Project the connection belongs to, or null for the
+  // whole workspace (`connectionScope.ts`). Nothing is re-read, so no run stops.
+  if (!body.configJson && 'projectId' in body) {
+    const projectId = body.projectId === null ? null : Number(body.projectId);
+    if (projectId !== null && !(Number.isInteger(projectId) && projectId > 0)) {
+      return Response.json({ error: 'projectId is a project id, or null for the whole workspace' }, { status: 400 });
+    }
+    const { setConnectionScope } = await import('@/services/connect/connectionScope');
+    const scoped = await setConnectionScope(orgId, sourceId, projectId);
+    return scoped.ok
+      ? Response.json({ projectId, projectTitle: scoped.projectTitle })
+      : Response.json({ error: scoped.why }, { status: 400 });
   }
   if (!body.configJson) {
     return Response.json({ error: 'Missing configJson' }, { status: 400 });

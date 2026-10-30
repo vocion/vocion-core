@@ -57,6 +57,8 @@ export const addConnectorRoute = os
       z.object({ keepStored: z.literal(true) }),
       z.object({ values: z.record(z.string().max(80), z.string().max(8000)) }),
     ]),
+    /** The Project the connection belongs to; absent or null for the whole workspace. */
+    projectId: z.number().int().positive().nullable().optional(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
@@ -66,6 +68,7 @@ export const addConnectorRoute = os
       connector: input.connector,
       config: input.config,
       credential: input.credential,
+      projectId: input.projectId ?? null,
     });
     if (!saved.ok) {
       throw ApiError.badRequest(saved.reason);

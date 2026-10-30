@@ -39,6 +39,7 @@ import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
 import { ConversationObjective } from './objectives/ObjectiveStrip';
+import { ProjectChip } from './ProjectChip';
 import { RailColumn } from './RailColumn';
 import {
   clampRailWidth,
@@ -662,6 +663,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
               (`docs/specs/personalization-v2.md`): one line naming the
               subject, so an ask has an unambiguous referent. Not a panel and
               not a second conversation — the same rail, said out loud. */}
+          {/* The Project the thread works for: its turns use that project's connections. */}
+          <ProjectChip project={session.conversationProject} testId="rail-project" />
           {intent?.scope && (
             <span className="truncate rounded-full bg-surface-soft px-2 py-0.5 text-[11px] text-muted-foreground" data-testid="rail-scope">
               {intent.scope.label}

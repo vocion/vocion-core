@@ -20,6 +20,7 @@ import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { knowledgeDocumentSchema, knowledgeSourceSchema } from '@/models/Schema';
+import { inScopeWhere, scopeOf } from '@/services/connect/connectionScope';
 
 /** A source slug that belongs to the PostHog connector family. */
 const POSTHOG_SLUG = /^posthog(?:$|-)/;
@@ -102,6 +103,8 @@ export async function eventCountsForScope(ctx: RuntimeContext, args: EventCounts
     .from(knowledgeSourceSchema)
     .where(and(
       eq(knowledgeSourceSchema.orgId, ctx.orgId),
+      // The current work's connections only (`connectionScope.ts`).
+      inScopeWhere(scopeOf()),
       sql`(${knowledgeSourceSchema.configJson} ->> '_connector' = 'posthog' OR ${knowledgeSourceSchema.slug} ~ '^posthog(-|$)')`,
     ));
   const sources = ctx.allowedSourceSlugs

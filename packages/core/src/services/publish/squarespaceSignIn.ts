@@ -16,6 +16,7 @@ import type { RunOwner } from './sitePublish';
 import type { KeptSignInStatus } from '@/libs/browser/keptSignIn';
 import type { BrowserRunView } from '@/libs/browser/run';
 import type { RunSignIn } from '@/services/browser/keptSignIn';
+import type { ConnectionScope } from '@/services/connect/connectionScope';
 import { httpHostOf, keptSignInSpecFor } from '@/libs/browser/keptSignIn';
 
 /** The connector slug a Squarespace site's connection runs. */
@@ -53,32 +54,54 @@ export function editorSignedIn(url: string): boolean {
 export type SquarespaceConnection = { sourceId: number; slug: string; siteUrl: string; signIn: KeptSignInStatus };
 
 /**
- * The workspace's Squarespace connector for a site, by the site's host, or
- * null when it has none (a project may name a site no connector reads).
+ * The Squarespace connector for a site that this work may use, by the site's
+ * host, or null when it has none (a project may name a site no connector
+ * reads). Through the connection resolver (`connectionScope.ts`): the
+ * workspace's connectors and the work's own project's, never another
+ * project's — another client's kept sign-in is never loaded.
  * @param orgId - The workspace.
  * @param siteUrl - The site.
+ * @param scope - The work's scope; the current work's when omitted.
  */
-export async function squarespaceConnectionFor(orgId: string, siteUrl: string): Promise<SquarespaceConnection | null> {
+export async function squarespaceConnectionFor(orgId: string, siteUrl: string, scope?: Partial<ConnectionScope> | null): Promise<SquarespaceConnection | null> {
   const want = siteHostOf(siteUrl);
   if (!want) {
     return null;
   }
-  const { eq } = await import('drizzle-orm');
-  const { db } = await import('@/libs/DB');
-  const { knowledgeSourceSchema } = await import('@/models/Schema');
+  const { connectionsFor } = await import('@/services/connect/connectionScope');
   const { statusOf } = await import('@/services/browser/keptSignIn');
-  const rows = await db.select({ id: knowledgeSourceSchema.id, slug: knowledgeSourceSchema.slug, config: knowledgeSourceSchema.configJson, keptSignIn: knowledgeSourceSchema.keptSignIn })
-    .from(knowledgeSourceSchema)
-    .where(eq(knowledgeSourceSchema.orgId, orgId))
-    .orderBy(knowledgeSourceSchema.id);
-  for (const row of rows) {
-    const connector = (row.config?._connector as string | undefined) ?? row.slug;
-    const site = typeof row.config?.siteUrl === 'string' ? row.config.siteUrl : null;
-    if (connector === CONNECTOR && site && siteHostOf(site) === want) {
-      return { sourceId: row.id, slug: row.slug, siteUrl: site, signIn: statusOf(row.keptSignIn) };
-    }
+  const row = (await connectionsFor(orgId, scope, { includeDisabled: true })).find(r => isSiteConnection(r, want));
+  return row ? { sourceId: row.id, slug: row.slug, siteUrl: String(row.configJson.siteUrl), signIn: statusOf(row.keptSignIn) } : null;
+}
+
+/**
+ * Why no Squarespace connector serves a site for this work when one exists:
+ * it belongs to another project. Null when none does.
+ * @param orgId - The workspace.
+ * @param siteUrl - The site.
+ * @param scope - The work's scope; the current work's when omitted.
+ */
+export async function squarespaceOutOfScope(orgId: string, siteUrl: string, scope?: Partial<ConnectionScope> | null): Promise<string | null> {
+  const want = siteHostOf(siteUrl);
+  if (!want) {
+    return null;
   }
-  return null;
+  const { connectionsWithheld, outOfScopeLine } = await import('@/services/connect/connectionScope');
+  const withheld = (await connectionsWithheld(orgId, scope)).find(r => isSiteConnection(r, want));
+  return withheld ? outOfScopeLine(`Squarespace for ${want}`, withheld.projectTitle) : null;
+}
+
+/**
+ * Whether a connection row is the Squarespace connector for a site's host.
+ * @param row - The row.
+ * @param row.slug - Its slug.
+ * @param row.configJson - Its config.
+ * @param host - The site's host, as `siteHostOf` gives it.
+ */
+function isSiteConnection(row: { slug: string; configJson: Record<string, unknown> | null }, host: string): boolean {
+  const connector = (row.configJson?._connector as string | undefined) ?? row.slug;
+  const site = typeof row.configJson?.siteUrl === 'string' ? row.configJson.siteUrl : null;
+  return connector === CONNECTOR && site !== null && siteHostOf(site) === host;
 }
 
 /**
@@ -180,7 +203,7 @@ async function resumeOne(orgId: string, pageRecordId: number, waiting: WaitingOn
     await recordOnPage(orgId, pageRecordId, { publishing: { ...waiting, at, note: `Signed in again, but the page cannot carry on: ${planned.ok ? 'its target is not Squarespace any more' : planned.why}` } });
     return false;
   }
-  const started = await startSquarespaceDraft(orgId, planned.plan, await squarespaceLogin(orgId), waiting.owner, waiting.actionRunId);
+  const started = await startSquarespaceDraft(orgId, planned.plan, await squarespaceLogin(orgId, { projectId: planned.plan.project.id }), waiting.owner, waiting.actionRunId);
   await recordOnPage(orgId, pageRecordId, { status: 'publishing', publishing: { kind: 'squarespace', phase: 'draft', targetId: planned.plan.target.id, browserRunId: started.browserRunId, href: `/dashboard/browser/${started.browserRunId}`, at, by: waiting.owner.userId, actionRunId: waiting.actionRunId, note: started.queued ? 'Signed in again: the draft waits its turn in your browser.' : 'Signed in again: saving the draft.' } });
   return true;
 }

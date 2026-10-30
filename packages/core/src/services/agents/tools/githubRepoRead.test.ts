@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./githubPullRead', () => ({ tokenForRepo: vi.fn(async (_org: string, repo: string) => (repo === 'acme/northwind-core' ? 'tok-test' : null)) }));
+vi.mock('./githubPullRead', () => ({ repoAccess: vi.fn(async (_org: string, repo: string) => (repo === 'acme/northwind-core' ? { token: 'tok-test', refusal: null } : { token: null, refusal: null })) }));
 
 const { parseRepoUrl, readConnectedRepo } = await import('./githubRepoRead');
 

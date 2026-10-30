@@ -6,7 +6,7 @@
  * A pull request URL is `readConnectedPull`'s; this takes everything else
  * under `github.com/<owner>/<repo>`.
  */
-import { tokenForRepo } from './githubPullRead';
+import { repoAccess } from './githubPullRead';
 
 const NAME = /^[\w.-]+$/;
 const README = /^readme(?:\.md)?$/i;
@@ -45,7 +45,8 @@ export function parseRepoUrl(url: string): RepoPath | null {
 
 /**
  * The page as text, or null when it is not a repository page this workspace
- * holds a token for (the caller then fetches it as any other page).
+ * holds a token for (the caller then fetches it as any other page); the
+ * refusal when the repository is connected for another project.
  * @param orgId - The workspace.
  * @param url - The GitHub URL.
  */
@@ -54,10 +55,12 @@ export async function readConnectedRepo(orgId: string, url: string): Promise<str
   if (!at) {
     return null;
   }
-  const token = await tokenForRepo(orgId, `${at.owner}/${at.repo}`);
-  if (!token) {
-    return null;
+  const access = await repoAccess(orgId, `${at.owner}/${at.repo}`);
+  if (!access.token) {
+    // Connected for another project: said, never a silent read of the public web.
+    return access.refusal;
   }
+  const token = access.token;
   const headers = { 'authorization': `Bearer ${token}`, 'x-github-api-version': '2022-11-28', 'user-agent': 'vocion' };
   const ref = at.ref ? `?ref=${encodeURIComponent(at.ref)}` : '';
   const contents = `https://api.github.com/repos/${at.owner}/${at.repo}/contents/${at.path.split('/').map(encodeURIComponent).join('/')}${ref}`;

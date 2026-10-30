@@ -28,7 +28,8 @@ export async function grantSummaryForSource(input: { orgId: string; sourceSlug: 
     return null;
   }
   try {
-    const credentials = await getCredentialsForSource(input.orgId, input.sourceSlug);
+    // The settings page reads every connection's grant, whichever project holds it.
+    const credentials = await getCredentialsForSource(input.orgId, input.sourceSlug, 'any');
     return credentials ? provider.summarize(credentials) : null;
   } catch {
     return null;

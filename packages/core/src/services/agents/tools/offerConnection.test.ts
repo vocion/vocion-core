@@ -63,6 +63,11 @@ describe('connectHref', () => {
   it('deep-links into the Sources add flow and back to this conversation', () => {
     expect(connectHref('github', 7)).toBe('/dashboard/connectors?add=github&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7');
   });
+
+  it('offered in a project\'s work, connects for that project (`connectionScope.ts`)', () => {
+    expect(connectHref('github', 7, 12)).toBe('/dashboard/connectors?add=github&project=12&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7');
+    expect(pasteHref('github', 7, 12)).toContain('&paste=1&project=12&');
+  });
 });
 
 describe('offer_connection', () => {

@@ -118,6 +118,14 @@ site's connector. Two-step verification is part of signing in on your own
 machine; a run that has to type the password stops and asks the person for
 the code.
 
+**One client's site, one project.** Put a site's connector in its client's
+Project (Manage → **Scope**, or **Connect for this project** on the project's
+page) and only that project's pages publish with its kept sign-in and login.
+Another project's publish never loads it: the page is refused with "Squarespace
+for northwind-home.example is connected for project Northwind Home Services,
+not for this work.", and so is saving that site as another project's publish
+target (`services/connect/connectionScope.ts`).
+
 **Test connection** reads the site's public JSON (its title and address), the
 blog (how many posts are published), the key's site when there is one, and
 whether a login is stored. It does not try the login: the first publish does.

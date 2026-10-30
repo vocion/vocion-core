@@ -156,6 +156,27 @@ describe('Connected', () => {
     expect(onSync).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
   });
 
+  it('says whose each connection is — the whole workspace, or one project — and moves it with one Scope control in Manage', async () => {
+    const onScope = vi.fn();
+    renderList([
+      source(1, 'github', { projectId: 7, projectTitle: 'Northwind Home Services' }),
+      source(2, 'web', { authKind: 'none' }),
+    ], { projects: [{ id: 7, title: 'Northwind Home Services' }, { id: 8, title: 'Kestrel Capital' }], onScope });
+    await section('connected-section');
+
+    expect(row('github').textContent).toContain('Northwind Home Services');
+    expect(row('web').textContent).toContain('Whole workspace');
+
+    await page.getByRole('button', { name: /^GitHub/ }).click();
+    const scope = page.getByRole('combobox', { name: 'Scope' });
+
+    await expect.element(scope).toHaveValue('7');
+
+    await userEvent.selectOptions(scope, 'Whole workspace');
+
+    expect(onScope).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), null);
+  });
+
   it('keeps Manage, Pause and Disconnect behind one quiet menu', async () => {
     const { onPause, onDisconnect } = renderList([source(1, 'hubspot')]);
 

@@ -62,6 +62,7 @@ function cleanCode(value: string): string {
  * @param input.returnTo - Where to land afterwards, already checked by `safeReturnPath`.
  * @param input.conversationId - The chat the login came from, so its card can be marked.
  * @param input.cardId - The chat card the login came from.
+ * @param input.projectId - The Project the connection is for ("Connect for this project").
  * @returns The start route URL.
  */
 export function connectStartHref(input: {
@@ -71,6 +72,7 @@ export function connectStartHref(input: {
   returnTo: string | null;
   conversationId?: number;
   cardId?: string;
+  projectId?: number | null;
 }): string {
   const parts: string[] = [];
   if (input.connector) {
@@ -86,6 +88,9 @@ export function connectStartHref(input: {
   }
   if (input.cardId) {
     parts.push(`card=${encodeURIComponent(input.cardId)}`);
+  }
+  if (input.projectId) {
+    parts.push(`project=${input.projectId}`);
   }
   return `/api/connect/${input.provider}/start?${parts.join('&')}`;
 }

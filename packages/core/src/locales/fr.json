@@ -280,7 +280,9 @@
     "ask_team": "Demandez à l’équipe…",
     "ask_agent": "Demandez à {name}…",
     "named_lead_and_team_on_it": "{name} et l’équipe s’en occupent.",
-    "ask_assistant": "Demandez à votre assistant…"
+    "ask_assistant": "Demandez à votre assistant…",
+    "project_chip": "{name}",
+    "project_chip_hint": "Cette conversation travaille pour {name} : elle utilise les connexions de ce projet et celles de l'espace de travail, jamais celles d'un autre projet."
   },
   "Onboarding": {
     "starter_setup_prompt": "Configure cet espace de travail avec moi.",
@@ -804,7 +806,15 @@
     "members_own_title": "Connexions personnelles des membres",
     "members_own_on": "Activé. Un serveur déclaré ailleurs dans l'organisation, qui répond à chaque personne en son nom, se joint aux échanges d'un membre ici, avec sa propre connexion. Les outils d'écriture ne suivent jamais.",
     "members_own_off": "Désactivé. Ici, les échanges des membres n'utilisent que les sources déclarées par cet espace.",
-    "members_own_failed": "Le réglage n'a pas pu être enregistré. Réessayez."
+    "members_own_failed": "Le réglage n'a pas pu être enregistré. Réessayez.",
+    "scope_label": "Portée",
+    "scope_workspace": "Tout l'espace de travail",
+    "scope_project": "{name}",
+    "scope_only_project": "Seuls le travail et les discussions de {name} utilisent cette connexion.",
+    "scoped_toast": "{name} appartient maintenant à {project}. Seul son travail l'utilise.",
+    "scoped_workspace_toast": "{name} sert maintenant tout l'espace de travail.",
+    "connecting_for": "Les nouvelles connexions ici appartiennent à {name} : seuls son travail et ses discussions les utilisent.",
+    "connecting_for_workspace_instead": "Tout l'espace de travail à la place"
   },
   "WorkspacesPage": {
     "title": "Tous les espaces",

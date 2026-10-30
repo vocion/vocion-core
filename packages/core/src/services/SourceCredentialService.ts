@@ -33,6 +33,7 @@
  */
 
 import type { DbTransaction } from '@/libs/DbTransaction';
+import type { ConnectionScope } from '@/services/connect/connectionScope';
 import { Buffer } from 'node:buffer';
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
@@ -782,30 +783,40 @@ export async function getCredentialsForConnector(input: {
  * read from, rather than re-deriving the answer a second way.
  * @param orgId - The org that owns the connector.
  * @param sourceSlug - A connector row's slug, or the slug of the connector it runs.
+ * @param scope - The work's scope (`connectionScope.ts`), the current work's when omitted; `'any'` for a caller serving no work.
  */
-export async function resolveApiTokenIdForSource(orgId: string, sourceSlug: string): Promise<string | null> {
+export async function resolveApiTokenIdForSource(orgId: string, sourceSlug: string, scope?: Partial<ConnectionScope> | 'any'): Promise<string | null> {
+  // For work, only the connections it may use (`connectionScope.ts`); 'any'
+  // is for a caller that serves no work (a settings page reading a grant).
+  const { inScope, scopeOf, ConnectionOutOfScopeError, projectTitles } = await import('@/services/connect/connectionScope');
+  const s = scope === 'any' ? null : scopeOf(scope);
   const [namedRow] = await db
-    .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
+    .select({ apiTokenId: knowledgeSourceSchema.apiTokenId, dataRoomId: knowledgeSourceSchema.dataRoomId })
     .from(knowledgeSourceSchema)
     .where(and(
       eq(knowledgeSourceSchema.orgId, orgId),
       eq(knowledgeSourceSchema.slug, sourceSlug),
     ))
     .limit(1);
+  if (namedRow && s && !inScope(namedRow, s)) {
+    // Named outright, and another project's: said by name, never a quiet
+    // fall-through to some other credential nobody chose.
+    const title = (await projectTitles(orgId, [namedRow.dataRoomId!])).get(namedRow.dataRoomId!) ?? `#${namedRow.dataRoomId}`;
+    throw new ConnectionOutOfScopeError(platformForConnectorSlug(sourceSlug)?.label ?? sourceSlug, title);
+  }
 
   let apiTokenId = namedRow?.apiTokenId ?? null;
   if (apiTokenId === null) {
-    const [runningRow] = await db
-      .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
+    const running = await db
+      .select({ apiTokenId: knowledgeSourceSchema.apiTokenId, dataRoomId: knowledgeSourceSchema.dataRoomId })
       .from(knowledgeSourceSchema)
       .where(and(
         eq(knowledgeSourceSchema.orgId, orgId),
         isNotNull(knowledgeSourceSchema.apiTokenId),
         eq(sql`${knowledgeSourceSchema.configJson} ->> '_connector'`, sourceSlug),
       ))
-      .orderBy(knowledgeSourceSchema.id)
-      .limit(1);
-    apiTokenId = runningRow?.apiTokenId ?? null;
+      .orderBy(knowledgeSourceSchema.id);
+    apiTokenId = running.find(r => !s || inScope(r, s))?.apiTokenId ?? null;
   }
 
   return apiTokenId;
@@ -834,12 +845,14 @@ export async function resolveApiTokenIdForSource(orgId: string, sourceSlug: stri
  * `getCredentialsForConnector` instead and skip the guessing.
  * @param orgId - The org that owns the connector.
  * @param sourceSlug - A connector row's slug, or the slug of the connector it runs.
+ * @param scope - The work's scope (`connectionScope.ts`), the current work's when omitted; `'any'` for a caller serving no work.
  */
 export async function getCredentialsForSource(
   orgId: string,
   sourceSlug: string,
+  scope?: Partial<ConnectionScope> | 'any',
 ): Promise<RawCredentials | undefined> {
-  const apiTokenId = await resolveApiTokenIdForSource(orgId, sourceSlug);
+  const apiTokenId = await resolveApiTokenIdForSource(orgId, sourceSlug, scope);
   return getCredentialsForConnector({
     orgId,
     connectorSlug: sourceSlug,

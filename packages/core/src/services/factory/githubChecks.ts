@@ -26,7 +26,7 @@
  */
 
 import type { GithubCheckRun, GithubPullRequest } from '@/libs/github/events';
-import { parsePullUrl, tokenForRepo } from '@/services/agents/tools/githubPullRead';
+import { parsePullUrl, repoAccess } from '@/services/agents/tools/githubPullRead';
 
 /** Conclusions that are not a failure: it passed, or it never was a verdict. */
 const PASSING = new Set(['success', 'neutral', 'skipped']);
@@ -75,8 +75,9 @@ export type CheckLogs = {
 const headers = (token: string) => ({ 'authorization': `Bearer ${token}`, 'x-github-api-version': '2022-11-28', 'user-agent': 'vocion', 'accept': 'application/vnd.github+json' });
 
 /**
- * A repository and the workspace token for it (`tokenForRepo`, the one entry
- * point every GitHub call goes through).
+ * A repository and the workspace token for it (`repoAccess`, the one entry
+ * point every GitHub call goes through), for the current work: a connection
+ * another project holds is refused by name.
  * @param orgId - The workspace.
  * @param fullName - `owner/name`.
  */
@@ -85,11 +86,12 @@ export async function ghFor(orgId: string, fullName: string): Promise<Gh> {
   if (!owner || !repo) {
     throw new Error(`${fullName} is not a repository: write it owner/name`);
   }
-  const token = await tokenForRepo(orgId, fullName);
-  if (!token) {
-    throw new Error(`this workspace has no GitHub connection for ${fullName}: its github source must list the repository and hold a token`);
+  const access = await repoAccess(orgId, fullName);
+  if (!access.token) {
+    // Connected for another project: the refusal names it (`connectionScope.ts`).
+    throw new Error(access.refusal ?? `this workspace has no GitHub connection for ${fullName}: its github source must list the repository and hold a token`);
   }
-  return { owner, repo, token };
+  return { owner, repo, token: access.token };
 }
 
 /**

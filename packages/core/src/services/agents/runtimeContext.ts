@@ -151,6 +151,10 @@ export type RuntimeContextOptions = {
   scope?: AgentScope;
   /** The person's own MCP servers joining this turn (`followingMcpSources`); a person's chat turn only. */
   followingMcp?: RuntimeContext['followingMcp'];
+  /** The Project this work is for, or null for none (`connectionScope.ts`). */
+  workProjectId?: number | null;
+  /** Source slugs another project holds, which this work may not use (`slugsWithheld`). */
+  withheldSourceSlugs?: string[];
 };
 
 /**
@@ -168,18 +172,25 @@ export function runtimeContextFromScope(
   opts: Omit<RuntimeContextOptions, 'scope'> = {},
 ): RuntimeContext {
   const evidence = newTurnEvidence();
+  // A connection another project holds is not this work's to use
+  // (`services/connect/connectionScope.ts`): it leaves every list the tools
+  // build from, so no tool for it is offered and retrieval skips what it synced.
+  const withheld = new Set(opts.withheldSourceSlugs ?? []);
+  const usable = (slug: string) => !withheld.has(slug);
   return {
     orgId,
     agentSlug: row.slug,
-    connectorSources: row.connectorSources ?? [],
+    connectorSources: (row.connectorSources ?? []).filter(usable),
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     enabledPlugins: scope.enabledPlugins,
     workspaceKind: scope.workspaceKind,
     filingTypes: scope.filingTypes,
-    restSources: scope.restSources,
-    mcpSources: scope.mcpSources,
+    restSources: withheld.size > 0 ? scope.restSources?.filter(r => usable(r.slug)) : scope.restSources,
+    mcpSources: withheld.size > 0 ? scope.mcpSources?.filter(m => usable(m.slug)) : scope.mcpSources,
     followingMcp: opts.followingMcp,
-    sourceKinds: scope.sourceKinds,
+    sourceKinds: withheld.size > 0 && scope.sourceKinds ? Object.fromEntries(Object.entries(scope.sourceKinds).filter(([slug]) => usable(slug))) : scope.sourceKinds,
+    workProjectId: opts.workProjectId ?? null,
+    ...(withheld.size > 0 ? { withheldSourceSlugs: [...withheld] } : {}),
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig: row.harnessConfig ?? {},
     defaultTimeZone: scope.defaultTimeZone,
@@ -188,7 +199,7 @@ export function runtimeContextFromScope(
     emit: noteEvidence(evidence, opts.emit ?? (() => {})),
     evidence,
     userId: opts.userId,
-    allowedSourceSlugs: opts.allowedSourceSlugs,
+    allowedSourceSlugs: withheld.size > 0 ? opts.allowedSourceSlugs?.filter(usable) : opts.allowedSourceSlugs,
     missionSlug: opts.missionSlug,
     missionRunId: opts.missionRunId,
     conversationId: opts.conversationId,
@@ -230,7 +241,28 @@ export async function runtimeContextForAgent(
   opts: RuntimeContextOptions = {},
 ): Promise<RuntimeContext> {
   const { scope, ...rest } = opts;
-  return runtimeContextFromScope(orgId, row, scope ?? await agentScope(orgId, row), rest);
+  const work = await workScopeFor(orgId, rest.workProjectId);
+  return runtimeContextFromScope(orgId, row, scope ?? await agentScope(orgId, row), { ...rest, ...work });
+}
+
+/**
+ * The work's project and the connections it may not use, per call: the
+ * project the caller names, else the current work's (the call context).
+ * Read per call, never on a cached blueprint, so a connection moved to a
+ * project is withheld from the next turn on.
+ * @param orgId - The workspace.
+ * @param projectId - The work's project, when the caller knows it.
+ */
+export async function workScopeFor(orgId: string, projectId?: number | null): Promise<{ workProjectId: number | null; withheldSourceSlugs: string[] }> {
+  const { scopeOf, slugsWithheld } = await import('@/services/connect/connectionScope');
+  const s = scopeOf(projectId === undefined ? null : { projectId });
+  const withheldSourceSlugs = await slugsWithheld(orgId, s).catch((error: unknown) => {
+    // Unreadable, nothing is withheld here — and the credential lookups still
+    // refuse another project's connection on their own.
+    console.warn('[connections] could not read which connections this work may use', { orgId, error: error instanceof Error ? error.message : String(error) });
+    return [] as string[];
+  });
+  return { workProjectId: s.projectId, withheldSourceSlugs };
 }
 
 /* ------------------------------------------------------------------ */

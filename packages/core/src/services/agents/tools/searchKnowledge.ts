@@ -79,6 +79,8 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
           // Per-user connection ACL — restricted sources drop out of this
           // user's retrieval even when the agent's scope includes them.
           allowedSourceSlugs: ctx.allowedSourceSlugs,
+          // Another project's connections are not this work's (`connectionScope.ts`).
+          excludeSourceSlugs: ctx.withheldSourceSlugs,
           // No LLM rerank inside the agent turn: deepagents' streamEvents taps
           // every nested model call, so the reranker's "[2,3,0,…]" id-ordering
           // output leaked into the chat response. Hybrid RRF + the heuristic

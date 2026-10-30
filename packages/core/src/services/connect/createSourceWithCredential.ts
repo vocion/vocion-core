@@ -39,6 +39,8 @@ export type CreateSourceWithCredentialInput = {
   connector: string;
   config: Record<string, unknown>;
   credential: CredentialChoice;
+  /** The Project the connection is for; absent or null for the whole workspace (`connectionScope.ts`). */
+  projectId?: number | null;
 };
 
 export type CreateSourceWithCredentialOutcome
@@ -131,6 +133,10 @@ export async function createSourceWithCredential(input: CreateSourceWithCredenti
   if (badConfig) {
     return { ok: false, reason: badConfig };
   }
+  const { isProject, setConnectionScope } = await import('@/services/connect/connectionScope');
+  if (input.projectId && !await isProject(input.orgId, input.projectId)) {
+    return { ok: false, reason: `#${input.projectId} is not a project in this workspace, so the connection was not added.` };
+  }
   let stored: StoredCredential | null = null;
   if ('keepStored' in input.credential) {
     stored = await newestLiveCredential(input.orgId, platform.id);
@@ -170,6 +176,10 @@ export async function createSourceWithCredential(input: CreateSourceWithCredenti
     });
   } catch (error) {
     return { ok: false, reason: reasonFor(error, input.connector) };
+  }
+  // In its project before its first sync, so that sync is already the project's work.
+  if (input.projectId) {
+    await setConnectionScope(input.orgId, saved.sourceId, input.projectId);
   }
   const firstSync = await startSourceSyncing({ orgId: input.orgId, sourceId: saved.sourceId, sourceSlug: saved.slug, connectorSlug: input.connector });
   return { ok: true, ...saved, firstSync };

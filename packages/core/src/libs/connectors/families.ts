@@ -27,7 +27,7 @@
  */
 
 import type { RuntimeContext } from '@/services/agents/types';
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { knowledgeSourceSchema } from '@/models/Schema';
 
@@ -173,24 +173,24 @@ export async function loadSourceKinds(orgId: string, slugs: readonly string[]): 
 }
 
 /**
- * Every enabled source of a family in the workspace, with its config and the
- * credential it points at — what a provider needs to answer for the org
- * (which site, which repositories, which channels, with which token).
+ * Every enabled source of a family that the current work may use, with its
+ * config and the credential it points at — what a provider needs to answer
+ * for the org (which site, which repositories, which channels, with which
+ * token). Read through the connection resolver (`connectionScope.ts`): the
+ * workspace's sources and the work's own project's, never another project's.
  * @param orgId - The workspace.
  * @param family - The family asked about.
  * @param slugs - Only these slugs, when the caller is scoped to an agent's sources.
  */
 export async function familySourcesForOrg(orgId: string, family: ConnectorFamily, slugs?: readonly string[]): Promise<FamilySource[]> {
   const kinds = FAMILY_KINDS[family];
-  const rows = await db
-    .select({ id: knowledgeSourceSchema.id, slug: knowledgeSourceSchema.slug, kind: knowledgeSourceSchema.kind, config: knowledgeSourceSchema.configJson, enabled: knowledgeSourceSchema.enabled, apiTokenId: knowledgeSourceSchema.apiTokenId })
-    .from(knowledgeSourceSchema)
-    .where(slugs && slugs.length > 0 ? and(eq(knowledgeSourceSchema.orgId, orgId), inArray(knowledgeSourceSchema.slug, [...slugs])) : eq(knowledgeSourceSchema.orgId, orgId));
+  const { connectionsFor } = await import('@/services/connect/connectionScope');
+  const only = slugs && slugs.length > 0 ? new Set(slugs) : null;
+  const rows = (await connectionsFor(orgId)).filter(row => !only || only.has(row.slug));
   return rows
-    .filter(row => row.enabled === 'true')
     .map((row) => {
-      const connector = (row.config as { _connector?: unknown } | null)?._connector;
-      return { id: row.id, slug: row.slug, kind: typeof connector === 'string' && connector ? connector : row.kind, config: (row.config ?? {}) as Record<string, unknown>, apiTokenId: row.apiTokenId ?? null };
+      const connector = (row.configJson as { _connector?: unknown } | null)?._connector;
+      return { id: row.id, slug: row.slug, kind: typeof connector === 'string' && connector ? connector : row.kind, config: (row.configJson ?? {}) as Record<string, unknown>, apiTokenId: row.apiTokenId ?? null };
     })
     .filter(row => kinds.includes(row.kind));
 }
