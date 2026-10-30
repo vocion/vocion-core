@@ -28,9 +28,12 @@ describe('SEO home stage evidence', () => {
       ['review', '1'],
       ['revisions', '1'],
       ['approved', '1'],
-      ['published', '1'],
+      ['published', '3'],
     ]);
     expect(figures[0]!.href).toBe('/dashboard/p/seo-pages?status=in_review');
     expect(figures[2]!.href).toBe('/dashboard/p/seo-pages?status=approved');
+    // The headline and its drilldown include the same published cohort, including older pages.
+    expect(figures[3]!.href).toBe('/dashboard/p/seo-pages?status=published');
+    expect(measures[3]!.label).toBe('Published pages');
   });
 });

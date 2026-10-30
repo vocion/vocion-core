@@ -65,10 +65,10 @@ home:
       where: {field: meta.status, op: eq, value: approved}
       href: /dashboard/p/seo-pages?status=approved
     - key: published
-      label: Pages live this month
+      label: Published pages
       source: records
       objectType: seo_page
-      where: [{field: meta.status, op: eq, value: published}, {field: meta.publishedAt, op: since, value: month}]
+      where: {field: meta.status, op: eq, value: published}
       date: meta.publishedAt
       href: /dashboard/p/seo-pages?status=published
   projects:
