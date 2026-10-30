@@ -13,7 +13,7 @@
 # batch is worked, and six per ten minutes is the default that the 2026-09-20
 # runaway was measured against, not a number chosen for this automation.
 slug: contract-red-team-proposal
-name: A contract nobody can check is caught before it is agreed
+name: Review a triaged request's acceptance criteria before they are agreed
 label: QA checked the contract
 doing: QA checking the contract
 description: >-

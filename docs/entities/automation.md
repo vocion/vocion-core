@@ -19,7 +19,9 @@ pure procedures, and neither carries its own schedule.
 | Field | Type | Default | What it does |
 |---|---|---|---|
 | `slug` | slug | required | Stable id. |
-| `name` | string | — | Display name. |
+| `name` | string | — | Display name, in plain words for what is done, to what: "Draft the release announcement", never the slug or a word like "continue", "keep moving" or "sweep" (`libs/work/plainNames.ts`). |
+| `label` | string | — | What a finished run did, past tense ("Drew the mockup"). Lists title the runs with it. |
+| `doing` | string | — | The same while it runs ("Drawing the mockup"). A run that was handed `runLabel` in its event's payload is named by that instead — the work and the record ("Researching Google results and writing briefs · SB-506 …"), set by the code that knows the record. |
 | `description` | string | — | One-line summary. |
 | `status` | `active` \| `disabled` | `active` | Whether the automation fires. |
 | `visibility` | `listed` \| `system` | `listed` | `system` is plumbing (an app's internal hand-off): it fires as usual but is left out of the Automations register and an app's lists unless an admin shows system automations. It keeps its own page and its run log. See [Automations](../guides/automations.md). |

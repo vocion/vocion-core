@@ -13,7 +13,7 @@
 # every pull request behind it) or the pipeline (an ask to its owner, the
 # Release engineer).
 slug: factory-ci-failure
-name: A failed check is answered
+name: Answer a pull request's failed checks
 description: >-
   When the checks on a factory pull request finish without passing, read why
   and answer it — back to the engineer, a re-run once, one fix on the default

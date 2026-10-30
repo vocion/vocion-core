@@ -7,7 +7,7 @@
 # into the same wall: its reason goes once to the operator below, and the
 # hourly sweep draws it once the installation can. Deterministic: a built-in job.
 slug: design-mockup-ended
-name: A mockup drawing ended
+name: Check a finished mockup run filed its mockups
 description: >-
   When the designer's drawing run ends, check the request has its mockups:
   otherwise draw once more with the reason, or write the reason on the request.

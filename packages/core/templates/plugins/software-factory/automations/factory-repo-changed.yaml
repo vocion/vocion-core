@@ -1,7 +1,7 @@
 # The same read when a repo record's address or checks are written (a record
 # is read by its url and slug; a build needs its checks).
 slug: factory-repo-changed
-name: A repo record's fix unblocks its requests
+name: Recheck requests blocked on a repo record when it changes
 description: >-
   When a repo record's url, slug, product or checks change, read again every
   request that was blocked on a missing repo record or its checks.

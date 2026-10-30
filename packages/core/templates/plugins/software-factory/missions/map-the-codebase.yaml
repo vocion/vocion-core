@@ -30,6 +30,6 @@ successCriteria:
   - Within minutes of a repository record landing, its product carries an architecture diagram and summary filed by draw_architecture, or the reason it could not be read written on the record
   - Every node on the diagram names a component the repository tree or a manifest shows; every edge is a relationship a config, a client, a deploy workflow or a schema shows
   - The map names which repositories, at which ref and commit, it was read from
-  - A map older than a repository's default branch is redrawn by the daily sweep as a new version, not a second picture
+  - A map older than a repository's default branch is redrawn by the daily check as a new version, not a second picture
 desiredArtifacts:
   - The product's architecture diagram (SVG, role architecture-diagram) and its written summary (markdown, role architecture-summary), filed by draw_architecture

@@ -20,7 +20,7 @@
 # Loop safety: a check event from the forge, not one this run raises. Ceiling
 # kept low: a burst of green checks is more likely a symptom than a workload.
 slug: contract-red-team-evidence
-name: Green checks are not the same as a proven contract
+name: Review a passing pull request's evidence against its acceptance criteria
 label: QA reviewed
 doing: QA reviewing
 description: >-

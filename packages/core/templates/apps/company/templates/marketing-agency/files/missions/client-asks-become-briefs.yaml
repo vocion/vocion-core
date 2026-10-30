@@ -1,8 +1,8 @@
 slug: client-asks-become-briefs
 name: Every client ask becomes work within a business day
 description: >-
-  The intake side of {{company}}'s client services, kept by the weekday intake
-  sweep.
+  The intake side of {{company}}'s client services, checked every weekday morning
+  by the intake coordinator.
 goal: >-
   Every ask a client makes is written down with what it should move and handed
   to the growth loop as the evidence for a brief inside one business day; an

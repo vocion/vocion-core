@@ -202,16 +202,32 @@ describe('a mission-check fire records what it did', () => {
     expect(result.counts.contactsInWindow).toBe(46);
   });
 
-  it('titles the run by the automation that fired it', async () => {
-    await seedAutomation('discovery-followup-check', { schedule: '30 * * * *' }, { checkMission: 'increase-discovery-calls' });
+  it('titles the run by what it is doing, never by a slug', async () => {
+    await seedAutomation('discovery-followup-check', { schedule: '30 * * * *' }, { checkMission: 'increase-discovery-calls', doing: 'Following up the discovery calls booked this week' });
 
     await fireAutomation(ORG, 'discovery-followup-check');
 
     // Both hourly automations check the same mission, so `Check: <mission>`
-    // made them identical in Activity with only `created_by` telling them apart.
-    expect(vi.mocked(startMission)).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'discovery-followup-check: Increase Discovery Calls',
+    // made them identical in Activity; `<slug>: <charter>` put a slug in front
+    // of a person. The automation's own words name it.
+    expect(vi.mocked(startMission)).toHaveBeenLastCalledWith(expect.objectContaining({
+      title: 'Following up the discovery calls booked this week',
     }));
+
+    // The code that knows the record names the run by it, through the fire's input.
+    await fireAutomation(ORG, 'discovery-followup-check', { input: { runLabel: 'Booking the discovery call · DEAL-88 Northwind renewal' } });
+
+    expect(vi.mocked(startMission)).toHaveBeenLastCalledWith(expect.objectContaining({
+      title: 'Booking the discovery call · DEAL-88 Northwind renewal',
+    }));
+  });
+
+  it('titles a run whose automation is named only by its slug with the mission it checks', async () => {
+    await seedAutomation('discovery-followup-check', { schedule: '30 * * * *' }, { checkMission: 'increase-discovery-calls' });
+
+    await fireAutomation(ORG, 'discovery-followup-check');
+
+    expect(vi.mocked(startMission)).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Increase Discovery Calls' }));
   });
 
   it('prefers input.prompt over the authored orders, for this fire only', async () => {

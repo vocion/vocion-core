@@ -20,6 +20,7 @@ import { cronIntervalMs, humanizeAge, previousFire } from '@/libs/cron/schedule'
 import { db } from '@/libs/DB';
 import { pauseSchedule, resumeSchedule, scheduleJob, startJob, unscheduleJob } from '@/libs/durable/jobs';
 import { automationCoalescedWorkflowIdFor, automationScheduleIdFor } from '@/libs/durable/scheduleIds';
+import { givenRunLabel, runLabel } from '@/libs/work/runLabel';
 import { apiTokenSchema, automationRunSchema, automationSchema, knowledgeSourceSchema, missionRunSchema, toolCallSchema, userSchema } from '@/models/Schema';
 import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGuards';
 import { JOB } from '@/services/background/catalog';
@@ -166,6 +167,13 @@ export type PendingAutomationFire = {
   causedBy: CausalChain;
   /** How many held fires this one stands in for. Zero for an ordinary fire. */
   coalesced: number;
+  /**
+   * What this run is doing, to what (`libs/work/runLabel.ts`): the label the
+   * caller handed in (`input.runLabel`, set by the code that knows the
+   * record), else the automation's `doing`, else its name. Null when none
+   * of them says anything but a slug.
+   */
+  label: string | null;
 };
 
 /**
@@ -281,6 +289,7 @@ export async function beginAutomationFire(
     invokedBy,
     causedBy: extendChain({ automationSlug: slug, automationRunId }, opts.causedBy),
     coalesced,
+    label: runLabel({ given: givenRunLabel(opts.input), doing: doCfg.doing, name: automation.name, fallback: '' }) || null,
   };
 }
 
@@ -294,12 +303,12 @@ export async function beginAutomationFire(
 export async function completeAutomationFire(
   pending: PendingAutomationFire,
 ): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; automationRunId: number; result?: unknown }> {
-  const { orgId, slug, doCfg, input, triggerInput, invokedBy, automationRunId, causedBy, coalesced } = pending;
+  const { orgId, slug, doCfg, input, triggerInput, invokedBy, automationRunId, causedBy, coalesced, label } = pending;
   try {
     // The brief distinguishes an event fire from a schedule fire by what the
     // CALLER handed in, never by the merged input: a scheduled check with fixed
     // `do.input` is still a scheduled check.
-    const dispatched = await dispatchDo(orgId, slug, doCfg, input, invokedBy, triggerInput, causedBy);
+    const dispatched = await dispatchDo(orgId, slug, doCfg, input, invokedBy, triggerInput, causedBy, label);
     // `coalesced: n` on the result is how the log says this one run stood in
     // for n held fires; a job's non-object result is wrapped rather than lost.
     const result = coalesced > 0
@@ -315,7 +324,7 @@ export async function completeAutomationFire(
       })
       .where(eq(automationRunSchema.id, automationRunId));
     if (dispatched.kind === 'mission_check' && dispatched.result) {
-      await announceCheckCompleted(orgId, slug, automationRunId, invokedBy, dispatched.result as AutomationCheckResult, causedBy);
+      await announceCheckCompleted(orgId, slug, automationRunId, invokedBy, dispatched.result as AutomationCheckResult, causedBy, label);
     }
     // Work the SEO app queued says where its batch stands in the conversation
     // it was started from, read off the records, and only when it changed
@@ -393,8 +402,9 @@ async function announceCheckFailed(orgId: string, slug: string, automationRunId:
  * @param invokedBy - Who started the fire; `event:automation_run.completed` means a debrief's own check.
  * @param result - The check summary.
  * @param causedBy - This fire and the ones behind it, as the mission run carries them.
+ * @param label - What the run was doing, to what (`PendingAutomationFire.label`).
  */
-async function announceCheckCompleted(orgId: string, slug: string, automationRunId: number, invokedBy: string | undefined, result: AutomationCheckResult, causedBy: CausalChain): Promise<void> {
+async function announceCheckCompleted(orgId: string, slug: string, automationRunId: number, invokedBy: string | undefined, result: AutomationCheckResult, causedBy: CausalChain, label: string | null): Promise<void> {
   const { AUTOMATION_RUN_COMPLETED, AUTOMATION_RUN_FAILED, emitEvent } = await import('@/services/EventService');
   if (invokedBy?.startsWith(`event:${AUTOMATION_RUN_COMPLETED}`) || invokedBy?.startsWith(`event:${AUTOMATION_RUN_FAILED}`)) {
     return;
@@ -402,12 +412,13 @@ async function announceCheckCompleted(orgId: string, slug: string, automationRun
   const payload: AutomationRunCompletedPayload = {
     automationRunId,
     slug,
+    label: label ?? 'Automation run',
     kind: 'mission_check',
     missionRunId: result.missionRunId,
     missionRunStatus: result.missionRunStatus,
     tasksOk: result.tasks.ok,
     tasksFailed: result.tasks.failed,
-    summary: `${slug}: mission run ${result.missionRunId} ${result.missionRunStatus}, ${result.tasks.ok}/${result.tasks.total} tasks ok`,
+    summary: `${label ?? 'Automation run'}: mission run ${result.missionRunId} ${result.missionRunStatus}, ${result.tasks.ok}/${result.tasks.total} tasks ok`,
     completedAt: new Date().toISOString(),
   };
   try {
@@ -438,6 +449,7 @@ async function announceCheckCompleted(orgId: string, slug: string, automationRun
  * @param invokedBy
  * @param triggerInput - What the caller handed in: an event's payload, or nothing for a schedule fire.
  * @param causedBy - The chain the started work carries: this fire, then the fires behind the event that made it.
+ * @param label - What the run is doing, to what: a mission check's run is titled with it, else with the mission's name.
  */
 async function dispatchDo(
   orgId: string,
@@ -447,6 +459,7 @@ async function dispatchDo(
   invokedBy: string,
   triggerInput: Record<string, unknown> | undefined,
   causedBy: CausalChain,
+  label: string | null,
 ): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; result?: unknown }> {
   if (doCfg.workflow) {
     const { startWorkflow } = await import('@/services/WorkflowService');
@@ -489,11 +502,13 @@ async function dispatchDo(
     // fire's payload rides it too, so the check knows what it was fired for;
     // a schedule fire hands in nothing and reads exactly as before.
     brief: scheduledCheckBrief(template, prompt, triggerInput && Object.keys(triggerInput).length > 0 ? triggerInput : undefined),
-    // Titled by the automation that fired it, not by the mission it checks:
-    // `process-new-mqls` and `discovery-followup-check` both check the same
-    // mission, so `Check: <mission name>` made them identical in Activity and
-    // only `created_by` told them apart.
-    title: `${slug}: ${template.name}`,
+    // Titled by what this run is doing, to what: the label the code that
+    // knows the record handed in ("Researching Google results and writing
+    // briefs · SB-506 …"), else the automation's own words — never the
+    // mission it checks (two automations check one mission, and `Check:
+    // <mission name>` made them identical), and never `<slug>: <charter>`,
+    // which put a slug in front of a person (`libs/work/runLabel.ts`).
+    title: label ?? template.name,
     mode: 'check' as const,
     invokedBy,
     // The run knows which fires are behind it, so `mission_run.completed`

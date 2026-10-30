@@ -10,7 +10,7 @@
 # every attempt and what would unblock it. Each recovery is its own trust key
 # (`factory.dispatch_task.recovery`) with Undo until a worker claims it.
 slug: factory-run-failed
-name: Recover a failed run
+name: Recover a failed engineering run
 description: >-
   When an engineering run fails, classify it and recover within the limit, or
   ask a person once. Deterministic: a built-in job on `worker_run.failed`.

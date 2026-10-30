@@ -9,7 +9,7 @@
 # deploy script writing the same fields, so a repository without that script
 # is kept true too.
 slug: environment-deployed
-name: A deploy is written on its environments
+name: Record each deploy on the environments it reached
 description: >-
   When a run on the deploy branch finishes, every environment it deployed
   records the commit, when, the run and its health after it.

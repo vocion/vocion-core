@@ -9,7 +9,7 @@
 # worker picked up. Cheap and idempotent: the heavier sweep stays hourly
 # (`factory-recover-stuck`).
 slug: factory-reconcile
-name: Read the pipeline back
+name: Compare GitHub and worker state with Vocion's records
 description: >-
   Every five minutes, compare what GitHub and the workers say with what Vocion
   heard, and raise what is missing. Deterministic: a built-in job on a

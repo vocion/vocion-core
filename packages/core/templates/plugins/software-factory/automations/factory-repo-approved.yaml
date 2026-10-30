@@ -2,7 +2,7 @@
 # "nothing says which repository" waited for the hourly sweep after its repo
 # record was approved. Approving or adding one reads the blocked requests now.
 slug: factory-repo-approved
-name: A repo record unblocks its requests
+name: Start requests that were waiting on a new repo record
 description: >-
   When a repo record is approved or added, read again every request that was
   blocked on a missing repo record, and start the ones that can be built now.

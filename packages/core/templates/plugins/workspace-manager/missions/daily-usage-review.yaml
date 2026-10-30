@@ -3,7 +3,7 @@
 # automations (usage-review-check raises usage.review_due only on a day the
 # workspace was used). The report is published by the review itself.
 slug: daily-usage-review
-name: Daily usage review
+name: Review whether each chat got people where they wanted, daily
 description: Each day the workspace was used, one read on whether people got where they wanted, what got in the way, and the fixes to approve.
 status: active
 version: 1

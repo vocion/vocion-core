@@ -1,5 +1,5 @@
 slug: weekly-expense-coding
-name: Weekly expense coding
+name: Code last week's expenses
 description: Wakes the Bookkeeper every Monday to code last week's expenses.
 status: active
 setting: weeklyExpenseCoding
