@@ -611,7 +611,8 @@ function TraceTimeline({ trace, streaming, activity, documents = [], failureCont
     // "Working…" on its own for a minute told the person nothing (Chris,
     // twice). The step that is running says what it is on, and — when the
     // call reports — where it has got to: `Building the document… sheet 7 of 12`.
-    const text = activity ?? (live ? liveStepLabel(live) : null) ?? latestNoteLine(notes) ?? 'Thinking…';
+    const genericActivity = !activity || /^(?:Thinking|Reasoning|.+ is thinking)…$/.test(activity);
+    const text = (genericActivity ? null : activity) ?? (live ? liveStepLabel(live) : null) ?? latestNoteLine(notes) ?? (actions.some(n => n.status === 'done') ? 'Working with the results…' : activity ?? 'Thinking…');
     // Folded until asked, failures included: the line names what is
     // happening; the steps, and any error, are a tap away.
     const liveOpen = expanded;
@@ -619,6 +620,9 @@ function TraceTimeline({ trace, streaming, activity, documents = [], failureCont
     return (
       <div className="my-1.5" data-testid="work-timeline-live">
         <LiveLine text={text} steps={steps} elapsed={turnElapsed ?? elapsed} expanded={liveOpen} onToggle={canOpen ? () => setExpanded(v => !v) : undefined} />
+        {!liveOpen && (turnElapsed ?? elapsed) >= 30 && (
+          <WorkCheckpoint steps={actions.map(n => ({ id: n.id, label: n.label, status: n.status }))} />
+        )}
         {liveOpen && canOpen && (
           <StepList
             reasons={reasons}
@@ -962,6 +966,33 @@ function ClaimLine({ id, icon, label, detail, radius, error, nested, open, onTog
   );
 }
 
+/**
+ * Completed operations, never model reasoning or unverified conclusions.
+ * @param root0
+ * @param root0.steps
+ */
+function WorkCheckpoint({ steps }: { steps: { id: string; label: string; status: string }[] }) {
+  const completed = steps.filter(step => step.status === 'done').slice(-3);
+  const failures = steps.filter(step => step.status === 'error').length;
+  if (completed.length === 0 && failures === 0) {
+    return null;
+  }
+  return (
+    <div data-testid="work-checkpoint" className="mt-1 ml-6 border-l border-border/50 pl-3 text-xs text-muted-foreground">
+      <p className="mb-1 font-medium">Work completed so far</p>
+      <ul className="space-y-1">
+        {completed.map(step => (
+          <li key={step.id} className="flex items-start gap-1.5">
+            <Check aria-hidden className="mt-0.5 size-3 shrink-0" />
+            <span className="min-w-0 break-words">{step.label}</span>
+          </li>
+        ))}
+      </ul>
+      {failures > 0 && <p className="mt-1">{`${failures} failed step${failures === 1 ? '' : 's'} — open the activity for details.`}</p>}
+    </div>
+  );
+}
+
 function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [], elapsed: turnElapsed, notes = [] }: Omit<WorkTimelineProps, 'trace'>) {
   const [open, setOpen] = useState(false);
   const [reasoningOpen, setReasoningOpen] = useState(false);
@@ -992,6 +1023,8 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
   const livePending = pending.length > 0
     ? describeToolCall(pending[pending.length - 1]!.name, pending[pending.length - 1]!.input ?? {}, true).label
     : null;
+  const genericActivity = !activity || /^(?:Thinking|Reasoning|.+ is thinking)…$/.test(activity);
+  const liveText = (genericActivity ? null : activity) ?? livePending ?? latestNoteLine(notes) ?? (nodes.some(n => n.state === 'done') ? 'Working with the results…' : activity ?? 'Thinking…');
   const legacyKind = (k: Kind): 'tool' | 'search' | 'delegate' | 'draft' => (k === 'delegation' ? 'delegate' : k === 'search' ? 'search' : k === 'draft' || k === 'proposal' ? 'draft' : 'tool');
   const headline = stepHeadline(nodes.map(n => ({ kind: legacyKind(n.kind), status: n.state === 'pending' ? 'progress' : n.state, label: n.label })), sources);
 
@@ -1000,7 +1033,12 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
       {/* Live, the header IS the turn's one live line — the same line a typed
           trace draws, so a legacy turn does not grow a second shape. */}
       {streaming
-        ? <LiveLine text={activity ?? livePending ?? latestNoteLine(notes) ?? 'Thinking…'} steps={nodes.length} elapsed={turnElapsed ?? ownElapsed} expanded={open} onToggle={hasDetail ? () => setOpen(v => !v) : undefined} />
+        ? (
+            <>
+              <LiveLine text={liveText} steps={nodes.length} elapsed={turnElapsed ?? ownElapsed} expanded={open} onToggle={hasDetail ? () => setOpen(v => !v) : undefined} />
+              {!open && (turnElapsed ?? ownElapsed) >= 30 && <WorkCheckpoint steps={nodes.map((n, index) => ({ id: String(index), label: n.label, status: n.state }))} />}
+            </>
+          )
         : (
             <button
               type="button"
