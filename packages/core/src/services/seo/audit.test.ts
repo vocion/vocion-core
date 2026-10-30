@@ -127,7 +127,7 @@ describe('the order of work and the report', () => {
     const order = workOrder(auditFindings(read()), read().profile).map(f => f.key);
 
     expect(order.slice(0, 3)).toEqual(['no_local_schema', 'org_description_stale', 'ai_crawlers_blocked']);
-    expect(nextSteps(auditFindings(read()), read().profile)[0]).toBe('No LocalBusiness schema (high, local and google business profile)');
+    expect(nextSteps(auditFindings(read()), read().profile)[0]).toBe('No LocalBusiness schema — / (high, local and google business profile)');
   });
 
   it('reports the counts, the next steps and each finding with its Fix it, or what fixed it', () => {
@@ -136,9 +136,9 @@ describe('the order of work and the report', () => {
     const c = auditCounts(findings);
 
     expect(md).toContain('# SEO audit · Northwind Home Services · 2026-10-29');
-    expect(md).toContain(`**${c.open} open findings, ${c.high} high.**`);
+    expect(md).toContain(`**${c.open} open finding groups, ${c.high} high priority.**`);
     expect(md).toContain('## Recommended next steps');
-    expect(md).toContain('[task made](/dashboard/inbox/9)');
+    expect(md).toContain('[task linked; finding still open](/dashboard/inbox/9)');
     expect(md).toMatch(/\[Fix it\]\(\/dashboard\/chat\?ask=Fix%20this%20audit%20finding.*audit%20%2342/);
     expect(md).toContain('[site inventory](/dashboard/artifacts/7)');
   });

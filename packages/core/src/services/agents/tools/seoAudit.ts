@@ -19,6 +19,7 @@ import type { RuntimeContext } from '../types';
 import type { AuditFinding } from '@/services/seo/audit';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { stepProgress } from '@/libs/chat/stepProgress';
 import { recordIdArg, recordIdOf } from './recordIdArg';
 
 const hostOf = (u: string) => {
@@ -49,12 +50,22 @@ export function seoRunAuditTool(ctx: RuntimeContext) {
         return `No project #${args.project_id} in this workspace. list_projects names them.`;
       }
       const profile = room.meta.seoProfile;
-      const run = await inventoryProject(ctx, room, { url: args.url ?? profile?.website, cap: args.max_pages });
+      const progress = stepProgress(ctx.emit, 'seo_run_audit');
+      const run = await inventoryProject(ctx, room, { url: args.url ?? profile?.website, cap: args.max_pages, onProgress: (p) => {
+        if (p.phase === 'discover') {
+          progress.note('Finding sitemap and linked pages');
+        } else if (p.completed === p.total) {
+          progress.note(`Checked ${p.completed} pages; preparing the inventory`);
+        } else {
+          progress.pulse(`Checking pages: ${p.completed} of ${p.total}`);
+        }
+      } });
       if (!run.ok) {
         return `The audit could not run: ${run.message}`;
       }
       const { inv } = run;
       const origin = siteOriginOf(inv);
+      progress.note(`Inventory recorded: ${inv.rows.length} pages checked; reading home-page structured data`);
       // The home page's structured data, read now.
       let schema: ReturnType<typeof homepageSchema> | null | undefined;
       try {
@@ -64,7 +75,9 @@ export function seoRunAuditTool(ctx: RuntimeContext) {
       } catch {
         schema = undefined;
       }
+      progress.note('Checking robots.txt crawler access');
       const robots = await fetchText(`${origin}/robots.txt`).catch(() => undefined);
+      progress.note('Checking search results for the client’s name');
       // Google's page for the client's own name: where its site stands.
       let brand: Parameters<typeof auditFindings>[0]['brand'] = null;
       let brandNote: string | null = null;
@@ -79,12 +92,14 @@ export function seoRunAuditTool(ctx: RuntimeContext) {
       }
       const checkedAt = new Date().toISOString();
       const findings = auditFindings({ checkedAt, inventory: inv, schema, robots, brand, profile, clientName: room.title });
+      progress.note(`Found ${findings.length} finding groups, ${findings.filter(f => f.severity === 'high').length} high priority; saving evidence`);
       // The agent's own act, recorded as the agent's: never a person's id.
       const by = `agent:${ctx.agentSlug ?? 'seo-strategist'}`;
       const filed = await fileAudit(ctx.orgId, { project: { id: room.id, title: room.title, profile }, site: origin, checkedAt, findings, pagesRead: inv.rows.length, listed: inv.listed, inventoryArtifactId: run.artifactId, by });
       if (!filed) {
         return `The audit ran (${findings.length} findings) but this workspace has no ${SEO_AUDIT_TYPE} record type: the SEO app needs its update. Say so.`;
       }
+      progress.note('Audit findings saved; building the shareable report');
       // The shareable report: an artifact on the audit's record.
       const { renderMarkdownArtifact } = await import('./renderArtifacts');
       const { anchorArtifact } = await import('@/services/ArtifactService');

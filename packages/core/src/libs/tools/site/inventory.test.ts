@@ -222,3 +222,23 @@ describe('renderInventory', () => {
     expect(cut).toContain(`only the first ${tableRows(cut).length} rows fit even compact`);
   });
 });
+
+it('reports completed page checks, including unreadable pages, without inventing a success count', async () => {
+  const base = 'https://northwind-home.example';
+  const progress: Array<{ phase: string; completed: number; total?: number }> = [];
+  const inv = await readInventory(base, fetchers({}, { [`${base}/`]: page({ title: 'Home' }), [`${base}/missing`]: httpError(404) }, [`${base}/`, `${base}/missing`]), { onProgress: p => progress.push(p) });
+
+  expect(progress[0]).toEqual({ phase: 'discover', completed: 0 });
+  expect(progress.filter(p => p.phase === 'read').map(p => p.completed)).toEqual([0, 1, 2]);
+  expect(progress.at(-1)).toEqual({ phase: 'read', completed: 2, total: 2 });
+  expect(inv.rows.filter(r => r.error)).toHaveLength(1);
+});
+
+it('a disconnected progress consumer cannot fail the inventory', async () => {
+  const base = 'https://northwind-home.example';
+  const inv = await readInventory(base, fetchers({}, { [`${base}/`]: page({ title: 'Home' }) }, [`${base}/`]), { onProgress: () => {
+    throw new Error('stream closed');
+  } });
+
+  expect(inv.rows).toHaveLength(1);
+});

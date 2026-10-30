@@ -88,8 +88,9 @@ export type ProjectInventory = { ok: true; inv: SiteInventory; artifactId: numbe
  * @param opts - The site (default the project's first domain) and the cap.
  * @param opts.url
  * @param opts.cap
+ * @param opts.onProgress
  */
-export async function inventoryProject(ctx: RuntimeContext, room: { id: number; meta: RoomMeta }, opts: { url?: string; cap?: number } = {}): Promise<ProjectInventory> {
+export async function inventoryProject(ctx: RuntimeContext, room: { id: number; meta: RoomMeta }, opts: { url?: string; cap?: number; onProgress?: NonNullable<Parameters<typeof readInventory>[2]>['onProgress'] } = {}): Promise<ProjectInventory> {
   const site = opts.url ?? room.meta.domains?.[0];
   if (!site) {
     return { ok: false, message: `Project #${room.id} has no domain. Pass the site's url.` };
@@ -103,7 +104,7 @@ export async function inventoryProject(ctx: RuntimeContext, room: { id: number; 
   const cap = opts.cap ?? DEFAULT_INVENTORY_CAP;
   let inv: SiteInventory;
   try {
-    inv = await readInventory(origin, inventoryFetchers(ctx), { cap });
+    inv = await readInventory(origin, inventoryFetchers(ctx), { cap, onProgress: opts.onProgress });
   } catch (err) {
     if (err instanceof ToolProviderKeyUnavailableError) {
       return { ok: false, message: `${err.message}. A workspace admin can re-enter it under API credentials.` };

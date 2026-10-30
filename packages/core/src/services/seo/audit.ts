@@ -439,7 +439,7 @@ export function auditCounts(findings: readonly AuditFinding[]): AuditCounts {
  * @param limit - How many.
  */
 export function nextSteps(findings: readonly AuditFinding[], profile?: SeoProfile, limit = 5): string[] {
-  return workOrder(findings, profile).slice(0, limit).map(f => `${f.title} (${f.severity}, ${CATEGORY_LABEL[f.category].toLowerCase()})${f.suggestPage ? `: plan a ${f.suggestPage.pageType} page for "${f.suggestPage.keyword}"` : ''}`);
+  return workOrder(findings, profile).slice(0, limit).map(f => `${f.title}${f.url ? ` — ${pathOf(f.url) || '/'}` : f.urls?.length ? ` — ${pathOf(f.urls[0]!) || '/'}${f.urls.length > 1 ? ` + ${f.urls.length - 1} other recorded URLs` : ''}` : ''} (${f.severity}, ${CATEGORY_LABEL[f.category].toLowerCase()})${f.suggestPage ? `: plan a ${f.suggestPage.pageType} page for "${f.suggestPage.keyword}"` : ''}`);
 }
 
 /**
@@ -476,9 +476,10 @@ export function renderAuditReport(a: { auditId: number; projectName: string; sit
     '',
     `${a.site}, read ${date}: ${a.pagesRead} pages${a.listed && a.listed > a.pagesRead ? ` of ${a.listed} listed` : ''}${a.inventoryArtifactId ? ` ([site inventory](/dashboard/artifacts/${a.inventoryArtifactId}))` : ''}, the home page's structured data, robots.txt and Google's results for the client's name.`,
     '',
-    `**${c.open} open findings, ${c.high} high.** ${AUDIT_CATEGORIES.filter(k => c.byCategory[k]).map(k => `${CATEGORY_LABEL[k]} ${c.byCategory[k]}`).join(' · ') || 'Nothing open.'}${c.dismissed ? ` · ${c.dismissed} dismissed` : ''}`,
+    `**${c.open} open finding groups, ${c.high} high priority.** ${AUDIT_CATEGORIES.filter(k => c.byCategory[k]).map(k => `${CATEGORY_LABEL[k]} ${c.byCategory[k]}`).join(' · ') || 'Nothing open.'}${c.dismissed ? ` · ${c.dismissed} dismissed` : ''}`,
     '',
   ];
+  out.push('A finding group is one check and its recorded affected scope, not a task or a count of affected pages. Creating a task or planning a page does not mark its finding fixed.', '');
   const steps = nextSteps(a.findings, a.profile);
   if (steps.length) {
     out.push('## Recommended next steps', '', ...steps.map((s, i) => `${i + 1}. ${s}`), '');
@@ -492,7 +493,7 @@ export function renderAuditReport(a: { auditId: number; projectName: string; sit
     for (const f of list) {
       const pages = f.url ? ` · [${pathOf(f.url) || '/'}](${f.url})` : f.urls?.length ? ` · ${f.urls.slice(0, 5).map(u => `[${pathOf(u) || '/'}](${u})`).join(', ')}${f.urls.length > 5 ? ` and ${f.urls.length - 5} more` : ''}` : '';
       const state = f.status === 'open'
-        ? (f.fix ? `[${f.fix.kind === 'page' ? 'page planned' : 'task made'}](${f.fix.href})` : `[Fix it](${fixHref(a.auditId, f)})`)
+        ? (f.fix ? `[${f.fix.kind === 'page' ? 'planned page linked; finding still open' : 'task linked; finding still open'}](${f.fix.href})` : `[Fix it](${fixHref(a.auditId, f)})`)
         : `${f.status}${f.statusNote ? `: ${f.statusNote}` : ''}`;
       out.push(`- **${f.title}** (${f.severity}) — ${f.evidence}${pages} · ${state}`);
     }

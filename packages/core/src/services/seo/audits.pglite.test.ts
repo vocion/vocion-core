@@ -65,7 +65,12 @@ const { eq } = await import('drizzle-orm');
 const ORG = 'proj_seo_audits_brightline';
 let projectId = 0;
 
-const ctx = { orgId: ORG, userId: 'usr-mara', agentSlug: 'seo-strategist', conversationId: undefined, connectorSources: [], searchConfig: {}, harnessConfig: { model: 'claude-opus-5-5', grantTools: ['serp', 'site_inventory'] }, enabledPlugins: ['data-rooms', 'wiki', 'seo'], emit: () => {} } as unknown as RuntimeContext;
+const progressNotes: string[] = [];
+const ctx = { orgId: ORG, userId: 'usr-mara', agentSlug: 'seo-strategist', conversationId: undefined, connectorSources: [], searchConfig: {}, harnessConfig: { model: 'claude-opus-5-5', grantTools: ['serp', 'site_inventory'] }, enabledPlugins: ['data-rooms', 'wiki', 'seo'], emit: (event: { type: string; note?: string }) => {
+  if (event.type === 'step_progress' && event.note) {
+    progressNotes.push(event.note);
+  }
+} } as unknown as RuntimeContext;
 const run = async () => JSON.parse(String(await seoRunAuditTool(ctx).invoke({ project_id: projectId }))) as { audit: { id: number }; report: { artifactId: number } | null; counts: { open: number; high: number }; recommendedNextSteps: string[]; findings: Array<{ key: string; status: string }>; fixedSinceLastRun?: string };
 
 beforeAll(async () => {
@@ -83,6 +88,10 @@ describe('an audit run', () => {
     const out = await run();
 
     expect(out.report?.artifactId).toBeGreaterThan(0);
+    expect(progressNotes).toContain('Finding sitemap and linked pages');
+    expect(progressNotes).toContain('Checking robots.txt crawler access');
+    expect(progressNotes).toContain(`Found ${out.findings.length} finding groups, ${out.counts.high} high priority; saving evidence`);
+    expect(progressNotes.at(-1)).toBe('Audit findings saved; building the shareable report');
     expect(out.counts.high).toBeGreaterThan(0);
     expect(out.recommendedNextSteps[0]).toMatch(/LocalBusiness schema|AI answer engines/);
 
@@ -144,7 +153,7 @@ describe('an audit run', () => {
     const [page] = await db.select({ metadata: businessObjectSchema.metadata }).from(businessObjectSchema).where(eq(businessObjectSchema.id, f['no_location_page:lakeside']!.fix!.id));
 
     expect(page!.metadata).toMatchObject({ projectId, keyword: 'plumbing lakeside', pageType: 'location', location: 'Lakeside' });
-    expect(after.meta.report).toContain('[page planned](/dashboard/objects/');
+    expect(after.meta.report).toContain('[planned page linked; finding still open](/dashboard/objects/');
     // Linked to its fix, but still open until a run no longer finds it.
     expect(f.ai_crawlers_blocked!.status).toBe('open');
     expect(await update({ findings: ['ai_crawlers_blocked'], action: 'make_task' })).toMatch(/Nothing to fix: ai_crawlers_blocked \(already fixed by a task/);
