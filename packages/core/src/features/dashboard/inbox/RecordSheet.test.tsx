@@ -36,7 +36,7 @@ vi.mock('next/navigation', () => ({
 // next-intl's Link and router need the app-router provider; a stub is enough
 // here, and it is what every other preview test mounts.
 vi.mock('@/libs/I18nNavigation', () => ({
-  useRouter: () => ({ push, replace: () => {} }),
+  useRouter: () => ({ push, refresh, replace: () => {} }),
   usePathname: () => '/dashboard/inbox/r/hubspot%3Adeals%3A900112',
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));
