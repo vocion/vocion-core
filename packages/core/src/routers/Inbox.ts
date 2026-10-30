@@ -1,30 +1,30 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
-import { listInboxForUser, needsYouCountForUser } from '@/services/inbox/acrossWorkspaces';
+import { listInboxForUser } from '@/services/inbox/acrossWorkspaces';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
-/**
- * inbox.mine — everything waiting on the signed-in person across every
- * workspace they reach (their own included), their own rows first, each
- * tagged with its workspace and linked to it there
- * (`services/inbox/acrossWorkspaces.ts`). `workspaceId` narrows the rows to
- * one workspace; the per-workspace counts always cover them all.
- */
+/** The current workspace's queue. A legacy workspaceId cannot override tenancy. */
 export const mineRoute = os
   .input(z.object({ workspaceId: z.string().min(1).max(200).optional() }).default({}))
   .handler(async ({ input }) => {
-    const { userId } = await guardAuth();
-    return listInboxForUser(userId, input.workspaceId ? { workspaceId: input.workspaceId } : {});
+    const { userId, orgId } = await guardAuth();
+    if (input.workspaceId && input.workspaceId !== orgId) {
+      throw ApiError.notFound({ message: 'No such workspace queue.' });
+    }
+    return listInboxForUser(userId, { onlyWorkspaceId: orgId });
   });
 
-/**
- * inbox.mineCount — the cross-workspace badge: decisions waiting, how many are
- * the person's own, and where. Counted by the same admission bar as the list.
- */
+/** The current workspace's badge, using the same boundary as its queue. */
 export const mineCountRoute = os.handler(async () => {
-  const { userId } = await guardAuth();
-  return needsYouCountForUser(userId);
+  const { userId, orgId } = await guardAuth();
+  const inbox = await listInboxForUser(userId, { onlyWorkspaceId: orgId, cap: 0 });
+  return {
+    total: inbox.total,
+    yours: inbox.yours,
+    workspaces: inbox.workspaces.map(({ id, slug, name, kind, count, yours }) => ({ id, slug, name, kind, count, yours })),
+    unavailable: inbox.unavailable.length,
+  };
 });
 
 /**

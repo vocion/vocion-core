@@ -185,14 +185,6 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
       <CompactFilters
         menus={[
           {
-            key: 'scope',
-            label: t('scope_label'),
-            value: 'here',
-            options: [{ key: 'here', label: t('scope_here') }, { key: 'all', label: t('scope_all') }],
-            // Switching scope drops this scope's filters, as `InboxScope` does.
-            onChange: key => key === 'all' && router.replace(`${pathname}?scope=all`, { scroll: false }),
-          },
-          {
             key: 'tab',
             label: t('title'),
             value: tab,

@@ -15,8 +15,8 @@
  *
  * One query for all of them (correlated subqueries on indexed `org_id`
  * columns), never one per workspace. What is waiting on the person is NOT
- * here: that is the cross-workspace badge's count (`inbox.mineCount`), read by
- * the page on its own so one definition of "needs you" serves both.
+ * here: `inbox.mineCount` counts only the active workspace. Other workspaces
+ * have no review badge until opened; an absent reading is not zero.
  */
 
 import type { AccountSummary, ProjectSummary } from '@/services/ProjectService';

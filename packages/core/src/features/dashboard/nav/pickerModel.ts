@@ -12,7 +12,7 @@ import type { SwitcherAccount, SwitcherProject } from './workspaceSwitch';
 import { byRecentUse } from './workspacesPage';
 
 /** What the picker knows about a workspace beyond the directory (`projects.overview`, `inbox.mineCount`). */
-export type PickerDetail = { leadName: string | null; lastActiveAt: string | null; waiting: number };
+export type PickerDetail = { leadName: string | null; lastActiveAt: string | null; waiting?: number };
 
 /** One Org on level 1. */
 export type PickerOrg = {
