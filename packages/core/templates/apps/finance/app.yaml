@@ -5,58 +5,57 @@ name: Finance
 icon: calculator
 tint: sky
 order: 5
-description: The books coded, the month closed and the board told, with every change approved by you.
+description: Prepare financial reports, review the close and decide what happens next in the books.
 plugins: [finance]
 entry: /dashboard/p/account-rules
 nav: [Finance]
-# Where the app opens: the ask bar to the controller, what to start, what
-# waits on you, and the books as they stand, each figure dated by the sync it
-# came from (AppHomeSchema, docs/entities/app-manifest.md).
+# Launch a concrete task; every financial claim still needs its source and date.
 home:
   launch:
-    - title: Set up Finance
-      description: Connect the books and put your entities and account rules on file.
-      icon: settings
-      ask: Set up Finance for this workspace.
-      first: true
-    - title: Close the month
-      description: Sequence this month's close, name the blockers and say if the date is at risk.
-      icon: calendar-check
-      ask: Start this month's close. Sequence the tasks, name what is blocking each one, and tell me if the close date is at risk.
-    - title: Code expenses
-      description: Put this week's card and bank expenses in the right accounts, and ask about anything new.
-      icon: tags
-      ask: Code this week's card and bank expenses against our account rules. Ask me about any vendor you have not seen before.
-    - title: Chase overdue invoices
-      description: Overdue invoices by age, with a follow-up drafted for each one worth chasing.
-      icon: receipt
-      ask: List our overdue invoices by age and draft a follow-up for each one worth chasing.
-    - title: Check project margins
-      description: Which projects are below their margin target, and why.
-      icon: percent
-      ask: Which projects are below their margin target?
-    - title: Prepare the statements
-      description: Last month's profit and loss and balance sheet, ready to send.
+    - title: Prepare month-end packet
+      description: Draft the financials, explain material changes and flag missing close evidence.
       icon: file-text
-      ask: Prepare last month's profit and loss and balance sheet.
+      prompt: 'Prepare a draft month-end packet for our board and executive team. Use ledger reports, flag missing inputs or unverified close sign-off, and do not send it. Reporting month and year: '
+      first: true
+      firstTitle: Prepare your first month-end packet
+    - title: Review the close
+      description: Check completed tasks, blockers and the close date against the calendar.
+      icon: calendar-check
+      ask: Review the latest close against our close calendar. State the exact period, what is verified complete, what is blocked and who owns each missing item. Do not infer sign-off from a completed run.
+    - title: Review expense coding
+      description: Check recent expenses against account rules and propose corrections for approval.
+      icon: tags
+      ask: Review this week's card and bank expenses against our account rules. State the dates and propose any corrections for approval. Ask about vendors or rules that cannot be resolved from our records.
+    - title: Draft collection follow-ups
+      description: Review overdue balances and draft follow-ups without sending them.
+      icon: receipt
+      ask: Read our overdue invoices, state the as-of date and group them by age. Draft appropriate collection follow-ups for review; do not send them.
+    - title: Check project margins
+      description: Compare available delivery costs and revenue with each project's recorded target.
+      icon: percent
+      ask: Compare project margins with the targets on file. State each period, cite the revenue and cost sources, and name missing cost data or targets instead of estimating them.
+    - title: Set up Finance
+      description: Check connections, entities and account rules before starting new work.
+      icon: settings
+      ask: Check Finance setup for this workspace. Show what is already connected and on file, and guide me through missing entities, account rules or reporting prerequisites without replacing existing setup.
   measures:
     - key: close
-      label: This month's close
+      label: Latest close run
       source: mission
       mission: close-the-month
     - key: approvals
-      label: Waiting on your approval
+      label: Finance action approvals
       source: approvals
       actions: [finance.*]
       href: /dashboard/inbox
     - key: cash
-      label: Cash in the bank
+      label: Synced bank balances
       source: state
       query: {sets: [finance.account], filter: {account_type: Bank}}
       sum: balance
       format: money
     - key: overdue
-      label: Overdue invoices
+      label: Synced overdue balance
       source: state
       view: overdue-invoices
       sum: balance
