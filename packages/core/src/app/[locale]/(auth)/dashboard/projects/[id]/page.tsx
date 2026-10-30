@@ -8,6 +8,7 @@ import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL } from '@/features/dashboard/ar
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { ProjectInstructions, ProjectPublishing, ProjectWiki } from '@/features/dashboard/rooms/ProjectKnowledge';
+import { ProjectSeoOverview } from '@/features/dashboard/rooms/ProjectSeoOverview';
 import { ProjectSeoProfile } from '@/features/dashboard/rooms/ProjectSeoProfile';
 import { UnfileSource } from '@/features/dashboard/rooms/UnfileSource';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -35,7 +36,8 @@ import { enabledPluginsForOrg } from '@/services/PluginService';
  * and Remove undoes it); the WORK — every record that belongs to the project
  * (`metadata.projectId`), grouped by type, and the documents and files written
  * from it; then the OPEN ITEMS, what is still only promised, the timeline,
- * the highlights and the decision logs. Nothing is collapsed on the way down.
+ * the highlights and the decision logs. SEO projects lead with an actionable
+ * overview and work, with reference context and audit history folded below.
  * Where its pages ship (`publishTargets`) and, with the SEO app on, how its
  * pages are released (`seoGate`) and how many new pages a month are proposed
  * (`seoCadence`) sit in the right column under "Publishing":
@@ -51,9 +53,11 @@ import { enabledPluginsForOrg } from '@/services/PluginService';
  * deliverable naming an artifact is that artifact's row there too.
  * @param props
  * @param props.params
+ * @param props.searchParams
  */
-export default async function DataRoomPage(props: { params: Promise<{ locale: string; id: string }> }) {
+export default async function DataRoomPage(props: { params: Promise<{ locale: string; id: string }>; searchParams?: Promise<{ app?: string | string[] }> }) {
   const { locale, id } = await props.params;
+  const appContext = (await props.searchParams)?.app;
   setRequestLocale(locale);
   const { orgId } = await auth();
   const roomId = Number(id);
@@ -108,14 +112,16 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
       ].filter(f => f !== null)
     : [];
   const linkRecord = await recordLinkerForOrg(orgId);
-  const workGroups = groupRecordsByType(room.work ?? []);
   const publishTargets = m.publishTargets ?? [];
   const seoOn = (await enabledPluginsForOrg(orgId).catch(() => [] as string[])).includes('seo');
+  const workGroups = groupRecordsByType((room.work ?? []).filter(r => !seoOn || r.typeSlug !== 'seo_audit'));
   // The client's latest SEO audit, when the SEO app is on: its headline,
   // next steps and report, one move from the project.
-  const latestAudit = seoOn ? (await (await import('@/services/seo/audits')).listProjectAudits(orgId, room.id).catch(() => []))[0] ?? null : null;
+  const audits = seoOn ? await (await import('@/services/seo/audits')).listProjectAudits(orgId, room.id).catch(() => []) : [];
+  const latestAudit = audits[0] ?? null;
   // The client's strategy goal: where it stands, its milestones, its document.
   const strategy = seoOn ? await (await import('@/services/seo/strategy')).getStrategy(orgId, room.id).catch(() => null) : null;
+  const seoProject = seoOn && Boolean(appContext === 'seo' || m.seoProfile || m.seoProfileDraft || latestAudit || strategy || room.work?.some(r => r.typeSlug.startsWith('seo_')));
   const open = room.items.filter(i => i.status === 'open');
   const done = room.items.filter(i => i.status !== 'open');
   // Deliverables and documents are one fact: a deliverable naming an artifact
@@ -163,7 +169,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
             </a>
             {/* A conversation scoped to the project: it uses this project's connections and names it in its header. */}
             <AskAboutThis record={record} label="Ask about this project" />
-            <AskAboutThis record={record} label="Draft a document" prompt="Draft the proposal for this engagement from its project." agentSlug="proposal-writer" />
+            {!seoProject && <AskAboutThis record={record} label="Draft a document" prompt="Draft the proposal for this engagement from its project." agentSlug="proposal-writer" />}
           </div>
         )}
         aside={(
@@ -238,124 +244,19 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
         )}
         data-testid="data-room-page"
       >
-        <Section eyebrow="Status">
-          {m.status
-            ? <p className="text-[15px] leading-7 text-foreground">{m.status}</p>
-            : <p className="text-sm text-muted-foreground">No status yet. The agent writes one when something happens; a person can ask for it.</p>}
-        </Section>
-
-        {seoOn && (
-          <ProjectSeoProfile
-            projectId={room.id}
-            profile={m.seoProfile ?? null}
-            targets={publishTargets.map(t => ({ id: t.id, line: publishTargetLine(t) }))}
-          />
-        )}
-
-        {seoOn && (
-          <Section eyebrow="Strategy" data-testid="project-strategy">
-            {strategy
-              ? (
-                  <>
-                    <p className="text-sm text-foreground">
-                      {strategy.meta.goalId
-                        ? <a href={`/dashboard/goals/${strategy.meta.goalId}`} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{strategy.meta.goalTitle}</a>
-                        : strategy.meta.goalTitle}
-                      <span className="text-muted-foreground">{` · ${strategy.meta.goalStatus === 'drafted' ? 'waiting on the goal card' : strategy.meta.progressLine}`}</span>
-                      {strategy.meta.documentArtifactId ? <a href={`/dashboard/artifacts/${strategy.meta.documentArtifactId}`} className="ml-2 text-xs text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">Strategy document</a> : null}
-                    </p>
-                    {strategy.meta.milestones.length > 0 && (
-                      <ul className="mt-2 space-y-1 text-sm">
-                        {strategy.meta.milestones.map(ms => (
-                          <li key={ms.label} className={`flex gap-2 ${ms.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
-                            <span aria-hidden>{ms.done ? '✓' : '·'}</span>
-                            {ms.href ? <a href={ms.href} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{ms.label}</a> : <span>{ms.label}</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </>
-                )
-              : <p className="text-sm text-muted-foreground">No strategy yet. Ask the SEO strategist to draft one: it becomes a goal you own, with milestones that complete as the linked work does.</p>}
+        {(m.status || !seoProject) && (
+          <Section eyebrow="Status">
+            {m.status
+              ? <p className="text-[15px] leading-7 text-foreground">{m.status}</p>
+              : <p className="text-sm text-muted-foreground">No status yet. The agent writes one when something happens; a person can ask for it.</p>}
           </Section>
         )}
 
-        {latestAudit && (
-          <Section eyebrow="Latest audit" data-testid="project-latest-audit">
-            <p className="text-sm text-foreground">
-              <a href={`/dashboard/objects/${latestAudit.id}`} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{latestAudit.title}</a>
-              {` · ${latestAudit.meta.openCount} open, ${latestAudit.meta.highCount} high · checked ${latestAudit.meta.checkedAt.slice(0, 10)}`}
-              {latestAudit.meta.reportArtifactId ? <a href={`/dashboard/artifacts/${latestAudit.meta.reportArtifactId}`} className="ml-2 text-xs text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">Report</a> : null}
-            </p>
-            {latestAudit.meta.nextSteps.length > 0 && (
-              <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-foreground">
-                {latestAudit.meta.nextSteps.slice(0, 3).map(step => <li key={step}>{step}</li>)}
-              </ol>
-            )}
-          </Section>
-        )}
-
-        <ProjectInstructions projectId={room.id} rules={m.rules ?? []} />
-
-        <Section eyebrow="Brand & guidelines" data-testid="project-brand">
-          {brandImages.length === 0 && guidelines.length === 0 && brandFacts.length === 0 && voiceFacts.length === 0
-            ? <p className="text-sm text-muted-foreground">No brand or guidelines yet. File the client's brand guide or style rules at ⭐⭐⭐ and they show here; the agent reads them before writing anything.</p>
-            : (
-                <>
-                  {brandFacts.length > 0 && <div className="mb-3" data-testid="project-brand-profile"><FactList layout="column" facts={brandFacts} /></div>}
-                  {voiceFacts.length > 0 && <div className="mb-3" data-testid="project-voice"><FactList layout="column" facts={voiceFacts} /></div>}
-                  {brandImages.length > 0 && (
-                    <div className="mb-3 flex flex-wrap items-center gap-4">
-                      {brandImages.map(({ slot, image }) => (
-                        // eslint-disable-next-line next/no-img-element -- a stored data URI, not a remote image to optimise
-                        <img key={slot} src={image.dataUri} alt={`${m.client ?? room.title} ${slot}`} title={`${slot} · from ${image.source} on ${image.fetchedAt.slice(0, 10)}`} className="h-10 w-auto max-w-40 object-contain" />
-                      ))}
-                    </div>
-                  )}
-                  {guidelines.length > 0 && (
-                    <ListRows>
-                      {guidelines.map(s => (
-                        <ListRow
-                          key={`${s.documentId ?? ''}-${s.artifactId ?? ''}-${s.title}`}
-                          title={s.title}
-                          subline={<Subline segments={[s.kind, s.channel ? `via ${s.channel}` : null, filedHow(s) ?? `filed ${s.retrievedAt.slice(0, 10)}`, s.filedBy === 'auto' && s.evidence?.length ? s.evidence.join(', ') : null, s.note]} />}
-                          columns={<Column kind="date">{s.date ?? ''}</Column>}
-                          chip={stars(s.rating)}
-                          actions={<UnfileSource roomId={room.id} documentId={s.documentId} artifactId={s.artifactId} title={s.title} />}
-                          {...(s.artifactId ? { href: `/dashboard/artifacts/${s.artifactId}` } : s.documentId ? { href: `/dashboard/search/${s.documentId}` } : {})}
-                        />
-                      ))}
-                    </ListRows>
-                  )}
-                </>
-              )}
-        </Section>
-
-        <ProjectWiki projectId={room.id} notes={m.notes ?? ''} />
-
-        <Section eyebrow="Sources" data-testid="room-sources">
-          {sources.length === 0
-            ? <p className="text-sm text-muted-foreground">Nothing filed yet. A transcript, a thread or an attachment lands here with its weight and where it came from, on its own after a sync when the match is clear.</p>
-            : (
-                <ListRows>
-                  {sources.map(s => (
-                    <ListRow
-                      key={`${s.documentId ?? ''}-${s.artifactId ?? ''}-${s.title}`}
-                      title={s.title}
-                      subline={<Subline segments={[s.kind, s.channel ? `via ${s.channel}` : null, filedHow(s) ?? `filed ${s.retrievedAt.slice(0, 10)}`, s.filedBy === 'auto' && s.evidence?.length ? s.evidence.join(', ') : null, s.note]} />}
-                      columns={<Column kind="date">{s.date ?? ''}</Column>}
-                      chip={stars(s.rating)}
-                      actions={<UnfileSource roomId={room.id} documentId={s.documentId} artifactId={s.artifactId} title={s.title} />}
-                      {...(s.artifactId ? { href: `/dashboard/artifacts/${s.artifactId}` } : s.documentId ? { href: `/dashboard/search/${s.documentId}` } : {})}
-                    />
-                  ))}
-                </ListRows>
-              )}
-        </Section>
+        {seoProject && <ProjectSeoOverview record={record} profile={m.seoProfile ?? null} draftReady={Boolean(m.seoProfileDraft)} audit={latestAudit} strategy={strategy} />}
 
         <Section eyebrow="Work" data-testid="project-work">
           {workGroups.length === 0 && documents.length === 0 && working.length === 0
-            ? <p className="text-sm text-muted-foreground">Nothing written for this project yet. A record that names it (its `projectId`) and every document written from it lands here.</p>
+            ? <p className="text-sm text-muted-foreground">No work filed for this project yet. Plans, pages and documents appear here as they are created.</p>
             : (
                 <div className="space-y-4">
                   {workGroups.map(g => (
@@ -392,6 +293,84 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
                 </div>
               )}
         </Section>
+
+        {seoOn && audits.length > 0 && (
+          <details className="border-b border-border py-4" data-testid="project-audit-history">
+            <summary className="cursor-pointer text-sm font-medium">
+              Audit history ·
+              {audits.length}
+              {' '}
+              recorded runs
+            </summary>
+            <ListRows className="mt-3">
+              {audits.map(audit => <ListRow key={audit.id} href={`/dashboard/objects/${audit.id}`} title={audit.title} subline={`Checked ${audit.meta.checkedAt.slice(0, 10)} · ${audit.meta.openCount} open findings in this run`} />)}
+            </ListRows>
+          </details>
+        )}
+        {seoOn && <ProjectSeoProfile projectId={room.id} profile={m.seoProfile ?? null} preparedDraft={m.seoProfileDraft?.profile ?? null} targets={publishTargets.map(t => ({ id: t.id, line: publishTargetLine(t) }))} />}
+        <details className="border-b border-border py-4" open={!seoProject} data-testid="project-context">
+          <summary className="cursor-pointer text-sm font-medium">Context · instructions, brand, wiki and sources</summary>
+          <div className="mt-3">
+            <ProjectInstructions projectId={room.id} rules={m.rules ?? []} />
+
+            <Section eyebrow="Brand & guidelines" data-testid="project-brand">
+              {brandImages.length === 0 && guidelines.length === 0 && brandFacts.length === 0 && voiceFacts.length === 0
+                ? <p className="text-sm text-muted-foreground">No brand or guidelines yet. File the client's brand guide or style rules at ⭐⭐⭐ and they show here; the agent reads them before writing anything.</p>
+                : (
+                    <>
+                      {brandFacts.length > 0 && <div className="mb-3" data-testid="project-brand-profile"><FactList layout="column" facts={brandFacts} /></div>}
+                      {voiceFacts.length > 0 && <div className="mb-3" data-testid="project-voice"><FactList layout="column" facts={voiceFacts} /></div>}
+                      {brandImages.length > 0 && (
+                        <div className="mb-3 flex flex-wrap items-center gap-4">
+                          {brandImages.map(({ slot, image }) => (
+                            // eslint-disable-next-line next/no-img-element -- a stored data URI, not a remote image to optimise
+                            <img key={slot} src={image.dataUri} alt={`${m.client ?? room.title} ${slot}`} title={`${slot} · from ${image.source} on ${image.fetchedAt.slice(0, 10)}`} className="h-10 w-auto max-w-40 object-contain" />
+                          ))}
+                        </div>
+                      )}
+                      {guidelines.length > 0 && (
+                        <ListRows>
+                          {guidelines.map(s => (
+                            <ListRow
+                              key={`${s.documentId ?? ''}-${s.artifactId ?? ''}-${s.title}`}
+                              title={s.title}
+                              subline={<Subline segments={[s.kind, s.channel ? `via ${s.channel}` : null, filedHow(s) ?? `filed ${s.retrievedAt.slice(0, 10)}`, s.filedBy === 'auto' && s.evidence?.length ? s.evidence.join(', ') : null, s.note]} />}
+                              columns={<Column kind="date">{s.date ?? ''}</Column>}
+                              chip={stars(s.rating)}
+                              actions={<UnfileSource roomId={room.id} documentId={s.documentId} artifactId={s.artifactId} title={s.title} />}
+                              {...(s.artifactId ? { href: `/dashboard/artifacts/${s.artifactId}` } : s.documentId ? { href: `/dashboard/search/${s.documentId}` } : {})}
+                            />
+                          ))}
+                        </ListRows>
+                      )}
+                    </>
+                  )}
+            </Section>
+
+            <ProjectWiki projectId={room.id} notes={m.notes ?? ''} />
+
+            <Section eyebrow="Sources" data-testid="room-sources">
+              {sources.length === 0
+                ? <p className="text-sm text-muted-foreground">Nothing filed yet. A transcript, a thread or an attachment lands here with its weight and where it came from, on its own after a sync when the match is clear.</p>
+                : (
+                    <ListRows>
+                      {sources.map(s => (
+                        <ListRow
+                          key={`${s.documentId ?? ''}-${s.artifactId ?? ''}-${s.title}`}
+                          title={s.title}
+                          subline={<Subline segments={[s.kind, s.channel ? `via ${s.channel}` : null, filedHow(s) ?? `filed ${s.retrievedAt.slice(0, 10)}`, s.filedBy === 'auto' && s.evidence?.length ? s.evidence.join(', ') : null, s.note]} />}
+                          columns={<Column kind="date">{s.date ?? ''}</Column>}
+                          chip={stars(s.rating)}
+                          actions={<UnfileSource roomId={room.id} documentId={s.documentId} artifactId={s.artifactId} title={s.title} />}
+                          {...(s.artifactId ? { href: `/dashboard/artifacts/${s.artifactId}` } : s.documentId ? { href: `/dashboard/search/${s.documentId}` } : {})}
+                        />
+                      ))}
+                    </ListRows>
+                  )}
+            </Section>
+
+          </div>
+        </details>
 
         <Section eyebrow="Open items" data-testid="room-open-items">
           {open.length === 0 && done.length === 0

@@ -86,6 +86,29 @@ describe('the SEO profile on the project page', () => {
     await expect.poll(() => refresh.mock.calls.length).toBe(1);
   });
 
+  it('reopens from the latest saved profile after a server refresh', async () => {
+    const screen = await render(<ProjectSeoProfile projectId={7} profile={PROFILE} targets={TARGETS} />);
+    await screen.rerender(<ProjectSeoProfile projectId={7} profile={{ ...PROFILE, tone: 'Newly saved voice' }} targets={TARGETS} />);
+    await page.getByRole('button', { name: 'Edit SEO profile' }).click();
+
+    await expect.element(page.getByRole('textbox', { name: 'Tone' })).toHaveValue('Newly saved voice');
+  });
+
+  it('keeps approved facts visible until a person explicitly reviews the prepared draft', async () => {
+    await render(<ProjectSeoProfile projectId={7} profile={PROFILE} preparedDraft={{ ...PROFILE, industry: 'Proposed new industry' }} targets={TARGETS} />);
+
+    await expect.element(page.getByText('Home services (HVAC)', { exact: true })).toBeInTheDocument();
+    await expect.element(page.getByText('Proposed new industry', { exact: true })).not.toBeInTheDocument();
+
+    await page.getByRole('button', { name: 'Review prepared draft' }).click();
+
+    await expect.element(page.getByRole('textbox', { name: 'Industry' })).toHaveValue('Proposed new industry');
+
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    await expect.element(page.getByText('Home services (HVAC)', { exact: true })).toBeInTheDocument();
+  });
+
   it('reads guideline lines as label | link', () => {
     const d = { clientType: '' as const, goals: [], industry: '', offering: '', audience: '', locations: 'A, B', language: '', tone: '', competitors: '', website: '', publishTarget: '', guidelines: 'Brand guide | /dashboard/artifacts/12\nno link here' };
 

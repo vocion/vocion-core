@@ -110,6 +110,7 @@ describe('onboarding\'s SEO profile', () => {
     const result = await seoSaveProfileAction.execute({ orgId: ORG, reviewedBy: 'usr-mara' } as never, edited);
     const saved = (await getDataRoom(ORG, projectId))!.meta.seoProfile!;
 
+    expect(result?.savedProfile).toEqual(saved);
     expect(saved).toMatchObject({ clientType: 'b2b_saas', goals: ['ai_answers', 'organic_leads'], tone: 'plain, direct', savedBy: 'usr-mara' });
     expect((await getDataRoom(ORG, projectId))!.meta.seoProfileDraft).toBeUndefined();
     expect(saved.savedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
