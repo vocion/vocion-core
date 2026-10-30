@@ -27,7 +27,7 @@ export function TransformationPortfolio({ workspaces, selected, activeId, team, 
   const editable = selected && selected.id === activeId;
   const rows = workspaces.flatMap(w => (w.portfolio?.workflows ?? []).filter(f => team === null || (f.data.teamSlug ?? '') === team).map(f => ({ ...f, workspace: w })));
   const today = new Date().toISOString().slice(0, 10);
-  const linked = new Set(rows.flatMap(f => f.itemIds.map(id => `${f.workspace.id}:${id}`)));
+  const linked = new Set(workspaces.flatMap(w => (w.portfolio?.workflows ?? []).flatMap(f => f.itemIds.map(id => `${w.id}:${id}`))));
   const unlinked = workspaces.flatMap(w => w.outcomes.items.filter((item) => {
     const agentTeam = w.report.agents.find(a => a.slug === item.agentSlug)?.teamSlug ?? '';
     return (team === null || agentTeam === team) && !linked.has(`${w.id}:${item.id}`);

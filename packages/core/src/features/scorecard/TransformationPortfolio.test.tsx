@@ -78,3 +78,13 @@ it('renders rollout and evidence at desktop and phone widths', async () => {
   }
   await page.viewport(1440, 900);
 });
+
+it('does not call work unlinked just because its business workflow belongs to another team', async () => {
+  const scoped = structuredClone(workspace);
+  scoped.report.agents = [{ slug: 'analyst', teamSlug: 'accounts' }] as typeof scoped.report.agents;
+  scoped.outcomes.items = [{ id: 'item', agentSlug: 'analyst' }] as typeof scoped.outcomes.items;
+  scoped.portfolio.workflows = [{ id: 'flow', itemIds: ['item'], data: { teamSlug: 'operations', stage: 'pilot' } }] as typeof scoped.portfolio.workflows;
+  await render(<NextIntlClientProvider locale="en" messages={en}><TransformationPortfolio workspaces={[scoped]} selected={scoped} activeId="workspace-a" team="accounts" days={7} refresh={refresh} /></NextIntlClientProvider>);
+
+  await expect.element(page.getByText('0 work items in this view are not linked to a business workflow.', { exact: false })).toBeVisible();
+});

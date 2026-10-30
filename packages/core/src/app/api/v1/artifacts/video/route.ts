@@ -23,7 +23,7 @@ type RecordingSpecHeader = { timeline: TimelineMoment[]; script: Array<{ atMs: n
  * unreadable → nothing; the recording is still kept. Each list is bounded.
  * @param raw - The header's value.
  */
-export function readRecordingSpec(raw: string | null): RecordingSpecHeader | { error: string } | null {
+function readRecordingSpec(raw: string | null): RecordingSpecHeader | { error: string } | null {
   if (!raw) {
     return null;
   }
