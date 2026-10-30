@@ -2,21 +2,19 @@
  * Search Console for a client's work: the workspace's Search Console login,
  * and which property each client Project reads.
  *
- * The login is the workspace's (the `search-console` connector, a Google
- * login with `webmasters.readonly`). The PROPERTY is the Project's: an
- * agency's one login reads every client's property, so each client project
- * holds the one a person picked for it (`searchConsoleProperty` on the
- * project, with when and by whom). Until connectors can belong to a single
- * project (#1505), this is how one client's work never reads another's site.
+ * The login is a `search-console` connection (a Google login with
+ * `webmasters.readonly`), connected for the whole workspace or for one client
+ * project (#1505); work for a project uses its own first and never another
+ * project's. The PROPERTY is the project's too: an agency's one login reads
+ * every client's property, so each client project holds the one a person
+ * picked for it (`searchConsoleProperty` on the project, with when and by
+ * whom), and one client's work never reads another's site.
  *
  * Every part is reached lazily from the tools (`await import`), so nothing
  * here weighs on the tool registry.
  */
 
 import type { SearchConsoleSite } from '@/libs/searchConsole/client';
-import { and, eq } from 'drizzle-orm';
-import { db } from '@/libs/DB';
-import { knowledgeSourceSchema } from '@/models/Schema';
 
 export const SEARCH_CONSOLE_KIND = 'search-console';
 
@@ -24,37 +22,42 @@ export const SEARCH_CONSOLE_KIND = 'search-console';
 export const SEARCH_CONSOLE_NOT_CONNECTED = 'Google Search Console is not connected in this workspace. Connecting it is one Google sign-in and free: it shows what the client\'s site already ranks for, with real clicks and impressions. Say it is not connected; do not estimate rankings or traffic.';
 
 export type SearchConsoleAccess
-  = | { ok: true; accessToken: string; defaultSite: string | null }
+  = | { ok: true; accessToken: string; defaultSite: string | null; projectConnection: boolean }
     | { ok: false; reason: string };
 
 /**
- * An access token for the workspace's Search Console login, or the reason
- * there is none, in words.
+ * An access token for the Search Console login this work may use, or the
+ * reason there is none, in words. Read through the one connection resolver
+ * (`services/connect/connectionScope.ts`): work for a project uses a login
+ * connected for that project first, else the workspace's, never another
+ * project's.
  * @param orgId - The workspace.
+ * @param projectId - The client project the work is for; the current work's when omitted.
  */
-export async function searchConsoleAccess(orgId: string): Promise<SearchConsoleAccess> {
-  const rows = await db
-    .select({ id: knowledgeSourceSchema.id, slug: knowledgeSourceSchema.slug, kind: knowledgeSourceSchema.kind, config: knowledgeSourceSchema.configJson, enabled: knowledgeSourceSchema.enabled, apiTokenId: knowledgeSourceSchema.apiTokenId })
-    .from(knowledgeSourceSchema)
-    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.enabled, 'true')));
-  const source = rows
-    .map(r => ({ ...r, kind: (r.config as { _connector?: unknown } | null)?._connector === SEARCH_CONSOLE_KIND ? SEARCH_CONSOLE_KIND : r.kind, config: (r.config ?? {}) as Record<string, unknown> }))
-    .find(r => r.kind === SEARCH_CONSOLE_KIND);
+export async function searchConsoleAccess(orgId: string, projectId?: number | null): Promise<SearchConsoleAccess> {
+  const { connectionsFor, connectionsWithheld } = await import('@/services/connect/connectionScope');
+  const scope = projectId === undefined ? undefined : { projectId };
+  const kindOf = (r: { kind: string; configJson: unknown }) => ((r.configJson as { _connector?: unknown } | null)?._connector === SEARCH_CONSOLE_KIND ? SEARCH_CONSOLE_KIND : r.kind);
+  const rows = (await connectionsFor(orgId, scope)).filter(r => kindOf(r) === SEARCH_CONSOLE_KIND);
+  // The project's own login before the workspace's.
+  const source = rows.find(r => r.dataRoomId !== null) ?? rows[0];
   if (!source) {
-    return { ok: false, reason: SEARCH_CONSOLE_NOT_CONNECTED };
+    const withheld = (await connectionsWithheld(orgId, scope)).find(r => kindOf(r) === SEARCH_CONSOLE_KIND);
+    return { ok: false, reason: withheld ? `Google Search Console is connected for project ${withheld.projectTitle}, not for this work. Connect it for this client's project (one Google sign-in, free).` : SEARCH_CONSOLE_NOT_CONNECTED };
   }
+  const config = (source.configJson ?? {}) as Record<string, unknown>;
   const [{ familySourceCredentials }, { resolveGoogleAccessToken }] = await Promise.all([
     import('@/services/connectors/familyCredentials'),
     import('@/libs/sources/googleAuth'),
   ]);
   try {
-    const bag = await familySourceCredentials(orgId, { id: source.id, slug: source.slug, kind: source.kind, config: source.config, apiTokenId: source.apiTokenId ?? null });
+    const bag = await familySourceCredentials(orgId, { id: source.id, slug: source.slug, kind: SEARCH_CONSOLE_KIND, config, apiTokenId: source.apiTokenId ?? null });
     if (!bag) {
       return { ok: false, reason: 'The Search Console connection has no Google login stored. Reconnect Search Console (one Google sign-in).' };
     }
     const accessToken = await resolveGoogleAccessToken(bag, orgId);
-    const site = typeof source.config.siteUrl === 'string' && source.config.siteUrl.trim() ? source.config.siteUrl.trim() : null;
-    return { ok: true, accessToken, defaultSite: site };
+    const site = typeof config.siteUrl === 'string' && config.siteUrl.trim() ? config.siteUrl.trim() : null;
+    return { ok: true, accessToken, defaultSite: site, projectConnection: source.dataRoomId !== null };
   } catch (err) {
     return { ok: false, reason: `The Search Console login could not be used: ${(err as Error).message} Reconnect Search Console.` };
   }
@@ -64,9 +67,10 @@ export async function searchConsoleAccess(orgId: string): Promise<SearchConsoleA
  * The properties the workspace's login can read, for the connector form's
  * dropdown and the agent's question. Empty with the reason when it cannot.
  * @param orgId - The workspace.
+ * @param projectId - The client project; the current work's when omitted.
  */
-export async function searchConsoleSites(orgId: string): Promise<{ sites: SearchConsoleSite[]; reason?: string }> {
-  const access = await searchConsoleAccess(orgId);
+export async function searchConsoleSites(orgId: string, projectId?: number | null): Promise<{ sites: SearchConsoleSite[]; reason?: string }> {
+  const access = await searchConsoleAccess(orgId, projectId);
   if (!access.ok) {
     return { sites: [], reason: access.reason };
   }

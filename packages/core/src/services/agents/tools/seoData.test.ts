@@ -41,7 +41,7 @@ beforeEach(() => {
   for (const m of [searchConsoleAccess, searchConsoleSites, projectSearchConsoleProperty, setProjectSearchConsoleProperty, querySearchConsole, ahrefsOrganicKeywords]) {
     m.mockReset();
   }
-  searchConsoleAccess.mockResolvedValue({ ok: true, accessToken: 'token', defaultSite: null });
+  searchConsoleAccess.mockResolvedValue({ ok: true, accessToken: 'token', defaultSite: null, projectConnection: false });
   searchConsoleSites.mockResolvedValue({ sites: SITES });
   setProjectSearchConsoleProperty.mockResolvedValue(true);
   querySearchConsole.mockImplementation(async (_t: string, input: { siteUrl: string; startDate: string; endDate: string; dimensions: string[] }) => ({ ...input, rows: [{ keys: ['water heater repair fairview', 'https://northwind-home.example/water-heater-repair'], clicks: 41, impressions: 980, ctr: 0.0418, position: 4.3 }] }));
@@ -78,6 +78,17 @@ describe('the SEO data tools', () => {
     expect(setProjectSearchConsoleProperty).toHaveBeenCalledWith('org_seo', 12, 'sc-domain:northwind-home.example', 'user_1');
     expect(querySearchConsole).toHaveBeenCalledWith('token', expect.objectContaining({ dimensions: ['page'], filters: [{ dimension: 'page', operator: 'contains', expression: '/blog/' }] }));
     expect(out.kept).toBe('Kept sc-domain:northwind-home.example as project #12\'s Search Console property.');
+  });
+
+  it('reads the project this work is for, through its own connection', async () => {
+    projectSearchConsoleProperty.mockResolvedValue(null);
+    searchConsoleAccess.mockResolvedValue({ ok: true, accessToken: 'token', defaultSite: 'sc-domain:lakeside-plumbing.example', projectConnection: true });
+    const scoped = seoDataTools({ ...ctx(['serp']), workProjectId: 31 } as RuntimeContext).find(t => t.name === 'search_console_pages')!;
+
+    const out = JSON.parse(await scoped.invoke({}) as string);
+
+    expect(searchConsoleAccess).toHaveBeenCalledWith('org_seo', 31);
+    expect(out.property).toBe('sc-domain:lakeside-plumbing.example');
   });
 
   it('refuses a property the login cannot read', async () => {

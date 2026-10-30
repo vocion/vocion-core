@@ -8,7 +8,7 @@ without any of them, and a number that could not be read is named as missing, ne
 
 | Source | What it gives | How it connects | Cost |
 |---|---|---|---|
-| **Google Search Console** | The client's own queries and pages: clicks, impressions, CTR, average position, by date range | One Google sign-in, per workspace; the property is picked per client Project | Free |
+| **Google Search Console** | The client's own queries and pages: clicks, impressions, CTR, average position, by date range | One Google sign-in, for the workspace or one client project; the property is picked per project | Free |
 | **DataForSEO** | Volume and its last 12 months, keyword difficulty (KD), CPC, competition, main intent, SERP features, AI Overview presence; on a results page, the AI Overview and the domains it cites | The server's login (`DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD`), or a workspace's own under API credentials | Pay per call; charged at the cost DataForSEO reports |
 | **Ahrefs** (optional) | Volume, KD, traffic potential, CPC, intent, SERP features; a domain's organic keywords; Brand Radar (AI answers that mention a brand) | A workspace's Ahrefs API key (Connectors → Ahrefs) | The workspace's own Ahrefs plan and its API units |
 
@@ -92,11 +92,15 @@ files or calendar, and a Gmail login reads no rankings. The deployment needs the
 (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`) with the Search Console API enabled in its
 Cloud project.
 
-The property is the client's. The first time a project's work reads Search Console, the agent lists
-the properties the login can read and asks which is the client's; the one picked is kept on the
-project (`searchConsoleProperty`, with when and by whom), and every later read for that project uses
-it. A default property on the connector serves work with no project. Until connectors can belong
-to one project, the property on the project is what keeps one client's work off another's site.
+A Search Console connection can serve the whole workspace or one client project (Connect for this
+project, on the project page): work for a project uses its own connection first, then the
+workspace's, never another project's (`services/connect/connectionScope.ts`).
+
+The property is the client's too. The first time a project's work reads Search Console, the agent
+lists the properties the login can read and asks which is the client's; the one picked is kept on
+the project (`searchConsoleProperty`, with when and by whom), and every later read for that project
+uses it. A connection made for one project can name its property itself; a workspace connection's
+default property serves work with no project.
 
 ### Ahrefs
 

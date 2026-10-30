@@ -34,7 +34,7 @@ function granted(ctx: RuntimeContext, name: string): boolean {
 }
 
 const propertyArgs = {
-  project_id: z.number().int().positive().optional().describe('The client project (list_projects) whose Search Console property to read.'),
+  project_id: z.number().int().positive().optional().describe('The client project (list_projects) whose Search Console property to read; defaults to the project this work is for.'),
   site_url: z.string().max(300).optional().describe('The property, exactly as Search Console names it ("sc-domain:example.com" or "https://www.example.com/"). Only one the person picked: with project_id it is kept on the project for next time.'),
 };
 
@@ -54,45 +54,50 @@ const rangeArgs = {
  */
 async function resolveProperty(ctx: RuntimeContext, args: { project_id?: number; site_url?: string }): Promise<{ ok: true; accessToken: string; siteUrl: string; kept?: string } | { ok: false; text: string }> {
   const sc = await import('@/services/seo/searchConsole');
-  const access = await sc.searchConsoleAccess(ctx.orgId);
+  const projectId = args.project_id ?? ctx.workProjectId ?? null;
+  const access = await sc.searchConsoleAccess(ctx.orgId, projectId);
   if (!access.ok) {
     return { ok: false, text: access.reason };
   }
   const asked = args.site_url?.trim();
   if (asked) {
-    const { sites, reason } = await sc.searchConsoleSites(ctx.orgId);
+    const { sites, reason } = await sc.searchConsoleSites(ctx.orgId, projectId);
     const match = sites.find(s => s.siteUrl === asked) ?? sites.find(s => s.siteUrl.replace(/\/$/, '') === asked.replace(/\/$/, ''));
     if (!match) {
       return { ok: false, text: `${asked} is not a Search Console property this login can read. ${sites.length ? `It reads: ${sites.map(s => s.siteUrl).join(', ')}.` : reason ?? ''}`.trim() };
     }
     let kept: string | undefined;
-    if (args.project_id) {
-      const held = await sc.projectSearchConsoleProperty(ctx.orgId, args.project_id);
+    if (projectId) {
+      const held = await sc.projectSearchConsoleProperty(ctx.orgId, projectId);
       if (held === 'no-project') {
-        return { ok: false, text: `No project #${args.project_id} in this workspace.` };
+        return { ok: false, text: `No project #${projectId} in this workspace.` };
       }
-      if (held?.siteUrl !== match.siteUrl && await sc.setProjectSearchConsoleProperty(ctx.orgId, args.project_id, match.siteUrl, ctx.userId ?? null)) {
-        kept = `Kept ${match.siteUrl} as project #${args.project_id}'s Search Console property.`;
+      if (held?.siteUrl !== match.siteUrl && await sc.setProjectSearchConsoleProperty(ctx.orgId, projectId, match.siteUrl, ctx.userId ?? null)) {
+        kept = `Kept ${match.siteUrl} as project #${projectId}'s Search Console property.`;
       }
     }
     return { ok: true, accessToken: access.accessToken, siteUrl: match.siteUrl, ...(kept ? { kept } : {}) };
   }
-  if (args.project_id) {
-    const held = await sc.projectSearchConsoleProperty(ctx.orgId, args.project_id);
+  if (projectId) {
+    const held = await sc.projectSearchConsoleProperty(ctx.orgId, projectId);
     if (held === 'no-project') {
-      return { ok: false, text: `No project #${args.project_id} in this workspace.` };
+      return { ok: false, text: `No project #${projectId} in this workspace.` };
     }
     if (held) {
       return { ok: true, accessToken: access.accessToken, siteUrl: held.siteUrl };
     }
+    // A login connected for this very project, with its property set there.
+    if (access.projectConnection && access.defaultSite) {
+      return { ok: true, accessToken: access.accessToken, siteUrl: access.defaultSite };
+    }
   } else if (access.defaultSite) {
     return { ok: true, accessToken: access.accessToken, siteUrl: access.defaultSite };
   }
-  const { sites, reason } = await sc.searchConsoleSites(ctx.orgId);
+  const { sites, reason } = await sc.searchConsoleSites(ctx.orgId, projectId);
   if (sites.length === 0) {
     return { ok: false, text: reason ?? 'This Google login reads no Search Console property.' };
   }
-  if (sites.length === 1 && !args.project_id) {
+  if (sites.length === 1 && !projectId) {
     return { ok: true, accessToken: access.accessToken, siteUrl: sites[0]!.siteUrl };
   }
   const { propertyLabel } = await import('@/libs/searchConsole/client');
@@ -101,7 +106,7 @@ async function resolveProperty(ctx: RuntimeContext, args: { project_id?: number;
     text: JSON.stringify({
       needsProperty: true,
       properties: sites.map(s => ({ site_url: s.siteUrl, label: propertyLabel(s.siteUrl) })),
-      next: `${args.project_id ? `Project #${args.project_id} has no Search Console property yet.` : 'Name the client project (project_id).'} Ask the person which property is this client's (one ask, the properties as choices; the domain property first), then call again with project_id and the site_url they picked: it is kept on the project.`,
+      next: `${projectId ? `Project #${projectId} has no Search Console property yet.` : 'Name the client project (project_id).'} Ask the person which property is this client's (one ask, the properties as choices; the domain property first), then call again with project_id and the site_url they picked: it is kept on the project.`,
     }),
   };
 }
