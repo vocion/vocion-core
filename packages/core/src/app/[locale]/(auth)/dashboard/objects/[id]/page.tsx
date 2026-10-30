@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import type { Finding } from '@/features/dashboard/InspectionPhoto';
 import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
 import type { PageRow } from '@/libs/workspace/pages';
@@ -18,6 +19,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { VersionChip } from '@/features/dashboard/versions/VersionChip';
 import { VersionWatch } from '@/features/dashboard/versions/VersionWatch';
 import { VisionEngineControl } from '@/features/dashboard/VisionEngineControl';
+import { SeoPageWorkspace } from '@/features/seo/SeoPageWorkspace';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { appImageUrl } from '@/libs/aws/s3';
 import { Link } from '@/libs/I18nNavigation';
@@ -26,6 +28,7 @@ import { declaredRecordFields, hasInspectionImage, isDiscoveryRecord, recordSect
 import { getBusinessObject } from '@/services/BusinessObjectService';
 import { recordRef } from '@/services/chat/recordContext';
 import { codeForRecord } from '@/services/codes';
+import { objectCollectionForOrg } from '@/services/objects/objectCollection';
 import { recordActionsOf } from '@/services/objects/recordActions';
 import { recordVersionOf } from '@/services/objects/recordBody';
 import { recordBodyEnabled } from '@/services/objects/recordBodyFormat';
@@ -69,12 +72,28 @@ async function currentTime(): Promise<number> {
   return Date.now();
 }
 
+/**
+ * Name the browser tab after the record, only after its workspace guard succeeds.
+ * @param props
+ * @param props.params
+ */
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await props.params;
+  const { orgId } = await auth();
+  const objectId = Number(id);
+  if (!orgId || !Number.isSafeInteger(objectId) || objectId < 1) {
+    return {};
+  }
+  const record = await getBusinessObject(objectId, orgId);
+  return record ? { title: record.title } : {};
+}
+
 export default async function ObjectDetailPage(props: {
   params: Promise<{ locale: string; id: string }>;
 }) {
   const { locale, id } = await props.params;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, userId } = await auth();
 
   if (!orgId) {
     return notFound();
@@ -88,6 +107,8 @@ export default async function ObjectDetailPage(props: {
   const code = await codeForRecord(orgId, obj.id).catch(() => null) ?? `#${obj.id}`;
 
   const meta = obj.metadata as Record<string, unknown>;
+  const collection = await objectCollectionForOrg(orgId, obj.type.slug);
+  const stage = typeof meta.status === 'string' ? meta.status : obj.status;
   const keyTopics = (meta.key_topics ?? meta.topics ?? []) as string[];
   const nextSteps = (meta.next_steps ?? []) as string[];
   // A discovery call, and only one, gets the discovery block.
@@ -136,11 +157,13 @@ export default async function ObjectDetailPage(props: {
     <>
       <div className="mb-4">
         <Link
-          href="/dashboard/objects"
+          href={obj.type.slug.startsWith('seo_') ? `${collection.href}?app=seo` : collection.href}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-3" />
-          Back to Objects
+          Back to
+          {' '}
+          {collection.label}
         </Link>
       </div>
 
@@ -151,9 +174,9 @@ export default async function ObjectDetailPage(props: {
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-normal">
               <span className="text-muted-foreground tabular-nums" data-testid="record-code">{code}</span>
               <Badge variant="secondary">{obj.type.label}</Badge>
-              {obj.status && (
-                <Badge variant={obj.status === 'completed' || obj.status === 'accepted' ? 'default' : 'outline'}>
-                  {obj.status}
+              {stage && (
+                <Badge variant={stage === 'completed' || stage === 'accepted' || stage === 'approved' || stage === 'published' ? 'default' : 'outline'}>
+                  {stage.replace(/_/g, ' ')}
                 </Badge>
               )}
               {/* A record with a body is changeable in place and carries its
@@ -194,126 +217,130 @@ export default async function ObjectDetailPage(props: {
         </div>
       )}
 
-      <RecordBody
-        row={row}
-        sections={sections}
-        now={now}
-        links={links}
-        related={related}
-        aside={(
-          <>
-            {isDiscovery && keyTopics.length > 0 && (
-              <section className="rounded-lg border border-border p-5">
-                <h2 className="mb-3 text-sm font-semibold">Key Topics</h2>
-                <div className="flex flex-wrap gap-1.5">
-                  {keyTopics.map(topic => (
-                    <Badge key={topic} variant="secondary" className="text-xs">{topic}</Badge>
-                  ))}
-                </div>
-              </section>
-            )}
-            {hasBody && (
-              <section className="rounded-lg border border-border" aria-label="History">
-                <h2 className="px-5 pt-4 text-sm font-semibold">History</h2>
-                <RecordHistory objectId={obj.id} />
-              </section>
-            )}
-            <section className="rounded-lg border border-border p-5">
-              <h2 className="mb-2 text-sm font-semibold">System Info</h2>
-              <FactList
-                facts={[
-                  { label: 'Code', value: <span className="font-mono">{code}</span> },
-                  { label: 'Type', value: <span className="font-mono">{obj.type.slug}</span> },
-                  { label: 'Created', value: new Date(obj.createdAt).toLocaleDateString() },
-                  obj.summaryGeneratedAt && { label: 'Summary generated', value: new Date(obj.summaryGeneratedAt).toLocaleDateString() },
-                ]}
-              />
-            </section>
-          </>
-        )}
-      >
-        {/* A discovery call's own summary card, for a discovery call only. */}
-        {isDiscovery && (
-          <section className="rounded-lg border border-border p-5">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-              <Sparkles className="size-4 stroke-primary" />
-              Discovery Summary
-            </h2>
-            {obj.summary
-              ? <div className="text-sm leading-relaxed text-foreground">{obj.summary}</div>
-              : (
-                  <div className="rounded-md bg-muted/50 p-4 text-center text-sm text-muted-foreground">
-                    No summary generated yet. Summary generation will analyze linked documents
-                    to create a comprehensive overview of this discovery call.
-                  </div>
-                )}
-          </section>
-        )}
-
-        {/* Any record's own summary, when the type did not declare one as a field. */}
-        {!isDiscovery && obj.summary && !fields.some(f => f.key === 'summary') && (
-          <section className="rounded-lg border border-border p-5">
-            <h2 className="mb-3 text-sm font-semibold">Summary</h2>
-            <div className="text-sm leading-relaxed text-foreground">{obj.summary}</div>
-          </section>
-        )}
-
-        {obj.documentLinks.length > 0 && (
-          <section className="rounded-lg border border-border p-5">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-              <Link2 className="size-4" />
-              Linked Sources
-              <Badge variant="outline" className="ml-auto text-xs">
-                {obj.documentLinks.length}
-                {' '}
-                documents
-              </Badge>
-            </h2>
-            <div className="space-y-2">
-              {obj.documentLinks.map(link => (
-                <div key={link.id} className="flex items-center gap-3 rounded-md border border-border bg-background p-3">
-                  <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                    <FileText className="size-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
-                      {link.semanticIdentifier ?? link.onyxDocumentId}
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Badge variant="outline" className="font-mono text-[10px]">{link.sourceType}</Badge>
-                      <span>{roleLabels[link.role] ?? link.role}</span>
-                    </div>
-                  </div>
-                  {link.link && (
-                    <a
-                      href={link.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-                    >
-                      <ExternalLink className="size-4" />
-                    </a>
+      {obj.type.slug === 'seo_page'
+        ? <SeoPageWorkspace orgId={orgId} userId={userId ?? null} objectId={obj.id} meta={meta} />
+        : (
+            <RecordBody
+              row={row}
+              sections={sections}
+              now={now}
+              links={links}
+              related={related}
+              aside={(
+                <>
+                  {isDiscovery && keyTopics.length > 0 && (
+                    <section className="rounded-lg border border-border p-5">
+                      <h2 className="mb-3 text-sm font-semibold">Key Topics</h2>
+                      <div className="flex flex-wrap gap-1.5">
+                        {keyTopics.map(topic => (
+                          <Badge key={topic} variant="secondary" className="text-xs">{topic}</Badge>
+                        ))}
+                      </div>
+                    </section>
                   )}
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+                  {hasBody && (
+                    <section className="rounded-lg border border-border" aria-label="History">
+                      <h2 className="px-5 pt-4 text-sm font-semibold">History</h2>
+                      <RecordHistory objectId={obj.id} />
+                    </section>
+                  )}
+                  <section className="rounded-lg border border-border p-5">
+                    <h2 className="mb-2 text-sm font-semibold">System Info</h2>
+                    <FactList
+                      facts={[
+                        { label: 'Code', value: <span className="font-mono">{code}</span> },
+                        { label: 'Type', value: <span className="font-mono">{obj.type.slug}</span> },
+                        { label: 'Created', value: new Date(obj.createdAt).toLocaleDateString() },
+                        obj.summaryGeneratedAt && { label: 'Summary generated', value: new Date(obj.summaryGeneratedAt).toLocaleDateString() },
+                      ]}
+                    />
+                  </section>
+                </>
+              )}
+            >
+              {/* A discovery call's own summary card, for a discovery call only. */}
+              {isDiscovery && (
+                <section className="rounded-lg border border-border p-5">
+                  <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                    <Sparkles className="size-4 stroke-primary" />
+                    Discovery Summary
+                  </h2>
+                  {obj.summary
+                    ? <div className="text-sm leading-relaxed text-foreground">{obj.summary}</div>
+                    : (
+                        <div className="rounded-md bg-muted/50 p-4 text-center text-sm text-muted-foreground">
+                          No summary generated yet. Summary generation will analyze linked documents
+                          to create a comprehensive overview of this discovery call.
+                        </div>
+                      )}
+                </section>
+              )}
 
-        {nextSteps.length > 0 && (
-          <section className="rounded-lg border border-border p-5">
-            <h2 className="mb-3 text-sm font-semibold">Next Steps</h2>
-            <div className="space-y-2">
-              {nextSteps.map((step, i) => (
-                <div key={i} className="flex items-start gap-2 text-sm">
-                  <div className="mt-1 size-1.5 shrink-0 rounded-full bg-muted-foreground" />
-                  {step}
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-      </RecordBody>
+              {/* Any record's own summary, when the type did not declare one as a field. */}
+              {!isDiscovery && obj.summary && !fields.some(f => f.key === 'summary') && (
+                <section className="rounded-lg border border-border p-5">
+                  <h2 className="mb-3 text-sm font-semibold">Summary</h2>
+                  <div className="text-sm leading-relaxed text-foreground">{obj.summary}</div>
+                </section>
+              )}
+
+              {obj.documentLinks.length > 0 && (
+                <section className="rounded-lg border border-border p-5">
+                  <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                    <Link2 className="size-4" />
+                    Linked Sources
+                    <Badge variant="outline" className="ml-auto text-xs">
+                      {obj.documentLinks.length}
+                      {' '}
+                      documents
+                    </Badge>
+                  </h2>
+                  <div className="space-y-2">
+                    {obj.documentLinks.map(link => (
+                      <div key={link.id} className="flex items-center gap-3 rounded-md border border-border bg-background p-3">
+                        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                          <FileText className="size-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">
+                            {link.semanticIdentifier ?? link.onyxDocumentId}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Badge variant="outline" className="font-mono text-[10px]">{link.sourceType}</Badge>
+                            <span>{roleLabels[link.role] ?? link.role}</span>
+                          </div>
+                        </div>
+                        {link.link && (
+                          <a
+                            href={link.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
+                          >
+                            <ExternalLink className="size-4" />
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {nextSteps.length > 0 && (
+                <section className="rounded-lg border border-border p-5">
+                  <h2 className="mb-3 text-sm font-semibold">Next Steps</h2>
+                  <div className="space-y-2">
+                    {nextSteps.map((step, i) => (
+                      <div key={i} className="flex items-start gap-2 text-sm">
+                        <div className="mt-1 size-1.5 shrink-0 rounded-full bg-muted-foreground" />
+                        {step}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </RecordBody>
+          )}
 
       <ObjectAgentActivity
         orgId={orgId}
