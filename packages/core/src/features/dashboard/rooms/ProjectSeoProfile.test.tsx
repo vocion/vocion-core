@@ -14,7 +14,7 @@ import '@/styles/global.css';
 const refresh = vi.fn();
 vi.mock('@/libs/I18nNavigation', () => ({
   useRouter: () => ({ refresh }),
-  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
+  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} data-workspace-link {...rest}>{children}</a>,
 }));
 
 const { ProjectSeoProfile, profileFromDraft } = await import('./ProjectSeoProfile');
@@ -49,6 +49,20 @@ describe('the SEO profile on the project page', () => {
     await expect.element(section.getByRole('link', { name: 'Wiki' })).toHaveAttribute('href', '/dashboard/projects/7#wiki');
     await expect.element(page.getByTestId('seo-profile-priorities').getByText(/^Google Business Profile: /)).toBeInTheDocument();
     await expect.element(page.getByTestId('seo-profile-playbooks').getByRole('link', { name: 'Location pages without doorways' })).toHaveAttribute('href', '/dashboard/skills/location-pages-without-doorways');
+  });
+
+  it('routes stored project guidelines through workspace navigation and leaves external guidelines unchanged', async () => {
+    const profile = { ...PROFILE, guidelines: [
+      { label: 'Instructions', href: '/dashboard/projects/7#instructions' },
+      { label: 'Wiki', href: '/dashboard/projects/7#wiki' },
+      { label: 'External guide', href: 'https://brand.example/guide' },
+    ] };
+    await render(<ProjectSeoProfile projectId={7} profile={profile} targets={TARGETS} />);
+
+    await expect.element(page.getByRole('link', { name: 'Instructions' })).toHaveAttribute('data-workspace-link');
+    await expect.element(page.getByRole('link', { name: 'Wiki' })).toHaveAttribute('data-workspace-link');
+    await expect.element(page.getByRole('link', { name: 'External guide' })).toHaveAttribute('href', 'https://brand.example/guide');
+    await expect.element(page.getByRole('link', { name: 'External guide' })).not.toHaveAttribute('data-workspace-link');
   });
 
   it('asks for one when there is none', async () => {
