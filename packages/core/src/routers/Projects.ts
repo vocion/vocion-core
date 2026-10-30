@@ -43,7 +43,7 @@ export const setActive = os
  * projects.overview — the All workspaces page: every workspace the person can
  * open (archived ones flagged), who leads each, how many agents, when it was
  * last used, the Orgs, and each Org's mark (`services/workspace/overview.ts`).
- * What waits on the person comes from `inbox.mineCount`, the one count.
+ * Only the active workspace gets a review count from `inbox.mineCount`.
  */
 export const overview = os.handler(async () => {
   const { userId, accountId, projectId } = await guardAuth();

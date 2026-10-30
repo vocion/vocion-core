@@ -174,7 +174,7 @@ export function SwitcherRow(props: {
         </span>
         {props.sub && <span className="block truncate text-[11.5px] text-muted-foreground" data-testid="switcher-row-sub">{props.sub}</span>}
       </span>
-      <CountBadge count={props.waiting ?? 0} data-testid="switcher-row-waiting" />
+      {props.waiting !== undefined && <CountBadge count={props.waiting} data-testid="switcher-row-waiting" />}
       {props.selected && <Check className="size-4 shrink-0 text-foreground" aria-hidden />}
       {props.drills && <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
     </button>
@@ -472,7 +472,7 @@ export function WorkspaceSwitcherLive(props: {
   const projects = data?.projects ?? null;
   // What each row says beyond its name, read once the directory is in: the
   // lead, last activity and Org marks (`projects.overview`), and what waits
-  // on the person (`inbox.mineCount`, the one count). A failed read leaves
+  // on the person in the active workspace (`inbox.mineCount`). A failed read leaves
   // the rows on their names.
   // Kept for the tab like the directory itself (`useWorkspaceDirectory`): a
   // remount across the shell's two layouts starts from the last read.
@@ -498,7 +498,7 @@ export function WorkspaceSwitcherLive(props: {
         return;
       }
       lastDetails = {
-        details: Object.fromEntries((overview?.workspaces ?? []).map(w => [w.id, { leadName: w.leadName, lastActiveAt: w.lastActiveAt, waiting: waiting.get(w.id) ?? 0 }])),
+        details: Object.fromEntries((overview?.workspaces ?? []).map(w => [w.id, { leadName: w.leadName, lastActiveAt: w.lastActiveAt, waiting: waiting.get(w.id) }])),
         marks: overview?.marks ?? {},
       };
       setDetails(lastDetails.details);

@@ -143,13 +143,14 @@ export function byYoursThenAge(a: Pick<CrossWorkspaceItem, 'yours' | 'at' | 'key
  * @param opts - Narrowing and seams.
  * @param opts.accountId - Only this account's workspaces. Omit for every account they belong to.
  * @param opts.workspaceId - Keep only this workspace's rows; the counts still cover them all.
+ * @param opts.onlyWorkspaceId - Hard read boundary: never read or report another workspace, even when reachable.
  * @param opts.cap - Rows kept per workspace.
  * @param opts.read - One workspace's open rows. Defaults to `needsYouItems`.
  * @param opts.reach
  */
 export async function listInboxForUser(
   userId: string,
-  opts: { accountId?: string; workspaceId?: string; cap?: number; read?: (orgId: string) => Promise<InboxItem[]>; reach?: readonly ReachedOrg[] } = {},
+  opts: { accountId?: string; workspaceId?: string; onlyWorkspaceId?: string; cap?: number; read?: (orgId: string) => Promise<InboxItem[]>; reach?: readonly ReachedOrg[] } = {},
 ): Promise<CrossWorkspaceInbox> {
   const cap = opts.cap ?? PER_WORKSPACE_CAP;
   const read = opts.read ?? needsYouItems;
@@ -160,6 +161,7 @@ export async function listInboxForUser(
   // mode only as a count.
   const mode = opts.reach ? new Map(opts.reach.map(r => [r.accountId, r.mode])) : null;
   const reachable = projects
+    .filter(p => !opts.onlyWorkspaceId || p.id === opts.onlyWorkspaceId)
     .filter(p => !opts.accountId || p.accountId === opts.accountId)
     .filter(p => !mode || mode.has(p.accountId))
     // The person's own first, then by name: the order the filter chips read in.
