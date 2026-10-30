@@ -50,7 +50,7 @@ export function WorkforcePerformance() {
   const costKnown = agents.filter(a => a.modelCostUsd !== null);
   const cost = costKnown.length ? costKnown.reduce((sum, a) => sum + a.modelCostUsd!, 0) : null;
   const money = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value);
-  const teamName = team === '' ? t('unassigned') : selected?.report.teams.find(t => t.slug === team)?.name;
+  const teamName = selected ? (team === '' ? t('unassigned') : selected.report.teams.find(t => t.slug === team)?.name) : undefined;
   const selectedWork = work === null ? null : items.find(item => item.id === work);
   const invalid = overview && ((scope !== null && !selected) || (team !== null && (!selected || teamName === undefined)) || (work !== null && !selectedWork));
   const priorities = workspaces.flatMap(w => w.outcomes.priorities.filter(p => items.some(item => item.workspace.id === w.id && item.id === p.itemId)).map(p => ({ ...p, workspace: w }))).sort((a, b) => a.priority - b.priority).slice(0, 5);

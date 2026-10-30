@@ -43,7 +43,7 @@ it('restores team selection from the URL and provides parent breadcrumbs', async
 });
 
 it('does not silently turn an unknown workspace into an organization total', async () => {
-  state.query = 'scope=foreign';
+  state.query = 'scope=foreign&team=';
   state.read.mockResolvedValue({ activeId: 'workspace-a', workspaces: [workspace] });
   await render(<NextIntlClientProvider locale="en" messages={en}><WorkforcePerformance /></NextIntlClientProvider>);
 
