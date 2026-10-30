@@ -51,16 +51,28 @@ export function HomeDecisions({ decisions, agentNames, labels }: { decisions: De
   return (
     <Section eyebrow={labels.title} data-testid="home-needs-you">
       {current && (
-        <DecisionCard
-          key={decisionKey(current)}
-          decision={current}
-          variant="list"
-          agentName={current.agentSlug ? agentNames[current.agentSlug] ?? null : null}
-          position={here.length > 1 ? { index: 0, total: here.length } : undefined}
-          onAnswer={a => answer(current, a)}
-          busy={busy === decisionKey(current)}
-          error={error}
-        />
+        <details key={decisionKey(current)} className="group rounded-xl border border-border p-4" data-testid="home-decision-preview">
+          <summary className="cursor-pointer text-sm font-medium">
+            {current.question}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              (
+              {here.length}
+              )
+            </span>
+          </summary>
+          <div className="mt-4">
+            <DecisionCard
+              key={decisionKey(current)}
+              decision={current}
+              variant="list"
+              agentName={current.agentSlug ? agentNames[current.agentSlug] ?? null : null}
+              position={here.length > 1 ? { index: 0, total: here.length } : undefined}
+              onAnswer={a => answer(current, a)}
+              busy={busy === decisionKey(current)}
+              error={error}
+            />
+          </div>
+        </details>
       )}
       {done.length > 0 && (
         <ul className="mt-2 space-y-1 text-[13px] text-muted-foreground" data-testid="home-decided" aria-live="polite">

@@ -21,7 +21,7 @@ type Labels = { start: string; open: string; run: string; drop: string; dropping
  * and Chat opens with it attached under the tile's words, for the person to
  * finish and send.
  *
- * Two columns on a phone, three on a wide screen.
+ * One readable column on a phone; three on a wide screen. The authored first action receives emphasis.
  * @param props
  * @param props.tiles - The tiles, in the manifest's order.
  * @param props.tint - The app's tint.
@@ -30,13 +30,13 @@ type Labels = { start: string; open: string; run: string; drop: string; dropping
  */
 export function LaunchTiles({ tiles, tint, labels, first = false }: { tiles: AppLaunchTile[]; tint: Tint; labels: Labels; first?: boolean }) {
   return (
-    <div data-testid="home-launch" className={cn('grid auto-rows-fr gap-3', tiles.length === 1 ? 'grid-cols-1 sm:max-w-sm' : 'grid-cols-2 lg:grid-cols-3')}>
-      {tiles.map(tile => <Tile key={tile.title} tile={tile} tint={tint} labels={labels} title={first ? tile.firstTitle ?? tile.title : tile.title} />)}
+    <div data-testid="home-launch" className={cn('grid auto-rows-fr gap-3', tiles.length === 1 ? 'grid-cols-1 sm:max-w-sm' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3')}>
+      {tiles.map((tile, index) => <Tile primary={index === 0} key={tile.title} tile={tile} tint={tint} labels={labels} title={first ? tile.firstTitle ?? tile.title : tile.title} />)}
     </div>
   );
 }
 
-function Tile({ tile, tint, labels, title }: { tile: AppLaunchTile; tint: Tint; labels: Labels; title: string }) {
+function Tile({ tile, tint, labels, title, primary }: { primary: boolean; tile: AppLaunchTile; tint: Tint; labels: Labels; title: string }) {
   const router = useRouter();
   const [over, setOver] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -47,15 +47,15 @@ function Tile({ tile, tint, labels, title }: { tile: AppLaunchTile; tint: Tint; 
       tint={tint}
       title={title}
       job={tile.description}
-      // On a phone two tiles share a row: the mark sits out, so the words get the width.
-      lead={<span className="hidden sm:block"><LetterTile name={title} icon={iconByName(tile.icon)} tint={tint} size="md" /></span>}
+      // Keep a recognizable action icon at every viewport size.
+      lead={<span className="block"><LetterTile name={title} icon={iconByName(tile.icon)} tint={tint} size="md" /></span>}
       action={{ label, href: tileHref(tile) }}
       meta={accepts.length > 0 ? (note ?? labels.drop.replace('{types}', accepts.join(', '))) : undefined}
-      className={cn('p-3.5 sm:p-5 [&>div]:gap-0 sm:[&>div]:gap-3', over && 'ring-2 ring-ring/50')}
+      className={cn('p-4 sm:p-5', !primary && 'bg-muted/35', primary && '[&_h3]:text-lg', over && 'ring-2 ring-ring/50')}
     />
   );
   if (accepts.length === 0) {
-    return <div data-testid="home-tile" data-tile={title} className="h-full">{card}</div>;
+    return <div data-testid="home-tile" data-tile={title} data-primary={primary || undefined} className="h-full">{card}</div>;
   }
   const take = async (files: File[]) => {
     const wanted = files.filter(f => accepts.some(ext => f.name.toLowerCase().endsWith(ext)));
@@ -80,6 +80,7 @@ function Tile({ tile, tint, labels, title }: { tile: AppLaunchTile; tint: Tint; 
     <div
       data-testid="home-tile"
       data-tile={title}
+      data-primary={primary || undefined}
       data-accepts={accepts.join(',')}
       className="h-full"
       onDragOver={(e) => {

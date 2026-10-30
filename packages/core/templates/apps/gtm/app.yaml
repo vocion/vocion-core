@@ -6,63 +6,49 @@ name: GTM
 icon: target
 tint: peach
 order: 3
-description: Engagements and their proposals, and growth work judged on what it returned.
+description: Move a deal forward. Prepare a meeting, draft a proposal, or get a follow-up ready for review.
 # Not `data-rooms`: Projects are a core workspace noun, in every app's sidebar
 # (2026-10-27), so turning projects on never installs GTM.
 plugins: [proposals, meeting-followup, growth-loop]
 surfaces: [personalization, discovery, proposals]
 entry: /gtm/proposals
 nav: [GTM, Growth]
-# Where the app opens: the ask bar, what to start, what waits on you, the
-# pipeline as the CRM last synced it, and each engagement's deal
+# Guided starting points, what waits on you, upcoming meetings, and each
+# engagement's deal. Pipeline totals need normalized closed-stage semantics
 # (AppHomeSchema, docs/entities/app-manifest.md).
 home:
   launch:
-    - title: Find proposals to write
-      description: The engagements that are ready for a proposal, from the CRM and the calls.
-      icon: search
-      ask: Which engagements are ready for a proposal?
-      first: true
-    - title: Write a proposal
-      description: A print-ready proposal drafted from every call, email and file on the deal.
+    - title: Draft a proposal
+      description: Choose a deal. Turn its available evidence into a proposal you can review.
       icon: file-text
-      ask: Write a proposal for an engagement. First ask me which one, then draft it from every call, email and file on the deal.
-    - title: Follow up on calls
-      description: This week's client calls that still owe a follow-up, each drafted for your approval.
-      icon: mail
-      ask: Which of this week's client calls still owe a follow-up?
+      prompt: 'Draft a proposal for this engagement: '
+      first: true
     - title: Prepare for a meeting
-      description: Who is coming, what you last discussed and what is still open.
+      description: A brief with the people, last discussion, open questions and source links.
       icon: calendar
-      ask: Prepare me for my next client meeting. Who is coming, what we last discussed, and what is still open.
-    - title: Plan the next brief
-      description: What to make next for growth, ranked by the evidence.
-      icon: lightbulb
-      ask: What should we brief next, from the evidence?
-    - title: Proposals
-      description: Every engagement's proposal and deck, and where each one stands.
+      ask: Prepare a brief for my next upcoming client meeting. Confirm its date and attendees, then use available deal and meeting evidence for the last discussion, open questions and suggested next step. Link the sources and flag missing context.
+    - title: Draft call follow-ups
+      description: Find recent calls that need a reply and prepare drafts for approval.
+      icon: mail
+      ask: Find this week's client calls that still need a follow-up, using available evidence. Show the calls and dates first, then prepare follow-up drafts for my review. Do not send anything.
+    - title: Find the next proposal
+      description: See which deals have enough evidence to start, and what is missing.
+      icon: search
+      ask: Which engagements are ready for a proposal? Show up to five candidates with source links, the evidence that makes each ready, and any missing decision or input. Do not claim readiness from stage alone.
+    - title: Open proposal board
+      description: Continue an existing proposal or see where each draft stands.
       icon: folder-open
       href: /gtm/proposals
   measures:
-    - key: pipeline
-      label: Open pipeline
-      source: state
-      query: {sets: [crm.deal], filter: {stage: {not: [closedwon, closedlost]}}}
-      sum: amount
-      format: money
     - key: followups
-      label: Follow-ups to approve
+      label: Follow-up drafts awaiting approval
       source: approvals
       actions: [meeting.draft_followup]
       href: /dashboard/inbox
     - key: meetings
-      label: Client meetings, next 7 days
+      label: External meetings, next 7 days
       source: state
       query: {sets: [calendar.event], filter: {start: {since: now, until: +7d}, external_attendees: {gt: 0}}}
-    - key: quiet
-      label: Deals gone quiet
-      source: state
-      view: stale-deals
   projects:
     # An engagement anchored to a CRM deal uses the app.
     include: {field: meta.anchor, op: exists}

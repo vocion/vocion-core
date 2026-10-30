@@ -10,7 +10,7 @@ shortName: SEO
 icon: trending-up
 tint: mint
 order: 8
-description: Pages that rank, researched against Google's top results, written in each client's voice, and shipped to their site with your sign-off.
+description: Turn search opportunities into reviewed pages. Choose a client, approve the plan, then move drafts through feedback and publishing.
 plugins: [seo]
 entry: /dashboard/p/seo
 nav: [SEO]
@@ -19,33 +19,58 @@ nav: [SEO]
 # docs/entities/app-manifest.md).
 home:
   launch:
+    - title: Plan the next pages
+      description: Choose a client and goal. Get a researched page plan to review before writing begins.
+      icon: layers
+      ask: Plan the next SEO pages. First ask which client and business goal. Read their existing profile, keywords and batches before proposing new research. Ask only for missing context, then propose a prioritized page plan for review before writing begins.
+    - title: Audit a site
+      description: Choose a client and find the issues worth fixing first, with evidence and next steps.
+      icon: list-checks
+      ask: Audit a client's site. First ask me which client, or offer to onboard a new client from their website. Read their latest audit before proposing a new one, then give me the findings and recommended next steps.
     - title: Onboard a client
-      description: Read a client's website and set up their project, voice and SEO profile on one card.
+      description: Start with a website. Confirm the client's goals, audience and voice before planning pages.
       icon: user-plus
-      prompt: 'Onboard a new client from their website: '
+      prompt: 'Onboard a new SEO client. Start with their website, check for an existing project, and help me confirm their goals, audience and voice: '
       first: true
       firstTitle: Onboard your first client
-    - title: Audit a site
-      description: Check a client's site and get a report with what to fix first.
+    - title: Review drafts
+      description: Read pages waiting for your sign-off. Approve or give specific feedback before the batch moves on.
+      icon: file-text
+      href: /dashboard/p/seo-pages?status=in_review
+    - title: Resolve revisions
+      description: Reopen pages with requested changes and check the feedback before another draft is written.
       icon: list-checks
-      ask: Audit a client's site. First ask me which client (an existing one, or a new client to onboard from their website), then run the audit and give me the report and the recommended next steps.
-    - title: Find keywords
-      description: Research what a client's buyers search for and who ranks for it today.
-      icon: tags
-      ask: Find keywords for a client. First ask me which client and the topic, then research what ranks and keep what is worth a page in their keywords.
-    - title: Plan pages
-      description: Turn a client's best keywords into a batch of pages for your sign-off.
-      icon: layers
-      ask: Plan a batch of SEO pages for a client. First ask me which client (an existing one, or a new client to onboard from their website), then the topic, then research what ranks before proposing the pages.
-    - title: Track AI prompts
-      description: The questions buyers ask AI assistants, and whether the client is named in the answers.
-      icon: radar
-      prompt: 'Track the AI prompts buyers ask about this client: '
-      accepts: [.csv]
-    - title: Publish
-      description: Pages you signed off, ready to go to each client's site.
+      href: /dashboard/p/seo-pages?status=changes_requested
+    - title: Check publishing
+      description: Follow approved pages through pull requests or site drafts. A draft or open PR is not a live page.
       icon: send
+      href: /dashboard/p/seo-pages?status=publishing
+  measures:
+    - key: review
+      label: Pages awaiting review
+      source: records
+      objectType: seo_page
+      where: {field: meta.status, op: eq, value: in_review}
+      href: /dashboard/p/seo-pages?status=in_review
+    - key: revisions
+      label: Pages needing changes
+      source: records
+      objectType: seo_page
+      where: {field: meta.status, op: eq, value: changes_requested}
+      href: /dashboard/p/seo-pages?status=changes_requested
+    - key: approved
+      label: Approved, not yet publishing
+      source: records
+      objectType: seo_page
+      where: {field: meta.status, op: eq, value: approved}
       href: /dashboard/p/seo-pages?status=approved
+    - key: published
+      label: Pages live this month
+      source: records
+      objectType: seo_page
+      where: [{field: meta.status, op: eq, value: published}, {field: meta.publishedAt, op: since, value: month}]
+      date: meta.publishedAt
+      href: /dashboard/p/seo-pages?status=published
   projects:
     # A client whose SEO profile is set uses the app before it has any records.
     include: {field: meta.seoProfile, op: exists}

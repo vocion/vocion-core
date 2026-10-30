@@ -75,21 +75,26 @@ export default async function AppHomePage(props: Props) {
     <div className="mx-auto w-full max-w-5xl px-1 pt-4 pb-12 sm:pt-8" data-testid="app-home" data-app={app.id} data-empty={hasWork ? undefined : 'true'}>
       <header className="mb-6 space-y-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{greeting}</h1>
-          {!hasWork && <p className="mt-1 text-[15px] text-muted-foreground" data-testid="home-about">{app.description}</p>}
+          <p className="text-sm text-muted-foreground">{greeting}</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">{appName}</h1>
+          <p className="mt-2 max-w-2xl text-[15px] text-muted-foreground" data-testid="home-about">{app.description}</p>
         </div>
-        <HomeAskBar placeholder={t('ask_placeholder', { app: appName })} sendLabel={t('ask_send')} focusOnLoad={!hasWork} />
+
       </header>
 
       {!hasWork
         ? (
-            <LaunchTiles tiles={[firstTile(home)]} tint={tint} labels={labels} first />
+            <>
+              <LaunchTiles tiles={[firstTile(home)]} tint={tint} labels={labels} first />
+              <div className="mt-5"><HomeAskBar placeholder={t('ask_placeholder', { app: appName })} sendLabel={t('ask_send')} /></div>
+            </>
           )
         : (
             <>
               <Section eyebrow={t('start')} data-testid="home-start">
                 <LaunchTiles tiles={home.launch} tint={tint} labels={labels} />
               </Section>
+              <div className="mt-5 mb-6"><HomeAskBar placeholder={t('ask_placeholder', { app: appName })} sendLabel={t('ask_send')} /></div>
               <Suspense fallback={null}>
                 <NeedsYouSection orgId={orgId} userId={userId} scope={scope} />
               </Suspense>
@@ -98,14 +103,15 @@ export default async function AppHomePage(props: Props) {
                   <StandingSection orgId={orgId} userId={userId} scope={scope} timeZone={timeZone} />
                 </Suspense>
               )}
+              <Suspense fallback={null}>
+                <ActivitySection orgId={orgId} scope={scope} timeZone={timeZone} />
+              </Suspense>
               {home.projects && (
                 <Suspense fallback={<SectionPending eyebrow={t('projects')} />}>
                   <ProjectsSection orgId={orgId} scope={scope} timeZone={timeZone} />
                 </Suspense>
               )}
-              <Suspense fallback={null}>
-                <ActivitySection orgId={orgId} scope={scope} timeZone={timeZone} />
-              </Suspense>
+
             </>
           )}
     </div>

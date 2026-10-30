@@ -64,15 +64,15 @@ test('the SEO home leads with the greeting, the tiles, what needs you and each c
 
   const home = page.getByTestId('app-home');
 
-  await expect(home.getByRole('heading', { level: 1 })).toHaveText(/^Good (morning|afternoon|evening), Harper$/);
+  await expect(home.getByRole('heading', { level: 1 })).toHaveText('SEO');
   await expect(page.getByTestId('home-ask-bar').getByRole('textbox')).toHaveAttribute('placeholder', 'Ask the SEO team…');
 
   // Start something: the six tiles, in the manifest's order.
   const tiles = page.getByTestId('home-start').getByTestId('home-tile');
 
   await expect(tiles).toHaveCount(6);
-  await expect(tiles.first()).toContainText('Onboard a client');
-  await expect(page.getByTestId('home-start').locator('[data-tile="Track AI prompts"]')).toContainText('Or drop a .csv file here');
+  await expect(tiles.first()).toContainText('Plan the next pages');
+  await expect(tiles.first()).toHaveAttribute('data-primary', 'true');
 
   // Each client, every figure linked and dated.
   const client = page.getByTestId('home-project').filter({ hasText: 'Northwind Outfitters' });
@@ -98,7 +98,12 @@ test('the SEO home leads with the greeting, the tiles, what needs you and each c
 
   await expect(needsYou).toContainText('Go live with the Trail shoes pages?');
 
-  // The recommendation is picked already; one click answers it.
+  // The homepage previews a decision; its controls are disclosed intentionally.
+  await expect(needsYou.getByTestId('decision-submit')).toBeHidden();
+
+  await needsYou.locator('summary').click();
+
+  // The existing decision form still requires an explicit submit.
   await expect(needsYou.getByTestId('decision-option-live')).toHaveAttribute('aria-selected', 'true');
 
   await needsYou.getByTestId('decision-submit').click();
@@ -134,14 +139,14 @@ test('a workspace with nothing yet sees the ask bar and the first tile, with one
   await page.goto(HOME);
 
   await expect(page.getByTestId('app-home')).toHaveAttribute('data-empty', 'true');
-  await expect(page.getByTestId('home-about')).toContainText('Pages that rank');
+  await expect(page.getByTestId('home-about')).not.toBeEmpty();
   await expect(page.getByTestId('home-tile')).toHaveCount(1);
   await expect(page.getByTestId('home-tile')).toContainText('Onboard your first client');
   await expect(page.getByTestId('home-start')).toHaveCount(0);
   await expect(page.getByTestId('home-ask-bar')).toBeVisible();
 });
 
-test('on a phone the tiles sit two to a row', async ({ page }) => {
+test('on a phone launch actions stay readable without horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page, BUSY);
   await page.goto(HOME);
@@ -151,6 +156,7 @@ test('on a phone the tiles sit two to a row', async ({ page }) => {
 
   const [a, b] = await Promise.all([tiles.nth(0).boundingBox(), tiles.nth(1).boundingBox()]);
 
-  expect(Math.abs(a!.y - b!.y)).toBeLessThan(2);
-  expect(b!.x).toBeGreaterThan(a!.x);
+  expect(b!.y).toBeGreaterThanOrEqual(a!.y + a!.height);
+  expect(Math.abs(a!.x - b!.x)).toBeLessThan(2);
+  expect(a!.x + a!.width).toBeLessThanOrEqual(390);
 });
