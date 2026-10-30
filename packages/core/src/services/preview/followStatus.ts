@@ -117,9 +117,9 @@ export async function followStatuses(orgId: string, refs: FollowRef[]): Promise<
   }
   const askIds = ids(refs, 'ask');
   if (askIds.length > 0) {
-    const rows = await db.select({ id: askSchema.id, status: askSchema.status }).from(askSchema).where(and(eq(askSchema.orgId, orgId), inArray(askSchema.id, askIds)));
+    const rows = await db.select({ id: askSchema.id, status: askSchema.status, title: askSchema.title, kind: askSchema.kind }).from(askSchema).where(and(eq(askSchema.orgId, orgId), inArray(askSchema.id, askIds)));
     for (const r of rows) {
-      out[key({ type: 'ask', id: String(r.id) })] = r.status === 'open' ? { state: 'waiting', label: 'waiting on a person' } : { state: r.status === 'rejected' ? 'failed' : 'done', label: r.status };
+      out[key({ type: 'ask', id: String(r.id) })] = r.status === 'open' ? { state: 'waiting', label: r.kind === 'input' ? 'awaiting answer' : r.kind === 'approval' ? 'awaiting approval' : 'awaiting decision', name: r.title } : { state: r.status === 'rejected' ? 'failed' : 'done', label: r.status, name: r.title };
     }
   }
   for (const r of refs.filter(x => x.type === 'artifact')) {

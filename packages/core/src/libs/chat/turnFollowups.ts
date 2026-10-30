@@ -165,7 +165,7 @@ export function turnFollowups(runs: readonly TurnToolStep[] | undefined, opts: {
         continue;
       }
       if (ask) {
-        push({ label: nounCode('ask', ask), href: inboxHref('ask', Number(ask)), ref: { type: 'ask', id: ask } });
+        push({ label: 'View question', href: inboxHref('ask', Number(ask)), ref: { type: 'ask', id: ask } });
       }
       for (const a of about) {
         push({ label: `${words(a.type)} #${a.id}`, href: genericRecordLinker({ objectType: a.type, id: a.id }), ref: { type: 'object', id: a.id } });

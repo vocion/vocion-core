@@ -152,7 +152,7 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
 
   const askId = positiveInt(result.askId);
   if (askId !== null) {
-    push({ label: nounCode('ask', askId), href: inboxHref('ask', askId), ref: { type: 'ask', id: String(askId) } });
+    push({ label: 'View question', href: inboxHref('ask', askId), ref: { type: 'ask', id: String(askId) } });
   }
 
   const artifactId = positiveInt(result.artifactId);

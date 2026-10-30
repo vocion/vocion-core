@@ -75,6 +75,14 @@ export function failureReason(error: string): string {
 }
 
 /**
+ * Successful filing records a question; it does not complete the requested work.
+ * @param r - The action receipt, including any later undo.
+ */
+export function receiptHeading(r: Pick<DoneReceipt, 'actionId' | 'status'>): string {
+  return r.status === 'undone' ? 'Undone.' : r.actionId === 'ask.file' ? 'Question saved.' : 'Done.';
+}
+
+/**
  * The Done line in words, as it renders (the record name and the outcome's
  * link are links there): "Done. Northwind renewal updated: Deal stage:
  * Proposal → Contract sent". One line, one Undo beside it; no run code, no
@@ -85,7 +93,7 @@ export function receiptText(r: DoneReceipt): string {
   if (r.status === 'failed') {
     return `Didn't run. ${r.record?.label ?? r.label}${r.error ? `: ${r.error}` : ''}`;
   }
-  const head = r.status === 'undone' ? 'Undone.' : 'Done.';
+  const head = receiptHeading(r);
   if (r.outcome) {
     return `${head} ${r.outcome.text}${r.outcome.href ? `: ${r.outcome.linkLabel ?? r.outcome.href}` : ''}`;
   }

@@ -4,7 +4,7 @@ import type { DoneReceipt } from '@/libs/decisions/receipt';
 import { Check, CircleAlert, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { announceSetupChanged } from '@/features/dashboard/setupChanged';
-import { changesText, receiptVerb } from '@/libs/decisions/receipt';
+import { changesText, receiptHeading, receiptVerb } from '@/libs/decisions/receipt';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
@@ -99,7 +99,7 @@ export function DoneReceipts({ receipts }: { receipts: DoneReceipt[] }) {
             {state === 'undone'
               ? <RotateCcw className="size-3.5 shrink-0 self-center" aria-hidden />
               : <Check className="size-3.5 shrink-0 self-center text-[var(--brand-pass)]" aria-hidden />}
-            <span className="shrink-0 font-medium text-foreground/85">{state === 'undone' ? 'Undone.' : 'Done.'}</span>
+            <span className="shrink-0 font-medium text-foreground/85">{receiptHeading({ ...r, ...(state === 'undone' ? { status: 'undone' } : {}) })}</span>
             <span className="min-w-0 break-words">{body}</span>
             {r.undoable && state !== 'undone' && (
               <button
