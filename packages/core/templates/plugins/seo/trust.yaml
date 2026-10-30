@@ -37,7 +37,7 @@ rules:
 
   # PUBLISHING AS A DRAFT. A person approves a page ONCE, on its run's
   # sign-off step; publishing it then opens an unmerged pull request on the
-  # client's repository or saves a Squarespace draft that is not live. Both
+  # client's repository, or saves a Squarespace or Webflow draft that is not live. All
   # stay in the client's hands, and Undo closes the pull request, so it runs
   # on the sign-off without a second card. The action itself refuses any page
   # without a person's sign-off on its current words (`signedOff`).
@@ -46,7 +46,7 @@ rules:
     enabled: true
     rung: execute-within-bounds
     risk: medium
-  # Going live: drafted Squarespace posts made public. Not reversible from
+  # Going live: drafted Squarespace posts and Webflow items made public. Not reversible from
   # here (a live post is the site's), so it is asked every time and never
   # earns its way out.
   - action: site.publish_live

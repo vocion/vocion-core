@@ -25,7 +25,7 @@
 import type { DecisionAnswer, DecisionChannel, DecisionSubject, DecisionView } from '@/libs/decisions/decision';
 import type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
 import type { Ask } from '@/services/AskService';
-import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { ALLOW_ONCE_ID, ALWAYS_ALLOW_ID, answerProblem, decisionViewOf } from '@/libs/decisions/decision';
 import { waitsForPerson } from '@/libs/needsYou/deadlines';
@@ -235,6 +235,45 @@ export async function waitingElsewhere(orgId: string, userId: string): Promise<D
   }));
   const asks = askViews(rows, clocks);
   return oldestFirst(await forViewer(orgId, userId, rows.map((r, i) => [r, asks[i]!]), runs.map((r, i) => [r, proposals[i]!]))).slice(0, WAITING_IN_CHAT_LIMIT);
+}
+
+/** How many of an app's Decisions its home shows. */
+export const APP_HOME_DECISIONS_LIMIT = 8;
+
+/**
+ * WHAT WAITS ON THIS PERSON FROM ONE APP — its agents' open Decisions, for
+ * the app's home: those waiting outside any conversation (answered in place,
+ * `answerElsewhere`) and those asked in a conversation (answered there, so
+ * the agent hears it on the turn it starts). Oldest first.
+ * @param orgId - The workspace.
+ * @param userId - The person.
+ * @param agentSlugs - The app's agents.
+ */
+export async function decisionsFromAgents(orgId: string, userId: string, agentSlugs: readonly string[]): Promise<DecisionView[]> {
+  if (agentSlugs.length === 0) {
+    return [];
+  }
+  const mine = new Set(agentSlugs);
+  const [elsewhere, rows, clocks] = await Promise.all([
+    waitingElsewhere(orgId, userId),
+    db
+      .select()
+      .from(askSchema)
+      .where(and(
+        eq(askSchema.orgId, orgId),
+        eq(askSchema.status, 'open'),
+        isNotNull(askSchema.conversationId),
+        inArray(askSchema.agentSlug, [...agentSlugs]),
+        or(isNull(askSchema.ownerUserId), eq(askSchema.ownerUserId, userId)),
+        sql`${askSchema.kind} <> 'credential'`,
+      ))
+      .orderBy(asc(askSchema.createdAt), asc(askSchema.id))
+      .limit(APP_HOME_DECISIONS_LIMIT),
+    deadlines(orgId),
+  ]);
+  const asks = askViews(rows, clocks);
+  const inConversations = await forViewer(orgId, userId, rows.map((r, i) => [r, asks[i]!]), []);
+  return oldestFirst([...elsewhere.filter(v => v.agentSlug !== null && mine.has(v.agentSlug)), ...inConversations]).slice(0, APP_HOME_DECISIONS_LIMIT);
 }
 
 /**

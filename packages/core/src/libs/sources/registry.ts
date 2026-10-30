@@ -49,6 +49,7 @@ import { squarespaceConnector } from './squarespace';
 import { strapiConnector } from './strapi';
 import { stripeConnector } from './stripe';
 import { webConnector } from './web';
+import { webflowConnector } from './webflow';
 import { workdayConnector } from './workday';
 import { xeroConnector } from './xero';
 import { zoomConnector } from './zoom';
@@ -120,3 +121,6 @@ registerConnector(squarespaceConnector);
 // already gets from Google, and a workspace's own Ahrefs.
 registerConnector(searchConsoleConnector);
 registerConnector(ahrefsConnector);
+// A client's Webflow site: approved pages saved as draft CMS items through the
+// Data API, live on a second approval (`site.publish_page`, `site.publish_live`).
+registerConnector(webflowConnector);

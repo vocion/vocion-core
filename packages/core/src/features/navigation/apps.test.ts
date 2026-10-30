@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultTint } from '@/libs/tints';
 import { listApps } from '@/libs/workspace/apps';
 import { listPlugins } from '@/libs/workspace/plugins';
-import { appForPlugin, appMissingHere, appOwningPath, groupPluginsByApp, homeAppOf, installedApps, resolveActiveApp, splitNavByApp, workspaceLanding, workspacesByApp } from './apps';
+import { appEntryPath, appForPlugin, appHomePath, appMissingHere, appOwningPath, groupPluginsByApp, homeAppOf, installedApps, resolveActiveApp, splitNavByApp, workspaceLanding, workspacesByApp } from './apps';
 import { DASHBOARD_ROUTES, workCoreRoutes } from './dashboardNav';
 import { pluginNav } from './pluginNav';
 
@@ -382,5 +382,39 @@ describe('appForPlugin', () => {
 
   it('knows nothing of a plugin outside the catalogue', () => {
     expect(appForPlugin('missing', plugins, CATALOGUE)).toBeUndefined();
+  });
+});
+
+describe('an app with a home', () => {
+  const launch = [{ title: 'Plan pages', description: 'Plan a batch of pages.', icon: 'layers', ask: 'Plan pages.', first: false }];
+  const seo = app({ id: 'seo', order: 4, plugins: ['seo'], nav: ['SEO'], entry: '/dashboard/p/seo', home: { launch } });
+  const split = splitNavByApp({
+    apps: installedApps(['seo'], [], [home, seo]),
+    nav: nav([{ label: 'SEO', items: [{ title: 'Strategy', url: '/dashboard/p/seo-strategy', icon: 'target', plugin: 'seo', order: 0 }, { title: 'Batches', url: '/dashboard/p/seo', icon: 'layers', plugin: 'seo', order: 4 }] }]),
+    surfaces: [],
+    pages: [],
+    coreRoutes: [{ url: '/dashboard/chat' }],
+  });
+  const seoNav = split.apps.find(a => a.id === 'seo')!;
+
+  it('opens on its home, owns it, and lists it as its first row while its sections stay as they were', () => {
+    expect(appHomePath('seo')).toBe('/dashboard/apps/seo/home');
+    expect(seoNav.href).toBe('/dashboard/apps/seo/home');
+    expect(seoNav.home).toBe('/dashboard/apps/seo/home');
+    expect(seoNav.entry).toBe('/dashboard/apps/seo/home');
+    expect(seoNav.sections[0]!.items.map(i => i.title)).toEqual(['Strategy', 'Batches']);
+    expect(appOwningPath('/dashboard/apps/seo/home', split.apps)).toBe('seo');
+    // The app's catalogue page is not its home.
+    expect(appOwningPath('/dashboard/apps/seo', split.apps)).toBeUndefined();
+  });
+
+  it('is where a workspace with only that app opens the first time', () => {
+    expect(workspaceLanding({ targetApps: [{ id: 'home', core: true, entry: '/dashboard/chat' }, { id: 'seo', core: false, entry: appEntryPath(seo) }], coreEntry: '/dashboard/chat' }).path).toBe('/dashboard/apps/seo/home');
+  });
+
+  it('leaves an app without a home, and the core app, where their manifests say', () => {
+    expect(appEntryPath(factory)).toBe('/dashboard/p/board');
+    expect(appEntryPath({ ...home, home: { launch } })).toBe('/dashboard/chat');
+    expect(split.apps.find(a => a.id === 'home')!.home).toBeUndefined();
   });
 });

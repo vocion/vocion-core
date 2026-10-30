@@ -181,6 +181,8 @@ test.describe('the platform selector decides which controls exist', () => {
       'Stripe',
       // A client's Squarespace site: an editor login, for publishing.
       'Squarespace',
+      // A client's Webflow site: a Data API token, for publishing.
+      'Webflow',
       'Xero',
       'NetSuite',
       'Ramp',

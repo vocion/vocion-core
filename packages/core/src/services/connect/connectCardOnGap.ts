@@ -79,8 +79,18 @@ export async function connectCardForGap(ctx: RuntimeContext, connectorSlug: stri
       }
       emit(event);
     } };
+    // The turn's publish step goes with it (keyed by the turn's context).
+    const { markPublishStep, publishStepOf } = await (await import('@/libs/connectAskBridge')).connectAsk();
+    const step = publishStepOf(ctx, connectorSlug);
+    if (step) {
+      markPublishStep(watching, connectorSlug, step.projectId);
+    }
     const said = await offerConnection(watching, { connector: connectorSlug, why: why ?? 'It is not connected, and this work needs it.', named: true });
-    return drawn ? `NOT CONNECTED — THE CARD IS UP: ${said} Say in one line that it is not connected and point at the card; never offer to walk them through it.` : null;
+    if (drawn) {
+      return `NOT CONNECTED — THE CARD IS UP: ${said} Say in one line that it is not connected and point at the card; never offer to walk them through it.`;
+    }
+    // Held back on purpose (`connectAskGate.ts`): the model reads why, so it does not ask in words instead.
+    return said.startsWith('Not asked') ? said : null;
   } catch {
     return null;
   }
@@ -159,6 +169,16 @@ export function withConnectCardOnGap(toolObj: StructuredToolInterface, ctx: Runt
     try {
       const text = resultText(result);
       const connector = text ? await connectorMissingFrom(toolObj.name, text) : null;
+      // THE PUBLISH STEP: an action that `connects` this system could not run
+      // for want of it. Only here may a system a plugin asks for at publish
+      // only be asked for (`connectAskGate.ts`).
+      if (connector) {
+        const { actionConnects, markPublishStep, projectOfPublish, proposedAction } = await (await import('@/libs/connectAskBridge')).connectAsk();
+        const proposed = proposedAction(toolObj.name, input);
+        if (proposed && await actionConnects(proposed.actionId, connector)) {
+          markPublishStep(ctx, connector, await projectOfPublish(ctx.orgId, proposed.input));
+        }
+      }
       const line = connector ? await connectCardForGap(ctx, connector) : null;
       return line ? withLine(result, line) : result;
     } catch {

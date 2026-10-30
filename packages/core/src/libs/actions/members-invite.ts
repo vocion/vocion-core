@@ -11,7 +11,8 @@
  *
  * Reversible: `undo` withdraws every invite this run made that nobody has
  * accepted yet (an accepted invite is a person who joined; that is theirs, not
- * Undo's). Internal. Only an account admin can invite, here as on the Members
+ * Undo's), but not the email already sent, so no trust rule runs it in a
+ * person's place (`approvalRequired`). Internal. Only an account admin can invite, here as on the Members
  * page: the check reads the person who decided the card, never the agent that
  * offered it.
  */
@@ -104,6 +105,10 @@ export const membersInviteAction: Action<typeof membersInviteInput> = {
   inputSchema: membersInviteInput,
   grant: 'manage_members',
   external: false,
+  // It mails an invite to an address outside and lets that person in: a
+  // person decides every one an agent proposes, and their own press on the
+  // setup card or the Members page is that decision.
+  approvalRequired: true,
   dedupKeyFor: input => `members.invite:${[...input.emails].sort().join(',')}`,
 
   async precheck(ctx, input) {

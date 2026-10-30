@@ -39,6 +39,10 @@ export const adsSetStatusAction: Action<typeof setStatusInput> = {
   inputSchema: setStatusInput,
   grant: 'manage_ads',
   external: true,
+  // Resuming delivery spends money and pausing stops it, so a person decides
+  // every one an agent proposes, as for the Google Ads writes; their own tap
+  // on the app is that decision.
+  approvalRequired: true,
   // One pending decision per entity and target state.
   dedupKeyFor: input => `${ADS_SET_STATUS_ACTION_ID}:${input.source ?? ''}:${input.level}:${input.id.trim()}:${input.state}`,
   async precheck(ctx, input) {

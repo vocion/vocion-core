@@ -39,6 +39,10 @@ export function connectFailureSummary(providerLabel: string, reason: string | nu
       return 'Your Org has turned off personal connections';
     case 'not_personal':
       return `${providerLabel} cannot be connected as one of your own accounts`;
+    // GitHub's install-request flow: a member asked an owner to approve. Not
+    // a failure and not connected: waiting (`services/connect/githubInstall.ts`).
+    case 'installation_requested':
+      return `Install requested: waiting for an owner of the ${providerLabel} organization to approve it`;
     case 'store_failed':
       return `${providerLabel} logged in, but the credential couldn't be saved`;
     default:

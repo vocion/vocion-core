@@ -63,6 +63,12 @@ export const CardSchema = z.object({
    * read off its descriptor: the connect card draws that service's logo.
    */
   brand: z.string().min(1).optional(),
+  /**
+   * The records the card is about (a connect card raised at a page's publish
+   * step: its Project). Carried onto the Decision it becomes as its
+   * `objectRefs`, so a later ask can tell which Project it was for.
+   */
+  about: z.array(z.object({ type: z.string().min(1), id: z.string().min(1) })).max(10).optional(),
   /** The record the card's action created when it ran — the id the next turn needs. */
   ref: z.object({ type: z.string().min(1), id: z.number().int() }).optional(),
   state: z.enum(CARD_STATES).default('proposed'),

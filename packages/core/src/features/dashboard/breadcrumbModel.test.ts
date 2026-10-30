@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { buildCrumbs } from './breadcrumbModel';
 
 describe('buildCrumbs', () => {
+  it('names an app\'s home after the app, never its id', () => {
+    expect(buildCrumbs({ pathname: '/en/dashboard/apps/seo/home', docTitle: 'SEO', workspaceName: 'Northwind' })).toEqual([
+      { url: '/dashboard', label: 'Northwind' },
+      { url: '/dashboard/apps/seo/home', label: 'SEO' },
+    ]);
+  });
+
   it('names a registered page after the registry, led by the workspace', () => {
     expect(buildCrumbs({ pathname: '/en/dashboard/missions', docTitle: '', workspaceName: 'Revenue' })).toEqual([
       { url: '/dashboard', label: 'Revenue' },

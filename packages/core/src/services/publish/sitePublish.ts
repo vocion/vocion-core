@@ -15,6 +15,9 @@
  *   click held for the person (`services/publish/squarespaceTask.ts`), followed
  *   by the `site.publish-settle` job, which reads the post back through the
  *   site's public JSON and records where it lives.
+ * - **webflow**: a draft item in the site's blog collection through the Data
+ *   API, created or updated in place by its slug, then published on its own
+ *   approval (`services/publish/webflowPublish.ts`).
  *
  * Whatever happens is written on the page's record, so the batch page can show
  * the pull request, the draft or the live URL, with the run that made it.
@@ -42,7 +45,7 @@ const NOT_A_POST = new Set(['location', 'service', 'landing']);
 export type PublishPlan = {
   project: { id: number; title: string };
   target: PublishTarget;
-  page: PageFields & { recordId: number | null; descriptionFrom: 'given' | 'record' | 'first paragraph'; refresh: boolean; publishedUrl: string | null; existingUrl: string | null; draftUrl: string | null };
+  page: PageFields & { recordId: number | null; descriptionFrom: 'given' | 'record' | 'first paragraph'; refresh: boolean; publishedUrl: string | null; existingUrl: string | null; draftUrl: string | null; webflowItemId?: string | null };
   draft: { artifactId: number; title: string; version: number; markdown: string };
   /** The page record's metadata before this publish, for Undo. */
   before: { status: unknown; pullRequestUrl: unknown; publishedUrl: unknown } | null;
@@ -221,8 +224,9 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
   // The body is the page: a trailing meta block and a leading byline are the page's fields, written into the frontmatter.
   const markdown = stripBylineBlock(stripMetaBlock(raw));
   const pageType = text(pageMeta.pageType);
-  if (resolved.target.kind === 'squarespace' && pageType && NOT_A_POST.has(pageType)) {
-    return { ok: false, why: `This is a ${pageType} page, and the project's Squarespace target publishes blog posts only. Publish it to a target that takes site pages, or add it in Squarespace by hand from the approved draft.` };
+  if ((resolved.target.kind === 'squarespace' || resolved.target.kind === 'webflow') && pageType && NOT_A_POST.has(pageType)) {
+    const site = resolved.target.kind === 'squarespace' ? 'Squarespace' : 'Webflow';
+    return { ok: false, why: `This is a ${pageType} page, and the project's ${site} target publishes blog posts only. Publish it to a target that takes site pages, or add it in ${site} by hand from the approved draft.` };
   }
 
   const title = input.title ?? text(pageMeta.title) ?? pageTitle ?? artifact.title;
@@ -239,7 +243,7 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
   const recorded = text(pageMeta.metaDescription);
   const description = given ?? recorded ?? firstParagraph(markdown);
   const byline = bylineOf(pageMeta, project.meta);
-  const fields = { author: byline?.name ?? null, authorSlug: byline?.slug ?? null, category: text(pageMeta.category), excerpt: text(pageMeta.excerpt), tags: tagsOf(pageMeta.tags), words: wordCount(markdown) };
+  const fields = { author: byline?.name ?? null, authorSlug: byline?.slug ?? null, category: text(pageMeta.category), excerpt: text(pageMeta.excerpt), tags: tagsOf(pageMeta.tags), words: wordCount(markdown), image: text(pageMeta.image) };
   if (resolved.target.kind === 'github') {
     const empty = emptyPlaceholders(resolved.target, { title, metaTitle, description, slug, at: now, ...fields });
     if (empty.length > 0) {
@@ -252,7 +256,7 @@ export async function planPublish(orgId: string, input: PublishRequest, now: Dat
     plan: {
       project: { id: project.id, title: project.title },
       target: resolved.target,
-      page: { recordId: input.pageRecordId ?? null, title, metaTitle, slug, description, ...fields, descriptionFrom: given ? 'given' : recorded ? 'record' : 'first paragraph', keyword: text(pageMeta.keyword), at: now, refresh: input.refresh === true || pageMeta.refresh === true || Boolean(existingUrl), publishedUrl: text(pageMeta.publishedUrl), existingUrl, draftUrl: text(pageMeta.squarespaceDraftUrl) },
+      page: { recordId: input.pageRecordId ?? null, title, metaTitle, slug, description, ...fields, descriptionFrom: given ? 'given' : recorded ? 'record' : 'first paragraph', keyword: text(pageMeta.keyword), at: now, refresh: input.refresh === true || pageMeta.refresh === true || Boolean(existingUrl), publishedUrl: text(pageMeta.publishedUrl), existingUrl, draftUrl: text(pageMeta.squarespaceDraftUrl), webflowItemId: text((pageMeta.webflowDraft as Meta | undefined)?.itemId) },
       draft: { artifactId, title: artifact.title, version: artifact.currentVersion, markdown },
       before: input.pageRecordId ? { status: pageMeta.status ?? null, pullRequestUrl: pageMeta.pullRequestUrl ?? null, publishedUrl: pageMeta.publishedUrl ?? null } : null,
     },
@@ -379,9 +383,9 @@ export async function recordOnPage(orgId: string, recordId: number | null | unde
  * @param live - When, where and how it was confirmed.
  * @param live.at - When.
  * @param live.url - The live page or the merged pull request.
- * @param live.how - `merged` or `read-back`.
+ * @param live.how - `merged`, `read-back`, or `published` (the vendor's API said so: Webflow).
  */
-export async function markRunLive(orgId: string, runId: number | null | undefined, live: { at: string; url: string; how: 'merged' | 'read-back' }): Promise<void> {
+export async function markRunLive(orgId: string, runId: number | null | undefined, live: { at: string; url: string; how: 'merged' | 'read-back' | 'published' }): Promise<void> {
   if (!runId) {
     return;
   }
@@ -470,7 +474,7 @@ export async function settlePull(follow: PullFollow): Promise<{ done: boolean; l
   if (res.data.merged) {
     const at = res.data.merged_at ?? new Date().toISOString();
     const line = `Merged ${follow.url.replace('https://github.com/', '')}: the page is on the site's main branch.`;
-    await recordOnPage(follow.orgId, follow.pageRecordId, { status: 'published', publishing: { kind: 'github', url: follow.url, mergedAt: at, note: line } });
+    await recordOnPage(follow.orgId, follow.pageRecordId, { status: 'published', publishedAt: at, publishing: { kind: 'github', url: follow.url, mergedAt: at, note: line } });
     await markRunLive(follow.orgId, follow.actionRunId, { at, url: follow.url, how: 'merged' });
     return { done: true, line };
   }
@@ -515,9 +519,19 @@ async function githubPreflightInScope(orgId: string, plan: PublishPlan): Promise
   const repo = plan.target.config.repo;
   let base = plan.target.config.baseBranch ?? '';
   let exists: boolean | null = null;
+  // THE PUBLISH STEP SAYS WHAT IT NEEDS: no GitHub connection reaching the
+  // repository is the one reason here to ask for GitHub (`connectAskGate.ts`).
+  let gh: Awaited<ReturnType<typeof ghFor>>;
+  try {
+    gh = await ghFor(orgId, repo);
+  } catch (error) {
+    if (/no GitHub connection/i.test((error as Error).message)) {
+      return { file, branch, base: base || 'the default branch', exists, why: `GitHub is not connected for ${repo}, so this page cannot be published yet: the workspace's GitHub connection does not reach ${repo}.` };
+    }
+    return { file, branch, base: base || 'the default branch', exists };
+  }
   try {
     base ||= await defaultBranch(orgId, repo);
-    const gh = await ghFor(orgId, repo);
     const res = await call<unknown>(gh, `/contents/${file.path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(base)}`);
     exists = res.ok ? true : res.status === 404 ? false : null;
   } catch {
@@ -813,7 +827,7 @@ export async function settlePublishRun(input: SettleInput): Promise<{ done: bool
     const line = input.phase === 'live'
       ? `"${input.title}" is live at ${live.url}.`
       : `"${input.title}" is live at ${live.url}: it went live during the draft run, which was told only to save a draft.`;
-    await recordOnPage(input.orgId, input.pageRecordId, { status: 'published', publishedUrl: live.url, publishing: { kind: 'squarespace', phase: input.phase, ...runRef, readBackAt: at, note: line } });
+    await recordOnPage(input.orgId, input.pageRecordId, { status: 'published', publishedUrl: live.url, publishedAt: at, publishing: { kind: 'squarespace', phase: input.phase, ...runRef, readBackAt: at, note: line } });
     await markRunLive(input.orgId, input.actionRunId, { at, url: live.url, how: 'read-back' });
     return { done: true, line };
   }

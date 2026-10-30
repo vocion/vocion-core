@@ -38,7 +38,11 @@ recommend:
     - pages were written in bulk and came back wrong because nobody saw the first few
     - feedback on a client's page keeps being given twice, or lost between writers
   # Search Console first: it is free, and it is the client's own rankings.
-  connectors: [search-console, github, squarespace, ahrefs]
+  connectors: [search-console, github, squarespace, webflow, ahrefs]
+  # Only publishing reads these: never asked for while researching, planning,
+  # briefing, drafting or reviewing; the publish step asks when the project's
+  # target needs one.
+  publishOnly: [github, squarespace, webflow]
 
 starters:
   - label: Onboard a new client from their website

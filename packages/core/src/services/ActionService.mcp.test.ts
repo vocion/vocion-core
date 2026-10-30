@@ -71,8 +71,14 @@ describe('MCP writes through Review', () => {
   it('refuses an unreviewed internal execution', async () => {
     const proposed = await propose();
 
-    expect(await executeAction(proposed.runId, ORG)).toMatchObject({ status: 'failed', error: 'MCP writes require an explicit Review decision.' });
+    // An agent's MCP write never runs on a machine's word: refused before the
+    // action is reached, and left in Review for a person.
+    await expect(executeAction(proposed.runId, ORG)).rejects.toMatchObject({ code: 'NEEDS_PERSON' });
     expect(transport.calls).toBe(0);
+
+    const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, proposed.runId));
+
+    expect(row).toMatchObject({ status: 'pending', decidedBy: null });
   });
 
   it('records provider failure instead of a completed action', async () => {

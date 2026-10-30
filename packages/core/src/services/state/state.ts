@@ -22,7 +22,7 @@ import type { SQL } from 'drizzle-orm';
 import type { FacetContext, FacetFilter, FacetSet, FacetSpec } from '@/libs/retrieval/facets';
 import { and, count, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { facetSet, facetsMatch, facetValueOf, facetWhere, validateFacetFilter } from '@/libs/retrieval/facets';
+import { facetSet, facetsMatch, facetSqlOf, facetValueOf, facetWhere, validateFacetFilter } from '@/libs/retrieval/facets';
 import { fallbackLabel, threadStateDoc, threadStateExternalId } from '@/libs/sources/mailThreadState';
 import coreViewsData from '@/libs/state/coreViews.json';
 import { knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema, stateQueryLogSchema, stateViewSchema } from '@/models/Schema';
@@ -34,6 +34,12 @@ export type StateQuery = {
   filter?: FacetFilter;
   sort?: { facet: string; dir: 'asc' | 'desc' };
   limit?: number;
+  /**
+   * A number facet to add up over every match (not just the rows returned):
+   * an open pipeline's amount, the cash in bank accounts. Code only (an app
+   * home's measure); the model's tool does not offer it.
+   */
+  sum?: string;
 };
 
 /** One thing in a state, whatever its kind. */
@@ -66,6 +72,8 @@ export type StateRead = {
   sources: Array<{ slug: string; syncedAt: Date | null }>;
   /** Kinds asked for that nothing connected here carries. */
   missing: string[];
+  /** `sum` over every match, when the query asked for one; null when no match carried a number. */
+  sum?: number | null;
 };
 
 export type StateContext = FacetContext & {
@@ -211,6 +219,7 @@ export async function runStateQuery(q: StateQuery, ctx: StateContext): Promise<S
   let total = 0;
   const sources = new Map<string, Date | null>();
   const missing: string[] = [];
+  let summed: number | null = null;
 
   if (docSets.length > 0) {
     const srcRows = await db
@@ -241,6 +250,13 @@ export async function runStateQuery(q: StateQuery, ctx: StateContext): Promise<S
         isNull(knowledgeDocumentSchema.clientId),
         ...(facetCond ? [facetCond] : []),
       );
+      // `sum`: a number facet of the first set that declares it, added up in
+      // the database over every match. A value that is not a number is skipped.
+      const sumSpec = q.sum ? docSets.flatMap(s => s.facets).find(f => f.name === q.sum && f.kind === 'number') : undefined;
+      const sumField = sumSpec ? facetSqlOf(sql`${knowledgeDocumentSchema.metadata}`, sumSpec) : null;
+      const sumSql = sumField
+        ? sql<string | null>`sum(case when ${sumField} ~ '^-?[0-9]+([.][0-9]+)?$' then ${sumField}::numeric end)::text`
+        : sql<string | null>`null::text`;
       const [found, [count], checkpoints] = await Promise.all([
         db
           .select({
@@ -257,7 +273,7 @@ export async function runStateQuery(q: StateQuery, ctx: StateContext): Promise<S
           .where(where)
           .orderBy(orderBy(docSets, q.sort), knowledgeDocumentSchema.id)
           .limit(limit),
-        db.select({ n: sql<number>`count(*)::int` }).from(knowledgeDocumentSchema).where(where),
+        db.select({ n: sql<number>`count(*)::int`, sum: sumSql }).from(knowledgeDocumentSchema).where(where),
         db
           .select({ sourceId: sourceSyncCheckpointSchema.sourceId, since: sourceSyncCheckpointSchema.since, completedAt: sourceSyncCheckpointSchema.completedAt })
           .from(sourceSyncCheckpointSchema)
@@ -269,6 +285,10 @@ export async function runStateQuery(q: StateQuery, ctx: StateContext): Promise<S
         sources.set(r.slug, synced.get(r.id) ?? null);
       }
       total += count?.n ?? found.length;
+      if (q.sum) {
+        const added = count?.sum === null || count?.sum === undefined ? null : Number(count.sum);
+        summed = added === null || Number.isNaN(added) ? summed : (summed ?? 0) + added;
+      }
       for (const d of found) {
         const meta = (d.metadata ?? {}) as Record<string, unknown>;
         const set = docSets.find(s => String(meta[s.match.key] ?? '') === s.match.value) ?? docSets[0]!;
@@ -298,7 +318,7 @@ export async function runStateQuery(q: StateQuery, ctx: StateContext): Promise<S
     rows.push(...read.rows);
     total += read.total;
   }
-  return { rows: rows.slice(0, limit), total, sources: [...sources.entries()].map(([slug, syncedAt]) => ({ slug, syncedAt })), missing };
+  return { rows: rows.slice(0, limit), total, sources: [...sources.entries()].map(([slug, syncedAt]) => ({ slug, syncedAt })), missing, ...(q.sum ? { sum: summed } : {}) };
 }
 
 /**

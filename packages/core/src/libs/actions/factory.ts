@@ -230,6 +230,9 @@ export const deployReleaseAction = manualAction({
   description: 'Ship a built release to an environment people use. Reaches people who did not ask for the change and cannot undo it from where they stand. Hand-off: run by the deploy pipeline or a person after approval, marked done with the deployment URL.',
   system: 'Deploy',
   grant: 'factory_write',
+  // Reaches people who did not ask for it, and may be run by the pipeline the
+  // moment it is released: a person releases every one, whatever the ladder says.
+  approvalRequired: true,
 });
 
 export const deployProvisionAction = manualAction({
@@ -238,6 +241,8 @@ export const deployProvisionAction = manualAction({
   description: 'Create or change the ground a product runs on — a database, a queue, a runtime, a role. Cannot be put back by clicking. Hand-off: a person or the provisioning pipeline applies the recipe, then marks it done.',
   system: 'Deploy',
   grant: 'factory_write',
+  // Creates what is billed and cannot be put back: a person releases every one.
+  approvalRequired: true,
 });
 
 export const awsMutateAction = manualAction({
@@ -246,6 +251,8 @@ export const awsMutateAction = manualAction({
   description: 'Any write to an AWS account — an IAM change, a parameter, a bucket policy, a service update. The recipe is the exact CLI or console steps. Cannot be put back. Hand-off: performed by a person holding the account, marked done with the change reference.',
   system: 'AWS',
   grant: 'factory_write',
+  // A write to an AWS account (IAM, data, spend), not put back by a click: a person releases every one.
+  approvalRequired: true,
 });
 
 export const credentialsWriteAction = manualAction({
@@ -254,6 +261,8 @@ export const credentialsWriteAction = manualAction({
   description: 'Create, rotate or place a secret where a worker can read it. The worker runs on a machine we do not host, so a credential it can read has left the building; the agent says what it needs and why, a person does it. Never auto-approved. Hand-off: a person writes it and marks it done — the value itself never travels through this card.',
   system: 'Credentials',
   grant: 'factory_write',
+  // "Never auto-approved" is the flag, not a promise: a person releases every one.
+  approvalRequired: true,
 });
 
 const releaseAnnounceHandoff = manualAction({

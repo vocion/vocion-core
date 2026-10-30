@@ -108,6 +108,20 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
     }
   }
   const name = connector.name ?? connector.slug;
+  // ONE ASK PER SYSTEM, AT THE STEP THAT NEEDS IT (`connectAskGate.ts`): a
+  // system only publishing reads is not asked for before then, and one the
+  // person skipped or declined is not asked again.
+  const { connectAskGate, coverageCardAtPublish, PUBLISH_STEP_REF, publishStepOf } = await (await import('@/libs/connectAskBridge')).connectAsk();
+  const gate = await connectAskGate(ctx, connector.slug, name);
+  if (!gate.ok) {
+    ctx.emit({ type: 'tool_progress', tool: 'offer_connection', meta: { offered: false, reason: gate.reason, ...(gate.askId ? { askId: gate.askId } : {}) } } as never);
+    return gate.reply;
+  }
+  const step = publishStepOf(ctx, connector.slug);
+  // The Project the connection is for: the one being published, else the
+  // work's (a project-scoped connection, #1505). A publish step's card says so.
+  const projectId = step?.projectId ?? ctx.workProjectId ?? null;
+  const about = projectId ? { about: [{ type: 'data_room', id: String(projectId) }, ...(step ? [PUBLISH_STEP_REF] : [])] } : {};
   // The OAuth start route is admin-only (403 otherwise), so a card for anyone
   // else is a button that cannot work. Same account role the route reads;
   // no user or no membership fails safe to the refusal.
@@ -116,7 +130,14 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
     return `${name} is a team connector, and only a workspace admin connects team connectors. Ask an admin to connect it in Team connectors.`;
   }
   // A source whose login was revoked or expired is not connected: fall through and offer the login again.
-  if (await connectorHasLiveSource(ctx.orgId, connector.slug, { projectId: ctx.workProjectId ?? null })) {
+  if (await connectorHasLiveSource(ctx.orgId, connector.slug, { projectId })) {
+    // Connected, but not to the Project's repository: the coverage card.
+    if (connector.slug === 'github' && step?.projectId) {
+      const covered = await coverageCardAtPublish(ctx, step.projectId).catch(() => null);
+      if (covered) {
+        return covered;
+      }
+    }
     return `${name} is already connected; nothing to offer.`;
   }
   const how = howToConnectFor(connector.slug);
@@ -133,7 +154,7 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
     // add flow, which shows the sign-in button and what an admin must set up.
     // The key is the second button, never the only one.
     if (how?.login && option) {
-      const href = connectHref(connector.slug, ctx.conversationId, ctx.workProjectId);
+      const href = connectHref(connector.slug, ctx.conversationId, projectId);
       const note = loginSetupNote(option);
       const card: Card = {
         id: newCardId(),
@@ -145,7 +166,8 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
         source,
         href,
         hrefLabel: `Connect ${name}`,
-        ...(how.paste ? { secondaryHref: pasteHref(connector.slug, ctx.conversationId, ctx.workProjectId), secondaryHrefLabel: 'Use an API key instead' } : {}),
+        ...(how.paste ? { secondaryHref: pasteHref(connector.slug, ctx.conversationId, projectId), secondaryHrefLabel: 'Use an API key instead' } : {}),
+        ...about,
         state: 'proposed',
       };
       ctx.emit({ type: 'card', card });
@@ -154,9 +176,9 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
     // No login at all for this connector: the vendor takes a key, so the
     // button opens its token form. A connector with nothing to paste keeps
     // the plain Connectors link.
-    const href = how?.paste ? pasteHref(connector.slug, ctx.conversationId, ctx.workProjectId) : connectHref(connector.slug, ctx.conversationId, ctx.workProjectId);
+    const href = how?.paste ? pasteHref(connector.slug, ctx.conversationId, projectId) : connectHref(connector.slug, ctx.conversationId, projectId);
     const body = how?.paste ? { body: pasteBody(how.paste) } : {};
-    const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, ...body, ...brand, actions: [], source, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
+    const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, ...body, ...brand, ...about, actions: [], source, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
     ctx.emit({ type: 'card', card });
     return connectedWording(name, href, null);
   }
@@ -173,7 +195,7 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
   }
   const returnTo = returnPath(ctx.conversationId);
   const cardId = newCardId();
-  const href = connectStartHref({ provider: login.provider, connector: connector.slug, returnTo, conversationId: ctx.conversationId, cardId, projectId: ctx.workProjectId ?? null });
+  const href = connectStartHref({ provider: login.provider, connector: connector.slug, returnTo, conversationId: ctx.conversationId, cardId, projectId });
   const failed = (await lastConnectAttempts(ctx.orgId)).get(connector.slug);
   const lastAttempt = failed && !failed.ok && failed.summary ? { at: failed.at.toISOString(), reason: failed.reason ?? 'unknown', summary: failed.summary } : undefined;
   // THE CARD IS ITS TITLE AND ITS BUTTONS (Jamie, 2026-10-07, crossing out
@@ -193,12 +215,13 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
     // A connector with nothing to paste offers its login alone.
     ...(how?.paste
       ? {
-          secondaryHref: pasteHref(connector.slug, ctx.conversationId, ctx.workProjectId),
+          secondaryHref: pasteHref(connector.slug, ctx.conversationId, projectId),
           secondaryHrefLabel: 'Use an API key instead',
         }
       : {}),
     ...(lastAttempt ? { lastAttempt } : {}),
     ...brand,
+    ...about,
     state: 'proposed',
   };
   ctx.emit({ type: 'card', card });

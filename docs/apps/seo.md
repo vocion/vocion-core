@@ -9,7 +9,19 @@
 | **Pages** | `/dashboard/p/seo` (every batch, its gate line, pages by status) and `/dashboard/p/seo-pages?batch=<id>` (a batch's pages) — descriptor pages over the two records |
 | **Core** | `services/seo/` — `gate.ts` (the volume gate, per project), `records.ts` (batches and pages, the gate written back on every write, per-key merges under a row lock), `signoff.ts` (the plan and page sign-offs, filed and heard in code), `cadence.ts` (pages a month, and the weekly check), `meta.ts` (meta title, description and slug), `modelThatRan.ts`, `projects.ts`; tools in `services/agents/tools/seo.ts` |
 | **Research** | `serp_search` (with the local pack), `keyword_cluster` (one page per set of keywords whose top 10s share 3+ URLs), `serp_compare` (files the SERP brief in `seo/serp`, directories flagged, the pages' text and shared terms, then writes its synthesis with `brief_id`; Google's ranking only), `keyword_metrics` (volume and its trend, KD, CPC, intent, AI Overview, keyword ideas; Ahrefs when connected, else DataForSEO), `search_console_queries` / `search_console_pages` (what the client already ranks for, free) and `record_competitors`, granted with `harness.grantTools: [serp]`; `site_inventory`, granted by name. See [SEO research](../guides/seo-research.md) and [SEO data](../guides/seo-data.md). Serper, the default provider, gives no volume or ideas: the skills carry on without them and never estimate one |
-| **Publishing** | `site.publish_page` to a project's publish targets (a GitHub pull request, a Squarespace draft) |
+| **Publishing** | `site.publish_page` to a project's publish targets (a GitHub pull request, a Squarespace draft, a Webflow draft item), and `site.publish_live` to take Squarespace and Webflow drafts live on their own approval. See [Webflow](../guides/webflow.md), [Squarespace](../guides/squarespace.md) and [GitHub](../guides/github.md#publishing-a-page-to-a-site-in-a-repository) |
+
+## Home
+
+The app opens on its home (`/dashboard/apps/seo/home`, `home:` in `app.yaml`; see [the app manifest](../entities/app-manifest.md#home--where-the-app-opens)), not on an empty chat. The nav is **Home, Chat, Review, then Strategy, Audits, Keywords, Prompts, Batches, Pages**.
+
+- **Ask the SEO team…**: the words go to the strategist as a new chat.
+- **Start something**: Onboard a client (the onboarding card, from the client's website), Audit a site, Find keywords, Plan pages, Track AI prompts (drop an Ahrefs Brand Radar export on it to import it) and Publish (the pages signed off and ready, `/dashboard/p/seo-pages?status=approved`).
+- **Needs you**: the SEO seats' open decisions (plan and page sign-offs, go-live), decided on the card in place.
+- **Each client** (a project whose records the app names, or with an SEO profile): the strategy goal's progress, pages live this month against its `seoCadence`, the latest audit's open findings by severity, keywords ranking, and prompts that name the client. Each figure opens its evidence and says when it was read. "Pages live this month" counts by `meta.publishedAt`, stamped when a merge or a read-back confirms the page live (`services/publish/sitePublish.ts`); the audit's `counts.bySeverity` counts its open findings.
+- **Running now and recently made**: the SEO seats' runs by their labels, and what they wrote.
+
+A workspace with no client yet sees the ask bar and "Onboard your first client".
 
 ## The seats and their models
 

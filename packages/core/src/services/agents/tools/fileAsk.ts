@@ -249,6 +249,19 @@ export function fileAskTool(ctx: RuntimeContext) {
           return `Not asked: ask #${dup.id} "${dup.title}" is already open and asks this. Do not file another. If the person answered it in their words, record their answer with decide_ask id ${dup.id}; otherwise point them to it${dup.conversationId && dup.conversationId === here ? ' (it is docked above their composer)' : ''}. If it no longer applies, withdraw_ask it first.`;
         }
       }
+      // A SETUP ASK TO CONNECT A SYSTEM is held to the connect rule
+      // (`connectAskGate.ts`): only at the step that needs it, never again
+      // after a skip.
+      if (args.kind === 'setup' || args.kind === 'credential') {
+        const [{ connectAskGate, connectorsInSetupAsk }, { connectableConnectors }] = await Promise.all([(await import('@/libs/connectAskBridge')).connectAsk(), import('@/services/connect/recommendations')]);
+        for (const c of connectorsInSetupAsk(args.title, args.options ?? [], connectableConnectors())) {
+          const gate = await connectAskGate(ctx, c.slug, c.name);
+          if (!gate.ok) {
+            ctx.emit({ type: 'tool_progress', tool: 'file_ask', meta: { filed: false, reason: gate.reason, ...(gate.askId ? { askId: gate.askId } : {}) } } as never);
+            return gate.reply;
+          }
+        }
+      }
       const options = args.options?.map(optionForAsk);
       // THE PERSON ASKING IS THE OWNER (backlog 044): a decision the person in
       // this turn holds is asked HERE, docked above their composer, not filed
