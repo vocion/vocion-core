@@ -1455,6 +1455,8 @@ export function applyFilter(rows: PageRow[], filters: z.infer<typeof FilterSchem
       // a count of rows a field is ABSENT from, and a page could only ask
       // for the rows it was present on.
       case 'missing': return v === undefined || v === null || v === '';
+      case 'contains': return typeof v === 'string' && typeof f.value === 'string' && v.toLowerCase().includes(f.value.toLowerCase());
+      case 'lacks': return !(typeof v === 'string' && typeof f.value === 'string' && v.toLowerCase().includes(f.value.toLowerCase()));
       case 'since': {
         const d = toDate(v);
         return d !== null && typeof f.value === 'string' && d.getTime() >= sinceStart(f.value, now).getTime();

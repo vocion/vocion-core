@@ -23,6 +23,6 @@ The app opens on its home (`/dashboard/apps/gtm/home`; see [the app manifest](..
 
 Follow-ups owed are counted from the drafts waiting now, never from a label stored on a thread.
 
-- **Each engagement** (a project anchored to a CRM deal): the deal's amount and stage, as of the project's last status, and its follow-ups waiting on you.
+- **Each engagement** (a project anchored to a CRM deal whose stage does not say closed; a won or lost deal leaves the list): the deal's amount and stage, as of the project's last status, and its follow-ups waiting on you.
 
 Pipeline totals and quiet-deal counts are intentionally absent from this launcher. Filtering only the default `closedwon` and `closedlost` stage IDs can include closed deals in custom pipelines. Restore those measures only when the state query can use normalized closed-stage metadata. External meetings are labelled as such: an outside attendee does not establish that a meeting is with a client.

@@ -204,6 +204,18 @@ describe('projectsUsingApp', () => {
     expect(projectsUsingApp(rooms, new Set([1, 3]), { field: 'meta.seoProfile', op: 'exists' }, { limit: 10, now: NOW }).map(p => p.id)).toEqual([3, 2, 1]);
     expect(projectsUsingApp(rooms, new Set([1, 3]), undefined, { limit: 1, now: NOW }).map(p => p.id)).toEqual([3]);
   });
+
+  it('keeps a deal whose stage was typed as closed off the list, and one with no stage on it', () => {
+    const deals = [
+      { ...row(5, { anchor: { type: 'deal' }, stage: 'Proposal Sent' }), updatedAt: new Date('2026-10-28T00:00:00Z') },
+      { ...row(6, { anchor: { type: 'deal' }, stage: 'Closed Lost (pending HubSpot update)' }), updatedAt: new Date('2026-10-29T00:00:00Z') },
+      { ...row(7, { anchor: { type: 'deal' } }), updatedAt: new Date('2026-10-27T00:00:00Z') },
+    ];
+    const include = [{ field: 'meta.anchor', op: 'exists' as const }, { field: 'meta.stage', op: 'lacks' as const, value: 'closed' }];
+
+    expect(projectsUsingApp(deals, new Set(), include, { limit: 10, now: NOW }).map(p => p.id)).toEqual([5, 7]);
+    expect(loadApp('gtm').home!.projects!.include).toEqual(include);
+  });
 });
 
 describe('the home\'s words and links', () => {

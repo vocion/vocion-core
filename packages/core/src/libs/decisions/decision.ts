@@ -257,6 +257,27 @@ const SIGNOFF_OPTIONS: DecisionOption[] = [
 ];
 
 /**
+ * Text a person reads, with the HTML entities a synced system left in it
+ * decoded: a CRM's deal name arrives as "KCS &amp; SheSher", and an agent
+ * copies it into its question as it found it. React escapes on render, so
+ * the entity would otherwise show as typed.
+ * @param text - The text.
+ */
+export function plainText(text: string): string {
+  if (!text.includes('&')) {
+    return text;
+  }
+  const named: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: '\'', nbsp: '\u00A0' };
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, code: string) => {
+    if (code[0] === '#') {
+      const n = code[1] === 'x' || code[1] === 'X' ? Number.parseInt(code.slice(2), 16) : Number(code.slice(1));
+      return Number.isFinite(n) && n > 0 && n <= 0x10FFFF ? String.fromCodePoint(n) : whole;
+    }
+    return named[code.toLowerCase()] ?? whole;
+  });
+}
+
+/**
  * The options as the card draws them: the recommended one first, each with
  * its consequence. An approval that named none answers Approve or Reject; a
  * question that named none is answered in the person's own words.
@@ -265,8 +286,8 @@ const SIGNOFF_OPTIONS: DecisionOption[] = [
 export function decisionOptionsOf(ask: Pick<AskLike, 'kind' | 'options'>): DecisionOption[] {
   const named: DecisionOption[] = (ask.options ?? []).map(o => ({
     id: String(o.id),
-    label: String(o.label),
-    ...(o.description ? { consequence: String(o.description) } : {}),
+    label: plainText(String(o.label)),
+    ...(o.description ? { consequence: plainText(String(o.description)) } : {}),
     ...(o.recommended ? { recommended: true } : {}),
     ...(o.action ? { hasEffect: true } : {}),
     ...(inAppHref(o.href) ? { href: o.href } : {}),
@@ -336,8 +357,8 @@ export function decisionViewOf(ask: AskLike, extra: { deadline?: DecisionView['d
   return {
     id: ask.id,
     kind,
-    question: ask.title,
-    body: ask.body ?? null,
+    question: plainText(ask.title),
+    body: ask.body ? plainText(ask.body) : null,
     options,
     // A question with no options can only be answered in words.
     allowOther: options.length === 0 ? true : ask.allowOther !== false,

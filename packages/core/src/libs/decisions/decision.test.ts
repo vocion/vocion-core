@@ -5,7 +5,7 @@
 import type { AskLike } from './decision';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_DECIDER } from '@/libs/needsYou/deadlines';
-import { answerLine, answerProblem, decisionAnswerWire, decisionForModel, decisionKindOf, decisionOptionsOf, decisionStateOf, decisionTitle, decisionViewOf, previewText, readDecisionAnswerWire } from './decision';
+import { answerLine, answerProblem, decisionAnswerWire, decisionForModel, decisionKindOf, decisionOptionsOf, decisionStateOf, decisionTitle, decisionViewOf, plainText, previewText, readDecisionAnswerWire } from './decision';
 
 const repo: AskLike = {
   id: 41,
@@ -230,4 +230,19 @@ it('hands the continuation the action\'s own account, and forbids "done" while i
 
   expect(text).toContain('What it did, in its own words: Declined 112 of the 112 on the card. Still open in that selection: 6 runs');
   expect(text).toContain('never call it done or cleared');
+});
+
+describe('text a synced system escaped', () => {
+  it('reads a CRM deal name the way the person typed it', () => {
+    const view = decisionViewOf({ ...repo, title: 'Northwind &amp; Kestrel: 8 weekly flags, no action', options: [{ id: 'close', label: 'Mark &quot;closed-lost&quot;', description: 'Removes it from open pipeline &#8212; both deals' }] });
+
+    expect(view.question).toBe('Northwind & Kestrel: 8 weekly flags, no action');
+    expect(view.options[0]?.label).toBe('Mark "closed-lost"');
+    expect(view.options[0]?.consequence).toBe('Removes it from open pipeline — both deals');
+  });
+
+  it('leaves text with no entity, and an unknown one, as it is', () => {
+    expect(plainText('Q3 & Q4 <draft>')).toBe('Q3 & Q4 <draft>');
+    expect(plainText('a &notanentity; b')).toBe('a &notanentity; b');
+  });
 });

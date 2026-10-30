@@ -50,8 +50,11 @@ home:
       source: state
       query: {sets: [calendar.event], filter: {start: {since: now, until: +7d}, external_attendees: {gt: 0}}}
   projects:
-    # An engagement anchored to a CRM deal uses the app.
-    include: {field: meta.anchor, op: exists}
+    # An engagement anchored to a CRM deal uses the app, until its deal is
+    # closed: a won or lost deal is history, not something to work today.
+    include:
+      - {field: meta.anchor, op: exists}
+      - {field: meta.stage, op: lacks, value: closed}
     measures:
       - key: deal
         label: Deal

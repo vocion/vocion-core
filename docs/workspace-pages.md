@@ -49,9 +49,12 @@ Stats are `count`, `countWhere`, `sum`, `avg`, `min`, `max`, `pctGte`,
 filter (one, or a list every row must pass), and render as a number, as
 dollars read from cents with `format: money`, or as a share with `format:
 percent`. Filters compare with `eq`, `neq`, `gte`, `lte`, `in`, `exists`,
-`missing`, or `since`: `{field: meta.paidAt, op: since, value: month}` keeps
-the rows whose date is in this calendar month (`week`, `today` and `<n>d` are
-the other windows; UTC throughout).
+`missing`, `since`, `contains` or `lacks`: `{field: meta.paidAt, op: since,
+value: month}` keeps the rows whose date is in this calendar month (`week`,
+`today` and `<n>d` are the other windows; UTC throughout). `contains` and
+`lacks` match a word inside free text, ignoring case: `{field: meta.stage, op:
+lacks, value: closed}` keeps a project whose stage was typed as "Closed Lost
+(pending HubSpot update)" off the list, and keeps one with no stage on it.
 
 **Print a ratio, not an average, next to a count.** `avg` divides by however
 many rows carried a figure, so a page that shows "9 outcomes" beside an
