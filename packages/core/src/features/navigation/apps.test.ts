@@ -418,3 +418,10 @@ describe('an app with a home', () => {
     expect(split.apps.find(a => a.id === 'home')!.home).toBeUndefined();
   });
 });
+
+it('restores the core performance dashboard context even when another app was remembered', () => {
+  expect(resolveActiveApp({ pathname: '/dashboard/scorecard', remembered: 'sales', apps: [
+    { id: 'workforce', core: true, owns: [], entry: '/dashboard/scorecard' },
+    { id: 'sales', core: false, owns: ['/dashboard/p/deals'], entry: '/dashboard/p/deals' },
+  ] })).toBe('workforce');
+});

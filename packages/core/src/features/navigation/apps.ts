@@ -319,7 +319,7 @@ export function appOwningPath(pathname: string, apps: readonly Pick<AppNav, 'id'
 }
 
 /**
- * Which app the sidebar shows.
+ * Which app the sidebar shows. The core app entry always restores its own context.
  *
  * A page an app owns is in that app, so a link or a refresh lands on the
  * right app with nothing stored. A page no app owns — Chat, Review, the wiki,
@@ -334,9 +334,13 @@ export function appOwningPath(pathname: string, apps: readonly Pick<AppNav, 'id'
  */
 export function resolveActiveApp(input: {
   pathname: string;
-  apps: readonly Pick<AppNav, 'id' | 'core' | 'owns'>[];
+  apps: readonly (Pick<AppNav, 'id' | 'core' | 'owns'> & Partial<Pick<AppNav, 'entry'>>)[];
   remembered?: string | null;
 }): string | undefined {
+  const core = input.apps.find(a => a.core);
+  if (core?.entry === input.pathname) {
+    return core.id;
+  }
   const owner = appOwningPath(input.pathname, input.apps);
   if (owner) {
     return owner;
