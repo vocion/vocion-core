@@ -6176,3 +6176,30 @@ export const workforceEventSchema = pgTable('workforce_event', {
   data: jsonb('data').$type<Record<string, unknown>>().notNull(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 }, t => [uniqueIndex('workforce_event_org_key_idx').on(t.orgId, t.eventKey), uniqueIndex('workforce_event_item_version_idx').on(t.itemId, t.version)]);
+
+// Transformation portfolio: explicit business workflows, separate from execution modes.
+export const workforcePortfolioSchema = pgTable('workforce_portfolio', {
+  id: text('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  version: integer('version').default(0).notNull(),
+  data: jsonb('data').$type<import('@/services/workforce/portfolioContract').PortfolioData>().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+}, t => [index('workforce_portfolio_org_idx').on(t.orgId)]);
+
+export const workforcePortfolioLinkSchema = pgTable('workforce_portfolio_link', {
+  orgId: text('org_id').notNull(),
+  workflowId: text('workflow_id').notNull().references(() => workforcePortfolioSchema.id),
+  itemId: text('item_id').notNull().references(() => workforceItemSchema.id),
+}, t => [primaryKey({ columns: [t.orgId, t.itemId] }), index('workforce_portfolio_link_workflow_idx').on(t.workflowId)]);
+
+export const workforcePortfolioEventSchema = pgTable('workforce_portfolio_event', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  workflowId: text('workflow_id').notNull().references(() => workforcePortfolioSchema.id),
+  eventKey: text('event_key').notNull(),
+  commandHash: text('command_hash').notNull(),
+  version: integer('version').notNull(),
+  actorId: text('actor_id').notNull(),
+  data: jsonb('data').$type<import('@/services/workforce/portfolioContract').PortfolioCommand>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+}, t => [uniqueIndex('workforce_portfolio_event_key_idx').on(t.orgId, t.eventKey), uniqueIndex('workforce_portfolio_event_version_idx').on(t.workflowId, t.version)]);

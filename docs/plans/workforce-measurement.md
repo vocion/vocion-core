@@ -431,3 +431,41 @@ Validation covers malformed navigation values, unassigned teams, stale/reopened
 outcomes, absent effort, first-review denominators, member denial and accessible
 workspace boundaries. Browser checks cover URL-restored scope and parent links;
 release verification must also exercise actual Back/Forward and reload in production.
+
+### Transformation portfolio and owned improvement follow-up
+
+The operating view now includes an explicit business-workflow portfolio. A workflow
+has an owner-entered business objective, accountable owner, responsible team,
+success measure/target, baseline evidence, expected benefit hypothesis and rollout
+stage (discovery, pilot, rollout, live, paused or retired). Stages are current
+owner-reported stock, not inferred deployment certification. Execution modes remain
+separate from business-workflow identity.
+
+Admins register and edit workflows within their active workspace. Organization
+rollups remain read-only and include only accessible non-archived workspaces in the
+current account. Each non-synthetic work item can link to one business workflow;
+foreign, synthetic and duplicate associations are rejected. Links outside the
+selected outcome window remain intact. Workflow results use the same updated-item
+cohort, stale-evidence exclusions and effort denominators as the operating view.
+
+Each workflow can hold owned improvement decisions: change, hypothesis/evidence,
+baseline, success test, follow-up date, progress, result and keep/revise/revert
+choice. Closed records require result evidence. Existing improvement identities
+cannot be deleted; all edits and item associations have immutable actor-stamped
+revisions, optimistic concurrency and idempotent replay. The UI shows the latest
+20 revisions; earlier revisions remain in the database. Workflow registration is
+capped at 500 per workspace and incompleteness is disclosed on reads.
+
+Deterministic recommendations prioritize overdue follow-up, missing accountability,
+blocked/stale work, missing instrumentation, outstanding review and weak measurement.
+Five reviewed cases and 80% first-review acceptance are triage thresholds, not
+statistical confidence or an authorization to expand. Any expansion assessment
+still requires checking representative quality, capacity, costs and the business
+target. Free-text evidence is rendered as text and never executed as instructions.
+
+This supplies business-objective linkage and durable improvement ownership/history.
+It does not supply a historical as-of trend, eligible-demand denominator, complete
+cost attribution, verified gold standards, causal impact, realized savings, or an
+automatic build/retirement decision. An owner-entered result is not automatically a
+validated improvement. Full review-context handoff, interrupted-mission recovery and
+central report reconciliation remain separate follow-up work.

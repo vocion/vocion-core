@@ -1499,6 +1499,13 @@
       "when": 1792300232000,
       "tag": "0232_keyword_metric_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 233,
+      "version": "7",
+      "when": 1792300232001,
+      "tag": "0233_workforce_portfolio",
+      "breakpoints": true
     }
   ]
 }
