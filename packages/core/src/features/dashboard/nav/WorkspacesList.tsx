@@ -87,7 +87,7 @@ function moveThroughRows(e: ReactKeyboardEvent<HTMLElement>): void {
  * @param props.currentLabel - "Current", for a screen reader.
  * @param props.waitingLabel - "3 waiting on you".
  */
-function WorkspaceRow(props: { w: PageWorkspace; href: string; line: string; waiting: number; current: boolean; currentLabel: string; waitingLabel: string }) {
+function WorkspaceRow(props: { w: PageWorkspace; href: string; line: string; waiting?: number; current: boolean; currentLabel: string; waitingLabel: string }) {
   const { w } = props;
   return (
     <a
@@ -108,7 +108,7 @@ function WorkspaceRow(props: { w: PageWorkspace; href: string; line: string; wai
         <span className={cn('block truncate text-[14px] font-medium', w.placeholder ? 'text-muted-foreground' : 'text-foreground')}>{w.name}</span>
         <span className="block truncate text-[12.5px] text-muted-foreground" data-testid="workspace-row-line">{props.line}</span>
       </span>
-      <CountBadge count={props.waiting} label={props.waitingLabel} title={props.waitingLabel} data-testid="workspace-row-waiting" />
+      {props.waiting !== undefined && <CountBadge count={props.waiting} label={props.waitingLabel} title={props.waitingLabel} data-testid="workspace-row-waiting" />}
       {props.current && (
         <span className="shrink-0 text-foreground" data-testid="workspace-row-current">
           <Check className="size-4" aria-hidden />
@@ -237,7 +237,7 @@ export function WorkspacesList(props: { initial?: { overview: Overview; waiting:
           setOverview({ workspaces: [], accounts: [], marks: {}, account: null, activeId: null, orgsMode: 'single' });
         }
       });
-    // What waits on the person in each: the one cross-workspace count.
+    // Only the active workspace is counted; other workspace badges stay unknown.
     client.inbox.mineCount()
       .then((c) => {
         if (!cancelled) {
@@ -291,7 +291,7 @@ export function WorkspacesList(props: { initial?: { overview: Overview; waiting:
         active: w.lastActiveAt ? t('active', { ago: relativeLabel(new Date(w.lastActiveAt), now) }) : null,
         empty: t('empty'),
       })}
-      waiting={waiting[w.id] ?? 0}
+      waiting={waiting[w.id]}
       waitingLabel={t('waiting', { count: waiting[w.id] ?? 0 })}
       current={w.id === activeId}
       currentLabel={t('current')}

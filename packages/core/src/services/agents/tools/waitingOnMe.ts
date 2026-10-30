@@ -41,7 +41,6 @@ import { DEFAULT_TIME_ZONE, formatDate } from '@/libs/time/zone';
 import { askSchema, notificationSchema, userSchema } from '@/models/Schema';
 import { listInboxForUser } from '@/services/inbox/acrossWorkspaces';
 import { inboxHref } from '@/services/inbox/inboxRef';
-import { needsYouItems } from '@/services/InboxService';
 import { personalReach } from '@/services/personal/reach';
 import { actAs } from '@/services/workspace/actAs';
 
@@ -106,7 +105,7 @@ export async function readWaitingOnMe(input: { userId: string; accountId: string
     ? input.inbox
     : across
       ? await listInboxForUser(userId, { reach: input.reach ?? await personalReach(userId) })
-      : await listInboxForUser(userId, { accountId, workspaceId: orgId, read: (id: string) => (id === orgId ? needsYouItems(id) : Promise.resolve([])) });
+      : await listInboxForUser(userId, { accountId, onlyWorkspaceId: orgId });
   const places: Place[] = inbox.workspaces.filter(w => across || w.id === orgId);
   const byId = new Map(places.map(p => [p.id, p]));
   const ids = [...byId.keys()];

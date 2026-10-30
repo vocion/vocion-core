@@ -78,6 +78,31 @@ afterEach(() => {
 });
 
 describe('listInboxForUser', () => {
+  it('hard-scopes rows, counts and failures before reading queues, even for a member of both accounts', async () => {
+    const read = vi.fn(async (orgId: string) => {
+      if (orgId !== FACTORY) {
+        throw new Error('Foreign workspace was read');
+      }
+      return [];
+    });
+    const inbox = await listInboxForUser(SAM, { onlyWorkspaceId: FACTORY, read });
+
+    expect(read).toHaveBeenCalledExactlyOnceWith(FACTORY);
+    expect(inbox.workspaces.map(w => w.id)).toEqual([FACTORY]);
+    expect(inbox.unavailable).toEqual([]);
+    expect(inbox.withheld).toEqual([]);
+  });
+
+  it('never returns another accessible workspace through a scoped review queue', async () => {
+    const inbox = await listInboxForUser(SAM, { onlyWorkspaceId: FACTORY });
+
+    expect(inbox.total).toBe(2);
+    expect(inbox.items).toHaveLength(2);
+    expect(inbox.items.every(row => row.workspace.id === FACTORY)).toBe(true);
+    expect(inbox.workspaces.map(w => w.id)).toEqual([FACTORY]);
+    expect(inbox.items.map(row => row.title)).not.toContain('Contoso only: approve the freight quote');
+  });
+
   it('reads the person\'s own workspace and the shared ones they reach — never another person\'s, never another account\'s', async () => {
     const inbox = await listInboxForUser(RILEY);
     const ids = inbox.workspaces.map(w => w.id);
