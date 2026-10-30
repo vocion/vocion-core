@@ -25,6 +25,8 @@ it('keeps project links in their originating workspace and app after another tab
   await render(
     <WorkspaceSlugProvider slug="revenue">
       <AppContextProvider apps={apps}>
+        <Link href="/dashboard/projects/98#instructions">Instructions</Link>
+        <Link href="/dashboard/projects/98#wiki">Wiki</Link>
         <Link href="/dashboard/inbox/483">Open item</Link>
         <Link href="/dashboard/connectors?project=98">Connect for project</Link>
         <Link href="/dashboard/artifacts/12">Milestone</Link>
@@ -33,6 +35,8 @@ it('keeps project links in their originating workspace and app after another tab
     </WorkspaceSlugProvider>,
   );
 
+  await expect.element(page.getByRole('link', { name: 'Instructions' })).toHaveAttribute('href', '/w/revenue/dashboard/projects/98?app=gtm#instructions');
+  await expect.element(page.getByRole('link', { name: 'Wiki' })).toHaveAttribute('href', '/w/revenue/dashboard/projects/98?app=gtm#wiki');
   await expect.element(page.getByRole('link', { name: 'Open item' })).toHaveAttribute('href', '/w/revenue/dashboard/inbox/483?app=gtm');
   await expect.element(page.getByRole('link', { name: 'Connect for project' })).toHaveAttribute('href', '/w/revenue/dashboard/connectors?project=98&app=gtm');
   await expect.element(page.getByRole('link', { name: 'Milestone' })).toHaveAttribute('href', '/w/revenue/dashboard/artifacts/12?app=gtm');

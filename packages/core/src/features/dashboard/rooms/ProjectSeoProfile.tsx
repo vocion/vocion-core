@@ -215,7 +215,10 @@ export function ProjectSeoProfile({ projectId, profile, targets, preparedDraft =
                             label: 'Guidelines',
                             value: (
                               <span className="flex flex-wrap gap-x-3">
-                                {profile.guidelines!.map(g => <a key={g.href} href={g.href} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{g.label}</a>)}
+                                {profile.guidelines!.map((g) => {
+                                  const GuidelineLink = g.href.startsWith('/') && !g.href.startsWith('//') ? Link : 'a';
+                                  return <GuidelineLink key={g.href} href={g.href} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{g.label}</GuidelineLink>;
+                                })}
                               </span>
                             ),
                           }
