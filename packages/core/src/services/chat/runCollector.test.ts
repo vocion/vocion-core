@@ -169,6 +169,14 @@ describe('RunCollector — Decisions and Done receipts', () => {
       { type: 'receipt', receipt: { runId: 8, actionId: 'gmail.send', label: 'Sent the follow-up', undoable: false } },
     ]);
   });
+
+  it('keeps the latest receipt for a run, so a retry that ran replaces its "Didn\'t run"', () => {
+    const c = new RunCollector();
+    c.onReceipt({ runId: 9, actionId: 'hubspot.update', label: 'Update', undoable: false, status: 'failed', error: 'HubSpot API error 400' });
+    c.onReceipt({ runId: 9, actionId: 'hubspot.update', label: 'Update', undoable: true });
+
+    expect(c.finalise().runs).toEqual([{ type: 'receipt', receipt: { runId: 9, actionId: 'hubspot.update', label: 'Update', undoable: true } }]);
+  });
 });
 
 describe('the follow-ups a turn ended with', () => {

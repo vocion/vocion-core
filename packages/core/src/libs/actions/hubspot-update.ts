@@ -12,6 +12,7 @@ import type { Action, ActionContext } from './types';
 import { z } from 'zod';
 import { createHubspotClient } from '@/libs/hubspot/client';
 import { hubspotRecordUrl } from '@/libs/hubspot/recordUrl';
+import { HUBSPOT_FRACTION_FIELDS } from '@/services/inbox/describeActionRun';
 
 /**
  * The HubSpot token for this run: a pasted private-app token as stored, or a
@@ -81,6 +82,19 @@ type HubspotUpdateInput = z.infer<typeof hubspotUpdateInput>;
  * One property value as a person reads it.
  * @param value
  */
+/**
+ * The properties as HubSpot takes them: a probability HubSpot keeps as a
+ * 0–1 fraction, written as a percentage ("90" for "probability 90%"), is
+ * sent as 0.9 rather than refused with a 400.
+ * @param props - What the update writes.
+ */
+function asHubspotWrites(props: Record<string, string | number | boolean | null>): Record<string, string | number | boolean | null> {
+  return Object.fromEntries(Object.entries(props).map(([k, v]) => {
+    const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : Number.NaN;
+    return HUBSPOT_FRACTION_FIELDS.has(k) && Number.isFinite(n) && n > 1 && n <= 100 ? [k, String(n / 100)] : [k, v];
+  }));
+}
+
 /**
  * Property values as strings, the way HubSpot reads them back.
  * @param props - What the update writes.
@@ -195,6 +209,7 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
     }
     const client = createHubspotClient({ token, baseUrl: input.baseUrl });
     const keys = Object.keys(input.properties);
+    const properties = asHubspotWrites(input.properties);
     // What the record said BEFORE, so the run can be undone. Best-effort: a
     // read that fails must not block the write a person or the ladder just
     // approved — the run then records that it has nothing to restore.
@@ -213,7 +228,7 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
     }
     const res = await client.patch<{ id?: string; updatedAt?: string }>(
       `/crm/v3/objects/${input.objectType}/${input.objectId}`,
-      { properties: input.properties },
+      { properties },
     );
     if (!res.ok) {
       // Actions run through the review queue, whose contract is throw-on-failure.

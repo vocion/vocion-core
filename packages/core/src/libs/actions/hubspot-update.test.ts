@@ -96,6 +96,17 @@ describe('done for you — the update records what it replaced, and undo puts it
     expect(out.previous).toEqual({ amount: '120000' });
   });
 
+  it('writes a probability given as a percentage as the fraction HubSpot keeps', async () => {
+    const f = vi.fn(async (_url: string, init?: RequestInit) => res(init?.method === 'PATCH' ? { id: '4812' } : { id: '4812', properties: {} }));
+    vi.stubGlobal('fetch', f);
+
+    await hubspotUpdateAction.execute({ orgId: 'o', credentials: { token: 't' } }, parse({ objectType: 'deals', objectId: '4812', properties: { hs_deal_stage_probability: '90', amount: '80000' } }));
+
+    const patch = f.mock.calls.find(c => (c[1] as RequestInit | undefined)?.method === 'PATCH') as unknown as [string, RequestInit];
+
+    expect(JSON.parse(String(patch[1].body))).toEqual({ properties: { hs_deal_stage_probability: '0.9', amount: '80000' } });
+  });
+
   it('still writes when the read fails — the run then has nothing to restore, and says so', async () => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => (init?.method === 'PATCH' ? res({ id: '4812' }) : res({}, false))));
 

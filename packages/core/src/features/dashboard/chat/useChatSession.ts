@@ -205,10 +205,13 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
       ? { id: answered.id, question: answered.question, line: answered.line, kind: answered.answer.kind, via: answered.via ?? (row.role === 'decision' ? 'card' : 'composer') }
       : undefined;
     // What the turn did inside the trust bar, said once, with honest Undo.
-    const receipts: DoneReceipt[] = runsRaw
+    // One per run, the latest kept: a retried run's Done replaces its "Didn't run".
+    const receipts: DoneReceipt[] = [...runsRaw
       .filter((r): r is Extract<AgentRun, { type: 'receipt' }> => r.type === 'receipt')
       .map(r => readDoneReceipt(r.receipt))
-      .filter((r): r is DoneReceipt => r !== null);
+      .filter((r): r is DoneReceipt => r !== null)
+      .reduce((byRun, r) => byRun.set(r.runId, r), new Map<number, DoneReceipt>())
+      .values()];
     // The follow-ups the turn ended with, drawn again after a reload.
     const suggested = runsRaw.find((r): r is Extract<AgentRun, { type: 'suggestions' }> => r.type === 'suggestions');
     // A brief read aloud rides its message: the player is drawn under it.

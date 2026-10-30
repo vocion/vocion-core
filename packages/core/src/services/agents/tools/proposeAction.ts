@@ -309,7 +309,11 @@ async function runProposalInner(
       const decidedOn = res.decidedAt ? ` on ${res.decidedAt.toISOString().slice(0, 10)}` : '';
       return `Not proposed: a person already decided this exact record${decidedOn} — ${nounCode('action', res.runId)} is ${res.status}. Nothing was queued and nothing changed. Do not propose it again; move on to records nobody has judged yet.`;
     }
-    if (res.outcome === 'refreshed') {
+    // A refreshed run that then ran (a person's word, or the ladder) is not
+    // waiting on anyone: it falls through to its Done or its "Didn't run"
+    // below (a teammate's walk, 2026-10-30: a retry that ran was answered
+    // "the update is in Review", and its Done line never came).
+    if (res.outcome === 'refreshed' && res.status !== 'done' && res.status !== 'failed') {
       return `${nounCode('action', res.runId)} for ${action_id} was updated in place — it was already waiting for approval, and now carries this payload (confidence ${confidence}). No new review item was created. Do NOT claim the change was made.`;
     }
     // NOT RUN: what it was proposed on changed (`Action.stillHolds`), or the
