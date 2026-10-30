@@ -422,6 +422,24 @@ export function missingFields(p: SeoProfile): SeoProfileField[] {
   });
 }
 
+/** The SEO app's playbooks by name (`templates/plugins/seo/playbooks/`), the agency's way of working. */
+export const SEO_PLAYBOOK_LABEL: Record<string, string> = {
+  'how-we-brief-a-page': 'How we brief a page',
+  'location-pages-without-doorways': 'Location pages without doorways',
+  'sourcing-and-claims': 'Sourcing and claims',
+  'on-page-checklist': 'On-page checklist',
+  'internal-linking': 'Internal linking',
+};
+
+/**
+ * The playbooks to lead with for this client, each with its name, where an
+ * agent reads it and where a person opens it. Pure.
+ * @param slugs - From {@link seoPriorities}.
+ */
+export function playbookLinks(slugs: readonly string[]): Array<{ slug: string; label: string; path: string; href: string }> {
+  return slugs.map(slug => ({ slug, label: SEO_PLAYBOOK_LABEL[slug] ?? slug, path: `/playbooks/${slug}/SKILL.md`, href: `/dashboard/skills/${slug}` }));
+}
+
 export type SeoPriorities = {
   /** What comes first for this client, most important first, each a line a strategist acts on. */
   lines: string[];
@@ -508,6 +526,7 @@ export function renderSeoProfile(p: SeoProfile | undefined, publishTargetLine: (
   if (pr.pageTypes.length) {
     out.push('', `Weight plans toward: ${pr.pageTypes.join(', ')} pages.`);
   }
+  out.push('', `Playbooks to lead with for this client: ${playbookLinks(pr.playbooks).map(l => `${l.label} (${l.path})`).join(', ')}.`);
   out.push('');
   return out;
 }

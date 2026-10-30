@@ -33,8 +33,16 @@ vi.mock('@/services/feedback/duplicateDetection', async importOriginal => ({
   findDuplicateRule: vi.fn(async () => ({ duplicate: false, reason: 'test' })),
 }));
 
+// Load the mocked bus once, before anything saves: installing the app saves
+// the playbook copies, and each save imports it in the background. Several
+// first imports at once can leave the mock built from a half-loaded module,
+// its event names undefined.
+await import('@/services/EventService');
 const { db } = await import('@/libs/DB');
-const { agentSchema, askSchema, automationSchema, learningCandidateSchema, modelCallSchema, projectSchema, tenantAccountSchema, trustRuleSchema, workflowSchema } = await import('@/models/Schema');
+const { actionRunSchema, agentSchema, askSchema, automationSchema, learningCandidateSchema, modelCallSchema, projectSchema, tenantAccountSchema, trustRuleSchema, workflowSchema } = await import('@/models/Schema');
+const { executeAction, rejectAction } = await import('@/services/ActionService');
+const { currentSourceText } = await import('@/services/workspace/WorkspaceSourceService');
+const { mountSkills } = await import('@/services/playbooks/mount');
 const { installPluginBundles } = await import('@/services/plugins/installBundle');
 const { getObjectTypeBySlug } = await import('@/services/BusinessObjectService');
 const { createDataRoom, getDataRoom, updateDataRoom } = await import('@/services/DataRoomService');
@@ -44,7 +52,7 @@ const { updateProjectTool } = await import('@/services/agents/tools/projects');
 const { objectsUpdateMetaAction } = await import('@/libs/actions/objects-update-meta');
 const { patchProject } = await import('@/app/api/v1/projects/[id]/handlers');
 const { decideCandidate } = await import('@/services/LearningCandidateService');
-const { getSeoBatch, getSeoPage, listSeoPages, patchSeoPage, readSeoGate } = await import('./records');
+const { feedbackCheck, getSeoBatch, getSeoPage, listSeoPages, patchSeoPage, readSeoGate } = await import('./records');
 const { onSeoAskSettled } = await import('./signoff');
 const { reportSeoRun } = await import('./work');
 const { renderSerpBrief, renderSynthesis, withSynthesis } = await import('@/libs/tools/serp/brief');
@@ -408,6 +416,70 @@ describe('feedback goes to the right client and is really filed', () => {
 
     expect(here.clientRulesFromSignoffs).toEqual(['Mention the 24-hour emergency line on every location page.']);
     expect(there.clientRulesFromSignoffs).toBeUndefined();
+  });
+});
+
+describe('craft that changes how we work becomes a proposed edit to a playbook', () => {
+  const note = 'Every page should say who checked it, not only who wrote it.';
+  const line = '- [ ] A "Reviewed by" line when the author is not the licensed practitioner.';
+  const checklist = async () => (await currentSourceText(ORG, 'playbook', 'on-page-checklist'))!.content;
+  const withLine = (text: string) => text.replace('## Readability', `${line}\n\n## Readability`);
+  const playbookRuns = async () => db.select().from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.actionId, 'workspace.write_playbook')));
+  const filedOn = async (pageId: number) => {
+    const page = (await getSeoPage(ORG, pageId))!;
+    const check = await feedbackCheck(ORG, [page]);
+    return (page.meta.feedback ?? []).filter(f => f.note === note).map(f => check(f, page.meta));
+  };
+
+  it('a client\'s note never touches a playbook', async () => {
+    const before = await checklist();
+
+    expect(await call('seo_record_feedback', { page_id: pages[0]!.id, note, scope: 'client', filed_to: 'playbook:on-page-checklist', filed_text: line, playbook_md: withLine(before) })).toMatch(/^Not recorded: a client's note never changes a playbook/);
+    expect(await call('seo_record_feedback', { page_id: pages[0]!.id, note: 'Northwind calls it "same-day", never "fast".', scope: 'client', filed_to: `project:${projectId}`, filed_text: 'Never say "cheap"; say "fairly priced".' })).toContain(`filed to project:${projectId}`);
+    expect(await playbookRuns()).toEqual([]);
+    expect(await checklist()).toBe(before);
+  });
+
+  it('a general note is a diff a person approves, counted as filed while it waits; the playbook changes only on approval', async () => {
+    const before = await checklist();
+
+    expect(await call('seo_record_feedback', { page_id: pages[0]!.id, note, scope: 'general', filed_to: 'playbook:on-page-checklist', filed_text: line })).toMatch(/^Not recorded as filed: name playbook_md/);
+    expect(await call('seo_record_feedback', { page_id: pages[0]!.id, note, scope: 'general', filed_to: 'playbook:on-page-checklist', filed_text: 'Something the edit does not say.', playbook_md: withLine(before) })).toMatch(/is not in playbook_md/);
+
+    const receipt = await call('seo_record_feedback', { page_id: pages[0]!.id, note, scope: 'general', filed_to: 'playbook:on-page-checklist', filed_text: line, playbook_md: withLine(before) });
+
+    expect(receipt).toMatch(/filed to playbook:on-page-checklist \(the change to playbook on-page-checklist is run #\d+: a person approves its diff in Review/);
+
+    const [run] = await playbookRuns();
+
+    expect(run).toMatchObject({ status: 'pending', input: { slug: 'on-page-checklist', kind: 'playbook', content: withLine(before) } });
+    expect(await checklist()).toBe(before);
+    expect(await filedOn(pages[0]!.id)).toEqual([true]);
+
+    await executeAction(run!.id, ORG, { reviewedBy: PERSON });
+
+    expect(await checklist()).toBe(withLine(before));
+
+    const editor = await mountSkills({ orgId: ORG, skillSlugs: ['review-page'], playbookSlugs: ['on-page-checklist'] });
+
+    expect(editor['/playbooks/on-page-checklist/SKILL.md']).toContain(line);
+    expect(await filedOn(pages[0]!.id)).toEqual([true]);
+    // No candidate rule as well: a note lands in one place.
+    expect((await db.select().from(learningCandidateSchema).where(eq(learningCandidateSchema.orgId, ORG))).filter(c => c.ruleText === line)).toEqual([]);
+  });
+
+  it('a change the person leaves as it is does not count as filed', async () => {
+    const other = 'Link every location page to the service-areas hub.';
+    const text = (await currentSourceText(ORG, 'playbook', 'internal-linking'))!.content;
+    const edited = text.replace('## Anchors', `${other}\n\n## Anchors`);
+    await call('seo_record_feedback', { page_id: pages[0]!.id, note: other, filed_to: 'playbook:internal-linking', filed_text: other, playbook_md: edited });
+    const run = (await playbookRuns()).find(r => r.status === 'pending')!;
+    await rejectAction(run.id, ORG, 'Already covered by the hub section.', { reviewedBy: PERSON });
+    const page = (await getSeoPage(ORG, pages[0]!.id))!;
+    const filed = page.meta.feedback!.find(f => f.note === other)!;
+
+    expect(filed).toMatchObject({ scope: 'general', filedTo: 'playbook:internal-linking', filedRef: { actionRunId: run.id } });
+    expect((await feedbackCheck(ORG, [page]))(filed, page.meta)).toBe(false);
   });
 });
 

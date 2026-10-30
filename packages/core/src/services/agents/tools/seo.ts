@@ -12,7 +12,8 @@
  *   seo_save_draft       the draft and its meta on a page; REFUSES a page the gate has not released
  *   seo_save_review      the editor's verdict; a pass files the page's sign-off itself;
  *                        FAILS a location page that is a sibling with the city swapped
- *   seo_record_feedback  a note on a page, its scope, and where it was filed — checked, not taken on trust
+ *   seo_record_feedback  a note on a page, its scope, and where it was filed (the client's project, a
+ *                        proposed edit to a playbook, or a rule) — checked, not taken on trust
  *   seo_propose_profile  the client's SEO profile, pre-filled from their site, as one card a person saves (`seoProfile.ts`)
  *   seo_run_audit        the client's site audited in code, filed as an seo_audit record and a shareable report (`seoAudit.ts`)
  *   seo_update_findings  a finding's Fix it (a page in a batch, or a task), or a person's verdict on it
@@ -37,8 +38,11 @@ import type { ProjectAuthor } from '@/services/DataRoomService';
 import type { ToolCallRuntime } from '@/services/seo/modelThatRan';
 import type { SeoFeedback, SeoPageAuthor, SeoPageRecord, SeoPageType } from '@/services/seo/records';
 import { tool } from '@langchain/core/tools';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { db } from '@/libs/DB';
 import { SERP_BRIEF_FOLDER, serpBriefMeta, SYNTHESIS_END, SYNTHESIS_START } from '@/libs/tools/serp/brief';
+import { actionRunSchema } from '@/models/Schema';
 import { anchorArtifact, createArtifact, getArtifact } from '@/services/ArtifactService';
 import { askHere, showDocked } from '@/services/decisions/askHere';
 import { cadencePlanRefusal, readCadenceStanding } from '@/services/seo/cadence';
@@ -48,7 +52,7 @@ import { checkPageMeta } from '@/services/seo/meta';
 import { modelThatRan } from '@/services/seo/modelThatRan';
 import { seoPageRunOf } from '@/services/seo/pipeline';
 import { readSeoProject, seoProjectHref } from '@/services/seo/projects';
-import { artifactWords, bylineFor, feedbackCheck, getSeoBatch, getSeoPage, listProjectSeoPages, listSeoPages, patchSeoPage, pathKey, planApproved, planSeoBatch, readSeoGate, refreshSeoBatch, revisePlan, SEO_LEARNING_STEP, SEO_PAGE_TYPES, SeoSetupError } from '@/services/seo/records';
+import { artifactWords, bylineFor, feedbackCheck, getSeoBatch, getSeoPage, listProjectSeoPages, listSeoPages, patchSeoPage, pathKey, planApproved, planSeoBatch, PLAYBOOK_FILING, PLAYBOOK_WRITE_ACTION, readSeoGate, refreshSeoBatch, revisePlan, SEO_LEARNING_STEP, SEO_PAGE_TYPES, SeoSetupError } from '@/services/seo/records';
 import { fileSeoPlanAsk, fileSeoSignoffAsk, withdrawPageAsks } from '@/services/seo/signoff';
 import { describeVoiceFindings, draftVoiceFindings } from '@/services/seo/voiceCheck';
 import { findingsMd, followFrom, normaliseFindings, queueSeoWork, SEO_EDITOR_ROUNDS, tellBatch } from '@/services/seo/work';
@@ -764,10 +768,70 @@ async function fileToLearning(ctx: RuntimeContext, page: SeoPageRecord, text: st
   return `the learning step ${SEO_LEARNING_STEP} could not take it (${res.reason})`;
 }
 
+const squashText = (t: string) => t.replace(/\s+/g, ' ').trim().toLowerCase();
+const linesOf = (t: string) => new Set(t.split('\n').map(l => l.trim()).filter(Boolean));
+
+/**
+ * File a craft note as a proposed edit to one of the agency's playbooks: the
+ * whole new SKILL.md through `workspace.write_playbook`, the same card with
+ * the diff a person approves for any playbook change. Checked first: the
+ * playbook is this workspace's, the note's words are in the new text, and a
+ * change already waiting on the same playbook is built on rather than
+ * replaced.
+ * @param ctx - The turn.
+ * @param page - The page the note is about.
+ * @param slug - The playbook.
+ * @param text - The words added or changed, as they read in the new text.
+ * @param note - The person's words.
+ * @param md - The whole SKILL.md after the edit.
+ */
+async function fileToPlaybook(ctx: RuntimeContext, page: SeoPageRecord, slug: string, text: string, note: string, md: string | undefined): Promise<SeoFeedback['filedRef'] | string> {
+  if (!md?.trim()) {
+    return `name playbook_md: the whole SKILL.md of ${slug} after your edit (read_playbook first, change only what the note asks, keep the rest byte for byte)`;
+  }
+  const { currentSourceText } = await import('@/services/workspace/WorkspaceSourceService');
+  const current = await currentSourceText(ctx.orgId, 'playbook', slug);
+  if (!current) {
+    return `this workspace has no playbook "${slug}". The ones the writer and the editor read are under /playbooks/`;
+  }
+  if (!squashText(md).includes(squashText(text))) {
+    return `"${text.slice(0, 120)}" is not in playbook_md. filed_text is the words you added or changed, exactly as they read in the new text`;
+  }
+  if (squashText(current.content).includes(squashText(text))) {
+    return `playbook ${slug} already says "${text.slice(0, 120)}". If the note asks for something it does not say, edit it to say that; otherwise tell the person the playbook already covers it`;
+  }
+  // One change per playbook waits for a person at a time, and a second
+  // proposal replaces the first: build on it, so both notes land.
+  const [waiting] = await db
+    .select({ id: actionRunSchema.id, input: actionRunSchema.input })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.orgId, ctx.orgId), eq(actionRunSchema.actionId, PLAYBOOK_WRITE_ACTION), eq(actionRunSchema.status, 'pending'), sql`${actionRunSchema.input}->>'slug' = ${slug}`))
+    .limit(1);
+  const waitingText = waiting && typeof waiting.input.content === 'string' ? waiting.input.content : null;
+  if (waiting && waitingText !== null) {
+    const before = linesOf(current.content);
+    const next = linesOf(md);
+    const dropped = [...linesOf(waitingText)].filter(l => !before.has(l) && !next.has(l));
+    if (dropped.length > 0) {
+      return `a change to playbook ${slug} is already waiting for a person (run #${waiting.id}), and playbook_md drops what it adds ("${dropped[0]!.slice(0, 120)}"). Start from that change's text and add this note to it, so both land in one change:\n\n${waitingText}`;
+    }
+  }
+  const { proposeSourceChange } = await import('./workspaceSource');
+  const reason = `From feedback on SEO page #${page.id}${page.meta.keyword ? ` ("${page.meta.keyword}")` : ''}: ${note}`.slice(0, 500);
+  const res = await proposeSourceChange(ctx, 'playbook', { slug, kind: 'playbook', content: md, reason, confidence: 0.7 });
+  if (!res.ok) {
+    return `the playbook change was ${res.message}`;
+  }
+  if (res.outcome === 'already_decided' && (res.status === 'rejected' || res.status === 'undone')) {
+    return `a person already left this exact change to ${slug} as it was (run #${res.runId}); tell them, and do not propose it again`;
+  }
+  return { actionRunId: res.runId };
+}
+
 export function seoRecordFeedbackTool(ctx: RuntimeContext) {
   return tool(
     async (raw) => {
-      const args = raw as { page_id: number | string; note: string; scope?: 'client' | 'general'; filed_to?: string; filed_text?: string; requests_changes?: boolean };
+      const args = raw as { page_id: number | string; note: string; scope?: 'client' | 'general'; filed_to?: string; filed_text?: string; playbook_md?: string; requests_changes?: boolean };
       const page = await pageArg(ctx, args.page_id);
       if (typeof page === 'string') {
         return page;
@@ -777,12 +841,18 @@ export function seoRecordFeedbackTool(ctx: RuntimeContext) {
       const filedText = args.filed_text?.trim() || '';
       const ownProject = `project:${page.meta.projectId}`;
       const learning = `learning:${SEO_LEARNING_STEP}`;
+      const playbook = filedTo?.startsWith(PLAYBOOK_FILING) ? filedTo.slice(PLAYBOOK_FILING.length).trim() : null;
+      // A note filed to a playbook is craft for every client.
+      const scope = args.scope ?? (playbook ? 'general' : undefined);
       let filedRef: SeoFeedback['filedRef'] | undefined;
       if (filedTo) {
-        if (filedTo !== ownProject && filedTo !== learning) {
+        if (filedTo !== ownProject && filedTo !== learning && !playbook) {
           return /^project:\d+$/.test(filedTo)
             ? `Not recorded: page #${page.id} belongs to project ${page.meta.projectId}${page.meta.projectName ? ` (${page.meta.projectName})` : ''}, not ${filedTo.slice('project:'.length)}. A client's note goes to the page's own project: update_project with project_id ${page.meta.projectId}.`
-            : `Not recorded: filed_to is \`${ownProject}\` (this client's rules or notes, after update_project with project_id ${page.meta.projectId}) or \`${learning}\` (craft for every writer, filed here as a candidate rule).`;
+            : `Not recorded: filed_to is \`${ownProject}\` (this client's rules or notes, after update_project with project_id ${page.meta.projectId}), \`${PLAYBOOK_FILING}<slug>\` (how the agency works on every client: a proposed edit to that playbook) or \`${learning}\` (a one-line rule for every writer, filed as a candidate).`;
+        }
+        if (playbook && scope === 'client') {
+          return `Not recorded: a client's note never changes a playbook, which is how the agency works for every client. File it to the page's own project: update_project with project_id ${page.meta.projectId}, then filed_to ${ownProject}.`;
         }
         if (!filedText) {
           return 'Not recorded: name filed_text, the words as filed (the rule line or the notes passage on the project, or the rule to propose), so the filing can be checked.';
@@ -793,6 +863,12 @@ export function seoRecordFeedbackTool(ctx: RuntimeContext) {
           if (!project || !check({ at: '', by: null, note, filedTo, filedText }, page.meta)) {
             return `Not recorded as filed: "${filedText.slice(0, 120)}" is not on project ${page.meta.projectId}'s rules or notes. File it first with update_project (project_id ${page.meta.projectId}; add_rules for a checkable rule, append_notes for anything longer), then call this again with the same filed_text.`;
           }
+        } else if (playbook) {
+          const filed = await fileToPlaybook(ctx, page, playbook, filedText, note, args.playbook_md);
+          if (typeof filed === 'string') {
+            return `Not recorded as filed: ${filed}.`;
+          }
+          filedRef = filed;
         } else {
           const filed = await fileToLearning(ctx, page, filedText, note, args.scope);
           if (typeof filed === 'string') {
@@ -808,9 +884,9 @@ export function seoRecordFeedbackTool(ctx: RuntimeContext) {
         const same = feedback.findIndex(f => f.note.trim() === note);
         const filing = filedTo ? { filedTo, filedText, ...(filedRef ? { filedRef } : {}) } : {};
         if (same >= 0) {
-          feedback[same] = { ...feedback[same]!, ...(args.scope ? { scope: args.scope } : {}), ...filing };
+          feedback[same] = { ...feedback[same]!, ...(scope ? { scope } : {}), ...filing };
         } else {
-          feedback.push({ at: new Date().toISOString(), by, note, ...(args.scope ? { scope: args.scope } : {}), filedTo: null, ...filing, ...(current.draftArtifactId ? { draftArtifactId: current.draftArtifactId } : {}) });
+          feedback.push({ at: new Date().toISOString(), by, note, ...(scope ? { scope } : {}), filedTo: null, ...filing, ...(current.draftArtifactId ? { draftArtifactId: current.draftArtifactId } : {}) });
         }
         return { feedback, ...(sendBack ? { status: 'changes_requested' as const, signoff: undefined } : {}) };
       });
@@ -820,20 +896,21 @@ export function seoRecordFeedbackTool(ctx: RuntimeContext) {
       const gate = await refreshSeoBatch(ctx.orgId, page.meta.batchId);
       const unfiled = (saved.meta.feedback ?? []).filter(f => !f.filedTo).length;
       return [
-        `Feedback on page #${page.id} recorded${args.scope ? ` as ${args.scope}` : ''}${filedTo ? `, filed to ${filedTo}${filedRef?.candidateId ? ` (candidate #${filedRef.candidateId}, for a person to adopt at /dashboard/learnings)` : ''}` : ''}.`,
-        unfiled > 0 ? `${unfiled} note${unfiled === 1 ? '' : 's'} on this page still say nowhere they were filed: a client note goes to update_project with project_id ${page.meta.projectId}, then here with filed_to ${ownProject} and filed_text; a craft note comes here with filed_to ${learning} and the rule as filed_text.` : 'Every note on this page says where it went.',
+        `Feedback on page #${page.id} recorded${scope ? ` as ${scope}` : ''}${filedTo ? `, filed to ${filedTo}${filedRef?.candidateId ? ` (candidate #${filedRef.candidateId}, for a person to adopt at /dashboard/learnings)` : ''}${filedRef?.actionRunId ? ` (the change to playbook ${playbook} is run #${filedRef.actionRunId}: a person approves its diff in Review before any writer reads it; do not say the playbook changed)` : ''}` : ''}.`,
+        unfiled > 0 ? `${unfiled} note${unfiled === 1 ? '' : 's'} on this page still say nowhere they were filed: a client note goes to update_project with project_id ${page.meta.projectId}, then here with filed_to ${ownProject} and filed_text; a craft note that changes how we work comes here with filed_to ${PLAYBOOK_FILING}<slug>, filed_text and playbook_md; a one-line craft rule with filed_to ${learning} and the rule as filed_text.` : 'Every note on this page says where it went.',
         gate ? `Gate: ${gate.line}.` : null,
       ].filter(Boolean).join(' ');
     },
     {
       name: 'seo_record_feedback',
-      description: 'Record a person\'s feedback on an SEO page, its scope (client: true of this client only; general: craft for every client) and where it was filed. filed_to is `project:<the page\'s own project id>` after update_project put filed_text on that project\'s rules or notes (checked here), or `learning:seo-feedback`, which files filed_text as a candidate rule (a client\'s scoped to its project). The project\'s gate holds new drafts until every note on a sent-back page is verifiably filed. `requests_changes: true` when the person asked for changes in words rather than on the sign-off card.',
+      description: 'Record a person\'s feedback on an SEO page, its scope (client: this client only; general: craft for every client) and where it was filed, checked here. filed_to: `project:<the page\'s project id>` once update_project put filed_text on its rules or notes; `playbook:<slug>` for craft that changes how the agency works, with playbook_md the whole new SKILL.md and filed_text the words added, proposed for a person to approve (never a client\'s note); or `learning:seo-feedback`, filing filed_text as a one-line candidate rule. The gate holds new drafts until every note on a sent-back page is filed. `requests_changes: true` when the person asked for changes in words.',
       schema: z.object({
         page_id: recordIdArg('The SEO page'),
         note: z.string().min(1).max(4000).describe('The person\'s words (for an existing note, the same text, to update its scope or filing).'),
         scope: z.enum(['client', 'general']).optional(),
         filed_to: z.string().max(200).optional(),
-        filed_text: z.string().max(2000).optional().describe('The words as filed: the rule line or notes passage on the project, or the rule to propose to the learning step.'),
+        filed_text: z.string().max(2000).optional().describe('The words as filed: on the project, added to the playbook, or the rule to propose.'),
+        playbook_md: z.string().max(200_000).optional().describe('With playbook:<slug>: its WHOLE SKILL.md after your edit (read_playbook first).'),
         requests_changes: z.boolean().optional(),
       }),
     },

@@ -109,6 +109,11 @@ Plugins page, the API or a chat card, sets the whole app up at once
   shared workspace made in the app starts with its creator. If a delivery
   still finds nobody, it files one setup ask to an admin
   (`services/workspace/accountable.ts`) instead of failing quietly.
+- **Playbooks become the workspace's.** Each playbook the plugin ships is
+  applied once as the workspace's own copy (its `source` mirror artifact,
+  `services/playbooks/owned.ts`): agents read the copy, and a person edits it
+  in place on `/dashboard/skills/<slug>`, or approves an agent's
+  `write_playbook` diff onto it.
 - **Idempotent:** turning an app on twice changes nothing the second time.
 - **Recorded** as a `workspace_version` row whose `source_path` is
   `app:<plugins>`.
@@ -126,7 +131,10 @@ hash of what it left in each agent, mission and automation field, so a field
 whose value no longer matches was changed in the app since. That field keeps
 the person's value and is listed as kept on the upgrade's row, on this and every
 later upgrade until they set it back. An autonomy rung moved in the app keeps
-its rung. Lifecycle (`active`, `status`) belongs to the app switch and a
+its rung. A playbook copy is compared whole the same way (`bundle.playbooks`,
+a hash of the text the bundle last left in it): a copy nobody touched moves to
+the new template, and one a person changed is kept and listed as kept
+(`resource: playbook`). Lifecycle (`active`, `status`) belongs to the app switch and a
 person's hold to `paused_at`, so neither is compared. An install from before
 these records has nothing to compare against, so its first upgrade takes the
 templates whole. What the new templates no longer ship is disabled the way

@@ -24,7 +24,12 @@ version: 6
    cut one says how to read the rest), the notes and the brand. To look
    something up in the client's guides, `read_project` with `find`; never a
    workspace-wide search, which reads other clients' material too.
-4. Then `/learnings/seo-feedback.md`, the
+4. The agency's playbooks: `/playbooks/sourcing-and-claims/SKILL.md`,
+   `/playbooks/on-page-checklist/SKILL.md` and
+   `/playbooks/internal-linking/SKILL.md`, plus
+   `/playbooks/location-pages-without-doorways/SKILL.md` for a location
+   page. The editor checks the draft against them.
+5. Then `/learnings/seo-feedback.md`, the
    client's adopted rules `seo_next_pages` returns (`clientRulesFromSignoffs`),
    and every feedback note on this batch's pages. A redraft starts from the
    notes on its own page (and the editor's review notes when it sent it back).

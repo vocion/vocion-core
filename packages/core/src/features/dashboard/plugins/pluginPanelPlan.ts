@@ -49,6 +49,14 @@ export type PluginPanelInput = {
   agents: readonly PluginPanelAgent[];
   learnings: readonly PluginPanelLearning[];
   actions: readonly PluginPanelAction[];
+  /** Playbook slug → its name as the workspace has it, when the apply has written it. */
+  playbookNames?: ReadonlyMap<string, string>;
+  /**
+   * The workspace keeps its own copies of the playbooks (no folder,
+   * `services/playbooks/owned.ts`): each is edited in place, not overridden
+   * by a file.
+   */
+  ownsCopies?: boolean;
 };
 
 export type PluginPanelView = {
@@ -57,6 +65,8 @@ export type PluginPanelView = {
   measures: { id: string; teamName: string; reading: MeasureReading }[];
   agents: { slug: string; name: string; description: string | null; profileHref: string; chatHref: string }[];
   skills: { slug: string; label: string; href: string; hint: string }[];
+  /** The way of working the plugin brings: each playbook, where it is read and how it is changed. */
+  playbooks: { slug: string; label: string; href: string; hint: string }[];
   learnings: { id: string; text: string; status: string; at: Date | null }[];
   actions: { id: number; title: string; status: string; at: Date | null }[];
   /** Neither a learning nor a decision yet — one honest line instead of two empty groups. */
@@ -148,13 +158,17 @@ export function planPluginPanel(input: PluginPanelInput): PluginPanelView {
     };
   });
 
-  // A skill and a playbook are customised the same way — a same-slug file in
-  // the workspace replaces the plugin's — so they read as one group with the
-  // path that overrides each one.
-  const skills = [
-    ...input.contents.skills.map(slug => ({ slug, label: label(slug), href: `/dashboard/skills/${slug}`, hint: `override at workspace/skills/${slug}` })),
-    ...input.contents.playbooks.map(slug => ({ slug, label: label(slug), href: `/dashboard/skills/${slug}`, hint: `override at workspace/playbooks/${slug}` })),
-  ];
+  // A skill is customised by a same-slug file in the workspace, which
+  // replaces the plugin's; the hint names the path.
+  const skills = input.contents.skills.map(slug => ({ slug, label: label(slug), href: `/dashboard/skills/${slug}`, hint: `override at workspace/skills/${slug}` }));
+  // A playbook is the workspace's way of working: its own copy, edited in
+  // place, in a workspace with no folder; a same-slug file in one that has.
+  const playbooks = input.contents.playbooks.map(slug => ({
+    slug,
+    label: input.playbookNames?.get(slug) ?? label(slug),
+    href: `/dashboard/skills/${slug}`,
+    hint: input.ownsCopies ? 'yours to edit' : `override at workspace/playbooks/${slug}`,
+  }));
 
   const learnings = input.learnings.map(l => ({ id: l.id, text: truncateRule(l.text), status: l.status, at: l.at }));
   const actions = input.actions.map(a => ({ id: a.id, title: a.title, status: a.status, at: a.at }));
@@ -164,6 +178,7 @@ export function planPluginPanel(input: PluginPanelInput): PluginPanelView {
     measures,
     agents,
     skills,
+    playbooks,
     learnings,
     actions,
     nothingLearned: learnings.length === 0 && actions.length === 0,

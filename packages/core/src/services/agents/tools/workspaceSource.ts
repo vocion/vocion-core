@@ -70,48 +70,61 @@ function principalFor(ctx: RuntimeContext) {
 }
 
 async function readSource(ctx: RuntimeContext, family: Family, slugArg: string | undefined, kindArg?: 'playbook' | 'skill') {
-  const { resolveSourceFile, workspaceDirFor } = await import('@/services/workspace/WorkspaceSourceService');
+  const { currentSourceText, workspaceDirFor } = await import('@/services/workspace/WorkspaceSourceService');
   const target = slugArg ? { slug: slugArg, kind: (family === 'mission' ? 'mission' : (kindArg ?? 'playbook')) as SourceKind } : await contextualSourceSlug(ctx, family);
   if (!target) {
     return `No ${family} is named and none is on the page. Pass a slug (the ${family} list, or the record the person is looking at).`;
   }
-  const dir = await workspaceDirFor(ctx.orgId);
-  if (!dir) {
-    return `This project has no workspace directory on this host, so ${family} files cannot be read here.`;
-  }
-  let file = resolveSourceFile(dir, target.kind, target.slug);
+  let file = await currentSourceText(ctx.orgId, target.kind, target.slug);
   // A playbook page shows skills too; try the other folder before giving up.
   if (!file && family === 'playbook' && !kindArg) {
     const other: SourceKind = target.kind === 'skill' ? 'playbook' : 'skill';
-    const alt = resolveSourceFile(dir, other, target.slug);
+    const alt = await currentSourceText(ctx.orgId, other, target.slug);
     if (alt) {
       file = alt;
       target.kind = other;
     }
   }
+  if (!file && !(await workspaceDirFor(ctx.orgId))) {
+    return `This project has no workspace directory on this host, so ${family} files cannot be read here.`;
+  }
   if (!file) {
     return `No ${family} "${target.slug}" — nothing at ${sourceRelPath(target.kind, target.slug)} in the workspace, a plugin or the base pack.`;
   }
-  const where = file.layer === 'workspace' ? 'the workspace' : 'an inherited layer (a plugin or the base pack) — writing it creates the workspace\'s own copy';
-  return `# ${target.kind} ${target.slug}\n(file ${sourceRelPath(target.kind, target.slug)} · from ${where})\n\n${file.content}`;
+  const where = file.copy
+    ? 'the workspace\'s own copy — write_playbook proposes a change to it'
+    : file.layer === 'workspace' ? 'the workspace' : 'an inherited layer (a plugin or the base pack) — writing it creates the workspace\'s own copy';
+  return `# ${target.kind} ${target.slug}\n(${file.copy ? '' : `file ${sourceRelPath(target.kind, target.slug)} · `}from ${where})\n\n${file.content}`;
 }
 
-async function writeSource(ctx: RuntimeContext, family: Family, input: { slug?: string; kind?: 'playbook' | 'skill'; content: string; reason: string; confidence: number }) {
-  const target = input.slug
-    ? { slug: input.slug, kind: (family === 'mission' ? 'mission' : (input.kind ?? 'playbook')) as SourceKind }
-    : await contextualSourceSlug(ctx, family);
-  if (!target) {
-    return `No ${family} is named and none is on the page — pass a slug.`;
-  }
+/** What proposing a change to a mission or a SKILL.md came to. */
+export type SourceProposal
+  = | { ok: true; runId: number; status: string; outcome?: string; result: Record<string, unknown> | null }
+    | { ok: false; message: string };
+
+/**
+ * Propose a change to a mission or a SKILL.md through its action — the card
+ * with the diff a person approves, or the write itself once a workspace has
+ * promoted the kind. The one door `write_playbook`, `write_mission` and
+ * code that files feedback into a playbook (`seo_record_feedback`) share.
+ * @param ctx - The turn.
+ * @param family - Mission or playbook.
+ * @param input - The target and the whole new text.
+ * @param input.slug - The mission or SKILL.md.
+ * @param input.kind - Which folder.
+ * @param input.content - The whole file as it should read afterwards.
+ * @param input.reason - Why, for the card and the version history.
+ * @param input.confidence - The proposer's confidence, 0 to 1.
+ */
+export async function proposeSourceChange(ctx: RuntimeContext, family: Family, input: { slug: string; kind: SourceKind; content: string; reason: string; confidence: number }): Promise<SourceProposal> {
   const actionId = family === 'mission' ? 'workspace.write_mission' : 'workspace.write_playbook';
-  const toolName = `write_${family}`;
   try {
     const res = await proposeAction({
       orgId: ctx.orgId,
       actionId,
       input: family === 'mission'
-        ? { slug: target.slug, content: input.content, reason: input.reason }
-        : { slug: target.slug, kind: target.kind === 'skill' ? 'skill' : 'playbook', content: input.content, reason: input.reason },
+        ? { slug: input.slug, content: input.content, reason: input.reason }
+        : { slug: input.slug, kind: input.kind === 'skill' ? 'skill' : 'playbook', content: input.content, reason: input.reason },
       principal: principalFor(ctx),
       invokedBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId,
       proposal: {
@@ -121,24 +134,41 @@ async function writeSource(ctx: RuntimeContext, family: Family, input: { slug?: 
         suggestedDecisionReason: input.reason.slice(0, 160),
       },
     });
-    ctx.emit({ type: 'tool_progress', tool: toolName, meta: { runId: res.runId, status: res.status, outcome: res.outcome } } as never);
-    if (res.outcome === 'already_decided') {
-      return `Not written: a person already decided an identical change to ${family} "${target.slug}" (run #${res.runId}, ${res.status}). Say so; do not propose it again.`;
-    }
-    if (res.status === 'pending') {
-      return `The change to ${family} "${target.slug}" is PENDING a person's decision (run #${res.runId}) — it is in Review with the diff. Do NOT say the ${family} was changed; say it is queued for their approval and what it will change.`;
-    }
-    const r = (res.result ?? {}) as { href?: string; version?: number; created?: boolean; unchanged?: boolean; path?: string };
-    if (r.unchanged) {
-      return `${family} "${target.slug}" already read exactly like that — no new version (run #${res.runId}).`;
-    }
-    return `${family} "${target.slug}" ${r.created ? 'created' : `revised to v${r.version}`} — ${r.path ?? ''} written and the workspace applied (run #${res.runId}, confidence ${input.confidence}). ${r.href ?? ''} The person sees it live; a person can undo it from Review › Decided. Git commit is theirs.`;
+    ctx.emit({ type: 'tool_progress', tool: `write_${family}`, meta: { runId: res.runId, status: res.status, outcome: res.outcome } } as never);
+    return { ok: true, runId: res.runId, status: res.status, outcome: res.outcome, result: (res.result ?? null) as Record<string, unknown> | null };
   } catch (err) {
     if (err instanceof ActionError) {
-      return `${toolName} refused (${err.code}): ${err.message}`;
+      return { ok: false, message: `refused (${err.code}): ${err.message}` };
     }
-    return `${toolName} failed: ${(err as Error).message}`;
+    return { ok: false, message: `failed: ${(err as Error).message}` };
   }
+}
+
+async function writeSource(ctx: RuntimeContext, family: Family, input: { slug?: string; kind?: 'playbook' | 'skill'; content: string; reason: string; confidence: number }) {
+  const target = input.slug
+    ? { slug: input.slug, kind: (family === 'mission' ? 'mission' : (input.kind ?? 'playbook')) as SourceKind }
+    : await contextualSourceSlug(ctx, family);
+  if (!target) {
+    return `No ${family} is named and none is on the page — pass a slug.`;
+  }
+  const toolName = `write_${family}`;
+  const res = await proposeSourceChange(ctx, family, { slug: target.slug, kind: target.kind, content: input.content, reason: input.reason, confidence: input.confidence });
+  if (!res.ok) {
+    return `${toolName} ${res.message}`;
+  }
+  if (res.outcome === 'already_decided') {
+    return `Not written: a person already decided an identical change to ${family} "${target.slug}" (run #${res.runId}, ${res.status}). Say so; do not propose it again.`;
+  }
+  if (res.status === 'pending') {
+    return `The change to ${family} "${target.slug}" is PENDING a person's decision (run #${res.runId}) — it is in Review with the diff. Do NOT say the ${family} was changed; say it is queued for their approval and what it will change.`;
+  }
+  const r = (res.result ?? {}) as { href?: string; version?: number; created?: boolean; unchanged?: boolean; path?: string; sha?: string | null };
+  if (r.unchanged) {
+    return `${family} "${target.slug}" already read exactly like that — no new version (run #${res.runId}).`;
+  }
+  // No sha: a workspace with no folder, whose own copy is the playbook.
+  const landed = r.sha ? `${r.path ?? ''} written and the workspace applied` : 'the workspace\'s own copy updated';
+  return `${family} "${target.slug}" ${r.created ? 'created' : `revised to v${r.version}`} — ${landed} (run #${res.runId}, confidence ${input.confidence}). ${r.href ?? ''} The person sees it live; a person can undo it from Review › Decided.${r.sha ? ' Git commit is theirs.' : ''}`;
 }
 
 const writeShape = {

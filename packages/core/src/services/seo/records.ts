@@ -28,7 +28,7 @@ import type { ProjectAuthor } from '@/services/DataRoomService';
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { artifactSchema, businessObjectSchema, learningCandidateSchema } from '@/models/Schema';
+import { actionRunSchema, artifactSchema, businessObjectSchema, learningCandidateSchema } from '@/models/Schema';
 import { createBusinessObject, deleteBusinessObject, getBusinessObject, getObjectTypeBySlug, listBusinessObjects } from '@/services/BusinessObjectService';
 import { defaultAuthor, sameName } from '@/services/DataRoomService';
 import { batchView, evaluateGate, gateConfigFrom } from './gate';
@@ -47,6 +47,9 @@ export type SeoPageType = typeof SEO_PAGE_TYPES[number];
 /** Where craft notes go: the writer's and the editor's learning step. */
 export const SEO_LEARNING_STEP = 'seo-feedback';
 
+/** A note filed as a proposed edit to a playbook: `playbook:<slug>`. */
+export const PLAYBOOK_FILING = 'playbook:';
+
 export type SeoFeedback = {
   at: string;
   /** Who said it: a person's id, or the agent that recorded it on their word. */
@@ -54,12 +57,19 @@ export type SeoFeedback = {
   note: string;
   /** `client`: true of this client only; `general`: craft for every client. Unset until someone decides. */
   scope?: 'client' | 'general';
-  /** Where the note was filed — `project:<id>` or `learning:seo-feedback` — or null while it is not. */
+  /**
+   * Where the note was filed — `project:<id>` (true of this client),
+   * `playbook:<slug>` (a proposed edit to one of the agency's playbooks) or
+   * `learning:seo-feedback` (a one-line rule) — or null while it is not.
+   */
   filedTo: string | null;
-  /** The words as filed: the rule line or notes passage on the project, or the proposed rule. Checked before the gate counts the note filed. */
+  /** The words as filed: the rule line or notes passage on the project, the words added to the playbook, or the proposed rule. Checked before the gate counts the note filed. */
   filedText?: string;
-  /** The learning candidate (or adopted rule) the note became, when it went to the learning step. */
-  filedRef?: { candidateId?: number; memoryKey?: string };
+  /**
+   * What the note became: the learning candidate (or adopted rule) for a rule,
+   * the proposed playbook change (`action_run`) for a playbook edit.
+   */
+  filedRef?: { candidateId?: number; memoryKey?: string; actionRunId?: number };
   /** The sign-off ask it came from, when it came from one. */
   askId?: number;
   /** The draft it was about. */
@@ -732,10 +742,20 @@ export async function gateConfigForProject(orgId: string, projectId: number): Pr
   return gateConfigFrom(project?.meta);
 }
 
+/** The action that proposes a change to a playbook (`libs/actions/workspace-source.ts`). */
+export const PLAYBOOK_WRITE_ACTION = 'workspace.write_playbook';
+
+type PlaybookChange = { status: string; slug: string | null; content: string };
+
+/** The playbook-change outcomes that mean a note did not land: left as it was, failed, put back, or closed. */
+const PLAYBOOK_CHANGE_NOT_FILED: ReadonlySet<string> = new Set(['rejected', 'failed', 'undone', 'closed']);
+
 /**
  * Whether each feedback note is really where it says it went: the words on
- * the page's own project (its rules or its wiki), or a learning candidate or
- * rule that exists and was not rejected. A write still waiting on a person,
+ * the page's own project (its rules or its wiki), a learning candidate or
+ * rule that exists and was not rejected, or a proposed change to the named
+ * playbook that a person has not turned down (waiting on them counts, as a
+ * pending candidate does). A write to a project still waiting on a person,
  * or one filed to another client's project, is not filed.
  * @param orgId - The workspace.
  * @param pages - The pages whose notes are checked.
@@ -758,12 +778,19 @@ export async function feedbackCheck(orgId: string, pages: readonly SeoPageRecord
         .select({ id: learningCandidateSchema.id, status: learningCandidateSchema.status })
         .from(learningCandidateSchema)
         .where(and(eq(learningCandidateSchema.orgId, orgId), inArray(learningCandidateSchema.id, candidateIds)))).map(r => [r.id, r.status]));
-  return (f, page) => isFiled(f, page, projects, candidates);
+  const runIds = [...new Set(notes.map(n => n.f.filedRef?.actionRunId).filter((id): id is number => typeof id === 'number'))];
+  const runs = runIds.length === 0
+    ? new Map<number, PlaybookChange>()
+    : new Map((await db
+        .select({ id: actionRunSchema.id, status: actionRunSchema.status, input: actionRunSchema.input })
+        .from(actionRunSchema)
+        .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.actionId, PLAYBOOK_WRITE_ACTION), inArray(actionRunSchema.id, runIds)))).map(r => [r.id, { status: r.status, slug: typeof r.input.slug === 'string' ? r.input.slug : null, content: typeof r.input.content === 'string' ? r.input.content : '' }]));
+  return (f, page) => isFiled(f, page, projects, candidates, runs);
 }
 
 const squash = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
 
-function isFiled(f: SeoFeedback, page: Pick<SeoPageMeta, 'projectId'>, projects: Map<number, { rules: string[]; notes: string }>, candidates: Map<number, string>): boolean {
+function isFiled(f: SeoFeedback, page: Pick<SeoPageMeta, 'projectId'>, projects: Map<number, { rules: string[]; notes: string }>, candidates: Map<number, string>, runs: Map<number, PlaybookChange>): boolean {
   if (!f.filedTo || !f.filedText?.trim()) {
     return false;
   }
@@ -778,6 +805,12 @@ function isFiled(f: SeoFeedback, page: Pick<SeoPageMeta, 'projectId'>, projects:
     }
     const status = typeof f.filedRef?.candidateId === 'number' ? candidates.get(f.filedRef.candidateId) : undefined;
     return status !== undefined && status !== 'rejected';
+  }
+  if (f.filedTo.startsWith(PLAYBOOK_FILING)) {
+    const run = typeof f.filedRef?.actionRunId === 'number' ? runs.get(f.filedRef.actionRunId) : undefined;
+    // A later note's proposal can replace a waiting one: the words must still be in it.
+    return Boolean(run && run.slug === f.filedTo.slice(PLAYBOOK_FILING.length) && !PLAYBOOK_CHANGE_NOT_FILED.has(run.status)
+      && (run.status !== 'pending' || squash(run.content).includes(squash(f.filedText))));
   }
   return false;
 }

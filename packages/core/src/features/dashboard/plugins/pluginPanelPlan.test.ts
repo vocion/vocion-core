@@ -90,7 +90,17 @@ describe('planPluginPanel', () => {
 
     expect(view.skills).toEqual([
       { slug: 'morning-brief', label: 'Morning brief', href: '/dashboard/skills/morning-brief', hint: 'override at workspace/skills/morning-brief' },
+    ]);
+    expect(view.playbooks).toEqual([
       { slug: 'house-voice', label: 'House voice', href: '/dashboard/skills/house-voice', hint: 'override at workspace/playbooks/house-voice' },
+    ]);
+  });
+
+  it('links each playbook by its name, edited in place where the workspace keeps its own copies', () => {
+    const view = planPluginPanel({ ...base, playbookNames: new Map([['house-voice', 'The Northwind house voice']]), ownsCopies: true });
+
+    expect(view.playbooks).toEqual([
+      { slug: 'house-voice', label: 'The Northwind house voice', href: '/dashboard/skills/house-voice', hint: 'yours to edit' },
     ]);
   });
 
@@ -111,7 +121,7 @@ describe('planPluginPanel', () => {
   it('is empty, not broken, for a plugin that ships nothing', () => {
     const view = planPluginPanel({ ...base, contents: contents(), teams: [], readings: new Map(), agents: [] });
 
-    expect(view).toMatchObject({ measures: [], agents: [], skills: [], nothingLearned: true });
+    expect(view).toMatchObject({ measures: [], agents: [], skills: [], playbooks: [], nothingLearned: true });
   });
 });
 

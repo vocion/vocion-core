@@ -17,7 +17,8 @@ import { ArrowUp, X } from 'lucide-react';
 import { useState } from 'react';
 import { FactList, Section } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
-import { CLIENT_TYPE_LABEL, GOAL_LABEL, profileFacts, SEO_CLIENT_TYPES, SEO_GOALS, SEO_PROFILE_FIELDS, seoPriorities } from '@/services/seo/profile';
+import { Link } from '@/libs/I18nNavigation';
+import { CLIENT_TYPE_LABEL, GOAL_LABEL, playbookLinks, profileFacts, SEO_CLIENT_TYPES, SEO_GOALS, SEO_PROFILE_FIELDS, seoPriorities } from '@/services/seo/profile';
 import { EditButton, useProjectField } from './ProjectKnowledge';
 
 export type SeoProfileDraft = {
@@ -101,7 +102,10 @@ export function ProjectSeoProfile({ projectId, profile, targets }: { projectId: 
   };
   const lineOf = (id: string) => targets.find(t => t.id === id)?.line ?? null;
   const facts = profile ? profileFacts(profile, lineOf).filter(f => f.key !== 'guidelines') : [];
-  const priorities = seoPriorities(profile ?? undefined).lines;
+  const pr = seoPriorities(profile ?? undefined);
+  const priorities = pr.lines;
+  // The agency's playbooks the profile puts first for this client, each opening where it is edited.
+  const playbooks = profile ? playbookLinks(pr.playbooks) : [];
   const input = 'h-8 w-full rounded-md border border-border bg-background px-2 text-sm focus:border-foreground/30 focus:outline-none';
   const text = (k: Exclude<keyof SeoProfileDraft, 'goals' | 'clientType'>, label: string, placeholder = '') => (
     <label className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -211,6 +215,14 @@ export function ProjectSeoProfile({ projectId, profile, targets }: { projectId: 
                       <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground">
                         {priorities.map(l => <li key={l}>{l}</li>)}
                       </ol>
+                    </div>
+                  )}
+                  {playbooks.length > 0 && (
+                    <div data-testid="seo-profile-playbooks">
+                      <h4 className="mb-1 text-xs font-medium text-muted-foreground">Playbooks we lead with</h4>
+                      <p className="flex flex-wrap gap-x-3 text-sm">
+                        {playbooks.map(l => <Link key={l.slug} href={l.href} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{l.label}</Link>)}
+                      </p>
                     </div>
                   )}
                   {profile.savedAt && <p className="text-xs text-muted-foreground">{`Saved ${profile.savedAt.slice(0, 10)}${evidenceLine(profile)}`}</p>}

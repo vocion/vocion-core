@@ -22,9 +22,16 @@
  * there is one history and one audit trail — the artifact's versions for
  * "who changed this and why", `workspace_version` for "what was applied when".
  * Git stays the person's: nothing here commits.
+ *
+ * A workspace with no folder (every Vocion Cloud workspace) has no file to
+ * write. There a playbook an app applied is the workspace's own copy, kept as
+ * the same mirror artifact (`services/playbooks/owned.ts`), and the same write
+ * path lands on it: validate, record the version, bring the catalog row into
+ * step. No file, no apply; the next turn reads the new text.
  */
 
 import type { SourceKind } from '@/libs/workspace';
+import type { playbookSchema } from '@/models/Schema';
 import type { ArtifactRow, ArtifactVersionRow, Author } from '@/services/ArtifactService';
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -35,6 +42,7 @@ import { applyWorkspace, deleteResource, invalidateCurrentContextShaCache, loadW
 import { workspacePathForProject } from '@/libs/workspace/project-path';
 import { artifactSchema } from '@/models/Schema';
 import { deleteArtifact, getArtifact, getArtifactVersion, listArtifactsForRecord, upsertRecordArtifact } from '@/services/ArtifactService';
+import { ownedPlaybookRow, ownedPlaybookText, syncOwnedCatalogRow } from '@/services/playbooks/owned';
 
 /** The base pack shipped inside the runtime — the last layer a file can come from. */
 const BASE_PACK_REL = 'packages/core/templates/base';
@@ -113,6 +121,16 @@ export async function ensureSourceArtifact(orgId: string, kind: SourceKind, slug
   const existing = await getSourceArtifact(orgId, kind, slug);
   if (existing) {
     return existing;
+  }
+  // A workspace with no folder: its copy starts as the text the app shipped.
+  const owned = kind === 'playbook' ? await ownedPlaybookRow(orgId, slug) : null;
+  if (owned) {
+    const text = await ownedPlaybookText(orgId, owned);
+    if (text === null) {
+      return null;
+    }
+    const { artifact } = await mirrorSource({ orgId, kind, slug, title: owned.name, content: text, author: { kind: 'system', id: null }, changeSummary: 'As the app shipped it' });
+    return artifact;
   }
   const dir = await workspaceDirFor(orgId);
   if (!dir) {
@@ -287,6 +305,12 @@ function rollback(path: string, previous: string | null): void {
  * @param input
  */
 export async function writeWorkspaceSource(input: WriteWorkspaceSourceInput): Promise<WriteWorkspaceSourceResult> {
+  if (input.kind === 'playbook') {
+    const owned = await ownedPlaybookRow(input.orgId, input.slug);
+    if (owned) {
+      return writeOwnedPlaybook(input, owned);
+    }
+  }
   const dir = await workspaceDirFor(input.orgId);
   if (!dir) {
     throw new WorkspaceSourceError('NO_WORKSPACE', 'this project has no workspace directory on this host, so its files are edited in the workspace repo and applied from there');
@@ -369,6 +393,89 @@ export async function writeWorkspaceSource(input: WriteWorkspaceSourceInput): Pr
     path: written.path,
     applied: { versionId: apply.versionId, sha: loaded.sha },
   };
+}
+
+/**
+ * The write path for a workspace that owns its playbook copies: the copy is
+ * the mirror, so a new version of it IS the edit. The previous text stays one
+ * Restore (or one Undo of an agent's write) away.
+ * @param input - As {@link writeWorkspaceSource}.
+ * @param row - The playbook's catalog row.
+ */
+async function writeOwnedPlaybook(input: WriteWorkspaceSourceInput, row: typeof playbookSchema.$inferSelect): Promise<WriteWorkspaceSourceResult> {
+  let title: string;
+  try {
+    title = validateSourceText('playbook', input.slug, input.content).title;
+  } catch (err) {
+    if (err instanceof SourceValidationError) {
+      throw new WorkspaceSourceError('INVALID', err.message);
+    }
+    throw err;
+  }
+  // The history starts at what the app shipped, so the first edit is a diff.
+  const mirror = await ensureSourceArtifact(input.orgId, 'playbook', input.slug);
+  if (!mirror) {
+    throw new WorkspaceSourceError('NOT_FOUND', `playbook "${input.slug}" has no text to edit in this workspace`);
+  }
+  if (typeof input.ifVersion === 'number' && mirror.currentVersion !== input.ifVersion) {
+    throw new WorkspaceSourceError('CONFLICT', `playbook "${input.slug}" is at v${mirror.currentVersion}, not v${input.ifVersion}`);
+  }
+  const previous = sourceContentOf(mirror.spec);
+  const path = sourceRelPath('playbook', input.slug);
+  if (previous === input.content) {
+    const head = await getArtifactVersion({ orgId: input.orgId, artifactId: mirror.id, version: mirror.currentVersion });
+    return { artifact: mirror, version: head!, created: false, unchanged: true, previousVersion: mirror.currentVersion, previousContent: previous, path, applied: null };
+  }
+  const mirrored = await mirrorSource({
+    orgId: input.orgId,
+    kind: 'playbook',
+    slug: input.slug,
+    title: title || row.name,
+    content: input.content,
+    author: input.author,
+    changeSummary: input.changeSummary,
+    noCollapse: input.noCollapse ?? input.author.kind !== 'human',
+    runId: input.runId ?? null,
+  });
+  await syncOwnedCatalogRow(input.orgId, input.slug, input.content);
+  try {
+    const { invalidateChipCache } = await import('@/services/chat/synthesis');
+    invalidateChipCache(input.orgId);
+  } catch {
+    /* the chip cache is a convenience; a miss costs one regeneration */
+  }
+  return {
+    artifact: mirrored.artifact,
+    version: mirrored.version,
+    created: false,
+    unchanged: mirrored.unchanged,
+    previousVersion: mirror.currentVersion,
+    previousContent: previous,
+    path,
+    applied: null,
+  };
+}
+
+/**
+ * The text a mission or SKILL.md reads as now, and where it comes from: the
+ * workspace's own copy of a playbook when it owns one, else the file
+ * (`resolveSourceFile`). Null when nothing ships it. What a review card diffs
+ * against and what `read_playbook` returns.
+ * @param orgId - The workspace.
+ * @param kind - Which folder.
+ * @param slug - Which file.
+ */
+export async function currentSourceText(orgId: string, kind: SourceKind, slug: string): Promise<{ content: string; layer: 'workspace' | 'core'; copy: boolean } | null> {
+  if (kind === 'playbook') {
+    const owned = await ownedPlaybookRow(orgId, slug);
+    if (owned) {
+      const text = await ownedPlaybookText(orgId, owned);
+      return text === null ? null : { content: text, layer: 'workspace', copy: true };
+    }
+  }
+  const dir = await workspaceDirFor(orgId);
+  const file = dir ? resolveSourceFile(dir, kind, slug) : null;
+  return file ? { content: file.content, layer: file.layer, copy: false } : null;
 }
 
 function authorName(author: Author): string {

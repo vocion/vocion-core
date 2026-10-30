@@ -28,6 +28,9 @@ vi.mock('@/services/EventService', async (importOriginal) => {
   }) };
 });
 
+// Load the mocked bus once, before the install saves the playbook copies:
+// several first imports at once can build the mock from a half-loaded module.
+await import('@/services/EventService');
 const { db } = await import('@/libs/DB');
 const { askSchema, automationSchema, projectSchema, tenantAccountSchema } = await import('@/models/Schema');
 const { installPluginBundles } = await import('@/services/plugins/installBundle');

@@ -44,11 +44,17 @@ draft or a brief you could not open: read it here.
    (the synthesis and the shared terms; directories do not count), and the
    gap it was meant to own.
 5. **Local substance** (location pages): the brief's local facts are in the
-   body, each traceable to the project. A location page that could be any
+   body, each traceable to the project, and the NAP and service area as
+   `/playbooks/location-pages-without-doorways/SKILL.md` says. A location page that could be any
    town's page is a `fix`, quoted.
-6. **Claims**: every number and comparison traced to a source. An untraced
-   one is a `fix`, quoted.
-7. **Craft**: voice, clarity, length. Only what a person would send back.
+6. **Claims**: against `/playbooks/sourcing-and-claims/SKILL.md`. Every
+   number and comparison traced to a dated source, testimonials and results
+   exactly as the client worded them, a real byline. An untraced one is a
+   `fix`, quoted.
+7. **On-page**: `/playbooks/on-page-checklist/SKILL.md`, item by item, and
+   the links against `/playbooks/internal-linking/SKILL.md`. A failed item is
+   a `fix` that names the item and quotes the line.
+8. **Craft**: voice, clarity, length. Only what a person would send back.
 
 ## Siblings, in code
 

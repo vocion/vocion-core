@@ -1,5 +1,5 @@
 import type { Tint } from '@/libs/tints';
-import type { LoadedPlugin } from '@/libs/workspace/plugins';
+import type { LoadedPlugin, PluginInfo } from '@/libs/workspace/plugins';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
@@ -68,6 +68,8 @@ export type AppOffer = {
   agents: string[];
   pages: string[];
   automations: string[];
+  /** The playbooks it applies into the workspace, by name: the way of working it brings, the workspace's to edit. */
+  playbooks: string[];
   connectors: AppConnector[];
   /** For the Details disclosure: the facts a person who authors the workspace wants. */
   details: { plugins: string[]; skills: number; missions: number; objectTypes: number; teams: number };
@@ -105,6 +107,24 @@ function namesIn(plugin: LoadedPlugin, sub: string, field: 'name' | 'title', ski
     })
     .filter((name): name is string => name !== null)
     .sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * The names of a plugin's playbooks, from each SKILL.md's frontmatter; the
+ * folder's name when it has none.
+ * @param plugin - The plugin.
+ */
+function playbookNames(plugin: PluginInfo): string[] {
+  return plugin.contents.playbooks.map((slug) => {
+    try {
+      const raw = readFileSync(join(plugin.sourcePath, 'playbooks', slug, 'SKILL.md'), 'utf8');
+      const front = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1];
+      const name = front ? (parseYaml(front) as Record<string, unknown> | null)?.name : undefined;
+      return typeof name === 'string' && name.trim() ? name.trim() : slug;
+    } catch {
+      return slug;
+    }
+  });
 }
 
 /**
@@ -162,6 +182,7 @@ export async function listAppOffers(orgId: string): Promise<AppOffer[]> {
       agents: unique(own.flatMap(p => namesIn(p, 'agents', 'name', slug => slug.endsWith('.system-prompt')))),
       pages,
       automations: unique(own.flatMap(p => namesIn(p, 'automations', 'name'))),
+      playbooks: unique(own.flatMap(playbookNames)),
       connectors: [...new Set(connectorSlugs)].map((slug) => {
         const connector = getConnector(slug);
         return { slug, name: connector?.name ?? slug, brand: connector?.brand ?? null, icon: connector?.icon ?? null, connected: connected.has(slug), needed: needed.has(slug) };

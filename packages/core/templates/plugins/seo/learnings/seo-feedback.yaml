@@ -4,8 +4,9 @@
 # mount into the writer's and the editor's context before the next page.
 #
 # Client-specific rules belong to the client's project (its rules and notes,
-# filed with update_project); this bucket is for what a person adopted as
-# true of the craft, across clients.
+# filed with update_project); how the agency works (a step, a check, a method)
+# belongs in its playbooks, edited by an approved diff; this bucket is for
+# one-line rules a person adopted as true of the craft, across clients.
 name: seo-feedback
 title: SEO page feedback
 description: >-
