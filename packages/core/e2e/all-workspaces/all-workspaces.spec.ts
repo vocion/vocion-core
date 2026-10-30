@@ -49,7 +49,7 @@ test('Personal first, then by recent use, the placeholder last, never a raw id',
   await expect(rows().nth(3).getByTestId('workspace-row-line')).toHaveText('Empty');
   // Show the current workspace without exposing review counts from other workspaces.
   await expect(rows().nth(1).getByTestId('workspace-row-current')).toBeVisible();
-  await expect(page.getByTestId('workspace-row-waiting')).toHaveCount(0);
+  await expect(rows().nth(2).getByTestId('workspace-row-waiting')).toHaveCount(0);
 });
 
 test('archived ones wait behind "Show archived"', async () => {
@@ -87,13 +87,13 @@ test('keyboard: / focuses search, arrows move, Enter opens', async () => {
   await expect(rows().nth(1)).toBeFocused();
 
   await page.keyboard.press('Enter');
-  await page.waitForURL(/\/dashboard\/chat/);
+  await page.waitForURL(/\/dashboard\/scorecard/);
 });
 
 test('tapping a row opens that workspace', async () => {
   await page.goto(PAGE);
   await rows().filter({ hasText: 'Kestrel Ops' }).tap();
-  await page.waitForURL(/\/dashboard\/chat/);
+  await page.waitForURL(/\/dashboard\/scorecard/);
   await page.goto('/dashboard/workspaces');
 
   await expect(rows().filter({ hasText: 'Kestrel Ops' }).getByTestId('workspace-row-current')).toBeVisible();
