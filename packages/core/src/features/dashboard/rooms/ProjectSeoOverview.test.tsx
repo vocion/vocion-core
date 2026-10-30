@@ -1,4 +1,5 @@
 import type { SeoAuditRecord } from '@/services/seo/audits';
+import type { SeoStrategyMeta } from '@/services/seo/strategy';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
@@ -17,6 +18,23 @@ describe('project SEO operating overview', () => {
     await expect.element(page.getByRole('link', { name: 'Review the prepared profile' })).toHaveAttribute('href', '#seo-profile');
     await expect.element(page.getByRole('link', { name: 'Open pages' })).toHaveAttribute('href', '/dashboard/p/seo-pages?project=7');
     await expect.element(page.getByRole('link', { name: 'Audit history' })).toHaveAttribute('href', '/dashboard/p/seo-audits?project=7');
+  });
+
+  it('renders legacy records with absent lists, counts and dates as unknown', async () => {
+    const audit = { id: 12, meta: {} } as SeoAuditRecord;
+    await render(<ProjectSeoOverview record={record} profile={null} draftReady={false} audit={audit} strategy={{ id: 13, meta: {} as SeoStrategyMeta }} />);
+
+    await expect.element(page.getByText(/Open findings not recorded · Severity count not recorded · Check date not recorded/)).toBeInTheDocument();
+    await expect.element(page.getByText('Strategy status not recorded')).toBeInTheDocument();
+    await expect.element(page.getByText(/0 open findings/)).not.toBeInTheDocument();
+    await expect.element(page.getByRole('link', { name: 'Latest audit' })).toHaveAttribute('href', '/dashboard/objects/12');
+  });
+
+  it('does not present invalid legacy counts or dates as measured evidence', async () => {
+    const audit = { id: 12, meta: { openCount: -1, highCount: Number.NaN, checkedAt: 'unknown', nextSteps: null } } as unknown as SeoAuditRecord;
+    await render(<ProjectSeoOverview record={record} profile={null} draftReady={false} audit={audit} strategy={null} />);
+
+    await expect.element(page.getByText(/Open findings not recorded · Severity count not recorded · Check date not recorded/)).toBeInTheDocument();
   });
 
   it('shows one dated audit and only unfinished strategy work, without treating a draft as active', async () => {

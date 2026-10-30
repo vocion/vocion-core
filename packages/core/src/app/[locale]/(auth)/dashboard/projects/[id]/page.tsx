@@ -303,7 +303,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
               recorded runs
             </summary>
             <ListRows className="mt-3">
-              {audits.map(audit => <ListRow key={audit.id} href={`/dashboard/objects/${audit.id}`} title={audit.title} subline={`Checked ${audit.meta.checkedAt.slice(0, 10)} · ${audit.meta.openCount} open findings in this run`} />)}
+              {audits.map(audit => <ListRow key={audit.id} href={`/dashboard/objects/${audit.id}`} title={audit.title} subline={`${typeof audit.meta?.checkedAt === 'string' && Number.isFinite(Date.parse(audit.meta.checkedAt)) ? `Checked ${audit.meta.checkedAt.slice(0, 10)}` : 'Check date not recorded'} · ${typeof audit.meta?.openCount === 'number' && Number.isFinite(audit.meta.openCount) && audit.meta.openCount >= 0 ? `${audit.meta.openCount} open findings in this run` : 'Open findings not recorded'}`} />)}
             </ListRows>
           </details>
         )}
