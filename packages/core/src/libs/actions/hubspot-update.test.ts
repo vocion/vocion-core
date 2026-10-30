@@ -96,6 +96,11 @@ describe('done for you — the update records what it replaced, and undo puts it
     expect(out.previous).toEqual({ amount: '120000' });
   });
 
+  it('takes the plain names people say for standard deal properties as HubSpot\'s own', () => {
+    expect(parse({ objectType: 'deals', objectId: '4812', properties: { 'probability': '90', 'close date': '2026-12-01', 'amount': '80000' } }).properties)
+      .toEqual({ hs_deal_stage_probability: '90', closedate: '2026-12-01', amount: '80000' });
+  });
+
   it('writes a probability given as a percentage as the fraction HubSpot keeps', async () => {
     const f = vi.fn(async (_url: string, init?: RequestInit) => res(init?.method === 'PATCH' ? { id: '4812' } : { id: '4812', properties: {} }));
     vi.stubGlobal('fetch', f);
