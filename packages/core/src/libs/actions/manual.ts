@@ -255,6 +255,8 @@ export type ManualActionSpec<Extra extends Z.ZodRawShape = Record<never, never>>
   grant: string;
   /** Whether what it does can be put back with one step. Default false: hand-offs usually cannot. */
   reversible?: boolean;
+  /** A person approves every run, whatever the ladder says (`Action.approvalRequired`). */
+  approvalRequired?: boolean;
   /** Fields this kind adds to the shared hand-off input. */
   extend?: Extra;
   /** Labelled rows for the added fields, read off the validated input. */
@@ -290,6 +292,7 @@ export function manualAction<Extra extends Z.ZodRawShape = Record<never, never>>
     // A hand-off always reaches the outside world — that is why it is handed off.
     external: true,
     manual: { reversible },
+    ...(spec.approvalRequired ? { approvalRequired: true } : {}),
     // Two proposals about the same PR, deployment or change set are one card;
     // a proposal that names no record stands on its own.
     dedupKeyFor: (raw) => {

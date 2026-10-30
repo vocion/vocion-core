@@ -29,6 +29,15 @@
  *
  * Deliberately not configurable. Fails safe — it can only keep an item in the
  * review queue, never release it.
+ *
+ * AN ACTION THAT SAYS A PERSON DECIDES IS HELD THE SAME WAY (2026-10-30). An
+ * action declaring `approvalRequired` or `requiresReviewDecision` is never run
+ * by the ladder, at any rung, confidence or trust rule: the flag on the action
+ * is the one source of truth (`personDecidesEveryRun`), and this list is for
+ * the platform's own categories on top of it. Before this, `approvalRequired`
+ * only made a run wait for a decision, and a trust rule or a promoted rung
+ * could then make that decision itself — on a Google Ads budget, a journal
+ * entry or a batch of declines.
  */
 export const NEVER_AUTO_ACTION_IDS: ReadonlySet<string> = new Set([
   'gmail.send',
@@ -42,14 +51,25 @@ export const NEVER_AUTO_ACTION_IDS: ReadonlySet<string> = new Set([
 /** Grants that put an action on the never-auto list whatever its id. */
 export const NEVER_AUTO_GRANTS: ReadonlySet<string> = new Set(['send_email']);
 
+/** What the guard reads off an action: its id, grant and the two flags that say a person decides. */
+type NeverAutoFacts = { id: string; grant?: string; approvalRequired?: boolean; requiresReviewDecision?: boolean };
+
+/**
+ * Whether the action itself says a person decides every run an agent
+ * proposes: `approvalRequired`, or `requiresReviewDecision` (which also keeps
+ * chat intent from standing in for the card). No exception reaches these.
+ * @param action - The registered action.
+ */
+export function personDecidesEveryRun(action: Pick<NeverAutoFacts, 'approvalRequired' | 'requiresReviewDecision'>): boolean {
+  return action.approvalRequired === true || action.requiresReviewDecision === true;
+}
+
 /**
  * Whether the platform holds this action at Execute with approval regardless
- * of any trust rule or promotion.
- * @param action - The registered action's id and grant.
- * @param action.id
- * @param action.grant
- * @param action.requiresReviewDecision
+ * of any trust rule or promotion: the action says a person decides, or it is
+ * on the platform's list.
+ * @param action - The registered action's id, grant and flags.
  */
-export function isNeverAuto(action: { id: string; grant?: string; requiresReviewDecision?: boolean }): boolean {
-  return action.requiresReviewDecision === true || NEVER_AUTO_ACTION_IDS.has(action.id) || (action.grant !== undefined && NEVER_AUTO_GRANTS.has(action.grant));
+export function isNeverAuto(action: NeverAutoFacts): boolean {
+  return personDecidesEveryRun(action) || NEVER_AUTO_ACTION_IDS.has(action.id) || (action.grant !== undefined && NEVER_AUTO_GRANTS.has(action.grant));
 }

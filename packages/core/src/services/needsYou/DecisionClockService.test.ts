@@ -356,7 +356,8 @@ describe('at the deadline', () => {
 
     expect(r.held).toBe(2);
     expect(actions.executeAction).not.toHaveBeenCalled();
-    expect(await clockOf('proposal', release.id)).toMatchObject({ status: 'held', outcomeReason: expect.stringMatching(/cannot be undone|high-risk/) });
+    // A deploy release requires a person's approval (`approvalRequired`), so the platform holds it.
+    expect(await clockOf('proposal', release.id)).toMatchObject({ status: 'held', outcomeReason: expect.stringMatching(/held at approval by the platform/) });
     expect(await clockOf('proposal', send.id)).toMatchObject({ status: 'held', outcomeReason: expect.stringMatching(/held at approval by the platform/) });
   });
 

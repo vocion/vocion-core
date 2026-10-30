@@ -162,7 +162,7 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
   // priorities for them. Medium, beside the other two.
   'workspace.write_operating_intent': 'medium',
   // Pausing or resuming ad delivery moves real spend, and Undo puts it back.
-  // Medium: a person's call until a workspace's trust.yaml promotes it.
+  // A person's call every time (`approvalRequired` on the action).
   'ads.set_status': 'medium',
 };
 
@@ -272,7 +272,7 @@ export function evaluateEligibility(input: { rung: Rung; tier: RiskTier; evidenc
     return {
       nextRung: next,
       earned: false,
-      reason: 'Held at Execute with approval by the platform: this kind reaches a real person or publishes outside, and no rule can release it.',
+      reason: 'Held at Execute with approval by the platform: a person decides every run of this kind (it moves money, goes out, or cannot be undone), and no rule can release it.',
       gaps: [{ kind: 'never-auto', message: 'Never auto-executed, by design.' }],
     };
   }
