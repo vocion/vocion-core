@@ -140,7 +140,7 @@ The **Prompts** page lists them by client with Cited / Mentioned / Not mentioned
 
 A client is owed a number of new pages a month. A person sets it on the client's project, under "Publishing", next to the gate sizes: **New pages a month** (1 to 200; empty is none) and, optionally, the topic to find them **on** ("water heaters"). Stored as `seoCadence: { pagesPerMonth, focus }`, protected like `seoGate`.
 
-Every Monday at 7:00 in the workspace's zone (`when.timezone: workspace`), the plugin's **New page opportunities** automation (`seo-opportunities`, `do: { job: seo-opportunities }`) checks each project that has a cadence. It is plain code, no model (`services/seo/cadence.ts`):
+Every Monday at 7:00 in the workspace's zone (`when.timezone: workspace`), the plugin's **Propose new SEO pages for clients behind their monthly pace** automation (`seo-opportunities`, `do: { job: seo-opportunities }`) checks each project that has a cadence. It is plain code, no model (`services/seo/cadence.ts`):
 
 1. **What is due.** The month is owed its share by the end of the coming week, rounded up: `ceil(pagesPerMonth × min(daysInMonth, today + 6) / daysInMonth)`, the month and its days read in the workspace's zone. Eight a month is 2 by the first week of a 31-day month and all 8 by its last.
 2. **What is already there.** Pages planned this month (any status but rejected), plus pages planned earlier that are still in flight (proposed through changes requested).
