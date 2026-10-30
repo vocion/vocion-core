@@ -87,13 +87,13 @@ test('keyboard: / focuses search, arrows move, Enter opens', async () => {
   await expect(rows().nth(1)).toBeFocused();
 
   await page.keyboard.press('Enter');
-  await page.waitForURL(/\/dashboard\/scorecard/);
+  await page.waitForURL(/\/dashboard\/chat/);
 });
 
 test('tapping a row opens that workspace', async () => {
   await page.goto(PAGE);
   await rows().filter({ hasText: 'Kestrel Ops' }).tap();
-  await page.waitForURL(/\/dashboard\/scorecard/);
+  await page.waitForURL(/\/dashboard\/chat/);
   await page.goto('/dashboard/workspaces');
 
   await expect(rows().filter({ hasText: 'Kestrel Ops' }).getByTestId('workspace-row-current')).toBeVisible();
