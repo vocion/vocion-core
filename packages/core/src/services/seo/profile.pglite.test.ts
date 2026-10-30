@@ -1,7 +1,7 @@
 /**
  * Onboarding's SEO profile, end to end on PGlite: the tool reads the client's
  * home page and the site inventory, pre-fills the profile and puts ONE card
- * in front of the person — nothing is written until they save it. Their edit
+ * in front of the person. Sourced drafts persist separately before review. Their edit
  * on the card is what is saved; Undo puts back what was there; the bundle
  * every SEO seat reads prints it with what comes first; and no agent write
  * path can set it. Network is stubbed; every client and site is fictional.
@@ -55,14 +55,25 @@ beforeAll(async () => {
 type Emitted = { type: string; recommendation?: { actionId: string; input: Parameters<typeof seoSaveProfileAction.execute>[1] } };
 
 describe('onboarding\'s SEO profile', () => {
-  it('pre-fills ONE card from the home page, the inventory and the project, and writes nothing', async () => {
+  it('prepares a sourced draft automatically and asks for business goals rather than inventing them', async () => {
     const emitted: Emitted[] = [];
     const ctx = { orgId: ORG, userId: 'usr-mara', agentSlug: 'seo-strategist', emit: (e: Emitted) => emitted.push(e) } as unknown as RuntimeContext;
 
-    const out = String(await seoProposeProfileTool(ctx).invoke({ project_id: projectId, industry: 'Accounting software', audience: 'Owners of creative agencies', read_from: { audience: `${SITE}/about` } }));
+    const out = String(await seoProposeProfileTool(ctx).invoke({ project_id: projectId, industry: 'Accounting software', audience: 'Owners of creative agencies', read_from: { audience: `${SITE}/about`, industry: `${SITE}/about` } }));
 
-    expect(out).toMatch(/one card/);
-    expect(out).toMatch(/Still empty on the card: Tone/);
+    expect(out).toContain('What should SEO achieve for this client first');
+    expect(emitted).toHaveLength(0);
+
+    const prepared = (await getDataRoom(ORG, projectId))!.meta.seoProfileDraft!;
+
+    expect(prepared.profile.goals).toBeUndefined();
+    expect(prepared.profile.savedBy).toBeUndefined();
+    expect(prepared.preparedBy).toBe('seo-strategist');
+    expect(prepared.profile.audience).toBe('Owners of creative agencies');
+    expect(renderDataRoom((await getDataRoomDetail(ORG, projectId))!)).not.toContain('## SEO profile');
+    expect((await getDataRoom(ORG, projectId))!.meta.seoProfile).toBeUndefined();
+
+    await seoProposeProfileTool(ctx).invoke({ project_id: projectId, goals: ['organic_leads', 'ai_answers'], read_from: { goals: 'The person’s onboarding message' } });
 
     const cards = emitted.filter(e => e.type === 'recommended_action');
 
@@ -88,7 +99,7 @@ describe('onboarding\'s SEO profile', () => {
   it('saves what the person edited on the card, prints it in the bundle, and Undo puts back what was there', async () => {
     const emitted: Emitted[] = [];
     const ctx = { orgId: ORG, userId: 'usr-mara', agentSlug: 'seo-strategist', emit: (e: Emitted) => emitted.push(e) } as unknown as RuntimeContext;
-    await seoProposeProfileTool(ctx).invoke({ project_id: projectId });
+    await seoProposeProfileTool(ctx).invoke({ project_id: projectId, goals: ['organic_leads', 'ai_answers'], read_from: { goals: 'The person’s onboarding message' } });
     const input = emitted[0]!.recommendation!.input;
     const card = await seoSaveProfileAction.reviewCard!({ orgId: ORG } as never, input);
     const body = (card.content![0] as { body: string }).body.replace(/^Goals.*$/m, 'Goals, most important first: AI answers, Organic leads').replace(/^Tone: .*$/m, 'Tone: plain, direct');
@@ -100,6 +111,7 @@ describe('onboarding\'s SEO profile', () => {
     const saved = (await getDataRoom(ORG, projectId))!.meta.seoProfile!;
 
     expect(saved).toMatchObject({ clientType: 'b2b_saas', goals: ['ai_answers', 'organic_leads'], tone: 'plain, direct', savedBy: 'usr-mara' });
+    expect((await getDataRoom(ORG, projectId))!.meta.seoProfileDraft).toBeUndefined();
     expect(saved.savedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     const md = renderDataRoom((await getDataRoomDetail(ORG, projectId))!);
@@ -123,7 +135,7 @@ describe('onboarding\'s SEO profile', () => {
     await db.insert(trustRuleSchema).values({ orgId: ORG, actionId: 'seo.save_profile', threshold: 0, enabled: 'true' });
     await db.insert(autonomyPolicySchema).values({ orgId: ORG, actionId: 'seo.save_profile', rung: 'autonomous', riskTier: 'low', minConfidence: 0 });
     const emitted: Emitted[] = [];
-    await seoProposeProfileTool({ orgId: ORG, userId: 'usr-mara', agentSlug: 'seo-strategist', emit: (e: Emitted) => emitted.push(e) } as unknown as RuntimeContext).invoke({ project_id: projectId });
+    await seoProposeProfileTool({ orgId: ORG, userId: 'usr-mara', agentSlug: 'seo-strategist', emit: (e: Emitted) => emitted.push(e) } as unknown as RuntimeContext).invoke({ project_id: projectId, goals: ['organic_leads', 'ai_answers'], read_from: { goals: 'The person’s onboarding message' } });
     const rec = emitted[0]!.recommendation!;
 
     // Filed the way a chat turn files a recommendation, at full confidence, with the person's turn behind it.
@@ -139,7 +151,7 @@ describe('onboarding\'s SEO profile', () => {
 
   it('records who pressed Save, and refuses to run with no person behind it', async () => {
     const emitted: Emitted[] = [];
-    await seoProposeProfileTool({ orgId: ORG, userId: 'usr-mara', agentSlug: 'seo-strategist', emit: (e: Emitted) => emitted.push(e) } as unknown as RuntimeContext).invoke({ project_id: projectId });
+    await seoProposeProfileTool({ orgId: ORG, userId: 'usr-mara', agentSlug: 'seo-strategist', emit: (e: Emitted) => emitted.push(e) } as unknown as RuntimeContext).invoke({ project_id: projectId, goals: ['organic_leads', 'ai_answers'], read_from: { goals: 'The person’s onboarding message' } });
     const input = emitted[0]!.recommendation!.input;
 
     // An agent's decision, or a trust rule's, is never written under the person's name.
@@ -152,5 +164,45 @@ describe('onboarding\'s SEO profile', () => {
     await seoSaveProfileAction.execute({ orgId: ORG, reviewedBy: 'usr-dana' } as never, input);
 
     expect((await getDataRoom(ORG, projectId))!.meta.seoProfile?.savedBy).toBe('usr-dana');
+  });
+
+  it('does not repeat approval for an unchanged human-approved profile, and isolates sourced changes', async () => {
+    const before = (await getDataRoom(ORG, projectId))!.meta.seoProfile!;
+    const emitted: Emitted[] = [];
+    const ctx = { orgId: ORG, userId: 'usr-mara', agentSlug: 'seo-strategist', emit: (e: Emitted) => emitted.push(e) } as unknown as RuntimeContext;
+    const unchanged = String(await seoProposeProfileTool(ctx).invoke({ project_id: projectId }));
+
+    expect(unchanged).toContain('No new approval is needed');
+    expect(emitted).toHaveLength(0);
+
+    await seoProposeProfileTool(ctx).invoke({ project_id: projectId, goals: before.goals, read_from: { goals: 'The same approved priorities' } });
+
+    expect(emitted).toHaveLength(0);
+
+    await seoProposeProfileTool(ctx).invoke({ project_id: projectId, tone: 'precise', read_from: { tone: `${SITE}/voice` } });
+    const room = (await getDataRoom(ORG, projectId))!;
+
+    expect(room.meta.seoProfile).toEqual(before);
+    expect(room.meta.seoProfileDraft?.profile.tone).toBe('precise');
+    expect(room.meta.seoProfileDraft?.profile.savedBy).toBeUndefined();
+    expect(emitted).toHaveLength(1);
+  });
+
+  it('excludes unsourced agent additions and does not infer goals or mutate another workspace', async () => {
+    const fresh = (await createDataRoom(ORG, 'usr-mara', { title: 'Fresh Books', domains: ['fresh-books.example'] })).id;
+    const emitted: Emitted[] = [];
+    const ctx = { orgId: ORG, userId: 'usr-mara', agentSlug: 'seo-strategist', emit: (e: Emitted) => emitted.push(e) } as unknown as RuntimeContext;
+    await seoProposeProfileTool(ctx).invoke({ project_id: fresh, audience: 'Invented audience', goals: ['rankings'] });
+    const room = (await getDataRoom(ORG, fresh))!;
+
+    expect(room.meta.seoProfileDraft?.profile.audience).toBeUndefined();
+    expect(room.meta.seoProfileDraft?.profile.goals).toBeUndefined();
+    expect(room.meta.seoProfile).toBeUndefined();
+    expect(emitted).toHaveLength(0);
+
+    const denied = String(await seoProposeProfileTool({ ...ctx, orgId: 'other-workspace' }).invoke({ project_id: fresh }));
+
+    expect(denied).toContain('No project');
+    expect((await getDataRoom(ORG, fresh))!.meta.seoProfileDraft).toEqual(room.meta.seoProfileDraft);
   });
 });

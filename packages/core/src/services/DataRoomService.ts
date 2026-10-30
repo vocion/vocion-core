@@ -323,6 +323,8 @@ export type RoomMeta = {
    * on the onboarding card (`seo.save_profile`). No agent write takes it.
    */
   seoProfile?: SeoProfile;
+  /** Sourced preparation only; never used as the approved profile or business strategy. */
+  seoProfileDraft?: { profile: SeoProfile; preparedAt: string; preparedBy: string };
   /** How the client writes, each line sourced. Printed at the top of the bundle. */
   voice?: ClientVoice;
   /** The latest site inventory filed on the project. */
@@ -861,6 +863,8 @@ export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & 
   seoCadence?: SeoCadence | null;
   /** The client's SEO profile, saved by a person (the project page, or the card they approved). Null clears it. */
   seoProfile?: SeoProfile | null;
+  /** Agent-prepared draft, isolated from the person-approved profile. Null clears it. */
+  seoProfileDraft?: { profile: SeoProfile; preparedAt: string; preparedBy: string } | null;
   /** The Search Console property a person picked for this project, in chat or on the page; null clears it. */
   searchConsoleProperty?: { siteUrl: string; setAt: string; setBy: string | null } | null;
   publishTargets?: StoredPublishTarget[] | null;
@@ -981,7 +985,18 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
       meta.seoCadence = patch.seoCadence;
     }
   }
+  if (patch.seoProfileDraft !== undefined) {
+    if (patch.seoProfileDraft === null) {
+      delete meta.seoProfileDraft;
+    } else {
+      const profile = cleanSeoProfile(patch.seoProfileDraft.profile);
+      delete profile.savedAt;
+      delete profile.savedBy;
+      meta.seoProfileDraft = { ...patch.seoProfileDraft, profile };
+    }
+  }
   if (patch.seoProfile !== undefined) {
+    delete meta.seoProfileDraft;
     if (patch.seoProfile === null) {
       delete meta.seoProfile;
     } else {
