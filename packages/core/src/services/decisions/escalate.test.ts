@@ -147,6 +147,12 @@ describe('an unclear instruction, several paths, a setup step', () => {
     ]);
   });
 
+  it('a connect card raised at a publish step carries the Project it is about onto the Decision', async () => {
+    const d = decisionOf(await escalate({ type: 'card', card: { id: 'card_p', kind: 'link', title: 'Connect GitHub', actions: [], source: {}, href: '/api/connect/github/start?connector=github', hrefLabel: 'Log in with GitHub', about: [{ type: 'data_room', id: '12' }], state: 'proposed' } }, turn));
+
+    expect(d!.refs).toEqual([expect.objectContaining({ type: 'data_room', id: '12' })]);
+  });
+
   it('a recommendation with nothing to press, or a card it does not know, is no Decision', async () => {
     expect(await escalate({ type: 'recommended_action', recommendation: { actionId: '', input: {}, label: 'Talk to Pat' } }, turn)).toEqual([]);
     expect(await escalate({ type: 'card', card: { id: 'c', kind: 'record', title: 'Request #4', actions: [], source: {}, state: 'proposed' } }, turn)).toEqual([]);

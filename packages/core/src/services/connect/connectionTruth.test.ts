@@ -80,3 +80,14 @@ describe('the live state on the turn (2026-10-29)', () => {
     expect(connectionFloor({ level: 'deep', reason: 'big' }, true)).toMatchObject({ level: 'deep' });
   });
 });
+
+describe('a GitHub install waiting on an owner', () => {
+  it('reads as requested and waiting, never as connected or failed, and is not asked again', () => {
+    const now = new Date('2026-10-29T15:00:00Z');
+    const note = connectionTruthNote([{ connector: 'github', name: 'GitHub', connected: false, askedAt: new Date(now.getTime() - 600_000), attempt: { ok: false, at: new Date(now.getTime() - 120_000), reason: 'installation_requested', summary: 'Install requested: waiting for an owner of northwind-co to approve it' } }], { claimed: false, now });
+
+    expect(note).toContain('GitHub (github): NOT connected. Install requested: waiting for an owner of northwind-co to approve it (requested 2 minutes ago)');
+    expect(note).toContain('Do not ask again');
+    expect(note).not.toContain('failed');
+  });
+});

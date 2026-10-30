@@ -158,6 +158,8 @@ export type SeoPageMeta = {
   feedback?: SeoFeedback[];
   publishTargetId?: string;
   publishedUrl?: string;
+  /** When the page was confirmed live (a merge, a read-back), ISO: "pages live this month" counts by it. */
+  publishedAt?: string;
   pullRequestUrl?: string;
   /** Stamped from the project's gate on every write: the batch's line, and whether this page is released now. */
   batchLine?: string;

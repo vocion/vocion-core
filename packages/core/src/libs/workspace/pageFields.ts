@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseTopic } from '@/libs/live/topics';
 import { recordName } from './recordName';
+import { FilterSchema, filtersOf, WhereSchema } from './rowFilter';
 import { MeasureSourceSchema } from './schemas';
 
 /**
@@ -295,31 +296,6 @@ const LiveSchema = z.object({
 
 /** How often a followed page re-reads while the live stream is down, when it names no interval. */
 export const LIVE_FALLBACK_EVERY_S = 15;
-
-/**
- * `since` keeps the rows whose date field is on or after the start of a
- * window that ends now: `month` (this calendar month), `week` (this week,
- * Monday first), `today`, or `<n>d` (the last n days). UTC throughout, so a
- * stat reads the same from every desk.
- */
-const SinceValueSchema = z.string().regex(/^(month|week|today|\d+d)$/, { message: 'since takes month, week, today or <n>d' });
-
-const FilterSchema = z.object({
-  field: z.string(),
-  op: z.enum(['eq', 'neq', 'gte', 'lte', 'in', 'exists', 'missing', 'since']),
-  value: z.union([z.string(), z.number(), z.boolean(), z.array(z.union([z.string(), z.number()]))]).optional(),
-}).refine(f => f.op !== 'since' || SinceValueSchema.safeParse(f.value).success, { message: 'since takes month, week, today or <n>d', path: ['value'] });
-
-/** One filter, or every one of several that a row must pass. */
-const WhereSchema = z.union([FilterSchema, z.array(FilterSchema).min(1)]);
-
-/**
- * `where: {…}` and `where: [{…}, {…}]` both read as a list of filters.
- * @param where - One filter, several, or none.
- */
-export function filtersOf(where: z.infer<typeof WhereSchema> | undefined): z.infer<typeof FilterSchema>[] {
-  return where === undefined ? [] : Array.isArray(where) ? where : [where];
-}
 
 const StatSchema = z.object({
   label: z.string(),

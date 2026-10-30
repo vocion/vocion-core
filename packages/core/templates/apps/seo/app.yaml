@@ -14,3 +14,83 @@ description: Pages that rank, researched against Google's top results, written i
 plugins: [seo]
 entry: /dashboard/p/seo
 nav: [SEO]
+# Where the app opens: a greeting, the ask bar to the strategist, what to
+# start, what waits on you, and how each client stands (AppHomeSchema,
+# docs/entities/app-manifest.md).
+home:
+  launch:
+    - title: Onboard a client
+      description: Read a client's website and set up their project, voice and SEO profile on one card.
+      icon: user-plus
+      prompt: 'Onboard a new client from their website: '
+      first: true
+      firstTitle: Onboard your first client
+    - title: Audit a site
+      description: Check a client's site and get a report with what to fix first.
+      icon: list-checks
+      ask: Audit a client's site. First ask me which client (an existing one, or a new client to onboard from their website), then run the audit and give me the report and the recommended next steps.
+    - title: Find keywords
+      description: Research what a client's buyers search for and who ranks for it today.
+      icon: tags
+      ask: Find keywords for a client. First ask me which client and the topic, then research what ranks and keep what is worth a page in their keywords.
+    - title: Plan pages
+      description: Turn a client's best keywords into a batch of pages for your sign-off.
+      icon: layers
+      ask: Plan a batch of SEO pages for a client. First ask me which client (an existing one, or a new client to onboard from their website), then the topic, then research what ranks before proposing the pages.
+    - title: Track AI prompts
+      description: The questions buyers ask AI assistants, and whether the client is named in the answers.
+      icon: radar
+      prompt: 'Track the AI prompts buyers ask about this client: '
+      accepts: [.csv]
+    - title: Publish
+      description: Pages you signed off, ready to go to each client's site.
+      icon: send
+      href: /dashboard/p/seo-pages?status=approved
+  projects:
+    # A client whose SEO profile is set uses the app before it has any records.
+    include: {field: meta.seoProfile, op: exists}
+    measures:
+      - key: goal
+        label: Strategy goal
+        source: records
+        objectType: seo_strategy
+        stat: latest
+        field: meta.progressLine
+        date: meta.updatedAt
+        href: /dashboard/objects/{id}
+      - key: live
+        label: Pages live this month
+        source: records
+        objectType: seo_page
+        where: [{field: meta.status, op: eq, value: published}, {field: meta.publishedAt, op: since, value: month}]
+        date: meta.publishedAt
+        target: meta.seoCadence.pagesPerMonth
+        href: /dashboard/p/seo-pages?project={projectId}&status=published
+      - key: findings
+        label: Open audit findings
+        source: records
+        objectType: seo_audit
+        stat: latest
+        field: meta.openCount
+        date: meta.checkedAt
+        breakdown:
+          - {label: High, field: meta.counts.bySeverity.high}
+          - {label: Medium, field: meta.counts.bySeverity.medium}
+          - {label: Low, field: meta.counts.bySeverity.low}
+        href: /dashboard/objects/{id}
+      - key: ranking
+        label: Keywords ranking
+        source: records
+        objectType: seo_keyword
+        where: {field: meta.status, op: eq, value: ranking}
+        date: meta.checkedAt
+        of: {field: meta.status, op: neq, value: dropped}
+        href: /dashboard/p/seo-keywords?project={projectId}&status=ranking
+      - key: prompts
+        label: Prompts naming the client
+        source: records
+        objectType: seo_prompt
+        where: {field: meta.visibility, op: in, value: [mentioned, cited]}
+        date: meta.checkedAt
+        of: {field: meta.status, op: neq, value: dropped}
+        href: /dashboard/p/seo-prompts?project={projectId}

@@ -471,6 +471,15 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   description: string;
   /** Native connector kinds this action can execute against; MCP uses its own declared actions. */
   sourceKinds?: readonly string[];
+  /**
+   * The systems this action is the step that needs connected (`github` for a
+   * page published as a pull request). A connect card for one of them is in
+   * order when this action could not run for want of it; a system a plugin
+   * names `publishOnly` is asked for at no other step
+   * (`services/connect/connectAskGate.ts`). Unlike `sourceKinds`, it never
+   * hides the action.
+   */
+  connects?: readonly string[];
   /** Validates the action input at propose-time. */
   inputSchema: S;
   /** authz action grant required to run it, e.g. `send_email`. */
@@ -482,7 +491,13 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * for internal work. A person invoking it themselves (a tap, their own
    * token) is that approval and runs. For a kind whose run costs something
    * Undo cannot give back, such as `source.connect`, whose save starts
-   * reading a vendor's data at once.
+   * reading a vendor's data at once, and for anything that moves money,
+   * changes books or ad spend, or reaches people outside.
+   *
+   * A person decides, always: the trust ladder never runs it at any rung,
+   * trust rule or confidence, a decision clock never applies its default,
+   * "Always allow" is never offered, and execution refuses a run a machine
+   * approved (`libs/actions/neverAuto.ts`, `ActionService.executeAction`).
    */
   approvalRequired?: boolean;
   /** Chat intent cannot substitute for an explicit human Review decision. */

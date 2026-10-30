@@ -942,7 +942,16 @@ export function seoLearnFrontmatterTool(ctx: RuntimeContext) {
       const { getDataRoom } = await import('@/services/DataRoomService');
       const targets = ((await getDataRoom(ctx.orgId, projectId))?.meta.publishTargets ?? []) as Array<{ id: string; kind: string }>;
       const named = target_id ? targets.find(t => t.id === target_id) : !repo && targets.length === 1 ? targets[0] : undefined;
-      const out = webflow_site || named?.kind === 'webflow'
+      const webflow = Boolean(webflow_site) || named?.kind === 'webflow';
+      // THE REPO PICKER: no repository named and none on the project — ask
+      // which of the connection's repositories is the client's site.
+      if (!webflow && !repo?.trim() && !target_id) {
+        const picked = await askWhichRepo(ctx, projectId);
+        if (picked) {
+          return picked;
+        }
+      }
+      const out = webflow
         ? await (await import('@/services/publish/learnWebflow')).suggestWebflowTarget(ctx.orgId, projectId, { targetId: named?.kind === 'webflow' ? named.id : undefined, site: webflow_site, collection, by })
         : await (await import('@/services/publish/learnTemplate')).suggestPublishTarget(ctx.orgId, projectId, { targetId: target_id, repo, folder, baseBranch: base_branch, by });
       return out.ok
@@ -955,7 +964,7 @@ export function seoLearnFrontmatterTool(ctx: RuntimeContext) {
       schema: z.object({
         project_id: recordIdArg('The project'),
         target_id: z.string().max(64).optional().describe('The project\'s GitHub target to learn for, when it has one.'),
-        repo: z.string().max(200).optional().describe('owner/name, when the project has no GitHub target yet.'),
+        repo: z.string().max(200).optional().describe('owner/name, when the project has no GitHub target yet. Left out, the person is asked which connected repo is the client\'s site.'),
         folder: z.string().max(300).optional().describe('The folder the site\'s posts are in, e.g. src/content/blog.'),
         base_branch: z.string().max(200).optional(),
         webflow_site: z.string().max(200).optional().describe('A Webflow site: its address or webflow.io name.'),
@@ -963,6 +972,46 @@ export function seoLearnFrontmatterTool(ctx: RuntimeContext) {
       }),
     },
   );
+}
+
+/**
+ * Ask "Which repo is <client>'s site?" with the GitHub connection's
+ * repositories as options, when the project has no GitHub target. Null when
+ * it has one (learning reads it), or there is nobody here to ask.
+ * @param ctx - The turn.
+ * @param projectId - The project.
+ */
+async function askWhichRepo(ctx: RuntimeContext, projectId: number): Promise<string | null> {
+  const { getDataRoom } = await import('@/services/DataRoomService');
+  const project = await getDataRoom(ctx.orgId, projectId);
+  if (!project || (project.meta.publishTargets ?? []).some(t => t.kind === 'github')) {
+    return null;
+  }
+  const { connectedGithubRepos, repoPickerAsk } = await (await import('@/libs/connectAskBridge')).connectAsk();
+  // The repos this Project's work may use: the workspace's GitHub and its own (#1505).
+  const repos = await connectedGithubRepos(ctx.orgId, projectId);
+  if (repos.length === 0) {
+    return 'Not learned: no GitHub repository is connected. GitHub is asked for at the publish step, never before; leave Publishing for then and carry on.';
+  }
+  if (!ctx.conversationId || !ctx.userId || ctx.userId.startsWith('token:')) {
+    return `Not learned: name the repository. The GitHub connection covers ${repos.slice(0, 20).join(', ')}.`;
+  }
+  const { raiseDecision } = await import('@/services/decisions/DecisionService');
+  const ask = repoPickerAsk(project.title, repos);
+  const { view } = await raiseDecision({
+    orgId: ctx.orgId,
+    conversationId: ctx.conversationId,
+    ownerUserId: ctx.userId,
+    agentSlug: ctx.agentSlug ?? null,
+    kind: 'input',
+    question: ask.question,
+    body: ask.body,
+    options: ask.options,
+    allowOther: true,
+    objectRefs: [{ type: 'data_room', id: String(projectId) }],
+  });
+  ctx.emit({ type: 'decision', decision: view });
+  return `Asked which repo is ${project.title}'s site (decision #${view.id}, ${ask.options.length} repositories from the GitHub connection). Your turn ends here. When they answer, call seo_learn_frontmatter with project_id ${projectId} and that repo; the target it learns waits under Publishing for a person to apply.`;
 }
 
 export function seoTools(ctx: RuntimeContext) {

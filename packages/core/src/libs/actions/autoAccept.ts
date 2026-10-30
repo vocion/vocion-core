@@ -78,7 +78,7 @@ const pct = (n: number) => `${Math.round(n * 100)}%`;
  */
 export function decideExecution(f: ExecutionFacts): ExecutionDecision {
   if (f.neverAuto) {
-    return { mode: 'ask', reason: 'held at approval by the platform: this reaches a real person or publishes outside', threshold: null, source: 'never-auto' };
+    return { mode: 'ask', reason: 'held at approval by the platform: a person decides every run of this kind', threshold: null, source: 'never-auto' };
   }
   if (f.suggestedDecision === 'reject' || f.suggestedDecision === 'snooze') {
     return { mode: 'ask', reason: `the agent itself advised "${f.suggestedDecision}"`, threshold: null, source: 'advice' };

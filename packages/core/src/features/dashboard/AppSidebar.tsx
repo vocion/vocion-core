@@ -10,7 +10,7 @@ import type { AppNav } from '@/features/navigation/apps';
 import type { DashboardRoute } from '@/features/navigation/dashboardNav';
 import type { PluginNav } from '@/features/navigation/pluginNav';
 import type { SurfaceId } from '@/features/navigation/surfaces';
-import { ArrowLeft, FileText, PanelsTopLeft, Settings2 } from 'lucide-react';
+import { ArrowLeft, FileText, House, PanelsTopLeft, Settings2 } from 'lucide-react';
 import { SessionContext } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
@@ -30,7 +30,7 @@ import { appsLine } from '@/features/dashboard/nav/pickerModel';
 import { PinnableNav } from '@/features/dashboard/nav/PinnableNav';
 import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
 import { useWorkspaceDirectory } from '@/features/dashboard/nav/useWorkspaceDirectory';
-import { announcePlace, placeIn, rememberPlace } from '@/features/dashboard/nav/workspaceMemory';
+import { announcePlace, appPlacesIn, placeIn, rememberAppPlace, rememberPlace } from '@/features/dashboard/nav/workspaceMemory';
 import { WORKSPACE_HOME } from '@/features/dashboard/nav/workspaceSwitch';
 import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { SETUP_CHANGED_EVENT } from '@/features/dashboard/setupChanged';
@@ -170,7 +170,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   // Restore the persisted view after mount (SSR renders the default).
   useEffect(() => {
     if (readNavView(globalThis.localStorage) === 'manage') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- pre-existing SSR-safe restore; hydration must render the default first
+      // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect -- pre-existing SSR-safe restore; hydration must render the default first
       setView('manage');
     }
   }, []);
@@ -203,11 +203,30 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   useEffect(() => {
     const stored = placeIn(globalThis.localStorage, slug)?.app;
     if (stored) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- SSR-safe restore, the same as the view above
+      // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect -- SSR-safe restore, the same as the view above
       setLastApp(current => current ?? stored);
     }
   }, [slug]);
-  const railApps = useMemo<RailApp[]>(() => apps.map(({ sections: _sections, owns: _owns, ...app }) => app), [apps]);
+  // Each app opens where the person left it in this workspace, and on its
+  // home (`app.yaml` `home:`) the first time (`nav/workspaceMemory.ts`).
+  // Read after mount: the server draws each app's own landing.
+  const [appPlaces, setAppPlaces] = useState<Record<string, string>>({});
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect -- SSR-safe restore, the same as the view above
+    setAppPlaces(appPlacesIn(globalThis.localStorage, slug));
+  }, [slug]);
+  useEffect(() => {
+    const owner = appOwningPath(pathname, apps);
+    if (slug && owner) {
+      rememberAppPlace(globalThis.localStorage, slug, owner, pathname);
+      // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect -- mirrors storage for the rail's links
+      setAppPlaces(current => (current[owner] === pathname ? current : { ...current, [owner]: pathname }));
+    }
+  }, [slug, pathname, apps]);
+  const railApps = useMemo<RailApp[]>(() => apps.map(({ sections: _sections, owns: _owns, home: _home, ...app }) => {
+    const left = appPlaces[app.id];
+    return left && appOwningPath(left, apps) === app.id ? { ...app, href: left } : app;
+  }), [apps, appPlaces]);
   const coreAppNav = apps.find(a => a.core);
   const activeAppId = resolveActiveApp({ pathname, apps, remembered: lastApp });
   const activeApp = railApps.find(a => a.id === activeAppId);
@@ -416,7 +435,12 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     <>
       {activeAppNav && (
         <>
-          <AppSidebarNav items={workCore.map(i => ({ title: i.title, url: i.url, icon: i.icon, badge: i.badge }))} />
+          {/* Home first when the app has one (`app.yaml` `home:`), then Chat and Review. */}
+          <AppSidebarNav items={[
+            ...(activeAppNav.home ? [{ title: t('app_home'), url: activeAppNav.home, icon: House }] : []),
+            ...workCore.map(i => ({ title: i.title, url: i.url, icon: i.icon, badge: i.badge })),
+          ]}
+          />
           {activeAppNav.sections.map(section => (
             <AppSidebarNav
               key={`app:${section.label}`}

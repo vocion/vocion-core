@@ -474,7 +474,7 @@ export async function settlePull(follow: PullFollow): Promise<{ done: boolean; l
   if (res.data.merged) {
     const at = res.data.merged_at ?? new Date().toISOString();
     const line = `Merged ${follow.url.replace('https://github.com/', '')}: the page is on the site's main branch.`;
-    await recordOnPage(follow.orgId, follow.pageRecordId, { status: 'published', publishing: { kind: 'github', url: follow.url, mergedAt: at, note: line } });
+    await recordOnPage(follow.orgId, follow.pageRecordId, { status: 'published', publishedAt: at, publishing: { kind: 'github', url: follow.url, mergedAt: at, note: line } });
     await markRunLive(follow.orgId, follow.actionRunId, { at, url: follow.url, how: 'merged' });
     return { done: true, line };
   }
@@ -519,9 +519,19 @@ async function githubPreflightInScope(orgId: string, plan: PublishPlan): Promise
   const repo = plan.target.config.repo;
   let base = plan.target.config.baseBranch ?? '';
   let exists: boolean | null = null;
+  // THE PUBLISH STEP SAYS WHAT IT NEEDS: no GitHub connection reaching the
+  // repository is the one reason here to ask for GitHub (`connectAskGate.ts`).
+  let gh: Awaited<ReturnType<typeof ghFor>>;
+  try {
+    gh = await ghFor(orgId, repo);
+  } catch (error) {
+    if (/no GitHub connection/i.test((error as Error).message)) {
+      return { file, branch, base: base || 'the default branch', exists, why: `GitHub is not connected for ${repo}, so this page cannot be published yet: the workspace's GitHub connection does not reach ${repo}.` };
+    }
+    return { file, branch, base: base || 'the default branch', exists };
+  }
   try {
     base ||= await defaultBranch(orgId, repo);
-    const gh = await ghFor(orgId, repo);
     const res = await call<unknown>(gh, `/contents/${file.path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(base)}`);
     exists = res.ok ? true : res.status === 404 ? false : null;
   } catch {
@@ -817,7 +827,7 @@ export async function settlePublishRun(input: SettleInput): Promise<{ done: bool
     const line = input.phase === 'live'
       ? `"${input.title}" is live at ${live.url}.`
       : `"${input.title}" is live at ${live.url}: it went live during the draft run, which was told only to save a draft.`;
-    await recordOnPage(input.orgId, input.pageRecordId, { status: 'published', publishedUrl: live.url, publishing: { kind: 'squarespace', phase: input.phase, ...runRef, readBackAt: at, note: line } });
+    await recordOnPage(input.orgId, input.pageRecordId, { status: 'published', publishedUrl: live.url, publishedAt: at, publishing: { kind: 'squarespace', phase: input.phase, ...runRef, readBackAt: at, note: line } });
     await markRunLive(input.orgId, input.actionRunId, { at, url: live.url, how: 'read-back' });
     return { done: true, line };
   }

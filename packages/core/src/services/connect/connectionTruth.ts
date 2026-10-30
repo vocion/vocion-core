@@ -30,7 +30,7 @@ export type LiveConnection = {
   name: string;
   connected: boolean;
   /** The newest sign-in that came back to this deployment, good or bad; null when none ever did. */
-  attempt: { ok: boolean; at: Date; summary: string | null } | null;
+  attempt: { ok: boolean; at: Date; summary: string | null; reason?: string | null } | null;
   /** When this conversation last asked them to connect it. */
   askedAt: Date | null;
 };
@@ -130,6 +130,10 @@ export function connectionLine(c: LiveConnection, now: Date = new Date()): strin
  */
 function whyNot(c: LiveConnection, now: Date): string {
   const sinceAsked = c.attempt && (!c.askedAt || c.attempt.at.getTime() >= c.askedAt.getTime() - 60_000);
+  // A GitHub install sent to an owner for approval: waiting, not failed (`githubInstall.ts`).
+  if (c.attempt && !c.attempt.ok && c.attempt.reason === 'installation_requested') {
+    return `${(c.attempt.summary ?? 'Install requested: waiting for an owner of the organization to approve it').trim().replace(/\.$/, '')} (requested ${ago(c.attempt.at, now)}). Not connected until an owner approves; then they connect again here. Do not ask again.`;
+  }
   if (c.attempt && sinceAsked && !c.attempt.ok) {
     return `The last sign-in failed ${ago(c.attempt.at, now)}${c.attempt.summary ? `: ${c.attempt.summary.trim().replace(/\.$/, '')}` : ''}.`;
   }
@@ -209,7 +213,7 @@ export async function liveConnections(orgId: string, asked: ReadonlyMap<string, 
       connector,
       name: getConnector(connector)?.name ?? connector,
       connected: await connectorHasLiveSource(orgId, connector),
-      attempt: attempt ? { ok: attempt.ok, at: attempt.at, summary: attempt.summary } : null,
+      attempt: attempt ? { ok: attempt.ok, at: attempt.at, summary: attempt.summary, reason: attempt.reason } : null,
       askedAt,
     };
   }));

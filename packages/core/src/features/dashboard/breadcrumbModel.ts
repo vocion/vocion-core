@@ -42,6 +42,13 @@ export function buildCrumbs(input: { pathname: string; docTitle: string; workspa
     return null;
   }
 
+  // An app's home (`/dashboard/apps/<app>/home`) is the app itself: one
+  // crumb, its name, never "Apps › Seo › SEO" with the id read as a word.
+  if (segments.length === 3 && segments[0] === 'apps' && segments[2] === 'home') {
+    const app = [{ url: `/dashboard/${segments.join('/')}`, label: input.docTitle || humanizeSegment(segments[1] ?? '') }];
+    return input.workspaceName ? [{ url: '/dashboard', label: input.workspaceName }, ...app] : app;
+  }
+
   const sectionTitle = humanizeSegment(segments[0] ?? '');
   const pageCrumbs: Crumb[] = [];
   segments.forEach((seg, i) => {

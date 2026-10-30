@@ -181,7 +181,7 @@ async function acceptDialog(dialog: Dialog): Promise<void> {
   await dialog.accept();
 }
 
-test('GitHub from the Connectors page: log in, the credential field is filled and masked, name the repository, save once', async ({ page }) => {
+test('GitHub from the Connectors page: the install makes the connection agents read, from the repositories it was granted', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
   await openConnect(page, 'GitHub');
@@ -197,23 +197,13 @@ test('GitHub from the Connectors page: log in, the credential field is filled an
 
   await page.getByRole('link', { name: 'Log in with GitHub' }).click();
 
+  // The install's repositories (northwind/portal) became the source in the
+  // callback (`services/connect/githubInstall.ts`), so the add form has
+  // nothing left to ask and does not reopen.
   await expect.poll(() => requested(/\/dashboard\/connectors\?.*connect=ok/)).toBe(true);
-
-  // The scripted GitHub login is an app installation: no token string to show, so the field says whose it is.
-  await expect(page.getByTestId('connect-stored-text')).toHaveText(/^GitHub App installation · northwind/);
-  await expect(page.getByRole('button', { name: 'Show', exact: true })).toHaveCount(0);
-
-  await page.getByLabel(/repositor/i).fill('northwind/portal');
-  // Saving asks for the new source's schedule and first sync, and says whether they started. This
-  // server runs no job executor (no VOCION_SCHEDULE_OWNER), so its scheduler has no tables and the
-  // answer is "failed": the save must still succeed, and the page must say to press Sync now.
-  const saveResponse = page.waitForResponse(response => response.request().method() === 'POST' && /\/rpc\/connect\/addConnector/.test(response.url()));
-  await page.locator('form').getByRole('button', { name: 'Connect', exact: true }).click();
-
-  expect(JSON.stringify(await (await saveResponse).json())).toMatch(/"ok":true,"sourceId":\d+,"firstSync":"failed"/);
-  await expect(page.getByText('Saved, but its first sync could not start. Press Sync now on its row to try again.')).toBeVisible();
-
   await expect.poll(() => listedConnectors(page)).toContain('github');
+
+  expect(requested(/\/dashboard\/connectors\?add=github.*connect=ok/)).toBe(false);
 
   await page.goto('/dashboard/developers');
 

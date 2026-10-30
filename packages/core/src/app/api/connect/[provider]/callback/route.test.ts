@@ -26,11 +26,18 @@ vi.mock('@/libs/connect/registry', () => {
     exchange: (input: unknown) => exchange(input),
     missingAccessFor: () => missingAccessFor(),
   };
+  const github = { ...slack, id: 'github', connectorSlugs: ['github'], label: 'GitHub' };
   return {
-    providerFor: (id: string) => (id === 'slack' ? slack : null),
-    providerForConnector: (slug: string) => (slug === 'slack' ? slack : null),
+    providerFor: (id: string) => (id === 'slack' ? slack : id === 'github' ? github : null),
+    providerForConnector: (slug: string) => (slug === 'slack' ? slack : slug === 'github' ? github : null),
   };
 });
+vi.mock('@/services/connect/githubInstall', () => ({
+  finishGithubInstall: vi.fn(async () => ({ sourceSaved: true, uncovered: [] })),
+  requestedOrg: vi.fn(async () => 'northwind-co'),
+  requestedSummary: (org: string | null) => `Install requested: waiting for an owner of ${org ?? 'the GitHub organization'} to approve it`,
+  noteRequestOnAsk: vi.fn(async () => undefined),
+}));
 
 const { clerkAuth } = await import('@/libs/Auth');
 const { findSourceBySlug } = await import('@/libs/connect/sources');
@@ -40,6 +47,7 @@ const { createSourceWhenNoConfigNeeded } = await import('@/services/connect/crea
 const { loginClientForCallback } = await import('@/libs/connect/loginClient');
 const { TokenRequestError } = await import('@/libs/connect/tokenRequest');
 const { ownPersonalWorkspace, personalConnectGate } = await import('@/services/personal/connections');
+const { finishGithubInstall, noteRequestOnAsk, requestedOrg } = await import('@/services/connect/githubInstall');
 const { GET } = await import('./route');
 
 const admin = {
@@ -357,6 +365,38 @@ describe('GET /api/connect/[provider]/callback', () => {
     const res = await GET(request(), context());
 
     expect(landing(res)).toEqual({ path: '/dashboard/connectors', add: 'github', connect: 'ok', connector: 'github' });
+  });
+});
+
+describe('GET /api/connect/github/callback — the install is finished, or waits on an owner', () => {
+  const githubState = { ...payload, provider: 'github', sourceSlug: undefined, connectorSlug: 'github', conversationId: 7, cardId: 'card_1', returnTo: '/dashboard/chat?conversation=7' };
+  const installed = { installationId: '501', account: 'example-agency', accountType: 'Organization', repositorySelection: 'selected', repositories: ['example-agency/handbook'], permissions: {} };
+
+  it('a finished install makes the connection agents read, from its repositories, and checks the projects against it', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: githubState });
+    exchange.mockResolvedValue({ ok: true, credentials: installed, displayName: 'GitHub — example-agency' });
+    vi.mocked(completeLogin).mockResolvedValue({ ok: true, tokenId: 'tok_9', linkedSourceIds: [] });
+
+    const res = await GET(request('?installation_id=501&setup_action=install&code=c0de&state=signed.state'), context('github'));
+
+    expect(finishGithubInstall).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org_1', userId: 'user_1', conversationId: 7, credentials: expect.objectContaining({ repositories: ['example-agency/handbook'] }) }));
+    expect(vi.mocked(finishGithubInstall).mock.calls[0]![0].startHref).toMatch(/^\/api\/connect\/github\/start\?connector=github/);
+    expect(createSourceWhenNoConfigNeeded).not.toHaveBeenCalled();
+    expect(landing(res)).toMatchObject({ path: '/dashboard/chat', conversation: '7', connect: 'ok', connector: 'github' });
+  });
+
+  it('a request sent to an owner is recorded as waiting on that owner, on the attempt and on the card — never as connected', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: githubState });
+    exchange.mockResolvedValue({ ok: false, reason: 'installation_requested' });
+
+    const res = await GET(request('?setup_action=request&state=signed.state'), context('github'));
+
+    expect(requestedOrg).toHaveBeenCalledWith('org_1', 7);
+    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ reason: 'installation_requested', summary: 'Install requested: waiting for an owner of northwind-co to approve it' }));
+    expect(noteRequestOnAsk).toHaveBeenCalledWith('org_1', 7, 'Install requested: waiting for an owner of northwind-co to approve it');
+    expect(completeLogin).not.toHaveBeenCalled();
+    expect(finishGithubInstall).not.toHaveBeenCalled();
+    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'installation_requested', connector: 'github' });
   });
 });
 

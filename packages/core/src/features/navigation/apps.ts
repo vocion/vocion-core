@@ -27,7 +27,7 @@ import { PLUGIN_NAV_WORKSPACE } from './pluginNav';
 import { SURFACES } from './surfaces';
 
 /** What an app needs to be resolved — the manifest, minus the prose. */
-export type AppDefinition = Pick<AppManifest, 'id' | 'name' | 'icon' | 'order' | 'core' | 'hidden' | 'plugins' | 'surfaces' | 'entry' | 'nav'> & Partial<Pick<AppManifest, 'tint' | 'shortName'>>;
+export type AppDefinition = Pick<AppManifest, 'id' | 'name' | 'icon' | 'order' | 'core' | 'hidden' | 'plugins' | 'surfaces' | 'entry' | 'nav'> & Partial<Pick<AppManifest, 'tint' | 'shortName' | 'home'>>;
 
 /** What the rail draws for one app, and where it opens in a workspace that has it. */
 export type AppSummary = { id: string; name: string; shortName?: string; icon: string; order: number; core: boolean; entry: string; tint: Tint };
@@ -46,6 +46,8 @@ export type AppNav = AppSummary & {
   sections: Array<{ label: string; items: AppNavItem[] }>;
   /** URL prefixes that belong to this app — a page under one of them is "in" the app. */
   owns: string[];
+  /** The app's home (`app.yaml` `home:`), its first nav row, when it declares one. */
+  home?: string;
 };
 
 /** A workspace the person can open, with what is on there. */
@@ -53,6 +55,29 @@ export type AccessibleWorkspace = AppWorkspace & { enabledPlugins: readonly stri
 
 /** A workspace page as the shell lists it (`libs/workspace/pages.ts`). */
 export type NavPageInput = { title: string; url: string; section: string; secondary?: boolean; order?: number; icon?: string; home?: boolean };
+
+/**
+ * The dashboard path of an app's home (`app.yaml` `home:`,
+ * `app/[locale]/(auth)/dashboard/apps/[app]/home`).
+ * @param appId - The app.
+ */
+export function appHomePath(appId: string): string {
+  return `/dashboard/apps/${encodeURIComponent(appId)}/home`;
+}
+
+/**
+ * Where picking an app lands when the person has no place in it yet: its
+ * home when it declares one (founder, 2026-10-30: an app opens on Home, not
+ * on an empty Chat), else its manifest's entry.
+ * @param app - The manifest's id, entry and home.
+ * @param app.id - Its id.
+ * @param app.entry - Its manifest entry.
+ * @param app.home - Its home, if any.
+ * @param app.core
+ */
+export function appEntryPath(app: { id: string; entry: string; home?: unknown; core?: boolean }): string {
+  return app.home && !app.core ? appHomePath(app.id) : app.entry;
+}
 
 /**
  * The app every workspace has (`core: true`), if the catalogue has one.
@@ -66,8 +91,8 @@ export function coreApp<T extends Pick<AppDefinition, 'core'>>(apps: readonly T[
  * The rail's view of an app.
  * @param app - Its manifest.
  */
-export function appSummary(app: Pick<AppDefinition, 'id' | 'name' | 'shortName' | 'icon' | 'order' | 'core' | 'entry' | 'tint'>): AppSummary {
-  return { id: app.id, name: app.name, ...(app.shortName ? { shortName: app.shortName } : {}), icon: app.icon, order: app.order, core: app.core, entry: app.entry, tint: resolveTint(app.tint, app.id) };
+export function appSummary(app: Pick<AppDefinition, 'id' | 'name' | 'shortName' | 'icon' | 'order' | 'core' | 'entry' | 'tint' | 'home'>): AppSummary {
+  return { id: app.id, name: app.name, ...(app.shortName ? { shortName: app.shortName } : {}), icon: app.icon, order: app.order, core: app.core, entry: appEntryPath(app), tint: resolveTint(app.tint, app.id) };
 }
 
 /**
@@ -258,10 +283,13 @@ export function splitNavByApp(input: {
     // A page that declared itself the app's home (`nav.home`) wins; then the
     // manifest's entry while it is still a row; then the first row.
     const home = primary.find(i => i.home);
+    // An app with a home (`app.yaml` `home:`) opens there; it is its first row.
+    const appHome = app.home && !app.core ? appHomePath(app.id) : undefined;
     const href = app.core
       ? app.entry
-      : home?.url ?? (rows.some(i => pathOf(i.url) === app.entry) ? app.entry : (primary[0] ?? rows[0])?.url ?? app.entry);
-    return { ...appSummary(app), href, sections: app.core ? [] : appSections, owns: [...(owns.get(app.id) ?? [])] };
+      : appHome ?? home?.url ?? (rows.some(i => pathOf(i.url) === app.entry) ? app.entry : (primary[0] ?? rows[0])?.url ?? app.entry);
+    const owned = [...(owns.get(app.id) ?? []), ...(appHome ? [appHome] : [])];
+    return { ...appSummary(app), href, sections: app.core ? [] : appSections, owns: owned, ...(appHome ? { home: appHome } : {}) };
   });
 
   return {

@@ -34,6 +34,10 @@ export async function register() {
     // compile it into every route (`libs/usageReviewBridge.ts`).
     const [{ provideUsageReview }, usageReviewApi] = await Promise.all([import('./libs/usageReviewBridge'), import('./services/usageReview/api')]);
     provideUsageReview(usageReviewApi);
+    // The connect gate and the GitHub install, for the tool registry and the
+    // connect callback (`libs/connectAskBridge.ts`).
+    const [{ provideConnectAsk }, connectAskApi] = await Promise.all([import('./libs/connectAskBridge'), import('./services/connect/connectAskApi')]);
+    provideConnectAsk(connectAskApi);
     // The one durable executor (backlog 054): resumes waiting runs after every deploy.
     // Never awaited: a database that is slow to answer must not hold the server's boot.
     void import('./libs/durable/executor').then(m => m.startDurableExecutor());

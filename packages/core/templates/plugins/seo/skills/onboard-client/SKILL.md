@@ -119,7 +119,9 @@ markup, Squarespace's, a static site built from a repository). The options:
 - **GitHub** (a site built from a repository): with GitHub connected, run
   `seo_learn_frontmatter` with the repository and the folder its posts are
   in. It reads two or three posts and proposes the target with the site's
-  own frontmatter.
+  own frontmatter. With GitHub connected and no repository named,
+  `seo_learn_frontmatter` with only the project asks the person which repo is
+  the client's site.
 - **Webflow**: with Webflow connected, run `seo_learn_frontmatter` with
   `webflow_site` (the site's address). It finds the blog collection and
   proposes which field takes the body, summary, SEO title and description,
@@ -128,10 +130,10 @@ markup, Squarespace's, a static site built from a repository). The options:
   its editor.
 
 Either proposal waits under Publishing for the person to apply. Say so in
-one line. When the site's system is not connected, show the connect card
-(`offer_connection` with `github` or `webflow`) once; a site that is private
-or not connected yet is one line in what is still missing. It blocks
-publishing only, never onboarding.
+one line. Otherwise say which kinds the workspace can publish to today. A
+site that is private or not connected yet is one line in what is still
+missing; it blocks publishing only, never onboarding. Never ask to connect
+GitHub or Webflow here: the publish step asks for it when it is needed.
 
 ## 9. The SEO profile, on one card
 

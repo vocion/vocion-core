@@ -192,6 +192,16 @@ export default defineConfig<ChromaticConfig>({
       timeout: 120 * 1000,
       use: { ...devices['Desktop Chrome'] },
     },
+    // An app's home: the greeting and ask bar, the tiles, Needs you decided in
+    // place, each client's figures, and the empty home. Self-seeding like
+    // `needs-you`, with the same 120s for the same reason.
+    // Run with: npx playwright test --project=app-home
+    {
+      name: 'app-home',
+      testDir: './e2e/app-home',
+      timeout: 120 * 1000,
+      use: { ...devices['Desktop Chrome'] },
+    },
     // Every list on a phone: the first record in the top 35% of a 390×844
     // screen, titles wrapping rather than cut at ten characters, the header's
     // controls in one row of chips. Self-seeding like `needs-you`.

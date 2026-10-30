@@ -35,6 +35,7 @@ export type ConnectAttempt = {
  * @param input.connector
  * @param input.ok
  * @param input.reason
+ * @param input.summary
  * @param input.tx
  */
 export async function recordConnectAttempt(input: {
@@ -45,6 +46,8 @@ export async function recordConnectAttempt(input: {
   connector: string;
   ok: boolean;
   reason?: string;
+  /** The failure in words, when the caller knows more than the code says (the organization a request waits on). */
+  summary?: string;
   tx?: DbTransaction;
 }): Promise<void> {
   const reason = input.ok ? null : (input.reason ?? null);
@@ -56,7 +59,7 @@ export async function recordConnectAttempt(input: {
       provider: input.provider,
       connector: input.connector,
       reason,
-      summary: input.ok ? null : connectFailureSummary(input.providerLabel, reason),
+      summary: input.ok ? null : (input.summary ?? connectFailureSummary(input.providerLabel, reason)),
     },
   });
 }
