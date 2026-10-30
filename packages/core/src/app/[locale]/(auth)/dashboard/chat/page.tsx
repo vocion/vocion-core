@@ -88,7 +88,7 @@ export default async function ChatPage(props: {
   const navCookie = (await cookies()).get(NAV_APP_COOKIE)?.value ?? null;
   const [openingHints, appFronts] = await Promise.all([
     orgId && userId ? loadOpeningHints({ orgId, userId, isAdmin: has({ role: ORG_ROLE.ADMIN }), leadSpoken }).catch(() => []) : Promise.resolve([]),
-    orgId ? loadAppFronts(orgId, { navCookie }).catch(() => ({})) : Promise.resolve({}),
+    orgId ? loadAppFronts(orgId, { navCookie, appId: searchParams.app }).catch(() => ({})) : Promise.resolve({}),
   ]);
 
   // `?attach=<ids>` — files the phone's share sheet already uploaded

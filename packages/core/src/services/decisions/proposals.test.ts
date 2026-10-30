@@ -165,3 +165,30 @@ it('carries the action\'s own result line and its record count on the effect', a
 
   expect(out.effect).toMatchObject({ status: 'done', resultLine: 'Declined 3 of the 3 on the card. Nothing in that selection is still open.', records: 3 });
 });
+
+it('shows an editable domain profile with its evidence, business verbs and no automatic approval countdown', async () => {
+  const run = await pending({ actionId: 'seo.save_profile', input: {
+    project_id: 8,
+    project_title: 'Northwind',
+    profile: { website: 'https://example.com', goals: ['organic_leads'], offering: 'Accounting services', evidence: { offering: 'https://example.com/services' } },
+  } });
+  const view = await proposalDecisionView(run, { deadline: { at: '2027-01-01T00:00:00Z', defaultLabel: 'Approve' } });
+
+  expect(view.presentation).toBe('review');
+  expect(view.question).toBe('Save the SEO profile: Northwind');
+  expect(view.preview).toContain('Accounting services');
+  expect(view.preview).toContain('https://example.com/services');
+  expect(view.options[0]?.label).toBe('Save the profile');
+  expect(view.hrefLabel).toBe('Review and edit');
+  expect(view.deadline).toBeUndefined();
+});
+
+it('hands the actual saved profile to the continuation instead of the pre-edit proposal', async () => {
+  const run = await pending({ actionId: 'seo.save_profile', input: { project_id: 8, profile: { goals: ['rankings'] } } });
+  decide.mockResolvedValueOnce({ execution: { status: 'done', result: { savedProfile: { goals: ['organic_leads'], offering: 'Reviewed offering' } } } } as never);
+  const out = await answerProposal({ orgId: ORG, id: run.id, conversationId: 392, answer: { kind: 'option', optionIds: ['approve'] }, by: DANA });
+
+  expect(out.effect?.resultContext).toContain('Organic leads');
+  expect(out.effect?.resultContext).toContain('Reviewed offering');
+  expect(out.effect?.resultContext).not.toContain('Rankings');
+});

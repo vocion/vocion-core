@@ -445,7 +445,7 @@ export function DecisionCard({
 
   // What folds behind "Details" on a phone: the why and the exact payload, on a docked card.
   const detailsId = `${uid}-d`;
-  const foldsDetails = variant === 'dock' && !hasForm && Boolean(decision.body || bodyNode || decision.preview || lookOption?.look);
+  const foldsDetails = decision.presentation !== 'review' && variant === 'dock' && !hasForm && Boolean(decision.body || bodyNode || decision.preview || lookOption?.look);
 
   const headActions = (
     <>

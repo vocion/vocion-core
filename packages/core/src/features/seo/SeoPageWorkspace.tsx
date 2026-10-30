@@ -24,7 +24,7 @@ async function PageArtifact({ orgId, userId, id, empty }: { orgId: string; userI
   if (!artifact) {
     return <p className="rounded-xl border p-8 text-sm text-muted-foreground">This document is unavailable or not shared with you.</p>;
   }
-  return <div className="flex h-[70vh] min-h-96 flex-col overflow-hidden rounded-xl border border-border"><StandaloneArtifactView artifact={artifact} selfId={userId} conversationId={artifact.conversationId ?? null} /></div>;
+  return <div className="flex h-[70vh] min-h-96 flex-col overflow-hidden rounded-xl border border-border"><StandaloneArtifactView key={artifact.id} artifact={artifact} selfId={userId} conversationId={artifact.conversationId ?? null} /></div>;
 }
 
 /**

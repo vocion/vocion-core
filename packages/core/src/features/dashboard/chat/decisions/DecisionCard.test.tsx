@@ -485,3 +485,12 @@ it('keeps raw payloads collapsed until technical details are requested', async (
 
   await expect.element(page.getByTestId('decision-preview')).toBeVisible();
 });
+
+it('shows a domain review title and readable profile without hiding the decision payload', async () => {
+  await renderCard({ ...approval, presentation: 'review', question: 'Save the SEO profile: Northwind', preview: 'Goals: Organic leads\nOffering: Accounting services', href: '/dashboard/inbox/proposal-50', hrefLabel: 'Review and edit', options: [{ id: 'approve', label: 'Save the profile', recommended: true }, { id: 'reject', label: 'Do not save' }] });
+
+  await expect.element(page.getByRole('dialog', { name: 'Save the SEO profile: Northwind' })).toBeInTheDocument();
+  await expect.element(page.getByTestId('decision-preview')).toBeVisible();
+  await expect.element(page.getByTestId('decision-preview')).toHaveTextContent('Accounting services');
+  await expect.element(page.getByTestId('decision-option-approve')).toHaveTextContent('Save the profile');
+});
