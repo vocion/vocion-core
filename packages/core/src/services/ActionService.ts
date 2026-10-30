@@ -18,13 +18,13 @@ import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { Action, ActionContext } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
 import type { StaleView } from '@/services/proposals/staleness';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { decideExecution } from '@/libs/actions/autoAccept';
 import { decidedByMachine } from '@/libs/actions/decider';
 import { failedAttemptsOf, failureRecovery, withFailedAttempt } from '@/libs/actions/failureRecovery';
 import { isManualAction } from '@/libs/actions/manual';
-import { isNeverAuto } from '@/libs/actions/neverAuto';
+import { isNeverAuto, personDecidesEveryRun } from '@/libs/actions/neverAuto';
 import { policyKeyForRun } from '@/libs/actions/policyKey';
 import { getAction } from '@/libs/actions/registry';
 import { isStaleError } from '@/libs/actions/stale';
@@ -864,13 +864,19 @@ async function stampAutoApproval(
  * @param proposal - The envelope.
  * @param conversationAutonomy - The thread's own rung, when it has one.
  */
-async function ladderVerdict(
+export async function ladderVerdict(
   orgId: string,
   action: Action,
   parsed: Record<string, unknown>,
   proposal: { confidence?: number; suggestedDecision?: SuggestedDecision | null } | undefined,
   conversationAutonomy: 'ask' | 'act' | undefined,
 ): Promise<ReturnType<typeof decideExecution>> {
+  // THE ACTION SAYS A PERSON DECIDES (`approvalRequired`, `requiresReviewDecision`):
+  // no rung, trust rule, confidence or exception below releases it (2026-10-30:
+  // the flag used to make a run wait for a decision the ladder could then make).
+  if (personDecidesEveryRun(action)) {
+    return { mode: 'ask', reason: 'a person decides every run of this kind', threshold: null, source: 'never-auto' };
+  }
   if (isNeverAuto(action) && !(await internalRecord(orgId, action.id, parsed))) {
     return { mode: 'ask', reason: 'held at approval by the platform', threshold: null, source: 'never-auto' };
   }
@@ -1107,6 +1113,23 @@ async function executeActionInScope(
   const byMachine = opts?.reviewedBy ? decidedByMachine(opts.reviewedBy) : run.approvedByAgent === true || decidedByMachine(run.invokedBy);
   const byPerson = Boolean(opts?.reviewedBy) && !byMachine;
   const onPersonsWord = !opts?.reviewedBy && !byMachine;
+  // A KIND A PERSON DECIDES IS NEVER RUN ON A MACHINE'S DECISION — an agent's,
+  // the ladder's, a clock's default or a job's. `ladderVerdict` already holds
+  // it; this is the last line, for any path that reaches execution another
+  // way. The run goes back to Review with no decision on it.
+  if (personDecidesEveryRun(action) && byMachine) {
+    await db
+      .update(actionRunSchema)
+      .set({
+        status: 'pending',
+        approvedByAgent: null,
+        decidedBy: null,
+        decidedAt: null,
+        proposal: sql`coalesce(${actionRunSchema.proposal}, '{}'::jsonb) - 'autoApproved' - 'autoApprovedThreshold' - 'autoApprovedReason' - 'autoApprovedBy'`,
+      })
+      .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)));
+    throw new ActionError('NEEDS_PERSON', `${action.name} waits for a person: only a person's approval runs it, never ${opts?.reviewedBy ?? run.decidedBy ?? run.invokedBy ?? 'a machine'}.`);
+  }
   let proceededPast: StaleView | undefined;
   if (action.stillHolds && (byPerson || byMachine)) {
     const staleness = await import('@/services/proposals/staleness');

@@ -96,6 +96,18 @@ evidence — the never-auto list in `libs/actions/neverAuto.ts`. The ladder page
 says *held here by the platform* instead of counting toward a promotion that
 would never fire.
 
+An action that declares `approvalRequired` (or `requiresReviewDecision`) is
+held the same way, and the flag is the one source of truth: no rung, trust
+rule or confidence runs it, a decision clock never applies its default, the
+card never offers *Always allow*, `promote` refuses a rung that would run it,
+and execution refuses a run that an agent, the ladder or a clock approved.
+Every kind that moves money, changes books or ad spend, writes through an
+MCP tool, declines in bulk, mails people outside or changes infrastructure
+carries it: the Google Ads writes and `ads.set_status`, the finance writes
+that change the books, `mcp.call`, `review.decline`, `members.invite`, and
+the `deploy.*`, `aws.mutate` and `credentials.write` hand-offs. A person's own
+tap or token is still their decision, and runs.
+
 ## Promotion
 
 `/dashboard/autonomy` lists every action kind with its rung, tier, confidence

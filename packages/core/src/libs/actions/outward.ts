@@ -23,7 +23,8 @@ import { isNeverAuto } from './neverAuto';
  * @param input - The run's input, for a kind whose undo covers some inputs only.
  */
 export function isOutwardOrIrreversible(action: Pick<Action, 'id' | 'grant' | 'external' | 'approvalRequired' | 'requiresReviewDecision' | 'undo' | 'undoableFor'>, input?: Record<string, unknown> | null): boolean {
-  if (isNeverAuto(action) || action.approvalRequired === true) {
+  // `isNeverAuto` reads `approvalRequired` and `requiresReviewDecision` too.
+  if (isNeverAuto(action)) {
     return true;
   }
   if (!action.external) {

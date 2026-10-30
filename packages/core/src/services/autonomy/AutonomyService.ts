@@ -319,6 +319,13 @@ export async function promote(orgId: string, actionId: string, by: string, opts:
   // who says "always" on a kind every run of which keeps its Undo moves it
   // themselves, before the ladder's count would. Scoped to the kind in this
   // workspace, recorded as theirs, and taken back with one Demote.
+  // A kind the platform holds for a person — its action says a person
+  // decides, or it is on the never-auto list — never moves to a rung that
+  // runs it, by evidence or by a person's "always" (`libs/actions/neverAuto.ts`).
+  const action = actionForPolicyKey(actionId);
+  if (action && isNeverAuto(action) && rungAutomates(e.nextRung)) {
+    throw new AutonomyError('NOT_EARNED', `${action.name} waits for a person every time, so it cannot be set to run on its own.`);
+  }
   const chosen = opts.personChose === true && !e.earned;
   if (!e.earned && !chosen) {
     throw new AutonomyError('NOT_EARNED', `Not earned yet: ${e.reason}`);
