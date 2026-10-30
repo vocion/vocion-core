@@ -1,0 +1,9 @@
+# The Wiki evidence page: what the wiki claims, what it rests on, and what
+# needs a check. Core route; this entry puts it in the rail beside the Wiki.
+slug: wiki-evidence
+title: Wiki evidence
+description: Which wiki claims still hold, and which rest on a source that changed.
+icon: link
+nav: {section: Workspace, order: 6}
+archetype: link
+href: /dashboard/wiki-evidence

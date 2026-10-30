@@ -1,6 +1,6 @@
 import type { WikiReadingPage } from './reading';
 import { describe, expect, it } from 'vitest';
-import { filterWikiPages, orderWikiPages, rewriteWikiLink, wikiHome, wikiNeighbours, wikiSections } from './reading';
+import { filterWikiPages, linkCiteTokens, orderWikiPages, rewriteWikiLink, SOURCE_DOC_ROUTE_RE, wikiHome, wikiNeighbours, wikiSections } from './reading';
 
 function page(id: number, slug: string, over: Partial<WikiReadingPage> = {}): WikiReadingPage {
   return { id, slug, title: slug.replace(/-/g, ' '), summary: `about ${slug}`, md: '', order: null, tags: [], version: 1, updatedAt: new Date('2026-09-20T00:00:00Z'), lastAuthorKind: 'agent', ...over };
@@ -56,5 +56,14 @@ describe('a wiki read as pages, not rows', () => {
     expect(filterWikiPages(pages, 'house').map(p => p.slug).sort()).toEqual(['principles', 'voice']);
     expect(filterWikiPages(pages, 'about voice').map(p => p.slug)).toEqual(['voice']);
     expect(filterWikiPages(pages, 'zzz')).toEqual([]);
+  });
+});
+
+describe('linkCiteTokens', () => {
+  it('turns citation tokens into source links, one per document in a run', () => {
+    expect(linkCiteTokens('Refunds take 14 days. [src:104.0]')).toBe('Refunds take 14 days. [source](/dashboard/search/104)');
+    expect(linkCiteTokens('Two facts [src:1.0][src:1.2] [src:2]')).toBe('Two facts [source](/dashboard/search/1) [source](/dashboard/search/2)');
+    expect(linkCiteTokens('No tokens here.')).toBe('No tokens here.');
+    expect(SOURCE_DOC_ROUTE_RE.test('/dashboard/search/104')).toBe(true);
   });
 });

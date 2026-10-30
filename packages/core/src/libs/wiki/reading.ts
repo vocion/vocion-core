@@ -144,3 +144,20 @@ export function filterWikiPages(pages: readonly WikiReadingPage[], query: string
     return words.every(w => hay.includes(w));
   });
 }
+
+/** Where a cited source opens: the document view, which checks the reader's sources. */
+export const SOURCE_DOC_ROUTE_RE = /^\/dashboard\/search\/\d+$/;
+
+/**
+ * Turn the evidence graph's citation tokens (`[src:12.3]`, ADR 0012) into
+ * small links to the cited document, so a page never shows raw tokens,
+ * whether the `wiki-evidence` plugin is on or off. A run of tokens to the
+ * same document becomes one link.
+ * @param md - The page body.
+ */
+export function linkCiteTokens(md: string): string {
+  return md.replace(/(?:\s?\[src:\d+(?:\.\d+)?\])+/g, (run) => {
+    const ids = [...new Set([...run.matchAll(/\[src:(\d+)/g)].map(m => m[1]!))];
+    return ids.map(id => ` [source](/dashboard/search/${id})`).join('');
+  });
+}

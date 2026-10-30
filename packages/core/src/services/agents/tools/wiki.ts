@@ -17,9 +17,11 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { pageChecks } from '@/libs/memory/evidence';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { getWikiPage, listWikiPages, renderWikiPageBody, wikiSlug } from '@/services/wiki/WikiService';
 import { emitSelfUpdate } from '../selfUpdateEvent';
+import { evidenceOn } from './evidence';
 
 export const WIKI_PLUGIN = 'wiki';
 
@@ -52,7 +54,18 @@ export function readWikiPageTool(ctx: RuntimeContext) {
         const pages = await listWikiPages(ctx.orgId);
         return `No wiki page "${wikiSlug(slug)}". Pages: ${pages.map(p => p.slug).join(', ') || '(none)'}.`;
       }
-      return renderWikiPageBody(page);
+      const body = renderWikiPageBody(page);
+      if (!evidenceOn(ctx)) {
+        return body;
+      }
+      // Which of the page's claims rest on a source that has since changed, been replaced or gone (ADR 0012).
+      try {
+        const { loadEvidenceGraph } = await import('@/services/memory/EvidenceGraphService');
+        const checks = await pageChecks(await loadEvidenceGraph(ctx.orgId, { allowedSourceSlugs: ctx.allowedSourceSlugs }), page.slug);
+        return checks ? `${body}\n\n${checks}` : body;
+      } catch {
+        return body;
+      }
     },
     {
       name: 'read_wiki_page',

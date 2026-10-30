@@ -1,0 +1,22 @@
+# The wiki's evidence graph (ADR 0012): every claim on a wiki page tied to the
+# passage it rests on, the documents' own references as typed links
+# (supersedes, amends, refers to), and a check, without a model, of which
+# claims rest on a source that has since changed, been replaced or gone.
+#
+# Core ships the mechanism (the `memory_edge` table, the graph, the tools,
+# the Wiki evidence page, the rebuild job); this plugin turns it on for a
+# workspace and schedules the nightly rebuild. Off by default: with it off,
+# no tool, no token in search results, no edge is written.
+slug: wiki-evidence
+name: Wiki evidence
+version: 1.0.0
+description: Ties every wiki claim to the source passage it rests on, follows what replaces or amends what, and flags the claims whose source changed, so agents stop repeating an outdated page and a person sees what needs a check.
+depends: [wiki]
+surfaces: []
+recommend:
+  when:
+    - an agent repeated something from the wiki that a newer document had already changed
+    - policies, rate cards or contracts in the sources replace or amend one another
+    - a person asks where a wiki page's figure came from, or whether it is still right
+    - the wiki has grown past what anyone re-reads against its sources
+  connectors: []

@@ -52,6 +52,10 @@
  *     voice, off the event's path, when a voice is connected. Subscribed by
  *     the software-factory plugin when its `narrateRecordings` setting is on.
  *     `services/jobs/narrateRecording.ts`.
+ *   - `wiki-evidence-rebuild` — the wiki's evidence graph rebuilt whole: every
+ *     page's cited claims, then the documents' own references (supersedes,
+ *     amends, refers to). No model call. Scheduled nightly by the
+ *     wiki-evidence plugin. `services/memory/EvidenceGraphService.ts`.
  *   - `usage-review-check` — was the workspace used in the last day? Only
  *     then `usage.review_due` is raised and the workspace-manager plugin's
  *     review runs. `services/jobs/usageReviewCheck.ts`.
@@ -109,6 +113,11 @@ const JOBS: Record<string, BuiltInJob> = {
   // The SEO plugin's weekly cadence check: queues the strategist only for a project behind its pages a month.
   'seo-opportunities': async (orgId, input) => (await import('@/services/seo/cadence')).runSeoOpportunitiesJob(orgId, input),
   // The Workspace manager's morning check: raises the daily usage review only on a day the workspace was used (ADR 0008).
+  // The wiki's evidence graph rebuilt whole (ADR 0012): every page's claims, then the sources' own references. Skips a workspace without `wiki-evidence`.
+  'wiki-evidence-rebuild': async (orgId) => {
+    const m = await import('@/services/memory/EvidenceGraphService');
+    return (await m.evidenceEnabled(orgId)) ? m.rebuildEvidenceGraph(orgId) : { skipped: 'wiki-evidence is off' };
+  },
   'usage-review-check': async (orgId, input) => (await (await import('@/libs/usageReviewBridge')).usageReview()).runUsageReviewCheckJob(orgId, input),
   // A workspace whose old automation still names these hears nothing from them: asker-follow says it.
   ...Object.fromEntries(RETIRED_FOLLOW_JOBS.map(name => [name, async () => ({ said: false, reason: `${name} is retired; asker-follow tells the asker` })])),
