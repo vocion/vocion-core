@@ -18,7 +18,7 @@ export function withAppContext(href: string, app: string | null, workspace: stri
     return href;
   }
   const path = appPathname(url.pathname);
-  if (!/^\/dashboard\/(?:objects|artifacts|projects|inbox|chat)(?:\/|$)/.test(path) || url.searchParams.has('app')) {
+  if (!/^\/dashboard\/(?:objects|artifacts|projects|inbox|chat|connectors)(?:\/|$)/.test(path) || url.searchParams.has('app')) {
     return href;
   }
   url.searchParams.set('app', app);
