@@ -9,7 +9,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { agentSchema, decisionAlignmentSchema, userActivityEventSchema } = await import('@/models/Schema');
+const { agentSchema, decisionAlignmentSchema, modelCallSchema, userActivityEventSchema } = await import('@/models/Schema');
 const { buildScorecardRows, getAgentAlignmentSummaries, getAgentUsage, getScorecard, noAlignmentYet } = await import('@/services/scorecard/ScorecardService');
 const { eq } = await import('drizzle-orm');
 
@@ -46,6 +46,8 @@ async function seedAgent(slug: string, name: string, active: 'true' | 'false' = 
 }
 
 async function wipe() {
+  await db.delete(modelCallSchema).where(eq(modelCallSchema.orgId, ORG));
+  await db.delete(modelCallSchema).where(eq(modelCallSchema.orgId, OTHER_ORG));
   await db.delete(decisionAlignmentSchema).where(eq(decisionAlignmentSchema.orgId, ORG));
   await db.delete(decisionAlignmentSchema).where(eq(decisionAlignmentSchema.orgId, OTHER_ORG));
   await db.delete(agentSchema).where(eq(agentSchema.orgId, ORG));
@@ -206,4 +208,18 @@ describe('who gets a scorecard row', () => {
 
     expect(row).toMatchObject({ agentName: 'Closer', peopleReached: 4, conversations: 9, reviewDecisions: 10, acceptedAsIsRate: 0.5, agreementRate: null });
   });
+});
+
+it('limits model spend to the active workspace and exact scorecard period', async () => {
+  await seedAgent('analyst', 'Analyst');
+  await seedAgent('unused', 'Unused');
+  await db.insert(modelCallSchema).values([
+    { orgId: ORG, agentSlug: 'analyst', feature: 'agent.turn', model: 'test', microCents: 125_000_000, createdAt: new Date(NOW.getTime() - DAY) },
+    { orgId: OTHER_ORG, agentSlug: 'analyst', feature: 'agent.turn', model: 'test', microCents: 900_000_000, createdAt: new Date(NOW.getTime() - DAY) },
+    { orgId: ORG, agentSlug: 'analyst', feature: 'agent.turn', model: 'test', microCents: 500_000_000, createdAt: NOW },
+  ]);
+  const scorecard = await getScorecard(ORG, lastDays(7));
+
+  expect(scorecard.rows.find(r => r.agentSlug === 'analyst')?.modelCostUsd).toBe(1.25);
+  expect(scorecard.rows.find(r => r.agentSlug === 'unused')?.modelCostUsd).toBeNull();
 });

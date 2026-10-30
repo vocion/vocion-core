@@ -1,8 +1,6 @@
 import { setRequestLocale } from 'next-intl/server';
-import { Suspense } from 'react';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { ScorecardTable } from '@/features/scorecard/ScorecardTable';
-import { WorkforcePerformance } from '@/features/scorecard/WorkforcePerformance';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
 
@@ -24,10 +22,17 @@ export default async function ScorecardPage(props: { params: Promise<{ locale: s
   return (
     <>
       <TitleBar
-        title="Workforce performance"
-        description="Work, human review, cost and the next improvement — with evidence behind each decision"
+        title="Agent scorecard"
+        description="Human agreement, agent confidence, and recorded model cost in this workspace"
       />
-      {has({ role: ORG_ROLE.ADMIN }) ? <Suspense><WorkforcePerformance /></Suspense> : <ScorecardTable />}
+      <ScorecardTable />
+      {has({ role: ORG_ROLE.ADMIN }) && (
+        <div className="mt-6 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+          <a href="https://transform.vocion.ai" target="_blank" rel="noreferrer" className="underline">Open Vocion Transform</a>
+          <a href="/api/v1/transform/export?days=7" className="underline">Export 7-day Transform snapshot</a>
+          <a href="/api/v1/transform/export?days=30" className="underline">Export 30-day Transform snapshot</a>
+        </div>
+      )}
     </>
   );
 }

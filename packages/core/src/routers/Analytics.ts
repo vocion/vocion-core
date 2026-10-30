@@ -88,10 +88,10 @@ export const adoptionWorkforceRoute = os
     return getWorkforceInventory(orgId, input.days);
   });
 
-/** Aggregate only workspaces this admin can open in the current account. */
+/** Legacy operational reads remain scoped to the active workspace. */
 export const workforceOverviewRoute = os.input(WorkforceWindow).handler(async ({ input }) => {
   const { accountId, userId, orgId } = await guardAdmin();
-  const projects = (await listProjectsForUser(userId)).filter(p => p.accountId === accountId && !p.archived);
+  const projects = (await listProjectsForUser(userId)).filter(p => p.id === orgId && p.accountId === accountId && !p.archived);
   const workspaces = [];
   const until = new Date();
   const since = new Date(until.getTime() - input.days * 86_400_000);

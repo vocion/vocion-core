@@ -25,7 +25,7 @@
 
 import { and, eq, gte, isNotNull, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { agentSchema, decisionAlignmentSchema, userActivityEventSchema } from '@/models/Schema';
+import { agentSchema, decisionAlignmentSchema, modelCallSchema, userActivityEventSchema } from '@/models/Schema';
 
 /**
  * The period the scorecard covers: `from` inclusive, `to` exclusive. Every
@@ -50,6 +50,8 @@ export type AgentAlignmentSummary = {
 export type ScorecardRow = AgentAlignmentSummary & {
   agentSlug: string;
   agentName: string;
+  /** Recorded model spend only; excludes service, tool, and human costs. */
+  modelCostUsd?: number | null;
   /** Distinct people who worked with the agent in the window. */
   peopleReached: number;
   conversations: number;
@@ -250,18 +252,22 @@ function toAgentUsage(row: { reach: number; conversations: number; approvals: nu
  * @param range - The period; alignment and usage read the same one.
  */
 export async function getScorecard(orgId: string, range: ScorecardRange): Promise<Scorecard> {
-  const [agents, alignmentByAgent, usageByAgent] = await Promise.all([
+  const [agents, alignmentByAgent, usageByAgent, costs] = await Promise.all([
     db
       .select({ slug: agentSchema.slug, name: agentSchema.name, persona: agentSchema.persona, active: agentSchema.active })
       .from(agentSchema)
       .where(eq(agentSchema.orgId, orgId)),
     getAgentAlignmentSummaries(orgId, range),
     getAgentUsage(orgId, range),
+    db.select({ agentSlug: modelCallSchema.agentSlug, microCents: sql<number>`sum(${modelCallSchema.microCents})` }).from(modelCallSchema).where(and(eq(modelCallSchema.orgId, orgId), gte(modelCallSchema.createdAt, range.from), lt(modelCallSchema.createdAt, range.to))).groupBy(modelCallSchema.agentSlug),
   ]);
   const listings = agents.map(agent => ({ slug: agent.slug, name: agent.name, displayName: agent.persona?.displayName ?? null, active: agent.active }));
   return {
     from: range.from.toISOString(),
     to: range.to.toISOString(),
-    rows: buildScorecardRows(listings, alignmentByAgent, usageByAgent),
+    rows: buildScorecardRows(listings, alignmentByAgent, usageByAgent).map((row) => {
+      const cost = costs.find(c => c.agentSlug === row.agentSlug);
+      return { ...row, modelCostUsd: cost ? Number(cost.microCents) / 100_000_000 : null };
+    }),
   };
 }

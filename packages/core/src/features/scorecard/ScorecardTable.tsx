@@ -156,6 +156,7 @@ const COLUMNS: Array<{ label: string; explanation?: string }> = [
     label: 'Average confidence',
     explanation: 'How sure the agent said it was, on average, when it made those same recommendations. Read it next to Agreement: high confidence with low agreement means the agent is sure of itself but often overruled.',
   },
+  { label: 'Model cost', explanation: 'Recorded model-call spend in this workspace and period. Excludes human effort, managed services, and tool costs. No recorded calls means unknown, not zero total cost.' },
   {
     label: 'People',
     explanation: 'How many different people in this workspace worked with the agent in the period — chatting with it or reviewing its work.',
@@ -237,6 +238,7 @@ function ScorecardRowView(props: { row: ScorecardRow }) {
       <td className="px-3 py-2 font-medium">{row.agentName}</td>
       <RateCell rate={row.agreementRate} detail={agreementDetail(row)} />
       <RateCell rate={row.averageConfidence} detail={confidenceDetail(row)} />
+      <td className="px-3 py-2 tabular-nums">{row.modelCostUsd == null ? 'Not recorded' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(row.modelCostUsd)}</td>
       <td className="px-3 py-2 tabular-nums">{row.peopleReached}</td>
       <td className="px-3 py-2 tabular-nums">{row.conversations}</td>
       <td className="px-3 py-2 tabular-nums">{row.reviewDecisions}</td>
