@@ -46,6 +46,9 @@ vi.mock('@/libs/tools/serp/registry', () => ({
   keywordIdeas: vi.fn(async () => ({ ok: false, reason: 'not in this test' })),
 }));
 
+// Load the mocked bus once, before the install saves the playbook copies:
+// several first imports at once can build the mock from a half-loaded module.
+await import('@/services/EventService');
 const { db } = await import('@/libs/DB');
 const { askSchema, businessObjectSchema, missionRunSchema, projectSchema, tenantAccountSchema, toolCallSchema } = await import('@/models/Schema');
 const { installPluginBundles } = await import('@/services/plugins/installBundle');
