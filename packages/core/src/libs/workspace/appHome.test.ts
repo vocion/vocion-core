@@ -92,11 +92,21 @@ describe('the shipped homes', () => {
   it('starts SEO on onboarding, audits, keywords, pages, AI prompts and publishing, one figure per client measure', () => {
     const home = loadApp('seo').home!;
 
-    expect(home.launch.map(t => t.title)).toEqual(['Onboard a client', 'Audit a site', 'Find keywords', 'Plan pages', 'Track AI prompts', 'Publish']);
+    expect(home.launch.map(t => t.title)).toEqual(['Onboard a client', 'Audit a site', 'Find keywords', 'Plan pages', 'Track AI prompts', 'Publish approved pages']);
     expect(firstTile(home).firstTitle).toBe('Onboard your first client');
     expect(home.launch.find(t => t.title === 'Track AI prompts')!.accepts).toEqual(['.csv']);
     expect(home.projects!.measures.map(m => m.key)).toEqual(['goal', 'live', 'findings', 'ranking', 'prompts']);
-    expect(recordTypesOf(home)).toEqual(['seo_strategy', 'seo_page', 'seo_audit', 'seo_keyword', 'seo_prompt']);
+    // Across clients, in the order a page moves: waiting on you, signed off, live, earning.
+    expect(home.measures!.map(m => m.key)).toEqual(['review', 'approved', 'live', 'ranking']);
+    expect(recordTypesOf(home)).toEqual(['seo_page', 'seo_keyword', 'seo_strategy', 'seo_audit', 'seo_prompt']);
+  });
+
+  it('starts GTM on the working day\'s jobs, every tile starting work, and keeps closed deals off its projects', () => {
+    const home = loadApp('gtm').home!;
+
+    expect(home.launch.map(t => t.title)).toEqual(['Prepare for a meeting', 'Follow up on calls', 'Find proposals to write', 'Write a proposal', 'Revive quiet deals', 'Plan the next brief']);
+    expect(home.launch.filter(t => t.href)).toEqual([]);
+    expect(home.projects!.include).toEqual([{ field: 'meta.anchor', op: 'exists' }, { field: 'meta.stage', op: 'lacks', value: 'closed' }]);
   });
 });
 
@@ -203,6 +213,17 @@ describe('projectsUsingApp', () => {
   it('keeps the projects the app\'s records name and those its filter keeps, newest first', () => {
     expect(projectsUsingApp(rooms, new Set([1, 3]), { field: 'meta.seoProfile', op: 'exists' }, { limit: 10, now: NOW }).map(p => p.id)).toEqual([3, 2, 1]);
     expect(projectsUsingApp(rooms, new Set([1, 3]), undefined, { limit: 1, now: NOW }).map(p => p.id)).toEqual([3]);
+  });
+
+  it('keeps a deal whose stage was typed as closed off the list, and one with no stage on it', () => {
+    const deals = [
+      { ...row(5, { anchor: { type: 'deal' }, stage: 'Proposal Sent' }), updatedAt: new Date('2026-10-28T00:00:00Z') },
+      { ...row(6, { anchor: { type: 'deal' }, stage: 'Closed Lost (pending HubSpot update)' }), updatedAt: new Date('2026-10-29T00:00:00Z') },
+      { ...row(7, { anchor: { type: 'deal' } }), updatedAt: new Date('2026-10-27T00:00:00Z') },
+    ];
+    const include = [{ field: 'meta.anchor', op: 'exists' as const }, { field: 'meta.stage', op: 'lacks' as const, value: 'closed' }];
+
+    expect(projectsUsingApp(deals, new Set(), include, { limit: 10, now: NOW }).map(p => p.id)).toEqual([5, 7]);
   });
 });
 

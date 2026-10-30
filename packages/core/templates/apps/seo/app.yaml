@@ -42,10 +42,40 @@ home:
       icon: radar
       prompt: 'Track the AI prompts buyers ask about this client: '
       accepts: [.csv]
-    - title: Publish
-      description: Pages you signed off, ready to go to each client's site.
+    - title: Publish approved pages
+      description: Pages you signed off, ready to go to each client's site as a draft or a pull request.
       icon: send
       href: /dashboard/p/seo-pages?status=approved
+  # Across every client, in the order a page moves: waiting on you, signed
+  # off but not on the site, live this month, then what it earned.
+  measures:
+    - key: review
+      label: Pages to sign off
+      source: records
+      objectType: seo_page
+      where: {field: meta.status, op: eq, value: in_review}
+      href: /dashboard/p/seo-pages?status=in_review
+    - key: approved
+      label: Approved, not live yet
+      source: records
+      objectType: seo_page
+      where: {field: meta.status, op: eq, value: approved}
+      href: /dashboard/p/seo-pages?status=approved
+    - key: live
+      label: Pages live this month
+      source: records
+      objectType: seo_page
+      where: [{field: meta.status, op: eq, value: published}, {field: meta.publishedAt, op: since, value: month}]
+      date: meta.publishedAt
+      href: /dashboard/p/seo-pages?status=published
+    - key: ranking
+      label: Keywords ranking
+      source: records
+      objectType: seo_keyword
+      where: {field: meta.status, op: eq, value: ranking}
+      date: meta.checkedAt
+      of: {field: meta.status, op: neq, value: dropped}
+      href: /dashboard/p/seo-keywords?status=ranking
   projects:
     # A client whose SEO profile is set uses the app before it has any records.
     include: {field: meta.seoProfile, op: exists}

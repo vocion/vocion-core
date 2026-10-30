@@ -1141,7 +1141,8 @@
       "running": "En cours",
       "paused": "En pause",
       "awaiting_review": "Attend votre avis"
-    }
+    },
+    "project": "Projet"
   },
   "WorkforceOperating": {
     "eyebrow": "Revue opérationnelle de l’IA",

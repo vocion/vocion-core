@@ -1182,6 +1182,7 @@
       "running": "Running",
       "paused": "Paused",
       "awaiting_review": "Waiting on you"
-    }
+    },
+    "project": "Project"
   }
 }

@@ -21,7 +21,11 @@ type Labels = { start: string; open: string; run: string; drop: string; dropping
  * and Chat opens with it attached under the tile's words, for the person to
  * finish and send.
  *
- * Two columns on a phone, three on a wide screen.
+ * Two columns on a phone, three on a wide screen. In the grid the tiles
+ * are quiet cards and only their mark wears the app's tint, the way a
+ * launcher reads (six solid tints shouted over the decision below them);
+ * the one tile of an empty home keeps the tint, since it is the only thing
+ * to do.
  * @param props
  * @param props.tiles - The tiles, in the manifest's order.
  * @param props.tint - The app's tint.
@@ -31,12 +35,12 @@ type Labels = { start: string; open: string; run: string; drop: string; dropping
 export function LaunchTiles({ tiles, tint, labels, first = false }: { tiles: AppLaunchTile[]; tint: Tint; labels: Labels; first?: boolean }) {
   return (
     <div data-testid="home-launch" className={cn('grid auto-rows-fr gap-3', tiles.length === 1 ? 'grid-cols-1 sm:max-w-sm' : 'grid-cols-2 lg:grid-cols-3')}>
-      {tiles.map(tile => <Tile key={tile.title} tile={tile} tint={tint} labels={labels} title={first ? tile.firstTitle ?? tile.title : tile.title} />)}
+      {tiles.map(tile => <Tile key={tile.title} tile={tile} tint={tint} labels={labels} title={first ? tile.firstTitle ?? tile.title : tile.title} quiet={!first} />)}
     </div>
   );
 }
 
-function Tile({ tile, tint, labels, title }: { tile: AppLaunchTile; tint: Tint; labels: Labels; title: string }) {
+function Tile({ tile, tint, labels, title, quiet }: { tile: AppLaunchTile; tint: Tint; labels: Labels; title: string; quiet: boolean }) {
   const router = useRouter();
   const [over, setOver] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -51,7 +55,7 @@ function Tile({ tile, tint, labels, title }: { tile: AppLaunchTile; tint: Tint; 
       lead={<span className="hidden sm:block"><LetterTile name={title} icon={iconByName(tile.icon)} tint={tint} size="md" /></span>}
       action={{ label, href: tileHref(tile) }}
       meta={accepts.length > 0 ? (note ?? labels.drop.replace('{types}', accepts.join(', '))) : undefined}
-      className={cn('p-3.5 sm:p-5 [&>div]:gap-0 sm:[&>div]:gap-3', over && 'ring-2 ring-ring/50')}
+      className={cn('p-3.5 sm:p-5 [&>div]:gap-0 sm:[&>div]:gap-3', quiet && 'border-border/70 bg-card hover:bg-muted/40 hover:brightness-100 sm:p-4 dark:hover:brightness-100 [&_h3+p]:line-clamp-2', over && 'ring-2 ring-ring/50')}
     />
   );
   if (accepts.length === 0) {

@@ -74,13 +74,14 @@ test('the SEO home leads with the greeting, the tiles, what needs you and each c
   await expect(tiles.first()).toContainText('Onboard a client');
   await expect(page.getByTestId('home-start').locator('[data-tile="Track AI prompts"]')).toContainText('Or drop a .csv file here');
 
-  // Each client, every figure linked and dated.
+  // Each client is one row of the table, every figure linked and dated.
   const client = page.getByTestId('home-project').filter({ hasText: 'Northwind Outfitters' });
 
   await expect(client).toBeVisible();
   await expect(client.getByTestId('home-measure-live')).toContainText('2');
   await expect(client.getByTestId('home-measure-live')).toContainText('of 8');
-  await expect(client.getByTestId('home-measure-live')).toContainText('as of');
+  // The date a figure was true is its cell's tooltip: one column of "as of" is noise.
+  await expect(client.getByTestId('home-measure-live')).toHaveAttribute('title', /^as of /);
   await expect(client.getByTestId('home-measure-findings')).toContainText('High 1 · Medium 3 · Low 2');
   await expect(client.getByTestId('home-measure-goal')).toContainText('2 of 5 milestones done');
   await expect(client.getByTestId('home-measure-ranking')).toContainText('of 2');

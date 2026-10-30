@@ -46,16 +46,20 @@ The page, top to bottom:
    (`/dashboard/chat?ask=`). The home is the app's own page, so the sidebar has
    already named the app in the `vocion_nav_app` cookie and the turn routes to
    the app's lead (`services/chat/appScope.ts`, #1529).
-2. **Start something.** The `launch` tiles, the one emphasized element: front
-   doors (`CatalogCard`) on the app's tint, two to a row on a phone.
+2. **Start something.** The `launch` tiles: front doors (`CatalogCard`),
+   two to a row on a phone, quiet cards whose mark wears the app's tint, the
+   way a launcher reads. Every tile should start work; a page the nav
+   already has is not a tile. The empty home's one tile keeps the tint.
 3. **Needs you.** The app's agents' open decisions, one decision card at a
    time, recommended option first, answered in place (`decisions.answer`).
    A decision asked inside a chat is a row that opens that chat, where the
    agent hears the answer. No section when nothing waits, and no "N waiting"
    nudge.
-4. **Where things stand.** `measures` for the whole workspace, then one block
-   per project using the app with `projects.measures`. Every figure links to
-   its evidence and carries the date it was true.
+4. **Where things stand.** `measures` for the whole workspace, then the
+   projects using the app as one table: a row per project, a column per
+   `projects.measures` figure (a stack per project on a phone). Every figure
+   links to its evidence and carries the date it was true (in a table cell,
+   as its tooltip); a count of nothing is quiet.
 5. **Running now and recently made.** Mission runs the app's agents lead and
    workflow runs they own (by their run labels), and artifacts they wrote in
    the last two weeks.
