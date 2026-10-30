@@ -10,9 +10,9 @@ export const contentType = 'image/png';
  * is how a bug gets filed against the wrong one — and the favicon is the only
  * part of a tab that survives being narrowed to nothing.
  *
- * Dynamic favicon — the Vocion governed-path V mark, mono-white on Vocion Ink,
- * matching vocion.ai's `app/icon.tsx`. One colour at 32px for crispness; the
- * gradient rails belong to larger sizes (see `apple-icon.tsx`). Served as
+ * Dynamic favicon — both rails of the official Vocion mark on Vocion Ink.
+ * A tight, centered viewBox keeps the independent rails legible at tab sizes
+ * instead of reducing the identity to a generic white checkmark. Served as
  * /icon by Next; takes precedence over public/favicon.ico in browsers that
  * request App Router icons.
  */
@@ -55,9 +55,22 @@ export default function Icon() {
           borderRadius: 7,
         }}
       >
-        {/* Simplified glyph for the smallest size: the outer rail only. */}
-        <svg width="26" height="19" viewBox="0 0 180 130" fill="none">
-          <path d="M24 22 L74 106 L136 16" stroke="#F2F5FB" strokeWidth="30" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Official rail geometry, optically centered with enough separation at 16px. */}
+        <svg width="28" height="24" viewBox="8 0 144 124" fill="none">
+          <defs>
+            <linearGradient id="leftRail" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#7C3CFF" />
+              <stop offset="52%" stopColor="#4D63FF" />
+              <stop offset="100%" stopColor="#168BFF" />
+            </linearGradient>
+            <linearGradient id="rightRail" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#168BFF" />
+              <stop offset="58%" stopColor="#16D6D2" />
+              <stop offset="100%" stopColor="#55F58A" />
+            </linearGradient>
+          </defs>
+          <path d="M24 22 L74 106 L136 16" stroke="url(#leftRail)" strokeWidth="18" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M56 24 L77 60 L98 30" stroke="url(#rightRail)" strokeWidth="18" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
     ),
