@@ -89,14 +89,14 @@ describe('the shipped homes', () => {
     }
   });
 
-  it('starts SEO on onboarding, audits, keywords, pages, AI prompts and publishing, one figure per client measure', () => {
+  it('starts SEO on a reviewed plan and links to actual work stages, with onboarding for an empty app', () => {
     const home = loadApp('seo').home!;
 
-    expect(home.launch.map(t => t.title)).toEqual(['Onboard a client', 'Audit a site', 'Find keywords', 'Plan pages', 'Track AI prompts', 'Publish']);
+    expect(home.launch.map(t => t.title)).toEqual(['Plan the next pages', 'Audit a site', 'Onboard a client', 'Review drafts', 'Resolve revisions', 'Check publishing']);
     expect(firstTile(home).firstTitle).toBe('Onboard your first client');
-    expect(home.launch.find(t => t.title === 'Track AI prompts')!.accepts).toEqual(['.csv']);
+    expect(home.launch.find(t => t.title === 'Check publishing')!.href).toBe('/dashboard/p/seo-pages?status=publishing');
     expect(home.projects!.measures.map(m => m.key)).toEqual(['goal', 'live', 'findings', 'ranking', 'prompts']);
-    expect(recordTypesOf(home)).toEqual(['seo_strategy', 'seo_page', 'seo_audit', 'seo_keyword', 'seo_prompt']);
+    expect(recordTypesOf(home)).toEqual(['seo_page', 'seo_strategy', 'seo_audit', 'seo_keyword', 'seo_prompt']);
   });
 });
 
