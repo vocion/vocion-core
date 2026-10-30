@@ -101,8 +101,11 @@ export const seoSaveProfileAction: Action<typeof input> = {
       throw new Error('The SEO profile is saved by a person pressing Save on its card; nobody did.');
     }
     const previous: SeoProfile | null = room.meta.seoProfile ?? null;
-    await updateDataRoom(ctx.orgId, room.id, { seoProfile: { ...cleanSeoProfile(i.profile), savedAt: new Date().toISOString(), savedBy: by } });
-    return { projectId: room.id, previous, href: `/dashboard/projects/${room.id}`, line: `Saved the SEO profile on ${room.title}.` };
+    const saved = await updateDataRoom(ctx.orgId, room.id, { seoProfile: { ...cleanSeoProfile(i.profile), savedAt: new Date().toISOString(), savedBy: by } });
+    if (!saved?.meta.seoProfile) {
+      throw new Error('The project is no longer available. The SEO profile was not saved.');
+    }
+    return { projectId: room.id, previous, savedProfile: saved.meta.seoProfile, href: `/dashboard/projects/${room.id}`, line: `Saved the SEO profile on ${room.title}.` };
   },
   async undo(ctx, i, result) {
     const { updateDataRoom } = await import('@/services/DataRoomService');

@@ -22,7 +22,9 @@ import { eq } from 'drizzle-orm';
 import { appFromNavCookie, NAV_APP_COOKIE } from '@/features/dashboard/nav/workspaceMemory';
 import { installedApps } from '@/features/navigation/apps';
 import { teamsOfApp } from '@/features/navigation/appTeams';
+import { appFromReferer } from '@/libs/appLinks';
 import { WORKSPACE_LEAD_SLUG } from '@/libs/workspace/workspaceLead';
+import { loadOwnedPageApp } from '@/services/chat/ownedPageApp';
 
 /** A team as routing needs it: its slug, the app its file names, its lead. */
 export type RoutingTeam = TeamAppInput & { lead: string | null };
@@ -102,9 +104,10 @@ export function cookieValue(header: string | null | undefined, name: string): st
  * @param orgId - The workspace.
  * @param opts - The request and the roster already read.
  * @param opts.cookie - The request's `Cookie` header.
+ * @param opts.referer
  * @param opts.agents - The roster.
  */
-export async function loadRoutingContext(orgId: string, opts: { cookie: string | null; agents: readonly AgentLite[] }): Promise<{ teams: RoutingTeam[]; app: AppScope | null }> {
+export async function loadRoutingContext(orgId: string, opts: { cookie: string | null; referer?: string | null; agents: readonly AgentLite[] }): Promise<{ teams: RoutingTeam[]; app: AppScope | null }> {
   try {
     const [{ db }, { projectSchema, teamSchema }, { safeListApps }, { pluginTeams }] = await Promise.all([
       import('@/libs/DB'),
@@ -119,7 +122,7 @@ export async function loadRoutingContext(orgId: string, opts: { cookie: string |
     if (!project) {
       return { teams, app: null };
     }
-    const appId = appFromNavCookie(cookieValue(opts.cookie, NAV_APP_COOKIE), project.slug);
+    const appId = appFromReferer(opts.referer, project.slug) ?? await loadOwnedPageApp({ orgId, workspaceSlug: project.slug, referer: opts.referer, enabledPlugins: project.plugins ?? [], enabledSurfaces: project.surfaces ?? [] }) ?? appFromNavCookie(cookieValue(opts.cookie, NAV_APP_COOKIE), project.slug);
     const app = appId
       ? resolveAppScope({ appId, apps: safeListApps(), enabledPlugins: project.plugins ?? [], enabledSurfaces: project.surfaces ?? [], teams, pluginTeams: await pluginTeams(), projectLead: project.lead, agents: opts.agents })
       : null;

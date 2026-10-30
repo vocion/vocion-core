@@ -34,7 +34,7 @@ describe('what a done run made, as links (Chris, 2026-09-29: "I expected a path 
   it('a filed record, an ask, an artifact and a PR each get one link', () => {
     expect(resultLinks({ actionId: 'objects.propose_candidate', input: { objectType: 'request' }, result: { objectId: 131 } }, link))
       .toEqual([{ label: 'feature #131', href: '/w/acme/dashboard/p/feature/131', ref: { type: 'object', id: '131' } }]);
-    expect(resultLinks({ actionId: 'ask.file', input: {}, result: { askId: 88 } }, link)).toEqual([{ label: 'ASK-88', href: '/dashboard/inbox/88', ref: { type: 'ask', id: '88' } }]);
+    expect(resultLinks({ actionId: 'ask.file', input: {}, result: { askId: 88 } }, link)).toEqual([{ label: 'View question', href: '/dashboard/inbox/88', ref: { type: 'ask', id: '88' } }]);
     expect(resultLinks({ actionId: 'x.render', input: {}, result: { artifactId: 7 } }, link)).toEqual([{ label: 'ART-7', href: '/dashboard/artifacts/7', ref: { type: 'artifact', id: '7' } }]);
     expect(resultLinks({ actionId: 'manual.handoff', input: {}, result: { prUrl: 'https://git.example/pr/4', url: 'https://other.example' } }, link))
       .toEqual([{ label: 'Pull request', href: 'https://git.example/pr/4', external: true }]);

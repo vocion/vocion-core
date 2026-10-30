@@ -160,3 +160,54 @@ test('on a phone launch actions stay readable without horizontal overflow', asyn
   expect(Math.abs(a!.x - b!.x)).toBeLessThan(2);
   expect(a!.x + a!.width).toBeLessThanOrEqual(390);
 });
+
+test('project drilldown keeps SEO context and meaningful page and audit breadcrumbs', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await signIn(page, BUSY);
+  await page.goto(HOME);
+  await page.getByTestId('home-project').filter({ hasText: 'Northwind Outfitters' }).getByRole('link', { name: /Northwind Outfitters/ }).click();
+
+  await expect(page.getByTestId('project-seo-overview')).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get('app')).toBe('seo');
+
+  const projectUrl = page.url();
+  await page.getByRole('link', { name: 'Open pages', exact: true }).click();
+  await page.getByText('ultralight tents', { exact: true }).first().click();
+
+  await expect(page.getByRole('tab', { name: 'Draft', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^E2E Ultralight tents/ })).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get('app')).toBe('seo');
+
+  const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+
+  await expect(crumbs.getByRole('link', { name: 'Pages', exact: true })).toBeVisible();
+  await expect(crumbs.getByRole('link', { name: 'Objects', exact: true })).toHaveCount(0);
+  await expect(crumbs.locator('[aria-current="page"]')).toHaveText('E2E Ultralight tents');
+  await expect(page.getByText('No draft yet.', { exact: false })).toBeVisible();
+
+  await page.getByRole('link', { name: 'Back to Pages', exact: true }).click();
+
+  await expect(page).toHaveURL(/\/dashboard\/p\/seo-pages/);
+  await expect.poll(() => new URL(page.url()).searchParams.get('app')).toBe('seo');
+
+  await page.goto(projectUrl);
+  await page.getByRole('link', { name: 'Latest audit', exact: true }).click();
+
+  await expect(crumbs.getByRole('link', { name: 'Audits', exact: true })).toBeVisible();
+  await expect(crumbs.locator('[aria-current="page"]')).toHaveText('E2E Audit of northwind.example');
+  await expect.poll(() => new URL(page.url()).searchParams.get('app')).toBe('seo');
+  // This legacy fixture intentionally has counts but no current findings array.
+  await expect(page.getByText('This audit is unavailable in this workspace.', { exact: true })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await expect(crumbs).toBeVisible();
+  await expect(crumbs).toHaveCSS('scrollbar-width', 'none');
+
+  await page.getByRole('link', { name: 'Back to Audits', exact: true }).click();
+
+  await expect(page).toHaveURL(/\/dashboard\/p\/seo-audits/);
+
+  expect(errors).toEqual([]);
+});

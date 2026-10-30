@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react';
 
 import { useSyncExternalStore } from 'react';
 import { buildCrumbs } from '@/features/dashboard/breadcrumbModel';
+import { useExplicitBreadcrumbTrail } from '@/features/dashboard/BreadcrumbTrail';
 import { Link, usePathname } from '@/libs/I18nNavigation';
 
 /**
@@ -57,22 +58,25 @@ export function Breadcrumb({ workspaceName, brandName = null }: { workspaceName?
   const pathname = usePathname();
   const docTitle = useSyncExternalStore(subscribeTitle, () => readTitle(brandName), () => '');
 
-  const crumbs = buildCrumbs({ pathname, docTitle, workspaceName });
+  const explicit = useExplicitBreadcrumbTrail();
+  const crumbs = explicit
+    ? [...(workspaceName ? [{ url: '/dashboard', label: workspaceName }] : []), ...explicit]
+    : buildCrumbs({ pathname, docTitle, workspaceName });
   if (!crumbs) {
     return null;
   }
 
   return (
-    <nav aria-label="Breadcrumb" className="hidden min-w-0 items-center text-[13px] sm:flex">
-      <ol className="flex min-w-0 items-center gap-1">
+    <nav aria-label="Breadcrumb" className="flex max-w-full min-w-0 items-center overflow-x-auto text-[12px] [scrollbar-width:none] sm:text-[13px] [&::-webkit-scrollbar]:hidden">
+      <ol className="flex min-w-max items-center gap-1">
         {crumbs.map((c, i) => {
           const last = i === crumbs.length - 1;
           return (
             <li key={c.url} className="flex min-w-0 items-center gap-1">
               {i > 0 && <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50" aria-hidden />}
               {last
-                ? <span className="truncate font-medium text-foreground" aria-current="page">{c.label}</span>
-                : <Link href={c.url} className="truncate text-muted-foreground transition-colors hover:text-foreground">{c.label}</Link>}
+                ? <span className="block max-w-44 truncate font-medium text-foreground sm:max-w-72" aria-current="page">{c.label}</span>
+                : <Link href={c.url} className="block max-w-36 truncate py-2 text-muted-foreground transition-colors hover:text-foreground sm:max-w-48">{c.label}</Link>}
             </li>
           );
         })}

@@ -26,6 +26,31 @@ beforeEach(clear);
 afterAll(clear);
 
 describe('where each thing a turn set moving stands (Chris, 2026-09-29)', () => {
+  it('names a question without exposing another workspace and preserves its decision status', async () => {
+    const rows = await db.insert(askSchema).values([
+      { orgId: ORG, kind: 'approval', title: 'Approve this profile?', status: 'approved' },
+      { orgId: ORG, kind: 'approval', title: 'Reject this change?', status: 'rejected' },
+      { orgId: 'other_workspace', kind: 'input', title: 'Private question', status: 'open' },
+    ]).returning({ id: askSchema.id });
+    const out = await followStatuses(ORG, rows.map(r => ({ type: 'ask', id: String(r.id) })));
+
+    expect(out[`ask:${rows[0]!.id}`]).toEqual({ state: 'done', label: 'approved', name: 'Approve this profile?' });
+    expect(out[`ask:${rows[1]!.id}`]).toEqual({ state: 'failed', label: 'rejected', name: 'Reject this change?' });
+    expect(out[`ask:${rows[2]!.id}`]).toBeUndefined();
+  });
+
+  it.each([
+    ['input', 'awaiting answer'],
+    ['approval', 'awaiting approval'],
+    ['ruling', 'awaiting decision'],
+  ])('an open %s describes what is waiting, not tool completion', async (kind, label) => {
+    const [ask] = await db.insert(askSchema).values({ orgId: ORG, kind, title: 'Which client?', status: 'open' }).returning({ id: askSchema.id });
+
+    expect(await followStatuses(ORG, [{ type: 'ask', id: String(ask!.id) }])).toEqual({
+      [`ask:${ask!.id}`]: { state: 'waiting', label, name: 'Which client?' },
+    });
+  });
+
   it('reads a status word as one of four states a person can read at a glance', () => {
     expect(followStateOf('queued')).toBe('queued');
     expect(followStateOf('running')).toBe('running');
@@ -49,7 +74,7 @@ describe('where each thing a turn set moving stands (Chris, 2026-09-29)', () => 
     ]);
 
     expect(out[`worker_run:${run!.id}`]).toEqual({ state: 'running', label: 'running' });
-    expect(out[`ask:${ask!.id}`]).toEqual({ state: 'waiting', label: 'waiting on a person' });
+    expect(out[`ask:${ask!.id}`]).toEqual({ state: 'waiting', label: 'awaiting approval', name: 'Ship the Kestrel fix?' });
     // Named as the workspace names it, whatever the client guessed.
     expect(out['object:31']).toEqual({ state: 'running', label: `running · RUN-${run!.id}`, name: 'FE-31' });
     // Not this org's, or not there: no dot rather than a guess.

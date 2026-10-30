@@ -331,12 +331,19 @@ export function appOwningPath(pathname: string, apps: readonly Pick<AppNav, 'id'
  * @param input.pathname - The locale-stripped path.
  * @param input.apps - This workspace's apps (`splitNavByApp(...).apps`).
  * @param input.remembered - The app the person was last in here, if any.
+ * @param input.explicit
  */
 export function resolveActiveApp(input: {
   pathname: string;
   apps: readonly (Pick<AppNav, 'id' | 'core' | 'owns'> & Partial<Pick<AppNav, 'entry'>>)[];
   remembered?: string | null;
+  explicit?: string | null;
 }): string | undefined {
+  const explicit = input.apps.find(a => a.id === input.explicit);
+  const owned = appOwningPath(input.pathname, input.apps);
+  if (explicit && (!owned || owned === explicit.id || input.apps.find(a => a.id === owned)?.core)) {
+    return explicit.id;
+  }
   const core = input.apps.find(a => a.core);
   if (core?.entry === input.pathname) {
     return core.id;

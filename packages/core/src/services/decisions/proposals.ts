@@ -26,9 +26,10 @@ import { db } from '@/libs/DB';
 import { ALLOW_ONCE_ID, ALWAYS_ALLOW_ID, answerProblem, DENY_ID } from '@/libs/decisions/decision';
 import { actionRunSchema } from '@/models/Schema';
 
-type RunRow = Pick<typeof actionRunSchema.$inferSelect, 'id' | 'actionId' | 'status' | 'input' | 'proposal' | 'invokedBy' | 'createdAt' | 'decidedBy' | 'decidedAt'>;
+type RunRow = Pick<typeof actionRunSchema.$inferSelect, 'orgId' | 'id' | 'actionId' | 'status' | 'input' | 'proposal' | 'invokedBy' | 'createdAt' | 'decidedBy' | 'decidedAt'>;
 
 const RUN_FIELDS = {
+  orgId: actionRunSchema.orgId,
   id: actionRunSchema.id,
   actionId: actionRunSchema.actionId,
   status: actionRunSchema.status,
@@ -77,13 +78,26 @@ export async function proposalDecisionView(run: RunRow, extra: { deadline?: Deci
   const { inboxHref } = await import('@/services/inbox/inboxRef');
   const { payloadPreview } = await import('./preview');
   const described = describeActionRun({ ...run, input: run.input ?? {}, proposal: run.proposal ?? null } as unknown as ActionRunLike);
+  const { getAction } = await import('@/libs/actions/registry');
+  const { isNeverAuto } = await import('@/libs/actions/neverAuto');
+  const action = getAction(run.actionId);
+  // Reuse the action's domain review instead of an implementation-name prompt.
+  const card = action?.requiresReviewDecision && action.reviewCard
+    ? await action.reviewCard({ orgId: run.orgId }, run.input ?? {}).catch(() => null)
+    : null;
+  const reviewPreview = card
+    ? [
+        ...(card.content ?? []).flatMap(c => 'body' in c && typeof c.body === 'string' ? [`${c.label}\n${c.body}`] : []),
+        ...card.fields.map(f => `${f.label}: ${f.value}`),
+      ].join('\n\n')
+    : null;
   const proposal = (run.proposal ?? {}) as { suggestedDecision?: unknown; suggestedDecisionReason?: unknown };
   const suggested = proposal.suggestedDecision;
   const changes = described.changes.map(c => `${c.field} → ${c.to}`).join('; ');
   const undo = actionIsUndoable(run.actionId, run.input as Record<string, unknown> | null) ? 'with Undo' : 'no automatic undo';
   const options: DecisionOption[] = [
-    { id: ALLOW_ONCE_ID, label: 'Allow once', consequence: `Runs it as you, this once — ${undo}.`, ...(suggested !== 'reject' ? { recommended: true } : {}) },
-    { id: DENY_ID, label: 'Deny', consequence: 'Nothing runs; the agent revises from your no.', ...(suggested === 'reject' ? { recommended: true } : {}) },
+    { id: ALLOW_ONCE_ID, label: card?.verbs?.approve ?? 'Allow once', consequence: card?.nextAction ?? `Runs it as you, this once — ${undo}.`, ...(suggested !== 'reject' ? { recommended: true } : {}) },
+    { id: DENY_ID, label: card?.verbs?.reject ?? 'Deny', consequence: 'Nothing runs; the agent revises from your no.', ...(suggested === 'reject' ? { recommended: true } : {}) },
   ];
   const decided = run.status !== 'pending';
   const approved = ['done', 'approved', 'executing', 'awaiting_execution', 'failed'].includes(run.status);
@@ -91,8 +105,9 @@ export async function proposalDecisionView(run: RunRow, extra: { deadline?: Deci
     id: run.id,
     subject: 'proposal',
     kind: 'approval',
-    question: described.title,
-    body: described.rationale ?? (typeof proposal.suggestedDecisionReason === 'string' ? proposal.suggestedDecisionReason : null),
+    question: card?.title ?? described.title,
+    ...(card ? { presentation: 'review' as const } : {}),
+    body: card?.headline ?? described.rationale ?? (typeof proposal.suggestedDecisionReason === 'string' ? proposal.suggestedDecisionReason : null),
     options: [...options.filter(o => o.recommended), ...options.filter(o => !o.recommended)],
     // Their own words reject it with a note the proposer revises from.
     allowOther: true,
@@ -101,14 +116,14 @@ export async function proposalDecisionView(run: RunRow, extra: { deadline?: Deci
     agentSlug: proposerOf(run) ?? described.agentSlug,
     ownerUserId: null,
     conversationId: originConversation(run),
-    ...(extra.deadline ? { deadline: extra.deadline } : {}),
+    ...(!isNeverAuto(action ?? { id: run.actionId }) && extra.deadline ? { deadline: extra.deadline } : {}),
     answer: decided
-      ? { kind: 'option', optionIds: [approved ? ALLOW_ONCE_ID : DENY_ID], labels: [approved ? 'Allow once' : 'Deny'], freeText: null, by: run.decidedBy ?? null, at: run.decidedAt ? new Date(run.decidedAt).toISOString() : null, via: null }
+      ? { kind: 'option', optionIds: [approved ? ALLOW_ONCE_ID : DENY_ID], labels: [approved ? (card?.verbs?.approve ?? 'Allow once') : (card?.verbs?.reject ?? 'Deny')], freeText: null, by: run.decidedBy ?? null, at: run.decidedAt ? new Date(run.decidedAt).toISOString() : null, via: null }
       : null,
     createdAt: run.createdAt ? new Date(run.createdAt).toISOString() : null,
-    preview: changes ? described.changes.map(c => `${c.field} → ${c.to}`).join('\n') : payloadPreview(run.input as Record<string, unknown> | null),
+    preview: reviewPreview || (changes ? described.changes.map(c => `${c.field} → ${c.to}`).join('\n') : payloadPreview(run.input as Record<string, unknown> | null)),
     href: inboxHref('proposal', run.id),
-    hrefLabel: 'Details',
+    hrefLabel: card ? 'Review and edit' : 'Details',
   };
 }
 
@@ -209,6 +224,14 @@ export async function answerProposal(opts: { orgId: string; id: number; conversa
       // reports that line, not "done" (a bulk decline that left rows open).
       const line = execution?.result?.line;
       const records = recordsOf(getAction(run.actionId), run.input);
+      let resultContext: string | undefined;
+      if (run.actionId === 'seo.save_profile' && status === 'done' && execution?.result?.savedProfile) {
+        const { seoProfileSchema, profileFacts } = await import('@/services/seo/profile');
+        const saved = seoProfileSchema.safeParse(execution.result.savedProfile);
+        if (saved.success) {
+          resultContext = profileFacts(saved.data).map(f => `${f.label}: ${f.value}`).join('\n');
+        }
+      }
       effect = {
         runId: opts.id,
         actionId: run.actionId,
@@ -217,6 +240,7 @@ export async function answerProposal(opts: { orgId: string; id: number; conversa
         undoable: status === 'done' && actionIsUndoable(run.actionId, run.input as Record<string, unknown> | null),
         label: asked.question || actionLabel(run.actionId),
         ...(run.actionId === 'mcp.call' && status === 'done' ? { executedInput: run.input as Record<string, unknown> } : {}),
+        ...(resultContext ? { resultContext } : {}),
         ...(typeof line === 'string' && line.trim() ? { resultLine: line.trim().slice(0, 600) } : {}),
         ...(records !== null ? { records } : {}),
       };

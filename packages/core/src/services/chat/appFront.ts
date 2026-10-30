@@ -92,9 +92,10 @@ async function writerRuns(orgId: string, brief: BriefingRowInput): Promise<Autom
  * @param orgId - The workspace.
  * @param opts - Which app the person is in, when the browser has said.
  * @param opts.navCookie - The `NAV_APP_COOKIE` value; it counts only when it names this workspace.
+ * @param opts.appId
  * @param opts.now - Now (tests).
  */
-export async function loadAppFronts(orgId: string, opts: { navCookie?: string | null; now?: Date } = {}): Promise<Record<string, AppFront>> {
+export async function loadAppFronts(orgId: string, opts: { navCookie?: string | null; appId?: string | null; now?: Date } = {}): Promise<Record<string, AppFront>> {
   const now = opts.now ?? new Date();
   const [{ safeListApps }, project] = await Promise.all([
     import('@/libs/workspace/apps'),
@@ -106,7 +107,7 @@ export async function loadAppFronts(orgId: string, opts: { navCookie?: string | 
   const catalogue = safeListApps();
   const installed = installedApps(project.plugins ?? [], project.surfaces ?? [], catalogue);
   // The app the browser named: the core app has no front; another loads alone.
-  const app = appFromNavCookie(opts.navCookie, project.slug);
+  const app = opts.appId ?? appFromNavCookie(opts.navCookie, project.slug);
   const named = app ? installed.find(a => a.id === app) : undefined;
   if (named?.core) {
     return {};

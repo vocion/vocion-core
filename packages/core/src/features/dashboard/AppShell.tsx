@@ -9,6 +9,7 @@ import { AgentBudgetBanner } from '@/features/dashboard/AgentBudgetBanner';
 import { appsElsewhere } from '@/features/dashboard/appsElsewhere';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
+import { BreadcrumbTrailProvider } from '@/features/dashboard/BreadcrumbTrail';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey';
 import { PageDock } from '@/features/dashboard/chat/PageDock';
@@ -23,6 +24,7 @@ import { WorkspacePausedBanner } from '@/features/dashboard/WorkspaceOffSwitch';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
 import { NavigationTrail } from '@/features/navigation/cameFrom';
 import { isSurfaceId } from '@/features/navigation/surfaces';
+import { AppContextProvider } from '@/libs/appContext';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { readWorkspaceToursFor } from '@/libs/workspace/tour';
@@ -184,35 +186,37 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
     // capture a page cannot report what is wrong with it.
     // The sidebar is the app rail (3.5rem) plus the selected app's nav, so both
     // widths carry the rail: collapsed, the rail stays and the nav is icons.
-    <SidebarProvider defaultOpen={defaultOpen} className="min-h-svh md:h-svh md:overflow-hidden" style={SIDEBAR_WIDTHS}>
-      {/* Airy pass (B-034b §3): the sidebar collapses to a 56px icon rail
+    <AppContextProvider apps={byApp.apps}>
+      <BreadcrumbTrailProvider>
+        <SidebarProvider defaultOpen={defaultOpen} className="min-h-svh md:h-svh md:overflow-hidden" style={SIDEBAR_WIDTHS}>
+          {/* Airy pass (B-034b §3): the sidebar collapses to a 56px icon rail
           instead of sliding off-canvas; the rail toggle / ⌘B persist it. */}
-      <AppSidebar
-        collapsible="icon"
-        isAdmin={isAdmin}
-        enabledPlugins={enabledPlugins}
-        enabledSurfaces={byApp.core.surfaces.filter(isSurfaceId)}
-        pluginNav={byApp.core.nav}
-        needsYouCount={waiting}
-        goalsCount={goalsCount}
-        workspacePages={byApp.core.pages}
-        apps={byApp.apps}
-        elsewhere={elsewhere}
-        gettingStarted={gettingStarted}
-        personalWorkspace={personalWorkspace}
-      />
-      <SidebarInset className="md:min-h-0 md:overflow-hidden">
-        <ShellBarActionsProvider>
-          <AppSidebarHeader workspace={workspace} usage={usage} canPauseWorkspace={Boolean(orgId) && isAdmin && pause === null} />
+          <AppSidebar
+            collapsible="icon"
+            isAdmin={isAdmin}
+            enabledPlugins={enabledPlugins}
+            enabledSurfaces={byApp.core.surfaces.filter(isSurfaceId)}
+            pluginNav={byApp.core.nav}
+            needsYouCount={waiting}
+            goalsCount={goalsCount}
+            workspacePages={byApp.core.pages}
+            apps={byApp.apps}
+            elsewhere={elsewhere}
+            gettingStarted={gettingStarted}
+            personalWorkspace={personalWorkspace}
+          />
+          <SidebarInset className="md:min-h-0 md:overflow-hidden">
+            <ShellBarActionsProvider>
+              <AppSidebarHeader workspace={workspace} usage={usage} canPauseWorkspace={Boolean(orgId) && isAdmin && pause === null} />
 
-          {/* The workspace's state, above every page in it until someone
+              {/* The workspace's state, above every page in it until someone
               lifts it. Inside the inset rather than fixed, so it pushes the
               page down instead of covering the first line of it. */}
-          {pause && <WorkspacePausedBanner pause={pause} canResume={isAdmin} />}
-          <AgentBudgetBanner blocked={blockedAgents} />
-          <AppNotHereNotice apps={byApp.apps} elsewhere={elsewhere} />
+              {pause && <WorkspacePausedBanner pause={pause} canResume={isAdmin} />}
+              <AgentBudgetBanner blocked={blockedAgents} />
+              <AppNotHereNotice apps={byApp.apps} elsewhere={elsewhere} />
 
-          {/* The page, full width, and the one conversation surface (058) as
+              {/* The page, full width, and the one conversation surface (058) as
               an overlay on its right edge — collapsed to an edge tab until
               opened, on a record page too (2026-09-16, docs/design/patterns.md).
               `--rail-inset` is the room an OPEN rail is taking: the gutter
@@ -220,30 +224,32 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
               and the page is full width again the moment it closes. Record
               pages that mount their own scoped dock inside `children` are
               skipped by PageDock. */}
-          <PageContextProvider>
-            <div className="flex items-stretch md:min-h-0 md:flex-1">
-              {/* The page gutter and the reading-width cap are one owner now
+              <PageContextProvider>
+                <div className="flex items-stretch md:min-h-0 md:flex-1">
+                  {/* The page gutter and the reading-width cap are one owner now
                   (`PageWidth`): it knows the route, so it knows whether the
                   page is capped, and whether the gutter scrolls or the page
                   lays itself out to the height it was given. The gutter pads
                   by `--rail-inset`, so a full-bleed page never sits under an
                   open rail either. */}
-              {/* `data-page-content` is what select-to-ask watches: the page,
+                  {/* `data-page-content` is what select-to-ask watches: the page,
                   never the conversation beside it. */}
-              <div data-page-content className="contents">
-                <PageWidth>{props.children}</PageWidth>
-              </div>
-              <PageSelectionAsk />
-              <PageDock agents={agents} />
-            </div>
-          </PageContextProvider>
-        </ShellBarActionsProvider>
-        {tours.length > 0 ? <WorkspaceTour tours={tours} /> : null}
-        <WorkspaceDriftBanner />
-        <NavigationTrail />
-        <AgentSurfaceHotkey isAdmin={isAdmin} enabledPlugins={enabledPlugins} agents={agents.map(a => ({ slug: a.slug, name: a.name, description: a.description }))} />
-      </SidebarInset>
-    </SidebarProvider>
+                  <div data-page-content className="contents">
+                    <PageWidth>{props.children}</PageWidth>
+                  </div>
+                  <PageSelectionAsk />
+                  <PageDock agents={agents} />
+                </div>
+              </PageContextProvider>
+            </ShellBarActionsProvider>
+            {tours.length > 0 ? <WorkspaceTour tours={tours} /> : null}
+            <WorkspaceDriftBanner />
+            <NavigationTrail />
+            <AgentSurfaceHotkey isAdmin={isAdmin} enabledPlugins={enabledPlugins} agents={agents.map(a => ({ slug: a.slug, name: a.name, description: a.description }))} />
+          </SidebarInset>
+        </SidebarProvider>
+      </BreadcrumbTrailProvider>
+    </AppContextProvider>
   );
 }
 

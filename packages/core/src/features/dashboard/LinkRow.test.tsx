@@ -10,7 +10,7 @@ import '@/styles/global.css';
  */
 
 const push = vi.fn();
-vi.mock('next/navigation', () => ({
+vi.mock('@/libs/I18nNavigation', () => ({
   useRouter: () => ({ push }),
 }));
 

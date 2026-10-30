@@ -1,8 +1,8 @@
 'use client';
 
 import { ChevronRight, Loader } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useTransition } from 'react';
+import { useRouter } from '@/libs/I18nNavigation';
 import { beginNavigation } from './navigationInFlight';
 
 /**

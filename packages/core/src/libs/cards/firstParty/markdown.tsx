@@ -11,6 +11,7 @@ import { defineCard } from '@vocion/sdk';
 import { Children, isValidElement } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { WorkspaceMarkdownLink } from '@/components/WorkspaceMarkdownLink';
 import { cn } from '@/utils/Helpers';
 import { anchorCounter, headingText } from '../headingAnchor';
 import { remarkDropHtmlComments } from '../markdownDisplay';
@@ -51,9 +52,7 @@ export function MarkdownCardView({ data, surface }: { data: MarkdownSpec; surfac
           remarkPlugins={[remarkGfm, remarkDropHtmlComments]}
           components={{
             ...(dense ? {} : anchoredHeadings()),
-            a: ({ href, children }) => (
-              <a href={href} target={href?.startsWith('/') ? undefined : '_blank'} rel="noreferrer">{children}</a>
-            ),
+            a: WorkspaceMarkdownLink,
           }}
         >
           {data.md}

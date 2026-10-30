@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { failureReason, outcomeOf, readDoneReceipt, receiptText } from './receipt';
 
 describe('the Done line (a HubSpot deal update, 2026-10-28)', () => {
+  it('distinguishes saving a question from finishing the work while preserving undo and failure', () => {
+    const receipt = { runId: 8, actionId: 'ask.file', label: 'Which client?', undoable: true };
+
+    expect(receiptText(receipt)).toBe('Question saved. Which client?');
+    expect(receiptText({ ...receipt, status: 'undone' })).toBe('Undone. Which client?');
+    expect(receiptText({ ...receipt, status: 'failed', error: 'Unable to save' })).toBe('Didn\'t run. Which client?: Unable to save');
+  });
+
   it('reads "Done. <record> updated: <field> old → new", the record its link', () => {
     const r = { runId: 5590, actionId: 'hubspot.update', label: 'Update HubSpot record', undoable: true, record: { label: 'Northwind renewal', href: '/dashboard/records/hubspot:deals:7781' }, changes: [{ field: 'Deal stage', from: 'Proposal', to: 'Contract sent' }, { field: 'Amount', from: '$40,000', to: '$48,000' }] };
 

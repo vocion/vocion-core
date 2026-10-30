@@ -3,7 +3,6 @@
 import type { ActionRun } from '@/features/review/ReviewFocusView';
 import type { ReviewStale } from '@/features/review/ReviewSurface';
 import type { ProposalQueueEntry } from '@/services/InboxService';
-import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from '@/components/ui/toast';
 import { cameFrom } from '@/features/navigation/cameFrom';
@@ -13,7 +12,7 @@ import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
 import { showLearnedToast } from '@/features/review/showLearnedToast';
 import { isSelfUpdate } from '@/libs/actions/selfUpdate';
-import { Link } from '@/libs/I18nNavigation';
+import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { inboxHref, isReviewPath } from '@/services/inbox/inboxRef';
 import { decisionCrumbs } from './inbox/inboxMeta';

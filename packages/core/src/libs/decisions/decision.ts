@@ -76,6 +76,8 @@ export type DecisionView = {
   subject?: DecisionSubject;
   kind: DecisionKind;
   question: string;
+  /** Domain review with its authored title and visible payload. */
+  presentation?: 'review';
   /** Two to four lines of why — short, markdown. */
   body?: string | null;
   /** Recommended first. */
@@ -130,9 +132,9 @@ export const DENY_ID = 'reject';
  * @param view.question - What it asks.
  * @param agentName - The asking agent's name, when known.
  */
-export function decisionTitle(view: Pick<DecisionView, 'kind' | 'question'>, agentName: string | null | undefined): string {
+export function decisionTitle(view: Pick<DecisionView, 'kind' | 'question' | 'presentation'>, agentName: string | null | undefined): string {
   const q = view.question.trim();
-  if (view.kind !== 'approval' || !q || q.endsWith('?')) {
+  if (view.presentation === 'review' || view.kind !== 'approval' || !q || q.endsWith('?')) {
     return q;
   }
   // "Move Northwind…" reads "move Northwind…"; "HubSpot: update…" keeps its capital.
@@ -436,7 +438,7 @@ export function answerLine(view: Pick<DecisionView, 'options'>, answer: Decision
  * @param answer - The answer.
  * @param effect - The actual execution outcome, when the decision ran an action.
  */
-export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'options' | 'subject' | 'body' | 'refs'>, answer: DecisionAnswer, effect?: { runId: number; status: string; error?: string | null; executedInput?: Record<string, unknown>; resultLine?: string } | null): string {
+export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'options' | 'subject' | 'body' | 'refs'>, answer: DecisionAnswer, effect?: { runId: number; status: string; error?: string | null; executedInput?: Record<string, unknown>; resultLine?: string; resultContext?: string } | null): string {
   const lines = [`[${view.subject === 'proposal' ? 'proposal' : 'decision'} #${view.id} answered] ${view.question}`];
   if (view.body?.trim()) {
     lines.push(`Asked with: ${view.body.trim()}`);
@@ -463,6 +465,9 @@ export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'o
       // queue still holding rows it was asked to clear).
       lines.push(`What it did, in its own words: ${effect.resultLine}`);
       lines.push('Report exactly these numbers. If it says something is still open, say what and why, and never call it done or cleared.');
+    }
+    if (effect.status === 'done' && effect.resultContext) {
+      lines.push(`Verified saved values from this execution:\n${effect.resultContext}`);
     }
     if (effect.executedInput) {
       lines.push(`Executed arguments (historical, not current state): ${JSON.stringify(effect.executedInput)}`);

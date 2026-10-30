@@ -19,7 +19,7 @@ const { eq } = await import('drizzle-orm');
 const typeIds: Record<string, number> = {};
 
 async function seedTypes() {
-  for (const [slug, label] of [['event_candidate', 'Event candidate'], ['grant_deadline', 'Grant deadline']]) {
+  for (const [slug, label] of [['event_candidate', 'Event candidate'], ['grant_deadline', 'Grant deadline'], ['seo_page', 'SEO page']]) {
     const [row] = await db
       .insert(businessObjectTypeSchema)
       .values({ orgId: ORG, slug: slug!, label: label! })
@@ -246,6 +246,21 @@ describe('records that belong to a project (`metadata.projectId`)', () => {
     const page = await listBusinessObjectPage(ORG, { projectId: project, typeSlug: 'event_candidate' });
 
     expect(page.items.map(i => i.title)).toEqual(['Open Mic Night']);
+  });
+
+  it('shows SEO editorial lifecycle while retaining generic status for other records and legacy pages', async () => {
+    const project = await seedObject({ title: 'Client project', status: 'active' });
+    await seedObject({ title: 'Review draft', typeSlug: 'seo_page', status: 'active', metadata: { projectId: project, status: 'in_review' } });
+    await seedObject({ title: 'Revise draft', typeSlug: 'seo_page', status: 'active', metadata: { projectId: project, status: 'changes_requested' } });
+    await seedObject({ title: 'Legacy page', typeSlug: 'seo_page', status: 'active', metadata: { projectId: project } });
+    await seedObject({ title: 'Generic record', status: 'active', metadata: { projectId: project, status: 'in_review' } });
+
+    const records = await listBusinessObjectsForProject(ORG, project);
+
+    expect(records.find(r => r.title === 'Review draft')?.status).toBe('in_review');
+    expect(records.find(r => r.title === 'Revise draft')?.status).toBe('changes_requested');
+    expect(records.find(r => r.title === 'Legacy page')?.status).toBe('active');
+    expect(records.find(r => r.title === 'Generic record')?.status).toBe('active');
   });
 
   it('groups by type label, the type with the newest record first', () => {

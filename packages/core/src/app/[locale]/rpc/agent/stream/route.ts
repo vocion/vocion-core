@@ -214,7 +214,7 @@ export async function POST(request: Request): Promise<Response> {
       // Who leads which team, and the app the person is in: in an app's chat
       // the app's own seats answer first (`services/chat/appScope.ts`).
       const { loadRoutingContext } = await import('@/services/chat/appScope');
-      const routingContext = await loadRoutingContext(orgId, { cookie: request.headers.get('cookie'), agents });
+      const routingContext = await loadRoutingContext(orgId, { cookie: request.headers.get('cookie'), referer: request.headers.get('referer'), agents });
       appScope = routingContext.app;
       const routable = withTeams(agents.map(routableFromRow), routingContext.teams);
       // On a record's page the record's owner answers the first turn — the

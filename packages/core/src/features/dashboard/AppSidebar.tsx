@@ -39,6 +39,7 @@ import { appMissingHere, appOwningPath, resolveActiveApp, workspaceLanding } fro
 import { DASHBOARD_ROUTES, DEFAULT_WORK_PINS, manageNavGroups, manageRoutes, tabsOf, workCoreRoutes, workPinnableRoutes } from '@/features/navigation/dashboardNav';
 import { PLUGIN_NAV_WORKSPACE } from '@/features/navigation/pluginNav';
 import { groupEnabledSurfaces } from '@/features/navigation/surfaces';
+import { useAppContext } from '@/libs/appContext';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { useWorkspaceSlug } from '@/libs/workspaceSlug';
 
@@ -228,7 +229,8 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     return left && appOwningPath(left, apps) === app.id ? { ...app, href: left } : app;
   }), [apps, appPlaces]);
   const coreAppNav = apps.find(a => a.core);
-  const activeAppId = resolveActiveApp({ pathname, apps, remembered: lastApp });
+  const appContext = useAppContext();
+  const activeAppId = appContext ?? resolveActiveApp({ pathname, apps, remembered: lastApp });
   const activeApp = railApps.find(a => a.id === activeAppId);
   const activeAppNav = apps.find(a => a.id === activeAppId);
   const inCoreApp = !activeApp || activeApp.core;

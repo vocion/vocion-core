@@ -24,6 +24,8 @@
 import type { ComponentProps } from 'react';
 import { createNavigation } from 'next-intl/navigation';
 import { createElement, useMemo } from 'react';
+import { useAppContext } from './appContext';
+import { withAppContext } from './appLinks';
 import { routing } from './I18nRouting';
 import { canonicalise, stripWorkspacePrefix } from './links';
 import { useWorkspaceSlug } from './workspaceSlug';
@@ -44,7 +46,8 @@ export function usePathname(): string {
  */
 export function Link(props: ComponentProps<typeof nav.Link>): React.ReactElement {
   const slug = useWorkspaceSlug();
-  const href = typeof props.href === 'string' ? canonicalise(props.href, slug) : props.href;
+  const app = useAppContext();
+  const href = typeof props.href === 'string' ? withAppContext(canonicalise(props.href, slug), app, slug) : props.href;
   return createElement(nav.Link, { ...props, href });
 }
 
@@ -57,10 +60,11 @@ export function Link(props: ComponentProps<typeof nav.Link>): React.ReactElement
 export function useRouter(): ReturnType<typeof nav.useRouter> {
   const base = nav.useRouter();
   const slug = useWorkspaceSlug();
+  const app = useAppContext();
   return useMemo(() => ({
     ...base,
-    push: (href, ...rest) => base.push(typeof href === 'string' ? (canonicalise(href, slug) as typeof href) : href, ...rest),
-    replace: (href, ...rest) => base.replace(typeof href === 'string' ? (canonicalise(href, slug) as typeof href) : href, ...rest),
-    prefetch: (href, ...rest) => base.prefetch(typeof href === 'string' ? (canonicalise(href, slug) as typeof href) : href, ...rest),
-  }), [base, slug]);
+    push: (href, ...rest) => base.push(typeof href === 'string' ? (withAppContext(canonicalise(href, slug), app, slug) as typeof href) : href, ...rest),
+    replace: (href, ...rest) => base.replace(typeof href === 'string' ? (withAppContext(canonicalise(href, slug), app, slug) as typeof href) : href, ...rest),
+    prefetch: (href, ...rest) => base.prefetch(typeof href === 'string' ? (withAppContext(canonicalise(href, slug), app, slug) as typeof href) : href, ...rest),
+  }), [base, slug, app]);
 }

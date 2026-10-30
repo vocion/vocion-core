@@ -229,12 +229,21 @@ const unread = (url: string, status: number | null, error: string): InventoryRow
  * @param opts - The cap and the clock.
  * @param opts.cap - Pages read at most (default 300).
  * @param opts.now - When it was read.
+ * @param opts.onProgress
  */
-export async function readInventory(site: string, f: InventoryFetchers, opts: { cap?: number; now?: Date } = {}): Promise<SiteInventory> {
+export async function readInventory(site: string, f: InventoryFetchers, opts: { cap?: number; now?: Date; onProgress?: (progress: { phase: 'discover' | 'read'; completed: number; total?: number }) => void } = {}): Promise<SiteInventory> {
   const origin = siteOrigin(site);
   const cap = opts.cap ?? DEFAULT_INVENTORY_CAP;
+  const report = (progress: { phase: 'discover' | 'read'; completed: number; total?: number }) => {
+    try {
+      opts.onProgress?.(progress);
+    } catch { /* Progress cannot fail a read. */ }
+  };
+  report({ phase: 'discover', completed: 0 });
   const found = await discoverPages(origin, f, cap);
   const urls = found.urls.slice(0, cap);
+  let completed = 0;
+  report({ phase: 'read', completed, total: urls.length });
   const rows = await mapWithConcurrency(urls, INVENTORY_CONCURRENCY, async (url): Promise<InventoryRow> => {
     try {
       const raw = await f.fetchHtml(url);
@@ -242,6 +251,9 @@ export async function readInventory(site: string, f: InventoryFetchers, opts: { 
     } catch (err) {
       const status = (err as { status?: unknown }).status;
       return unread(url, typeof status === 'number' ? status : null, ((err as Error).message ?? 'could not be read').slice(0, 160));
+    } finally {
+      completed++;
+      report({ phase: 'read', completed, total: urls.length });
     }
   });
   return {

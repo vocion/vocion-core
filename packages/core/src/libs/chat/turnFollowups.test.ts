@@ -27,7 +27,7 @@ describe('what a turn set moving, to watch (Chris, 2026-09-29, request #201)', (
   it('an ask whose card is docked here gets no chip: the card is the shape (2026-10-29)', () => {
     const runs = [{ type: 'tool', name: 'file_ask', output: 'Ask #372 filed (approval, run #9). It is on Needs you.' }];
 
-    expect(turnFollowups(runs).map(f => f.label)).toEqual(['ASK-372']);
+    expect(turnFollowups(runs).map(f => f.label)).toEqual(['View question']);
     expect(turnFollowups(runs, { exclude: [{ type: 'ask', id: '372' }] })).toEqual([]);
   });
 
@@ -38,7 +38,7 @@ describe('what a turn set moving, to watch (Chris, 2026-09-29, request #201)', (
       { type: 'tool', name: 'decide_ask', output: 'Refused: already decided', state: 'error' },
       { type: 'tool', name: 'file_ask', output: 'Ask #88 filed on Needs you.' },
       { type: 'tool', name: 'decide_ask', output: 'Decided ask #88 "Ship it?": approve (approved).' },
-    ]).map(f => f.label)).toEqual(['ASK-88']);
+    ]).map(f => f.label)).toEqual(['View question']);
     expect(turnFollowups(undefined)).toEqual([]);
   });
 

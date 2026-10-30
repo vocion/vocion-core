@@ -231,7 +231,7 @@ export async function waitingElsewhere(orgId: string, userId: string): Promise<D
     .slice(0, WAITING_IN_CHAT_LIMIT);
   const proposals = await Promise.all(runs.map(async (r) => {
     const clock = clocks.get(`proposal:${r.id}`);
-    return proposalDecisionView({ id: r.id, actionId: r.actionId, status: r.status, input: r.input, proposal: r.proposal, invokedBy: (r as { invokedBy?: string | null }).invokedBy ?? null, createdAt: r.createdAt, decidedBy: r.decidedBy, decidedAt: r.decidedAt }, clock ? { deadline: { at: clock.at, defaultLabel: clock.defaultLabel } } : {});
+    return proposalDecisionView({ orgId, id: r.id, actionId: r.actionId, status: r.status, input: r.input, proposal: r.proposal, invokedBy: (r as { invokedBy?: string | null }).invokedBy ?? null, createdAt: r.createdAt, decidedBy: r.decidedBy, decidedAt: r.decidedAt }, clock ? { deadline: { at: clock.at, defaultLabel: clock.defaultLabel } } : {});
   }));
   const asks = askViews(rows, clocks);
   return oldestFirst(await forViewer(orgId, userId, rows.map((r, i) => [r, asks[i]!]), runs.map((r, i) => [r, proposals[i]!]))).slice(0, WAITING_IN_CHAT_LIMIT);
@@ -334,6 +334,8 @@ export type AnsweredDecision = {
     executedInput?: Record<string, unknown>;
     /** The action's own one-line account of what it did (`result.line`), which the asking agent reports. */
     resultLine?: string;
+    /** Explicitly allowlisted, verified output for continuing the original work. */
+    resultContext?: string;
     /** How many records it changed, when more than one (`Action.recordCount`): Auto reads it for the reporting turn. */
     records?: number;
   } | null;

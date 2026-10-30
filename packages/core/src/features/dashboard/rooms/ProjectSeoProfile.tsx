@@ -90,12 +90,19 @@ export function profileFromDraft(d: SeoProfileDraft, was: SeoProfile | null): Se
  * @param props
  * @param props.projectId - The project.
  * @param props.profile - Its saved profile, if any.
+ * @param props.preparedDraft - Sourced preparation, separate from the approved profile.
  * @param props.targets - Its publish targets, in words.
  */
-export function ProjectSeoProfile({ projectId, profile, targets }: { projectId: number; profile: SeoProfile | null; targets: Array<{ id: string; line: string }> }) {
+export function ProjectSeoProfile({ projectId, profile, targets, preparedDraft = null }: { projectId: number; profile: SeoProfile | null; preparedDraft?: SeoProfile | null; targets: Array<{ id: string; line: string }> }) {
   const field = useProjectField(projectId);
+  const [reviewingDraft, setReviewingDraft] = useState(false);
   const [d, setD] = useState<SeoProfileDraft>(() => draftOf(profile));
   const set = <K extends keyof SeoProfileDraft>(k: K, v: SeoProfileDraft[K]) => setD(prev => ({ ...prev, [k]: v }));
+  const edit = (draft = false) => {
+    setReviewingDraft(draft);
+    setD(draftOf(draft ? preparedDraft : profile));
+    field.setEditing(true);
+  };
   const cancel = () => {
     setD(draftOf(profile));
     field.setEditing(false);
@@ -115,9 +122,15 @@ export function ProjectSeoProfile({ projectId, profile, targets }: { projectId: 
         : <input type="text" value={d[k]} onChange={e => set(k, e.target.value)} placeholder={placeholder} aria-label={label} className={input} />}
     </label>
   );
-  const save = () => field.save({ seoProfile: profileFromDraft(d, profile) });
+  const save = () => field.save({ seoProfile: profileFromDraft(d, reviewingDraft ? preparedDraft : profile) });
   return (
-    <Section id="seo-profile" eyebrow="SEO profile" action={field.editing ? null : <EditButton label="Edit SEO profile" onClick={() => field.setEditing(true)} />} data-testid="project-seo-profile">
+    <Section id="seo-profile" eyebrow="SEO profile" action={field.editing ? null : <EditButton label="Edit SEO profile" onClick={() => edit()} />} data-testid="project-seo-profile">
+      {preparedDraft && !field.editing && (
+        <div className="mb-4 rounded-lg border border-border bg-muted/20 p-3" data-testid="seo-prepared-draft">
+          <p className="text-sm">A sourced draft is ready to review. It has not replaced the approved profile.</p>
+          <button type="button" onClick={() => edit(true)} className="mt-2 text-sm font-medium underline underline-offset-4">Review prepared draft</button>
+        </div>
+      )}
       {field.editing
         ? (
             <form

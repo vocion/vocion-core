@@ -22,8 +22,9 @@ import '@/styles/global.css';
  * stays put while the table scrolls sideways.
  */
 
-vi.mock('next/navigation', () => ({
+vi.mock('@/libs/I18nNavigation', () => ({
   useRouter: () => ({ push: () => {} }),
+  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));
 
 const { PageTable } = await import('./PageTable');
