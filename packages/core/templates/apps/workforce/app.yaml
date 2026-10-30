@@ -8,7 +8,7 @@ icon: users
 tint: sky
 order: 0
 core: true
-description: Your agents and teams, what they know, and how the workspace runs.
+description: Workforce performance, business rollout and the next improvement — with agents and teams behind the evidence.
 plugins: []
-entry: /dashboard/chat
+entry: /dashboard/scorecard
 nav: [Workspace, Team, Knowledge, Build, Insights, Organization]
