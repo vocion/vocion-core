@@ -6,7 +6,7 @@
 # Plumbing, not something a person runs or switches: `visibility: system`
 # keeps it out of the Automations register; usage-review is the one listed.
 slug: usage-review-check
-name: Usage review check
+name: Check yesterday's use and start the usage review
 description: Each morning, checks whether the workspace was used yesterday and starts the daily usage review only when it was.
 status: active
 visibility: system

@@ -78,6 +78,29 @@ describe('what each run is called', () => {
   });
 });
 
+describe('a workflow run', () => {
+  it('is named by its run label and the step it is on now', async () => {
+    const now = Date.now();
+    const [wf] = await db.insert(workflowSchema).values({ orgId: ORG, slug: 'seo-page', name: 'Research, brief, draft and review one SEO page', trigger: {}, steps: [] }).returning({ id: workflowSchema.id });
+    await db.insert(workflowRunSchema).values({
+      orgId: ORG,
+      workflowId: wf!.id,
+      status: 'running',
+      input: { runLabel: 'SB-506 · page 2 of 3: boiler service cost' },
+      stepResults: { brief: { status: 'completed', label: 'Brief' }, review: { status: 'running', label: 'Editor review · round 2 of 3' } },
+      createdAt: new Date(now - 60_000),
+    } as never);
+    await db.insert(workflowRunSchema).values({ orgId: ORG, workflowId: wf!.id, status: 'running', createdAt: new Date(now - 30_000) });
+
+    const view = await workSince(ORG, new Date(now - HOUR));
+
+    expect(view.running.map(i => i.title).sort()).toEqual([
+      'Research, brief, draft and review one SEO page',
+      'SB-506 · page 2 of 3: boiler service cost · Editor review · round 2 of 3',
+    ]);
+  });
+});
+
 describe('Stop', () => {
   it('cancels a running mission of this workspace, and nothing else', async () => {
     const running = await mission(ORG, 'Reconcile the Northwind invoices', 'running', new Date(Date.now() - 3 * HOUR));
