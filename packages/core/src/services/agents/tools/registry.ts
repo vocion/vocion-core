@@ -49,6 +49,7 @@ import { drawArchitectureTools } from './drawArchitecture';
 import { drawMockupTools } from './drawMockup';
 import { driveTools } from './driveFile';
 import { editArtifactTools } from './editArtifacts';
+import { evidenceTools } from './evidence';
 import { extractRecordsTool } from './extractRecords';
 import { fetchImageTool } from './fetchImage';
 import { fetchUrlTool } from './fetchUrl';
@@ -374,6 +375,8 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ...(ctx.enabledPlugins?.includes('meeting-followup') ? [readMeetingRecordTool(ctx)] : []),
     // The workspace wiki — long-term context. Present while the `wiki` plugin is on.
     ...inFamily('Wiki', wikiTools(ctx)),
+    // The wiki's evidence graph (ADR 0012). Present while `wiki-evidence` is on, with `wiki`.
+    ...inFamily('Wiki', evidenceTools(ctx)),
     // The SEO app: batches and pages as records, the volume gate in code, the
     // model that ran each step. Present while the `seo` plugin is on.
     ...(ctx.enabledPlugins?.includes('seo') ? inFamily('SEO', seoTools(ctx)) : []),

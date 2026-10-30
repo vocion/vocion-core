@@ -96,7 +96,8 @@ export function firstParagraph(md: string): string {
     .split(/\n\s*\n/)
     .map(p => p.trim())
     .find(p => p && !/^(?:[#|>]|---|[-*+]\s|\d+\.\s)/.test(p));
-  return (para ?? '').replace(/\s+/g, ' ').slice(0, 200);
+  // Citation tokens (ADR 0012) are for agents and the reading view, not a one-line summary.
+  return (para ?? '').replace(/\s?\[src:\d+(?:\.\d+)?\]/g, '').replace(/\s+/g, ' ').slice(0, 200);
 }
 
 function toPage(row: ArtifactRow): WikiPage {
@@ -227,6 +228,14 @@ export async function writeWikiPage(orgId: string, input: WriteWikiPageInput): P
   if (!res.unchanged) {
     void import('./wikiIndex').then(m => m.indexWikiPage(orgId, { slug, title: spec.title, md, summary: spec.summary ?? null, artifactId: res.artifact.id })).catch((err: Error) => {
       console.warn('wiki index: the page was written but not indexed', { orgId, slug, message: err.message });
+    });
+    // The page's claims and links into the evidence graph, while `wiki-evidence` is on (ADR 0012).
+    void import('@/services/memory/EvidenceGraphService').then(async (m) => {
+      if (await m.evidenceEnabled(orgId)) {
+        await m.rebuildPageEdges(orgId, { slug, md });
+      }
+    }).catch((err: Error) => {
+      console.warn('wiki evidence: the page was written but its edges were not', { orgId, slug, message: err.message });
     });
   }
   return {

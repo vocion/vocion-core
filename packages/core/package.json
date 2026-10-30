@@ -2,7 +2,7 @@
   "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MPL-2.0",
   "engines": {
     "node": ">=20.3"
@@ -97,7 +97,8 @@
     "artifacts:keep-images": "dotenv -c -- tsx src/scripts/keep-artifact-images.ts",
     "version:write": "node scripts/write-version.mjs",
     "people:apply": "tsx src/scripts/apply-people.ts",
-    "personal-projects:merge": "dotenv -c -- tsx src/scripts/merge-personal-projects.ts"
+    "personal-projects:merge": "dotenv -c -- tsx src/scripts/merge-personal-projects.ts",
+    "eval:wiki-evidence": "tsx --tsconfig ./tsconfig.json src/scripts/eval-wiki-evidence.ts"
   },
   "dependencies": {
     "@amplitude/ai": "^0.24.2",

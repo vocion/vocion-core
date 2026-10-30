@@ -16,10 +16,12 @@ import type { RuntimeContext } from '../types';
 import type { FacetFilter } from '@/libs/retrieval/facets';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { citeLine } from '@/libs/memory/evidence';
 import { describeFacets, validateFacetFilter } from '@/libs/retrieval/facets';
 import { search } from '@/services/RetrievalService';
 import { repeatNote, searchKey } from '../runtimeContext';
 import { renderDocLine, reRankResults, toSearchDocument } from '../search';
+import { evidenceOn } from './evidence';
 
 /** Hits shown when the agent's search config names no number: enough to judge, few enough to re-read every step. */
 export const DEFAULT_SHOWN_HITS = 8;
@@ -181,7 +183,13 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
         ctx.emit({ type: 'documents', documents: fresh.map(x => toSearchDocument(x.d, x.n)) });
       }
 
-      const lines = shown.map((d, i) => renderDocLine(d, numbers[i]! - 1, new Date(), ctx.timeZone));
+      // With the evidence graph on, each hit carries the token a wiki claim cites it by (ADR 0012).
+      const cite = evidenceOn(ctx);
+      const lines = shown.map((d, i) => {
+        const line = renderDocLine(d, numbers[i]! - 1, new Date(), ctx.timeZone);
+        const chunkIdx = (d.metadata as { chunkIdx?: unknown } | undefined)?.chunkIdx;
+        return cite && d.document_id && /^\d+$/.test(d.document_id) ? `${line}\n${citeLine(Number(d.document_id), typeof chunkIdx === 'number' ? chunkIdx : null)}` : line;
+      });
       return remember(lines.join('\n\n'), numbers);
     },
     {

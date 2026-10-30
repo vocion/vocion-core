@@ -1845,6 +1845,45 @@ export const memorySchema = pgTable(
   ],
 );
 
+/**
+ * The wiki's evidence graph (ADR 0012): typed, directed edges between wiki
+ * pages, the claims on them, knowledge documents and their passages. Built
+ * without a model: `cites` from the `[src:<doc>.<passage>]` tokens on a saved
+ * page (with the passage's hash then, so a later change is seen), `links_to`
+ * between pages, and `refers_to` / `supersedes` / `amends` from the
+ * documents' own words. Inverses are read, never stored. Written only while
+ * the `wiki-evidence` plugin is on (`services/memory/EvidenceGraphService.ts`).
+ */
+export const memoryEdgeSchema = pgTable(
+  'memory_edge',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** `wiki:<slug>`, `claim:<slug>#<n>`, `doc:<id>`. */
+    fromRef: text('from_ref').notNull(),
+    /** `cites` | `links_to` | `refers_to` | `supersedes` | `amends`. */
+    edge: text('edge').notNull(),
+    /** `wiki:<slug>`, `doc:<id>`, `passage:<doc>.<idx>`. */
+    toRef: text('to_ref').notNull(),
+    /** The cited passage's hash when it was cited (`cites` only). */
+    toHash: text('to_hash'),
+    /** The claim's sentence, without its tokens (`cites` only). */
+    claim: text('claim'),
+    /** The cited passage's opening words when it was cited (`cites` only). */
+    excerpt: text('excerpt'),
+    /** `wiki`: from a saved page; `source`: from the documents. Each is rebuilt whole. */
+    origin: text('origin').notNull(),
+    /** For `wiki` edges, the page they came from, so a save replaces exactly its own. */
+    pageSlug: text('page_slug'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('memory_edge_org_from_edge_to_idx').on(table.orgId, table.fromRef, table.edge, table.toRef),
+    index('memory_edge_org_to_idx').on(table.orgId, table.toRef),
+    index('memory_edge_org_page_idx').on(table.orgId, table.pageSlug),
+  ],
+);
+
 /* ------------------------------------------------------------------ */
 /* Conversations — persistent chat threads (Phase 5)                  */
 /* ------------------------------------------------------------------ */

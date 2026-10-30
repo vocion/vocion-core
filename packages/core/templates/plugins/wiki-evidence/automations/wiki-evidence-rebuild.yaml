@@ -1,0 +1,11 @@
+# The evidence graph rebuilt whole each night: every page's cited claims, then
+# the documents' own references. Deterministic, no model call. A page's edges
+# are also rebuilt the moment it is saved.
+slug: wiki-evidence-rebuild
+name: Wiki evidence (nightly rebuild)
+status: active
+when:
+  schedule: '30 6 * * *'
+  timezone: UTC
+do:
+  job: wiki-evidence-rebuild

@@ -46,6 +46,7 @@ import { SUGGEST_INSTRUCTION } from '@/libs/chat/suggestions';
 import { db } from '@/libs/DB';
 import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
 import { logger } from '@/libs/Logger';
+import { EVIDENCE_PROMPT_LINE } from '@/libs/memory/evidence';
 import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
 import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
 import { isSeededLead, leadName } from '@/libs/workspace/leadName';
@@ -1071,6 +1072,9 @@ export function capabilitiesPromptNote(enabledPlugins: readonly string[]): strin
   const lines: string[] = [];
   if (enabledPlugins.includes('wiki')) {
     lines.push('WIKI: the workspace wiki — long-term context that changes slowly (voice, standing rules, who is who, decisions) — is mounted at /wiki/index.md with the pages that fit at /wiki/<slug>.md. Read the relevant page before acting on a standing fact and cite it; read_wiki_page fetches one that did not fit. When you learn a durable fact or a person corrects a standing one, write it with write_wiki_page (honest confidence; above the bar it is done for you, below it a person decides).');
+  }
+  if (enabledPlugins.includes('wiki') && enabledPlugins.includes('wiki-evidence')) {
+    lines.push(EVIDENCE_PROMPT_LINE);
   }
   const off = catalogue.filter(p => !enabledPlugins.includes(p.manifest.slug));
   // Only what is on here does work here (2026-10-29: a reply told a person

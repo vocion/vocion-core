@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { Link } from '@/libs/I18nNavigation';
-import { filterWikiPages, orderWikiPages, rewriteWikiLink, wikiHome, wikiNeighbours, wikiSections } from '@/libs/wiki/reading';
+import { filterWikiPages, linkCiteTokens, orderWikiPages, rewriteWikiLink, SOURCE_DOC_ROUTE_RE, wikiHome, wikiNeighbours, wikiSections } from '@/libs/wiki/reading';
 import { cn } from '@/utils/Helpers';
 
 /**
@@ -110,6 +110,9 @@ export function WikiView({ base, pages, current, guideHref, editBase }: Props) {
       components={{
         a: ({ href, children, ...rest }) => {
           const to = href ? rewriteWikiLink(href, pages, base) : href;
+          if (to && SOURCE_DOC_ROUTE_RE.test(to)) {
+            return <Link href={to} className="ml-0.5 rounded border border-border px-1 align-[1px] text-[11px] text-muted-foreground no-underline hover:text-foreground">{children}</Link>;
+          }
           const internal = to !== undefined && to.startsWith('/');
           return internal
             ? <Link href={to!} {...rest}>{children}</Link>
@@ -117,7 +120,7 @@ export function WikiView({ base, pages, current, guideHref, editBase }: Props) {
         },
       }}
     >
-      {body}
+      {linkCiteTokens(body)}
     </ReactMarkdown>
   );
 

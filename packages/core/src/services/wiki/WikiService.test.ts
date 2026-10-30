@@ -39,6 +39,10 @@ describe('firstParagraph', () => {
     expect(firstParagraph('# Only a heading')).toBe('');
     expect(firstParagraph('| a | b |\n|---|---|\n\n- a list\n\nProse at last.')).toBe('Prose at last.');
   });
+
+  it('leaves citation tokens out of the summary', () => {
+    expect(firstParagraph('Refunds take 14 days. [src:104.0] Cards only [src:104.1].')).toBe('Refunds take 14 days. Cards only.');
+  });
 });
 
 describe('renderWikiIndex', () => {
