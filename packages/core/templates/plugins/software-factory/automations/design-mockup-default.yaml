@@ -8,7 +8,7 @@
 # wants a reproduction and an incident speed, not a mockup; a closed request
 # owes nothing.
 slug: design-mockup-default
-name: A request with a UI has no mockup
+name: Ask the designer for a mockup when a UI request has none
 description: >-
   When a request with a ui or flow surface is filed, or gets that surface, and
   carries no mockup, ask the designer to draw one — hands-off, beside the

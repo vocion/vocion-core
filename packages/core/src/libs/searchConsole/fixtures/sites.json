@@ -1,0 +1,7 @@
+{
+  "siteEntry": [
+    { "siteUrl": "https://www.northwind-home.example/", "permissionLevel": "siteFullUser" },
+    { "siteUrl": "sc-domain:northwind-home.example", "permissionLevel": "siteOwner" },
+    { "siteUrl": "https://old.contoso-supply.example/", "permissionLevel": "siteUnverifiedUser" }
+  ]
+}

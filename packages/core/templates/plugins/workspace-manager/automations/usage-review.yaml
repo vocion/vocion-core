@@ -1,6 +1,6 @@
 # The daily usage review, on a day the workspace was used.
 slug: usage-review
-name: Daily usage review
+name: Write the daily usage review of how people used the workspace
 description: When the workspace was used yesterday, the Workspace manager reads how it went and files the fixes as proposals.
 status: active
 agent: workspace-manager

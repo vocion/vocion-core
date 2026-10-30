@@ -211,6 +211,8 @@ test.describe('the platform selector decides which controls exist', () => {
       'Serper',
       'SerpApi',
       'DataForSEO',
+      // A workspace's own Ahrefs (docs/guides/seo-data.md).
+      'Ahrefs',
       // A sign-in to an app the workspace builds, for its QA (2026-09-30).
       'App sign-in',
       // The login apps (#1080): one per vendor a connector can log in to,

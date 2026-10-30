@@ -15,6 +15,7 @@ export const KEY_ONLY_CONNECTORS: Readonly<Record<string, { reason: string; vend
   redshift: { reason: 'Redshift connects with a database user or IAM credentials.', vendorHasLogin: false },
   mixpanel: { reason: 'Mixpanel exports with a service account; it has no OAuth for data access.', vendorHasLogin: false },
   amplitude: { reason: 'Amplitude exports with an API key and secret.', vendorHasLogin: false },
+  ahrefs: { reason: 'Ahrefs gives API access through API keys only; it has no sign-in for apps.', vendorHasLogin: false },
   granola: { reason: 'Granola\'s public API takes an API key; its OAuth login belongs to its MCP server, which connects as an MCP source.', vendorHasLogin: false },
   mcp: { reason: 'An MCP server signs in through its own OAuth, discovered when it is added (`/api/connect/mcp/start`), or takes a header key.', vendorHasLogin: false },
   // The vendor has a login Vocion has not built yet: a key works today, and

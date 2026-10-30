@@ -300,8 +300,13 @@ recommend:
   connectors: [] # connector slugs it works better with
 ```
 
-A plugin's slug must match its directory name. Everything else is the same
-schema a workspace uses (`docs/entities/`), read as shipped (no `{{env}}`
+A plugin's slug must match its directory name. Name every mission,
+automation, workflow, team and agent in plain words for what is done, to what
+("Draft the release announcement", "Research, brief, draft and review
+released SEO pages") — never its slug, and never a word that only says work
+is happening, such as "continue", "keep moving", "sweep" or "nudge"; a unit
+test holds every shipped template to it (`libs/work/plainNames.ts`).
+Everything else is the same schema a workspace uses (`docs/entities/`), read as shipped (no `{{env}}`
 substitution, not sha-tracked — the version is the provenance).
 
 ## What a plugin can and cannot do

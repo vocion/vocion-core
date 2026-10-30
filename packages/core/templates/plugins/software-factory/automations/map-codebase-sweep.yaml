@@ -5,7 +5,7 @@
 # same tool. One pass a day: a map a day old is current enough, and a redraw
 # costs a read of every repository on the product.
 slug: map-codebase-sweep
-name: Products whose map is older than their repositories
+name: Redraw architecture maps older than their repositories
 label: Redrew the architecture
 doing: Redrawing the architecture
 description: >-

@@ -37,7 +37,8 @@ recommend:
     - someone wants a client's site audited, with a report and what to fix first
     - pages were written in bulk and came back wrong because nobody saw the first few
     - feedback on a client's page keeps being given twice, or lost between writers
-  connectors: [github, squarespace, webflow]
+  # Search Console first: it is free, and it is the client's own rankings.
+  connectors: [search-console, github, squarespace, webflow, ahrefs]
 
 starters:
   - label: Onboard a new client from their website

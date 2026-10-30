@@ -1,7 +1,7 @@
 slug: close-the-gap
 name: No request waits more than a week
 description: >-
-  The standing responsibility of the PM — the lead's mission tick.
+  The standing responsibility of the PM — the lead's scheduled mission check.
   Not a one-off run: each check reads the backlog, ranks it, and promotes only
   what the three WIP limits allow.
 goal: >-

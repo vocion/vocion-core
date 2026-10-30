@@ -6,7 +6,7 @@
 # ask to a person with what the run said, and the request reads Stopped.
 # Deterministic: a built-in job.
 slug: pipeline-fix-ended
-name: A pipeline fix run ended
+name: Check a pipeline fix run made a change on GitHub
 description: >-
   When the Release engineer's run on a pipeline fix finishes, check it made a
   move on GitHub; if it did not, stop and ask a person once, with its reason.

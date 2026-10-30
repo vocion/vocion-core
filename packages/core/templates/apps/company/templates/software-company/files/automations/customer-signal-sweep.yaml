@@ -1,5 +1,5 @@
 slug: customer-signal-sweep
-name: Weekday customer signals
+name: Turn what customers said into requests each weekday
 description: >-
   Wakes the Customer voice every weekday to bring what customers said into the
   factory.

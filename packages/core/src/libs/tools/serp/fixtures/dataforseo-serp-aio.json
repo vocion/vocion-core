@@ -1,0 +1,34 @@
+{
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "cost": 0.004,
+  "tasks": [
+    {
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "result": [
+        {
+          "keyword": "how to fix a leaking water heater",
+          "language_code": "en",
+          "datetime": "2026-10-28 09:30:00 +00:00",
+          "item_types": ["ai_overview", "organic", "people_also_ask", "video"],
+          "items": [
+            {
+              "type": "ai_overview",
+              "rank_group": 1,
+              "asynchronous_ai_overview": true,
+              "items": [
+                { "type": "ai_overview_element", "title": "Check the valve", "text": "Tighten the drain valve first.", "references": [{ "type": "ai_overview_reference", "domain": "www.northwind-home.example", "url": "https://www.northwind-home.example/water-heater-leak" }] }
+              ],
+              "references": [
+                { "type": "ai_overview_reference", "source": "Lakeside Plumbing", "domain": "lakeside-plumbing.example", "url": "https://lakeside-plumbing.example/leaks" },
+                { "type": "ai_overview_reference", "domain": "northwind-home.example", "url": "https://northwind-home.example/water-heater-leak" }
+              ]
+            },
+            { "type": "organic", "rank_group": 1, "domain": "lakeside-plumbing.example", "title": "Water Heater Leaks", "url": "https://lakeside-plumbing.example/leaks", "description": "Why it leaks." }
+          ]
+        }
+      ]
+    }
+  ]
+}

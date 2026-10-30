@@ -123,7 +123,8 @@ describe('an audit run', () => {
 
     const moved = (await getAudit(ORG, audit!.id))!.meta.findings.find(f => f.key === 'duplicate_h1:plumbing services')!;
 
-    expect(moved).toMatchObject({ status: 'dismissed', statusBy: 'usr-mara', statusNote: 'one template, fixed in the theme later' });
+    // The agent dismissed it in the person's chat: recorded as the agent's act, never under the person's id.
+    expect(moved).toMatchObject({ status: 'dismissed', statusBy: 'agent:seo-strategist', statusNote: 'one template, fixed in the theme later' });
   });
 
   it('fixes a finding as a task on the project, or a page planned in a batch, and links it', async () => {

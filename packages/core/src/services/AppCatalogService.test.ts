@@ -83,9 +83,9 @@ describe('listAppOffers', () => {
     await project([]);
     const seo = (await getAppOffer(ORG, 'seo'))!;
 
-    expect(seo.automations).toContain('New page opportunities');
+    expect(seo.automations).toContain('Propose new SEO pages for clients behind their monthly pace');
     // `visibility: system`: the SEO app's internal hand-off after a sign-off.
-    expect(seo.automations).not.toContain('Continue the SEO work');
+    expect(seo.automations).not.toContain('Research, brief, draft and review released SEO pages');
   });
 
   it('knows nothing of an app the catalogue lacks', async () => {

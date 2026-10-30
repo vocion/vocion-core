@@ -28,6 +28,7 @@ const SCOPES: Record<string, string[]> = {
   'drive': ['https://www.googleapis.com/auth/drive.readonly'],
   'ga4': ['https://www.googleapis.com/auth/analytics.readonly'],
   'google-calendar': ['https://www.googleapis.com/auth/calendar.events.readonly'],
+  'search-console': ['https://www.googleapis.com/auth/webmasters.readonly'],
 };
 
 function parseArgs(argv: string[]) {

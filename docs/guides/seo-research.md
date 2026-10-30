@@ -11,7 +11,7 @@ do that reading and leave it as evidence a person can check.
 | `serp_compare({ query \| serp_result_id, top?: 5..10 })` | Reads the top pages and lays them side by side: title, meta description, H1 to H3 outline, word count, schema.org types, FAQ present, images, internal and external links, published and updated dates when the page states them, and a capped slice of each page's main text. Adds the local pack, the headings two or more ranking pages share (matched loosely) and a **term table**: normalised one- to three-word terms that appear in the body of three or more ranking pages, with which pages use them. Directories are flagged and left out of every aggregate. Files a **SERP brief** artifact in the `seo/serp` folder, every row linked and dated. Google's ranking only. |
 | `serp_compare({ brief_id, synthesis })` | Writes the agent's synthesis into that brief: the search intent, the subtopics every ranking page covers in its body text and the gaps a new page could fill, each point citing the pages that show it. The facts above it are not rewritten. |
 | `keyword_cluster({ keywords[], location?, language?, country? })` | Which keywords belong on one page: keywords whose Google top 10s share 3 or more URLs form a cluster around the first of them (the head). Pure code over `serp_search` results, with the shared URLs for every grouping; needs no volume. Google's ranking only. |
-| `keyword_metrics({ keywords[], location?, language?, ideas? })` | Monthly search volume, CPC, competition and the last twelve months, plus **keyword ideas** (Google Ads' related keywords for the first 20, with their numbers), from Google Ads data via DataForSEO. Without DataForSEO it says it could not establish volume and that ideas are not available, and why. It never estimates. |
+| `keyword_metrics({ keywords[], location?, language?, ideas? })` | Monthly search volume and its last twelve months, keyword difficulty, CPC, competition, intent, SERP features and whether an AI Overview shows, each keyword with its source and date, plus **keyword ideas** (Google Ads' related keywords for the first 20). From the workspace's Ahrefs when connected, else DataForSEO; reused for 7 days. With neither it names the numbers it could not establish, and why. It never estimates. See [SEO data](./seo-data.md). |
 
 All four are paid per call, so they are **granted, not default**: an agent gets them with
 `harness.grantTools: [serp]` (or any one by name). Every call is charged to the budget scope
@@ -53,6 +53,9 @@ People Also Ask, related searches or local pack on that path, and its order is t
 `serp_compare`, `keyword_cluster` and `seo_save_research` do **not** fall back: a SERP brief built on
 another engine's order looks authoritative and is not, so they refuse and say a workspace admin can
 add a Serper key.
+
+Search Console (what the client's site already ranks for) and Ahrefs (a domain's organic keywords,
+Brand Radar) ride in the same grant: see [SEO data](./seo-data.md).
 
 ## Directories
 

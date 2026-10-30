@@ -7,7 +7,7 @@
 # owns the pipeline; every step is an action with its Undo and a line on the
 # environment (services/factory/environmentHealth.ts).
 slug: environment-health
-name: Environments answer, or are brought back
+name: Check environment health and bring a down environment back
 description: >-
   Every ten minutes, read each environment's health check and write it on the
   record; bring a down one back (re-run, redeploy, roll back), and ask a person

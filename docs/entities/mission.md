@@ -19,7 +19,7 @@ in a workflow.
 | Field | Type | Default | What it does |
 |---|---|---|---|
 | `slug` | slug | required | Stable id. |
-| `name` | string | required | Display name. |
+| `name` | string | required | Display name, in plain words for what is done, to what — never the slug or a word like "continue", "keep moving" or "sweep" (`libs/work/plainNames.ts`). |
 | `description` | string | — | One-line summary. |
 | `goal` | string | required | The outcome the mission exists to produce. |
 | `agent` | agent slug | required | The single agent that owns the mission. If it is a lead, its specialists are the team the runtime can hand off to. |

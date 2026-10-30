@@ -205,6 +205,11 @@ export const goalCreateAction: Action<typeof input> = {
   inputSchema: input,
   grant: 'update_profile',
   external: false,
+  // "A goal is never made silently": the person approves the card, whatever
+  // the trust ladder would release. Without this a reversible, low-risk kind
+  // ran on its own at the default bar, and a goal was set in the person's name
+  // without their seeing it (found 2026-10-30, the SEO strategy goal).
+  requiresReviewDecision: true,
   dedupKeyFor: i => `goal.create:${i.title.trim().toLowerCase()}`,
   async precheck(ctx, i) {
     const owner = await ownerOf(ctx);

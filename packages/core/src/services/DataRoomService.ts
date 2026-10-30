@@ -303,6 +303,12 @@ export type RoomMeta = {
   /** How the SEO app releases this project's pages: the sample, then each tranche. Set by a person on the project page. */
   seoGate?: { sample?: number; tranche?: number };
   /**
+   * The Google Search Console property this client's work reads
+   * (`sc-domain:example.com` or a URL prefix), picked by a person, with when
+   * and by whom (`services/seo/searchConsole.ts`).
+   */
+  searchConsoleProperty?: { siteUrl: string; setAt: string; setBy: string | null };
+  /**
    * How many new SEO pages a month the client is owed, and what to look for
    * them in (`services/seo/cadence.ts`). The weekly "New page opportunities"
    * automation proposes just enough to keep pace; a project without one is
@@ -855,6 +861,8 @@ export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & 
   seoCadence?: SeoCadence | null;
   /** The client's SEO profile, saved by a person (the project page, or the card they approved). Null clears it. */
   seoProfile?: SeoProfile | null;
+  /** The Search Console property a person picked for this project, in chat or on the page; null clears it. */
+  searchConsoleProperty?: { siteUrl: string; setAt: string; setBy: string | null } | null;
   publishTargets?: StoredPublishTarget[] | null;
   /** A learned target for a person to apply (`publishTargetSuggestion`); null clears it. Written by code, never by an agent's own words. */
   publishTargetSuggestion?: PublishTargetSuggestion | null;
@@ -957,6 +965,13 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
       delete meta.seoGate;
     } else {
       meta.seoGate = patch.seoGate;
+    }
+  }
+  if (patch.searchConsoleProperty !== undefined) {
+    if (patch.searchConsoleProperty === null) {
+      delete meta.searchConsoleProperty;
+    } else {
+      meta.searchConsoleProperty = patch.searchConsoleProperty;
     }
   }
   if (patch.seoCadence !== undefined) {

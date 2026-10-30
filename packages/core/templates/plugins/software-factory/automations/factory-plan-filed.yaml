@@ -4,7 +4,7 @@
 # the recommendation (backlog 038). A plan filed when the factory did not ask
 # for one is left alone — the Build card still approves it the way it always has.
 slug: factory-plan-filed
-name: A plan was filed
+name: Propose approval for a filed architecture plan
 description: >-
   When a plan the factory asked for is filed, propose its approval on the trust
   bar. Deterministic: a built-in job on `object.created`.

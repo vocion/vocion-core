@@ -133,6 +133,7 @@ const BRANDS = {
   serper: { title: 'Serper', fallback: 'No terms for third-party use of Serper\'s logo were found (serper.dev, 2026-10-27); not in simple-icons.' },
   serpapi: { title: 'SerpApi', fallback: 'No terms for third-party use of SerpApi\'s logo were found (serpapi.com, 2026-10-27); not in simple-icons.' },
   dataforseo: { title: 'DataForSEO', fallback: 'No terms for third-party use of DataForSEO\'s logo were found (dataforseo.com, 2026-10-27); not in simple-icons.' },
+  ahrefs: { title: 'Ahrefs', fallback: 'Ahrefs publishes no terms for third-party use of its logo that a catalog of tools could rely on (ahrefs.com, 2026-10-29); not in simple-icons.' },
   tavily: { title: 'Tavily', fallback: 'Tavily\'s brand page allows its marks in a compatibility statement but not alongside other companies\' without formal permission, which a catalog of tools is (tavily.com/brand); not in simple-icons.' },
 } as const satisfies Record<string, BrandEntry>;
 

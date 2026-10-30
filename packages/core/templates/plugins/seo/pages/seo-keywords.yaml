@@ -30,7 +30,10 @@ fields:
   - {key: project, label: Project, from: meta.projectName}
   - {key: intent, label: Intent, from: meta.intent}
   - {key: volume, label: Volume, from: meta.volume, format: mono}
-  # Google Ads competition, the one difficulty figure the provider gives.
+  # SEO keyword difficulty, 0–100 (DataForSEO or Ahrefs), beside Google Ads
+  # competition, which is how many advertisers bid and shows only where Google
+  # Ads data is the source.
+  - {key: kd, label: Difficulty, from: meta.kd, format: mono}
   - {key: competition, label: Competition, from: meta.competition, format: badge, tones: {low: ok, medium: warn, high: bad}}
   - {key: position, label: Client position, from: meta.clientPosition, format: mono}
   - {key: status, label: Status, from: meta.status, format: badge, tones: {idea: muted, in_batch: info, published: ok, ranking: ok, dropped: muted}}

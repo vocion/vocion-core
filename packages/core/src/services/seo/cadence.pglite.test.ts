@@ -92,7 +92,7 @@ describe('the SEO app\'s automations in the one register', () => {
     const rows = await db.select().from(automationSchema).where(and(eq(automationSchema.orgId, ORG), like(automationSchema.slug, 'seo-%')));
     const bySlug = new Map(rows.map(r => [r.slug, r]));
 
-    expect(bySlug.get('seo-opportunities')).toMatchObject({ source: 'plugin:seo', visibility: 'listed', name: 'New page opportunities', status: 'active' });
+    expect(bySlug.get('seo-opportunities')).toMatchObject({ source: 'plugin:seo', visibility: 'listed', name: 'Propose new SEO pages for clients behind their monthly pace', status: 'active' });
     expect(bySlug.get('seo-opportunities')?.whenConfig).toMatchObject({ schedule: '0 7 * * 1', timezone: 'America/Chicago' });
     // The page pipeline is workflows now (`pipeline.ts`): no hidden automation.
     expect(bySlug.has('seo-continue')).toBe(false);

@@ -6,7 +6,7 @@
 import type { AuditFinding, AuditRead } from './audit';
 import type { InventoryRow } from '@/libs/tools/site/inventory';
 import { describe, expect, it } from 'vitest';
-import { auditCounts, auditFindings, carryForward, nextFindingStatus, nextSteps, renderAuditReport, robotsBlockedAgents, workOrder } from './audit';
+import { auditCounts, auditFindings, carryForward, nextFindingStatus, nextSteps, renderAuditReport, robotsBlockedAgents, schemaPositioningGap, workOrder } from './audit';
 import { homepageSchema } from './profilePrefill';
 
 const SITE = 'https://northwind-home.example';
@@ -63,9 +63,38 @@ describe('the checks', () => {
   it('read the home page\'s Organization schema, and robots.txt groups', () => {
     const s = homepageSchema(`<script type="application/ld+json">{"@graph":[{"@type":"WebSite"},{"@type":"HVACBusiness","name":"Northwind","description":"Furnace repair","telephone":"+1 555 0100","address":{"streetAddress":"1 Main St"},"sameAs":["https://social.example/northwind"]}]}</script>`);
 
-    expect(s).toEqual({ orgTypes: ['HVACBusiness'], orgDescription: 'Furnace repair', orgName: 'Northwind', sameAs: 1, telephone: '+1 555 0100', hasAddress: true });
+    expect(s).toEqual({ orgTypes: ['HVACBusiness'], orgDescription: 'Furnace repair', orgName: 'Northwind', knowsAbout: [], sameAs: 1, telephone: '+1 555 0100', hasAddress: true });
     expect(robotsBlockedAgents('User-agent: ClaudeBot\nUser-agent: CCBot\nDisallow: /\nUser-agent: *\nDisallow: /admin\n')).toEqual(['ClaudeBot', 'CCBot']);
     expect(byCheck(auditFindings(read({ robots: 'User-agent: *\nDisallow: /' }))).robots_blocks_all).toMatchObject({ severity: 'high' });
+  });
+});
+
+describe('the Organization schema against what the business says now', () => {
+  // A firm that moved from building apps to AI consulting: its page copy says
+  // so, its JSON-LD still describes the app studio (a real session, 2026-10-29).
+  const STALE = `<script type="application/ld+json">{"@type":"Organization","name":"Harborline","description":"AI-enabled mobile app development company providing design, strategy, and development from concept to launch, and beyond.","knowsAbout":["Mobile App Development","AI","React Native","iOS Development","Android Development","Product Strategy"],"sameAs":["https://social.example/harborline"]}</script>`;
+  const home = (over: Partial<InventoryRow> = {}) => [row('/', { title: 'Harborline | AI Acceleration Partner for Mid-Market Companies', metaDescription: 'Harborline is the AI acceleration partner for mid-market companies. Senior engineers find where AI pays off, build it, and run it.', ...over })];
+
+  it('flags a description and knowsAbout that describe the business it used to be, with the words that tell, with or without a profile', () => {
+    const schema = homepageSchema(STALE);
+
+    expect(schema.knowsAbout).toEqual(['Mobile App Development', 'AI', 'React Native', 'iOS Development', 'Android Development', 'Product Strategy']);
+
+    for (const profile of [undefined, { offering: 'AI consulting and engineering for mid-market operations teams' }]) {
+      const f = byCheck(auditFindings(read({ inventory: { site: SITE, from: 'sitemap', rows: home(), listed: 1 }, schema, profile, robots: undefined, brand: null })));
+
+      expect(f.org_description_stale).toMatchObject({ category: 'ai_visibility', severity: 'high', url: `${SITE}/` });
+      expect(f.org_description_stale!.evidence).toMatch(/^Its description "AI-enabled mobile app development company.*" and knowsAbout \(Mobile App Development, AI, React Native/);
+      expect(f.org_description_stale!.evidence).toMatch(/speak of .*mobile.*app.*development/);
+      expect(f.org_description_stale!.evidence).toMatch(/the home page's meta description "Harborline is the AI acceleration partner/);
+    }
+  });
+
+  it('stays quiet when the schema says what the page says', () => {
+    const fresh = homepageSchema('<script type="application/ld+json">{"@type":"Organization","description":"The AI acceleration partner for mid-market companies: senior engineers who find where AI pays off, build it and run it.","knowsAbout":["AI acceleration","AI engineering"],"sameAs":["https://social.example/h"]}</script>');
+
+    expect(byCheck(auditFindings(read({ inventory: { site: SITE, from: 'sitemap', rows: home(), listed: 1 }, schema: fresh, profile: undefined, robots: undefined, brand: null }))).org_description_stale).toBeUndefined();
+    expect(schemaPositioningGap({ orgDescription: 'Repairs', knowsAbout: [] }, [{ text: 'Plumbing repairs in Fairview', from: 'x' }])).toBeNull();
   });
 });
 
@@ -97,7 +126,7 @@ describe('the order of work and the report', () => {
   it('puts high first, then what the client\'s goals put first', () => {
     const order = workOrder(auditFindings(read()), read().profile).map(f => f.key);
 
-    expect(order.slice(0, 3)).toEqual(['no_local_schema', 'ai_crawlers_blocked', 'not_loaded']);
+    expect(order.slice(0, 3)).toEqual(['no_local_schema', 'org_description_stale', 'ai_crawlers_blocked']);
     expect(nextSteps(auditFindings(read()), read().profile)[0]).toBe('No LocalBusiness schema (high, local and google business profile)');
   });
 

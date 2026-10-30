@@ -1,4 +1,4 @@
-import type { KeywordIdeasResult, KeywordMetric, KeywordMetricsResult, SerpCallOptions, SerpLocalResult, SerpProvider, SerpQuery, SerpResult } from './types';
+import type { AiOverview, KeywordIdeasResult, KeywordMetric, KeywordMetricsResult, SerpCallOptions, SerpLocalResult, SerpProvider, SerpQuery, SerpResult } from './types';
 import type { CredentialValues } from '@/libs/platforms/registry';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
@@ -14,6 +14,12 @@ export const KEYWORD_IDEA_SEEDS = 20;
 /** Ideas kept from one call, highest volume first: evidence, not the whole long tail. */
 const KEYWORD_IDEAS_CAP = 200;
 
+/** Keywords one DataForSEO Labs keyword overview task takes. */
+export const LABS_OVERVIEW_MAX = 700;
+
+/** Keywords one Google Ads search volume task takes. */
+export const ADS_VOLUME_MAX = 1000;
+
 /** One item on DataForSEO's advanced SERP; only the fields read here. */
 type DfsItem = {
   type?: string;
@@ -25,14 +31,23 @@ type DfsItem = {
   timestamp?: string | null;
   /** On a `local_pack` item: the stars and how many reviews. */
   rating?: { value?: number | string | null; votes_count?: number | string | null } | null;
-  items?: Array<string | { type?: string; title?: string; expanded_element?: Array<{ url?: string; description?: string }> }>;
+  items?: Array<string | { type?: string; title?: string; expanded_element?: Array<{ url?: string; description?: string }>; references?: DfsReference[] | null }>;
+  /** On an `ai_overview` item: the pages it cites. */
+  references?: DfsReference[] | null;
+  /** On an `ai_overview` item: it loaded after the page, which bills the extra async read. */
+  asynchronous_ai_overview?: boolean;
 };
+
+/** A page an AI Overview cites. */
+type DfsReference = { domain?: string | null; url?: string | null; source?: string | null; title?: string | null };
 
 /** The envelope every DataForSEO endpoint answers in. */
 export type DataForSeoResponse<R> = {
   status_code?: number;
   status_message?: string;
-  tasks?: Array<{ status_code?: number; status_message?: string; result?: R[] | null }>;
+  /** What the call cost, USD. */
+  cost?: number;
+  tasks?: Array<{ status_code?: number; status_message?: string; cost?: number; result?: R[] | null }>;
 };
 
 export type DataForSeoSerpResult = {
@@ -40,6 +55,8 @@ export type DataForSeoSerpResult = {
   location_code?: number;
   language_code?: string;
   datetime?: string;
+  /** Every kind of element on the page, `ai_overview` included. */
+  item_types?: string[] | null;
   items?: DfsItem[];
 };
 
@@ -52,11 +69,33 @@ export type DataForSeoVolumeResult = {
   monthly_searches?: Array<{ year?: number; month?: number; search_volume?: number | null }> | null;
 };
 
+/** One keyword in DataForSEO Labs' keyword overview; only the fields read here. */
+export type DataForSeoOverviewItem = {
+  keyword?: string;
+  keyword_info?: {
+    last_updated_time?: string | null;
+    /** 0–1 on Labs (Google Ads' index divided by 100). */
+    competition?: number | null;
+    competition_level?: string | null;
+    cpc?: number | null;
+    search_volume?: number | null;
+    monthly_searches?: Array<{ year?: number; month?: number; search_volume?: number | null }> | null;
+  } | null;
+  keyword_properties?: { keyword_difficulty?: number | null } | null;
+  search_intent_info?: { main_intent?: string | null } | null;
+  serp_info?: { serp_item_types?: string[] | null; last_updated_time?: string | null } | null;
+};
+
+export type DataForSeoOverviewResult = { items?: DataForSeoOverviewItem[] | null };
+
 /**
- * DataForSEO — Google Organic "Live Advanced" for the results page, and
- * Google Ads search volume and keyword ideas for keyword metrics: the one
- * provider here that can say how many people search a term, or what else
- * they search.
+ * DataForSEO — Google Organic "Live Advanced" for the results page (with
+ * the AI Overview and what it cites), DataForSEO Labs' keyword overview for
+ * keyword metrics (volume and its last twelve months, difficulty, CPC,
+ * intent, the SERP features Google shows), Google Ads search volume for
+ * what Labs has not seen and for a city, and Google Ads keyword ideas: the
+ * one provider here that can say how many people search a term, how hard
+ * it is to rank for, or what else they search.
  *
  * Its credential is a pair (API login + API password, Basic auth). The org's
  * stored pair wins; else `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`.
@@ -87,6 +126,30 @@ export function dataForSeoProvider(): SerpProvider {
     return firstResult<R>((await res.json()) as DataForSeoResponse<R>, path);
   }
 
+  /**
+   * One task, the whole envelope back (its cost included), refused in DataForSEO's own words.
+   * @param path - The endpoint.
+   * @param task - The one task.
+   * @param authorization - The Basic header.
+   */
+  async function postAll<R>(path: string, task: Record<string, unknown>, authorization: string): Promise<DataForSeoResponse<R>> {
+    const res = await fetch(`${API}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': authorization },
+      body: JSON.stringify([task]),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) {
+      throw new Error(`DataForSEO ${path} failed: HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as DataForSeoResponse<R>;
+    const t = data.tasks?.[0];
+    if (data.status_code !== 20000 || !t || t.status_code !== 20000) {
+      throw new Error(`DataForSEO ${path}: ${t?.status_message ?? data.status_message ?? 'no task came back'}`);
+    }
+    return data;
+  }
+
   return {
     name: 'dataforseo',
     requiredEnv,
@@ -99,22 +162,52 @@ export function dataForSeoProvider(): SerpProvider {
         language_code: (q.language ?? 'en').toLowerCase(),
         device: q.device ?? 'desktop',
         depth,
+        // The AI Overview often loads after the page; this waits for it. The
+        // extra read is refunded when the page has none.
+        load_async_ai_overview: true,
       }, opts);
       return normaliseDataForSeo(q, result, new Date(), Math.ceil(depth / 10));
     },
     async keywordMetrics(keywords, where, opts) {
       const location = dfsLocation(where.location);
       const language = (where.language ?? 'en').toLowerCase();
-      const res = await fetch(`${API}/keywords_data/google_ads/search_volume/live`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': await auth(opts) },
-        body: JSON.stringify([{ keywords, location_name: location, language_code: language }]),
-        signal: AbortSignal.timeout(60_000),
-      });
-      if (!res.ok) {
-        throw new Error(`DataForSEO search volume failed: HTTP ${res.status}`);
+      const authorization = await auth(opts);
+      const at = new Date();
+      // Labs reads countries only; a city's volume comes from Google Ads.
+      const country = location.split(',').at(-1) ?? location;
+      const local = country !== location;
+      let cost = 0;
+      let calls = 0;
+      const labs = new Map<string, KeywordMetric>();
+      for (const part of chunks(keywords, LABS_OVERVIEW_MAX)) {
+        const data = await postAll<DataForSeoOverviewResult>('/dataforseo_labs/google/keyword_overview/live', { keywords: part, location_name: country, language_code: language, include_serp_info: true }, authorization);
+        cost += data.cost ?? 0;
+        calls += 1;
+        for (const m of normaliseDataForSeoOverview(data, at)) {
+          labs.set(m.keyword.toLowerCase(), m);
+        }
       }
-      return normaliseDataForSeoVolume((await res.json()) as DataForSeoResponse<DataForSeoVolumeResult>, { location, language }, new Date());
+      const adsFor = local ? keywords : keywords.filter(k => !labs.has(k.toLowerCase()));
+      const ads = new Map<string, KeywordMetric>();
+      for (const part of chunks(adsFor, ADS_VOLUME_MAX)) {
+        const data = await postAll<DataForSeoVolumeResult>('/keywords_data/google_ads/search_volume/live', { keywords: part, location_name: location, language_code: language }, authorization);
+        cost += data.cost ?? 0;
+        calls += 1;
+        for (const m of normaliseDataForSeoVolume(data, { location, language }, at).metrics) {
+          ads.set(m.keyword.toLowerCase(), m);
+        }
+      }
+      const metrics = keywords.flatMap((k): KeywordMetric[] => {
+        const fromLabs = labs.get(k.toLowerCase());
+        const fromAds = ads.get(k.toLowerCase());
+        if (fromLabs && fromAds) {
+          // A city: its own volume and CPC, the country's difficulty and intent.
+          return [{ ...fromLabs, keyword: k, searchVolume: fromAds.searchVolume, cpc: fromAds.cpc, competition: fromAds.competition, competitionIndex: fromAds.competitionIndex, ...(fromAds.monthly ? { monthly: fromAds.monthly } : {}), checkedAt: fromAds.checkedAt }];
+        }
+        const one = fromLabs ?? fromAds;
+        return one ? [{ ...one, keyword: k }] : [];
+      });
+      return { provider: 'dataforseo', location, language, metrics, retrievedAt: at.toISOString(), billedUnits: calls, costUsd: Math.round(cost * 1e6) / 1e6 };
     },
     async keywordIdeas(seeds, where, opts) {
       const location = dfsLocation(where.location);
@@ -211,6 +304,10 @@ export function normaliseDataForSeo(q: SerpQuery, result: DataForSeoSerpResult, 
         ...(domain ? { domain } : {}),
       };
     });
+  const overview = items.find(i => i.type === 'ai_overview');
+  const checkedAt = dfsTime(result.datetime) ?? at.toISOString();
+  const aiOverview: AiOverview = { present: Boolean(overview), citedDomains: overview ? citedDomainsOf(overview) : [], source: 'dataforseo', checkedAt };
+  const features = [...new Set((result.item_types ?? items.map(i => i.type ?? '')).filter(t => t && t !== 'organic'))];
   const paa = items.filter(i => i.type === 'people_also_ask').flatMap(i => i.items ?? []);
   const related = items.filter(i => i.type === 'related_searches').flatMap(i => i.items ?? []);
   return {
@@ -232,9 +329,87 @@ export function normaliseDataForSeo(q: SerpQuery, result: DataForSeoSerpResult, 
     relatedSearches: related.filter((r): r is string => typeof r === 'string'),
     localPack,
     adsCount: items.filter(i => i.type === 'paid').length,
-    retrievedAt: (result.datetime ? new Date(result.datetime.replace(' +00:00', 'Z').replace(' ', 'T')) : at).toISOString(),
-    billedUnits: pages,
+    aiOverview,
+    serpFeatures: features,
+    retrievedAt: checkedAt,
+    // The AI Overview that loaded late bills one more read.
+    billedUnits: pages + (overview?.asynchronous_ai_overview ? 1 : 0),
   };
+}
+
+/**
+ * The domains an AI Overview cites, in the order it cites them, each once:
+ * its own references and its elements'.
+ * @param overview - The `ai_overview` item.
+ */
+export function citedDomainsOf(overview: DfsItem): string[] {
+  const refs = [
+    ...(overview.references ?? []),
+    ...(overview.items ?? []).flatMap(e => (typeof e === 'object' ? e.references ?? [] : [])),
+  ];
+  const domains = refs.map(r => (r.domain || (r.url ? domainOf(r.url) : '')).toLowerCase().replace(/^www\./, '')).filter(Boolean);
+  return [...new Set(domains)];
+}
+
+/**
+ * DataForSEO's time ("2026-10-27 14:05:12 +00:00") as ISO, or undefined.
+ * @param t - The vendor's time.
+ */
+export function dfsTime(t: string | null | undefined): string | undefined {
+  if (!t) {
+    return undefined;
+  }
+  const d = new Date(t.replace(/ ([+-]\d\d:\d\d)$/, '$1').replace(' ', 'T'));
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+/**
+ * A list in pieces of at most `size`.
+ * @param list - The list.
+ * @param size - The most one piece holds.
+ */
+export function chunks<T>(list: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) {
+    out.push(list.slice(i, i + size));
+  }
+  return out;
+}
+
+/**
+ * DataForSEO Labs' keyword overview in the one shape: volume and its last
+ * twelve months, difficulty, CPC, competition, the main intent, the SERP
+ * features Labs last saw and whether an AI Overview was among them. Each
+ * keyword carries the date DataForSEO last measured it, not the date it was
+ * asked. Pure, so the fixtures test it.
+ * @param data - The envelope.
+ * @param at - When it was read (for a keyword with no date of its own).
+ */
+export function normaliseDataForSeoOverview(data: DataForSeoResponse<DataForSeoOverviewResult>, at: Date): KeywordMetric[] {
+  const items = (data.tasks?.[0]?.result ?? []).flatMap(r => r.items ?? []);
+  return items.filter(i => i.keyword).map((i): KeywordMetric => {
+    const info = i.keyword_info ?? {};
+    const serp = i.serp_info;
+    const checkedAt = dfsTime(info.last_updated_time) ?? at.toISOString();
+    const types = serp?.serp_item_types ?? null;
+    const level = info.competition_level?.toUpperCase();
+    return {
+      keyword: i.keyword!,
+      searchVolume: info.search_volume ?? null,
+      cpc: info.cpc ?? null,
+      competition: level === 'LOW' || level === 'MEDIUM' || level === 'HIGH' ? level : null,
+      competitionIndex: typeof info.competition === 'number' ? Math.round(info.competition * 100) : null,
+      ...(info.monthly_searches?.length
+        ? { monthly: info.monthly_searches.slice(0, 12).map(m => ({ year: m.year ?? 0, month: m.month ?? 0, searchVolume: m.search_volume ?? null })) }
+        : {}),
+      kd: i.keyword_properties?.keyword_difficulty ?? null,
+      intent: i.search_intent_info?.main_intent ?? null,
+      serpFeatures: types ? types.filter(t => t !== 'organic') : null,
+      aiOverview: types ? { present: types.includes('ai_overview'), citedDomains: null, source: 'dataforseo', checkedAt: dfsTime(serp?.last_updated_time) ?? checkedAt } : null,
+      source: 'dataforseo',
+      checkedAt,
+    };
+  });
 }
 
 /**
@@ -254,9 +429,10 @@ export function normaliseDataForSeoVolume(data: DataForSeoResponse<DataForSeoVol
     provider: 'dataforseo',
     location: where.location,
     language: where.language,
-    metrics: (task.result ?? []).filter(r => r.keyword).map(metricOf),
+    metrics: (task.result ?? []).filter(r => r.keyword).map(r => ({ ...metricOf(r), kd: null, intent: null, serpFeatures: null, aiOverview: null, source: 'dataforseo' as const, checkedAt: at.toISOString() })),
     retrievedAt: at.toISOString(),
     billedUnits: 1,
+    ...(typeof data.cost === 'number' ? { costUsd: data.cost } : {}),
   };
 }
 
@@ -306,5 +482,5 @@ export function normaliseDataForSeoIdeas(data: DataForSeoResponse<DataForSeoVolu
     .map(metricOf)
     .sort((a, b) => (b.searchVolume ?? -1) - (a.searchVolume ?? -1))
     .slice(0, KEYWORD_IDEAS_CAP);
-  return { provider: 'dataforseo', location: where.location, language: where.language, seeds: where.seeds, ideas, retrievedAt: at.toISOString(), billedUnits: 1 };
+  return { provider: 'dataforseo', location: where.location, language: where.language, seeds: where.seeds, ideas, retrievedAt: at.toISOString(), billedUnits: 1, ...(typeof data.cost === 'number' ? { costUsd: data.cost } : {}) };
 }

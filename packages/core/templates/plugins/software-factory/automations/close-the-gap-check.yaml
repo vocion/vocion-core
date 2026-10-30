@@ -1,6 +1,6 @@
 # The cadence of the "No request waits more than a week" mission (moved from its schedule: in 8.0).
 slug: close-the-gap-check
-name: No request waits more than a week (scheduled check)
+name: Check for requests waiting more than a week
 status: active
 agent: product-manager
 when:

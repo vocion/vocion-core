@@ -86,5 +86,6 @@ entry a mark.
 | `serper` | Serper | No logo | No terms for third-party use of its logo were found on serper.dev (2026-10-27). Not in simple-icons. |
 | `serpapi` | SerpApi | No logo | No terms for third-party use of its logo were found on serpapi.com (2026-10-27). Not in simple-icons. |
 | `dataforseo` | DataForSEO | No logo | No terms for third-party use of its logo were found on dataforseo.com (2026-10-27). Not in simple-icons. |
+| `ahrefs` | Ahrefs | No logo | No terms for third-party use of its logo that a catalog of tools could rely on were found on ahrefs.com (2026-10-29). Not in simple-icons. |
 | `tavily` | Tavily | No logo | Tavily's brand page allows its marks in a compatibility statement but not alongside other companies' without formal permission, which a catalog of tools is: https://www.tavily.com/brand. Ask Tavily before adding it. |
 | `workday` | Workday | No logo | Workday's trademark guidelines require permission to use its logos: https://www.workday.com/en-us/legal/trademarks.html. |

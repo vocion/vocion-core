@@ -5,7 +5,7 @@
 # starts on its own — continuing the pull request's branch against the new
 # contract, so QA judges every criterion again. Deterministic: a built-in job.
 slug: factory-contract-changed
-name: A request's contract changed after QA
+name: Restart a build when its request's contract changes before merge
 description: >-
   When a request's outcome, acceptance, story, surface or main risk is written
   while one of its tasks waits to merge, hold that merge and start the next

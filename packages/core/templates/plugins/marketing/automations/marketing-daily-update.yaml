@@ -2,7 +2,7 @@
 # local clock across daylight saving. The mail is the mission's `deliver:`,
 # sent when this check finishes (ADR 0008).
 slug: marketing-daily-update
-name: Daily marketing update
+name: Publish the weekday marketing update
 description: Weekday mornings the Marketing lead reads the ad account and publishes the update.
 status: active
 agent: marketing-lead

@@ -6,7 +6,7 @@
 # asked for and never written. Hourly: idempotent, and a request it has acted
 # on is marked, so a second pass does nothing.
 slug: factory-recover-stuck
-name: Carry stuck requests on
+name: Restart requests whose last engineering run failed
 description: >-
   Every hour, recover requests whose newest engineering run failed and that
   nothing is carrying. Deterministic: a built-in job on a schedule.

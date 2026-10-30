@@ -2,7 +2,7 @@
 # a second time. The contract takes its paths from the plan's components and
 # carries the plan's id, so the worker builds this approach and no other.
 slug: factory-plan-approved
-name: A plan was approved
+name: Start the build for an approved plan
 description: >-
   When a plan is approved — by a person, or within the trust bar — dispatch the
   build it was written for, with the plan's id. Deterministic: a built-in job

@@ -1,0 +1,7 @@
+{
+  "rows": [
+    { "keys": ["water heater repair fairview", "https://northwind-home.example/water-heater-repair"], "clicks": 41, "impressions": 980, "ctr": 0.041836734693877553, "position": 4.27 },
+    { "keys": ["tankless water heater", "https://northwind-home.example/blog/tankless"], "clicks": 3, "impressions": 2210, "ctr": 0.0013574660633484162, "position": 17.84 }
+  ],
+  "responseAggregationType": "byPage"
+}

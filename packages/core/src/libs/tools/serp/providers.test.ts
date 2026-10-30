@@ -155,7 +155,7 @@ describe('DataForSEO', () => {
 
     expect(url).toBe('https://api.dataforseo.com/v3/serp/google/organic/live/advanced');
     expect((init.headers as Record<string, string>).Authorization).toBe(`Basic ${Buffer.from('org-login:org-pass').toString('base64')}`);
-    expect(JSON.parse(init.body as string)).toEqual([{ keyword: 'wide hiking boots', location_name: 'United States', language_code: 'en', device: 'mobile', depth: 20 }]);
+    expect(JSON.parse(init.body as string)).toEqual([{ keyword: 'wide hiking boots', location_name: 'United States', language_code: 'en', device: 'mobile', depth: 20, load_async_ai_overview: true }]);
     expect(serp.billedUnits).toBe(2);
   });
 });

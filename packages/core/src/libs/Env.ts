@@ -59,6 +59,15 @@ export const Env = createEnv({
     SERPAPI_API_KEY: z.string().optional(),
     DATAFORSEO_LOGIN: z.string().optional(),
     DATAFORSEO_PASSWORD: z.string().optional(),
+    /**
+     * Where keyword numbers (volume, difficulty, CPC, intent, AI Overview)
+     * are bought on the server's account (docs/guides/seo-data.md):
+     * `dataforseo`, or `none` to buy none. Unset behaves as `dataforseo`
+     * when its login is set. `dataforseo` also reads the results page there
+     * when VOCION_SERP_PROVIDER is unset, for the AI Overview's citations. A
+     * workspace's own Ahrefs is preferred over either.
+     */
+    VOCION_KEYWORD_DATA_PROVIDER: z.string().optional(),
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
     BILLING_PLAN_ENV: z.enum(['dev', 'test', 'prod']).default('dev'),
@@ -262,6 +271,7 @@ export const Env = createEnv({
     SERPAPI_API_KEY: process.env.SERPAPI_API_KEY,
     DATAFORSEO_LOGIN: process.env.DATAFORSEO_LOGIN,
     DATAFORSEO_PASSWORD: process.env.DATAFORSEO_PASSWORD,
+    VOCION_KEYWORD_DATA_PROVIDER: process.env.VOCION_KEYWORD_DATA_PROVIDER,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
     BILLING_PLAN_ENV: process.env.BILLING_PLAN_ENV,

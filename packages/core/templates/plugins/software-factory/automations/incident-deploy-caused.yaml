@@ -6,7 +6,7 @@
 # off the event never fires and this automation never runs. Nothing in the
 # factory knows the plugin beyond this subscription.
 slug: incident-deploy-caused
-name: A deploy that broke production is answered
+name: Roll back a deploy that broke production
 label: Answered the incident
 doing: Answering the incident
 description: >-

@@ -4,7 +4,7 @@
 # (#277, 2026-09-30). Same rule, same decision: a drawing running or given up
 # is left alone, and at most three are asked for per pass.
 slug: design-mockup-sweep
-name: Open requests with a UI and no mockup
+name: Ask hourly for the mockups open UI requests are missing
 description: >-
   Every hour, ask the designer for the mockup of open requests with a ui or
   flow surface that have none. Deterministic: a built-in job on a schedule.

@@ -22,9 +22,11 @@
  *   - `keyword_cluster` — which keywords one page should target: keywords
  *     whose top tens share three or more URLs are one cluster. Pure code over
  *     `serp_search` results, no volume needed.
- *   - `keyword_metrics` — search volume, CPC, competition and keyword ideas
- *     from DataForSEO; anywhere else it says plainly that they could not be
- *     established.
+ *   - `keyword_metrics` — search volume and its trend, keyword difficulty,
+ *     CPC, intent, SERP features and AI Overview presence, each with its
+ *     source and date: the workspace's Ahrefs when connected, else
+ *     DataForSEO, cached 7 days; plus keyword ideas. With neither it names
+ *     the numbers it could not establish and why.
  *
  * With the SEO app on, every keyword these read is kept in the client
  * project's Keywords register, in code, as part of the call
@@ -41,7 +43,8 @@
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import type { ComparedPage, Synthesis } from '@/libs/tools/serp/brief';
-import type { SerpOrganicResult, SerpQuery, SerpResult } from '@/libs/tools/serp/types';
+import type { KeywordMetric, KeywordMetricsResult, SerpOrganicResult, SerpQuery, SerpResult } from '@/libs/tools/serp/types';
+import type { KeywordResearch } from '@/services/seo/keywords';
 import { createHash } from 'node:crypto';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
@@ -572,6 +575,55 @@ function keywordClusterTool(ctx: RuntimeContext) {
   );
 }
 
+/**
+ * One keyword's numbers as the Keywords register keeps them: each with the
+ * vendor that measured it and the date it did.
+ * @param m - The keyword's numbers.
+ * @param r - The call they came back in.
+ */
+function keywordResearchOf(m: KeywordMetric, r: KeywordMetricsResult): NonNullable<KeywordResearch['metrics']> {
+  return {
+    checkedAt: m.checkedAt ?? r.retrievedAt,
+    volume: m.searchVolume,
+    competition: m.competition,
+    competitionIndex: m.competitionIndex,
+    cpc: m.cpc,
+    kd: m.kd ?? null,
+    intent: m.intent ?? null,
+    trend: m.monthly?.map(t => ({ year: t.year, month: t.month, volume: t.searchVolume })) ?? null,
+    serpFeatures: m.serpFeatures ?? null,
+    aiOverview: m.aiOverview ? { present: m.aiOverview.present, citedDomains: m.aiOverview.citedDomains } : null,
+    source: m.source ?? r.provider,
+    location: r.location,
+    language: r.language,
+  };
+}
+
+/** What a keyword data vendor's name reads as, beside its numbers. */
+const SOURCE_LABEL = { dataforseo: 'DataForSEO (Google Ads and DataForSEO Labs data)', ahrefs: 'Ahrefs (the workspace\'s own plan)' } as const;
+
+/**
+ * Charge what keyword numbers cost: the vendor's own reported cost when it
+ * gives one (DataForSEO), priced per micro-dollar; else its billed units at
+ * the list price row. Ahrefs bills the workspace's own plan, so nothing here.
+ * @param ctx - The turn.
+ * @param r - What came back.
+ * @param r.provider - The vendor.
+ * @param r.costUsd - What it reported the call cost.
+ * @param r.billedUnits - Calls made.
+ * @param fallbackRow - The list-price row for billed units.
+ */
+async function chargeKeywordData(ctx: RuntimeContext, r: { provider: string; costUsd?: number; billedUnits: number }, fallbackRow: string): Promise<void> {
+  if (r.provider !== 'dataforseo') {
+    return;
+  }
+  if (typeof r.costUsd === 'number') {
+    await charge(ctx, 'serp/dataforseo-usd', Math.round(r.costUsd * 1e6));
+    return;
+  }
+  await charge(ctx, fallbackRow, r.billedUnits);
+}
+
 function keywordMetricsTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -584,7 +636,7 @@ function keywordMetricsTool(ctx: RuntimeContext) {
         ]);
         let ideasOut: Record<string, unknown> = {};
         if (ideas?.ok) {
-          await charge(ctx, 'serp/dataforseo-keyword-ideas', ideas.result.billedUnits);
+          await chargeKeywordData(ctx, ideas.result, 'serp/dataforseo-keyword-ideas');
           ideasOut = { ideas: ideas.result.ideas, ideasFrom: ideas.result.seeds };
         } else if (ideas) {
           ideasOut = { ideas: null, ideasUnavailable: ideas.reason };
@@ -592,19 +644,19 @@ function keywordMetricsTool(ctx: RuntimeContext) {
         if (!outcome.ok) {
           // Looked at, with nothing established: the rows say so by having no volume.
           const kept = await keepResearch(ctx, args.project_id, keywords.map(keyword => ({ keyword })));
-          return JSON.stringify({ ok: false, keywords, reason: outcome.reason, ...ideasOut, ...kept });
+          return JSON.stringify({ ok: false, keywords, missing: outcome.missing, reason: outcome.reason, ...ideasOut, ...kept });
         }
-        await charge(ctx, 'serp/dataforseo-search-volume', outcome.result.billedUnits);
+        await chargeKeywordData(ctx, outcome.result, 'serp/dataforseo-search-volume');
         const r = outcome.result;
-        const kept = await keepResearch(ctx, args.project_id, r.metrics.map(m => ({ keyword: m.keyword, metrics: { checkedAt: r.retrievedAt, volume: m.searchVolume, competition: m.competition, competitionIndex: m.competitionIndex, cpc: m.cpc, location: r.location, language: r.language } })));
-        return JSON.stringify({ ok: true, source: 'Google Ads data via DataForSEO', ...r, ...ideasOut, ...kept });
+        const kept = await keepResearch(ctx, args.project_id, r.metrics.map(m => ({ keyword: m.keyword, metrics: keywordResearchOf(m, r) })));
+        return JSON.stringify({ ok: true, source: SOURCE_LABEL[r.provider], ...(outcome.note ? { note: outcome.note } : {}), ...r, ...ideasOut, ...kept });
       } catch (err) {
         return failure(err).replace('SERP research', 'Keyword metrics').replace('remembered rankings', 'estimated volumes');
       }
     },
     {
       name: 'keyword_metrics',
-      description: 'Monthly search volume, cost per click and competition for up to 1,000 keywords, plus keyword ideas (related searches Google Ads suggests for the first 20, with their numbers), from Google Ads data (DataForSEO), with when it was read. Volume and ideas need DataForSEO: on Serper or SerpApi alone it says it could not establish them — say that, never estimate a number or invent keywords.',
+      description: 'For up to 1,000 keywords: monthly search volume and its last 12 months, keyword difficulty (kd, 0–100), CPC, intent, the SERP features Google shows and whether an AI Overview is among them, each keyword with its `source` and `checkedAt`; plus keyword ideas for the first 20. From the workspace\'s Ahrefs when connected, else DataForSEO; numbers bought in the last 7 days are reused. With neither it lists the numbers it could not establish and why — say that, never estimate a number or invent keywords.',
       schema: z.object({
         keywords: z.array(z.string().min(1).max(80)).min(1).max(1000).describe('The keywords, as people search them'),
         location: z.string().max(120).optional().describe('As Google names places: "United States" (default), "Denver, Colorado, United States"'),

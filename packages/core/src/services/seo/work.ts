@@ -29,7 +29,8 @@
 import type { GateState } from './gate';
 import type { SeoBatchMeta, SeoBatchRecord } from './records';
 import { createHash } from 'node:crypto';
-import { getSeoBatch, mergeMeta, readSeoGate } from './records';
+import { RUN_LABEL_KEY } from '@/libs/work/runLabel';
+import { getSeoBatch, getSeoPage, mergeMeta, readSeoGate } from './records';
 
 /** Who raises `seo.work_queued`: the fires it starts carry it as `invokedBy`. */
 export const SEO_WORK_INVOKER = 'seo';
@@ -80,9 +81,95 @@ export function findingsMd(findings: readonly SeoFinding[]): string {
   return findings.map((f, i) => `${i + 1}. ${f.issue}${f.location ? ` (${f.location})` : ''}${f.fix ? ` — fix: ${f.fix}` : ''}`).join('\n');
 }
 
+/** The records a run works on, as a person reads them. */
+export type SeoRunSubject = {
+  /** The batch: its code and title, "SB-506 Northwind Home Services: Boiler care". */
+  batch?: string | null;
+  /** The page's title, for work on one page. */
+  page?: string | null;
+  /** The client's project, for a run about a whole project. */
+  project?: string | null;
+};
+
+const pagesWord = (n: number) => `${n} ${n === 1 ? 'page' : 'pages'}`;
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * What one background SEO run is doing, to what — the run's label in the
+ * chat's Background work pane, its "N running" chip, Activity and the
+ * mission run's title (`libs/work/runLabel.ts`): "Researching Google results
+ * and writing briefs · SB-506 Northwind Home Services: Boiler care (3
+ * pages)". Null when the subject is unknown; the automation's own words name
+ * the run then. Pure.
+ * @param reason - Why the work was queued.
+ * @param payload - What was queued (counts, the decision, the round).
+ * @param subject - The batch, page or project it is about.
+ */
+export function seoRunLabel(reason: SeoWorkReason, payload: Record<string, unknown>, subject: SeoRunSubject): string | null {
+  const batch = subject.batch?.trim() || null;
+  const page = subject.page?.trim() || null;
+  const on = (doing: string, what: string | null) => (what ? `${doing} · ${what}` : null);
+  const writable = num(payload.writable) ?? 0;
+  if (reason === 'opportunities') {
+    const pages = num(payload.pages);
+    return on(pages ? `Researching Google and planning ${pages} new ${pages === 1 ? 'page' : 'pages'}` : 'Researching Google and planning new pages', subject.project?.trim() || null);
+  }
+  if (reason === 'write') {
+    return on(writable > 0 ? `Drafting and reviewing ${pagesWord(writable)}` : 'Drafting and reviewing the released pages', batch);
+  }
+  if (reason === 'revise') {
+    const round = num(payload.round);
+    const of = num(payload.of);
+    return on(`Revising ${page ? `“${page}”` : 'a draft'} from the editor's notes${round && of ? ` (round ${round} of ${of})` : ''}`, batch);
+  }
+  // A person answered a sign-off.
+  if (payload.kind === 'plan') {
+    if (payload.plan === 'approved') {
+      return batch ? `Researching Google results and writing briefs · ${batch}${writable > 0 ? ` (${pagesWord(writable)})` : ''}` : null;
+    }
+    return payload.plan === 'revise' ? on('Revising the keyword plan from your note', batch) : null;
+  }
+  if (payload.kind === 'page') {
+    if (payload.signoff === 'revise') {
+      return on(`Filing your note and redrafting ${page ? `“${page}”` : 'the page'}`, batch);
+    }
+    return on(writable > 0 ? `Drafting and reviewing the next ${pagesWord(writable)}` : 'Checking what is next after your sign-off', batch);
+  }
+  return null;
+}
+
+/**
+ * The batch, page and project a queued run is about, read off the records.
+ * Never throws: a run with no subject is named by its automation.
+ * @param orgId - The workspace.
+ * @param payload - What was queued.
+ */
+async function seoRunSubject(orgId: string, payload: Record<string, unknown>): Promise<SeoRunSubject> {
+  try {
+    const batchId = num(payload.batchId);
+    const pageId = num(payload.pageId);
+    const { codeForRecord } = await import('@/services/codes');
+    const [batch, code, page] = await Promise.all([
+      batchId ? getSeoBatch(orgId, batchId) : null,
+      batchId ? codeForRecord(orgId, batchId) : null,
+      pageId ? getSeoPage(orgId, pageId) : null,
+    ]);
+    return {
+      batch: batch ? [code, batch.title].filter(Boolean).join(' ') : null,
+      page: page?.title ?? null,
+      project: typeof payload.projectName === 'string' ? payload.projectName : null,
+    };
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Queue SEO work for the strategist's background run. Never throws: the
  * record that asked for it is already written, and a failed queue is logged.
+ * A pipeline workflow run is named by its own `runLabel:`; the event a
+ * workspace without the pipeline still gets names its run by the work and the
+ * records it is about ({@link seoRunLabel}), carried as `runLabel`.
  * @param orgId - The workspace.
  * @param reason - Why.
  * @param payload - What the run needs: the batch, the page, the findings.
@@ -97,7 +184,8 @@ export async function queueSeoWork(orgId: string, reason: SeoWorkReason, payload
     }
     // Not upgraded yet: the old background automation answers the event.
     const { emitEvent, SEO_WORK_QUEUED } = await import('@/services/EventService');
-    await emitEvent({ orgId, type: SEO_WORK_QUEUED, payload: { reason, ...payload }, dedupeKey: `${SEO_WORK_QUEUED}:${dedupeKey}`, invokedBy: SEO_WORK_INVOKER, dispatchMode: 'auto' });
+    const label = seoRunLabel(reason, payload, await seoRunSubject(orgId, payload));
+    await emitEvent({ orgId, type: SEO_WORK_QUEUED, payload: { reason, ...payload, ...(label ? { [RUN_LABEL_KEY]: label } : {}) }, dedupeKey: `${SEO_WORK_QUEUED}:${dedupeKey}`, invokedBy: SEO_WORK_INVOKER, dispatchMode: 'auto' });
     return true;
   } catch (err) {
     const { logger } = await import('@/libs/Logger');

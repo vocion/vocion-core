@@ -79,7 +79,8 @@ export function seoRunAuditTool(ctx: RuntimeContext) {
       }
       const checkedAt = new Date().toISOString();
       const findings = auditFindings({ checkedAt, inventory: inv, schema, robots, brand, profile, clientName: room.title });
-      const by = ctx.userId ?? `agent:${ctx.agentSlug ?? 'seo-strategist'}`;
+      // The agent's own act, recorded as the agent's: never a person's id.
+      const by = `agent:${ctx.agentSlug ?? 'seo-strategist'}`;
       const filed = await fileAudit(ctx.orgId, { project: { id: room.id, title: room.title, profile }, site: origin, checkedAt, findings, pagesRead: inv.rows.length, listed: inv.listed, inventoryArtifactId: run.artifactId, by });
       if (!filed) {
         return `The audit ran (${findings.length} findings) but this workspace has no ${SEO_AUDIT_TYPE} record type: the SEO app needs its update. Say so.`;
@@ -138,7 +139,8 @@ export function seoUpdateFindingsTool(ctx: RuntimeContext) {
       }
       const room = await getDataRoom(ctx.orgId, audit.meta.projectId);
       const profile = room?.meta.seoProfile;
-      const by = ctx.userId ?? `agent:${ctx.agentSlug ?? 'seo-strategist'}`;
+      // The agent's own act, recorded as the agent's: never a person's id.
+      const by = `agent:${ctx.agentSlug ?? 'seo-strategist'}`;
       const chosen = args.findings.map(k => audit.meta.findings.find(f => f.key === k) ?? k);
       const unknown = chosen.filter((f): f is string => typeof f === 'string');
       if (unknown.length) {
@@ -162,7 +164,7 @@ export function seoUpdateFindingsTool(ctx: RuntimeContext) {
         const made: string[] = [];
         for (const f of open) {
           const pages = f.url ? [f.url] : (f.urls ?? []);
-          const ask = await addOpenItem(ctx.orgId, audit.meta.projectId, { title: `Fix: ${f.title}`, body: [f.evidence, pages.length ? `Pages: ${pages.join(', ')}` : null, `From [${audit.title}](/dashboard/objects/${audit.id}), checked ${f.checkedAt.slice(0, 10)}.`, args.note ?? null].filter(Boolean).join('\n\n'), urgent: f.severity === 'high', sourceRef: `seo-audit:${audit.id}:${f.key}` }, ctx.userId ?? null);
+          const ask = await addOpenItem(ctx.orgId, audit.meta.projectId, { title: `Fix: ${f.title}`, body: [f.evidence, pages.length ? `Pages: ${pages.join(', ')}` : null, `From [${audit.title}](/dashboard/objects/${audit.id}), checked ${f.checkedAt.slice(0, 10)}.`, args.note ?? null].filter(Boolean).join('\n\n'), urgent: f.severity === 'high', sourceRef: `seo-audit:${audit.id}:${f.key}` }, by);
           const href = `/dashboard/inbox/${ask.id}`;
           await moveFindings(ctx.orgId, audit.id, [f.key], null, { by }, profile, { kind: 'task', id: ask.id, href, at: new Date().toISOString() });
           made.push(`${f.key} → task #${ask.id} (${href})`);

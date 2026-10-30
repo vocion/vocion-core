@@ -1,0 +1,58 @@
+{
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "cost": 0.0102,
+  "tasks": [
+    {
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.0102,
+      "result": [
+        {
+          "location_code": 2840,
+          "language_code": "en",
+          "items_count": 2,
+          "items": [
+            {
+              "keyword": "wide hiking boots",
+              "location_code": 2840,
+              "language_code": "en",
+              "keyword_info": {
+                "last_updated_time": "2026-10-20 06:12:44 +00:00",
+                "competition": 1,
+                "competition_level": "HIGH",
+                "cpc": 1.42,
+                "search_volume": 9900,
+                "monthly_searches": [
+                  { "year": 2026, "month": 9, "search_volume": 12100 },
+                  { "year": 2026, "month": 8, "search_volume": 9900 },
+                  { "year": 2026, "month": 7, "search_volume": 9900 },
+                  { "year": 2026, "month": 6, "search_volume": 8100 },
+                  { "year": 2026, "month": 5, "search_volume": 8100 },
+                  { "year": 2026, "month": 4, "search_volume": 8100 },
+                  { "year": 2026, "month": 3, "search_volume": 6600 },
+                  { "year": 2026, "month": 2, "search_volume": 6600 },
+                  { "year": 2026, "month": 1, "search_volume": 8100 },
+                  { "year": 2025, "month": 12, "search_volume": 9900 },
+                  { "year": 2025, "month": 11, "search_volume": 12100 },
+                  { "year": 2025, "month": 10, "search_volume": 12100 },
+                  { "year": 2025, "month": 9, "search_volume": 12100 }
+                ]
+              },
+              "keyword_properties": { "keyword_difficulty": 38 },
+              "search_intent_info": { "main_intent": "commercial" },
+              "serp_info": { "serp_item_types": ["ai_overview", "organic", "people_also_ask", "related_searches", "shopping"], "last_updated_time": "2026-10-22 03:00:00 +00:00" }
+            },
+            {
+              "keyword": "extra wide trail shoes",
+              "keyword_info": { "last_updated_time": null, "competition": null, "competition_level": null, "cpc": null, "search_volume": 70, "monthly_searches": null },
+              "keyword_properties": { "keyword_difficulty": null },
+              "search_intent_info": null,
+              "serp_info": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

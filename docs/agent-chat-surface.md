@@ -57,7 +57,11 @@ never hide truth*).
   (`services/work/WorkService.ts`, `work.forConversation` / `work.stop`); no
   table of its own. A source sync is not listed: no row records one in
   progress. Polled every 10 s while anything runs, and again when a turn
-  lands.
+  lands. Each run is titled by the work it is doing, to what — the
+  `runLabel` the code that knows the record put on its event ("Researching
+  Google results and writing briefs · SB-506 …"), else its definition's
+  `doing` or name, never a slug (`libs/work/runLabel.ts`); a mission check's
+  fire and the mission run it started are one row.
 
 - §2.4 — **Follow-ups as pills, never cards** (2026-10-09, founder: *"Check
   out chat gpt does up to 3 suggestions. If they are really valuable. And

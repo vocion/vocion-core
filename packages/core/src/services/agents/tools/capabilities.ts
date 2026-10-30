@@ -37,7 +37,25 @@ export function listCapabilitiesTool(ctx: RuntimeContext) {
         return `- ${p.manifest.name} (${p.manifest.slug}) — ${on ? 'ON' : 'off'}. ${p.manifest.description}${adds ? ` Adds ${adds}.` : ''}${p.manifest.recommend.when.length ? ` Helps when: ${p.manifest.recommend.when.join('; ')}.` : ''}${p.manifest.recommend.connectors.length ? ` Works best with: ${p.manifest.recommend.connectors.join(', ')}.` : ''}${p.manifest.depends.length ? ` Needs: ${p.manifest.depends.join(', ')}.` : ''}`;
       });
       const connected = new Set((await listSources(ctx.orgId)).map(connectorOfSource));
-      const connectors = listConnectors().map(c => `- ${c.name ?? c.slug} (${c.slug}) — ${connected.has(c.slug) ? 'connected' : 'not connected'}`);
+      // What the apps that are on work best with, and are not connected yet,
+      // comes first, in the order the app lists it (the SEO app: Search
+      // Console first, it is free).
+      const wantedBy = new Map<string, string>();
+      for (const p of listPlugins()) {
+        if (enabled.has(p.manifest.slug)) {
+          for (const slug of p.manifest.recommend.connectors) {
+            if (!wantedBy.has(slug)) {
+              wantedBy.set(slug, p.manifest.name);
+            }
+          }
+        }
+      }
+      const order = [...wantedBy.keys()];
+      const rank = (slug: string) => (wantedBy.has(slug) && !connected.has(slug) ? order.indexOf(slug) : order.length);
+      const connectors = listConnectors()
+        .map((c, i) => ({ c, i }))
+        .sort((a, b) => rank(a.c.slug) - rank(b.c.slug) || a.i - b.i)
+        .map(({ c }) => `- ${c.name ?? c.slug} (${c.slug}) — ${connected.has(c.slug) ? 'connected' : wantedBy.has(c.slug) ? `not connected; RECOMMENDED for ${wantedBy.get(c.slug)}: ${c.description}` : 'not connected'}`);
       // A system the person asked about, or the work needs, that is not
       // connected: its connect card is shown with this answer, not offered
       // in words (`services/connect/connectCardOnGap.ts`).
@@ -57,7 +75,7 @@ export function listCapabilitiesTool(ctx: RuntimeContext) {
         'PLUGINS (only ON ones do work here; an off one is only a recommendation — turn one on with recommend_action → plugin.enable {slug}; a person can also do it on /dashboard/apps, where each plugin is a feature of its app):',
         ...plugins,
         '',
-        'CONNECTORS (a person connects at /dashboard/connectors — use where_to connect-source for the link):',
+        'CONNECTORS (a person connects at /dashboard/connectors — use where_to connect-source for the link; a RECOMMENDED one the work lacks: pass it as `connector` to show its connect card):',
         ...connectors,
       ].join('\n');
     },
