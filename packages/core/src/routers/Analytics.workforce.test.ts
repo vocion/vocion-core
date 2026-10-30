@@ -61,20 +61,21 @@ describe('workforce overview', () => {
     expect(readWorkforceOutcomes).not.toHaveBeenCalled();
   });
 
-  it('reads only accessible non-archived workspaces in the active account', async () => {
+  it('reads only the active workspace even when the admin can access sibling workspaces', async () => {
     session(true);
-    const project = { id: 'a', accountId: 'account', slug: 'a', name: 'A', description: null, kind: 'shared' as const, agentCount: 1 };
+    const project = { id: 'session-workspace', accountId: 'account', slug: 'a', name: 'A', description: null, kind: 'shared' as const, agentCount: 1 };
     vi.mocked(listProjectsForUser).mockResolvedValue([
       project,
+      { ...project, id: 'accessible-sibling' },
       { ...project, id: 'foreign', accountId: 'another-account' },
       { ...project, id: 'archived', archived: true },
     ]);
     const result = await call(workforceOverviewRoute, { days: 1 });
 
     expect(listProjectsForUser).toHaveBeenCalledWith('admin');
-    expect(getWorkforceInventory).toHaveBeenCalledExactlyOnceWith('a', 1);
-    expect(result.workspaces.map(w => w.id)).toEqual(['a']);
-    expect(readWorkforceOutcomes).toHaveBeenCalledExactlyOnceWith('a', expect.any(Date), expect.any(Date), false);
+    expect(getWorkforceInventory).toHaveBeenCalledExactlyOnceWith('session-workspace', 1);
+    expect(result.workspaces.map(w => w.id)).toEqual(['session-workspace']);
+    expect(readWorkforceOutcomes).toHaveBeenCalledExactlyOnceWith('session-workspace', expect.any(Date), expect.any(Date), false);
     expect(result.workspaces[0]?.outcomes.items).toEqual([]);
   });
 });

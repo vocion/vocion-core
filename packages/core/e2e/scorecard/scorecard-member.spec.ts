@@ -21,7 +21,7 @@ const MEMBER = { email: 'scorecard-member@e2e.test', password: 'scorecard-e2e-pa
 const DECIDED_AGENT = { slug: 'e2e-screener', name: 'E2E Applicant Screener' };
 const UNDECIDED_AGENT = { slug: 'e2e-router', name: 'E2E Store Router' };
 
-/** Zero-based cells in a scorecard row: agent, agreement, average confidence, people, conversations, reviewed, accepted as-is. */
+/** Zero-based cells in a scorecard row: agent, agreement, average confidence, model cost, people, conversations, reviewed, accepted as-is. */
 const AGREEMENT_CELL = 1;
 const CONFIDENCE_CELL = 2;
 
@@ -77,7 +77,7 @@ test('a non-admin member reaches the scorecard from the main nav and sees every 
   await expect(page.locator('main')).not.toContainText(/eval/i);
 
   // Every column but Agent explains itself in a tooltip.
-  for (const column of ['Agreement', 'Average confidence', 'People', 'Conversations', 'Reviewed', 'Accepted as-is']) {
+  for (const column of ['Agreement', 'Average confidence', 'Model cost', 'People', 'Conversations', 'Reviewed', 'Accepted as-is']) {
     await expect(page.getByRole('button', { name: `What ${column} means` })).toHaveCount(1);
   }
 
