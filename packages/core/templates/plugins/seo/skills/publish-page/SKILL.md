@@ -4,8 +4,8 @@ name: Publishing an approved page
 description: >-
   An approved page goes to the client's site through the project's publish
   target, always as a proposal a person approves: a pull request on a
-  repository, a draft post on Squarespace. Never a page that is not approved.
-  Read before publishing.
+  repository, a draft post on Squarespace or Webflow. Never a page that is not
+  approved. Read before publishing.
 version: 3
 ---
 
@@ -27,6 +27,14 @@ Only a page a person signed off is published. The page's status says
      merges it but the client's own people.
    - Squarespace: a browser run saves the post as a draft. Going live is
      `site.publish_live` with the drafted pages, one card for all of them.
+   - Webflow: the post is saved as a draft item in the site's blog
+     collection, or the draft at its slug is updated in place. Going live is
+     `site.publish_live` with the drafted pages, its own card, never part of
+     the draft's approval. If the project's Webflow target has no field
+     mapping yet, run `seo_learn_frontmatter` with `webflow_site` and tell the
+     person it waits for them under Publishing on the project.
+   - The site's system is not connected (the card says so): `offer_connection`
+     with `github`, `webflow` or `squarespace`, once, and carry on when it is.
 3. The pull request or post URL and, once live, the live URL are recorded on
    the page. Tell the person where it is, with the link.
 

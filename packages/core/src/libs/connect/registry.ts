@@ -19,6 +19,7 @@ import { notionProvider } from './providers/notion';
 import { posthogProvider } from './providers/posthog';
 import { quickbooksProvider } from './providers/quickbooks';
 import { slackProvider } from './providers/slack';
+import { webflowProvider } from './providers/webflow';
 import { xeroProvider } from './providers/xero';
 import { zoomProvider } from './providers/zoom';
 import { connectScriptEnabled, scriptedProviders } from './scripted';
@@ -38,6 +39,7 @@ const realProviders: readonly ConnectProvider[] = [
   gustoProvider,
   linkedinProvider,
   metaProvider,
+  webflowProvider,
 ];
 
 /**

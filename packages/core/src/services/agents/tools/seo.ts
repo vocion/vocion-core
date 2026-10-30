@@ -931,35 +931,44 @@ export function seoRecordFeedbackTool(ctx: RuntimeContext) {
 export function seoLearnFrontmatterTool(ctx: RuntimeContext) {
   return tool(
     async (raw) => {
-      const { project_id, target_id, repo, folder, base_branch } = raw as { project_id: number | string; target_id?: string; repo?: string; folder?: string; base_branch?: string };
+      const { project_id, target_id, repo, folder, base_branch, webflow_site, collection } = raw as { project_id: number | string; target_id?: string; repo?: string; folder?: string; base_branch?: string; webflow_site?: string; collection?: string };
       const ref = await recordIdOf(ctx.orgId, project_id);
       if ('reason' in ref) {
         return `Not learned: no such project (${ref.reason}).`;
       }
       const projectId = ref.id;
+      const by = ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId ?? null;
+      // A Webflow site: named, or the target named (or the project's only target) is Webflow.
+      const { getDataRoom } = await import('@/services/DataRoomService');
+      const targets = ((await getDataRoom(ctx.orgId, projectId))?.meta.publishTargets ?? []) as Array<{ id: string; kind: string }>;
+      const named = target_id ? targets.find(t => t.id === target_id) : !repo && targets.length === 1 ? targets[0] : undefined;
+      const webflow = Boolean(webflow_site) || named?.kind === 'webflow';
       // THE REPO PICKER: no repository named and none on the project — ask
       // which of the connection's repositories is the client's site.
-      if (!repo?.trim() && !target_id) {
+      if (!webflow && !repo?.trim() && !target_id) {
         const picked = await askWhichRepo(ctx, projectId);
         if (picked) {
           return picked;
         }
       }
-      const { suggestPublishTarget } = await import('@/services/publish/learnTemplate');
-      const out = await suggestPublishTarget(ctx.orgId, projectId, { targetId: target_id, repo, folder, baseBranch: base_branch, by: ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId ?? null });
+      const out = webflow
+        ? await (await import('@/services/publish/learnWebflow')).suggestWebflowTarget(ctx.orgId, projectId, { targetId: named?.kind === 'webflow' ? named.id : undefined, site: webflow_site, collection, by })
+        : await (await import('@/services/publish/learnTemplate')).suggestPublishTarget(ctx.orgId, projectId, { targetId: target_id, repo, folder, baseBranch: base_branch, by });
       return out.ok
         ? `${out.line} Tell the person in one line that it waits for them under Publishing on the project (${seoProjectHref(projectId)}).`
         : `Not learned: ${out.why}`;
     },
     {
       name: 'seo_learn_frontmatter',
-      description: 'Read two or three existing posts in a client\'s GitHub repository (the folder its posts live in) and propose the publish target\'s frontmatter template from them: the same keys, values that vary per post mapped to placeholders ({title}, {date:MMMM D, YYYY}, {author}, {tags} …), constant values kept as literals. Run it when onboarding a client whose site is in a connected GitHub repository, or when a GitHub target has no frontmatter. The result waits on the project\'s Publishing for a person to apply; nothing is set on their behalf.',
+      description: 'Read two or three existing posts in a client\'s GitHub repository (the folder its posts live in) and propose the publish target\'s frontmatter template from them: the same keys, values that vary per post mapped to placeholders ({title}, {date:MMMM D, YYYY}, {author}, {tags} …), constant values kept as literals. For a Webflow site give webflow_site instead: it reads the blog collection\'s fields and latest post and proposes which field takes the body, summary, SEO title and description, author, date and main image. Run it when onboarding a client whose site is in a connected GitHub repository or Webflow, or when a target has no template or mapping. The result waits on the project\'s Publishing for a person to apply; nothing is set on their behalf.',
       schema: z.object({
         project_id: recordIdArg('The project'),
         target_id: z.string().max(64).optional().describe('The project\'s GitHub target to learn for, when it has one.'),
         repo: z.string().max(200).optional().describe('owner/name, when the project has no GitHub target yet. Left out, the person is asked which connected repo is the client\'s site.'),
         folder: z.string().max(300).optional().describe('The folder the site\'s posts are in, e.g. src/content/blog.'),
         base_branch: z.string().max(200).optional(),
+        webflow_site: z.string().max(200).optional().describe('A Webflow site: its address or webflow.io name.'),
+        collection: z.string().max(200).optional().describe('The Webflow blog collection, when the site has several.'),
       }),
     },
   );

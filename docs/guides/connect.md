@@ -169,6 +169,7 @@ forwarded host of the request.
 | `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | `/api/connect/gusto/callback` |
 | `linkedin` | `linkedin-ads` | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` (an app with the Advertising API product; scopes `r_ads`, `r_ads_reporting`) | `/api/connect/linkedin/callback` |
 | `meta` | `meta-ads` | `META_APP_ID`, `META_APP_SECRET` (a Business app with Facebook Login for Business and the Marketing API; scopes `ads_read`, `ads_management`, `business_management`) | `/api/connect/meta/callback` |
+| `webflow` | `webflow` | `WEBFLOW_CLIENT_ID`, `WEBFLOW_CLIENT_SECRET` (a Data API v2 app; scopes `sites:read`, `cms:read`, `cms:write`) | `/api/connect/webflow/callback` |
 
 All of them are optional. A provider with no env set is not offered, and its
 connector keeps its paste form. Step-by-step setup for each vendor's app is in
@@ -211,6 +212,8 @@ Before going live with each vendor:
 - **LinkedIn.** The app needs LinkedIn's Advertising API product approved
   before `r_ads` and `r_ads_reporting` can be granted; until then, paste an
   access token from LinkedIn's token generator (60 days).
+- **Webflow.** Its tokens do not expire, so there is nothing to refresh. A
+  site API token is the advanced path. Setup is in [webflow.md](webflow.md).
 
 Sentry has no login: its install redirect does not carry our signed `state`,
 so the callback cannot tell which workspace and admin started it. Paste a

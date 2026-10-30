@@ -24,12 +24,17 @@
  *   a date string stays a string, never a YAML date.
  * - `squarespace`: a draft post on the site's blog, written in the editor by a
  *   browser run, since Squarespace has no API for posts.
+ * - `webflow`: a draft item in the site's blog collection, through Webflow's
+ *   Data API. `siteId` and `collectionId` say where; `fields` maps the page's
+ *   values to the collection's own fields, by field slug (the title is always
+ *   `name` and the slug `slug`). Learned from the collection's fields and a
+ *   recent post (`libs/publish/webflowMapping.ts`), applied by a person.
  * - `wordpress`: declared so a project can say so; nothing publishes there yet.
  */
 
 import { z } from 'zod';
 
-export const PUBLISH_TARGET_KINDS = ['github', 'squarespace', 'wordpress'] as const;
+export const PUBLISH_TARGET_KINDS = ['github', 'squarespace', 'webflow', 'wordpress'] as const;
 export type PublishTargetKind = (typeof PUBLISH_TARGET_KINDS)[number];
 
 export const PAGE_FORMATS = ['mdx', 'md', 'html'] as const;
@@ -159,6 +164,39 @@ const squarespaceConfigSchema = z.object({
   blogPath: z.string().regex(/^\/[\w\-/]*$/, 'the blog\'s path, starting with /').optional(),
 });
 
+/** What a Webflow target's `fields` can map: the page's values a collection may hold. */
+export const WEBFLOW_PAGE_FIELDS = ['body', 'excerpt', 'metaTitle', 'metaDescription', 'author', 'date', 'image', 'category', 'tags'] as const;
+export type WebflowPageField = (typeof WEBFLOW_PAGE_FIELDS)[number];
+
+/** A Webflow field slug, as the collection's schema names it. */
+const webflowFieldSlug = z.string().regex(/^[a-z0-9][\w-]{0,99}$/i, 'a field slug from the collection, e.g. post-body');
+
+/** A Webflow id: 24 hex characters. */
+const webflowId = z.string().regex(/^[a-f0-9]{24}$/i, 'a Webflow id (24 characters)');
+
+const webflowConfigSchema = z.object({
+  /** The site, by its Webflow id. Learning fills it from `siteUrl`. */
+  siteId: webflowId.optional(),
+  /** Where the site is seen, for the post's live address: its domain, or its webflow.io address. */
+  siteUrl: z.string().url().refine(u => /^https:\/\//i.test(u), 'the site\'s https:// address').optional(),
+  /** The blog: the CMS collection posts are items of. */
+  collectionId: webflowId.optional(),
+  /** The collection's path on the site, e.g. /blog: a post lives at <siteUrl><collectionPath>/<slug>. */
+  collectionPath: z.string().regex(/^\/[\w\-/]*$/, 'the blog\'s path, starting with /').optional(),
+  /** The page's values, by the collection field each goes in. `body` is required to publish. */
+  fields: z.object({
+    body: webflowFieldSlug.optional(),
+    excerpt: webflowFieldSlug.optional(),
+    metaTitle: webflowFieldSlug.optional(),
+    metaDescription: webflowFieldSlug.optional(),
+    author: webflowFieldSlug.optional(),
+    date: webflowFieldSlug.optional(),
+    image: webflowFieldSlug.optional(),
+    category: webflowFieldSlug.optional(),
+    tags: webflowFieldSlug.optional(),
+  } satisfies Record<WebflowPageField, unknown>).strict().optional(),
+}).refine(c => Boolean(c.siteId || c.siteUrl), 'name the site: its siteUrl (or siteId)');
+
 /** Declared so a project can name it; nothing publishes there yet. */
 const wordpressConfigSchema = z.object({ siteUrl: z.string().url() }).passthrough();
 
@@ -167,12 +205,14 @@ const base = { id: targetIdSchema, label: z.string().max(120).optional() };
 export const publishTargetSchema = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('github'), config: githubConfigSchema }),
   z.object({ ...base, kind: z.literal('squarespace'), config: squarespaceConfigSchema }),
+  z.object({ ...base, kind: z.literal('webflow'), config: webflowConfigSchema }),
   z.object({ ...base, kind: z.literal('wordpress'), config: wordpressConfigSchema }),
 ]);
 
 export type PublishTarget = z.infer<typeof publishTargetSchema>;
 export type GithubTarget = Extract<PublishTarget, { kind: 'github' }>;
 export type SquarespaceTarget = Extract<PublishTarget, { kind: 'squarespace' }>;
+export type WebflowTarget = Extract<PublishTarget, { kind: 'webflow' }>;
 
 /**
  * A project's targets as written, each checked: the ones that hold, and why
@@ -227,7 +267,7 @@ export function resolvePublishTarget(raw: unknown, id?: string | null): { ok: tr
     return { ok: true, target: targets[0]! };
   }
   if (targets.length === 0) {
-    return { ok: false, why: `The project says nowhere to publish: add a publish target to it (a GitHub repo or a Squarespace site)${broken}.` };
+    return { ok: false, why: `The project says nowhere to publish: add a publish target to it (a GitHub repo, a Squarespace site or a Webflow site)${broken}.` };
   }
   return { ok: false, why: `The project publishes to ${targets.map(t => t.id).join(', ')}: name the target this page goes to.` };
 }
@@ -275,6 +315,8 @@ export type PageFields = {
   tags?: readonly string[] | null;
   /** The body's word count, for {readTime}. */
   words?: number | null;
+  /** The page's main image, by URL, when the page names one. */
+  image?: string | null;
 };
 
 /** Words a reader gets through in a minute, for {readTime}. */
@@ -490,7 +532,7 @@ export type StoredPublishTarget = {
   config?: Record<string, unknown>;
 };
 
-const PUBLISH_KIND_LABEL: Record<PublishTargetKind, string> = { github: 'GitHub', squarespace: 'Squarespace', wordpress: 'WordPress' };
+const PUBLISH_KIND_LABEL: Record<PublishTargetKind, string> = { github: 'GitHub', squarespace: 'Squarespace', webflow: 'Webflow', wordpress: 'WordPress' };
 
 /**
  * One publish target in a line: its label, its kind, and where it points
@@ -511,4 +553,15 @@ export function publishTargetLine(t: StoredPublishTarget | PublishTarget): strin
  */
 export function squarespaceBlogUrl(target: SquarespaceTarget): string {
   return `${target.config.siteUrl.replace(/\/+$/, '')}${target.config.blogPath ?? '/blog'}`;
+}
+
+/**
+ * A Webflow post's live address, when the target says where the site and its
+ * blog are; null when it does not.
+ * @param target - The Webflow target.
+ * @param slug - The post's slug.
+ */
+export function webflowPostUrl(target: WebflowTarget, slug: string): string | null {
+  const { siteUrl, collectionPath } = target.config;
+  return siteUrl && collectionPath ? `${siteUrl.replace(/\/+$/, '')}${collectionPath.replace(/\/+$/, '')}/${slug}` : null;
 }

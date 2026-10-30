@@ -30,14 +30,19 @@ export type LearnedTemplate = {
 /**
  * A learned target waiting on a person, as the project keeps it
  * (`publishTargetSuggestion`): the whole target to apply, the target it
- * replaces (null for a new one), and what it was read from.
+ * replaces (null for a new one), and what it was read from: a GitHub
+ * target's repository and ref, or a Webflow target's site and collection
+ * (`from`, in words; `services/publish/learnWebflow.ts`).
  */
 export type PublishTargetSuggestion = {
   target: StoredPublishTarget;
   replaces: string | null;
-  /** The repository and the ref the posts were read at. */
+  /** The repository the posts were read in (GitHub); the site's name (Webflow). */
   repo: string;
+  /** The ref the posts were read at (GitHub); the collection's name (Webflow). */
   ref: string;
+  /** What it was learned from, in a line for the project page ("Blog Posts on Northwind Outfitters"). */
+  from?: string;
   read: string[];
   notes: string[];
   at: string;

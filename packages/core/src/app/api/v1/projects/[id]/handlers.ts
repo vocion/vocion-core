@@ -116,6 +116,16 @@ export async function patchProject(caller: ApiCaller, rawId: string, req: NextRe
       return NextResponse.json({ ...room, meta: { ...room?.meta, publishTargetSuggestion: learned.suggestion } });
     }
   }
+  // A Webflow target saved with no field mapping: learn it from the site's own blog the same way.
+  const unmapped = (publishTargets ?? []).find(t => t.kind === 'webflow' && !t.config.fields?.body);
+  if (!blank && unmapped && caller.source === 'session') {
+    const { suggestWebflowTarget } = await import('@/services/publish/learnWebflow');
+    const learning = suggestWebflowTarget(caller.orgId, id, { targetId: unmapped.id, by: caller.actorId }).catch(() => null);
+    const learned = await Promise.race([learning, new Promise<null>(resolve => setTimeout(resolve, LEARN_WAIT_MS, null))]);
+    if (learned?.ok) {
+      return NextResponse.json({ ...room, meta: { ...room?.meta, publishTargetSuggestion: learned.suggestion } });
+    }
+  }
   return NextResponse.json(room);
 }
 

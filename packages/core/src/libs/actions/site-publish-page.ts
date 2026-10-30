@@ -21,6 +21,11 @@
  *   `site.publish_live`: one card for the drafted posts, one run each, in
  *   turn. The live URL is read back from the site's public JSON by slug. No
  *   Undo: the post is the site's now, and deleting it is a person's call.
+ * - **Webflow**: the page is saved as a draft item (`isDraft: true`) in the
+ *   site's blog collection through the Data API, created or updated in place
+ *   by its slug (`services/publish/webflowPublish.ts`). Undo deletes an item
+ *   it created. Going live is `site.publish_live`, the same separate card as
+ *   Squarespace's: the item comes out of draft and is published.
  *
  * A person approves a page ONCE, on its sign-off (the page's workflow run,
  * `services/seo/pipeline.ts`). Publishing it as a draft — an unmerged pull
@@ -115,7 +120,7 @@ const NO_LOGIN = 'There is no way to sign in to this Squarespace site yet. Conne
 export const sitePublishPageAction: Action<typeof publishPageInput> = {
   id: PUBLISH_PAGE_ACTION_ID,
   name: 'Publish a page to the client\'s site',
-  description: 'Publish a signed-off page to its project\'s site: on GitHub a pull request with the page file (frontmatter in the site\'s own shape), on Squarespace a draft post saved in the editor (going live is site.publish_live). Give pageRecordId; projectId and artifactId only for a project the SEO app does not track. Undo closes a GitHub pull request and deletes its branch.',
+  description: 'Publish a signed-off page to its project\'s site: on GitHub a pull request with the page file (frontmatter in the site\'s own shape), on Squarespace a draft post saved in the editor, on Webflow a draft item in the blog collection (going live is site.publish_live for both). Give pageRecordId; projectId and artifactId only for a project the SEO app does not track. Undo closes a GitHub pull request, or deletes a Webflow draft it created.',
   inputSchema: publishPageInput,
   grant: 'publish_page',
   external: true,
@@ -154,6 +159,11 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
     const { plan } = planned;
     if (plan.target.kind === 'github') {
       return (await githubPreflight(ctx.orgId, plan)).why;
+    }
+    if (plan.target.kind === 'webflow') {
+      const { webflowPreflight } = await import('@/services/publish/webflowPublish');
+      const pre = await webflowPreflight(ctx.orgId, plan);
+      return pre.ok ? undefined : pre.why;
     }
     if (plan.target.kind === 'squarespace' && !await squarespaceSignIn(ctx.orgId, plan.target.config.siteUrl, plan.project.id)) {
       return NO_LOGIN;
@@ -202,9 +212,41 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
         verbs: { approve: 'Open the pull request', reject: 'Not yet' },
       };
     }
+    if (plan.target.kind === 'webflow') {
+      const { webflowPreflight } = await import('@/services/publish/webflowPublish');
+      const checked = await webflowPreflight(ctx.orgId, plan);
+      const site = plan.target.config.siteUrl?.replace(/^https:\/\//, '') ?? 'the Webflow site';
+      if (!checked.ok) {
+        return { title: `Save "${plan.page.title}" as a draft on ${site}`, system: 'Webflow', headline: checked.why, fields: metaFields, verbs: { approve: 'Save the draft', reject: 'Not yet' } };
+      }
+      const { pre } = checked;
+      const updating = pre.existing !== null;
+      const webflowPreview = { kind: 'text' as const, id: 'preview', label: plan.page.title, tabLabel: 'Preview', body: plan.draft.markdown, html: pre.bodyHtml };
+      return {
+        title: `${updating ? 'Update' : 'Save'} "${plan.page.title}" as a draft on ${site}`,
+        system: 'Webflow',
+        object: { title: plan.page.title, subtitle: `${plan.project.title} · ${pre.collection.displayName} · /${plan.page.slug}`, section: 'Pages' },
+        headline: updating
+          ? `Update the item at /${plan.page.slug} in ${pre.collection.displayName}, as a draft. It never goes live here: going live is its own card.`
+          : `Add the post to ${pre.collection.displayName} as a draft item. It never goes live here: going live is its own card.`,
+        badges: [{ label: 'Webflow' }, { label: 'Draft only' }, ...(updating ? [{ label: 'Updates an item', tone: 'warn' as const }] : [{ label: 'Undo deletes it' }])],
+        fields: [
+          { label: 'Target', value: publishTargetLine(plan.target), ...(plan.target.config.siteUrl ? { href: plan.target.config.siteUrl } : {}) },
+          ...(pre.postUrl ? [{ label: 'URL once live', value: pre.postUrl }] : []),
+          ...metaFields,
+          { label: 'Fields', value: Object.keys(pre.fieldData).join(', ') },
+          ...(pre.notes.length > 0 ? [{ label: 'Changed for Webflow', value: pre.notes.join(' ') }] : []),
+          { label: 'Project', value: plan.project.title },
+        ],
+        contentHeading: { label: 'The post', meta: `draft v${plan.draft.version}` },
+        content: [webflowPreview, draftLink],
+        nextAction: 'Approving saves the draft item in Webflow now.',
+        verbs: { approve: updating ? 'Update the draft' : 'Save the draft', reject: 'Not yet' },
+      };
+    }
     const { postUrlOf } = await import('@/services/publish/squarespaceTask');
     const blogPath = plan.target.kind === 'squarespace' ? plan.target.config.blogPath ?? '/blog' : '/blog';
-    const siteUrl = plan.target.config.siteUrl;
+    const siteUrl = plan.target.kind === 'squarespace' ? plan.target.config.siteUrl : '';
     return {
       title: `Save "${plan.page.title}" as a draft on ${siteUrl.replace(/^https:\/\//, '')}`,
       system: 'Squarespace',
@@ -242,6 +284,14 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
       const receipt = { text: opened.created ? 'Pull request opened' : 'Pull request updated', href: opened.url, linkLabel: `${opened.repo}#${opened.number}` };
       return { ...base, published: false, url: opened.url, repo: opened.repo, branch: opened.branch, number: opened.number, path: opened.path, created: opened.created, replaced: opened.replaced, line, receipt };
     }
+    if (plan.target.kind === 'webflow') {
+      const { saveWebflowDraft } = await import('@/services/publish/webflowPublish');
+      const saved = await saveWebflowDraft(ctx.orgId, plan);
+      const line = `${saved.created ? 'Saved' : 'Updated'} "${plan.page.title}" as a draft item in Webflow${saved.postUrl ? ` (live it will be ${saved.postUrl})` : ''}. Going live is its own approval (site.publish_live).`;
+      await recordOnPage(ctx.orgId, plan.page.recordId, { status: 'publishing', webflowDraft: { itemId: saved.itemId, collectionId: saved.collectionId, siteId: saved.siteId, slug: plan.page.slug, savedAt: at, created: saved.created }, publishing: { kind: 'webflow', phase: 'draft', targetId: plan.target.id, itemId: saved.itemId, at, by: ctx.reviewedBy ?? ctx.invokedBy ?? null, actionRunId: ctx.runId ?? null, note: line } });
+      const receipt = { text: saved.created ? 'Draft saved in Webflow' : 'Draft updated in Webflow' };
+      return { ...base, published: false, itemId: saved.itemId, collectionId: saved.collectionId, siteId: saved.siteId, created: saved.created, postUrl: saved.postUrl, notes: saved.notes, line, receipt };
+    }
     if (plan.target.kind !== 'squarespace') {
       throw new Error('Publishing to this kind of target is not built yet.');
     }
@@ -260,10 +310,18 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
     const receipt = { text: started.queued ? 'Draft queued for Squarespace' : 'Saving the draft in Squarespace', href: `/dashboard/browser/${started.browserRunId}`, linkLabel: 'the browser run' };
     return { ...base, published: false, browserRunId: started.browserRunId, queued: started.queued, link: `/dashboard/browser/${started.browserRunId}`, postUrl: started.postUrl, line, receipt };
   },
-  canUndo: result => result?.kind === 'github' && typeof result.url === 'string',
+  canUndo: result => (result?.kind === 'github' && typeof result.url === 'string') || (result?.kind === 'webflow' && result.created === true),
   async undo(ctx, _input, result) {
+    if (result?.kind === 'webflow' && result.created === true && typeof result.itemId === 'string') {
+      const { deleteWebflowDraft } = await import('@/services/publish/webflowPublish');
+      await deleteWebflowDraft(ctx.orgId, { siteId: String(result.siteId), collectionId: String(result.collectionId), itemId: result.itemId, projectId: typeof result.projectId === 'number' ? result.projectId : null });
+      const before = (result.before ?? null) as { status?: unknown } | null;
+      const { recordOnPage } = await import('@/services/publish/sitePublish');
+      await recordOnPage(ctx.orgId, typeof result.pageRecordId === 'number' ? result.pageRecordId : null, { status: before?.status ?? 'approved', webflowDraft: null, publishing: { kind: 'webflow', withdrawnAt: new Date().toISOString(), itemId: result.itemId } });
+      return { note: 'The draft item is deleted from Webflow.' };
+    }
     if (result?.kind !== 'github' || typeof result.url !== 'string' || typeof result.branch !== 'string' || typeof result.repo !== 'string') {
-      return { note: 'A Squarespace post is the site\'s once saved: delete it in the Squarespace editor if it should go.' };
+      return { note: result?.kind === 'webflow' ? 'The item was there before this save, so it is left in Webflow: change it there if it should go.' : 'A Squarespace post is the site\'s once saved: delete it in the Squarespace editor if it should go.' };
     }
     const { discardChange } = await import('@/services/factory/githubChange');
     // The page's project's work, as the publish was: its connection closes it.
@@ -278,27 +336,32 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
 };
 
 const publishLiveInput = z.object({
-  pageRecordIds: z.array(z.coerce.number().int().positive()).min(1).max(50).describe('The pages whose Squarespace drafts go live, in the order they go.'),
+  pageRecordIds: z.array(z.coerce.number().int().positive()).min(1).max(50).describe('The pages whose Squarespace or Webflow drafts go live, in the order they go.'),
 });
 
 type LiveInput = z.infer<typeof publishLiveInput>;
 
+type SquarespacePost = { pageRecordId: number; title: string; siteUrl: string; blogPath: string; slug: string; actionRunId: number | null };
+
 /**
- * The drafted Squarespace posts among these pages, and why each other one is not.
+ * The drafted posts among these pages, Squarespace's and Webflow's, and why
+ * each other one is not.
  * @param orgId - The workspace.
  * @param ids - The pages.
  */
 async function draftedPosts(orgId: string, ids: number[]) {
   const { readRecord } = await import('@/libs/actions/factory-dispatch');
-  const { resolvePublishTarget } = await import('@/libs/publish/targets');
-  const posts: Array<{ pageRecordId: number; title: string; siteUrl: string; blogPath: string; slug: string; actionRunId: number | null }> = [];
+  const { resolvePublishTarget, webflowPostUrl } = await import('@/libs/publish/targets');
+  const posts: SquarespacePost[] = [];
+  const webflow: import('@/services/publish/webflowPublish').WebflowLivePost[] = [];
   const problems: string[] = [];
   for (const id of [...new Set(ids)]) {
     const page = await readRecord(orgId, id);
     const draft = page?.meta.squarespaceDraft as { slug?: string } | undefined;
+    const wf = page?.meta.webflowDraft as { itemId?: string; collectionId?: string; siteId?: string; slug?: string } | null | undefined;
     const publishing = (page?.meta.publishing ?? {}) as { targetId?: string; actionRunId?: number };
-    if (!page || !draft?.slug) {
-      problems.push(`#${id}${page ? ` "${page.title}"` : ''} has no Squarespace draft saved yet`);
+    if (!page || (!draft?.slug && !wf?.itemId)) {
+      problems.push(`#${id}${page ? ` "${page.title}"` : ''} has no draft saved on its site yet`);
       continue;
     }
     if (page.meta.status === 'published') {
@@ -307,19 +370,35 @@ async function draftedPosts(orgId: string, ids: number[]) {
     }
     const project = typeof page.meta.projectId === 'number' ? await readRecord(orgId, page.meta.projectId) : null;
     const target = resolvePublishTarget(project?.meta.publishTargets, publishing.targetId ?? (page.meta.publishTargetId as string | undefined));
-    if (!target.ok || target.target.kind !== 'squarespace') {
-      problems.push(`"${page.title}": ${target.ok ? 'its target is not Squarespace' : target.why}`);
+    const actionRunId = typeof publishing.actionRunId === 'number' ? publishing.actionRunId : null;
+    if (target.ok && target.target.kind === 'webflow' && wf?.itemId && wf.collectionId) {
+      const slug = wf.slug ?? String(page.meta.slug ?? '');
+      webflow.push({ pageRecordId: id, projectId: typeof page.meta.projectId === 'number' ? page.meta.projectId : null, title: page.title, slug, siteId: wf.siteId ?? target.target.config.siteId ?? '', collectionId: wf.collectionId, itemId: wf.itemId, postUrl: webflowPostUrl(target.target, slug), actionRunId });
       continue;
     }
-    posts.push({ pageRecordId: id, title: page.title, siteUrl: target.target.config.siteUrl, blogPath: target.target.config.blogPath ?? '/blog', slug: draft.slug, actionRunId: typeof publishing.actionRunId === 'number' ? publishing.actionRunId : null });
+    if (!target.ok || target.target.kind !== 'squarespace' || !draft?.slug) {
+      problems.push(`"${page.title}": ${target.ok ? `its draft is not on its ${target.target.kind} target` : target.why}`);
+      continue;
+    }
+    posts.push({ pageRecordId: id, title: page.title, siteUrl: target.target.config.siteUrl, blogPath: target.target.config.blogPath ?? '/blog', slug: draft.slug, actionRunId });
   }
-  return { posts, problems };
+  return { posts, webflow, problems };
+}
+
+/**
+ * Where the drafted posts are, in a word for the card: one site kind, or both.
+ * @param drafted - The drafted posts.
+ * @param drafted.posts - Squarespace's.
+ * @param drafted.webflow - Webflow's.
+ */
+function systemOf(drafted: { posts: unknown[]; webflow: unknown[] }): string {
+  return drafted.posts.length > 0 && drafted.webflow.length > 0 ? 'Squarespace and Webflow' : drafted.webflow.length > 0 ? 'Webflow' : 'Squarespace';
 }
 
 export const sitePublishLiveAction: Action<typeof publishLiveInput> = {
   id: PUBLISH_LIVE_ACTION_ID,
-  name: 'Take drafted posts live on Squarespace',
-  description: 'Publish Squarespace drafts that site.publish_page saved: one approval for the listed pages, then one browser run per post, in turn, each pressing Publish on its own draft and read back from the site. Give pageRecordIds.',
+  name: 'Take drafted posts live',
+  description: 'Publish drafts that site.publish_page saved, on Squarespace or Webflow: one approval for the listed pages. On Squarespace one browser run per post, in turn, each pressing Publish on its own draft and read back from the site; on Webflow each item is published through the API. Give pageRecordIds.',
   inputSchema: publishLiveInput,
   grant: 'publish_page',
   external: true,
@@ -330,33 +409,57 @@ export const sitePublishLiveAction: Action<typeof publishLiveInput> = {
   dedupKeyFor: input => `${PUBLISH_LIVE_ACTION_ID}:${[...new Set(input.pageRecordIds)].sort((a, b) => a - b).join(',')}`,
   ownsDedupKey: true,
   async precheck(ctx, input) {
-    const { posts, problems } = await draftedPosts(ctx.orgId, input.pageRecordIds);
+    const { posts, webflow, problems } = await draftedPosts(ctx.orgId, input.pageRecordIds);
     if (problems.length > 0) {
       return `Not all of these can go live: ${problems.join('; ')}.`;
     }
-    return posts.length === 0 ? 'None of these pages has a Squarespace draft to publish.' : undefined;
+    return posts.length + webflow.length === 0 ? 'None of these pages has a draft to publish.' : undefined;
   },
   async reviewCard(ctx, raw): Promise<ReviewCard> {
     const input = raw as LiveInput;
-    const { posts, problems } = await draftedPosts(ctx.orgId, input.pageRecordIds);
+    const drafted = await draftedPosts(ctx.orgId, input.pageRecordIds);
+    const { posts, webflow, problems } = drafted;
     const { postUrlOf } = await import('@/services/publish/squarespaceTask');
+    const n = posts.length + webflow.length;
+    const system = systemOf(drafted);
+    const how = [
+      posts.length > 0 ? 'On Squarespace each draft goes live in turn: one browser run per post presses Publish on that post and nothing else, then reads it back from the site.' : null,
+      webflow.length > 0 ? 'On Webflow each draft item is published on its own; the rest of the site is not published with it.' : null,
+    ].filter(Boolean).join(' ');
     return {
-      title: `Publish ${posts.length} drafted post${posts.length === 1 ? '' : 's'} on Squarespace`,
-      system: 'Squarespace',
-      headline: `Each draft goes live in turn: one browser run per post presses Publish on that post and nothing else, then reads it back from the site.${problems.length > 0 ? ` Not included: ${problems.join('; ')}.` : ''}`,
-      badges: [{ label: 'Squarespace' }, { label: 'Goes live', tone: 'warn' }],
-      fields: posts.map(p => ({ label: p.title, value: postUrlOf(p), href: postUrlOf(p) })),
-      nextAction: 'Approving starts the runs in your browser, one after another.',
+      title: `Publish ${n} drafted post${n === 1 ? '' : 's'} on ${system}`,
+      system,
+      headline: `${how}${problems.length > 0 ? ` Not included: ${problems.join('; ')}.` : ''}`,
+      badges: [...(posts.length > 0 ? [{ label: 'Squarespace' }] : []), ...(webflow.length > 0 ? [{ label: 'Webflow' }] : []), { label: 'Goes live', tone: 'warn' }],
+      fields: [
+        ...posts.map(p => ({ label: p.title, value: postUrlOf(p), href: postUrlOf(p) })),
+        ...webflow.map(p => ({ label: p.title, value: p.postUrl ?? `/${p.slug} in Webflow`, ...(p.postUrl ? { href: p.postUrl } : {}) })),
+      ],
+      nextAction: posts.length > 0 ? 'Approving starts the runs in your browser, one after another, and publishes the Webflow items now.' : 'Approving publishes them now.',
       verbs: { approve: 'Publish them', reject: 'Not yet' },
     };
   },
   async execute(ctx, input) {
-    const { posts, problems } = await draftedPosts(ctx.orgId, input.pageRecordIds);
-    if (posts.length === 0) {
-      throw new Error(problems.length > 0 ? problems.join('; ') : 'None of these pages has a Squarespace draft to publish.');
+    const { posts, webflow, problems } = await draftedPosts(ctx.orgId, input.pageRecordIds);
+    if (posts.length + webflow.length === 0) {
+      throw new Error(problems.length > 0 ? problems.join('; ') : 'None of these pages has a draft to publish.');
     }
-    const { startSquarespaceLive } = await import('@/services/publish/sitePublish');
-    const started = await startSquarespaceLive(ctx.orgId, posts, ownerOf(ctx));
-    return { started, line: `${started.length} post${started.length === 1 ? '' : 's'} going live, one at a time: ${started.map(s => `Browser run ${s.browserRunId}`).join(', ')}.${problems.length > 0 ? ` Not included: ${problems.join('; ')}.` : ''}` };
+    const lines: string[] = [];
+    let started: Awaited<ReturnType<typeof import('@/services/publish/sitePublish').startSquarespaceLive>> = [];
+    if (posts.length > 0) {
+      const { startSquarespaceLive } = await import('@/services/publish/sitePublish');
+      started = await startSquarespaceLive(ctx.orgId, posts, ownerOf(ctx));
+      lines.push(`${started.length} post${started.length === 1 ? '' : 's'} going live, one at a time: ${started.map(s => `Browser run ${s.browserRunId}`).join(', ')}.`);
+    }
+    let published: import('@/services/publish/webflowPublish').WebflowLiveOutcome[] = [];
+    if (webflow.length > 0) {
+      const { publishWebflowLive } = await import('@/services/publish/webflowPublish');
+      published = await publishWebflowLive(ctx.orgId, webflow);
+      lines.push(...published.map(p => p.line));
+      if (published.every(p => !p.live) && posts.length === 0) {
+        throw new Error(lines.join(' '));
+      }
+    }
+    return { started, published, line: `${lines.join(' ')}${problems.length > 0 ? ` Not included: ${problems.join('; ')}.` : ''}` };
   },
 };

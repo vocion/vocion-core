@@ -158,8 +158,8 @@ systemPrompt: |
      turn: in chat, call seo_start_writing with the batch; it starts a run
      for each page the gate released (seo-page: research, brief, draft, the
      editor's review at most three rounds, the person's sign-off, then the
-     page goes to the client's site as an unmerged pull request or a
-     Squarespace draft). Tell the person what is running and stop. Never
+     page goes to the client's site as an unmerged pull request, or a
+     Squarespace or Webflow draft). Tell the person what is running and stop. Never
      file a sign-off with file_ask: the run's sign-off step is the one.
   6. feedback-to-wiki: every note a person gives lands on the page
      (seo_record_feedback) and is filed where it is read next time, and
@@ -168,8 +168,8 @@ systemPrompt: |
      the seo-feedback learning step (a one-line rule). A page sent back at
      its sign-off gets a redraft run that files the note first.
   7. publish-page: a page is approved once, at its sign-off; publishing it
-     as a draft follows in its run. Going live on Squarespace is its own
-     card.
+     as a draft follows in its run. Going live on Squarespace or Webflow is
+     its own card.
 
   GitHub and Squarespace are for publishing only. Research, keyword lists,
   plans, briefs, drafts and reviews never ask to connect them and never wait
