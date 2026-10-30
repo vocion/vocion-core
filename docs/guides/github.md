@@ -219,8 +219,66 @@ whose credential is a different installation is skipped, and a
 pasted-token source listing the same repository still receives it.
 
 Installing on an organization you do not own files a **request** to its
-owners; the callback says so and stores nothing until an owner approves and
-GitHub sends them to the Setup URL.
+owners (GitHub's `setup_action=request`). Nothing is stored, and the request
+is never shown as connected: the card in chat and the connector's last
+attempt say *Install requested: waiting for an owner of `<org>` to approve
+it*, naming the organization when a Project's publish target says which one.
+Agents read the same state and do not ask again while it waits. Once an owner
+approves, the person presses **Connect** again; GitHub shows the existing
+installation and sends them back with its id.
+
+### What the callback finishes
+
+A successful install is finished in the callback, not left for a later pick:
+the installation's repositories become the workspace's GitHub source (added
+to the one that exists), which is what agents and publishing read. Each
+Project whose GitHub publish target names a repository the install does not
+cover gets one card in the conversation the install came from: *`<repo>` is
+in `<org>`, which this install doesn't cover*, with **Install on `<org>`**
+(needs an owner of `<org>`) and **Ask an owner of `<org>`** (GitHub's request
+flow). This is the usual agency case: the app installed on the agency's own
+organization while the client's site lives in the client's.
+
+### Which permissions each app needs
+
+Vocion cannot change the app's permissions; a person who administers the app
+does, under the app's settings on GitHub (**Permissions & events**), and every
+installation then asks its owner to accept the change.
+
+| Permission | SEO (publishing pages) | Software factory |
+|---|---|---|
+| Contents | Read and write | Read and write |
+| Pull requests | Read and write | Read and write |
+| Metadata | Read | Read |
+| Checks | Read | Read |
+| Commit statuses | Read | Read |
+| Actions | — | Read and write |
+| Workflows | — | Read and write |
+
+SEO opens one branch and one pull request per page and reads the checks and
+the preview deployment on it; it never starts a workflow or edits one.
+**Actions** and **Workflows** write are only for the software factory, which
+starts and reruns workflows and may change workflow files. A deployment that
+runs SEO alone should use an app without them, so the install screen asks the
+client's owner for no more than publishing needs.
+
+### When GitHub is asked for
+
+The SEO plugin names GitHub and Squarespace `publishOnly`
+(`recommend.publishOnly` in `plugin.yaml`). Its agents never ask to connect
+them while researching, planning, briefing, drafting or reviewing: a connect
+card goes up only when `site.publish_page` (an action that `connects` them)
+could not run for want of the connection, and only for the system the
+Project's target is on. A connect ask a person skipped or declined is not
+asked again in that conversation or for that Project, and a skip at the
+publish step holds that Project's next publish step, for seven days
+(`services/connect/connectAskGate.ts`). An install started for a Project
+("Connect for this project") becomes that Project's connection, and coverage
+and the repo picker read only the connections that Project's work may use:
+the workspace's and its own. With GitHub connected
+and no publish target yet, `seo_learn_frontmatter` asks *Which repo is
+`<client>`'s site?* with the connection's repositories as options; the target
+it learns waits under Publishing for a person to apply.
 
 ### Switching to a different GitHub App
 

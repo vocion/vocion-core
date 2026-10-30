@@ -515,9 +515,19 @@ async function githubPreflightInScope(orgId: string, plan: PublishPlan): Promise
   const repo = plan.target.config.repo;
   let base = plan.target.config.baseBranch ?? '';
   let exists: boolean | null = null;
+  // THE PUBLISH STEP SAYS WHAT IT NEEDS: no GitHub connection reaching the
+  // repository is the one reason here to ask for GitHub (`connectAskGate.ts`).
+  let gh: Awaited<ReturnType<typeof ghFor>>;
+  try {
+    gh = await ghFor(orgId, repo);
+  } catch (error) {
+    if (/no GitHub connection/i.test((error as Error).message)) {
+      return { file, branch, base: base || 'the default branch', exists, why: `GitHub is not connected for ${repo}, so this page cannot be published yet: the workspace's GitHub connection does not reach ${repo}.` };
+    }
+    return { file, branch, base: base || 'the default branch', exists };
+  }
   try {
     base ||= await defaultBranch(orgId, repo);
-    const gh = await ghFor(orgId, repo);
     const res = await call<unknown>(gh, `/contents/${file.path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(base)}`);
     exists = res.ok ? true : res.status === 404 ? false : null;
   } catch {

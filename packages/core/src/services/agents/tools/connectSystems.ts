@@ -44,10 +44,11 @@ type Input = z.infer<typeof InputSchema>;
 /**
  * Build the plan and put its card in the conversation.
  * @param ctx - The turn.
- * @param input - What the person named, or the app the plan is for.
+ * @param given - What the person named, or the app the plan is for.
  * @returns What the model reads.
  */
-export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<string> {
+export async function connectSystem(ctx: RuntimeContext, given: Input): Promise<string> {
+  let input = given;
   // Team connectors are connected here; a request for the other kind, or any
   // request in a Personal workspace, gets one line pointing to the right page.
   if (ctx.workspaceKind === 'personal' || input.kind === 'personal') {
@@ -58,9 +59,22 @@ export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<
     }
   }
   const { recommendConnections } = await import('@/services/connect/recommendations');
-  const plan = await recommendConnections({ orgId: ctx.orgId, userId: ctx.userId }, input);
+  let plan = await recommendConnections({ orgId: ctx.orgId, userId: ctx.userId }, input);
   if (plan.refused) {
     return `${plan.refused}. Say so in one line and point them to a workspace admin.`;
+  }
+  // ONE ASK PER SYSTEM, AT THE STEP THAT NEEDS IT (`connectAskGate.ts`): a
+  // system skipped here, or asked for only at publishing, leaves the walk.
+  const { connectAskGate } = await (await import('@/libs/connectAskBridge')).connectAsk();
+  const verdicts = await Promise.all(plan.candidates.map(async c => ({ c, verdict: await connectAskGate(ctx, c.connector, c.name) })));
+  const held = verdicts.filter(v => !v.verdict.ok).map(v => (v.verdict.ok ? '' : v.verdict.reply));
+  if (held.length > 0) {
+    const allowed = verdicts.filter(v => v.verdict.ok).map(v => v.c.connector);
+    if (allowed.length === 0) {
+      return held.join(' ');
+    }
+    input = { ...input, app: undefined, named: allowed };
+    plan = await recommendConnections({ orgId: ctx.orgId, userId: ctx.userId }, input);
   }
   const unknown = (input.named ?? []).filter(slug => !plan.candidates.some(c => c.connector === slug) && !plan.connected.some(c => c.connector === slug));
   if (plan.candidates.length === 0) {
@@ -108,6 +122,9 @@ export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<
   }
   if (unknown.length > 0) {
     lines.push(`Not a system this workspace can connect: ${unknown.join(', ')}. Say so in one line; do not invent a way.`);
+  }
+  if (held.length > 0) {
+    lines.push(`Left out of the walk: ${held.join(' ')}`);
   }
   lines.push('Write one short line before the card at most. Never claim anything is connected on their word: only list_capabilities, read after they say so, shows it.');
   return lines.join(' ');

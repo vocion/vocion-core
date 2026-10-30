@@ -1,6 +1,6 @@
 import type { DecisionView } from '@/libs/decisions/decision';
 import { describe, expect, it } from 'vitest';
-import { openConnectSteps, stepForConnector, withoutConnectParams } from './useAnswerOnConnectReturn';
+import { connectReturnLine, openConnectSteps, stepForConnector, withoutConnectParams } from './useAnswerOnConnectReturn';
 
 const setup = (id: number, optionIds: string[]): DecisionView => ({ id, kind: 'setup', question: 'Connect', options: optionIds.map(o => ({ id: o, label: o })), allowOther: true, multiple: false, state: 'open', agentSlug: null, ownerUserId: null, conversationId: 7 });
 
@@ -11,6 +11,18 @@ describe('a connect coming back', () => {
     expect(stepForConnector(decisions, 'github')).toEqual({ view: decisions[1], optionId: 'connect:github' });
     expect(stepForConnector([setup(3, ['paste:notion'])], 'notion')).toEqual({ view: expect.objectContaining({ id: 3 }), optionId: 'paste:notion' });
     expect(stepForConnector(decisions, 'slack')).toBeNull();
+  });
+
+  it('the coverage card\'s Install and Request options are answered by the install coming back, and never by GitHub being connected elsewhere', () => {
+    const coverage = setup(4, ['install:github', 'request:github']);
+
+    expect(stepForConnector([coverage], 'github')).toEqual({ view: coverage, optionId: 'install:github' });
+    expect(openConnectSteps([coverage])).toEqual([]);
+  });
+
+  it('a request sent to an owner reads as waiting, not as failed', () => {
+    expect(connectReturnLine({ ok: false, connector: 'github', reason: 'installation_requested' })).toMatch(/^Install requested: waiting for an owner/);
+    expect(connectReturnLine({ ok: false, connector: 'github', reason: 'access_denied' })).toMatch(/didn't work \(access_denied\)/);
   });
 
   it('keeps everything in the URL but the connect outcome', () => {

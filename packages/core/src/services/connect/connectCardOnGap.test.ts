@@ -108,3 +108,33 @@ describe('the result stays what its caller reads', () => {
     expect(String(out)).toBe('No GitHub source is connected in this workspace, so there is nothing to read.');
   });
 });
+
+describe('GitHub only at publish (2026-10-29, the SEO strategist asked four times)', () => {
+  /** The publish proposal, refused by its precheck the way `githubPreflight` words it. */
+  function publishTool() {
+    return tool(async () => 'Not proposed: GitHub is not connected for northwind-co/website, so this page cannot be published yet.', {
+      name: 'propose_action',
+      description: 'Propose an action.',
+      schema: z.object({ action_id: z.string(), action_input: z.record(z.string(), z.unknown()) }),
+    });
+  }
+
+  it('a research tool that finds GitHub missing shows the SEO strategist no card, and says why', async () => {
+    const emit = vi.fn();
+    const out = await withConnectCardOnGap(githubReadTool(), turn(emit, { agentSlug: 'seo-strategist', conversationId: 21 })).invoke({ repo: 'northwind-co/website' });
+
+    expect(emit.mock.calls.filter(c => c[0].type === 'card')).toHaveLength(0);
+    expect(String(out)).toContain('Not asked: GitHub is only needed to publish');
+  });
+
+  it('the publish step that could not run for want of GitHub shows the card, about its project', async () => {
+    const emit = vi.fn();
+    const out = await withConnectCardOnGap(publishTool(), turn(emit, { agentSlug: 'seo-strategist', conversationId: 22 })).invoke({ action_id: 'site.publish_page', action_input: { projectId: 12, artifactId: 3 } });
+
+    const cards = emit.mock.calls.map(c => c[0]).filter(e => e.type === 'card');
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].card).toMatchObject({ title: 'Connect GitHub', about: [{ type: 'data_room', id: '12' }, { type: 'connect_step', id: 'publish' }] });
+    expect(String(out)).toContain('THE CARD IS UP');
+  });
+});

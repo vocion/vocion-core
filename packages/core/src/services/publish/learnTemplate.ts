@@ -60,7 +60,7 @@ async function connectedReader(orgId: string, repo: string): Promise<RepoReader>
  */
 export async function suggestPublishTarget(orgId: string, projectId: number, req: LearnRequest, reader?: RepoReader): Promise<LearnOutcome> {
   const { getDataRoom, updateDataRoom } = await import('@/services/DataRoomService');
-  const { folderOf, samplePaths, templateFrom } = await import('@/libs/publish/learnTemplate');
+  const { folderOf, postsFolderOf, samplePaths, templateFrom } = await import('@/libs/publish/learnTemplate');
   const { publishTargetSchema } = await import('@/libs/publish/targets');
   const project = await getDataRoom(orgId, projectId);
   if (!project) {
@@ -80,7 +80,7 @@ export async function suggestPublishTarget(orgId: string, projectId: number, req
   if (!repo) {
     return { ok: false, why: 'Name the repository (owner/name) the site is built from, or a GitHub target of the project.' };
   }
-  const folder = (req.folder?.trim() ?? (config.path ? folderOf(config.path) : '')).replace(/^\/+|\/+$/g, '');
+  let folder = (req.folder?.trim() ?? (config.path ? folderOf(config.path) : '')).replace(/^\/+|\/+$/g, '');
   const read = reader ?? await connectedReader(orgId, repo).catch((error: Error) => error);
   if (read instanceof Error) {
     return { ok: false, why: read.message };
@@ -91,7 +91,12 @@ export async function suggestPublishTarget(orgId: string, projectId: number, req
   } catch (error) {
     return { ok: false, why: `${repo} could not be listed: ${(error as Error).message}` };
   }
-  const paths = samplePaths(tree.entries.filter(e => e.type === 'blob').map(e => e.path), folder);
+  const blobs = tree.entries.filter(e => e.type === 'blob').map(e => e.path);
+  // No folder named (a repo just picked): the folder holding the site's posts.
+  if (!folder && samplePaths(blobs, '').length === 0) {
+    folder = postsFolderOf(blobs) ?? '';
+  }
+  const paths = samplePaths(blobs, folder);
   if (paths.length === 0) {
     return { ok: false, why: `No markdown posts in ${repo}/${folder || '(the root)'} at ${tree.ref} to learn the frontmatter from. Name the folder the site's posts are in.` };
   }

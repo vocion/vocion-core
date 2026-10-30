@@ -295,6 +295,7 @@ async function fromCard(card: Card, deps: EscalationDeps): Promise<AgentEvent[]>
       body: card.lastAttempt ? `Last try: ${card.lastAttempt.summary}.` : card.body ?? null,
       options,
       allowOther: true,
+      ...(card.about?.length ? { objectRefs: card.about } : {}),
     });
   }
   return [];
