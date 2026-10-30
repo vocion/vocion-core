@@ -5,7 +5,7 @@ description: >-
   and its project are the key (`services/seo/keywords.ts`), so researching it
   again refreshes the row rather than adding one. Code writes it from what
   the research tools read (serp_search, keyword_cluster, keyword_metrics,
-  serp_compare): its volume and competition, its cluster, the top results
+  serp_compare): its volume, difficulty and Google Ads competition, its cluster, the top results
   with the date they were read, and where the client's own site ranks. It
   follows its page once it is planned: in a batch, published, ranking. Every
   fact that can go stale carries the date it was read, and the note on why
@@ -27,13 +27,44 @@ schema:
     intent:
       type: string
       description: What the searcher wants — informational, commercial, transactional or navigational.
+    intentFrom:
+      type: string
+      enum: [dataforseo, ahrefs]
+      description: The keyword data vendor that set the intent; empty when a person or a page did.
     volume:
       type: integer
-      description: Average monthly searches, from Google Ads data. Empty when the provider could not establish it.
+      description: Average monthly searches. Empty when no keyword data source could establish it.
+    volumeTrend:
+      type: array
+      description: The last months' searches, newest first (up to 12), from the same read as the volume.
+      items:
+        type: object
+        properties:
+          year: {type: integer}
+          month: {type: integer}
+          volume: {type: integer}
+    kd:
+      type: integer
+      description: Keyword difficulty, 0 to 100 — how hard it is to rank in Google's top 10 — on the vendor's own scale.
+    aiOverview:
+      type: object
+      description: Whether Google shows an AI Overview for it, and the domains it cites when the page was read.
+      properties:
+        present: {type: boolean}
+        citedDomains: {type: array, items: {type: string}}
+    serpFeatures:
+      type: array
+      description: The SERP features Google shows for it (ai_overview, local_pack, people_also_ask…), from the vendor's last look.
+      items: {type: string}
+    metricsSource:
+      type: string
+      enum: [dataforseo, ahrefs]
+      x-labels: {dataforseo: DataForSEO, ahrefs: Ahrefs}
+      description: Who measured the volume, difficulty and the rest; metricsCheckedAt says when.
     competition:
       type: string
       enum: [low, medium, high]
-      description: Google Ads competition for the keyword, when the provider gives it.
+      description: Google Ads competition for the keyword (how many advertisers bid), only when Google Ads data is the source. Not SEO difficulty; see kd.
     competitionIndex:
       type: integer
       description: Google Ads competition index, 0 to 100, when the provider gives it.
@@ -43,7 +74,7 @@ schema:
     metricsCheckedAt:
       type: string
       format: date-time
-      description: When the volume and competition were read.
+      description: When the vendor measured the volume, difficulty and the rest.
     location:
       type: string
       description: Where the search was read from, as Google names places.

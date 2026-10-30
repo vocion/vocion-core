@@ -76,7 +76,7 @@ describe('the SERP tools', () => {
     expect(serpTools(ctx([])).map(t => t.name)).toEqual([]);
     expect(serpTools(ctx(['serp'])).map(t => t.name)).toEqual(['serp_search', 'serp_compare', 'keyword_cluster', 'keyword_metrics']);
     expect(serpTools(ctx(['keyword_metrics'])).map(t => t.name)).toEqual(['keyword_metrics']);
-    expect(expandGrants(['serp'])).toEqual(['serp', 'serp_search', 'serp_compare', 'keyword_cluster', 'keyword_metrics']);
+    expect(expandGrants(['serp'])).toEqual(['serp', 'serp_search', 'serp_compare', 'keyword_cluster', 'keyword_metrics', 'search_console_queries', 'search_console_pages', 'ahrefs_organic_keywords', 'ahrefs_brand_radar']);
   });
 });
 
@@ -252,11 +252,11 @@ describe('keyword_cluster', () => {
 
 describe('keyword_metrics', () => {
   it('says it could not establish volume rather than estimating', async () => {
-    keywordMetrics.mockResolvedValue({ ok: false, reason: 'Could not establish volume: Serper gives no search volume.' });
+    keywordMetrics.mockResolvedValue({ ok: false, missing: ['search volume', 'keyword difficulty'], reason: 'Could not establish search volume or keyword difficulty: no keyword data source is connected.' });
     const [metrics] = serpTools(ctx(['keyword_metrics']));
     const out = JSON.parse(await metrics!.invoke({ keywords: ['wide hiking boots', 'wide hiking boots '] }) as string);
 
-    expect(out).toEqual({ ok: false, keywords: ['wide hiking boots'], reason: 'Could not establish volume: Serper gives no search volume.', ideas: null, ideasUnavailable: 'No keyword ideas: keyword ideas are not available on Serper, which has no keyword data.' });
+    expect(out).toEqual({ ok: false, keywords: ['wide hiking boots'], missing: ['search volume', 'keyword difficulty'], reason: 'Could not establish search volume or keyword difficulty: no keyword data source is connected.', ideas: null, ideasUnavailable: 'No keyword ideas: keyword ideas are not available on Serper, which has no keyword data.' });
     expect(chargeUsage).not.toHaveBeenCalled();
   });
 
@@ -270,6 +270,23 @@ describe('keyword_metrics', () => {
     expect(out.ideas[0]).toMatchObject({ keyword: 'wide hiking boots women', searchVolume: 2900 });
     expect(chargeUsage).toHaveBeenCalledWith(expect.objectContaining({ model: 'serp/dataforseo-search-volume', usage: { inputTokens: 1 } }));
     expect(chargeUsage).toHaveBeenCalledWith(expect.objectContaining({ model: 'serp/dataforseo-keyword-ideas', usage: { inputTokens: 1 } }));
+  });
+
+  it('charges what DataForSEO reported, labels the source, and charges nothing for Ahrefs', async () => {
+    keywordMetrics.mockResolvedValueOnce({ ok: true, result: { provider: 'dataforseo', location: 'United States', language: 'en', metrics: [{ keyword: 'wide hiking boots', searchVolume: 9900, kd: 38, source: 'dataforseo', checkedAt: '2026-10-20T06:12:44.000Z' }], retrievedAt: '2026-10-27T14:05:12.000Z', billedUnits: 2, costUsd: 0.0102 } });
+    const [metrics] = serpTools(ctx(['keyword_metrics']));
+    const out = JSON.parse(await metrics!.invoke({ keywords: ['wide hiking boots'], ideas: false }) as string);
+
+    expect(out.source).toBe('DataForSEO (Google Ads and DataForSEO Labs data)');
+    expect(out.metrics[0]).toMatchObject({ kd: 38, checkedAt: '2026-10-20T06:12:44.000Z' });
+    expect(chargeUsage).toHaveBeenCalledWith(expect.objectContaining({ model: 'serp/dataforseo-usd', usage: { inputTokens: 10_200 } }));
+
+    chargeUsage.mockReset();
+    keywordMetrics.mockResolvedValueOnce({ ok: true, note: 'Ahrefs gives country numbers.', result: { provider: 'ahrefs', location: 'US', language: 'en', metrics: [{ keyword: 'wide hiking boots', searchVolume: 8700, source: 'ahrefs' }], retrievedAt: '2026-10-27T14:05:12.000Z', billedUnits: 1 } });
+    const ahrefs = JSON.parse(await metrics!.invoke({ keywords: ['wide hiking boots'], ideas: false }) as string);
+
+    expect(ahrefs).toMatchObject({ source: 'Ahrefs (the workspace\'s own plan)', note: 'Ahrefs gives country numbers.' });
+    expect(chargeUsage).not.toHaveBeenCalled();
   });
 
   it('skips the ideas call when asked to', async () => {

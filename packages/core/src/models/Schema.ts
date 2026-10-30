@@ -6109,6 +6109,31 @@ export const recordDuplicateCheckSchema = pgTable(
   ],
 );
 
+/**
+ * Keyword numbers bought from a keyword data vendor, kept 7 days per keyword,
+ * location and language (`libs/tools/serp/keywordCache.ts`). `scope` is ''
+ * for market data anyone may reuse (DataForSEO) and the org id for numbers
+ * bought on a workspace's own licence (Ahrefs). `data` carries the source and
+ * the date the vendor measured them; `checkedAt` is when Vocion read them.
+ */
+export const keywordMetricCacheSchema = pgTable(
+  'keyword_metric_cache',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    source: text('source').notNull(),
+    scope: text('scope').default('').notNull(),
+    location: text('location').notNull(),
+    language: text('language').notNull(),
+    /** Lower case, spaces collapsed. */
+    keyword: text('keyword').notNull(),
+    data: jsonb('data').notNull(),
+    checkedAt: timestamp('checked_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('keyword_metric_cache_key_idx').on(table.source, table.scope, table.location, table.language, table.keyword),
+  ],
+);
+
 // Business work identity is independent of attempts, delegates and approvals.
 export const workforceItemSchema = pgTable('workforce_item', {
   id: text('id').primaryKey(),

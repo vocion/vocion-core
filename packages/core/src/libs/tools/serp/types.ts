@@ -95,10 +95,34 @@ export type SerpResult = {
   localPack?: SerpLocalResult[];
   /** Paid results on the page; null when the provider does not report ads. */
   adsCount: number | null;
+  /**
+   * Google's AI Overview on this page, with the domains it cites. Absent when
+   * the provider cannot see it (Serper, SerpApi): unknown, never "none".
+   */
+  aiOverview?: AiOverview;
+  /** The other SERP features on the page (`featured_snippet`, `local_pack`, `video`…), when the provider lists them. */
+  serpFeatures?: string[];
   /** ISO time the page was read. */
   retrievedAt: string;
   /** Vendor billing units this read spent (Serper credits, DataForSEO pages, SerpApi searches). */
   billedUnits: number;
+};
+
+/** Who measured a keyword: a keyword data vendor. */
+export type KeywordDataSource = 'dataforseo' | 'ahrefs';
+
+/**
+ * Whether Google shows an AI Overview for a search, and which domains it
+ * cites. `citedDomains` is null when the overview's sources were not read
+ * (only the presence came back, from a keyword database's own snapshot of
+ * the page); an empty list means it was read and cites none.
+ */
+export type AiOverview = {
+  present: boolean;
+  citedDomains: string[] | null;
+  /** Who saw it and when: a SERP read can be newer than the keyword's numbers. */
+  source: KeywordDataSource;
+  checkedAt: string;
 };
 
 export type KeywordMetric = {
@@ -111,28 +135,65 @@ export type KeywordMetric = {
   competition: string | null;
   /** Google Ads competition index, 0–100. */
   competitionIndex: number | null;
-  /** The last months, newest first, when the vendor gives them. */
+  /** The last months, newest first, when the vendor gives them (up to 12). */
   monthly?: Array<{ year: number; month: number; searchVolume: number | null }>;
+  /** Keyword difficulty, 0–100 (the vendor's own scale), or null when it had none. */
+  kd?: number | null;
+  /** The main search intent: informational | navigational | commercial | transactional. */
+  intent?: string | null;
+  /** SERP features Google shows for it (`ai_overview`, `featured_snippet`, `local_pack`…), from the vendor's last look. */
+  serpFeatures?: string[] | null;
+  /** Whether an AI Overview shows, and what it cites; null when the vendor did not look. */
+  aiOverview?: AiOverview | null;
+  /** Ahrefs only: the organic traffic the #1 page for it gets. */
+  trafficPotential?: number | null;
+  /** Who measured it. */
+  source?: KeywordDataSource;
+  /** When it was measured (ISO). A cached row keeps the date it was first read. */
+  checkedAt?: string;
 };
 
 export type KeywordMetricsResult = {
-  provider: SerpProviderName;
+  provider: KeywordDataSource;
   location: string;
   language: string;
   metrics: KeywordMetric[];
   retrievedAt: string;
   billedUnits: number;
+  /** What the vendor reported this call cost, in USD, when it reports it (DataForSEO does). */
+  costUsd?: number;
+  /** Keywords answered from the 7-day cache rather than bought again. */
+  cachedKeywords?: number;
+};
+
+/**
+ * A keyword row in the shape the Keywords register's upsert takes
+ * (`services/seo/keywords.ts`, `seo_keyword`): every number with its source
+ * and the date it was read.
+ */
+export type KeywordRecordShape = {
+  keyword: string;
+  volume: number | null;
+  kd: number | null;
+  intent: string | null;
+  cpc: number | null;
+  serp_features: string[] | null;
+  ai_overview: { present: boolean; cited_domains: string[] | null } | null;
+  source: KeywordDataSource;
+  checked_at: string;
 };
 
 /** Keyword ideas: related searches Google Ads suggests for seed keywords, with their numbers. */
 export type KeywordIdeasResult = {
-  provider: SerpProviderName;
+  provider: KeywordDataSource;
   location: string;
   language: string;
   seeds: string[];
   ideas: KeywordMetric[];
   retrievedAt: string;
   billedUnits: number;
+  /** What the vendor reported this call cost, in USD. */
+  costUsd?: number;
 };
 
 export type SerpCallOptions = {
@@ -147,11 +208,31 @@ export type SerpProvider = {
   /** True when the server's own key is set. */
   isReady: () => boolean;
   search: (q: SerpQuery, opts?: SerpCallOptions) => Promise<SerpResult>;
-  /** Search volume, CPC and competition. Absent on a vendor that has none. */
+  /** Search volume, CPC, competition, difficulty and intent. Absent on a vendor that has none. */
   keywordMetrics?: (keywords: string[], where: { location?: string; language?: string }, opts?: SerpCallOptions) => Promise<KeywordMetricsResult>;
   /** Related keywords with their numbers, from seeds. Absent on a vendor that has none. */
   keywordIdeas?: (seeds: string[], where: { location?: string; language?: string }, opts?: SerpCallOptions) => Promise<KeywordIdeasResult>;
 };
+
+/**
+ * A measured keyword in the Keywords register's shape. A keyword with no
+ * source (an old cached row) reads as DataForSEO's, its date the read's.
+ * @param m - The keyword's numbers.
+ * @param readAt - When the call that returned it was made.
+ */
+export function keywordRecordOf(m: KeywordMetric, readAt: string): KeywordRecordShape {
+  return {
+    keyword: m.keyword,
+    volume: m.searchVolume,
+    kd: m.kd ?? null,
+    intent: m.intent ?? null,
+    cpc: m.cpc,
+    serp_features: m.serpFeatures ?? null,
+    ai_overview: m.aiOverview ? { present: m.aiOverview.present, cited_domains: m.aiOverview.citedDomains } : null,
+    source: m.source ?? 'dataforseo',
+    checked_at: m.checkedAt ?? readAt,
+  };
+}
 
 /**
  * Host without `www.`, lower case; '' for something that is not a URL.

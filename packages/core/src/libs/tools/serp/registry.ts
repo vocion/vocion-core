@@ -1,10 +1,14 @@
 import type { CapabilityStatus } from '../types';
+import type { KeywordCacheStore } from './keywordCache';
 import type { KeywordIdeasResult, KeywordMetricsResult, SerpCallOptions, SerpProvider, SerpProviderName, SerpQuery, SerpResult } from './types';
 import process from 'node:process';
+import { resolveToolProviderCredential } from '../orgKey';
 import { statusForProvider } from '../status';
 import { ProviderNotConfiguredError } from '../types';
 import { getWebSearchProvider, resolveWebSearchProviderName } from '../websearch/registry';
-import { dataForSeoProvider } from './dataforseo';
+import { ahrefsConnected, ahrefsCountry, ahrefsKeywordMetrics, AhrefsRefusedError } from './ahrefs';
+import { dataForSeoProvider, dfsLocation } from './dataforseo';
+import { cacheKey, withKeywordCache } from './keywordCache';
 import { serpApiProvider } from './serpapi';
 import { serperProvider } from './serper';
 import { clampNum, domainOf } from './types';
@@ -36,14 +40,18 @@ export function getSerpProvider(name: SerpProviderName): SerpProvider {
 /**
  * The providers to try, in order: the one `VOCION_SERP_PROVIDER` names, alone;
  * else the ones the server holds a key for, then the rest (an org may have
- * stored its own key for any of them), Serper first.
+ * stored its own key for any of them), Serper first — DataForSEO first when
+ * `VOCION_KEYWORD_DATA_PROVIDER=dataforseo`.
  */
 function candidates(): SerpProvider[] {
   const named = configuredSerpProviderName();
   if (named) {
     return [getSerpProvider(named)];
   }
-  const all = NAMES.map(getSerpProvider);
+  // A server buying keyword data from DataForSEO reads the page there too:
+  // it is the one that sees the AI Overview and what it cites.
+  const dfsFirst = (process.env.VOCION_KEYWORD_DATA_PROVIDER ?? '').trim().toLowerCase() === 'dataforseo';
+  const all = (dfsFirst ? ['dataforseo', 'serper', 'serpapi'] as const : NAMES).map(getSerpProvider);
   return [...all.filter(p => p.isReady()), ...all.filter(p => !p.isReady())];
 }
 
@@ -131,36 +139,86 @@ async function webSearchFallback(q: SerpQuery, opts: SerpCallOptions): Promise<S
 
 /** What `keyword_metrics` gets: the numbers, or the plain reason there are none. */
 export type KeywordMetricsOutcome
-  = | { ok: true; result: KeywordMetricsResult }
-    | { ok: false; reason: string };
+  = | { ok: true; result: KeywordMetricsResult; note?: string }
+    | { ok: false; reason: string; missing: string[] };
+
+/** The numbers a keyword data vendor gives and Serper or SerpApi do not. */
+export const KEYWORD_NUMBERS = ['search volume', 'keyword difficulty', 'CPC', 'search intent', 'AI Overview presence'] as const;
 
 /**
- * Search volume, CPC and competition for keywords. Only DataForSEO has them
- * (Google Ads data), so it is asked whenever a DataForSEO login is held —
- * the org's or the server's — whatever provider reads the results page.
- * Without one the answer is the reason, never an estimate.
+ * Which keyword data vendor the server is set to buy from
+ * (`VOCION_KEYWORD_DATA_PROVIDER`): `dataforseo`, or `none` to buy nothing
+ * on the server's account. Unset reads as `dataforseo` whenever its login is
+ * held, so a deployment that already had one keeps its numbers.
+ */
+export function configuredKeywordDataProvider(): 'dataforseo' | 'none' {
+  const raw = (process.env.VOCION_KEYWORD_DATA_PROVIDER ?? '').trim().toLowerCase();
+  return raw === 'none' || raw === 'off' ? 'none' : 'dataforseo';
+}
+
+/**
+ * Keyword numbers — volume and its last twelve months, keyword difficulty,
+ * CPC, intent, SERP features, AI Overview presence — each with its source
+ * and the date it was measured, from the first that can answer:
+ *
+ *   1. the workspace's own Ahrefs, when it connected one (the numbers its
+ *      SEO people already use); a refusal (a plan without API access) is
+ *      said in the result and DataForSEO answers instead;
+ *   2. DataForSEO (Labs, and Google Ads for a city): the workspace's own
+ *      login, else the server's.
+ *
+ * Numbers bought in the last 7 days for the same keyword, location and
+ * language are reused (`keywordCache.ts`), so only new keywords are paid
+ * for. With neither vendor the answer names the numbers that are missing
+ * and why — never an estimate.
  * @param keywords - The keywords.
  * @param where - Location and language.
  * @param where.location - A free-text place.
  * @param where.language - ISO 639-1.
  * @param opts - The org the call is for.
+ * @param store - The cache (a test seam).
  */
-export async function keywordMetrics(keywords: string[], where: { location?: string; language?: string }, opts: SerpCallOptions = {}): Promise<KeywordMetricsOutcome> {
+export async function keywordMetrics(keywords: string[], where: { location?: string; language?: string }, opts: SerpCallOptions = {}, store?: KeywordCacheStore): Promise<KeywordMetricsOutcome> {
+  const language = (where.language ?? 'en').toLowerCase();
+  let note: string | undefined;
+  if (await ahrefsConnected(opts.orgId)) {
+    const country = ahrefsCountry(where.location);
+    try {
+      const result = await withKeywordCache(cacheKey('ahrefs', opts.orgId!, country.toUpperCase(), language), keywords, missing => ahrefsKeywordMetrics(missing, where, opts), store);
+      // Ahrefs reads countries: a city's numbers are its country's.
+      const cityNote = where.location?.includes(',') ? `Ahrefs gives country numbers: these are for ${country.toUpperCase()}, not ${where.location}.` : undefined;
+      return { ok: true, result, ...(cityNote ? { note: cityNote } : {}) };
+    } catch (err) {
+      if (!(err instanceof AhrefsRefusedError) && !(err instanceof ProviderNotConfiguredError)) {
+        throw err;
+      }
+      note = `${err.message} These numbers are DataForSEO's instead.`;
+    }
+  }
   const dfs = dataForSeoProvider();
-  try {
-    return { ok: true, result: await dfs.keywordMetrics!(keywords, where, opts) };
-  } catch (err) {
-    if (!(err instanceof ProviderNotConfiguredError)) {
-      throw err;
+  const serverMayBuy = configuredKeywordDataProvider() === 'dataforseo';
+  const orgCred = opts.orgId ? await resolveToolProviderCredential('dataforseo', opts.orgId) : null;
+  if (orgCred || (serverMayBuy && dfs.isReady())) {
+    const location = dfsLocation(where.location);
+    try {
+      const result = await withKeywordCache(cacheKey('dataforseo', '', location, language), keywords, missing => dfs.keywordMetrics!(missing, where, opts), store);
+      return { ok: true, result, ...(note ? { note } : {}) };
+    } catch (err) {
+      if (!(err instanceof ProviderNotConfiguredError)) {
+        throw err;
+      }
     }
   }
   const active = configuredSerpProviderName() ?? candidates()[0]?.name ?? 'serper';
-  const why = active === 'dataforseo'
-    ? 'DataForSEO is the SERP provider but no DataForSEO API login is configured'
-    : `${serpProviderLabel(active)} gives no search volume`;
+  const why = note
+    ? note.replace(/ These numbers are DataForSEO's instead\.$/, ' DataForSEO is not configured either.')
+    : active === 'dataforseo'
+      ? 'DataForSEO reads the results page here but no DataForSEO API login is configured for keyword data'
+      : `no keyword data source is connected, and ${serpProviderLabel(active)} reads Google's results page only`;
   return {
     ok: false,
-    reason: `Could not establish volume: ${why}. DataForSEO has it (Google Ads data); a workspace admin can add a DataForSEO API login under API credentials. Do not estimate volumes.`,
+    missing: [...KEYWORD_NUMBERS],
+    reason: `Could not establish ${KEYWORD_NUMBERS.slice(0, -1).join(', ')} or ${KEYWORD_NUMBERS.at(-1)}: ${why.replace(/\.$/, '')}. Google Search Console (free) shows what the client's site already ranks for, with real clicks and impressions; Ahrefs, or a DataForSEO login under API credentials, gives volume and difficulty. Say these numbers are missing; do not estimate them. The results page, People Also Ask and clustering still work.`,
   };
 }
 

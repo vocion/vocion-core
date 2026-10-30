@@ -8,6 +8,7 @@
  */
 
 import type { SourceConnector } from './types';
+import { ahrefsConnector } from './ahrefs';
 import { amplitudeConnector } from './amplitude';
 import { apolloConnector } from './apollo';
 import { bigqueryConnector } from './bigquery';
@@ -39,6 +40,7 @@ import { redshiftConnector } from './redshift';
 import { restConnector } from './rest';
 import { ripplingConnector } from './rippling';
 import { s3Connector } from './s3';
+import { searchConsoleConnector } from './searchConsole';
 import { sentryConnector } from './sentry';
 import { slackConnector } from './slack';
 import { slateConnector } from './slate';
@@ -114,3 +116,7 @@ registerConnector(metaAdsConnector);
 // A client's Squarespace site: its pages read through the public JSON, and
 // blog posts published as drafts by a browser run (`site.publish_page`).
 registerConnector(squarespaceConnector);
+// SEO data, read live (`docs/guides/seo-data.md`): what a client's site
+// already gets from Google, and a workspace's own Ahrefs.
+registerConnector(searchConsoleConnector);
+registerConnector(ahrefsConnector);
