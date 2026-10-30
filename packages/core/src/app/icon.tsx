@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og';
+import { faviconColor } from '@/libs/branding/favicon';
 import { envLabel } from '@/libs/envLabel';
 
 export const size = { width: 32, height: 32 };
@@ -17,6 +18,7 @@ export const contentType = 'image/png';
  * request App Router icons.
  */
 export default function Icon() {
+  const color = faviconColor();
   const label = envLabel();
   if (label !== null) {
     return new ImageResponse(
@@ -69,8 +71,8 @@ export default function Icon() {
               <stop offset="100%" stopColor="#55F58A" />
             </linearGradient>
           </defs>
-          <path d="M24 22 L74 106 L136 16" stroke="url(#leftRail)" strokeWidth="18" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M56 24 L77 60 L98 30" stroke="url(#rightRail)" strokeWidth="18" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M24 22 L74 106 L136 16" stroke={color ?? 'url(#leftRail)'} strokeWidth="18" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M56 24 L77 60 L98 30" stroke={color ?? 'url(#rightRail)'} strokeWidth="18" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
     ),
