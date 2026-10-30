@@ -11,6 +11,8 @@ import {
   adoptionWorkforceRoute,
   workforceOutcomesRoute,
   workforceOverviewRoute,
+  workforcePortfolioHistoryRoute,
+  workforcePortfolioSaveRoute,
   workforceRecordRoute,
 } from './Analytics';
 import {
@@ -517,6 +519,8 @@ export const router = {
   scorecard: {
     workforce: adoptionWorkforceRoute,
     workforceOverview: workforceOverviewRoute,
+    savePortfolio: workforcePortfolioSaveRoute,
+    portfolioHistory: workforcePortfolioHistoryRoute,
     outcomes: workforceOutcomesRoute,
     recordOutcome: workforceRecordRoute,
     agents: scorecardAgentsRoute,

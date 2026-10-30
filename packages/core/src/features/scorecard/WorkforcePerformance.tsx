@@ -9,6 +9,7 @@ import { workspaceUrl } from '@/libs/links';
 import { client } from '@/libs/Orpc';
 import { useWorkspaceSlug } from '@/libs/workspaceSlug';
 import { operatingPath, operatingPeriod, operatingTotals } from './operatingModel';
+import { TransformationPortfolio } from './TransformationPortfolio';
 import { WorkforceOutcomes } from './WorkforceOutcomes';
 
 type Overview = Awaited<ReturnType<typeof client.scorecard.workforceOverview>>;
@@ -23,7 +24,8 @@ export function WorkforcePerformance() {
   const team = params.get('team');
   const work = params.get('work');
   const workspaceSlug = useWorkspaceSlug();
-  const requestKey = `${workspaceSlug ?? ''}:${days}:${scope ?? ''}`;
+  const [revision, setRevision] = useState(0);
+  const requestKey = `${workspaceSlug ?? ''}:${days}:${scope ?? ''}:${revision}`;
   const [snapshot, setSnapshot] = useState<{ key: string; data: Overview | null; failed: boolean } | null>(null);
   const overview = snapshot?.key === requestKey ? snapshot.data : null;
   const failed = snapshot?.key === requestKey && snapshot.failed;
@@ -123,6 +125,7 @@ export function WorkforcePerformance() {
                             </a>
                           ))}
                         </div>
+                        <TransformationPortfolio key={`${workspaceSlug}:${scope}:${team}`} workspaces={workspaces} selected={selected} activeId={overview.activeId} team={team} days={days} refresh={() => setRevision(r => r + 1)} />
                         <section className="space-y-3" aria-labelledby="operating-priorities">
                           <h3 id="operating-priorities" className="text-lg font-semibold">{t('priorities')}</h3>
                           <p className="text-sm text-muted-foreground">{t('prioritiesNote')}</p>

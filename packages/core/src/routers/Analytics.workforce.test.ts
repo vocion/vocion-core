@@ -11,13 +11,14 @@ vi.mock('@/services/adoption/AdoptionService', () => ({
   getUserRows: vi.fn(),
 }));
 vi.mock('@/services/adoption/WorkforceService', () => ({ getWorkforceInventory: vi.fn() }));
+vi.mock('@/services/workforce/portfolio', () => ({ readWorkforcePortfolio: vi.fn().mockResolvedValue({ complete: true, workflows: [] }), saveWorkforcePortfolio: vi.fn(), readPortfolioHistory: vi.fn() }));
 vi.mock('@/services/workforce/ledger', () => ({ readWorkforceOutcomes: vi.fn() }));
 const { readWorkforceOutcomes } = await import('@/services/workforce/ledger');
 vi.mock('@/services/ProjectService', () => ({ listProjectsForUser: vi.fn() }));
 const { listProjectsForUser } = await import('@/services/ProjectService');
 const { guardAuth } = await import('./AuthGuards');
 const { getWorkforceInventory } = await import('@/services/adoption/WorkforceService');
-const { adoptionWorkforceRoute, workforceOverviewRoute } = await import('./Analytics');
+const { adoptionWorkforceRoute, workforceOverviewRoute, workforcePortfolioHistoryRoute, workforcePortfolioSaveRoute } = await import('./Analytics');
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -76,4 +77,23 @@ describe('workforce overview', () => {
     expect(readWorkforceOutcomes).toHaveBeenCalledExactlyOnceWith('a', expect.any(Date), expect.any(Date), false);
     expect(result.workspaces[0]?.outcomes.items).toEqual([]);
   });
+});
+
+it('denies portfolio mutation and history to members and rejects forged workspace input', async () => {
+  const { saveWorkforcePortfolio, readPortfolioHistory } = await import('@/services/workforce/portfolio');
+  const command = { id: '00000000-0000-4000-8000-000000000001', eventKey: '00000000-0000-4000-8000-000000000002', version: -1, itemIds: [], data: { name: 'Workflow', owner: '', objective: '', baseline: '', successMeasure: '', expectedBenefit: '', teamSlug: null, stage: 'discovery' as const, improvements: [] } };
+  session(false);
+
+  await expect(call(workforcePortfolioSaveRoute, command)).rejects.toMatchObject({ status: 403 });
+  await expect(call(workforcePortfolioHistoryRoute, { id: command.id })).rejects.toMatchObject({ status: 403 });
+  expect(saveWorkforcePortfolio).not.toHaveBeenCalled();
+  expect(readPortfolioHistory).not.toHaveBeenCalled();
+
+  session(true);
+
+  await expect(call(workforcePortfolioSaveRoute, { ...command, orgId: 'foreign' } as typeof command)).rejects.toThrow();
+
+  await call(workforcePortfolioSaveRoute, command);
+
+  expect(saveWorkforcePortfolio).toHaveBeenCalledExactlyOnceWith('session-workspace', 'admin', command);
 });

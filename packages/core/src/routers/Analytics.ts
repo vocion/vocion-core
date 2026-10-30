@@ -13,6 +13,8 @@ import { listProjectsForUser } from '@/services/ProjectService';
 import { workforceCommand, WorkforceError } from '@/services/workforce/contracts';
 import { readWorkforceOutcomes } from '@/services/workforce/ledger';
 import { operatingEvidence } from '@/services/workforce/operating';
+import { readPortfolioHistory, readWorkforcePortfolio, saveWorkforcePortfolio } from '@/services/workforce/portfolio';
+import { portfolioCommand } from '@/services/workforce/portfolioContract';
 import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -101,6 +103,7 @@ export const workforceOverviewRoute = os.input(WorkforceWindow).handler(async ({
       slug: project.slug,
       report: await getWorkforceInventory(project.id, input.days),
       outcomes: operatingEvidence(await readWorkforceOutcomes(project.id, since, until, false)),
+      portfolio: await readWorkforcePortfolio(project.id),
     })));
     workspaces.push(...batch);
   }
@@ -125,4 +128,21 @@ export const workforceRecordRoute = os.input(workforceCommand).handler(async ({ 
     }
     throw error;
   }
+});
+
+export const workforcePortfolioSaveRoute = os.input(portfolioCommand).handler(async ({ input }) => {
+  const { orgId, userId } = await guardAdmin();
+  try {
+    return await saveWorkforcePortfolio(orgId, userId, input);
+  } catch (error) {
+    if (error instanceof WorkforceError) {
+      throw new ORPCError(error.status === 409 ? 'CONFLICT' : error.status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST', { status: error.status, message: error.message });
+    }
+    throw error;
+  }
+});
+
+export const workforcePortfolioHistoryRoute = os.input(z.object({ id: z.string().uuid() }).strict()).handler(async ({ input }) => {
+  const { orgId } = await guardAdmin();
+  return readPortfolioHistory(orgId, input.id);
 });
