@@ -9,9 +9,11 @@ import { outcomeInsights } from '@/services/workforce/insights';
 
 type Report = Awaited<ReturnType<typeof client.scorecard.outcomes>>;
 
-export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; agents: { slug: string; name: string }[] }) {
+export function WorkforceOutcomes({ days, agents, itemId }: { days: 1 | 7 | 30 | 90; agents: { slug: string; name: string }[]; itemId?: string }) {
   const t = useTranslations('WorkforceOutcomes');
-  const [report, setReport] = useState<Report | null>(null);
+  const [rawReport, setReport] = useState<Report | null>(null);
+  const selectedItems = rawReport?.items.filter(item => item.id === itemId) ?? [];
+  const report = rawReport && itemId ? { ...rawReport, items: selectedItems, learning: null, learningRecommendations: [], summary: { ...rawReport.summary, items: selectedItems.length, accepted: selectedItems.filter(i => !i.evidenceChanged && ['accepted', 'corrected'].includes(i.status)).length, blocked: selectedItems.filter(i => i.status === 'blocked').length } } : rawReport;
   const [test, setTest] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -43,7 +45,7 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold">{t('title')}</h2>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" disabled={busy} checked={test} onChange={e => setTest(e.target.checked)} />
+          <input type="checkbox" disabled={busy || Boolean(itemId)} checked={test} onChange={e => setTest(e.target.checked)} />
           {t('test')}
         </label>
       </div>
@@ -136,7 +138,7 @@ export function WorkforceOutcomes({ days, agents }: { days: 1 | 7 | 30 | 90; age
             </div>
           ))}
           {report.items.map(item => (
-            <details key={item.id} className="rounded-xl border border-border p-4">
+            <details key={item.id} open={itemId === item.id ? true : undefined} className="rounded-xl border border-border p-4">
               <summary className="cursor-pointer">
                 <strong>{item.title}</strong>
                 <span className="ml-3 text-sm text-muted-foreground">

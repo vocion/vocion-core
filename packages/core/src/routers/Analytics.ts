@@ -11,6 +11,8 @@ import {
 import { getWorkforceInventory } from '@/services/adoption/WorkforceService';
 import { listProjectsForUser } from '@/services/ProjectService';
 import { workforceCommand, WorkforceError } from '@/services/workforce/contracts';
+import { readWorkforceOutcomes } from '@/services/workforce/ledger';
+import { operatingEvidence } from '@/services/workforce/operating';
 import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -89,6 +91,8 @@ export const workforceOverviewRoute = os.input(WorkforceWindow).handler(async ({
   const { accountId, userId, orgId } = await guardAdmin();
   const projects = (await listProjectsForUser(userId)).filter(p => p.accountId === accountId && !p.archived);
   const workspaces = [];
+  const until = new Date();
+  const since = new Date(until.getTime() - input.days * 86_400_000);
   // Bound database concurrency even for accounts with many workspaces.
   for (let offset = 0; offset < projects.length; offset += 4) {
     const batch = await Promise.all(projects.slice(offset, offset + 4).map(async project => ({
@@ -96,6 +100,7 @@ export const workforceOverviewRoute = os.input(WorkforceWindow).handler(async ({
       name: project.name,
       slug: project.slug,
       report: await getWorkforceInventory(project.id, input.days),
+      outcomes: operatingEvidence(await readWorkforceOutcomes(project.id, since, until, false)),
     })));
     workspaces.push(...batch);
   }
