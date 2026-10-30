@@ -7,7 +7,6 @@ import type { AskRecord, AskThread as SheetThread } from '@/services/inbox/askEv
 import type { RelatedItem } from '@/services/inbox/relatedItems';
 import type { InboxKind } from '@/services/InboxService';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, CornerUpLeft, ExternalLink, RotateCcw, X } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -19,6 +18,7 @@ import { RelatedItems } from '@/features/review/RelatedItems';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { decisionLegend, planDecision } from '@/features/review/reviewSheetModel';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
+import { useRouter } from '@/libs/I18nNavigation';
 import { kindForAsk } from '@/services/inbox/kinds';
 import { AskArtifact } from './AskArtifact';
 import { consequenceOf, fixedRowsFor, labelFor, OTHER } from './askOptions';

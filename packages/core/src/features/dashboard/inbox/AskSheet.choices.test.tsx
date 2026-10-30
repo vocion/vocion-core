@@ -23,7 +23,7 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/dashboard/inbox/41',
 }));
 vi.mock('@/libs/I18nNavigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: () => {} }),
+  useRouter: () => ({ push: vi.fn(), replace: () => {}, refresh: vi.fn() }),
   usePathname: () => '/dashboard/inbox/41',
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));

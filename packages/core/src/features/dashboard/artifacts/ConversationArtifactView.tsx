@@ -29,7 +29,6 @@ import type { AgentOption, ChatMessageArtifact } from '@/features/dashboard/chat
 import type { ArtifactPayload } from '@/services/agents/types';
 import type { PageContext } from '@/services/chat/pageContext';
 import { useTranslations } from 'next-intl';
-import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useViewportBelow } from '@/components/ui/useMobile';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from '@/features/dashboard/chat/agentSurface';
@@ -51,6 +50,7 @@ import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { StackBack } from '@/features/preview/ArtifactPreview';
 import { PreviewPane } from '@/features/preview/PreviewPane';
 import { closePreview, closePreviewEntry, openPreview, replacePreview, useEscapeToClose, useOpenPreviewRef } from '@/features/preview/previewState';
+import { useRouter } from '@/libs/I18nNavigation';
 import { ArtifactPane } from './ArtifactPane';
 import { artifactReducer, initialArtifactPaneState } from './artifactReducer';
 import { ConversationPageActions } from './ConversationPageActions';
