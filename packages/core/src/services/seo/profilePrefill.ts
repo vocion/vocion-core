@@ -11,6 +11,12 @@ import type { SiteSignals } from './profile';
 import { load } from 'cheerio';
 import { extractPageFacts, jsonLdNodes, typesOf } from '@/libs/tools/serp/pageFacts';
 
+/** Reach, not a place: never read as where a local client serves. */
+const NOT_A_PLACE = /^(?:worldwide|global|international|online|remote|everywhere|north america|europe|emea|apac|latam|us|usa|united states|uk|united kingdom|canada)(?:, (?:global|worldwide))?$/i;
+
+/** The home page's text kept for reading what the business is. */
+const HOME_TEXT_CAP = 8000;
+
 /**
  * A schema.org place as words: a string, or a node's `name`, or an address's
  * locality and region.
@@ -47,9 +53,16 @@ export function homepageSignals(html: string, url: string): SiteSignals {
   const places = new Set<string>();
   for (const node of nodes) {
     for (const p of [...placeWords(node.address), ...placeWords(node.areaServed)]) {
-      places.add(p);
+      // "Worldwide" or a region is reach, not a place a client serves in person.
+      if (!NOT_A_PLACE.test(p)) {
+        places.add(p);
+      }
     }
   }
+  const hasStreetAddress = nodes.some((n) => {
+    const a = n.address as Record<string, unknown> | undefined;
+    return Boolean(a && typeof a === 'object' && typeof a.streetAddress === 'string' && a.streetAddress.trim());
+  });
   const lang = $('html').attr('lang')?.trim() || null;
   return {
     homepage: url,
@@ -58,6 +71,8 @@ export function homepageSignals(html: string, url: string): SiteSignals {
     description: facts.metaDescription,
     schemaTypes: [...new Set([...facts.schemaTypes, ...nodes.flatMap(typesOf)])],
     places: [...places].slice(0, 20),
+    text: facts.text.slice(0, HOME_TEXT_CAP),
+    hasStreetAddress,
   };
 }
 
@@ -81,6 +96,8 @@ export type HomepageSchema = {
   orgDescription: string | null;
   /** The Organization's `name`. */
   orgName: string | null;
+  /** What its `knowsAbout` lists. */
+  knowsAbout: string[];
   /** Profiles its `sameAs` links. */
   sameAs: number;
   telephone: string | null;
@@ -111,5 +128,10 @@ export function homepageSchema(html: string): HomepageSchema {
     const a = n.address as Record<string, unknown> | string | undefined;
     return typeof a === 'string' ? a.trim().length > 0 : Boolean(a && (a.streetAddress || a.addressLocality));
   });
-  return { orgTypes: [...new Set(nodes.flatMap(typesOf))], orgDescription: str('description'), orgName: str('name'), sameAs, telephone: str('telephone'), hasAddress };
+  const knowsAbout = nodes.flatMap((n) => {
+    const k = n.knowsAbout;
+    const list = Array.isArray(k) ? k : k === undefined ? [] : [k];
+    return list.map(v => (typeof v === 'string' ? v : v && typeof v === 'object' && typeof (v as { name?: unknown }).name === 'string' ? (v as { name: string }).name : '')).filter(Boolean);
+  });
+  return { orgTypes: [...new Set(nodes.flatMap(typesOf))], orgDescription: str('description'), orgName: str('name'), knowsAbout: [...new Set(knowsAbout)], sameAs, telephone: str('telephone'), hasAddress };
 }

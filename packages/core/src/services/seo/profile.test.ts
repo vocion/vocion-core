@@ -30,13 +30,101 @@ describe('what the site says about the client', () => {
     expect(inventoryUrls(md)).toEqual(['https://a.example/', 'https://a.example/pricing']);
   });
 
-  it('names the kind of client and says why, or nothing when the site is unclear', () => {
-    expect(detectClientType({ schemaTypes: ['WebSite', 'Plumber'] })).toEqual({ type: 'local_services', why: 'the home page declares Plumber schema' });
-    expect(detectClientType({ urls: ['https://tally.example/pricing', 'https://tally.example/integrations/slack', 'https://tally.example/blog/a'] })).toMatchObject({ type: 'b2b_saas' });
-    expect(detectClientType({ urls: ['https://fernshop.example/products/mug', 'https://fernshop.example/collections/kitchen', 'https://fernshop.example/cart'] })).toMatchObject({ type: 'ecommerce' });
+  it('says nothing when the site is unclear, and never calls a client local from a place alone', () => {
     expect(detectClientType({ urls: ['https://x.example/about', 'https://x.example/blog/one'] })).toBeNull();
     // One path is not a pattern.
     expect(detectClientType({ urls: ['https://x.example/pricing'] })).toBeNull();
+    // A region or "Worldwide" in the schema is reach, and a place alone is never local.
+    expect(detectClientType({ places: ['Springfield, IL'] })).toBeNull();
+    expect(homepageSignals('<script type="application/ld+json">{"@type":"Organization","address":{"addressRegion":"Global","addressCountry":"US"},"areaServed":"Worldwide"}</script>', 'https://x.example/').places).toEqual([]);
+  });
+});
+
+/** One fictional site of each kind: its home page and the paths its inventory lists. */
+const SITES = {
+  b2b_services: {
+    url: 'https://harborline-advisory.example/',
+    html: `<html lang="en"><head><title>Harborline | AI Acceleration Partner for Mid-Market Companies</title>
+<meta name="description" content="Harborline is the AI acceleration partner for mid-market companies. Senior engineers find where AI pays off, build it, and run it.">
+<script type="application/ld+json">{"@type":"Organization","name":"Harborline","address":{"@type":"PostalAddress","addressRegion":"Global","addressCountry":"US"},"areaServed":"Worldwide","hasOfferCatalog":{"@type":"OfferCatalog","itemListElement":[{"@type":"Offer","itemOffered":{"@type":"Service","name":"AI consulting"}}]}}</script></head>
+<body><main><h1>AI that pays off</h1><p>For COOs, CFOs and CTOs at mid-market companies who need AI to move the numbers. Our consulting engagements start with an assessment. Read the case studies, then book a call.</p></main></body></html>`,
+    urls: ['/', '/services/ai-assessment', '/case-studies/logistics', '/industries/manufacturing', '/insights/ai-roi', '/contact'],
+  },
+  b2b_saas: {
+    url: 'https://tally-books.example/',
+    html: `<html lang="en"><head><title>Tally Books — invoicing software for agencies</title>
+<meta name="description" content="Invoicing and time tracking software for creative agencies. Start your free trial.">
+<script type="application/ld+json">{"@type":"SoftwareApplication","name":"Tally Books","applicationCategory":"BusinessApplication"}</script></head>
+<body><main><h1>Get paid faster</h1><p>The invoicing platform that integrates with your accounting tools. Plans from $12 per user. Start a free trial or book a demo.</p></main></body></html>`,
+    urls: ['/', '/pricing', '/integrations/ledgerly', '/demo', '/login', '/blog/late-payments'],
+  },
+  local_services: {
+    url: 'https://fernwood-plumbing.example/',
+    html: `<html lang="en-US"><head><title>Fernwood Plumbing | Plumbers in Fairview</title>
+<meta name="description" content="Same-day plumbing repairs in Fairview and the surrounding towns.">
+<script type="application/ld+json">{"@type":"Plumber","name":"Fernwood Plumbing","telephone":"+1 555 0100","address":{"@type":"PostalAddress","streetAddress":"12 Mill Rd","addressLocality":"Fairview","addressRegion":"OH"},"areaServed":["Lakeside","Riverton"]}</script></head>
+<body><main><h1>Plumbers near you</h1><p>Licensed and insured. Free estimates, 24/7 emergency service. Call us now.</p></main></body></html>`,
+    urls: ['/', '/service-areas/lakeside', '/locations/riverton', '/drain-cleaning', '/water-heaters'],
+  },
+  ecommerce: {
+    url: 'https://fern-and-clay.example/',
+    html: `<html lang="en"><head><title>Fern &amp; Clay — handmade ceramics</title>
+<meta name="description" content="Handmade mugs, bowls and planters. Free shipping over $50.">
+<script type="application/ld+json">[{"@type":"OnlineStore","name":"Fern & Clay"},{"@type":"Product","name":"Stoneware mug","offers":{"@type":"Offer","price":"28"}}]</script></head>
+<body><main><h1>Made by hand</h1><p>Shop now. Add to cart. In stock and ready to ship.</p></main></body></html>`,
+    urls: ['/', '/collections/mugs', '/products/stoneware-mug', '/cart', '/shop'],
+  },
+} as const;
+
+describe('one site of each kind', () => {
+  const read = (k: keyof typeof SITES) => {
+    const site = SITES[k];
+    return { ...homepageSignals(site.html, site.url), urls: site.urls.map(p => new URL(p, site.url).href) };
+  };
+
+  it('reads a B2B AI services firm as B2B services, not local, and leads its goals with leads and AI answers', () => {
+    const p = prefillSeoProfile({ id: 1 }, read('b2b_services'));
+
+    expect(p.clientType).toBe('b2b_services');
+    expect(p.goals).toEqual(['organic_leads', 'ai_answers']);
+    expect(p.locations).toBeUndefined();
+    expect(p.evidence?.clientType).toMatch(/buyer titles/);
+    expect(p.evidence?.clientType).toMatch(/case-studies/);
+    expect(p.evidence?.goals).toMatch(/B2B services firm whose site sells expertise or AI/);
+  });
+
+  it('reads a SaaS product as B2B SaaS', () => {
+    const r = detectClientType(read('b2b_saas'));
+
+    expect(r?.type).toBe('b2b_saas');
+    expect(r?.why).toMatch(/SoftwareApplication schema/);
+    expect(prefillSeoProfile({ id: 1 }, read('b2b_saas')).goals).toEqual(['organic_leads', 'ai_answers']);
+  });
+
+  it('reads a trade with an address, service areas and a call-now CTA as local services, with its places', () => {
+    const p = prefillSeoProfile({ id: 1 }, read('local_services'));
+
+    expect(p.clientType).toBe('local_services');
+    expect(p.goals).toEqual(['google_business_profile', 'organic_leads']);
+    expect(p.locations).toEqual(['Fairview, OH', 'Lakeside', 'Riverton']);
+    expect(p.evidence?.clientType).toMatch(/Plumber schema.*service-areas.*a street address/);
+  });
+
+  it('reads a shop with product schema and a cart as ecommerce', () => {
+    const p = prefillSeoProfile({ id: 1 }, read('ecommerce'));
+
+    expect(p.clientType).toBe('ecommerce');
+    expect(p.goals).toEqual(['rankings', 'organic_leads']);
+    expect(p.evidence?.clientType).toMatch(/OnlineStore, Product schema/);
+  });
+
+  it('asks the person to choose when it cannot tell, never defaulting to local', () => {
+    const p = prefillSeoProfile({ id: 1 }, homepageSignals('<html><head><title>Welcome</title></head><body><main><p>Hello.</p></main></body></html>', 'https://plain.example/'));
+
+    expect(p.clientType).toBe('other');
+    expect(p.evidence?.clientType).toBe('the site does not say clearly: please choose');
+    expect(p.goals).toEqual(['organic_leads']);
+    expect(profileDraftText(p).split('\n')[0]).toBe('Client type: Other  (read from: the site does not say clearly: please choose; choose B2B services, B2B SaaS, Local services, Ecommerce or Other)');
   });
 });
 
@@ -57,7 +145,7 @@ describe('the prefill', () => {
       publishTarget: 'blog',
       guidelines: [{ label: 'Instructions', href: '/dashboard/projects/7#instructions' }, { label: 'Wiki', href: '/dashboard/projects/7#wiki' }],
     });
-    expect(p.evidence).toMatchObject({ clientType: 'the home page declares HVACBusiness schema', language: 'the home page\'s language tag', competitors: 'the domains Google ranked beside the client' });
+    expect(p.evidence).toMatchObject({ clientType: 'HVACBusiness schema on the home page', language: 'the home page\'s language tag', competitors: 'the domains Google ranked beside the client' });
     // What only a reader can fill stays empty, and is said to be.
     expect(missingFields(p)).toEqual(['industry', 'audience']);
   });
@@ -85,7 +173,9 @@ describe('the card\'s text', () => {
   it('reads as one field a line, and reads back unchanged', () => {
     const body = profileDraftText(drafted, id => (id === 'blog' ? 'GitHub · northwind/site' : null));
 
-    expect(body.split('\n')[0]).toBe('Client type: Local services  (B2B SaaS, Local services, Ecommerce or Other)');
+    // Each value with where it was read, beside it on the card.
+    expect(body.split('\n')[0]).toBe('Client type: Local services  (read from: schema; choose B2B services, B2B SaaS, Local services, Ecommerce or Other)');
+    expect(body).toContain('Industry: HVAC  (read from: about page)');
     expect(body).toContain('Goals, most important first: Google Business Profile, Organic leads');
     expect(body).toContain('Publishes to: GitHub · northwind/site');
     expect(applyProfileDraft(drafted, body)).toEqual(drafted);

@@ -187,7 +187,7 @@ export async function keepPrompts(orgId: string, projectId: number, items: reado
       const [existing] = await db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.externalSystem, PROMPT_EXTERNAL_SYSTEM), eq(businessObjectSchema.externalId, externalId))).limit(1);
       id = existing!.id;
     }
-    const written = await mergeMeta<SeoPromptMeta>(orgId, id, current => promptPatch(current, p, opts.by.startsWith('agent:') ? null : opts.by));
+    const written = await mergeMeta<SeoPromptMeta>(orgId, id, current => promptPatch(current, p, opts.by));
     await settlePromptStatus(orgId, id, written);
     rows.push({ id, prompt: written?.prompt ?? p.prompt, created: Boolean(inserted), visibility: written?.visibility });
   }

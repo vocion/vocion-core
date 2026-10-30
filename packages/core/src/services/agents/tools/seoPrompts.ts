@@ -21,7 +21,11 @@ import { z } from 'zod';
 const GROUPS = ['category', 'shortlist', 'problem', 'comparison', 'brand'] as const;
 const PLATFORMS = ['chatgpt', 'google_ai_overviews', 'google_ai_mode', 'perplexity', 'gemini', 'copilot', 'claude'] as const;
 
-const byOf = (ctx: RuntimeContext) => ctx.userId ?? `agent:${ctx.agentSlug ?? 'seo-strategist'}`;
+/**
+ * The agent saving or importing: its own act, never recorded under the person's id.
+ * @param ctx
+ */
+const byOf = (ctx: RuntimeContext) => `agent:${ctx.agentSlug ?? 'seo-strategist'}`;
 
 /**
  * seo_save_prompts.
@@ -41,10 +45,10 @@ export function seoSavePromptsTool(ctx: RuntimeContext) {
         lines.push(`Saved ${kept.rows.length} prompts to ${kept.project.title}'s register (${added} new, ${kept.rows.length - added} already there): /dashboard/p/seo-prompts?project=${kept.project.id}.`);
       }
       if (args.drop_ids?.length) {
-        lines.push(...await setPromptsTracked(ctx.orgId, args.drop_ids, { drop: true, why: args.why }, ctx.userId ?? null));
+        lines.push(...await setPromptsTracked(ctx.orgId, args.drop_ids, { drop: true, why: args.why }, byOf(ctx)));
       }
       if (args.restore_ids?.length) {
-        lines.push(...await setPromptsTracked(ctx.orgId, args.restore_ids, { drop: false, why: args.why }, ctx.userId ?? null));
+        lines.push(...await setPromptsTracked(ctx.orgId, args.restore_ids, { drop: false, why: args.why }, byOf(ctx)));
       }
       return lines.length ? lines.join('\n') : 'Nothing to save: pass prompts, drop_ids or restore_ids.';
     },

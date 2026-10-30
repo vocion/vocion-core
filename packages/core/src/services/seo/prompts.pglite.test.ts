@@ -53,7 +53,8 @@ describe('the Prompts register', () => {
     const rows = await listProjectPrompts(ORG, projectId);
 
     expect(rows).toHaveLength(2);
-    expect(rows[0]!.meta).toMatchObject({ prompt: 'best invoicing tool for agencies', group: 'category', platforms: ['chatgpt', 'perplexity', 'google_ai_overviews'], source: 'agent', status: 'tracked', visibility: 'unchecked', why: { text: 'where buyers start', by: 'usr-mara' } });
+    expect(rows[0]!.meta).toMatchObject({ prompt: 'best invoicing tool for agencies', group: 'category', platforms: ['chatgpt', 'perplexity', 'google_ai_overviews'], source: 'agent', status: 'tracked', visibility: 'unchecked', why: { text: 'where buyers start', by: 'agent:seo-strategist' } });
+    // The strategist proposed them in the person's chat: its act, not the person's.
   });
 
   it('imports a Brand Radar export dropped in chat onto the same rows, naming what it read', async () => {

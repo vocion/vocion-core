@@ -78,7 +78,7 @@ export type AuditRead = {
   checkedAt: string;
   inventory: Pick<SiteInventory, 'site' | 'from' | 'rows' | 'listed' | 'cappedAt'>;
   /** The home page's Organization schema (`homepageSchema`), when the home page was read. */
-  schema?: { orgTypes: string[]; orgDescription: string | null; orgName: string | null; sameAs: number; telephone: string | null; hasAddress: boolean } | null;
+  schema?: { orgTypes: string[]; orgDescription: string | null; orgName: string | null; knowsAbout?: string[]; sameAs: number; telephone: string | null; hasAddress: boolean } | null;
   /** robots.txt as served; null when the site has none; undefined when not read. */
   robots?: string | null;
   /** Google's results for the client's own name. */
@@ -147,7 +147,43 @@ export function siteOriginOf(inv: { site: string; rows: readonly { url: string }
   return /^https?:\/\//.test(inv.site) ? inv.site.replace(/\/$/, '') : `https://${inv.site}`;
 }
 
-const words = (s: string) => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 3));
+/** Words that say nothing about what a business does. */
+const FILLER = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'your', 'our', 'you', 'are', 'all', 'any', 'into', 'its', 'who', 'what', 'where', 'how', 'company', 'companies', 'business', 'businesses', 'firm', 'service', 'services', 'solution', 'solutions', 'provider', 'providing', 'provides', 'leading', 'best', 'top', 'team', 'beyond', 'help', 'helps', 'we', 'us', 'inc', 'llc', 'ltd', 'one', 'more', 'new', 'and', 'end', 'make', 'makes']);
+
+/**
+ * The words that say what a business does, plural endings folded. Pure.
+ * @param text - What was written.
+ */
+export function businessTerms(text: string): Set<string> {
+  return new Set(text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => (w.length > 2 || w === 'ai') && !FILLER.has(w) && !/^\d+$/.test(w)).map(w => (w.length > 4 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w)));
+}
+
+/**
+ * Whether the Organization schema's description and knowsAbout still say
+ * what the business says it is now — its SEO profile's offering and
+ * industry, and its home page's title and meta description — and, when they
+ * do not, the words that tell. Null when there is too little to compare.
+ * A business that changed what it does keeps its old self in its schema long
+ * after the page copy moved on, and AI answers read the schema. Pure.
+ * @param schema - The Organization schema's description and knowsAbout.
+ * @param schema.orgDescription
+ * @param schema.knowsAbout
+ * @param positioning - What the business says now, each with where it is said.
+ */
+export function schemaPositioningGap(schema: { orgDescription: string | null; knowsAbout?: string[] }, positioning: ReadonlyArray<{ text: string; from: string }>): { coverage: number; stale: string[]; said: string } | null {
+  const own = businessTerms([schema.orgDescription ?? '', ...(schema.knowsAbout ?? [])].join(' '));
+  const now = businessTerms(positioning.map(p => p.text).join(' '));
+  if (own.size < 3 || now.size < 3) {
+    return null;
+  }
+  const shared = [...own].filter(w => now.has(w));
+  const coverage = shared.length / own.size;
+  if (coverage >= 0.35) {
+    return null;
+  }
+  const said = positioning.map(p => `${p.from} "${p.text.slice(0, 140)}"`).join('; ');
+  return { coverage, stale: [...own].filter(w => !now.has(w)).slice(0, 8), said };
+}
 
 const listed = (rows: readonly InventoryRow[]) => rows.map(r => r.url);
 
@@ -228,12 +264,29 @@ export function auditFindings(r: AuditRead): AuditFinding[] {
     if (!s || s.orgTypes.length === 0) {
       out.push({ key: 'no_org_schema', check: 'no_org_schema', category: 'ai_visibility', severity: 'high', title: 'No Organization schema on the home page', evidence: 'The home page declares no Organization (or LocalBusiness) structured data, so search and AI answers have no stated name, description or profiles for the business', url: homeUrl, checkedAt: at, status: 'open' });
     } else {
-      const offering = r.profile?.offering ?? '';
-      const shared = offering ? [...words(offering)].filter(w => words(s.orgDescription ?? '').has(w)) : [];
+      // What the business says it is now: its profile, and its home page.
+      const positioning = [
+        ...(r.profile?.offering ? [{ text: r.profile.offering, from: 'the SEO profile\'s offering' }] : []),
+        ...(r.profile?.industry ? [{ text: r.profile.industry, from: 'the SEO profile\'s industry' }] : []),
+        ...(home?.title ? [{ text: home.title, from: 'the home page\'s title' }] : []),
+        ...(home?.metaDescription ? [{ text: home.metaDescription, from: 'the home page\'s meta description' }] : []),
+      ];
+      const gap = s.orgDescription || s.knowsAbout?.length ? schemaPositioningGap(s, positioning) : null;
       if (!s.orgDescription) {
         out.push({ key: 'org_no_description', check: 'org_no_description', category: 'ai_visibility', severity: 'medium', title: 'The Organization schema does not say what the business does', evidence: `${s.orgTypes.join(', ')} schema has no description`, url: homeUrl, checkedAt: at, status: 'open' });
-      } else if (offering && shared.length === 0) {
-        out.push({ key: 'org_description_stale', check: 'org_description_stale', category: 'ai_visibility', severity: 'medium', title: 'The Organization schema describes another business than the profile', evidence: `Its description "${s.orgDescription.slice(0, 160)}" shares no words with the offering on the client's SEO profile ("${offering.slice(0, 120)}"); say what the business is now`, url: homeUrl, checkedAt: at, status: 'open' });
+      }
+      if (gap) {
+        out.push({
+          key: 'org_description_stale',
+          check: 'org_description_stale',
+          category: 'ai_visibility',
+          severity: 'high',
+          title: 'The Organization schema describes the business it used to be',
+          evidence: `Its ${s.orgDescription ? `description "${s.orgDescription.slice(0, 160)}"` : 'schema'}${s.knowsAbout?.length ? ` and knowsAbout (${s.knowsAbout.slice(0, 8).join(', ')})` : ''} speak of ${gap.stale.join(', ')}, which what the business says now does not (${gap.said}); ${Math.round(gap.coverage * 100)}% of its words match. AI answers read this schema: say what the business is now`,
+          url: homeUrl,
+          checkedAt: at,
+          status: 'open',
+        });
       }
       if (s.sameAs === 0) {
         out.push({ key: 'org_no_sameas', check: 'org_no_sameas', category: 'ai_visibility', severity: 'low', title: 'The Organization schema links no profiles', evidence: 'No sameAs links (LinkedIn, Google Business Profile, Crunchbase, social profiles) tie the site to the business elsewhere', url: homeUrl, checkedAt: at, status: 'open' });
