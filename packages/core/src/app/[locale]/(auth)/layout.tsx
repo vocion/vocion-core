@@ -5,6 +5,7 @@ import { BrandChromeProvider, OrgBrandProvider } from '@/features/branding/Brand
 import { OrgBrandStyle } from '@/features/branding/OrgBrandStyle';
 import { AuthProviders } from '@/features/navigation/AuthProviders';
 import { auth } from '@/libs/Auth';
+import { faviconColor } from '@/libs/branding/favicon';
 import { brandTitle } from '@/libs/branding/orgBrand';
 import { titlePrefix } from '@/libs/envLabel';
 import { WORKSPACE_HEADER } from '@/libs/links';
@@ -23,10 +24,15 @@ export async function generateMetadata(): Promise<Metadata> {
   if (!brand || chrome?.lead !== 'org') {
     return {};
   }
+  const color = faviconColor();
+  const iconVersion = color?.slice(1);
+  const icons = color
+    ? { icon: [{ url: `/icon?brand=${iconVersion}` }], apple: [{ url: `/apple-icon?brand=${iconVersion}` }] }
+    : brand.mark.light ? { icon: [{ url: brand.mark.light }], apple: [{ url: brand.mark.light }] } : undefined;
   return {
     title: { default: `${titlePrefix()}${brandTitle(brand.name)}`, template: `${titlePrefix()}%s · ${brand.name}` },
     appleWebApp: { capable: true, statusBarStyle: 'default', title: brand.name },
-    ...(brand.mark.light ? { icons: { icon: [{ url: brand.mark.light }], apple: [{ url: brand.mark.light }] } } : {}),
+    ...(icons ? { icons } : {}),
   };
 }
 
