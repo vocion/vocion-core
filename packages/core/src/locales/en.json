@@ -979,10 +979,7 @@
     "reviewed": "Reviewed output",
     "cost": "Recorded model cost",
     "qualityMissing": "Not enough reviews",
-    "valueGap": "Accepted business work, cycle time, review effort and net value need workflow-level outcome instrumentation. Model/tool calls are activity, not completed tasks.",
-    "loading": "Loading workforce performance…",
-    "failed": "Workforce performance could not be loaded. Please retry.",
-    "period": "Reporting window"
+    "valueGap": "Accepted business work, cycle time, review effort and net value need workflow-level outcome instrumentation. Model/tool calls are activity, not completed tasks."
   },
   "WorkforceDashboard": {
     "title": "Workforce performance",
