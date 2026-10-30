@@ -177,11 +177,16 @@ export class RunCollector {
   }
 
   /**
-   * A Done receipt: one per run, so a re-emitted receipt does not stack.
+   * A Done receipt: one per run, so a re-emitted receipt does not stack, and
+   * the latest says where the run ended. A retry reuses its run (the dedup
+   * key), so a "Didn't run" is replaced by the Done that followed it (a
+   * teammate's walk, 2026-10-30: a 400 then a success read "Didn't run").
    * @param receipt - The receipt.
    */
   onReceipt(receipt: Extract<ConversationRun, { type: 'receipt' }>['receipt']): void {
-    if (this.runs.some(r => r.type === 'receipt' && r.receipt.runId === receipt.runId)) {
+    const at = this.runs.findIndex(r => r.type === 'receipt' && r.receipt.runId === receipt.runId);
+    if (at >= 0) {
+      this.runs[at] = { type: 'receipt', receipt };
       return;
     }
     this.flushText();

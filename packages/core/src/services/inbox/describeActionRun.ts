@@ -142,7 +142,7 @@ export function valueLabel(value: unknown): string {
 }
 
 /** HubSpot properties stored as a 0–1 fraction that people read as a percentage. */
-const HUBSPOT_FRACTION_FIELDS = new Set(['hs_deal_stage_probability', 'hs_forecast_probability']);
+export const HUBSPOT_FRACTION_FIELDS = new Set(['hs_deal_stage_probability', 'hs_forecast_probability']);
 
 /**
  * A HubSpot property value as a person reads it: an amount as money, a
