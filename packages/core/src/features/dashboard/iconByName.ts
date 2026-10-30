@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { Activity, AlertTriangle, BarChart, BarChart3, BookOpen, Bot, Box, Bug, Building2, Calculator, Calendar, CircleHelp, Coins, Compass, Cpu, Database, Ear, FileClock, FileDiff, FileText, FolderOpen, Gauge, GitBranch, Globe, Hammer, Handshake, Inbox, Layers, LayoutDashboard, LifeBuoy, Lightbulb, LineChart, ListChecks, Mail, Megaphone, Package, PackageCheck, Palette, PanelsTopLeft, PenLine, PenTool, Puzzle, Radar, Radio, Receipt, Repeat, Rocket, Route, Search, Send, Server, Settings, Shapes, Share2, Shield, ShieldCheck, Siren, Sparkles, Swords, Tags, Target, TrendingUp, UserCheck, Users, Video, Wand, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart, BarChart3, BookOpen, Bot, Box, Bug, Building2, Calculator, Calendar, CalendarCheck, CircleHelp, Coins, Compass, Cpu, Database, Ear, FileClock, FileDiff, FileText, FolderOpen, Gauge, GitBranch, Globe, Hammer, Handshake, Inbox, Layers, LayoutDashboard, LifeBuoy, Lightbulb, LineChart, ListChecks, Mail, Megaphone, Package, PackageCheck, Palette, PanelsTopLeft, PenLine, PenTool, Percent, Puzzle, Radar, Radio, Receipt, Repeat, Rocket, Route, Search, Send, Server, Settings, Shapes, Share2, Shield, ShieldCheck, Siren, Sparkles, Swords, Tags, Target, TrendingUp, UserCheck, UserPlus, Users, Video, Wand, Zap } from 'lucide-react';
 
 /**
  * lucide icon NAMES a workspace row may carry — a plugin, a page, a product,
@@ -20,6 +20,7 @@ export const ICONS_BY_NAME: Record<string, LucideIcon> = {
   'building-2': Building2,
   'calculator': Calculator,
   'calendar': Calendar,
+  'calendar-check': CalendarCheck,
   'circle-help': CircleHelp,
   'coins': Coins,
   'compass': Compass,
@@ -50,6 +51,7 @@ export const ICONS_BY_NAME: Record<string, LucideIcon> = {
   'panels-top-left': PanelsTopLeft,
   'pen-line': PenLine,
   'pen-tool': PenTool,
+  'percent': Percent,
   'puzzle': Puzzle,
   'radar': Radar,
   'radio': Radio,
@@ -71,6 +73,7 @@ export const ICONS_BY_NAME: Record<string, LucideIcon> = {
   'target': Target,
   'trending-up': TrendingUp,
   'user-check': UserCheck,
+  'user-plus': UserPlus,
   'users': Users,
   'video': Video,
   'wand': Wand,

@@ -67,6 +67,9 @@ const DOCS: Doc[] = [
   { key: 'inv-overdue', source: 'quickbooks', title: 'Invoice 1042 to Contoso Supply', metadata: { objectType: 'invoice', customer: 'Contoso Supply', dueDate: at(-10 * DAY).toISOString().slice(0, 10), balance: 4800, status: 'overdue' } },
   { key: 'inv-paid', source: 'quickbooks', title: 'Invoice 1040 to Acme', metadata: { objectType: 'invoice', customer: 'Acme', dueDate: at(-12 * DAY).toISOString().slice(0, 10), balance: 0, status: 'paid' } },
   { key: 'inv-future', source: 'quickbooks', title: 'Invoice 1050 to Northwind', metadata: { objectType: 'invoice', customer: 'Northwind', dueDate: at(10 * DAY).toISOString().slice(0, 10), balance: 9000, status: 'open' } },
+  { key: 'acct-checking', source: 'quickbooks', title: 'Account 1000 Operating checking', metadata: { objectType: 'account', accountType: 'Bank', balance: 25000.5 } },
+  { key: 'acct-savings', source: 'quickbooks', title: 'Account 1010 Reserve', metadata: { objectType: 'account', accountType: 'Bank', balance: '10000' } },
+  { key: 'acct-card', source: 'quickbooks', title: 'Account 2000 Company card', metadata: { objectType: 'account', accountType: 'Credit Card', balance: -1800 } },
 ];
 
 beforeAll(async () => {
@@ -127,6 +130,15 @@ describe('core views', () => {
     const read = await runStateQuery({ sets: ['chat.message'], filter: { mentions: ['U0ALEX'], updated_at: { since: '-7d' } } }, { orgIds: [ORG], me: ME, now: NOW });
 
     expect(read.rows.map(r => r.key)).toEqual(['slack-mention']);
+  });
+
+  it('adds up a number facet over every match, for an app home\'s figure: the open pipeline, the cash in the bank', async () => {
+    const pipeline = await runStateQuery({ sets: ['crm.deal'], filter: { stage: { not: ['closedwon', 'closedlost'] } }, sum: 'amount', limit: 1 }, { orgIds: [ORG], me: ME, now: NOW });
+    const cash = await runStateQuery({ sets: ['finance.account'], filter: { account_type: 'Bank' }, sum: 'balance', limit: 1 }, { orgIds: [ORG], me: ME, now: NOW });
+
+    expect(pipeline).toMatchObject({ total: 2, sum: 138000 });
+    expect(cash).toMatchObject({ total: 2, sum: 35000.5 });
+    expect((await runStateQuery({ sets: ['crm.deal'] }, { orgIds: [ORG], me: ME, now: NOW })).sum).toBeUndefined();
   });
 
   it('says which kinds nothing here carries, rather than answering "none"', async () => {

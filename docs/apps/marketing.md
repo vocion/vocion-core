@@ -11,6 +11,10 @@
 | **Connection** | the `google-ads` source on the `google` platform (`libs/sources/googleAds.ts`, `services/ads/providers/google.ts`, `libs/googleAds/client.ts`) |
 | **Writes** | `libs/actions/google-ads.ts`, plus the ads family's `ads.set_status` |
 
+## Home
+
+The app opens on its home (`/dashboard/apps/marketing/home`; see [the app manifest](../entities/app-manifest.md#home--where-the-app-opens)): the ask bar to the Marketing lead, four tiles from its starters (How did the ads do?, Find wasted spend, Launch a campaign, Campaigns), the Google Ads changes waiting on you (decided in place), and what the lead is running and recently wrote. Spend and conversions stay on the campaign pages, read live from Google Ads.
+
 ## Connecting Google Ads
 
 One Google login, on the Connectors page, with the `adwords` scope (Google's only Ads scope; it reads and writes). After the login, **pick the account** from the list of accounts the login can run (`connect.googleAdsAccounts`, `libs/googleAds/client.ts` `listGoogleAdsAccounts`): the ones it reaches directly, and the client accounts under each manager account it reaches. Picking an account under a manager fills the **Manager account ID** too. A login that runs exactly one account picks it. With no login yet, the typed Customer ID stays as the fallback.

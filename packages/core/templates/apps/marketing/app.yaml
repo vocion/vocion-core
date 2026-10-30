@@ -9,3 +9,30 @@ description: Paid search run by an agent and approved by you — what the ads sp
 plugins: [marketing]
 entry: /dashboard/marketing
 nav: [Marketing]
+# Where the app opens: the ask bar to the marketing lead, what to start and
+# the changes waiting on you (AppHomeSchema, docs/entities/app-manifest.md).
+home:
+  launch:
+    - title: How did the ads do?
+      description: This week's spend against budget, clicks and conversions by campaign, and the one change to make.
+      icon: line-chart
+      ask: How did our Google Ads do this week? Spend against budget, clicks, conversions and cost per conversion by campaign, and the one change you'd make.
+      first: true
+    - title: Find wasted spend
+      description: Search terms that spent with nothing to show, proposed as negatives.
+      icon: coins
+      ask: Review the last 14 days of search terms. Which ones spent with nothing to show, and which should be negatives? Propose them.
+    - title: Launch a campaign
+      description: A Google Search campaign for a landing page, built for your approval.
+      icon: rocket
+      prompt: 'Build and launch a Google Search campaign for this landing page at $50 a day: '
+    - title: Campaigns
+      description: Every campaign's spend, clicks and conversions.
+      icon: megaphone
+      href: /dashboard/marketing
+  measures:
+    - key: changes
+      label: Changes waiting on you
+      source: approvals
+      actions: [google_ads.*]
+      href: /dashboard/inbox

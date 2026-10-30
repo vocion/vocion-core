@@ -411,7 +411,8 @@ export function workOrder(findings: readonly AuditFinding[], profile?: SeoProfil
   return findings.filter(f => f.status === 'open').sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || lead(a.category) - lead(b.category));
 }
 
-export type AuditCounts = { total: number; open: number; high: number; fixed: number; dismissed: number; byCategory: Record<AuditCategory, number> };
+/** `bySeverity` counts the OPEN findings, as `high` does (the app home's "High 3 · Medium 5"). */
+export type AuditCounts = { total: number; open: number; high: number; fixed: number; dismissed: number; byCategory: Record<AuditCategory, number>; bySeverity: Record<AuditSeverity, number> };
 
 /**
  * The numbers a list and a report lead with. Pure.
@@ -426,6 +427,7 @@ export function auditCounts(findings: readonly AuditFinding[]): AuditCounts {
     fixed: findings.filter(f => f.status === 'fixed').length,
     dismissed: findings.filter(f => f.status === 'dismissed').length,
     byCategory: Object.fromEntries(AUDIT_CATEGORIES.map(c => [c, open.filter(f => f.category === c).length])) as Record<AuditCategory, number>,
+    bySeverity: Object.fromEntries(AUDIT_SEVERITIES.map(v => [v, open.filter(f => f.severity === v).length])) as Record<AuditSeverity, number>,
   };
 }
 

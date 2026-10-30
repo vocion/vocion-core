@@ -51,6 +51,7 @@ default, and effect, plus a worked example and the rules the loader enforces.
 | Entity | Authored at | What it is |
 |---|---|---|
 | [Workspace manifest](./entities/workspace-manifest.md) | `workspace.yaml` | The workspace's identity, defaults, lead, surfaces, plugins, and base-pack pin |
+| [App manifest](./entities/app-manifest.md) | `packages/core/templates/apps/<id>/app.yaml` | An app in the rail: its plugins, its nav sections, and the home it opens on (tiles, what needs you, each project's figures) |
 | [Base pack](./entities/base-pack.md) | `packages/core/templates/base/pack.yaml` | The reusable layer that loads underneath a workspace, and how activation and overrides work |
 | [Agent](./entities/agent.md) | `agents/<slug>.yaml` | An LLM orchestrator: prompt, hierarchy, what it may reach, harness settings |
 | [Team](./entities/team.md) | `teams/<slug>.yaml` | A group of agents under a lead, with an accountable human, a goal, and the KPIs it is graded on |
