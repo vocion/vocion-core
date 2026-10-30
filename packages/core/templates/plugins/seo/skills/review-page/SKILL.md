@@ -7,7 +7,7 @@ description: >-
   substance on a location page, then the craft. Fix or pass, at most three
   ordered fixes, and on pass the sign-off is filed for a person. Read before
   reviewing any draft.
-version: 6
+version: 7
 ---
 
 # Reviewing an SEO draft
@@ -65,9 +65,11 @@ fix }` (the most important first, each quoting the rule, note or fact it is
 about), or `pass` with what you checked in `notes`. A long review is kept
 whole as an artifact linked from the page; never shorten a finding to fit.
 
-On `fix` the writer's revision is queued in code with your findings, and the
-draft comes back to you; after three rounds the sign-off is filed anyway
-with the findings still open, and the person decides. On `pass` the tool
-files the sign-off itself; never file one with `file_ask`. The person approves, revises with a note, or discards; their
-answer moves the page and the gate, and the strategist picks the work up
-after it. Never change the page's status yourself.
+Inside a page's workflow run (the usual way), the run is the loop: on `fix`
+the writer revises in the run with your findings and the draft comes back to
+you; after three rounds it goes to the person with the findings still open.
+On `pass` the run's next step is the person's sign-off. End your step with the
+JSON the tool tells you (the verdict it recorded, whether it was the final
+round, the findings). Outside a run, `fix` queues the revision in code and
+`pass` files the sign-off itself. Never file one with `file_ask`, and never
+change the page's status yourself.

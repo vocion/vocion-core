@@ -860,6 +860,11 @@ export async function refreshSeoProject(orgId: string, projectId: number, now: D
       waitingOnYou: waitingOnSignoff.length + feedbackToFile.filter(id => pages.some(p => p.id === id)).length + planWaiting,
       gate: { ...shown, sample: read.config.sample, tranche: read.config.tranche, updatedAt: now.toISOString() },
     }));
+    // Live when every page it keeps is published: a strategy milestone
+    // linked to the batch reads its row status.
+    const kept = pages.filter(p => p.meta.status !== 'rejected');
+    const { DONE_STATUS, setRowStatus } = await import('./strategy');
+    await setRowStatus(orgId, batch.id, kept.length > 0 && kept.every(p => p.meta.status === 'published') ? DONE_STATUS.batch : 'active');
     const line = `${batch.title} · ${view.line}`;
     for (const p of pages) {
       const isReleased = released.includes(p.id);
@@ -872,6 +877,9 @@ export async function refreshSeoProject(orgId: string, projectId: number, now: D
   // its batch and page, its status the page's (`keywords.ts`).
   const { syncProjectKeywords } = await import('./keywords');
   await syncProjectKeywords(orgId, projectId, read);
+  // The client's strategy goal reads what just moved.
+  const { refreshStrategy } = await import('./strategy');
+  await refreshStrategy(orgId, projectId);
   return read;
 }
 

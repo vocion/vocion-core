@@ -1,0 +1,30 @@
+# One run per page the volume gate releases in a batch. Started by code
+# (`services/seo/pipeline.ts`) when a person asks for the pages, a plan is
+# approved, or a sign-off releases the next pages; the pages are the gate's,
+# read in code, never chosen here.
+slug: seo-batch
+name: Write a batch's released pages
+description: Starts one run per page the batch's gate has released.
+agent: seo-strategist
+runLabel: '{{input.batch_ref}}: {{input.client}}'
+trigger:
+  type: manual
+inputSchema:
+  type: object
+  required: [batch_id, pages]
+  properties:
+    batch_id: {type: integer}
+    batch_ref: {type: string}
+    client: {type: string}
+    pages: {type: array}
+steps:
+  - name: pages
+    type: action
+    label: Starting one run per released page
+    action: workflow.start
+    input:
+      workflow: seo-page
+      items: '{{input.pages}}'
+      input:
+        client: '{{input.client}}'
+        batch_ref: '{{input.batch_ref}}'

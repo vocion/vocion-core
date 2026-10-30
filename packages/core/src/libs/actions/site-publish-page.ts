@@ -22,9 +22,13 @@
  *   turn. The live URL is read back from the site's public JSON by slug. No
  *   Undo: the post is the site's now, and deleting it is a person's call.
  *
- * Every run waits for a person and for their decision on the card itself
- * (`approvalRequired`, `requiresReviewDecision`): what reaches a client's
- * site is never decided by a word in chat alone.
+ * A person approves a page ONCE, on its sign-off (the page's workflow run,
+ * `services/seo/pipeline.ts`). Publishing it as a draft — an unmerged pull
+ * request, or a Squarespace post that is not live — then runs on that, under
+ * the SEO plugin's trust rule, with no second card. Anything else waits for a
+ * person (`holdForPerson`): a page with no person's sign-off on its current
+ * words, or a page the SEO app does not track. Going live
+ * (`site.publish_live`) is always its own card.
  */
 
 import type { Action, ReviewCard } from './types';
@@ -112,8 +116,22 @@ export const sitePublishPageAction: Action<typeof publishPageInput> = {
   inputSchema: publishPageInput,
   grant: 'publish_page',
   external: true,
-  approvalRequired: true,
-  requiresReviewDecision: true,
+  // Held for a person unless a person signed this page's current words off.
+  async holdForPerson(ctx, raw) {
+    const pageId = Number((raw as { pageRecordId?: unknown }).pageRecordId);
+    if (!Number.isInteger(pageId) || pageId <= 0) {
+      return 'only a page a person signed off publishes without its own card';
+    }
+    const [{ readRecord }, { artifactWords, signedOff }] = await Promise.all([import('./factory-dispatch'), import('@/services/seo/records')]);
+    const record = await readRecord(ctx.orgId, pageId);
+    if (record?.typeSlug !== 'seo_page') {
+      return 'only an SEO page a person signed off publishes without its own card';
+    }
+    const meta = record.meta as Parameters<typeof signedOff>[0];
+    const draft = meta.draftArtifactId;
+    const words = typeof draft === 'number' ? (await artifactWords(ctx.orgId, [draft])).get(draft) : undefined;
+    return words && signedOff(meta, words) ? null : 'a person has not signed off this page\'s current words';
+  },
   dedupKeyFor: input => (input.pageRecordId ? `${PUBLISH_PAGE_ACTION_ID}:page:${input.pageRecordId}` : `${PUBLISH_PAGE_ACTION_ID}:${input.projectId}:${input.artifactId}:${input.slug ?? ''}`),
   ownsDedupKey: true,
   // Every surface that lists the proposal reads `Publish "<page>" → <where>`, never "Site publish page".

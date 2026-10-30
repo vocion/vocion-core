@@ -29,8 +29,10 @@ describe('isOutwardOrIrreversible', () => {
     expect(isOutwardOrIrreversible(kind({}))).toBe(false);
   });
 
-  it('holds both publish actions', () => {
+  it('holds going live; publishing a signed-off page as a draft is held per page instead', () => {
     expect(isOutwardOrIrreversible(getAction('site.publish_live')!)).toBe(true);
-    expect(isOutwardOrIrreversible(getAction('site.publish_page')!)).toBe(true);
+    // An unmerged pull request or a not-live draft, with Undo: its own hold is
+    // the page's sign-off (`holdForPerson`), not this class.
+    expect(isOutwardOrIrreversible(getAction('site.publish_page')!)).toBe(false);
   });
 });

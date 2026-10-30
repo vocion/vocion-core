@@ -122,6 +122,16 @@ async function createWorkflowRun(opts: StartWorkflowOpts): Promise<{ id: number;
   return { id: run!.id, runLabel: typeof input[RUN_LABEL_INPUT_KEY] === 'string' ? input[RUN_LABEL_INPUT_KEY] as string : null };
 }
 
+/**
+ * Start a run and return as soon as it is handed to its durable owner,
+ * without waiting for it to settle: for code that starts work in the
+ * background (a hand-off, a fan-out from a service) and has no one waiting.
+ * @param opts - What to start.
+ */
+export async function launchWorkflow(opts: StartWorkflowOpts): Promise<{ id: number; runLabel: string | null }> {
+  return createWorkflowRun(opts);
+}
+
 export async function startWorkflow(opts: StartWorkflowOpts): Promise<WorkflowRunSummary> {
   const { id } = await createWorkflowRun(opts);
   return settled(id);

@@ -1,25 +1,28 @@
+# The SEO strategist's standing outcome: each client's buyers find them in
+# search, measured by what reaches the client's site and what it earns, never
+# by the work done on the way. The slug is kept so installed workspaces keep
+# their mission row and its history.
 slug: seo-batches-moving
-name: Every client's SEO pages keep moving
+name: Each client grows in search
 description: >-
-  The SEO strategist's standing responsibility, run in the background at
-  every hand-off: the work the gate releases is written and reviewed, a draft
-  the editor sent back is revised, and the moment a person signs off a plan
-  or a page the next work is picked up, without anyone saying "carry on".
+  The SEO strategist's standing outcome for every client: pages reach the
+  client's site at the pace a person set, and those pages earn rankings and
+  mentions in AI answers. The work in between (briefs, drafts, reviews) is
+  how it gets there, not how it is judged.
 goal: >-
-  No released page sits unwritten and no note sits unfiled after a person's
-  sign-off: approved plans are researched and briefed, released pages are
-  written and reviewed, sent-back pages have their feedback filed and are
-  redrafted, and a revised plan goes back for sign-off.
+  Every client with pages a month set gets that many pages live on its site
+  each month, its published keywords reach Google's first page, and a client
+  that wants to be named in AI answers is named on more of its tracked
+  prompts each month, on the way to its strategy goal.
 agent: seo-strategist
 autonomyPolicy:
   level: 2
 successCriteria:
-  - After a plan is approved, every released page has a brief before the day ends
-  - After a page is sent back, its note is filed (to the client's project or the seo-feedback learning step) before anything else is drafted
-  - A plan sent back is revised and filed for sign-off again, answering the person's note
-  - A draft the editor sends back is revised and reviewed again without a person asking, at most three rounds
-  - Nothing past the gate is written, and every hold is said with the gate's line
-  - A project the weekly check found short of its cadence gets a keyword plan of just the pages it is short, researched on Google now, filed for sign-off with seo_plan_batch cadence true; a project on pace or without a cadence gets none
+  - Pages live on each client's site this month at or above the pages a month set on its project (published pages, counted on the page records; a pull request opened or a draft saved is not live)
+  - Each published keyword reaches Google's top 10 for the client within 8 weeks of going live (its row in the Keywords register reads Ranking)
+  - For a client whose profile ranks "Named in AI answers", the client is mentioned or cited on more of its tracked prompts than a month ago (the Prompts register, as last checked)
+  - Each client's strategy goal has a milestone completed by its own linked work at least once a month, or the strategist says what holds it
+  - The latest audit's high findings are fixed or dismissed with a reason within 30 days of the audit
 desiredArtifacts:
-  - Briefs and drafts for the pages the gate released
-  - One line per batch saying what moved and what waits on a person
+  - Pages live on the client's site, each linked from its page record
+  - One line per client saying what went live, what ranks, and what waits on a person

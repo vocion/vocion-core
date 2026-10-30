@@ -1,8 +1,8 @@
 # Every Monday morning in the workspace's zone: is each client getting the
 # pages a month a person set on its project (`seoCadence`)? Plain code, no
-# model (`services/seo/cadence.ts`): for a project behind pace it queues the
-# strategist's background run (`seo.work_queued`, reason opportunities, which
-# seo-continue answers) to re-read Google and the client's site and propose
+# model (`services/seo/cadence.ts`): for a project behind pace it starts the
+# `seo-opportunities` workflow (`services/seo/pipeline.ts`): the strategist
+# re-reads Google and the client's site and proposes
 # just the pages it is short as a keyword plan for sign-off. A project on pace
 # gets nothing, and a project without a cadence is never planned for. What
 # each check found, project by project, is the run's result.

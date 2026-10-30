@@ -1,0 +1,40 @@
+# The weekly cadence check found a client behind its pages a month: plan
+# just the pages it is short, from Google and the client's site read now,
+# as a keyword plan for sign-off. Started by code (`services/seo/cadence.ts`
+# through `pipeline.ts`); the plan tool re-checks the count.
+slug: seo-opportunities
+name: Plan the pages a client is short
+description: Proposes just the pages a client is short of its pages a month, as a keyword plan for your sign-off.
+agent: seo-strategist
+runLabel: 'New page opportunities: {{input.client}}'
+trigger:
+  type: manual
+inputSchema:
+  type: object
+  required: [project_id, pages]
+  properties:
+    project_id: {type: integer}
+    client: {type: string}
+    pages: {type: integer}
+    focus: {type: string}
+    standing: {type: string}
+steps:
+  - name: plan
+    type: agent
+    label: Finding the pages {{input.client}} is short
+    agent: seo-strategist
+    task: >-
+      Project {{input.project_id}} is behind its pages a month
+      ({{input.standing}}). Read the project (read_project), re-read its site
+      (site_inventory) for what is new or gone, have the SERP analyst re-read
+      Google for the client's core topics (and "{{input.focus}}" when that
+      names a focus), then call
+      seo_plan_batch with project_id, cadence true and at most
+      {{input.pages}} pages the client has no page for yet. Plan nothing
+      more.
+    effort: deep
+    output:
+      type: object
+      required: [pages]
+      properties:
+        pages: {type: integer}

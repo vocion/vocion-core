@@ -18,6 +18,7 @@
  *   seo_update_findings  a finding's Fix it (a page in a batch, or a task), or a person's verdict on it
  *   seo_save_prompts, seo_list_prompts, seo_import_prompts, seo_export_prompts
  *                        the Prompts register: AI-answer prompts per client (`seoPrompts.ts`)
+ *   seo_draft_strategy   the client's strategy as a goal card with linked milestones, and its document (`seoStrategy.ts`)
  *
  * The gate is code (`services/seo/gate.ts`), not a prompt, and so are the
  * asks (`services/seo/signoff.ts`): these tools are the only path that
@@ -45,17 +46,19 @@ import { LOCATION_PAGE_SIMILARITY_LIMIT, nearDuplicates, queryNamesLocation } fr
 import { whyNotWritable } from '@/services/seo/gate';
 import { checkPageMeta } from '@/services/seo/meta';
 import { modelThatRan } from '@/services/seo/modelThatRan';
+import { seoPageRunOf } from '@/services/seo/pipeline';
 import { readSeoProject, seoProjectHref } from '@/services/seo/projects';
-import { bylineFor, feedbackCheck, getSeoBatch, getSeoPage, listProjectSeoPages, listSeoPages, patchSeoPage, pathKey, planApproved, planSeoBatch, readSeoGate, refreshSeoBatch, revisePlan, SEO_LEARNING_STEP, SEO_PAGE_TYPES, SeoSetupError } from '@/services/seo/records';
+import { artifactWords, bylineFor, feedbackCheck, getSeoBatch, getSeoPage, listProjectSeoPages, listSeoPages, patchSeoPage, pathKey, planApproved, planSeoBatch, readSeoGate, refreshSeoBatch, revisePlan, SEO_LEARNING_STEP, SEO_PAGE_TYPES, SeoSetupError } from '@/services/seo/records';
 import { fileSeoPlanAsk, fileSeoSignoffAsk, withdrawPageAsks } from '@/services/seo/signoff';
 import { describeVoiceFindings, draftVoiceFindings } from '@/services/seo/voiceCheck';
-import { findingsMd, followFrom, normaliseFindings, queueSeoWork, SEO_EDITOR_ROUNDS } from '@/services/seo/work';
+import { findingsMd, followFrom, normaliseFindings, queueSeoWork, SEO_EDITOR_ROUNDS, tellBatch } from '@/services/seo/work';
 import { recordIdArg, recordIdOf } from './recordIdArg';
 import { seoRunAuditTool, seoUpdateFindingsTool } from './seoAudit';
 import { planFromKeywords, registerLine, seoListKeywordsTool, seoUpdateKeywordsTool } from './seoKeywords';
 import { seoProposeProfileTool } from './seoProfile';
 import { seoPromptTools } from './seoPrompts';
 import { seoReadPageTool } from './seoReadPage';
+import { seoDraftStrategyTool } from './seoStrategy';
 
 export const SEO_PLUGIN = 'seo';
 
@@ -222,13 +225,15 @@ async function planProblem(ctx: RuntimeContext, page: SeoPageRecord): Promise<st
 
 /**
  * Why drafting or reviewing may not run here, or null: they run in the
- * background run (`work.ts`), never inside a person's chat turn, where they
+ * background (a page's workflow run, `pipeline.ts`, or the older mission
+ * run, `work.ts`), never inside a person's chat turn, where they
  * ran into the turn's spend ceiling mid-review.
  * @param ctx - The turn.
  * @param what - What was attempted.
  */
 function backgroundOnly(ctx: RuntimeContext, what: string): string | null {
-  return ctx.missionRunId
+  // A background mission run, or a step of a workflow run (`workflow:<slug>:<run>`).
+  return ctx.missionRunId || ctx.userId?.startsWith('workflow:')
     ? null
     : `Not ${what}: writing and reviewing run in the background, not in this chat turn. Call seo_start_writing with the batch; it queues the released pages and the person hears progress here.`;
 }
@@ -436,7 +441,7 @@ export function seoStartWritingTool(ctx: RuntimeContext) {
       if (!queued) {
         return `Not queued: the background run for batch #${ref.id} could not be started. Say so plainly; nothing was written.`;
       }
-      return `Queued ${read.gate.writable.length} ${read.gate.writable.length === 1 ? 'page' : 'pages'} of batch #${ref.id} for the background run: research, brief, draft and the editor's review, each with its own sign-off for the person. It runs outside this turn on the SEO team's budget; progress shows on the batch (${batchHref(ref.id)}) and here. Tell the person what is running and stop.`;
+      return `Started ${read.gate.writable.length} ${read.gate.writable.length === 1 ? 'page' : 'pages'} of batch #${ref.id}, one run each: research, brief, draft, the editor's review (at most three rounds) and the person's sign-off on the run, then the page goes to the client's site as a draft. They run outside this turn on the SEO team's budget; each run's steps show on its page, and the batch (${batchHref(ref.id)}) shows where the gate stands. Tell the person what is running and stop.`;
     },
     {
       name: 'seo_start_writing',
@@ -664,6 +669,23 @@ export function seoSaveReviewTool(ctx: RuntimeContext) {
         ...(finalVerdict === 'fix' && !exhausted ? { status: 'drafting' as const } : {}),
         ...(ran ? { models: { review: ran } } : {}),
       });
+      // Inside the page's workflow run the run itself is the loop: its review
+      // group sends the draft back to the writer (at most three rounds) and its
+      // approve step is the person's sign-off, so nothing is queued or filed
+      // here; the verdict is said so the step's result carries it.
+      const pageRun = seoPageRunOf(ctx.userId);
+      if (pageRun) {
+        const said = (final: boolean) => `\n\nEnd your step with: {"verdict": "${finalVerdict === 'pass' ? 'pass' : 'fix'}", "final": ${final}, "findings": [...each finding's issue]}`;
+        if (finalVerdict === 'fix' && !exhausted) {
+          await refreshSeoBatch(ctx.orgId, page.meta.batchId);
+          return [voiceNote, dupeNote, `Verdict recorded: fix (round ${rounds} of ${SEO_EDITOR_ROUNDS}). Page #${page.id} goes back to the writer with these findings in this run.${said(false)}`].filter(Boolean).join('\n');
+        }
+        const words = typeof reviewed.meta.draftArtifactId === 'number' ? (await artifactWords(ctx.orgId, [reviewed.meta.draftArtifactId])).get(reviewed.meta.draftArtifactId) : undefined;
+        await patchSeoPage(ctx.orgId, reviewed, { status: 'in_review', ...(words && typeof reviewed.meta.draftArtifactId === 'number' ? { signoffAsk: { askId: 0, round: reviewed.meta.draftRound ?? 1, draftArtifactId: reviewed.meta.draftArtifactId, version: words.version, hash: words.hash, at: new Date().toISOString() } } : {}) });
+        await refreshSeoBatch(ctx.orgId, page.meta.batchId);
+        await tellBatch(ctx.orgId, page.meta.batchId, `Page "${page.title}" is ready for your sign-off${exhausted ? `, with the editor's open findings` : ''}. [Open it](/dashboard/objects/${page.id})`, `signoff-run:${pageRun}:${reviewed.meta.draftRound ?? 1}`);
+        return `Verdict recorded: ${finalVerdict}${exhausted ? ` (the ${SEO_EDITOR_ROUNDS} rounds are used up; the open findings go to the person)` : ''}. The person's sign-off is this run's next step; file nothing.${said(true)}`;
+      }
       if (finalVerdict === 'fix' && !exhausted) {
         // A later review supersedes any sign-off still open for this page,
         // and the writer's revision is queued in code with the findings.
@@ -876,6 +898,7 @@ export function seoTools(ctx: RuntimeContext) {
     seoRunAuditTool(ctx),
     seoUpdateFindingsTool(ctx),
     ...seoPromptTools(ctx),
+    seoDraftStrategyTool(ctx),
   ];
   // The SEO seats' own tools are never behind tool search: a teammate on its
   // own model gets the lead's tiered set, and a live editor run could not find

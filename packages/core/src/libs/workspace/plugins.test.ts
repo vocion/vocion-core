@@ -107,16 +107,16 @@ describe('the shipped catalogue', () => {
 });
 
 describe('the SEO plugin', () => {
-  it('counts what it ships: four seats, the five records, the skills, the learning step and the pages', () => {
+  it('counts what it ships: four seats, the six records, the skills, the learning step and the pages', () => {
     const seo = loadPlugin('seo');
     const contents = pluginContents(seo);
 
     expect(seo.manifest.depends).toEqual(['data-rooms', 'wiki']);
     expect(seo.manifest.lead).toBe('seo-strategist');
     expect(contents.agents).toEqual(['seo-editor', 'seo-strategist', 'seo-writer', 'serp-analyst']);
-    expect(contents.objectTypes).toEqual(['seo_audit', 'seo_batch', 'seo_keyword', 'seo_page', 'seo_prompt']);
+    expect(contents.objectTypes).toEqual(['seo_audit', 'seo_batch', 'seo_keyword', 'seo_page', 'seo_prompt', 'seo_strategy']);
     expect(contents.skills).toEqual(['ai-prompts', 'audit-site', 'feedback-to-wiki', 'onboard-client', 'page-brief', 'publish-page', 'review-page', 'serp-research', 'write-page']);
-    expect(contents.pages).toEqual(['seo', 'seo-audits', 'seo-keywords', 'seo-pages', 'seo-prompts']);
+    expect(contents.pages).toEqual(['seo', 'seo-audits', 'seo-keywords', 'seo-pages', 'seo-prompts', 'seo-strategy']);
     expect(contents.hasTrust).toBe(true);
     expect(seo.manifest.starters?.map(s => s.label)).toEqual(['Onboard a new client from their website', 'Audit a client\'s site', 'Plan pages for a client']);
   });
@@ -668,12 +668,15 @@ describe('loadWorkspace with the SEO app', () => {
     expect(team.measures.find(m => m.key === 'drafts_written')!.dimension).toBe('velocity');
   });
 
-  it('holds a direct write to a page and every publish for a person', () => {
+  it('holds a direct write to a page for a person; a signed-off page publishes as a draft on its own, and going live is always asked', () => {
     const ws = loadWorkspace(makeWorkspace('plugins: [seo]\naccountableUser: ops@northwind.example\n'));
     const rule = (action: string) => ws.trust?.rules.find(r => r.action === action);
 
     expect(rule('objects.update_meta.seo_page')).toMatchObject({ enabled: false, rung: 'execute-with-approval' });
-    expect(rule('site.publish_page')).toMatchObject({ enabled: false, rung: 'execute-with-approval' });
+    // A person approves a page once, on its run's sign-off; publishing it as an
+    // unmerged pull request or a not-live draft then runs on that.
+    expect(rule('seo.record_signoff')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', risk: 'low' });
+    expect(rule('site.publish_page')).toMatchObject({ enabled: true, rung: 'execute-within-bounds' });
     expect(rule('site.publish_live')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'high' });
   });
 

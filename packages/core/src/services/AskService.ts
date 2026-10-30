@@ -699,6 +699,11 @@ async function settleWaitersOn(row: Ask): Promise<void> {
       logger.warn('a workflow run could not hear an answered ask', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
     });
   }
+  if (row.sourceRef?.startsWith('workflow-run:') && row.sourceRef.endsWith(':signoff')) {
+    // An SEO page's sign-off on its workflow run: sent back, it is redrafted
+    // from the person's note (`services/seo/signoff.ts`).
+    await import('@/services/seo/signoff').then(m => m.onSeoWorkflowAskSettled(row)).catch(() => undefined);
+  }
   if (isSeoSignoffSource(row.sourceRef)) {
     // An SEO sign-off — a drafted page or a batch's keyword plan: the page or
     // batch moves, its project's gate is read again, and the strategist is

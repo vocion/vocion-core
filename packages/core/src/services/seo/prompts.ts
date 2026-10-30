@@ -133,6 +133,22 @@ export function promptPatch(current: SeoPromptMeta, p: PromptInput, by: string |
   return patch;
 }
 
+/**
+ * A prompt's row status, which a strategy milestone linked to it reads:
+ * `complete` once an answer names or cites the client, `dropped` when it is
+ * no longer tracked, `active` otherwise.
+ * @param orgId - The workspace.
+ * @param id - The prompt.
+ * @param meta - Its meta as written.
+ */
+async function settlePromptStatus(orgId: string, id: number, meta: SeoPromptMeta | null): Promise<void> {
+  if (!meta) {
+    return;
+  }
+  const { DONE_STATUS, setRowStatus } = await import('./strategy');
+  await setRowStatus(orgId, id, meta.status === 'dropped' ? 'dropped' : meta.visibility === 'mentioned' || meta.visibility === 'cited' ? DONE_STATUS.prompt : 'active');
+}
+
 /** Saved rows, for the tool's answer. */
 export type KeptPrompts = { project: { id: number; title: string }; rows: Array<{ id: number; prompt: string; created: boolean; visibility?: SeoPromptMeta['visibility'] }> };
 
@@ -172,8 +188,11 @@ export async function keepPrompts(orgId: string, projectId: number, items: reado
       id = existing!.id;
     }
     const written = await mergeMeta<SeoPromptMeta>(orgId, id, current => promptPatch(current, p, opts.by.startsWith('agent:') ? null : opts.by));
+    await settlePromptStatus(orgId, id, written);
     rows.push({ id, prompt: written?.prompt ?? p.prompt, created: Boolean(inserted), visibility: written?.visibility });
   }
+  const { refreshStrategy } = await import('./strategy');
+  await refreshStrategy(orgId, project.id);
   return { project: { id: project.id, title: project.title }, rows };
 }
 
@@ -252,7 +271,8 @@ export async function getPromptRows(orgId: string, ids: readonly number[]): Prom
 export async function setPromptsTracked(orgId: string, ids: readonly number[], change: { drop: boolean; why?: string }, by: string | null): Promise<string[]> {
   const out: string[] = [];
   for (const row of await getPromptRows(orgId, ids)) {
-    await mergeMeta<SeoPromptMeta>(orgId, row.id, () => ({ status: change.drop ? 'dropped' : 'tracked', ...(change.why ? { why: { text: change.why, at: new Date().toISOString(), by } } : {}) }));
+    const written = await mergeMeta<SeoPromptMeta>(orgId, row.id, () => ({ status: change.drop ? 'dropped' : 'tracked', ...(change.why ? { why: { text: change.why, at: new Date().toISOString(), by } } : {}) }));
+    await settlePromptStatus(orgId, row.id, written);
     out.push(`#${row.id} "${row.meta.prompt}": ${change.drop ? 'dropped' : 'tracked'}`);
   }
   return out;

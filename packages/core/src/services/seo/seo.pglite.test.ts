@@ -14,6 +14,10 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 vi.mock('@/services/chat/synthesis', () => ({ invalidateChipCache: vi.fn() }));
+// These tests read the hand-off as the event it raises for a workspace not
+// yet on the pipeline's workflows (`pipeline.ts`); the workflows are tested
+// in pipeline.pglite.test.ts.
+vi.mock('./pipeline', async importOriginal => ({ ...await importOriginal<typeof import('./pipeline')>(), startSeoPipeline: vi.fn(async () => false) }));
 // The follow-up the strategist is woken by is an event; record it rather than run an agent.
 const emitted = vi.hoisted(() => [] as Array<{ type: string; payload?: Record<string, unknown> }>);
 vi.mock('@/services/EventService', async (importOriginal) => {
@@ -30,7 +34,7 @@ vi.mock('@/services/feedback/duplicateDetection', async importOriginal => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { agentSchema, askSchema, automationSchema, learningCandidateSchema, modelCallSchema, projectSchema, tenantAccountSchema, trustRuleSchema } = await import('@/models/Schema');
+const { agentSchema, askSchema, automationSchema, learningCandidateSchema, modelCallSchema, projectSchema, tenantAccountSchema, trustRuleSchema, workflowSchema } = await import('@/models/Schema');
 const { installPluginBundles } = await import('@/services/plugins/installBundle');
 const { getObjectTypeBySlug } = await import('@/services/BusinessObjectService');
 const { createDataRoom, getDataRoom, updateDataRoom } = await import('@/services/DataRoomService');
@@ -171,7 +175,13 @@ describe('installing the SEO app on a workspace with no folder', () => {
     const rules = await db.select().from(trustRuleSchema).where(eq(trustRuleSchema.orgId, ORG));
 
     expect(rules.find(r => r.actionId === 'objects.update_meta.seo_page')?.enabled).toBe('false');
-    expect((await db.select().from(automationSchema).where(and(eq(automationSchema.orgId, ORG), eq(automationSchema.slug, 'seo-continue')))).length).toBe(1);
+    // The page pipeline is workflows, not a hidden automation.
+    expect((await db.select().from(automationSchema).where(and(eq(automationSchema.orgId, ORG), eq(automationSchema.slug, 'seo-continue')))).length).toBe(0);
+
+    const flows = await db.select({ slug: workflowSchema.slug, status: workflowSchema.status }).from(workflowSchema).where(eq(workflowSchema.orgId, ORG));
+
+    expect(flows.map(f => f.slug).sort()).toEqual(['seo-batch', 'seo-opportunities', 'seo-page', 'seo-plan']);
+    expect(flows.every(f => f.status === 'active')).toBe(true);
   });
 });
 
@@ -625,7 +635,7 @@ describe('writing runs in the background, and the editor\'s loop is code', () =>
     await call('seo_save_brief', { page_id: pageId, brief_artifact_id: await markdown('Brief checklist') });
 
     expect(await call('seo_save_draft', { page_id: pageId, draft_artifact_id: await markdown('Draft checklist', 'seo/drafts'), ...meta('wedding-venue-checklist') }, { missionRunId: undefined })).toMatch(/^Not saved: writing and reviewing run in the background/);
-    expect(await call('seo_start_writing', { batch_id: batchId }, { conversationId: 9200 })).toMatch(/^Queued 1 page of batch/);
+    expect(await call('seo_start_writing', { batch_id: batchId }, { conversationId: 9200 })).toMatch(/^Started 1 page of batch/);
     expect(emitted.filter(e => e.type === 'seo.work_queued').at(-1)).toMatchObject({ payload: { reason: 'write', batchId, writable: 1 } });
     expect((await getSeoBatch(ORG, batchId))?.meta.conversationId).toBe(9200);
   });

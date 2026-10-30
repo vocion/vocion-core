@@ -6,7 +6,7 @@ description: >-
   target, always as a proposal a person approves: a pull request on a
   repository, a draft post on Squarespace. Never a page that is not approved.
   Read before publishing.
-version: 1
+version: 2
 ---
 
 # Publishing an approved page
@@ -18,9 +18,10 @@ Only a page a person signed off is published. The page's status says
    `publishTargetId`, or the batch's destination, names which one. With no
    target, ask the person where the page goes; never guess a repository or a
    site.
-2. Propose `site.publish_page` with the page, the target and the approved
-   draft. A person approves the card, which shows the target, the path or URL,
-   the title, the meta description and a preview.
+2. A page's workflow run publishes it itself, right after the person signs
+   it off: `site.publish_page` runs on that sign-off with no second card.
+   Outside a run, propose `site.publish_page` with the page; it runs on the
+   page's sign-off, and anything not signed off waits on its card.
    - A repository: one commit on its own branch and a pull request. Nobody
      merges it but the client's own people.
    - Squarespace: a browser run saves the post as a draft. Going live is

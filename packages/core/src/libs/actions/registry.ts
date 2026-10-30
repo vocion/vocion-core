@@ -54,6 +54,7 @@ import { repoCommentPullAction } from './repo-comment-pull';
 import { repoSubmitReviewAction } from './repo-submit-review';
 import { restRequestAction } from './rest';
 import { reviewDeclineAction } from './review-decline';
+import { seoRecordSignoffAction } from './seo-record-signoff';
 import { seoSaveProfileAction } from './seo-save-profile';
 import { sitePublishLiveAction, sitePublishPageAction } from './site-publish-page';
 import { slackPostMessageAction } from './slack-post-message';
@@ -157,6 +158,8 @@ registerAction(viewSaveAction);
 registerAction(goalCreateAction);
 // A client's SEO profile, drafted from their site on onboarding and saved by a person on one card (`seo-save-profile.ts`).
 registerAction(seoSaveProfileAction);
+// A person's sign-off on an SEO page, from its workflow run's approve step, written onto the page in code (`seo-record-signoff.ts`).
+registerAction(seoRecordSignoffAction);
 // Many open decisions on the Review queue declined in one move, on one card the person approves (`review-decline.ts`).
 registerAction(reviewDeclineAction);
 // Start the build: approve the plan, queue the engineer on the task contract.
