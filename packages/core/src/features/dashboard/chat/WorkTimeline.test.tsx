@@ -123,6 +123,36 @@ describe('WorkTimeline three-level transcript', () => {
     expect(container.querySelector('[role="status"]')?.textContent).toBe('Editing proposal.md…');
   });
 
+  it('shows completed work during a long turn without exposing reasoning or result payloads', async () => {
+    const live: TraceNode[] = [
+      { ...TRACE[0]!, status: 'progress', text: 'PRIVATE REASONING' },
+      { ...TRACE[1]!, resultDetail: 'RAW RESULT' },
+      { id: 'report', actor, kind: 'tool', status: 'done', label: 'Read the balance sheet' },
+      { id: 'failed', actor, kind: 'tool', status: 'error', label: 'Read the ledger', result: 'PRIVATE ERROR' },
+    ];
+    await render(<WorkTimeline runs={[]} streaming trace={live} activity="Thinking…" elapsed={124} />);
+
+    await expect.element(page.getByRole('status')).toHaveTextContent('Working with the results…');
+
+    const checkpoint = page.getByTestId('work-checkpoint');
+
+    await expect.element(checkpoint).toHaveTextContent('Read the balance sheet');
+    await expect.element(checkpoint).toHaveTextContent('1 failed step');
+    await expect.element(checkpoint).not.toHaveTextContent('PRIVATE');
+    await expect.element(checkpoint).not.toHaveTextContent('RAW RESULT');
+
+    await userEvent.click(page.getByTestId('streaming-indicator').getByRole('button'));
+
+    await expect.element(checkpoint).not.toBeInTheDocument();
+  });
+
+  it('a generic thinking event cannot hide the actual running operation', async () => {
+    await render(<WorkTimeline runs={[]} streaming trace={[{ ...TRACE[1]!, status: 'progress', label: 'Reading sources…', progress: '4 of 8' }]} activity="Analyst is thinking…" elapsed={12} />);
+
+    await expect.element(page.getByRole('status')).toHaveTextContent('Reading sources (4 of 8)');
+    await expect.element(page.getByTestId('work-checkpoint')).not.toBeInTheDocument();
+  });
+
   it('thinking only: the line says so, and opens onto the reasoning', async () => {
     const thinking: TraceNode[] = [{ ...TRACE[0]!, status: 'progress' }];
     await render(<WorkTimeline runs={[]} streaming trace={thinking} activity={null} />);
