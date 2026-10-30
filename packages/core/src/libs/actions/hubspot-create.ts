@@ -13,7 +13,8 @@
 import type { Action } from './types';
 import { z } from 'zod';
 import { createHubspotClient } from '@/libs/hubspot/client';
-import { freshHubspotToken, hubspotDirect } from './hubspot-update';
+import { hubspotRecordUrl } from '@/libs/hubspot/recordUrl';
+import { configuredHubspotPortal, freshHubspotToken, hubspotDirect } from './hubspot-update';
 
 type ObjectType = 'contacts' | 'deals' | 'companies';
 
@@ -147,10 +148,12 @@ export const hubspotCreateAction: Action<typeof hubspotCreateInput> = {
     if (!res.data.id) {
       throw new Error('HubSpot create returned no record id');
     }
+    const url = await hubspotRecordUrl(client, input.objectType, res.data.id, await configuredHubspotPortal(ctx));
     return {
       objectType: input.objectType,
       objectId: res.data.id,
       ref: `${input.objectType}:${res.data.id}`,
+      ...(url ? { url } : {}),
       associated: input.associations.map(a => `${a.toObjectType}:${a.toObjectId}`),
       createdAt: res.data.createdAt ?? null,
     };

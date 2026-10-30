@@ -41,6 +41,9 @@ export type ResultLink = {
 
 type Meta = Record<string, unknown>;
 
+/** A workspace record's id is a serial (int4): a larger number is some other system's id. */
+const WORKSPACE_ID_MAX = 2_147_483_647;
+
 function positiveInt(v: unknown): number | null {
   const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v) : Number.NaN;
   return Number.isInteger(n) && n > 0 ? n : null;
@@ -125,9 +128,14 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
   }
 
   // The record it made or changed (`objects.*` return `objectId` / `id`).
-  const objectId = positiveInt(result.objectId) ?? positiveInt(result.id);
+  // A record in another system names itself by `ref` (`deals:67204827168`):
+  // its id is that system's, never a workspace record's, so it is linked by
+  // its own page (`url`, below) and never opened as one here (a teammate's
+  // walk, 2026-10-30: a HubSpot deal's chip opened a preview of nothing).
+  const outside = typeof result.ref === 'string' && /^[a-z_]+:\d+$/i.test(result.ref);
+  const objectId = outside ? null : positiveInt(result.objectId) ?? positiveInt(result.id);
   const objectType = typeof result.objectType === 'string' ? result.objectType : typeof input.objectType === 'string' ? input.objectType : null;
-  if (objectId !== null && objectType && objectType !== run.actionId) {
+  if (objectId !== null && objectId <= WORKSPACE_ID_MAX && objectType && objectType !== run.actionId) {
     const href = link({ objectType, id: objectId });
     push({ label: named(href, objectType, words(objectType), objectId), href, ref: recordRef(objectType, objectId) });
   }
@@ -156,7 +164,9 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
   for (const { key, label } of URL_KEYS) {
     const url = result[key];
     if (typeof url === 'string' && /^https?:\/\//.test(url.trim())) {
-      push({ label: key === 'link' && ownLabel ? ownLabel : label, href: url.trim(), external: true });
+      // A record's own page reads as the record ("Northwind renewal"), not "Open".
+      const recordName = key === 'url' && typeof result.name === 'string' && result.name.trim() ? result.name.trim() : null;
+      push({ label: recordName ?? (key === 'link' && ownLabel ? ownLabel : label), href: url.trim(), external: true });
       break;
     }
   }

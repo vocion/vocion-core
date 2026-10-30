@@ -80,6 +80,22 @@ describe('done for you — the update records what it replaced, and undo puts it
     expect((f.mock.calls[1] as unknown as [string, RequestInit])[1].method).toBe('PATCH');
   });
 
+  it('names the record from the same read and links its HubSpot page, so the Done line says which deal changed', async () => {
+    const f = vi.fn(async (url: string, init?: RequestInit) => (init?.method === 'PATCH'
+      ? res({ id: '4812', updatedAt: '2026-10-30T15:00:00Z' })
+      : String(url).includes('/account-info/')
+        ? res({ portalId: 2040 })
+        : res({ id: '4812', properties: { amount: '120000', dealname: 'Northwind renewal' } })));
+    vi.stubGlobal('fetch', f);
+
+    const out = await hubspotUpdateAction.execute({ orgId: 'o', credentials: { token: 't' } }, parse({ objectType: 'deals', objectId: '4812', properties: { amount: 80000 } }));
+
+    expect(String((f.mock.calls[0] as unknown as [string])[0])).toContain('dealname');
+    expect(out).toMatchObject({ name: 'Northwind renewal', ref: 'deals:4812', url: 'https://app.hubspot.com/contacts/2040/record/0-3/4812' });
+    // The name is read, never written back on undo.
+    expect(out.previous).toEqual({ amount: '120000' });
+  });
+
   it('still writes when the read fails — the run then has nothing to restore, and says so', async () => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => (init?.method === 'PATCH' ? res({ id: '4812' }) : res({}, false))));
 

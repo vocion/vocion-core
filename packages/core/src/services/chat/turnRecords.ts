@@ -60,13 +60,16 @@ async function threadFilings(orgId: string, conversationId: number, limit: numbe
       eq(actionRunSchema.status, 'done'),
       sql`${actionRunSchema.proposal} -> 'origin' ->> 'conversationId' = ${String(conversationId)}`,
       sql`${actionRunSchema.result} ->> 'objectId' is not null`,
+      // A record in another system names itself by `ref` (`deals:123`); its id is not one of ours.
+      sql`coalesce(${actionRunSchema.result} ->> 'ref', '') !~* '^[a-z_]+:[0-9]+$'`,
     ))
     .orderBy(desc(actionRunSchema.id))
     .limit(limit);
   const seen = new Set<number>();
   return rows.flatMap((r) => {
     const id = Number(r.id);
-    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) {
+    // A CRM run's `objectId` is HubSpot's, past a workspace record's int4 id: not a record here.
+    if (!Number.isInteger(id) || id <= 0 || id > 2_147_483_647 || seen.has(id)) {
       return [];
     }
     seen.add(id);

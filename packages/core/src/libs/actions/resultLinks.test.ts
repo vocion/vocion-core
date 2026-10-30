@@ -63,4 +63,16 @@ describe('what a done run made, as links (Chris, 2026-09-29: "I expected a path 
       { label: 'Open', href: draft.link, external: true },
     ]);
   });
+
+  it('a record in another system links its own page by name, never as a workspace record (a HubSpot deal, 2026-10-30)', () => {
+    const links = resultLinks({
+      actionId: 'hubspot.update',
+      input: { objectType: 'deals', objectId: '67204827168' },
+      result: { objectType: 'deals', objectId: '67204827168', ref: 'deals:67204827168', name: 'Northwind renewal', url: 'https://app.hubspot.com/contacts/2040/record/0-3/67204827168' },
+    }, link);
+
+    expect(links).toEqual([{ label: 'Northwind renewal', href: 'https://app.hubspot.com/contacts/2040/record/0-3/67204827168', external: true }]);
+    // An id past a workspace record's range is never one, even without a ref.
+    expect(resultLinks({ actionId: 'x.update', input: {}, result: { objectType: 'deals', objectId: '67204827168' } }, link)).toEqual([]);
+  });
 });

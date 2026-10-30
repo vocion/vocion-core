@@ -1,10 +1,10 @@
 'use client';
 
 import type { DoneReceipt } from '@/libs/decisions/receipt';
-import { Check, RotateCcw } from 'lucide-react';
+import { Check, CircleAlert, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { announceSetupChanged } from '@/features/dashboard/setupChanged';
-import { changesText } from '@/libs/decisions/receipt';
+import { changesText, receiptVerb } from '@/libs/decisions/receipt';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
@@ -24,6 +24,10 @@ type UndoState = Record<number, 'working' | 'undone' | 'failed'>;
  * (`libs/actions/undoable.ts`): an email that went out says Done and nothing
  * else, because nothing can unsend it. Undo is the review queue's own call
  * (`review.undoAction`), so there is one undo path in the product.
+ *
+ * A run that failed says so on the same line, "Didn't run. <record>: <why>",
+ * so what happened is on screen whatever the reply says (a teammate's walk,
+ * 2026-10-30: a failed update was answered "queued for approval").
  * @param props - The receipts.
  * @param props.receipts - What the turn did.
  */
@@ -47,6 +51,15 @@ export function DoneReceipts({ receipts }: { receipts: DoneReceipt[] }) {
   return (
     <ul className="mt-3 space-y-1" data-testid="done-receipts">
       {receipts.map((r) => {
+        if (r.status === 'failed') {
+          return (
+            <li key={r.runId} className="flex flex-wrap items-baseline gap-x-1.5 text-[13px] text-muted-foreground" data-testid={`done-receipt-${r.runId}`} data-status="failed">
+              <CircleAlert className="size-3.5 shrink-0 self-center text-[var(--brand-fail)]" aria-hidden />
+              <span className="shrink-0 font-medium text-foreground/85">Didn't run.</span>
+              <span className="min-w-0 break-words">{`${r.record?.label ?? r.label}${r.error ? `: ${r.error}` : ''}`}</span>
+            </li>
+          );
+        }
         const state = r.status === 'undone' ? 'undone' : undo[r.runId];
         const external = (href: string) => /^https:\/\//.test(href);
         const linkTo = (href: string | undefined, text: string) => (href
@@ -70,10 +83,17 @@ export function DoneReceipts({ receipts }: { receipts: DoneReceipt[] }) {
             ? (
                 <>
                   {linkTo(r.record.href ?? r.href, r.record.label)}
-                  {` updated: ${changesText(r.changes)}`}
+                  {` ${receiptVerb(r)}: ${changesText(r.changes)}`}
                 </>
               )
-            : linkTo(r.href, r.label);
+            : r.record && r.created
+              ? (
+                  <>
+                    {linkTo(r.record.href ?? r.href, r.record.label)}
+                    {' created'}
+                  </>
+                )
+              : linkTo(r.href, r.label);
         return (
           <li key={r.runId} className="flex flex-wrap items-baseline gap-x-1.5 text-[13px] text-muted-foreground" title={r.why} data-testid={`done-receipt-${r.runId}`} data-undoable={r.undoable}>
             {state === 'undone'

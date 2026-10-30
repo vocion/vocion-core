@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { amountLabel, confidenceLabel, describeActionRun, humaniseField, recordTitle } from './describeActionRun';
+import { amountLabel, confidenceLabel, describeActionRun, hubspotValueLabel, humaniseField, recordTitle } from './describeActionRun';
 
 const base = { id: 1, invokedBy: 'agent:revenue-lead' as string | null };
 
@@ -166,5 +166,33 @@ describe('a proposal the action named (SEO walk 2, 2026-10-27)', () => {
     const d = describeActionRun({ ...base, actionId: 'site.publish_page', input: { pageRecordId: 12 }, proposal: { confidence: 0.9 } });
 
     expect(d.title).not.toContain('Choosing');
+  });
+
+  it('reads HubSpot values the way a person does: money as money, a probability as a percentage, old → new', () => {
+    const d = describeActionRun({
+      ...base,
+      actionId: 'hubspot.update',
+      input: { objectType: 'deals', objectId: '7781', properties: { amount: '80000', hs_deal_stage_probability: '0.9' }, previous: { amount: '120000', hs_deal_stage_probability: '0.7' } },
+      proposal: {},
+    });
+
+    expect(d.changes).toEqual([
+      { field: 'amount', from: '$120,000', to: '$80,000' },
+      { field: 'hs_deal_stage_probability', from: '70%', to: '90%' },
+    ]);
+    expect(hubspotValueLabel('hs_deal_stage_probability', 90, null)).toBe('90%');
+  });
+
+  it('hubspot.create is a record made, named by its name and not listing it as a change', () => {
+    const d = describeActionRun({
+      ...base,
+      actionId: 'hubspot.create',
+      input: { objectType: 'deals', properties: { dealname: 'Northwind renewal', amount: '120000', hs_deal_stage_probability: '0.7' } },
+      proposal: {},
+    });
+
+    expect(d.creates).toBe(true);
+    expect(d.record?.name).toBe('Northwind renewal');
+    expect(d.changes).toEqual([{ field: 'amount', to: '$120,000' }, { field: 'hs_deal_stage_probability', to: '70%' }]);
   });
 });

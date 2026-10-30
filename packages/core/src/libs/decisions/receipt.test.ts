@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { outcomeOf, readDoneReceipt, receiptText } from './receipt';
+import { failureReason, outcomeOf, readDoneReceipt, receiptText } from './receipt';
 
 describe('the Done line (a HubSpot deal update, 2026-10-28)', () => {
   it('reads "Done. <record> updated: <field> old → new", the record its link', () => {
@@ -20,8 +20,18 @@ describe('the Done line (a HubSpot deal update, 2026-10-28)', () => {
   it('falls back to its label, and survives a reload with what it carries', () => {
     expect(receiptText({ runId: 2, actionId: 'objects.rename', label: 'Renamed the board', undoable: true })).toBe('Done. Renamed the board');
 
-    const back = readDoneReceipt({ runId: 3, actionId: 'hubspot.update', label: 'Update', undoable: true, record: { label: 'Northwind renewal', href: 'https://evil.example' }, changes: [{ field: 'Stage', to: 'Won' }, { bad: true }], why: 'Within the trust bar.' });
+    const back = readDoneReceipt({ runId: 3, actionId: 'hubspot.update', label: 'Update', undoable: true, record: { label: 'Northwind renewal', href: 'javascript:alert(1)' }, changes: [{ field: 'Stage', to: 'Won' }, { bad: true }], why: 'Within the trust bar.' });
 
     expect(back).toEqual({ runId: 3, actionId: 'hubspot.update', label: 'Update', undoable: true, record: { label: 'Northwind renewal' }, changes: [{ field: 'Stage', to: 'Won' }], why: 'Within the trust bar.' });
+  });
+
+  it('says "created" for a record it made, links its own page, and says plainly when a run did not run', () => {
+    expect(receiptText({ runId: 4, actionId: 'hubspot.create', label: 'Create', undoable: true, created: true, record: { label: 'Northwind renewal' }, changes: [{ field: 'Amount', to: '$120,000' }] })).toBe('Done. Northwind renewal created: Amount: $120,000');
+    expect(readDoneReceipt({ runId: 5, actionId: 'hubspot.update', label: 'Update', undoable: true, record: { label: 'Northwind renewal', href: 'https://app.hubspot.com/contacts/1/record/0-3/2' } })?.record?.href).toBe('https://app.hubspot.com/contacts/1/record/0-3/2');
+
+    const failed = readDoneReceipt({ runId: 6, actionId: 'hubspot.update', label: 'Update', undoable: false, status: 'failed', error: 'HubSpot update failed: HubSpot API error 404', record: { label: 'Northwind renewal' } });
+
+    expect(failed && receiptText(failed)).toBe('Didn\'t run. Northwind renewal: HubSpot update failed: HubSpot API error 404');
+    expect(failureReason('HubSpot update failed: HubSpot API error 404: {"status":"error","message":"resource not found"}')).toBe('HubSpot update failed: HubSpot API error 404');
   });
 });
