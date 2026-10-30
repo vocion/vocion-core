@@ -47,9 +47,9 @@ test('Personal first, then by recent use, the placeholder last, never a raw id',
   await expect(page.getByTestId('workspaces-page')).not.toContainText('proj-');
   await expect(rows().nth(1).getByTestId('workspace-row-line')).toHaveText(/^Atlas · 7 agents · active \d+[smh] ago$/);
   await expect(rows().nth(3).getByTestId('workspace-row-line')).toHaveText('Empty');
-  // Where the person is, and what waits on them.
+  // Show the current workspace without exposing review counts from other workspaces.
   await expect(rows().nth(1).getByTestId('workspace-row-current')).toBeVisible();
-  await expect(rows().nth(2).getByTestId('workspace-row-waiting')).toHaveText('1');
+  await expect(rows().nth(2).getByTestId('workspace-row-waiting')).toHaveCount(0);
 });
 
 test('archived ones wait behind "Show archived"', async () => {
