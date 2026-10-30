@@ -28,14 +28,15 @@ function dayOf(iso: string, timeZone: string): string {
  * @param props
  * @param props.r - The reading.
  * @param props.timeZone - The workspace's zone.
+ * @param props.compact
  */
-function Figure({ r, timeZone }: { r: MeasureReading; timeZone: string }) {
+function Figure({ r, timeZone, compact = false }: { r: MeasureReading; timeZone: string; compact?: boolean }) {
   const date = r.at ? `${r.atLabel ?? 'as of'} ${dayOf(r.at, timeZone)}` : null;
   const note = [r.note, date].filter(Boolean).join(' · ') || undefined;
   // A figure is a number; a reading in words ("2 of 5 milestones done") is
   // set at body size so it does not shout over the numbers beside it.
   const words = /[a-z]{3}/i.test(r.value.replace(/^[A-Z]{0,3}\$|^€|^£/, ''));
-  const value = words ? <span className="block text-[15px] leading-snug font-medium tracking-normal">{r.value}</span> : r.value;
+  const value = words || compact ? <span className="block text-[15px] leading-snug font-medium tracking-normal">{r.value}</span> : r.value;
   return <Stat id={r.key} data-testid={`home-measure-${r.key}`} label={r.label} value={value} note={note} href={r.href ?? undefined} />;
 }
 
@@ -101,14 +102,14 @@ export async function ProjectsSection({ orgId, scope, timeZone }: { orgId: strin
       data-testid="home-projects"
       action={<Link href="/dashboard/projects" className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">{more > 0 ? t('projects_more', { count: more }) : t('projects_all')}</Link>}
     >
-      <div className="space-y-6">
+      <div className="grid gap-3 lg:grid-cols-2">
         {projects.map(p => (
-          <div key={p.id} data-testid="home-project" data-project={p.title}>
+          <div key={p.id} data-testid="home-project" data-project={p.title} className="rounded-xl border border-border/70 p-4">
             <Link href={p.href} className="text-[15px] font-semibold text-foreground underline-offset-4 hover:underline">{p.title}</Link>
             {p.readings.length > 0
               ? (
-                  <StatRow className="mt-2 grid-cols-2 border-b-0 py-3">
-                    {p.readings.map(r => <Figure key={r.key} r={r} timeZone={timeZone} />)}
+                  <StatRow className="mt-3 grid-cols-2 gap-3 border-0 py-0 sm:grid-cols-2">
+                    {p.readings.map(r => <Figure key={r.key} r={r} timeZone={timeZone} compact />)}
                   </StatRow>
                 )
               : <p className="mt-1 text-[13px] text-muted-foreground">{t('project_nothing')}</p>}
