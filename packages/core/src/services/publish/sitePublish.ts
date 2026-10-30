@@ -470,7 +470,7 @@ export async function settlePull(follow: PullFollow): Promise<{ done: boolean; l
   if (res.data.merged) {
     const at = res.data.merged_at ?? new Date().toISOString();
     const line = `Merged ${follow.url.replace('https://github.com/', '')}: the page is on the site's main branch.`;
-    await recordOnPage(follow.orgId, follow.pageRecordId, { status: 'published', publishing: { kind: 'github', url: follow.url, mergedAt: at, note: line } });
+    await recordOnPage(follow.orgId, follow.pageRecordId, { status: 'published', publishedAt: at, publishing: { kind: 'github', url: follow.url, mergedAt: at, note: line } });
     await markRunLive(follow.orgId, follow.actionRunId, { at, url: follow.url, how: 'merged' });
     return { done: true, line };
   }
@@ -813,7 +813,7 @@ export async function settlePublishRun(input: SettleInput): Promise<{ done: bool
     const line = input.phase === 'live'
       ? `"${input.title}" is live at ${live.url}.`
       : `"${input.title}" is live at ${live.url}: it went live during the draft run, which was told only to save a draft.`;
-    await recordOnPage(input.orgId, input.pageRecordId, { status: 'published', publishedUrl: live.url, publishing: { kind: 'squarespace', phase: input.phase, ...runRef, readBackAt: at, note: line } });
+    await recordOnPage(input.orgId, input.pageRecordId, { status: 'published', publishedUrl: live.url, publishedAt: at, publishing: { kind: 'squarespace', phase: input.phase, ...runRef, readBackAt: at, note: line } });
     await markRunLive(input.orgId, input.actionRunId, { at, url: live.url, how: 'read-back' });
     return { done: true, line };
   }

@@ -249,6 +249,12 @@ nav: [Software factory, Production Watch] # the nav.section labels it owns
   app's first section. Everything no app owns stays with Workforce, exactly
   where it was. A workspace page that names an app's section is a
   customisation of that app and sits inside it — never an app of its own.
+- **It opens on its home.** An app that declares `home:` (launch tiles,
+  workspace and per-project measures) opens on `/dashboard/apps/<id>/home`:
+  a greeting and an ask bar to its lead, the tiles, what needs you, how each
+  project stands, and what is running. Home is its first nav row, above Chat;
+  after the first visit the rail opens the app where the person left it. See
+  [the app manifest](./entities/app-manifest.md#home--where-the-app-opens).
 - **The URL says the app.** A page an app owns (its pages, its surfaces, a core
   route its plugin owns) opens in that app, so a link or a refresh lands right.
   Shared pages — Chat, Review, the wiki, a record — keep the app you were in.

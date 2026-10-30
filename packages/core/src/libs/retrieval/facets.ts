@@ -180,6 +180,16 @@ const DECLARED: FacetSet[] = [
       { name: 'status', kind: 'text', path: 'status', description: 'payment status' },
     ],
   },
+  {
+    id: 'finance.account',
+    connector: 'quickbooks',
+    match: { key: 'objectType', value: 'account' },
+    noun: 'account',
+    facets: [
+      { name: 'account_type', kind: 'text', path: 'accountType', description: 'the ledger account type, e.g. Bank' },
+      { name: 'balance', kind: 'number', path: 'balance', description: 'its balance' },
+    ],
+  },
 ];
 
 export const FACET_SETS: readonly FacetSet[] = DECLARED.map(s => ({ ...s, facets: [...s.facets, UPDATED_AT] }));
@@ -353,6 +363,15 @@ export function handlesOf(person: { email?: string | null; name?: string | null 
  * @param metadata - The metadata column.
  * @param spec - The facet.
  */
+/**
+ * A facet's text in SQL, for a caller that aggregates it (`runStateQuery`'s `sum`).
+ * @param metadata - The metadata column.
+ * @param spec - The facet.
+ */
+export function facetSqlOf(metadata: SQL, spec: FacetSpec): SQL {
+  return fieldOf(metadata, spec);
+}
+
 function fieldOf(metadata: SQL, spec: FacetSpec): SQL {
   const path = (spec.path ?? `facets.${spec.name}`).split('.');
   return sql`(${metadata} #>> ${`{${path.join(',')}}`})`;

@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { parse as parseYaml } from 'yaml';
 import { firstSentence } from '@/components/patterns/frontDoor';
 import { workspaceAppNav } from '@/features/dashboard/workspaceAppNav';
-import { groupPluginsByApp, installedApps } from '@/features/navigation/apps';
+import { appEntryPath, groupPluginsByApp, installedApps } from '@/features/navigation/apps';
 import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
 import { SURFACES } from '@/features/navigation/surfaces';
 import { db } from '@/libs/DB';
@@ -177,7 +177,7 @@ export async function listAppOffers(orgId: string): Promise<AppOffer[]> {
       job: firstSentence(app.description),
       core: app.core,
       added: app.core || added.has(app.id),
-      href: hrefOf.get(app.id) ?? app.entry,
+      href: hrefOf.get(app.id) ?? appEntryPath(app),
       features,
       agents: unique(own.flatMap(p => namesIn(p, 'agents', 'name', slug => slug.endsWith('.system-prompt')))),
       pages,

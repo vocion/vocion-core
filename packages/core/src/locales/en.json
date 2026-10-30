@@ -85,7 +85,8 @@
     "app_not_here_open": "Open it in",
     "app_not_here_dismiss": "Dismiss",
     "picker_agents": "{count, plural, one {# agent} other {# agents}}",
-    "picker_active": "active {ago}"
+    "picker_active": "active {ago}",
+    "app_home": "Home"
   },
   "Dashboard": {
     "meta_title": "Vocion",
@@ -1105,5 +1106,41 @@
     "learningUnknown": "Reviewed gold standards, independent holdout coverage, and validated improvement: not yet measured. A reference answer is not automatically a reviewed gold standard.",
     "evalDetail": "Dataset v{version} · grader {provider} · latest run {status} · pass rate {rate}",
     "evalFreshness": "A displayed pass rate requires a successful run on this dataset version after its last edit, within 30 days, with a recorded configuration SHA. It does not prove the current configuration improved."
+  },
+  "AppHome": {
+    "greeting_morning": "Good morning, {name}",
+    "greeting_afternoon": "Good afternoon, {name}",
+    "greeting_evening": "Good evening, {name}",
+    "greeting_morning_plain": "Good morning",
+    "greeting_afternoon_plain": "Good afternoon",
+    "greeting_evening_plain": "Good evening",
+    "ask_placeholder": "Ask the {app} team…",
+    "ask_send": "Send",
+    "start": "Start something",
+    "tile_start": "Start",
+    "tile_open": "Open",
+    "tile_run": "Run",
+    "tile_drop": "Or drop a {types} file here",
+    "tile_dropping": "Attaching…",
+    "tile_drop_failed": "That file could not be attached. Try again from chat.",
+    "needs_you": "Needs you",
+    "needs_you_in_chat": "Waiting in a chat",
+    "needs_you_open_chat": "Answer it in its chat",
+    "needs_you_failed": "That answer did not go through.",
+    "standing": "Where things stand",
+    "projects": "Projects",
+    "projects_all": "All projects",
+    "projects_more": "{count} more",
+    "project_nothing": "Nothing to show for this project yet.",
+    "running": "Running now",
+    "recent": "Recently made",
+    "started": "started {date}",
+    "updated": "updated {date}",
+    "run_state": {
+      "planning": "Starting",
+      "running": "Running",
+      "paused": "Paused",
+      "awaiting_review": "Waiting on you"
+    }
   }
 }

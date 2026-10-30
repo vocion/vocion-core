@@ -140,3 +140,61 @@ export function announcePlace(slug: string, app: string): void {
   }
   globalThis.dispatchEvent?.(new Event(NAV_PLACE_EVENT));
 }
+
+/**
+ * Where the person last was IN EACH APP of a workspace, so an app opens where
+ * they left it (founder, 2026-10-23: "opens where you left it"), and on its
+ * home the first time (founder, 2026-10-30). Only a page the app owns is a
+ * place in it: Chat and Review are every app's, and stay out.
+ */
+export const NAV_APP_PLACES_KEY = 'vocion:nav:app-places';
+
+/** Paths by app id, for one workspace. */
+export type AppPlaces = Record<string, string>;
+
+function readAppPlaces(storage: StorageLike | null | undefined): Record<string, AppPlaces> {
+  try {
+    const raw = storage?.getItem(NAV_APP_PLACES_KEY);
+    const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    const out: Record<string, AppPlaces> = {};
+    for (const [slug, places] of Object.entries(parsed)) {
+      if (places && typeof places === 'object') {
+        out[slug] = Object.fromEntries(Object.entries(places as Record<string, unknown>).filter(([, p]) => typeof p === 'string' && p.startsWith('/'))) as AppPlaces;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The person's last page in each app of one workspace.
+ * @param storage - `localStorage`, or a stand-in.
+ * @param slug - The workspace's slug.
+ */
+export function appPlacesIn(storage: StorageLike | null | undefined, slug: string | null | undefined): AppPlaces {
+  return slug ? readAppPlaces(storage)[slug] ?? {} : {};
+}
+
+/**
+ * Remember the person's page in one app of a workspace. Keeps the newest
+ * {@link MAX_REMEMBERED} workspaces.
+ * @param storage - `localStorage`, or a stand-in.
+ * @param slug - The workspace's slug.
+ * @param app - The app.
+ * @param path - A page the app owns.
+ */
+export function rememberAppPlace(storage: StorageLike | null | undefined, slug: string, app: string, path: string): void {
+  try {
+    const all = readAppPlaces(storage);
+    if (all[slug]?.[app] === path) {
+      return;
+    }
+    const { [slug]: mine, ...others } = all;
+    const kept = Object.entries(others).slice(-(MAX_REMEMBERED - 1));
+    storage?.setItem(NAV_APP_PLACES_KEY, JSON.stringify({ ...Object.fromEntries(kept), [slug]: { ...mine, [app]: path } }));
+  } catch {
+    // private mode / quota — the app opens on its home
+  }
+}

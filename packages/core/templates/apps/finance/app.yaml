@@ -9,3 +9,55 @@ description: The books coded, the month closed and the board told, with every ch
 plugins: [finance]
 entry: /dashboard/p/account-rules
 nav: [Finance]
+# Where the app opens: the ask bar to the controller, what to start, what
+# waits on you, and the books as they stand, each figure dated by the sync it
+# came from (AppHomeSchema, docs/entities/app-manifest.md).
+home:
+  launch:
+    - title: Set up Finance
+      description: Connect the books and put your entities and account rules on file.
+      icon: settings
+      ask: Set up Finance for this workspace.
+      first: true
+    - title: Close the month
+      description: Sequence this month's close, name the blockers and say if the date is at risk.
+      icon: calendar-check
+      ask: Start this month's close. Sequence the tasks, name what is blocking each one, and tell me if the close date is at risk.
+    - title: Code expenses
+      description: Put this week's card and bank expenses in the right accounts, and ask about anything new.
+      icon: tags
+      ask: Code this week's card and bank expenses against our account rules. Ask me about any vendor you have not seen before.
+    - title: Chase overdue invoices
+      description: Overdue invoices by age, with a follow-up drafted for each one worth chasing.
+      icon: receipt
+      ask: List our overdue invoices by age and draft a follow-up for each one worth chasing.
+    - title: Check project margins
+      description: Which projects are below their margin target, and why.
+      icon: percent
+      ask: Which projects are below their margin target?
+    - title: Prepare the statements
+      description: Last month's profit and loss and balance sheet, ready to send.
+      icon: file-text
+      ask: Prepare last month's profit and loss and balance sheet.
+  measures:
+    - key: close
+      label: This month's close
+      source: mission
+      mission: close-the-month
+    - key: approvals
+      label: Waiting on your approval
+      source: approvals
+      actions: [finance.*]
+      href: /dashboard/inbox
+    - key: cash
+      label: Cash in the bank
+      source: state
+      query: {sets: [finance.account], filter: {account_type: Bank}}
+      sum: balance
+      format: money
+    - key: overdue
+      label: Overdue invoices
+      source: state
+      view: overdue-invoices
+      sum: balance
+      format: money

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appFromNavCookie, MAX_REMEMBERED, NAV_WHERE_KEY, navAppCookieValue, placeIn, readPlaces, rememberPlace } from './workspaceMemory';
+import { appFromNavCookie, appPlacesIn, MAX_REMEMBERED, NAV_APP_PLACES_KEY, NAV_WHERE_KEY, navAppCookieValue, placeIn, readPlaces, rememberAppPlace, rememberPlace } from './workspaceMemory';
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const m = new Map(Object.entries(initial));
@@ -70,5 +70,27 @@ describe('the nav app cookie', () => {
     expect(appFromNavCookie('nocolon', 'nocolon')).toBeNull();
     expect(appFromNavCookie('%E0%A4%A:gtm', 'x')).toBeNull();
     expect(appFromNavCookie(undefined, 'a')).toBeNull();
+  });
+});
+
+describe('where the person was in each app of a workspace', () => {
+  it('remembers one page per app, per workspace, so each app opens where it was left', () => {
+    const s = memoryStorage();
+    rememberAppPlace(s, 'northwind', 'seo', '/dashboard/p/seo-keywords');
+    rememberAppPlace(s, 'northwind', 'finance', '/dashboard/apps/finance/home');
+    rememberAppPlace(s, 'contoso', 'seo', '/dashboard/apps/seo/home');
+
+    expect(appPlacesIn(s, 'northwind')).toEqual({ seo: '/dashboard/p/seo-keywords', finance: '/dashboard/apps/finance/home' });
+    expect(appPlacesIn(s, 'contoso')).toEqual({ seo: '/dashboard/apps/seo/home' });
+    expect(appPlacesIn(s, 'elsewhere')).toEqual({});
+    expect(appPlacesIn(s, null)).toEqual({});
+  });
+
+  it('reads nothing from a storage that is broken, or a path that is not one', () => {
+    expect(appPlacesIn(memoryStorage({ [NAV_APP_PLACES_KEY]: 'not json' }), 'northwind')).toEqual({});
+    expect(appPlacesIn(memoryStorage({ [NAV_APP_PLACES_KEY]: JSON.stringify({ northwind: { seo: 'no-slash', gtm: '/gtm/proposals' } }) }), 'northwind')).toEqual({ gtm: '/gtm/proposals' });
+    expect(() => rememberAppPlace({ getItem: () => null, setItem: () => {
+      throw new Error('quota');
+    } }, 'northwind', 'seo', '/x')).not.toThrow();
   });
 });

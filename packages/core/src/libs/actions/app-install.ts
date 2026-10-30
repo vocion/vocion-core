@@ -102,7 +102,7 @@ export const appInstallAction: Action<typeof appInstallInput> = {
     // plugins this core does not ship are skipped, never a failure.
     const res = await addPluginsForProject({ orgId: ctx.orgId, ...target, slugs: app.plugins.filter(p => shipped.has(p)), appliedBy: ctx.invokedBy ?? 'app.install' });
     // `before` is what undo restores; the entry is where the app opens.
-    return { added: true, app: app.id, name: app.name, entry: app.entry, before: res.before, after: res.after, mode: res.mode };
+    return { added: true, app: app.id, name: app.name, entry: (await import('@/features/navigation/apps')).appEntryPath(app), before: res.before, after: res.after, mode: res.mode };
   },
 
   async undo(ctx, _input, result) {

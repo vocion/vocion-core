@@ -28,7 +28,7 @@ vi.mock('@/services/ActionService', async () => {
 
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, askSchema } = await import('@/models/Schema');
-const { answerDecision, DecisionError, openDecisions, raiseDecision } = await import('./DecisionService');
+const { answerDecision, DecisionError, decisionsFromAgents, openDecisions, raiseDecision } = await import('./DecisionService');
 
 const ORG = 'org_decisions';
 const OTHER_ORG = 'org_decisions_other';
@@ -85,6 +85,21 @@ describe('raising a Decision', () => {
 
     expect((await openDecisions(ORG, 392)).map(d => d.id)).toEqual([a.view.id, b.view.id]);
     expect(await openDecisions(OTHER_ORG, 392)).toHaveLength(1);
+  });
+});
+
+describe('an app home\'s decisions', () => {
+  it('lists what the app\'s agents wait on the person for, in a chat or outside one, oldest first, and nothing of another app or person', async () => {
+    const inChat = await raiseRepoQuestion({ agentSlug: 'seo-strategist', question: 'Sign off the Trail shoes plan?' });
+    await raiseRepoQuestion({ agentSlug: 'controller', question: 'Post the October accruals?' });
+    await raiseRepoQuestion({ agentSlug: 'seo-strategist', ownerUserId: 'usr-someone-else', question: 'Their own sign-off' });
+    const [outside] = await db.insert(askSchema).values({ orgId: ORG, kind: 'ruling', title: 'Go live with the Fairview page?', agentSlug: 'seo-editor', status: 'open', options: [{ id: 'yes', label: 'Go live', recommended: true }, { id: 'no', label: 'Not yet' }] }).returning();
+
+    const views = await decisionsFromAgents(ORG, DANA, ['seo-strategist', 'seo-editor']);
+
+    expect(views.map(v => v.id)).toEqual([inChat.view.id, outside!.id]);
+    expect(views.map(v => v.conversationId)).toEqual([392, null]);
+    expect(await decisionsFromAgents(ORG, DANA, [])).toEqual([]);
   });
 });
 

@@ -85,7 +85,8 @@
     "app_not_here_open": "L’ouvrir dans",
     "app_not_here_dismiss": "Fermer",
     "picker_agents": "{count, plural, one {# agent} other {# agents}}",
-    "picker_active": "actif {ago}"
+    "picker_active": "actif {ago}",
+    "app_home": "Accueil"
   },
   "Dashboard": {
     "meta_title": "Vocion",
@@ -1105,5 +1106,41 @@
     "learningUnknown": "Références de qualité révisées, couverture indépendante de validation et amélioration validée : pas encore mesurées. Une réponse de référence n'est pas automatiquement une référence révisée.",
     "evalDetail": "Jeu de données v{version} · évaluateur {provider} · dernière exécution {status} · taux de réussite {rate}",
     "evalFreshness": "Un taux de réussite affiché exige une exécution réussie sur cette version du jeu de données après sa dernière modification, dans les 30 jours, avec un SHA de configuration enregistré. Il ne prouve pas que la configuration actuelle s'est améliorée."
+  },
+  "AppHome": {
+    "greeting_morning": "Bonjour, {name}",
+    "greeting_afternoon": "Bon après-midi, {name}",
+    "greeting_evening": "Bonsoir, {name}",
+    "greeting_morning_plain": "Bonjour",
+    "greeting_afternoon_plain": "Bon après-midi",
+    "greeting_evening_plain": "Bonsoir",
+    "ask_placeholder": "Demandez à l'équipe {app}…",
+    "ask_send": "Envoyer",
+    "start": "Commencer",
+    "tile_start": "Commencer",
+    "tile_open": "Ouvrir",
+    "tile_run": "Lancer",
+    "tile_drop": "Ou déposez un fichier {types} ici",
+    "tile_dropping": "Ajout en cours…",
+    "tile_drop_failed": "Ce fichier n'a pas pu être joint. Réessayez depuis le chat.",
+    "needs_you": "À vous de décider",
+    "needs_you_in_chat": "En attente dans un chat",
+    "needs_you_open_chat": "Répondre dans son chat",
+    "needs_you_failed": "Cette réponse n'a pas abouti.",
+    "standing": "Où en sont les choses",
+    "projects": "Projets",
+    "projects_all": "Tous les projets",
+    "projects_more": "{count} de plus",
+    "project_nothing": "Rien à afficher pour ce projet pour l'instant.",
+    "running": "En cours",
+    "recent": "Créé récemment",
+    "started": "lancé le {date}",
+    "updated": "mis à jour le {date}",
+    "run_state": {
+      "planning": "Démarrage",
+      "running": "En cours",
+      "paused": "En pause",
+      "awaiting_review": "Attend votre avis"
+    }
   }
 }

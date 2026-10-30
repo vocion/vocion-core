@@ -64,7 +64,7 @@ describe('plugin pages', () => {
     expect(home?.rowLink).toBe('/dashboard/p/seo-pages?batch={id}');
     expect(batch?.source).toEqual({ kind: 'objects', objectType: 'seo_page' });
     // Opened as one batch's pages, headed by the batch's gate line.
-    expect(batch?.queryFilters?.map(q => q.param)).toEqual(['batch', 'project']);
+    expect(batch?.queryFilters?.map(q => q.param)).toEqual(['batch', 'project', 'status']);
     expect(batch?.groupBy).toBe('meta.batchLine');
     expect(batch?.fields?.map(f => f.key)).toEqual(expect.arrayContaining(['keyword', 'status', 'models', 'pr', 'live']));
     expect(batch?.rowActions.map(a => a.label)).toEqual(['SERP brief', 'Brief', 'Draft']);

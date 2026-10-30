@@ -9,6 +9,7 @@ import { isValidTimeZone } from '@/libs/time/zone';
 import { TINTS } from '@/libs/tints';
 import { parseCondition, referencedPaths } from '@/libs/workflows/expressions';
 import { harnessTargetSchema } from '@/services/agents/harnessTarget';
+import { WhereSchema } from './rowFilter';
 
 export const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
   message: 'slug must be lowercase, start with a letter, and contain only letters, numbers, dashes, or underscores',
@@ -536,6 +537,128 @@ export const PluginManifestSchema = z.object({
 });
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 
+/* ------------------------------------------------------------------ */
+/* App home — the page an app opens on (`home:` in app.yaml)           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One "Start something" tile on an app's home: a title, one plain line, an
+ * icon, and exactly one thing it does —
+ *
+ * - `ask`: the person's own words to the app's lead, sent as their message in
+ *   a new chat (the lead raises any card, e.g. onboarding, from there);
+ * - `prompt`: the same words left in the composer for the person to finish
+ *   ("Onboard a new client from their website: ");
+ * - `href`: a page of the app;
+ * - `workflow`: a workflow's run form.
+ *
+ * `accepts` lets a file be dropped on a `prompt` tile: it is attached to the
+ * new chat beside the words (a Brand Radar CSV on "Track AI prompts").
+ * `first` marks the tile an empty app shows alone, under `firstTitle`.
+ */
+export const AppLaunchTileSchema = z.object({
+  title: z.string().min(2).max(40),
+  description: z.string().min(3).max(140).describe('one plain line: what the tile does for the person'),
+  /** lucide icon name, resolved by `features/dashboard/iconByName.ts`. */
+  icon: z.string().min(1),
+  ask: z.string().min(3).max(600).optional(),
+  prompt: z.string().min(3).max(600).optional(),
+  href: z.string().regex(/^\/[a-z]/, 'href is an app path, e.g. /dashboard/p/seo').optional(),
+  workflow: SlugSchema.optional(),
+  accepts: z.array(z.string().regex(/^\.[a-z0-9]+$/, 'accepts takes file extensions, e.g. .csv')).min(1).max(4).optional(),
+  first: z.boolean().default(false),
+  firstTitle: z.string().min(2).max(40).optional(),
+})
+  .refine(t => [t.ask, t.prompt, t.href, t.workflow].filter(v => v !== undefined).length === 1, 'a tile does exactly one thing: ask, prompt, href or workflow')
+  .refine(t => t.accepts === undefined || t.prompt !== undefined, { message: 'accepts needs a prompt: the dropped file is attached to it', path: ['accepts'] });
+export type AppLaunchTile = z.infer<typeof AppLaunchTileSchema>;
+
+/**
+ * Where a home measure's figure comes from. Each kind reads state core
+ * already keeps; nothing is stored for the home.
+ *
+ * - `records`: the app's records of one type (`objectType`), the rows a page
+ *   lists, narrowed by `where` (the page filter grammar). `count` counts them,
+ *   `sum` adds `field`, `latest` shows `field` of the newest by `date`. On a
+ *   project card only the project's records count (`projectField`).
+ * - `project`: a field of the project's own record (its deal stage, amount).
+ * - `state`: a saved view (`view`) or a query over synced systems
+ *   (`query`, `services/state/state.ts`): its count, or `sum` of a number
+ *   facet. Dated by the oldest sync of the sources it read.
+ * - `approvals`: proposals waiting in Review for these actions (`actions`,
+ *   ids or a `prefix.*`); on a project card, those whose input names the
+ *   project under `projectKey`. Dated by the oldest waiting.
+ * - `mission`: the newest run of a mission (`mission`), its state and when.
+ */
+export const HOME_MEASURE_KINDS = ['records', 'project', 'state', 'approvals', 'mission'] as const;
+
+export const AppHomeMeasureSchema = z.object({
+  key: SlugSchema,
+  label: z.string().min(1).max(40),
+  source: z.enum(HOME_MEASURE_KINDS),
+  // records
+  objectType: SlugSchema.optional(),
+  stat: z.enum(['count', 'sum', 'latest']).default('count'),
+  where: WhereSchema.optional(),
+  /** `sum`: the number field; `latest` and `project`: the field shown. */
+  field: z.string().min(1).optional(),
+  /** The field holding when the figure was true, shown beside it ("as of Oct 28"). */
+  date: z.string().min(1).optional(),
+  /** "of N": the rows `of` keeps are the denominator (prompts the client is named in, of all tracked). */
+  of: WhereSchema.optional(),
+  /** "of N": a field of the project's record holding the target (`meta.seoCadence.pagesPerMonth`). */
+  target: z.string().min(1).optional(),
+  /** `latest`: a few more figures of the same record, shown as one line ("High 3 · Medium 5"). */
+  breakdown: z.array(z.object({ label: z.string().min(1).max(20), field: z.string().min(1) })).max(4).optional(),
+  /** Where a record names its project. */
+  projectField: z.string().min(1).default('meta.projectId'),
+  // state
+  view: z.string().min(1).optional(),
+  query: z.object({ sets: z.array(z.string().min(1)).min(1), filter: z.record(z.string(), z.unknown()).optional() }).optional(),
+  sum: z.string().min(1).optional(),
+  // approvals
+  actions: z.array(z.string().min(1)).min(1).optional(),
+  projectKey: z.string().min(1).optional(),
+  // mission
+  mission: SlugSchema.optional(),
+  /** Money: the figure is shown as currency (`cents`: stored in cents). */
+  format: z.enum(['number', 'money', 'cents']).default('number'),
+  /**
+   * Where the figure's evidence is, one move away: a dashboard path, with
+   * `{projectId}` and, for `latest`, any `{meta.…}` of the record filled in.
+   * A `state` measure with none opens a chat asking for the list.
+   */
+  href: z.string().regex(/^\/[a-z]/, 'href is an app path, e.g. /dashboard/inbox').optional(),
+  /** `money`: the ISO currency; USD when none is named. */
+  currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+})
+  .refine(m => m.source !== 'records' || m.objectType !== undefined, { message: 'a records measure names its objectType', path: ['objectType'] })
+  .refine(m => m.source !== 'records' || m.stat === 'count' || m.field !== undefined, { message: 'sum and latest need a field', path: ['field'] })
+  .refine(m => m.source !== 'project' || m.field !== undefined, { message: 'a project measure names the field it shows', path: ['field'] })
+  .refine(m => m.source !== 'state' || (m.view === undefined) !== (m.query === undefined), { message: 'a state measure names a view or a query, not both', path: ['view'] })
+  .refine(m => m.source !== 'approvals' || m.actions !== undefined, { message: 'an approvals measure names its actions', path: ['actions'] })
+  .refine(m => m.source !== 'mission' || m.mission !== undefined, { message: 'a mission measure names its mission', path: ['mission'] });
+export type AppHomeMeasure = z.infer<typeof AppHomeMeasureSchema>;
+
+/**
+ * An app's home (`docs/entities/app-manifest.md`): the page the app opens on, before
+ * Chat. A greeting and an ask bar to the app's lead, the tiles in `launch`,
+ * what waits on the person from the app's agents, `measures` for the whole
+ * workspace, one block per project using the app with `projects.measures`,
+ * and what is running and recently made. Everything is read from state that
+ * exists; an app with nothing yet shows the ask bar and its first tile.
+ */
+export const AppHomeSchema = z.object({
+  launch: z.array(AppLaunchTileSchema).min(1).max(6).refine(tiles => tiles.filter(t => t.first).length <= 1, 'at most one tile is first'),
+  measures: z.array(AppHomeMeasureSchema).max(6).optional().refine(ms => !ms?.some(m => m.source === 'project'), 'a project measure belongs under projects'),
+  projects: z.object({
+    /** Which projects use the app, beyond those its records name: a filter over the project's own record. */
+    include: WhereSchema.optional(),
+    measures: z.array(AppHomeMeasureSchema).min(1).max(6).refine(ms => !ms.some(m => m.source === 'state' || m.source === 'mission'), 'state and mission measures read the whole workspace: put them under measures'),
+  }).optional(),
+});
+export type AppHome = z.infer<typeof AppHomeSchema>;
+
 /**
  * App manifest — `templates/apps/<id>/app.yaml`. An app is what a person picks
  * in the dashboard's left rail: a named set of plugins and the nav sections
@@ -582,6 +705,13 @@ export const AppManifestSchema = z.object({
    * in the default section is shown under the first.
    */
   nav: z.array(z.string().min(1)).default([]),
+  /**
+   * The app's home: where it opens, with a greeting, an ask bar, the tiles to
+   * start from, what needs the person and how each project stands
+   * ({@link AppHomeSchema}). An app with a home lists it first in its nav and
+   * opens there until the person has been somewhere else in it.
+   */
+  home: AppHomeSchema.optional(),
 }).refine(a => !a.core || a.plugins.length === 0, { message: 'the core app lists no plugins — it keeps every row no other app claims', path: ['plugins'] });
 export type AppManifest = z.infer<typeof AppManifestSchema>;
 
