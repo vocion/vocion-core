@@ -42,6 +42,9 @@ function scopeOf(f: AuditFinding): string {
  */
 export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAuditRecord; profile?: SeoProfile; linkedWork: AuditLinkedWork[] }) {
   const m = audit.meta;
+  const pagesRead = Number.isSafeInteger(m.pagesRead) && m.pagesRead >= 0 ? m.pagesRead : null;
+  const checkedAt = typeof m.checkedAt === 'string' && Number.isFinite(Date.parse(m.checkedAt)) ? new Date(m.checkedAt).toISOString().slice(0, 16).replace('T', ' ') : null;
+  const projectId = Number.isSafeInteger(m.projectId) && m.projectId > 0 ? m.projectId : null;
   const counts = auditCounts(m.findings);
   const ranked = workOrder(m.findings, profile);
   const ordered = [...ranked, ...m.findings.filter(f => f.status !== 'open')];
@@ -52,14 +55,14 @@ export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAud
     { label: 'Open finding groups', value: counts.open },
     { label: 'High-priority groups', value: counts.high },
     { label: 'Linked tasks', value: tasks.length },
-    { label: 'Pages read', value: m.pagesRead },
+    { label: 'Pages read', value: pagesRead ?? 'Unknown' },
   ];
   return (
     <div className="space-y-7" data-testid="seo-audit-workspace">
       <section className="rounded-xl border border-border bg-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
-            {`Checked ${m.checkedAt.slice(0, 16).replace('T', ' ')} UTC · ${m.site}`}
+            {`${checkedAt ? `Checked ${checkedAt} UTC` : 'Check date unknown'} · ${typeof m.site === 'string' && m.site ? m.site : 'Site unknown'}`}
           </p>
           <div className="flex flex-wrap gap-3 text-sm font-medium">
             {m.reportArtifactId && (
@@ -69,10 +72,12 @@ export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAud
               </Link>
             )}
             {m.inventoryArtifactId && <Link href={`/dashboard/artifacts/${m.inventoryArtifactId}`}>Site inventory</Link>}
-            <Link href={`/dashboard/projects/${m.projectId}`}>
-              Client project
-              <ArrowUpRight className="inline size-4" aria-hidden />
-            </Link>
+            {projectId !== null && (
+              <Link href={`/dashboard/projects/${projectId}`}>
+                Client project
+                <ArrowUpRight className="inline size-4" aria-hidden />
+              </Link>
+            )}
           </div>
         </div>
         <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -86,7 +91,7 @@ export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAud
         <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
           A finding group is one check and its recorded affected scope, not a task or a count of affected pages. Creating a task or page does not resolve the finding.
           {' '}
-          {m.listed && m.listed > m.pagesRead ? `${m.listed} pages were listed; ${m.pagesRead} were read. ` : ''}
+          {pagesRead !== null && Number.isSafeInteger(m.listed) && m.listed! > pagesRead ? `${m.listed} pages were listed; ${pagesRead} were read. ` : ''}
           The report is the saved snapshot; finding status below reflects the current audit record.
         </p>
       </section>
@@ -180,7 +185,7 @@ export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAud
                 {f.statusNote && (
                   <p className="mt-3 text-sm text-muted-foreground">
                     {`Status note: ${f.statusNote}`}
-                    {f.statusAt ? ` · ${f.statusAt.slice(0, 10)}` : ''}
+                    {typeof f.statusAt === 'string' ? ` · ${f.statusAt.slice(0, 10)}` : ''}
                   </p>
                 )}
                 <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-3 text-sm">

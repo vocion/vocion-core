@@ -61,3 +61,17 @@ it('never invents status or a foreign-workspace link when linked work is unavail
 
   await expect.element(plan).toHaveAttribute('href', expect.stringContaining('finding%20title%3Ab'));
 });
+
+it.each([
+  { checkedAt: undefined, pagesRead: undefined, projectId: undefined },
+  { checkedAt: 42, pagesRead: -1, projectId: -1 },
+  { checkedAt: 'not a date', pagesRead: '10', projectId: '9' },
+])('shows unknown legacy values without inventing counts or project links: %j', async (legacy) => {
+  await render(<SeoAuditWorkView audit={{ ...audit, meta: { ...audit.meta, ...legacy } } as unknown as SeoAuditRecord} linkedWork={[]} />);
+  const body = page.getByTestId('seo-audit-workspace');
+
+  await expect.element(body).toHaveTextContent('Check date unknown');
+  await expect.element(body).toHaveTextContent('Unknown');
+  await expect.element(body).not.toHaveTextContent('were read');
+  await expect.element(page.getByRole('link', { name: 'Client project' })).not.toBeInTheDocument();
+});
