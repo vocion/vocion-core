@@ -4,13 +4,15 @@ import type { WorkforceInventory } from '@/services/adoption/WorkforceService';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { hasRecordedWork, workforceInsights } from '@/features/scorecard/workforceInsights';
+import { Link } from '@/libs/I18nNavigation';
 
 type Agent = WorkforceInventory['agents'][number];
 
-export function WorkforceInventoryPanel({ report, workspaceSlug }: { report: WorkforceInventory; workspaceSlug?: string }) {
+export function WorkforceInventoryPanel({ report, workspaceSlug, selectedTeam, teamHref, operating = false }: { report: WorkforceInventory; workspaceSlug?: string; selectedTeam?: string | null; teamHref?: (team: string | null) => string; operating?: boolean }) {
   const t = useTranslations('WorkforceInventory');
   const d = useTranslations('WorkforceDashboard');
-  const [teamSlug, setTeamSlug] = useState<string | null>(null);
+  const [localTeam, setTeamSlug] = useState<string | null>(null);
+  const teamSlug = selectedTeam === undefined ? localTeam : selectedTeam;
   const [showAllInsights, setShowAllInsights] = useState(false);
   const agents = teamSlug === null ? report.agents : report.agents.filter(a => teamSlug ? a.teamSlug === teamSlug : !a.teamSlug || !report.teams.some(team => team.slug === a.teamSlug));
   const observed = agents.filter(hasRecordedWork).length;
@@ -86,19 +88,21 @@ export function WorkforceInventoryPanel({ report, workspaceSlug }: { report: Wor
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-xl font-semibold">{d('title')}</h2>
-          <p className="text-sm text-muted-foreground">{t('summary', { teams: report.teams.length, agents: report.agents.length, enabled: report.agents.filter(a => a.enabled).length, observed: report.agents.filter(hasRecordedWork).length, days: report.window.days })}</p>
+          <p className="text-sm text-muted-foreground">{!operating && t('summary', { teams: report.teams.length, agents: report.agents.length, enabled: report.agents.filter(a => a.enabled).length, observed: report.agents.filter(hasRecordedWork).length, days: report.window.days })}</p>
         </div>
         <button type="button" onClick={exportReport} className="rounded-lg border border-border px-3 py-2 text-sm">{t('export')}</button>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {metrics.map(metric => (
-          <div key={metric.label} className="rounded-xl border border-border p-4">
-            <p className="text-xs font-medium text-muted-foreground">{metric.label}</p>
-            <p className="mt-2 text-2xl font-semibold tracking-tight">{metric.value}</p>
-            <p className="mt-2 text-xs text-muted-foreground">{metric.note}</p>
-          </div>
-        ))}
-      </div>
+      {!operating && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {metrics.map(metric => (
+            <div key={metric.label} className="rounded-xl border border-border p-4">
+              <p className="text-xs font-medium text-muted-foreground">{metric.label}</p>
+              <p className="mt-2 text-2xl font-semibold tracking-tight">{metric.value}</p>
+              <p className="mt-2 text-xs text-muted-foreground">{metric.note}</p>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap gap-3 rounded-xl border border-border p-4 text-sm">
         <a className="font-medium text-primary underline" href={path('team-report')}>{d('dailyReport')}</a>
         <a className="font-medium text-primary underline" href={path('inbox?agents=org-review')}>{d('weeklyReview')}</a>
@@ -147,26 +151,32 @@ export function WorkforceInventoryPanel({ report, workspaceSlug }: { report: Wor
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold">{d('teamsTitle')}</h3>
-          {teamSlug !== null && <button type="button" className="text-sm text-primary underline" onClick={() => setTeamSlug(null)}>{d('allTeams')}</button>}
+          {teamSlug !== null && (teamHref ? <Link className="text-sm text-primary underline" href={teamHref(null)}>{d('allTeams')}</Link> : <button type="button" className="text-sm text-primary underline" onClick={() => setTeamSlug(null)}>{d('allTeams')}</button>)}
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           {groups.map((team) => {
             const members = report.agents.filter(a => team.slug ? a.teamSlug === team.slug : !a.teamSlug || !report.teams.some(t => t.slug === a.teamSlug));
-            const active = members.filter(hasRecordedWork).length;
-            return (
-              <button key={team.slug} type="button" aria-pressed={teamSlug === team.slug} onClick={() => setTeamSlug(teamSlug === team.slug ? null : team.slug)} className={`rounded-xl border p-4 text-left transition-colors hover:bg-muted/50 ${teamSlug === team.slug ? 'border-primary bg-primary/5' : 'border-border'}`}>
+            const content = (
+              <>
                 <span className="flex justify-between gap-2">
                   <strong>{team.name}</strong>
-                  <span aria-hidden="true">↗</span>
+                  <span aria-hidden="true">→</span>
                 </span>
                 <span className="mt-1 line-clamp-1 block text-xs text-muted-foreground">{team.goal ?? t('missingGoal')}</span>
-                <span className="mt-4 block h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true"><span className="block h-full rounded-full bg-primary" style={{ width: `${members.length ? active / members.length * 100 : 0}%` }} /></span>
-                <span className="mt-2 block text-xs text-muted-foreground">{d('teamActivity', { active, total: members.length })}</span>
-              </button>
+                <span className="mt-3 block text-sm">
+                  {members.reduce((sum, a) => sum + a.reviewDecisions, 0)}
+                  {' '}
+                  {d('reviewsShort')}
+                </span>
+              </>
             );
+            const className = `rounded-xl border p-4 text-left transition-colors hover:bg-muted/50 ${teamSlug === team.slug ? 'border-primary bg-primary/5' : 'border-border'}`;
+            return teamHref
+              ? <Link key={team.slug} href={teamHref(team.slug)} aria-current={teamSlug === team.slug ? 'page' : undefined} className={className}>{content}</Link>
+              : <button key={team.slug} type="button" aria-pressed={teamSlug === team.slug} onClick={() => setTeamSlug(teamSlug === team.slug ? null : team.slug)} className={className}>{content}</button>;
           })}
         </div>
-        <p className="text-xs text-muted-foreground">{d('barNote')}</p>
+
       </section>
       <section className="space-y-3">
         <h3 className="font-semibold">{d('agentsTitle')}</h3>

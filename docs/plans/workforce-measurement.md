@@ -393,3 +393,41 @@ never becomes generated instructions; missing review and validation evidence sta
 Learning metrics are omitted from synthetic-only outcome views because the existing eval and
 feedback tables do not carry the outcome ledger's synthetic partition marker. Stock counts
 are current snapshots, not historical as-of reconstructions or growth trends.
+
+## Sprint 3: operating review delivery
+
+The first Sprint 3 slice makes Scorecard an operating review instead of an agent
+inventory. Its primary questions are what work was accepted, how much review was
+needed, what spend was recorded and which evidence warrants intervention next.
+
+- Workspace, team, reporting window and selected work item live in the URL. Native
+  links preserve browser Back/Forward, refresh and sharing; parent breadcrumbs
+  clear child selections. Unknown or inaccessible selections show an explicit
+  unavailable state rather than silently broadening the report.
+- The overview reads non-synthetic outcome evidence only for accessible,
+  non-archived workspaces in the authenticated account. One shared outcome window
+  is used across those workspaces. Summaries retain snapshot incompleteness.
+- Headline measures are current accepted work, first-review acceptance among
+  currently reviewed items, reported human effort and recorded agent model spend.
+  The outcome cohort is explicitly registered items updated in the window, not
+  total business demand or newly completed throughput. Stale acceptance is excluded;
+  review effort on unsuccessful work is retained. Model spend is not added to
+  overlapping worker/mission costs or divided into an invented unit-cost estimate.
+- Work objects and prioritized outcome recommendations link to their native human
+  review surface. Team filters scope the outcome summaries as well as agent evidence.
+  Assigned agent counts and observed activity remain diagnostics rather than lead
+  performance metrics. Empty evidence is not a healthy-performance verdict.
+- Business alignment, eligible-work utilization, validated improvement and realized
+  savings remain explicitly unmeasured. The three execution modes are not relabeled
+  as a complete business-workflow catalog. This slice introduces no automatic
+  expansion/retirement decisions and no new outcome attestations.
+
+Remaining Sprint 3 work includes durable improvement ownership and change history,
+comparable period evidence, business-workflow/objective linkage, full review-context
+handoff and deterministic output limits, interrupted-mission recovery, and central
+report reconciliation. Delivering this operating view does not close those items.
+
+Validation covers malformed navigation values, unassigned teams, stale/reopened
+outcomes, absent effort, first-review denominators, member denial and accessible
+workspace boundaries. Browser checks cover URL-restored scope and parent links;
+release verification must also exercise actual Back/Forward and reload in production.

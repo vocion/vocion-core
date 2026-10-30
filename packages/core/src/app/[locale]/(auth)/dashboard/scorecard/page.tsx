@@ -1,4 +1,5 @@
 import { setRequestLocale } from 'next-intl/server';
+import { Suspense } from 'react';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { ScorecardTable } from '@/features/scorecard/ScorecardTable';
 import { WorkforcePerformance } from '@/features/scorecard/WorkforcePerformance';
@@ -24,9 +25,9 @@ export default async function ScorecardPage(props: { params: Promise<{ locale: s
     <>
       <TitleBar
         title="Workforce performance"
-        description="Agent activity, reviewed output, quality and cost — with measurement gaps made explicit"
+        description="Work, human review, cost and the next improvement — with evidence behind each decision"
       />
-      {has({ role: ORG_ROLE.ADMIN }) ? <WorkforcePerformance /> : <ScorecardTable />}
+      {has({ role: ORG_ROLE.ADMIN }) ? <Suspense><WorkforcePerformance /></Suspense> : <ScorecardTable />}
     </>
   );
 }
