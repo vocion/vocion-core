@@ -486,7 +486,16 @@ export const listBusinessObjectsForProject = async (orgId: string, projectId: nu
   const page = await listBusinessObjectPage(orgId, { projectId, limit: 200 });
   return page.items
     .filter(r => r.id !== projectId)
-    .map(r => ({ id: r.id, typeSlug: r.typeSlug, typeLabel: r.typeLabel, title: r.title, status: r.status, updatedAt: r.updatedAt }));
+    .map(r => ({
+      id: r.id,
+      typeSlug: r.typeSlug,
+      typeLabel: r.typeLabel,
+      title: r.title,
+      // SEO's editorial lifecycle lives in metadata; "active" is only the
+      // generic object's availability, not a page's review or publishing state.
+      status: r.typeSlug === 'seo_page' && typeof r.metadata.status === 'string' && r.metadata.status.trim() ? r.metadata.status : r.status,
+      updatedAt: r.updatedAt,
+    }));
 };
 
 /**

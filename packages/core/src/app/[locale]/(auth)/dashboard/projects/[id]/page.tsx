@@ -264,7 +264,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
                       <h3 className="mb-1 text-xs font-medium text-muted-foreground">{g.label}</h3>
                       <ListRows>
                         {g.records.map(r => (
-                          <ListRow key={r.id} href={linkRecord({ objectType: r.typeSlug, id: r.id })} title={r.title} subline={<Subline segments={[r.status, `updated ${r.updatedAt.toISOString().slice(0, 10)}`]} />} />
+                          <ListRow key={r.id} href={linkRecord({ objectType: r.typeSlug, id: r.id })} title={r.title} subline={<Subline segments={[r.typeSlug === 'seo_page' ? r.status?.replaceAll('_', ' ') : r.status, `updated ${r.updatedAt.toISOString().slice(0, 10)}`]} />} />
                         ))}
                       </ListRows>
                     </div>
