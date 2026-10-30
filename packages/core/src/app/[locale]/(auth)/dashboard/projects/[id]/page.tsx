@@ -14,6 +14,7 @@ import { UnfileSource } from '@/features/dashboard/rooms/UnfileSource';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { deckVerificationChip } from '@/libs/decks/audit';
 import { redTeamChip, verificationChip } from '@/libs/documents/audit';
+import { Link } from '@/libs/I18nNavigation';
 import { listConnectors } from '@/libs/sources/registry';
 import { artifactHref } from '@/libs/tools/artifacts/url';
 import { cleanFontRoles } from '@/libs/tools/brand/fontNames';
@@ -186,7 +187,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
             <Section
               eyebrow="Connections"
               tone="quiet"
-              action={<a href={`/dashboard/connectors?project=${room.id}`} className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" data-testid="connect-for-project">Connect for this project</a>}
+              action={<Link href={`/dashboard/connectors?project=${room.id}`} className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" data-testid="connect-for-project">Connect for this project</Link>}
               data-testid="project-connections"
             >
               {ownConnections.length > 0 && (
@@ -384,7 +385,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
                         .
                       </span>
                       {i.risk === 'high' && <span aria-label="urgent">🔴</span>}
-                      <a href={`/dashboard/inbox/${i.id}`} className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground">{i.title}</a>
+                      <Link href={`/dashboard/inbox/${i.id}`} className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground">{i.title}</Link>
                     </li>
                   ))}
                   {done.map(i => (
@@ -412,7 +413,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
                 <li key={`${ms.date}-${ms.title}`} className={`flex items-baseline gap-3 ${ms.status === 'planned' && ms.date < today ? 'text-warn' : ms.status === 'planned' ? 'text-muted-foreground' : 'text-foreground'}`}>
                   <span className="w-24 shrink-0 text-xs text-muted-foreground tabular-nums">{ms.date}</span>
                   <span className="flex-1">
-                    {ms.artifactId ? <a href={`/dashboard/artifacts/${ms.artifactId}`} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{ms.title}</a> : ms.title}
+                    {ms.artifactId ? <Link href={`/dashboard/artifacts/${ms.artifactId}`} className="underline decoration-border underline-offset-2 hover:decoration-foreground">{ms.title}</Link> : ms.title}
                     {ms.note ? <span className="text-muted-foreground">{` — ${ms.note}`}</span> : null}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">{ms.status === 'done' ? 'done' : ms.date < today ? 'planned · overdue' : 'planned'}</span>
