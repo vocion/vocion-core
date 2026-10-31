@@ -76,7 +76,7 @@ function subjectUrl(subject: GateSubject): string {
     ? `/dashboard/p/runs/worker-${subject.id}`
     : subject.kind === 'mission_run'
       ? `/dashboard/inbox/mission-${subject.id}`
-      : `/dashboard/automation/${subject.slug}`;
+      : `/dashboard/schedules/${subject.slug}`;
 }
 
 /**

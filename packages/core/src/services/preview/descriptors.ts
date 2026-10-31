@@ -549,7 +549,7 @@ registerPreview('browser_run', {
 });
 
 registerPreview('routine', {
-  sourceLabel: 'Routine',
+  sourceLabel: 'Automation',
   resolve: async (ref, ctx) => {
     const id = Number.parseInt(ref.id, 10);
     if (!Number.isSafeInteger(id)) {
@@ -565,8 +565,8 @@ registerPreview('routine', {
     return {
       ref,
       title: routine.name,
-      sourceLabel: 'Routine',
-      href: `/dashboard/routines/${routine.id}`,
+      sourceLabel: 'Automation',
+      href: `/dashboard/automations/${routine.id}`,
       routine: { routine, batches },
       facts: facts({ label: 'Status', value: routineLine(routine) }, routine.expert && { label: 'Expert', value: routine.expert.name }, routine.source?.url && { label: 'Taught from', value: routine.source.title ?? routine.source.url }),
       ...(routine.description ? { body: routine.description } : {}),
@@ -575,7 +575,7 @@ registerPreview('routine', {
 });
 
 registerPreview('routine_batch', {
-  sourceLabel: 'Routine batch',
+  sourceLabel: 'Automation run',
   resolve: async (ref, ctx) => {
     const id = Number.parseInt(ref.id, 10);
     if (!Number.isSafeInteger(id)) {
@@ -589,11 +589,11 @@ registerPreview('routine_batch', {
     const { batchProgress } = await import('@/libs/routines/display');
     return {
       ref,
-      title: `Routine batch ${batch.id} · ${batch.routine.name}`,
-      sourceLabel: 'Routine batch',
-      href: `/dashboard/routines/batches/${batch.id}`,
+      title: `Automation run ${batch.id} · ${batch.routine.name}`,
+      sourceLabel: 'Automation run',
+      href: `/dashboard/automations/batches/${batch.id}`,
       routineBatch: batch,
-      facts: facts({ label: 'Progress', value: batchProgress(batch.counts, batch.total) }, { label: 'Routine', value: `${batch.routine.name} v${batch.routine.version}` }),
+      facts: facts({ label: 'Progress', value: batchProgress(batch.counts, batch.total) }, { label: 'Automation', value: `${batch.routine.name} v${batch.routine.version}` }),
     };
   },
 });

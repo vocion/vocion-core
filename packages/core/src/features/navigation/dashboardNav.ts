@@ -165,13 +165,13 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // Automations are workspace plumbing, not daily work (Chris, 2026-10-02:
   // "move it back to the Manage workspace nav"): a MANAGE row beside Missions
   // and Workflows, out of the WORK view's More list.
-  { url: '/dashboard/automation', title: 'Automations', group: 'Team', icon: CalendarClock, i18nKey: 'automations', keywords: ['schedules', 'cron', 'triggers', 'automation', 'automations', 'pause', 'resume', 'switch', 'toggle', 'on', 'off'] },
+  { url: '/dashboard/schedules', title: 'Schedules', group: 'Team', icon: CalendarClock, i18nKey: 'automations', keywords: ['schedules', 'cron', 'triggers', 'pause', 'resume', 'switch', 'toggle', 'on', 'off'] },
 
   // ── MANAGE · Knowledge — what the agents know, and about what ───────────
   { url: '/dashboard/connectors', title: 'Connectors', group: 'Knowledge', icon: Plug, i18nKey: 'sources', keywords: ['sources', 'integrations'] },
   { url: '/dashboard/objects', title: 'Objects', group: 'Knowledge', icon: Database, i18nKey: 'objects' },
   // Repeatable work taught once from a recording, run as many browser runs at once.
-  { url: '/dashboard/routines', title: 'Routines', group: 'Workspace', icon: Repeat, pinnable: true, plugin: 'routines', keywords: ['routine', 'teach', 'recording', 'repeatable', 'slate', 'process', 'batch', 'queue'] },
+  { url: '/dashboard/automations', title: 'Automations', group: 'Workspace', icon: Repeat, pinnable: true, plugin: 'routines', keywords: ['automation', 'automations', 'routine', 'teach', 'recording', 'repeatable', 'slate', 'process', 'batch', 'queue'] },
   { url: '/dashboard/marketing', title: 'Paid Marketing', group: 'Workspace', icon: Megaphone, pinnable: true, plugin: 'marketing', keywords: ['marketing', 'paid marketing', 'ads', 'google ads', 'campaign', 'search terms', 'ad spend', 'ppc'] },
   { url: '/dashboard/learnings', title: 'Learnings', group: 'Knowledge', icon: Sparkles, i18nKey: 'learnings', keywords: ['rules', 'feedback'] },
   { url: '/dashboard/workspace', title: 'Context', group: 'Knowledge', icon: FileCode2, i18nKey: 'context', keywords: ['workspace', 'yaml', 'workspace-as-code'] },

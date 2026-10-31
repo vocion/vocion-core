@@ -69,9 +69,10 @@ describe('a record named in an answer', () => {
 
 describe('routine links', () => {
   it('peek a routine and a batch of its runs in the pane', () => {
+    expect(previewRefFor(classifyDashboardLink('/dashboard/automations/7')!)).toEqual({ type: 'routine', id: '7' });
+    expect(previewRefFor(classifyDashboardLink('/en/dashboard/automations/batches/3')!)).toEqual({ type: 'routine_batch', id: '3' });
+    expect(classifyDashboardLink('/dashboard/automations')).toMatchObject({ kind: 'page' });
     expect(previewRefFor(classifyDashboardLink('/dashboard/routines/7')!)).toEqual({ type: 'routine', id: '7' });
-    expect(previewRefFor(classifyDashboardLink('/en/dashboard/routines/batches/3')!)).toEqual({ type: 'routine_batch', id: '3' });
-    expect(classifyDashboardLink('/dashboard/routines')).toMatchObject({ kind: 'page' });
   });
 });
 

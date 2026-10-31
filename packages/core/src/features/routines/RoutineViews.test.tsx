@@ -24,7 +24,7 @@ const shotTo = async (name: string) => {
 
 vi.mock('@/libs/I18nNavigation', () => ({
   useRouter: () => ({ push: () => {}, replace: () => {} }),
-  usePathname: () => '/dashboard/routines/batches/3',
+  usePathname: () => '/dashboard/automations/batches/3',
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => <a href={href} {...rest}>{children}</a>,
 }));
 vi.mock('@/hooks/useLive', () => ({ useLive: () => ({ live: false, state: 'idle' }) }));
@@ -37,6 +37,7 @@ vi.mock('@/libs/Orpc', () => ({
 
 const { RoutineBatchView } = await import('./RoutineBatchView');
 const { RoutineView } = await import('./RoutineView');
+const { RoutineList } = await import('./RoutineList');
 
 /**
  * A fictional console page, as a run's last picture.
@@ -199,6 +200,10 @@ describe('the routine', () => {
     expect(document.querySelector('[data-routine-approve]')?.textContent).toContain('Approve version 1');
     expect(document.querySelectorAll('[data-moment]').length).toBeGreaterThan(3);
 
+    await expect.element(page.getByRole('link', { name: 'Automations', exact: true })).toHaveAttribute('href', '/dashboard/automations');
+    expect(document.querySelector('[data-testid="automation-recordings"]')?.textContent).toContain('source demonstration');
+    expect(document.querySelector('[data-testid="routine-batches"]')?.textContent).toContain('Runs');
+
     await shotTo('routine-desktop');
   });
 
@@ -210,4 +215,16 @@ describe('the routine', () => {
 
     await shotTo('teaching-pane');
   });
+});
+
+it('introduces automations through Teach a task and keeps the recording as its source', async () => {
+  await render(<RoutineList routines={[]} />);
+
+  await expect.element(page.getByText('No automations yet')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Teach a task', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+
+  await expect.element(dialog.getByRole('heading', { name: 'Teach a task' })).toBeVisible();
+  await expect.element(dialog).toHaveTextContent('drafts the automation');
 });

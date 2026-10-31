@@ -483,7 +483,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'design-the-change')?.playbooks).toEqual(['designing-a-surface', 'house-voice']);
 
     // Every way the PM acts is an automation on one of its two missions —
-    // visible, pausable, on /dashboard/automation and nowhere else.
+    // visible, pausable, on /dashboard/schedules and nowhere else.
     expect(ws.missions.find(m => m.slug === 'close-the-gap')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'tell-the-requester')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'prove-the-contract')?.agent).toBe('change-reviewer');

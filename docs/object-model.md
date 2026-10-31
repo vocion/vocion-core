@@ -19,7 +19,7 @@ sweep. Field-by-field reference for each authored type:
 | [Object type](./entities/object-type.md) | `objects/<slug>/type.yaml` | `ObjectTypeManifestSchema` | `business_object_type` | classification + `lookup_objects` tool | `/api/v1/objects/types`, `/dashboard/objects` |
 | [Mission](./entities/mission.md) | `missions/<slug>.yaml` | `MissionManifestSchema` | `mission` | `MissionService.startMission` (planner + single-turn checks) | `/dashboard/missions` |
 | [Workflow](./entities/workflow.md) | `workflows/<slug>/workflow.yaml` | `WorkflowManifestSchema` | `workflow` | `WorkflowService.runLoop` (steps: approve, ask, action, sync) | `/api/v1/workflows`, `/dashboard/workflows` |
-| [Automation](./entities/automation.md) | `automations/<slug>.yaml` | `AutomationManifestSchema` | `automation` | durable schedule or event match → `dispatchDo` (workflow, checkMission, job) | `/dashboard/automation` |
+| [Automation](./entities/automation.md) | `automations/<slug>.yaml` | `AutomationManifestSchema` | `automation` | durable schedule or event match → `dispatchDo` (workflow, checkMission, job) | `/dashboard/schedules` |
 | [Source](./entities/source.md) | `sources/<slug>.yaml` | `SourceManifestSchema` | `knowledge_source` | `SourceSyncService.runSync` via connector registry | `/dashboard/connectors` |
 | [Learning step](./entities/learning-step.md) | `learnings/<step>.yaml` | `LearningStepManifestSchema` | `learning_step` (+ `learning` rows) | rendered to `/learnings/<step>.md` in the agent FS | `/dashboard/learnings` |
 | [Eval dataset](./entities/eval-dataset.md) | `evals/<slug>.yaml` | `EvalDatasetManifestSchema` | `eval_dataset` | `npm run eval:run --workspace @vocion/core` | `/api/v1/evals` |
@@ -38,7 +38,7 @@ sweep. Field-by-field reference for each authored type:
 | Ask | `AskService.upsertAsk` — agents, external workers and sync scripts over `POST /api/v1/asks` | `askSchema` | `ask` | [Needs you](./guides/needs-you.md), kind = the ask's kind: `/dashboard/inbox?kind=ruling…`, `/dashboard/inbox/:id`, `/dashboard/inbox/g/:groupKey`; `/api/v1/asks` |
 | Decision alignment | `AlignmentService.recordDecision` on every `ReviewService.decide` (actions) and `AskService.decideAsk` (asks) | `decisionAlignmentSchema` | `decision_alignment` | *agrees with you N%* in the meta row of every decision screen on Needs you (proposal and ask alike); `/dashboard/autonomy`; on `/dashboard/team-report` the human-confirmed measures, quality rate, decision latency and the evidence chains |
 | Autonomy policy | `AutonomyService.promote` / `demote` / `noteRejection` (in-app), `syncPoliciesFromManifest` (trust.yaml on apply) | `autonomyPolicySchema` | `autonomy_policy` | `/dashboard/autonomy`; `router.autonomy.*`; adoption events `autonomy.promoted` / `autonomy.demoted` |
-| Automation run | `AutomationService.fireAutomation` | `automationRunSchema` | `automation_run` | `/dashboard/automation` |
+| Automation run | `AutomationService.fireAutomation` | `automationRunSchema` | `automation_run` | `/dashboard/schedules` |
 | Event | `EventService.emit` | `eventLogSchema` | `event_log` | `/dashboard/activity?kind=event` |
 | Source sync | `SourceSyncService.runSync` | `sourceSyncCheckpointSchema` | `source_sync_checkpoint` | `/dashboard/connectors`, Activity |
 | Workspace version | `applyWorkspace` | `workspaceVersionSchema` | `workspace_version` | `/dashboard/workspace` |

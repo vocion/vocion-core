@@ -108,7 +108,7 @@ async function urgencyChips(orgId: string, coordinatorSlug?: string): Promise<Wo
   const since = new Date(Date.now() - URGENCY_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
   // TODO(F1): read flagged-urgent / time-sensitive mission action items here
-  // and push them FIRST — they outrank a routine briefing. Shape roughly:
+  // and push them FIRST — they outrank an automation briefing. Shape roughly:
   //   { label: `${missionName} — time-sensitive action items`, prompt: …,
   //     agentSlug: ownerLead, source: 'urgency' }
 

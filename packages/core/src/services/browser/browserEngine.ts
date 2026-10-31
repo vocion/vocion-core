@@ -2,8 +2,8 @@
  * A PERSON'S BROWSER: one per person, kept between their runs, so a second
  * task picks up where the first left off — still signed in, on the same page.
  * Runs in it go one at a time (`BrowserRunService` refuses a second live run).
- * A run of a routine is the exception: it gets a browser of its own
- * (`sessionKeyOf`), so a routine runs for many rows at once, each in its own
+ * A run of an automation is the exception: it gets a browser of its own
+ * (`sessionKeyOf`), so an automation runs for many rows at once, each in its own
  * cookies and storage, and that browser closes when the run ends.
  *
  * What it gives a run:

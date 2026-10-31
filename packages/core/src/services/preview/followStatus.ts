@@ -109,10 +109,10 @@ export async function followStatuses(orgId: string, refs: FollowRef[]): Promise<
       }
       const label = batchProgress(counts, total);
       out[key({ type: 'routine_batch', id: String(b.id) })] = needsYou(counts) > 0
-        ? { state: 'waiting', label, name: `Routine batch ${b.id}` }
+        ? { state: 'waiting', label, name: `Automation run ${b.id}` }
         : b.status === 'running'
-          ? { state: 'running', label, name: `Routine batch ${b.id}` }
-          : { state: (counts.done ?? 0) === 0 && (counts.failed ?? 0) > 0 ? 'failed' : 'done', label, name: `Routine batch ${b.id}` };
+          ? { state: 'running', label, name: `Automation run ${b.id}` }
+          : { state: (counts.done ?? 0) === 0 && (counts.failed ?? 0) > 0 ? 'failed' : 'done', label, name: `Automation run ${b.id}` };
     }
   }
   const askIds = ids(refs, 'ask');

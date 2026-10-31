@@ -179,7 +179,7 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
         </Part>
       )}
       {!teaching && routine.version && routine.status === 'live' && (
-        <Part compact={compact} eyebrow="Run it" testId="routine-run">
+        <Part compact={compact} eyebrow="Run this automation" testId="routine-run">
           {isPracticeRoutine(routine.name) && (
             <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-surface-soft px-3 py-2.5">
               <p className="min-w-0 flex-1 text-[13px] text-muted-foreground">The practice console has a 20-person roster ready to run.</p>
@@ -200,7 +200,7 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
         </Part>
       )}
       {!teaching && routine.version && routine.status !== 'live' && routine.status !== 'retired' && (
-        <Part compact={compact} eyebrow="Run it" testId="routine-run">
+        <Part compact={compact} eyebrow="Run this automation" testId="routine-run">
           {isPracticeRoutine(routine.name) && (
             <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-surface-soft px-3 py-2.5">
               <p className="min-w-0 flex-1 text-[13px] text-muted-foreground">The practice console has a 20-person roster ready to run.</p>
@@ -220,11 +220,20 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
           <TrustControl trust={routine.trust} busy={busy} onPick={t => void act({ action: 'trust', trust: t })} />
         </Part>
       )}
-      {batches.length > 0 && (
-        <Part compact={compact} eyebrow={`Batches · ${batches.length}`} testId="routine-batches">
-          <BatchList batches={batches} compact={compact} now={now} />
+      {source && (
+        <Part compact={compact} eyebrow="Recordings" testId="automation-recordings">
+          <p className="mb-2 text-[12px] text-muted-foreground">The source demonstration used to teach this automation. Runs show what happened during execution.</p>
+          <a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-[13px] underline underline-offset-2">
+            <Video className="size-3.5" aria-hidden />
+            {source.title ?? 'Source recording'}
+          </a>
         </Part>
       )}
+      <Part compact={compact} eyebrow={batches.length ? `Runs · ${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}` : 'Runs'} testId="routine-batches">
+        {batches.length > 0
+          ? <BatchList batches={batches} compact={compact} now={now} />
+          : <p className="text-[12px] text-muted-foreground">No runs yet. Execution history will appear here after a run starts.</p>}
+      </Part>
       {!teaching && routine.versions.length > 0 && (
         <Part compact={compact} eyebrow="Versions" testId="routine-versions">
           <ul className="space-y-2">
@@ -272,7 +281,7 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
   return (
     <div data-routine={routine.id} data-routine-status={routine.status}>
       <DetailPage
-        crumbs={[{ label: 'Routines', href: '/dashboard/routines' }, { label: routine.name }]}
+        crumbs={[{ label: 'Automations', href: '/dashboard/automations' }, { label: routine.name }]}
         title={routine.name}
         subtitle={routine.description ?? undefined}
         meta={meta}
@@ -474,7 +483,7 @@ function RunForm({ routine, compact }: { routine: Routine; compact: boolean }) {
     if (compact) {
       openPreview({ type: 'routine_batch', id: String(res.batch.id) }, null);
     } else {
-      router.push(`/dashboard/routines/batches/${res.batch.id}`);
+      router.push(`/dashboard/automations/batches/${res.batch.id}`);
     }
   };
 
@@ -521,14 +530,14 @@ function RunForm({ routine, compact }: { routine: Routine; compact: boolean }) {
                 autoComplete="off"
                 value={secretValues[s.name] ?? ''}
                 onChange={e => setSecretValues(v => ({ ...v, [s.name]: e.target.value }))}
-                placeholder={saved.has(s.name) ? 'Saved for this routine' : s.secret ? 'Used for every row; never shown to the model' : (s.example ?? s.description)}
+                placeholder={saved.has(s.name) ? 'Saved for this automation' : s.secret ? 'Used for every row; never shown to the model' : (s.example ?? s.description)}
                 className="h-8 min-w-0 flex-1"
               />
             </div>
           ))}
           <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
             <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} className="size-3.5" data-routine-remember />
-            Remember these for this routine, sealed, so a batch asked for in chat needs no password
+            Remember these for this automation, sealed, so a batch asked for in chat needs no password
           </label>
         </div>
       )}
@@ -611,7 +620,7 @@ function BatchList({ batches, compact, now }: { batches: RoutineBatchSummary[]; 
           <li key={b.id} data-routine-batch={b.id}>
             {compact
               ? <button type="button" className={cls} onClick={ev => openPreview({ type: 'routine_batch', id: String(b.id) }, ev.currentTarget)}>{body}</button>
-              : <Link href={`/dashboard/routines/batches/${b.id}`} className={cls}>{body}</Link>}
+              : <Link href={`/dashboard/automations/batches/${b.id}`} className={cls}>{body}</Link>}
           </li>
         );
       })}
@@ -627,7 +636,7 @@ function Retire({ busy, onRetire }: { busy: boolean; onRetire: () => void }) {
     return (
       <div>
         <p className="text-[12px] text-muted-foreground">Kept with its history and receipts; never run again.</p>
-        <Button size="sm" variant="ghost" className="mt-1 -ml-2" onClick={() => setSure(true)} data-routine-retire>Retire this routine</Button>
+        <Button size="sm" variant="ghost" className="mt-1 -ml-2" onClick={() => setSure(true)} data-routine-retire>Retire this automation</Button>
       </div>
     );
   }

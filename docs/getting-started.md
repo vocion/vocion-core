@@ -701,7 +701,7 @@ first fire.
 
 Three practical notes:
 
-- **Do not wait for Monday.** Fire it on demand from the automation's page in `/dashboard/automation`, or with `POST /api/v1/automations/<slug>/run`. That is also how you test a schedule before trusting it.
+- **Do not wait for Monday.** Fire it on demand from the automation's page in `/dashboard/schedules`, or with `POST /api/v1/automations/<slug>/run`. That is also how you test a schedule before trusting it.
 - **Event names are not a fixed list.** An event type is any string; emitting one (`POST /api/v1/events`) fans it out to every workflow and automation subscribed to that type whose `filter` matches. Names like `prospect.reply` are conventions, not enum values — which also means a typo just never fires.
 - **`job` is a seam, not a menu.** It runs a deterministic server-side function rather than an agent, and the built-in registry ships empty today (`packages/core/src/services/jobs/registry.ts`); an unknown job name throws when it fires. Use `checkMission` or `workflow` unless you have added a job in core.
 

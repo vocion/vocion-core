@@ -9,7 +9,7 @@ import { AutomationsList } from './AutomationsList';
  * pauses it through the same route the automation's own page uses, the toast
  * says so with Undo, and Undo resumes it. A paused row says who, when and why
  * on its chip's tooltip; one its workspace file turns off cannot be switched.
- * The app filter and "Show system automations" write the URL (2026-10-29).
+ * The app filter and "Show system schedules" write the URL (2026-10-29).
  * Fictional Northwind names.
  */
 
@@ -78,6 +78,9 @@ describe('AutomationsList', () => {
   it('filters by app from a chip, and an admin shows the system automations, both in the URL', async () => {
     render(<AutomationsList rows={rows} filter={filter} />);
 
+    await expect.element(page.getByRole('link', { name: /A failed deploy is an incident/ })).toHaveAttribute('href', '/dashboard/schedules/deploy-answer');
+    await expect.element(page.getByRole('button', { name: 'Show system schedules (1)' })).toBeInTheDocument();
+
     // Each row names its app on the register.
     await expect.element(page.getByTestId('automation-row-deploy-answer')).toHaveTextContent('Software Factory');
 
@@ -96,4 +99,11 @@ describe('AutomationsList', () => {
     await expect.element(page.getByTestId('automation-row-deploy-answer')).not.toHaveTextContent('Software Factory');
     await expect.element(page.getByTestId('automations-show-system')).not.toBeInTheDocument();
   });
+});
+
+it('names the empty surface schedules and explains event-trigger support', async () => {
+  render(<AutomationsList rows={[]} />);
+
+  await expect.element(page.getByText('No schedules in this workspace yet.')).toBeInTheDocument();
+  await expect.element(page.getByText(/Schedules start work at a set time or when an event occurs/)).toBeInTheDocument();
 });

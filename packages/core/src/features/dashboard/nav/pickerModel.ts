@@ -80,7 +80,7 @@ export function pickerLine(p: SwitcherProject, d: PickerDetail | undefined, word
 
 /**
  * What a workspace has, for the line under it in the picker: its apps
- * beyond the core one ("GTM · Routines"). A workspace with only the core app
+ * beyond the core one ("GTM · Automations"). A workspace with only the core app
  * has no line: every workspace has that one.
  * @param apps - The workspace's apps, core included, in rail order.
  */

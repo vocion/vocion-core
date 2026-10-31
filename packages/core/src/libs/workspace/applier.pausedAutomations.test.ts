@@ -86,8 +86,8 @@ describe('apply and a paused automation', () => {
     expect(reply).toMatchObject({ pausedAt, pausedBy: 'usr-chris', pausedNote: null });
 
     expect(again.warnings).toEqual([
-      { resource: 'automation', slug: 'hourly-sweep', message: 'paused by Chris at 2026-09-20 15:00 UTC — CRM sync is down; left paused. Resume it from /dashboard/automation/hourly-sweep.' },
-      { resource: 'automation', slug: 'on-reply', message: 'paused by Chris at 2026-09-20 15:00 UTC; left paused. Resume it from /dashboard/automation/on-reply.' },
+      { resource: 'automation', slug: 'hourly-sweep', message: 'paused by Chris at 2026-09-20 15:00 UTC — CRM sync is down; left paused. Resume it from /dashboard/schedules/hourly-sweep.' },
+      { resource: 'automation', slug: 'on-reply', message: 'paused by Chris at 2026-09-20 15:00 UTC; left paused. Resume it from /dashboard/schedules/on-reply.' },
     ]);
   });
 

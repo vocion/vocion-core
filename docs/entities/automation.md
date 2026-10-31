@@ -10,7 +10,7 @@ pure procedures, and neither carries its own schedule.
 | **Schema** | `AutomationManifestSchema` — `packages/core/src/libs/workspace/schemas.ts` |
 | **Applied to** | `automation` table |
 | **Runtime** | A durable schedule (DBOS, schema `durable`) or an event match, dispatched through `dispatchDo` |
-| **Surface** | `/dashboard/automation` (the register, `?app=<id>` to filter by app), and each app's "How it is doing" panel |
+| **Surface** | `/dashboard/schedules` (the register, `?app=<id>` to filter by app), and each app's "How it is doing" panel |
 | **Provenance** | `automation.source`: `plugin:<slug>` for one an app's plugin installed (a workspace file overriding that slug keeps it), `workspace` for the workspace's own. Stamped at every apply (migration 0226) |
 | **Layering** | Workspace-only — a base pack ships no automations |
 
@@ -24,7 +24,7 @@ pure procedures, and neither carries its own schedule.
 | `doing` | string | — | The same while it runs ("Drawing the mockup"). A run that was handed `runLabel` in its event's payload is named by that instead — the work and the record ("Researching Google results and writing briefs · SB-506 …"), set by the code that knows the record. |
 | `description` | string | — | One-line summary. |
 | `status` | `active` \| `disabled` | `active` | Whether the automation fires. |
-| `visibility` | `listed` \| `system` | `listed` | `system` is plumbing (an app's internal hand-off): it fires as usual but is left out of the Automations register and an app's lists unless an admin shows system automations. It keeps its own page and its run log. See [Automations](../guides/automations.md). |
+| `visibility` | `listed` \| `system` | `listed` | `system` is plumbing (an app's internal hand-off): it fires as usual but is left out of the Schedules register and an app's lists unless an admin shows system automations. It keeps its own page and its run log. See [Schedules](../guides/schedules.md). |
 | `agent` | agent slug | — | Owning agent. Optional for `checkMission` (the mission already names its owner); set it for `workflow` and `job` automations so the schedule rolls up to a visible agent instead of running ownerless. |
 | `when` | object | required | Exactly one of `schedule` or `event`. |
 | `do` | object | required | Exactly one of `workflow`, `checkMission`, or `job`. |
@@ -196,7 +196,7 @@ do:
 ## Pausing and resuming
 
 An automation can be held from the app — **Pause** on its card at
-`/dashboard/automation` and on its page at `/dashboard/automation/<slug>` —
+`/dashboard/schedules` and on its page at `/dashboard/schedules/<slug>` —
 and released the same way with **Resume**. The hold is a person's act, so it
 is recorded as one: who, when, and the note they left.
 

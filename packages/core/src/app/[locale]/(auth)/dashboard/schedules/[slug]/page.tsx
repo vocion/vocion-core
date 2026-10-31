@@ -106,16 +106,16 @@ export default async function AutomationDetailPage(props: {
     <>
       <TitleBar
         title={automation.name}
-        description={automation.description ?? 'Run history and the run log for this automation.'}
+        description={automation.description ?? 'Run history and the run log for this schedule or event trigger.'}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-4">
-        <Link href="/dashboard/automation" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+        <Link href="/dashboard/schedules" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-3.5" />
-          Automations
+          Schedules
         </Link>
-        <Link href="/dashboard/automation/runs" className="text-xs text-muted-foreground hover:text-foreground">
-          All automations’ runs →
+        <Link href="/dashboard/schedules/runs" className="text-xs text-muted-foreground hover:text-foreground">
+          All schedule runs →
         </Link>
       </div>
 
@@ -181,7 +181,7 @@ export default async function AutomationDetailPage(props: {
 
       <section>
         <h2 className="mb-3 text-sm font-semibold">Runs</h2>
-        <RunLogFilters facets={facets} basePath={`/dashboard/automation/${slug}`} pinnedSlug={slug} />
+        <RunLogFilters facets={facets} basePath={`/dashboard/schedules/${slug}`} pinnedSlug={slug} />
         <p className="mb-3 text-xs text-muted-foreground">
           {total}
           {' '}

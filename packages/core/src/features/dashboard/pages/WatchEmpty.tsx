@@ -22,7 +22,7 @@ export function WatchEmpty({ text, watch, now }: { text: string; watch: WatchSta
       icon={Radar}
       title={text}
       description={watch ? <WatchLine watch={watch} now={now} /> : undefined}
-      action={watch && watch.state !== 'active' ? { label: 'Open Automations', href: '/dashboard/automations' } : undefined}
+      action={watch && watch.state !== 'active' ? { label: 'Open schedules', href: '/dashboard/schedules' } : undefined}
     />
   );
 }
@@ -37,7 +37,7 @@ export function WatchEmpty({ text, watch, now }: { text: string; watch: WatchSta
  */
 function WatchLine({ watch, now }: { watch: WatchState; now: number }) {
   if (watch.state === 'missing') {
-    return <span data-testid="watch-line">Nothing is watching: this workspace has no automation that fills this page.</span>;
+    return <span data-testid="watch-line">Nothing is watching: this workspace has no schedule or trigger that fills this page.</span>;
   }
   const where = watch.in ? ` in ${watch.in}` : '';
   const what = watch.items.length > 0

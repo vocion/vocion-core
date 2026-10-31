@@ -196,7 +196,7 @@ export type ConfigureView = {
 const TAB_LABEL: Record<ConfigureTabKind, string> = {
   seats: 'Seats',
   skills: 'Skills & playbooks',
-  automations: 'Automations',
+  automations: 'Schedules',
   trust: 'Trust rules',
   learned: 'Learned',
   measures: 'Measures',
@@ -379,7 +379,7 @@ function automationRows(input: ConfigureInput, now: number): ConfigureRow[] {
     ],
     figure: a.last ? ageLabel(a.last.at, now) : 'Never fired',
     chip: automationChip(a),
-    href: `/dashboard/automation/${a.slug}`,
+    href: `/dashboard/schedules/${a.slug}`,
     preview: null,
     resume: a.paused ? { slug: a.slug, byName: a.paused.by ?? 'someone', when: pausedSince(a.paused.at.toISOString()), note: a.paused.note } : null,
   }));
@@ -471,7 +471,7 @@ function tab(kind: ConfigureTabKind, label: string | undefined, input: Configure
     case 'automations': {
       const paused = input.automations.filter(a => a.paused).length;
       const failing = input.automations.filter(a => !a.paused && a.last?.status === 'error').length;
-      return { key: kind, label: name, count: input.automations.length, note: note([failing > 0 ? `${failing} failing` : null, paused > 0 ? `${paused} paused` : null]), rows: automationRows(input, now), empty: 'No automations ship with this plugin.' };
+      return { key: kind, label: name, count: input.automations.length, note: note([failing > 0 ? `${failing} failing` : null, paused > 0 ? `${paused} paused` : null]), rows: automationRows(input, now), empty: 'No schedules or triggers ship with this plugin.' };
     }
     case 'trust': {
       const own = input.trust.filter(t => t.runsOnItsOwn).length;
@@ -504,7 +504,7 @@ export function attentionItems(input: ConfigureInput): ConfigureAttention[] {
   const items: ConfigureAttention[] = [];
   for (const a of input.automations) {
     if (!a.paused && a.last?.status === 'error') {
-      items.push({ id: `automation:${a.slug}`, label: a.name, detail: a.last.failedToStart ? 'Could not start' : 'Errored on its last run', href: `/dashboard/automation/${a.slug}` });
+      items.push({ id: `automation:${a.slug}`, label: a.name, detail: a.last.failedToStart ? 'Could not start' : 'Errored on its last run', href: `/dashboard/schedules/${a.slug}` });
     }
   }
   for (const s of input.seats) {

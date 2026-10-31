@@ -42,7 +42,7 @@ function fixture(over: Partial<ConfigureInput> = {}): ConfigureInput {
       { id: 'desk/minutes', label: 'Minutes to first reply', teamName: 'Kestrel desk', unit: undefined, target: 30, direction: 'lower', window: '7d', value: 40, previous: 32, improving: false, sourceLabel: 'worker reports' },
     ],
     changes: [
-      { id: 'control:1', what: 'Paused Weekly note', who: 'Mara Okafor', at: hoursAgo(30), href: '/dashboard/automation/desk-weekly' },
+      { id: 'control:1', what: 'Paused Weekly note', who: 'Mara Okafor', at: hoursAgo(30), href: '/dashboard/schedules/desk-weekly' },
       { id: 'apply:2', what: 'Workspace applied · 3 changes', who: 'Mara Okafor', at: hoursAgo(5), href: '/dashboard/workspace' },
       { id: 'policy:desk.file_ask', what: 'File an ask → Execute within bounds', who: 'Vocion', at: hoursAgo(50), href: '/dashboard/autonomy' },
     ],
@@ -57,7 +57,7 @@ describe('planConfigure', () => {
     expect(view.tabs.map(t => [t.key, t.label, t.count])).toEqual([
       ['seats', 'Seats', 2],
       ['skills', 'Skills & playbooks', 3],
-      ['automations', 'Automations', 3],
+      ['automations', 'Schedules', 3],
       ['trust', 'Trust rules', 2],
       ['learned', 'Learned', 2],
       ['measures', 'Measures', 2],
@@ -68,7 +68,7 @@ describe('planConfigure', () => {
   it('keeps only the tabs a page declares, under its own labels', () => {
     const view = planConfigure(fixture(), { tabs: [{ kind: 'automations' }, { kind: 'seats', label: 'Agents' }], aside: [{ kind: 'changes' }] }, { now: NOW });
 
-    expect(view.tabs.map(t => [t.key, t.label])).toEqual([['automations', 'Automations'], ['seats', 'Agents']]);
+    expect(view.tabs.map(t => [t.key, t.label])).toEqual([['automations', 'Schedules'], ['seats', 'Agents']]);
     expect(view.aside.map(a => a.kind)).toEqual(['changes']);
   });
 
@@ -178,7 +178,7 @@ describe('the sidebar', () => {
     const attention = planConfigure(input, undefined, { now: NOW }).aside.find(a => a.kind === 'attention');
 
     expect(attention?.kind === 'attention' && attention.items.map(i => [i.label, i.detail, i.href])).toEqual([
-      ['Daily sweep', 'Errored on its last run', '/dashboard/automation/desk-daily'],
+      ['Daily sweep', 'Errored on its last run', '/dashboard/schedules/desk-daily'],
       ['Desk checker', 'Over budget — new runs are refused', '/dashboard/agents/desk-checker'],
       ['Writing the reply', 'Your override is behind the plugin', '/dashboard/skills/write-the-reply'],
       ['Send a reply', 'Demoted itself — asks again', '/dashboard/autonomy'],

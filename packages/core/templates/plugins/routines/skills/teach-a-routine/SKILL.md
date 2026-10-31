@@ -1,19 +1,23 @@
 ---
 slug: teach-a-routine
-name: Teach a routine
+name: Teach a task
 description: >-
   Turn a narrated Slate recording of repeatable work into a routine its expert
   approves, run it for a list of rows in parallel, and report on the batch.
   Read when a person shares a Slate recording of a task, asks to automate work
   they do in a web app, or hands over a list to process.
-version: 1
+version: 2
 ---
 
-# Teach a routine
+# Teach a task
 
 A **routine** is a repeatable process a specialist taught once, that Vocion
 runs, escalates and improves over time. Every routine has a **human expert**
 responsible for its exceptions.
+
+The product calls these **Automations**, their teaching inputs **Recordings**,
+and executions **Runs**. Use **Teach a task** in user-facing instructions;
+the `routine_*` tool names and stored identifiers are unchanged.
 
 ## Teach
 

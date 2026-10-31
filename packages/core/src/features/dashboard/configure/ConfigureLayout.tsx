@@ -85,7 +85,7 @@ export function ConfigureLayout({ view }: { view: ConfigureView }) {
                     <ConfigureRows key={t.key} rows={t.rows} empty={t.empty} figure={FIGURE[t.key]} />
                     {/* Every automation in the workspace, each with its switch. */}
                     <p className="mt-3 text-[13px]">
-                      <Link href="/dashboard/automation" className="text-muted-foreground hover:text-foreground hover:underline">All automations in this workspace, with their switches</Link>
+                      <Link href="/dashboard/schedules" className="text-muted-foreground hover:text-foreground hover:underline">All schedules and triggers in this workspace</Link>
                     </p>
                   </>
                 )

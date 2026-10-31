@@ -17,7 +17,7 @@ import { workflowRunSchema, workflowSchema } from '@/models/Schema';
  *     person reads while it runs). A run's own label comes from the
  *     workflow's `runLabel`, interpolated from its input at start.
  *   - `action` steps are stubs that record intent, except the ones that run:
- *     `routine.run` (a routine batch) and `workflow.start` (one child run per
+ *     `routine.run` (an automation batch) and `workflow.start` (one child run per
  *     item — fan-out).
  *   - Durable: each run is owned by a durable run (`workflows/durableWorkflowRun.ts`)
  *     that advances it, waits on its gate, and survives restarts. Every
@@ -766,9 +766,9 @@ async function runWork(state: RunState, step: WorkflowStep | RepeatInnerWorkflow
     return 'done';
   }
   if (step.type === 'action' && step.action === 'routine.run') {
-    // An action that runs: the routine for the rows given, as a batch under its approved version
+    // An action that runs: the automation for the rows given, as a batch under its approved version
     // and trust level (`services/routines/RoutineService.ts`). The step completes once the batch
-    // is started; its runs report on the batch, and its escalations reach the routine's expert.
+    // is started; its runs report on the batch, and its escalations reach the automation's expert.
     const actionInput = interpolateValue(step.input, scope) as Record<string, unknown>;
     const { findRoutine } = await import('@/services/routines/routineReads');
     const { startRoutineBatch } = await import('@/services/routines/RoutineService');
@@ -781,7 +781,7 @@ async function runWork(state: RunState, step: WorkflowStep | RepeatInnerWorkflow
     const shared = actionInput.shared && typeof actionInput.shared === 'object' ? actionInput.shared as Record<string, string> : {};
     const by = run.createdBy && !['mcp', 'system'].includes(run.createdBy) && !run.createdBy.includes(':') ? run.createdBy : (routine.expert?.userId ?? run.createdBy ?? 'system');
     const batch = await startRoutineBatch({ orgId: run.orgId, userId: by, routineId: routine.id, rows, shared, conversationId: null });
-    finishStep(state, name, { batchId: batch.id, routine: routine.name, rows: batch.total, url: `/dashboard/routines/batches/${batch.id}` });
+    finishStep(state, name, { batchId: batch.id, routine: routine.name, rows: batch.total, url: `/dashboard/automations/batches/${batch.id}` });
     return 'done';
   }
   if (step.type === 'action' && step.action === 'workflow.start') {

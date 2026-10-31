@@ -2696,7 +2696,7 @@ function buildState(input: FeatureReportInput, live: LiveRun | null = null, merg
       const held = failed && d?.answer?.runId === failed.runId && d.answer.paused ? d.answer : null;
       if (held) {
         const what = pausedAnswerLine(held);
-        return { key: 'merge', label, blocker: { what, owner: held.paused?.by ?? null, next: `resume "${held.automation}"`, cause: 'automation_paused' }, detail: `${held.paused?.by ?? 'a person'} to resume "${held.automation}"`, needsYou: true, question: what, action: { label: 'Resume', href: `/dashboard/automation/${held.slug}` }, decision: null };
+        return { key: 'merge', label, blocker: { what, owner: held.paused?.by ?? null, next: `resume "${held.automation}"`, cause: 'automation_paused' }, detail: `${held.paused?.by ?? 'a person'} to resume "${held.automation}"`, needsYou: true, question: what, action: { label: 'Resume', href: `/dashboard/schedules/${held.slug}` }, decision: null };
       }
       return { key: 'merge', label, detail: 'merged; the release is recorded once it is live', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
     }
@@ -3729,7 +3729,7 @@ function afterMergeStatus(input: FeatureReportInput, impl: ReportImplementation,
       const answer = failed && d.answer?.runId === failed.runId ? d.answer : null;
       const open: ReportAction = failed ? { kind: 'link', label: 'Open the failed run', href: failed.url } : change;
       if (answer?.paused) {
-        return { tone: 'bad', headline: 'Deploy failed', sentence: `${merged} ${what} ${pausedAnswerLine(answer)}: nothing re-runs or fixes it until it is resumed.`.replace(/\s+/g, ' ').trim(), action: { kind: 'link', label: 'Resume', href: `/dashboard/automation/${answer.slug}` }, secondary: open, next: `Once "${answer.automation}" is resumed, the failure is read within five minutes: a flaky run is re-run, anything else is fixed or escalated, and the release follows the deploy.` };
+        return { tone: 'bad', headline: 'Deploy failed', sentence: `${merged} ${what} ${pausedAnswerLine(answer)}: nothing re-runs or fixes it until it is resumed.`.replace(/\s+/g, ' ').trim(), action: { kind: 'link', label: 'Resume', href: `/dashboard/schedules/${answer.slug}` }, secondary: open, next: `Once "${answer.automation}" is resumed, the failure is read within five minutes: a flaky run is re-run, anything else is fixed or escalated, and the release follows the deploy.` };
       }
       const onIt = answer ? ` ${answer.by ?? `"${answer.automation}"`} is on it${answer.automationRunId ? ` (${nounCode('automation', answer.automationRunId)})` : ''}.` : watching;
       return { tone: 'warn', headline: 'Deploy failed', sentence: `${merged} ${what}${onIt}`.replace(/\s+/g, ' ').trim(), action: open, secondary: null, next: 'A flaky or infrastructure failure is re-run; anything else is fixed or escalated. The release follows the deploy.' };

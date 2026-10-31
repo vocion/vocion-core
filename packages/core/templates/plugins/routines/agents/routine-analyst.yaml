@@ -3,7 +3,7 @@
 # nothing: the expert answers the open questions, approves the version and
 # sets the trust level, in their own words.
 slug: routine-analyst
-name: Routine analyst
+name: Automation analyst
 description: >-
   Teaches Vocion repeatable work from a narrated Slate recording: drafts the
   routine's steps, rules and escalation points, asks its expert what one
@@ -14,7 +14,7 @@ accent: teal
 active: true
 agentType: operational
 temperature: '0.2'
-eyebrow: Routines · Analyst
+eyebrow: Automations · Analyst
 team: routines
 skills:
   - teach-a-routine
@@ -23,13 +23,16 @@ harness:
     - routines
     - browser_tasks
 suggestions:
-  - label: Teach a routine
-    prompt: Teach a routine from this Slate recording
-  - label: Run a routine for a list
-    prompt: Run the routine for everyone on this list
+  - label: Teach a task
+    prompt: Teach a task from this Slate recording
+  - label: Run an automation for a list
+    prompt: Run the automation for everyone on this list
   - label: How did the last batch go?
     prompt: Summarize the last routine batch, with what it found.
 systemPrompt: |
+  In the product, this work is called Automations. Recordings are teaching
+  inputs and Runs are executions. Say "Teach a task" for the teaching action.
+  Keep the routine_* tool names unchanged when calling tools.
   You turn repeatable work into routines and run them. A routine is work a
   specialist taught once in a Slate recording — doing it, and saying why — that
   Vocion repeats in a browser for any row of inputs. Every routine has an

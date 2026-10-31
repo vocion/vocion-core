@@ -65,7 +65,7 @@ export function MonitorsBlock({ title, monitors, now, timeZone }: { title: strin
                 <ListRow
                   key={m.slug}
                   data-testid={`monitor-${m.slug}`}
-                  href={`/dashboard/automation/${m.slug}`}
+                  href={`/dashboard/schedules/${m.slug}`}
                   chevron={false}
                   title={m.name}
                   subline={(

@@ -126,8 +126,8 @@ export function AutomationsList({ rows, filter, showApp = true }: { rows: Automa
     return (
       <ListEmpty
         variant="inline"
-        title="No automations in this workspace yet."
-        description="An automation starts work on a schedule or when something happens, and apps bring their own."
+        title="No schedules in this workspace yet."
+        description="Schedules start work at a set time or when an event occurs. Apps can provide their own schedules and trigger rules."
         action={{ label: 'Browse apps', href: '/dashboard/apps' }}
         authoring={(
           <>
@@ -158,7 +158,7 @@ export function AutomationsList({ rows, filter, showApp = true }: { rows: Automa
         </p>
       )}
       {rows.length === 0
-        ? <p className="py-2 text-[13px] text-muted-foreground">No automations listed for this app.</p>
+        ? <p className="py-2 text-[13px] text-muted-foreground">No schedules listed for this app.</p>
         : (
             <ListRows>
               {rows.map((r) => {
@@ -185,7 +185,7 @@ export function AutomationsList({ rows, filter, showApp = true }: { rows: Automa
                   <ListRow
                     key={r.slug}
                     data-testid={`automation-row-${r.slug}`}
-                    href={`/dashboard/automation/${r.slug}`}
+                    href={`/dashboard/schedules/${r.slug}`}
                     title={r.name}
                     subline={<Subline segments={[showApp ? r.app : '', r.trigger, r.owner ?? '', r.last]} separator="·" />}
                     chip={chip}
@@ -215,8 +215,8 @@ export function AutomationsList({ rows, filter, showApp = true }: { rows: Automa
           className="self-start text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         >
           {filter.showSystem
-            ? 'Hide system automations'
-            : `Show system automations (${filter.systemHidden})`}
+            ? 'Hide system schedules'
+            : `Show system schedules (${filter.systemHidden})`}
         </button>
       )}
     </div>

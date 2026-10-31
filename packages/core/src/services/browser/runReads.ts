@@ -89,7 +89,7 @@ export async function readBrowserRun(orgId: string, id: number): Promise<Browser
  * @param limit - How many.
  */
 export async function recentBrowserRuns(orgId: string, userId: string, limit = 20): Promise<BrowserRunView[]> {
-  // A routine's runs are listed on its batch, not among the person's own.
+  // An automation's runs are listed on its batch, not among the person's own.
   const rows = await db.select().from(browserRunSchema).where(and(eq(browserRunSchema.orgId, orgId), eq(browserRunSchema.userId, userId), isNull(browserRunSchema.routineRunId))).orderBy(desc(browserRunSchema.id)).limit(limit);
   return rows.map(toView);
 }

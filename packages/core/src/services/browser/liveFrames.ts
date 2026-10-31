@@ -2,7 +2,7 @@
  * THE LIVE PICTURE, READ — which browser a run drives, and its latest frame,
  * without the engine. The engine (`browserEngine.ts`) keeps its open browsers
  * on the process (`globalThis.__vocionBrowserSessions`); a page, the frame
- * route or a routine's queue only reads that map, so it compiles this and not
+ * route or an automation's queue only reads that map, so it compiles this and not
  * Playwright or the practice sites (the build budget, CI.yml "Build memory").
  */
 
@@ -25,12 +25,12 @@ export function personKey(orgId: string, userId: string): string {
 }
 
 /**
- * The browser a run drives: the person's own, or — for a run of a routine — one of its own.
+ * The browser a run drives: the person's own, or — for a run of an automation — one of its own.
  * @param row - The run.
  * @param row.orgId - Its workspace.
  * @param row.userId - Its person.
  * @param row.id - The run.
- * @param row.routineRunId - The routine run it is, when one.
+ * @param row.routineRunId - The automation run it is, when one.
  */
 export function sessionKeyOf(row: { orgId: string; userId: string; id: number; routineRunId?: number | null }): string {
   return row.routineRunId ? `${row.orgId}:run:${row.id}` : personKey(row.orgId, row.userId);

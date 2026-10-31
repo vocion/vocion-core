@@ -251,7 +251,7 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
         <TrustChip key="t" trust={batch.routine.trust} />,
         batch.routine.expert && `Expert: ${batch.routine.expert}`,
         !compact && batch.requestedBy && `Asked by ${batch.requestedBy}`,
-        <Link key="r" href={`/dashboard/routines/${batch.routine.id}`} className="underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground">The routine</Link>,
+        <Link key="r" href={`/dashboard/automations/${batch.routine.id}`} className="underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground">The automation</Link>,
       ]}
     />
   );
@@ -294,7 +294,7 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
   return (
     <div data-routine-batch-view={batch.id} data-batch-status={batch.status}>
       <DetailPage
-        crumbs={[{ label: 'Routines', href: '/dashboard/routines' }, { label: batch.routine.name, href: `/dashboard/routines/${batch.routine.id}` }, { label: batchLabel(batch.id) }]}
+        crumbs={[{ label: 'Automations', href: '/dashboard/automations' }, { label: batch.routine.name, href: `/dashboard/automations/${batch.routine.id}` }, { label: batchLabel(batch.id) }]}
         title={title}
         meta={meta}
         actions={report}
@@ -420,7 +420,7 @@ function FindingCard({ finding: f, expert, busy, compact, onDecide }: { finding:
           {f.followUpBatchId && (
             compact
               ? <button type="button" onClick={ev => openPreview({ type: 'routine_batch', id: String(f.followUpBatchId) }, ev.currentTarget)} className="text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">{`Started ${batchLabel(f.followUpBatchId)}`}</button>
-              : <Link href={`/dashboard/routines/batches/${f.followUpBatchId}`} className="text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">{`Started ${batchLabel(f.followUpBatchId)}`}</Link>
+              : <Link href={`/dashboard/automations/batches/${f.followUpBatchId}`} className="text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">{`Started ${batchLabel(f.followUpBatchId)}`}</Link>
           )}
         </p>
       )}

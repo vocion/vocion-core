@@ -478,7 +478,7 @@ export const PluginManifestSchema = z.object({
   nav: z.object({
     section: z.string().min(1).default('Workspace'),
     order: z.number().default(0),
-    pinByDefault: z.array(z.string().regex(/^\//, 'a pinned row is a url path, e.g. /dashboard/routines')).default([]),
+    pinByDefault: z.array(z.string().regex(/^\//, 'a pinned row is a url path, e.g. /dashboard/automations')).default([]),
   }).default({ section: 'Workspace', order: 0, pinByDefault: [] }),
   recommend: z.object({
     when: z.array(z.string().min(1)).default([]),

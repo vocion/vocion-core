@@ -31,3 +31,8 @@ describe('a project page and a conversation scoped to a project name the project
     expect(scopeRefToRecord('contacts:9412')).toEqual({ type: 'object', id: 'contacts:9412' });
   });
 });
+
+it.each(['routines', 'automations'])('recognizes %s links while emitting canonical automation links and stable record identities', (route) => {
+  expect(recordFromPath(`/w/northwind/dashboard/${route}/7`)).toEqual({ type: 'routine', id: '7', label: 'Automation #7', href: '/dashboard/automations/7' });
+  expect(recordFromPath(`/w/northwind/dashboard/${route}/batches/12`)).toEqual({ type: 'routine_batch', id: '12', label: 'Automation run 12', href: '/dashboard/automations/batches/12' });
+});

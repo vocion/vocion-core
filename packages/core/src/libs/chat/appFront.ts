@@ -138,7 +138,7 @@ export function failedRunAfter(brief: { createdAt: Date; missionRunId: number | 
   }
   const href = later.kind === 'mission_check' && later.targetRunId
     ? `/dashboard/missions/runs/${later.targetRunId}`
-    : `/dashboard/automation/runs?slug=${encodeURIComponent(later.slug)}&status=error`;
+    : `/dashboard/schedules/runs?slug=${encodeURIComponent(later.slug)}&status=error`;
   return { href };
 }
 

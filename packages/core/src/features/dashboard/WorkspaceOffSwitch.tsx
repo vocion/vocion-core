@@ -44,7 +44,7 @@ export type WorkspacePauseView = {
 const STILL_RUNNING = 'A worker already mid-run finishes and reports, and chat with an agent stays open.';
 
 /** What it refuses. Four things, the same four the guard enforces. */
-const REFUSED = 'No automation fires, no mission run starts, no worker run is queued or claimed, and no gated action executes.';
+const REFUSED = 'No schedule or event trigger fires, no mission run starts, no worker run is queued or claimed, and no gated action executes.';
 
 /**
  * The stop, for a workspace that is running — the dialog only; its trigger is
@@ -100,7 +100,7 @@ export function WorkspacePauseDialog({ open, onOpenChange }: { open: boolean; on
               {' '}
               {STILL_RUNNING}
               {' '}
-              Automations someone paused individually stay paused — resuming puts everything back exactly as it is now.
+              Schedules someone paused individually stay paused — resuming puts everything back exactly as it is now.
             </DialogDescription>
           </DialogHeader>
           <div>

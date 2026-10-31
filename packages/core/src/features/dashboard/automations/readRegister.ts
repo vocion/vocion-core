@@ -60,5 +60,5 @@ export async function readAutomationRegister(orgId: string): Promise<AutomationR
  */
 export function registerHrefFor(register: Pick<AutomationRegister, 'apps'>, plugin: string): string {
   const app = register.apps.find(a => a.plugins.includes(plugin));
-  return `/dashboard/automation?app=${encodeURIComponent(app?.id ?? plugin)}`;
+  return `/dashboard/schedules?app=${encodeURIComponent(app?.id ?? plugin)}`;
 }

@@ -97,7 +97,7 @@ do:
 
 Apply the workspace (`npm run workspace:apply -- <path> --project <id>`) and
 the durable schedule is reconciled like every other automation. Fire it once by
-hand from `/dashboard/automation` to see the first report.
+hand from `/dashboard/schedules` to see the first report.
 
 ### Mailing a team's own briefing
 

@@ -66,7 +66,7 @@ export function AutomationCardStatus({
         </div>
       )}
       {skips && skips.selfTrigger > 0 && (
-        <div className="text-muted-foreground/70" title="an automation never fires on an event its own run raised">
+        <div className="text-muted-foreground/70" title="a schedule never fires on an event its own run raised">
           {skips.selfTrigger}
           {' '}
           own-run event
@@ -105,7 +105,7 @@ export function AutomationCardStatus({
       {freshness && <SourceFreshness freshness={freshness} />}
 
       <div>
-        <Link href={`/dashboard/automation/${slug}`} className="hover:underline">run history →</Link>
+        <Link href={`/dashboard/schedules/${slug}`} className="hover:underline">run history →</Link>
       </div>
     </div>
   );

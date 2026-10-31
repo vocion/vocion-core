@@ -10,7 +10,7 @@ import { TeachRoutineButton } from '@/features/routines/TeachRoutineButton';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { batchesOf, getBatch, getRoutine, listRoutines } from '@/services/routines/routineReads';
 
-/** What a path under /dashboard/routines shows. */
+/** What a path under /dashboard/automations shows. */
 type Shown = { kind: 'list' } | { kind: 'routine'; id: number } | { kind: 'batch'; id: number } | { kind: 'batches' } | { kind: 'none' };
 
 function shown(path: string[] | undefined): Shown {
@@ -35,21 +35,21 @@ function shown(path: string[] | undefined): Shown {
 
 export async function generateMetadata(props: { params: Promise<{ path?: string[] }> }): Promise<Metadata> {
   const s = shown((await props.params).path);
-  return { title: s.kind === 'routine' ? 'Routine' : s.kind === 'batch' ? 'Routine batch' : 'Routines' };
+  return { title: s.kind === 'routine' ? 'Automation' : s.kind === 'batch' ? 'Automation run' : 'Automations' };
 }
 
 /**
- * Every Routines page in one route — the list, one routine, one batch's queue —
- * so the build compiles the Routines pages once (the build budget, CI.yml
+ * Every Automations page in one route — the list, one routine, one batch's queue —
+ * so the build compiles the Automations pages once (the build budget, CI.yml
  * "Build memory"). Reads `routineReads` only, the light module.
  *
- *   /dashboard/routines              the workspace's routines
- *   /dashboard/routines/<id>         one routine: spec, questions, trust, Run it, batches
- *   /dashboard/routines/batches/<id> one batch, as its queue
+ *   /dashboard/automations              the workspace's routines
+ *   /dashboard/automations/<id>         one routine: spec, questions, trust, Run it, batches
+ *   /dashboard/automations/batches/<id> one batch, as its queue
  * @param props - The route.
  * @param props.params - Its params.
  */
-export default async function RoutinesPage(props: { params: Promise<{ locale: string; path?: string[] }> }) {
+export default async function AutomationsPage(props: { params: Promise<{ locale: string; path?: string[] }> }) {
   const { locale, path } = await props.params;
   setRequestLocale(locale);
   const s = shown(path);
@@ -58,7 +58,7 @@ export default async function RoutinesPage(props: { params: Promise<{ locale: st
   }
   if (s.kind === 'batches') {
     // Batches are listed on their routine's page; the trail's "Batches" crumb lands on the routines.
-    redirect('/dashboard/routines');
+    redirect('/dashboard/automations');
   }
   const { orgId } = await auth();
   if (!orgId) {
@@ -81,7 +81,7 @@ export default async function RoutinesPage(props: { params: Promise<{ locale: st
   const routines = await listRoutines(orgId);
   return (
     <ListPage
-      title="Routines"
+      title="Automations"
       description="Teach Vocion repeatable work, then manage how it runs."
       actions={routines.length > 0
         ? (

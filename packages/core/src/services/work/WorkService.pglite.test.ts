@@ -68,12 +68,15 @@ describe('what each run is called', () => {
     await db.insert(automationRunSchema).values({ orgId: ORG, slug: 'weekly-pages-check', kind: 'job', status: 'running', startedAt: new Date(now - 30_000) });
 
     const view = await workSince(ORG, new Date(now - HOUR));
+
+    expect(view.running.find(i => i.kind === 'automation')?.href).toBe('/dashboard/schedules');
+
     const titles = view.running.map(i => `${i.what}: ${i.title}`).sort();
 
     expect(titles).toEqual([
-      'Automation: Propose new SEO pages for clients behind their monthly pace',
       `Mission: ${label}`,
       'Mission: Researching, briefing and drafting SEO pages',
+      'Schedule: Propose new SEO pages for clients behind their monthly pace',
     ]);
   });
 });

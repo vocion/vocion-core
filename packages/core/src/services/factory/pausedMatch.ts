@@ -53,7 +53,7 @@ export async function pauserName(orgId: string, by: string | null): Promise<stri
 
 /**
  * "Would have run "A failed deploy is an incident", but it is paused (since 21
- * Sep 13:01 UTC, by Dana: "hold the factory"). Resume it at /dashboard/automation/<slug>."
+ * Sep 13:01 UTC, by Dana: "hold the factory"). Resume it at /dashboard/schedules/<slug>."
  * @param a - The automation.
  * @param byName - Who paused it, by name.
  * @param would - What it would have done, when the caller can say it better than the automation's name.
@@ -61,7 +61,7 @@ export async function pauserName(orgId: string, by: string | null): Promise<stri
 export function pausedMatchLine(a: PausedAutomation, byName: string | null, would?: string): string {
   const who = byName ? `, by ${byName}` : '';
   const note = a.pausedNote ? `: "${a.pausedNote}"` : '';
-  return `${would ?? `Would have run "${a.name}"`}, but "${a.name}" is paused (since ${pausedSince(a.pausedAt.toISOString())}${who}${note}). Resume it at /dashboard/automation/${a.slug} and it runs again.`;
+  return `${would ?? `Would have run "${a.name}"`}, but "${a.name}" is paused (since ${pausedSince(a.pausedAt.toISOString())}${who}${note}). Resume it at /dashboard/schedules/${a.slug} and it runs again.`;
 }
 
 /**

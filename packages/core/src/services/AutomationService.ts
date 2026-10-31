@@ -412,13 +412,13 @@ async function announceCheckCompleted(orgId: string, slug: string, automationRun
   const payload: AutomationRunCompletedPayload = {
     automationRunId,
     slug,
-    label: label ?? 'Automation run',
+    label: label ?? 'Scheduled run',
     kind: 'mission_check',
     missionRunId: result.missionRunId,
     missionRunStatus: result.missionRunStatus,
     tasksOk: result.tasks.ok,
     tasksFailed: result.tasks.failed,
-    summary: `${label ?? 'Automation run'}: mission run ${result.missionRunId} ${result.missionRunStatus}, ${result.tasks.ok}/${result.tasks.total} tasks ok`,
+    summary: `${label ?? 'Scheduled run'}: mission run ${result.missionRunId} ${result.missionRunStatus}, ${result.tasks.ok}/${result.tasks.total} tasks ok`,
     completedAt: new Date().toISOString(),
   };
   try {

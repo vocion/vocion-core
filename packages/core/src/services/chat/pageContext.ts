@@ -36,11 +36,11 @@ export const RECORD_TYPES = [
   /** A browser run (`browser_run`): a task done in a person's browser, watched live in the pane. */
   'browser_run',
   /**
-   * A routine (`routine`, `libs/routines/types.ts`): repeatable work taught once from a recording,
+   * An automation (`routine`, `libs/routines/types.ts`): repeatable work taught once from a recording,
    * with its spec, expert and trust level. Opened in the pane as it is taught.
    */
   'routine',
-  /** A batch of a routine's runs (`routine_batch`): one browser run per input row, watched as a queue in the pane. */
+  /** A batch of an automation's runs (`routine_batch`): one browser run per input row, watched as a queue in the pane. */
   'routine_batch',
   'conversation',
   /** The artifact open beside the conversation — what "this table"/"the doc" means. */
@@ -341,13 +341,13 @@ export function recordFromPath(path: string, title = '', pageType?: (pageSlug: s
   if (agentRun) {
     return { type: 'mission_run', id: agentRun[1]!, label: title || `Agent run #${agentRun[1]}`, href: `/dashboard/p/runs/agent-${agentRun[1]}` };
   }
-  const batch = /^\/dashboard\/routines\/batches\/(\d+)\/?$/.exec(p);
+  const batch = /^\/dashboard\/(?:routines|automations)\/batches\/(\d+)\/?$/.exec(p);
   if (batch) {
-    return { type: 'routine_batch', id: batch[1]!, label: title || `Routine batch ${batch[1]}`, href: `/dashboard/routines/batches/${batch[1]}` };
+    return { type: 'routine_batch', id: batch[1]!, label: title || `Automation run ${batch[1]}`, href: `/dashboard/automations/batches/${batch[1]}` };
   }
-  const routine = /^\/dashboard\/routines\/(\d+)\/?$/.exec(p);
+  const routine = /^\/dashboard\/(?:routines|automations)\/(\d+)\/?$/.exec(p);
   if (routine) {
-    return { type: 'routine', id: routine[1]!, label: title || `Routine #${routine[1]}`, href: `/dashboard/routines/${routine[1]}` };
+    return { type: 'routine', id: routine[1]!, label: title || `Automation #${routine[1]}`, href: `/dashboard/automations/${routine[1]}` };
   }
   const page = /^\/dashboard\/p\/([\w-]+)\/(\d+)\/?$/.exec(p);
   if (page) {

@@ -11,11 +11,11 @@
  *
  * One live run per person at a time (`BrowserRunBusyError`), in one browser
  * that stays open between their runs, so the next task can carry on from the
- * page the last one left. A run of a routine (`routineRunId`) is not the
- * person's: it runs beside the routine's other runs in a browser of its own
- * (`sessionKeyOf`), under the routine's version, rules and trust level, and
- * tells the routine (`services/routines/RoutineService.ts`) when it waits and
- * when it ends — the routine, not the run, speaks in the conversation.
+ * page the last one left. A run of an automation (`routineRunId`) is not the
+ * person's: it runs beside the automation's other runs in a browser of its own
+ * (`sessionKeyOf`), under the automation's version, rules and trust level, and
+ * tells the automation (`services/routines/RoutineService.ts`) when it waits and
+ * when it ends — the automation, not the run, speaks in the conversation.
  *
  * Where the result goes: on the run, always; to the tool call that started
  * it when that call is still waiting; otherwise into the conversation it was
@@ -45,6 +45,7 @@ import { asRootRun } from '@/libs/agents/rootRun';
 import { BROWSER_RUN_LIMITS, browserRunLabel, isLive, SECRET_MASK } from '@/libs/browser/run';
 import { db } from '@/libs/DB';
 import { browserRunSchema } from '@/models/Schema';
+import { wroteAfterApproval } from './approvalEvidence';
 import { claim, closeBrowserSession, existingSession, openBrowserSession, openWithSignIn, releaseBrowserSession, saveBrowser, screenshot, sessionKeyOf } from './browserEngine';
 import { isStale, STALE_MS, toView } from './runReads';
 
@@ -174,7 +175,7 @@ export async function getBrowserRun(orgId: string, id: number): Promise<BrowserR
  * @param userId - The person.
  */
 export async function liveRunFor(orgId: string, userId: string): Promise<{ id: number; task: string } | null> {
-  // A routine's runs are not in the person's browser, so they never make it busy.
+  // An automation's runs are not in the person's browser, so they never make it busy.
   const [r] = await db.select({ id: browserRunSchema.id, task: browserRunSchema.task }).from(browserRunSchema).where(and(eq(browserRunSchema.orgId, orgId), eq(browserRunSchema.userId, userId), isNull(browserRunSchema.routineRunId), inArray(browserRunSchema.status, ['queued', 'running', 'waiting']))).orderBy(desc(browserRunSchema.id)).limit(1);
   return r ?? null;
 }
@@ -197,7 +198,7 @@ export type CreateBrowserRun = {
   start: boolean;
   /** Carry on from the page the person's browser is on, instead of opening `startUrl`. */
   continuing?: boolean;
-  /** A run of a routine: its own browser, the routine's rules and trust (`services/routines/`). */
+  /** A run of an automation: its own browser, the automation's rules and trust (`services/routines/`). */
   routineRunId?: number | null;
   /**
    * Writes a person already approved, elsewhere, before this run started: the
@@ -337,7 +338,7 @@ export async function answerBrowserRun(orgId: string, userId: string, id: number
 }
 
 /**
- * A routine's answer to its run: the routine has already checked who may answer (its expert, or the
+ * An automation's answer to its run: the automation has already checked who may answer (its expert, or the
  * person who asked for the batch).
  * @param orgId - The workspace.
  * @param id - The run.
@@ -346,13 +347,13 @@ export async function answerBrowserRun(orgId: string, userId: string, id: number
 export async function answerRoutineBrowserRun(orgId: string, id: number, decision: { kind: 'approve' } | { kind: 'deny'; note?: string } | { kind: 'answer'; text: string }): Promise<void> {
   const row = await readRow(orgId, id);
   if (!row?.routineRunId) {
-    throw new BrowserRunError('No such run of a routine.');
+    throw new BrowserRunError('No such run of an automation.');
   }
   await answerRow(row, decision);
 }
 
 /**
- * Stop a routine's run: the routine has already checked who may.
+ * Stop an automation's run: the automation has already checked who may.
  * @param orgId - The workspace.
  * @param id - The run.
  */
@@ -457,7 +458,7 @@ async function checkpoint(l: Live, force = false): Promise<void> {
 }
 
 /**
- * Tell the routine a run of it moved: it waits, it carries on, it ended. Never throws.
+ * Tell the automation a run of it moved: it waits, it carries on, it ended. Never throws.
  * @param row - The run.
  * @param event - What happened.
  */
@@ -468,15 +469,6 @@ function tellRoutine(row: Row, event: { kind: 'waiting'; waiting: BrowserWaiting
   void import('@/services/routines/RoutineService')
     .then(m => m.onBrowserRunEvent(row.orgId, row.routineRunId!, row.id, event))
     .catch(e => console.warn('[routines] a run could not tell its routine', { run: row.id, reason: (e as Error).message }));
-}
-
-/**
- * Whether the run took a write a person or the routine let through: what it did then may have
- * changed something, so an ending it cannot account for is an unknown outcome, never a replay.
- * @param steps - Its steps.
- */
-function wroteAfterApproval(steps: BrowserStep[]): boolean {
-  return steps.some(s => s.kind === 'approval' && s.ok && /^(?:Approved by the person|Inside the routine|Approved ahead)/.test(s.label));
 }
 
 function begin(row: Row, secrets: Record<string, string>, continuing: boolean, resume: Resume | null, approvedAhead: ApprovedAhead | null, keptSignIn: RunSignIn | null = null): void {
@@ -514,7 +506,7 @@ function begin(row: Row, secrets: Record<string, string>, continuing: boolean, r
     live.delete(row.id);
     notify(l);
     if (row.routineRunId) {
-      // A routine's run has a browser of its own, and nothing comes after it in that browser.
+      // An automation's run has a browser of its own, and nothing comes after it in that browser.
       void closeBrowserSession(key);
     } else {
       releaseBrowserSession(key);
@@ -599,7 +591,7 @@ async function drive(row: Row, l: Live, continuing: boolean, resume: Resume | nu
   const model = await buildChatModelForOrg('main', row.orgId, { temperature: 0, streaming: false, maxTokens: 2_000, thinking: 'off' });
   let micro = Number(row.microCents ?? 0);
   const plainInputs = Object.fromEntries(Object.entries(row.inputs ?? {}).filter(([, v]) => !v.secret).map(([k, v]) => [k, v.value]));
-  // A run of a routine reads its approved version's rules and trust from the routine, every time it
+  // A run of an automation reads its approved version's rules and trust from the automation, every time it
   // starts or is picked up, so a restart never runs it under rules it was not started with.
   const routine = row.routineRunId ? await (await import('@/services/routines/RoutineService')).guideForRun(row.orgId, row.routineRunId) : null;
 
@@ -623,7 +615,7 @@ async function drive(row: Row, l: Live, continuing: boolean, resume: Resume | nu
       void checkpoint(l);
     },
     charge: async (response) => {
-      // Filed in the spend ledger under the run a person can open: the routine run for a routine's row, else this browser run.
+      // Filed in the spend ledger under the run a person can open: the automation run for an automation's row, else this browser run.
       const { withCallContext } = await import('@/services/spend/callContext');
       await withCallContext({
         userId: row.userId,

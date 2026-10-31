@@ -15,7 +15,7 @@
  *   run         a batch: one browser run per row (`BrowserRunService`, each in a
  *               browser of its own), at most `ROUTINE_LIMITS.concurrency` at once
  *               per workspace, the rest queued. The dedupe ledger (`idem_key`)
- *               skips a row this routine already did.
+ *               skips a row this automation already did.
  *   escalate    a run that waits — an `escalate` call, or a held step — is one
  *               Decision on Needs you for the expert, docked in the conversation
  *               the batch was asked from. Their answer goes back to the run.
@@ -50,10 +50,10 @@ type VersionRow = typeof routineVersionSchema.$inferSelect;
 type BatchRow = typeof routineBatchSchema.$inferSelect;
 type RunRow = typeof routineRunSchema.$inferSelect;
 
-/** The name a routine is filed under until the analyst names it. */
-export const UNNAMED = 'New routine';
+/** The name an automation is filed under until the analyst names it. */
+export const UNNAMED = 'New automation';
 
-/** A request about a routine this person may not make, or that is not in that state. */
+/** A request about an automation this person may not make, or that is not in that state. */
 export class RoutineError extends Error {}
 
 /** Verified runs of one version before it may be Autonomous. */
@@ -71,7 +71,7 @@ function concurrency(): number {
 async function routineRow(orgId: string, id: number): Promise<RoutineRow> {
   const [r] = await db.select().from(routineSchema).where(and(eq(routineSchema.orgId, orgId), eq(routineSchema.id, id))).limit(1);
   if (!r) {
-    throw new RoutineError('No such routine in this workspace.');
+    throw new RoutineError('No such automation in this workspace.');
   }
   return r;
 }
@@ -103,10 +103,10 @@ async function uniqueSlug(orgId: string, name: string): Promise<string> {
 }
 
 /**
- * Tell every screen showing this routine or batch that it moved. Never throws.
+ * Tell every screen showing this automation or batch that it moved. Never throws.
  * @param orgId - The workspace.
  * @param ids - What moved.
- * @param ids.routineId - The routine.
+ * @param ids.routineId - The automation.
  * @param ids.batchId - The batch.
  */
 function pushLive(orgId: string, ids: { routineId?: number | null; batchId?: number | null }): void {
@@ -162,7 +162,7 @@ function labelOf(row: Record<string, string>, spec: RoutineSpec): string {
 }
 
 /**
- * The dedupe ledger's key: the routine's key inputs, joined; else every non-shared input.
+ * The dedupe ledger's key: the automation's key inputs, joined; else every non-shared input.
  * @param row
  * @param spec
  */
@@ -178,11 +178,11 @@ export function idemKeyOf(row: Record<string, string>, spec: RoutineSpec): strin
 /* ------------------------------------------------------------------ */
 
 /**
- * Start teaching a routine: file it, and either read the recording it was given or wait for the
+ * Start teaching an automation: file it, and either read the recording it was given or wait for the
  * person to record one (launched from Vocion: the site in a new tab, the recorder beside it).
  * @param input - The request.
  * @param input.orgId - The workspace.
- * @param input.userId - The person teaching; the routine's expert until they name another.
+ * @param input.userId - The person teaching; the automation's expert until they name another.
  * @param input.name - What they call it.
  * @param input.targetUrl - The site they teach on.
  * @param input.note - Anything they add.
@@ -233,7 +233,7 @@ export async function startTeaching(input: { orgId: string; userId: string; name
  * Hand a waiting routine its recording: a Slate link pasted, or the one the keeper found.
  * @param orgId - The workspace.
  * @param userId - The person.
- * @param id - The routine.
+ * @param id - The automation.
  * @param url - The Slate link.
  */
 export async function attachRecording(orgId: string, userId: string, id: number, url: string): Promise<void> {
@@ -242,7 +242,7 @@ export async function attachRecording(orgId: string, userId: string, id: number,
     throw new RoutineError('That is not a link to a recording.');
   }
   if (r.teaching?.state === 'reading' || r.teaching?.state === 'drafting') {
-    throw new RoutineError('Vocion is already reading a recording for this routine.');
+    throw new RoutineError('Vocion is already reading a recording for this automation.');
   }
   const startedAt = r.teaching?.startedAt ?? new Date().toISOString();
   await touch(id, { source: { kind: 'slate', url: url.trim() }, error: null, status: 'teaching', teaching: { state: 'reading', startedAt, targetUrl: r.teaching?.targetUrl ?? null, recordUrl: r.teaching?.recordUrl ?? null, instruction: r.teaching?.instruction ?? null, checks: r.teaching?.checks ?? 0, lastCheckedAt: r.teaching?.lastCheckedAt ?? null, note: r.teaching?.note ?? null, userId: r.teaching?.userId ?? userId } });
@@ -256,14 +256,14 @@ function teachInBackground(id: number): void {
   if (teaching.has(id)) {
     return;
   }
-  const p = asRootRun(() => teach(id)).catch(e => console.warn('[routines] teaching failed', { routine: id, reason: (e as Error).message })).finally(() => teaching.delete(id));
+  const p = asRootRun(() => teach(id)).catch(e => console.warn('[automations] teaching failed', { routine: id, reason: (e as Error).message })).finally(() => teaching.delete(id));
   teaching.set(id, p);
 }
 
 /**
- * Wait for a routine being taught to be drafted (or fail), up to a while.
+ * Wait for an automation being taught to be drafted (or fail), up to a while.
  * @param orgId - The workspace.
- * @param id - The routine.
+ * @param id - The automation.
  * @param ms - The longest to wait.
  */
 export async function waitForDraft(orgId: string, id: number, ms: number): Promise<RoutineView | null> {
@@ -303,10 +303,10 @@ async function teach(id: number): Promise<void> {
   const frames = await slateFrames(creds.credentials, r.source.url, framesToRead(rec.data));
   let drafted;
   try {
-    // A routine filed with no name of its own takes the one the analyst gives it.
+    // An automation filed with no name of its own takes the one the analyst gives it.
     drafted = await draftSpec(r.orgId, rec.data, frames.ok ? frames.data : [], { name: r.name === UNNAMED ? null : r.name, note: r.teaching?.note ?? null, startUrl: r.teaching?.targetUrl ?? null });
   } catch (e) {
-    await fail(`Vocion could not draft a routine from the recording: ${(e as Error).message}`);
+    await fail(`Vocion could not draft an automation from the recording: ${(e as Error).message}`);
     return;
   }
   const named = r.name === UNNAMED ? { name: drafted.name, slug: await uniqueSlug(r.orgId, drafted.name) } : { name: r.name, slug: r.slug };
@@ -330,7 +330,7 @@ async function teach(id: number): Promise<void> {
   if (r.conversationId) {
     const { tellConversation } = await import('@/services/chat/tellConversation');
     const open = drafted.spec.questions.length;
-    await tellConversation(r.orgId, r.conversationId, `Routine “${named.name}” is drafted from the recording: ${drafted.spec.steps.length} steps, ${drafted.spec.rules.length} rules, ${drafted.spec.escalations.length} escalation points${open ? `, and ${open} question${open > 1 ? 's' : ''} for its expert` : ''}. [Open the routine](/dashboard/routines/${id})`, { key: `routine:${id}:drafted:${n}`, url: `/dashboard/routines/${id}` }).catch(() => {});
+    await tellConversation(r.orgId, r.conversationId, `Automation “${named.name}” is drafted from the recording: ${drafted.spec.steps.length} steps, ${drafted.spec.rules.length} rules, ${drafted.spec.escalations.length} escalation points${open ? `, and ${open} question${open > 1 ? 's' : ''} for its expert` : ''}. [Open the automation](/dashboard/automations/${id})`, { key: `routine:${id}:drafted:${n}`, url: `/dashboard/automations/${id}` }).catch(() => {});
   }
 }
 
@@ -341,7 +341,7 @@ async function teach(id: number): Promise<void> {
 async function asExpert(r: RoutineRow, userId: string): Promise<void> {
   if (r.expertUserId && r.expertUserId !== userId) {
     const names = await namesOf([r.expertUserId]);
-    throw new RoutineError(`Only the routine's expert (${names.get(r.expertUserId) ?? 'its expert'}) can do that.`);
+    throw new RoutineError(`Only the automation's expert (${names.get(r.expertUserId) ?? 'its expert'}) can do that.`);
   }
   if (!r.expertUserId) {
     await touch(r.id, { expertUserId: userId });
@@ -349,10 +349,10 @@ async function asExpert(r: RoutineRow, userId: string): Promise<void> {
 }
 
 /**
- * Approve the routine's draft: runs use it from now on, and the version before is superseded.
+ * Approve the automation's draft: runs use it from now on, and the version before is superseded.
  * @param orgId - The workspace.
  * @param userId - The expert.
- * @param id - The routine.
+ * @param id - The automation.
  */
 export async function approveRoutineVersion(orgId: string, userId: string, id: number): Promise<void> {
   const r = await routineRow(orgId, id);
@@ -373,11 +373,11 @@ export async function approveRoutineVersion(orgId: string, userId: string, id: n
 }
 
 /**
- * Move the routine on the trust ladder. Approved needs an approved version; Autonomous is earned on
+ * Move the automation on the trust ladder. Approved needs an approved version; Autonomous is earned on
  * verified runs of that version.
  * @param orgId - The workspace.
  * @param userId - The expert.
- * @param id - The routine.
+ * @param id - The automation.
  * @param trust - The level.
  */
 export async function setRoutineTrust(orgId: string, userId: string, id: number, trust: RoutineTrust): Promise<void> {
@@ -402,7 +402,7 @@ export async function setRoutineTrust(orgId: string, userId: string, id: number,
  * it; on an approved version, the answer is a new draft version (the live one is never edited).
  * @param orgId - The workspace.
  * @param userId - The expert.
- * @param id - The routine.
+ * @param id - The automation.
  * @param questionId - The question.
  * @param answer - Their answer.
  */
@@ -413,11 +413,11 @@ export async function answerRoutineQuestion(orgId: string, userId: string, id: n
   const { current, draft } = currentVersions(versions);
   const target = draft ?? current;
   if (!target) {
-    throw new RoutineError('This routine has no version yet.');
+    throw new RoutineError('This automation has no version yet.');
   }
   const q = target.spec.questions.find(x => x.id === questionId);
   if (!q) {
-    throw new RoutineError('No such question on this routine.');
+    throw new RoutineError('No such question on this automation.');
   }
   const spec: RoutineSpec = settleAnswers({ ...target.spec, questions: target.spec.questions.map(x => (x.id === questionId ? { ...x, answer: answer.trim(), answeredBy: userId } : x)) });
   if (target.status === 'draft') {
@@ -432,10 +432,10 @@ export async function answerRoutineQuestion(orgId: string, userId: string, id: n
 }
 
 /**
- * Name the routine's expert: the person its escalations go to.
+ * Name the automation's expert: the person its escalations go to.
  * @param orgId - The workspace.
  * @param userId - The current expert (or anyone, when it has none).
- * @param id - The routine.
+ * @param id - The automation.
  * @param expertUserId - The new expert.
  */
 export async function setRoutineExpert(orgId: string, userId: string, id: number, expertUserId: string): Promise<void> {
@@ -446,11 +446,11 @@ export async function setRoutineExpert(orgId: string, userId: string, id: number
 }
 
 /**
- * Save the inputs every run of this routine shares (the sign-in, the campaign), sealed, so a batch
+ * Save the inputs every run of this automation shares (the sign-in, the campaign), sealed, so a batch
  * asked for in chat needs no password typed into the conversation. Null forgets them.
  * @param orgId - The workspace.
  * @param userId - The expert.
- * @param id - The routine.
+ * @param id - The automation.
  * @param values - Input name → value, or null to forget.
  */
 export async function saveRoutineInputs(orgId: string, userId: string, id: number, values: Record<string, string> | null): Promise<void> {
@@ -465,7 +465,7 @@ export async function saveRoutineInputs(orgId: string, userId: string, id: numbe
   const allowed = new Set((current?.spec.inputs ?? []).filter(i => i.shared || i.secret).map(i => i.name));
   const kept = Object.fromEntries(Object.entries(normalizeRow(values)).filter(([k, v]) => v && (allowed.size === 0 || allowed.has(k))));
   if (Object.keys(kept).length === 0) {
-    throw new RoutineError('Nothing to save: only the inputs every row shares (the sign-in, the campaign) are kept on a routine.');
+    throw new RoutineError('Nothing to save: only the inputs every row shares (the sign-in, the campaign) are kept on an automation.');
   }
   const prior = r.savedInputs ? await unseal(orgId, r.savedInputs.sealed) : {};
   const merged = { ...prior, ...kept };
@@ -474,10 +474,10 @@ export async function saveRoutineInputs(orgId: string, userId: string, id: numbe
 }
 
 /**
- * Retire a routine: kept, with its runs, and never run again.
+ * Retire an automation: kept, with its runs, and never run again.
  * @param orgId - The workspace.
  * @param userId - The expert.
- * @param id - The routine.
+ * @param id - The automation.
  */
 export async function retireRoutine(orgId: string, userId: string, id: number): Promise<void> {
   const r = await routineRow(orgId, id);
@@ -487,10 +487,10 @@ export async function retireRoutine(orgId: string, userId: string, id: number): 
 }
 
 /**
- * A correction written as a new draft version: what the expert said, made a rule of the routine.
+ * A correction written as a new draft version: what the expert said, made a rule of the automation.
  * @param orgId - The workspace.
  * @param userId - The expert.
- * @param id - The routine.
+ * @param id - The automation.
  * @param rule - The rule, in their words.
  */
 export async function addRoutineRule(orgId: string, userId: string, id: number, rule: string): Promise<void> {
@@ -500,7 +500,7 @@ export async function addRoutineRule(orgId: string, userId: string, id: number, 
   const { current, draft } = currentVersions(versions);
   const base = draft ?? current;
   if (!base) {
-    throw new RoutineError('This routine has no version yet.');
+    throw new RoutineError('This automation has no version yet.');
   }
   const spec: RoutineSpec = { ...base.spec, rules: [...base.spec.rules, { text: rule.trim(), at: null }] };
   if (base.status === 'draft') {
@@ -528,27 +528,27 @@ export type StartBatch = {
 };
 
 /**
- * Run a routine for many rows: one run per row, under its approved version. Rows this routine
+ * Run an automation for many rows: one run per row, under its approved version. Rows this automation
  * already did (the dedupe ledger) are skipped; the rest run, at most a few at once.
  * @param input - The request.
  */
 export async function startRoutineBatch(input: StartBatch): Promise<RoutineBatchView> {
   const r = await routineRow(input.orgId, input.routineId);
   if (r.status === 'retired') {
-    throw new RoutineError('This routine is retired.');
+    throw new RoutineError('This automation is retired.');
   }
   const { current } = currentVersions(await versionsOf(r.id));
   if (!current || current.status !== 'approved') {
-    throw new RoutineError('Approve a version of this routine first: a routine runs only under an approved version.');
+    throw new RoutineError('Approve a version of this automation first: an automation runs only under an approved version.');
   }
   if (!current.spec.startUrl) {
-    throw new RoutineError('This routine does not say where the work starts. Answer “What is the address the work starts at?” and approve the new version.');
+    throw new RoutineError('This automation does not say where the work starts. Answer “What is the address the work starts at?” and approve the new version.');
   }
   if (input.rows.length === 0 || input.rows.length > ROUTINE_LIMITS.batchRows) {
     throw new RoutineError(`A batch takes 1 to ${ROUTINE_LIMITS.batchRows} rows.`);
   }
   const spec = current.spec;
-  // What the expert saved on the routine comes first; what this request gives wins.
+  // What the expert saved on the automation comes first; what this request gives wins.
   const saved = r.savedInputs ? await unseal(input.orgId, r.savedInputs.sealed) : {};
   const shared = { ...saved, ...normalizeRow(input.shared ?? {}) };
   const rows = input.rows.map(normalizeRow);
@@ -583,7 +583,7 @@ export async function startRoutineBatch(input: StartBatch): Promise<RoutineBatch
     shared: plainShared,
     secrets: Object.keys(secretShared).length > 0 ? await seal(input.orgId, secretShared) : null,
   }).returning();
-  // The dedupe ledger: work this routine already did, and work in this batch twice.
+  // The dedupe ledger: work this automation already did, and work in this batch twice.
   const keys = rows.map(row => idemKeyOf(row, spec));
   const done = keys.some(Boolean)
     ? await db.select({ id: routineRunSchema.id, idemKey: routineRunSchema.idemKey, batchId: routineRunSchema.batchId, status: routineRunSchema.status }).from(routineRunSchema).where(and(eq(routineRunSchema.routineId, r.id), inArray(routineRunSchema.idemKey, keys.filter((k): k is string => Boolean(k))), inArray(routineRunSchema.status, ['done', 'unknown_outcome'])))
@@ -598,7 +598,7 @@ export async function startRoutineBatch(input: StartBatch): Promise<RoutineBatch
     }
     const input = Object.fromEntries(Object.entries(row).filter(([k]) => !secretNames.has(k)));
     const skip = prior
-      ? (prior.status === 'done' ? `Already done by this routine (batch ${prior.batchId}): not done twice.` : `An earlier run (batch ${prior.batchId}) stopped after a change it could not confirm; it waits on the expert to check, so it is not run again.`)
+      ? (prior.status === 'done' ? `Already done by this automation (batch ${prior.batchId}): not done twice.` : `An earlier run (batch ${prior.batchId}) stopped after a change it could not confirm; it waits on the expert to check, so it is not run again.`)
       : twice ? 'The same row appears earlier in this batch: done once.' : null;
     return {
       orgId: input.orgId,
@@ -630,7 +630,7 @@ const dispatching: Map<string, Promise<void>> = ((globalThis as { __vocionRoutin
  */
 export async function dispatch(orgId: string): Promise<void> {
   const prior = dispatching.get(orgId) ?? Promise.resolve();
-  const next = prior.then(() => dispatchNow(orgId)).catch(e => console.warn('[routines] dispatch failed', { orgId, reason: (e as Error).message }));
+  const next = prior.then(() => dispatchNow(orgId)).catch(e => console.warn('[automations] dispatch failed', { orgId, reason: (e as Error).message }));
   dispatching.set(orgId, next);
   await next;
   if (dispatching.get(orgId) === next) {
@@ -666,7 +666,7 @@ async function startRun(run: RunRow): Promise<void> {
   const [r] = await db.select().from(routineSchema).where(eq(routineSchema.id, run.routineId)).limit(1);
   const [version] = await db.select().from(routineVersionSchema).where(and(eq(routineVersionSchema.routineId, run.routineId), eq(routineVersionSchema.n, run.version))).limit(1);
   if (!batch || !r || !version) {
-    throw new Error('its routine, version or batch is gone');
+    throw new Error('its automation, version or batch is gone');
   }
   const secrets = { ...(await unseal(run.orgId, batch.secrets)), ...(await unseal(run.orgId, run.secrets)) };
   const plain = { ...batch.shared, ...run.input };
@@ -692,7 +692,7 @@ async function startRun(run: RunRow): Promise<void> {
 }
 
 /**
- * What a run of a routine is told beyond its task: the approved version's rules, escalation points,
+ * What a run of an automation is told beyond its task: the approved version's rules, escalation points,
  * prohibited actions, postconditions, the writes it may take, and whether it takes them unattended.
  * Read fresh each time a run starts or is picked up.
  * @param orgId - The workspace.
@@ -734,9 +734,9 @@ export async function guideForRun(orgId: string, routineRunId: number): Promise<
 type RunEvent = { kind: 'waiting'; waiting: BrowserWaiting } | { kind: 'running' } | { kind: 'ended'; status: BrowserRunStatus; summary: string; result: Record<string, unknown> | null; error: string | null; wroteAfterApproval: boolean };
 
 /**
- * A run of a routine moved: it waits on someone, it carries on, it ended (`BrowserRunService`).
+ * A run of an automation moved: it waits on someone, it carries on, it ended (`BrowserRunService`).
  * @param orgId - The workspace.
- * @param routineRunId - The routine's run.
+ * @param routineRunId - The automation's run.
  * @param browserRunId - Its browser run.
  * @param event - What happened.
  */
@@ -769,7 +769,7 @@ type RunAnswer = { kind: 'approve' } | { kind: 'deny'; note?: string } | { kind:
  * moment later; one that is not picked up in time keeps it on its row and takes it when it waits
  * again (`runWaits`), never asking twice.
  * @param orgId - The workspace.
- * @param run - The routine run.
+ * @param run - The automation run.
  * @param answer - The answer.
  */
 async function deliver(orgId: string, run: RunRow, answer: RunAnswer): Promise<void> {
@@ -780,7 +780,7 @@ async function deliver(orgId: string, run: RunRow, answer: RunAnswer): Promise<v
       return;
     } catch (e) {
       if (!/picked up again|in a moment|not waiting/.test((e as Error).message)) {
-        console.warn('[routines] an answer could not reach its run', { run: run.id, reason: (e as Error).message });
+        console.warn('[automations] an answer could not reach its run', { run: run.id, reason: (e as Error).message });
         return;
       }
       await new Promise(r => setTimeout(r, 3_000));
@@ -824,7 +824,7 @@ async function runWaits(run: RunRow, w: BrowserWaiting): Promise<void> {
       sourceRef: `routine-run:${run.id}:${Date.parse(w.at) || Date.now()}`,
       options: options.map((label, i) => ({ id: w.kind === 'approval' ? (i === 0 ? 'approve' : 'decline') : `o${i + 1}`, label, ...(i === 0 ? { recommended: true } : {}) })),
       allowOther: w.kind !== 'approval',
-      contextUrl: `/dashboard/routines/batches/${batch.id}`,
+      contextUrl: `/dashboard/automations/batches/${batch.id}`,
       conversationId: batch.conversationId,
       ownerUserId: r.expertUserId ?? batch.requestedBy,
       objectRefs: [],
@@ -974,7 +974,7 @@ async function runEnded(run: RunRow, e: Extract<RunEvent, { kind: 'ended' }>): P
         body: `Run ${run.n} of ${batchLabel(batch.id)} took a write and then stopped (${(e.error ?? e.summary).slice(0, 300)}). It is not run again on its own, so nothing is done twice. Check the record, then say what you found.`,
         sourceRef: `routine-check:${run.id}`,
         options: [{ id: 'right', label: 'Checked: it is right', recommended: true }, { id: 'fixed', label: 'I fixed it by hand' }, { id: 'again', label: 'Run it again' }],
-        contextUrl: `/dashboard/routines/batches/${batch.id}`,
+        contextUrl: `/dashboard/automations/batches/${batch.id}`,
         conversationId: batch.conversationId,
         ownerUserId: r.expertUserId ?? batch.requestedBy,
         objectRefs: [],
@@ -986,7 +986,7 @@ async function runEnded(run: RunRow, e: Extract<RunEvent, { kind: 'ended' }>): P
 }
 
 /**
- * When every row of a batch is closed: reconcile, once, where the routine says how; then close it.
+ * When every row of a batch is closed: reconcile, once, where the automation says how; then close it.
  * @param batchId - The batch.
  */
 async function finishIfDone(batchId: number): Promise<void> {
@@ -1012,7 +1012,7 @@ async function finishIfDone(batchId: number): Promise<void> {
       status: 'queued',
       input: {},
       task: [
-        `Read, without changing anything, the full list of records this routine adds${reconcile.listUrl ? `, starting at ${reconcile.listUrl}` : ''}. ${reconcile.how}`,
+        `Read, without changing anything, the full list of records this automation adds${reconcile.listUrl ? `, starting at ${reconcile.listUrl}` : ''}. ${reconcile.how}`,
         'Sign in with the account given if asked. Read every page of the list. Do not open records one by one unless the list hides a column you need.',
         `Give records: every record in the list, one row each, with name, ${matchOn}, and status as the list shows them.`,
       ].join(' '),
@@ -1038,8 +1038,8 @@ async function closeBatch(batchId: number): Promise<void> {
     await tellConversation(closed.orgId, closed.conversationId, [
       `${batchLabel(batchId)} (${view.routine.name}) is done: ${batchStatusLine(view)}.`,
       findings.length > 0 ? `It found something: ${findings.map(f => f.title).join('; ')}. The question is on Needs you.` : '',
-      `[Open ${batchLabel(batchId)}](/dashboard/routines/batches/${batchId})`,
-    ].filter(Boolean).join('\n\n'), { key: `routine-batch:${batchId}:done`, url: `/dashboard/routines/batches/${batchId}` }).catch(() => {});
+      `[Open ${batchLabel(batchId)}](/dashboard/automations/batches/${batchId})`,
+    ].filter(Boolean).join('\n\n'), { key: `routine-batch:${batchId}:done`, url: `/dashboard/automations/batches/${batchId}` }).catch(() => {});
   }
 }
 
@@ -1077,11 +1077,11 @@ async function findingFromReconcile(batch: BatchRow, r: RoutineRow, spec: Routin
       ask: {
         kind: 'ruling',
         title: `${batchLabel(batch.id)}: ${title}. Deactivate or delete them?`,
-        body: `${detail}\n\n${extras.map(x => `- ${x.name ?? ''} ${x[matchOn] ? `<${x[matchOn]}>` : ''}${x.status ? ` · ${x.status}` : ''}`).join('\n')}\n\nDeactivating keeps their history and can be undone. Whatever you choose runs as its own batch under this routine, and only that change is allowed.`,
+        body: `${detail}\n\n${extras.map(x => `- ${x.name ?? ''} ${x[matchOn] ? `<${x[matchOn]}>` : ''}${x.status ? ` · ${x.status}` : ''}`).join('\n')}\n\nDeactivating keeps their history and can be undone. Whatever you choose runs as its own batch under this automation, and only that change is allowed.`,
         sourceRef: `routine-finding:${batch.id}:f1`,
         options: options.map((label, i) => ({ id: `o${i + 1}`, label, ...(i === 0 ? { recommended: true } : {}) })),
         allowOther: true,
-        contextUrl: `/dashboard/routines/batches/${batch.id}`,
+        contextUrl: `/dashboard/automations/batches/${batch.id}`,
         conversationId: batch.conversationId,
         ownerUserId: r.expertUserId ?? batch.requestedBy,
         objectRefs: [],
@@ -1100,7 +1100,7 @@ async function mayAnswer(orgId: string, userId: string, run: RunRow): Promise<vo
   const [batch] = await db.select({ requestedBy: routineBatchSchema.requestedBy }).from(routineBatchSchema).where(eq(routineBatchSchema.id, run.batchId)).limit(1);
   const [r] = await db.select({ expertUserId: routineSchema.expertUserId }).from(routineSchema).where(eq(routineSchema.id, run.routineId)).limit(1);
   if (userId !== batch?.requestedBy && userId !== r?.expertUserId) {
-    throw new RoutineError('Only the routine\'s expert or the person who ran the batch can answer its runs.');
+    throw new RoutineError('Only the automation\'s expert or the person who ran the batch can answer its runs.');
   }
   void orgId;
 }
@@ -1110,13 +1110,13 @@ async function mayAnswer(orgId: string, userId: string, run: RunRow): Promise<vo
  * escalation, or stop it. Recorded on its Decision, so Needs you and the run agree.
  * @param orgId - The workspace.
  * @param userId - The expert, or the person who ran the batch.
- * @param runId - The routine run.
+ * @param runId - The automation run.
  * @param decision - The answer.
  */
 export async function answerRoutineRun(orgId: string, userId: string, runId: number, decision: { kind: 'approve' } | { kind: 'deny' } | { kind: 'stop' } | { kind: 'answer'; text: string }): Promise<RoutineBatchView> {
   const [run] = await db.select().from(routineRunSchema).where(and(eq(routineRunSchema.orgId, orgId), eq(routineRunSchema.id, runId))).limit(1);
   if (!run) {
-    throw new RoutineError('No such run of a routine.');
+    throw new RoutineError('No such run of an automation.');
   }
   await mayAnswer(orgId, userId, run);
   if (decision.kind === 'stop') {
@@ -1147,7 +1147,7 @@ export async function answerRoutineRun(orgId: string, userId: string, runId: num
 }
 
 /**
- * A Decision a routine raised was settled — on Needs you, in the chat dock, or from the queue — and
+ * A Decision an automation raised was settled — on Needs you, in the chat dock, or from the queue — and
  * its answer goes where it belongs: back to the waiting run, or to the batch's finding
  * (`AskService` → here, for `routine-…` source refs).
  * @param row - The settled ask.
@@ -1213,7 +1213,7 @@ export async function answerFinding(orgId: string, userId: string, batchId: numb
   }
   const [r] = await db.select({ expertUserId: routineSchema.expertUserId }).from(routineSchema).where(eq(routineSchema.id, batch.routineId)).limit(1);
   if (userId !== batch.requestedBy && userId !== r?.expertUserId) {
-    throw new RoutineError('Only the routine\'s expert or the person who ran the batch can answer this.');
+    throw new RoutineError('Only the automation\'s expert or the person who ran the batch can answer this.');
   }
   if (f.state !== 'open') {
     throw new RoutineError('That was already answered.');
@@ -1254,7 +1254,7 @@ async function applyFindingAnswer(orgId: string, batchId: number, findingId: str
       followUp: {
         parentBatchId: batch.id,
         findingId,
-        task: `The routine's expert answered ${batchLabel(batch.id)}'s finding: “${answer}”. For the one record in the inputs (${matchOn} given), find it${listUrl ? ` from ${listUrl}` : ''}, open it, and ${verb} it — that change, and nothing else. Confirm it if the site asks. Then read the record back and give its status as the page shows it.`,
+        task: `The automation's expert answered ${batchLabel(batch.id)}'s finding: “${answer}”. For the one record in the inputs (${matchOn} given), find it${listUrl ? ` from ${listUrl}` : ''}, open it, and ${verb} it — that change, and nothing else. Confirm it if the site asks. Then read the record back and give its status as the page shows it.`,
         writes: [{ button: verb, match: 'contains' }, { button: 'confirm', match: 'contains' }, { button: 'yes', match: 'contains' }],
         outputs: [{ name: 'status_after', description: 'The record\'s status as the page shows it after the change', checks: null }, { name: 'before', description: 'Its status before', checks: null }],
         approvedBy: names.get(by) ?? by,
@@ -1282,7 +1282,7 @@ async function applyFindingAnswer(orgId: string, batchId: number, findingId: str
     await dispatch(orgId);
     if (batch.conversationId) {
       const { tellConversation } = await import('@/services/chat/tellConversation');
-      await tellConversation(orgId, batch.conversationId, `Started ${batchLabel(followUpBatchId)}: ${verb} the ${findings.find(x => x.id === findingId)?.items.length ?? 0} records not on the list, as the expert answered. [Open ${batchLabel(followUpBatchId)}](/dashboard/routines/batches/${followUpBatchId})`, { key: `routine-batch:${followUpBatchId}:started`, url: `/dashboard/routines/batches/${followUpBatchId}` }).catch(() => {});
+      await tellConversation(orgId, batch.conversationId, `Started ${batchLabel(followUpBatchId)}: ${verb} the ${findings.find(x => x.id === findingId)?.items.length ?? 0} records not on the list, as the expert answered. [Open ${batchLabel(followUpBatchId)}](/dashboard/automations/batches/${followUpBatchId})`, { key: `routine-batch:${followUpBatchId}:started`, url: `/dashboard/automations/batches/${followUpBatchId}` }).catch(() => {});
     }
   }
 }
@@ -1324,7 +1324,7 @@ export function reportMarkdown(v: RoutineBatchView, followUps: RoutineBatchView[
     `- Wall clock: ${mins(wall)} for the whole batch, runs in parallel.`,
     '',
     '## Time',
-    byHand !== null ? `- By hand: about ${Math.round(byHand)} min (${v.manualMinutes} min per run, from the recording, × ${done + (c.escalated ?? 0)} runs).` : '- By hand: no baseline on this routine yet.',
+    byHand !== null ? `- By hand: about ${Math.round(byHand)} min (${v.manualMinutes} min per run, from the recording, × ${done + (c.escalated ?? 0)} runs).` : '- By hand: no baseline on this automation yet.',
     `- People spent about ${mins(human)} answering its escalations and held steps (each counted up to 2 min; the rest of a wait is time they were elsewhere).`,
     byHand !== null ? `- Capacity recovered: about ${Math.max(0, Math.round(byHand - human / 60_000))} min.` : '',
     '',
@@ -1377,7 +1377,7 @@ export async function buildRoutineReport(orgId: string, userId: string, batchId:
     spec: { title: `${batchLabel(batchId)} · ${v.routine.name}`, md },
     record: { type: 'routine_batch', id: String(batchId), role: `report:${Date.now()}` },
     author: { kind: 'human', id: userId },
-    changeSummary: 'Routine batch report',
+    changeSummary: 'Automation run report',
   });
   await db.update(routineBatchSchema).set({ reportArtifactId: artifact.id }).where(eq(routineBatchSchema.id, batchId));
   pushLive(orgId, { batchId });
@@ -1402,7 +1402,7 @@ export function startRoutineKeeper(): void {
     const waiting = await db.select().from(routineSchema).where(eq(routineSchema.status, 'teaching')).limit(20).catch(() => [] as RoutineRow[]);
     for (const r of waiting) {
       if (r.teaching?.state === 'waiting_for_recording') {
-        await lookForRecording(r).catch(e => console.warn('[routines] could not look for a recording', { routine: r.id, reason: (e as Error).message }));
+        await lookForRecording(r).catch(e => console.warn('[automations] could not look for a recording', { routine: r.id, reason: (e as Error).message }));
       } else if ((r.teaching?.state === 'reading' || r.teaching?.state === 'drafting') && !teaching.has(r.id) && Date.now() - r.updatedAt.getTime() > 5 * 60_000) {
         // A restart lost the teaching in flight: start it again.
         teachInBackground(r.id);
