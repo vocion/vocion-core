@@ -1,5 +1,6 @@
 const SERVER_PRODUCED_FIELDS: Readonly<Record<string, readonly string[]>> = {
   seo_page: ['publicationVerification'],
+  seo_strategy: ['projectId', 'projectName', 'goalId', 'goalTitle', 'horizon', 'goalStatus', 'progressLine', 'milestones', 'documentArtifactId', 'updatedAt', 'roadmap', 'pendingDraft', 'previousStrategy'],
   seo_audit: ['projectId', 'site', 'checkedAt', 'findings', 'coverage', 'counts', 'openCount', 'highCount', 'pagesRead', 'listed', 'nextSteps', 'report', 'reportArtifactId', 'inventoryArtifactId', 'previousAuditId'],
 };
 

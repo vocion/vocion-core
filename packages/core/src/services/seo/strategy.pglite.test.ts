@@ -232,3 +232,15 @@ describe('a client\'s strategy goal', () => {
     expect(state.availableRecords.find(r => r.id === forgedPage.id)?.status).toBe('publication_unverified');
   });
 });
+
+it('refuses owner editing when a legacy strategy binds their goal from another client', async () => {
+  const { readSeoRoadmap, updateSeoRoadmap } = await import('./roadmap');
+  const { upsertStrategy } = await import('./strategy');
+  const held = (await getStrategy(ORG, projectId))!;
+  const other = await createDataRoom(ORG, USER, { title: 'Different client' });
+  await upsertStrategy(ORG, other, { goalId: held.meta.goalId }, USER);
+  const state = await readSeoRoadmap(ORG, other.id, USER);
+
+  expect(state.canEdit).toBe(false);
+  await expect(updateSeoRoadmap(ORG, other.id, USER, 0, state.roadmap)).rejects.toMatchObject({ status: 403 });
+});

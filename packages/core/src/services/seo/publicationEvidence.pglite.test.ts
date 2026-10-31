@@ -67,3 +67,25 @@ it('blocks forged audit findings/coverage and preserves complete domain evidence
 
   expect((await getBusinessObject(audit!.id, org))!.metadata?.coverage).toEqual({ complete: true });
 });
+
+it('blocks generic strategy ownership, approval receipt and roadmap forgery and preserves authority on replacement', async () => {
+  const { serverProducedFields } = await import('@/libs/objects/serverProducedFields');
+  const [type] = await db.insert(businessObjectTypeSchema).values({ orgId: org, slug: 'seo_strategy', label: 'SEO strategy', schema: { type: 'object', properties: { goalId: { type: 'number' }, roadmap: { type: 'object' }, pendingDraft: { type: 'object' } } } }).returning();
+  const authority = { projectId: 9, goalId: 41, goalStatus: 'active', roadmap: { revision: 3, initiatives: [], outcomes: [] }, pendingDraft: { token: 'real-receipt', createdBy: 'owner' }, previousStrategy: { goalId: 40 } };
+  const [strategy] = await db.insert(businessObjectSchema).values({ orgId: org, typeId: type!.id, title: 'Strategy', externalSystem: 'seo-strategy', externalId: '9', metadata: authority }).returning();
+  for (const key of serverProducedFields('seo_strategy')) {
+    await expect(updateBusinessObject({ id: strategy!.id, metadata: { [key]: null } }, org)).rejects.toThrow('server-produced');
+  }
+
+  await expect(createBusinessObject({ typeSlug: 'seo_strategy', title: 'Fake', metadata: { goalId: 99 } }, org, 'other-member')).rejects.toThrow('server-produced');
+  await expect(upsertBusinessObjectByExternalKey({ typeSlug: 'seo_strategy', title: 'Fake', metadata: { goalId: 99, roadmap: { revision: 0 } }, externalKey: { system: 'seo-strategy', id: '9' } }, org, 'other-member')).rejects.toThrow('server-produced');
+  await expect(objectsUpdateMetaAction.execute({ orgId: org } as never, { objectType: 'seo_strategy', id: strategy!.id, set: { pendingDraft: { token: 'forged', createdBy: 'other-member' } }, reason: 'Replace ownership' })).rejects.toThrow('server-produced');
+
+  await updateBusinessObject({ id: strategy!.id, metadata: { comment: 'Reviewed' } }, org);
+
+  expect((await getBusinessObject(strategy!.id, org))!.metadata).toEqual({ ...authority, comment: 'Reviewed' });
+
+  await mergeMeta(org, strategy!.id, () => ({ roadmap: { ...authority.roadmap, revision: 4 } }));
+
+  expect((await getBusinessObject(strategy!.id, org))!.metadata?.roadmap).toEqual({ ...authority.roadmap, revision: 4 });
+});

@@ -211,7 +211,7 @@ export async function readSeoRoadmap(orgId: string, projectId: number, userId: s
   const completed = new Set(roadmap.initiatives.filter(i => complete(i.id)).map(i => i.id));
   roadmap.initiatives = roadmap.initiatives.map(i => ({ ...i, status: i.blockedReason || i.dependsOn.some(id => !completed.has(id)) ? 'blocked' : completed.has(i.id) ? 'done' : i.status === 'done' || i.status === 'blocked' ? i.recordIds.length + i.taskIds.length > 0 ? 'in_progress' : 'planned' : i.status }));
   const [availableOwners, availableRecords, availableTasks] = await Promise.all([ownersFor(orgId), recordsFor(orgId, projectId), tasksFor(orgId, projectId)]);
-  return { roadmap, strategy, canEdit: Boolean(goal && goal.ownerUserId === userId), linkedRecords, linkedTasks, availableOwners, availableRecords, availableTasks };
+  return { roadmap, strategy, canEdit: Boolean(goal && goal.ownerUserId === userId && goal.links.some(link => link.kind === 'room' && link.id === String(projectId))), linkedRecords, linkedTasks, availableOwners, availableRecords, availableTasks };
 }
 
 /**
