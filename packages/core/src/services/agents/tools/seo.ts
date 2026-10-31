@@ -59,10 +59,11 @@ import { findingsMd, followFrom, normaliseFindings, queueSeoWork, SEO_EDITOR_ROU
 import { recordIdArg, recordIdOf } from './recordIdArg';
 import { seoRunAuditTool, seoUpdateFindingsTool } from './seoAudit';
 import { planFromKeywords, registerLine, seoListKeywordsTool, seoUpdateKeywordsTool } from './seoKeywords';
+import { seoMeasurementTools } from './seoMeasurement';
 import { seoProposeProfileTool } from './seoProfile';
 import { seoPromptTools } from './seoPrompts';
 import { seoReadPageTool } from './seoReadPage';
-import { seoDraftStrategyTool } from './seoStrategy';
+import { seoDraftStrategyTool, seoLinkRoadmapWorkTool, seoReadRoadmapTool } from './seoStrategy';
 
 export const SEO_PLUGIN = 'seo';
 
@@ -1033,6 +1034,9 @@ export function seoTools(ctx: RuntimeContext) {
     seoUpdateFindingsTool(ctx),
     ...seoPromptTools(ctx),
     seoDraftStrategyTool(ctx),
+    seoReadRoadmapTool(ctx),
+    ...seoMeasurementTools(ctx),
+    seoLinkRoadmapWorkTool(ctx),
   ];
   // The SEO seats' own tools are never behind tool search: a teammate on its
   // own model gets the lead's tiered set, and a live editor run could not find

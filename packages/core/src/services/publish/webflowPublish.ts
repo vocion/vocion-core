@@ -278,7 +278,7 @@ export async function publishWebflowLive(orgId: string, posts: WebflowLivePost[]
     }
     const url = p.postUrl;
     const line = url ? `"${p.title}" is live at ${url}.` : `"${p.title}" is published in Webflow.`;
-    await recordOnPage(orgId, p.pageRecordId, { status: 'published', ...(url ? { publishedUrl: url } : {}), publishing: { kind: 'webflow', phase: 'live', itemId: p.itemId, publishedAt: at, note: line } });
+    await recordOnPage(orgId, p.pageRecordId, { status: 'published', publishedAt: at, ...(url ? { publishedUrl: url } : {}), publishing: { kind: 'webflow', phase: 'live', itemId: p.itemId, publishedAt: at, note: line } });
     await markRunLive(orgId, p.actionRunId, { at, url: url ?? `webflow:${p.collectionId}/${p.itemId}`, how: 'published' });
     out.push({ pageRecordId: p.pageRecordId, live: true, url, line });
   }

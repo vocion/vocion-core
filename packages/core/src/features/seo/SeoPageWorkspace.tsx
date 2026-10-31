@@ -7,6 +7,9 @@ import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
 import { Link } from '@/libs/I18nNavigation';
 import { getAsk } from '@/services/AskService';
 import { editorialArtifact } from '@/services/objects/editorialArtifact';
+import { readSeoRoadmap } from '@/services/seo/roadmap';
+import { WriteApiError } from '@/services/writeApi';
+import { SeoPublicationPanel } from './SeoPublicationPanel';
 
 /**
  * The existing artifact editor, guarded by both workspace and artifact audience.
@@ -37,6 +40,16 @@ async function PageArtifact({ orgId, userId, id, empty }: { orgId: string; userI
  */
 export async function SeoPageWorkspace({ orgId, userId, objectId, meta }: { orgId: string; userId: string | null; objectId: number; meta: Record<string, unknown> }) {
   const m = meta as Partial<SeoPageMeta>;
+  let canVerify = false;
+  if (userId && Number.isSafeInteger(m.projectId) && m.projectId! > 0 && m.status === 'published') {
+    try {
+      canVerify = (await readSeoRoadmap(orgId, m.projectId!, userId)).canEdit;
+    } catch (error) {
+      if (!(error instanceof WriteApiError) || error.status !== 404) {
+        throw error;
+      }
+    }
+  }
   const askId = m.signoffAsk?.askId;
   const ask = typeof askId === 'number' && askId > 0 ? await getAsk(orgId, askId) : null;
   const reviewHref = ask?.objectRefs?.some(ref => ref.type === 'object' && ref.id === String(objectId)) ? `/dashboard/inbox/${ask.id}` : null;
@@ -108,6 +121,7 @@ export async function SeoPageWorkspace({ orgId, userId, objectId, meta }: { orgI
       ]}
       aside={(
         <>
+          <SeoPublicationPanel key={objectId} pageId={objectId} publishedUrl={m.publishedUrl} publishedAt={m.publishedAt} providerPublished={m.status === 'published'} canVerify={canVerify} initial={m.publicationVerification} />
           <section className="rounded-xl border border-border p-5">
             <h2 className="mb-4 text-sm font-semibold">Publishing details</h2>
             <FactList

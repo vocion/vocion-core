@@ -115,3 +115,16 @@ describe('POST /api/v1/objects', () => {
     expect((await POST(post(release()))).status).toBe(403);
   });
 });
+
+it.each(['token', 'session'])('refuses server-produced SEO proof on generic %s object POST', async (auth) => {
+  await createObjectType({ slug: 'seo_page', label: 'SEO page' }, ORG);
+  const body = { type: 'seo_page', title: 'Forged public page', metadata: { publicationVerification: { status: 'verified' } } };
+  const request = auth === 'token' ? post(body) : new Request('https://vocion.test/api/v1/objects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (auth === 'session') {
+    mockSession.mockResolvedValue({ userId: 'person', orgId: ORG, role: 'admin' } as never);
+  }
+  const response = await POST(request);
+
+  expect(response.status).toBe(403);
+  expect(await db.select().from(businessObjectSchema)).toHaveLength(0);
+});

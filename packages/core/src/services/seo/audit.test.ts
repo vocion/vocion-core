@@ -6,7 +6,7 @@
 import type { AuditFinding, AuditRead } from './audit';
 import type { InventoryRow } from '@/libs/tools/site/inventory';
 import { describe, expect, it } from 'vitest';
-import { auditCounts, auditFindings, carryForward, nextFindingStatus, nextSteps, renderAuditReport, robotsBlockedAgents, schemaPositioningGap, workOrder } from './audit';
+import { auditCounts, auditCoverage, auditFindings, carryForward, nextFindingStatus, nextSteps, renderAuditReport, robotsBlockedAgents, schemaPositioningGap, workOrder } from './audit';
 import { homepageSchema } from './profilePrefill';
 
 const SITE = 'https://northwind-home.example';
@@ -48,7 +48,7 @@ describe('the checks', () => {
     expect(f.thin).toMatchObject({ url: `${SITE}/about` });
     expect(f.org_description_stale).toMatchObject({ category: 'ai_visibility', evidence: expect.stringContaining('Heating oil delivery since 1952') });
     expect(f.org_no_sameas).toBeDefined();
-    expect(f.ai_crawlers_blocked).toMatchObject({ severity: 'high', evidence: 'robots.txt disallows the whole site to GPTBot' });
+    expect(f.ai_crawlers_blocked).toMatchObject({ severity: 'high', evidence: expect.stringContaining('robots.txt disallows the whole site to GPTBot') });
     expect(f.no_local_schema).toMatchObject({ category: 'local', severity: 'high' });
     expect(f['no_location_page:springfield']).toMatchObject({ suggestPage: { keyword: 'hvac springfield', pageType: 'location', location: 'Springfield' } });
     expect(f['no_location_page:shelbyville']).toBeDefined();
@@ -113,7 +113,7 @@ describe('a finding\'s status', () => {
   it('carries a person\'s verdict and a fix to the next run, and resolves what the next run no longer finds', () => {
     const first = auditFindings(read()).map(f => (f.key === 'thin' ? { ...f, status: 'dismissed' as const, statusNote: 'landing pages are short on purpose', statusBy: 'usr-mara' } : f.key === 'not_loaded' ? { ...f, fix: { kind: 'task' as const, id: 9, href: '/dashboard/inbox/9', at: 'x' } } : f));
     const second = auditFindings(read({ robots: 'User-agent: *\nAllow: /', checkedAt: '2026-11-05T10:00:00.000Z' }));
-    const { findings, resolved } = carryForward(first, second);
+    const { findings, resolved } = carryForward(first, second, { complete: true, checkedChecks: ['ai_crawlers_blocked'], checkedUrls: [`${SITE}/robots.txt`], note: 'Robots re-read in complete run' });
     const f = byCheck(findings);
 
     expect(f.thin).toMatchObject({ status: 'dismissed', statusNote: 'landing pages are short on purpose', checkedAt: '2026-11-05T10:00:00.000Z' });
@@ -141,5 +141,38 @@ describe('the order of work and the report', () => {
     expect(md).toContain('[task linked; finding still open](/dashboard/inbox/9)');
     expect(md).toMatch(/\[Fix it\]\(\/dashboard\/chat\?ask=Fix%20this%20audit%20finding.*audit%20%2342/);
     expect(md).toContain('[site inventory](/dashboard/artifacts/7)');
+  });
+});
+
+describe('verified resolution and pagination scope', () => {
+  it('retains missing findings when checks or scope were unavailable', () => {
+    const first = auditFindings(read()).filter(f => f.check === 'ai_crawlers_blocked');
+    const unavailable = auditCoverage(read({ robots: undefined }));
+
+    expect(carryForward(first, [], unavailable)).toMatchObject({ resolved: [], findings: [{ verification: 'not_checked', status: 'open' }] });
+    expect(carryForward(first, []).resolved).toEqual([]);
+    expect(carryForward(first, [], { complete: true, checkedChecks: ['ai_crawlers_blocked'], checkedUrls: [], note: '' }).resolved).toEqual([]);
+  });
+
+  it('never auto-resolves after partial, capped or unreadable inventory', () => {
+    const first = auditFindings(read()).filter(f => f.check === 'ai_crawlers_blocked');
+    for (const inventory of [read().inventory, { ...read().inventory, cappedAt: 2 }, { ...read().inventory, from: 'crawl' as const }]) {
+      const coverage = auditCoverage(read({ inventory, robots: '' }));
+
+      expect(coverage.complete).toBe(false);
+      expect(carryForward(first, [], coverage).resolved).toEqual([]);
+    }
+  });
+
+  it('labels one pagination family while preserving genuine cross-page duplicates', () => {
+    const pages = [row('/blog', { title: 'News', h1: 'News' }), row('/blog/page/2', { title: 'News', h1: 'News' })];
+    const findings = auditFindings(read({ inventory: { site: SITE, from: 'sitemap', listed: 2, rows: pages } }));
+
+    expect(findings.find(f => f.check === 'duplicate_title')).toMatchObject({ classification: 'pagination', severity: 'low', status: 'open' });
+
+    const genuine = auditFindings(read()).find(f => f.check === 'duplicate_title');
+
+    expect(genuine?.classification).toBeUndefined();
+    expect(genuine?.severity).toBe('medium');
   });
 });

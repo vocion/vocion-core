@@ -26,7 +26,7 @@ import type { SeoCadence } from '@/services/DataRoomService';
 import { dayKey } from '@/libs/time/zone';
 
 /** Statuses of a page still being worked on: planned earlier and not finished, it still counts against this month. */
-const IN_FLIGHT: ReadonlySet<SeoPageStatus> = new Set(['proposed', 'researched', 'briefed', 'drafting', 'in_review', 'changes_requested']);
+const IN_FLIGHT: ReadonlySet<SeoPageStatus> = new Set(['proposed', 'researched', 'briefed', 'drafting', 'in_review', 'changes_requested', 'approved', 'publishing']);
 
 /** How far ahead a weekly check plans: to the end of the coming seven days. */
 const WINDOW_DAYS = 6;
@@ -40,6 +40,16 @@ export type CadenceStanding = {
   due: number;
   /** Pages planned this month (any status but rejected) plus earlier pages still in flight. */
   counted: number;
+  /** Current-month non-rejected plans, not evidence of delivery. */
+  plannedThisMonth: number;
+  /** All unfinished records, including approved work waiting to publish. */
+  backlog: number;
+  /** Pages marked published with a recorded publication date this month. */
+  publishedThisMonth: number;
+  /** Published records whose delivery month cannot be established. */
+  publicationDateUnknown: number;
+  /** Due minus recorded published delivery, not a planning allowance. */
+  deliveryGap: number;
   /** How many to propose now: `due − counted`, never below zero. */
   propose: number;
   /** The standing in one line, for the run's result and the tool's refusal. */
@@ -65,12 +75,20 @@ export function cadenceStanding(input: { cadence: SeoCadence | null | undefined;
   // Day 0 of the next month is this month's last day.
   const daysInMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
   const due = Math.ceil(perMonth * Math.min(daysInMonth, day + WINDOW_DAYS) / daysInMonth);
+  const inMonth = (at: Date | string | undefined) => {
+    const date = at ? new Date(at) : null;
+    return date && Number.isFinite(date.getTime()) && dayKey(date, input.timeZone).slice(0, 7) === month;
+  };
+  const plannedThisMonth = input.pages.filter(p => p.meta.status !== 'rejected' && inMonth(p.createdAt)).length;
+  const backlog = input.pages.filter(p => IN_FLIGHT.has(p.meta.status)).length;
+  const publishedThisMonth = input.pages.filter(p => p.meta.status === 'published' && inMonth(p.meta.publishedAt) && new Date(p.meta.publishedAt!) <= input.now).length;
+  const publicationDateUnknown = input.pages.filter(p => p.meta.status === 'published' && (!p.meta.publishedAt || !Number.isFinite(Date.parse(p.meta.publishedAt)) || new Date(p.meta.publishedAt) > input.now)).length;
+  const deliveryGap = Math.max(0, due - publishedThisMonth);
   const counted = input.pages.filter((p) => {
     if (p.meta.status === 'rejected') {
       return false;
     }
-    const plannedThisMonth = p.createdAt ? dayKey(p.createdAt, input.timeZone).slice(0, 7) === month : false;
-    return plannedThisMonth || IN_FLIGHT.has(p.meta.status);
+    return inMonth(p.createdAt) || IN_FLIGHT.has(p.meta.status) || (p.meta.status === 'published' && inMonth(p.meta.publishedAt) && new Date(p.meta.publishedAt!) <= input.now);
   }).length;
   const propose = Math.max(0, due - counted);
   const focus = input.cadence?.focus?.trim() || undefined;
@@ -80,10 +98,15 @@ export function cadenceStanding(input: { cadence: SeoCadence | null | undefined;
     month,
     due,
     counted,
+    plannedThisMonth,
+    backlog,
+    publishedThisMonth,
+    publicationDateUnknown,
+    deliveryGap,
     propose,
-    line: propose === 0
-      ? `${counted} planned or in flight against ${due} due by the end of the week (${perMonth} a month): on pace`
-      : `${counted} planned or in flight against ${due} due by the end of the week (${perMonth} a month): ${propose} to propose`,
+    line: `${publishedThisMonth} recorded published this month against ${due} due; ${backlog} unfinished. ${publicationDateUnknown ? `${publicationDateUnknown} published records have no usable publication date. ` : ''}${propose === 0
+      ? `${counted} planned or in flight against ${due} due by the end of the week (${perMonth} a month): planning coverage on pace; this does not establish delivery`
+      : `${counted} planned or in flight against ${due} due by the end of the week (${perMonth} a month): ${propose} to propose`}`,
   };
 }
 
@@ -97,7 +120,7 @@ export function cadencePlanRefusal(standing: CadenceStanding | null, pages: numb
     return 'Not planned: this project has no SEO cadence, so nothing is proposed for it on its own. A person sets pages per month on the project page.';
   }
   if (standing.propose === 0) {
-    return `Not planned: the project is on pace (${standing.line}). Propose nothing and say nothing.`;
+    return `Not planned: planning coverage is on pace (${standing.line}). Propose nothing and say nothing.`;
   }
   if (pages > standing.propose) {
     return `Not planned: the cadence leaves room for ${standing.propose} ${standing.propose === 1 ? 'page' : 'pages'} now (${standing.line}), and this plan has ${pages}. Keep the strongest ${standing.propose} and file it again.`;

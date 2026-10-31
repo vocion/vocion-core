@@ -11,6 +11,7 @@
  */
 
 import type { RuntimeContext } from '../types';
+import { randomUUID } from 'node:crypto';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 
@@ -24,7 +25,7 @@ export function seoDraftStrategyTool(ctx: RuntimeContext) {
       if (!ctx.userId) {
         return 'A strategy goal belongs to a person, and this run has none behind it. Ask the person to draft it from chat.';
       }
-      const [{ getDataRoom }, strategy, { listProjectAudits }, { listProjectPrompts }, { listProjectKeywords }, goal, { goalCreateAction, GOAL_CREATE_ACTION_ID }, { renderMarkdownArtifact }, { anchorArtifact, updateArtifact }] = await Promise.all([
+      const [{ getDataRoom }, strategy, { listProjectAudits }, { listProjectPrompts }, { listProjectKeywords }, goal, { goalCreateAction, GOAL_CREATE_ACTION_ID }, { renderMarkdownArtifact }, { anchorArtifact }] = await Promise.all([
         import('@/services/DataRoomService'),
         import('@/services/seo/strategy'),
         import('@/services/seo/audits'),
@@ -53,7 +54,7 @@ export function seoDraftStrategyTool(ctx: RuntimeContext) {
         profile: room.meta.seoProfile,
         topic: args.topic,
         horizonText: goal.horizonLabel(horizon),
-        audit: latest ? { id: latest.id, title: latest.title, highCount: latest.meta.highCount, openCount: latest.meta.openCount, checkedAt: latest.meta.checkedAt, reportArtifactId: latest.meta.reportArtifactId, nextSteps: latest.meta.nextSteps } : null,
+        audit: latest ? { id: latest.id, title: latest.title, highCount: latest.meta.highCount, openCount: latest.meta.openCount, checkedAt: latest.meta.checkedAt, reportArtifactId: latest.meta.reportArtifactId, nextSteps: Array.isArray(latest.meta.nextSteps) ? latest.meta.nextSteps : [] } : null,
         batches: batches.filter(b => (b.meta.plan as { state?: string } | undefined)?.state !== 'discarded').map((b) => {
           const own = pages.filter(p => p.meta.batchId === b.id && p.meta.status !== 'rejected');
           return { id: b.id, title: b.title, total: own.length, published: own.filter(p => p.meta.status === 'published').length };
@@ -68,14 +69,16 @@ export function seoDraftStrategyTool(ctx: RuntimeContext) {
       // The strategy document: one per project, a new version each draft.
       const md = strategy.renderStrategyDoc(inputs, { title, milestones, projectId: room.id, date: new Date().toISOString().slice(0, 10) });
       const held = await strategy.getStrategy(ctx.orgId, room.id);
-      let documentArtifactId = held?.meta.documentArtifactId ?? null;
-      if (documentArtifactId) {
-        const updated = await updateArtifact({ orgId: ctx.orgId, id: documentArtifactId, contentMarkdown: md, author: { kind: 'agent', id: ctx.agentSlug ?? 'seo-strategist' }, changeSummary: `Strategy drafted ${new Date().toISOString().slice(0, 10)}` }).catch(() => null);
-        if (!updated) {
-          documentArtifactId = null;
+      if (held?.meta.goalId) {
+        const { getGoal } = await import('@/services/objectives/GoalService');
+        const approved = await getGoal(ctx.orgId, held.meta.goalId);
+        if (approved && approved.ownerUserId !== ctx.userId) {
+          return 'Only the approved strategy owner can propose its replacement.';
         }
       }
-      if (!documentArtifactId) {
+      const draftToken = randomUUID();
+      let documentArtifactId: number | null = null;
+      {
         const made = await renderMarkdownArtifact(ctx, `SEO strategy · ${room.title}`, md, 'seo/strategy');
         documentArtifactId = made.artifactId;
         if (documentArtifactId) {
@@ -84,29 +87,34 @@ export function seoDraftStrategyTool(ctx: RuntimeContext) {
       }
       const input = {
         title,
+        seo_strategy: { projectId: room.id, token: draftToken, ...(held?.meta.goalId ? { replacesGoalId: held.meta.goalId } : {}) },
         horizon: args.horizon,
         measure: { kind: 'milestones' as const, milestones },
         links: [{ kind: 'room' as const, id: String(room.id), label: room.title }, ...(documentArtifactId ? [{ kind: 'artifact' as const, id: String(documentArtifactId), label: `SEO strategy · ${room.title}` }] : [])],
         weekly_review: true,
-        reason: args.reason ?? `The client's SEO strategy, measured by the work that completes it.`,
+        reason: held?.meta.goalId ? 'Replace the active SEO strategy; the previous strategy goal will be paused and its history retained.' : args.reason ?? `The client's SEO strategy, measured by the work that completes it.`,
       };
       const parsed = goalCreateAction.inputSchema.safeParse(input);
       if (!parsed.success) {
         return `Draft not shown — ${parsed.error.issues.map(i => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}. Pass 3 to 7 milestones.`;
       }
+      await strategy.upsertStrategy(ctx.orgId, { id: room.id, title: room.title }, {
+        ...(!held?.meta.goalId
+          ? {
+              goalTitle: title,
+              horizon: goal.horizonLabel(horizon),
+              goalStatus: 'drafted',
+              progressLine: `Waiting on the goal card: ${milestones.length} milestones`,
+              milestones: milestones.map(m => ({ label: m.label, done: false, ...(m.link ? { href: `/dashboard/objects/${m.link.id}` } : {}) })),
+              ...(documentArtifactId ? { documentArtifactId } : {}),
+            }
+          : {}),
+        pendingDraft: { token: draftToken, createdBy: ctx.userId, title, horizon: args.horizon, ...(documentArtifactId ? { documentArtifactId } : {}), createdAt: new Date().toISOString() },
+      }, `agent:${ctx.agentSlug ?? 'seo-strategist'}`, held?.meta.goalId ?? null);
       const problem = await goalCreateAction.precheck!({ orgId: ctx.orgId, invokedBy: ctx.userId, origin: { userId: ctx.userId } } as never, parsed.data);
       if (problem) {
         return `Draft not shown — ${problem}`;
       }
-      await strategy.upsertStrategy(ctx.orgId, { id: room.id, title: room.title }, {
-        goalTitle: title,
-        horizon: goal.horizonLabel(horizon),
-        goalStatus: 'drafted',
-        progressLine: `Waiting on the goal card: ${milestones.length} milestones`,
-        milestones: milestones.map(m => ({ label: m.label, done: false, ...(m.link ? { href: `/dashboard/objects/${m.link.id}` } : {}) })),
-        ...(documentArtifactId ? { documentArtifactId } : {}),
-        ...(held?.meta.goalId && held.meta.goalTitle !== title ? { goalId: undefined } : {}),
-      }, `agent:${ctx.agentSlug ?? 'seo-strategist'}`);
       ctx.emit({
         type: 'recommended_action',
         recommendation: {
@@ -138,4 +146,51 @@ export function seoDraftStrategyTool(ctx: RuntimeContext) {
       }),
     },
   );
+}
+
+/**
+ * Read the client's executable roadmap before starting or linking work.
+ * @param ctx
+ */
+export function seoReadRoadmapTool(ctx: RuntimeContext) {
+  return tool(async ({ project_id }) => {
+    if (!ctx.userId) {
+      return 'A signed-in person is required.';
+    }
+    const { readSeoRoadmap } = await import('@/services/seo/roadmap');
+    return JSON.stringify(await readSeoRoadmap(ctx.orgId, project_id, ctx.userId));
+  }, { name: 'seo_read_roadmap', description: 'Read a client SEO roadmap, initiative IDs, dependencies, linked work, and separately measured outcomes. Read before starting roadmap work. No changes.', schema: z.object({ project_id: z.number().int().positive() }) });
+}
+
+/**
+ * Attach existing, approved-path execution records without approving or running them.
+ * @param ctx
+ */
+export function seoLinkRoadmapWorkTool(ctx: RuntimeContext) {
+  return tool(async ({ project_id, initiative_id, record_ids, task_ids, expected_revision }) => {
+    if (!ctx.userId) {
+      return 'A signed-in strategy owner is required.';
+    }
+    if (record_ids.length + task_ids.length === 0) {
+      return 'Link at least one actual execution record or task.';
+    }
+    const { readSeoRoadmap, updateSeoRoadmap } = await import('@/services/seo/roadmap');
+    const state = await readSeoRoadmap(ctx.orgId, project_id, ctx.userId);
+    const initiative = state.roadmap.initiatives.find(i => i.id === initiative_id);
+    if (!initiative) {
+      return 'Initiative not found. Read the current roadmap first.';
+    }
+    if (state.roadmap.revision !== expected_revision) {
+      return 'The roadmap changed. Read it again before linking work.';
+    }
+    initiative.recordIds = [...new Set([...initiative.recordIds, ...record_ids])];
+    initiative.taskIds = [...new Set([...initiative.taskIds, ...task_ids])];
+    initiative.status = 'in_progress';
+    try {
+      const result = await updateSeoRoadmap(ctx.orgId, project_id, ctx.userId, expected_revision, state.roadmap);
+      return JSON.stringify({ revision: result.roadmap.revision, initiative: result.roadmap.initiatives.find(i => i.id === initiative_id) });
+    } catch (err) {
+      return `Work not linked: ${(err as Error).message}`;
+    }
+  }, { name: 'seo_link_roadmap_work', description: 'Attach actual existing execution records to a stable roadmap initiative after creating normal SEO work. Requires the strategy owner, current revision, and records belonging to this client. Does not approve, publish, or run work.', schema: z.object({ project_id: z.number().int().positive(), initiative_id: z.string().min(1), record_ids: z.array(z.number().int().positive()).max(50).default([]), task_ids: z.array(z.number().int().positive()).max(50).default([]), expected_revision: z.number().int().nonnegative() }) });
 }

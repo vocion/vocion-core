@@ -3,6 +3,7 @@ import type { AddDocumentLinkInput, CreateBusinessObjectInput, CreateObjectTypeI
 import { and, eq, sql } from 'drizzle-orm';
 import { assignTypeCodes, TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
+import { serverProducedFields, serverProducedFieldsRefusal } from '@/libs/objects/serverProducedFields';
 import { createdStatus } from '@/libs/objects/statusModel';
 import { businessObjectSchema, businessObjectTypeSchema, objectDocumentLinkSchema } from '@/models/Schema';
 import { announceObjectCreated, originMeta } from '@/services/objects/objectCreated';
@@ -116,6 +117,10 @@ export const createBusinessObject = async (
   userId: string,
   origin?: ObjectOrigin,
 ) => {
+  const serverRefusal = serverProducedFieldsRefusal(input.typeSlug, input.metadata);
+  if (serverRefusal) {
+    throw new Error(serverRefusal);
+  }
   const objType = await getObjectTypeBySlug(orgId, input.typeSlug);
   if (!objType) {
     throw new Error(`Object type "${input.typeSlug}" not found`);
@@ -191,6 +196,10 @@ export const upsertBusinessObjectByExternalKey = async (
     const created = await createBusinessObject({ typeSlug: input.typeSlug, title: input.title, status: input.status, metadata: input.metadata }, orgId, actorId, { source: 'api', actor: actorId });
     return { object: created!, created: true };
   }
+  const serverRefusal = serverProducedFieldsRefusal(input.typeSlug, input.metadata);
+  if (serverRefusal) {
+    throw new Error(serverRefusal);
+  }
   const objType = await getObjectTypeBySlug(orgId, input.typeSlug);
   if (!objType) {
     throw new Error(`Object type "${input.typeSlug}" not found`);
@@ -199,6 +208,9 @@ export const upsertBusinessObjectByExternalKey = async (
     where: and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.externalSystem, input.externalKey.system), eq(businessObjectSchema.externalId, input.externalKey.id)),
   });
   if (existing) {
+    if (existing.typeId !== objType.id) {
+      throw new Error('This external key belongs to a different object type.');
+    }
     const [updated] = await db
       .update(businessObjectSchema)
       .set({ title: input.title, ...(input.status === undefined ? {} : { status: input.status }), metadata: { ...(existing.metadata ?? {}), ...(input.metadata ?? {}) } })
@@ -227,7 +239,17 @@ export const updateBusinessObject = async (input: UpdateBusinessObjectInput, org
     updates.status = input.status;
   }
   if (input.metadata !== undefined) {
-    updates.metadata = input.metadata;
+    const prior = await getBusinessObject(input.id, orgId);
+    if (!prior) {
+      return [];
+    }
+    const serverRefusal = serverProducedFieldsRefusal(prior.type.slug, input.metadata);
+    if (serverRefusal) {
+      throw new Error(serverRefusal);
+    }
+    // Preserve the latest domain evidence, including concurrent verifier writes.
+    const heldFields = serverProducedFields(prior.type.slug);
+    updates.metadata = heldFields.reduce((value, key) => sql`${value} || case when ${businessObjectSchema.metadata} ? ${key} then jsonb_build_object(${key}::text, ${businessObjectSchema.metadata}->${key}) else '{}'::jsonb end`, sql`${JSON.stringify(input.metadata)}::jsonb`);
   }
   if (input.summary !== undefined) {
     updates.summary = input.summary;

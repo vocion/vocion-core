@@ -24,9 +24,12 @@
  */
 
 import type { SeoProfile } from './profile';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import type { SeoRoadmap } from './roadmap';
+import type { Goal } from '@/libs/objectives/goal';
+import type { CreateGoal } from '@/services/objectives/GoalService';
+import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { businessObjectSchema } from '@/models/Schema';
+import { businessObjectSchema, goalSchema } from '@/models/Schema';
 import { getObjectTypeBySlug } from '@/services/BusinessObjectService';
 import { CLIENT_TYPE_LABEL, GOAL_LABEL, playbookLinks, seoPriorities } from './profile';
 import { mergeMeta } from './records';
@@ -94,8 +97,8 @@ export function strategyMilestones(i: StrategyInputs): DraftMilestone[] {
   const pr = seoPriorities(i.profile);
   if (!i.audit) {
     out.push({ label: 'Audit the site and fix what it finds first' });
-  } else if (i.audit.highCount > 0) {
-    out.push({ label: `Fix the audit's ${i.audit.highCount} high ${i.audit.highCount === 1 ? 'finding' : 'findings'}`, link: { kind: 'record', id: String(i.audit.id), label: i.audit.title } });
+  } else if (i.audit.openCount > 0) {
+    out.push({ label: `Resolve the audit's ${i.audit.openCount} open ${i.audit.openCount === 1 ? 'finding' : 'findings'}`, link: { kind: 'record', id: String(i.audit.id), label: i.audit.title } });
   }
   const notNamed = i.prompts.filter(p => p.visibility !== 'mentioned' && p.visibility !== 'cited');
   const promptMilestones: DraftMilestone[] = pr.trackPrompts
@@ -162,7 +165,7 @@ export function renderStrategyDoc(i: StrategyInputs, a: { title: string; milesto
   out.push(`Playbooks we lead with for this client: ${playbookLinks(pr.playbooks).map(l => `[${l.label}](${l.href})`).join(', ')}.`, '');
   out.push('## Where things stand', '');
   out.push(i.audit
-    ? `- **Audit** ${i.audit.checkedAt.slice(0, 10)}: ${i.audit.openCount} open, ${i.audit.highCount} high · [${i.audit.title}](/dashboard/objects/${i.audit.id})${i.audit.reportArtifactId ? ` · [report](/dashboard/artifacts/${i.audit.reportArtifactId})` : ''}`
+    ? `- **Audit** ${String(i.audit.checkedAt ?? 'Date unavailable').slice(0, 10)}: ${i.audit.openCount} open, ${i.audit.highCount} high · [${i.audit.title}](/dashboard/objects/${i.audit.id})${i.audit.reportArtifactId ? ` · [report](/dashboard/artifacts/${i.audit.reportArtifactId})` : ''}`
     : '- **Audit**: none yet.');
   out.push(i.keywords ? `- **Keywords**: ${i.keywords.total} researched, ${i.keywords.ideas} ideas, ${i.keywords.ranking} ranking · [Keywords](/dashboard/p/seo-keywords?project=${a.projectId})` : '- **Keywords**: none yet.');
   const named = i.prompts.filter(x => x.visibility === 'mentioned' || x.visibility === 'cited').length;
@@ -170,7 +173,7 @@ export function renderStrategyDoc(i: StrategyInputs, a: { title: string; milesto
   out.push(i.batches.length ? `- **Batches**: ${i.batches.map(b => `${b.title} (${b.published} of ${b.total} live)`).join('; ')}` : '- **Batches**: none yet.', '');
   out.push('## Milestones', '');
   a.milestones.forEach((m, n) => out.push(`${n + 1}. ${m.label}${m.link ? ` — [${m.link.label ?? `record #${m.link.id}`}](/dashboard/objects/${m.link.id})` : ''}`));
-  if (i.audit?.nextSteps.length) {
+  if (Array.isArray(i.audit?.nextSteps) && i.audit.nextSteps.length) {
     out.push('', '## The audit\'s next steps', '', ...i.audit.nextSteps.map((s, n) => `${n + 1}. ${s}`));
   }
   return out.join('\n');
@@ -188,6 +191,9 @@ export type SeoStrategyMeta = {
   milestones: Array<{ label: string; done: boolean; href?: string }>;
   documentArtifactId?: number;
   updatedAt: string;
+  roadmap?: SeoRoadmap;
+  previousStrategy?: Omit<SeoStrategyMeta, 'previousStrategy' | 'pendingDraft'>;
+  pendingDraft?: { token: string; createdBy: string; title: string; horizon: string; documentArtifactId?: number; createdAt: string };
 };
 
 /**
@@ -199,8 +205,9 @@ export type SeoStrategyMeta = {
  * @param project.title
  * @param meta - What to write.
  * @param by - Who.
+ * @param expectedGoalId
  */
-export async function upsertStrategy(orgId: string, project: { id: number; title: string }, meta: Partial<SeoStrategyMeta>, by: string): Promise<number | null> {
+export async function upsertStrategy(orgId: string, project: { id: number; title: string }, meta: Partial<SeoStrategyMeta>, by: string, expectedGoalId?: number | null): Promise<number | null> {
   const type = await getObjectTypeBySlug(orgId, SEO_STRATEGY_TYPE);
   if (!type) {
     return null;
@@ -218,7 +225,12 @@ export async function upsertStrategy(orgId: string, project: { id: number; title
     return inserted.id;
   }
   const [existing] = await db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.externalSystem, STRATEGY_EXTERNAL_SYSTEM), eq(businessObjectSchema.externalId, externalId))).limit(1);
-  await mergeMeta<SeoStrategyMeta>(orgId, existing!.id, () => ({ ...meta, updatedAt: new Date().toISOString() }));
+  await mergeMeta<SeoStrategyMeta>(orgId, existing!.id, (current) => {
+    if (expectedGoalId !== undefined && (current.goalId ?? null) !== expectedGoalId) {
+      throw new Error('The approved strategy changed. Reload before drafting a revision.');
+    }
+    return { ...meta, updatedAt: new Date().toISOString() };
+  });
   return existing!.id;
 }
 
@@ -248,7 +260,7 @@ export async function refreshStrategy(orgId: string, projectId: number): Promise
     }
     const { getGoal, listGoals, measureGoal } = await import('@/services/objectives/GoalService');
     let goal = row.meta.goalId ? await getGoal(orgId, row.meta.goalId) : null;
-    if (!goal) {
+    if (!goal && !row.meta.goalId && !row.meta.pendingDraft) {
       goal = (await listGoals({ orgId })).find(g => g.title === row.meta.goalTitle && g.links.some(l => l.kind === 'room' && l.id === String(projectId))) ?? null;
     }
     if (!goal) {
@@ -258,7 +270,7 @@ export async function refreshStrategy(orgId: string, projectId: number): Promise
     const milestones = measured.measure.kind === 'milestones'
       ? measured.measure.milestones.map(m => ({ label: m.label, done: m.done, ...(m.link?.kind === 'record' ? { href: `/dashboard/objects/${m.link.id}` } : {}) }))
       : row.meta.milestones;
-    const written = await mergeMeta<SeoStrategyMeta>(orgId, row.id, () => ({ goalId: measured.id, goalStatus: measured.status, goalTitle: measured.title, progressLine: progress.label, milestones, updatedAt: new Date().toISOString() }));
+    const written = await mergeMeta<SeoStrategyMeta>(orgId, row.id, current => current.goalId === row.meta.goalId ? ({ goalId: measured.id, goalStatus: measured.status, goalTitle: measured.title, progressLine: progress.label, milestones, updatedAt: new Date().toISOString() }) : null);
     return written;
   } catch {
     return null;
@@ -278,4 +290,128 @@ export async function projectRecords(orgId: string, projectId: number, slug: str
   }
   const rows = await db.select({ id: businessObjectSchema.id, title: businessObjectSchema.title, status: businessObjectSchema.status, metadata: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.typeId, type.id), sql`${businessObjectSchema.metadata}->>'projectId' = ${String(projectId)}`)).orderBy(businessObjectSchema.id);
   return rows.map(r => ({ id: r.id, title: r.title, status: r.status, meta: (r.metadata ?? {}) as Record<string, unknown> }));
+}
+
+/**
+ * Validate the immutable draft receipt, not editable goal wording.
+ * @param orgId - The workspace.
+ * @param projectId - The client project.
+ * @param token - The current draft receipt.
+ * @param userId - The authenticated person.
+ */
+export async function strategyDraftProblem(orgId: string, projectId: number, token: string, userId: string): Promise<string | undefined> {
+  const row = await getStrategy(orgId, projectId);
+  if (!row?.meta.pendingDraft || row.meta.pendingDraft.token !== token || row.meta.pendingDraft.createdBy !== userId) {
+    return 'This strategy draft is no longer current or belongs to another person. Draft it again before approving.';
+  }
+  return undefined;
+}
+
+/**
+ * Bind the approved goal by ID even when its title/horizon were edited in the review card.
+ * @param orgId - The workspace.
+ * @param projectId - The client project.
+ * @param token - The current draft receipt.
+ * @param input - The validated input.
+ */
+export async function approveStrategyGoal(orgId: string, projectId: number, token: string, input: CreateGoal): Promise<Goal> {
+  const { horizonLabel } = await import('@/libs/objectives/goal');
+  const { createGoal, getGoal, updateGoal } = await import('@/services/objectives/GoalService');
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select().from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.externalSystem, STRATEGY_EXTERNAL_SYSTEM), eq(businessObjectSchema.externalId, String(projectId)))).for('update');
+    const meta = row?.metadata as SeoStrategyMeta | undefined;
+    if (!row || !meta || input.orgId !== orgId || meta.pendingDraft?.token !== token || meta.pendingDraft.createdBy !== input.ownerUserId) {
+      throw new Error('This strategy draft is no longer current or belongs to another person.');
+    }
+    if (!input.links?.some(l => l.kind === 'room' && l.id === String(projectId))) {
+      throw new Error('The strategy goal must retain its client project link.');
+    }
+    const recordIds = input.measure.kind === 'milestones' ? [...new Set(input.measure.milestones.flatMap(m => m.link?.kind === 'record' ? [Number(m.link.id)] : []))] : [];
+    if (recordIds.some(id => !Number.isSafeInteger(id) || id < 1)) {
+      throw new Error('Strategy execution record IDs are invalid.');
+    }
+    if (recordIds.length) {
+      const records = await tx.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.id, recordIds), sql`${businessObjectSchema.metadata}->>'projectId' = ${String(projectId)}`));
+      if (records.length !== recordIds.length) {
+        throw new Error('Strategy execution records must belong to this client and workspace.');
+      }
+    }
+    const previous = meta.goalId ? await getGoal(orgId, meta.goalId, tx) : null;
+    if (previous && (previous.ownerUserId !== input.ownerUserId || !previous.links.some(l => l.kind === 'room' && l.id === String(projectId)))) {
+      throw new Error('Only the owner of this client strategy may replace it.');
+    }
+    const goal = await createGoal(input, tx);
+    if (previous?.status === 'active') {
+      await updateGoal(orgId, previous.id, { userId: input.ownerUserId, by: 'person' }, { status: 'paused' }, new Date(), tx);
+    }
+    const next: SeoStrategyMeta = {
+      ...meta,
+      goalId: goal.id,
+      goalTitle: goal.title,
+      horizon: horizonLabel(goal.horizon),
+      goalStatus: goal.status,
+      progressLine: 'Approved — delivery progress is measured from linked work',
+      milestones: goal.measure.kind === 'milestones' ? goal.measure.milestones.map(m => ({ label: m.label, done: m.done, ...(m.link?.kind === 'record' ? { href: `/dashboard/objects/${m.link.id}` } : {}) })) : [],
+      documentArtifactId: meta.pendingDraft.documentArtifactId,
+      updatedAt: new Date().toISOString(),
+    };
+    delete next.pendingDraft;
+    delete next.previousStrategy;
+    if (previous) {
+      const { pendingDraft: _pending, previousStrategy: _previous, ...snapshot } = meta;
+      next.previousStrategy = { ...snapshot, goalStatus: previous.status };
+    }
+    await tx.update(businessObjectSchema).set({ metadata: next }).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, row.id)));
+    return goal;
+  });
+}
+
+/**
+ * Declining a pending revision leaves the approved strategy and document untouched.
+ * @param orgId - The workspace.
+ * @param projectId - The client project.
+ * @param token - The current draft receipt.
+ */
+export async function rejectStrategyDraft(orgId: string, projectId: number, token: string): Promise<void> {
+  const row = await getStrategy(orgId, projectId);
+  if (!row) {
+    return;
+  }
+  await mergeMeta<SeoStrategyMeta>(orgId, row.id, meta => meta.pendingDraft?.token === token
+    ? { pendingDraft: undefined, ...(!meta.goalId ? { goalStatus: 'dropped', progressLine: 'Draft declined — no strategy goal was set' } : {}) }
+    : null);
+}
+
+/**
+ * Undo only the currently approved replacement; restore the previous owned strategy atomically.
+ * @param orgId - The workspace.
+ * @param projectId - The client project.
+ * @param goalId - The approved goal.
+ * @param userId - The authenticated person.
+ */
+export async function undoStrategyGoal(orgId: string, projectId: number, goalId: number, userId: string): Promise<void> {
+  const { getGoal, updateGoal } = await import('@/services/objectives/GoalService');
+  await db.transaction(async (tx) => {
+    const [row] = await tx.select().from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.externalSystem, STRATEGY_EXTERNAL_SYSTEM), eq(businessObjectSchema.externalId, String(projectId)))).for('update');
+    const meta = row?.metadata as SeoStrategyMeta | undefined;
+    const goal = await getGoal(orgId, goalId, tx);
+    if (!row || !meta || meta.goalId !== goalId || goal?.ownerUserId !== userId) {
+      throw new Error('Only the current strategy owner can undo this approval.');
+    }
+    const previous = meta.previousStrategy;
+    if (previous?.goalId) {
+      const priorGoal = await getGoal(orgId, previous.goalId, tx);
+      if (!priorGoal || priorGoal.ownerUserId !== userId || !priorGoal.links.some(l => l.kind === 'room' && l.id === String(projectId))) {
+        throw new Error('Previous strategy cannot be restored safely.');
+      }
+      if (previous.goalStatus === 'active' && priorGoal.status === 'paused') {
+        await updateGoal(orgId, priorGoal.id, { userId, by: 'person' }, { status: 'active' }, new Date(), tx);
+      }
+      await tx.update(businessObjectSchema).set({ metadata: { ...previous, updatedAt: new Date().toISOString() } }).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, row.id)));
+    } else {
+      const { goalId: _goal, pendingDraft: _pending, previousStrategy: _prior, ...rest } = meta;
+      await tx.update(businessObjectSchema).set({ metadata: { ...rest, goalStatus: 'dropped', progressLine: 'Approval undone — no strategy goal is active', updatedAt: new Date().toISOString() } }).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, row.id)));
+    }
+    await tx.delete(goalSchema).where(and(eq(goalSchema.orgId, orgId), eq(goalSchema.id, goalId), eq(goalSchema.ownerUserId, userId)));
+  });
 }

@@ -42,6 +42,7 @@ import type { Action, ActionContext, ReviewCard } from './types';
 import type { GateFailure, GateTurn, HandoffGate } from '@/libs/gates/handoffGate';
 import { z } from 'zod';
 import { evaluateGates, gatesOf } from '@/libs/gates/handoffGate';
+import { serverProducedFieldsRefusal } from '@/libs/objects/serverProducedFields';
 import { createdStatus } from '@/libs/objects/statusModel';
 import { isEmptyValue } from '@/libs/workspace/pageFields';
 
@@ -748,6 +749,10 @@ export async function describeSchemaProblems(
  * @param runId - The action_run this candidate is queued as.
  */
 async function upsertCandidateObject(ctx: ActionContext, input: CandidateInput, runId: number): Promise<void> {
+  const refusal = serverProducedFieldsRefusal(input.objectType, input.fields);
+  if (refusal) {
+    throw new Error(refusal);
+  }
   const { and, eq } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema } = await import('@/models/Schema');
@@ -1203,6 +1208,10 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
    * @param input - The decided candidate.
    */
   async execute(ctx, input) {
+    const serverRefusal = serverProducedFieldsRefusal(input.objectType, input.fields);
+    if (serverRefusal) {
+      throw new Error(serverRefusal);
+    }
     const { originMeta } = await import('@/services/objects/objectCreated');
     const origin = originMeta(ctx.origin ?? null);
     const objectId = await decideCandidateObject(

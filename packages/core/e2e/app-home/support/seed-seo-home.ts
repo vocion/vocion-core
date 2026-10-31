@@ -20,7 +20,8 @@ import process from 'node:process';
 import { parseArgs } from 'node:util';
 import { and, eq, inArray, like } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { accountMembershipSchema, agentSchema, artifactSchema, askSchema, businessObjectSchema, businessObjectTypeSchema, projectSchema, teamSchema, userSchema } from '@/models/Schema';
+import { accountMembershipSchema, agentSchema, artifactSchema, askSchema, businessObjectSchema, businessObjectTypeSchema, goalSchema, projectSchema, teamSchema, userSchema } from '@/models/Schema';
+import { createGoal } from '@/services/objectives/GoalService';
 
 const SOURCE = 'e2e-app-home:';
 const TYPES = ['data_room', 'seo_strategy', 'seo_page', 'seo_audit', 'seo_keyword', 'seo_prompt'] as const;
@@ -64,6 +65,7 @@ async function seedBusy(email: string): Promise<{ orgId: string; projectId: numb
 
   const types = await typeIds(orgId);
   // Clear what an earlier run made.
+  await db.delete(goalSchema).where(and(eq(goalSchema.orgId, orgId), eq(goalSchema.title, 'E2E Northwind delivery plan')));
   await db.delete(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), like(businessObjectSchema.title, 'E2E %')));
   await db.delete(askSchema).where(and(eq(askSchema.orgId, orgId), like(askSchema.sourceRef, `${SOURCE}%`)));
   await db.delete(artifactSchema).where(and(eq(artifactSchema.orgId, orgId), like(artifactSchema.title, 'E2E %')));
@@ -89,6 +91,10 @@ async function seedBusy(email: string): Promise<{ orgId: string; projectId: numb
     rec('seo_prompt', 'best trail shoes for beginners', { prompt: 'best trail shoes for beginners', visibility: 'mentioned', checkedAt: iso }),
     rec('seo_prompt', 'alternatives to big outdoor retailers', { prompt: 'alternatives to big outdoor retailers', visibility: 'absent', checkedAt: iso }),
   ]);
+
+  const [owner] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, email));
+  const goal = await createGoal({ orgId, ownerUserId: owner!.id, title: 'E2E Northwind delivery plan', horizon: { kind: 'quarter', quarter: '2027-Q1' }, measure: { kind: 'milestones', milestones: ['Verify audit coverage', 'Publish service pages', 'Measure search outcomes'].map((label, i) => ({ key: `m${i}`, label, done: false })) }, links: [{ kind: 'room', id: String(projectId), label: 'Northwind Outfitters' }], cadence: 'weekly', createdBy: owner!.id });
+  await db.update(businessObjectSchema).set({ externalSystem: 'seo-strategy', externalId: String(projectId), metadata: { projectId, projectName: 'Northwind Outfitters', goalId: goal.id, goalTitle: 'Northwind ranks for trail running gear by Q1', progressLine: '2 of 5 milestones done', goalStatus: 'active', horizon: 'Q1 2027', milestones: [], updatedAt: iso, roadmap: { revision: 0, initiatives: [], outcomes: [] } } }).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.title, 'E2E Northwind strategy')));
 
   await db.insert(askSchema).values({
     orgId,

@@ -75,3 +75,21 @@ it.each([
   await expect.element(body).not.toHaveTextContent('were read');
   await expect.element(page.getByRole('link', { name: 'Client project' })).not.toBeInTheDocument();
 });
+
+it('shows uncertain verification and links findings to their scoped roadmap intake', async () => {
+  await render(<SeoAuditWorkView audit={{ ...audit, meta: { ...audit.meta, coverage: { complete: false, checkedChecks: [], checkedUrls: [], note: 'robots.txt unavailable' }, findings: [{ ...audit.meta.findings[0]!, verification: 'not_checked' }] } }} linkedWork={[]} />);
+
+  await expect.element(page.getByTestId('audit-coverage')).toHaveTextContent('Verification incomplete');
+  await expect.element(page.getByTestId('audit-coverage')).toHaveTextContent('robots.txt unavailable');
+  await expect.element(page.getByText(/Not verified on this run/)).toBeInTheDocument();
+  await expect.element(page.getByRole('link', { name: 'Add to roadmap' })).toHaveAttribute('href', '/dashboard/projects/9/roadmap?app=seo&audit=17&finding=title%3Aa');
+});
+
+it.each([
+  { verification: 'reported_fixed' as const, label: 'Reported fixed' },
+  { verification: 'verified_fixed' as const, label: 'Verified fixed' },
+])('distinguishes $label from automatic verification', async ({ verification, label }) => {
+  await render(<SeoAuditWorkView audit={{ ...audit, meta: { ...audit.meta, findings: [{ ...audit.meta.findings[0]!, status: 'fixed', verification }] } }} linkedWork={[]} />);
+
+  await expect.element(page.getByText(label, { exact: true })).toBeInTheDocument();
+});

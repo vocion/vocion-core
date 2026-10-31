@@ -12,7 +12,7 @@
  * counts the Audits page lists are written with the findings, never later.
  */
 
-import type { AuditCounts, AuditFinding, FindingEvent, FindingFix } from './audit';
+import type { AuditCounts, AuditCoverage, AuditFinding, FindingEvent, FindingFix } from './audit';
 import type { SeoProfile } from './profile';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
@@ -42,6 +42,7 @@ export type SeoAuditMeta = {
   inventoryArtifactId?: number;
   pagesRead: number;
   listed?: number;
+  coverage?: AuditCoverage;
   /** The run this one followed, for the carry-forward. */
   previousAuditId?: number;
 };
@@ -54,20 +55,20 @@ export type SeoAuditRecord = { id: number; title: string; meta: SeoAuditMeta; cr
  * @param m - The audit's meta, findings already moved.
  * @param profile - The client's SEO profile.
  */
-export function derived(id: number, m: Pick<SeoAuditMeta, 'findings' | 'projectName' | 'site' | 'checkedAt' | 'pagesRead' | 'listed' | 'inventoryArtifactId'>, profile?: SeoProfile): Pick<SeoAuditMeta, 'counts' | 'openCount' | 'highCount' | 'nextSteps' | 'report'> {
+export function derived(id: number, m: Pick<SeoAuditMeta, 'findings' | 'projectName' | 'site' | 'checkedAt' | 'pagesRead' | 'listed' | 'inventoryArtifactId' | 'coverage'>, profile?: SeoProfile): Pick<SeoAuditMeta, 'counts' | 'openCount' | 'highCount' | 'nextSteps' | 'report'> {
   const counts = auditCounts(m.findings);
   return {
     counts,
     openCount: counts.open,
     highCount: counts.high,
     nextSteps: nextSteps(m.findings, profile),
-    report: renderAuditReport({ auditId: id, projectName: m.projectName, site: m.site, checkedAt: m.checkedAt, findings: m.findings, profile, pagesRead: m.pagesRead, listed: m.listed, inventoryArtifactId: m.inventoryArtifactId ?? null }),
+    report: renderAuditReport({ auditId: id, projectName: m.projectName, site: m.site, checkedAt: m.checkedAt, findings: m.findings, profile, pagesRead: m.pagesRead, listed: m.listed, inventoryArtifactId: m.inventoryArtifactId ?? null, coverage: m.coverage }),
   };
 }
 
 /**
  * The audit's row status, which a strategy milestone linked to it reads:
- * `resolved` once no high finding is open, `active` while one is. Then the
+ * `resolved` only when no finding remains open and all fixes are verified. Then the
  * project's strategy is read again.
  * @param orgId - The workspace.
  * @param id - The audit.
@@ -78,7 +79,7 @@ async function settleRowStatus(orgId: string, id: number, meta: SeoAuditMeta | n
     return;
   }
   const { DONE_STATUS, refreshStrategy, setRowStatus } = await import('./strategy');
-  await setRowStatus(orgId, id, meta.highCount === 0 ? DONE_STATUS.audit : 'active');
+  await setRowStatus(orgId, id, meta.openCount === 0 && meta.coverage?.complete && !meta.findings.some(f => f.verification === 'not_checked' || (f.status === 'fixed' && f.verification !== 'verified_fixed')) ? DONE_STATUS.audit : 'active');
   await refreshStrategy(orgId, meta.projectId);
 }
 
@@ -120,6 +121,7 @@ export type AuditRun = {
   findings: AuditFinding[];
   pagesRead: number;
   listed?: number;
+  coverage?: AuditCoverage;
   inventoryArtifactId?: number;
   by: string;
 };
@@ -138,8 +140,8 @@ export async function fileAudit(orgId: string, run: AuditRun): Promise<{ audit: 
   }
   const { carryForward } = await import('./audit');
   const previous = (await listProjectAudits(orgId, run.project.id)).find(a => a.meta.checkedAt < run.checkedAt) ?? null;
-  const { findings, resolved } = carryForward(previous?.meta.findings, run.findings);
-  const base = { projectId: run.project.id, projectName: run.project.title, site: run.site, checkedAt: run.checkedAt, findings, pagesRead: run.pagesRead, ...(run.listed ? { listed: run.listed } : {}), ...(run.inventoryArtifactId ? { inventoryArtifactId: run.inventoryArtifactId } : {}), ...(previous ? { previousAuditId: previous.id } : {}) };
+  const { findings, resolved } = carryForward(previous?.meta.findings, run.findings, previous?.meta.site === run.site ? run.coverage : undefined);
+  const base = { projectId: run.project.id, projectName: run.project.title, site: run.site, checkedAt: run.checkedAt, findings, coverage: run.coverage, pagesRead: run.pagesRead, ...(run.listed ? { listed: run.listed } : {}), ...(run.inventoryArtifactId ? { inventoryArtifactId: run.inventoryArtifactId } : {}), ...(previous ? { previousAuditId: previous.id } : {}) };
   const title = `Audit · ${run.project.title} · ${run.checkedAt.slice(0, 10)}`;
   const externalId = `${run.project.id}:${run.checkedAt}`;
   const [inserted] = await db
@@ -203,7 +205,8 @@ export async function moveFindings(orgId: string, auditId: number, keys: readonl
         return f;
       }
       moves.push({ key: f.key, status: next });
-      return next === f.status ? f : { ...f, status: next, statusAt: at, statusBy: who.by, ...(who.note ? { statusNote: who.note } : {}) };
+      const verification = event?.kind === 'mark_fixed' ? 'reported_fixed' as const : event?.kind === 'not_found' ? 'verified_fixed' as const : f.verification;
+      return next === f.status && verification === f.verification ? f : { ...f, status: next, verification, statusAt: at, statusBy: who.by, ...(event?.kind === 'mark_fixed' ? { reportedFixedBy: who.by, reportedFixedAt: at } : {}), ...(event?.kind === 'not_found' ? { verifiedBy: who.by, verifiedAt: at } : {}), ...(who.note ? { statusNote: who.note } : {}) };
     });
     for (const k of want) {
       moves.push({ key: k, refused: 'no such finding on this audit' });

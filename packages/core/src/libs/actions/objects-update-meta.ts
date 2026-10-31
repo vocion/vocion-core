@@ -38,6 +38,7 @@ import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
 import { evaluateGates, gateRefusal, gatesOf } from '@/libs/gates/handoffGate';
 import { ROW_STATUSES } from '@/libs/objects/rowLifecycle';
+import { serverProducedFields, serverProducedFieldsRefusal } from '@/libs/objects/serverProducedFields';
 import { readStatusModel, withFollowedStatus } from '@/libs/objects/statusModel';
 import { bookkeepingPaths, changedFields } from '@/libs/workspace/bookkeeping';
 import { describeSchemaProblems, displayValue, humanise, loadObjectType } from './objects-propose-candidate';
@@ -200,13 +201,13 @@ async function writeRowStatus(orgId: string, id: number, status: string): Promis
   await db.update(businessObjectSchema).set({ status, updatedAt: new Date() }).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)));
 }
 
-async function writeMetadata(orgId: string, id: number, metadata: Record<string, unknown>): Promise<void> {
-  const { and, eq } = await import('drizzle-orm');
+async function writeMetadata(orgId: string, id: number, metadata: Record<string, unknown>, typeSlug: string): Promise<void> {
+  const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema } = await import('@/models/Schema');
   await db
     .update(businessObjectSchema)
-    .set({ metadata })
+    .set({ metadata: serverProducedFields(typeSlug).reduce((value, key) => sql`${value} || case when ${businessObjectSchema.metadata} ? ${key} then jsonb_build_object(${key}::text, ${businessObjectSchema.metadata}->${key}) else '{}'::jsonb end`, sql`${JSON.stringify(metadata)}::jsonb`) })
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)));
 }
 
@@ -328,6 +329,10 @@ function declaredFieldOrder(schema: Record<string, unknown> | null, properties: 
  * @param set
  */
 async function refuseWrite(schema: Record<string, unknown> | null, typeSlug: string, set: Record<string, unknown>): Promise<string | undefined> {
+  const serverRefusal = serverProducedFieldsRefusal(typeSlug, set);
+  if (serverRefusal) {
+    return serverRefusal;
+  }
   const properties = (schema?.properties ?? null) as Record<string, Record<string, unknown>> | null;
   if (!properties || Object.keys(properties).length === 0) {
     return `Object type "${typeSlug}" declares no fields in its schema, so nothing can be written on it. Add the fields to the type first.`;
@@ -428,7 +433,7 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
         ...meta,
         returnedTo: failure.gate.producedBy,
         gate: { name: failure.gate.name, to: failure.to, failed: failure.failed, at: new Date().toISOString() },
-      }).catch(() => undefined);
+      }, input.objectType).catch(() => undefined);
       return gateRefusal(failure, objectType.label);
     }
     return undefined;
@@ -507,7 +512,7 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     const crossed = crossedGates.length > 0;
     const next = applySet(row.metadata, crossed && 'returnedTo' in row.metadata ? { ...written, returnedTo: null, gate: null } : written);
     await bodyBefore(ctx.orgId, row.id);
-    await writeMetadata(ctx.orgId, row.id, next);
+    await writeMetadata(ctx.orgId, row.id, next, input.objectType);
     if (rowStatus && rowStatus !== row.status) {
       await writeRowStatus(ctx.orgId, row.id, rowStatus);
     }
@@ -590,12 +595,16 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     if (!previous) {
       throw new Error('This update recorded no previous values, so there is nothing to restore.');
     }
+    const serverRefusal = serverProducedFieldsRefusal(input.objectType, previous);
+    if (serverRefusal) {
+      throw new Error(serverRefusal);
+    }
     const objectType = await loadObjectType(ctx.orgId, input.objectType);
     const row = objectType ? await readRow(ctx.orgId, objectType.id, input.id) : null;
     if (!row) {
       throw new Error(`No ${objectType?.label.toLowerCase() ?? input.objectType} #${input.id} in this workspace to restore.`);
     }
-    await writeMetadata(ctx.orgId, row.id, applySet(row.metadata, previous));
+    await writeMetadata(ctx.orgId, row.id, applySet(row.metadata, previous), input.objectType);
     if (typeof result.rowStatus === 'string') {
       await writeRowStatus(ctx.orgId, row.id, typeof result.previousRowStatus === 'string' ? result.previousRowStatus : 'open');
     }
