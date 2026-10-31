@@ -6,6 +6,9 @@ import { AppContextProvider } from './appContext';
 import { Link } from './I18nNavigation';
 import { WorkspaceSlugProvider } from './workspaceSlug';
 
+// This suite exercises real navigation; clear another browser file's mock.
+vi.unmock('@/libs/I18nNavigation');
+
 vi.mock('next/navigation', () => ({ usePathname: () => '/w/revenue/dashboard/projects/98', useSearchParams: () => new URLSearchParams('app=gtm') }));
 vi.mock('next-intl/navigation', () => ({
   createNavigation: () => ({ Link: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a> }),

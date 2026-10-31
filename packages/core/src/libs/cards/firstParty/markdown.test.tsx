@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { markdownSections } from '../headingAnchor';
 import { MarkdownCardView } from './markdown';
+
+// This suite exercises real navigation; clear another browser file's mock.
+vi.unmock('@/libs/I18nNavigation');
 
 /**
  * A markdown artifact on its own page gives each heading the id a link to it

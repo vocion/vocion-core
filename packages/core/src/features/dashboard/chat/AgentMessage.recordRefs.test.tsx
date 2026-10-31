@@ -14,6 +14,9 @@ import '@/styles/global.css';
  */
 
 const openPreview = vi.fn();
+// This suite exercises real navigation; clear another browser file's mock.
+vi.unmock('@/libs/I18nNavigation');
+
 vi.mock('@/features/preview/previewState', async importOriginal => ({ ...await importOriginal<object>(), openPreview: (...a: unknown[]) => openPreview(...a) }));
 
 const { AgentMessage } = await import('./AgentMessage');
