@@ -58,6 +58,7 @@ const input = z.object({
   weekly_review: z.boolean().optional(),
   next_steps: z.array(z.object({ label: z.string().min(2).max(80), prompt: z.string().min(2).max(400) })).max(3).optional(),
   reason: z.string().max(300).optional(),
+  seo_strategy: z.object({ projectId: z.number().int().positive(), token: z.string().uuid(), replacesGoalId: z.number().int().positive().optional() }).optional(),
 });
 
 export type GoalCreateInput = z.infer<typeof input>;
@@ -210,11 +211,18 @@ export const goalCreateAction: Action<typeof input> = {
   // ran on its own at the default bar, and a goal was set in the person's name
   // without their seeing it (found 2026-10-30, the SEO strategy goal).
   requiresReviewDecision: true,
-  dedupKeyFor: i => `goal.create:${i.title.trim().toLowerCase()}`,
+  dedupKeyFor: i => i.seo_strategy ? `goal.create:seo:${i.seo_strategy.projectId}:${i.seo_strategy.token}` : `goal.create:${i.title.trim().toLowerCase()}`,
   async precheck(ctx, i) {
     const owner = await ownerOf(ctx);
     if (!owner) {
       return 'A goal belongs to a person, and this turn has none behind it. Ask them to sign in to Vocion.';
+    }
+    if (i.seo_strategy) {
+      const { strategyDraftProblem } = await import('@/services/seo/strategy');
+      const problem = await strategyDraftProblem(ctx.orgId, i.seo_strategy.projectId, i.seo_strategy.token, owner.userId);
+      if (problem) {
+        return problem;
+      }
     }
     if (!parseHorizon(i.horizon)) {
       return `"${i.horizon}" is not a horizon: give a date (2026-11-30) or a quarter (2026-Q4).`;
@@ -232,12 +240,14 @@ export const goalCreateAction: Action<typeof input> = {
     }
     return undefined;
   },
-  async reviewCard(_ctx, i): Promise<ReviewCard> {
+  async reviewCard(ctx, i): Promise<ReviewCard> {
     const horizon = parseHorizon(i.horizon);
+    const strategy = i.seo_strategy ? await (await import('@/services/seo/strategy')).getStrategy(ctx.orgId, i.seo_strategy.projectId) : null;
+    const replacing = Boolean(strategy?.meta.goalId);
     return {
-      title: `Set a goal: ${i.title}`,
+      title: `${replacing ? 'Replace SEO strategy' : 'Set a goal'}: ${i.title}`,
       system: 'Goals',
-      headline: `Approving sets “${i.title}” as your goal${horizon ? `, ${horizonLabel(horizon)}` : ''}. Undo removes it.`,
+      headline: replacing ? 'Approving replaces the active SEO strategy. The previous strategy goal will be paused; its history is retained. Undo restores the previous strategy.' : `Approving sets “${i.title}” as your goal${horizon ? `, ${horizonLabel(horizon)}` : ''}. Undo removes it.`,
       badges: [{ label: 'Goals' }, { label: 'Reversible' }],
       ...(i.reason ? { summary: i.reason } : {}),
       contentHeading: { label: 'Draft', meta: 'Edit it before you approve' },
@@ -249,8 +259,8 @@ export const goalCreateAction: Action<typeof input> = {
         ...(i.links?.length ? [{ label: 'Links', value: i.links.map(l => l.label ?? `${l.kind} ${l.id}`).join(', ') }] : []),
         { label: 'Weekly review', value: i.weekly_review ? 'Yes, in your Friday review' : 'No' },
       ],
-      nextAction: 'Approving sets the goal: it lists under Goals, shows in your morning brief, and the assistant keeps it moving. Undo removes it.',
-      verbs: { approve: 'Set the goal', reject: 'Don\'t set it' },
+      nextAction: replacing ? 'Approving creates the replacement strategy and pauses its previous active goal in one transaction. History is retained.' : 'Approving sets the goal: it lists under Goals, shows in your morning brief, and the assistant keeps it moving. Undo removes it.',
+      verbs: { approve: replacing ? 'Replace strategy' : 'Set the goal', reject: 'Don\'t set it' },
     };
   },
   applyContentEdits(i, edits) {
@@ -266,8 +276,15 @@ export const goalCreateAction: Action<typeof input> = {
     if (!horizon) {
       throw new Error(`"${i.horizon}" is not a horizon.`);
     }
+    if (i.seo_strategy) {
+      const { strategyDraftProblem } = await import('@/services/seo/strategy');
+      const problem = await strategyDraftProblem(ctx.orgId, i.seo_strategy.projectId, i.seo_strategy.token, owner.userId);
+      if (problem) {
+        throw new Error(problem);
+      }
+    }
     const { createGoal } = await import('@/services/objectives/GoalService');
-    const goal = await createGoal({
+    const goalInput = {
       orgId: ctx.orgId,
       ownerUserId: owner.userId,
       title: i.title,
@@ -278,14 +295,28 @@ export const goalCreateAction: Action<typeof input> = {
       nextSteps: i.next_steps ?? [],
       createdBy: ctx.proposedBy?.startsWith('agent:') ? 'agent' : owner.userId,
       conversationId: ctx.origin?.conversationId ?? null,
-    });
+    } as const;
+    const goal = i.seo_strategy
+      ? await (await import('@/services/seo/strategy')).approveStrategyGoal(ctx.orgId, i.seo_strategy.projectId, i.seo_strategy.token, goalInput)
+      : await createGoal(goalInput);
     return { goalId: goal.id, ownerUserId: owner.userId, href: `/dashboard/goals/${goal.id}`, line: `Set GOAL-${goal.id} “${goal.title}”, ${horizonLabel(horizon)}.` };
   },
-  async undo(ctx, _i, result) {
+  async onRejected(ctx, i) {
+    if (i.seo_strategy) {
+      const { rejectStrategyDraft } = await import('@/services/seo/strategy');
+      await rejectStrategyDraft(ctx.orgId, i.seo_strategy.projectId, i.seo_strategy.token);
+    }
+  },
+  async undo(ctx, i, result) {
     const goalId = typeof result?.goalId === 'number' ? result.goalId : null;
     const owner = typeof result?.ownerUserId === 'string' ? result.ownerUserId : null;
     if (!goalId || !owner) {
       throw new Error('This run recorded no goal, so there is nothing to undo.');
+    }
+    if (i.seo_strategy) {
+      const { undoStrategyGoal } = await import('@/services/seo/strategy');
+      await undoStrategyGoal(ctx.orgId, i.seo_strategy.projectId, goalId, owner);
+      return { line: 'Undid the strategy approval and restored its previous state.' };
     }
     const [{ db }, { and, eq }, { goalSchema }] = await Promise.all([import('@/libs/DB'), import('drizzle-orm'), import('@/models/Schema')]);
     await db.delete(goalSchema).where(and(eq(goalSchema.orgId, ctx.orgId), eq(goalSchema.id, goalId), eq(goalSchema.ownerUserId, owner)));

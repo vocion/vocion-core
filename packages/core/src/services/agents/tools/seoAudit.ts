@@ -37,7 +37,7 @@ const hostOf = (u: string) => {
 export function seoRunAuditTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
-      const [{ getDataRoom }, { inventoryProject, fetchText }, { homepageSchema }, { auditFindings, siteOriginOf }, { fileAudit, getAudit, SEO_AUDIT_TYPE }, { mergeMeta }] = await Promise.all([
+      const [{ getDataRoom }, { inventoryProject, fetchText }, { homepageSchema }, { auditFindings, auditCoverage, siteOriginOf }, { fileAudit, getAudit, SEO_AUDIT_TYPE }, { mergeMeta }] = await Promise.all([
         import('@/services/DataRoomService'),
         import('./siteInventory'),
         import('@/services/seo/profilePrefill'),
@@ -71,7 +71,7 @@ export function seoRunAuditTool(ctx: RuntimeContext) {
       try {
         const { getBrowseProvider } = await import('@/libs/tools/browse/registry');
         const page = await getBrowseProvider().fetchHtml(`${origin}/`, { orgId: ctx.orgId });
-        schema = page ? homepageSchema(page.html) : null;
+        schema = page ? homepageSchema(page.html) : undefined;
       } catch {
         schema = undefined;
       }
@@ -91,11 +91,13 @@ export function seoRunAuditTool(ctx: RuntimeContext) {
         brandNote = 'Google\'s results for the client\'s name could not be read (no SERP provider here), so that check did not run. Say so.';
       }
       const checkedAt = new Date().toISOString();
-      const findings = auditFindings({ checkedAt, inventory: inv, schema, robots, brand, profile, clientName: room.title });
+      const reads = { checkedAt, inventory: inv, schema, robots, brand, profile, clientName: room.title };
+      const findings = auditFindings(reads);
+      const coverage = auditCoverage(reads);
       progress.note(`Found ${findings.length} finding groups, ${findings.filter(f => f.severity === 'high').length} high priority; saving evidence`);
       // The agent's own act, recorded as the agent's: never a person's id.
       const by = `agent:${ctx.agentSlug ?? 'seo-strategist'}`;
-      const filed = await fileAudit(ctx.orgId, { project: { id: room.id, title: room.title, profile }, site: origin, checkedAt, findings, pagesRead: inv.rows.length, listed: inv.listed, inventoryArtifactId: run.artifactId, by });
+      const filed = await fileAudit(ctx.orgId, { project: { id: room.id, title: room.title, profile }, site: origin, checkedAt, findings, coverage, pagesRead: inv.rows.length, listed: inv.listed, inventoryArtifactId: run.artifactId, by });
       if (!filed) {
         return `The audit ran (${findings.length} findings) but this workspace has no ${SEO_AUDIT_TYPE} record type: the SEO app needs its update. Say so.`;
       }
@@ -112,6 +114,7 @@ export function seoRunAuditTool(ctx: RuntimeContext) {
       const m = audit.meta;
       return JSON.stringify({
         audit: { id: audit.id, title: audit.title, href: `/dashboard/objects/${audit.id}` },
+        coverage,
         report: made.artifactId ? { artifactId: made.artifactId, href: `/dashboard/artifacts/${made.artifactId}` } : null,
         project: { id: room.id, href: `/dashboard/projects/${room.id}` },
         read: { pages: inv.rows.length, listed: inv.listed, from: inv.from, homePageSchema: schema === undefined ? 'not read' : 'read', robots: robots === undefined ? 'not read' : robots === null ? 'none' : 'read', googleForName: brand ? (brand.position ? `#${brand.position}` : 'not on the first page') : 'not read' },
@@ -162,7 +165,7 @@ export function seoUpdateFindingsTool(ctx: RuntimeContext) {
         return `Not changed: ${unknown.map(k => `"${k}"`).join(', ')} ${unknown.length === 1 ? 'is' : 'are'} not a finding on audit #${audit.id}. Its findings: ${audit.meta.findings.map(f => f.key).join(', ')}.`;
       }
       const findings = chosen as AuditFinding[];
-      const line = (moves: Array<{ key: string; status?: string; refused?: string }>) => moves.map(m => (m.refused ? `${m.key}: not changed (${m.refused})` : `${m.key}: ${m.status}`)).join('; ');
+      const line = (moves: Array<{ key: string; status?: string; refused?: string }>) => moves.map(m => (m.refused ? `${m.key}: not changed (${m.refused})` : `${m.key}: ${args.action === 'mark_fixed' && m.status === 'fixed' ? 'reported fixed; rerun required to verify' : m.status}`)).join('; ');
       if (args.action === 'dismiss' || args.action === 'mark_fixed' || args.action === 'reopen') {
         if (args.action === 'dismiss' && !args.note?.trim()) {
           return 'Not changed: a dismissal says why (note), so the next run and the next person can read it.';

@@ -53,7 +53,7 @@ export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAud
   const workFor = (f: AuditFinding) => f.fix ? linkedWork.find(w => w.kind === f.fix!.kind && w.id === f.fix!.id) : undefined;
   const stats = [
     { label: 'Open finding groups', value: counts.open },
-    { label: 'High-priority groups', value: counts.high },
+    { label: 'High-severity groups', value: counts.high },
     { label: 'Linked tasks', value: tasks.length },
     { label: 'Pages read', value: pagesRead ?? 'Unknown' },
   ];
@@ -80,6 +80,10 @@ export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAud
             )}
           </div>
         </div>
+        <div className="mt-4 rounded-lg border border-border p-3 text-sm" data-testid="audit-coverage">
+          <p className="font-medium">{m.coverage?.complete ? 'Recorded checks complete' : 'Verification incomplete'}</p>
+          <p className="mt-1 text-muted-foreground">{m.coverage?.note ?? 'This older audit has no check coverage record. Do not treat missing findings as verified fixes.'}</p>
+        </div>
         <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
           {stats.map(stat => (
             <div key={stat.label}>
@@ -100,7 +104,7 @@ export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAud
         <section aria-label="Recommended next steps">
           <h2 className="text-lg font-semibold">Work on these next</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Open groups ranked by severity
+            Open groups ordered by check severity
             {profile ? ' and the client’s current SEO priorities' : ''}
             . Follow linked work before creating another task.
           </p>
@@ -142,7 +146,7 @@ export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAud
           <span className="text-xs text-muted-foreground">
             {counts.fixed}
             {' '}
-            fixed ·
+            recorded fixed ·
             {' '}
             {counts.dismissed}
             {' '}
@@ -165,13 +169,15 @@ export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAud
                       {' '}
                       {f.severity}
                       {' '}
-                      priority
+                      severity
                     </p>
                     <h3 className="mt-1 font-semibold">{f.title}</h3>
                     <p className="mt-1 text-xs break-words text-muted-foreground">{scopeOf(f)}</p>
                   </div>
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium capitalize">{f.status}</span>
+                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium capitalize">{f.status === 'fixed' ? f.verification === 'verified_fixed' ? 'Verified fixed' : 'Reported fixed' : f.status}</span>
                 </div>
+                {f.verification === 'not_checked' && <p className="mt-3 text-sm font-medium text-warn">Not verified on this run · retained from earlier evidence; recheck before calling it fixed.</p>}
+                {f.classification === 'pagination' && <p className="mt-2 text-xs text-muted-foreground">Pagination template review · grouped evidence, not a count of duplicate-content defects</p>}
                 <p className="mt-3 text-sm leading-relaxed">{f.evidence}</p>
                 {urls.length > 0 && (
                   <details className="mt-3 text-sm">
@@ -188,7 +194,11 @@ export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAud
                     {typeof f.statusAt === 'string' ? ` · ${f.statusAt.slice(0, 10)}` : ''}
                   </p>
                 )}
+                <p className="mt-2 text-xs text-muted-foreground">Business impact and effort are not estimated. Prioritize with the client's goals and implementation owner.</p>
                 <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-3 text-sm">
+                  {projectId !== null && f.status === 'open' && (
+                    <Link href={`/dashboard/projects/${projectId}/roadmap?app=seo&audit=${audit.id}&finding=${encodeURIComponent(f.key)}`} className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Add to roadmap</Link>
+                  )}
                   {work
                     ? (
                         <>
@@ -217,7 +227,7 @@ export function SeoAuditWorkView({ audit, profile, linkedWork }: { audit: SeoAud
                         : (
                             <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                               <CheckCircle2 className="size-4" aria-hidden />
-                              {f.status === 'fixed' ? 'Recorded as fixed' : 'Dismissed with the recorded decision'}
+                              {f.status === 'fixed' ? f.verification === 'verified_fixed' ? 'Fix verified by a subsequent check' : 'Reported fixed · awaiting verification' : 'Dismissed with the recorded decision'}
                             </span>
                           )}
                 </div>

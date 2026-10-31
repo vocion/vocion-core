@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { markdownSections } from '../headingAnchor';
 import { MarkdownCardView } from './markdown';
+
+// Register this file's real implementation explicitly: a shared browser
+// transform can still reference the mock registry after another file mocked it.
+vi.mock('@/libs/I18nNavigation', async importOriginal => importOriginal());
 
 /**
  * A markdown artifact on its own page gives each heading the id a link to it

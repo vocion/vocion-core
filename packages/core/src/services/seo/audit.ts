@@ -58,6 +58,12 @@ export type AuditFinding = {
   /** When it was read. */
   checkedAt: string;
   status: FindingStatus;
+  verification?: 'observed' | 'not_checked' | 'reported_fixed' | 'verified_fixed';
+  classification?: 'pagination';
+  reportedFixedBy?: string;
+  reportedFixedAt?: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
   /** When the status last moved, by whom, and why. */
   statusAt?: string;
   statusBy?: string;
@@ -87,6 +93,71 @@ export type AuditRead = {
   /** The project's name, for the brand search. */
   clientName: string;
 };
+
+/** Recorded evidence that permits an absent finding to be verified as fixed. */
+export type AuditCoverage = { complete: boolean; checkedChecks: string[]; checkedUrls: string[]; note: string };
+
+/**
+ * Checks and URL scope actually observed, never inferred from an empty findings list.
+ * @param r
+ */
+export function auditCoverage(r: AuditRead): AuditCoverage {
+  const rows = r.inventory.rows;
+  const complete = r.inventory.from !== 'crawl' && !r.inventory.cappedAt && rows.length >= r.inventory.listed && rows.length > 0 && rows.every(x => x.status === 200 && !x.error);
+  const checkedChecks = ['not_loaded', 'noindex', 'canonical_elsewhere', 'no_sitemap', 'missing_title', 'missing_meta', 'missing_h1', 'many_h1', 'duplicate_title', 'duplicate_meta', 'duplicate_h1', 'thin'];
+  const checkedUrls = rows.filter(x => x.status === 200 && !x.error).map(x => x.url);
+  if (r.schema !== undefined) {
+    checkedChecks.push('no_org_schema', 'org_no_description', 'org_no_sameas', 'org_description_stale');
+    checkedUrls.push(`${siteOriginOf(r.inventory)}/`);
+    if (r.profile?.clientType === 'local_services' || r.profile?.goals?.includes('google_business_profile')) {
+      checkedChecks.push('no_local_schema', 'local_no_nap');
+      for (const place of r.profile?.locations ?? []) {
+        const slug = place.split(',')[0]!.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        if (slug) {
+          checkedChecks.push(`no_location_page:${slug}`);
+        }
+      }
+    }
+  }
+  if (r.robots !== undefined) {
+    checkedChecks.push('robots_blocks_all', 'ai_crawlers_blocked');
+    checkedUrls.push(`${siteOriginOf(r.inventory)}/robots.txt`);
+  }
+  if (r.brand?.isGoogleRanking) {
+    checkedChecks.push('brand_not_first');
+  }
+  const missing = [r.schema === undefined ? 'home-page schema' : null, r.robots === undefined ? 'robots.txt' : null, !r.brand?.isGoogleRanking ? 'Google brand results' : null].filter(Boolean);
+  return { complete: complete && missing.length === 0, checkedChecks, checkedUrls: [...new Set(checkedUrls)], note: `${complete ? 'All listed pages were read successfully.' : 'Partial page coverage: capped, crawl-only, missing or unreadable pages. Absence does not verify a fix.'}${missing.length ? ` Checks unavailable: ${missing.join(', ')}.` : ''}` };
+}
+
+/**
+ * Pagination is a review category, never proof that duplicate metadata is harmless.
+ * @param rows
+ */
+function paginationGroup(rows: readonly InventoryRow[]): boolean {
+  let family: string | null = null;
+  let numbered = false;
+  return rows.length > 1 && rows.every((row) => {
+    try {
+      const url = new URL(row.url);
+      const page = url.searchParams.get('page') ?? url.searchParams.get('paged');
+      const path = url.pathname.replace(/\/(?:page|paged)\/([1-9]\d*)\/?$/, (_match, n) => {
+        numbered ||= Number(n) > 1;
+        return '/';
+      });
+      if (page && /^[1-9]\d*$/.test(page)) {
+        numbered ||= Number(page) > 1;
+        url.searchParams.delete('page');
+        url.searchParams.delete('paged');
+      }
+      const key = `${url.origin}${path.replace(/\/$/, '')}${url.search}`;
+      family ??= key;
+      return family === key;
+    } catch {
+      return false;
+    }
+  }) && numbered;
+}
 
 /** Crawlers of the AI answer engines, by the user agent robots.txt names. */
 export const AI_CRAWLERS = ['GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'ClaudeBot', 'Claude-SearchBot', 'PerplexityBot', 'Google-Extended', 'CCBot'];
@@ -225,7 +296,7 @@ export function auditFindings(r: AuditRead): AuditFinding[] {
   out.push(onPages({ check: 'not_loaded', category: 'technical', severity: 'high', title: 'Pages that did not load', evidence: `${issues.notRead.length} of ${rows.length} pages the sitemap lists answered with an error or did not answer` }, issues.notRead, at));
   const homeNoindex = home ? issues.noindex.includes(home) : false;
   out.push(onPages({ check: 'noindex', category: 'technical', severity: homeNoindex ? 'high' : 'medium', title: homeNoindex ? 'The home page asks not to be indexed' : 'Pages that ask not to be indexed', evidence: `${issues.noindex.length} pages carry a noindex robots meta tag; check each is meant to stay out of Google` }, issues.noindex, at));
-  out.push(onPages({ check: 'canonical_elsewhere', category: 'technical', severity: 'medium', title: 'Canonicals pointing to another page', evidence: `${issues.canonicalElsewhere.length} pages name another URL as their canonical, so Google ranks that one instead` }, issues.canonicalElsewhere, at));
+  out.push(onPages({ check: 'canonical_elsewhere', category: 'technical', severity: 'medium', title: 'Canonicals pointing to another page', evidence: `${issues.canonicalElsewhere.length} pages name another URL as their canonical, which is a canonicalization signal; verify whether that destination is intended` }, issues.canonicalElsewhere, at));
   if (r.inventory.from === 'crawl') {
     out.push({ key: 'no_sitemap', check: 'no_sitemap', category: 'technical', severity: 'medium', title: 'No sitemap', evidence: 'Neither /sitemap.xml nor robots.txt names a sitemap; the pages were found by following links, so pages nothing links to are missing', url: `${origin}/sitemap.xml`, checkedAt: at, status: 'open' });
   }
@@ -250,7 +321,8 @@ export function auditFindings(r: AuditRead): AuditFinding[] {
     for (const g of groups) {
       const f = onPages({ check, category: 'content', severity, title: `The same ${what} on ${g.rows.length} pages`, evidence: `"${g.text.slice(0, 120)}" is the ${what} of ${g.rows.length} pages` }, listed(g.rows), at);
       if (f) {
-        out.push({ ...f, key: `${check}:${g.text.toLowerCase().slice(0, 80)}` });
+        const pagination = paginationGroup(g.rows);
+        out.push({ ...f, key: `${check}:${g.text.toLowerCase().slice(0, 80)}`, ...(pagination ? { classification: 'pagination' as const, severity: 'low' as const, title: `Pagination template: repeated ${what}`, evidence: `${f.evidence}. All URLs belong to the same numbered archive. Review indexation and template intent before rewriting; this is not evidence of duplicate page content.` } : {}) });
       }
     }
   }
@@ -262,7 +334,7 @@ export function auditFindings(r: AuditRead): AuditFinding[] {
     const s = r.schema;
     const homeUrl = home?.url ?? `${origin}/`;
     if (!s || s.orgTypes.length === 0) {
-      out.push({ key: 'no_org_schema', check: 'no_org_schema', category: 'ai_visibility', severity: 'high', title: 'No Organization schema on the home page', evidence: 'The home page declares no Organization (or LocalBusiness) structured data, so search and AI answers have no stated name, description or profiles for the business', url: homeUrl, checkedAt: at, status: 'open' });
+      out.push({ key: 'no_org_schema', check: 'no_org_schema', category: 'ai_visibility', severity: 'high', title: 'No Organization schema on the home page', evidence: 'The home page declares no Organization (or LocalBusiness) structured data, which may help consumers interpret the business; this audit does not measure its effect on AI citations', url: homeUrl, checkedAt: at, status: 'open' });
     } else {
       // What the business says it is now: its profile, and its home page.
       const positioning = [
@@ -281,8 +353,8 @@ export function auditFindings(r: AuditRead): AuditFinding[] {
           check: 'org_description_stale',
           category: 'ai_visibility',
           severity: 'high',
-          title: 'The Organization schema describes the business it used to be',
-          evidence: `Its ${s.orgDescription ? `description "${s.orgDescription.slice(0, 160)}"` : 'schema'}${s.knowsAbout?.length ? ` and knowsAbout (${s.knowsAbout.slice(0, 8).join(', ')})` : ''} speak of ${gap.stale.join(', ')}, which what the business says now does not (${gap.said}); ${Math.round(gap.coverage * 100)}% of its words match. AI answers read this schema: say what the business is now`,
+          title: 'Organization schema may not match current positioning',
+          evidence: `Its ${s.orgDescription ? `description "${s.orgDescription.slice(0, 160)}"` : 'schema'}${s.knowsAbout?.length ? ` and knowsAbout (${s.knowsAbout.slice(0, 8).join(', ')})` : ''} speak of ${gap.stale.join(', ')}, which what the business says now does not (${gap.said}); ${Math.round(gap.coverage * 100)}% of its words match. This lexical mismatch needs human review; it does not establish historical positioning or any effect on AI answers`,
           url: homeUrl,
           checkedAt: at,
           status: 'open',
@@ -295,7 +367,7 @@ export function auditFindings(r: AuditRead): AuditFinding[] {
   }
   const aiBlocked = AI_CRAWLERS.filter(a => blocked.some(b => b.toLowerCase() === a.toLowerCase()));
   if (aiBlocked.length) {
-    out.push({ key: 'ai_crawlers_blocked', check: 'ai_crawlers_blocked', category: 'ai_visibility', severity: 'high', title: 'AI answer engines are shut out', evidence: `robots.txt disallows the whole site to ${aiBlocked.join(', ')}`, url: `${origin}/robots.txt`, checkedAt: at, status: 'open' });
+    out.push({ key: 'ai_crawlers_blocked', check: 'ai_crawlers_blocked', category: 'ai_visibility', severity: 'high', title: 'Named AI crawlers are disallowed by robots.txt', evidence: `robots.txt disallows the whole site to ${aiBlocked.join(', ')}. Crawler purposes differ; this does not prove exclusion from AI answers.`, url: `${origin}/robots.txt`, checkedAt: at, status: 'open' });
   }
 
   // Local: for a local client, or one that wants its Google Business Profile.
@@ -373,22 +445,27 @@ export function nextFindingStatus(current: FindingStatus, e: FindingEvent): Find
  * longer finds (fixed on that run). Pure.
  * @param previous - The last run's findings, if any.
  * @param current - This run's findings.
+ * @param coverage
  */
-export function carryForward(previous: readonly AuditFinding[] | null | undefined, current: readonly AuditFinding[]): { findings: AuditFinding[]; resolved: string[] } {
+export function carryForward(previous: readonly AuditFinding[] | null | undefined, current: readonly AuditFinding[], coverage?: AuditCoverage): { findings: AuditFinding[]; resolved: string[] } {
   const before = new Map((previous ?? []).map(f => [f.key, f]));
-  const findings = current.map((f) => {
+  const findings: AuditFinding[] = current.map((f) => {
     const was = before.get(f.key);
     if (!was) {
-      return f;
+      return { ...f, verification: 'observed' };
     }
     return {
       ...f,
+      verification: 'observed' as const,
       ...(was.status === 'dismissed' ? { status: 'dismissed' as const, statusAt: was.statusAt, statusBy: was.statusBy, statusNote: was.statusNote } : {}),
       ...(was.fix ? { fix: was.fix } : {}),
     };
   });
   const now = new Set(current.map(f => f.key));
-  const resolved = (previous ?? []).filter(f => f.status === 'open' && !now.has(f.key)).map(f => f.key);
+  const missing = (previous ?? []).filter(f => (f.status === 'open' || (f.status === 'fixed' && f.verification !== 'verified_fixed')) && !now.has(f.key));
+  const verified = (f: AuditFinding) => Boolean(coverage?.complete && (coverage.checkedChecks.includes(f.check) || coverage.checkedChecks.includes(f.key)) && [f.url, ...(f.urls ?? [])].filter((u): u is string => Boolean(u)).every(u => coverage.checkedUrls.includes(u)));
+  const resolved = missing.filter(verified).map(f => f.key);
+  findings.push(...missing.filter(f => !verified(f)).map(f => ({ ...f, verification: 'not_checked' as const })));
   return { findings, resolved };
 }
 
@@ -439,7 +516,7 @@ export function auditCounts(findings: readonly AuditFinding[]): AuditCounts {
  * @param limit - How many.
  */
 export function nextSteps(findings: readonly AuditFinding[], profile?: SeoProfile, limit = 5): string[] {
-  return workOrder(findings, profile).slice(0, limit).map(f => `${f.title}${f.url ? ` — ${pathOf(f.url) || '/'}` : f.urls?.length ? ` — ${pathOf(f.urls[0]!) || '/'}${f.urls.length > 1 ? ` + ${f.urls.length - 1} other recorded URLs` : ''}` : ''} (${f.severity}, ${CATEGORY_LABEL[f.category].toLowerCase()})${f.suggestPage ? `: plan a ${f.suggestPage.pageType} page for "${f.suggestPage.keyword}"` : ''}`);
+  return workOrder(findings, profile).slice(0, limit).map(f => `${f.verification === 'not_checked' ? 'Recheck earlier evidence: ' : ''}${f.title}${f.url ? ` — ${pathOf(f.url) || '/'}` : f.urls?.length ? ` — ${pathOf(f.urls[0]!) || '/'}${f.urls.length > 1 ? ` + ${f.urls.length - 1} other recorded URLs` : ''}` : ''} (${f.severity}, ${CATEGORY_LABEL[f.category].toLowerCase()})${f.suggestPage ? `: plan a ${f.suggestPage.pageType} page for "${f.suggestPage.keyword}"` : ''}`);
 }
 
 /**
@@ -467,14 +544,15 @@ export function fixHref(auditId: number, f: Pick<AuditFinding, 'key' | 'title'>)
  * @param a.pagesRead
  * @param a.listed
  * @param a.inventoryArtifactId
+ * @param a.coverage
  */
-export function renderAuditReport(a: { auditId: number; projectName: string; site: string; checkedAt: string; findings: readonly AuditFinding[]; profile?: SeoProfile; pagesRead: number; listed?: number; inventoryArtifactId?: number | null }): string {
+export function renderAuditReport(a: { auditId: number; projectName: string; site: string; checkedAt: string; findings: readonly AuditFinding[]; profile?: SeoProfile; pagesRead: number; listed?: number; inventoryArtifactId?: number | null; coverage?: AuditCoverage }): string {
   const c = auditCounts(a.findings);
   const date = a.checkedAt.slice(0, 10);
   const out = [
     `# SEO audit · ${a.projectName} · ${date}`,
     '',
-    `${a.site}, read ${date}: ${a.pagesRead} pages${a.listed && a.listed > a.pagesRead ? ` of ${a.listed} listed` : ''}${a.inventoryArtifactId ? ` ([site inventory](/dashboard/artifacts/${a.inventoryArtifactId}))` : ''}, the home page's structured data, robots.txt and Google's results for the client's name.`,
+    `${a.site}, read ${date}: ${a.pagesRead} pages${a.listed && a.listed > a.pagesRead ? ` of ${a.listed} listed` : ''}${a.inventoryArtifactId ? ` ([site inventory](/dashboard/artifacts/${a.inventoryArtifactId}))` : ''}. ${a.coverage?.note ?? 'Check coverage was not recorded; absent findings are not verified fixes.'}`,
     '',
     `**${c.open} open finding groups, ${c.high} high priority.** ${AUDIT_CATEGORIES.filter(k => c.byCategory[k]).map(k => `${CATEGORY_LABEL[k]} ${c.byCategory[k]}`).join(' · ') || 'Nothing open.'}${c.dismissed ? ` · ${c.dismissed} dismissed` : ''}`,
     '',
@@ -494,14 +572,14 @@ export function renderAuditReport(a: { auditId: number; projectName: string; sit
       const pages = f.url ? ` · [${pathOf(f.url) || '/'}](${f.url})` : f.urls?.length ? ` · ${f.urls.slice(0, 5).map(u => `[${pathOf(u) || '/'}](${u})`).join(', ')}${f.urls.length > 5 ? ` and ${f.urls.length - 5} more` : ''}` : '';
       const state = f.status === 'open'
         ? (f.fix ? `[${f.fix.kind === 'page' ? 'planned page linked; finding still open' : 'task linked; finding still open'}](${f.fix.href})` : `[Fix it](${fixHref(a.auditId, f)})`)
-        : `${f.status}${f.statusNote ? `: ${f.statusNote}` : ''}`;
-      out.push(`- **${f.title}** (${f.severity}) — ${f.evidence}${pages} · ${state}`);
+        : `${f.status === 'fixed' && f.verification !== 'verified_fixed' ? 'reported fixed (not reverified)' : f.status}${f.statusNote ? `: ${f.statusNote}` : ''}`;
+      out.push(`- **${f.title}** (${f.severity})${f.verification === 'not_checked' ? ' · NOT VERIFIED ON THIS RUN' : ''} — ${f.evidence}${pages} · ${state}`);
     }
     out.push('');
   }
   if (a.findings.length === 0) {
     out.push('Nothing to fix on the checks this audit runs.', '');
   }
-  out.push(`_Checked ${a.checkedAt.slice(0, 16).replace('T', ' ')} UTC. Each finding is read from the site as served on that date._`);
+  out.push(`_Checked ${a.checkedAt.slice(0, 16).replace('T', ' ')} UTC. Each finding retains its observation date; carried evidence marked unverified needs a new check._`);
   return out.join('\n');
 }

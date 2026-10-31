@@ -44,7 +44,7 @@ export function ProjectSeoOverview({ record, profile, draftReady, audit, strateg
           <AskAboutThis record={record} label="Plan next steps" agentSlug="seo-strategist" send prompt="Review this project's approved SEO profile, current strategy and latest audit. Propose the next few actions from existing evidence. Ask for missing business priorities; do not invent goals or start a new audit unless needed." />
           <Link href={`/dashboard/p/seo-pages?project=${projectId}`} className="rounded-md border border-border px-3 py-1.5 hover:bg-surface-hover">Open pages</Link>
           <Link href={`/dashboard/p/seo-audits?project=${projectId}`} className="rounded-md border border-border px-3 py-1.5 hover:bg-surface-hover">Audit history</Link>
-          {strategy && <Link href={`/dashboard/objects/${strategy.id}`} className="rounded-md border border-border px-3 py-1.5 hover:bg-surface-hover">Open strategy</Link>}
+          <Link href={`/dashboard/projects/${projectId}/roadmap?app=seo`} className="rounded-md border border-border px-3 py-1.5 hover:bg-surface-hover">Strategy roadmap</Link>
         </div>
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">

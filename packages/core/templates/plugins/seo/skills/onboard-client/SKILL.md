@@ -9,7 +9,7 @@ description: >-
   Asks for what it could not find instead of inventing it, and ends with the
   client's SEO profile (what kind of client, goals ranked) on one card the
   person saves. Read before opening a project for a new client.
-version: 6
+version: 7
 ---
 
 # Onboarding a client from their website
@@ -154,6 +154,27 @@ and saves it. Do not ask the client type or the goals as separate questions:
 they are on the card, with a suggested order to change. Nothing is saved
 until the person saves it; never write it any other way.
 
+## 10. Readiness and measurement
+
+Separate onboarding, publishing and measurement readiness. A saved profile
+is approved context; a draft profile is still awaiting a person. A configured
+publishing target is not proof that a page is live. Say what remains missing
+and link the relevant project section instead of calling the client fully ready.
+
+The Strategy roadmap records the client's owned initiatives, acceptance
+criteria and outcome measures. Use the saved ranked goals; do not invent a
+traffic, lead or revenue target. The strategy owner can capture a Search
+Console baseline from the client's selected property: actual 28-day clicks
+and impressions, with dates and source. A missing connection or empty result
+is unknown, never zero. Preserve the first baseline when refreshing; compare
+matching periods and the same property. A publishing count is delivery, not
+proof of leads, revenue or causal impact.
+
+Before presenting a progress report, read the latest saved measurements and
+their dates. Name stale or missing observations and the next action needed.
+The weekly opportunity check limits new plans against unfinished work; it
+is not an automatic Search Console refresh or proof of published delivery.
+
 ## Done when
 
 The project is named after the client and has the site inventory, its
@@ -163,3 +184,26 @@ rules citing the guides and pages they came from, competitors read from
 Google, notes with services, audience and the content inventory, the SEO
 profile on its card for the person to save, and a list of what is still
 missing, said to the person.
+
+## Reviewing progress after onboarding
+
+When the approved strategy has a weekly goal review, open that existing goal
+and read `seo_read_roadmap` and `seo_read_measurements` for its client. Report
+completed delivery separately from sourced business observations, the dates
+of those observations, blockers, and the next owned initiative. Link the goal
+and the relevant records. Do not create a second schedule.
+
+When the strategy owner explicitly requests a measurement refresh (or their
+authorized review runs with their user context), use `seo_capture_measurements`
+with the current roadmap revision. Runs without the owner's user context
+must read saved observations and say a refresh is needed. Never impersonate
+the owner, change a target, choose another client's Search Console property,
+or silently turn on recurring data capture.
+
+A publisher's success is separate from public verification. When the strategy
+owner asks to verify delivery, use `seo_verify_publication` for the saved
+published page record. It reads only that record's public URL and records
+HTTP/HTML identity evidence. A 200 response alone is insufficient; blocked,
+JavaScript-only, inaccessible or timed-out pages remain unverified. Report
+provider-recorded publication and public checks separately, with their dates;
+neither proves indexing or improved business results.

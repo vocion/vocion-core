@@ -44,6 +44,7 @@ const { runAgentTurn } = await import('@/services/workflows/agentRunner');
 
 const ORG = 'proj_seo_pipeline_northwind';
 const PERSON = 'usr-pipeline-dana';
+let clientProjectId = 0;
 const SITE = { id: 'site', kind: 'github', label: 'Website', config: { repo: 'northwind-home/site', path: 'src/content/services/{slug}.mdx' } };
 const turn = vi.mocked(runAgentTurn);
 
@@ -109,6 +110,7 @@ beforeAll(async () => {
   expect((await installPluginBundles({ orgId: ORG, plugins: ['seo'], appliedBy: 'user:dana' })).errors).toEqual([]);
 
   const projectId = (await createDataRoom(ORG, PERSON, { title: 'Northwind Home Services', domains: ['northwind-home.example'] })).id;
+  clientProjectId = projectId;
   await updateDataRoom(ORG, projectId, { publishTargets: [SITE as never], seoGate: { sample: 2, tranche: 10 } });
   standIns();
   const out = await tool(ctx(PERSON, 'seo-strategist', { conversationId: undefined }), 'seo_plan_batch', { project_id: projectId, topic: 'Boiler repair', pages: [{ keyword: 'boiler servicing', page_type: 'service' }, { keyword: 'boiler pressure', page_type: 'blog' }] });
@@ -179,4 +181,64 @@ describe('the SEO page pipeline, as workflows', () => {
 
     expect([...calls, ...turn.mock.calls.map(c => c[0]).filter(r => r.runId === redraft!.id)][0]?.agentSlug).toBe('seo-strategist');
   });
+});
+
+it('does not turn completed drafting runs, unmerged publication or rejected content into roadmap delivery', async () => {
+  const { upsertStrategy } = await import('./strategy');
+  const { readSeoRoadmap } = await import('./roadmap');
+  await upsertStrategy(ORG, { id: clientProjectId, title: 'Northwind Home Services' }, { roadmap: { revision: 0, outcomes: [], initiatives: pages.map((p, i) => ({ id: `page-${p.id}`, label: i ? 'Rejected page' : 'Unmerged publication', lane: 'now', dependsOn: [], acceptanceCriteria: 'Approved content live', recordIds: [p.id], evidence: [], status: 'in_progress' })) } } as never, PERSON);
+  const delivery = await readSeoRoadmap(ORG, clientProjectId, PERSON);
+
+  expect(delivery.roadmap.initiatives).toHaveLength(2);
+  expect(delivery.roadmap.initiatives.every(i => i.status !== 'done')).toBe(true);
+  expect(delivery.roadmap.outcomes).toEqual([]);
+  expect(opened).toHaveLength(1);
+});
+
+it('keeps delivery incomplete when the external publisher fails after human sign-off', async () => {
+  const { publishToGithub } = await import('@/services/publish/sitePublish');
+  const { readSeoRoadmap } = await import('./roadmap');
+  const redraft = await until(async () => (await runsOf('seo-page')).find(r => (r.input as { reason?: string }).reason === 'redraft'), r => r?.pauseReason === 'awaiting_approval:signoff');
+
+  expect(redraft?.pauseReason).toBe('awaiting_approval:signoff');
+
+  vi.mocked(publishToGithub).mockRejectedValueOnce(new Error('Publisher temporarily unavailable'));
+  const [ask] = await db.select().from(askSchema).where(and(eq(askSchema.orgId, ORG), eq(askSchema.sourceRef, `workflow-run:${redraft!.id}:signoff`)));
+  await decideAsk({ orgId: ORG, id: ask!.id, decision: 'approve', decidedBy: PERSON, via: 'card' });
+  await until(async () => (await runsOf('seo-page')).find(r => r.id === redraft!.id)!, r => r.status !== 'running' && r.status !== 'paused');
+  const page = (await getSeoPage(ORG, pages[1]!.id))!;
+  const delivery = await readSeoRoadmap(ORG, clientProjectId, PERSON);
+
+  expect(page.meta.status).not.toBe('published');
+  expect(page.meta.pullRequestUrl).toBeFalsy();
+  expect(delivery.roadmap.initiatives.find(i => i.recordIds.includes(page.id))?.status).not.toBe('done');
+  expect(opened).toHaveLength(1);
+});
+
+it('tracks real project task decisions without treating dropped work as completion or fixing an audit', async () => {
+  const { addOpenItem } = await import('@/services/DataRoomService');
+  const { upsertStrategy } = await import('./strategy');
+  const { readSeoRoadmap } = await import('./roadmap');
+  const { fileAudit, getAudit } = await import('./audits');
+  const audit = (await fileAudit(ORG, { project: { id: clientProjectId, title: 'Northwind Home Services' }, site: 'https://northwind-home.example', checkedAt: '2026-10-30T10:00:00.000Z', pagesRead: 1, by: PERSON, findings: [{ key: 'canonical_elsewhere', check: 'canonical_elsewhere', title: 'Canonical mismatch', category: 'technical', severity: 'high', evidence: 'Canonical points elsewhere', checkedAt: '2026-10-30T10:00:00.000Z', status: 'open' }] }))!.audit;
+  const done = await addOpenItem(ORG, clientProjectId, { title: 'Implement canonical correction' }, PERSON);
+  const dropped = await addOpenItem(ORG, clientProjectId, { title: 'Obsolete implementation task' }, PERSON);
+  const otherClient = await createDataRoom(ORG, PERSON, { title: 'Unrelated client', domains: ['unrelated.example'] });
+  const foreign = await addOpenItem(ORG, otherClient.id, { title: 'Other client private task' }, PERSON);
+  const base = { lane: 'now' as const, dependsOn: [], acceptanceCriteria: 'Implementation task done; audit recheck remains separate', recordIds: [], evidence: [], status: 'in_progress' as const };
+  await upsertStrategy(ORG, { id: clientProjectId, title: 'Northwind Home Services' }, { roadmap: { revision: 1, outcomes: [], initiatives: [{ ...base, id: 'implement', label: 'Implement correction', taskIds: [done.id] }, { ...base, id: 'obsolete', label: 'Old task', taskIds: [dropped.id] }] } } as never, PERSON);
+  const before = await readSeoRoadmap(ORG, clientProjectId, PERSON);
+
+  expect(before.roadmap.initiatives.every(i => i.status !== 'done')).toBe(true);
+  expect(before.availableTasks.some(t => t.id === foreign.id)).toBe(false);
+
+  await decideAsk({ orgId: ORG, id: done.id, decision: 'done', decidedBy: PERSON, via: 'card' });
+  await decideAsk({ orgId: ORG, id: dropped.id, decision: 'drop', decidedBy: PERSON, via: 'card' });
+  const after = await readSeoRoadmap(ORG, clientProjectId, PERSON);
+
+  expect(after.roadmap.initiatives.find(i => i.id === 'implement')?.status).toBe('done');
+  expect(after.roadmap.initiatives.find(i => i.id === 'obsolete')?.status).not.toBe('done');
+  expect(after.linkedTasks.find(t => t.id === dropped.id)?.status).toBe('answered');
+  expect((await getAudit(ORG, audit.id))?.meta.findings[0]?.status).toBe('open');
+  expect(after.roadmap.outcomes).toEqual([]);
 });

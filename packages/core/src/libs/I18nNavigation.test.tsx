@@ -6,6 +6,10 @@ import { AppContextProvider } from './appContext';
 import { Link } from './I18nNavigation';
 import { WorkspaceSlugProvider } from './workspaceSlug';
 
+// Register this file's real implementation explicitly: a shared browser
+// transform can still reference the mock registry after another file mocked it.
+vi.mock('@/libs/I18nNavigation', async importOriginal => importOriginal());
+
 vi.mock('next/navigation', () => ({ usePathname: () => '/w/revenue/dashboard/projects/98', useSearchParams: () => new URLSearchParams('app=gtm') }));
 vi.mock('next-intl/navigation', () => ({
   createNavigation: () => ({ Link: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a> }),

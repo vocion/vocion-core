@@ -211,3 +211,43 @@ test('project drilldown keeps SEO context and meaningful page and audit breadcru
 
   expect(errors).toEqual([]);
 });
+
+test('the strategist can save a scoped roadmap, retain it on reload and see missing measurement access', async ({ page }) => {
+  await signIn(page, BUSY);
+  await page.goto(HOME);
+  await page.getByTestId('home-project').filter({ hasText: 'Northwind Outfitters' }).getByRole('link', { name: /Northwind Outfitters/ }).click();
+  await page.getByRole('link', { name: 'Strategy roadmap', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'What moves this client forward' })).toBeVisible();
+
+  await page.getByText(/Client readiness ·/).click();
+
+  await expect(page.getByRole('region', { name: 'Client readiness' })).toContainText('Connect Search Console');
+
+  await page.getByRole('button', { name: 'Add initiative' }).click();
+  await page.getByLabel('Initiative', { exact: true }).fill('Verify high-value service pages');
+  await page.getByLabel('Why this matters').fill('Confirm the client’s core offerings can be found.');
+  await page.getByLabel('Acceptance criteria').fill('A complete recheck verifies each affected service URL.');
+  await page.getByLabel('Owner', { exact: true }).selectOption({ label: BUSY.name });
+  await page.getByLabel('Next action', { exact: true }).fill('Confirm the service page inventory');
+  await page.getByRole('button', { name: 'Save initiative' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Verify high-value service pages' })).toBeVisible();
+
+  await page.reload();
+
+  await expect(page.getByRole('heading', { name: 'Verify high-value service pages' })).toBeVisible();
+  await expect(page.getByText('Execution work not linked yet.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Capture search measurements' }).click();
+
+  await expect(page.getByRole('alert').filter({ hasText: 'Search Console property' })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await expect(page.getByRole('heading', { name: 'What moves this client forward' })).toBeVisible();
+
+  const width = await page.evaluate(() => ({ body: document.documentElement.scrollWidth, viewport: window.innerWidth }));
+
+  expect(width.body).toBeLessThanOrEqual(width.viewport);
+});

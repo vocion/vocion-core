@@ -16,6 +16,7 @@ vi.mock('@/services/chat/synthesis', () => ({ invalidateChipCache: vi.fn() }));
 vi.mock('@/services/BudgetService', () => ({ chargeUsage: vi.fn(async () => {}) }));
 
 const SITE = 'https://fernwood-plumbing.example';
+let robotsUnavailable = false;
 let robots = 'User-agent: GPTBot\nDisallow: /\n';
 const TEXT: Record<string, () => string> = {
   [`${SITE}/sitemap.xml`]: () => `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${SITE}/</loc></url><url><loc>${SITE}/drains</loc></url><url><loc>${SITE}/leaks</loc></url></urlset>`,
@@ -26,6 +27,9 @@ vi.mock('@/libs/net/publicFetch', async (importActual) => {
   return {
     ...actual,
     fetchPublic: async (url: string) => {
+      if (robotsUnavailable && url.endsWith('/robots.txt')) {
+        throw new Error('Temporary network outage');
+      }
       if (!TEXT[url]) {
         throw new actual.PublicFetchError('HTTP 404 from fernwood-plumbing.example.', 'http', 404);
       }
@@ -176,4 +180,61 @@ describe('an audit run', () => {
     expect(await listProjectAudits(ORG, projectId)).toHaveLength(2);
     expect((await moveFindings(ORG, out.audit.id, ['no_local_schema'], { kind: 'mark_fixed' }, { by: 'usr-mara' }))[0]).toEqual({ key: 'no_local_schema', status: 'fixed' });
   });
+});
+
+it('keeps earlier robots findings open when the next run cannot verify robots.txt', async () => {
+  robots = 'User-agent: GPTBot\nDisallow: /\n';
+  const first = await run();
+  robotsUnavailable = true;
+  try {
+    const next = await run();
+    const earlier = (await getAudit(ORG, first.audit.id))!;
+    const current = (await getAudit(ORG, next.audit.id))!;
+
+    expect(earlier.meta.findings.find(f => f.key === 'ai_crawlers_blocked')?.status).toBe('open');
+    expect(current.meta.coverage?.complete).toBe(false);
+    expect(current.meta.findings.find(f => f.key === 'ai_crawlers_blocked')).toMatchObject({ status: 'open', verification: 'not_checked' });
+  } finally {
+    robotsUnavailable = false;
+  }
+});
+
+it('keeps a reported fix unverified until a covered recheck confirms it', async () => {
+  const client = await createDataRoom(ORG, 'usr-mara', { title: 'Verification client', client: 'Verification client', domains: ['verification.example'] });
+  const coverage = { complete: true, checkedChecks: ['no_org_schema'], checkedUrls: ['https://verification.example/'], note: 'Complete fixture checks' };
+  const first = (await fileAudit(ORG, { project: { id: client.id, title: client.title }, site: 'https://verification.example', checkedAt: '2026-10-29T10:00:00.000Z', findings: [{ key: 'no_org_schema', check: 'no_org_schema', category: 'ai_visibility', severity: 'high', title: 'Missing schema', evidence: 'Read homepage', url: 'https://verification.example/', checkedAt: '2026-10-29T10:00:00.000Z', status: 'open' }], pagesRead: 1, coverage, by: 'usr-mara' }))!.audit;
+  await moveFindings(ORG, first.id, ['no_org_schema'], { kind: 'mark_fixed' }, { by: 'usr-mara' });
+  const reported = (await getAudit(ORG, first.id))!;
+
+  expect(reported.meta.findings[0]).toMatchObject({ status: 'fixed', verification: 'reported_fixed', statusBy: 'usr-mara' });
+  expect((await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, first.id)))[0]?.status).toBe('active');
+  expect(reported.meta.report).toContain('reported fixed (not reverified)');
+
+  await fileAudit(ORG, { project: { id: client.id, title: client.title }, site: 'https://verification.example', checkedAt: '2026-10-30T10:00:00.000Z', findings: [], pagesRead: 1, coverage, by: 'agent:seo-strategist' });
+  const verified = (await getAudit(ORG, first.id))!;
+
+  expect(verified.meta.findings[0]).toMatchObject({ status: 'fixed', verification: 'verified_fixed', reportedFixedBy: 'usr-mara', verifiedBy: 'agent:seo-strategist' });
+  expect((await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, first.id)))[0]?.status).toBe('resolved');
+});
+
+it('does not count a legacy resolved audit with unverified fixed findings as roadmap delivery', async () => {
+  const { readSeoRoadmap } = await import('./roadmap');
+  const { upsertStrategy } = await import('./strategy');
+  const client = await createDataRoom(ORG, 'usr-mara', { title: 'Legacy verification client', client: 'Legacy verification client', domains: ['legacy.example'] });
+  const audit = (await fileAudit(ORG, { project: { id: client.id, title: client.title }, site: 'https://legacy.example', checkedAt: '2026-10-29T10:00:00.000Z', findings: [], pagesRead: 1, coverage: { complete: true, checkedChecks: ['no_org_schema'], checkedUrls: [], note: 'Legacy fixture' }, by: 'usr-mara' }))!.audit;
+  await db.update(businessObjectSchema).set({ status: 'resolved', metadata: { ...audit.meta, findings: [{ key: 'no_org_schema', check: 'no_org_schema', title: 'Legacy manually fixed schema', category: 'technical', severity: 'high', status: 'fixed' }] } }).where(eq(businessObjectSchema.id, audit.id));
+  await upsertStrategy(ORG, { id: client.id, title: client.title }, { roadmap: { revision: 0, outcomes: [], initiatives: [{ id: 'verify', label: 'Verify legacy correction', lane: 'now', dependsOn: [], acceptanceCriteria: 'Covered recheck', recordIds: [audit.id], evidence: [], status: 'in_progress' }] } } as never, 'usr-mara');
+  const state = await readSeoRoadmap(ORG, client.id, 'usr-mara');
+
+  expect(state.linkedRecords[0]?.status).toBe('verification_required');
+  expect(state.roadmap.initiatives[0]?.status).not.toBe('done');
+});
+
+it('keeps an audit active when only a medium finding remains open', async () => {
+  const client = await createDataRoom(ORG, 'usr-mara', { title: 'Medium findings client', client: 'Medium findings client', domains: ['medium.example'] });
+  const audit = (await fileAudit(ORG, { project: { id: client.id, title: client.title }, site: 'https://medium.example', checkedAt: '2026-10-29T10:00:00.000Z', findings: [{ key: 'thin', check: 'thin', category: 'content', severity: 'medium', title: 'Thin content', evidence: 'Read the page', url: 'https://medium.example/', checkedAt: '2026-10-29T10:00:00.000Z', status: 'open' }], coverage: { complete: true, checkedChecks: ['thin'], checkedUrls: ['https://medium.example/'], note: 'Complete checks' }, pagesRead: 1, by: 'usr-mara' }))!.audit;
+
+  expect(audit.meta.highCount).toBe(0);
+  expect(audit.meta.openCount).toBe(1);
+  expect((await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, audit.id)))[0]?.status).toBe('active');
 });

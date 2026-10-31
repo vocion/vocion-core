@@ -14,6 +14,10 @@ import '@/styles/global.css';
  */
 
 const openPreview = vi.fn();
+// Register this file's real implementation explicitly: a shared browser
+// transform can still reference the mock registry after another file mocked it.
+vi.mock('@/libs/I18nNavigation', async importOriginal => importOriginal());
+
 vi.mock('@/features/preview/previewState', async importOriginal => ({ ...await importOriginal<object>(), openPreview: (...a: unknown[]) => openPreview(...a) }));
 
 const { AgentMessage } = await import('./AgentMessage');

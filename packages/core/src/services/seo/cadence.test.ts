@@ -26,12 +26,12 @@ describe('cadenceStanding', () => {
       page('proposed', '2026-10-05T15:00:00Z'), // this month
       page('published', '2026-10-06T15:00:00Z'), // this month, already live: still counts
       page('drafting', '2026-09-20T15:00:00Z'), // last month, still in flight
-      page('approved', '2026-09-10T15:00:00Z'), // last month, finished
+      page('approved', '2026-09-10T15:00:00Z'), // last month, awaiting publication
       page('rejected', '2026-10-07T15:00:00Z'), // turned down
     ];
     const standing = cadenceStanding({ cadence: { pagesPerMonth: 8, focus: 'water heaters' }, pages, now: new Date('2026-10-08T14:00:00Z'), timeZone: ZONE })!;
 
-    expect(standing).toMatchObject({ counted: 3, due: 4, propose: 1, focus: 'water heaters' });
+    expect(standing).toMatchObject({ counted: 4, due: 4, propose: 0, focus: 'water heaters' });
   });
 
   it('reads the month in the workspace\'s zone', () => {
@@ -70,4 +70,22 @@ describe('cadencePlanRefusal', () => {
     expect(cadencePlanRefusal(onPace, 1)).toContain('on pace');
     expect(cadencePlanRefusal(behind, 3)).toContain('room for 2 pages');
   });
+});
+
+it('keeps stalled approved and publishing backlog in the cap without claiming published delivery', () => {
+  const standing = cadenceStanding({ cadence: { pagesPerMonth: 2 }, pages: [page('approved', '2026-09-01'), page('publishing', '2026-09-02')], now: new Date('2026-10-30'), timeZone: ZONE })!;
+
+  expect(standing).toMatchObject({ counted: 2, backlog: 2, propose: 0, publishedThisMonth: 0, deliveryGap: 2 });
+  expect(standing.line).toContain('does not establish delivery');
+});
+
+it('counts publication by its recorded date, never by draft creation or an unknown timestamp', () => {
+  const pages = [
+    { ...page('published', '2026-09-01'), meta: { status: 'published', publishedAt: '2026-10-10T15:00:00Z' } as never },
+    page('published', '2026-10-05'),
+    { ...page('published', '2026-10-05'), meta: { status: 'published', publishedAt: '2026-11-10' } as never },
+  ];
+  const standing = cadenceStanding({ cadence: { pagesPerMonth: 4 }, pages, now: new Date('2026-10-30'), timeZone: ZONE })!;
+
+  expect(standing).toMatchObject({ publishedThisMonth: 1, publicationDateUnknown: 2, deliveryGap: 3 });
 });

@@ -28,7 +28,7 @@ describe('the strategy goal', () => {
     const ms = strategyMilestones(BASE);
 
     expect(ms).toEqual([
-      { label: 'Fix the audit\'s 2 high findings', link: { kind: 'record', id: '11', label: 'Audit · Tally Books · 2026-10-29' } },
+      { label: 'Resolve the audit\'s 9 open findings', link: { kind: 'record', id: '11', label: 'Audit · Tally Books · 2026-10-29' } },
       { label: 'Named in AI answers for "best invoicing tool for agencies"', link: { kind: 'record', id: '31', label: 'best invoicing tool for agencies' } },
       { label: 'Named in AI answers for "how do agencies get paid faster"', link: { kind: 'record', id: '33', label: 'how do agencies get paid faster' } },
       { label: 'Publish "Tally Books: comparisons" (1 of 4 live)', link: { kind: 'record', id: '21', label: 'Tally Books: comparisons' } },
@@ -55,6 +55,6 @@ describe('the strategy goal', () => {
     expect(md).toContain('- Goals, most important first: Named in AI answers, Organic leads');
     expect(md).toContain('[report](/dashboard/artifacts/40)');
     expect(md).toContain('- **AI prompts**: 3 tracked, the client named on 1');
-    expect(md).toContain('1. Fix the audit\'s 2 high findings — [Audit · Tally Books · 2026-10-29](/dashboard/objects/11)');
+    expect(md).toContain('1. Resolve the audit\'s 9 open findings — [Audit · Tally Books · 2026-10-29](/dashboard/objects/11)');
   });
 });

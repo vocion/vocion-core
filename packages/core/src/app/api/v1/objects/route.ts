@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { serverProducedFieldsRefusal } from '@/libs/objects/serverProducedFields';
 import { getObjectTypeBySlug, listBusinessObjectPage, upsertBusinessObjectByExternalKey } from '@/services/BusinessObjectService';
 import { UpsertBusinessObjectValidation } from '@/validations/BusinessObjectValidation';
 import { authApi, isErrorResponse, jsonError, readJsonBody, readPagination, requireCapability } from '../_shared';
@@ -82,6 +83,10 @@ export async function POST(req: Request) {
   const parsed = UpsertBusinessObjectValidation.safeParse(body);
   if (!parsed.success) {
     return jsonError('VALIDATION_FAILED', parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '), 400);
+  }
+  const serverRefusal = serverProducedFieldsRefusal(parsed.data.type, parsed.data.metadata);
+  if (serverRefusal) {
+    return jsonError('SERVER_PRODUCED_FIELD', serverRefusal, 403);
   }
   if (!(await getObjectTypeBySlug(caller.orgId, parsed.data.type))) {
     return jsonError('NOT_FOUND', `Object type "${parsed.data.type}" is not registered for this workspace`, 404);

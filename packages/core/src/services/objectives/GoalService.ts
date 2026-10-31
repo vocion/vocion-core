@@ -32,6 +32,7 @@ import { artifactSchema, businessObjectSchema, conversationSchema, goalSchema, p
 export class GoalError extends Error {}
 
 type Row = typeof goalSchema.$inferSelect;
+type GoalDatabase = Pick<typeof db, 'select' | 'insert' | 'update'>;
 
 /**
  * A row as the goal it is.
@@ -84,8 +85,9 @@ export type CreateGoal = {
  * starts working on it (its objective), unless that conversation is in the
  * middle of a setup, which is left exactly as it is.
  * @param input - The goal.
+ * @param database - The caller transaction, or the default database.
  */
-export async function createGoal(input: CreateGoal): Promise<Goal> {
+export async function createGoal(input: CreateGoal, database: GoalDatabase = db): Promise<Goal> {
   const problem = measureProblem(input.measure, input.horizon);
   if (problem) {
     throw new GoalError(problem);
@@ -94,12 +96,12 @@ export async function createGoal(input: CreateGoal): Promise<Goal> {
   if (title.length < 3) {
     throw new GoalError('A goal needs a title a person would recognise.');
   }
-  const [project] = await db.select({ accountId: projectSchema.accountId }).from(projectSchema).where(eq(projectSchema.id, input.orgId)).limit(1);
+  const [project] = await database.select({ accountId: projectSchema.accountId }).from(projectSchema).where(eq(projectSchema.id, input.orgId)).limit(1);
   if (!project) {
     throw new GoalError('That workspace no longer exists.');
   }
   const now = input.now ?? new Date();
-  const [row] = await db.insert(goalSchema).values({
+  const [row] = await database.insert(goalSchema).values({
     orgId: input.orgId,
     accountId: project.accountId,
     ownerUserId: input.ownerUserId,
@@ -117,7 +119,7 @@ export async function createGoal(input: CreateGoal): Promise<Goal> {
   }).returning();
   const goal = goalOf(row!);
   if (input.conversationId) {
-    await workOnGoalIn(input.orgId, input.conversationId, goal.id, now);
+    await workOnGoalIn(input.orgId, input.conversationId, goal.id, now, database);
   }
   return goal;
 }
@@ -129,9 +131,10 @@ export async function createGoal(input: CreateGoal): Promise<Goal> {
  * @param conversationId - The conversation.
  * @param goalId - The goal.
  * @param now - The clock.
+ * @param database - The caller transaction, or the default database.
  */
-export async function workOnGoalIn(orgId: string, conversationId: number, goalId: number, now: Date = new Date()): Promise<void> {
-  const [row] = await db.select({ objective: conversationSchema.objective }).from(conversationSchema).where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId))).limit(1);
+export async function workOnGoalIn(orgId: string, conversationId: number, goalId: number, now: Date = new Date(), database: GoalDatabase = db): Promise<void> {
+  const [row] = await database.select({ objective: conversationSchema.objective }).from(conversationSchema).where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId))).limit(1);
   if (!row) {
     return;
   }
@@ -143,7 +146,7 @@ export async function workOnGoalIn(orgId: string, conversationId: number, goalId
   if (was?.kind === 'goal' && was.goalId === goalId && was.state === 'running') {
     return;
   }
-  await db.update(conversationSchema)
+  await database.update(conversationSchema)
     .set({ objective: { kind: 'goal', goalId, state: 'running', startedAt: now.toISOString() } })
     .where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId)));
 }
@@ -152,9 +155,10 @@ export async function workOnGoalIn(orgId: string, conversationId: number, goalId
  * One goal in this workspace, or null.
  * @param orgId - The workspace.
  * @param id - The goal.
+ * @param database - The caller transaction, or the default database.
  */
-export async function getGoal(orgId: string, id: number): Promise<Goal | null> {
-  const [row] = await db.select().from(goalSchema).where(and(eq(goalSchema.orgId, orgId), eq(goalSchema.id, id))).limit(1);
+export async function getGoal(orgId: string, id: number, database: GoalDatabase = db): Promise<Goal | null> {
+  const [row] = await database.select().from(goalSchema).where(and(eq(goalSchema.orgId, orgId), eq(goalSchema.id, id))).limit(1);
   return row ? goalOf(row) : null;
 }
 
@@ -202,9 +206,10 @@ export type GoalActor = { userId: string; by: 'agent' | 'person' };
  * @param orgId - The workspace.
  * @param id - The goal.
  * @param actor - Who is writing.
+ * @param database - The caller transaction, or the default database.
  */
-async function ownGoal(orgId: string, id: number, actor: GoalActor): Promise<Goal> {
-  const goal = await getGoal(orgId, id);
+async function ownGoal(orgId: string, id: number, actor: GoalActor, database: GoalDatabase = db): Promise<Goal> {
+  const goal = await getGoal(orgId, id, database);
   if (!goal) {
     throw new GoalError(`No GOAL-${id} in this workspace.`);
   }
@@ -216,8 +221,8 @@ async function ownGoal(orgId: string, id: number, actor: GoalActor): Promise<Goa
 
 const who = (actor: GoalActor) => (actor.by === 'agent' ? 'agent' : actor.userId);
 
-async function save(goal: Goal, patch: Partial<Row>, now: Date): Promise<Goal> {
-  const [row] = await db.update(goalSchema)
+async function save(goal: Goal, patch: Partial<Row>, now: Date, database: GoalDatabase = db): Promise<Goal> {
+  const [row] = await database.update(goalSchema)
     .set({ ...patch, updatedAt: now })
     .where(and(eq(goalSchema.orgId, goal.orgId), eq(goalSchema.id, goal.id), eq(goalSchema.ownerUserId, goal.ownerUserId)))
     .returning();
@@ -244,9 +249,10 @@ export type GoalPatch = {
  * @param actor - Who.
  * @param patch - What changes.
  * @param now - The clock.
+ * @param database - The caller transaction, or the default database.
  */
-export async function updateGoal(orgId: string, id: number, actor: GoalActor, patch: GoalPatch, now: Date = new Date()): Promise<Goal> {
-  const goal = await ownGoal(orgId, id, actor);
+export async function updateGoal(orgId: string, id: number, actor: GoalActor, patch: GoalPatch, now: Date = new Date(), database: GoalDatabase = db): Promise<Goal> {
+  const goal = await ownGoal(orgId, id, actor, database);
   const set: Partial<Row> = {};
   const said: string[] = [];
   if (patch.title !== undefined && patch.title.trim() && patch.title.trim() !== goal.title) {
@@ -305,7 +311,7 @@ export async function updateGoal(orgId: string, id: number, actor: GoalActor, pa
     return goal;
   }
   set.activity = said.reduce<GoalActivity[]>((a, what) => withActivity(a, { at: now.toISOString(), what, by: who(actor) }), goal.activity);
-  return save(goal, set, now);
+  return save(goal, set, now, database);
 }
 
 /**

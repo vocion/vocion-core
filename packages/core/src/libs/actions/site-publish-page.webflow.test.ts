@@ -204,7 +204,7 @@ describe('a Webflow draft going live', () => {
     ]);
     expect(api.calls.some(c => c.path.startsWith(`/sites/${FIXTURE_SITE_ID}/publish`))).toBe(false);
     expect(out.line).toBe('"How to Choose a Three-Season Tent" is live at https://www.northwind-outfitters.example/blog/choose-a-three-season-tent.');
-    expect(records.get(20)!.meta).toMatchObject({ status: 'published', publishedUrl: 'https://www.northwind-outfitters.example/blog/choose-a-three-season-tent' });
+    expect(records.get(20)!.meta).toMatchObject({ status: 'published', publishedAt: expect.any(String), publishedUrl: 'https://www.northwind-outfitters.example/blog/choose-a-three-season-tent' });
     expect(db.updates).toHaveLength(1);
   });
 
