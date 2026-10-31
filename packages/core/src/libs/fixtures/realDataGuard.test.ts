@@ -173,7 +173,10 @@ describe('no real customer, contact or live-account identifier is committed', ()
     }
 
     expect(offenders).toEqual([]);
-  });
+    // This scans the entire checkout, including filenames, under CI coverage.
+    // Its cost grows with the repository; keep all checks without applying
+    // the per-unit-test budget to a repository-wide security scan.
+  }, 120_000);
 
   it('detects a banned term the scanner is pointed at', () => {
     // Proves the scan is live rather than vacuously passing. `scan-sentinel`

@@ -14,8 +14,9 @@ import '@/styles/global.css';
  */
 
 const openPreview = vi.fn();
-// This suite exercises real navigation; clear another browser file's mock.
-vi.unmock('@/libs/I18nNavigation');
+// Register this file's real implementation explicitly: a shared browser
+// transform can still reference the mock registry after another file mocked it.
+vi.mock('@/libs/I18nNavigation', async importOriginal => importOriginal());
 
 vi.mock('@/features/preview/previewState', async importOriginal => ({ ...await importOriginal<object>(), openPreview: (...a: unknown[]) => openPreview(...a) }));
 

@@ -3,8 +3,9 @@ import { render } from 'vitest-browser-react';
 import { markdownSections } from '../headingAnchor';
 import { MarkdownCardView } from './markdown';
 
-// This suite exercises real navigation; clear another browser file's mock.
-vi.unmock('@/libs/I18nNavigation');
+// Register this file's real implementation explicitly: a shared browser
+// transform can still reference the mock registry after another file mocked it.
+vi.mock('@/libs/I18nNavigation', async importOriginal => importOriginal());
 
 /**
  * A markdown artifact on its own page gives each heading the id a link to it
