@@ -109,7 +109,7 @@ describe('loadConfigure', async () => {
 
     expect(byAt.map(c => [c.what, c.who, c.href])).toEqual([
       ['Workspace applied · 2 changes', 'Mara Okafor', '/dashboard/workspace'],
-      ['Paused Reply pass', 'Mara Okafor', '/dashboard/automation/tell-the-requester-check'],
+      ['Paused Reply pass', 'Mara Okafor', '/dashboard/schedules/tell-the-requester-check'],
       ['Merge a branch · docs → Execute within bounds', 'Mara Okafor', '/dashboard/autonomy'],
     ]);
   });

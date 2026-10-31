@@ -35,11 +35,11 @@ describe('parseRows', () => {
 
   it('leaves a missing column to the shared fields, and names an unknown one', () => {
     expect(parseRows('email,full_name\na,b', INPUTS)).toMatchObject({ error: null, columns: ['email', 'full_name'], rows: [{ email: 'a', full_name: 'b' }] });
-    expect(parseRows('email,full_name,campaign,team\na,b,c,d', INPUTS).error).toMatch(/Not an input of this routine: team/);
+    expect(parseRows('email,full_name,campaign,team\na,b,c,d', INPUTS).error).toMatch(/Not an input of this automation: team/);
     expect(parseRows('foo,bar\n1,2', INPUTS).error).toMatch(/header line/);
   });
 
-  it('takes bare lines for a one-input routine', () => {
+  it('takes bare lines for a one-input automation', () => {
     const p = parseRows('a@acme.example\nb@acme.example', [{ name: 'email', description: 'x' }]);
 
     expect(p.rows).toEqual([{ email: 'a@acme.example' }, { email: 'b@acme.example' }]);
@@ -74,10 +74,10 @@ describe('batch words', () => {
   });
 });
 
-describe('routine words', () => {
+describe('automation words', () => {
   const base = { expert: { userId: 'u1', name: 'Dana Reyes' }, draft: null, version: null, error: null, teaching: null, stats: { runs: 0, done: 0, escalated: 0, failed: 0, lastBatchId: null } } as unknown as RoutineView;
 
-  it('says where a routine stands', () => {
+  it('says where an automation stands', () => {
     expect(routineLine({ ...base, status: 'live', stats: { runs: 20, done: 18, escalated: 2, failed: 0, lastBatchId: 3 } })).toBe('20 runs · 18 done · 2 exceptions');
     expect(routineLine({ ...base, status: 'in_review' })).toBe('Drafted · in review with Dana Reyes');
     expect(routineLine({ ...base, status: 'teaching', teaching: { state: 'waiting_for_recording', startedAt: '', targetUrl: null, recordUrl: null, instruction: null, checks: 0, lastCheckedAt: null } })).toBe('Teaching · waiting for your recording');

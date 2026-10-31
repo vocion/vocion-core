@@ -34,7 +34,7 @@ export const dynamic = 'force-dynamic';
  * hand-offs) are left out; an admin can show them (`?system=1`). They still
  * fire, keep their own page and are in the run log.
  *
- * The automation's own page (`/dashboard/automation/<slug>`) keeps the rest:
+ * The automation's own page (`/dashboard/schedules/<slug>`) keeps the rest:
  * its parameters, its schedule's health, a test run and every fire.
  * @param props
  * @param props.params
@@ -61,10 +61,10 @@ export default async function AutomationsPage(props: { params: Promise<{ locale:
 
   return (
     <ListPage
-      title="Automations"
-      description="The schedules and triggers that start work on their own; switch one off to pause it."
+      title="Schedules"
+      description="Control when work starts: recurring schedules and event-trigger rules. Switch one off to pause it."
       actions={(
-        <Link href="/dashboard/automation/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+        <Link href="/dashboard/schedules/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
           <History className="size-3.5" />
           Run log
         </Link>

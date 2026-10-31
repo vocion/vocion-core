@@ -342,7 +342,7 @@ export default async function AgentDetailPage(props: {
                   <div>
                     <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground">
                       <CalendarClock className="size-3.5" />
-                      Automations
+                      Schedules
                     </div>
                     <div className="divide-y divide-border/60 border-y border-border/60">
                       {ownedAutomations.map((auto) => {
@@ -358,7 +358,7 @@ export default async function AgentDetailPage(props: {
                         return (
                           <Link
                             key={auto.slug}
-                            href="/dashboard/automation"
+                            href="/dashboard/schedules"
                             className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-3 transition hover:bg-muted/30"
                           >
                             <div className="min-w-0 flex-1">

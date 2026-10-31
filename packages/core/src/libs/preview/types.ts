@@ -72,13 +72,13 @@ export type PreviewDoc = {
    */
   browserRun?: import('@/libs/browser/run').BrowserRunView;
   /**
-   * A routine, drawn as its page draws it in the pane's compact layout: teaching, open questions,
+   * An automation, drawn as its page draws it in the pane's compact layout: teaching, open questions,
    * Run it, the spec, trust and batches (`features/routines/RoutineView`, re-read while teaching).
    * When set, the pane draws this in place of the facts and the body.
    */
   routine?: { routine: import('@/libs/routines/types').RoutineView; batches: import('@/libs/routines/display').RoutineBatchSummary[] };
   /**
-   * A batch of a routine's runs, drawn live as its queue: a tile per run, what each waits on, the
+   * A batch of an automation's runs, drawn live as its queue: a tile per run, what each waits on, the
    * receipts and the findings (`features/routines/RoutineBatchView`, re-read while it runs).
    */
   routineBatch?: import('@/libs/routines/types').RoutineBatchView;

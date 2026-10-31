@@ -9,11 +9,11 @@
 # run a routine, and the team graded on verified runs. A workspace turns it on
 # with `plugins: [routines]` and overrides any file by slug.
 slug: routines
-name: Routines
-version: 1.0.0
+name: Automations
+version: 1.1.0
 description: Teach Vocion repeatable work once, from a narrated Slate recording. It runs the work in a browser for every row you give it, many at once, holds for your team on anything outside the approved spec, escalates to the routine's expert when a rule says so, reads back every change, and reports what it did and what it found.
-# Its own app on the rail (`templates/apps/routines`), with the Routines row; in Workforce it is one ⌘K away.
-nav: {section: Routines}
+# Its own app on the rail (`templates/apps/routines`), with the Automations row; in Workforce it is one ⌘K away.
+nav: {section: Automations}
 recommend:
   when:
     - a person does the same task in a web app or portal many times a week
@@ -23,7 +23,7 @@ recommend:
   connectors: [slate]
 
 starters:
-  - label: Teach a routine from a recording
-    prompt: 'Teach a routine from this Slate recording: '
-  - label: Run a routine for a list
-    prompt: 'Run the routine for everyone on this list: '
+  - label: Teach a task
+    prompt: 'Teach a task from this Slate recording: '
+  - label: Run an automation for a list
+    prompt: 'Run the automation for everyone on this list: '

@@ -117,7 +117,7 @@ describe('failedRunAfter', () => {
   it('links a later failure with no run of its own to the run log', () => {
     const failed = run({ id: 2, kind: 'job', startedAt: new Date('2026-10-29T12:00:00Z'), status: 'error', targetRunId: null });
 
-    expect(failedRunAfter(brief, [writer, failed])).toEqual({ href: '/dashboard/automation/runs?slug=morning-brief&status=error' });
+    expect(failedRunAfter(brief, [writer, failed])).toEqual({ href: '/dashboard/schedules/runs?slug=morning-brief&status=error' });
   });
 });
 

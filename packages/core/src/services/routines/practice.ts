@@ -1,5 +1,5 @@
 /**
- * THE PRACTICE ROUTINE: a routine already taught and approved on the practice
+ * THE PRACTICE ROUTINE: an automation already taught and approved on the practice
  * console (`services/browser/practiceConsole.ts`) — add a person as a user if
  * they are not one, then enroll them in a campaign — with the console's
  * roster to run it for. So a batch, its escalations, its reconciliation and

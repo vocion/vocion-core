@@ -4,10 +4,10 @@
  * server writes these shapes (`services/routines/`), the pages and the chat
  * pane draw them (`features/routines/`).
  *
- * A routine is repeatable work a specialist taught once (a Slate recording,
+ * An automation is repeatable work a specialist taught once (a Slate recording,
  * narrated), that Vocion runs in a browser, escalates to its named expert when
  * a rule says so, and improves from every correction. It is not a new kind of
- * run: each run of a routine is a browser run (`libs/browser/run.ts`) with the
+ * run: each run of an automation is a browser run (`libs/browser/run.ts`) with the
  * routine's version, rules and allowed writes on it, plus a receipt.
  *
  * Every routine has a human expert responsible for its exceptions, a trust
@@ -36,7 +36,7 @@ export const TRUST_LABEL: Record<RoutineTrust, string> = { drafted: 'Drafted', a
 /** Seconds on the finished recording, or null when the step was not shown on it. */
 export type Moment = number | null;
 
-/** One input a run of the routine takes. `key`: part of the dedupe key — two runs with the same key values are the same work. */
+/** One input a run of the automation takes. `key`: part of the dedupe key — two runs with the same key values are the same work. */
 export type RoutineInputSpec = { name: string; description: string; example?: string | null; secret?: boolean; key?: boolean; optional?: boolean; shared?: boolean };
 
 /**
@@ -51,7 +51,7 @@ export type RoutineStep = { n: number; text: string; why?: string | null; at: Mo
 /** A rule the specialist said, with the moment they said it. */
 export type RoutineRule = { text: string; at: Moment };
 
-/** Where the routine stops and asks its expert instead of guessing. */
+/** Where the automation stops and asks its expert instead of guessing. */
 export type RoutineEscalation = { when: string; ask: string; at: Moment };
 
 /**
@@ -94,7 +94,7 @@ export type RoutineSpec = {
 
 /**
  * A teaching session: `waiting_for_recording` until a new Slate recording by the person appears and
- * is processed; `reading` the recording; `drafting` the spec; `failed` with the routine's error.
+ * is processed; `reading` the recording; `drafting` the spec; `failed` with the automation's error.
  */
 export type RoutineTeaching = {
   state: 'waiting_for_recording' | 'reading' | 'drafting' | 'failed';
@@ -110,7 +110,7 @@ export type RoutineTeaching = {
   lastCheckedAt: string | null;
 };
 
-/** Where the routine was taught from. */
+/** Where the automation was taught from. */
 export type RoutineSource = {
   kind: 'slate';
   url: string;
@@ -188,7 +188,7 @@ export type ReceiptCheck = {
   waived?: string;
 };
 
-/** What a run of a routine changed, and how it knows. */
+/** What a run of an automation changed, and how it knows. */
 export type RoutineReceipt = {
   /** The inputs it was asked to apply (no secrets). */
   requested: Record<string, string>;
@@ -237,7 +237,7 @@ export type RoutineBatchView = {
   total: number;
   cents: number;
   humanMs: number;
-  /** The routine's baseline, per run. */
+  /** The automation's baseline, per run. */
   manualMinutes: number | null;
   startedAt: string;
   endedAt: string | null;
@@ -276,11 +276,11 @@ export const ROUTINE_LIMITS = {
 } as const;
 
 /**
- * A routine's label in chat and in the pane.
- * @param name - The routine's name.
+ * An automation's label in chat and in the pane.
+ * @param name - The automation's name.
  */
 export function routineLabel(name: string): string {
-  return `Routine “${name}”`;
+  return `Automation “${name}”`;
 }
 
 /**
@@ -288,7 +288,7 @@ export function routineLabel(name: string): string {
  * @param id - The batch.
  */
 export function batchLabel(id: number | string): string {
-  return `Routine batch ${id}`;
+  return `Automation run ${id}`;
 }
 
 /**

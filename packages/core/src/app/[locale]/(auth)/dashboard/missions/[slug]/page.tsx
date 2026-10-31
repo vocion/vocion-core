@@ -157,10 +157,10 @@ export default async function MissionDetailPage(props: {
               Checked by
             </h2>
             {checkers.length === 0
-              ? <p className="text-sm text-muted-foreground">No automation checks this mission — it runs only when briefed. Add one in workspace/…/automations/.</p>
+              ? <p className="text-sm text-muted-foreground">No schedule or trigger checks this mission — it runs only when briefed. Add one in workspace/…/automations/.</p>
               : checkers.map(a => (
                   <div key={a.slug} className="flex items-center gap-2 border-b border-border py-1.5 text-sm last:border-0">
-                    <Link href="/dashboard/automation" className="font-medium hover:underline">{a.name}</Link>
+                    <Link href="/dashboard/schedules" className="font-medium hover:underline">{a.name}</Link>
                     {a.whenConfig.schedule && (
                       <span className="text-xs text-muted-foreground" title={a.whenConfig.schedule}>{cronToText(a.whenConfig.schedule, a.whenConfig.timezone)}</span>
                     )}

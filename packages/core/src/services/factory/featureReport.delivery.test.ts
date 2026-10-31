@@ -100,7 +100,7 @@ describe('a failed deploy says which step, and who is on it — or the pause tha
   it('paused: Blocked on the person who paused it, with Resume as the move', () => {
     const report = assembleFeatureReport(input({ request: request({ ...deploying, runs: [failedRun], answer: { runId: 9001, automation: 'A failed deploy is an incident', slug: 'deploy-run-failed', by: null, automationRunId: null, at: '2026-09-30T22:50:00Z', paused: { since: '2026-09-21T13:01:46Z', by: 'Dana Reyes', note: 'Hold the factory' } } }) }));
 
-    expect(report.status).toMatchObject({ headline: 'Deploy failed', tone: 'bad', action: { kind: 'link', label: 'Resume', href: '/dashboard/automation/deploy-run-failed' }, secondary: { label: 'Open the failed run' } });
+    expect(report.status).toMatchObject({ headline: 'Deploy failed', tone: 'bad', action: { kind: 'link', label: 'Resume', href: '/dashboard/schedules/deploy-run-failed' }, secondary: { label: 'Open the failed run' } });
     expect(report.status.sentence).toContain('Deploy run #59 failed on GitHub (step API). Deploy failed and its automation "A failed deploy is an incident" is paused (since 21 Sep 13:01 UTC, by Dana Reyes: "Hold the factory"): Resume');
     expect(report.you).toMatchObject({ needsYou: true, line: 'Blocked: Dana Reyes to resume "A failed deploy is an incident"' });
   });

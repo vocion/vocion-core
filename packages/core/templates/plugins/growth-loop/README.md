@@ -14,7 +14,7 @@ it is live.
 | **Five agents, one team** | Demand, Production, Quality, Measurement, Growth. Design declared empty |
 | **Six skills, three playbooks** | Briefing, producing, checking, reading, ranking, extending the team |
 | **Four missions on a schedule** | What gets briefed · Every brief measured · Nothing public unchecked · The team inside its budget |
-| **Five automations** | Every way an agent acts, readable and pausable on `/dashboard/automation` |
+| **Five schedules and trigger rules** | Every way an agent acts, readable and pausable on `/dashboard/schedules` |
 | **Four pages** | Briefs · Measure · Cost and return · Team report |
 | **A trust file** | Where each of the loop's action kinds starts, and why |
 

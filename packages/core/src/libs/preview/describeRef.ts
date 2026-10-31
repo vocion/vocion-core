@@ -58,9 +58,9 @@ function describe(type: RecordRef['type'], rawId: string): RefDescription {
     case 'browser_run':
       return n ? { label: `Browser run ${n}`, href: `/dashboard/browser/${n}` } : { label: 'Browser run', href: null };
     case 'routine':
-      return n ? { label: `Routine #${n}`, href: `/dashboard/routines/${n}` } : { label: 'Routine', href: null };
+      return n ? { label: `Automation #${n}`, href: `/dashboard/automations/${n}` } : { label: 'Automation', href: null };
     case 'routine_batch':
-      return n ? { label: `Routine batch ${n}`, href: `/dashboard/routines/batches/${n}` } : { label: 'Routine batch', href: null };
+      return n ? { label: `Automation run ${n}`, href: `/dashboard/automations/batches/${n}` } : { label: 'Automation run', href: null };
     case 'worker_run':
       return n ? { label: nounCode('run', n), href: `/dashboard/p/runs/${n}` } : { label: 'Run', href: null };
     case 'feature_section': {

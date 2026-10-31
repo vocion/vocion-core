@@ -1662,7 +1662,7 @@ async function reportPausedAutomations(orgId: string, loaded: LoadedWorkspace, w
     warnings.push({
       resource: 'automation',
       slug: p.slug,
-      message: `paused by ${who} at ${when} UTC${p.pausedNote ? ` — ${p.pausedNote}` : ''}; left paused. Resume it from /dashboard/automation/${p.slug}.`,
+      message: `paused by ${who} at ${when} UTC${p.pausedNote ? ` — ${p.pausedNote}` : ''}; left paused. Resume it from /dashboard/schedules/${p.slug}.`,
     });
   }
 }

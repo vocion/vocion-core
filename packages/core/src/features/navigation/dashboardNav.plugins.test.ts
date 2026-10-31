@@ -5,9 +5,9 @@ import { dashboardRoute, manageNavGroups, routeVisible, workCoreRoutes, workPinn
 // plugin list in hand sees every row (nothing already running loses a door).
 
 describe('plugin-owned routes', () => {
-  const routines = dashboardRoute('/dashboard/routines')!;
+  const routines = dashboardRoute('/dashboard/automations')!;
 
-  it('Routines belongs to the routines plugin', () => {
+  it('Automations belongs to the routines plugin', () => {
     expect(routines.plugin).toBe('routines');
   });
 
@@ -18,9 +18,9 @@ describe('plugin-owned routes', () => {
   });
 
   it('the WORK pinnable rows follow the same gate', () => {
-    expect(workPinnableRoutes({ enabledPlugins: [] }).map(r => r.url)).not.toContain('/dashboard/routines');
-    expect(workPinnableRoutes({ enabledPlugins: ['routines'] }).map(r => r.url)).toContain('/dashboard/routines');
-    expect(workPinnableRoutes().map(r => r.url)).toContain('/dashboard/routines');
+    expect(workPinnableRoutes({ enabledPlugins: [] }).map(r => r.url)).not.toContain('/dashboard/automations');
+    expect(workPinnableRoutes({ enabledPlugins: ['routines'] }).map(r => r.url)).toContain('/dashboard/automations');
+    expect(workPinnableRoutes().map(r => r.url)).toContain('/dashboard/automations');
   });
 
   it('Projects is a core noun: no plugin owns it, and it shows with no plugin on (2026-10-27)', () => {

@@ -153,7 +153,7 @@ const WORDING: Record<JevPurpose, { effort: string | null; scale: string[]; choi
     effort: 'How much reasoning effort does the engineering work described in state need?',
     scale: [
       'low: a small, well-specified change with one obvious approach; little reasoning needed',
-      'medium: a routine change across a few files, or one needing some care to get right',
+      'medium: an automation change across a few files, or one needing some care to get right',
       'high: a large, ambiguous, cross-cutting or risky change; deep reasoning pays for itself',
     ],
     choice: 'Which candidate should do the engineering work described in state? Prefer the cheapest candidate whose description covers the work.',

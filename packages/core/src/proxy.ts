@@ -61,6 +61,15 @@ function localeOf(path: string): string {
   return seg && (routing.locales as readonly string[]).includes(seg) ? seg : '';
 }
 
+/**
+ * Keep old page bookmarks working without conflating taught work with trigger settings.
+ * @param path - The workspace-local dashboard path.
+ */
+function currentDashboardPath(path: string): string {
+  return path.replace(/^\/dashboard\/(routines|automation)(?=\/|$)/, (_, section: string) =>
+    section === 'routines' ? '/dashboard/automations' : '/dashboard/schedules');
+}
+
 export default async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
@@ -149,7 +158,11 @@ async function routeWorkspace(request: NextRequest, ctx: { origin: string; userI
     // here rather than render the whole shell for `dashboard/page.tsx` to
     // redirect, which also dropped the workspace and cost two more hops.
     let response: NextResponse;
-    if (request.method === 'GET' && canonical.appPath === '/dashboard') {
+    const currentPath = currentDashboardPath(canonical.appPath);
+    if (request.method === 'GET' && currentPath !== canonical.appPath) {
+      const destination = workspaceUrl(project.slug, `${currentPath}${request.nextUrl.search}`);
+      response = NextResponse.redirect(new URL(`${canonical.locale ? `/${canonical.locale}` : ''}${destination}`, ctx.origin), 307);
+    } else if (request.method === 'GET' && canonical.appPath === '/dashboard') {
       const home = workspaceUrl(project.slug, `${DASHBOARD_HOME}${request.nextUrl.search}`);
       response = NextResponse.redirect(new URL(`${canonical.locale ? `/${canonical.locale}` : ''}${home}`, ctx.origin), 307);
     } else {
@@ -196,7 +209,7 @@ async function routeWorkspace(request: NextRequest, ctx: { origin: string; userI
   }
   const locale = localeOf(bare);
   const requested = locale ? bare.slice(locale.length + 1) : bare;
-  const appPath = requested.replace(/\/$/, '') === '/dashboard' ? DASHBOARD_HOME : requested;
+  const appPath = requested.replace(/\/$/, '') === '/dashboard' ? DASHBOARD_HOME : currentDashboardPath(requested);
   const target = new URL(`${locale ? `/${locale}` : ''}${workspaceUrl(workspace.slug, `${appPath}${request.nextUrl.search}`)}`, ctx.origin);
   return NextResponse.redirect(target, 307);
 }

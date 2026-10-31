@@ -323,7 +323,7 @@ export async function loadConfigure(orgId: string, pluginSlug: string, now: Date
   for (const c of controls) {
     const result = (c.result ?? {}) as { action?: string; by?: { id?: string; name?: string | null } };
     const name = automationBy.get(c.slug)?.name ?? humanize(c.slug);
-    changes.push({ id: `control:${c.id}`, what: `${result.action === 'resume' ? 'Resumed' : 'Paused'} ${name}`, who: result.by?.name ?? who(result.by?.id), at: c.startedAt, href: `/dashboard/automation/${c.slug}` });
+    changes.push({ id: `control:${c.id}`, what: `${result.action === 'resume' ? 'Resumed' : 'Paused'} ${name}`, who: result.by?.name ?? who(result.by?.id), at: c.startedAt, href: `/dashboard/schedules/${c.slug}` });
   }
   for (const p of policyChanges) {
     const rung = isRung(p.policy!.rung) ? RUNG_LABEL[p.policy!.rung] : p.policy!.rung;

@@ -33,7 +33,7 @@ describe('a read-back check', () => {
 });
 
 describe('the dedupe ledger', () => {
-  it('keys a row by the routine\'s key inputs, case-insensitively', () => {
+  it('keys a row by the automation\'s key inputs, case-insensitively', () => {
     expect(idemKeyOf({ email: 'Aisha.Karim@larkfield.example', first_name: 'Aisha' }, PRACTICE_ROUTINE_SPEC)).toBe('email=aisha.karim@larkfield.example');
     expect(idemKeyOf({ first_name: 'Aisha' }, PRACTICE_ROUTINE_SPEC)).toBeNull();
   });
@@ -86,14 +86,14 @@ describe('the analyst\'s draft', () => {
 
     const yaml = workflowYamlFor('add-a-user', 'Add a user', 2, PRACTICE_ROUTINE_SPEC);
 
-    expect(yaml).toContain('action: routine.run');
+    expect(yaml).toContain('action: automation.run');
     expect(yaml).toContain('version: 2');
     expect(yaml).not.toContain('password');
   });
 });
 
 describe('trust in the engine', () => {
-  it('holds the saves a routine makes, and lets Approved trust take only the named ones', () => {
+  it('holds the saves an automation makes, and lets Approved trust take only the named ones', () => {
     for (const name of ['Add user', 'Enroll', 'Deactivate user', 'Delete user', 'Launch campaign']) {
       expect(needsApproval({ role: 'button', name })).toBe(true);
     }
@@ -155,7 +155,7 @@ describe('the report', () => {
     };
     const md = reportMarkdown(v);
 
-    expect(md).toContain('# Routine batch 7 · Add a user');
+    expect(md).toContain('# Automation run 7 · Add a user');
     expect(md).toContain('**2** done and verified');
     expect(md).toContain('about 6 min');
     expect(md).toContain('$1.05 in total');

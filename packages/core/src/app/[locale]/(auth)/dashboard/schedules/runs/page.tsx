@@ -39,17 +39,17 @@ export default async function AutomationRunsPage(props: {
     <>
       <TitleBar
         title="Run log"
-        description="Every automation run, newest first. Started, duration, what invoked it, what it found, and the mission run carrying the report."
+        description="Every scheduled or event-triggered run, newest first. Started, duration, what invoked it, what it found, and the mission run carrying the report."
       />
 
       <div className="mb-4">
-        <Link href="/dashboard/automation" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+        <Link href="/dashboard/schedules" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-3.5" />
-          Automations
+          Schedules
         </Link>
       </div>
 
-      <RunLogFilters facets={facets} basePath="/dashboard/automation/runs" />
+      <RunLogFilters facets={facets} basePath="/dashboard/schedules/runs" />
 
       <p className="mb-3 text-xs text-muted-foreground">
         {total}
@@ -67,7 +67,7 @@ export default async function AutomationRunsPage(props: {
       {nextCursor !== null && (
         <div className="mt-3">
           <Link
-            href={`/dashboard/automation/runs?${new URLSearchParams({ ...toQuery(query), cursor: String(nextCursor) }).toString()}`}
+            href={`/dashboard/schedules/runs?${new URLSearchParams({ ...toQuery(query), cursor: String(nextCursor) }).toString()}`}
             className="inline-flex items-center rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
           >
             Older runs →

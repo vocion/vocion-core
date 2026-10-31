@@ -45,7 +45,7 @@ export function AutomationRunLog({ runs, showAutomation = true }: { runs: Automa
         <thead>
           <tr className="border-b border-border bg-muted/40 text-left text-[12px] text-muted-foreground">
             <th className={CELL}>Started</th>
-            {showAutomation && <th className={CELL}>Automation</th>}
+            {showAutomation && <th className={CELL}>Schedule</th>}
             <th className={CELL}>Kind</th>
             <th className={CELL}>Duration</th>
             <th className={CELL}>Invoked by</th>
@@ -74,7 +74,7 @@ export function AutomationRunLog({ runs, showAutomation = true }: { runs: Automa
                 </td>
                 {showAutomation && (
                   <td className={CELL}>
-                    <Link href={`/dashboard/automation/${run.slug}`} className="font-medium hover:underline">{run.slug}</Link>
+                    <Link href={`/dashboard/schedules/${run.slug}`} className="font-medium hover:underline">{run.slug}</Link>
                   </td>
                 )}
                 <td className={`${CELL} text-muted-foreground`}>{control ? `control · ${control.action}` : skip ? `skipped · ${SKIP_LABEL[skip.reason] ?? skip.reason}` : run.kind}</td>

@@ -21,11 +21,11 @@ export function RoutineList({ routines }: { routines: RoutineView[] }) {
         <ListEmpty
           variant="page"
           icon={Repeat}
-          title="No routines yet"
-          description="Record the task in Slate, narrate why each step happens, then ask in chat: Teach a routine from <link>. Or start here, and Vocion opens the site for you to record on."
+          title="No automations yet"
+          description="Record the task in Slate, narrate why each step happens, then ask in chat: Teach a task from <link>. Or start here, and Vocion opens the site for you to record on."
         />
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <TeachRoutineButton label="Teach your first routine" />
+          <TeachRoutineButton label="Teach a task" />
           <PracticeRoutineButton />
         </div>
       </div>
@@ -38,7 +38,7 @@ export function RoutineList({ routines }: { routines: RoutineView[] }) {
         return (
           <ListRow
             key={r.id}
-            href={`/dashboard/routines/${r.id}`}
+            href={`/dashboard/automations/${r.id}`}
             icon={Repeat}
             title={r.name}
             subline={<Subline separator="·" segments={[r.expert ? r.expert.name : 'No expert yet', routineLine(r)]} />}

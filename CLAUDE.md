@@ -246,7 +246,7 @@ Squarespace refuses a password typed from a data centre (`docs/guides/squarespac
 
 ## Routines (the routines plugin)
 
-Repeatable work a specialist teaches once from a narrated Slate recording (`docs/guides/routines.md`).
+Repeatable work a specialist teaches once from a narrated Slate recording (`docs/guides/automations.md`).
 The Routine analyst (`services/routines/teaching.ts`) drafts a versioned spec; the expert answers its
 open questions and approves it; a batch runs one browser run per row (`routine_run`, each with its own
 browser, `sessionKeyOf`), at most `VOCION_ROUTINE_CONCURRENCY` (10) at once per workspace. Trust is per
@@ -259,7 +259,7 @@ skips work already done. After the rows, a read-only reconciliation run makes a 
 on the list; the expert's answer (deactivate / delete) runs as a follow-up batch. `routine.run` is a
 workflow action that runs. Teaching reads Slate over its MCP server with the workspace's Slate token
 (`libs/slate/recording.ts`; `VOCION_SLATE_TOKEN` for local demos); a launched teaching session is
-watched by `startRoutineKeeper`. Practice: **Try the practice routine** on `/dashboard/routines`
+watched by `startRoutineKeeper`. Practice: **Try the practice routine** on `/dashboard/automations`
 (the practice training console, `services/browser/practiceConsole.ts`). Tools are on with the plugin,
 `VOCION_ROUTINES=on`, or `harness.grantTools: [routines]`.
 

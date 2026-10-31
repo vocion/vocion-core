@@ -276,7 +276,7 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted or switched on (`VOCION_BROWSER_RUNS`): a task handed to the person's own browser,
     // watched live beside the conversation, with its steps that submit held for their approval.
     ...inFamily('Browser', browserTaskTools(ctx)),
-    // The routines plugin (or `VOCION_ROUTINES`): teach a routine from a Slate recording, approve it,
+    // The automations plugin (or `VOCION_ROUTINES`): teach an automation from a Slate recording, approve it,
     // run it for many rows at once, follow the batch, write its report.
     ...inFamily('Routines', routineTools(ctx)),
     ...inFamily('Product access', recordLiveCheckTools(ctx)),

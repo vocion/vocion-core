@@ -3,7 +3,7 @@
  *
  * This is the one kind of thing a person should decide. It is direction and
  * tradeoffs: which approach, what it costs to undo, what was rejected and why.
- * It is not a retry, a routine release, a metadata correction or anything else
+ * It is not a retry, an automation release, a metadata correction or anything else
  * policy already covers.
  *
  * So the item says four things, every time, in the shape every decision in

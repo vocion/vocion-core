@@ -61,7 +61,7 @@ describe('the Incidents page', () => {
     render(<WatchEmpty text="No open incidents." now={NOW} watch={{ name: 'Production errors become incidents', items: ['northwind-api'], state: 'paused', lastReadAt: new Date('2026-01-10T11:00:00Z'), lastError: 'Sentry answered 401', lastOutcome: 'unchecked', in: 'Sentry' }} />);
 
     await expect.element(page.getByTestId('watch-line')).toHaveTextContent(/Paused by a person.*Its last check could not read: Sentry answered 401/);
-    await expect.element(page.getByRole('link', { name: 'Open Automations' })).toHaveAttribute('href', '/dashboard/automations');
+    await expect.element(page.getByRole('link', { name: 'Open schedules' })).toHaveAttribute('href', '/dashboard/schedules');
   });
 });
 

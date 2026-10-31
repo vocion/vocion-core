@@ -43,10 +43,10 @@ export function PracticeRoutineButton({ run = false, compact = false, variant = 
       if (compact) {
         openPreview({ type: 'routine_batch', id: String(res.batch.id) }, null);
       } else {
-        router.push(`/dashboard/routines/batches/${res.batch.id}`);
+        router.push(`/dashboard/automations/batches/${res.batch.id}`);
       }
     } else if (!run && res.routine) {
-      router.push(`/dashboard/routines/${res.routine.id}`);
+      router.push(`/dashboard/automations/${res.routine.id}`);
     } else {
       setError(res.error ?? 'It did not start.');
     }
@@ -55,7 +55,7 @@ export function PracticeRoutineButton({ run = false, compact = false, variant = 
     <span className="inline-flex flex-wrap items-center gap-2">
       <Button size="sm" variant={variant} disabled={busy} onClick={() => void go()} data-routine-practice={run ? 'run' : 'open'}>
         {run ? <Play className="size-3.5" aria-hidden /> : <FlaskConical className="size-3.5" aria-hidden />}
-        {busy ? 'Starting…' : run ? 'Run it for the practice roster' : 'Try the practice routine'}
+        {busy ? 'Starting…' : run ? 'Run it for the practice roster' : 'Try the practice automation'}
       </Button>
       {error && <span className="text-[12px] text-brand-fail" role="alert">{error}</span>}
     </span>

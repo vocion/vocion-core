@@ -49,7 +49,7 @@ export function RunLogFilters({
   };
 
   const active = ['slug', 'status', 'kind', 'invokedBy', 'since'].filter(k => params.get(k) && k !== (pinnedSlug ? 'slug' : ''));
-  const LABELS: Record<string, string> = { slug: 'Automation', status: 'Status', kind: 'Kind', invokedBy: 'Invoked by', since: 'Since' };
+  const LABELS: Record<string, string> = { slug: 'Schedule', status: 'Status', kind: 'Kind', invokedBy: 'Invoked by', since: 'Since' };
 
   return (
     <>
@@ -71,7 +71,7 @@ export function RunLogFilters({
     return (
       <div className={className}>
         {!pinnedSlug && (
-          <Field label="Automation">
+          <Field label="Schedule">
             <select className={select} value={params.get('slug') ?? ''} onChange={e => set('slug', e.target.value)}>
               <option value="">all</option>
               {facets.slugs.map(s => <option key={s} value={s}>{s}</option>)}

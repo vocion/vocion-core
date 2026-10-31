@@ -39,10 +39,10 @@ describe('dashboardNav registry', () => {
     // business user opens on their own, so it must not sit under MANAGE.
     // Automations is the one configuration row in WORK, under More (Chris,
     // 2026-10-01: "Make it on main nav under More dropdown").
-    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/projects', '/dashboard/briefings', '/dashboard/goals', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/routines', '/dashboard/marketing']);
+    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/projects', '/dashboard/briefings', '/dashboard/goals', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/automations', '/dashboard/marketing']);
     // Chat, Review and Projects (a core workspace noun, in every app) are the surface; the rest earn a row by being pinned, Briefings, Goals (with its count) and the Scorecard from the start.
     expect(workCoreRoutes().map(r => r.url)).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/projects']);
-    expect(workPinnableRoutes().map(r => r.url)).toEqual(['/dashboard/briefings', '/dashboard/goals', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/routines', '/dashboard/marketing']);
+    expect(workPinnableRoutes().map(r => r.url)).toEqual(['/dashboard/briefings', '/dashboard/goals', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/automations', '/dashboard/marketing']);
     expect(DEFAULT_WORK_PINS).toEqual(['/dashboard/briefings', '/dashboard/goals', '/dashboard/scorecard']);
     // Artifacts replaced Canvases, which never earned a row of its own.
     expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/canvases')).toBe(false);
@@ -84,7 +84,7 @@ describe('dashboardNav registry', () => {
 
     expect(sections.map(s => s.group.title)).toEqual(['Team', 'Knowledge', 'Build', 'Insights', 'Organization']);
     expect(sections.map(s => s.routes.map(r => r.url))).toEqual([
-      ['/dashboard/teams', '/dashboard/missions', '/dashboard/workflows', '/dashboard/automation'],
+      ['/dashboard/teams', '/dashboard/missions', '/dashboard/workflows', '/dashboard/schedules'],
       ['/dashboard/connectors', '/dashboard/objects', '/dashboard/learnings', '/dashboard/workspace'],
       ['/dashboard/skills', '/dashboard/evals', '/dashboard/apps'],
       ['/dashboard/team-report', '/dashboard/activity', '/dashboard/observability', '/dashboard/autonomy', '/dashboard/adoption', '/dashboard/briefings/archive?team=workspace-manager'],

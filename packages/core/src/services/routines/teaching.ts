@@ -1,7 +1,7 @@
 /**
  * TEACHING A ROUTINE: the Routine analyst reads a Slate recording — what was
  * said, when, what was on screen, and frames at the moments that matter — and
- * drafts the routine's spec: steps linked to their moments, the rules the
+ * drafts the automation's spec: steps linked to their moments, the rules the
  * specialist said, where it must escalate to the expert, what it must never
  * do, its inputs and the outputs it reads back, and the questions one example
  * cannot settle. It authorizes nothing: the expert approves the spec.
@@ -47,12 +47,12 @@ export function framesToRead(rec: Pick<SlateRecording, 'transcript' | 'video'>):
   return [...new Set(chosen)];
 }
 
-const SYSTEM = `You are the Routine analyst. A specialist recorded themselves doing a piece of repeatable work in a web app, narrating why each step happens. From the recording — the transcript with timestamps, what was on screen, and frames at key moments — you write the routine's spec: what a browser, run by an AI, must do to repeat this work for any row of inputs, exactly as the specialist does it.
+const SYSTEM = `You are the Automation analyst. A specialist recorded themselves doing a piece of repeatable work in a web app, narrating why each step happens. From the recording — the transcript with timestamps, what was on screen, and frames at key moments — you write the automation's spec: what a browser, run by an AI, must do to repeat this work for any row of inputs, exactly as the specialist does it.
 
 Write it as JSON only, no prose around it, in this shape:
 {
   "name": "Short imperative name of the work, e.g. \\"Add a user and enroll them in a campaign\\"",
-  "description": "One sentence: what the routine does and for whom.",
+  "description": "One sentence: what the automation does and for whom.",
   "summary": "Two or three sentences a person reads first.",
   "startUrl": "The address the work starts at, from what was on screen (null if not seen)",
   "systems": ["hosts it uses"],
@@ -142,7 +142,7 @@ export function normalizeSpec(raw: Raw): { name: string; description: string; sp
     // A run cannot begin without an address, and a recording with no address bar does not show one.
     spec.questions.unshift({ id: START_QUESTION, question: 'What is the address (URL) the work starts at?', why: 'The recording does not show the address, and every run opens it first.', at: null, answer: null, answeredBy: null });
   }
-  return { name: str(raw.name, 120) || 'Untitled routine', description: str(raw.description, 400), spec };
+  return { name: str(raw.name, 120) || 'Untitled automation', description: str(raw.description, 400), spec };
 }
 
 /**
@@ -198,7 +198,7 @@ function contentText(content: unknown): string {
 }
 
 /**
- * Draft a routine from a recording. One model call with the frames; once more if the reply was not
+ * Draft an automation from a recording. One model call with the frames; once more if the reply was not
  * a usable spec.
  * @param orgId - The workspace (its model, its spend).
  * @param rec - The recording.
@@ -218,7 +218,7 @@ export async function draftSpec(orgId: string, rec: SlateRecording, frames: Slat
   const intro = [
     `Recording: ${rec.video.title ?? 'untitled'} (${rec.video.durationSec ? `${Math.round(rec.video.durationSec)} s` : 'length unknown'})${rec.video.recordedBy ? `, recorded by ${rec.video.recordedBy}` : ''}.`,
     rec.video.summary ? `Slate's summary: ${rec.video.summary}` : '',
-    hints.name ? `The person calls this routine: ${hints.name}` : '',
+    hints.name ? `The person calls this automation: ${hints.name}` : '',
     hints.note ? `They added: ${hints.note}` : '',
     hints.startUrl ? `The work starts at: ${hints.startUrl}` : '',
     pages ? `Pages on screen:\n${pages}` : '',
@@ -252,13 +252,13 @@ export async function draftSpec(orgId: string, rec: SlateRecording, frames: Slat
 
 /**
  * What every run of a version is told: the spec as a briefing, in order.
- * @param name - The routine.
+ * @param name - The automation.
  * @param spec - Its spec.
  */
 export function compileTask(name: string, spec: RoutineSpec): string {
   const answered = spec.questions.filter(q => q.answer);
   return [
-    `Do the routine “${name}” for the one row of inputs given. ${spec.summary}`,
+    `Do the automation “${name}” for the one row of inputs given. ${spec.summary}`,
     spec.preconditions.length > 0 ? `Before you start: ${spec.preconditions.join('; ')}.` : '',
     `Steps, in order:\n${spec.steps.map(s => `${s.n}. ${s.text}${s.why ? ` (${s.why})` : ''}`).join('\n')}`,
     answered.length > 0 ? `The expert settled:\n${answered.map(q => `- ${q.question} → ${q.answer}`).join('\n')}` : '',
@@ -281,8 +281,8 @@ function yamlString(s: string): string {
 
 /**
  * The version as a workflow a workspace can keep: a manual trigger taking the rows, and one action
- * step that runs the routine for them (`routine.run`). Approvals are the routine's own trust level.
- * @param slug - The routine.
+ * step that runs the automation for them (`routine.run`). Approvals are the automation's own trust level.
+ * @param slug - The automation.
  * @param name - Its name.
  * @param n - The version.
  * @param spec - Its spec.
@@ -290,8 +290,8 @@ function yamlString(s: string): string {
 export function workflowYamlFor(slug: string, name: string, n: number, spec: RoutineSpec): string {
   const props = spec.inputs.filter(i => !i.secret).map(i => `          ${i.name}: { type: string, description: ${yamlString(i.description)} }`).join('\n');
   return [
-    `# workflows/${slug}/workflow.yaml — generated from routine “${name}” v${n}.`,
-    `# Each row runs as a browser run under the routine's approved version and trust level.`,
+    `# workflows/${slug}/workflow.yaml — generated from automation “${name}” v${n}.`,
+    `# Each row runs as a browser run under the automation's approved version and trust level.`,
     `slug: ${slug}`,
     `name: ${yamlString(name)}`,
     `description: ${yamlString(spec.summary.slice(0, 200))}`,
@@ -308,11 +308,11 @@ export function workflowYamlFor(slug: string, name: string, n: number, spec: Rou
     '        properties:',
     props || '          {}',
     'steps:',
-    '  - name: run-routine',
+    '  - name: run-automation',
     '    type: action',
-    '    action: routine.run',
+    '    action: automation.run',
     '    input:',
-    `      routine: ${slug}`,
+    `      automation: ${slug}`,
     `      version: ${n}`,
     '      rows: \'{{input.rows}}\'',
     '',

@@ -39,8 +39,8 @@ const RULES: Array<[RegExp, DashboardLinkKind]> = [
   [/^\/dashboard\/team-report(?:\/([^/?#]+))?/, 'team-report'],
   [/^\/dashboard\/chat/, 'chat'],
   [/^\/dashboard\/browser\/(\d+)/, 'browser'],
-  [/^\/dashboard\/routines\/batches\/(\d+)/, 'routine-batch'],
-  [/^\/dashboard\/routines\/(\d+)/, 'routine'],
+  [/^\/dashboard\/(?:routines|automations)\/batches\/(\d+)/, 'routine-batch'],
+  [/^\/dashboard\/(?:routines|automations)\/(\d+)/, 'routine'],
   // An artifact, at its own page or its full-screen view.
   [/^\/dashboard\/artifacts\/(\d+)(?:\/open)?(?:[/?#]|$)/, 'artifact'],
   [/^\/dashboard(?:\/|$)/, 'page'],

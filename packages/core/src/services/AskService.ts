@@ -685,10 +685,10 @@ function isSeoSignoffSource(ref: string | null | undefined): boolean {
  */
 async function settleWaitersOn(row: Ask): Promise<void> {
   if (row.sourceRef?.startsWith('routine-')) {
-    // A routine's run, check or finding waits on this answer (`services/routines/RoutineService.ts`).
+    // An automation's run, check or finding waits on this answer (`services/routines/RoutineService.ts`).
     void import('@/services/routines/RoutineService').then(m => m.onRoutineAskSettled(row)).catch(async (err) => {
       const { logger } = await import('@/libs/Logger');
-      logger.warn('a routine could not hear an answered ask', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
+      logger.warn('an automation could not hear an answered ask', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
     });
   }
   if (row.sourceRef?.startsWith('workflow-run:')) {

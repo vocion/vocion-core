@@ -20,7 +20,7 @@ export async function hrefForCode(orgId: string, resolved: ResolvedCode): Promis
     ask: inboxHref('ask', resolved.id),
     conversation: `/dashboard/chat/${resolved.id}`,
     artifact: `/dashboard/artifacts/${resolved.id}`,
-    automation: '/dashboard/automation/runs',
+    automation: '/dashboard/schedules/runs',
     goal: `/dashboard/goals/${resolved.id}`,
   }[resolved.kind];
   const { workspaceSlug } = await recordLinksForOrg(orgId);

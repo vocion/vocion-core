@@ -127,7 +127,7 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
           {view.skills.length}
           {view.skills.length === 1 ? ' skill' : ' skills'}
           {view.playbooks.length > 0 && ` · ${view.playbooks.length} ${view.playbooks.length === 1 ? 'playbook' : 'playbooks'}`}
-          {automations.length > 0 && ` · ${automations.length} ${automations.length === 1 ? 'automation' : 'automations'}`}
+          {automations.length > 0 && ` · ${automations.length} ${automations.length === 1 ? 'schedule' : 'schedules'}`}
         </span>
       </summary>
 
@@ -176,7 +176,7 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
 
         <section className="min-w-0" data-testid="plugin-panel-automations">
           <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            <Link href={automationsHref} className="hover:text-foreground">Automations</Link>
+            <Link href={automationsHref} className="hover:text-foreground">Schedules</Link>
           </h3>
           {automations.length === 0
             ? <p className="py-2 text-[13px] text-muted-foreground">This feature runs nothing on its own.</p>

@@ -26,9 +26,9 @@ export async function PausedAutomations({ orgId, slug }: { orgId: string; slug: 
   }
   const pauses = await pausesFor(rows, orgId);
   return (
-    <section className="mb-6" data-testid="paused-automations" aria-label="Paused automations">
+    <section className="mb-6" data-testid="paused-automations" aria-label="Paused schedules">
       <h2 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-        {rows.length === 1 ? '1 automation paused' : `${rows.length} automations paused`}
+        {rows.length === 1 ? '1 schedule paused' : `${rows.length} schedules paused`}
         {' — what each would do is not happening until it is resumed'}
       </h2>
       <ListRows>
@@ -40,7 +40,7 @@ export async function PausedAutomations({ orgId, slug }: { orgId: string; slug: 
             <ListRow
               key={r.slug}
               data-testid={`paused-automation-${r.slug}`}
-              href={`/dashboard/automation/${r.slug}`}
+              href={`/dashboard/schedules/${r.slug}`}
               title={r.name}
               subline={<Subline segments={[`Paused by ${byName} since ${when}`, r.pausedNote ?? '', r.description ?? '']} separator="·" />}
               chip={<StatusPill status="paused" label="Paused" size="sm" />}

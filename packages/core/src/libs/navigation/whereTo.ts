@@ -74,13 +74,13 @@ export const WHERE_TO: readonly WhereTo[] = [
   T('adopt-learning', 'Adopt or reject a learning', '/dashboard/learnings', 'Pending candidates are listed with who said it and how often; Adopt makes it a rule, Reject drops it.', ['learning', 'rule', 'candidate', 'adopt', 'teach', 'feedback']),
   T('open-projects', 'Open the projects', '/dashboard/projects', 'One project per client or engagement: status, instructions, brand and guidelines, wiki, sources, work and open items. Open a project to read or export it.', ['project', 'projects', 'client', 'engagement', 'data room', 'rooms', 'deal room']),
   T('open-project', 'Open one project', '/dashboard/projects/{id}', 'The project\'s status, instructions, brand and guidelines, wiki, sources, work and open items; Download context exports it, Draft a document starts a proposal from it.', ['project', 'room', 'client', 'engagement', 'proposal']),
-  T('open-routines', 'Teach or run a routine', '/dashboard/routines', 'Every routine with its expert and trust level; Teach a routine opens the site to record on, and a routine\'s page has Run it for many rows at once.', ['routine', 'routines', 'teach', 'recording', 'slate', 'repeatable', 'batch', 'process']),
+  T('open-routines', 'Teach or run an automation', '/dashboard/automations', 'Every automation with its expert and trust level; Teach a task opens the site to record on, and an automation\'s page has Run it for many rows at once.', ['automation', 'automations', 'routine', 'routines', 'teach', 'recording', 'slate', 'repeatable', 'batch', 'process']),
   T('open-connector', 'Open one connector\'s detail', '/dashboard/connectors/{slug}', 'The connector\'s configuration (secrets redacted), its sync checkpoint and what it has ingested.', ['connector detail', 'checkpoint', 'configuration']),
   T('browse-artifacts', 'Find an artifact', '/dashboard/artifacts', 'Every document, table and chart an agent or a person made, with versions; open one to read, edit or export it.', ['artifact', 'document', 'table', 'chart', 'version', 'export', 'pdf']),
   T('search-knowledge', 'Search the knowledge base', '/dashboard/search', 'Type a question or a name; results cite the connected system they came from.', ['search', 'find', 'knowledge', 'retrieval']),
   T('manage-agents', 'See the team and its agents', '/dashboard/agents', 'Each agent\'s prompt, skills and tools; edits are made in the workspace repo, applied here.', ['agent', 'agents', 'team', 'prompt', 'skills']),
   T('manage-missions', 'Open the missions', '/dashboard/missions', 'A mission is a standing goal; open one for its runs, notes and what it last did.', ['mission', 'goal', 'runs']),
-  T('manage-automations', 'Open the automations', '/dashboard/automation', 'Schedules and triggers, each with its next run; a paused one says so.', ['automation', 'schedule', 'cron', 'trigger', 'when']),
+  T('manage-automations', 'Open schedules', '/dashboard/schedules', 'Schedules and triggers, each with its next run; a paused one says so.', ['schedule', 'schedules', 'cron', 'trigger', 'when']),
   T('manage-plugins', 'Add an app, or turn a feature on or off', '/dashboard/apps', 'Apps lists the apps this workspace has and can add; each app\'s page has its features as On/Off switches, with what each brings.', ['plugin', 'plugins', 'feature', 'features', 'module', 'app', 'apps', 'add app', 'enable', 'turn on', 'turn off', 'install', 'marketplace', 'wiki', 'projects', 'proposals', 'capability']),
   T('run-evals', 'Run or read an eval', '/dashboard/evals', 'Datasets per agent with pass rates; Compare models runs the same set on two models.', ['eval', 'evaluation', 'dataset', 'pass rate', 'compare models']),
   T('invite-member', 'Invite a teammate', '/dashboard/members', 'Invite by email and pick a role; the invite lands in their inbox.', ['invite', 'member', 'teammate', 'user', 'role', 'admin']),
@@ -110,7 +110,7 @@ export function findWhereTo(query: string): WhereTo[] {
     return [...WHERE_TO];
   }
   const scored = WHERE_TO.map((w) => {
-    const hay = `${w.intent} ${w.label} ${w.keywords.join(' ')}`.toLowerCase();
+    const hay = `${w.label} ${w.keywords.join(' ')}`.toLowerCase();
     const hits = words.filter(word => hay.includes(word)).length;
     return { w, hits };
   }).filter(s => s.hits > 0);

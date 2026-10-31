@@ -1,12 +1,12 @@
 /**
  * HOW A ROUTINE READS — the words, tones and numbers every surface that draws
- * a routine or a batch of its runs shares: the list, the routine's page, the
+ * an automation or a batch of its runs shares: the list, the automation's page, the
  * batch queue, the chat pane and the follow chip under an answer. Pure and
  * client-safe, so the page and the server's follow status say the same thing
  * (`services/preview/followStatus.ts`).
  *
  * Also the "Run it" form's reader: rows pasted as CSV, TSV or a JSON array,
- * matched to the routine's input names (`parseRows`).
+ * matched to the automation's input names (`parseRows`).
  */
 
 import type { RoutineInputSpec, RoutineRunStatus, RoutineStatus, RoutineTeaching, RoutineTrust, RoutineView } from './types';
@@ -15,7 +15,7 @@ import { ROUTINE_LIMITS } from './types';
 /** The tones the design system draws a state in (`components/ui/status-pill` `TONE`). */
 export type RoutineTone = 'pass' | 'amber' | 'fail' | 'neutral' | 'teal';
 
-/** A routine's batches, as its page lists them (`routineReads.batchesOf`). */
+/** An automation's batches, as its page lists them (`routineReads.batchesOf`). */
 export type RoutineBatchSummary = {
   id: number;
   status: 'running' | 'done';
@@ -44,8 +44,8 @@ export const TEACHING_WORD: Record<RoutineTeaching['state'], string> = {
 };
 
 /**
- * Where a routine stands, in a word.
- * @param r - The routine.
+ * Where an automation stands, in a word.
+ * @param r - The automation.
  * @param r.status - Its status.
  * @param r.error - Why teaching failed, when it did.
  * @param r.teaching - The teaching session, while one runs.
@@ -74,15 +74,15 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 /**
  * The open questions on the version in review, or on the version runs use.
- * @param r - The routine.
+ * @param r - The automation.
  */
 export function openQuestions(r: Pick<RoutineView, 'draft' | 'version'>): number {
   return ((r.draft ?? r.version)?.spec.questions ?? []).filter(q => !q.answer).length;
 }
 
 /**
- * The routine's line on the list, under its name: where it is, and how it has gone.
- * @param r - The routine.
+ * The automation's line on the list, under its name: where it is, and how it has gone.
+ * @param r - The automation.
  */
 export function routineLine(r: RoutineView): string {
   const expert = r.expert?.name ?? null;
@@ -295,13 +295,13 @@ export type ParsedRows = {
 
 /**
  * The rows a person pasted, as the run route takes them: one object per row,
- * keyed by the routine's input names. A JSON array of objects, or lines of CSV
+ * keyed by the automation's input names. A JSON array of objects, or lines of CSV
  * or TSV under a header line naming the inputs (case, spaces and dashes do not
- * matter). A routine with one plain input takes bare lines, one value each.
+ * matter). An automation with one plain input takes bare lines, one value each.
  * An input with no column is the same for every row (the campaign, the sign-in): the form asks for
  * it once and sends it as `shared`. Secret inputs are never columns.
  * @param text - What was pasted.
- * @param inputs - The routine's inputs.
+ * @param inputs - The automation's inputs.
  */
 export function parseRows(text: string, inputs: readonly RoutineInputSpec[]): ParsedRows {
   const plain = inputs.filter(i => !i.secret);
@@ -329,7 +329,7 @@ export function parseRows(text: string, inputs: readonly RoutineInputSpec[]): Pa
   }
   const unknown = header.filter((h, i) => mapped[i] === null && h !== '');
   if (unknown.length > 0) {
-    return { rows: [], error: `Not an input of this routine: ${unknown.join(', ')}. Its inputs are ${plain.map(i => i.name).join(', ')}.`, columns: [] };
+    return { rows: [], error: `Not an input of this automation: ${unknown.join(', ')}. Its inputs are ${plain.map(i => i.name).join(', ')}.`, columns: [] };
   }
   const columns = mapped.filter((m): m is string => m !== null);
   const rows: Array<Record<string, string>> = [];
@@ -370,7 +370,7 @@ function parseJsonRows(text: string, plain: readonly RoutineInputSpec[], byKey: 
     for (const [k, v] of Object.entries(item)) {
       const name = byKey.get(keyOf(k));
       if (!name) {
-        return { rows: [], error: `Not an input of this routine: ${k}. Its inputs are ${plain.map(i => i.name).join(', ')}.`, columns: [] };
+        return { rows: [], error: `Not an input of this automation: ${k}. Its inputs are ${plain.map(i => i.name).join(', ')}.`, columns: [] };
       }
       columns.add(name);
       row[name] = v === null || v === undefined ? '' : typeof v === 'string' ? v.trim() : typeof v === 'object' ? JSON.stringify(v) : String(v);
@@ -393,7 +393,7 @@ function capped(p: ParsedRows): ParsedRows {
 
 /**
  * What to paste, from the inputs' examples: a header line and one row, as CSV.
- * @param inputs - The routine's inputs.
+ * @param inputs - The automation's inputs.
  */
 export function exampleRows(inputs: readonly RoutineInputSpec[]): string {
   const plain = inputs.filter(i => !i.secret);

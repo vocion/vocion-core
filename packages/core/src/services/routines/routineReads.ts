@@ -1,9 +1,9 @@
 /**
- * ROUTINES, READ — what every surface that shows a routine or a batch needs,
+ * ROUTINES, READ — what every surface that shows an automation or a batch needs,
  * and only that: the rows, the browser runs' last steps and live pictures, and
  * people's names. Kept apart from `RoutineService`, which drives runs and so
  * reaches the model, the browser and the conversation: a page that only shows
- * a routine compiles this (the build budget, CI.yml "Build memory").
+ * an automation compiles this (the build budget, CI.yml "Build memory").
  */
 
 import type { RoutineBatchView, RoutineRunStatus, RoutineRunView, RoutineVersionView, RoutineView } from '@/libs/routines/types';
@@ -19,7 +19,7 @@ type BatchRow = typeof routineBatchSchema.$inferSelect;
 type RunRow = typeof routineRunSchema.$inferSelect;
 
 /**
- * User ids → display names. Ids that are not people (a token, a routine) come back unmapped.
+ * User ids → display names. Ids that are not people (a token, an automation) come back unmapped.
  * @param ids - The ids.
  */
 export async function namesOf(ids: Array<string | null | undefined>): Promise<Map<string, string>> {
@@ -112,7 +112,7 @@ export async function listRoutines(orgId: string): Promise<RoutineView[]> {
 /**
  * One routine, or null when this workspace has none by that id.
  * @param orgId - The workspace.
- * @param id - The routine.
+ * @param id - The automation.
  */
 export async function getRoutine(orgId: string, id: number): Promise<RoutineView | null> {
   const rows = await db.select().from(routineSchema).where(and(eq(routineSchema.orgId, orgId), eq(routineSchema.id, id))).limit(1);
@@ -120,7 +120,7 @@ export async function getRoutine(orgId: string, id: number): Promise<RoutineView
 }
 
 /**
- * A routine by its slug or its name, for chat ("run the add-a-user routine").
+ * An automation by its slug or its name, for chat ("run the add-a-user routine").
  * @param orgId - The workspace.
  * @param ref - An id, a slug, or words from its name.
  */
@@ -144,9 +144,9 @@ function countsOf(runs: Array<{ status: RoutineRunStatus; n: number }>): Partial
 }
 
 /**
- * A routine's recent batches, newest first.
+ * An automation's recent batches, newest first.
  * @param orgId - The workspace.
- * @param routineId - The routine.
+ * @param routineId - The automation.
  */
 export async function batchesOf(orgId: string, routineId: number): Promise<Array<{ id: number; status: 'running' | 'done'; total: number; counts: Partial<Record<RoutineRunStatus, number>>; startedAt: string; endedAt: string | null; followUp: boolean }>> {
   const batches = await db.select().from(routineBatchSchema).where(and(eq(routineBatchSchema.orgId, orgId), eq(routineBatchSchema.routineId, routineId))).orderBy(desc(routineBatchSchema.id)).limit(20);
@@ -161,7 +161,7 @@ export async function batchesOf(orgId: string, routineId: number): Promise<Array
 }
 
 /**
- * A run of a routine as its tile draws it.
+ * A run of an automation as its tile draws it.
  * @param r - The run.
  * @param b - Its browser run, when it has one.
  */
@@ -221,7 +221,7 @@ export async function batchView(b: BatchRow): Promise<RoutineBatchView> {
   const cents = views.reduce((s, v) => s + v.cents, 0);
   return {
     id: b.id,
-    routine: { id: b.routineId, name: routine?.name ?? 'A routine', version: b.version, trust: routine?.trust ?? 'drafted', expert: routine?.expertUserId ? names.get(routine.expertUserId) ?? null : null },
+    routine: { id: b.routineId, name: routine?.name ?? 'An automation', version: b.version, trust: routine?.trust ?? 'drafted', expert: routine?.expertUserId ? names.get(routine.expertUserId) ?? null : null },
     requestedBy: names.get(b.requestedBy) ?? null,
     conversationId: b.conversationId,
     status: b.status,

@@ -33,6 +33,11 @@ describe('where-to registry', () => {
     expect(findWhereTo('xqzv')).toEqual([]);
   });
 
+  it('distinguishes taught automations from schedules by their public names', () => {
+    expect(findWhereTo('automations')[0]?.path).toBe('/dashboard/automations');
+    expect(findWhereTo('schedules')[0]?.path).toBe('/dashboard/schedules');
+  });
+
   it('fills a project id into the link and writes the line the chat renders as a chip', () => {
     const w = whereTo('open-project')!;
 

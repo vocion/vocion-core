@@ -30,11 +30,11 @@
  * 1. DUPLICATE USER. The roster has Dana Whitfield <dana.whitfield@…>; the
  *    console already has Dana Whitfield <dwhitfield@…> (USR-1033, Sales). Same
  *    name, different email: the console would happily add a second Dana (it
- *    blocks only an exact duplicate email), so the routine must ask whether
+ *    blocks only an exact duplicate email), so the automation must ask whether
  *    this is the same person.
  * 2. ALREADY ENROLLED. Tomás Ortega (USR-1034) is on the roster and already
  *    enrolled in Q4 Security Awareness at 60%. The Enroll form answers
- *    "Already enrolled in this campaign."; the routine must ask, not redo it.
+ *    "Already enrolled in this campaign."; the automation must ask, not redo it.
  * 3. NOT ON ROSTER. Exactly three Active users are not on the roster: Jordan
  *    Ames (a contractor who left), qa-test@ (a test account) and Ellen Brooks
  *    (a former employee), matching neither a roster email nor a roster name.

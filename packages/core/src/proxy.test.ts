@@ -378,3 +378,45 @@ describe('the demo sandbox', () => {
     expect(mockResolve).not.toHaveBeenCalled();
   });
 });
+
+describe('renamed automation pages', () => {
+  it.each([
+    ['/dashboard/routines', '/w/vocion-workforce/dashboard/automations'],
+    ['/dashboard/routines/batches/42?app=routines&status=waiting', '/w/vocion-workforce/dashboard/automations/batches/42?app=routines&status=waiting'],
+    ['/fr/w/vocion-workforce/dashboard/routines/12?org=metacto', '/fr/w/vocion-workforce/dashboard/automations/12?org=metacto'],
+    ['/w/vocion-workforce/dashboard/automation/runs/42?kind=event', '/w/vocion-workforce/dashboard/schedules/runs/42?kind=event'],
+    ['/fr/dashboard/automation?status=paused', '/fr/w/vocion-workforce/dashboard/schedules?status=paused'],
+  ])('redirects %s without losing workspace, locale or query', async (from, to) => {
+    const response = await proxy(request(from, { cookie: 'proj-other-tab' }));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe(`https://agents.example.com${to}`);
+  });
+
+  it('leaves the plural Automations app and unrelated path segments alone', async () => {
+    for (const path of ['/dashboard/automations', '/dashboard/automations/batches/42', '/dashboard/routines-other', '/dashboard/automation-tools']) {
+      const response = await proxy(request(`/w/vocion-workforce${path}`));
+
+      expect(response.headers.get('location')).toBeNull();
+      expect(response.headers.get('x-middleware-rewrite')).toBe(`${SERVER_ORIGIN}/en${path}`);
+    }
+  });
+
+  it('resolves membership before redirecting a workspace bookmark', async () => {
+    const response = await proxy(request('/w/foreign/dashboard/routines/42'));
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get('location')).toBeNull();
+    expect(mockActive).not.toHaveBeenCalled();
+  });
+
+  it('keeps an unsigned reader behind sign-in with the original scoped callback', async () => {
+    mockAuth.mockResolvedValue(null as never);
+    const response = await proxy(request('/fr/w/vocion-workforce/dashboard/routines/42?org=metacto'));
+    const destination = new URL(response.headers.get('location')!);
+
+    expect(destination.pathname).toBe('/fr/sign-in');
+    expect(destination.searchParams.get('callbackUrl')).toBe('https://agents.example.com/fr/w/vocion-workforce/dashboard/routines/42?org=metacto');
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+});

@@ -234,7 +234,7 @@ export default async function ActivityPage(props: {
         <CalendarClock className="size-3.5" />
         What's coming next lives under
         {' '}
-        <Link href="/dashboard/automation" className="underline">Automation</Link>
+        <Link href="/dashboard/schedules" className="underline">Automation</Link>
         .
       </p>
     </>

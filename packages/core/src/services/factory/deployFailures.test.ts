@@ -94,7 +94,7 @@ describe('a failed deploy whose automation is paused', () => {
 
     expect(skips).toHaveLength(1);
     expect(skips[0]!.result).toMatchObject({ reason: 'automation_paused', paused: { since: '2026-09-21T13:01:46.000Z', by: 'API token abc123', note: 'Hold the factory' } });
-    expect((await read(envId)).lastPipelineLine).toBe('Deploy run #59 on c0ffee1 failed at 10:23 UTC and would have been answered by "A failed deploy is an incident", but "A failed deploy is an incident" is paused (since 21 Sep 13:01 UTC, by API token abc123: "Hold the factory"). Resume it at /dashboard/automation/answer-failed-deploy and it runs again.');
+    expect((await read(envId)).lastPipelineLine).toBe('Deploy run #59 on c0ffee1 failed at 10:23 UTC and would have been answered by "A failed deploy is an incident", but "A failed deploy is an incident" is paused (since 21 Sep 13:01 UTC, by API token abc123: "Hold the factory"). Resume it at /dashboard/schedules/answer-failed-deploy and it runs again.');
 
     const req = await read(requestId);
 

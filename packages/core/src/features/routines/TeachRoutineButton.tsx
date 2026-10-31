@@ -58,7 +58,7 @@ function looksLikeUrl(s: string): boolean {
  * @param props.label - The button's words.
  * @param props.variant - Primary on the page header, outline in an empty state.
  */
-export function TeachRoutineButton({ label = 'Teach a routine', variant = 'default' }: { label?: string; variant?: 'default' | 'outline' }) {
+export function TeachRoutineButton({ label = 'Teach a task', variant = 'default' }: { label?: string; variant?: 'default' | 'outline' }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const uid = useId();
@@ -88,7 +88,7 @@ export function TeachRoutineButton({ label = 'Teach a routine', variant = 'defau
         }
         aim(siteWin, res.routine.teaching?.targetUrl ?? siteUrl);
         setOpen(false);
-        router.push(`/dashboard/routines/${res.routine.id}`);
+        router.push(`/dashboard/automations/${res.routine.id}`);
       })
       .catch(() => {
         aim(siteWin, null);
@@ -106,9 +106,9 @@ export function TeachRoutineButton({ label = 'Teach a routine', variant = 'defau
       <Dialog open={open} onOpenChange={o => !busy && setOpen(o)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Teach a routine</DialogTitle>
+            <DialogTitle>Teach a task</DialogTitle>
             <DialogDescription>
-              Do the task once on the site while Slate records, and say why each step happens as you go. Stop the recording when you are done; Vocion reads it and drafts the routine for its expert to approve.
+              Do the task once on the site while Slate records, and say why each step happens as you go. Stop the recording when you are done; Vocion reads it and drafts the automation for its expert to approve.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -147,7 +147,7 @@ export function TeachRoutineButton({ label = 'Teach a routine', variant = 'defau
             <div className="flex items-center justify-end gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
               <Button type="submit" size="sm" disabled={!ready || busy} data-routine-teach>
-                {busy ? 'Opening…' : 'Teach'}
+                {busy ? 'Opening…' : 'Teach a task'}
               </Button>
             </div>
           </form>

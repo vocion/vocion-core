@@ -17,7 +17,7 @@
  *
  * It stands aside where something else already carries the answer on: an
  * asker that said what each answer does (`ask.outcomes` — the SEO sign-offs),
- * a routine's or a resume gate's own asks, a parked run waiting on it (the
+ * an automation's or a resume gate's own asks, a parked run waiting on it (the
  * resume gate resumes that run), and an automation subscribed to the answer.
  * Only a person's answer is handed back; the trust bar and the deadline's
  * default are not.
