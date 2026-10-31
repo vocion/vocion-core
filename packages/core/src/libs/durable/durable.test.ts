@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+// Load the event graph before any test starts a bounded real-time wait.
+import { emitEvent } from '@/services/EventService';
 import { defineDurable, durable, durableIdFor } from './index';
 import { memoryRunResult, resetMemoryEngine } from './memory';
 
@@ -44,7 +46,6 @@ describe('a durable run owns its record', () => {
 
     expect((await durable().status(id))?.carried).toBe('wip-2');
 
-    const { emitEvent } = await import('@/services/EventService');
     await emitEvent({ orgId: ORG, type: 'pr.merged', payload: { recordId: 99 } });
     await emitEvent({ orgId: ORG, type: 'pr.merged', payload: { recordId: 7, url: 'x' } });
 
@@ -53,7 +54,6 @@ describe('a durable run owns its record', () => {
   });
 
   it('is answered by an event raised before its wait opened', async () => {
-    const { emitEvent } = await import('@/services/EventService');
     const id = durableIdFor(ORG, 'record', 8);
     const since = new Date(Date.now() - 1000).toISOString();
     await emitEvent({ orgId: ORG, type: 'pr.merged', payload: { recordId: 8 } });
@@ -82,7 +82,6 @@ describe('a durable run owns its record', () => {
     const id = durableIdFor(ORG, 'record', 11);
     await durable().start('test.any', id, {});
     await vi.waitFor(async () => expect(await durable().steps(id)).toContain('recv:event:next'));
-    const { emitEvent } = await import('@/services/EventService');
     await emitEvent({ orgId: ORG, type: 'pr.merged', payload: { url: 'u-2' } });
     await emitEvent({ orgId: ORG, type: 'build.requested', payload: { recordId: 11, note: 'again' } });
 
