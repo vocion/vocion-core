@@ -165,7 +165,7 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // Automations are workspace plumbing, not daily work (Chris, 2026-10-02:
   // "move it back to the Manage workspace nav"): a MANAGE row beside Missions
   // and Workflows, out of the WORK view's More list.
-  { url: '/dashboard/schedules', title: 'Schedules', group: 'Team', icon: CalendarClock, i18nKey: 'schedules', keywords: ['schedules', 'cron', 'triggers', 'pause', 'resume', 'switch', 'toggle', 'on', 'off'] },
+  { url: '/dashboard/schedules', title: 'Schedules', group: 'Team', icon: CalendarClock, i18nKey: 'automations', keywords: ['schedules', 'cron', 'triggers', 'pause', 'resume', 'switch', 'toggle', 'on', 'off'] },
 
   // ── MANAGE · Knowledge — what the agents know, and about what ───────────
   { url: '/dashboard/connectors', title: 'Connectors', group: 'Knowledge', icon: Plug, i18nKey: 'sources', keywords: ['sources', 'integrations'] },
