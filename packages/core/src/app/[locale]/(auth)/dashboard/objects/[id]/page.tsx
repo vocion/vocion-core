@@ -227,7 +227,7 @@ export default async function ObjectDetailPage(props: {
       )}
 
       {obj.type.slug === 'seo_page'
-        ? <SeoPageWorkspace orgId={orgId} userId={userId ?? null} objectId={obj.id} meta={meta} />
+        ? <SeoPageWorkspace title={obj.title} orgId={orgId} userId={userId ?? null} objectId={obj.id} meta={meta} />
         : obj.type.slug === 'seo_audit'
           ? <SeoAuditWorkspace orgId={orgId} objectId={obj.id} title={obj.title} meta={meta} />
           : obj.type.slug === 'seo_strategy' && userId && Number.isSafeInteger(meta.projectId) && Number(meta.projectId) > 0

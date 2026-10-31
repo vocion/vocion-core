@@ -1,3 +1,4 @@
+import type { PublicationVerification } from './publicationEvidence';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
@@ -6,6 +7,7 @@ import { getDataRoom, roomGroupKey } from '@/services/DataRoomService';
 import { getGoal } from '@/services/objectives/GoalService';
 import { reachForAccount } from '@/services/WorkspaceAccessService';
 import { WriteApiError } from '@/services/writeApi';
+import { isCurrentPublicationVerification } from './publicationEvidence';
 import { mergeMeta } from './records';
 import { getStrategy, projectRecords } from './strategy';
 
@@ -93,11 +95,9 @@ export const roadmapSchema = z.object({
 export type SeoRoadmap = z.infer<typeof roadmapSchema>;
 const FINISHED = new Set(['done', 'complete', 'completed', 'closed', 'published', 'resolved', 'delivered']);
 
-function verifiedPublication(meta: Record<string, unknown>): boolean {
-  const publishedAt = typeof meta.publishedAt === 'string' ? Date.parse(meta.publishedAt) : Number.NaN;
-  const proof = meta.publicationVerification as { status?: string; url?: string; checkedAt?: string } | undefined;
-  const checkedAt = proof?.checkedAt ? Date.parse(proof.checkedAt) : Number.NaN;
-  return proof?.status === 'verified' && proof.url === meta.publishedUrl && Number.isFinite(checkedAt) && checkedAt <= Date.now() && checkedAt >= publishedAt && meta.status === 'published' && typeof meta.publishedUrl === 'string' && /^https?:\/\//i.test(meta.publishedUrl) && Number.isFinite(publishedAt) && publishedAt <= Date.now();
+function verifiedPublication(meta: Record<string, unknown>, title: string): boolean {
+  const proof = meta.publicationVerification as PublicationVerification | undefined;
+  return proof?.status === 'verified' && typeof meta.publishedAt === 'string' && Number.isFinite(Date.parse(meta.publishedAt)) && isCurrentPublicationVerification(proof, { ...meta, expectedTitle: typeof meta.metaTitle === 'string' && meta.metaTitle.trim() ? meta.metaTitle.trim() : title });
 }
 
 /**
@@ -120,11 +120,11 @@ async function recordsFor(orgId: string, projectId: number, ids?: number[]) {
       const meta = r.metadata as Record<string, unknown>;
       let status = r.status ?? 'unknown';
       if (r.typeSlug === 'seo_page') {
-        status = verifiedPublication(meta) ? 'published' : FINISHED.has(String(meta.status)) ? 'publication_unverified' : String(meta.status ?? 'unknown');
+        status = verifiedPublication(meta, r.title) ? 'published' : FINISHED.has(String(meta.status)) ? 'publication_unverified' : String(meta.status ?? 'unknown');
       }
       if (r.typeSlug === 'seo_batch' && FINISHED.has(status)) {
         const kept = batchPages.filter(p => p.meta.batchId === r.id && p.meta.status !== 'rejected');
-        if (!kept.length || !kept.every(p => verifiedPublication(p.meta))) {
+        if (!kept.length || !kept.every(p => verifiedPublication(p.meta, p.title))) {
           status = 'publication_unverified';
         }
       }

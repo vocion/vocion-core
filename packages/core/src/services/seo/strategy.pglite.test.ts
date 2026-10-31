@@ -194,7 +194,7 @@ describe('a client\'s strategy goal', () => {
       throw new Error('Page fixtures were not created');
     }
     const { mergeMeta } = await import('./records');
-    await mergeMeta(ORG, page.id, () => ({ publicationVerification: { status: 'verified', url: 'https://tally-books.example/live', checkedAt: '2026-01-02T00:00:00Z', evidence: 'HTTP 200 and matching title' } }));
+    await mergeMeta(ORG, page.id, () => ({ publicationVerification: { status: 'verified', identity: { projectId, publishedAt: '2026-01-01T00:00:00Z', expectedTitle: 'Live page' }, url: 'https://tally-books.example/live', checkedAt: '2026-01-02T00:00:00Z', evidence: 'HTTP 200 and matching title' } }));
     const batch = await createBusinessObject({ typeSlug: 'seo_batch', title: 'Claimed complete batch', status: 'published', metadata: { projectId } }, ORG, USER);
     if (!batch) {
       throw new Error('Batch fixture was not created');
@@ -243,4 +243,27 @@ it('refuses owner editing when a legacy strategy binds their goal from another c
 
   expect(state.canEdit).toBe(false);
   await expect(updateSeoRoadmap(ORG, other.id, USER, 0, state.roadmap)).rejects.toMatchObject({ status: 403 });
+});
+
+it('does not count a verified page moved to another client or renamed as completed delivery', async () => {
+  const { createBusinessObject, updateBusinessObject } = await import('@/services/BusinessObjectService');
+  const { mergeMeta } = await import('./records');
+  const { readSeoRoadmap } = await import('./roadmap');
+  const other = await createDataRoom(ORG, USER, { title: 'Another publication client' });
+  const publication = { projectId, status: 'published', publishedUrl: 'https://northwind.example/publication', publishedAt: '2026-01-01T00:00:00Z' };
+  const page = await createBusinessObject({ typeSlug: 'seo_page', title: 'Verified original title', metadata: publication }, ORG, USER);
+  if (!page) {
+    throw new Error('Expected fixture page to be created');
+  }
+  await mergeMeta(ORG, page.id, () => ({ publicationVerification: { status: 'verified', url: publication.publishedUrl, checkedAt: '2026-01-02T00:00:00Z', evidence: 'Matched HTML title', identity: { projectId, publishedAt: publication.publishedAt, expectedTitle: page.title } } }));
+
+  expect((await readSeoRoadmap(ORG, projectId, USER)).availableRecords.find(r => r.id === page.id)?.status).toBe('published');
+
+  await updateBusinessObject({ id: page.id, title: 'Changed after verification' }, ORG);
+
+  expect((await readSeoRoadmap(ORG, projectId, USER)).availableRecords.find(r => r.id === page.id)?.status).toBe('publication_unverified');
+
+  await updateBusinessObject({ id: page.id, title: page.title, metadata: { ...publication, projectId: other.id } }, ORG);
+
+  expect((await readSeoRoadmap(ORG, other.id, USER)).availableRecords.find(r => r.id === page.id)?.status).toBe('publication_unverified');
 });

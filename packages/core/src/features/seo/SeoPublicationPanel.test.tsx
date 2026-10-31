@@ -10,7 +10,8 @@ vi.mock('@/libs/I18nNavigation', () => ({ useRouter: () => ({ refresh: () => {} 
 afterEach(() => vi.restoreAllMocks());
 
 const url = 'https://northwind.example/page';
-const props = { pageId: 20, publishedUrl: url, providerPublished: true, canVerify: true };
+const identity = { projectId: 9, publishedAt: null, expectedTitle: 'Northwind heating guide' };
+const props = { projectId: 9, expectedTitle: identity.expectedTitle, pageId: 20, publishedUrl: url, providerPublished: true, canVerify: true };
 
 it('does not equate provider publication with public verification, and hides owner action from other users', async () => {
   await render(<SeoPublicationPanel {...props} canVerify={false} />);
@@ -21,7 +22,7 @@ it('does not equate provider publication with public verification, and hides own
 });
 
 it('posts only to the page endpoint and renders an unverified result without pretending success', async () => {
-  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ status: 'unverified', url, checkedAt: '2026-01-01', evidence: 'Access could not be established.' }), { status: 200 }));
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ status: 'unverified', identity, url, checkedAt: '2026-01-01', evidence: 'Access could not be established.' }), { status: 200 }));
   await render(<SeoPublicationPanel {...props} />);
   await page.getByRole('button', { name: 'Verify public page' }).click();
 
@@ -52,9 +53,19 @@ it('shows the provider count and public-check count as separate readiness measur
 });
 
 it('shows a dated matching public check as verified without claiming search impact', async () => {
-  await render(<SeoPublicationPanel {...props} publishedAt="2025-12-01" initial={{ status: 'verified', url, checkedAt: '2026-01-01', evidence: 'Matched expected public HTML.' }} />);
+  await render(<SeoPublicationPanel {...props} publishedAt="2025-12-01" initial={{ status: 'verified', identity: { ...identity, publishedAt: '2025-12-01' }, url, checkedAt: '2026-01-01', evidence: 'Matched expected public HTML.' }} />);
 
   await expect.element(page.getByText('Public HTML verified', { exact: true })).toBeVisible();
   await expect.element(page.getByText('Checked: 2026-01-01')).toBeVisible();
   await expect.element(page.getByRole('region', { name: 'Publication evidence' })).toHaveTextContent('does not publish, prove indexing');
+});
+
+it.each([
+  { projectId: 10 },
+  { expectedTitle: 'A different client page' },
+  { publishedAt: '2025-12-02' },
+])('does not display transferred or edited publication proof as verified: %j', async (change) => {
+  await render(<SeoPublicationPanel {...props} publishedAt="2025-12-01" {...change} initial={{ status: 'verified', identity: { ...identity, publishedAt: '2025-12-01' }, url, checkedAt: '2026-01-01', evidence: 'Earlier check' }} />);
+
+  await expect.element(page.getByText('No current verification')).toBeVisible();
 });

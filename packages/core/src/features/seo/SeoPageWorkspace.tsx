@@ -36,9 +36,10 @@ async function PageArtifact({ orgId, userId, id, empty }: { orgId: string; userI
  * @param root0.orgId
  * @param root0.userId
  * @param root0.objectId
+ * @param root0.title
  * @param root0.meta
  */
-export async function SeoPageWorkspace({ orgId, userId, objectId, meta }: { orgId: string; userId: string | null; objectId: number; meta: Record<string, unknown> }) {
+export async function SeoPageWorkspace({ orgId, userId, objectId, title, meta }: { orgId: string; userId: string | null; objectId: number; title: string; meta: Record<string, unknown> }) {
   const m = meta as Partial<SeoPageMeta>;
   let canVerify = false;
   if (userId && Number.isSafeInteger(m.projectId) && m.projectId! > 0 && m.status === 'published') {
@@ -121,7 +122,7 @@ export async function SeoPageWorkspace({ orgId, userId, objectId, meta }: { orgI
       ]}
       aside={(
         <>
-          <SeoPublicationPanel key={objectId} pageId={objectId} publishedUrl={m.publishedUrl} publishedAt={m.publishedAt} providerPublished={m.status === 'published'} canVerify={canVerify} initial={m.publicationVerification} />
+          <SeoPublicationPanel key={objectId} pageId={objectId} projectId={m.projectId} expectedTitle={m.metaTitle?.trim() || title} publishedUrl={m.publishedUrl} publishedAt={m.publishedAt} providerPublished={m.status === 'published'} canVerify={canVerify} initial={m.publicationVerification} />
           <section className="rounded-xl border border-border p-5">
             <h2 className="mb-4 text-sm font-semibold">Publishing details</h2>
             <FactList

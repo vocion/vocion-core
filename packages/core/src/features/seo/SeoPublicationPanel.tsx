@@ -1,13 +1,16 @@
 'use client';
 
-import type { PublicationVerification } from '@/services/seo/publicationVerification';
+import type { PublicationVerification } from '@/services/seo/publicationEvidence';
 import { useState, useTransition } from 'react';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { useRouter } from '@/libs/I18nNavigation';
+import { isCurrentPublicationVerification } from '@/services/seo/publicationEvidence';
 
 /**
  * A provider receipt and a public identity check are separate kinds of evidence.
  * @param root0
+ * @param root0.projectId
+ * @param root0.expectedTitle
  * @param root0.pageId
  * @param root0.publishedUrl
  * @param root0.publishedAt
@@ -15,8 +18,10 @@ import { useRouter } from '@/libs/I18nNavigation';
  * @param root0.canVerify
  * @param root0.initial
  */
-export function SeoPublicationPanel({ pageId, publishedUrl, publishedAt, providerPublished, canVerify, initial }: {
+export function SeoPublicationPanel({ pageId, projectId, expectedTitle, publishedUrl, publishedAt, providerPublished, canVerify, initial }: {
   pageId: number;
+  projectId?: number;
+  expectedTitle: string;
   publishedUrl?: string;
   publishedAt?: string;
   providerPublished: boolean;
@@ -27,8 +32,7 @@ export function SeoPublicationPanel({ pageId, publishedUrl, publishedAt, provide
   const [check, setCheck] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [busy, start] = useTransition();
-  const checkedTime = check ? Date.parse(check.checkedAt) : Number.NaN;
-  const current = Boolean(check && providerPublished && check.url === publishedUrl && Number.isFinite(checkedTime) && checkedTime <= Date.now() && (!publishedAt || checkedTime >= Date.parse(publishedAt)));
+  const current = isCurrentPublicationVerification(check, { projectId, expectedTitle, publishedUrl, publishedAt, status: providerPublished ? 'published' : undefined });
   const safeUrl = publishedUrl && /^https?:\/\//i.test(publishedUrl) ? publishedUrl : null;
   const verify = () => start(async () => {
     setError(null);

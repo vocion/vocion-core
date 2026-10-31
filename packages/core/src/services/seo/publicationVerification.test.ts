@@ -86,7 +86,7 @@ it('does not overwrite a changed page URL or newer verification after the fetch'
 
 it('does not count stale URL evidence or future checks as verified delivery', async () => {
   const { publicationStanding } = await import('./publicationVerification');
-  const check = { status: 'verified' as const, checkedAt: '2026-10-15', url, evidence: 'Matched title' };
+  const check = { status: 'verified' as const, checkedAt: '2026-10-15', identity: { projectId: 9, publishedAt: meta.publishedAt!, expectedTitle: title }, url, evidence: 'Matched title' };
   const result = publicationStanding([
     { meta: { ...meta, publicationVerification: check } },
     { meta: { ...meta, publicationVerification: { ...check, url: 'https://northwind.example/old' } } },
@@ -105,4 +105,29 @@ it('leaves non-HTML and oversized responses unverified rather than claiming abse
   mocks.fetchPublic.mockResolvedValueOnce({ finalUrl: url, res: new Response(content, { headers: { 'content-type': 'text/html', 'content-length': String(3 * 1024 * 1024) } }) });
 
   expect((await verifySeoPublication('org-a', 20, 'owner')).status).toBe('unverified');
+});
+
+it.each([{ projectId: 10 }, { metaTitle: 'Changed heading' }, { publishedAt: '2026-10-02' }])('refuses an identity change during verification: %j', async (change) => {
+  mocks.mergeMeta.mockImplementation(async (_org, _id, update) => update({ ...meta, ...change }));
+
+  await expect(verifySeoPublication('org-a', 20, 'owner')).rejects.toMatchObject({ status: 409 });
+});
+
+it('rejects a fallback row-title change during the fetch', async () => {
+  mocks.getSeoPage.mockResolvedValueOnce({ id: 20, title, meta: { ...meta, metaTitle: undefined } }).mockResolvedValue({ id: 20, title: 'Changed row title', meta: { ...meta, metaTitle: undefined } });
+
+  await expect(verifySeoPublication('org-a', 20, 'owner')).rejects.toMatchObject({ status: 409 });
+  expect(mocks.mergeMeta).not.toHaveBeenCalled();
+});
+
+it('only counts receipts bound to the unchanged client, timestamp and checked title', async () => {
+  const { publicationStanding } = await import('./publicationVerification');
+  const result = await verifySeoPublication('org-a', 20, 'owner', new Date('2026-10-30'));
+
+  expect(result.identity).toEqual({ projectId: 9, publishedAt: meta.publishedAt, expectedTitle: title });
+
+  const pages = [meta, { ...meta, projectId: 10 }, { ...meta, publishedAt: '2026-10-02' }, { ...meta, metaTitle: 'Different page' }].map(m => ({ title, meta: { ...m, publicationVerification: result } }));
+  pages.push({ title, meta: { ...meta, publicationVerification: { ...result, identity: undefined } } });
+
+  expect(publicationStanding(pages, new Date('2026-10-30'))).toEqual({ recordedPublished: 5, verified: 1, failed: 0, unverified: 0, notChecked: 4 });
 });

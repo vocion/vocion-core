@@ -1,18 +1,13 @@
+import type { PublicationVerification } from './publicationEvidence';
 import type { SeoPageMeta } from './records';
 import { load } from 'cheerio';
 import { fetchPublic, PublicFetchError, readCapped } from '@/libs/net/publicFetch';
 import { WriteApiError } from '@/services/writeApi';
+import { isCurrentPublicationVerification } from './publicationEvidence';
 import { getSeoPage, mergeMeta } from './records';
 import { readSeoRoadmap } from './roadmap';
 
-export type PublicationVerification = {
-  status: 'verified' | 'unverified' | 'failed';
-  checkedAt: string;
-  url: string;
-  finalUrl?: string;
-  httpStatus?: number;
-  evidence: string;
-};
+export type { PublicationVerification } from './publicationEvidence';
 
 const normalized = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
@@ -60,7 +55,7 @@ export async function verifySeoPublication(orgId: string, pageId: number, userId
   }
   const url = page.meta.publishedUrl;
   const expectedTitle = page.meta.metaTitle?.trim() || page.title;
-  const base = { checkedAt: now.toISOString(), url };
+  const base = { checkedAt: now.toISOString(), url, identity: { projectId: page.meta.projectId, publishedAt: page.meta.publishedAt ?? null, expectedTitle } };
   let result: PublicationVerification;
   try {
     const { res, finalUrl } = await fetchPublic(url, { timeoutMs: 10_000, hops: 3, headers: { 'User-Agent': 'VocionPublicationCheck/1.0', 'Accept': 'text/html,application/xhtml+xml' } });
@@ -83,6 +78,10 @@ export async function verifySeoPublication(orgId: string, pageId: number, userId
       evidence: status === 404 || status === 410 ? `The saved public URL returned HTTP ${status}.` : 'Public access could not be verified safely. A timeout, access restriction, non-public address, oversized response, or transient failure is not proof the page is absent.',
     };
   }
+  const latest = await getSeoPage(orgId, pageId);
+  if (!latest || (latest.meta.metaTitle?.trim() || latest.title) !== expectedTitle) {
+    throw new WriteApiError(409, 'publication_changed', 'The page title changed during the check. Reload and retry.');
+  }
   // Preserve concurrent edits and newer checks; a stale fetch cannot verify a new URL or publication.
   const written = await mergeMeta<SeoPageMeta>(orgId, pageId, (current) => {
     if (current.projectId !== page.meta.projectId || current.status !== 'published' || current.publishedUrl !== url || current.metaTitle !== page.meta.metaTitle || current.publishedAt !== page.meta.publishedAt || (current.publicationVerification && current.publicationVerification.checkedAt > result.checkedAt)) {
@@ -101,17 +100,16 @@ export async function verifySeoPublication(orgId: string, pageId: number, userId
  * @param pages
  * @param now
  */
-export function publicationStanding(pages: readonly { meta: SeoPageMeta }[], now = new Date()) {
+export function publicationStanding(pages: readonly { title?: string; meta: SeoPageMeta }[], now = new Date()) {
   const result = { recordedPublished: 0, verified: 0, failed: 0, unverified: 0, notChecked: 0 };
   for (const page of pages.filter(p => p.meta.status === 'published')) {
     result.recordedPublished++;
     const check = page.meta.publicationVerification;
-    const date = check?.checkedAt ? Date.parse(check.checkedAt) : Number.NaN;
-    if (!check || check.url !== page.meta.publishedUrl || !Number.isFinite(date) || date > now.getTime() || (page.meta.publishedAt && date < Date.parse(page.meta.publishedAt))) {
+    if (!isCurrentPublicationVerification(check, { ...page.meta, expectedTitle: page.meta.metaTitle?.trim() || page.title || '' }, now)) {
       result.notChecked++;
-    } else if (check.status === 'verified') {
+    } else if (check!.status === 'verified') {
       result.verified++;
-    } else if (check.status === 'failed') {
+    } else if (check!.status === 'failed') {
       result.failed++;
     } else {
       result.unverified++;
