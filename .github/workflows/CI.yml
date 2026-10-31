@@ -309,7 +309,8 @@ jobs:
 
     name: Run unit tests (shard ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Process isolation costs more startup time than shared worker threads.
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v6
@@ -329,7 +330,10 @@ jobs:
           # Codecov merges the three uploads for the commit (codecov.yml waits
           # for all three). Coverage costs about 12% on a shard, measured
           # locally.
-          args: sh -c "npm run test --workspace @vocion/core -- --shard=${{ matrix.shard }}/3 --coverage"
+          # Isolate PGlite WASM lifetimes: Node 22 CI crashed twice in V8
+          # UnregisterWasmAllocation with the shared threads pool. Keep every
+          # test and coverage enabled; only the worker isolation changes.
+          args: sh -c "npm run test --workspace @vocion/core -- --shard=${{ matrix.shard }}/3 --pool=forks --coverage"
         env:
           # T3 env validation needs these present; unit tests mock the DB +
           # LLM clients (vitest stubs the API keys), values are never dialed.
