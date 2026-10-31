@@ -41,7 +41,7 @@ describe('ConfigureLayout', () => {
   it('draws every tab with its count', () => {
     const html = render();
 
-    for (const [key, label, count] of [['seats', 'Seats', 1], ['skills', 'Skills &amp; playbooks', 2], ['automations', 'Automations', 0], ['trust', 'Trust rules', 1], ['learned', 'Learned', 0], ['measures', 'Measures', 1]] as const) {
+    for (const [key, label, count] of [['seats', 'Seats', 1], ['skills', 'Skills &amp; playbooks', 2], ['automations', 'Schedules', 0], ['trust', 'Trust rules', 1], ['learned', 'Learned', 0], ['measures', 'Measures', 1]] as const) {
       const trigger = html.match(new RegExp(`<button[^>]*data-testid="page-tab-${key}"[^>]*>([\\s\\S]*?)</button>`));
 
       expect(trigger?.[1]).toContain(label);

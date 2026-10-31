@@ -70,7 +70,7 @@ describe('the switch, on a running workspace', () => {
   it('says, before anyone confirms, what stops and what does not', async () => {
     render(<WorkspacePauseDialog open onOpenChange={() => {}} />);
 
-    await expect.element(page.getByText(/No automation fires/)).toBeVisible();
+    await expect.element(page.getByText(/No schedule or event trigger fires/)).toBeVisible();
     await expect.element(page.getByText(/A worker already mid-run finishes/)).toBeVisible();
     await expect.element(page.getByText(/paused individually stay paused/)).toBeVisible();
   });
@@ -112,7 +112,7 @@ describe('the banner, on a paused workspace', () => {
     expect(text).toContain('Chris');
     expect(text).toContain('Sep 21, 3:14 PM UTC');
     // The two halves that stop "paused" being read as "nothing is happening".
-    expect(text).toContain('No automation fires');
+    expect(text).toContain('No schedule or event trigger fires');
     expect(text).toContain('A worker already mid-run finishes and reports');
   });
 

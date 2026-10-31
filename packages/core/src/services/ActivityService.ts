@@ -281,7 +281,7 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
     ...automationRuns.map((a): ActivityItem => ({
       kind: 'automation',
       key: `automation-${a.id}`,
-      title: runLabel({ given: a.given, doing: a.doing, name: a.name, fallback: 'Automation run' }),
+      title: runLabel({ given: a.given, doing: a.doing, name: a.name, fallback: 'Scheduled run' }),
       slug: a.slug,
       status: a.status === 'ok' ? 'completed' : a.status === 'error' ? 'failed' : 'running',
       invokedBy: a.invokedBy,

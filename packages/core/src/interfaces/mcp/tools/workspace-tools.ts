@@ -97,7 +97,7 @@ function offSwitchTools(config: McpConfig, identity?: { userId: string }): ToolM
     {
       name: 'workspace_resume',
       title: 'Resume the whole workspace',
-      description: 'Lift a workspace pause placed with workspace_pause (or from the dashboard, or the API). Schedules fire on their next tick and everything else may start again. Automations a person paused individually stay paused — the workspace pause never touched them. Answers whose hold it lifted and what their note said.',
+      description: 'Lift a workspace pause placed with workspace_pause (or from the dashboard, or the API). Schedules fire on their next tick and everything else may start again. Schedules a person paused individually stay paused — the workspace pause never touched them. Answers whose hold it lifted and what their note said.',
       inputSchema: {},
       handler: async () => {
         const { lifted } = await resumeWorkspace(config.orgId, { by });

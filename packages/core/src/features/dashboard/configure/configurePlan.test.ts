@@ -57,7 +57,7 @@ describe('planConfigure', () => {
     expect(view.tabs.map(t => [t.key, t.label, t.count])).toEqual([
       ['seats', 'Seats', 2],
       ['skills', 'Skills & playbooks', 3],
-      ['automations', 'Automations', 3],
+      ['automations', 'Schedules', 3],
       ['trust', 'Trust rules', 2],
       ['learned', 'Learned', 2],
       ['measures', 'Measures', 2],
@@ -68,7 +68,7 @@ describe('planConfigure', () => {
   it('keeps only the tabs a page declares, under its own labels', () => {
     const view = planConfigure(fixture(), { tabs: [{ kind: 'automations' }, { kind: 'seats', label: 'Agents' }], aside: [{ kind: 'changes' }] }, { now: NOW });
 
-    expect(view.tabs.map(t => [t.key, t.label])).toEqual([['automations', 'Automations'], ['seats', 'Agents']]);
+    expect(view.tabs.map(t => [t.key, t.label])).toEqual([['automations', 'Schedules'], ['seats', 'Agents']]);
     expect(view.aside.map(a => a.kind)).toEqual(['changes']);
   });
 

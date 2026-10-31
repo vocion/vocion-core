@@ -226,7 +226,7 @@ describe('a paused automation does not fire', () => {
     const skip = runs.find(r => r.kind === 'skipped')!.result as { reason: string; detail: string };
 
     expect(skip.reason).toBe('automation_paused');
-    expect(skip.detail).toMatch(/^Would have run "on-reply", but "on-reply" is paused \(since .*, by usr-chris: "holding the replies"\)\. Resume it at \/dashboard\/automation\/on-reply/);
+    expect(skip.detail).toMatch(/^Would have run "on-reply", but "on-reply" is paused \(since .*, by usr-chris: "holding the replies"\)\. Resume it at \/dashboard\/schedules\/on-reply/);
   });
 
   it('refuses a fire that reaches it anyway, and records the refusal', async () => {

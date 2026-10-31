@@ -196,7 +196,7 @@ export type ConfigureView = {
 const TAB_LABEL: Record<ConfigureTabKind, string> = {
   seats: 'Seats',
   skills: 'Skills & playbooks',
-  automations: 'Automations',
+  automations: 'Schedules',
   trust: 'Trust rules',
   learned: 'Learned',
   measures: 'Measures',
