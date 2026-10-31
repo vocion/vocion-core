@@ -57,6 +57,6 @@ run log, and `GET /api/v1/automations` returns every schedule with its
 
 ## Related
 
-- [Automation](../entities/schedule.md) — the YAML, its triggers and guards.
+- [Schedule configuration](../entities/automation.md) — the YAML, its triggers and guards.
 - [Search Engine Optimization](../apps/seo.md) — the weekly "Propose new
   SEO pages for clients behind their monthly pace" schedule and the system hand-off.
