@@ -247,7 +247,7 @@ test.describe('the API reference page', () => {
     const bearerAuthorization = page.locator('.modal-ux form').filter({ hasText: 'bearerToken' });
     await bearerAuthorization.locator('input[type="text"]').fill(fixtures.token);
     await bearerAuthorization.getByRole('button', { name: 'Apply credentials' }).click();
-    await page.locator('.modal-ux .btn-done').click();
+    await bearerAuthorization.getByRole('button', { name: 'Close', exact: true }).click();
 
     // `firstGet` is `GET /api/v1/agents` and is already open, so run it there
     // rather than expanding a second operation.
