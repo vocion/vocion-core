@@ -244,8 +244,9 @@ test.describe('the API reference page', () => {
     // the security scheme, the server URL and the request Swagger UI builds
     // all line up with what the API accepts.
     await page.getByRole('button', { name: /authorize/i }).first().click();
-    await page.locator('.modal-ux input[type="text"]').first().fill(fixtures.token);
-    await page.locator('.modal-ux .auth-btn-wrapper button.authorize').click();
+    const bearerAuthorization = page.locator('.modal-ux form').filter({ hasText: 'bearerToken' });
+    await bearerAuthorization.locator('input[type="text"]').fill(fixtures.token);
+    await bearerAuthorization.getByRole('button', { name: 'Apply credentials' }).click();
     await page.locator('.modal-ux .btn-done').click();
 
     // `firstGet` is `GET /api/v1/agents` and is already open, so run it there
