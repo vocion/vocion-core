@@ -26,3 +26,10 @@ Follow-ups owed are counted from the drafts waiting now, never from a label stor
 - **Each engagement** (a project anchored to a CRM deal whose stage does not say closed; a won or lost deal leaves the list): the deal's amount and stage, as of the project's last status, and its follow-ups waiting on you.
 
 Pipeline totals and quiet-deal counts are intentionally absent from this launcher. Filtering only the default `closedwon` and `closedlost` stage IDs can include closed deals in custom pipelines. Restore those measures only when the state query can use normalized closed-stage metadata. External meetings are labelled as such: an outside attendee does not establish that a meeting is with a client.
+
+## Native CRM foundation
+
+The optional `native-crm` feature adds Companies, Contacts, Deals and Activities
+as object-backed tables under GTM. These reuse Vocion's object store and page
+renderer. They neither import HubSpot records nor redirect existing agents or
+sequence execution. See [module contracts and rollout](../modules.md).

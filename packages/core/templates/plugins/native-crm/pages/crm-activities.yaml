@@ -1,0 +1,45 @@
+slug: crm-activities
+title: Activities
+description: Native CRM activity records in this workspace.
+icon: users
+nav:
+  section: GTM
+  order: 4
+archetype: list
+layout: table
+pluginPanel: false
+source:
+  kind: objects
+  objectType: crm_activity
+fields:
+  - key: kind
+    label: Kind
+    from: meta.kind
+  - key: companyId
+    label: Company ID
+    from: meta.companyId
+  - key: contactId
+    label: Contact ID
+    from: meta.contactId
+  - key: dealId
+    label: Deal ID
+    from: meta.dealId
+  - key: ownerId
+    label: Owner ID
+    from: meta.ownerId
+  - key: occurredAt
+    label: Occurred at
+    from: meta.occurredAt
+  - key: dueAt
+    label: Due at
+    from: meta.dueAt
+  - key: summary
+    label: Summary
+    from: meta.summary
+  - key: completed
+    label: Completed
+    from: meta.completed
+rowLink: /dashboard/objects/{id}
+empty:
+  text: No native activity records yet. This collection does not import or replace
+    HubSpot records.

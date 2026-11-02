@@ -1,0 +1,28 @@
+slug: crm_company
+label: Company
+code: CMP
+description: Native CRM company in this workspace. Separate from external CRM mirrors.
+schema:
+  type: object
+  properties:
+    name:
+      type: string
+      x-display:
+        label: Name
+    domain:
+      type: string
+      x-display:
+        label: Domain
+    ownerId:
+      type: string
+      x-display:
+        label: Owner ID
+    lifecycle:
+      type: string
+      enum:
+        - lead
+        - qualified
+        - customer
+        - former_customer
+      x-display:
+        label: Lifecycle

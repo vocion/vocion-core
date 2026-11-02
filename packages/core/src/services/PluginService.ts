@@ -32,7 +32,7 @@ import { fromRepoRoot } from '@/libs/repo-root';
 import { applyWorkspace, invalidateCurrentContextShaCache, loadWorkspace } from '@/libs/workspace';
 import { readManifestOrgId } from '@/libs/workspace/mounted-project';
 import { readWorkspacePage } from '@/libs/workspace/pages';
-import { listPluginSlugs, loadPlugin, resolvePlugins } from '@/libs/workspace/plugins';
+import { listPluginSlugs, resolvePlugins, withoutPluginDependents } from '@/libs/workspace/plugins';
 import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
 import { appliedFromFolder, installPluginBundles, retirePluginBundles } from '@/services/plugins/installBundle';
@@ -108,6 +108,8 @@ export function workspaceWriteBlocker(workspaceDir: string): string | null {
  * @returns The list that was there before.
  */
 export function writeWorkspacePlugins(workspaceDir: string, slugs: readonly string[]): string[] {
+  // Reject broken module contracts before changing the authored source of truth.
+  resolvePlugins(slugs);
   const file = join(workspaceDir, 'workspace.yaml');
   const doc = parseDocument(readFileSync(file, 'utf8'));
   const before = doc.get('plugins');
@@ -219,7 +221,7 @@ export async function togglePluginForProject(opts: { orgId: string; projectSlug:
     return setPluginEnabled({ orgId: opts.orgId, workspaceDir: target.workspaceDir, slug: opts.slug, enabled: opts.enabled, appliedBy: opts.appliedBy });
   }
   const before = await enabledPluginsForOrg(opts.orgId);
-  const after = closeEnabledPlugins(opts.enabled ? [...before, opts.slug] : before.filter(s => s !== opts.slug && !loadPlugin(s).manifest.depends.includes(opts.slug)));
+  const after = closeEnabledPlugins(opts.enabled ? [...before, opts.slug] : withoutPluginDependents(before, opts.slug));
   await writeEnabledPlugins(opts.orgId, after);
   if (!(await appliedFromFolder(opts.orgId))) {
     const installed = await syncBundles({ orgId: opts.orgId, before, after, asked: [opts.slug], appliedBy: opts.appliedBy });
@@ -378,7 +380,7 @@ export async function setPluginEnabled(opts: { orgId: string; workspaceDir: stri
     ? [...new Set([...current, opts.slug])]
     // Turning one off also drops the plugins that depended on it — a plugin
     // cannot stay on without its dependency, and saying so beats a load error.
-    : current.filter(s => s !== opts.slug && !loadPlugin(s).manifest.depends.includes(opts.slug));
+    : withoutPluginDependents(current, opts.slug);
   const before = writeWorkspacePlugins(dir, next);
   return { ...(await applyAfterEdit(opts.orgId, dir, opts.appliedBy)), slug: opts.slug, enabled: opts.enabled, before, after: next, mode: 'workspace' };
 }

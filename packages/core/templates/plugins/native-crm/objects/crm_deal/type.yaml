@@ -1,0 +1,58 @@
+slug: crm_deal
+label: Deal
+code: DEAL
+description: Native CRM deal in this workspace. Separate from external CRM mirrors.
+schema:
+  type: object
+  properties:
+    name:
+      type: string
+      x-display:
+        label: Name
+    companyId:
+      type: integer
+      x-display:
+        label: Company ID
+    contactId:
+      type: integer
+      x-display:
+        label: Contact ID
+    ownerId:
+      type: string
+      x-display:
+        label: Owner ID
+    pipeline:
+      type: string
+      x-display:
+        label: Pipeline
+    stage:
+      type: string
+      x-display:
+        label: Stage
+    outcome:
+      type: string
+      enum:
+        - open
+        - won
+        - lost
+      x-display:
+        label: Outcome
+    amountMinor:
+      type: integer
+      minimum: 0
+      x-display:
+        label: Amount (minor units)
+    currency:
+      type: string
+      pattern: ^[A-Z]{3}$
+      x-display:
+        label: Currency
+    closeDate:
+      type: string
+      format: date
+      x-display:
+        label: Close date
+    nextStep:
+      type: string
+      x-display:
+        label: Next step

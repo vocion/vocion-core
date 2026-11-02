@@ -442,6 +442,18 @@ export const PluginManifestSchema = z.object({
   description: z.string().min(1).describe('one line: what turning it on gives a person'),
   /** Other plugins this one needs; turned on with it, ordered before it. */
   depends: z.array(SlugSchema).default([]),
+  /** Public data contract. Records stay in the platform; collections are views. */
+  data: z.object({
+    exports: z.array(SlugSchema).default([]),
+    imports: z.array(z.object({
+      module: SlugSchema,
+      objects: z.array(SlugSchema).min(1),
+    }).strict()).default([]),
+    collections: z.array(z.object({
+      page: SlugSchema,
+      objectType: SlugSchema,
+    }).strict()).default([]),
+  }).strict().optional(),
   /**
    * The plugin's own agent that leads a workspace it is installed into when
    * that workspace has no lead of its own, or only the generic one core seeds

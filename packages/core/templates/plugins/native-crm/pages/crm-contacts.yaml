@@ -1,0 +1,36 @@
+slug: crm-contacts
+title: Contacts
+description: Native CRM contact records in this workspace.
+icon: users
+nav:
+  section: GTM
+  order: 2
+archetype: list
+layout: table
+pluginPanel: false
+source:
+  kind: objects
+  objectType: crm_contact
+fields:
+  - key: name
+    label: Name
+    from: meta.name
+  - key: email
+    label: Email
+    from: meta.email
+  - key: companyId
+    label: Company ID
+    from: meta.companyId
+  - key: ownerId
+    label: Owner ID
+    from: meta.ownerId
+  - key: lifecycle
+    label: Lifecycle
+    from: meta.lifecycle
+  - key: doNotContact
+    label: Do not contact
+    from: meta.doNotContact
+rowLink: /dashboard/objects/{id}
+empty:
+  text: No native contact records yet. This collection does not import or replace
+    HubSpot records.

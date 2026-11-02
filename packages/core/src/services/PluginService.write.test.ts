@@ -32,6 +32,13 @@ surfaces: [personalization]
 `;
 
 describe('writeWorkspacePlugins', () => {
+  it('leaves the manifest untouched when module preflight fails', () => {
+    const dir = workspace(BASE);
+
+    expect(() => writeWorkspacePlugins(dir, ['missing-module'])).toThrow('unknown plugin');
+    expect(readFileSync(join(dir, 'workspace.yaml'), 'utf8')).toBe(BASE);
+  });
+
   it('adds a plugins key, keeping comments and every other key', () => {
     const dir = workspace(BASE);
     const before = writeWorkspacePlugins(dir, ['wiki']);

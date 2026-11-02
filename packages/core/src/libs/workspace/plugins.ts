@@ -27,6 +27,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { fromRepoRoot } from '@/libs/repo-root';
+import { validateModuleData } from './moduleData';
 import { PluginManifestSchema, TeamManifestSchema } from './schemas';
 
 /** Where the shipped plugins live, relative to the repo root. */
@@ -81,6 +82,9 @@ export function pluginRoots(): string[] {
  * @param slug - The plugin slug (its directory name).
  */
 export function loadPlugin(slug: string): LoadedPlugin {
+  if (!/^[a-z][a-z0-9_-]*$/.test(slug)) {
+    throw new Error(`invalid plugin slug "${slug}"`);
+  }
   const dir = join(pluginsRoot(), slug);
   const file = join(dir, 'plugin.yaml');
   if (!existsSync(file)) {
@@ -141,7 +145,24 @@ export function resolvePlugins(requested: readonly string[]): LoadedPlugin[] {
   for (const slug of requested) {
     visit(slug, []);
   }
+  validateModuleData(out.map(plugin => ({ ...plugin, contents: pluginContents(plugin) })));
   return out;
+}
+
+/**
+ * Remove a module and every transitive dependent without re-enabling it via closure.
+ * @param requested - Authored or dependency-closed module slugs.
+ * @param removed - Module being disabled.
+ */
+export function withoutPluginDependents(requested: readonly string[], removed: string): string[] {
+  const resolved = resolvePlugins(requested);
+  const blocked = new Set([removed]);
+  for (const plugin of resolved) {
+    if (plugin.manifest.depends.some(dep => blocked.has(dep))) {
+      blocked.add(plugin.manifest.slug);
+    }
+  }
+  return requested.filter(slug => !blocked.has(slug));
 }
 
 /**
