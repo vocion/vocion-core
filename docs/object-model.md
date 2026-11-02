@@ -58,3 +58,12 @@ sweep. Field-by-field reference for each authored type:
 | Workflow `skill` step + `discovery_followup` workflow | `discovery-followup` mission + `read_discovery_transcript` gated tool |
 | `/dashboard/logs`, `/dashboard/playbooks`, `/api/v1/skills` | Activity (tool rows folded in), the one Skills page, no API replacement |
 | `/dashboard/api-tokens` (2026-09 nav sweep) | Developers (`/dashboard/developers`): credentials, the MCP/REST endpoints and the docs on one page; the old URL redirects |
+
+## Runtime Lists
+
+[Lists](./guides/lists.md) are runtime-authored schemas and records, stored in
+`workspace_list`, `list_record` and `list_revision`. They carry explicit workspace,
+owner and audience boundaries and are served through the List service, separate
+from the legacy workspace-wide business-object index. Workspace YAML apply does
+not overwrite them. The chat tools and editable `/dashboard/lists` page use the
+same validation, version checks and authorization.

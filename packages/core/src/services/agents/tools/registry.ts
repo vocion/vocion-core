@@ -78,6 +78,7 @@ import {
   removeLearningTool,
   updateLearningTool,
 } from './learnings';
+import { listTools } from './lists';
 import { liveBrowserTools } from './liveBrowser';
 import { lookupObjectsTool } from './lookupObjects';
 import { lookupPersonTools } from './lookupPerson';
@@ -254,6 +255,7 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ...inFamily('Code and files', [runCodeTool(ctx)]),
     ...inFamily('Charts and artifacts', [createArtifactTool(ctx)]),
     lookupObjectsTool(ctx),
+    ...inFamily('Lists and CRM', listTools(ctx)),
     // Files dropped into chat (badges, cards, notes, sheets) read into typed
     // records with per-field provenance; what it cannot settle is one Decision
     // (`services/intake`). In-workspace writes only, so on for every agent.

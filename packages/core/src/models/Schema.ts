@@ -758,6 +758,43 @@ export const todoSchema = pgTable('todo', {
 /* ------------------------------------------------------------------ */
 
 /** Registry of object type definitions per org (e.g. Discovery Call, Deal, Account) */
+/** Runtime-authored Lists are isolated from the workspace-wide object index. */
+export const workspaceListSchema = pgTable('workspace_list', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+  ownerId: text('owner_id').notNull().references(() => userSchema.id),
+  scope: text('scope').notNull().default('personal'),
+  title: text('title').notNull(),
+  purpose: text('purpose').notNull().default(''),
+  fields: jsonb('fields').$type<import('@/libs/lists/spec').ListField[]>().notNull(),
+  views: jsonb('views').$type<import('@/libs/lists/spec').ListView[]>().notNull().default([]),
+  version: integer('version').notNull().default(1),
+  archived: boolean('archived').notNull().default(false),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  index('workspace_list_scope_idx').on(t.projectId, t.scope, t.ownerId),
+  check('workspace_list_scope_check', sql`${t.scope} in ('personal', 'workspace')`),
+]);
+
+export const listRecordSchema = pgTable('list_record', {
+  id: text('id').primaryKey(),
+  listId: text('list_id').notNull().references(() => workspaceListSchema.id, { onDelete: 'cascade' }),
+  values: jsonb('values').$type<Record<string, string | number | boolean | null>>().notNull(),
+  version: integer('version').notNull().default(1),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, t => [index('list_record_list_idx').on(t.listId, t.id)]);
+
+export const listRevisionSchema = pgTable('list_revision', {
+  id: serial('id').primaryKey(),
+  listId: text('list_id').notNull().references(() => workspaceListSchema.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+  actorId: text('actor_id').notNull(),
+  change: jsonb('change').$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, t => [uniqueIndex('list_revision_version_idx').on(t.listId, t.version)]);
+
 export const businessObjectTypeSchema = pgTable(
   'business_object_type',
   {

@@ -120,3 +120,5 @@ about them.
 
 Internal working notes (roadmap, changelog, use cases) live in
 [`internal/`](./internal/).
+
+- [Lists and the CRM starter](./guides/lists.md) — personal Lists, shared schemas, chat tools, permissions and storage.
