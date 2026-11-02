@@ -212,6 +212,7 @@ export function ListsWorkspace({ id }: { id?: string }) {
             )}
             {editing && (
               <form
+                key={`${editing.id}:${editing.version}`}
                 className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2"
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -228,12 +229,12 @@ export function ListsWorkspace({ id }: { id?: string }) {
                     {field.label}
                     {field.type === 'select' || field.type === 'boolean'
                       ? (
-                          <select name={field.key} className="block w-full rounded border bg-background p-2" value={String(editing.values[field.key] ?? '')} onChange={e => setEditing({ ...editing, values: { ...editing.values, [field.key]: e.target.value === '' ? null : field.type === 'boolean' ? e.target.value === 'true' : e.target.value } })}>
+                          <select name={field.key} className="block w-full rounded border bg-background p-2" defaultValue={String(editing.values[field.key] ?? '')}>
                             <option value="">Not set</option>
                             {(field.type === 'boolean' ? ['true', 'false'] : field.options!).map(option => <option key={option}>{option}</option>)}
                           </select>
                         )
-                      : <Input name={field.key} type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} step={field.type === 'number' ? 'any' : undefined} maxLength={10000} placeholder={field.type === 'reference' ? 'Linked record ID' : ''} value={String(editing.values[field.key] ?? '')} onChange={e => setEditing({ ...editing, values: { ...editing.values, [field.key]: e.target.value === '' ? null : field.type === 'number' ? Number(e.target.value) : e.target.value } })} />}
+                      : <Input name={field.key} type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} step={field.type === 'number' ? 'any' : undefined} maxLength={10000} placeholder={field.type === 'reference' ? 'Linked record ID' : ''} defaultValue={String(editing.values[field.key] ?? '')} />}
                     {field.type === 'reference' && <Link className="text-xs underline" href={`/dashboard/lists/${field.referenceListId}`}>Open linked List</Link>}
                   </label>
                 ))}
