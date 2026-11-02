@@ -215,7 +215,12 @@ export function ListsWorkspace({ id }: { id?: string }) {
                 className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  void run({ action: 'write', id, expectedVersion: editing.version, records: [{ id: editing.id, values: editing.values }] });
+                  const form = new FormData(e.currentTarget);
+                  const values = Object.fromEntries(list.fields.map((field) => {
+                    const raw = String(form.get(field.key) ?? '');
+                    return [field.key, raw === '' ? null : field.type === 'number' ? Number(raw) : field.type === 'boolean' ? raw === 'true' : raw];
+                  }));
+                  void run({ action: 'write', id, expectedVersion: editing.version, records: [{ id: editing.id, values }] });
                 }}
               >
                 {list.fields.map(field => (
@@ -223,12 +228,12 @@ export function ListsWorkspace({ id }: { id?: string }) {
                     {field.label}
                     {field.type === 'select' || field.type === 'boolean'
                       ? (
-                          <select className="block w-full rounded border bg-background p-2" value={String(editing.values[field.key] ?? '')} onChange={e => setEditing({ ...editing, values: { ...editing.values, [field.key]: e.target.value === '' ? null : field.type === 'boolean' ? e.target.value === 'true' : e.target.value } })}>
+                          <select name={field.key} className="block w-full rounded border bg-background p-2" value={String(editing.values[field.key] ?? '')} onChange={e => setEditing({ ...editing, values: { ...editing.values, [field.key]: e.target.value === '' ? null : field.type === 'boolean' ? e.target.value === 'true' : e.target.value } })}>
                             <option value="">Not set</option>
                             {(field.type === 'boolean' ? ['true', 'false'] : field.options!).map(option => <option key={option}>{option}</option>)}
                           </select>
                         )
-                      : <Input type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} step={field.type === 'number' ? 'any' : undefined} maxLength={10000} placeholder={field.type === 'reference' ? 'Linked record ID' : ''} value={String(editing.values[field.key] ?? '')} onChange={e => setEditing({ ...editing, values: { ...editing.values, [field.key]: e.target.value === '' ? null : field.type === 'number' ? Number(e.target.value) : e.target.value } })} />}
+                      : <Input name={field.key} type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} step={field.type === 'number' ? 'any' : undefined} maxLength={10000} placeholder={field.type === 'reference' ? 'Linked record ID' : ''} value={String(editing.values[field.key] ?? '')} onChange={e => setEditing({ ...editing, values: { ...editing.values, [field.key]: e.target.value === '' ? null : field.type === 'number' ? Number(e.target.value) : e.target.value } })} />}
                     {field.type === 'reference' && <Link className="text-xs underline" href={`/dashboard/lists/${field.referenceListId}`}>Open linked List</Link>}
                   </label>
                 ))}
