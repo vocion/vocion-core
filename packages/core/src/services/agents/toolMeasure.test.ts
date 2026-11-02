@@ -18,8 +18,8 @@ import { buildDomainTools } from './tools/registry';
 const MAX_TOOL_DEFINITION_CHARS = 9_000;
 /** No one description past this. The largest, query_state, is 4.0k and carries the state catalog. */
 const MAX_DESCRIPTION_CHARS = 4_500;
-/** The whole catalog of an agent with every common connector: 175k characters, about 70k tokens, on 2026-10-29. */
-const MAX_CATALOG_CHARS = 180_000;
+/** All common connectors plus the seven List tools: 188,147 characters on 2026-11-02 (ADR 0009). */
+const MAX_CATALOG_CHARS = 190_000;
 
 const EVERYTHING = { slug: 'every-connector', connectorSources: ['hubspot', 'gmail', 'drive', 'google-calendar', 'zoom', 'slack'], grantTools: [], enabledPlugins: ['wiki'] };
 

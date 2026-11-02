@@ -60,6 +60,14 @@ describe('the document is usable by a client generator', () => {
     expect(document.components.securitySchemes).toHaveProperty('bearerToken');
   });
 
+  it('documents Lists as session-only instead of accepting tenant tokens', () => {
+    expect(document.paths['/api/v1/lists']).toMatchObject({
+      get: { security: [{ browserSession: [] }] },
+      post: { security: [{ browserSession: [] }] },
+    });
+    expect(document.components.securitySchemes.browserSession).toMatchObject({ type: 'apiKey', in: 'cookie' });
+  });
+
   it('gives every operation a unique id', () => {
     const ids = operations.map(entry => entry.operation.operationId);
 
