@@ -129,6 +129,20 @@ catalog. Cutting the large schemas is follow-up work.
 
 A cap is raised only with a reason recorded here.
 
+#### 2026-11-02: persistent Lists
+
+Seven person-bound tools add the Lists and CRM family: discovery, creation,
+reading, record writes, configuration, aggregation and starter installation.
+Their definitions total 8,358 characters; the measured complete catalog is
+188,147 characters. The catalog ceiling moves from 180,000 to 190,000 to
+accommodate this new capability. This is an inventory ceiling, not a larger
+per-turn allowance: the 40-tool / 64k-character budget, per-tool caps and
+all template/eval budget assertions remain unchanged. The new family is not
+always loaded or part of the core tier. The List-building procedure is read
+from the skill through discovery, rather than copied into every description.
+Providers that load the whole catalog will incur this additional schema
+context; no claim is made that the increase is free on those providers.
+
 ## Validation: the `agent-behaviour` eval
 
 `services/evals/agentBehaviour/`, run with

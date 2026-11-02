@@ -6,7 +6,11 @@ import { aggregateList, configureList, createList, ListError, listLists, readLis
 import { authApi, isErrorResponse, jsonError, readJsonBody } from '../_shared';
 
 /**
- * Personal identity is mandatory; generic tenant tokens cannot impersonate a List owner.
+ * List saved Lists or read one List with records and history.
+ *
+ * Requires a signed-in person; tenant tokens are rejected. Personal Lists are
+ * owner-only. With no id, returns up to 50 Lists and nextOffset. With id, returns
+ * up to 50 records, total, schema, current version and the latest 20 revisions.
  * @param req
  */
 export async function GET(req: Request) {
@@ -31,6 +35,16 @@ export async function GET(req: Request) {
   }
 }
 
+/**
+ * Create or update a List, aggregate records, or install the CRM starter.
+ *
+ * Requires a signed-in person; tenant tokens are rejected. The action is create,
+ * write, configure, aggregate or crm. Writes and configuration require the latest
+ * expectedVersion; conflicts return 409 without applying changes. Shared List
+ * definitions and CRM installation require admin; members may edit shared records.
+ * Follow-up rows do not send messages or schedule reminders.
+ * @param req
+ */
 export async function POST(req: Request) {
   const caller = await authApi(req);
   if (isErrorResponse(caller)) {
