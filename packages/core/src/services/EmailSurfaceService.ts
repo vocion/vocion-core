@@ -270,15 +270,7 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
     if (mailEnabled()) {
       try {
         const ackId = outboundMessageId(domain);
-        await deps.send({
-          from,
-          to: meta.from,
-          subject: replySubject(meta.subject),
-          text: `Thanks — your message to ${box.address} reached ${box.projectName}. A person will look at it and get back to you.`,
-          html: `<p>Thanks — your message to ${box.address} reached ${box.projectName}. A person will look at it and get back to you.</p>`,
-          headers: { 'Message-ID': `<${ackId}>`, 'In-Reply-To': `<${inboundMessageId}>`, 'References': [...referenced, inboundMessageId].map(id => `<${id}>`).join(' ') },
-          tags: { surface: 'email', kind: 'ack' },
-        });
+        await deps.send({ workspaceId: orgId, from, to: meta.from, subject: replySubject(meta.subject), text: `Thanks — your message to ${box.address} reached ${box.projectName}. A person will look at it and get back to you.`, html: `<p>Thanks — your message to ${box.address} reached ${box.projectName}. A person will look at it and get back to you.</p>`, headers: { 'Message-ID': `<${ackId}>`, 'In-Reply-To': `<${inboundMessageId}>`, 'References': [...referenced, inboundMessageId].map(id => `<${id}>`).join(' ') }, tags: { surface: 'email', kind: 'ack' } });
         await db.insert(emailThreadSchema).values({ orgId, conversationId: conv.id, messageId: ackId, direction: 'out', fromAddress: box.address, subject: replySubject(meta.subject) });
         acknowledged = true;
       } catch {
@@ -293,14 +285,7 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
     if (mailEnabled()) {
       // An extension's cap says in its own words whose it is; core's caps keep core's words.
       const words = budget.scope === 'extension' ? budgetRefusalMessage(budget) : null;
-      await deps.send({
-        from,
-        to: meta.from,
-        subject: replySubject(meta.subject),
-        text: words ?? `This workspace's agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`,
-        html: words ? `<p>${escapeHtml(words)}</p>` : '<p>This workspace\'s agent is over its budget for the period. A workspace admin can raise the cap in Vocion.</p>',
-        headers: { 'In-Reply-To': `<${inboundMessageId}>` },
-      }).catch(() => {});
+      await deps.send({ workspaceId: orgId, from, to: meta.from, subject: replySubject(meta.subject), text: words ?? `This workspace's agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`, html: words ? `<p>${escapeHtml(words)}</p>` : '<p>This workspace\'s agent is over its budget for the period. A workspace admin can raise the cap in Vocion.</p>', headers: { 'In-Reply-To': `<${inboundMessageId}>` } }).catch(() => {});
     }
     return { outcome: 'over_budget', orgId, agentSlug };
   }
@@ -336,15 +321,7 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
     let mailId: string | null = null;
     if (mailEnabled()) {
       const outId = outboundMessageId(domain);
-      const sent = await deps.send({
-        from,
-        to: meta.from,
-        subject: replySubject(meta.subject),
-        text: decided.reply,
-        html: `<div style="font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#0b1020;white-space:pre-wrap">${escapeHtml(decided.reply)}</div>`,
-        headers: { 'Message-ID': `<${outId}>`, 'In-Reply-To': `<${inboundMessageId}>`, 'References': [...referenced, inboundMessageId].map(id => `<${id}>`).join(' ') },
-        tags: { surface: 'email', kind: 'decision' },
-      });
+      const sent = await deps.send({ workspaceId: orgId, from, to: meta.from, subject: replySubject(meta.subject), text: decided.reply, html: `<div style="font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#0b1020;white-space:pre-wrap">${escapeHtml(decided.reply)}</div>`, headers: { 'Message-ID': `<${outId}>`, 'In-Reply-To': `<${inboundMessageId}>`, 'References': [...referenced, inboundMessageId].map(id => `<${id}>`).join(' ') }, tags: { surface: 'email', kind: 'decision' } });
       mailId = sent.skipped ? null : sent.id;
       await db.insert(emailThreadSchema).values({ orgId, conversationId, messageId: outId, direction: 'out', fromAddress: box.address, subject: replySubject(meta.subject) });
     }
@@ -369,15 +346,7 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
     let mailId: string | null = null;
     if (mailEnabled()) {
       const outId = outboundMessageId(domain);
-      const sent = await deps.send({
-        from,
-        to: meta.from,
-        subject: replySubject(meta.subject),
-        text,
-        html: `<div style="font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#0b1020;white-space:pre-wrap">${escapeHtml(text)}</div>`,
-        headers: { 'Message-ID': `<${outId}>`, 'In-Reply-To': `<${inboundMessageId}>`, 'References': [...referenced, inboundMessageId].map(id => `<${id}>`).join(' ') },
-        tags: { surface: 'email', org: orgId.slice(0, 40) },
-      });
+      const sent = await deps.send({ workspaceId: orgId, from, to: meta.from, subject: replySubject(meta.subject), text, html: `<div style="font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#0b1020;white-space:pre-wrap">${escapeHtml(text)}</div>`, headers: { 'Message-ID': `<${outId}>`, 'In-Reply-To': `<${inboundMessageId}>`, 'References': [...referenced, inboundMessageId].map(id => `<${id}>`).join(' ') }, tags: { surface: 'email', org: orgId.slice(0, 40) } });
       mailId = sent.skipped ? null : sent.id;
       await db.insert(emailThreadSchema).values({ orgId, conversationId, messageId: outId, direction: 'out', fromAddress: box.address, subject: replySubject(meta.subject) });
     }
@@ -385,7 +354,7 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (mailEnabled()) {
-      await deps.send({ from, to: meta.from, subject: replySubject(meta.subject), text: 'Something went wrong on my side; a person can see the details in Vocion.', html: '<p>Something went wrong on my side; a person can see the details in Vocion.</p>', headers: { 'In-Reply-To': `<${inboundMessageId}>` } }).catch(() => {});
+      await deps.send({ workspaceId: orgId, from, to: meta.from, subject: replySubject(meta.subject), text: 'Something went wrong on my side; a person can see the details in Vocion.', html: '<p>Something went wrong on my side; a person can see the details in Vocion.</p>', headers: { 'In-Reply-To': `<${inboundMessageId}>` } }).catch(() => {});
     }
     return { outcome: 'failed', orgId, agentSlug, conversationId, error: message };
   }
