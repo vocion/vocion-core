@@ -2080,13 +2080,44 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record is in a state that does not allow this. Codes: `WORKSPACE_CHANGED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
-        "description": "Read the workspace CRM funnel, source freshness and delivery hold.\nRequires a browser session and matching workspace query parameter."
+        "description": "Read the workspace CRM funnel, source freshness and delivery hold.\nRequires a browser session and matching workspace query parameter.",
+        "parameters": [
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       },
       "post": {
         "operationId": "post_crm",
-        "summary": "Queue a resumable HubSpot import.",
+        "summary": "Queue a resumable HubSpot import without sending email.",
         "tags": [
           "crm"
         ],
@@ -2115,9 +2146,40 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record is in a state that does not allow this. Codes: `WORKSPACE_CHANGED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
-        "description": "Queue a resumable HubSpot import. Requires a workspace admin browser session.\nImports source records without sending email or scheduling provider campaigns."
+        "description": "Queue a resumable HubSpot import without sending email. Requires workspace admin.\nRequires a browser session and matching workspace query parameter.",
+        "parameters": [
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/engine-runs": {
