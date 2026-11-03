@@ -8,6 +8,7 @@ import { defineJob } from '@/libs/durable/jobs';
 
 export const JOB = {
   sourceSync: 'source.sync',
+  crmSync: 'crm.sync',
   workflowTrigger: 'workflow.trigger',
   missionCheck: 'mission.check',
   automationFire: 'automation.fire',
@@ -253,3 +254,17 @@ defineJob<import('@/services/inbox/handBack').HandBackInput>(JOB.askHandBack, as
   const { runHandBack } = await import('@/services/inbox/handBack');
   return runHandBack(input);
 }, { retry: { attempts: 2, intervalSeconds: 30, backoff: 2 } });
+
+// Every page and its cursor commit together. Replays resume the saved page,
+// and a browser closing cannot abandon the import.
+defineJob<{ orgId: string; userId: string }>(JOB.crmSync, async (input, ctx) => {
+  const { syncCrmPage } = await import('@/services/crm/sync');
+  for (let page = 0; page < 10000; page++) {
+    const result = await ctx.step(`page-${page}`, () => syncCrmPage(input), { attempts: 3, intervalSeconds: 30, backoff: 2 });
+    if (result.done) {
+      return result;
+    }
+    await ctx.sleep(250);
+  }
+  throw new Error('CRM import reached its page limit. Resume from the saved cursor.');
+}, { whole: true });

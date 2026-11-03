@@ -27,9 +27,11 @@ Follow-ups owed are counted from the drafts waiting now, never from a label stor
 
 Pipeline totals and quiet-deal counts are intentionally absent from this launcher. Filtering only the default `closedwon` and `closedlost` stage IDs can include closed deals in custom pipelines. Restore those measures only when the state query can use normalized closed-stage metadata. External meetings are labelled as such: an outside attendee does not establish that a meeting is with a client.
 
-## Native CRM foundation
+## Native CRM
 
-The optional `native-crm` feature adds Companies, Contacts, Deals and Activities
-as object-backed tables under GTM. These reuse Vocion's object store and page
-renderer. They neither import HubSpot records nor redirect existing agents or
-sequence execution. See [module contracts and rollout](../modules.md).
+GTM home includes a CRM funnel from the shared CRM Lists. Admins can start or
+resume HubSpot imports; imported records are read-only during migration.
+Native records remain editable in Lists. Outbound delivery is held when
+`defaults.outboundDryRun` is true (the default for native-crm). See the
+[native CRM module](../../packages/core/templates/plugins/native-crm/README.md)
+for supported behavior and remaining work.

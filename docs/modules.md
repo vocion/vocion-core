@@ -20,10 +20,10 @@ slug: customer-delivery
 name: Customer delivery
 version: 1.0.0
 description: Delivery views over the workspace's native customer records.
-depends: [native-crm]
+depends: [company-records]
 data:
   imports:
-    - module: native-crm
+    - module: company-records
       objects: [crm_company]
   collections:
     - page: delivery-customers
@@ -80,20 +80,12 @@ a generic object/List adapter. That integration must preserve IDs or explicit
 source mappings, provenance, revisions, permissions, and retry safety; a CRM
 starter List is not automatically the authoritative native CRM.
 
-## Native CRM Sprint 1
+## Native CRM
 
-`native-crm` supplies company, contact, deal and activity object definitions,
-exports and GTM table pages. Install explicitly to pilot it. Existing workspaces
-are not automatically opted in. Adding GTM to a new workspace includes the feature.
-See [the module README](../packages/core/templates/plugins/native-crm/README.md).
+The native-crm module uses shared CRM Lists as its canonical records, with a
+GTM funnel and resumable read-only HubSpot imports. It does not install a second
+set of business-object CRM collections. Module object exports remain available
+for modules that own business-object definitions.
 
-Acceptance covered by automated checks: valid module composition; rejected
-invalid contracts; transitive disable; idempotent CRM installation; workspace
-isolation for record reads; retained IDs on disable/re-enable; collection pages
-visible only with the feature enabled.
-
-Before a HubSpot cutover: enforce CRM-specific commands and references; integrate
-the dynamic List promotion path; add a native provider for existing agents;
-map and reconcile all HubSpot data and workflows; replace sending/sequence and
-handoff execution; validate historical reporting and rollback. HubSpot remains
-the operational authority until that migration is explicitly performed.
+See [the module README](../packages/core/templates/plugins/native-crm/README.md)
+for migration behavior and current limitations.

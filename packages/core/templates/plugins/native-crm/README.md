@@ -1,37 +1,19 @@
-# Native CRM foundation
+# Native CRM
 
-Optional GTM module, installed with `plugins: [native-crm]`. It adds four
-workspace-owned object definitions and table/list collection pages using the
-platform object service and page renderer. No separate database or record copy.
+The GTM home uses the native CRM Lists (companies, contacts, deals, follow-ups)
+as its record store. The Lists starter and GTM share deterministic IDs. No
+parallel CRM business-object collection is installed.
 
-This is a pilot foundation, not a HubSpot cutover. It does not enroll contacts,
-send mail, import external records, or change the authority of existing agents.
-HubSpot sources and workflows remain active. No background jobs are installed.
+An admin can start a background HubSpot sync from GTM home. Contacts source
+syncs refresh an initialized CRM. Each page saves its cursor and record
+changes in one transaction; interrupted imports resume on the next sync.
+Imported rows remain read-only during migration; edit them in HubSpot and
+sync again. Native rows remain editable in Lists. Counts cover all active
+rows and amounts stay grouped by currency. Missing currency stays unknown.
 
-## Shared contracts
-
-The module exports `crm_company`, `crm_contact`, `crm_deal`, and `crm_activity`.
-A consumer declares `depends: [native-crm]` and `data.imports` for the types it
-uses. Collection pages reference those records; they never own a second copy.
-Exports do not grant access: all runtime reads/writes still require workspace
-membership and the existing object permissions.
-
-IDs are native object IDs. External mappings belong in the object's existing
-`externalSystem` / `externalId` fields, not in its primary ID. Reference metadata
-is an initial schema contract; referential integrity and CRM-specific command
-validation must land before authoritative use. `outcome` is independent of a
-pipeline's stage labels. Amounts use integer minor units with an explicit currency;
-this foundation deliberately does not total different currencies.
-
-Disabling the module removes its navigation but retains records and history.
-Personal Lists are owned by the platform Lists capability. They must not become
-shared CRM records implicitly: promotion/import needs explicit authorization,
-validated mappings, preserved provenance, and an idempotent migration command.
-
-## Remaining before replacing HubSpot
-
-Typed CRM commands with reference, stage and ownership validation; a native
-provider adapter for existing agents; import/reconciliation tooling; activity
-capture; sequence execution and suppression; historical reporting; end-to-end
-access and cutover verification. Existing generic record editing is not evidence
-that these CRM invariants are enforced.
+This release defaults outbound delivery to dry run when enabled. Workspace
+`defaults.outboundDryRun: true` explicitly holds delivery, sequence enrollment,
+CRM mutations and generic external write actions that could dispatch mail.
+Gmail draft creation and local planning remain available. This is not a
+complete HubSpot replacement: campaign delivery,
+JEV qualification execution and historical conversion reporting are pending.

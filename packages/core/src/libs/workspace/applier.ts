@@ -1270,6 +1270,7 @@ async function applyWorkspaceLeadConfig(
   // The workspace's zone, declarative like the rest: omitted clears the column
   // and the runs fall back to the server default (`workspaceTimeZone`).
   const timeZone = loaded.manifest.defaults?.timezone ?? null;
+  const outboundDryRun = loaded.manifest.defaults?.outboundDryRun ?? enabledPlugins.includes('native-crm');
   // voice.yaml, declarative like the rest: the whole file lands on the column
   // and deleting the file clears it, dropping the workspace back to core's
   // platform floor.
@@ -1299,6 +1300,7 @@ async function applyWorkspaceLeadConfig(
           voiceRules: projectSchema.voiceRules,
           operatingIntent: projectSchema.operatingIntent,
           timeZone: projectSchema.timeZone,
+          outboundDryRun: projectSchema.outboundDryRun,
           goal: projectSchema.goal,
           mailboxAddress: projectSchema.mailboxAddress,
           mailboxEnabled: projectSchema.mailboxEnabled,
@@ -1337,7 +1339,7 @@ async function applyWorkspaceLeadConfig(
     if (mode.offline) {
       return;
     }
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || jev !== null || orgReview !== null || voiceRules !== null || operatingIntent !== null || goal !== null || mailboxEnabled) {
+    if (outboundDryRun || lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || jev !== null || orgReview !== null || voiceRules !== null || operatingIntent !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -1382,6 +1384,7 @@ async function applyWorkspaceLeadConfig(
     && voiceUnchanged
     && operatingIntentUnchanged
     && (project.goal ?? null) === goal
+    && project.outboundDryRun === outboundDryRun
     && (project.timeZone ?? null) === timeZone
     && project.mailboxEnabled === mailboxEnabled
     && (project.mailboxAddress ?? null) === mailboxAddress
@@ -1391,7 +1394,7 @@ async function applyWorkspaceLeadConfig(
   if (!mode.dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, jev, orgReview, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, jev, orgReview, voiceRules, operatingIntent, goal, timeZone, outboundDryRun, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }

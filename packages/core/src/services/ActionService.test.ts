@@ -685,3 +685,17 @@ describe('a decision about a superseded record no longer blocks its replacement 
     expect(replacement.runId).not.toBe(first.runId);
   });
 });
+
+it('refuses an approved outbound action in dry run without calling its connector', async () => {
+  const { projectSchema, tenantAccountSchema } = await import('@/models/Schema');
+  await db.insert(tenantAccountSchema).values({ id: 'dry-run-account', name: 'Example', slug: 'dry-run-account' });
+  await db.insert(projectSchema).values({ id: 'dry-run-project', accountId: 'dry-run-account', name: 'Example', slug: 'dry-run-project', outboundDryRun: true });
+  const deliver = vi.fn(async () => ({ sent: true }));
+  registerAction({ id: 'test.send', name: 'Test send', description: 'No network', inputSchema: z.object({}), grant: 'send_email', external: true, execute: deliver });
+  const [run] = await db.insert(actionRunSchema).values({ orgId: 'dry-run-project', actionId: 'test.send', status: 'approved', input: {}, invokedBy: 'person' }).returning();
+  const result = await executeAction(run!.id, 'dry-run-project', { reviewedBy: 'person' });
+
+  expect(result.status).toBe('failed');
+  expect(result.error).toContain('dry run');
+  expect(deliver).not.toHaveBeenCalled();
+});

@@ -163,7 +163,9 @@ async function routeWorkspace(request: NextRequest, ctx: { origin: string; userI
       const destination = workspaceUrl(project.slug, `${currentPath}${request.nextUrl.search}`);
       response = NextResponse.redirect(new URL(`${canonical.locale ? `/${canonical.locale}` : ''}${destination}`, ctx.origin), 307);
     } else if (request.method === 'GET' && canonical.appPath === '/dashboard') {
-      const home = workspaceUrl(project.slug, `${DASHBOARD_HOME}${request.nextUrl.search}`);
+      const { hasCrmHome } = await import('./services/crm/landing');
+      const landing = await hasCrmHome(project.id) ? '/dashboard/apps/gtm/home' : DASHBOARD_HOME;
+      const home = workspaceUrl(project.slug, `${landing}${request.nextUrl.search}`);
       response = NextResponse.redirect(new URL(`${canonical.locale ? `/${canonical.locale}` : ''}${home}`, ctx.origin), 307);
     } else {
       // The route tree is `app/[locale]/…`, so the rewrite carries the locale
@@ -209,7 +211,9 @@ async function routeWorkspace(request: NextRequest, ctx: { origin: string; userI
   }
   const locale = localeOf(bare);
   const requested = locale ? bare.slice(locale.length + 1) : bare;
-  const appPath = requested.replace(/\/$/, '') === '/dashboard' ? DASHBOARD_HOME : currentDashboardPath(requested);
+  const { hasCrmHome } = await import('./services/crm/landing');
+  const landing = requested.replace(/\/$/, '') === '/dashboard' && await hasCrmHome(workspace.id) ? '/dashboard/apps/gtm/home' : DASHBOARD_HOME;
+  const appPath = requested.replace(/\/$/, '') === '/dashboard' ? landing : currentDashboardPath(requested);
   const target = new URL(`${locale ? `/${locale}` : ''}${workspaceUrl(workspace.slug, `${appPath}${request.nextUrl.search}`)}`, ctx.origin);
   return NextResponse.redirect(target, 307);
 }

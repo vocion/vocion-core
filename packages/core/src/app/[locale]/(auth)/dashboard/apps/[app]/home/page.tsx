@@ -7,6 +7,7 @@ import { Section } from '@/components/patterns';
 import { HomeAskBar } from '@/features/dashboard/appHome/HomeAskBar';
 import { ActivitySection, NeedsYouSection, ProjectsSection, SectionPending, StandingSection } from '@/features/dashboard/appHome/HomeSections';
 import { LaunchTiles } from '@/features/dashboard/appHome/LaunchTiles';
+import { CrmDashboard } from '@/features/dashboard/crm/CrmDashboard';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
@@ -81,6 +82,8 @@ export default async function AppHomePage(props: Props) {
         </div>
 
       </header>
+
+      {appId === 'gtm' && <CrmDashboard workspaceId={orgId} />}
 
       {!hasWork
         ? (

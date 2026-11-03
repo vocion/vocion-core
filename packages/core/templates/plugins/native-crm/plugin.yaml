@@ -1,26 +1,10 @@
 slug: native-crm
 name: Native CRM
-version: 0.1.0
-description: Workspace-owned companies, contacts, deals and activities, with
-  shared collection views in GTM. Foundation release; HubSpot remains connected.
+version: 0.2.0
+description: Shared CRM Lists, a GTM funnel and resumable HubSpot imports. Outbound delivery defaults to dry run.
 nav:
   section: GTM
   order: 0
-data:
-  exports:
-    - crm_company
-    - crm_contact
-    - crm_deal
-    - crm_activity
-  collections:
-    - page: crm-companies
-      objectType: crm_company
-    - page: crm-contacts
-      objectType: crm_contact
-    - page: crm-deals
-      objectType: crm_deal
-    - page: crm-activities
-      objectType: crm_activity
 recommend:
   when:
-    - a workspace wants to pilot native CRM records alongside its existing CRM
+    - a workspace wants to migrate its CRM into Vocion

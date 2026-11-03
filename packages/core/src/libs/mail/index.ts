@@ -173,6 +173,11 @@ export async function sendMail(message: MailMessage): Promise<SendMailResult> {
     log('info', 'mail skipped: VOCION_MAIL_ENABLED is not 1', { subject: message.subject, to: recipients.length });
     return { skipped: true, reason: 'disabled' };
   }
+  const workspaceId = typeof message.brand === 'object' ? message.brand.orgId : message.tags?.org;
+  if (workspaceId) {
+    const { assertOutboundAllowed } = await import('@/services/crm/outboundPolicy');
+    await assertOutboundAllowed(workspaceId, { id: 'mail.transport', grant: 'send_email' }, {});
+  }
   // In the Org's brand when the caller named whose mail it is (`brand`).
   const outgoing = await branded(message);
   sent.html = outgoing.html;

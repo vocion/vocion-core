@@ -164,6 +164,8 @@ export const WorkspaceManifestSchema = z.object({
     address: z.string().email().optional(),
   }).optional(),
   defaults: z.object({
+    /** Hold outbound delivery while drafts and CRM reads continue. */
+    outboundDryRun: z.boolean().optional(),
     model: z.string().optional(),
     temperature: z.string().optional(),
     /**

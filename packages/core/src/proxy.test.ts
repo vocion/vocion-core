@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('next-intl/middleware', () => ({ default: () => () => NextResponse.next({ headers: { 'x-i18n': 'handled' } }) }));
 vi.mock('./libs/Auth', () => ({ auth: vi.fn() }));
+vi.mock('./services/crm/landing', () => ({ hasCrmHome: vi.fn().mockResolvedValue(false) }));
 vi.mock('./services/ProjectService', () => ({ resolveProjectForUser: vi.fn(), activeWorkspaceForUser: vi.fn() }));
 
 const { auth } = await import('./libs/Auth');

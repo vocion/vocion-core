@@ -1,7 +1,8 @@
 import type { ListActor } from './service';
-import { createHash } from 'node:crypto';
+import type { CrmKind } from '@/libs/crm/model';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { crmListId } from '@/libs/crm/model';
 import { listFieldsSchema } from '@/libs/lists/spec';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { actAs } from '@/services/workspace/actAs';
@@ -18,10 +19,7 @@ export async function installCrm(actor: ListActor) {
   }
   const definitions = z.array(z.object({ key: z.string(), title: z.string(), fields: z.array(z.record(z.string(), z.unknown())) }))
     .parse(JSON.parse(readFileSync(/* turbopackIgnore: true */ fromRepoRoot('packages/core/templates/lists/crm.json'), 'utf8')));
-  const ids = Object.fromEntries(definitions.map((d) => {
-    const hash = createHash('sha256').update(`crm-v1:${actor.orgId}:${d.key}`).digest('hex');
-    return [d.key, `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`];
-  }));
+  const ids = Object.fromEntries(definitions.map(d => [d.key, crmListId(actor.orgId, d.key as CrmKind)]));
   const installed = [];
   for (const definition of definitions) {
     const id = ids[definition.key]!;
