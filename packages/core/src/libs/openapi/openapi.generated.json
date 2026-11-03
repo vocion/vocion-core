@@ -49,6 +49,10 @@
       "description": "Endpoints under /api/v1/conversations."
     },
     {
+      "name": "crm",
+      "description": "Endpoints under /api/v1/crm."
+    },
+    {
       "name": "engine-runs",
       "description": "Endpoints under /api/v1/engine-runs."
     },
@@ -2042,6 +2046,78 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/crm": {
+      "get": {
+        "operationId": "get_crm",
+        "summary": "Read the workspace CRM funnel, source freshness and delivery hold.",
+        "tags": [
+          "crm"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read the workspace CRM funnel, source freshness and delivery hold.\nRequires a browser session and matching workspace query parameter."
+      },
+      "post": {
+        "operationId": "post_crm",
+        "summary": "Queue a resumable HubSpot import.",
+        "tags": [
+          "crm"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Queue a resumable HubSpot import. Requires a workspace admin browser session.\nImports source records without sending email or scheduling provider campaigns."
       }
     },
     "/api/v1/engine-runs": {

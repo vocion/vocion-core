@@ -4,11 +4,7 @@ import { startCrmSync } from '@/services/crm/jobs';
 import { ListError } from '@/services/lists/service';
 import { authApi, isErrorResponse, jsonError } from '../_shared';
 
-async function handle(req: Request, sync: boolean) {
-  const caller = await authApi(req);
-  if (isErrorResponse(caller)) {
-    return caller;
-  }
+async function handle(req: Request, sync: boolean, caller: Exclude<Awaited<ReturnType<typeof authApi>>, Response>) {
   if (caller.source !== 'session') {
     return jsonError('FORBIDDEN', 'CRM requires a signed-in person', 403);
   }
@@ -23,5 +19,28 @@ async function handle(req: Request, sync: boolean) {
   }
 }
 
-export const GET = (req: Request) => handle(req, false);
-export const POST = (req: Request) => handle(req, true);
+/**
+ * Read the workspace CRM funnel, source freshness and delivery hold.
+ * Requires a browser session and matching workspace query parameter.
+ * @param req - Authenticated request.
+ */
+export async function GET(req: Request) {
+  const caller = await authApi(req);
+  if (isErrorResponse(caller)) {
+    return caller;
+  }
+  return handle(req, false, caller);
+}
+
+/**
+ * Queue a resumable HubSpot import. Requires a workspace admin browser session.
+ * Imports source records without sending email or scheduling provider campaigns.
+ * @param req - Authenticated request with workspace query parameter.
+ */
+export async function POST(req: Request) {
+  const caller = await authApi(req);
+  if (isErrorResponse(caller)) {
+    return caller;
+  }
+  return handle(req, true, caller);
+}

@@ -34,7 +34,7 @@ vi.mock('@/libs/hubspot/unenrollBridge', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, eventLogSchema, knowledgeDocumentSchema, knowledgeSourceSchema, leadBriefSchema, trustRuleSchema } = await import('@/models/Schema');
+const { projectSchema, tenantAccountSchema, actionRunSchema, eventLogSchema, knowledgeDocumentSchema, knowledgeSourceSchema, leadBriefSchema, trustRuleSchema } = await import('@/models/Schema');
 const { executeAction, proposeAction, rejectAction } = await import('@/services/ActionService');
 const { regenerateSkillFor } = await import('./regenerateSkill');
 const { readSequenceEnrollmentState, requestUnenroll } = await import('@/libs/hubspot/unenrollBridge');
@@ -85,6 +85,8 @@ function res(body: unknown, ok = true, status = 200): Response {
 }
 
 beforeEach(async () => {
+  await db.insert(tenantAccountSchema).values({ id: 'delivery-test-account', name: 'Example', slug: 'delivery-test-account' }).onConflictDoNothing();
+  await db.insert(projectSchema).values({ id: ORG, accountId: 'delivery-test-account', name: 'Example', slug: ORG, outboundDryRun: false }).onConflictDoNothing();
   vi.mocked(regenerateSkillFor).mockResolvedValue(null);
   vi.mocked(runSkillTurn).mockReset();
   vi.mocked(readSequenceEnrollmentState).mockReset().mockResolvedValue({ ok: true, data: { enrolled: false, latestSequenceId: null } });
