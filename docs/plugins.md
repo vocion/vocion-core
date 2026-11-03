@@ -588,3 +588,11 @@ says how to tune it.
 
 If the plugin needs a tool or an action core does not have, that is a core
 change; make it generic (the seam, not the feature), then use it from YAML.
+
+## Module data contracts
+
+Modules can explicitly export object types, import types from dependencies, and
+mount table/list collections over them. These contracts are validated before
+installation; records and access enforcement remain in the platform. See
+[Apps, modules, and shared data](./modules.md), including the optional native CRM
+foundation and the boundary with dynamic Lists.

@@ -32,6 +32,8 @@ export { MailError } from './errors';
 export type MailAddress = string;
 
 export type MailMessage = {
+  /** Workspace whose delivery policy applies, independent of visual branding. */
+  workspaceId?: string;
   to: MailAddress | MailAddress[];
   subject: string;
   html: string;
@@ -172,6 +174,11 @@ export async function sendMail(message: MailMessage): Promise<SendMailResult> {
     await keep(false, message.from ?? process.env.VOCION_MAIL_FROM?.trim() ?? null);
     log('info', 'mail skipped: VOCION_MAIL_ENABLED is not 1', { subject: message.subject, to: recipients.length });
     return { skipped: true, reason: 'disabled' };
+  }
+  const workspaceId = message.workspaceId ?? (typeof message.brand === 'object' ? message.brand.orgId : message.tags?.org);
+  if (workspaceId) {
+    const { assertOutboundAllowed } = await import('@/services/crm/outboundPolicy');
+    await assertOutboundAllowed(workspaceId, { id: 'mail.transport', grant: 'send_email' }, {});
   }
   // In the Org's brand when the caller named whose mail it is (`brand`).
   const outgoing = await branded(message);

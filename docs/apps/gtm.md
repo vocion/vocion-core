@@ -26,3 +26,12 @@ Follow-ups owed are counted from the drafts waiting now, never from a label stor
 - **Each engagement** (a project anchored to a CRM deal whose stage does not say closed; a won or lost deal leaves the list): the deal's amount and stage, as of the project's last status, and its follow-ups waiting on you.
 
 Pipeline totals and quiet-deal counts are intentionally absent from this launcher. Filtering only the default `closedwon` and `closedlost` stage IDs can include closed deals in custom pipelines. Restore those measures only when the state query can use normalized closed-stage metadata. External meetings are labelled as such: an outside attendee does not establish that a meeting is with a client.
+
+## Native CRM
+
+GTM home includes a CRM funnel from the shared CRM Lists. Admins can start or
+resume HubSpot imports; imported records are read-only during migration.
+Native records remain editable in Lists. Outbound delivery is held when
+`defaults.outboundDryRun` is true (the default for native-crm). See the
+[native CRM module](../../packages/core/templates/plugins/native-crm/README.md)
+for supported behavior and remaining work.

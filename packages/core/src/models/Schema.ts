@@ -394,6 +394,7 @@ export const projectSchema = pgTable(
      * (plugin-owned tools, the capabilities note) and the collectors that
      * only run for a workspace that asked for them. Empty = no plugins.
      */
+    outboundDryRun: boolean('outbound_dry_run').default(false).notNull(),
     enabledPlugins: jsonb('enabled_plugins').$type<string[]>().default([]).notNull(),
     /** Processes that run as durable workflows in this workspace (workspace.yaml `durable:`, backlog 054). */
     enabledDurable: jsonb('enabled_durable').$type<string[]>().default([]).notNull(),
@@ -759,6 +760,19 @@ export const todoSchema = pgTable('todo', {
 
 /** Registry of object type definitions per org (e.g. Discovery Call, Deal, Account) */
 /** Runtime-authored Lists are isolated from the workspace-wide object index. */
+/** Durable HubSpot CRM sync cursor and lease; one per workspace. */
+export const crmSyncSchema = pgTable('crm_sync', {
+  projectId: text('project_id').primaryKey().references(() => projectSchema.id, { onDelete: 'cascade' }),
+  actorId: text('actor_id').notNull(),
+  status: text('status').notNull().default('idle'),
+  state: jsonb('state').$type<import('@/libs/crm/model').CrmState>(),
+  lastCompletedAt: timestamp('last_completed_at', { mode: 'date', withTimezone: true }),
+  error: text('error'),
+  lease: text('lease'),
+  leaseUntil: timestamp('lease_until', { mode: 'date', withTimezone: true }),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+});
+
 export const workspaceListSchema = pgTable('workspace_list', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),

@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import type { ListField } from '@/libs/lists/spec';
 import { isDeepStrictEqual } from 'node:util';
 import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
+import { CRM_KINDS, crmListId } from '@/libs/crm/model';
 import { db } from '@/libs/DB';
 import { aggregateListSchema, canReadList, configureListSchema, createListSchema, listFieldsSchema, readListSchema, validateListValues, writeListSchema } from '@/libs/lists/spec';
 import { workspaceListSchema as lists, listRecordSchema as records, listRevisionSchema as revisions } from '@/models/Schema';
@@ -145,6 +146,10 @@ export async function writeListRecords(actor: ListActor, input: z.input<typeof w
     const changes = [];
     for (const row of args.records) {
       const [before] = await tx.select().from(records).where(and(eq(records.id, row.id), eq(records.listId, list.id)));
+      if (CRM_KINDS.some(kind => crmListId(actor.orgId, kind) === list.id)
+        && (before?.values.hubspot_id || 'hubspot_id' in row.values)) {
+        throw new ListError('HubSpot-managed CRM records are read-only during migration. Edit the source record and sync again.', 409);
+      }
       const values = { ...before?.values, ...row.values };
       validateListValues(list.fields, values);
       for (const field of list.fields.filter(f => f.type === 'reference' && values[f.key] !== null && values[f.key] !== undefined)) {
