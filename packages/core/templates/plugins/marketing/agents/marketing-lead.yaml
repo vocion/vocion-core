@@ -24,6 +24,14 @@ handles:
   - paid search
   - marketing update
 initiative: high
+# The ad account it reads is the workspace's own: every ads source the
+# workspace has connected (Google Ads today) is bound to it at install, at
+# each app upgrade, and the moment one is connected afterwards. Without this
+# a Cloud install got a lead with no source and no ads tools.
+requires:
+  connectors: [ads]
+  optional: []
+  degradesTo: none
 skills:
   - search-terms-review
   - launch-search-campaign

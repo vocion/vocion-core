@@ -14,7 +14,11 @@ vi.mock('@/services/SourceScheduleService', () => ({
   startSourceFullSync: vi.fn(),
 }));
 
+// Which agents get the source is `bindConnectedSource`'s own test; here, only that it is asked.
+vi.mock('@/services/plugins/bindConnectedSource', () => ({ bindConnectedSource: vi.fn(async () => []) }));
+
 const { ensureSourceReconcileSchedule, ensureSourceSchedule, startSourceFullSync } = await import('@/services/SourceScheduleService');
+const { bindConnectedSource } = await import('@/services/plugins/bindConnectedSource');
 const { newSourceSyncPlan, startSourceSyncing } = await import('./newSourceSync');
 
 describe('newSourceSyncPlan', () => {
@@ -88,5 +92,21 @@ describe('startSourceSyncing', () => {
 
     expect(ensureSourceReconcileSchedule).not.toHaveBeenCalled();
     expect(startSourceFullSync).not.toHaveBeenCalled();
+  });
+
+  it('gives the source to the agents that require it', async () => {
+    expect(await startSourceSyncing({ orgId: 'org_1', sourceId: 9, sourceSlug: 'google-ads', connectorSlug: 'google-ads' })).toBe('started');
+    expect(bindConnectedSource).toHaveBeenCalledWith('org_1', { slug: 'google-ads', kind: 'google-ads' });
+  });
+
+  it('gives it for a connector that does not sync too', async () => {
+    expect(await startSourceSyncing({ orgId: 'org_1', sourceId: 10, sourceSlug: 'apollo', connectorSlug: 'apollo' })).toBe('not_a_syncing_connector');
+    expect(bindConnectedSource).toHaveBeenCalledWith('org_1', { slug: 'apollo', kind: 'apollo' });
+  });
+
+  it('keeps the save when the binding fails', async () => {
+    vi.mocked(bindConnectedSource).mockRejectedValueOnce(new Error('database away'));
+
+    expect(await startSourceSyncing({ orgId: 'org_1', sourceId: 10, sourceSlug: 'apollo', connectorSlug: 'apollo' })).toBe('not_a_syncing_connector');
   });
 });
