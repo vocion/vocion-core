@@ -151,10 +151,11 @@ export function CampaignPlanner({ workspaceId }: { workspaceId: string }) {
 function CampaignCard({ row, data, busy, edit, review }: { row: Row; data: Plans; busy: boolean; edit: () => void; review: (decision: 'approve' | 'changes' | 'cancel', notes: string) => void }) {
   const t = useTranslations('CampaignPlanner');
   const [notes, setNotes] = useState('');
+  const states = { draft: t('draft'), stale: t('stale'), cancelled: t('cancelled'), changes: t('changes'), scheduled: t('scheduled'), due: t('due') };
   return (
     <article className="space-y-3 rounded border p-4">
       <h3 className="font-semibold">{String(row.values.name ?? t('untitled'))}</h3>
-      <p>{t(row.state as 'due' | 'draft' | 'stale' | 'cancelled' | 'changes' | 'scheduled')}</p>
+      <p>{states[row.state as keyof typeof states]}</p>
       <details>
         <summary className="cursor-pointer">{t('inspect', { version: row.version })}</summary>
         <dl className="space-y-3 py-3">
