@@ -5732,6 +5732,8 @@ export const browserRunSchema = pgTable(
     error: text('error'),
     /** The page as it stood when the run ended. */
     finalShotUrl: text('final_shot_url'),
+    /** A recording of the whole run (WebM), for an automation's run: what the expert checks afterwards. */
+    videoUrl: text('video_url'),
     /**
      * Where to pick up after a restart: the browser's cookies, site storage and page, the run's
      * notes and its secrets, sealed under the workspace's key (`libs/crypto/credentialVault.ts`).

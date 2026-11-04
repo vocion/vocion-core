@@ -31,7 +31,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     return new Response(new Uint8Array(frame.jpeg), { status: 200, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, no-store', 'X-Frame-Seq': String(frame.seq) } });
   }
   if (row.shot) {
-    return NextResponse.redirect(new URL(row.shot, _req.nextUrl.origin), { status: 302, headers: { 'Cache-Control': 'private, no-store' } });
+    // A relative Location: behind a proxy the request's own origin is the server's bind address
+    // (https://0.0.0.0:3029 on the demo host), which no browser can reach.
+    return new Response(null, { status: 302, headers: { 'Location': row.shot, 'Cache-Control': 'private, no-store' } });
   }
   return new NextResponse(null, { status: 204 });
 }

@@ -34,6 +34,9 @@ import type { Buffer } from 'node:buffer';
 import type { Browser, BrowserContext, CDPSession, Locator, Page } from 'playwright';
 import type { SignInState } from '@/libs/browser/keptSignIn';
 import { Buffer as NodeBuffer } from 'node:buffer';
+import { readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import process from 'node:process';
 import { mergeSignIn } from '@/libs/browser/keptSignIn';
 import { BROWSER_RUN_LIMITS } from '@/libs/browser/run';
@@ -43,6 +46,8 @@ import { byRef, pageSnapshot } from './pageSnapshot';
 import { practiceResponse } from './practiceSite';
 
 const BROWSER_VIEWPORT = { width: 1280, height: 800 } as const;
+/** A recording at three-quarter size: plain to read, and light enough for ten runs at once. */
+const VIDEO_SIZE = { width: 960, height: 600 } as const;
 
 export type BrowserSession = {
   key: string;
@@ -57,6 +62,8 @@ export type BrowserSession = {
   blocked: string[];
   idle: ReturnType<typeof setTimeout> | null;
   busy: boolean;
+  /** Where its recording is written, when it is recorded (an automation's run). */
+  videoDir?: string;
 };
 
 /** What a session needs from outside, so a test can stand in for Chrome. */
@@ -165,8 +172,10 @@ function touch(s: BrowserSession): void {
  * @param key - `personKey(orgId, userId)`.
  * @param deps - Chrome.
  * @param restore - A saved browser to open from: its cookies, site storage and page.
+ * @param opts
+ * @param opts.record
  */
-export async function openBrowserSession(key: string, deps: Partial<EngineDeps> = {}, restore?: SavedBrowser | null): Promise<BrowserSession> {
+export async function openBrowserSession(key: string, deps: Partial<EngineDeps> = {}, restore?: SavedBrowser | null, opts: { record?: boolean } = {}): Promise<BrowserSession> {
   const existing = sessions.get(key);
   if (existing && !existing.page.isClosed()) {
     touch(existing);
@@ -174,9 +183,14 @@ export async function openBrowserSession(key: string, deps: Partial<EngineDeps> 
   }
   const d = { ...defaultDeps, ...deps };
   const browser = await d.browser();
-  const context = await browser.newContext({ viewport: BROWSER_VIEWPORT, deviceScaleFactor: 1, locale: 'en-US', timezoneId: 'America/Los_Angeles', acceptDownloads: false, ...(restore ? { storageState: restore.storageState } : {}) });
+  // An automation's run is recorded whole (Playwright's own encoder), so its expert can watch it
+  // afterwards; the file is handed back when the browser closes (`closeBrowserSession`).
+  const videoDir = opts.record && process.env.VOCION_BROWSER_RUN_VIDEO !== '0'
+    ? path.join(tmpdir(), 'vocion-browser-video', key.replace(/[^\w-]+/g, '_'))
+    : undefined;
+  const context = await browser.newContext({ viewport: BROWSER_VIEWPORT, deviceScaleFactor: 1, locale: 'en-US', timezoneId: 'America/Los_Angeles', acceptDownloads: false, ...(restore ? { storageState: restore.storageState } : {}), ...(videoDir ? { recordVideo: { dir: videoDir, size: VIDEO_SIZE } } : {}) });
   await context.addInitScript(DEMO_CHROME_SCRIPT);
-  const s: BrowserSession = { key, context, page: await context.newPage(), cdp: null, frame: null, frameSeq: 0, poll: null, blocked: [], idle: null, busy: false };
+  const s: BrowserSession = { key, context, page: await context.newPage(), cdp: null, frame: null, frameSeq: 0, poll: null, blocked: [], idle: null, busy: false, ...(videoDir ? { videoDir } : {}) };
   await context.route('**/*', async (route) => {
     const url = route.request().url();
     const practice = practiceResponse(url);
@@ -236,17 +250,37 @@ export async function openWithSignIn(key: string, kept: SignInState, deps: Parti
  * Close the person's browser now.
  * @param key - The person.
  */
-export async function closeBrowserSession(key: string): Promise<void> {
+export async function closeBrowserSession(key: string): Promise<{ video: Buffer | null }> {
   const s = sessions.get(key);
   if (!s) {
-    return;
+    return { video: null };
   }
   sessions.delete(key);
   touch(s);
   if (s.poll) {
     clearInterval(s.poll);
   }
+  // Every page the run used, in the order it opened them: a page's video is written when its context closes.
+  const videos = s.videoDir ? s.context.pages().map(p => p.video()).filter((v): v is NonNullable<typeof v> => Boolean(v)) : [];
   await s.context.close().catch(() => {});
+  if (!s.videoDir) {
+    return { video: null };
+  }
+  try {
+    // The first page carries the run; a page it opened later is rare and short. `saveAs` works for a
+    // browser on another host too, where `path()` would name a file on that host.
+    const first = videos[0];
+    if (!first) {
+      return { video: null };
+    }
+    const out = path.join(s.videoDir, 'run.webm');
+    await first.saveAs(out);
+    return { video: await readFile(out) };
+  } catch {
+    return { video: null };
+  } finally {
+    await rm(s.videoDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 /**

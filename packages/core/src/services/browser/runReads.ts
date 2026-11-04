@@ -57,6 +57,7 @@ export function toView(row: Row): BrowserRunView {
     frameSeq: holding ? frameSeq(key) : 0,
     live: holding,
     finalShotUrl: row.finalShotUrl,
+    videoUrl: row.videoUrl ?? null,
     proposedBy: row.proposedBy,
     agentSlug: row.agentSlug,
     conversationId: row.conversationId,

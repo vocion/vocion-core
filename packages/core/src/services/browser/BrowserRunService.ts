@@ -424,6 +424,32 @@ export function heldByCall(id: number): boolean {
   return (live.get(id)?.heldByCall ?? 0) > 0;
 }
 
+/**
+ * Close a run's browser and keep its recording on the run, when it was recorded. Never throws: a
+ * recording that cannot be kept is logged, and the run is unchanged.
+ * @param row - The run.
+ * @param key - Its browser.
+ */
+async function closeAndKeepVideo(row: Row, key: string): Promise<string | null> {
+  try {
+    const { video } = await closeBrowserSession(key);
+    if (!video) {
+      return null;
+    }
+    const { keepMedia } = await import('@/libs/tools/artifacts/media');
+    const kept = await keepMedia({ orgId: row.orgId, recordId: `browser-run-${row.id}`, name: `browser-run-${row.id}`, data: video, contentType: 'video/webm' });
+    if (!kept.ok) {
+      console.warn('[browser] recording not kept', { run: row.id, reason: kept.reason });
+      return null;
+    }
+    await patch(row.id, { videoUrl: kept.url });
+    return kept.url;
+  } catch (e) {
+    console.warn('[browser] recording not kept', { run: row.id, reason: (e as Error).message });
+    return null;
+  }
+}
+
 async function keepShot(orgId: string, key: string): Promise<string | null> {
   try {
     const s = existingSession(key);
@@ -508,7 +534,7 @@ function begin(row: Row, secrets: Record<string, string>, continuing: boolean, r
     notify(l);
     if (row.routineRunId) {
       // An automation's run has a browser of its own, and nothing comes after it in that browser.
-      void closeBrowserSession(key);
+      void closeAndKeepVideo(row, key);
     } else {
       releaseBrowserSession(key);
     }
@@ -536,14 +562,23 @@ async function drive(row: Row, l: Live, continuing: boolean, resume: Resume | nu
   // A kept sign-in goes into the browser before the first step. A run picked up after a restart
   // already has its own browser back from its checkpoint, which is newer.
   const kept = l.keptSignIn && !resume ? await openKeptSignInFor(row.orgId, l.keptSignIn) : null;
-  const session = kept ? await openWithSignIn(l.key, kept.state) : await openBrowserSession(l.key, {}, resume?.browser ?? null);
+  const session = kept ? await openWithSignIn(l.key, kept.state) : await openBrowserSession(l.key, {}, resume?.browser ?? null, { record: Boolean(row.routineRunId) });
   if (!claim(session)) {
     throw new Error('the browser is busy with another run');
   }
   const { browserIsolation } = await import('./browserHost');
   const isolation = await browserIsolation();
   const step = async (s: Omit<BrowserStep, 'n' | 'at'>) => {
-    l.steps.push({ ...s, n: l.steps.length + 1, at: new Date().toISOString() });
+    const entry: BrowserStep = { ...s, n: l.steps.length + 1, at: new Date().toISOString() };
+    l.steps.push(entry);
+    // The page just after the step, so the run can be checked step by step once it has ended.
+    // A note did nothing to the page.
+    if (s.kind !== 'note') {
+      const shotUrl = await keepShot(row.orgId, l.key);
+      if (shotUrl) {
+        entry.shotUrl = shotUrl;
+      }
+    }
     await patch(row.id, { steps: l.steps });
     notify(l);
     await checkpoint(l);
@@ -665,8 +700,12 @@ async function finish(row: Row, l: Live, out: Ending): Promise<void> {
     const { keepSignInAfterRun } = await import('./keptSignIn');
     await keepSignInAfterRun({ orgId: row.orgId, signIn: l.keptSignIn, browser, runLabel: browserRunLabel(row.id) });
   }
+  // An automation's browser ends with its run: closed here, so the run reads as ended with its
+  // recording already on it (the pane stops re-reading once a run has ended).
+  const videoUrl = row.routineRunId ? await closeAndKeepVideo(row, l.key) : null;
   const status: BrowserRunStatus = out.status;
   await patch(row.id, {
+    ...(videoUrl ? { videoUrl } : {}),
     status,
     summary: out.summary,
     result: 'result' in out ? out.result : null,
@@ -681,7 +720,7 @@ async function finish(row: Row, l: Live, out: Ending): Promise<void> {
   });
   notify(l);
   if (out.status === 'stopped') {
-    await closeBrowserSession(l.key);
+    await closeAndKeepVideo(row, l.key);
   }
   tellRoutine(row, { kind: 'ended', status, summary: out.summary, result: 'result' in out ? out.result : null, error: out.status === 'failed' ? out.error : null, wroteAfterApproval: wroteAfterApproval(l.steps) });
   if (!heldByCall(row.id) && !row.routineRunId) {

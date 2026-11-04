@@ -45,6 +45,8 @@ export type BrowserStep = {
   url?: string;
   ok: boolean;
   detail?: string;
+  /** The page just after this step, kept so the run can be checked step by step afterwards. */
+  shotUrl?: string;
 };
 
 /** What the run is waiting on the person for. */
@@ -84,6 +86,8 @@ export type BrowserRunView = {
   /** True while this process holds the browser, so the picture is live. */
   live: boolean;
   finalShotUrl: string | null;
+  /** The recording of the whole run, when one was kept (an automation's run). */
+  videoUrl: string | null;
   proposedBy: string;
   agentSlug: string | null;
   conversationId: number | null;

@@ -1506,6 +1506,13 @@
       "when": 1792300232001,
       "tag": "0233_workforce_portfolio",
       "breakpoints": true
+    },
+    {
+      "idx": 234,
+      "version": "7",
+      "when": 1792300232002,
+      "tag": "0234_browser_run_video",
+      "breakpoints": true
     }
   ]
 }
