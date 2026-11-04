@@ -173,6 +173,25 @@ export async function loadSourceKinds(orgId: string, slugs: readonly string[]): 
 }
 
 /**
+ * The workspace's own sources, each with its connector kind: what a plugin
+ * agent's `requires` binds to (`libs/workspace/requiredSources.ts`). A source
+ * connected for one Project is that Project's, never bound workspace-wide.
+ * @param orgId - The workspace.
+ */
+export async function listWorkspaceSourceKinds(orgId: string): Promise<Array<{ slug: string; kind: string }>> {
+  const rows = await db
+    .select({ slug: knowledgeSourceSchema.slug, kind: knowledgeSourceSchema.kind, config: knowledgeSourceSchema.configJson, projectId: knowledgeSourceSchema.projectId })
+    .from(knowledgeSourceSchema)
+    .where(eq(knowledgeSourceSchema.orgId, orgId));
+  return rows
+    .filter(row => row.projectId === null)
+    .map((row) => {
+      const connector = (row.config as { _connector?: unknown } | null)?._connector;
+      return { slug: row.slug, kind: typeof connector === 'string' && connector ? connector : row.kind };
+    });
+}
+
+/**
  * Every enabled source of a family that the current work may use, with its
  * config and the credential it points at — what a provider needs to answer
  * for the org (which site, which repositories, which channels, with which

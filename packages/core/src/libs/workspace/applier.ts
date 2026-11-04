@@ -4,6 +4,7 @@ import type { KnownProcessorNames, SourceUpsertSpec } from '@/libs/sources/upser
 import { readFileSync } from 'node:fs';
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
+import { listWorkspaceSourceKinds } from '@/libs/connectors/families';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow, validateSourceSpec } from '@/libs/sources/upsert';
@@ -224,9 +225,16 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     await applyWorkspaceLeadConfig(orgId, loaded, mode, errors);
   }
 
+  // What an agent `requires` binds to: the sources this apply declares and
+  // the ones the workspace already has. An app installed on Vocion Cloud
+  // declares none (its manifest names only plugins), so without the
+  // workspace's own its agents bound nothing: a Marketing lead with a
+  // connected Google Ads account and no ads tools.
+  const workspaceSources = mode.offline || !orgId ? [] : await listWorkspaceSourceKinds(orgId);
+  const bindable = [...loaded.sources, ...workspaceSources.filter(s => !loaded.sources.some(d => d.slug === s.slug))];
   for (const agent of loaded.agents) {
     try {
-      const bound = { ...agent, connectorSources: boundConnectorSources(agent, loaded.sources) };
+      const bound = { ...agent, connectorSources: boundConnectorSources(agent, bindable) };
       const outcome = await upsertAgent(orgId, bound, defaults, mode, loaded.teams, warnings, track);
       bump(counts.agents, outcome);
       if (!dryRun) {

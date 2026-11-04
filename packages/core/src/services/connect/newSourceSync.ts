@@ -159,6 +159,22 @@ function logLateSchedulerFailure(source: { orgId: string; sourceId: number; conn
  * @param source.connectorSlug - Its connector.
  */
 export async function startSourceSyncing(source: { orgId: string; sourceId: number; sourceSlug: string; connectorSlug: string }): Promise<FirstSync> {
+  const outcome = await scheduleNewSource(source);
+  // Then, for a connector that does not sync too, the installed apps' agents
+  // that require this kind get the source.
+  await bindToInstalledAgents(source);
+  return outcome;
+}
+
+/**
+ * The schedules and the first sync, under the scheduler deadline.
+ * @param source - The saved source.
+ * @param source.orgId - Its workspace.
+ * @param source.sourceId - Its row.
+ * @param source.sourceSlug - Its slug.
+ * @param source.connectorSlug - Its connector.
+ */
+async function scheduleNewSource(source: { orgId: string; sourceId: number; sourceSlug: string; connectorSlug: string }): Promise<FirstSync> {
   const progress: SchedulerProgress = { step: 'plan', timedOut: false };
   try {
     const plan = newSourceSyncPlan(source.connectorSlug, source.sourceId);
@@ -181,5 +197,26 @@ export async function startSourceSyncing(source: { orgId: string; sourceId: numb
     return 'failed';
   } finally {
     clearTimeout(progress.timer);
+  }
+}
+
+/**
+ * Hand a saved source to the installed apps' agents that require its kind
+ * (`services/plugins/bindConnectedSource.ts`). Logged and swallowed: the save
+ * stands, and the next app upgrade binds it anyway.
+ * @param source - The saved source.
+ * @param source.orgId - Its workspace.
+ * @param source.sourceSlug - Its slug.
+ * @param source.connectorSlug - Its connector kind.
+ */
+async function bindToInstalledAgents(source: { orgId: string; sourceSlug: string; connectorSlug: string }): Promise<void> {
+  try {
+    const { bindConnectedSource } = await import('@/services/plugins/bindConnectedSource');
+    const agents = await bindConnectedSource(source.orgId, { slug: source.sourceSlug, kind: source.connectorSlug });
+    if (agents.length > 0) {
+      logger.info('a saved source was given to the agents that require it', { orgId: source.orgId, source: source.sourceSlug, agents });
+    }
+  } catch (error) {
+    logger.error('a saved source could not be given to the agents that require it', { orgId: source.orgId, source: source.sourceSlug, reason: error instanceof Error ? error.message : String(error) });
   }
 }

@@ -23,6 +23,8 @@ One Google login, on the Connectors page, with the `adwords` scope (Google's onl
 
 A pasted credential (OAuth client ID, secret and refresh token) works too, and authenticates every Google connector at once.
 
+**The Marketing lead reads the account the workspace connected.** It `requires` the `ads` family, so every workspace-wide ads source is bound to it: at install and at each app upgrade (the applier binds against the workspace's own sources, not only the ones a manifest declares), and the moment one is saved afterwards (`services/plugins/bindConnectedSource.ts`, from `startSourceSyncing`). A source connected for one Project stays that Project's.
+
 ## Installing it on Vocion Cloud
 
 Adding Paid Marketing to a Vocion Cloud workspace sets the whole app up: the Marketing lead (who becomes the workspace lead when the workspace has only the generic one), the team, the daily update mission and its automations in the workspace's time zone, the guard and the alerts. See `docs/plugins.md`, *Installing an app on Vocion Cloud*. Then connect Google Ads with one Google login and pick the account.
