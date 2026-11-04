@@ -25,6 +25,7 @@ import { CachingChatAnthropic, CachingChatBedrockConverse, promptCacheAllowed } 
 import { llmMode } from './replay';
 import { getReplayCache } from './replayCache';
 import { buildScriptedChatModel } from './scripted';
+import { workspaceDemoScript } from './workspaceDemoScript';
 
 /**
  * Model roles. Add a new role here (not a new env var) when you need
@@ -524,6 +525,19 @@ export async function buildChatModelForOrg(
   orgId: string,
   opts: BuildChatModelOptions = {},
 ): Promise<BaseChatModel> {
+  const demoScript = workspaceDemoScript(orgId);
+  if (demoScript) {
+    // Resolve the live model normally for this organization. Never mutate
+    // process-wide provider/script settings to select one tenant's fixture.
+    const liveProvider = opts.provider === 'scripted' ? 'bedrock' : (opts.provider ?? resolveProvider(role));
+    if (liveProvider === 'scripted') {
+      throw new Error('Workspace demo scripts require a non-scripted default provider');
+    }
+    const credentials = liveProvider === 'bedrock'
+      ? { awsCredentials: opts.awsCredentials ?? (await resolveBedrockCredentials(orgId)).keyPair ?? undefined }
+      : { apiKey: opts.apiKey ?? (await resolveOrgProviderKey(liveProvider, orgId)) ?? undefined };
+    return buildScriptedChatModel(() => buildChatModel(role, { ...opts, ...credentials, provider: liveProvider }), demoScript);
+  }
   if (opts.apiKey) {
     return buildChatModel(role, opts);
   }
