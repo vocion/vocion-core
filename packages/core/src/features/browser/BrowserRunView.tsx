@@ -21,6 +21,7 @@
  * picture is fetched as it moves (`/frame`), one request at a time.
  */
 
+import type { ReactNode } from 'react';
 import type { MediaSlide } from '@/features/dashboard/factory/MediaCarousel';
 import type { BrowserStep, BrowserRunView as Run } from '@/libs/browser/run';
 import { Globe, Maximize2, Play, Square } from 'lucide-react';
@@ -147,6 +148,33 @@ function mediaOf(run: Run, live: boolean, seq: number): MediaSlide[] {
     slides.push({ id: -2, src: run.videoUrl, kind: 'video', type: 'video/webm', label: 'Recording', title: 'The whole run', caption: 'The whole run, recorded' });
   }
   return slides;
+}
+
+/**
+ * What a run's question offers: its typed choices, else the plain answers an older run gave.
+ * @param w - What it waits on.
+ */
+function waitingChoices(w: NonNullable<Run['waiting']>): Array<{ label: string; consequence?: string }> {
+  return w.choices ?? (w.options ?? []).map(label => ({ label }));
+}
+
+/**
+ * Under a run's question: the rule that sent it to the person, then what it found, each a fact.
+ * An older run's question carries its findings in its text instead.
+ * @param w - What it waits on.
+ */
+function waitingBody(w: NonNullable<Run['waiting']>): ReactNode {
+  if (!w.question) {
+    return w.text.includes('\n\n') ? w.text.split('\n\n').slice(1).join('\n\n') : undefined;
+  }
+  return (
+    <div className="space-y-2">
+      {w.rule && <p>{w.rule}</p>}
+      {w.found && w.found.length > 0 && (
+        <FactList facts={w.found.map((f, i) => ({ key: `f${i}`, label: f.label, value: f.value }))} />
+      )}
+    </div>
+  );
 }
 
 function StepRow({ step, shown, onShow }: { step: BrowserStep; shown: boolean; onShow: (step: BrowserStep) => void }) {
@@ -380,17 +408,17 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
                 <DockedDecision
                   id={`browser-${run.id}-${run.waiting.at}`}
                   eyebrow="Question for you"
-                  question={run.waiting.text.split('\n\n')[0]!}
-                  body={run.waiting.text.includes('\n\n') ? run.waiting.text.split('\n\n').slice(1).join('\n\n') : undefined}
-                  options={(run.waiting.options ?? []).map((label, i) => ({ id: `o${i + 1}`, label, ...(i === 0 ? { recommended: true } : {}) }))}
+                  question={run.waiting.question ?? run.waiting.text.split('\n\n')[0]!}
+                  body={waitingBody(run.waiting)}
+                  options={waitingChoices(run.waiting).map((c, i) => ({ id: `o${i + 1}`, label: c.label, ...(c.consequence ? { consequence: c.consequence } : {}), ...(i === 0 ? { recommended: true } : {}) }))}
                   allowOther
                   skipLabel={null}
                   busy={busy}
                   error={error}
                   takeFocus={false}
                   onAnswer={(a) => {
-                    const options = run.waiting?.options ?? [];
-                    const text = a.kind === 'free_text' ? a.text : a.kind === 'option' ? options[Number(a.optionIds[0]?.slice(1)) - 1] : null;
+                    const choices = run.waiting ? waitingChoices(run.waiting) : [];
+                    const text = a.kind === 'free_text' ? a.text : a.kind === 'option' ? choices[Number(a.optionIds[0]?.slice(1)) - 1]?.label : null;
                     if (text?.trim()) {
                       void send({ action: 'answer', text: text.trim() });
                     }

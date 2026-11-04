@@ -14,21 +14,18 @@
  *
  * A tile keeps its size whatever its run is doing: the lines under the picture
  * are fixed, and what a run waits on replaces what it is doing rather than
- * adding to it. Clicking a picture opens that run's own live view in a sheet
- * (`BrowserRunView`). Re-read every 1.5s while the batch runs and the tab is
+ * adding to it. Clicking a picture opens that run's own live view in the preview
+ * pane, the same pane every record opens in. Re-read every 1.5s while the batch runs and the tab is
  * shown (and at once on a live notice, `routine-batch:<id>`), every 10s after
  * (`useRoutineBatch`, the read the chat's live table shares).
  */
 
-import type { BrowserRunView as BrowserRun } from '@/libs/browser/run';
 import type { RoutineBatchView as RoutineBatch, RoutineFinding, RoutineReceipt, RoutineRunView } from '@/libs/routines/types';
 import { Check, CircleAlert, Clock, Coins, Eye, FileText, Globe, Inbox, Loader2, Timer, User, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { DetailMeta, DetailPage, FactList, Stat, StatRow, StatusDot } from '@/components/patterns';
+import { DetailMeta, DetailPage, Stat, StatRow, StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { BrowserRunView } from '@/features/browser/BrowserRunView';
 import { openPreview } from '@/features/preview/previewState';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
@@ -93,7 +90,6 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
   const now = useNow(running);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [watching, setWatching] = useState<RoutineRunView | null>(null);
 
   const answer = useCallback(async (run: RoutineRunView, action: 'approve' | 'deny' | 'answer', text?: string) => {
     setBusy(`run:${run.id}`);
@@ -202,12 +198,11 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
         <ul className="grid grid-cols-2 gap-2.5 @xl:grid-cols-3 @3xl:grid-cols-4 @5xl:grid-cols-5 @[90rem]:grid-cols-6" data-routine-tiles={batch.runs.length}>
           {batch.runs.map(r => (
             <li key={r.id} className="min-w-0">
-              <RunTile run={r} expert={batch.routine.expert} now={now} busy={busy === `run:${r.id}`} onOpen={() => setWatching(r)} onAnswer={(action, text) => void answer(r, action, text)} />
+              <RunTile run={r} expert={batch.routine.expert} now={now} busy={busy === `run:${r.id}`} onOpen={() => r.browserRunId && openPreview({ type: 'browser_run', id: String(r.browserRunId) }, null)} onAnswer={(action, text) => void answer(r, action, text)} />
             </li>
           ))}
         </ul>
       </div>
-      <RunSheet run={watching ? (batch.runs.find(r => r.id === watching.id) ?? watching) : null} onClose={() => setWatching(null)} />
     </div>
   );
 
@@ -584,72 +579,5 @@ function Receipt({ receipt }: { receipt: RoutineReceipt }) {
         </p>
       )}
     </div>
-  );
-}
-
-/* ── Watching one run ──────────────────────────────────────────────────── */
-
-function RunSheet({ run, onClose }: { run: RoutineRunView | null; onClose: () => void }) {
-  const [browser, setBrowser] = useState<{ id: number; run: BrowserRun } | null>(null);
-  const browserRunId = run?.browserRunId ?? null;
-  useEffect(() => {
-    if (!browserRunId) {
-      return;
-    }
-    let stop = false;
-    void client.browser.get({ id: browserRunId })
-      .then((j) => {
-        if (!stop && j.run) {
-          setBrowser({ id: browserRunId, run: j.run });
-        }
-      })
-      .catch(() => {});
-    return () => {
-      stop = true;
-    };
-  }, [browserRunId]);
-  const shown = browser && browser.id === browserRunId ? browser.run : null;
-  const inputs = Object.entries(run?.input ?? {});
-  return (
-    <Sheet open={run !== null} onOpenChange={o => !o && onClose()}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
-        {run && (
-          <>
-            <SheetHeader>
-              <SheetTitle>{`#${run.n} · ${run.label}`}</SheetTitle>
-              <SheetDescription>{run.browserRunId ? `Browser run ${run.browserRunId}` : RUN_STATUS[run.status].word}</SheetDescription>
-            </SheetHeader>
-            <div className="space-y-5 px-4 pb-6">
-              {run.browserRunId
-                ? (shown
-                    ? <BrowserRunView key={shown.id} initial={shown} compact />
-                    : (
-                        <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
-                          <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                          Opening the run…
-                        </p>
-                      ))
-                : <p className="text-[13px] text-muted-foreground">{run.status === 'queued' ? 'It starts when a browser comes free.' : run.summary ?? 'This run had no browser of its own.'}</p>}
-              {run.receipt && (
-                <section className="rounded-lg border border-border p-3">
-                  <Receipt receipt={run.receipt} />
-                </section>
-              )}
-              {inputs.length > 0 && (
-                <section>
-                  <h3 className="mb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">This row</h3>
-                  <FactList
-                    facts={inputs.map(([k, v]) => ({ key: k, label: <span className="font-mono">{k}</span>, value: v }))}
-                  />
-                </section>
-              )}
-              {(run.cents > 0 || run.humanMs > 0) && (
-                <p className="text-[12px] text-muted-foreground">{`Run cost ${money(run.cents)} · people’s time ${peopleTime(run.humanMs)}`}</p>
-              )}
-            </div>
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
   );
 }
