@@ -47,6 +47,7 @@ import { db } from '@/libs/DB';
 import { browserRunSchema } from '@/models/Schema';
 import { wroteAfterApproval } from './approvalEvidence';
 import { claim, closeBrowserSession, existingSession, openBrowserSession, openWithSignIn, releaseBrowserSession, saveBrowser, screenshot, sessionKeyOf } from './browserEngine';
+import { isFileRef, resolveRunFile } from './runFiles';
 import { isStale, STALE_MS, toView } from './runReads';
 
 type Row = typeof browserRunSchema.$inferSelect;
@@ -606,6 +607,9 @@ async function drive(row: Row, l: Live, continuing: boolean, resume: Resume | nu
     ...(routine ? { routine } : {}),
     ...(l.approvedAhead ? { approvedAhead: l.approvedAhead } : {}),
     ...(kept && l.keptSignIn ? { keptSignIn: { vendor: l.keptSignIn.vendor, savedAt: kept.savedAt } } : {}),
+    ...(Object.values(plainInputs).some(isFileRef)
+      ? { file: async (name: string) => isFileRef(plainInputs[name]) ? resolveRunFile(row.orgId, plainInputs[name]!) : `No input named “${name}” holds a file.` }
+      : {}),
   }, {
     now: () => Date.now(),
     stopped: () => l.stop,

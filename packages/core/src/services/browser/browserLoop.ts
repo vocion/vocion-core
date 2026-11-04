@@ -19,7 +19,7 @@
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { AIMessage, BaseMessage } from '@langchain/core/messages';
-import type { ActOutcome, BrowserSession as Session } from './browserEngine';
+import type { ActOutcome, BrowserFile, BrowserSession as Session } from './browserEngine';
 import type { BrowserOutputSpec, BrowserStep, BrowserWaiting } from '@/libs/browser/run';
 import type { RoutineWrite } from '@/libs/routines/types';
 import { HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
@@ -66,6 +66,11 @@ export type LoopInput = {
   approvedAhead?: ApprovedAhead;
   /** The browser was signed in before the first step with a kept sign-in (`keptSignIn.ts`). */
   keptSignIn?: { vendor: string; savedAt: string | null };
+  /**
+   * The file an input names (`runFiles.ts`), or why there is none: set when an input holds a file,
+   * and the only way a run attaches one. The model names the input, never the bytes.
+   */
+  file?: (inputName: string) => Promise<BrowserFile | string>;
 };
 
 /**
@@ -157,13 +162,16 @@ function def(name: string, description: string, properties: Record<string, unkno
   return { type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } } };
 }
 
-function tools(outputs: BrowserOutputSpec[], routine = false): ToolDef[] {
+function tools(outputs: BrowserOutputSpec[], routine = false, files = false): ToolDef[] {
   const result = { type: 'object', description: 'The outputs, by name.', properties: Object.fromEntries(outputs.map(o => [o.name, { description: o.description }])), additionalProperties: true };
   return [
     def('open_url', 'Go to an address.', { url: { type: 'string', minLength: 1, maxLength: 2000 }, why: WHY }, ['url', 'why']),
     def('click', 'Click an element by its ref from the page snapshot.', { ref: REF, why: WHY }, ['ref', 'why']),
     def('type', 'Type into a field by its ref, replacing what it held. Write {{name}} to type a secret input. submit presses Enter after.', { ref: REF, text: { type: 'string', maxLength: 4000 }, submit: { type: 'boolean' }, why: WHY }, ['ref', 'text', 'why']),
     def('select_option', 'Choose an option in a select (dropdown) by its ref, by the option\'s label.', { ref: REF, value: { type: 'string', minLength: 1, maxLength: 300 }, why: WHY }, ['ref', 'value', 'why']),
+    ...(files
+      ? [def('upload_file', 'Attach a file to a file field, or to the button that opens the file picker, by its ref. The file is the one an input of the task holds: name that input.', { ref: REF, input: { type: 'string', minLength: 1, maxLength: 80, description: 'The name of the input that holds the file.' }, why: WHY }, ['ref', 'input', 'why'])]
+      : []),
     def('press', 'Press a key on the page (Enter, Escape, Tab, PageDown…).', { key: { type: 'string', minLength: 1, maxLength: 40 }, why: WHY }, ['key', 'why']),
     def('scroll', 'Scroll the page.', { direction: { type: 'string', enum: ['down', 'up'] }, why: WHY }, ['direction', 'why']),
     def('look', 'Read the page again, or the part around some words on a long page.', { find: { type: 'string', maxLength: 120 }, why: WHY }, ['why']),
@@ -201,6 +209,7 @@ function system(input: LoopInput, notes: string[]): string {
     plain.length > 0 ? `Inputs:\n${plain.map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : 'Inputs: none.',
     secret.length > 0 ? `Secret inputs (type them as written, with the braces; you never see their values): ${secret.map(k => `{{${k}}}`).join(', ')}` : '',
     secret.length > 0 ? SECRET_ECHO_RULE : '',
+    input.file ? 'An input whose value is artifact:<id> or an https:// address is a file. To attach it, call upload_file on the file field (or the button that opens the file picker) and name that input; never type the address into the page.' : '',
     input.keptSignIn ? `The browser was signed in to ${input.keptSignIn.vendor} before your first step, with a kept sign-in${input.keptSignIn.savedAt ? ` saved ${input.keptSignIn.savedAt.slice(0, 10)}` : ''}: expect to be signed in. If the site shows its sign-in page anyway, that kept sign-in has expired.` : '',
     input.outputs.length > 0 ? `Outputs you owe, as keys of finish's result:\n${input.outputs.map(o => `- ${o.name}: ${o.description}`).join('\n')}` : 'Outputs: none; finish with a summary.',
     '',
@@ -317,7 +326,7 @@ function quote(s: string | null | undefined): string {
  * @param hooks - Where steps, waits and charges go.
  */
 export async function runBrowserLoop(model: BaseChatModel, s: Session, input: LoopInput, hooks: LoopHooks): Promise<LoopResult> {
-  const t = tools(input.outputs, Boolean(input.routine));
+  const t = tools(input.outputs, Boolean(input.routine), Boolean(input.file));
   // tool_choice stays auto: the 5-family models refuse a forced choice, and a reply with no call is
   // answered below by asking for one action.
   const bound = model.bindTools!(t as never);
@@ -500,6 +509,20 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
         }
         outcome = await act(s, { kind: 'select', ref: String(args.ref), value: String(args.value) });
         await record('select', `Chose “${String(args.value).slice(0, 60)}” in ${quote(el?.name)}`, outcome);
+        break;
+      }
+      case 'upload_file': {
+        const name = String(args.input ?? '');
+        const el = await describeElement(s, String(args.ref)).catch(() => null);
+        const file = input.file ? await input.file(name).catch((e: Error) => `The file could not be read: ${e.message.slice(0, 160)}`) : 'This task has no files to attach.';
+        if (typeof file === 'string') {
+          outcome = { ok: false, detail: file };
+          await record('upload', `Could not attach ${name}`, outcome);
+          break;
+        }
+        await markTarget(s, String(args.ref));
+        outcome = await act(s, { kind: 'upload', ref: String(args.ref), file });
+        await record('upload', `Attached ${file.name} to ${quote(el?.name)}`, outcome);
         break;
       }
       case 'press': {

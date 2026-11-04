@@ -56,7 +56,7 @@ Write it as JSON only, no prose around it, in this shape:
   "summary": "Two or three sentences a person reads first.",
   "startUrl": "The address the work starts at, from what was on screen (null if not seen)",
   "systems": ["hosts it uses"],
-  "inputs": [{ "name": "snake_case", "description": "what it is", "example": "value from the recording", "secret": false, "key": false, "optional": false, "shared": false }],
+  "inputs": [{ "name": "snake_case", "description": "what it is", "example": "value from the recording", "secret": false, "key": false, "optional": false, "shared": false, "file": false }],
   "outputs": [{ "name": "snake_case", "description": "what the run reads back from the saved record", "checks": "the input name this must equal after saving, or null" }],
   "preconditions": ["what must be true before it starts"],
   "steps": [{ "n": 1, "text": "Imperative step, naming what a person sees (the button, the field, the page)", "why": "why the specialist does it", "at": 12 }],
@@ -72,7 +72,7 @@ Write it as JSON only, no prose around it, in this shape:
 
 How to write it:
 - "at" is seconds on the recording where the step or rule appears, from the transcript timestamps. Every step and rule has one when it was shown or said.
-- Inputs are what changes from one run to the next (the person's name, email, department, the campaign). Mark the sign-in password "secret": true. Mark inputs every row of a batch shares (the sign-in email and password, the campaign) "shared": true. Mark the inputs that identify one piece of work (e.g. the email) "key": true, so the same work is never done twice.
+- Inputs are what changes from one run to the next (the person's name, email, department, the campaign). Mark the sign-in password "secret": true. Mark inputs every row of a batch shares (the sign-in email and password, the campaign) "shared": true. Mark the inputs that identify one piece of work (e.g. the email) "key": true, so the same work is never done twice. A document the work uploads (a roster, a tax form, a signed letter) is an input with "file": true: the run attaches it from the workspace, never retypes it.
 - The run signs in with the inputs when the site asks; include a sign-in step only as "Sign in with the account given, if asked".
 - Outputs must include what proves the work was done, read back from the saved record after saving (e.g. the user's email and the campaign as the record shows them), each with "checks" naming the input it must match. Include an output for the record's id or reference when the app shows one.
 - Writes are only the buttons that save the work, by their exact on-screen name ("Add user", "Enroll"). Never include buttons that delete, deactivate, send, launch or pay unless the work itself is that.
@@ -111,6 +111,7 @@ export function normalizeSpec(raw: Raw): { name: string; description: string; sp
     ...(i.key === true ? { key: true } : {}),
     ...(i.optional === true ? { optional: true } : {}),
     ...(i.shared === true || i.secret === true ? { shared: true } : {}),
+    ...(i.file === true && i.secret !== true ? { file: true } : {}),
   })).filter((i, n, all) => all.findIndex(x => x.name === i.name) === n);
   const names = new Set(inputs.map(i => i.name));
   const outputs: RoutineOutputSpec[] = list(raw.outputs).map(o => ({

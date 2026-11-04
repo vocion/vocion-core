@@ -37,7 +37,8 @@ export const TRUST_LABEL: Record<RoutineTrust, string> = { drafted: 'Drafted', a
 export type Moment = number | null;
 
 /** One input a run of the automation takes. `key`: part of the dedupe key — two runs with the same key values are the same work. */
-export type RoutineInputSpec = { name: string; description: string; example?: string | null; secret?: boolean; key?: boolean; optional?: boolean; shared?: boolean };
+/** `file`: a document the work attaches (a roster, a form); its value is `artifact:<id>` or an https address (`services/browser/runFiles.ts`). */
+export type RoutineInputSpec = { name: string; description: string; example?: string | null; secret?: boolean; key?: boolean; optional?: boolean; shared?: boolean; file?: boolean };
 
 /**
  * One output a run owes. `checks`: the input this output must read back as, after the write — the

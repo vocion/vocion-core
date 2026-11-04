@@ -458,6 +458,9 @@ export type ActOutcome = { ok: boolean; detail: string };
  * @param s - The browser.
  * @param action - What to do.
  */
+/** A file a run attaches to a page: resolved from the run's inputs (`runFiles.ts`), never read off the page. */
+export type BrowserFile = { name: string; mimeType: string; buffer: Buffer };
+
 /** Past this many characters, text is filled in at once rather than typed key by key. */
 const LONG_TEXT_CHARS = 400;
 
@@ -466,6 +469,7 @@ export async function act(s: BrowserSession, action:
   | { kind: 'click'; ref: string }
   | { kind: 'type'; ref: string; text: string; submit?: boolean }
   | { kind: 'select'; ref: string; value: string }
+  | { kind: 'upload'; ref: string; file: BrowserFile }
   | { kind: 'press'; key: string }
   | { kind: 'scroll'; direction: 'up' | 'down' }
   | { kind: 'wait'; seconds: number }): Promise<ActOutcome> {
@@ -539,6 +543,29 @@ export async function act(s: BrowserSession, action:
         await loc.selectOption({ label: action.value }, { timeout: 5_000 }).catch(() => loc.selectOption(action.value, { timeout: 5_000 }));
         await chrome(page, 'spotlight', null);
         return { ok: true, detail: `chose ${action.value}` };
+      }
+      case 'upload': {
+        const loc = byRef(page, action.ref);
+        if (!loc) {
+          return { ok: false, detail: `"${action.ref}" is not a ref from the snapshot` };
+        }
+        const payload = { name: action.file.name, mimeType: action.file.mimeType, buffer: action.file.buffer };
+        const box = await pointAt(page, loc);
+        // A file field takes the file directly; anything else (a styled "Choose file" button) opens
+        // the file picker, which is answered with the file the way a person picks one.
+        const isFileField = await loc.evaluate(el => el instanceof HTMLInputElement && el.type === 'file').catch(() => false);
+        if (isFileField) {
+          await loc.setInputFiles(payload, { timeout: 10_000 });
+        } else {
+          if (box) {
+            await chrome(page, 'ripple', Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
+          }
+          const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 5_000 }), loc.click({ timeout: 5_000 })]);
+          await chooser.setFiles(payload);
+        }
+        await settle(page);
+        await chrome(page, 'spotlight', null);
+        return { ok: true, detail: `attached ${action.file.name}` };
       }
       case 'press': {
         await chrome(page, 'keycap', action.key);
