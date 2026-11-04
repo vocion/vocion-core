@@ -144,6 +144,7 @@ describe('the report', () => {
       cents: 105,
       humanMs: 90_000,
       manualMinutes: 3,
+      fields: { inputs: [], outputs: [] },
       startedAt: '2026-10-22T15:00:00Z',
       endedAt: '2026-10-22T15:03:00Z',
       runs: [

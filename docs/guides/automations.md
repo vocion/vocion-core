@@ -38,8 +38,15 @@ control surface for recurring schedules and event-trigger rules.
 `/dashboard/automations/batches/<id>` is a batch: a tile per run with its live
 picture, the step it is on and why, and what it waits on, with the answers as
 buttons. A done tile shows its receipt. The batch opens in the preview pane
-when it is started from chat, with a chip under the answer that says where it
-stands ("17 of 20 done · 2 escalated").
+when it is started from chat. Under the answer that started it (or checked it)
+the batch is a live table (`features/routines/RoutineBatchTable.tsx`): its
+header says where it stands ("17 of 20 done · 2 escalated") and opens it in the
+pane; one line per row with its label, the inputs that tell rows apart, its
+status (queued, working on a step, waiting on you, escalated, done and
+verified, failed, already done) and, once done, what it read back. Columns come
+from the version's spec (`RoutineBatchView.fields`, `libs/routines/batchTable.ts`);
+each line opens its browser run in the pane. It re-reads with the batch page
+(`useRoutineBatch`) while the batch runs, and stops once the batch ends.
 
 ## Guarantees
 

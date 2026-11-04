@@ -16,21 +16,20 @@
  * are fixed, and what a run waits on replaces what it is doing rather than
  * adding to it. Clicking a picture opens that run's own live view in a sheet
  * (`BrowserRunView`). Re-read every 1.5s while the batch runs and the tab is
- * shown (and at once on a live notice, `routine-batch:<id>`), every 10s after.
+ * shown (and at once on a live notice, `routine-batch:<id>`), every 10s after
+ * (`useRoutineBatch`, the read the chat's live table shares).
  */
 
 import type { BrowserRunView as BrowserRun } from '@/libs/browser/run';
 import type { RoutineBatchView as RoutineBatch, RoutineFinding, RoutineReceipt, RoutineRunView } from '@/libs/routines/types';
 import { Check, CircleAlert, Clock, Coins, Eye, FileText, Globe, Inbox, Loader2, Timer, User, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DetailMeta, DetailPage, FactList, Stat, StatRow, StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { BrowserRunView } from '@/features/browser/BrowserRunView';
-import { announceConversationAppended } from '@/features/dashboard/chat/conversationAppended';
 import { openPreview } from '@/features/preview/previewState';
-import { useLive } from '@/hooks/useLive';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { batchProgress, countChips, elapsed, minutesLong, money, peopleTime, RUN_STATUS, span } from '@/libs/routines/display';
@@ -38,82 +37,15 @@ import { batchLabel } from '@/libs/routines/types';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { cn } from '@/utils/Helpers';
 import { ToneChip, TrustChip } from './RoutineChips';
+import { useRoutineBatch } from './useRoutineBatch';
 
 const DOT = { pass: 'pass', amber: 'amber', fail: 'fail', neutral: 'neutral', teal: 'neutral' } as const;
-const FAST_MS = 1500;
-const SLOW_MS = 10_000;
 
 /* ── Reading the batch ─────────────────────────────────────────────────── */
 
 function useBatch(initial: RoutineBatch): [RoutineBatch, (b: RoutineBatch) => void] {
-  const [batch, setBatch] = useState(initial);
-  const running = useRef(initial.status === 'running');
-  running.current = batch.status === 'running';
-  const inflight = useRef(false);
-  const pull = useCallback(async () => {
-    if (inflight.current) {
-      return;
-    }
-    inflight.current = true;
-    try {
-      const res = await client.routines.batch({ id: initial.id });
-      if (res.batch) {
-        setBatch(res.batch);
-      }
-    } catch {
-      /* the next pull tries again */
-    } finally {
-      inflight.current = false;
-    }
-  }, [initial.id]);
-
-  useEffect(() => {
-    let stop = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const loop = async () => {
-      if (!document.hidden) {
-        await pull();
-      }
-      if (!stop) {
-        timer = setTimeout(loop, running.current ? FAST_MS : SLOW_MS);
-      }
-    };
-    timer = setTimeout(loop, FAST_MS);
-    const onShown = () => {
-      if (!document.hidden) {
-        clearTimeout(timer);
-        void loop();
-      }
-    };
-    document.addEventListener('visibilitychange', onShown);
-    return () => {
-      stop = true;
-      clearTimeout(timer);
-      document.removeEventListener('visibilitychange', onShown);
-    };
-  }, [pull]);
-
-  const soon = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useLive([`routine-batch:${initial.id}`], () => {
-    if (soon.current) {
-      return;
-    }
-    soon.current = setTimeout(() => {
-      soon.current = null;
-      void pull();
-    }, 200);
-  });
-  // A new question for the expert, a finding, or the batch's end is said in the conversation it was
-  // asked from (a docked Decision, a closing message): tell the open chat to read it again.
-  const said = useRef<string>('');
-  const ask = [batch.status, ...batch.runs.map(r => r.waiting?.askId ?? 0), ...batch.findings.map(f => `${f.id}:${f.state}`)].join(',');
-  useEffect(() => {
-    if (said.current && said.current !== ask && batch.conversationId) {
-      announceConversationAppended(batch.conversationId);
-    }
-    said.current = ask;
-  }, [ask, batch.conversationId]);
-  return [batch, setBatch];
+  const [batch, setBatch] = useRoutineBatch(initial.id, initial);
+  return [batch ?? initial, setBatch];
 }
 
 function useNow(active: boolean): number {

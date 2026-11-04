@@ -240,6 +240,12 @@ export type RoutineBatchView = {
   humanMs: number;
   /** The automation's baseline, per run. */
   manualMinutes: number | null;
+  /**
+   * What a row is, from the version's spec: the inputs that differ row to row (never a secret or a
+   * shared one), `key` when part of the dedupe key, and the outputs a run reads back, each with the
+   * input it is checked against. The chat's live table takes its columns from here.
+   */
+  fields: { inputs: Array<{ name: string; key: boolean }>; outputs: Array<{ name: string; checks: string | null }> };
   startedAt: string;
   endedAt: string | null;
   runs: RoutineRunView[];

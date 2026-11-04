@@ -230,6 +230,10 @@ export async function batchView(b: BatchRow): Promise<RoutineBatchView> {
     cents,
     humanMs: views.reduce((s, v) => s + v.humanMs, 0),
     manualMinutes: version?.spec.manualMinutes ?? null,
+    fields: {
+      inputs: (version?.spec.inputs ?? []).filter(i => !i.secret && !i.shared).map(i => ({ name: i.name, key: Boolean(i.key) })),
+      outputs: (version?.spec.outputs ?? []).map(o => ({ name: o.name, checks: o.checks ?? null })),
+    },
     startedAt: b.createdAt.toISOString(),
     endedAt: b.endedAt?.toISOString() ?? null,
     runs: tiles,

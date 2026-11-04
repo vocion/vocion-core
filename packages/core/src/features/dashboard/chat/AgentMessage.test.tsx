@@ -896,3 +896,26 @@ describe('AgentMessage effort line', () => {
     expect(onDigDeeper).toHaveBeenCalledWith('standard');
   });
 });
+
+describe('AgentMessage automation batches', () => {
+  it('draws a batch the turn started as its live table, in place of its chip', async () => {
+    const screen = await render(
+      <AgentMessage
+        agentName="Operations Lead"
+        message={{
+          role: 'assistant',
+          content: 'Started it for all 12 rows.',
+          runs: [
+            { type: 'tool', name: 'routine_run', state: 'done', output: JSON.stringify({ routineBatchId: 4, batch: 'Automation run 4', rows: 12 }) },
+            { type: 'text', text: 'Started it for all 12 rows.' },
+          ] as AgentRun[],
+        }}
+      />,
+    );
+
+    await expect.element(screen.getByRole('button', { name: 'Automation run 4' })).toBeVisible();
+
+    expect(screen.container.querySelector('[data-routine-batch-table="4"]')).not.toBeNull();
+    expect(screen.container.querySelector('[data-follow-chip="routine_batch:4"]')).toBeNull();
+  });
+});

@@ -96,6 +96,7 @@ const BATCH: Batch = {
   cents: 118,
   humanMs: 140_000,
   manualMinutes: 6,
+  fields: { inputs: [{ name: 'email', key: true }, { name: 'full_name', key: false }], outputs: [{ name: 'user_email', checks: 'email' }, { name: 'enrolled_in', checks: 'campaign' }] },
   startedAt: new Date(Date.now() - 310_000).toISOString(),
   endedAt: null,
   runs,
