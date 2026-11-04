@@ -40,8 +40,9 @@ import process from 'node:process';
 import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
 import { asRootRun } from '@/libs/agents/rootRun';
 import { db } from '@/libs/DB';
+import { clipAtWord, factsTable } from '@/libs/decisions/decision';
 import { batchLabel, clock, ROUTINE_LIMITS, routineRunOpen, TRUST_LABEL } from '@/libs/routines/types';
-import { routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema } from '@/models/Schema';
+import { browserRunSchema, routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema } from '@/models/Schema';
 import { batchStatusLine, batchView, currentVersions, getBatch, getRoutine, namesOf } from './routineReads';
 import { compileTask, runOutputs, settleAnswers, workflowYamlFor } from './teaching';
 
@@ -765,6 +766,76 @@ function firstSentence(t: string): string {
 type RunAnswer = { kind: 'approve' } | { kind: 'deny'; note?: string } | { kind: 'answer'; text: string };
 
 /**
+ * Where a Decision about one run of a batch opens: that run's browser — its live view, its steps
+ * and the step it waits on — or the batch, for a run that has no browser yet.
+ * @param run - The automation run.
+ * @param run.browserRunId - Its browser run, once it has one.
+ * @param batchId - Its batch.
+ */
+export function runDetailsUrl(run: { browserRunId: number | null }, batchId: number): string {
+  return run.browserRunId ? `/dashboard/browser/${run.browserRunId}` : `/dashboard/automations/batches/${batchId}`;
+}
+
+/**
+ * The picture of the page as a run stopped on it, as an ask carries one (`pictureOf` reads it back
+ * onto the Decision card).
+ * @param shotUrl - The screenshot the run kept, when it kept one.
+ */
+export function pageShotMd(shotUrl: string | null | undefined): string {
+  return shotUrl ? `![The page as it stopped](${shotUrl})` : '';
+}
+
+/**
+ * What a run that stopped for its expert is asked as: who it is about and the question in whole
+ * words; the why; the page as it stopped; Details on that run. Pure.
+ * @param input - The run and its wait.
+ * @param input.routineName - The automation's name.
+ * @param input.trustLabel - Its trust, in words.
+ * @param input.run - The run.
+ * @param input.batchId - Its batch.
+ * @param input.batchName - Its batch, in words.
+ * @param input.w - What it waits on.
+ */
+export function runWaitAsk(input: { routineName: string; trustLabel: string; run: Pick<RunRow, 'n' | 'label' | 'browserRunId'>; batchId: number; batchName: string; w: BrowserWaiting }): { title: string; body: string; contextMd: string; contextUrl: string; options: Array<{ id: string; label: string; description?: string; recommended?: boolean }> } {
+  const { routineName, trustLabel, run, batchId, batchName, w } = input;
+  const where = `${batchName} · run ${run.n} · ${run.label}`;
+  const contextUrl = runDetailsUrl(run, batchId);
+  const shot = pageShotMd(w.shotUrl);
+  const who = run.label.split(' · ')[0]!;
+  if (w.kind === 'approval') {
+    return {
+      title: `${who}: approve “${clipAtWord((w.step ?? w.text).replace(/^Click /, '').replace(/^[“"]|[”"]$/g, ''), 60)}”?`,
+      body: `${routineName}, run ${run.n} holds before this click: at ${trustLabel} trust it is outside what the approved spec takes on its own.`,
+      contextMd: [where, shot].filter(Boolean).join('\n\n'),
+      contextUrl,
+      options: [{ id: 'approve', label: 'Approve', recommended: true }, { id: 'decline', label: 'Decline' }],
+    };
+  }
+  const choices: NonNullable<BrowserWaiting['choices']> = w.choices && w.choices.length > 0 ? w.choices : (w.options ?? []).map(label => ({ label }));
+  const options = choices.map((c, i) => ({ id: `o${i + 1}`, label: c.label, ...(c.consequence ? { description: c.consequence } : {}), ...(i === 0 ? { recommended: true } : {}) }));
+  if (w.question) {
+    // An escalation in parts: the question is the title as the run asked it (it names the record),
+    // the rule is the why, the facts head the long form, where every surface draws them as facts.
+    return {
+      title: clipAtWord(w.question, 160),
+      body: clipAtWord(w.rule ? `${w.rule} (${routineName}, run ${run.n})` : `${routineName}, run ${run.n}.`, 390),
+      contextMd: [factsTable(w.found ?? []), where, shot].filter(Boolean).join('\n\n'),
+      contextUrl,
+      options,
+    };
+  }
+  // An older wait, in one block of text: its first sentence is the question, the rest evidence.
+  const [text, ...evidence] = w.text.split('\n\n');
+  return {
+    title: `${who}: ${clipAtWord(firstSentence(text!), 90)}`,
+    body: clipAtWord(`${routineName}, run ${run.n}: ${text!}`, 390),
+    contextMd: [where, evidence.length > 0 ? `> ${clipAtWord(evidence.join('\n\n'), 800)}` : '', shot].filter(Boolean).join('\n\n'),
+    contextUrl,
+    options,
+  };
+}
+
+/**
  * Hand an answer to the waiting run. A run between processes (a restart, a reload) takes it a
  * moment later; one that is not picked up in time keeps it on its row and takes it when it waits
  * again (`runWaits`), never asking twice.
@@ -805,26 +876,23 @@ async function runWaits(run: RunRow, w: BrowserWaiting): Promise<void> {
     return;
   }
   const kind = w.escalation ? 'escalation' : w.kind;
-  const options = w.kind === 'approval' ? ['Approve', 'Decline'] : (w.options ?? []);
   const { upsertAsk } = await import('@/services/AskService');
-  const [text, ...evidence] = w.text.split('\n\n');
-  // One card per question, docked where the batch was asked: who it is about, and the question.
-  const who = run.label.split(' · ')[0]!;
-  const title = w.kind === 'approval'
-    ? `${who}: approve “${(w.step ?? w.text).replace(/^Click /, '').slice(0, 60)}”?`
-    : `${who}: ${firstSentence(text!).slice(0, 90)}`;
+  // One card per question, docked where the batch was asked: who it is about, the question, and
+  // the page as it stopped; Details opens this run.
+  const asked = runWaitAsk({ routineName: r.name, trustLabel: TRUST_LABEL[r.trust], run, batchId: batch.id, batchName: batchLabel(batch.id), w });
+  const options = asked.options.map(o => o.label);
   const { ask } = await upsertAsk({
     orgId: run.orgId,
     createdBy: `routine:${r.slug}`,
     ask: {
       kind: w.kind === 'approval' ? 'approval' : 'ruling',
-      title,
-      body: (w.kind === 'approval' ? `${r.name}, run ${run.n} holds before this click: at ${TRUST_LABEL[r.trust]} trust it is outside what the approved spec takes on its own.` : `${r.name}, run ${run.n}: ${text!}`).slice(0, 390),
-      contextMd: [`${batchLabel(batch.id)} · run ${run.n} · ${run.label}`, evidence.length > 0 ? `> ${evidence.join('\n\n').slice(0, 800)}` : '', w.shotUrl ? `[The page as it stopped](${w.shotUrl})` : ''].filter(Boolean).join('\n\n'),
+      title: asked.title,
+      body: asked.body,
+      contextMd: asked.contextMd,
       sourceRef: `routine-run:${run.id}:${Date.parse(w.at) || Date.now()}`,
-      options: options.map((label, i) => ({ id: w.kind === 'approval' ? (i === 0 ? 'approve' : 'decline') : `o${i + 1}`, label, ...(i === 0 ? { recommended: true } : {}) })),
+      options: asked.options,
       allowOther: w.kind !== 'approval',
-      contextUrl: `/dashboard/automations/batches/${batch.id}`,
+      contextUrl: asked.contextUrl,
       conversationId: batch.conversationId,
       ownerUserId: r.expertUserId ?? batch.requestedBy,
       objectRefs: [],
@@ -965,6 +1033,8 @@ async function runEnded(run: RunRow, e: Extract<RunEvent, { kind: 'ended' }>): P
   await db.update(routineRunSchema).set({ ...base, status, receipt, error }).where(eq(routineRunSchema.id, run.id));
   if (status === 'unknown_outcome') {
     const { upsertAsk } = await import('@/services/AskService');
+    // The page as the run ended on it, kept on its browser run before the run said it ended.
+    const [shot] = run.browserRunId ? await db.select({ url: browserRunSchema.finalShotUrl }).from(browserRunSchema).where(and(eq(browserRunSchema.orgId, run.orgId), eq(browserRunSchema.id, run.browserRunId))).limit(1) : [];
     await upsertAsk({
       orgId: run.orgId,
       createdBy: `routine:${r.slug}`,
@@ -974,7 +1044,8 @@ async function runEnded(run: RunRow, e: Extract<RunEvent, { kind: 'ended' }>): P
         body: `Run ${run.n} of ${batchLabel(batch.id)} took a write and then stopped (${(e.error ?? e.summary).slice(0, 300)}). It is not run again on its own, so nothing is done twice. Check the record, then say what you found.`,
         sourceRef: `routine-check:${run.id}`,
         options: [{ id: 'right', label: 'Checked: it is right', recommended: true }, { id: 'fixed', label: 'I fixed it by hand' }, { id: 'again', label: 'Run it again' }],
-        contextUrl: `/dashboard/automations/batches/${batch.id}`,
+        ...(shot?.url ? { contextMd: pageShotMd(shot.url) } : {}),
+        contextUrl: runDetailsUrl(run, batch.id),
         conversationId: batch.conversationId,
         ownerUserId: r.expertUserId ?? batch.requestedBy,
         objectRefs: [],

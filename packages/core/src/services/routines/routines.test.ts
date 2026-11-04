@@ -1,11 +1,12 @@
 import type { RoutineBatchView, RoutineSpec } from '@/libs/routines/types';
 import { describe, expect, it } from 'vitest';
 import { needsApproval } from '@/libs/browser/run';
+import { decisionViewOf } from '@/libs/decisions/decision';
 import { clock, momentUrl } from '@/libs/routines/types';
 import { parseRows } from '@/services/agents/tools/routineTools';
 import { allowedWrite } from '@/services/browser/browserLoop';
 import { PRACTICE_ROUTINE_SPEC, practiceRoutineBatch } from './practice';
-import { checkValue, idemKeyOf, receiptFor, reportMarkdown } from './RoutineService';
+import { checkValue, idemKeyOf, pageShotMd, receiptFor, reportMarkdown, runDetailsUrl, runWaitAsk } from './RoutineService';
 import { compileTask, framesToRead, jsonIn, normalizeSpec, runOutputs, workflowYamlFor } from './teaching';
 
 describe('a read-back check', () => {
@@ -187,5 +188,69 @@ describe('where the work starts', () => {
 
     expect(answered.startUrl).toBe('https://staging.example.com/users');
     expect(answered.systems).toContain('staging.example.com');
+  });
+});
+
+describe('a run that stops to ask its expert', () => {
+  const shot = '/api/artifacts/org-larkfield-9c1e/org-larkfield-9c1e.jpg';
+  const base = { routineName: 'Enroll a provider', trustLabel: 'Approved', run: { n: 3, label: 'Dana Whitfield · Larkfield', browserRunId: 318 }, batchId: 12, batchName: 'Automation run 12' };
+
+  it('asks the question in whole words, with the page as it stopped, and Details on that run', () => {
+    const asked = runWaitAsk({ ...base, w: { kind: 'question', text: 'The Larkfield license on file expires 11/30/2026 — only renewals filed before then keep the enrollment active, so which date should I use?\n\nThe form shows two dates.', options: ['Use the renewal date', 'Leave it'], shotUrl: shot, at: '2026-11-04T15:00:00Z' } });
+
+    expect(asked.title).toBe('Dana Whitfield: The Larkfield license on file expires 11/30/2026 — only renewals filed before then keep…');
+    expect(asked.contextMd).toContain(`![The page as it stopped](${shot})`);
+    expect(asked.contextMd).toContain('> The form shows two dates.');
+    expect(asked.contextUrl).toBe('/dashboard/browser/318');
+  });
+
+  it('an approval hold carries the same picture and opens the same run', () => {
+    const asked = runWaitAsk({ ...base, w: { kind: 'approval', text: 'Click “Submit application”', step: 'Click “Submit application”', shotUrl: shot, at: '2026-11-04T15:00:00Z' } });
+
+    expect(asked.title).toBe('Dana Whitfield: approve “Submit application”?');
+    expect(asked.contextMd).toContain(`![The page as it stopped](${shot})`);
+    expect(asked.contextUrl).toBe('/dashboard/browser/318');
+  });
+
+  it('an escalation in parts: its question is the title as asked, the rule the why, the facts a table, each answer with what it does', () => {
+    const asked = runWaitAsk({ ...base, w: {
+      kind: 'question',
+      escalation: true,
+      text: 'composed for older surfaces',
+      question: 'Correct Owen Fitzgerald’s license number on the board to 149.021345?',
+      rule: 'A license number that does not match the state lookup goes to the expert.',
+      found: [{ label: 'Board says', value: 'IL LCSW 149.012345' }, { label: 'License lookup', value: 'No record for that number' }, { label: 'Name search', value: 'Owen J. Fitzgerald · LCSW 149.021345 · Active · expires 11/30/2027' }],
+      choices: [{ label: 'Correct it to 149.021345', consequence: 'Updates the board record, then reads it back.' }, { label: 'Leave it', consequence: 'Nothing is saved for this provider.' }],
+      options: ['Correct it to 149.021345', 'Leave it'],
+      shotUrl: shot,
+      at: '2026-11-04T15:00:00Z',
+    } });
+
+    expect(asked.title).toBe('Correct Owen Fitzgerald’s license number on the board to 149.021345?');
+    expect(asked.body).toBe('A license number that does not match the state lookup goes to the expert. (Enroll a provider, run 3)');
+    expect(asked.options).toEqual([
+      { id: 'o1', label: 'Correct it to 149.021345', description: 'Updates the board record, then reads it back.', recommended: true },
+      { id: 'o2', label: 'Leave it', description: 'Nothing is saved for this provider.' },
+    ]);
+    expect(asked.contextUrl).toBe('/dashboard/browser/318');
+
+    const view = decisionViewOf({ id: 1, kind: 'ruling', title: asked.title, body: asked.body, contextMd: asked.contextMd, options: asked.options, status: 'open' });
+
+    expect(view.facts).toEqual([{ label: 'Board says', value: 'IL LCSW 149.012345' }, { label: 'License lookup', value: 'No record for that number' }, { label: 'Name search', value: 'Owen J. Fitzgerald · LCSW 149.021345 · Active · expires 11/30/2027' }]);
+    expect(view.picture).toEqual({ src: shot, alt: 'The page as it stopped' });
+    expect(view.options[0]).toMatchObject({ label: 'Correct it to 149.021345', consequence: 'Updates the board record, then reads it back.', recommended: true });
+  });
+
+  it('an older wait with only text still asks, its options plain labels', () => {
+    const asked = runWaitAsk({ ...base, w: { kind: 'question', escalation: true, text: 'Two accounts match. Which one?', options: ['The first', 'Skip it'], at: '2026-11-04T15:00:00Z' } });
+
+    expect(asked.title).toBe('Dana Whitfield: Two accounts match.');
+    expect(asked.options).toEqual([{ id: 'o1', label: 'The first', recommended: true }, { id: 'o2', label: 'Skip it' }]);
+  });
+
+  it('a run with no browser yet opens its batch, and a wait with no screenshot carries no picture', () => {
+    expect(runDetailsUrl({ browserRunId: null }, 12)).toBe('/dashboard/automations/batches/12');
+    expect(pageShotMd(null)).toBe('');
+    expect(runWaitAsk({ ...base, w: { kind: 'question', text: 'Which date?', at: '2026-11-04T15:00:00Z' } }).contextMd).not.toContain('![');
   });
 });

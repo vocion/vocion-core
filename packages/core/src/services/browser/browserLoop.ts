@@ -181,15 +181,65 @@ function tools(outputs: BrowserOutputSpec[], routine = false, files = false): To
     def('note', 'Write down what you found that you will need later (the rows of a table, a reference number). You only ever see the current page: what is not in your notes is gone once you leave it. Notes are shown to you on every step.', { text: { type: 'string', minLength: 1, maxLength: 6000 } }, ['text']),
     def('ask_person', 'Ask the person something only they can answer (a code sent to their phone, a choice the task left open). The run waits for their answer.', { question: { type: 'string', minLength: 3, maxLength: 400 } }, ['question']),
     ...(routine
-      ? [def('escalate', 'A rule of the automation says this needs its expert, or the page shows something the automation does not cover: stop and ask the expert. Say what you found and why it needs them, the evidence on the page, and up to three answers they could give, the one you recommend first. The run waits for their answer.', {
-          what: { type: 'string', minLength: 3, maxLength: 400, description: 'What you found and which rule it meets, in one or two plain sentences.' },
-          evidence: { type: 'string', maxLength: 600, description: 'What the page shows that proves it (a row, a message), quoted.' },
-          options: { type: 'array', items: { type: 'string', minLength: 2, maxLength: 160 }, minItems: 1, maxItems: 3, description: 'Answers the expert could give, recommended first ("Save it as “Q4 Security Refresher (2)”", "Skip this account").' },
-        }, ['what', 'options'])]
+      ? [def('escalate', 'A rule of the automation says this needs its expert, or the page shows something the automation does not cover: stop and ask the expert. Ask one short question, give the facts you found as short label/value pairs, name the rule that sends it to them, and offer up to three answers with what each does, the one you recommend first. The expert decides from a small card: keep every part short. The run waits for their answer.', {
+          question: { type: 'string', minLength: 3, maxLength: 160, description: 'One short sentence ending in "?", naming the record it is about: "Enroll Aisha Karim’s existing account instead of adding a second one?".' },
+          found: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 4,
+            description: 'Two to four facts that decide it, each a short label and its value, cleaned up rather than pasted: {"label": "The row says", "value": "aisha.karim@larkfield.example"}, {"label": "Name search", "value": "Aisha Karim · akarim@larkfield.example · Active · since 3/2024"}.',
+            items: { type: 'object', properties: { label: { type: 'string', minLength: 1, maxLength: 40 }, value: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['label', 'value'] },
+          },
+          rule: { type: 'string', minLength: 3, maxLength: 200, description: 'The automation\'s rule that sends this to the expert, in one line.' },
+          options: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 3,
+            description: 'Answers the expert could give, recommended first: a label of at most eight words and what choosing it does, in one line.',
+            items: { type: 'object', properties: { label: { type: 'string', minLength: 2, maxLength: 60 }, consequence: { type: 'string', maxLength: 160 } }, required: ['label', 'consequence'] },
+          },
+        }, ['question', 'found', 'rule', 'options'])]
       : []),
     def('finish', 'The task is done: give the outputs and one plain-sentence summary of what was done.', { summary: { type: 'string', minLength: 3, maxLength: 600 }, result }, ['summary', 'result']),
     def('give_up', 'The task cannot be done here: say why in one plain sentence, with any outputs you did get.', { why: { type: 'string', minLength: 3, maxLength: 600 }, result }, ['why']),
   ];
+}
+
+/**
+ * An `escalate` call's arguments as the run waits on them: each part typed and masked, at most four
+ * facts and three answers, and the plain `text` composed from them for a surface that reads only it.
+ * An answer given as a bare string (the tool's earlier shape) is a label. Pure.
+ * @param args - The call's arguments.
+ * @param mask - Hides any secret's value.
+ */
+export function escalationOf(args: Record<string, unknown>, mask: (x: string) => string): Omit<BrowserWaiting, 'at' | 'shotUrl'> {
+  const str = (x: unknown) => (typeof x === 'string' ? mask(x).replace(/\s+/g, ' ').trim() : '');
+  const question = str(args.question) || str(args.what);
+  const rule = str(args.rule);
+  const found = (Array.isArray(args.found) ? args.found : [])
+    .map(f => (f && typeof f === 'object' ? { label: str((f as Record<string, unknown>).label), value: str((f as Record<string, unknown>).value) } : null))
+    .filter((f): f is { label: string; value: string } => Boolean(f?.label && f.value))
+    .slice(0, 4);
+  const evidence = str(args.evidence);
+  if (found.length === 0 && evidence) {
+    found.push({ label: 'On the page', value: evidence });
+  }
+  const choices = (Array.isArray(args.options) ? args.options : [])
+    .map(o => (typeof o === 'string' ? { label: str(o) } : o && typeof o === 'object' ? { label: str((o as Record<string, unknown>).label), consequence: str((o as Record<string, unknown>).consequence) } : null))
+    .filter((o): o is { label: string; consequence?: string } => Boolean(o?.label))
+    .map(o => (o.consequence ? o : { label: o.label }))
+    .slice(0, 3);
+  const text = [question, rule, found.map(f => `${f.label}: ${f.value}`).join('\n')].filter(Boolean).join('\n\n');
+  return {
+    kind: 'question',
+    text,
+    escalation: true,
+    options: choices.map(o => o.label),
+    question,
+    ...(found.length > 0 ? { found } : {}),
+    ...(rule ? { rule } : {}),
+    choices,
+  };
 }
 
 /**
@@ -591,11 +641,10 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
           break;
         }
         const before = hooks.now();
-        const what = mask(String(args.what ?? '')).trim();
-        const evidence = typeof args.evidence === 'string' && args.evidence.trim() ? mask(args.evidence.trim()) : null;
-        const options = (Array.isArray(args.options) ? args.options : []).map(o => mask(String(o)).trim()).filter(Boolean).slice(0, 3);
-        await hooks.step({ kind: 'ask', label: `Escalated to the expert: ${what.slice(0, 160)}`, url: s.page.url(), ok: true, ...(evidence ? { detail: evidence.slice(0, 300) } : {}) });
-        const answer = await hooks.wait({ kind: 'question', text: evidence ? `${what}\n\n${evidence}` : what, escalation: true, options });
+        const escalation = escalationOf(args, mask);
+        const facts = (escalation.found ?? []).map(f => `${f.label}: ${f.value}`).join(' · ');
+        await hooks.step({ kind: 'ask', label: `Escalated to the expert: ${(escalation.question ?? '').slice(0, 160)}`, url: s.page.url(), ok: true, ...(facts ? { detail: facts.slice(0, 300) } : {}) });
+        const answer = await hooks.wait(escalation);
         waited += hooks.now() - before;
         if (answer.kind === 'stopped') {
           return { status: 'stopped', summary: 'Stopped by the person.' };

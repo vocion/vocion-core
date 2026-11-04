@@ -56,8 +56,21 @@ export type BrowserWaiting = {
   text: string;
   /** A routine's escalation: a rule sent it to the routine's expert. */
   escalation?: boolean;
-  /** For a question: the answers offered, recommended first. */
+  /** For a question: the answers offered, recommended first (their labels; `choices` adds what each does). */
   options?: string[];
+  /*
+   * AN ESCALATION'S PARTS, typed (2026-11-04: one 90-word paragraph mixed the finding, the rule
+   * and raw page text, and asked nothing). A run's `escalate` gives them; every surface draws them
+   * as parts. `text` stays, composed from them, for a surface that reads only it and for older rows.
+   */
+  /** The question, one short sentence ending in "?", naming the record it is about. */
+  question?: string;
+  /** What the run found, one to four facts: a short label and its value. */
+  found?: Array<{ label: string; value: string }>;
+  /** The automation's rule that sent it to the expert, in one line. */
+  rule?: string;
+  /** The answers offered with what each does, recommended first. `options` holds the same labels. */
+  choices?: Array<{ label: string; consequence?: string }>;
   /** For an approval: the step it will take when approved. */
   step?: string;
   /** A screenshot of the page as it stood when it stopped. */

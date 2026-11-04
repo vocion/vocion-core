@@ -114,7 +114,24 @@ export type DecisionView = {
    * email's body, the record's diff, the command. Plain text, drawn as is.
    */
   preview?: string | null;
+  /**
+   * The picture the asker kept as evidence — the page as a run stopped on it,
+   * the screen it is asking about — drawn on the card so the person decides
+   * from what was there, not from a description of it (`pictureOf`).
+   */
+  picture?: DecisionPicture | null;
+  /**
+   * What the asker found, as label and value — the facts it is decided on,
+   * drawn as a fact list rather than a paragraph (`factsOf`).
+   */
+  facts?: DecisionFact[];
 };
+
+/** A picture on a Decision: an in-app image and what it shows. */
+export type DecisionPicture = { src: string; alt: string };
+
+/** One fact a Decision is decided on. */
+export type DecisionFact = { label: string; value: string };
 
 /** The option that runs it this once. */
 export const ALLOW_ONCE_ID = 'approve';
@@ -154,6 +171,95 @@ export function previewText(md: string | null | undefined): string | null {
   }
   const fenced = /^```[\w-]*\n([\s\S]*?)\n```$/.exec(t);
   return (fenced ? fenced[1]! : t).slice(0, 4_000);
+}
+
+const MD_IMAGE = /!\[([^\]\n]*)\]\(\s*([^)\s]+)(?:\s+"[^"\n]*")?\s*\)/;
+
+/**
+ * An ask's long form (`contextMd`), split into the picture it carries and the
+ * rest. The first markdown image whose source is in the app
+ * (`![The page as it stopped](/api/artifacts/…)`) is the picture; the image
+ * syntax is the storage, not the content, as a fence is an approval's
+ * (`previewText`). Any asker can attach one — a routine run, an agent's
+ * `file_ask`, `POST /api/v1/asks` — and every surface reads it here. An image
+ * from outside the app stays in the text: the card loads only what the app
+ * serves. Pure.
+ * @param md - The stored context.
+ */
+export function pictureOf(md: string | null | undefined): { picture: DecisionPicture | null; rest: string | null } {
+  const text = md?.trim() ?? '';
+  const m = MD_IMAGE.exec(text);
+  const src = m ? inAppHref(m[2]) : null;
+  if (!m || !src) {
+    return { picture: null, rest: text || null };
+  }
+  const rest = `${text.slice(0, m.index)}${text.slice(m.index + m[0].length)}`.replace(/\n{3,}/g, '\n\n').trim();
+  return { picture: { src, alt: m[1]!.trim() || 'Picture' }, rest: rest || null };
+}
+
+const TABLE_CELL_SPLIT = /(?<!\\)\|/;
+
+/**
+ * A table cell's text, written so a `|` inside it never splits the row.
+ * @param text - The cell.
+ */
+export function tableCell(text: string): string {
+  return text.replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
+}
+
+/**
+ * Facts as the table an ask's long form opens with: a two-column table at
+ * the head of `contextMd` is what the ask is decided on, the convention the
+ * Needs you sheet already draws on the card (`splitContext`). Pure.
+ * @param facts - The facts.
+ * @param heading - The label column's heading.
+ */
+export function factsTable(facts: ReadonlyArray<DecisionFact>, heading = 'Found'): string {
+  return facts.length === 0 ? '' : [`| ${tableCell(heading)} | |`, '| --- | --- |', ...facts.map(f => `| ${tableCell(f.label)} | ${tableCell(f.value)} |`)].join('\n');
+}
+
+/**
+ * The facts an ask's long form opens with, and the rest: a two-column table
+ * at its head (`factsTable`), its rows read as label and value. A table of
+ * any other width is not facts and stays in the text. Pure.
+ * @param md - The stored context.
+ */
+export function factsOf(md: string | null | undefined): { facts: DecisionFact[]; rest: string | null } {
+  const text = md?.trim() ?? '';
+  const lines = text.split('\n');
+  let end = 0;
+  while (end < lines.length && lines[end]!.trim().startsWith('|')) {
+    end += 1;
+  }
+  const cells = (line: string) => line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(TABLE_CELL_SPLIT).map(c => c.trim().replace(/\\\|/g, '|'));
+  const rows = lines.slice(0, end).map(cells);
+  const isTable = end >= 3 && /^:?-{3,}/.test(rows[1]![0] ?? '') && rows.every(r => r.length === 2);
+  if (!isTable) {
+    return { facts: [], rest: text || null };
+  }
+  const facts = rows.slice(2).filter(r => r[0] && r[1]).map(([label, value]) => ({ label: label!, value: value! }));
+  const rest = lines.slice(end).join('\n').trim();
+  return { facts, rest: rest || null };
+}
+
+/**
+ * Text cut to at most `max` characters on a word boundary, with an ellipsis
+ * when it was cut — a title or a line never ends mid-word ("…expires
+ * 11/30/2026 — onl"). One word longer than the room is cut where it must be.
+ * @param text - The text.
+ * @param max - The most characters, the ellipsis included.
+ */
+export function clipAtWord(text: string, max: number): string {
+  const t = text.trim();
+  if (t.length <= max) {
+    return t;
+  }
+  const room = t.slice(0, Math.max(1, max - 1));
+  // The limit fell between two words: every whole word before it stays.
+  const fellBetween = /\s/.test(t.charAt(room.length));
+  const lastSpace = room.search(/\s\S*$/);
+  const head = fellBetween ? room : lastSpace > max / 2 ? room.slice(0, lastSpace) : room;
+  return `${head.replace(/[\s,;:.\u2013\u2014-]+$/, '')}…`;
 }
 
 /**
@@ -356,6 +462,8 @@ function answerOf(ask: AskLike, options: DecisionOption[]): DecisionAnswerRecord
 export function decisionViewOf(ask: AskLike, extra: { deadline?: DecisionView['deadline']; clockHeld?: boolean; effectUndone?: boolean } = {}): DecisionView {
   const options = decisionOptionsOf(ask);
   const kind = decisionKindOf(ask.kind);
+  const { picture, rest: unpictured } = pictureOf(ask.contextMd);
+  const { facts, rest } = factsOf(unpictured);
   return {
     id: ask.id,
     kind,
@@ -375,7 +483,9 @@ export function decisionViewOf(ask: AskLike, extra: { deadline?: DecisionView['d
     createdAt: ask.createdAt ? new Date(ask.createdAt).toISOString() : null,
     subject: 'ask',
     ...(inAppHref(ask.contextUrl) ? { href: ask.contextUrl } : {}),
-    ...(kind === 'approval' && previewText(ask.contextMd) ? { preview: previewText(ask.contextMd) } : {}),
+    ...(kind === 'approval' && previewText(rest) ? { preview: previewText(rest) } : {}),
+    ...(picture ? { picture } : {}),
+    ...(facts.length > 0 ? { facts } : {}),
     ...((ask.objectRefs?.length ?? 0) > 0 ? { refs: ask.objectRefs!.map(r => ({ type: r.type, id: String(r.id) })) } : {}),
   };
 }

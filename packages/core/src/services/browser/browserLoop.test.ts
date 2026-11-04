@@ -39,3 +39,33 @@ describe('a secret the page echoes back', () => {
     expect(SECRET_ECHO_RULE).toContain('never blame the placeholder');
   });
 });
+
+describe('an escalation to the expert', () => {
+  const mask = (x: string) => maskSecrets(x, { password: 'fixture-pass-42' });
+
+  it('waits on typed parts: a question, the facts, the rule, answers with what each does — and composes text for older surfaces', async () => {
+    const { escalationOf } = await import('./browserLoop');
+    const w = escalationOf({
+      question: 'Correct Owen Fitzgerald’s license number on the board to 149.021345?',
+      found: [{ label: 'Board says', value: 'IL LCSW 149.012345' }, { label: 'Signed in as', value: 'fixture-pass-42' }, { label: '', value: 'dropped' }],
+      rule: 'A license number that does not match the state lookup goes to the expert.',
+      options: [{ label: 'Correct it', consequence: 'Updates the board record.' }, { label: 'Leave it', consequence: '' }, 'Ask the provider', 'A fourth'],
+    }, mask);
+
+    expect(w).toMatchObject({ kind: 'question', escalation: true, question: 'Correct Owen Fitzgerald’s license number on the board to 149.021345?', rule: 'A license number that does not match the state lookup goes to the expert.' });
+    expect(w.found).toEqual([{ label: 'Board says', value: 'IL LCSW 149.012345' }, { label: 'Signed in as', value: '{{password}}' }]);
+    expect(w.choices).toEqual([{ label: 'Correct it', consequence: 'Updates the board record.' }, { label: 'Leave it' }, { label: 'Ask the provider' }]);
+    expect(w.options).toEqual(['Correct it', 'Leave it', 'Ask the provider']);
+    expect(w.text).toContain('Correct Owen Fitzgerald’s license number');
+    expect(w.text).toContain('Board says: IL LCSW 149.012345');
+  });
+
+  it('reads the tool\'s earlier shape (what, evidence, plain options) as a question and one fact', async () => {
+    const { escalationOf } = await import('./browserLoop');
+    const w = escalationOf({ what: 'Two accounts match this email.', evidence: '“Northwind Ops” and “Northwind Ops (old)”', options: ['Use the first'] }, mask);
+
+    expect(w.question).toBe('Two accounts match this email.');
+    expect(w.found).toEqual([{ label: 'On the page', value: '“Northwind Ops” and “Northwind Ops (old)”' }]);
+    expect(w.choices).toEqual([{ label: 'Use the first' }]);
+  });
+});
