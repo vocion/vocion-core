@@ -69,3 +69,14 @@ describe('an escalation to the expert', () => {
     expect(w.choices).toEqual([{ label: 'Use the first' }]);
   });
 });
+
+describe('an escalation the expert reads on a card', () => {
+  it('is sent back when its question will not fit the card, or it offers no answers', async () => {
+    const { escalationUnfit, ESCALATION_QUESTION_MAX } = await import('./browserLoop');
+    const choices = [{ label: 'Enroll the existing account' }];
+
+    expect(escalationUnfit({ question: 'Enroll Aisha Karim’s existing account instead of adding a second one?', choices })).toBeNull();
+    expect(escalationUnfit({ question: 'x'.repeat(ESCALATION_QUESTION_MAX + 1), choices })).toMatch(/characters/);
+    expect(escalationUnfit({ question: 'Enroll Aisha Karim’s existing account?', choices: [] })).toMatch(/answers/);
+  });
+});

@@ -182,7 +182,7 @@ function tools(outputs: BrowserOutputSpec[], routine = false, files = false): To
     def('ask_person', 'Ask the person something only they can answer (a code sent to their phone, a choice the task left open). The run waits for their answer.', { question: { type: 'string', minLength: 3, maxLength: 400 } }, ['question']),
     ...(routine
       ? [def('escalate', 'A rule of the automation says this needs its expert, or the page shows something the automation does not cover: stop and ask the expert. Ask one short question, give the facts you found as short label/value pairs, name the rule that sends it to them, and offer up to three answers with what each does, the one you recommend first. The expert decides from a small card: keep every part short. The run waits for their answer.', {
-          question: { type: 'string', minLength: 3, maxLength: 160, description: 'One short sentence ending in "?", naming the record it is about: "Enroll Aisha Karim’s existing account instead of adding a second one?".' },
+          question: { type: 'string', minLength: 3, maxLength: 120, description: 'One short sentence ending in "?", at most 120 characters, naming the record it is about: "Enroll Aisha Karim’s existing account instead of adding a second one?".' },
           found: {
             type: 'array',
             minItems: 1,
@@ -212,6 +212,25 @@ function tools(outputs: BrowserOutputSpec[], routine = false, files = false): To
  * @param args - The call's arguments.
  * @param mask - Hides any secret's value.
  */
+/** The longest question a Decision card's title shows whole. */
+export const ESCALATION_QUESTION_MAX = 120;
+
+/**
+ * Why an escalation would read badly on the expert's card, for the model to fix; null when it
+ * reads well. Shape only — its length, its facts and its answers — never its meaning.
+ * @param e - The escalation as the card would get it.
+ */
+export function escalationUnfit(e: Pick<BrowserWaiting, 'question' | 'found' | 'choices'>): string | null {
+  const q = e.question ?? '';
+  if (q.length > ESCALATION_QUESTION_MAX) {
+    return `the question is ${q.length} characters; the expert's card shows ${ESCALATION_QUESTION_MAX}. Ask it in one short sentence and move what you found into found as label/value facts.`;
+  }
+  if ((e.choices ?? []).length === 0) {
+    return 'give the expert up to three answers (options), the one you recommend first, each with what it does.';
+  }
+  return null;
+}
+
 export function escalationOf(args: Record<string, unknown>, mask: (x: string) => string): Omit<BrowserWaiting, 'at' | 'shotUrl'> {
   const str = (x: unknown) => (typeof x === 'string' ? mask(x).replace(/\s+/g, ' ').trim() : '');
   const question = str(args.question) || str(args.what);
@@ -642,6 +661,14 @@ export async function runBrowserLoop(model: BaseChatModel, s: Session, input: Lo
         }
         const before = hooks.now();
         const escalation = escalationOf(args, mask);
+        // The card's title is the question: a long one is cut off where the expert reads it. The
+        // contract is held here, where the model can still fix it, not trimmed after (a schema's
+        // maxLength is advice to some vendors, not a limit).
+        const unfit = escalationUnfit(escalation);
+        if (unfit) {
+          outcome = { ok: false, detail: `Not sent: ${unfit} Call escalate again.` };
+          break;
+        }
         const facts = (escalation.found ?? []).map(f => `${f.label}: ${f.value}`).join(' · ');
         await hooks.step({ kind: 'ask', label: `Escalated to the expert: ${(escalation.question ?? '').slice(0, 160)}`, url: s.page.url(), ok: true, ...(facts ? { detail: facts.slice(0, 300) } : {}) });
         const answer = await hooks.wait(escalation);
