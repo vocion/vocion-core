@@ -6,7 +6,7 @@
  *   - `artifact:<id>`: a file in the workspace. A file artifact is attached as
  *     it is; an artifact with tables (a roster built in chat) is attached as
  *     the same .xlsx its Download serves.
- *   - an `https://` address: fetched by the app, under the browser's own rule
+ *   - a web address: fetched by the app, under the browser's own rule
  *     for where it may go (`mayLoad`: public addresses, or the named hosts of
  *     `VOCION_BROWSER_ALLOW_HOSTS`).
  *
@@ -45,7 +45,7 @@ const TYPES: Record<string, string> = {
  * @param value - The input's value.
  */
 export function isFileRef(value: string | null | undefined): boolean {
-  return Boolean(value && (/^artifact:\d+$/.test(value.trim()) || /^https:\/\/\S+$/i.test(value.trim())));
+  return Boolean(value && (/^artifact:\d+$/.test(value.trim()) || /^https?:\/\/\S+$/i.test(value.trim())));
 }
 
 function typeOf(name: string, fallback = 'application/octet-stream'): string {
@@ -74,7 +74,7 @@ export function downloadName(url: string, disposition: string | null): string {
 /**
  * The file an input names, or a sentence saying why there is none.
  * @param orgId - The workspace the run belongs to.
- * @param value - The input's value: `artifact:<id>` or an `https://` address.
+ * @param value - The input's value: `artifact:<id>` or a web address.
  * @param doFetch - The fetch to use (a test's stand-in).
  */
 export async function resolveRunFile(orgId: string, value: string, doFetch: typeof fetch = fetch): Promise<BrowserFile | string> {
@@ -100,8 +100,8 @@ export async function resolveRunFile(orgId: string, value: string, doFetch: type
     }
     return { name: exportFilename(a.title, 'xlsx'), mimeType: XLSX, buffer: await toXlsx(tables) };
   }
-  if (!/^https:\/\//i.test(v)) {
-    return 'A file input must be artifact:<id> or an https:// address.';
+  if (!/^https?:\/\//i.test(v)) {
+    return 'A file input must be artifact:<id> or a web address.';
   }
   if (!(await mayLoad(v))) {
     return `${v} is not an address the browser may use.`;

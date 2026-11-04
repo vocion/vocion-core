@@ -607,6 +607,7 @@ async function drive(row: Row, l: Live, continuing: boolean, resume: Resume | nu
     ...(routine ? { routine } : {}),
     ...(l.approvedAhead ? { approvedAhead: l.approvedAhead } : {}),
     ...(kept && l.keptSignIn ? { keptSignIn: { vendor: l.keptSignIn.vendor, savedAt: kept.savedAt } } : {}),
+    timeZone: await (await import('@/libs/time/workspaceTimeZone')).workspaceTimeZone(row.orgId).catch(() => undefined),
     ...(Object.values(plainInputs).some(isFileRef)
       ? { file: async (name: string) => isFileRef(plainInputs[name]) ? resolveRunFile(row.orgId, plainInputs[name]!) : `No input named “${name}” holds a file.` }
       : {}),

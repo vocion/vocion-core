@@ -256,7 +256,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ),
     tool(
       async (raw: unknown) => {
-        const args = raw as { batch_id: number };
+        const args = raw as { batch_id: number; rows?: boolean };
         const v = await (await reads()).getBatch(ctx.orgId, args.batch_id);
         if (!v) {
           return `No ${batchLabel(args.batch_id)} in this workspace.`;
@@ -273,12 +273,16 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
           findings: v.findings.map(f => ({ title: f.title, state: f.state, answer: f.answer, records: f.items.length })),
           cost: `$${(v.cents / 100).toFixed(2)}`,
           report: v.report?.url ?? null,
+          // Each row's inputs and what its run read back after the write: what a next step is built from.
+          ...(args.rows
+            ? { rows: v.runs.map(x => ({ row: x.n, label: x.label, status: x.status, input: x.input, read_back: x.receipt?.after ?? null, verified: x.receipt?.verified ?? null })) }
+            : {}),
         });
       },
       {
         name: 'routine_check',
-        description: 'Where an automation batch stands: how many rows are done and verified, what waits on the expert, what failed, and what it found.',
-        schema: { type: 'object', properties: { batch_id: { type: 'integer', minimum: 1 } }, required: ['batch_id'] },
+        description: 'Where an automation batch stands: how many rows are done and verified, what waits on the expert, what failed, and what it found. With rows: true, each row\'s inputs and the outputs its run read back (an id the system issued, a saved status): what to build the next step\'s rows from.',
+        schema: { type: 'object', properties: { batch_id: { type: 'integer', minimum: 1 }, rows: { type: 'boolean', description: 'Include each row\'s inputs and read-back outputs.' } }, required: ['batch_id'] },
       },
     ),
     tool(

@@ -16,7 +16,8 @@ describe('isFileRef', () => {
   it('reads artifact ids and https addresses as files, nothing else', () => {
     expect(isFileRef('artifact:12')).toBe(true);
     expect(isFileRef(' https://files.example/w9.pdf ')).toBe(true);
-    expect(isFileRef('http://files.example/w9.pdf')).toBe(false);
+    expect(isFileRef('http://files.example/w9.pdf')).toBe(true);
+    expect(isFileRef('ftp://files.example/w9.pdf')).toBe(false);
     expect(isFileRef('Northwind Clinic')).toBe(false);
     expect(isFileRef('')).toBe(false);
     expect(isFileRef(undefined)).toBe(false);

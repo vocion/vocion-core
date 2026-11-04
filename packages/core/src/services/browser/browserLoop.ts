@@ -71,6 +71,8 @@ export type LoopInput = {
    * and the only way a run attaches one. The model names the input, never the bytes.
    */
   file?: (inputName: string) => Promise<BrowserFile | string>;
+  /** The workspace's time zone, for the date the run is told it is. */
+  timeZone?: string;
 };
 
 /**
@@ -205,11 +207,13 @@ function system(input: LoopInput, notes: string[]): string {
     'You operate a web browser for a person, to do one task. Each step you read the page (its address, title and accessibility tree: each element with its role, name, state and a ref like e12) and take exactly one action with one tool.',
     '',
     `The task: ${input.task}`,
+    // A task that compares dates (an expiry, a due date) needs today's; the model does not know it.
+    `Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', ...(input.timeZone ? { timeZone: input.timeZone } : {}) })}.`,
     input.startUrl ? `It starts at: ${input.startUrl}` : '',
     plain.length > 0 ? `Inputs:\n${plain.map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : 'Inputs: none.',
     secret.length > 0 ? `Secret inputs (type them as written, with the braces; you never see their values): ${secret.map(k => `{{${k}}}`).join(', ')}` : '',
     secret.length > 0 ? SECRET_ECHO_RULE : '',
-    input.file ? 'An input whose value is artifact:<id> or an https:// address is a file. To attach it, call upload_file on the file field (or the button that opens the file picker) and name that input; never type the address into the page.' : '',
+    input.file ? 'An input whose value is artifact:<id> or a web address of a document is a file. To attach it, call upload_file on the file field (or the button that opens the file picker) and name that input; never type the address into the page.' : '',
     input.keptSignIn ? `The browser was signed in to ${input.keptSignIn.vendor} before your first step, with a kept sign-in${input.keptSignIn.savedAt ? ` saved ${input.keptSignIn.savedAt.slice(0, 10)}` : ''}: expect to be signed in. If the site shows its sign-in page anyway, that kept sign-in has expired.` : '',
     input.outputs.length > 0 ? `Outputs you owe, as keys of finish's result:\n${input.outputs.map(o => `- ${o.name}: ${o.description}`).join('\n')}` : 'Outputs: none; finish with a summary.',
     '',
