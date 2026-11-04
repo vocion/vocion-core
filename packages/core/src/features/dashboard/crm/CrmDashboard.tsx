@@ -4,6 +4,7 @@ import type { crmDashboard } from '@/services/crm/dashboard';
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
+import { CampaignPlanner } from './CampaignPlanner';
 
 type Dashboard = Awaited<ReturnType<typeof crmDashboard>>;
 
@@ -109,6 +110,7 @@ export function CrmDashboard({ workspaceId }: { workspaceId: string }) {
             </table>
           </div>
           <p className="text-xs text-muted-foreground">{t('note')}</p>
+          <CampaignPlanner key={workspaceId} workspaceId={workspaceId} />
         </>
       )}
     </section>
