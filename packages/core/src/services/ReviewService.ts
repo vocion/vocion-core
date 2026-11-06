@@ -306,6 +306,8 @@ async function listWorkflowPlane(orgId: string, opts: ListOptions, now: Date, ca
     eq(workflowRunSchema.status, PENDING_STATUS.workflow),
     // A run waiting on an action's card is decided on that card, in the action plane.
     sql`coalesce(${workflowRunSchema.pauseReason}, '') not like 'awaiting_action:%'`,
+    // A run waiting on an automation batch asks nothing: the batch's own questions are its decisions.
+    sql`coalesce(${workflowRunSchema.pauseReason}, '') not like 'awaiting_batch:%'`,
     ...routingFilters(opts, now),
   );
   const query = db

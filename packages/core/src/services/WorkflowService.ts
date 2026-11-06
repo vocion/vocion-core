@@ -1,6 +1,6 @@
 import type { StepResult } from '@/libs/workflows/stepResult';
 import type { AgentWorkflowStep, RepeatInnerWorkflowStep, RepeatWorkflowStep, WorkflowManifest, WorkflowStep } from '@/libs/workspace/schemas';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, like } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { evaluateCondition, interpolateString, interpolateText, interpolateValue } from '@/libs/workflows/expressions';
 import { isSettled } from '@/libs/workflows/stepResult';
@@ -168,6 +168,10 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
   if (run.pauseReason?.startsWith('awaiting_action:')) {
     throw new WorkflowRunNotResumableError(runId, `it waits on the card for its "${run.pauseReason.slice('awaiting_action:'.length)}" step: approve or turn that down instead`);
   }
+  // A run waiting on an automation batch moves when the batch closes; resuming would skip its rows.
+  if (run.pauseReason?.startsWith('awaiting_batch:')) {
+    throw new WorkflowRunNotResumableError(runId, `it waits on the automation batch of its "${run.pauseReason.slice('awaiting_batch:'.length)}" step: it moves on when the batch is done`);
+  }
 
   // Mark the current (approve | ask) step complete and advance the cursor —
   // otherwise the loop would sit on the same step and re-pause.
@@ -334,6 +338,53 @@ export async function settleActionStep(runId: number, orgId: string, stepName: s
     .returning({ id: workflowRunSchema.id });
   if (claimed.length > 0) {
     await wakeDurableRun(orgId, runId);
+  }
+}
+
+/**
+ * A batch a workflow step waits on (`routine.run` with `wait: true`) has closed: the step completes
+ * with the batch's outcome and each row's read-back, and the run moves on. Called when any batch
+ * closes; a batch no run waits on is left alone.
+ * @param orgId - The workspace.
+ * @param batchId - The closed batch.
+ */
+export async function settleBatchStep(orgId: string, batchId: number): Promise<void> {
+  const { getBatch, batchStatusLine } = await import('@/services/routines/routineReads');
+  const view = await getBatch(orgId, batchId);
+  if (!view || view.status !== 'done') {
+    return;
+  }
+  const waiting = await db.select().from(workflowRunSchema).where(and(eq(workflowRunSchema.orgId, orgId), eq(workflowRunSchema.status, 'paused'), like(workflowRunSchema.pauseReason, 'awaiting_batch:%')));
+  for (const run of waiting) {
+    const stepName = run.pauseReason!.slice('awaiting_batch:'.length);
+    const stepResults = { ...(run.stepResults as Record<string, StepResult>) };
+    const prev = stepResults[stepName];
+    if ((prev?.output as { batchId?: number } | undefined)?.batchId !== batchId) {
+      continue;
+    }
+    const [wf] = await db.select().from(workflowSchema).where(eq(workflowSchema.id, run.workflowId));
+    const where = locateStep(steps0(wf), stepName);
+    if (!where || where.inner !== undefined) {
+      continue;
+    }
+    stepResults[stepName] = {
+      ...prev!,
+      status: 'completed',
+      finishedAt: new Date().toISOString(),
+      output: {
+        ...(prev!.output as Record<string, unknown>),
+        summary: batchStatusLine(view),
+        counts: view.counts,
+        rows: view.runs.map(x => ({ row: x.n, label: x.label, status: x.status, input: x.input, read_back: x.receipt?.after ?? null, verified: x.receipt?.verified ?? null })),
+      },
+    };
+    const claimed = await db.update(workflowRunSchema)
+      .set({ status: 'running', pauseReason: null, pausedAt: null, stepResults, currentStep: where.index + 1 })
+      .where(and(eq(workflowRunSchema.id, run.id), eq(workflowRunSchema.status, 'paused'), eq(workflowRunSchema.pauseReason, `awaiting_batch:${stepName}`)))
+      .returning({ id: workflowRunSchema.id });
+    if (claimed.length > 0) {
+      await wakeDurableRun(orgId, run.id);
+    }
   }
 }
 
@@ -780,9 +831,25 @@ async function runWork(state: RunState, step: WorkflowStep | RepeatInnerWorkflow
     const rows = (Array.isArray(rawRows) ? rawRows : []).filter((x): x is Record<string, string> => Boolean(x) && typeof x === 'object');
     const shared = actionInput.shared && typeof actionInput.shared === 'object' ? actionInput.shared as Record<string, string> : {};
     const by = run.createdBy && !['mcp', 'system'].includes(run.createdBy) && !run.createdBy.includes(':') ? run.createdBy : (routine.expert?.userId ?? run.createdBy ?? 'system');
-    const batch = await startRoutineBatch({ orgId: run.orgId, userId: by, routineId: routine.id, rows, shared, conversationId: null });
-    finishStep(state, name, { batchId: batch.id, routine: routine.name, rows: batch.total, url: `/dashboard/automations/batches/${batch.id}` });
-    return 'done';
+    // A run started from a conversation reports its batch there too, live, like one started in chat.
+    const conversationId = Number(state.scope.trigger?.conversationId) || null;
+    const batch = await startRoutineBatch({ orgId: run.orgId, userId: by, routineId: routine.id, rows, shared, conversationId });
+    const started = { batchId: batch.id, routine: routine.name, rows: batch.total, url: `/dashboard/automations/batches/${batch.id}` };
+    if (actionInput.wait !== true) {
+      finishStep(state, name, started);
+      return 'done';
+    }
+    // `wait: true`: the run waits until every row of the batch is settled (answered escalations
+    // included), then the step's output carries each row's read-back for the next step
+    // (`settleBatchStep`, called when the batch closes).
+    state.stepResults[name] = { ...state.stepResults[name]!, status: 'running', output: started };
+    const paused = await persistState(run.id, { stepResults: state.stepResults, currentStep: cursor, status: 'paused', pauseReason: `awaiting_batch:${name}`, pausedAt: new Date() });
+    if (!paused) {
+      throw new RunStopped();
+    }
+    // An empty batch is closed before the run paused: move on now.
+    await settleBatchStep(run.orgId, batch.id);
+    return 'paused';
   }
   if (step.type === 'action' && step.action === 'workflow.start') {
     finishStep(state, name, await fanOut(state, step));

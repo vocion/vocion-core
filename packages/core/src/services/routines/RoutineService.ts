@@ -1102,6 +1102,9 @@ async function closeBatch(batchId: number): Promise<void> {
     return;
   }
   pushLive(closed.orgId, { routineId: closed.routineId, batchId });
+  // A workflow step waiting on this batch moves on with its read-backs.
+  const { settleBatchStep } = await import('@/services/WorkflowService');
+  await settleBatchStep(closed.orgId, batchId).catch(err => console.error('[routines] workflow step after batch', batchId, (err as Error).message));
   if (closed.conversationId) {
     const view = await batchView(closed);
     const { tellConversation } = await import('@/services/chat/tellConversation');
