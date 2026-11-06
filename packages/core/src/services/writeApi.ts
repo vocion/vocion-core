@@ -15,6 +15,7 @@
  * route handlers are thin wrappers that map `WriteApiError` → an HTTP body.
  */
 
+import type { FetchFailureDetail } from '@/libs/sources/fetchFailure';
 import type { Principal } from '@/services/authz';
 import type { PendingPage, ReviewDetail, ReviewInclude, ReviewItem, ReviewKind } from '@/services/ReviewService';
 import type { SourceSyncState } from '@/services/SourceSyncService';
@@ -591,7 +592,7 @@ export type ApiSourceRun = {
   since: string | null;
   counts: Record<string, number>;
   /** The non-fatal failures the run carried on past, including processor-scope ones. */
-  failures: Array<{ scope: string; message: string; uri?: string }>;
+  failures: Array<{ scope: string; message: string; uri?: string; detail?: FetchFailureDetail }>;
 };
 
 export type ApiSourceListItem = {
@@ -765,7 +766,12 @@ function apiRunOf(state: SourceSyncState): ApiSourceRun {
     completedAt: state.completedAt?.toISOString() ?? null,
     since: state.since?.toISOString() ?? null,
     counts: state.counts,
-    failures: state.failures.map(f => ({ scope: f.scope, message: f.message, ...(f.uri ? { uri: f.uri } : {}) })),
+    failures: state.failures.map(f => ({
+      scope: f.scope,
+      message: f.message,
+      ...(f.uri ? { uri: f.uri } : {}),
+      ...(f.detail ? { detail: f.detail } : {}),
+    })),
   };
 }
 

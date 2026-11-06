@@ -35,6 +35,8 @@ import type { DbTransaction } from '@/libs/DbTransaction';
 import type { SyncBudget, SyncBudgetLimits } from '@/libs/processors/budget';
 import type { RegisteredProcessor } from '@/libs/processors/registry';
 import type { ProcessorRunsOn, ProcessorSyncContext } from '@/libs/processors/types';
+import type { FetchFailureDetail } from '@/libs/sources/fetchFailure';
+import type { SourceProgressEvent } from '@/libs/sources/types';
 import type { SourceSyncCompletedPayload } from '@/services/EventService';
 import { and, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
@@ -331,6 +333,8 @@ export type RecordedFailure = {
   /** What failed, when the reporter knew: a document externalId or a collection URL. */
   uri?: string;
   message: string;
+  /** What a failed HTTP fetch said about itself; absent on every other failure and on entries stored before it existed. */
+  detail?: FetchFailureDetail;
   /** ISO timestamp, so the UI can order failures without a separate column. */
   at: string;
 };
@@ -742,7 +746,7 @@ export async function runSync(opts: {
    * picture of what the source holds).
    */
   incremental?: boolean;
-  onProgress?: (event: { kind: 'fetched' | 'skipped' | 'error'; uri?: string; message?: string }) => void;
+  onProgress?: (event: SourceProgressEvent) => void;
 }): Promise<SyncResult> {
   const [row] = await db
     .select()
@@ -880,11 +884,12 @@ export async function runSync(opts: {
    * @param scope - Which layer reported it.
    * @param message - What went wrong, in the reporter's own words.
    * @param uri - What it was working on, when the reporter knew.
+   * @param detail - What a failed HTTP fetch said about itself, when there was one.
    */
-  const recordFailure = (scope: FailureScope, message: string, uri?: string): void => {
+  const recordFailure = (scope: FailureScope, message: string, uri?: string, detail?: FetchFailureDetail): void => {
     const bucket = failureBuckets[scope];
     if (bucket.entries.length < bucket.limit) {
-      bucket.entries.push({ scope, uri, message, at: new Date().toISOString() });
+      bucket.entries.push({ scope, uri, message, ...(detail ? { detail } : {}), at: new Date().toISOString() });
     }
   };
 
@@ -895,17 +900,24 @@ export async function runSync(opts: {
     ...processorFailures,
   ];
 
-  const reportProgress = (event: {
-    kind: 'fetched' | 'skipped' | 'error';
-    uri?: string;
-    message?: string;
-  }, scope: FailureScope = 'document'): void => {
+  const reportProgress = (event: SourceProgressEvent, scope: FailureScope = 'document'): void => {
     // Every error the run survives funnels through here — the connector's own
     // (a collection it could not read) and ingestion's (a document that would
     // not save). Recording in this one place keeps the checkpoint's failure
-    // list in step with `counts.errors` no matter which side reported it.
+    // list in step with `counts.errors` no matter which side reported it, and
+    // gives each one exactly one log line.
     if (event.kind === 'error') {
-      recordFailure(scope, event.message ?? 'no message reported', event.uri);
+      const message = event.message ?? 'no message reported';
+      recordFailure(scope, message, event.uri, event.detail);
+      log('warn', 'source sync reported a failure', {
+        sourceId: opts.sourceId,
+        sourceSlug: row.slug,
+        orgId: opts.orgId,
+        scope,
+        uri: event.uri,
+        error: message,
+        ...(event.detail ? { status: event.detail.status, detail: event.detail } : {}),
+      });
     } else if (event.kind === 'skipped' && event.uri) {
       recordSkip(event.message ?? 'no reason reported', event.uri);
     }
@@ -1170,14 +1182,9 @@ export async function runSync(opts: {
         if (error instanceof BudgetExceededError) {
           budgetRefusal ??= error;
         }
-        // The counter alone loses the reason. Log it — a run full of rate-limit
-        // failures and a run full of malformed documents need different fixes.
-        log('warn', 'could not save a document during sync', {
-          sourceId: opts.sourceId,
-          orgId: opts.orgId,
-          externalId: doc.externalId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        // The counter alone loses the reason; reportProgress keeps it and logs
+        // it — a run full of rate-limit failures and a run full of malformed
+        // documents need different fixes.
         reportProgress({
           kind: 'error',
           uri: doc.externalId,

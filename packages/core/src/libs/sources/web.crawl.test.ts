@@ -183,9 +183,12 @@ describe('the link pass', () => {
     const { docs, events } = await run({ crawl: { startUrl: LISTING_URL, include: ['/events/opening'] } });
 
     expect(docs.map(d => d.externalId)).toEqual([LISTING_URL]);
-    expect(errors(events)).toEqual([
-      { kind: 'error', uri: 'https://venue.test/events/opening', message: 'HTTP 500' },
-    ]);
+    expect(errors(events)).toEqual([{
+      kind: 'error',
+      uri: 'https://venue.test/events/opening',
+      message: 'HTTP 500 · body: gone',
+      detail: { status: 500, headers: {}, snippet: 'gone' },
+    }]);
   });
 });
 

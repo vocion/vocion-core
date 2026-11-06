@@ -14,12 +14,25 @@
  */
 
 import type { z } from 'zod';
+import type { FetchFailureDetail } from './fetchFailure';
 import type { InspectInput } from './inspect';
 import type { CrawlPoliteness } from './robots';
 import type { BrandKey } from '@/libs/brands/catalog';
 import type { IngestDoc } from '@/services/IngestionService';
 
 export type SourceAuthKind = 'none' | 'apikey' | 'oauth';
+
+/**
+ * One step a connector reports while it syncs. `detail` is what a failed HTTP
+ * fetch said about itself (status, allowlisted headers, title), set only on
+ * such a failure; `message` already carries it as one line.
+ */
+export type SourceProgressEvent = {
+  kind: 'fetched' | 'skipped' | 'error';
+  uri?: string;
+  message?: string;
+  detail?: FetchFailureDetail;
+};
 
 export type SourceContext = {
   /** The knowledge_source row id this run is scoped to. */
@@ -41,7 +54,7 @@ export type SourceContext = {
    * Optional progress callback — connectors call this between yields
    *  so the UI can show "12 / 47 documents".
    */
-  onProgress?: (event: { kind: 'fetched' | 'skipped' | 'error'; uri?: string; message?: string }) => void;
+  onProgress?: (event: SourceProgressEvent) => void;
   /**
    * How a connector that reads other people's websites paces itself and obeys
    * their robots.txt (`libs/sources/robots.ts`). The sync runner sets it on

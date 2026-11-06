@@ -37,6 +37,7 @@
  */
 
 import type { CheerioAPI } from 'cheerio';
+import type { FetchFailureDetail } from './fetchFailure';
 import type { PageLink, PageStructure } from './pageMetadata';
 import type { SourceConnector, SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
@@ -44,6 +45,7 @@ import { createHash } from 'node:crypto';
 import { load } from 'cheerio';
 import { z } from 'zod';
 import { dayKey, dayPlus, instantInZone, isoInZone, isValidTimeZone } from '@/libs/time/zone';
+import { describeHttpFailure } from './fetchFailure';
 import { JSON_LD_BLOCK_CAP, pageMetadata } from './pageMetadata';
 import { politeTurn } from './robots';
 
@@ -469,8 +471,8 @@ async function fetchPage(
   opts: { ignore: readonly string[]; probe?: boolean; timeoutMs?: number },
 ): Promise<FetchedPage | null> {
   const target = httpUrl(url);
-  const report = (message: string): void => {
-    ctx.onProgress?.({ kind: opts.probe ? 'skipped' : 'error', uri: target, message });
+  const report = (message: string, detail?: FetchFailureDetail): void => {
+    ctx.onProgress?.({ kind: opts.probe ? 'skipped' : 'error', uri: target, message, ...(detail ? { detail } : {}) });
   };
   if (ctx.politeness) {
     const turn = await politeTurn(ctx, ctx.politeness, target, USER_AGENT);
@@ -485,7 +487,14 @@ async function fetchPage(
       signal: AbortSignal.timeout(opts.timeoutMs ?? PAGE_TIMEOUT_MS),
     });
     if (!res.ok) {
-      report(`HTTP ${res.status}`);
+      // A probe's miss is expected and quiet, so only a real failure pays to
+      // read what the answer said about itself.
+      if (opts.probe) {
+        report(`HTTP ${res.status}`);
+      } else {
+        const failure = await describeHttpFailure(res);
+        report(failure.message, failure.detail);
+      }
       return null;
     }
     const contentType = res.headers.get('content-type') ?? '';

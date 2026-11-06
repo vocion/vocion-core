@@ -193,6 +193,35 @@ describe('GET /api/v1/sources', () => {
     });
   });
 
+  it('carries a failed fetch\'s detail beside its message, and leaves older entries as they were', async () => {
+    const [source] = await db.insert(knowledgeSourceSchema).values({
+      orgId: ORG,
+      slug: 'larkfield-blocked',
+      kind: 'plugin',
+      configJson: { urls: ['https://bellwater.test/'], _connector: 'web' },
+    }).returning({ id: knowledgeSourceSchema.id });
+    const detail = { status: 403, headers: { 'server': 'edge', 'cf-mitigated': 'challenge' }, title: 'Just a moment...' };
+    await db.insert(sourceSyncCheckpointSchema).values({
+      orgId: ORG,
+      sourceId: source!.id,
+      status: 'completed',
+      startedAt: new Date('2026-09-14T06:00:00.000Z'),
+      counts: { errors: 2 },
+      failures: [
+        { scope: 'connector', message: 'HTTP 403 · server: edge · cf-mitigated: challenge · title: Just a moment...', uri: 'https://bellwater.test/', detail, at: '2026-09-14T06:01:00.000Z' },
+        { scope: 'connector', message: 'HTTP 500', uri: 'https://bellwater.test/old', at: '2026-09-14T06:02:00.000Z' },
+      ],
+    });
+    mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
+
+    const body = await (await GET(getRequest())).json() as { sources: Array<{ run: { failures: unknown[] } }> };
+
+    expect(body.sources[0]!.run.failures).toEqual([
+      { scope: 'connector', message: 'HTTP 403 · server: edge · cf-mitigated: challenge · title: Just a moment...', uri: 'https://bellwater.test/', detail },
+      { scope: 'connector', message: 'HTTP 500', uri: 'https://bellwater.test/old' },
+    ]);
+  });
+
   it('accepts a dashboard session with no bearer token', async () => {
     mockBearer.mockResolvedValue(null);
     mockSession.mockResolvedValue({ userId: 'u1', orgId: ORG, accountId: 'a1', projectId: ORG, role: 'admin', workspaceRole: 'admin' as const, has: () => true } as never);
