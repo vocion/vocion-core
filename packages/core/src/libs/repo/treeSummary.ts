@@ -140,9 +140,12 @@ function manifestKindOf(path: string, type: 'blob' | 'tree', tfDirs: Set<string>
   if (type === 'tree') {
     return segments.length <= MANIFEST_DEPTH && tfDirs.has(path) ? 'deploy' : null;
   }
-  // GitHub Actions only, today: another host's pipeline files (`.gitlab-ci.yml`,
-  // `bitbucket-pipelines.yml`) are a provider's to name when one exists.
+  // GitHub Actions and GitLab CI; another host's pipeline file
+  // (`bitbucket-pipelines.yml`) is named when its provider exists.
   if (segments.length === 3 && segments[0] === '.github' && segments[1] === 'workflows' && /\.ya?ml$/.test(base)) {
+    return 'pipeline';
+  }
+  if (segments.length === 1 && base === '.gitlab-ci.yml') {
     return 'pipeline';
   }
   if (segments.length > MANIFEST_DEPTH) {

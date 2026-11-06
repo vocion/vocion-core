@@ -610,7 +610,8 @@ export function testNamePattern(name) {
 }
 
 /**
- * A file a person owns: secrets and env files, .git and CI workflows, plus whatever the repository
+ * A file a person owns: secrets and env files, .git and CI workflows (GitHub's workflows directory
+ * and GitLab's root pipeline file, the same kind of file on another host), plus whatever the repository
  * names in the contract's `human_owned` (the repo record's `humanOwned`). The only files the
  * engineer may not change or keep; the same list hooks/guard-write.sh blocks. Everything else in
  * the repository is the engineer's to change when the outcome needs it. The runner's own hooks and
@@ -618,7 +619,7 @@ export function testNamePattern(name) {
  * @param {string} rel a path relative to the repository root
  * @param {string[]} [extra] globs from the contract's human_owned
  */
-const HUMAN_OWNED = [/(^|\/)\.env(\.[^/]*)?$/, /\.pem$/, /\.key$/, /^\.git\//, /^\.github\/workflows\//];
+const HUMAN_OWNED = [/(^|\/)\.env(\.[^/]*)?$/, /\.pem$/, /\.key$/, /^\.git\//, /^\.github\/workflows\//, /^\.gitlab-ci\.yml$/];
 export function humanOwned(rel, extra = []) {
   return HUMAN_OWNED.some(r => r.test(rel)) || (extra || []).some(g => globMatches(g, rel));
 }

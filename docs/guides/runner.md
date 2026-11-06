@@ -262,8 +262,11 @@ the claim holds for one runner even when two race. The reply carries a **run tok
 the workspace that queued the run and good for as long as a run lasts. Every call about the run
 uses it: heartbeat, complete, fail, the task record, QA artifacts, the product's QA sign-in. It
 also carries the repository's push credential when the workspace has one
-(`services/runners/repoCredential.ts`: the GitHub connector today, the GitHub App's installation
-token when that lands). A fleet never holds a workspace's token. The Runs page and the run page
+(`services/runners/repoCredential.ts`: the GitHub connector's token, or, for a clone URL on
+gitlab.com or a self-managed instance a `gitlab` source names, that source's GitLab credential,
+refreshed first when it is a login, with `host: 'gitlab'` and the instance's API root). On GitLab
+the runner pushes as `oauth2:<token>` and opens the merge request through GitLab's API
+(`packages/runner/src/forge.mjs`), not `gh`. A fleet never holds a workspace's token. The Runs page and the run page
 name the target that claimed each run (`worker_run.worker_target`). When nothing picks a run up,
 the reconciler's ask names the target that last claimed.
 
@@ -286,6 +289,7 @@ The same image runs everywhere. A deploy target only decides where the container
 | `RUNNER_CLAIM_AFTER` | take only a run that has waited this many seconds (default 120, the backup); 0 is primary |
 | `ANTHROPIC_API_KEY` | the model key, the only secret the engineer's process keeps |
 | `GITHUB_TOKEN` | the repository token the runner's own git and `gh` use; the engineer never sees it |
+| `GITLAB_TOKEN` | on a GitLab repository with no claim credential: the token the runner's own git and merge request calls use (`api` scope); the engineer never sees it |
 | `MAX_BUDGET_USD`, `WALL_CLOCK_MINUTES` | ceilings; the run's own cap and deadline tighten them |
 | `RUNNER_POSTGRES_URL` | the database the target starts beside the runner; it wins over a repo record's url, which cannot know the address on every target |
 | `QA_EVIDENCE_BUCKET`, `QA_EVIDENCE_REGION`, `PRESIGN_ACCESS_KEY_ID`, `PRESIGN_SECRET_ACCESS_KEY` | where screenshots are stored; without a bucket they go into Vocion inline |

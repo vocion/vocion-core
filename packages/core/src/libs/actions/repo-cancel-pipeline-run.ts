@@ -18,8 +18,8 @@ import { z } from 'zod';
 export const CANCEL_PIPELINE_RUN_ACTION_ID = 'repo.cancel_pipeline_run';
 
 const cancelInput = z.object({
-  url: z.string().url().optional().describe('The pipeline run\'s URL (…/actions/runs/<id>).'),
-  repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'the repository as owner/name').optional().describe('The repository, owner/name, with runId.'),
+  url: z.string().url().optional().describe('The pipeline run\'s URL (…/actions/runs/<id> on GitHub, …/-/pipelines/<id> on GitLab).'),
+  repo: z.string().regex(/^[\w.-]+(?:\/[\w.-]+)+$/, 'the repository as its path').optional().describe('The repository, as its path (owner/name, or group/subgroup/project), with runId.'),
   runId: z.coerce.number().int().positive().optional().describe('The run\'s id, with repo.'),
   reason: z.string().min(8).max(500).describe('Why it stops now: the duplicate it is, the newer run that supersedes it, the loop it is in.'),
   recordId: z.coerce.number().int().positive().optional().describe('The environment (or request) this run belongs to, so its page shows the stop.'),
@@ -44,7 +44,7 @@ async function runRefOf(orgId: string, input: Pick<Input, 'url' | 'repo' | 'runI
   }
   if (input.repo && input.runId) {
     const provider = await repoProviderFor(orgId, input.repo);
-    return { provider, ref: { repo: input.repo, runId: input.runId, url: `https://github.com/${input.repo}/actions/runs/${input.runId}` } };
+    return { provider, ref: { repo: input.repo, runId: input.runId, url: provider.runUrl(input.repo, input.runId) } };
   }
   throw new Error('Name the run: its url, or repo and runId.');
 }

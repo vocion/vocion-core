@@ -50,7 +50,9 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? 
  */
 function prOf(url: string): string | null {
   const n = /\/pull\/(\d+)(?:[/?#]|$)/.exec(url)?.[1];
-  return n ? `PR #${n}` : null;
+  // A GitLab merge request is `MR !9`, in GitLab's own words.
+  const mr = /\/-\/merge_requests\/(\d+)(?:[/?#]|$)/.exec(url)?.[1];
+  return n ? `PR #${n}` : mr ? `MR !${mr}` : null;
 }
 
 /**

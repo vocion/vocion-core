@@ -36,11 +36,12 @@ import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, me
 import { parseNumstat } from './diffstat.mjs';
 import { engineFor, engineId } from './engines/index.mjs';
 import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown, usageFromMessages } from './events.mjs';
+import { blobUrl, forgeFor, gitCredentialEnv, openMergeRequest } from './forge.mjs';
 import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, matchingTests, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, stageablePaths, taskHeadline, testResultsOf, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
 import { planRequirement } from './plan.mjs';
 import { checkAllowedPaths, checkNotRunnableFailure, notRunnableChecks, pathsMissingFailure } from './preflight.mjs';
 import { captureEvidence, collectRepoTestShots, collectRepoTestVideos, containerCredentials, excludeShotsDir, otherTasksShots, productionBase, publishArtifact, qaReportMarkdown, reportArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
-import { recordableFlows, repoName, taskClaimed, taskCompleted, taskFailed } from './record.mjs';
+import { recordableFlows, taskClaimed, taskCompleted, taskFailed } from './record.mjs';
 import { repairBrief, repairDecision, repairRecord, repairsLine } from './repair.mjs';
 import { resumeNote } from './resume.mjs';
 import { checkPlan, serviceSpec } from './services.mjs';
@@ -73,6 +74,12 @@ const cfg = {
   maxBudgetUsd: num(env.MAX_BUDGET_USD, 12),
   wallClockMinutes: num(env.WALL_CLOCK_MINUTES, 45),
   githubToken: env.GITHUB_TOKEN || '',
+  // A GitLab access token (api scope) for a repository on GitLab: from the installation claim, or
+  // from the environment for a runner started with its own credential (src/forge.mjs).
+  gitlabToken: env.GITLAB_TOKEN || '',
+  // The installation claim's word on where the repository lives ({ host, apiUrl }), or null when
+  // the runner pushes with its own credential and the repository URL decides (forgeFor).
+  gitClaim: null,
   workspace: env.WORKSPACE || '/workspace',
   runnerHome: env.RUNNER_HOME || '/opt/vocion-runner',
   // Only for a run queued with a bare message and no contract: where that docs task is written.
@@ -461,17 +468,17 @@ function must(cmd, args, opts = {}) {
   return r.stdout;
 }
 // Git authenticates through a credential helper fed from the environment, so the token is never in
-// a remote URL, in .git/config, or on disk.
+// a remote URL, in .git/config, or on disk. The helper differs per host only in the username and
+// the variable it reads (gitCredentialEnv, src/forge.mjs).
 function gitAuthEnv() {
-  if (!cfg.githubToken) {
-    return {};
-  }
-  return {
-    GIT_CONFIG_COUNT: '1',
-    GIT_CONFIG_KEY_0: 'credential.helper',
-    GIT_CONFIG_VALUE_0: '!f() { echo username=x-access-token; echo "password=$GITHUB_TOKEN"; }; f',
-    GIT_TERMINAL_PROMPT: '0',
-  };
+  const f = currentForge();
+  return gitCredentialEnv(f.host, f.host === 'gitlab' ? cfg.gitlabToken : cfg.githubToken);
+}
+// Where this run's repository lives. Read on every call rather than kept, because the answer
+// depends on the claim (cfg.gitClaim) and the contract (state.task.repo), which arrive at different
+// times; before either, it is GitHub, as every run was before GitLab.
+function currentForge(repo = state.task?.repo) {
+  return forgeFor({ repo: repo || '', git: cfg.gitClaim, env: { GITLAB_TOKEN: cfg.gitlabToken } });
 }
 function tail(s, n = 20) {
   return String(s || '').trim().split('\n').slice(-n).join('\n').slice(-4000);
@@ -641,7 +648,7 @@ function standingRules(t) {
     'You are the engineer inside a Vocion software factory. One task, one branch. The goal is the outcome in the acceptance contract, working and proven: build it, test it, fix what stands in the way, and confirm it against reality.',
     '',
     'Rules, enforced by hooks and by a deterministic verifier that runs after you exit:',
-    `- The plan's paths are where to start, not a fence. Change whatever the outcome needs inside the repository. Off limits, because a person owns them: secrets and env files, .git, .github/workflows${t?.human_owned?.length ? `, ${t.human_owned.join(', ')}` : ''}.`,
+    `- The plan's paths are where to start, not a fence. Change whatever the outcome needs inside the repository. Off limits, because a person owns them: secrets and env files, .git, .github/workflows${currentForge(t?.repo).host === 'gitlab' ? ', .gitlab-ci.yml' : ''}${t?.human_owned?.length ? `, ${t.human_owned.join(', ')}` : ''}.`,
     '- Do not run git commit, git push, git merge, gh pr create or any deploy or publish command. The worker commits and opens the PR.',
     '- A schema change is a migration (the repo\'s migrations directory), never CREATE/ALTER/DROP TABLE in application code; the worker fails a change that does it.',
     '- Never read or print secrets: .env files, ~/.aws, ~/.ssh, *.pem, tokens in the environment.',
@@ -694,11 +701,19 @@ async function claimFromInstallation() {
       vocion.token = r.json.runToken;
       if (r.json.git?.token) {
         // The repository's own push credential for this run; the engineer's process never sees it.
-        cfg.githubToken = r.json.git.token;
-        process.env.GITHUB_TOKEN = r.json.git.token;
-        process.env.GH_TOKEN = r.json.git.token;
+        // Core says which host it is for (`host`, absent from cores before GitLab, which is GitHub)
+        // and, for GitLab, the API root, which differs on a self-managed instance.
+        cfg.gitClaim = { host: r.json.git.host === 'gitlab' ? 'gitlab' : 'github', apiUrl: r.json.git.apiUrl || null };
+        if (cfg.gitClaim.host === 'gitlab') {
+          cfg.gitlabToken = r.json.git.token;
+          process.env.GITLAB_TOKEN = r.json.git.token;
+        } else {
+          cfg.githubToken = r.json.git.token;
+          process.env.GITHUB_TOKEN = r.json.git.token;
+          process.env.GH_TOKEN = r.json.git.token;
+        }
       }
-      log('claimed', { attempt: run.attempt, leaseExpiresAt: r.json.leaseExpiresAt, capCents: run.capCents, endsAt: run.endsAt, kind: run.kind, agentSlug: run.agentSlug, target: cfg.target, git: r.json.git?.source || 'environment' });
+      log('claimed', { attempt: run.attempt, leaseExpiresAt: r.json.leaseExpiresAt, capCents: run.capCents, endsAt: run.endsAt, kind: run.kind, agentSlug: run.agentSlug, target: cfg.target, git: r.json.git?.source || 'environment', ...(cfg.gitClaim?.host === 'gitlab' ? { gitHost: 'gitlab' } : {}) });
       return run;
     }
     if (r.status !== 204) {
@@ -916,12 +931,12 @@ function runClaude(task, runId, opts = {}) {
   const engine = engineFor(task);
   const proc = engine.pass({ task, model, budget, opts, cfg, rules: standingRules(task), repoDir: REPO_DIR, logDir: LOG_DIR });
 
-  // The agent never sees the GitHub or Vocion credentials; it only needs the Anthropic key.
+  // The agent never sees the GitHub, GitLab or Vocion credentials; it only needs the Anthropic key.
   // An engine that reaches its model through the task role keeps those credentials for its own
-  // process (keepEnv) and drops them before any tool runs; GitHub and Vocion are never kept.
+  // process (keepEnv) and drops them before any tool runs; GitHub, GitLab and Vocion are never kept.
   const childEnv = { ...process.env };
   const keep = new Set((proc.keepEnv || []).filter(k => k.startsWith('AWS_')));
-  for (const k of ['GITHUB_TOKEN', 'GH_TOKEN', 'VOCION_TOKEN', 'VOCION_RUNNER_TOKEN', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_AUTHORIZATION_TOKEN']) {
+  for (const k of ['GITHUB_TOKEN', 'GH_TOKEN', 'GITLAB_TOKEN', 'VOCION_TOKEN', 'VOCION_RUNNER_TOKEN', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_AUTHORIZATION_TOKEN']) {
     if (!keep.has(k)) {
       delete childEnv[k];
     }
@@ -1348,6 +1363,7 @@ function land(task, runId, verification, claude, prepared, evidence = null, test
   must('git', ['push', '--quiet', '-u', 'origin', prepared.branch], { timeoutSeconds: 300 });
   log('pushed', { branch: prepared.branch, commit_sha: commitSha });
 
+  const forge = currentForge();
   // A PERSON READS THIS FIRST (2026-09-26): the body opened with the raw
   // contract JSON. Now it leads with what changed and how to check it, and
   // the contract folds underneath for whoever wants the machine's view.
@@ -1366,7 +1382,7 @@ function land(task, runId, verification, claude, prepared, evidence = null, test
     ...(task.qa?.flows?.length ? ['### Try it', '', ...task.qa.flows.map(f => `- ${f.name}: open \`${f.path}\`${f.sign_in ? ' signed in' : ''}`), ''] : []),
     ...evidenceSection(evidence?.evidence, vocion.enabled ? id => `${cfg.vocionUrl}/dashboard/artifacts/${id}` : null),
     ...refusedFlowsSection(evidence?.refusedFlows),
-    ...testsSection(tests.proofs, rel => `https://github.com/${repoName(task.repo)}/blob/${commitSha}/${rel}`, tests.runLink, tests.notRun),
+    ...testsSection(tests.proofs, rel => blobUrl(forge, commitSha, rel), tests.runLink, tests.notRun),
     '<details><summary>Task contract</summary>',
     '',
     '```json',
@@ -1402,6 +1418,15 @@ function land(task, runId, verification, claude, prepared, evidence = null, test
   ].join('\n').split(NO_EM_DASH).join(',');
   fs.writeFileSync(path.join(SCRATCH_DIR, 'pr-body.md'), body);
   const pullRequestTitle = prTitle({ task });
+  if (forge.host === 'gitlab') {
+    // GitLab: the merge request through the REST API (src/forge.mjs); throws with GitLab's reason.
+    const mr = openMergeRequest(forge, { token: cfg.gitlabToken, source: prepared.branch, target: landingBranch(task), title: pullRequestTitle, description: body });
+    if (mr.existing) {
+      log('pr.existing', { pr_url: mr.url });
+    }
+    log('pr.opened', { pr_url: mr.url, title: pullRequestTitle });
+    return { commitSha, prUrl: mr.url };
+  }
   let prUrl = '';
   const create = sh('gh', ['pr', 'create', '--base', landingBranch(task), '--head', prepared.branch, '--title', pullRequestTitle, '--body-file', path.join(SCRATCH_DIR, 'pr-body.md')], { timeoutSeconds: 120 });
   if (create.code === 0) {
@@ -1480,19 +1505,29 @@ function keepWork(task, runId, prepared, claude, verification, reason) {
     });
     fs.writeFileSync(path.join(SCRATCH_DIR, 'wip-pr-body.md'), body);
     const title = wipPrTitle({ task, reason, runId });
-    ensureLabel('checks-failed', 'D93F0B', 'Factory run kept unverified work as a draft PR');
+    const forge = currentForge();
     let prUrl = '';
-    const create = sh('gh', ['pr', 'create', '--draft', '--base', landingBranch(task), '--head', branch, '--title', title, '--label', 'checks-failed', '--body-file', path.join(SCRATCH_DIR, 'wip-pr-body.md')], { timeoutSeconds: 120 });
-    if (create.code === 0) {
-      prUrl = (create.stdout.match(/https:\/\/github\.com\/\S+\/pull\/\d+/) || [''])[0];
-    } else {
-      const list = sh('gh', ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'url', '--jq', '.[0].url'], { timeoutSeconds: 60 });
-      prUrl = list.stdout.trim();
-      if (!prUrl) {
-        throw new Error(`gh pr create failed: ${tail(create.stderr || create.stdout, 6)}`);
+    if (forge.host === 'gitlab') {
+      // GitLab makes the label on first use, so there is no ensureLabel; a draft is a title prefix.
+      const mr = openMergeRequest(forge, { token: cfg.gitlabToken, source: branch, target: landingBranch(task), title, description: body, draft: true, labels: ['checks-failed'], updateExisting: true });
+      prUrl = mr.url;
+      if (mr.existing) {
+        log('pr.existing', { pr_url: prUrl, ...(mr.updateError ? { update_error: mr.updateError } : {}) });
       }
-      sh('gh', ['pr', 'edit', prUrl, '--add-label', 'checks-failed', '--body-file', path.join(SCRATCH_DIR, 'wip-pr-body.md')], { timeoutSeconds: 60 });
-      log('pr.existing', { pr_url: prUrl });
+    } else {
+      ensureLabel('checks-failed', 'D93F0B', 'Factory run kept unverified work as a draft PR');
+      const create = sh('gh', ['pr', 'create', '--draft', '--base', landingBranch(task), '--head', branch, '--title', title, '--label', 'checks-failed', '--body-file', path.join(SCRATCH_DIR, 'wip-pr-body.md')], { timeoutSeconds: 120 });
+      if (create.code === 0) {
+        prUrl = (create.stdout.match(/https:\/\/github\.com\/\S+\/pull\/\d+/) || [''])[0];
+      } else {
+        const list = sh('gh', ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'url', '--jq', '.[0].url'], { timeoutSeconds: 60 });
+        prUrl = list.stdout.trim();
+        if (!prUrl) {
+          throw new Error(`gh pr create failed: ${tail(create.stderr || create.stdout, 6)}`);
+        }
+        sh('gh', ['pr', 'edit', prUrl, '--add-label', 'checks-failed', '--body-file', path.join(SCRATCH_DIR, 'wip-pr-body.md')], { timeoutSeconds: 60 });
+        log('pr.existing', { pr_url: prUrl });
+      }
     }
     const kept = { branch, commitSha, prUrl, files: decision.kept, outside: decision.outside, reason, attempt, nextAttempt: attempt + 1, continue: continueLine(branch, attempt) };
     state.kept = kept;
@@ -1772,7 +1807,8 @@ async function main() {
   fs.mkdirSync(SCRATCH_DIR, { recursive: true });
   log('boot', { mode: cfg.localTask || cfg.localTaskJson ? 'local' : (cfg.runId ? 'run' : 'poll'), vocion: vocion.enabled ? cfg.vocionUrl : null, agentSlug: cfg.agentSlug, max_budget_usd: cfg.maxBudgetUsd, wall_clock_minutes: cfg.wallClockMinutes, node: process.version, arch: process.arch, worker_version: WORKER_VERSION });
   for (const k of ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN']) {
-    if (!env[k]) {
+    // A runner that pushes to GitLab with its own credential has no GitHub token to miss.
+    if (!env[k] && !(k === 'GITHUB_TOKEN' && env.GITLAB_TOKEN)) {
       log('warn', { note: `${k} is not set` });
     }
   }

@@ -447,8 +447,10 @@ function branchOf(run: WorkerRunRow, taskMeta: Record<string, unknown>, repo: st
   if (!name) {
     return null;
   }
-  const web = repo && /^https:\/\/github\.com\//.test(repo) ? repo.replace(/\.git$/, '') : null;
-  return { name, href: web ? `${web}/tree/${name.split('/').map(encodeURIComponent).join('/')}` : null };
+  const web = repo && /^https:\/\/[^/]+\/[\w.-]+\/[\w./-]+$/.test(repo) ? repo.replace(/\.git$/, '') : null;
+  // GitHub's branch page is `<repo>/tree/<branch>`; any other host here is GitLab's, `<project>/-/tree/<branch>`.
+  const tree = web && /^https:\/\/github\.com\//.test(web) ? 'tree' : '-/tree';
+  return { name, href: web ? `${web}/${tree}/${name.split('/').map(encodeURIComponent).join('/')}` : null };
 }
 
 /**

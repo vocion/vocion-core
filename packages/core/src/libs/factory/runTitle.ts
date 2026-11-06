@@ -68,7 +68,9 @@ const LIVE = new Set(['queued', 'claimed', 'running', 'paused', 'planning', 'awa
  */
 export function prNumberLabel(url: string | null | undefined): string | null {
   const n = url ? /\/pull\/(\d+)(?:[/?#]|$)/.exec(url)?.[1] : undefined;
-  return n ? `PR #${n}` : null;
+  // A GitLab merge request is `MR !9`, in GitLab's own words.
+  const mr = url ? /\/-\/merge_requests\/(\d+)(?:[/?#]|$)/.exec(url)?.[1] : undefined;
+  return n ? `PR #${n}` : mr ? `MR !${mr}` : null;
 }
 
 /**

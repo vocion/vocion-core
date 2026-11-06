@@ -10,6 +10,8 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 const openChangePull = vi.fn(async (_orgId: string, o: { repo: string; title: string; branch?: string | null }) => ({ repo: o.repo, url: 'https://github.com/Acme/northwind-core/pull/501', number: 501, branch: o.branch ?? 'vocion/pipeline-202609301200-ci-fix', base: 'main', headSha: 'c0ffee000001', created: !o.branch, paths: ['.github/workflows/ci.yml'] }));
 vi.mock('./githubChange', async importOriginal => ({ ...(await importOriginal<typeof import('./githubChange')>()), openChangePull }));
+// The repository resolves to its host's provider: the GitHub source lists it.
+vi.mock('@/services/agents/tools/githubPullRead', async importOriginal => ({ ...(await importOriginal<typeof import('@/services/agents/tools/githubPullRead')>()), tokenForRepo: vi.fn(async () => 'ghs_token') }));
 
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, agentSchema, askSchema, automationRunSchema, businessObjectSchema, eventLogSchema, trustRuleSchema } = await import('@/models/Schema');

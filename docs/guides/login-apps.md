@@ -36,6 +36,7 @@ a different client with its own settings:
 | `slack` | `slack` | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | [slack.md](slack.md#connecting-the-slack-source-with-a-click) |
 | `atlassian` | `jira` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | [jira.md](jira.md#connect-with-atlassian) |
 | `github` | `github` | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | [github.md](github.md#connect-with-github--the-app-instead-of-a-token) |
+| `gitlab` | `gitlab` | `GITLAB_OAUTH_CLIENT_ID`, `GITLAB_OAUTH_CLIENT_SECRET` (and `GITLAB_OAUTH_BASE_URL` for a self-managed instance) | [gitlab.md](gitlab.md#connect-with-gitlab) |
 | `posthog` | `posthog` | None: PostHog reads our client from `/api/connect-client/posthog` | [posthog.md](posthog.md#connecting-it) |
 
 ## Saving the app on Developers (no redeploy)

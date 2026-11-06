@@ -48,9 +48,12 @@ export function taskTitle(task) {
   return `${taskHeadline({ title: text }, { max: TITLE_MAX - 3 })}...`;
 }
 
-/** owner/name from an https clone URL; the string itself when it is not one. */
+/**
+ * owner/name from an https clone URL, or the whole project path on GitLab, where projects nest in
+ * groups (`group/subgroup/project`); the string itself when it is not one.
+ */
 export function repoName(url) {
-  const m = String(url || '').match(/^https?:\/\/[^/]+\/([^/]+\/[^/]+?)(?:\.git)?\/?$/);
+  const m = String(url || '').match(/^https?:\/\/[^/]+\/((?:[^/]+\/)+[^/]+?)(?:\.git)?\/?$/);
   return m ? m[1] : String(url || '');
 }
 

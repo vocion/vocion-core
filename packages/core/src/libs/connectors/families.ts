@@ -7,9 +7,10 @@
  * A `repo` is a code host: pull requests, checks, pipeline runs, reviews.
  * A `tracker` is an issue tracker: issues, status transitions, comments,
  * attachments. A `chat` is where people talk: channels, threads, messages,
- * reactions, files. GitHub, Jira and Slack are the first provider of each;
- * Bitbucket, Azure DevOps, GitLab, Linear and Teams are later providers of
- * the same families, and nothing an agent is told names a vendor: its tools
+ * reactions, files. GitHub, Jira and Slack are the first provider of each,
+ * and GitLab (gitlab.com or self-managed) is the code host's second;
+ * Bitbucket, Azure DevOps, Linear and Teams are later providers of the same
+ * families, and nothing an agent is told names a vendor: its tools
  * are `repo_read_pull`, `tracker_read_issue`, `chat_read_thread`, and the
  * source a workspace connected decides which provider answers.
  *
@@ -44,7 +45,7 @@ export type ConnectorFamily = 'repo' | 'tracker' | 'chat' | 'finance' | 'people'
  * `people_list` and `people_get`, with personal identifiers never returned.
  */
 export const FAMILY_KINDS: Record<ConnectorFamily, readonly string[]> = {
-  repo: ['github'],
+  repo: ['github', 'gitlab'],
   tracker: ['jira'],
   chat: ['slack'],
   finance: ['stripe', 'quickbooks', 'xero', 'netsuite', 'ramp', 'bill'],

@@ -122,15 +122,17 @@ function pullUrlOf(input: Record<string, unknown>): string | null {
     return ref.url;
   }
   const steps = Array.isArray(input.steps) ? input.steps as Array<{ url?: unknown }> : [];
-  const url = steps.find(st => typeof st.url === 'string' && /github\.com\/.+\/pull\/\d+/.test(st.url))?.url;
+  const url = steps.find(st => typeof st.url === 'string' && (/github\.com\/.+\/pull\/\d+/.test(st.url) || /\/-\/merge_requests\/\d+/.test(st.url)))?.url;
   return typeof url === 'string' ? url : null;
 }
 
 /**
  * ONE PRESS (Chris, 2026-09-29: "simplify my work"). The merge is performed
  * here, not handed off: approving the card — a person's press, or the trust
- * rule for its risk class — merges the pull request (`githubMerge.ts`), onto
- * the commit QA judged with its checks green. Undo opens the revert.
+ * rule for its risk class — merges the pull request through its host's
+ * provider (`services/repo/provider.ts`: GitHub's squash merge, GitLab's
+ * merge request merge), onto the commit QA judged with its checks green.
+ * Undo opens the revert.
  */
 export const gitMergeAction: Action = {
   ...gitMergeHandoff,
@@ -160,16 +162,19 @@ export const gitMergeAction: Action = {
     if (!url) {
       throw new Error('This merge card names no pull request, so there is nothing to merge.');
     }
-    const { mergePull } = await import('@/services/factory/githubMerge');
+    const { pullAt } = await import('@/services/repo/provider');
+    const at = await pullAt(ctx.orgId, url);
+    if (!at) {
+      throw new Error(`${url} is not a pull request on a code host this workspace connected, so there is nothing to merge.`);
+    }
     const judged = typeof input.verdictCommitSha === 'string' ? input.verdictCommitSha : typeof input.commitSha === 'string' ? input.commitSha : null;
-    const res = await mergePull(ctx.orgId, url, judged);
+    const res = await at.provider.mergePull(ctx.orgId, at.ref, judged);
     // VOCION KNOWS ITS OWN MERGE AT ONCE (2026-10-01, FE-314: merged 23:51:30,
     // the page read "Nothing running" over a running deploy until the next
-    // GitHub sync raised pr.merged at 23:55). The same event, same dedupe key.
-    if (res.pull) {
-      const { mergedPullEvent } = await import('@/libs/github/events');
+    // sync raised pr.merged at 23:55). The same event, same dedupe key.
+    if (res.event) {
       const { emitEvent } = await import('@/services/EventService');
-      const event = mergedPullEvent(res.repo, res.pull);
+      const event = res.event;
       await emitEvent({ orgId: ctx.orgId, type: event.type, payload: event.payload, dedupeKey: event.dedupeKey, invokedBy: 'action:git.merge' }).catch((err: Error) => console.warn('[git.merge] pr.merged was not raised; the sync will raise it', { url, message: err.message }));
     }
     return { merged: true, pullRequest: url, mergeSha: res.sha, alreadyMerged: res.already };
@@ -179,8 +184,12 @@ export const gitMergeAction: Action = {
     if (!url) {
       throw new Error('This merge names no pull request, so there is nothing to revert.');
     }
-    const { revertPull } = await import('@/services/factory/githubMerge');
-    const { revertUrl } = await revertPull(ctx.orgId, url);
+    const { pullAt } = await import('@/services/repo/provider');
+    const at = await pullAt(ctx.orgId, url);
+    if (!at) {
+      throw new Error(`${url} is not a pull request on a code host this workspace connected, so no revert was opened.`);
+    }
+    const { revertUrl } = await at.provider.revertPull(ctx.orgId, at.ref);
     return { reverted: false, revertPullRequest: revertUrl, note: 'The revert pull request is open; merging it takes the change back out.' };
   },
 };

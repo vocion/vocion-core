@@ -241,7 +241,7 @@ function listOf(items: string[]): string {
  * @param url - The URL.
  */
 export function prNumberOf(url: string): number | null {
-  return num(/\/pull\/(\d+)/.exec(url)?.[1]);
+  return num(/\/(?:pull|-\/merge_requests)\/(\d+)/.exec(url)?.[1]);
 }
 
 /**

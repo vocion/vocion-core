@@ -55,6 +55,8 @@ function serverClientPair(provider: ConnectProviderId): { clientId?: string; cli
       return { clientId: Env.META_APP_ID, clientSecret: Env.META_APP_SECRET };
     case 'webflow':
       return { clientId: Env.WEBFLOW_CLIENT_ID, clientSecret: Env.WEBFLOW_CLIENT_SECRET };
+    case 'gitlab':
+      return { clientId: Env.GITLAB_OAUTH_CLIENT_ID, clientSecret: Env.GITLAB_OAUTH_CLIENT_SECRET };
     default:
       return {};
   }

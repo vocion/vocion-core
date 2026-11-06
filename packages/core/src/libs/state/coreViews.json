@@ -35,7 +35,7 @@
       "slug": "prs-awaiting-my-review",
       "name": "Pull requests awaiting my review",
       "description": "Open pull requests where my review is requested.",
-      "query": { "sets": ["code.pull_request"], "filter": { "state": "open", "requested_reviewers": "$me" }, "sort": { "facet": "updated_at", "dir": "asc" }, "limit": 25 }
+      "query": { "sets": ["code.pull_request", "code.merge_request"], "filter": { "state": "open", "requested_reviewers": "$me" }, "sort": { "facet": "updated_at", "dir": "asc" }, "limit": 25 }
     },
     {
       "slug": "slack-mentions",

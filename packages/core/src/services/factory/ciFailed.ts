@@ -67,12 +67,16 @@ export type CiFailedDeps = {
 async function defaultDeps(): Promise<CiFailedDeps> {
   const gh = await import('./githubChecks');
   const { diagnoseCi } = await import('./ciDiagnose');
-  const { readPullHead } = await import('@/services/agents/tools/githubPullRead');
+  const { pullAt } = await import('@/services/repo/provider');
   return {
     readLogs: (orgId, url, headSha) => gh.readCheckLogs(orgId, url, { headSha }),
     baseChecks: (orgId, repo, branch) => gh.branchChecks(orgId, repo, branch),
     diagnose: e => diagnoseCi(e),
-    liveHead: async (orgId, url) => (await readPullHead(orgId, url))?.sha ?? null,
+    // The head is read from the pull request's own host; the logs above are GitHub Actions' until GitLab's job logs are read.
+    liveHead: async (orgId, url) => {
+      const at = await pullAt(orgId, url);
+      return at ? (await at.provider.readPullHead(orgId, at.ref).catch(() => null))?.sha ?? null : null;
+    },
   };
 }
 

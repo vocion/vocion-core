@@ -286,7 +286,8 @@ export async function findTaskByPr(orgId: string, prUrl: string) {
   const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
-  const url = prUrl.trim().replace(/\/(files|commits|checks)\/?$/, '').replace(/\/$/, '');
+  // A tab of the pull request is the pull request: GitHub's files, commits and checks, GitLab's diffs, commits and pipelines.
+  const url = prUrl.trim().replace(/\/(files|commits|checks|diffs|pipelines)\/?$/, '').replace(/\/$/, '');
   const [row] = await db
     .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, status: businessObjectSchema.status, meta: businessObjectSchema.metadata })
     .from(businessObjectSchema)
@@ -644,8 +645,10 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       if (refusal) {
         return contract.length > 0 ? `${refusal}\n\nThe contract on task #${task.id}, which is what is graded:\n${contract.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : refusal;
       }
-      const { readPullHead } = await import('./githubPullRead');
-      const head = await readPullHead(ctx.orgId, task.url);
+      // The head binds the verdict, read from the pull request's own host.
+      const { pullAt } = await import('@/services/repo/provider');
+      const at = await pullAt(ctx.orgId, task.url);
+      const head = at ? await at.provider.readPullHead(ctx.orgId, at.ref).catch(() => null) : null;
       const taskSha = typeof task.meta.commitSha === 'string' ? task.meta.commitSha : null;
       const commitSha = head?.sha ?? taskSha;
       if (!commitSha) {
@@ -720,7 +723,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
               { say: 'The merge deploys it; the release lands in Vocion when it is live.' },
             ],
             evidence: [task.url],
-            externalRef: { system: 'github', id: task.url.replace('https://github.com/', ''), url: task.url },
+            externalRef: { system: at?.provider.kind ?? 'github', id: task.url.replace(/^https:\/\/[^/]+\//, ''), url: task.url },
             riskClass,
             commitSha,
             verdictCommitSha: commitSha,
@@ -752,7 +755,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       name: 'record_verdict',
       description: 'Record QA\'s verdict on a factory pull request: every line of the task\'s acceptance contract (acceptanceContract, in order, in its own words) judged proven, unproven or unchecked, with the evidence for each proven one. A contract line you do not judge is recorded as unchecked. The server binds it to the PR\'s current head, counts the proven criteria itself, sets the task to accepted, changes_requested or rejected, and on approve files the merge card for a person. This call IS the review; a review that does not end in it did not happen.',
       schema: z.object({
-        pr_url: z.string().url().describe('The pull request, e.g. https://github.com/acme/app/pull/12.'),
+        pr_url: z.string().url().describe('The pull request, e.g. https://github.com/acme/app/pull/12, or a GitLab merge request, e.g. https://gitlab.com/acme/platform/app/-/merge_requests/12.'),
         value: z.enum(VERDICT_VALUES).describe('approve only when every criterion is proven (or live, when no picture could be stored) and nothing blocks; changes when something specific would make it right; reject when the contract itself was wrong.'),
         // PLAIN TYPES ONLY (no transforms — they cannot be sent as JSON Schema,
         // #731); a list sent as text is parsed in the handler.

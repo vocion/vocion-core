@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 const cancelPipelineRun = vi.fn(async () => ({ cancelled: true }));
 const rerunPipelineRun = vi.fn(async () => undefined);
-const provider = { kind: 'github', label: 'GitHub', parseRunRef: (url: string) => (url.includes('/actions/runs/') ? { repo: 'Acme/northwind-core', runId: 36001, url } : null), cancelPipelineRun, rerunPipelineRun };
+const provider = { kind: 'github', label: 'GitHub', parseRunRef: (url: string) => (url.includes('/actions/runs/') ? { repo: 'Acme/northwind-core', runId: 36001, url } : null), runUrl: (repo: string, runId: number) => `https://github.com/${repo}/actions/runs/${runId}`, cancelPipelineRun, rerunPipelineRun };
 vi.mock('@/services/repo/provider', () => ({ repoProviderFor: vi.fn(async () => provider) }));
 const noteOnRecord = vi.fn(async () => undefined);
 vi.mock('@/services/factory/environments', () => ({ noteOnRecord }));

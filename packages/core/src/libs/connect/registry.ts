@@ -10,6 +10,7 @@ import { loginOffered } from './loginClient';
 import { apolloProvider } from './providers/apollo';
 import { atlassianProvider } from './providers/atlassian';
 import { githubProvider } from './providers/github';
+import { gitlabProvider } from './providers/gitlab';
 import { googleProvider } from './providers/google';
 import { gustoProvider } from './providers/gusto';
 import { hubspotProvider } from './providers/hubspot';
@@ -40,6 +41,7 @@ const realProviders: readonly ConnectProvider[] = [
   linkedinProvider,
   metaProvider,
   webflowProvider,
+  gitlabProvider,
 ];
 
 /**
