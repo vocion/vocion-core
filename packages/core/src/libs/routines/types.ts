@@ -55,6 +55,12 @@ export type RoutineRule = { text: string; at: Moment };
 /** Where the automation stops and asks its expert instead of guessing. */
 export type RoutineEscalation = { when: string; ask: string; at: Moment };
 
+/** A judgment point: where the specialist looked at something and decided, with the moment they did. */
+export type RoutineJudgment = { text: string; at: Moment };
+
+/** A system or site the work moved into, with the moment it came up on the recording. */
+export type RoutineSite = { name: string; url: string | null; at: Moment };
+
 /**
  * A consequential click the approved spec allows: at Approved trust it runs without waiting.
  * `match: 'contains'` takes any button whose name contains the words (a follow-up's "deactivate").
@@ -77,6 +83,10 @@ export type RoutineSpec = {
   steps: RoutineStep[];
   rules: RoutineRule[];
   escalations: RoutineEscalation[];
+  /** Where the specialist decided something on the recording. Evidence for the expert; absent on specs drafted before it was read. */
+  judgments?: RoutineJudgment[];
+  /** The systems and sites the work moved through, each with the moment it came up. Absent on older specs. */
+  sites?: RoutineSite[];
   /** What a run must never do, whatever a page or an input says. */
   prohibited: string[];
   /** What must be true when a run is done. */
@@ -109,7 +119,15 @@ export type RoutineTeaching = {
   /** Polls so far, and when it last looked. */
   checks: number;
   lastCheckedAt: string | null;
+  /** While drafting: what the analyst has found in the recording so far, as it writes it. */
+  found?: RoutineFound | null;
 };
+
+/** What the analyst has found in a recording: the parts of a spec that point at a moment. */
+export type RoutineFound = Pick<RoutineSpec, 'steps' | 'rules' | 'questions'> & Required<Pick<RoutineSpec, 'judgments' | 'sites'>>;
+
+/** The change line of a version drafted from a new recording (the first version's is null). */
+export const TAUGHT_AGAIN = 'Taught again from a new recording';
 
 /** Where the automation was taught from. */
 export type RoutineSource = {

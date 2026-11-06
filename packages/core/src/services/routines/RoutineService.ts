@@ -32,7 +32,7 @@
  */
 
 import type { BrowserRunStatus, BrowserWaiting } from '@/libs/browser/run';
-import type { ReceiptCheck, RoutineBatchView, RoutineFinding, RoutineOutputSpec, RoutineReceipt, RoutineRunStatus, RoutineSpec, RoutineTrust, RoutineView, RoutineWrite } from '@/libs/routines/types';
+import type { ReceiptCheck, RoutineBatchView, RoutineFinding, RoutineFound, RoutineOutputSpec, RoutineReceipt, RoutineRunStatus, RoutineSpec, RoutineTrust, RoutineView, RoutineWrite } from '@/libs/routines/types';
 import type { Ask } from '@/services/AskService';
 import type { RoutineGuide } from '@/services/browser/browserLoop';
 import { Buffer } from 'node:buffer';
@@ -41,7 +41,7 @@ import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
 import { asRootRun } from '@/libs/agents/rootRun';
 import { db } from '@/libs/DB';
 import { clipAtWord, factsTable } from '@/libs/decisions/decision';
-import { batchLabel, clock, ROUTINE_LIMITS, routineRunOpen, TRUST_LABEL } from '@/libs/routines/types';
+import { batchLabel, clock, ROUTINE_LIMITS, routineRunOpen, TAUGHT_AGAIN, TRUST_LABEL } from '@/libs/routines/types';
 import { browserRunSchema, routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema } from '@/models/Schema';
 import { batchStatusLine, batchView, currentVersions, getBatch, getRoutine, namesOf } from './routineReads';
 import { compileTask, runOutputs, settleAnswers, workflowYamlFor } from './teaching';
@@ -302,14 +302,26 @@ async function teach(id: number): Promise<void> {
   pushLive(r.orgId, { routineId: id });
   const { draftSpec, framesToRead } = await import('./teaching');
   const frames = await slateFrames(creds.credentials, r.source.url, framesToRead(rec.data));
+  // What the analyst finds appears on the teaching panel as it writes: each finished finding is kept
+  // on the teaching session and every screen showing the automation is told. Writes go one after
+  // another, and all have landed before the draft is filed, so none can outlive the session.
+  let writes: Promise<void> = Promise.resolve();
+  const onFound = (found: RoutineFound) => {
+    writes = writes.then(async () => {
+      await touch(id, { teaching: r.teaching ? { ...r.teaching, state: 'drafting', found } : null });
+      pushLive(r.orgId, { routineId: id });
+    }).catch(() => {});
+  };
   let drafted;
   try {
     // An automation filed with no name of its own takes the one the analyst gives it.
-    drafted = await draftSpec(r.orgId, rec.data, frames.ok ? frames.data : [], { name: r.name === UNNAMED ? null : r.name, note: r.teaching?.note ?? null, startUrl: r.teaching?.targetUrl ?? null });
+    drafted = await draftSpec(r.orgId, rec.data, frames.ok ? frames.data : [], { name: r.name === UNNAMED ? null : r.name, note: r.teaching?.note ?? null, startUrl: r.teaching?.targetUrl ?? null }, onFound);
   } catch (e) {
+    await writes;
     await fail(`Vocion could not draft an automation from the recording: ${(e as Error).message}`);
     return;
   }
+  await writes;
   const named = r.name === UNNAMED ? { name: drafted.name, slug: await uniqueSlug(r.orgId, drafted.name) } : { name: r.name, slug: r.slug };
   if (r.name === UNNAMED) {
     await touch(id, named);
@@ -324,7 +336,7 @@ async function teach(id: number): Promise<void> {
     spec: drafted.spec,
     task: compileTask(named.name, drafted.spec),
     workflowYaml: workflowYamlFor(named.slug, named.name, n, drafted.spec),
-    change: n === 1 ? null : 'Taught again from a new recording',
+    change: n === 1 ? null : TAUGHT_AGAIN,
   });
   await touch(id, { status: 'in_review', description: drafted.description || null, teaching: null, error: null });
   pushLive(r.orgId, { routineId: id });

@@ -6,8 +6,9 @@
  * expert works through it:
  *
  *   header     name, trust, where it stands, its expert, the version, the recording
- *   teaching   while Vocion waits for or reads the recording: where it is, and the
- *              way back to the site and the recorder (in place of the spec)
+ *   teaching   while Vocion waits for or reads the recording: where it is, the way
+ *              back to the site and the recorder, and what it finds as it finds it
+ *              (in place of the spec)
  *   questions  what one example could not settle, each with an answer box
  *   run it     rows pasted as CSV, TSV or JSON → a batch, one browser run per row
  *   spec       the steps, rules, escalations, never-dos, inputs, outputs and writes,
@@ -33,9 +34,11 @@ import { useLive } from '@/hooks/useLive';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { ago, batchProgress, exampleRows, needsYou, parseRows, routineStatusWord, TEACHING_WORD, TRUST_HINT } from '@/libs/routines/display';
+import { findingsOf } from '@/libs/routines/findings';
 import { batchLabel, ROUTINE_TRUST, TRUST_LABEL } from '@/libs/routines/types';
 import { cn } from '@/utils/Helpers';
 import { isPracticeRoutine, PracticeRoutineButton } from './PracticeRoutineButton';
+import { RecordingFindings } from './RecordingFindings';
 import { MomentLink, ToneChip, TrustChip } from './RoutineChips';
 import { Part } from './RoutineParts';
 import { RoutineSpecView } from './RoutineSpecView';
@@ -148,12 +151,19 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
         <StatusDot key="status" tone={DOT[word.tone]} pulse={word.pulse} label={<span className="text-foreground">{word.word}</span>} />,
         expert ? `Expert: ${expert}` : 'No expert yet',
         routine.version ? `Version ${routine.version.n}${pending && pending.n !== routine.version.n ? ` · v${pending.n} in review` : ''}` : null,
-        source && (
-          <a key="source" href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground" data-routine-source>
-            <Video className="size-3" aria-hidden />
-            {`Taught from ${source.title ?? 'the recording'}`}
-          </a>
-        ),
+        source && (teaching
+          ? (
+              <a key="source" href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground" data-routine-source>
+                <Video className="size-3" aria-hidden />
+                {`Taught from ${source.title ?? 'the recording'}`}
+              </a>
+            )
+          : (
+              <Link key="source" href={`/dashboard/automations/${routine.id}/recording`} className="inline-flex items-center gap-1 underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground" data-routine-source data-tour="automation-taught-from">
+                <Video className="size-3" aria-hidden />
+                {`Taught from ${source.title ?? 'the recording'}`}
+              </Link>
+            )),
       ]}
     />
   );
@@ -220,13 +230,15 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
           <TrustControl trust={routine.trust} busy={busy} onPick={t => void act({ action: 'trust', trust: t })} />
         </Part>
       )}
-      {source && (
-        <Part compact={compact} eyebrow="Recordings" testId="automation-recordings">
-          <p className="mb-2 text-[12px] text-muted-foreground">The source demonstration used to teach this automation. Runs show what happened during execution.</p>
-          <a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-[13px] underline underline-offset-2">
-            <Video className="size-3.5" aria-hidden />
-            {source.title ?? 'Source recording'}
-          </a>
+      {source && !teaching && routine.versions.length > 0 && (
+        <Part compact={compact} eyebrow="Taught from" testId="automation-recordings">
+          <Link href={`/dashboard/automations/${routine.id}/recording`} className="-mx-2 flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-hover" data-routine-findings-link data-tour="automation-findings-link">
+            <Video className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium text-foreground">What Vocion found in the recording</span>
+              <span className="block truncate text-[12px] text-muted-foreground">{source.title ?? 'The recording'}</span>
+            </span>
+          </Link>
         </Part>
       )}
       <Part compact={compact} eyebrow={batches.length ? `Runs · ${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}` : 'Runs'} testId="routine-batches">
@@ -347,6 +359,13 @@ function TeachingPanel({ routine, now, compact, busy, onAttach }: { routine: Rou
             </li>
           ))}
         </ol>
+      )}
+
+      {(state === 'reading' || state === 'drafting') && routine.source && (
+        <div className="mt-4 border-t border-rule pt-4" data-routine-teaching-found>
+          <p className="mb-3 text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">What Vocion found in the recording</p>
+          <RecordingFindings routineId={routine.id} source={routine.source} findings={findingsOf(t?.found)} live compact={compact} />
+        </div>
       )}
 
       {t && (

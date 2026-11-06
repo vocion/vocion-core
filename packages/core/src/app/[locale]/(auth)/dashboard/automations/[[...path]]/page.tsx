@@ -6,12 +6,13 @@ import { PracticeRoutineButton } from '@/features/routines/PracticeRoutineButton
 import { RoutineBatchView } from '@/features/routines/RoutineBatchView';
 import { RoutineList } from '@/features/routines/RoutineList';
 import { RoutineView } from '@/features/routines/RoutineView';
+import { TaughtFromView } from '@/features/routines/TaughtFromView';
 import { TeachRoutineButton } from '@/features/routines/TeachRoutineButton';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { batchesOf, getBatch, getRoutine, listRoutines } from '@/services/routines/routineReads';
+import { batchesOf, getBatch, getRoutine, listRoutines, taughtFrom } from '@/services/routines/routineReads';
 
 /** What a path under /dashboard/automations shows. */
-type Shown = { kind: 'list' } | { kind: 'routine'; id: number } | { kind: 'batch'; id: number } | { kind: 'batches' } | { kind: 'none' };
+type Shown = { kind: 'list' } | { kind: 'routine'; id: number } | { kind: 'recording'; id: number } | { kind: 'batch'; id: number } | { kind: 'batches' } | { kind: 'none' };
 
 function shown(path: string[] | undefined): Shown {
   const [a, b, ...rest] = path ?? [];
@@ -30,12 +31,15 @@ function shown(path: string[] | undefined): Shown {
     return n ? { kind: 'batch', id: n } : { kind: 'none' };
   }
   const n = id(a);
+  if (n && b === 'recording') {
+    return { kind: 'recording', id: n };
+  }
   return n && b === undefined ? { kind: 'routine', id: n } : { kind: 'none' };
 }
 
 export async function generateMetadata(props: { params: Promise<{ path?: string[] }> }): Promise<Metadata> {
   const s = shown((await props.params).path);
-  return { title: s.kind === 'routine' ? 'Automation' : s.kind === 'batch' ? 'Automation run' : 'Automations' };
+  return { title: s.kind === 'recording' ? 'What Vocion found in the recording' : s.kind === 'routine' ? 'Automation' : s.kind === 'batch' ? 'Automation run' : 'Automations' };
 }
 
 /**
@@ -45,6 +49,7 @@ export async function generateMetadata(props: { params: Promise<{ path?: string[
  *
  *   /dashboard/automations              the workspace's routines
  *   /dashboard/automations/<id>         one routine: spec, questions, trust, Run it, batches
+ *   /dashboard/automations/<id>/recording  what Vocion found in the recording it was taught from
  *   /dashboard/automations/batches/<id> one batch, as its queue
  * @param props - The route.
  * @param props.params - Its params.
@@ -70,6 +75,13 @@ export default async function AutomationsPage(props: { params: Promise<{ locale:
       notFound();
     }
     return <RoutineView key={routine.id} initial={routine} batches={await batchesOf(orgId, s.id)} />;
+  }
+  if (s.kind === 'recording') {
+    const taught = await taughtFrom(orgId, s.id);
+    if (!taught) {
+      notFound();
+    }
+    return <TaughtFromView key={taught.routine.id} routine={taught.routine} version={taught.version} />;
   }
   if (s.kind === 'batch') {
     const batch = await getBatch(orgId, s.id);

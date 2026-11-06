@@ -25,6 +25,7 @@ control surface for recurring schedules and event-trigger rules.
 |---|---|---|
 | **Teach** | Share a Slate link in chat ("Teach a task from this recording"), or press **Teach a task** on `/dashboard/automations`. The second opens the site in a new tab; record it with Slate (⌥⇧R on that tab), and Vocion picks up the finished recording on its own. | `routine_teach`, `routines.teach` |
 | **Draft** | The Automation analyst reads the transcript, what was on screen, and frames at the moments that matter. It drafts the steps (each linked to its moment), the rules, where to escalate, what is prohibited, the inputs (which every row shares, which identify a row), the outputs to read back, the buttons that save, and how to check the whole list. It ends with questions for the expert. | `services/routines/teaching.ts` |
+| **Found** | While the analyst writes, what it has found appears on the teaching panel as it finds it: the steps in order, the systems and sites the work moved into, the rules, the judgment calls the specialist made, and the questions one recording cannot answer, each at its moment and marked on a track under the recording's player (a mark seeks the player). Kept afterwards as **What Vocion found in the recording** (`/dashboard/automations/<id>/recording`, "Taught from" on the automation page): the evidence behind the version the analyst drafted. | `foundSoFar`, `RoutineTeaching.found`, `RecordingFindings`, `RecordingTimeline` |
 | **Approve** | The expert answers the open questions and approves the version. Runs are pinned to a version. A later correction is a new draft version, never an edit of the live one. | `routine_update`, the automation page |
 | **Trust** | **Drafted**: every consequential click waits for a person. **Approved**: the writes the spec names (for example "Add user", "Enroll") run unattended; anything else still waits. **Autonomous** is earned after 20 verified runs of the version. The engine enforces it, not a prompt. | `browserLoop` `hold` |
 | **Run** | Hand it a list. One browser run per row, up to 10 at once per workspace (`VOCION_ROUTINE_CONCURRENCY`), the rest queued. Shared inputs (the sign-in, the campaign) are given once. | `routine_run`, the automation page's **Run it** |
@@ -85,7 +86,14 @@ three users who are not on the roster.
 - `libs/routines/types.ts`: the shapes every surface reads
 - `services/routines/RoutineService.ts`: teach, approve, trust, batches,
   escalations, receipts, reconciliation, report, the keeper
-- `services/routines/teaching.ts`: the Automation analyst
+- `services/routines/teaching.ts`: the Automation analyst (its reply streams;
+  `foundSoFar` reads the findings it has finished writing)
+- `libs/routines/findings.ts`: a spec, or what is found so far, as findings and
+  as marks on the recording's track
+- `components/patterns/RecordingTimeline.tsx`: the track under a player, for any
+  recording with moments
+- `app/api/automations/[id]/recording`: the taught recording, for the player
+  (redirects to the file Slate signs)
 - `services/routines/routineReads.ts`: the light reads pages use
 - `libs/slate/recording.ts`, `libs/slate/watch.ts`: reading a recording over
   Slate's MCP server, and finding a new one after a launch
