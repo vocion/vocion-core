@@ -33,7 +33,7 @@ type Model = Pick<BaseChatModel, 'bindTools'>;
 
 const SYSTEM = [
   'You choose which agent on a work app\'s roster answers the first message of a new conversation.',
-  'Judge what the person wants done, then which agent owns that work: the record types it answers for or files, its tools and skills, then its description and what it handles.',
+  'Judge what the person wants done, then which agent owns that work: the record types it answers for or files, the saved automations it runs, its tools and skills, then its description and what it handles.',
   'A request to file, build, change or ship something goes to the agent that owns that kind of record, not to one whose description shares a word with the message.',
   'When nothing on the roster clearly fits, choose the lead with a low confidence.',
   'Answer only through the tool.',
@@ -47,7 +47,7 @@ const SYSTEM = [
 const FOLLOW_UP_SYSTEM = [
   'You decide which agent on a work app\'s roster answers a follow-up message in a conversation that is already with one of them.',
   'Keep the conversation\'s agent when the message continues, answers, narrows, questions or reacts to its work, however short the message is.',
-  'Choose another agent only when the message asks for work that agent plainly owns and the conversation\'s agent does not: judge by the record types each answers for or files, its tools and skills, then its description and what it handles, never by a shared word.',
+  'Choose another agent only when the message asks for work that agent plainly owns and the conversation\'s agent does not: judge by the record types each answers for or files, the saved automations it runs, its tools and skills, then its description and what it handles, never by a shared word.',
   'A person correcting course ("no, I want…", "actually, let\'s do…") toward work another agent owns is asking for that agent.',
   'A conversation\'s agent that sits on no team hands work to the teammate who owns it: when the message asks for work a team\'s seat owns, choose that seat.',
   'Confidence is how sure you are of the agent you chose.',
@@ -84,6 +84,7 @@ export function seatLines(agent: RoutableAgent, leadSlug: string | null): string
     list(agent.objectTypes) ? `  reads and files records of type: ${list(agent.objectTypes)}` : '',
     list(agent.tools) ? `  granted tools: ${list(agent.tools)}` : '',
     list(agent.skills) ? `  skills: ${list(agent.skills)}` : '',
+    (agent.automations ?? []).length > 0 ? `  runs these saved automations: ${(agent.automations ?? []).slice(0, 8).join('; ')}` : '',
   ].filter(Boolean).join('\n');
 }
 

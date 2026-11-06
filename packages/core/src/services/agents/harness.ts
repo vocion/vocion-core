@@ -817,6 +817,10 @@ export async function compileAgentForRequest(
   // behind the search (live test, 2026-10-04). Stable per agent, so cached.
   const deferring = tools.length > domainTools.length;
   const TOOL_SEARCH_NOTE = searchNote;
+  // The automations this agent can run, at the end of its prompt so the
+  // prefix before it caches (`services/routines/savedAutomations.ts`). Read
+  // per request: the blueprint is cached, and an approval must reach the next turn.
+  const automationsNote = await savedAutomationsPromptNote(ctx);
   // Specialists answer with the SAME tool surface as the lead, on this
   // request's context — a delegate must not read more than the person who
   // asked.
@@ -871,7 +875,7 @@ export async function compileAgentForRequest(
     // it a SECOND system message once the middleware prepends its own, which
     // the model API rejects ("System messages are only permitted as the first
     // passed message").
-    systemPrompt: deferring ? `${blueprint.systemPrompt ?? ''}\n\n${TOOL_SEARCH_NOTE}` : blueprint.systemPrompt,
+    systemPrompt: [blueprint.systemPrompt ?? '', deferring ? TOOL_SEARCH_NOTE : '', automationsNote ?? ''].filter(Boolean).join('\n\n') || blueprint.systemPrompt,
     // Scratch stays ephemeral graph state; /memories/ routes to the LangGraph
     // Store over Postgres, so an agent's file reads there see the org's full
     // approved memory across threads. Writes under /memories/ are refused —
@@ -943,6 +947,20 @@ async function tieredTools<T extends StructuredToolInterface>(blueprint: AgentBl
   // Anthropic runs the search itself; this entry only puts it in the request.
   const search = makeTool(async () => '', { name: TOOL_SEARCH.name, description: 'Server-side tool search.', schema: z.object({}), extras: { providerToolDefinition: TOOL_SEARCH } }) as unknown as T;
   return { tools: deferColdTools(tools, plan.keep, search), loading, searchNote: toolSearchNote(plan) };
+}
+
+/**
+ * The saved automations block for an agent that can run them; null for one
+ * that cannot, or a workspace with none approved. Never throws.
+ * @param ctx - This request's context.
+ */
+async function savedAutomationsPromptNote(ctx: RuntimeContext): Promise<string | null> {
+  const { routinesEnabled } = await import('./tools/routineTools');
+  if (!routinesEnabled(ctx)) {
+    return null;
+  }
+  const { savedAutomations, savedAutomationsNote } = await import('@/services/routines/savedAutomations');
+  return savedAutomationsNote(await savedAutomations(ctx.orgId));
 }
 
 /**

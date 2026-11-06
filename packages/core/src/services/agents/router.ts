@@ -34,6 +34,7 @@
 import type { Initiative } from '@/services/agents/initiative';
 import type { AgentRow } from '@/services/AgentService';
 import { workspaceWidePage } from '@/libs/chat/workspacePages';
+import { ROUTINES_GRANT } from '@/libs/routines/describe';
 import { normalizeHarnessTarget } from '@/services/agents/harnessTarget';
 import { INITIATIVE_RANK, readInitiative } from '@/services/agents/initiative';
 import { listAgents } from '@/services/AgentService';
@@ -72,6 +73,12 @@ export type RoutableAgent = {
   team?: string | null;
   /** The teams it leads (`team.lead_agent_slug`). Filled by {@link withTeams}. */
   leadOf?: string[] | null;
+  /**
+   * The saved automations it runs, a line each (name and purpose), on a seat
+   * granted the automation tools. Filled by `routeFirstTurn`, so "check the
+   * licenses for everyone ready" lands on the seat that runs that automation.
+   */
+  automations?: string[] | null;
 };
 
 /**
@@ -730,6 +737,26 @@ export async function routeFirstTurn(
   return { ...decision, app: app.id };
 }
 
+/**
+ * The seats, each one granted the automation tools carrying the saved
+ * automations it runs (`RoutableAgent.automations`). Read only when such a
+ * seat is on the roster; the seats as they were on any failure.
+ * @param orgId - The workspace.
+ * @param seats - The roster being read.
+ * @param load - The automations, a line each; defaults to reading them.
+ */
+export async function seatsWithAutomations(orgId: string, seats: RoutableAgent[], load?: (orgId: string) => Promise<string[]>): Promise<RoutableAgent[]> {
+  const runs = (a: RoutableAgent) => (a.tools ?? []).includes(ROUTINES_GRANT);
+  if (!seats.some(runs)) {
+    return seats;
+  }
+  const automations = await (load ?? (async (id: string) => {
+    const m = await import('@/services/routines/savedAutomations');
+    return m.automationsForRouter(await m.savedAutomations(id));
+  }))(orgId).catch(() => [] as string[]);
+  return automations.length > 0 ? seats.map(a => (runs(a) ? { ...a, automations } : a)) : seats;
+}
+
 /** Test seams for {@link routeFirstTurn}. */
 type FirstTurnDeps = {
   read?: RouteReader;
@@ -737,6 +764,8 @@ type FirstTurnDeps = {
   /** The workspace's front door for new work (`services/chat/intake.ts`); defaults to reading it. */
   intake?: (orgId: string) => Promise<{ label: string; ownerSlug: string | null } | null>;
   timeoutMs?: number;
+  /** The saved automations, a line each, for the seats that run them; defaults to reading them (`services/routines/savedAutomations.ts`). */
+  automations?: (orgId: string) => Promise<string[]>;
   /** Jev's pick of the agent (ADR 0006); null when no Jev key is configured. Defaults to `routing/agentPick.ts`. */
   jev?: (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string }) => Promise<JevAgentPick | null>;
 };
@@ -790,12 +819,13 @@ async function routeAmong(
     // read is told who files it. Conversation 474 (2026-10-04): "give the
     // library keyboard shortcuts" went to the engineer on "build", though in
     // that workspace a new ask is a request the product manager files.
-    const [owners, door] = await Promise.all([
+    const [owners, door, withAutomations] = await Promise.all([
       (deps.owners ?? typeOwners)(opts.orgId),
       (deps.intake ?? (async (orgId: string) => (await import('@/services/chat/intake')).workspaceIntake(orgId)))(opts.orgId).catch(() => null),
+      seatsWithAutomations(opts.orgId, active, deps.automations),
     ]);
     const intake = door?.ownerSlug && active.some(a => a.slug === door.ownerSlug) ? { label: door.label, ownerSlug: door.ownerSlug } : null;
-    const seats = active.map(a => ({ ...a, owns: [...new Set([...(a.owns ?? []), ...(owners[a.slug] ?? [])])] }));
+    const seats = withAutomations.map(a => ({ ...a, owns: [...new Set([...(a.owns ?? []), ...(owners[a.slug] ?? [])])] }));
     // JEV (ADR 0006), when a key turns it on: a typed choice over the same
     // roster, the same seats, the same lead, asked beside the model read so
     // it never adds a wait. Its pick is used only at Jev's own confidence bar;
@@ -914,11 +944,12 @@ export const FOLLOW_UP_MOVE_BAR = 0.7;
  * @param deps - Test seams.
  * @param deps.read - The model read; defaults to `readRoute`.
  * @param deps.owners - The workspace's type owners; defaults to {@link typeOwners}.
+ * @param deps.automations - The saved automations, a line each; defaults to reading them.
  * @param deps.timeoutMs - How long to wait for the read.
  */
 export async function routeFollowUp(
   opts: { orgId: string; agents: RoutableAgent[]; message: string; thread: FollowUpThread; leadSlug?: string | null; surface: string; app?: AppScope | null; chip?: boolean; openCard?: boolean },
-  deps: { read?: RouteReader; owners?: (orgId: string) => Promise<Record<string, string[]>>; timeoutMs?: number } = {},
+  deps: { read?: RouteReader; owners?: (orgId: string) => Promise<Record<string, string[]>>; automations?: (orgId: string) => Promise<string[]>; timeoutMs?: number } = {},
 ): Promise<RoutingDecision | null> {
   const live = opts.agents.filter(isActive);
   const current = live.find(a => a.slug === opts.thread.agentSlug);
@@ -957,8 +988,8 @@ export async function routeFollowUp(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let read: { chosen: string; confidence: number; reason: string };
   try {
-    const owners = await (deps.owners ?? typeOwners)(opts.orgId);
-    const seats = open.map(a => ({ ...a, owns: [...new Set([...(a.owns ?? []), ...(owners[a.slug] ?? [])])] }));
+    const [owners, withAutomations] = await Promise.all([(deps.owners ?? typeOwners)(opts.orgId), seatsWithAutomations(opts.orgId, open, deps.automations)]);
+    const seats = withAutomations.map(a => ({ ...a, owns: [...new Set([...(a.owns ?? []), ...(owners[a.slug] ?? [])])] }));
     const reader: RouteReader = deps.read ?? (async input => (await import('./routeRead')).readRoute(input));
     read = await Promise.race([
       reader({ orgId: opts.orgId, message: opts.message, agents: seats, leadSlug: lead, thread: opts.thread, ...(scoped && opts.app ? { app: { name: opts.app.name, leadSlug: scoped.lead, outsideSlug: scoped.outside } } : {}), signal: abort.signal }),

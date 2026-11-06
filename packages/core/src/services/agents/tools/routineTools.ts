@@ -23,14 +23,21 @@ import type { RuntimeContext } from '../types';
 import type { RoutineView } from '@/libs/routines/types';
 import process from 'node:process';
 import { tool } from '@langchain/core/tools';
+import { ROUTINES_GRANT } from '@/libs/routines/describe';
 import { batchLabel, clock, TRUST_LABEL } from '@/libs/routines/types';
-
-const ROUTINES_GRANT = 'routines';
 
 /** How long `routine_teach` waits for the draft in this process. */
 const TEACH_WAIT_MS = 3 * 60_000;
 
-function enabled(ctx: RuntimeContext): boolean {
+/**
+ * Whether this turn's agent can run automations: it holds the routine tools.
+ * @param ctx - The turn.
+ */
+export function routinesEnabled(ctx: Pick<RuntimeContext, 'harnessConfig' | 'userId' | 'enabledPlugins'>): boolean {
+  return Boolean(ctx.userId) && enabled(ctx);
+}
+
+function enabled(ctx: Pick<RuntimeContext, 'harnessConfig' | 'userId' | 'enabledPlugins'>): boolean {
   if ((ctx.harnessConfig.grantTools ?? []).includes(ROUTINES_GRANT)) {
     return true;
   }
@@ -222,7 +229,9 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
         if (rows.length === 0) {
           return 'No rows: give the rows (or the CSV with its header line) to run it for.';
         }
-        if (!(await said(`run the automation "${r.name}" for ${rows.length} rows`))) {
+        // Judged as what it does: its purpose, sites, changes, trust and whose rows (`consentDecision.ts`).
+        const { routineConsentDecision } = await import('../consentDecision');
+        if (!(await said(routineConsentDecision(r, rows)))) {
           return `Not started: running “${r.name}” for ${rows.length} rows is the person's decision. Ask them to confirm.`;
         }
         const { startRoutineBatch, RoutineError } = await svc();
