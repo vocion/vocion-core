@@ -12,7 +12,8 @@
  *            question — as the one Decision card (`DockedDecision`)
  *   result   what it found, each output by name, a list of rows as a table
  *   steps    what it did, one line each, newest last; a step with a picture
- *            shows the page just after it in the browser above
+ *            shows the page just after it in the browser above; a step where
+ *            a rule decided instead of asking links to the answer it came from
  *   media    any picture opens full screen in the one media viewer
  *            (`MediaLightbox`): live now, each step's page, the run's recording
  *   inputs   what it was given (a secret as ••••)
@@ -31,7 +32,9 @@ import { Button } from '@/components/ui/button';
 import { announceConversationAppended } from '@/features/dashboard/chat/conversationAppended';
 import { DockedDecision } from '@/features/dashboard/connect-systems/DockedDecision';
 import { MediaLightbox } from '@/features/dashboard/factory/MediaCarousel';
+import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { ruleSourceWords } from '@/libs/routines/ruleUse';
 import { cn } from '@/utils/Helpers';
 import { OutputValue } from './OutputValue';
 
@@ -177,6 +180,26 @@ function waitingBody(w: NonNullable<Run['waiting']>): ReactNode {
   );
 }
 
+/**
+ * The link a step that followed a rule carries to the decision the rule came from; nothing when it names none.
+ * @param root0
+ * @param root0.step
+ */
+function RuleSource({ step }: { step: BrowserStep }) {
+  const askId = step.rule?.from?.askId;
+  if (!askId) {
+    return null;
+  }
+  return (
+    <span className="block pl-8 text-[12px] text-muted-foreground">
+      {'From '}
+      <Link href={`/dashboard/inbox/${askId}`} className="underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground" data-browser-step-rule-source>
+        {ruleSourceWords(step.rule!.from) ?? 'the expert’s answer'}
+      </Link>
+    </span>
+  );
+}
+
 function StepRow({ step, shown, onShow }: { step: BrowserStep; shown: boolean; onShow: (step: BrowserStep) => void }) {
   const body = (
     <>
@@ -189,7 +212,7 @@ function StepRow({ step, shown, onShow }: { step: BrowserStep; shown: boolean; o
     </>
   );
   return (
-    <li className="text-[12px] leading-snug" data-browser-step={step.n}>
+    <li className="text-[12px] leading-snug" data-browser-step={step.n} {...(step.rule ? { 'data-browser-step-rule': step.rule.n } : {})}>
       {step.shotUrl
         ? (
             <button
@@ -203,6 +226,7 @@ function StepRow({ step, shown, onShow }: { step: BrowserStep; shown: boolean; o
             </button>
           )
         : <div className="flex gap-2 px-1 py-1">{body}</div>}
+      <RuleSource step={step} />
     </li>
   );
 }

@@ -49,8 +49,21 @@ export type RoutineOutputSpec = { name: string; description: string; checks?: st
 /** One step of the work, with the moment on the recording it was taught at. */
 export type RoutineStep = { n: number; text: string; why?: string | null; at: Moment };
 
-/** A rule the specialist said, with the moment they said it. */
-export type RoutineRule = { text: string; at: Moment };
+/**
+ * Where a rule added after teaching came from: the expert's answer to a decision (an escalation
+ * they answered, `askId`) or their word in chat (no decision), who said it, when (`on`, ISO), and
+ * the version it entered. `by` is a user id as stored, their name as every view reads it.
+ */
+export type RuleOrigin = { askId: number | null; by: string | null; on: string; version: number };
+
+/** A rule the specialist said, with the moment they said it; one added later says where it came from. */
+export type RoutineRule = { text: string; at: Moment; from?: RuleOrigin | null };
+
+/**
+ * A rule and the runs that followed it instead of asking (a `rule` step on the run's browser run),
+ * newest first, at most a few of them.
+ */
+export type RuleUse = { text: string; from: RuleOrigin | null; runs: number; recent: Array<{ browserRunId: number; label: string; decided: string | null }> };
 
 /** Where the automation stops and asks its expert instead of guessing. */
 export type RoutineEscalation = { when: string; ask: string; at: Moment };
@@ -169,7 +182,8 @@ export type RoutineView = {
   version: RoutineVersionView | null;
   /** A draft newer than the approved version, waiting on the expert. */
   draft: RoutineVersionView | null;
-  versions: Array<{ n: number; status: RoutineVersionStatus; change: string | null; createdAt: string }>;
+  /** `rules`: the rules each version added that came from the expert or that runs have followed since. */
+  versions: Array<{ n: number; status: RoutineVersionStatus; change: string | null; createdAt: string; rules?: RuleUse[] }>;
   stats: { runs: number; done: number; escalated: number; failed: number; lastBatchId: number | null };
   /**
    * Teaching in progress: launched from Vocion, the person records in Slate on the site they teach
@@ -275,7 +289,12 @@ export type RoutineBatchView = {
   /** A batch a finding's answer started: the batch it follows, and what the expert chose. */
   followUp: { parentBatchId: number; answer: string; approvedBy: string } | null;
   report: { artifactId: number; url: string } | null;
+  /** The automation's rules its runs followed instead of asking the expert, each with the runs and what it decided there. */
+  rulesFollowed?: RulesFollowed[];
 };
+
+/** One rule a batch's runs followed: its words, where it came from, and the runs (row, label, what it decided). */
+export type RulesFollowed = { text: string; from: { askId: number | null; by: string | null; version: number | null } | null; runs: Array<{ n: number; label: string; browserRunId: number | null; decided: string | null }> };
 
 export type RoutineFinding = {
   id: string;

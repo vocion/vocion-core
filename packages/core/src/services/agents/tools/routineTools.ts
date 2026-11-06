@@ -63,7 +63,7 @@ function specBrief(r: RoutineView): Record<string, unknown> {
     recording: r.source?.url ?? null,
     summary: v.spec.summary,
     steps: v.spec.steps.map(s => `${s.n}. ${s.text}${s.at !== null ? ` [${clock(s.at)}]` : ''}`),
-    rules: v.spec.rules.map(x => x.text),
+    rules: v.spec.rules.map(x => (x.from ? `${x.text} (added by ${x.from.by ?? 'the expert'}${x.from.askId ? ` from decision #${x.from.askId}` : ''}, version ${x.from.version})` : x.text)),
     escalations: v.spec.escalations.map(e => `${e.when} → ${e.ask}`),
     inputs: v.spec.inputs.map(i => `${i.name}${i.secret ? ' (secret)' : ''}${i.shared ? ' (same for every row)' : ''}${i.key ? ' (identifies the row)' : ''}${r.savedInputs.includes(i.name) ? ' (saved on the automation: do not ask for it)' : ''}: ${i.description}`),
     writes: v.spec.writes.map(w => w.button),
@@ -153,7 +153,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ),
     tool(
       async (raw: unknown) => {
-        const args = raw as { routine: string; answers?: Array<{ question_id: string; answer: string }>; rule?: string; approve?: boolean; trust?: 'drafted' | 'approved' | 'autonomous' };
+        const args = raw as { routine: string; answers?: Array<{ question_id: string; answer: string }>; rule?: string; from_decision?: number; approve?: boolean; trust?: 'drafted' | 'approved' | 'autonomous' };
         const r = await find(args.routine);
         if (!r) {
           return `No automation “${args.routine}” in this workspace.`;
@@ -166,8 +166,8 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
             done.push(`answered ${a.question_id}`);
           }
           if (args.rule) {
-            await s.addRoutineRule(ctx.orgId, userId, r.id, args.rule);
-            done.push('added the rule');
+            const added = await s.addRoutineRule(ctx.orgId, userId, r.id, args.rule, { askId: args.from_decision ?? null });
+            done.push(`added the rule to draft version ${added.version}${added.askId ? `, from decision #${added.askId}` : args.from_decision ? ` (no decision #${args.from_decision} in this workspace, so it names no decision)` : ''}`);
           }
           if (args.approve) {
             if (!(await said(`approve the automation "${r.name}" so it can run`))) {
@@ -211,6 +211,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
             routine: { type: 'string', description: 'The automation\'s id, slug or name.' },
             answers: { type: 'array', maxItems: 10, items: { type: 'object', properties: { question_id: { type: 'string' }, answer: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['question_id', 'answer'] } },
             rule: { type: 'string', maxLength: 600, description: 'A new rule, in the expert\'s words.' },
+            from_decision: { type: 'integer', minimum: 1, description: 'The decision the rule comes from, when the expert made a rule of their answer to one (an automation\'s question they answered: "[decision #12 answered]"). The rule links back to it.' },
             approve: { type: 'boolean' },
             trust: { type: 'string', enum: ['drafted', 'approved', 'autonomous'] },
           },
@@ -282,6 +283,10 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
           findings: v.findings.map(f => ({ title: f.title, state: f.state, answer: f.answer, records: f.items.length })),
           cost: `$${(v.cents / 100).toFixed(2)}`,
           report: v.report?.url ?? null,
+          // The rules runs followed instead of asking the expert: a rule paying off, worth saying.
+          ...((v.rulesFollowed ?? []).length > 0
+            ? { rules_followed: v.rulesFollowed!.map(f => ({ rule: f.text, from: f.from ? [f.from.by ? `${f.from.by}'s ${f.from.askId ? `answer to decision #${f.from.askId}` : 'rule'}` : null, f.from.version ? `version ${f.from.version}` : null].filter(Boolean).join(', ') : 'the approved spec', runs: f.runs.length, where: f.runs.map(x => `${x.label}${x.decided ? `: ${x.decided}` : ''}`), note: 'Followed without asking the expert.' })) }
+            : {}),
           // Each row's inputs and what its run read back after the write: what a next step is built from.
           ...(args.rows
             ? { rows: v.runs.map(x => ({ row: x.n, label: x.label, status: x.status, input: x.input, read_back: x.receipt?.after ?? null, verified: x.receipt?.verified ?? null })) }
@@ -290,7 +295,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
       },
       {
         name: 'routine_check',
-        description: 'Where an automation batch stands: how many rows are done and verified, what waits on the expert, what failed, and what it found. With rows: true, each row\'s inputs and the outputs its run read back (an id the system issued, a saved status): what to build the next step\'s rows from.',
+        description: 'Where an automation batch stands: how many rows are done and verified, what waits on the expert, what failed, what it found, and which of the expert\'s rules its runs followed instead of asking. With rows: true, each row\'s inputs and the outputs its run read back (an id the system issued, a saved status): what to build the next step\'s rows from.',
         schema: { type: 'object', properties: { batch_id: { type: 'integer', minimum: 1 }, rows: { type: 'boolean', description: 'Include each row\'s inputs and read-back outputs.' } }, required: ['batch_id'] },
       },
     ),
@@ -311,7 +316,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
       },
       {
         name: 'routine_report',
-        description: 'Write the summary report of an automation batch, by batch id: results verified by read-back, escalations and how they were answered, human minutes against the manual baseline, run cost, and findings (records in the system that are not on the list). Filed as an artifact.',
+        description: 'Write the summary report of an automation batch, by batch id: results verified by read-back, escalations and how they were answered, human minutes against the manual baseline, run cost, findings (records in the system that are not on the list), and the expert\'s rules its runs followed instead of asking. Filed as an artifact.',
         schema: { type: 'object', properties: { batch_id: { type: 'integer', minimum: 1 } }, required: ['batch_id'] },
       },
     ),

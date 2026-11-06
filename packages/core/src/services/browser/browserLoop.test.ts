@@ -80,3 +80,62 @@ describe('an escalation the expert reads on a card', () => {
     expect(escalationUnfit({ question: 'Enroll Aisha Karim’s existing account?', choices: [] })).toMatch(/answers/);
   });
 });
+
+describe('a rule the run followed instead of asking', () => {
+  it('is a typed step on the run, naming the rule, whose it is, and what it decided', async () => {
+    const { runBrowserLoop } = await import('./browserLoop');
+    const calls = [
+      { name: 'followed_rule', args: { rule: 2, decided: 'Ruth Calloway (LMFT) goes through Hospital and other providers' } },
+      { name: 'followed_rule', args: { rule: 9, decided: 'nothing' } },
+      { name: 'finish', args: { summary: 'Done.', result: {} } },
+    ];
+    let n = 0;
+    const replies: string[] = [];
+    const model = { bindTools: () => ({ invoke: async (messages: Array<{ content: unknown }>) => {
+      const last = messages.at(-1)?.content;
+      if (n > 0) {
+        replies.push(String(last).split('\n')[0]!);
+      }
+      const c = calls[Math.min(n, calls.length - 1)]!;
+      n += 1;
+      return { content: '', tool_calls: [{ id: `c${n}`, name: c.name, args: c.args }] };
+    } }) } as never;
+    // No real browser: the loop reads the page through the engine, which falls back when it cannot.
+    const session = { page: { url: () => 'https://larkspur.example/apply', isClosed: () => false } } as never;
+    const steps: Array<Record<string, unknown>> = [];
+    const out = await runBrowserLoop(model, session, {
+      task: 'Submit the application.',
+      startUrl: null,
+      inputs: {},
+      secrets: {},
+      outputs: [],
+      continuing: true,
+      routine: {
+        name: 'Submit a Larkspur group application',
+        expert: 'Marcus Hale',
+        rules: ['Type the tax ID by hand.', 'LMFTs go through Hospital and other providers.'],
+        ruleFrom: [null, { askId: 41, by: 'Marcus Hale', version: 3 }],
+        escalations: [],
+        prohibited: [],
+        postconditions: [],
+        writes: [],
+        autoWrites: false,
+      },
+    }, { now: () => Date.now(), stopped: () => false, charge: async () => {}, step: async (st) => {
+      steps.push(st);
+    }, wait: async () => ({ kind: 'timeout' }) });
+
+    expect(out.status).toBe('done');
+
+    const rule = steps.find(st => st.kind === 'rule');
+
+    expect(rule).toMatchObject({
+      label: 'Followed Marcus’s rule (v3): LMFTs go through Hospital and other providers.',
+      why: 'Ruth Calloway (LMFT) goes through Hospital and other providers',
+      rule: { n: 2, text: 'LMFTs go through Hospital and other providers.', from: { askId: 41, by: 'Marcus Hale', version: 3 } },
+    });
+    // A rule it does not have is refused, for the model to fix, and records nothing.
+    expect(steps.filter(st => st.kind === 'rule')).toHaveLength(1);
+    expect(replies[1]).toMatch(/^Not done: There is no rule 9/);
+  });
+});

@@ -32,7 +32,7 @@
  */
 
 import type { BrowserRunStatus, BrowserWaiting } from '@/libs/browser/run';
-import type { ReceiptCheck, RoutineBatchView, RoutineFinding, RoutineFound, RoutineOutputSpec, RoutineReceipt, RoutineRunStatus, RoutineSpec, RoutineTrust, RoutineView, RoutineWrite } from '@/libs/routines/types';
+import type { ReceiptCheck, RoutineBatchView, RoutineFinding, RoutineFound, RoutineOutputSpec, RoutineReceipt, RoutineRunStatus, RoutineSpec, RoutineTrust, RoutineView, RoutineWrite, RuleOrigin } from '@/libs/routines/types';
 import type { Ask } from '@/services/AskService';
 import type { RoutineGuide } from '@/services/browser/browserLoop';
 import { Buffer } from 'node:buffer';
@@ -41,6 +41,7 @@ import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
 import { asRootRun } from '@/libs/agents/rootRun';
 import { db } from '@/libs/DB';
 import { clipAtWord, factsTable } from '@/libs/decisions/decision';
+import { ruleSourceWords } from '@/libs/routines/ruleUse';
 import { batchLabel, clock, ROUTINE_LIMITS, routineRunOpen, TAUGHT_AGAIN, TRUST_LABEL } from '@/libs/routines/types';
 import { browserRunSchema, routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema } from '@/models/Schema';
 import { batchStatusLine, batchView, currentVersions, getBatch, getRoutine, namesOf } from './routineReads';
@@ -501,12 +502,16 @@ export async function retireRoutine(orgId: string, userId: string, id: number): 
 
 /**
  * A correction written as a new draft version: what the expert said, made a rule of the automation.
+ * The rule records where it came from: the decision it answered when there was one (an escalation
+ * of a run), who said it, when, and the version it enters.
  * @param orgId - The workspace.
  * @param userId - The expert.
  * @param id - The automation.
  * @param rule - The rule, in their words.
+ * @param source - Where it came from.
+ * @param source.askId - The decision the expert answered that this rule comes from.
  */
-export async function addRoutineRule(orgId: string, userId: string, id: number, rule: string): Promise<void> {
+export async function addRoutineRule(orgId: string, userId: string, id: number, rule: string, source: { askId?: number | null } = {}): Promise<{ version: number; askId: number | null }> {
   const r = await routineRow(orgId, id);
   await asExpert(r, userId);
   const versions = await versionsOf(id);
@@ -515,15 +520,36 @@ export async function addRoutineRule(orgId: string, userId: string, id: number, 
   if (!base) {
     throw new RoutineError('This automation has no version yet.');
   }
-  const spec: RoutineSpec = { ...base.spec, rules: [...base.spec.rules, { text: rule.trim(), at: null }] };
+  const n = base.status === 'draft' ? base.n : (versions[0]?.n ?? 0) + 1;
+  const from = await ruleOrigin(orgId, userId, n, source.askId ?? null);
+  const spec: RoutineSpec = { ...base.spec, rules: [...base.spec.rules, { text: rule.trim(), at: null, from }] };
   if (base.status === 'draft') {
     await db.update(routineVersionSchema).set({ spec, task: compileTask(r.name, spec), workflowYaml: workflowYamlFor(r.slug, r.name, base.n, spec), change: base.change ?? `The expert added a rule: ${rule.trim()}` }).where(eq(routineVersionSchema.id, base.id));
   } else {
-    const n = (versions[0]?.n ?? 0) + 1;
     await db.insert(routineVersionSchema).values({ orgId, routineId: id, n, status: 'draft', spec, task: compileTask(r.name, spec), workflowYaml: workflowYamlFor(r.slug, r.name, n, spec), change: `The expert added a rule: ${rule.trim()}` });
   }
   await touch(id);
   pushLive(orgId, { routineId: id });
+  return { version: n, askId: from.askId };
+}
+
+/**
+ * Where a rule comes from: the decision, when it is one of this workspace's and answered — its
+ * answer's person and time — else the expert's word now.
+ * @param orgId - The workspace.
+ * @param userId - The expert adding it.
+ * @param version - The version it enters.
+ * @param askId - The decision it came from, as the caller named it.
+ */
+async function ruleOrigin(orgId: string, userId: string, version: number, askId: number | null): Promise<RuleOrigin> {
+  const { getAsk } = await import('@/services/AskService');
+  const ask = askId ? await getAsk(orgId, askId) : null;
+  if (!ask) {
+    return { askId: null, by: userId, on: new Date().toISOString(), version };
+  }
+  // A person's answer names them; one the trust bar or an agent recorded is the expert's rule.
+  const person = ask.decidedBy && !ask.decidedBy.includes(':') && ask.decidedBy !== 'trust-ladder' && ask.decidedBy !== 'by-default' ? ask.decidedBy : userId;
+  return { askId: ask.id, by: person, on: (ask.decidedAt ?? new Date()).toISOString(), version };
 }
 
 /* ------------------------------------------------------------------ */
@@ -723,7 +749,7 @@ export async function guideForRun(orgId: string, routineRunId: number): Promise<
     return null;
   }
   const spec = version.spec;
-  const names = await namesOf([r.expertUserId]);
+  const names = await namesOf([r.expertUserId, ...spec.rules.map(x => x.from?.by)]);
   // The reconciliation only reads; a follow-up takes the writes its finding's answer approved.
   const reading = run.n === 0;
   const followUp = batch?.followUp ?? null;
@@ -732,6 +758,8 @@ export async function guideForRun(orgId: string, routineRunId: number): Promise<
     name: r.name,
     expert: r.expertUserId ? names.get(r.expertUserId) ?? null : null,
     rules: [...spec.rules.map(x => x.text), ...spec.questions.filter(q => q.answer).map(q => `${q.question} → ${q.answer}`)],
+    // Where each rule came from, by the same index: what a run records when it follows one.
+    ruleFrom: spec.rules.map(x => (x.from ? { askId: x.from.askId, by: x.from.by ? names.get(x.from.by) ?? null : null, version: x.from.version } : null)),
     escalations: reading ? [] : spec.escalations.map(e => ({ when: e.when, ask: e.ask })),
     prohibited: reading ? ['Change anything: this run only reads the list.', ...spec.prohibited] : followUp ? spec.prohibited.filter(p => !/deactivat|delet/i.test(p)) : spec.prohibited,
     postconditions: reading ? [] : followUp ? [] : spec.postconditions,
@@ -1418,6 +1446,16 @@ export function reportMarkdown(v: RoutineBatchView, followUps: RoutineBatchView[
     `- Run cost ${usd(v.cents)} in total, ${v.total ? usd(Math.round(v.cents / v.total)) : '$0.00'} per run (model calls of each browser run).`,
     '',
   ];
+  const followed = v.rulesFollowed ?? [];
+  if (followed.length > 0) {
+    const cell = (t: string) => t.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+    lines.push('## Rules it followed instead of asking', '| Rule | From | Runs |', '| --- | --- | --- |', ...followed.map((f) => {
+      const who = ruleSourceWords(f.from);
+      const source = [f.from?.askId ? `[${who ?? 'The expert’s answer'}](/dashboard/inbox/${f.from.askId})` : who, f.from?.version ? `v${f.from.version}` : null].filter(Boolean).join(', ');
+      const runs = f.runs.map(x => `${runLink(x)} ${x.label}${x.decided ? `: ${x.decided}` : ''}`).join('; ');
+      return `| ${cell(f.text)} | ${cell(source || 'The approved spec')} | ${cell(runs)} |`;
+    }), '');
+  }
   const asked = v.runs.filter(x => /expert answered/i.test(x.summary ?? '') || x.status === 'skipped' || x.status === 'escalated' || x.status === 'unknown_outcome');
   if (asked.length > 0) {
     lines.push('## Escalations and skips', '| Run | Row | What happened |', '| --- | --- | --- |', ...asked.map(x => `| ${runLink(x)} | ${x.label} | ${(x.summary ?? x.error ?? x.status).replace(/\|/g, '\\|').replace(/\n/g, ' ').slice(0, 300)} |`), '');

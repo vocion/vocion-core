@@ -6,9 +6,11 @@
  * an automation compiles this (the build budget, CI.yml "Build memory").
  */
 
+import type { RunSteps } from '@/libs/routines/ruleUse';
 import type { RoutineBatchView, RoutineRunStatus, RoutineRunView, RoutineVersionView, RoutineView } from '@/libs/routines/types';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { rulesAddedByVersion, rulesFollowedIn } from '@/libs/routines/ruleUse';
 import { routineRunOpen, TAUGHT_AGAIN } from '@/libs/routines/types';
 import { browserRunSchema, routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema, userSchema } from '@/models/Schema';
 import { toView as browserView } from '@/services/browser/runReads';
@@ -31,11 +33,20 @@ export async function namesOf(ids: Array<string | null | undefined>): Promise<Ma
   return new Map(rows.map(r => [r.id, r.name?.trim() || r.email]));
 }
 
+/**
+ * A spec's rules as people read them: who added one, by name.
+ * @param rules - The rules as stored.
+ * @param names - User ids → names.
+ */
+function rulesNamed(rules: RoutineVersionView['spec']['rules'], names: Map<string, string>): RoutineVersionView['spec']['rules'] {
+  return rules.map(r => (r.from?.by ? { ...r, from: { ...r.from, by: names.get(r.from.by) ?? r.from.by } } : r));
+}
+
 function versionView(v: VersionRow, names: Map<string, string>): RoutineVersionView {
   return {
     n: v.n,
     status: v.status,
-    spec: { ...v.spec, questions: v.spec.questions.map(q => ({ ...q, answeredBy: q.answeredBy ? names.get(q.answeredBy) ?? q.answeredBy : null })) },
+    spec: { ...v.spec, rules: rulesNamed(v.spec.rules, names), questions: v.spec.questions.map(q => ({ ...q, answeredBy: q.answeredBy ? names.get(q.answeredBy) ?? q.answeredBy : null })) },
     task: v.task,
     workflowYaml: v.workflowYaml,
     change: v.change,
@@ -65,9 +76,11 @@ async function routineViews(rows: RoutineRow[]): Promise<RoutineView[]> {
   const ids = rows.map(r => r.id);
   const versions = await db.select().from(routineVersionSchema).where(inArray(routineVersionSchema.routineId, ids)).orderBy(desc(routineVersionSchema.n));
   const runs = await db.select({ routineId: routineRunSchema.routineId, status: routineRunSchema.status, batchId: routineRunSchema.batchId, n: routineRunSchema.n }).from(routineRunSchema).where(inArray(routineRunSchema.routineId, ids));
-  const names = await namesOf([...rows.map(r => r.expertUserId), ...versions.map(v => v.approvedBy), ...versions.flatMap(v => v.spec.questions.map(q => q.answeredBy))]);
+  const names = await namesOf([...rows.map(r => r.expertUserId), ...versions.map(v => v.approvedBy), ...versions.flatMap(v => v.spec.questions.map(q => q.answeredBy)), ...versions.flatMap(v => v.spec.rules.map(x => x.from?.by))]);
+  const followed = await runsThatFollowedRules(ids);
   return rows.map((r) => {
     const mine = versions.filter(v => v.routineId === r.id);
+    const ruleUse = rulesAddedByVersion(mine.map(v => ({ n: v.n, rules: rulesNamed(v.spec.rules, names) })), followed.get(r.id) ?? []);
     const { current, draft } = currentVersions(mine);
     const rs = runs.filter(x => x.routineId === r.id && x.n > 0);
     const t = r.teaching;
@@ -82,7 +95,7 @@ async function routineViews(rows: RoutineRow[]): Promise<RoutineView[]> {
       source: r.source ?? null,
       version: current ? versionView(current, names) : null,
       draft: draft ? versionView(draft, names) : null,
-      versions: mine.map(v => ({ n: v.n, status: v.status, change: v.change, createdAt: v.createdAt.toISOString() })),
+      versions: mine.map(v => ({ n: v.n, status: v.status, change: v.change, createdAt: v.createdAt.toISOString(), ...(ruleUse.has(v.n) ? { rules: ruleUse.get(v.n) } : {}) })),
       stats: {
         runs: rs.length,
         done: rs.filter(x => x.status === 'done').length,
@@ -97,6 +110,26 @@ async function routineViews(rows: RoutineRow[]): Promise<RoutineView[]> {
       updatedAt: r.updatedAt.toISOString(),
     };
   });
+}
+
+/**
+ * The runs of these automations that followed a rule instead of asking (a `rule` step on their
+ * browser run), newest first, by automation.
+ * @param routineIds - The automations.
+ */
+async function runsThatFollowedRules(routineIds: number[]): Promise<Map<number, RunSteps[]>> {
+  const rows = await db
+    .select({ routineId: routineRunSchema.routineId, n: routineRunSchema.n, label: routineRunSchema.label, browserRunId: browserRunSchema.id, steps: browserRunSchema.steps })
+    .from(routineRunSchema)
+    .innerJoin(browserRunSchema, eq(browserRunSchema.id, routineRunSchema.browserRunId))
+    .where(and(inArray(routineRunSchema.routineId, routineIds), sql`${browserRunSchema.steps} @> '[{"kind":"rule"}]'::jsonb`))
+    .orderBy(desc(routineRunSchema.id))
+    .limit(1000);
+  const out = new Map<number, RunSteps[]>();
+  for (const x of rows) {
+    out.set(x.routineId, [...(out.get(x.routineId) ?? []), { n: x.n, label: x.label, browserRunId: x.browserRunId, steps: x.steps ?? [] }]);
+  }
+  return out;
 }
 
 /**
@@ -272,6 +305,7 @@ export async function batchView(b: BatchRow): Promise<RoutineBatchView> {
     findings: b.findings ?? [],
     followUp: b.followUp ? { parentBatchId: b.followUp.parentBatchId, answer: /\u201C(.+?)\u201D/.exec(b.followUp.task)?.[1] ?? 'the expert\'s answer', approvedBy: b.followUp.approvedBy } : null,
     report: b.reportArtifactId ? { artifactId: b.reportArtifactId, url: `/dashboard/artifacts/${b.reportArtifactId}` } : null,
+    rulesFollowed: rulesFollowedIn(runs.filter(r => r.n > 0).map(r => ({ n: r.n, label: r.label, browserRunId: r.browserRunId, steps: (r.browserRunId ? byId.get(r.browserRunId)?.steps : null) ?? [] }))),
   };
 }
 
