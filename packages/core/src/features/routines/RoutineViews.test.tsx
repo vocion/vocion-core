@@ -202,7 +202,9 @@ describe('the routine', () => {
     expect(document.querySelectorAll('[data-moment]').length).toBeGreaterThan(3);
 
     await expect.element(page.getByRole('link', { name: 'Automations', exact: true })).toHaveAttribute('href', '/dashboard/automations');
-    expect(document.querySelector('[data-testid="automation-recordings"]')?.textContent).toContain('source demonstration');
+    // What Vocion found in the recording is one click from the automation's page.
+    expect(document.querySelector('[data-routine-findings-link]')?.getAttribute('href')).toBe('/dashboard/automations/7/recording');
+    expect(document.querySelector('[data-routine-source]')?.getAttribute('href')).toBe('/dashboard/automations/7/recording');
     expect(document.querySelector('[data-testid="routine-batches"]')?.textContent).toContain('Runs');
 
     await shotTo('routine-desktop');
@@ -215,6 +217,72 @@ describe('the routine', () => {
     expect(document.querySelector('[data-routine-teaching="waiting_for_recording"]')).not.toBeNull();
 
     await shotTo('teaching-pane');
+  });
+});
+
+describe('what Vocion found in the recording', () => {
+  const FOUND = {
+    sites: [{ name: 'Training console', url: 'https://console.lumen.example/users', at: 6 }],
+    steps: [{ n: 1, text: 'Search Users for the email', why: 'A person may already have an account', at: 14 }, { n: 2, text: 'If not found, click Add user', why: null, at: 41 }],
+    rules: [],
+    judgments: [{ text: 'Reads whether the search found anyone before adding', at: 30 }],
+    questions: [],
+  };
+
+  it('shows findings while the analyst drafts, with fewer rows when a kind has none', async () => {
+    await page.viewport(1440, 1200);
+    await render(<div className="w-[460px] bg-background p-4 text-foreground"><RoutineView initial={{ ...ROUTINE, status: 'teaching', teaching: { state: 'drafting', startedAt: new Date(Date.now() - 60_000).toISOString(), targetUrl: null, recordUrl: null, instruction: null, checks: 0, lastCheckedAt: null, found: FOUND } }} compact /></div>);
+
+    expect(document.querySelector('[data-recording-findings="live"]')).not.toBeNull();
+    expect(document.querySelectorAll('[data-finding-kind="step"]')).toHaveLength(2);
+    expect(document.querySelectorAll('[data-finding-kind="system"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-finding-kind="judgment"]')).toHaveLength(1);
+    // No rules and no questions yet: no heading for them, and no lane on the track.
+    expect(document.querySelector('[data-findings="rule"]')).toBeNull();
+    expect(document.querySelector('[data-recording-lane="question"]')).toBeNull();
+    expect(document.querySelectorAll('[data-recording-lane]')).toHaveLength(3);
+    expect(document.querySelector('[data-findings-live]')).not.toBeNull();
+
+    await shotTo('teaching-found-pane');
+  });
+
+  it('seeks the player and points at the finding when a mark is chosen', async () => {
+    await page.viewport(1440, 1200);
+    // Vocion can hand the player the recording: its route redirects to the file.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ type: 'opaqueredirect', ok: false, status: 0 } as Response);
+    const { TaughtFromView } = await import('./TaughtFromView');
+    await render(<div className="bg-background p-6 text-foreground"><TaughtFromView routine={{ ...ROUTINE, version: VERSION }} version={VERSION} /></div>);
+
+    await expect.poll(() => document.querySelector('[data-recording-player]')).not.toBeNull();
+
+    const video = document.querySelector('[data-recording-player]') as HTMLVideoElement;
+
+    expect(video.getAttribute('src')).toBe('/api/automations/7/recording');
+
+    // The test has no video to play: stand in for the element's clock.
+    let at = 0;
+    Object.defineProperty(video, 'currentTime', { get: () => at, set: (v: number) => {
+      at = v;
+    }, configurable: true });
+    video.play = async () => {};
+
+    (document.querySelector('[data-recording-mark="rule-1"]') as HTMLButtonElement).click();
+
+    await expect.poll(() => at).toBe(52);
+    await expect.poll(() => document.querySelector('[data-finding="rule-1"]')?.getAttribute('data-active')).toBe('true');
+    expect(document.querySelector('[data-recording-mark="rule-1"]')?.getAttribute('aria-pressed')).toBe('true');
+
+    // A finding's own moment seeks the same player.
+    (document.querySelector('[data-finding="step-3"] [data-moment]') as HTMLButtonElement).click();
+
+    await expect.poll(() => at).toBe(97);
+
+    // An older spec: its escalation point stands as a judgment call, its hosts as systems.
+    expect(document.querySelector('[data-finding="judgment-1"]')?.textContent).toContain('already enrolled');
+    expect(document.querySelectorAll('[data-tour="recording-timeline"], [data-tour="recording-findings"], [data-tour="recording-player"]')).toHaveLength(3);
+
+    await shotTo('taught-from-desktop');
+    fetchSpy.mockRestore();
   });
 });
 

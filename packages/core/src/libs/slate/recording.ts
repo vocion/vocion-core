@@ -15,7 +15,8 @@
  *   get_video       one text block of pretty JSON: id, shareId, url, title,
  *                   summary, durationSec, owner {name,email}, transcript
  *                   ("ready"), links [{url,title,at,atLabel}] — the pages that
- *                   were on screen — chapters, appsOnScreen, …
+ *                   were on screen — chapters, appsOnScreen, posterUrl, and
+ *                   downloadUrl (a signed link that redirects to the file), …
  *   get_transcript  a header line (`"Title", 1:43 long, language en-US, 8 of 14
  *                   lines`), a blank line, then `[m:ss] text` lines; a window
  *                   or query with no lines answers `(nothing in that range)`
@@ -46,6 +47,10 @@ export type SlateRecording = {
     /** The web pages that came up on screen, with the moment each did. */
     pages: Array<{ at: number; title: string | null; url: string | null }>;
     hasTranscript: boolean;
+    /** A short-lived link to the video file itself (Slate signs it for hours), when Slate gives one. */
+    downloadUrl?: string | null;
+    /** The recording's still, when Slate gives one. */
+    posterUrl?: string | null;
     /** get_video's own text, for whatever the fields above leave out (chapters, tags, apps). */
     raw: string;
   };
@@ -195,6 +200,8 @@ export function parseVideo(text: string, asked = ''): SlateRecording['video'] {
       return at === null ? [] : [{ at, title: str(o.title), url: str(o.url) }];
     }),
     hasTranscript: transcript === 'ready' || transcript === true,
+    downloadUrl: str(j.downloadUrl),
+    posterUrl: str(j.posterUrl),
     raw: text,
   };
 }
@@ -466,6 +473,32 @@ export async function readSlateRecording(c: SlateCredentials, video: string, doF
       activity: seen.ok ? parseActivity(seen.data.text) : [],
     },
   };
+}
+
+/**
+ * Where a browser can play the recording: the file Slate's signed download link redirects to. The
+ * link itself answers with a same-origin resource policy, which a player on another site may not
+ * follow, so the redirect is read here and the file's own (signed, ~1 hour) address is handed on.
+ * @param c - Where and as whom.
+ * @param video - A share link, share id or library id.
+ * @param doFetch - The network.
+ */
+export async function slatePlayableUrl(c: SlateCredentials, video: string, doFetch: SlateFetch = defaultFetch): Promise<SlateResult<string>> {
+  const info = await slateTool(c, 'get_video', { video }, doFetch);
+  if (!info.ok) {
+    return info;
+  }
+  const link = parseVideo(info.data.text, video).downloadUrl;
+  if (!link) {
+    return { ok: false, status: 404, retryable: false, message: 'Slate gave no link to play this recording.' };
+  }
+  try {
+    const res = await doFetch(link, { method: 'HEAD', headers: {}, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const to = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+    return { ok: true, data: to ? new URL(to, link).toString() : link };
+  } catch (err) {
+    return unreachable(err, 'play the recording');
+  }
 }
 
 /**

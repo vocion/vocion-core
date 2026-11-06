@@ -9,7 +9,7 @@
 import type { RoutineBatchView, RoutineRunStatus, RoutineRunView, RoutineVersionView, RoutineView } from '@/libs/routines/types';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { routineRunOpen } from '@/libs/routines/types';
+import { routineRunOpen, TAUGHT_AGAIN } from '@/libs/routines/types';
 import { browserRunSchema, routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema, userSchema } from '@/models/Schema';
 import { toView as browserView } from '@/services/browser/runReads';
 
@@ -90,7 +90,7 @@ async function routineViews(rows: RoutineRow[]): Promise<RoutineView[]> {
         failed: rs.filter(x => x.status === 'failed' || x.status === 'unknown_outcome').length,
         lastBatchId: rs.reduce<number | null>((m, x) => (m === null || x.batchId > m ? x.batchId : m), null),
       },
-      teaching: t ? { state: t.state, startedAt: t.startedAt, targetUrl: t.targetUrl, recordUrl: t.recordUrl, instruction: t.instruction ?? null, checks: t.checks, lastCheckedAt: t.lastCheckedAt } : null,
+      teaching: t ? { state: t.state, startedAt: t.startedAt, targetUrl: t.targetUrl, recordUrl: t.recordUrl, instruction: t.instruction ?? null, checks: t.checks, lastCheckedAt: t.lastCheckedAt, found: t.found ?? null } : null,
       savedInputs: r.savedInputs?.names ?? [],
       error: r.error,
       createdAt: r.createdAt.toISOString(),
@@ -117,6 +117,27 @@ export async function listRoutines(orgId: string): Promise<RoutineView[]> {
 export async function getRoutine(orgId: string, id: number): Promise<RoutineView | null> {
   const rows = await db.select().from(routineSchema).where(and(eq(routineSchema.orgId, orgId), eq(routineSchema.id, id))).limit(1);
   return (await routineViews(rows))[0] ?? null;
+}
+
+/**
+ * What an automation was taught from, as the evidence behind it: the recording, and the version
+ * the analyst drafted from it (the first, or the newest taught again from a new recording) — its
+ * spec as the analyst wrote it, before the expert's answers moved it on. Null for an automation
+ * with no recording or not yet drafted.
+ * @param orgId - The workspace.
+ * @param id - The automation.
+ */
+export async function taughtFrom(orgId: string, id: number): Promise<{ routine: RoutineView; version: RoutineVersionView } | null> {
+  const routine = await getRoutine(orgId, id);
+  if (!routine?.source) {
+    return null;
+  }
+  const versions = await db.select().from(routineVersionSchema).where(eq(routineVersionSchema.routineId, id)).orderBy(desc(routineVersionSchema.n));
+  const drafted = versions.find(v => v.change === null || v.change === TAUGHT_AGAIN);
+  if (!drafted) {
+    return null;
+  }
+  return { routine, version: versionView(drafted, await namesOf(drafted.spec.questions.map(q => q.answeredBy))) };
 }
 
 /**

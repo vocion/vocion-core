@@ -11,9 +11,10 @@
  * on the page each time.
  */
 
-import type { RoutineInputSpec, RoutineOutputSpec, RoutineQuestion, RoutineSpec, RoutineWrite } from '@/libs/routines/types';
+import type { RoutineFound, RoutineInputSpec, RoutineJudgment, RoutineOutputSpec, RoutineQuestion, RoutineRule, RoutineSite, RoutineSpec, RoutineStep, RoutineWrite } from '@/libs/routines/types';
 import type { SlateFrame, SlateRecording } from '@/libs/slate/recording';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { parsePartialJson } from '@langchain/core/output_parsers';
 import { clock } from '@/libs/routines/types';
 
 /** Frames the analyst looks at, at most. */
@@ -49,29 +50,33 @@ export function framesToRead(rec: Pick<SlateRecording, 'transcript' | 'video'>):
 
 const SYSTEM = `You are the Automation analyst. A specialist recorded themselves doing a piece of repeatable work in a web app, narrating why each step happens. From the recording — the transcript with timestamps, what was on screen, and frames at key moments — you write the automation's spec: what a browser, run by an AI, must do to repeat this work for any row of inputs, exactly as the specialist does it.
 
-Write it as JSON only, no prose around it, in this shape:
+Write it as JSON only, no prose around it, in this shape and in this order (what you found in the recording first, then what a run needs):
 {
   "name": "Short imperative name of the work, e.g. \\"Add a user and enroll them in a campaign\\"",
   "description": "One sentence: what the automation does and for whom.",
   "summary": "Two or three sentences a person reads first.",
   "startUrl": "The address the work starts at, from what was on screen (null if not seen)",
+  "sites": [{ "name": "The system or site the work moves into, as a person names it", "url": "its address, or null if not seen", "at": 36 }],
+  "steps": [{ "n": 1, "text": "Imperative step, naming what a person sees (the button, the field, the page)", "why": "why the specialist does it", "at": 12 }],
+  "rules": [{ "text": "A rule the specialist said, as an instruction", "at": 40 }],
+  "judgments": [{ "text": "Where the specialist looked at something and decided, and what they decided on", "at": 50 }],
+  "escalations": [{ "when": "the situation", "ask": "what to ask the expert", "at": 55 }],
+  "questions": [{ "question": "something one example cannot settle", "why": "why it matters", "at": 30 }],
   "systems": ["hosts it uses"],
   "inputs": [{ "name": "snake_case", "description": "what it is", "example": "value from the recording", "secret": false, "key": false, "optional": false, "shared": false, "file": false }],
   "outputs": [{ "name": "snake_case", "description": "what the run reads back from the saved record", "checks": "the input name this must equal after saving, or null" }],
   "preconditions": ["what must be true before it starts"],
-  "steps": [{ "n": 1, "text": "Imperative step, naming what a person sees (the button, the field, the page)", "why": "why the specialist does it", "at": 12 }],
-  "rules": [{ "text": "A rule the specialist said, as an instruction", "at": 40 }],
-  "escalations": [{ "when": "the situation", "ask": "what to ask the expert", "at": 55 }],
   "prohibited": ["things the run must never do"],
   "postconditions": ["what must be true when it is done"],
   "writes": [{ "button": "Exact name of a button that saves a change, as seen on screen", "host": null }],
   "reconcile": { "listUrl": "address of the page that lists every record of the kind this work adds (e.g. all users), or null", "how": "how to read the whole list (search, pages, columns)", "matchOn": "the input that identifies a record in that list, e.g. email" },
-  "questions": [{ "question": "something one example cannot settle", "why": "why it matters", "at": 30 }],
   "manualMinutes": 3.5
 }
 
 How to write it:
-- "at" is seconds on the recording where the step or rule appears, from the transcript timestamps. Every step and rule has one when it was shown or said.
+- "at" is seconds on the recording where the step or rule appears, from the transcript timestamps. Every site, step, rule, judgment and question has one when it was shown or said.
+- Sites: each system or website the work moves into, in the order it came up (the work board, a lookup site, the application portal), at the moment it came up.
+- Judgments: the moments the specialist checked something and chose what to do (a license is active so they go on, which form fits this kind of provider), in their order.
 - Inputs are what changes from one run to the next (the person's name, email, department, the campaign). Mark the sign-in password "secret": true. Mark inputs every row of a batch shares (the sign-in email and password, the campaign) "shared": true. Mark the inputs that identify one piece of work (e.g. the email) "key": true, so the same work is never done twice. A document the work uploads (a roster, a tax form, a signed letter) is an input with "file": true: the run attaches it from the workspace, never retypes it.
 - The run signs in with the inputs when the site asks; include a sign-in step only as "Sign in with the account given, if asked".
 - Outputs must include what proves the work was done, read back from the saved record after saving (e.g. the user's email and the campaign as the record shows them), each with "checks" naming the input it must match. Include an output for the record's id or reference when the app shows one.
@@ -98,6 +103,46 @@ function snake(s: string): string {
   return s.trim().replace(/([a-z])([A-Z])/g, '$1_$2').replace(/\W+/g, '_').replace(/^_+|_+$/g, '').toLowerCase().slice(0, 40) || 'value';
 }
 
+const stepsOf = (raw: Raw): RoutineStep[] => list(raw.steps).map(st => ({ text: str(st.text, 400), why: str(st.why, 300) || null, at: num(st.at) })).filter(st => st.text).slice(0, 40).map((st, i) => ({ n: i + 1, ...st }));
+const rulesOf = (raw: Raw): RoutineRule[] => list(raw.rules).slice(0, 20).map(r => ({ text: str(r.text, 400), at: num(r.at) })).filter(r => r.text);
+const judgmentsOf = (raw: Raw): RoutineJudgment[] => list(raw.judgments).slice(0, 20).map(j => ({ text: str(j.text, 400), at: num(j.at) })).filter(j => j.text);
+const sitesOf = (raw: Raw): RoutineSite[] => list(raw.sites).slice(0, 12).map(x => ({ name: str(x.name, 200), url: str(x.url, 2000) || null, at: num(x.at) })).filter(x => x.name);
+const questionsOf = (raw: Raw): RoutineQuestion[] => list(raw.questions).slice(0, 5).map((q, i) => ({ id: `q${i + 1}`, question: str(q.question, 400), why: str(q.why, 300) || null, at: num(q.at), answer: null, answeredBy: null })).filter(q => q.question);
+
+/** The arrays of the analyst's reply that are findings in the recording, in the order the reply writes them. */
+const FOUND_KEYS = ['sites', 'steps', 'rules', 'judgments', 'questions'] as const;
+
+/**
+ * What the analyst has found so far, from its reply as written up to now: the sites, steps, rules,
+ * judgment calls and questions it has finished writing. An entry still being written is left for
+ * the next read; a list is finished once the reply has moved on past it.
+ * @param text - The reply so far.
+ */
+export function foundSoFar(text: string): RoutineFound {
+  const raw = (partialJson(text) ?? {}) as Raw;
+  const keys = Object.keys(raw);
+  const done: Raw = {};
+  for (const k of FOUND_KEYS) {
+    const v = raw[k];
+    if (!Array.isArray(v)) {
+      continue;
+    }
+    // The last entry is finished once a later key has begun, or the whole reply parses.
+    const closed = keys.indexOf(k) < keys.length - 1 || jsonIn(text) !== null;
+    done[k] = closed ? v : v.slice(0, -1);
+  }
+  return { sites: sitesOf(done), steps: stepsOf(done), rules: rulesOf(done), judgments: judgmentsOf(done), questions: questionsOf(done) };
+}
+
+function partialJson(text: string): unknown {
+  const from = text.indexOf('{');
+  if (from < 0) {
+    return null;
+  }
+  // From the first brace to a closing fence, if the reply is fenced.
+  return parsePartialJson(text.slice(from).split('```')[0]!);
+}
+
 /**
  * The analyst's JSON as a spec: every field typed, numbered and bounded, whatever it wrote.
  * @param raw - The model's object.
@@ -121,7 +166,9 @@ export function normalizeSpec(raw: Raw): { name: string; description: string; sp
   })).filter((o, n, all) => o.name && all.findIndex(x => x.name === o.name) === n);
   const writes: RoutineWrite[] = list(raw.writes).map(w => ({ button: str(w.button, 80), host: str(w.host, 200) || null })).filter(w => w.button);
   const rec = raw.reconcile && typeof raw.reconcile === 'object' ? raw.reconcile as Raw : null;
-  const questions: RoutineQuestion[] = list(raw.questions).slice(0, 5).map((q, i) => ({ id: `q${i + 1}`, question: str(q.question, 400), why: str(q.why, 300) || null, at: num(q.at), answer: null, answeredBy: null })).filter(q => q.question);
+  const questions = questionsOf(raw);
+  const judgments = judgmentsOf(raw);
+  const sites = sitesOf(raw);
   const spec: RoutineSpec = {
     summary: str(raw.summary, 800),
     startUrl: str(raw.startUrl, 2000) || null,
@@ -129,9 +176,12 @@ export function normalizeSpec(raw: Raw): { name: string; description: string; sp
     inputs,
     outputs,
     preconditions: strings(raw.preconditions).slice(0, 10),
-    steps: list(raw.steps).map(st => ({ text: str(st.text, 400), why: str(st.why, 300) || null, at: num(st.at) })).filter(st => st.text).slice(0, 40).map((st, i) => ({ n: i + 1, ...st })),
-    rules: list(raw.rules).slice(0, 20).map(r => ({ text: str(r.text, 400), at: num(r.at) })).filter(r => r.text),
+    steps: stepsOf(raw),
+    rules: rulesOf(raw),
     escalations: list(raw.escalations).slice(0, 10).map(e => ({ when: str(e.when, 300), ask: str(e.ask, 300), at: num(e.at) })).filter(e => e.when),
+    // Kept when the analyst wrote the list at all, even empty: an empty list is an answer.
+    ...(Array.isArray(raw.judgments) ? { judgments } : {}),
+    ...(Array.isArray(raw.sites) ? { sites } : {}),
     prohibited: strings(raw.prohibited).slice(0, 12),
     postconditions: strings(raw.postconditions).slice(0, 10),
     writes,
@@ -198,6 +248,51 @@ function contentText(content: unknown): string {
   return '';
 }
 
+type Model = Awaited<ReturnType<typeof import('@/libs/llm').buildChatModelForOrg>>;
+type Reply = { response: unknown; text: string };
+
+async function whole(model: Model, messages: Parameters<Model['invoke']>[0]): Promise<Reply> {
+  const response = await model.invoke(messages);
+  return { response, text: contentText(response.content) };
+}
+
+/** How often, at most, what the analyst has found is handed on while it writes. */
+const FOUND_EVERY_MS = 700;
+
+/**
+ * The analyst's reply as it is written: each time a finding is finished, `onFound` hears everything
+ * found so far (at most every {@link FOUND_EVERY_MS}, and once more at the end).
+ * @param model - The model.
+ * @param messages - What it is asked.
+ * @param onFound - Hears the findings.
+ */
+async function streamed(model: Model, messages: Parameters<Model['invoke']>[0], onFound: (found: RoutineFound) => void): Promise<Reply> {
+  type Gathered = { concat?: (c: unknown) => unknown; content?: unknown };
+  let gathered: Gathered | undefined;
+  let text = '';
+  let told = '';
+  let last = 0;
+  const tell = (force: boolean) => {
+    if (!force && Date.now() - last < FOUND_EVERY_MS) {
+      return;
+    }
+    const found = foundSoFar(text);
+    const key = JSON.stringify(found);
+    if (key !== told) {
+      told = key;
+      last = Date.now();
+      onFound(found);
+    }
+  };
+  for await (const chunk of await model.stream(messages)) {
+    gathered = (gathered?.concat ? gathered.concat(chunk) : chunk) as Gathered;
+    text += contentText((chunk as Gathered).content);
+    tell(false);
+  }
+  tell(true);
+  return { response: gathered ?? {}, text };
+}
+
 /**
  * Draft an automation from a recording. One model call with the frames; once more if the reply was not
  * a usable spec.
@@ -207,12 +302,13 @@ function contentText(content: unknown): string {
  * @param hints - What the person said about it.
  * @param hints.name - The name they gave it.
  * @param hints.note - Anything they added.
- * @param hints.startUrl
+ * @param hints.startUrl - Where the work starts, when the person said.
+ * @param onFound - Hears what the analyst has found so far while it writes; the model streams when given.
  */
-export async function draftSpec(orgId: string, rec: SlateRecording, frames: SlateFrame[], hints: { name?: string | null; note?: string | null; startUrl?: string | null }): Promise<{ name: string; description: string; spec: RoutineSpec }> {
+export async function draftSpec(orgId: string, rec: SlateRecording, frames: SlateFrame[], hints: { name?: string | null; note?: string | null; startUrl?: string | null }, onFound?: (found: RoutineFound) => void): Promise<{ name: string; description: string; spec: RoutineSpec }> {
   const { buildChatModelForOrg } = await import('@/libs/llm');
   const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
-  const model = await buildChatModelForOrg('main', orgId, { temperature: 0, streaming: false, maxTokens: 8_000, thinking: 'off' });
+  const model = await buildChatModelForOrg('main', orgId, { temperature: 0, streaming: Boolean(onFound), maxTokens: 8_000, thinking: 'off' });
   const transcript = rec.transcript.map(l => `[${clock(l.at)}] ${l.text}`).join('\n').slice(0, 40_000);
   const activity = rec.activity.map(a => `[${clock(a.at)}] ${[a.app, a.title, a.url].filter(Boolean).join(' · ')}`).join('\n').slice(0, 8_000);
   const pages = rec.video.pages.map(p => `[${clock(p.at)}] ${[p.title, p.url].filter(Boolean).join(' · ')}`).join('\n').slice(0, 4_000);
@@ -234,9 +330,10 @@ export async function draftSpec(orgId: string, rec: SlateRecording, frames: Slat
   }
   const messages = [new SystemMessage(SYSTEM), new HumanMessage({ content: content as never })];
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await model.invoke(attempt === 0 ? messages : [...messages, new HumanMessage('Reply with the JSON object only.')]);
+    const asked = attempt === 0 ? messages : [...messages, new HumanMessage('Reply with the JSON object only.')];
+    const { response, text } = onFound ? await streamed(model, asked, onFound) : await whole(model, asked);
     await chargeModelCall({ orgId, feature: 'routines.teach', role: 'main', response }).catch(() => {});
-    const raw = jsonIn(contentText(response.content));
+    const raw = jsonIn(text);
     if (raw) {
       const out = normalizeSpec(raw);
       if (out.spec.steps.length > 0) {
