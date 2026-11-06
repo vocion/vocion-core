@@ -14,14 +14,15 @@
  *              each linked to its moment on the recording
  *   trust      the ladder, Drafted → Approved → Autonomous
  *   batches    the recent ones, each a door to its queue
- *   versions   and the workflow.yaml runs compile to
+ *   versions   each with the rules it added, where each came from and the runs
+ *              that followed it since; and the workflow.yaml runs compile to
  *
  * Re-read every 3s while teaching, and whenever the live stream says the
  * routine changed (`routine:<id>`).
  */
 
 import type { RoutineBatchSummary } from '@/libs/routines/display';
-import type { RoutineView as Routine, RoutineInputSpec, RoutineQuestion, RoutineTrust, RoutineVersionView } from '@/libs/routines/types';
+import type { RoutineView as Routine, RoutineInputSpec, RoutineQuestion, RoutineTrust, RoutineVersionView, RuleUse } from '@/libs/routines/types';
 import { Check, CircleDot, ExternalLink, FileCode2, KeyRound, LayoutGrid, Lock, Play, Video } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DetailMeta, DetailPage, StatusDot } from '@/components/patterns';
@@ -33,6 +34,7 @@ import { useLive } from '@/hooks/useLive';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { ago, batchProgress, exampleRows, needsYou, parseRows, routineStatusWord, TEACHING_WORD, TRUST_HINT } from '@/libs/routines/display';
+import { ruleSourceWords } from '@/libs/routines/ruleUse';
 import { batchLabel, ROUTINE_TRUST, TRUST_LABEL } from '@/libs/routines/types';
 import { cn } from '@/utils/Helpers';
 import { isPracticeRoutine, PracticeRoutineButton } from './PracticeRoutineButton';
@@ -243,6 +245,7 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
                 <span className="min-w-0 flex-1">
                   <span className="text-foreground">{v.change ?? 'First version, drafted from the recording.'}</span>
                   <span className="block text-[11px] text-muted-foreground">{new Date(v.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                  {v.rules && <RuleUses uses={v.rules} change={v.change} />}
                 </span>
                 <ToneChip tone={v.status === 'approved' ? 'pass' : v.status === 'draft' ? 'amber' : 'neutral'}>{v.status === 'superseded' ? 'Replaced' : v.status === 'approved' ? 'Approved' : 'Draft'}</ToneChip>
               </li>
@@ -646,5 +649,50 @@ function Retire({ busy, onRetire }: { busy: boolean; onRetire: () => void }) {
       <Button size="sm" variant="destructive" disabled={busy} onClick={onRetire} data-routine-retire-confirm>Retire</Button>
       <Button size="sm" variant="ghost" onClick={() => setSure(false)}>Keep it</Button>
     </div>
+  );
+}
+
+/* ── Rules a version added, and the runs that followed them ───────────── */
+
+const LINK = 'underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground';
+
+/**
+ * Each rule a version added, where it came from, and how many runs have followed it since, the
+ * newest of them linked. A rule no run has followed yet shows no count; a rule the version's change
+ * line already quotes is not quoted again.
+ * @param props
+ * @param props.uses - The rules.
+ * @param props.change - The version's change line.
+ */
+function RuleUses({ uses, change }: { uses: RuleUse[]; change: string | null }) {
+  return (
+    <ul className="mt-1.5 space-y-1" data-routine-rule-uses>
+      {uses.map((u) => {
+        const who = ruleSourceWords(u.from);
+        return (
+          <li key={u.text} className="text-[12px] leading-snug" data-routine-rule-use={u.runs}>
+            {!change?.includes(u.text) && <span className="text-foreground">{`Rule: ${u.text}`}</span>}
+            {who && (
+              <span className="text-muted-foreground">
+                {change?.includes(u.text) ? 'From ' : ' · '}
+                {u.from?.askId ? <Link href={`/dashboard/inbox/${u.from.askId}`} className={LINK}>{who}</Link> : who}
+              </span>
+            )}
+            {u.runs > 0 && (
+              <span className="block text-muted-foreground">
+                {`Followed in ${u.runs} ${u.runs === 1 ? 'run' : 'runs'} since, without asking: `}
+                {u.recent.map((x, i) => (
+                  <span key={x.browserRunId}>
+                    {i > 0 && ', '}
+                    <Link href={`/dashboard/browser/${x.browserRunId}`} className={LINK} title={x.decided ?? undefined} data-routine-rule-run={x.browserRunId}>{x.label}</Link>
+                  </span>
+                ))}
+                {u.runs > u.recent.length && ` and ${u.runs - u.recent.length} more`}
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

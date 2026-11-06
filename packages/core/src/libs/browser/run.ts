@@ -36,7 +36,7 @@ export type BrowserInput = { value: string; secret?: boolean };
 export type BrowserStep = {
   n: number;
   at: string;
-  /** `open`, `click`, `type`, `press`, `scroll`, `wait`, `approval`, `ask`, `finish`, `note`. */
+  /** `open`, `click`, `type`, `press`, `scroll`, `wait`, `approval`, `ask`, `finish`, `note`, `rule`. */
   kind: string;
   /** In a person's words: "Clicked “Sign in”". */
   label: string;
@@ -47,7 +47,30 @@ export type BrowserStep = {
   detail?: string;
   /** The page just after this step, kept so the run can be checked step by step afterwards. */
   shotUrl?: string;
+  /** A rule of the automation settled this step, where the run would otherwise have asked its expert. */
+  rule?: StepRule;
 };
+
+/**
+ * A rule an automation's run followed instead of asking: its number in the run's brief, its words,
+ * and where it came from — the expert who said it (a name), the decision they answered, the
+ * version it entered — when it was added after teaching. Recorded by the run's `followed_rule`
+ * call, never read out of prose.
+ */
+export type StepRule = { n: number; text: string; from?: { askId: number | null; by: string | null; version: number | null } | null };
+
+/**
+ * A rule step as people read it: "Followed Marcus's rule (v3): LMFTs go through …", or, for a rule
+ * with no one named, "Followed the automation's rule: …". Pure.
+ * @param rule - The rule the run followed.
+ */
+export function ruleStepLabel(rule: Pick<StepRule, 'text' | 'from'>): string {
+  const by = rule.from?.by?.trim() ?? '';
+  const first = by.includes('@') ? by.split('@')[0]! : by.split(/\s+/)[0] ?? '';
+  const whose = first ? `${first}’s rule` : 'the automation’s rule';
+  const version = rule.from?.version ? ` (v${rule.from.version})` : '';
+  return `Followed ${whose}${version}: ${rule.text}`;
+}
 
 /** What the run is waiting on the person for. */
 export type BrowserWaiting = {
