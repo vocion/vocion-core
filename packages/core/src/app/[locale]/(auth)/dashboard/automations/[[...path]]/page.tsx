@@ -9,7 +9,7 @@ import { RoutineView } from '@/features/routines/RoutineView';
 import { TaughtFromView } from '@/features/routines/TaughtFromView';
 import { TeachRoutineButton } from '@/features/routines/TeachRoutineButton';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { batchesOf, getBatch, getRoutine, listRoutines, taughtFrom } from '@/services/routines/routineReads';
+import { batchesOf, getBatch, getRoutine, listRoutines, routineIdBySlug, taughtFrom } from '@/services/routines/routineReads';
 
 /** What a path under /dashboard/automations shows. */
 type Shown = { kind: 'list' } | { kind: 'routine'; id: number } | { kind: 'recording'; id: number } | { kind: 'batch'; id: number } | { kind: 'batches' } | { kind: 'none' };
@@ -59,6 +59,13 @@ export default async function AutomationsPage(props: { params: Promise<{ locale:
   setRequestLocale(locale);
   const s = shown(path);
   if (s.kind === 'none') {
+    // An automation addressed by its slug (a workspace's own link) lands on its id's page.
+    const [slug, sub, ...more] = path ?? [];
+    const { orgId } = await auth();
+    const routineId = orgId && slug && more.length === 0 && (sub === undefined || sub === 'recording') ? await routineIdBySlug(orgId, slug) : null;
+    if (routineId) {
+      redirect(`/dashboard/automations/${routineId}${sub ? `/${sub}` : ''}`);
+    }
     notFound();
   }
   if (s.kind === 'batches') {

@@ -141,6 +141,17 @@ export async function taughtFrom(orgId: string, id: number): Promise<{ routine: 
 }
 
 /**
+ * An automation's id by its exact slug: a stable address for links a workspace writes
+ * (`/dashboard/automations/<slug>`), the same in every environment.
+ * @param orgId - The workspace.
+ * @param slug - The automation's slug.
+ */
+export async function routineIdBySlug(orgId: string, slug: string): Promise<number | null> {
+  const [row] = await db.select({ id: routineSchema.id }).from(routineSchema).where(and(eq(routineSchema.orgId, orgId), eq(routineSchema.slug, slug))).limit(1);
+  return row?.id ?? null;
+}
+
+/**
  * An automation by its slug or its name, for chat ("run the add-a-user routine").
  * @param orgId - The workspace.
  * @param ref - An id, a slug, or words from its name.
