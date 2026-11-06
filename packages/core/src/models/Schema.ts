@@ -1,5 +1,6 @@
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
+import type { FetchFailureDetail } from '@/libs/sources/fetchFailure';
 import type { BriefAudio } from '@/services/briefings/audio/types';
 import type { BriefingV2 } from '@/services/briefings/document';
 import type { StoredClassification } from '@/services/discovery/classification';
@@ -3377,10 +3378,11 @@ export const sourceSyncCheckpointSchema = pgTable(
      * on its own terms (which never counts as an ingest error). Capped per
      * scope when written (see SourceSyncService) so a run failing on hundreds
      * of documents cannot crowd out the record of a collection that never
-     * loaded, nor grow this row without bound.
+     * loaded, nor grow this row without bound. `detail` is set only on a
+     * failed HTTP fetch: its status, allowlisted headers and page title.
      */
     failures: jsonb('failures')
-      .$type<{ scope: 'connector' | 'document' | 'processor'; uri?: string; message: string; at: string }[]>()
+      .$type<{ scope: 'connector' | 'document' | 'processor'; uri?: string; message: string; detail?: FetchFailureDetail; at: string }[]>()
       .default([])
       .notNull(),
     /**

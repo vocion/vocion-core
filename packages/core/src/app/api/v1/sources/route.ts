@@ -9,7 +9,9 @@ import { authApi, isErrorResponse, jsonError, readJsonBody, requireCapability, w
  * `{ slug, name, connector, enabled, lastSyncedAt, documentCount, run }`, where
  * `run` carries `status`, `startedAt`, `completedAt`, `since`, `counts` and
  * `failures`, the last of which is how a processor failure is visible to a
- * tenant's own reporting without a database connection.
+ * tenant's own reporting without a database connection. A failure from an
+ * HTTP fetch also carries `detail`: `{ status, headers, title?, snippet? }`,
+ * the headers limited to an allowlist (server, CDN and WAF markers).
  *
  * Requires the `manage_sources` capability.
  * Auth: tenant API token or dashboard session.
