@@ -45,17 +45,19 @@ export type FetchFailureDetail = {
 };
 
 /**
- * Collapse whitespace and control characters, drop undecodable bytes, cut to `max`.
+ * Collapse whitespace and control characters, drop undecodable bytes, cut to
+ * `max` code points. Cutting by UTF-16 unit could split an emoji into a lone
+ * surrogate, which Postgres jsonb refuses, and the run could not record itself.
  * @param value - raw text.
- * @param max - the most characters kept.
+ * @param max - the most code points kept.
  */
 function oneLine(value: string, max: number): string {
   const visible = Array.from(value, (char) => {
     const code = char.charCodeAt(0);
     return code < 0x20 || code === 0x7F || code === 0xFFFD ? ' ' : char;
   }).join('');
-  const flat = visible.replace(/\s+/g, ' ').trim();
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+  const chars = Array.from(visible.replace(/\s+/g, ' ').trim());
+  return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : chars.join('');
 }
 
 /**

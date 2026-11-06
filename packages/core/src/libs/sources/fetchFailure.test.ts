@@ -99,6 +99,20 @@ describe('describeHttpFailure', () => {
     expect(message).toBe('HTTP 503 · via: 1.1 cache-a, 1.1 cache-b · retry-after: 120 · title: Line one Line two and three');
   });
 
+  it('never splits an emoji at the 300-character cut, so Postgres jsonb accepts the detail', async () => {
+    const text = `${'x'.repeat(298)}😀 tail`;
+    const plain = await describeHttpFailure(new Response(text, { status: 403, headers: { 'content-type': 'text/plain' } }));
+    const html = await describeHttpFailure(new Response(`<title>${text}</title>`, { status: 403, headers: { 'content-type': 'text/html' } }));
+
+    for (const { message, detail } of [plain, html]) {
+      expect(message.isWellFormed()).toBe(true);
+      expect(JSON.stringify(detail)).not.toMatch(/\\ud[89ab][0-9a-f]{2}/i);
+    }
+
+    expect(plain.detail.snippet).toBe(`${'x'.repeat(298)}😀…`);
+    expect(html.detail.title).toBe(`${'x'.repeat(298)}😀…`);
+  });
+
   it('cuts a 5 kB header value to 200 characters', async () => {
     const res = new Response(null, { status: 403, headers: { server: 'x'.repeat(5000) } });
 
