@@ -385,6 +385,48 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
     },
   ],
 
+  'gitlab': [
+    {
+      key: 'projects',
+      label: 'Projects',
+      type: 'stringArray',
+      required: true,
+      placeholder: 'acme/api, acme/platform/web',
+      help: 'Each project\'s path, as in its URL: group/project, or group/subgroup/project. Merge requests, pipelines, approvals and merges on these become events. Separate with commas.',
+    },
+    {
+      key: 'branchPrefix',
+      label: 'Only branches starting with',
+      type: 'text',
+      placeholder: 'factory/',
+      help: 'Leave blank to watch every merge request. The factory pushes to branches starting factory/.',
+    },
+    {
+      key: 'deployBranch',
+      label: 'Deploy branch',
+      type: 'text',
+      defaultValue: 'main',
+      help: 'A pipeline that finishes on this branch becomes a run.failed or run.succeeded event.',
+    },
+    {
+      key: 'lookbackDays',
+      label: 'First sync looks back (days)',
+      type: 'number',
+      defaultValue: 7,
+      min: 1,
+      max: 90,
+      help: 'After the first sync, each run picks up from where the last one stopped.',
+    },
+    {
+      key: 'baseUrl',
+      label: 'GitLab instance',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://gitlab.com',
+      help: 'Change only for a self-managed GitLab, e.g. https://gitlab.acme.example.',
+    },
+  ],
+
   'granola': [
     {
       key: 'pastDays',

@@ -26,7 +26,8 @@ const PER_SWEEP = 20;
  */
 export function taskPullUrl(meta: Meta): string | null {
   const url = typeof meta.prUrl === 'string' ? meta.prUrl : typeof meta.pr_url === 'string' ? meta.pr_url : null;
-  return url && /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(url) ? url : null;
+  // A GitHub pull request, or a GitLab merge request on any instance (its project path may be nested).
+  return url && (/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(url) || /^https:\/\/[^/]+\/(?:[\w.-]+\/)+[\w.-]+\/-\/merge_requests\/\d+/.test(url)) ? url : null;
 }
 
 /**
@@ -107,7 +108,7 @@ async function realDeps(orgId: string) {
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema } = await import('@/models/Schema');
   const { listBusinessObjects, getBusinessObject } = await import('@/services/BusinessObjectService');
-  const { closePull } = await import('./githubMerge');
+  const { pullAt } = await import('@/services/repo/provider');
   return {
     tasks: async () => ((await listBusinessObjects(orgId, (await (await import('@/libs/factory/types')).factoryTypes(orgId)).task).catch(() => [])) as Array<{ id: number; status: string | null; metadata: unknown }>)
       .map(r => ({ id: r.id, status: r.status, meta: (r.metadata ?? {}) as Meta })),
@@ -116,7 +117,13 @@ async function realDeps(orgId: string) {
       const state = (row?.metadata as Meta | undefined)?.state;
       return typeof state === 'string' ? state : null;
     },
-    close: (url: string, comment: string) => closePull(orgId, url, comment),
+    close: async (url: string, comment: string) => {
+      const at = await pullAt(orgId, url);
+      if (!at) {
+        throw new Error(`${url} is not a pull request on a code host this workspace connected`);
+      }
+      return at.provider.closePull(orgId, at.ref, comment);
+    },
     mark: async (taskId: number, at: string, state: string) => {
       await db.update(businessObjectSchema)
         .set({ metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify({ prClosedAt: at, prStateWhenClosed: state })}::jsonb` })

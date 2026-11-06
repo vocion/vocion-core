@@ -179,6 +179,9 @@ export const Env = createEnv({
      * 501 and the `github` source relies on polling alone.
      */
     GITHUB_WEBHOOK_SECRET: z.string().optional(),
+    // GitLab (`libs/sources/gitlab.ts`): the secret GitLab sends in
+    // X-Gitlab-Token on every webhook delivery; unset, the receiver answers 501.
+    GITLAB_WEBHOOK_SECRET: z.string().optional(),
     /**
      * Vendor apps behind `/api/connect/<provider>` (docs/guides/connect.md).
      * All optional: a provider whose vars are unset shows the paste form and
@@ -234,6 +237,13 @@ export const Env = createEnv({
     // Webflow's Data API app for "Log in with Webflow" (publishing to a Webflow site's CMS).
     WEBFLOW_CLIENT_ID: z.string().optional(),
     WEBFLOW_CLIENT_SECRET: z.string().optional(),
+    // "Connect with GitLab" (`libs/connect/providers/gitlab.ts`): an OAuth
+    // application registered on the GitLab instance (gitlab.com, or a
+    // self-managed host named by GITLAB_OAUTH_BASE_URL). Unset, the connect
+    // sheet offers token paste only.
+    GITLAB_OAUTH_CLIENT_ID: z.string().optional(),
+    GITLAB_OAUTH_CLIENT_SECRET: z.string().optional(),
+    GITLAB_OAUTH_BASE_URL: z.string().url().optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
@@ -297,6 +307,7 @@ export const Env = createEnv({
     VOCION_MAIL_DOMAIN: process.env.VOCION_MAIL_DOMAIN,
     RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET,
     GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET,
+    GITLAB_WEBHOOK_SECRET: process.env.GITLAB_WEBHOOK_SECRET,
     SLACK_CLIENT_ID: process.env.SLACK_CLIENT_ID,
     SLACK_CLIENT_SECRET: process.env.SLACK_CLIENT_SECRET,
     ATLASSIAN_CLIENT_ID: process.env.ATLASSIAN_CLIENT_ID,
@@ -335,6 +346,9 @@ export const Env = createEnv({
     META_APP_SECRET: process.env.META_APP_SECRET,
     WEBFLOW_CLIENT_ID: process.env.WEBFLOW_CLIENT_ID,
     WEBFLOW_CLIENT_SECRET: process.env.WEBFLOW_CLIENT_SECRET,
+    GITLAB_OAUTH_CLIENT_ID: process.env.GITLAB_OAUTH_CLIENT_ID,
+    GITLAB_OAUTH_CLIENT_SECRET: process.env.GITLAB_OAUTH_CLIENT_SECRET,
+    GITLAB_OAUTH_BASE_URL: process.env.GITLAB_OAUTH_BASE_URL,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,

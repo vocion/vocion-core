@@ -254,7 +254,18 @@ function basePayload(repo: string, pr: GithubPullRequest, dedupeKey: string): Pu
   };
 }
 
-function prEvent(type: GithubEventType, repo: string, pr: GithubPullRequest, extra: Record<string, unknown> = {}, discriminator?: string | number): GithubEvent {
+/**
+ * One `pr.*` event for a pull request: the base payload, the extra fields,
+ * and the key. Exported for the other code hosts' sources, which map their
+ * own constructs onto a pull request and key the result as theirs
+ * (`libs/gitlab/events.ts`).
+ * @param type - The event type.
+ * @param repo - `owner/name`, or a GitLab project path.
+ * @param pr - The pull request.
+ * @param extra - Fields the event type adds.
+ * @param discriminator - A further key part, when one sha can carry several events of the type.
+ */
+export function prEvent(type: GithubEventType, repo: string, pr: GithubPullRequest, extra: Record<string, unknown> = {}, discriminator?: string | number): GithubEvent {
   const dedupeKey = prDedupeKey(repo, pr.number, type, pr.head.sha, discriminator);
   return { type, payload: { ...basePayload(repo, pr, dedupeKey), ...extra }, dedupeKey };
 }

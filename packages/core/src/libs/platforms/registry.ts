@@ -52,6 +52,7 @@ export type CredentialPlatformId
     | 'apollo'
     | 'elevenlabs'
     | 'github'
+    | 'gitlab'
     | 'granola'
     | 'hubspot'
     | 'jira'
@@ -611,6 +612,37 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     helpText: 'A GitHub fine-grained personal access token (github.com/settings/personal-access-tokens) or a GitHub App installation token, granted on the repositories the source lists with read-only permissions: pull_requests:read, checks:read, contents:read, metadata:read — plus actions:read for run.failed on the deploy branch. It is used read-only; Vocion never writes to GitHub with it.',
     // Named `token` because that is the key the connector reads out of
     // `ctx.credentials`. The field name is the storage contract between the two.
+    fields: [{ name: 'token', label: 'Access token', pattern: null, shapeHint: 'is any non-empty token', secret: true }],
+  },
+  {
+    id: 'gitlab',
+    label: 'GitLab',
+    brand: 'gitlab',
+    keySource: 'supplied',
+    // `one-live`, as GitHub's is, so no migration rebuilds
+    // `api_token_org_platform_live_idx`: one credential reads every project it
+    // was granted, and a source narrows by its project list. The cost is one
+    // GitLab instance per workspace; holding a gitlab.com token and a
+    // self-managed one side by side needs `many` and that migration.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['gitlab'],
+    howToConnect: {
+      login: { provider: 'gitlab', access: ['api', 'read_user'], settingsAfterLogin: [{ key: 'projects', label: 'projects' }] },
+      paste: {
+        credential: 'Access token',
+        access: ['read_api (the poll and every read)', 'api (agents\' writes: comments, approvals, merges, merge requests)'],
+        getItAt: { url: 'https://gitlab.com/-/user_settings/personal_access_tokens', steps: ['Make a personal, project or group access token (a project or group token is a bot, not a person)', 'Give it the api scope, or read_api for reads only', 'On a self-managed instance, make it there and set the source\'s instance URL'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    // `glpat-…` today, but older and OAuth tokens reach this field too, so no
+    // shape is enforced; Test connection says what the token reaches.
+    keyPattern: null,
+    keyShapeHint: 'any non-empty access token',
+    helpText: 'A GitLab personal, project or group access token, from gitlab.com (or your own instance) under Access tokens. read_api lets the source poll merge requests and pipelines; api also lets agents comment, approve, merge and open merge requests through their actions, and lets the factory push its branches.',
+    // Named `token` because that is the key the connector reads out of `ctx.credentials`.
     fields: [{ name: 'token', label: 'Access token', pattern: null, shapeHint: 'is any non-empty token', secret: true }],
   },
   {

@@ -99,7 +99,7 @@ export async function affectedRecords(orgId: string, payload: Meta): Promise<Aff
   }
 
   // 2. The change it names (a pull request), and 3. the commit a merge's delivery carries.
-  const url = str(payload.prUrl) ?? (/\/pull\/\d+/.test(str(payload.url) ?? '') ? str(payload.url) : null);
+  const url = str(payload.prUrl) ?? (/\/pull\/\d+|\/-\/merge_requests\/\d+/.test(str(payload.url) ?? '') ? str(payload.url) : null);
   const sha = str(payload.headSha) ?? str(payload.mergeSha);
   const clauses = [
     ...(url ? [sql`${businessObjectSchema.metadata} ->> 'prUrl' = ${url}`] : []),

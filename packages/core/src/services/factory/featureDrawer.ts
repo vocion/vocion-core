@@ -90,7 +90,12 @@ function runPage(runId: number): string {
  */
 function prName(url: string): string {
   const m = /github\.com\/[^/]+\/([^/]+)\/pull\/(\d+)/.exec(url);
-  return m ? `${m[1]}#${m[2]}` : url;
+  if (m) {
+    return `${m[1]}#${m[2]}`;
+  }
+  // A GitLab merge request: `northwind-portal!12`, GitLab's own spelling.
+  const mr = /\/([\w.-]+)\/-\/merge_requests\/(\d+)/.exec(url);
+  return mr ? `${mr[1]}!${mr[2]}` : url;
 }
 
 /**

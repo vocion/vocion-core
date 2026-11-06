@@ -325,9 +325,17 @@ export type ChangeDeps = {
 };
 
 async function defaultChangeDeps(): Promise<ChangeDeps> {
-  const gh = await import('./githubChecks');
+  const { pullAt } = await import('@/services/repo/provider');
   return {
-    readPull: gh.readPull,
+    // From the change's own host, a GitHub pull request or a GitLab merge request, in one shape.
+    readPull: async (orgId, url) => {
+      const at = await pullAt(orgId, url);
+      if (!at) {
+        throw new Error(`${url} is not a pull request on a code host this workspace connected`);
+      }
+      return at.provider.readPullState(orgId, at.ref);
+    },
+    // GitHub only: an untracked pipeline change on GitLab is not adopted yet (a named follow-up).
     listPipelinePulls: async (orgId, repo) => {
       const { tokenForRepo } = await import('@/services/agents/tools/githubPullRead');
       const token = await tokenForRepo(orgId, repo);
@@ -353,7 +361,7 @@ async function defaultChangeDeps(): Promise<ChangeDeps> {
           summary: o.why.slice(0, 1200),
           steps: [{ say: 'Merge the pull request.', url: o.url }, { say: 'The checks behind it run again on the fixed branch.' }],
           evidence: [o.url],
-          externalRef: { system: 'github', id: o.url.replace('https://github.com/', ''), url: o.url },
+          externalRef: { system: /\/-\/merge_requests\//.test(o.url) ? 'gitlab' : 'github', id: o.url.replace(/^https:\/\/[^/]+\//, ''), url: o.url },
           riskClass: o.riskClass,
           commitSha: o.headSha,
           verdictCommitSha: o.headSha,
@@ -448,7 +456,7 @@ export async function reconcileChanges(orgId: string, now: Date, owner: string |
       console.warn('pipeline reconcile: a change could not be read back', { orgId, url, message: (err as Error).message });
       continue;
     }
-    const short = url.replace('https://github.com/', '');
+    const short = url.replace(/^https:\/\/[^/]+\//, '');
     if (read.pr.merged_at) {
       await set({ state: 'merged', mergedAt: read.pr.merged_at, mergeSha: read.pr.merge_commit_sha ?? null });
       const line = `${short} merged${read.pr.merge_commit_sha ? ` at ${read.pr.merge_commit_sha.slice(0, 7)}` : ''}: the pipeline fix is in.`;

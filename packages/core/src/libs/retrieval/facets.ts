@@ -84,6 +84,14 @@ export const MAIL_THREAD_STATE_KIND = 'mail-thread-state';
 /** Every set's own date: when the source last changed the document. */
 const UPDATED_AT: FacetSpec = { name: 'updated_at', kind: 'date', description: 'when the source last changed it' };
 
+/** A code host's pull (or merge) request, as the github and gitlab sources stamp it. */
+const PULL_REQUEST_FACETS: readonly FacetSpec[] = [
+  { name: 'state', kind: 'enum', path: 'state', values: ['open', 'closed', 'merged'], description: 'open, closed or merged' },
+  { name: 'author', kind: 'text', path: 'author', description: 'who opened it (login)' },
+  { name: 'requested_reviewers', kind: 'list', path: 'requestedReviewers', description: 'whose review is requested (logins)' },
+  { name: 'draft', kind: 'boolean', path: 'draft', description: 'whether it is a draft' },
+];
+
 /**
  * Every declared facet set. Add one here when a source carries state a person
  * asks about; the search tool, `query_state` and saved views pick it up.
@@ -150,12 +158,17 @@ const DECLARED: FacetSet[] = [
     connector: 'github',
     match: { key: 'kind', value: 'pull_request' },
     noun: 'pull request',
-    facets: [
-      { name: 'state', kind: 'enum', path: 'state', values: ['open', 'closed', 'merged'], description: 'open, closed or merged' },
-      { name: 'author', kind: 'text', path: 'author', description: 'who opened it (login)' },
-      { name: 'requested_reviewers', kind: 'list', path: 'requestedReviewers', description: 'whose review is requested (logins)' },
-      { name: 'draft', kind: 'boolean', path: 'draft', description: 'whether it is a draft' },
-    ],
+    facets: PULL_REQUEST_FACETS,
+  },
+  {
+    // GitLab's merge request carries the same state under the same metadata
+    // keys (`libs/sources/gitlab.ts` writes them), so one question about
+    // review state reads both hosts.
+    id: 'code.merge_request',
+    connector: 'gitlab',
+    match: { key: 'kind', value: 'pull_request' },
+    noun: 'merge request',
+    facets: PULL_REQUEST_FACETS,
   },
   {
     id: 'chat.message',

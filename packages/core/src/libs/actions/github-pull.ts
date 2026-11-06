@@ -1,6 +1,7 @@
 /**
  * `repo.open_pull` (formerly `github.open_pull`) — THE PIPELINE'S OWNER OPENS
- * ITS OWN FIX (backlog 049). The GitHub provider of the repo family.
+ * ITS OWN FIX (backlog 049). Opened by the repository's own host through the
+ * repo family's provider: a pull request on GitHub, a merge request on GitLab.
  * A red default branch or a pipeline that cannot run is often fixed in files
  * no engineer's worker may touch: `.github/workflows/*`, the runner's setup,
  * the checks' own config. The Release engineer writes the fix itself: the
@@ -30,10 +31,10 @@ const fileSchema = z.object({
 });
 
 const openPullInput = z.object({
-  repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'the repository as owner/name').describe('The repository, owner/name.'),
+  repo: z.string().regex(/^[\w.-]+(?:\/[\w.-]+)+$/, 'the repository as its path').describe('The repository, as its path: owner/name, or a GitLab project\'s group/subgroup/project.'),
   title: z.string().min(8).max(200).describe('The pull request\'s title: what it fixes, e.g. "CI: give the e2e job the database service it needs".'),
   body: z.string().min(20).max(20_000).describe('What broke (quote the log line), why this change fixes it, and how it is undone.'),
-  files: z.array(fileSchema).min(1).max(20).describe('Every file the change writes, each with its whole new content (read it whole first: fetch_url on its github.com blob URL).'),
+  files: z.array(fileSchema).min(1).max(20).describe('Every file the change writes, each with its whole new content (read it whole first with repo_read_file).'),
   base: z.string().max(200).optional().describe('The branch it targets; the repository\'s default branch when omitted.'),
   branch: z.string().max(200).optional().describe('An open change\'s branch (vocion/pipeline-…) to add this commit to, when it is a second attempt at the same fix.'),
   recordId: z.coerce.number().int().positive().optional().describe('The record this change answers — the fix request, or the environment — so its page shows the change and its merge.'),
@@ -107,7 +108,7 @@ export const githubOpenPullAction: Action<typeof openPullInput> = {
   id: OPEN_PULL_ACTION_ID,
   aliases: ['github.open_pull'],
   name: 'Open a pipeline change',
-  description: 'Write files as one commit on a vocion/pipeline-… branch and open its pull request, with the workspace\'s GitHub token — for the seat that owns CI to fix the pipeline itself (a workflow under .github/workflows, the runner\'s setup, a check\'s config). Give each file\'s whole new content. The pull request merges itself when its checks are green (git.merge.pipeline); Undo closes it and deletes the branch, or opens the revert once it merged.',
+  description: 'Write files as one commit on a vocion/pipeline-… branch and open its pull request (a merge request on GitLab), with the workspace\'s own credential for the repository — for the seat that owns CI to fix the pipeline itself (a workflow under .github/workflows or .gitlab-ci.yml, the runner\'s setup, a check\'s config). Give each file\'s whole new content. The pull request merges itself when its checks are green (git.merge.pipeline); Undo closes it and deletes the branch, or opens the revert once it merged.',
   inputSchema: openPullInput,
   grant: 'factory_write',
   external: true,
@@ -129,15 +130,19 @@ export const githubOpenPullAction: Action<typeof openPullInput> = {
     }
     return undefined;
   },
-  async reviewCard(_ctx, raw) {
+  async reviewCard(ctx, raw) {
     const input = raw as OpenPullInput;
+    const { repoProviderFor } = await import('@/services/repo/provider');
+    const provider = await repoProviderFor(ctx.orgId, input.repo).catch(() => null);
+    const host = provider?.label ?? 'the code host';
+    const home = provider ? provider.pullUrl(input.repo, 1).replace(/\/(?:-\/merge_requests|pull)\/1$/, '') : null;
     return {
       title: `Open a pipeline change on ${input.repo}: ${input.title}`,
-      system: 'GitHub',
+      system: host,
       headline: 'Open a pull request with these files; it merges itself when its checks are green.',
-      badges: [{ label: 'GitHub' }, { label: 'Undo closes it, or reverts it' }],
+      badges: [{ label: host }, { label: 'Undo closes it, or reverts it' }],
       fields: [
-        { label: 'Repository', value: input.repo, href: `https://github.com/${input.repo}` },
+        { label: 'Repository', value: input.repo, ...(home ? { href: home } : {}) },
         { label: 'Files', value: input.files.map(f => `${f.delete ? 'delete ' : ''}${f.path}`).join(', ') },
         ...(input.branch ? [{ label: 'Adds to', value: input.branch }] : []),
       ],
@@ -147,8 +152,10 @@ export const githubOpenPullAction: Action<typeof openPullInput> = {
     };
   },
   async execute(ctx, input) {
-    const { openChangePull } = await import('@/services/factory/githubChange');
-    const opened = await openChangePull(ctx.orgId, { repo: input.repo, title: input.title, body: input.body, files: input.files, base: input.base ?? null, branch: input.branch ?? null });
+    // The repository's own host opens it: a GitHub pull request, a GitLab merge request.
+    const { repoProviderFor } = await import('@/services/repo/provider');
+    const provider = await repoProviderFor(ctx.orgId, input.repo);
+    const opened = await provider.openChange(ctx.orgId, { repo: input.repo, title: input.title, body: input.body, files: input.files, base: input.base ?? null, branch: input.branch ?? null });
     const at = new Date().toISOString();
     // EVERY CHANGE IS TRACKED. Named record or not, the change lands on a record
     // the pipeline reconcile reads, or it never merges: squatch-core #148
@@ -156,7 +163,7 @@ export const githubOpenPullAction: Action<typeof openPullInput> = {
     // while the reply said it "merges itself when its checks are green".
     // With no record named, it is the repository's own record (titled owner/name).
     const recordId = input.recordId ?? await repositoryRecordId(ctx.orgId, opened.repo);
-    const short = opened.url.replace('https://github.com/', '');
+    const short = opened.url.replace(/^https:\/\/[^/]+\//, '');
     const line = recordId
       ? `${opened.created ? 'Opened' : 'Added a commit to'} ${short} (${opened.paths.join(', ')}): ${input.title}. It merges itself when its checks are green.`
       : `${opened.created ? 'Opened' : 'Added a commit to'} ${short} (${opened.paths.join(', ')}): ${input.title}. No record tracks it (name the request or environment it answers), so it will not merge itself.`;
@@ -187,8 +194,8 @@ export const githubOpenPullAction: Action<typeof openPullInput> = {
     if (!url || !branch) {
       return { note: 'This change named no pull request, so there was nothing to take back.' };
     }
-    const { discardChange } = await import('@/services/factory/githubChange');
-    const out = await discardChange(ctx.orgId, { url, repo: input.repo, branch });
+    const { repoProviderFor } = await import('@/services/repo/provider');
+    const out = await (await repoProviderFor(ctx.orgId, url)).discardChange(ctx.orgId, { url, repo: input.repo, branch });
     const recordId = input.recordId ?? (typeof result?.objectId === 'number' ? result.objectId : null);
     if (recordId) {
       await stampChange(ctx.orgId, recordId, { url, state: out.state === 'merged' ? 'reverting' : 'withdrawn', revertUrl: out.revertUrl, undoneAt: new Date().toISOString() });

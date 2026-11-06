@@ -19,6 +19,7 @@ import { elevenLabsConnector } from './elevenlabs';
 import { fileImportConnector } from './fileImport';
 import { ga4Connector } from './ga4';
 import { githubConnector } from './github';
+import { gitlabConnector } from './gitlab';
 import { gmailConnector } from './gmail';
 import { googleAdsConnector } from './googleAds';
 import { googleCalendarConnector } from './googleCalendar';
@@ -124,3 +125,6 @@ registerConnector(ahrefsConnector);
 // A client's Webflow site: approved pages saved as draft CMS items through the
 // Data API, live on a second approval (`site.publish_page`, `site.publish_live`).
 registerConnector(webflowConnector);
+// The repo family's second code host (`services/repo/providers/gitlab.ts`):
+// GitLab merge requests and pipelines as the same events GitHub's raise.
+registerConnector(gitlabConnector);

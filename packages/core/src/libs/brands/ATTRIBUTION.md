@@ -31,6 +31,7 @@ about a mark is altered.
 | `databricks` | Databricks | simple-icons, from https://www.databricks.com | CC0-1.0 (drawing) | https://brand.databricks.com/Styleguide/Guide/ |
 | `elevenlabs` | ElevenLabs | simple-icons, from https://elevenlabs.io/brand | CC0-1.0 (drawing) | https://elevenlabs.io/brand |
 | `github` | GitHub | simple-icons, from https://github.com/logos | CC0-1.0 (drawing) | https://github.com/logos |
+| `gitlab` | GitLab | simple-icons, from https://about.gitlab.com/press/press-kit/ | CC0-1.0 (drawing) | https://about.gitlab.com/handbook/marketing/corporate-marketing/brand-activation/trademark-guidelines/ |
 | `gmail` | Gmail | simple-icons, from Google's product logo set | CC0-1.0 (drawing) | https://about.google/brand-resource-center/brand-elements/ |
 | `google` | Google | simple-icons, from https://partnermarketinghub.withgoogle.com | CC0-1.0 (drawing) | https://about.google/brand-resource-center/brand-elements/ |
 | `googleads` | Google Ads | simple-icons, from https://ads.google.com/home/ | CC0-1.0 (drawing) | https://about.google/brand-resource-center/brand-elements/ |

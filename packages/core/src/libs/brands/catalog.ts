@@ -34,6 +34,7 @@ import {
   siDatabricks,
   siElevenlabs,
   siGithub,
+  siGitlab,
   siGmail,
   siGoogle,
   siGoogleads,
@@ -87,6 +88,8 @@ const BRANDS = {
   databricks: { icon: siDatabricks },
   elevenlabs: { icon: siElevenlabs },
   github: { icon: siGithub },
+  // simple-icons draws GitLab from a relative moveto; written absolute (then a relative lineto, the same shape), as Webflow is.
+  gitlab: { icon: { ...siGitlab, path: siGitlab.path.replace(/^m23\.6004 9\.5927/, 'M23.6004 9.5927l') } },
   gmail: { icon: siGmail },
   google: { icon: siGoogle },
   googleads: { icon: siGoogleads },
