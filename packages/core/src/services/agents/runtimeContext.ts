@@ -139,6 +139,8 @@ export type RuntimeContextOptions = {
   pageContext?: RuntimeContext['pageContext'];
   /** The person's message this turn, for gates on the turn's own ask. */
   turnMessage?: string;
+  /** The workflow step this turn runs for, when one started it. */
+  workflowStep?: RuntimeContext['workflowStep'];
   /** The person's own time zone for this turn; falls back to the workspace's. */
   timeZone?: string;
   /** Which harness runs the loop — stamped on tool_call rows. */
@@ -205,6 +207,7 @@ export function runtimeContextFromScope(
     conversationId: opts.conversationId,
     pageContext: opts.pageContext,
     turnMessage: opts.turnMessage,
+    ...(opts.workflowStep ? { workflowStep: opts.workflowStep } : {}),
     provider: opts.provider,
     delegations: opts.delegations,
     // Citation numbering restarts each turn, and the numbers the model cites

@@ -80,8 +80,8 @@ export async function consentDecision(orgId: string, actionId: string, input: Re
     : null;
   const facts = (card?.fields ?? [])
     .filter(f => typeof f.value === 'string' && f.value.trim() !== '')
-    .slice(0, 6)
-    .map(f => `${f.label}: ${String(f.value).replace(/\s+/g, ' ').slice(0, 240)}`);
+    .slice(0, 10)
+    .map(f => `${f.label}: ${String(f.value).replace(/\s+/g, ' ').slice(0, 300)}`);
   return decisionSentence({ name: action.name, id: action.id, title: card?.title ?? label, facts, payload: input, does: action.description.slice(0, 400), label });
 }
 

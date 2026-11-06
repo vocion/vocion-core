@@ -343,6 +343,8 @@ export type AgentRequest = {
   personTurn?: boolean;
   /** Only these domain tools, by name, this turn (a workflow's `agent` step). Absent: the agent's own. */
   toolAllowlist?: string[];
+  /** The workflow step this turn runs for, when a workflow's `agent` step started it. */
+  workflowStep?: RuntimeContext['workflowStep'];
   /** The Project this work is for, or null for none; the call context's when omitted (`connectionScope.ts`). */
   workProjectId?: number | null;
 };
@@ -794,6 +796,13 @@ export async function compileAgentForRequest(
   // is cached, and a connection moved into a project must leave the next turn.
   const work = await workScopeFor(orgId, request.workProjectId);
   const ctx = buildRequestContext(orgId, blueprint, request, followingMcp, work);
+  // The workspace's saved workflows, read per request (an apply or a new one
+  // reaches the next turn): they decide whether `workflow_start` is on the
+  // belt and go in the prompt beside the automations. A workflow's own step
+  // starts none.
+  if (ctx.userId && !ctx.workflowStep) {
+    ctx.savedWorkflows = await import('@/services/workflows/savedWorkflows').then(m => m.savedWorkflows(orgId)).catch(() => []);
+  }
   // A tool may show this turn's model a picture (a chart's review) only where
   // the model's API takes an image in a tool result (`toolResultImages.ts`).
   ctx.toolResultImages = takesToolResultImages(blueprint.model);
@@ -820,7 +829,7 @@ export async function compileAgentForRequest(
   // The automations this agent can run, at the end of its prompt so the
   // prefix before it caches (`services/routines/savedAutomations.ts`). Read
   // per request: the blueprint is cached, and an approval must reach the next turn.
-  const automationsNote = await savedAutomationsPromptNote(ctx);
+  const automationsNote = [await savedAutomationsPromptNote(ctx), await savedWorkflowsPromptNote(ctx)].filter(Boolean).join('\n\n') || null;
   // Specialists answer with the SAME tool surface as the lead, on this
   // request's context — a delegate must not read more than the person who
   // asked.
@@ -961,6 +970,19 @@ async function savedAutomationsPromptNote(ctx: RuntimeContext): Promise<string |
   }
   const { savedAutomations, savedAutomationsNote } = await import('@/services/routines/savedAutomations');
   return savedAutomationsNote(await savedAutomations(ctx.orgId));
+}
+
+/**
+ * The saved workflows block for an agent that can start them; null otherwise.
+ * @param ctx - This request's context, with its saved workflows read.
+ */
+async function savedWorkflowsPromptNote(ctx: RuntimeContext): Promise<string | null> {
+  const { workflowsEnabled } = await import('./tools/workflowStart');
+  if (!workflowsEnabled(ctx)) {
+    return null;
+  }
+  const { savedWorkflowsNote } = await import('@/services/workflows/savedWorkflows');
+  return savedWorkflowsNote(ctx.savedWorkflows ?? []);
 }
 
 /**

@@ -22,8 +22,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 vi.mock('@/services/budget/chargeModelCall', () => ({ chargeModelCall: vi.fn(async () => {}) }));
+// The workflow and the automations it names, as the workspace holds them (set below).
+const held = globalThis as { __workflow?: unknown; __routines?: unknown };
+vi.mock('@/services/WorkflowService', async orig => ({ ...(await orig<object>()), getWorkflow: async () => held.__workflow ?? null }));
+vi.mock('@/services/routines/routineReads', async orig => ({ ...(await orig<object>()), listRoutines: async () => held.__routines ?? [] }));
 
-const { browserConsentDecision, routineConsentDecision } = await import('./consentDecision');
+const { browserConsentDecision, consentDecision, routineConsentDecision } = await import('./consentDecision');
 const { readAutomationMatch, saidToDecide } = await import('./turnJudge');
 const { wordsFromRows } = await import('./owedDecision');
 const { savedAutomation, savedAutomationsNote, automationsForRouter } = await import('@/services/routines/savedAutomations');
@@ -106,7 +110,31 @@ const BOARD_WRITE = browserConsentDecision('On the Cedar Hollow board, set every
 const RUN_LICENSES = routineConsentDecision(LICENSE_CHECK, READY);
 const RUN_APPLICATIONS = routineConsentDecision(APPLICATION, [{ group: 'Cedar Hollow Counseling Group, LLC', providers: 'Maya Chen (LCSW)' }]);
 
-type Case = { name: string; messages: string[]; offer?: string; decision: string; said: boolean };
+/** A saved workflow over the three automations, owned by the coordinator. */
+const ENROLL = {
+  slug: 'enroll-with-larkspur',
+  name: 'Enroll the ready clinicians with Larkspur',
+  description: 'From the clinicians Ready to check on the board: check their licenses, build the Larkspur rosters, get the specialist\'s approval, submit the applications and log them on the board.',
+  status: 'active',
+  version: 1,
+  agent: 'enrollment-coordinator',
+  trigger: { type: 'manual' },
+  steps: [
+    { name: 'read', type: 'agent', label: 'Read the board', agent: 'enrollment-coordinator', task: 'Read the Cedar Hollow board and list everyone who is Ready to check, with their Provider NPI.' },
+    { name: 'check', type: 'action', action: 'routine.run', label: 'Check the licenses', input: { routine: 'Check a provider\'s license', rows: '{{steps.read.output.rows}}', wait: true } },
+    { name: 'rosters', type: 'agent', label: 'Build the rosters', agent: 'enrollment-coordinator', task: 'Build one Larkspur roster per group from the clinicians whose license check passed.' },
+    { name: 'approve', type: 'approve', label: 'Approve the rosters', prompt: 'Approve the rosters and submit the Larkspur applications?' },
+    { name: 'submit', type: 'action', action: 'routine.run', label: 'Submit the applications', input: { routine: 'Submit a Larkspur group application', rows: '{{steps.rosters.output.groups}}', wait: true } },
+    { name: 'log', type: 'action', action: 'routine.run', label: 'Log the application IDs', input: { routine: 'Log a Larkspur application on the board', rows: '{{steps.submit.output.rows}}' } },
+  ],
+};
+held.__workflow = ENROLL;
+held.__routines = AUTOMATIONS;
+const START_ENROLL = await consentDecision('org_meaning', 'workflow.run', { workflow: ENROLL.slug, input: {} }, 'Start "Enroll the ready clinicians with Larkspur"');
+const DECLARED_READ = 'Read the Cedar Hollow board and list everyone who is Ready to check, with their Provider NPI.';
+const OFFER_ENROLL = 'Twelve clinicians are Ready to check. Shall I start the Larkspur enrollment for them: check their licenses, build the rosters for you to approve, then submit and log the applications?';
+
+type Case = { name: string; messages: string[]; offer?: string; declared?: string; decision: string; said: boolean };
 
 const CASES: Case[] = [
   // Acceptance: each starts the right work with no "Use the browser" wording.
@@ -120,6 +148,13 @@ const CASES: Case[] = [
   { name: 'a "yes" with no offer before it accepts nothing', messages: ['yes'], decision: RUN_LICENSES, said: false },
   { name: 'accepting an offer to read does not authorise a write', messages: ['yes'], offer: OFFER_READ, decision: RUN_LICENSES, said: false },
   { name: 'accepting one automation does not pass a different one', messages: ['yes, go'], offer: OFFER_LICENSES, decision: RUN_APPLICATIONS, said: false },
+  // Workflows.
+  { name: 'asking for the whole enrollment starts the workflow', messages: ['Enroll this week\'s ready clinicians with Larkspur'], decision: START_ENROLL, said: true },
+  { name: '"yes" accepts the offer to start the enrollment', messages: ['yes', 'Who\'s ready to check on the board?'], offer: OFFER_ENROLL, decision: START_ENROLL, said: true },
+  { name: 'asking who is ready does not start the enrollment', messages: ['Who\'s ready to check on the board?'], decision: START_ENROLL, said: false },
+  { name: 'accepting the license check does not start the whole enrollment', messages: ['yes, go'], offer: OFFER_LICENSES, decision: START_ENROLL, said: false },
+  { name: 'a run the person started carries their word for the read its step declares', messages: [], declared: DECLARED_READ, decision: BOARD_READ, said: true },
+  { name: 'a declared read does not carry a change', messages: [], declared: DECLARED_READ, decision: BOARD_WRITE, said: false },
 ];
 
 /**
@@ -137,7 +172,13 @@ const RECORDED: Array<Record<string, unknown>> = [
   { said: false, quote: 'thanks', offered: 'check 12 clinicians\' licenses', offer_is_this_decision: true, said_how: 'not_said' },
   { said: true, quote: 'yes', said_how: 'accepted_offer', offered: 'run "Check a provider\'s license" for 12 rows', offer_is_this_decision: true },
   { said: false, quote: 'yes', offered: 'read the board and list who is Ready to check', offer_is_this_decision: false, said_how: 'accepted_offer' },
-  { said: false, quote: 'yes, go', offered: 'check 12 clinicians\' licenses', offer_is_this_decision: false, said_how: 'accepted_offer' },
+  { said: true, quote: 'yes, go', offered: 'check 12 clinicians\' licenses', offer_is_this_decision: false, said_how: 'accepted_offer' },
+  { said: true, quote: 'Enroll this week\'s ready clinicians with Larkspur', said_how: 'own_words', offered: null, offer_is_this_decision: false },
+  { said: true, quote: 'yes', offered: 'start the Larkspur enrollment for twelve clinicians: check their licenses, build the rosters, submit and log the applications', offer_is_this_decision: true, said_how: 'accepted_offer' },
+  { said: false, quote: 'Who\'s ready to check on the board?', offered: null, offer_is_this_decision: false, said_how: 'not_said' },
+  { said: true, quote: 'yes, go', offered: 'check the 12 clinicians\' licenses', offer_is_this_decision: false, said_how: 'accepted_offer' },
+  { said: true, quote: 'Read the Cedar Hollow board and list everyone who is Ready to check, with their Provider NPI.', said_how: 'declared_work', offered: null, offer_is_this_decision: false },
+  { said: false, quote: null, offered: null, offer_is_this_decision: false, said_how: 'declared_work' },
 ];
 
 /**
@@ -260,7 +301,7 @@ describe('3. a reply accepts the agent\'s offer it answers', () => {
 describe('the judge\'s recorded readings of the acceptance cases and the negatives', () => {
   it.each(CASES.map((c, i) => [c.name, c, RECORDED[i]!] as const))('%s', async (_name, c, reply) => {
     const seen: string[] = [];
-    const out = await saidToDecide({ orgId: 'org_meaning', messages: c.messages, offer: c.offer ?? null, decision: c.decision }, replying(reply, seen));
+    const out = await saidToDecide({ orgId: 'org_meaning', messages: c.messages, offer: c.offer ?? null, declared: c.declared ?? null, decision: c.decision }, replying(reply, seen));
 
     expect(out.said).toBe(c.said);
     expect(seen[1]).toContain(`The decision: ${c.decision}`);
@@ -315,6 +356,41 @@ describe('4. saved automations in front of the agent and the router', () => {
   });
 });
 
+describe('5. a workflow run, judged by what it does', () => {
+  it('names its steps: the agent work, the automations they run and what they change, where it waits for a person', () => {
+    expect(START_ENROLL).toContain('Start a workflow (workflow.run): Start "Enroll the ready clinicians with Larkspur".');
+    expect(START_ENROLL).toContain('Step 1: Read the board — enrollment-coordinator does: Read the Cedar Hollow board');
+    expect(START_ENROLL).toContain('Step 2: Check the licenses — runs the saved automation "Check a provider\'s license" for each row, and waits for every row; when a run is done: The board item shows License status');
+    expect(START_ENROLL).toContain('Step 4: Approve the rosters — waits for a person to approve: Approve the rosters and submit the Larkspur applications?');
+    expect(START_ENROLL).toContain('Step 6: Log the application IDs — runs the saved automation "Log a Larkspur application on the board"');
+  });
+
+  it('the agent\'s block and the router\'s line', async () => {
+    const { savedWorkflow, savedWorkflowsNote, routineLookup, workflowsForRouter } = await import('@/services/workflows/savedWorkflows');
+    const wf = savedWorkflow({ ...ENROLL, ownerAgentSlug: ENROLL.agent, inputSchema: { type: 'object', properties: { week: { type: 'string' } } } }, routineLookup(AUTOMATIONS));
+    const note = savedWorkflowsNote([wf])!;
+
+    expect(note).toContain('SAVED WORKFLOWS you can start with workflow_start');
+    expect(note).toContain('- enroll-with-larkspur ("Enroll the ready clinicians with Larkspur"): From the clinicians Ready to check');
+    expect(note).toContain('Takes: week.');
+    expect(note).toContain('2. Check the licenses — runs the saved automation');
+    expect(workflowsForRouter([wf])[0]).toMatch(/^"Enroll the ready clinicians with Larkspur" \(From the clinicians/);
+    expect(savedWorkflowsNote([])).toBeNull();
+  });
+
+  it('the router sees a workflow on the seat that owns it', async () => {
+    const { seatsWithAutomations } = await import('./router');
+    const seats = await seatsWithAutomations('org_meaning', [{ slug: 'front-desk', name: 'Front desk' }, { slug: 'enrollment-coordinator', name: 'Coordinator', tools: ['routines'] }], {
+      automations: async () => ['"Check a provider\'s license" (p)'],
+      workflows: async () => [{ name: ENROLL.name, description: ENROLL.description, owner: 'enrollment-coordinator' }],
+    });
+
+    expect(seats[0]).toEqual({ slug: 'front-desk', name: 'Front desk' });
+    expect(seats[1]!.workflows).toEqual([expect.stringContaining('"Enroll the ready clinicians with Larkspur"')]);
+    expect(seats[1]!.automations).toHaveLength(1);
+  });
+});
+
 /**
  * The same cases against the live classifier: `VOCION_JUDGE_LIVE=1` (Bedrock,
  * the environment's AWS profile), `record` to print the replies for `RECORDED`.
@@ -328,7 +404,7 @@ describe.skipIf(!LIVE)('live: the classifier\'s own readings', () => {
     const m = await model() as { bindTools: (...a: unknown[]) => { invoke: (...a: unknown[]) => Promise<{ tool_calls?: Array<{ args: unknown }> }> } };
     // The model's own report, kept as it gave it, for `RECORDED`.
     const replies: unknown[] = CASES.map(() => null);
-    const out = await Promise.all(CASES.map((c, i) => saidToDecide({ orgId: 'org_meaning', messages: c.messages, offer: c.offer ?? null, decision: c.decision }, { bindTools: (...a: unknown[]) => {
+    const out = await Promise.all(CASES.map((c, i) => saidToDecide({ orgId: 'org_meaning', messages: c.messages, offer: c.offer ?? null, declared: c.declared ?? null, decision: c.decision }, { bindTools: (...a: unknown[]) => {
       const bound = m.bindTools(...a);
       return { invoke: async (...b: unknown[]) => {
         const res = await bound.invoke(...b);

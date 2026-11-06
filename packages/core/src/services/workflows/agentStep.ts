@@ -139,6 +139,8 @@ export async function shapeProblem(schema: Record<string, unknown>, value: unkno
  * @param opts.step - The step as authored.
  * @param opts.task - The step's task, interpolated.
  * @param opts.turn - The agent call (`runAgentTurn`; a stand-in under test).
+ * @param opts.startedBy - The person who started the run, or null when no person did: their word for the work this step declares.
+ * @param opts.conversationId - The conversation the run was started from, when it was.
  */
 export async function runAgentStep(opts: {
   orgId: string;
@@ -149,6 +151,8 @@ export async function runAgentStep(opts: {
   step: AgentWorkflowStep;
   task: string;
   turn: AgentTurn;
+  startedBy?: string | null;
+  conversationId?: number | null;
 }): Promise<AgentStepRecord> {
   const { step } = opts;
   const message = agentStepMessage({ task: opts.task, workflowName: opts.workflow.name, runLabel: opts.runLabel, stepLabel: opts.stepLabel, output: step.output });
@@ -160,6 +164,7 @@ export async function runAgentStep(opts: {
     userId: `workflow:${opts.workflow.slug}:${opts.runId}`,
     effort: step.effort ?? 'auto' as const,
     ...(step.tools?.length ? { toolAllowlist: step.tools } : {}),
+    workflowStep: { runId: opts.runId, workflow: opts.workflow.slug, task: opts.task, startedBy: opts.startedBy ?? null, conversationId: opts.conversationId ?? null },
   };
   const note = (r: AgentTurnResult, problem: string | null) => {
     record.attempts.push({ at: new Date().toISOString(), traceId: r.traceId, ok: problem === null, ...(problem ? { problem } : {}) });

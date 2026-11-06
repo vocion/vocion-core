@@ -79,6 +79,11 @@ export type RoutableAgent = {
    * licenses for everyone ready" lands on the seat that runs that automation.
    */
   automations?: string[] | null;
+  /**
+   * The saved workflows it starts, a line each: the ones it owns, and every
+   * unowned one on a seat granted `workflows`. Filled by `routeFirstTurn`.
+   */
+  workflows?: string[] | null;
 };
 
 /**
@@ -737,24 +742,45 @@ export async function routeFirstTurn(
   return { ...decision, app: app.id };
 }
 
+/** A saved workflow as routing reads it. */
+export type RoutableWorkflow = { name: string; description: string; owner: string | null };
+
 /**
- * The seats, each one granted the automation tools carrying the saved
- * automations it runs (`RoutableAgent.automations`). Read only when such a
- * seat is on the roster; the seats as they were on any failure.
+ * The seats with the saved work they run: each seat granted the automation
+ * tools carries the saved automations (`RoutableAgent.automations`), and each
+ * seat the saved workflows it owns, plus the unowned ones on a seat granted
+ * `workflows` (`RoutableAgent.workflows`). Read only when a seat could carry
+ * them; the seats as they were on any failure.
  * @param orgId - The workspace.
  * @param seats - The roster being read.
- * @param load - The automations, a line each; defaults to reading them.
+ * @param load - Test seams.
+ * @param load.automations - The saved automations, a line each; defaults to reading them.
+ * @param load.workflows - The saved workflows; defaults to reading them.
  */
-export async function seatsWithAutomations(orgId: string, seats: RoutableAgent[], load?: (orgId: string) => Promise<string[]>): Promise<RoutableAgent[]> {
+export async function seatsWithAutomations(orgId: string, seats: RoutableAgent[], load: { automations?: (orgId: string) => Promise<string[]>; workflows?: (orgId: string) => Promise<RoutableWorkflow[]> } = {}): Promise<RoutableAgent[]> {
   const runs = (a: RoutableAgent) => (a.tools ?? []).includes(ROUTINES_GRANT);
-  if (!seats.some(runs)) {
+  const [automations, workflows] = await Promise.all([
+    seats.some(runs)
+      ? (load.automations ?? (async (id: string) => {
+          const m = await import('@/services/routines/savedAutomations');
+          return m.automationsForRouter(await m.savedAutomations(id));
+        }))(orgId).catch(() => [] as string[])
+      : Promise.resolve([] as string[]),
+    (load.workflows ?? (async (id: string) => (await import('@/services/workflows/savedWorkflows')).savedWorkflows(id)))(orgId).catch(() => [] as RoutableWorkflow[]),
+  ]);
+  if (automations.length === 0 && workflows.length === 0) {
     return seats;
   }
-  const automations = await (load ?? (async (id: string) => {
-    const m = await import('@/services/routines/savedAutomations');
-    return m.automationsForRouter(await m.savedAutomations(id));
-  }))(orgId).catch(() => [] as string[]);
-  return automations.length > 0 ? seats.map(a => (runs(a) ? { ...a, automations } : a)) : seats;
+  const { WORKFLOWS_GRANT, workflowsForRouter } = await import('@/services/workflows/savedWorkflows');
+  const owners = new Set(seats.map(a => a.slug));
+  return seats.map((a) => {
+    const mine = workflows.filter(w => w.owner === a.slug || ((!w.owner || !owners.has(w.owner)) && (a.tools ?? []).includes(WORKFLOWS_GRANT)));
+    return {
+      ...a,
+      ...(automations.length > 0 && runs(a) ? { automations } : {}),
+      ...(mine.length > 0 ? { workflows: workflowsForRouter(mine) } : {}),
+    };
+  });
 }
 
 /** Test seams for {@link routeFirstTurn}. */
@@ -766,6 +792,8 @@ type FirstTurnDeps = {
   timeoutMs?: number;
   /** The saved automations, a line each, for the seats that run them; defaults to reading them (`services/routines/savedAutomations.ts`). */
   automations?: (orgId: string) => Promise<string[]>;
+  /** The saved workflows, for the seats that start them; defaults to reading them (`services/workflows/savedWorkflows.ts`). */
+  workflows?: (orgId: string) => Promise<RoutableWorkflow[]>;
   /** Jev's pick of the agent (ADR 0006); null when no Jev key is configured. Defaults to `routing/agentPick.ts`. */
   jev?: (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string }) => Promise<JevAgentPick | null>;
 };
@@ -822,7 +850,7 @@ async function routeAmong(
     const [owners, door, withAutomations] = await Promise.all([
       (deps.owners ?? typeOwners)(opts.orgId),
       (deps.intake ?? (async (orgId: string) => (await import('@/services/chat/intake')).workspaceIntake(orgId)))(opts.orgId).catch(() => null),
-      seatsWithAutomations(opts.orgId, active, deps.automations),
+      seatsWithAutomations(opts.orgId, active, { automations: deps.automations, workflows: deps.workflows }),
     ]);
     const intake = door?.ownerSlug && active.some(a => a.slug === door.ownerSlug) ? { label: door.label, ownerSlug: door.ownerSlug } : null;
     const seats = withAutomations.map(a => ({ ...a, owns: [...new Set([...(a.owns ?? []), ...(owners[a.slug] ?? [])])] }));
@@ -945,11 +973,12 @@ export const FOLLOW_UP_MOVE_BAR = 0.7;
  * @param deps.read - The model read; defaults to `readRoute`.
  * @param deps.owners - The workspace's type owners; defaults to {@link typeOwners}.
  * @param deps.automations - The saved automations, a line each; defaults to reading them.
+ * @param deps.workflows - The saved workflows; defaults to reading them.
  * @param deps.timeoutMs - How long to wait for the read.
  */
 export async function routeFollowUp(
   opts: { orgId: string; agents: RoutableAgent[]; message: string; thread: FollowUpThread; leadSlug?: string | null; surface: string; app?: AppScope | null; chip?: boolean; openCard?: boolean },
-  deps: { read?: RouteReader; owners?: (orgId: string) => Promise<Record<string, string[]>>; automations?: (orgId: string) => Promise<string[]>; timeoutMs?: number } = {},
+  deps: { read?: RouteReader; owners?: (orgId: string) => Promise<Record<string, string[]>>; automations?: (orgId: string) => Promise<string[]>; workflows?: (orgId: string) => Promise<RoutableWorkflow[]>; timeoutMs?: number } = {},
 ): Promise<RoutingDecision | null> {
   const live = opts.agents.filter(isActive);
   const current = live.find(a => a.slug === opts.thread.agentSlug);
@@ -988,7 +1017,7 @@ export async function routeFollowUp(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let read: { chosen: string; confidence: number; reason: string };
   try {
-    const [owners, withAutomations] = await Promise.all([(deps.owners ?? typeOwners)(opts.orgId), seatsWithAutomations(opts.orgId, open, deps.automations)]);
+    const [owners, withAutomations] = await Promise.all([(deps.owners ?? typeOwners)(opts.orgId), seatsWithAutomations(opts.orgId, open, { automations: deps.automations, workflows: deps.workflows })]);
     const seats = withAutomations.map(a => ({ ...a, owns: [...new Set([...(a.owns ?? []), ...(owners[a.slug] ?? [])])] }));
     const reader: RouteReader = deps.read ?? (async input => (await import('./routeRead')).readRoute(input));
     read = await Promise.race([

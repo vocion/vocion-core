@@ -80,6 +80,17 @@ export class WorkflowRunNotResumableError extends Error {
 }
 
 /**
+ * The person who started a run, from its `createdBy`, or null when a caller
+ * that is not a person did (`mcp`, `system`, a namespaced machine such as
+ * `workflow:<slug>` or `agent:<slug>`).
+ * @param createdBy - The run's `createdBy`.
+ */
+export function personWhoStarted(createdBy: string | null | undefined): string | null {
+  const by = (createdBy ?? '').trim();
+  return by && !['mcp', 'system'].includes(by) && !by.includes(':') ? by : null;
+}
+
+/**
  * Create a run and hand it to its durable owner, without waiting on it.
  * @param opts - What to start.
  */
@@ -830,7 +841,7 @@ async function runWork(state: RunState, step: WorkflowStep | RepeatInnerWorkflow
     const rawRows = typeof actionInput.rows === 'string' ? JSON.parse(actionInput.rows) as unknown : actionInput.rows;
     const rows = (Array.isArray(rawRows) ? rawRows : []).filter((x): x is Record<string, string> => Boolean(x) && typeof x === 'object');
     const shared = actionInput.shared && typeof actionInput.shared === 'object' ? actionInput.shared as Record<string, string> : {};
-    const by = run.createdBy && !['mcp', 'system'].includes(run.createdBy) && !run.createdBy.includes(':') ? run.createdBy : (routine.expert?.userId ?? run.createdBy ?? 'system');
+    const by = personWhoStarted(run.createdBy) ?? routine.expert?.userId ?? run.createdBy ?? 'system';
     // A run started from a conversation reports its batch there too, live, like one started in chat.
     const conversationId = Number(state.scope.trigger?.conversationId) || null;
     const batch = await startRoutineBatch({ orgId: run.orgId, userId: by, routineId: routine.id, rows, shared, conversationId });
@@ -983,6 +994,9 @@ async function runAgentWork(state: RunState, step: AgentWorkflowStep, alias?: st
       step,
       task: interpolateText(step.task, state.scope),
       turn: runAgentTurn,
+      // Who started the run, when a person did: their word for the browser work this step declares.
+      startedBy: personWhoStarted(state.run.createdBy),
+      conversationId: Number(state.scope.trigger?.conversationId) || null,
     });
     finishStep(state, step.name, record.output, { agent: toAgent(record) }, alias);
   } catch (err) {

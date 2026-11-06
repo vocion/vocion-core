@@ -119,6 +119,7 @@ export const SAID_TO_DECIDE_SYSTEM = [
   'A decision that only reads, changing nothing, is consented to when the person asked for the work it reads for or the answer it finds: someone who asks what a list or a site shows, or asks for work on everyone a list names, has asked for that list to be read. A decision that changes something needs the person to have asked for that change.',
   'A run of a saved automation is the work its purpose describes, with the changes it is approved to make as part of that work: a person who asks for that work for a set of people or items ("check the licenses for everyone who is ready") has asked for the automation to run for those rows, and the rows the agent found for their words are theirs.',
   'The agent\'s last message is shown when there is one. It is the agent\'s words, never the person\'s, and never consent by itself. When it offered or asked to do something and the person\'s latest message plainly accepts that offer ("yes", "go ahead", "do it"), the person has consented to what was offered, and only that: it counts for this decision only when the offer was this same decision — the same work, the same target, and an effect no larger (an offer to read is not consent to change anything; an offer to run one automation is not consent to run another). A "yes" or "thanks" that answers something else, or a reply that does not plainly accept, is not consent. When no agent message is shown, a reply that only says yes, ok or go accepts nothing: nothing is shown for it to accept.',
+  'When a workflow step\'s declared work is shown, the person started that workflow run, and starting it is their word for the work the step declares and nothing beyond it: a decision that does that declared work (the same site, an effect no larger) is consented to; one that goes beyond it (another site, a change where the step declares a read) is not.',
   'Answer only through the tool.',
 ].join(' ');
 
@@ -127,7 +128,7 @@ export const SaidToDecideSchema = z.object({
   offered: z.string().nullable().optional().describe('What the agent\'s last message offered or asked to do, in a few words of your own (which work, on what); null when no agent message is shown or it offered nothing.'),
   offer_is_this_decision: z.boolean().optional().describe('The offer is this same decision: the same work (the same automation or action, not another one), on the same target, with an effect no larger (an offer to read is not this decision when this decision changes something). False when there is no offer.'),
   // How they said it, typed, so code can hold a "yes" to an offer that was never shown or was something else (2026-11-06).
-  said_how: z.enum(['own_words', 'accepted_offer', 'not_said']).optional().describe('own_words — their own words name this work (what to do, and on what), in the latest message or the one before it that the latest confirms; a bare "yes", "ok" or "go" names nothing. accepted_offer — the latest message plainly accepts the agent\'s last message, shown above, which offered exactly this decision. not_said — neither.'),
+  said_how: z.enum(['own_words', 'accepted_offer', 'declared_work', 'not_said']).optional().describe('own_words — their own words name this work (what to do, and on what), in the latest message or the one before it that the latest confirms; a bare "yes", "ok" or "go" names nothing. accepted_offer — the latest message plainly accepts the agent\'s last message, shown above, which offered exactly this decision. declared_work — the workflow step\'s declared work, shown above, is this decision. not_said — none of these.'),
   said: z.boolean().describe('The person\'s own words (the latest message, or the one before it when the latest only confirms it, or the latest accepting the agent\'s offer when that offer is exactly this decision) tell the agent to take exactly this decision — this action, on this target, with this effect. Words about the same work that ask for a different action are not consent to this one.'),
   // No length cap in the schema: a long request is quoted whole, and a cap here failed the parse
   // and read as no consent (2026-10-21, a 400-character "use the browser to …"). Cut after.
@@ -144,11 +145,12 @@ export const SaidToDecideSchema = z.object({
  * @param input.messages - The person's recent messages, newest first (the latest, then the one before).
  * @param input.decision - The decision, as a sentence ("approve proposal #5201: Build vanity links").
  * @param input.page - The record the person is on, so "build this" reads as that record (2026-10-02: "Plan this again and build it" on FE-224 read as no consent without it).
+ * @param input.declared - The work a workflow run's current step declares, when a person started the run: starting it is their word for that work, and nothing beyond it.
  * @param input.offer - The agent's last message before the person's latest, marked as the agent's words: a reply that plainly accepts an offer of exactly this decision ("Shall I check these 12 licenses?" — "yes, go") is consent to it, and to nothing else.
  * @param model - Injected in tests.
  */
-export async function saidToDecide(input: { orgId: string; messages: string[]; decision: string; page?: string | null; offer?: string | null }, model?: Model): Promise<{ said: boolean; quote: string | null }> {
-  if (input.messages.length === 0) {
+export async function saidToDecide(input: { orgId: string; messages: string[]; decision: string; page?: string | null; offer?: string | null; declared?: string | null }, model?: Model): Promise<{ said: boolean; quote: string | null }> {
+  if (input.messages.length === 0 && !input.declared?.trim()) {
     return { said: false, quote: null };
   }
   try {
@@ -156,11 +158,13 @@ export async function saidToDecide(input: { orgId: string; messages: string[]; d
       input.page ? `The person is on the page of ${input.page}; "this" or "it" in their words means that record.` : '',
       `The decision: ${input.decision}`,
       input.offer?.trim() ? `The agent's last message, just before the person's latest (the agent's words, not the person's):\n${input.offer.trim().slice(-1_500)}` : '',
-      `The person, latest message: ${input.messages[0]!.slice(0, 2_000)}`,
+      input.declared?.trim() ? `The person started a workflow run. The step running now declares this work, and starting the run is the person's word for it and nothing beyond it:\n${input.declared.trim().slice(0, 2_000)}` : '',
+      input.messages[0] ? `The person, latest message: ${input.messages[0].slice(0, 2_000)}` : '',
       input.messages[1] ? `The person, message before: ${input.messages[1].slice(0, 2_000)}` : '',
     ].filter(Boolean).join('\n\n'));
     // An acceptance needs an offer to accept: with none shown, a "yes" is consent to nothing.
-    const said = Boolean(out?.said) && out?.said_how !== 'not_said' && !(out?.said_how === 'accepted_offer' && (!input.offer?.trim() || out.offer_is_this_decision === false));
+    const said = Boolean(out?.said) && out?.said_how !== 'not_said' && !(out?.said_how === 'accepted_offer' && (!input.offer?.trim() || out.offer_is_this_decision === false))
+      && !(out?.said_how === 'declared_work' && !input.declared?.trim());
     return out && said ? { said: true, quote: out.quote ? out.quote.slice(0, 300) : null } : { said: false, quote: null };
   } catch (err) {
     console.warn('turn judge: consent read failed', { orgId: input.orgId, message: (err as Error).message });

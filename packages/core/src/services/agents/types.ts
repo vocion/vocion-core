@@ -514,6 +514,16 @@ export type RuntimeContext = {
    */
   turnMessage?: string;
   /**
+   * The workflow step this turn runs for, when a workflow's `agent` step
+   * started it (`services/workflows/agentStep.ts`): the run, the step's task
+   * as interpolated, and the person who started the run, when a person did.
+   * A run a person started carries their word for the browser work its step
+   * declares (`tools/browserTasks.ts`); one nobody started carries none.
+   */
+  workflowStep?: WorkflowStepContext;
+  /** The workspace's saved workflows, read per request, for `workflow_start` and the prompt (`services/workflows/savedWorkflows.ts`). */
+  savedWorkflows?: import('@/services/workflows/savedWorkflows').SavedWorkflow[];
+  /**
    * What the person wants from this turn, read by a model at its start
    * (`turnJudge.readIntent`). Tools that act on the person's meaning read
    * this, never their words by pattern. Absent off the in-process loop.
@@ -633,4 +643,18 @@ export type RuntimeContext = {
    * answered from memory and a consult starts from what the lead has.
    */
   evidence?: import('./runtimeContext').TurnEvidence;
+};
+
+/** The workflow step a turn runs for (`RuntimeContext.workflowStep`). */
+export type WorkflowStepContext = {
+  /** The workflow run. */
+  runId: number;
+  /** The workflow's slug. */
+  workflow: string;
+  /** The step's task, interpolated: the work the run declares for this step. */
+  task: string;
+  /** The person who started the run, or null when a schedule, an event or a machine did. */
+  startedBy: string | null;
+  /** The conversation the run was started from, when it was. */
+  conversationId: number | null;
 };

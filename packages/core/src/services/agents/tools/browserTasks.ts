@@ -18,6 +18,13 @@
  * Work a saved automation already does is not started here: the agent is
  * told to run that automation instead (`turnJudge.readAutomationMatch`).
  *
+ * In a workflow's `agent` step there is no person's turn. A run a person
+ * started carries their word for the browser work its step declares: the
+ * judge reads the step's task, as interpolated, against what the task does,
+ * so a read the step declares runs, in that person's browser and their
+ * conversation, and anything beyond it waits for their Start. A run nobody
+ * started carries no one's word. Writes stay held by the engine as always.
+ *
  * The call waits a while for the run (inside the turn's deadline; on the
  * container, under the tool timeout) and hands back the result when it is
  * done in time, or where it stands — still going, or waiting on the person —
@@ -177,13 +184,26 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
         // against what the task does — the site, and whether it only reads or also changes things.
         const tagged = Boolean(ctx.pageContext?.askedFor?.includes('browser'));
         const effect = args.effect === 'reads' ? 'reads' : 'changes';
+        // In a workflow's agent step, the run's person is whose browser it is and whose Start it waits
+        // for; the work their starting the run declares is their word (`saidToDecide` `declared`).
+        const step = ctx.workflowStep;
+        const owner = step?.startedBy ?? userId;
         const [asked, automation] = await Promise.all([
           (async () => {
             if (tagged || (userId.startsWith('token:') && !ctx.turnIntent)) {
               return true;
             }
-            const [{ personSaidToDecide }, { browserConsentDecision }] = await Promise.all([import('../owedDecision'), import('../consentDecision')]);
-            return (await personSaidToDecide(ctx, browserConsentDecision(args.task, args.start_url, effect))).said;
+            const { browserConsentDecision } = await import('../consentDecision');
+            const decision = browserConsentDecision(args.task, args.start_url, effect);
+            if (step) {
+              if (!step.startedBy) {
+                return false;
+              }
+              const { saidToDecide } = await import('../turnJudge');
+              return (await saidToDecide({ orgId: ctx.orgId, messages: [], declared: step.task, decision })).said;
+            }
+            const { personSaidToDecide } = await import('../owedDecision');
+            return (await personSaidToDecide(ctx, decision)).said;
           })(),
           // Work a saved automation already does runs as that automation, under its expert's rules.
           tagged ? Promise.resolve(null) : sameWorkAs(ctx, args),
@@ -197,8 +217,8 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
         try {
           view = await createBrowserRun({
             orgId: ctx.orgId,
-            userId,
-            conversationId: ctx.conversationId ?? null,
+            userId: owner,
+            conversationId: (step ? step.conversationId : ctx.conversationId) ?? null,
             agentSlug: ctx.agentSlug ?? null,
             task: args.task,
             startUrl: args.start_url ?? null,

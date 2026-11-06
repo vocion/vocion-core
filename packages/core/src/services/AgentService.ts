@@ -661,6 +661,11 @@ async function runAgentDeepInScope(opts: {
    */
   toolAllowlist?: string[];
   /**
+   * The workflow step this turn runs for (a workflow's `agent` step): the run,
+   * the step's task and who started the run (`services/workflows/agentStep.ts`).
+   */
+  workflowStep?: import('./agents/types').WorkflowStepContext;
+  /**
    * The conversation's model preferences (`libs/llm/modelPrefs.ts`): how
    * strong a model, how much it thinks. Applied only on the in-process loop
    * — never moving a turn off the harness the agent runs on — and only when
@@ -995,6 +1000,7 @@ async function runAgentDeepInScope(opts: {
       timeZone: opts.timeZone,
       personTurn: opts.personTurn,
       ...(opts.toolAllowlist?.length ? { toolAllowlist: opts.toolAllowlist } : {}),
+      ...(opts.workflowStep ? { workflowStep: opts.workflowStep } : {}),
     },
     { modelOverride, handOff: handOffGuard, turnMiddleware, ...(synthesisDue ? { synthesisDue } : {}) },
   );
@@ -1579,6 +1585,7 @@ async function runAgentDeepInScope(opts: {
             timeZone: opts.timeZone,
             personTurn: opts.personTurn,
             ...(opts.toolAllowlist?.length ? { toolAllowlist: opts.toolAllowlist } : {}),
+            ...(opts.workflowStep ? { workflowStep: opts.workflowStep } : {}),
           },
           { modelOverride: { ...(modelOverride ?? {}), model: fallback, provider }, handOff: handOffGuard, turnMiddleware, ...(synthesisDue ? { synthesisDue } : {}) },
         );
@@ -1671,6 +1678,7 @@ async function runAgentDeepInScope(opts: {
             timeZone: opts.timeZone,
             personTurn: opts.personTurn,
             ...(opts.toolAllowlist?.length ? { toolAllowlist: opts.toolAllowlist } : {}),
+            ...(opts.workflowStep ? { workflowStep: opts.workflowStep } : {}),
           },
           // A ModelOverride names its model; without one the provider lookup
           // trims undefined and the turn dies (MCP turn, 2026-09-25 04:26Z,
