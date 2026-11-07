@@ -86,6 +86,10 @@ describe('the run pane', () => {
     await page.viewport(1440, 1100);
     await render(<div className="w-[460px] bg-background p-4 text-foreground"><BrowserRunView initial={RUN} compact /></div>);
 
+    // With the steps folded, the steps where a rule decided are still in view.
+    expect(document.querySelector('details')?.open).toBe(false);
+    expect(document.querySelectorAll('[data-browser-rule-steps] [data-browser-step-rule]')).toHaveLength(2);
+
     const step = document.querySelector('[data-browser-step-rule="5"]')!;
 
     expect(step.textContent).toContain(`Followed Marcus’s rule (v3): ${LMFT}`);

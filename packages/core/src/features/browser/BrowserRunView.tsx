@@ -467,6 +467,12 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
       )}
       {run.error && run.status === 'failed' && !run.summary && <p className="text-sm text-brand-fail">{run.error}</p>}
 
+      {/* Where a rule decided instead of asking is what a reader checks first: shown even with the steps folded. */}
+      {compact && !active && run.steps.some(s => s.kind === 'rule') && (
+        <ol className="border-t border-border/60 pt-3" data-browser-rule-steps>
+          {run.steps.filter(s => s.kind === 'rule').map(s => <StepRow key={s.n} step={s} shown={shown?.n === s.n} onShow={showStep} />)}
+        </ol>
+      )}
       {run.steps.length > 0 && (
         <details open={active || !compact} className="border-t border-border/60 pt-3">
           <summary className="cursor-pointer list-none text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{`Steps · ${run.steps.length}`}</summary>
