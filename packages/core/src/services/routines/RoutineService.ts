@@ -845,8 +845,13 @@ export function runWaitAsk(input: { routineName: string; trustLabel: string; run
   const shot = pageShotMd(w.shotUrl);
   const who = run.label.split(' · ')[0]!;
   if (w.kind === 'approval') {
+    // The step names its control in quotes ("Click “Submit application” on larkspur…"): keep its
+    // quotes and the words after them; a step with no quoted name is quoted whole.
+    const step = (w.step ?? w.text).replace(/^Click /, '').trim();
+    const named = /^[“"]([^”"]+)[”"](.*)$/.exec(step);
+    const what = named ? `“${named[1]}”${named[2]!.trimEnd()}` : `“${step}”`;
     return {
-      title: `${who}: approve “${clipAtWord((w.step ?? w.text).replace(/^Click /, '').replace(/^[“"]|[”"]$/g, ''), 60)}”?`,
+      title: `${who}: approve ${clipAtWord(what, 80)}?`,
       body: `${routineName}, run ${run.n} holds before this click: at ${trustLabel} trust it is outside what the approved spec takes on its own.`,
       contextMd: [where, shot].filter(Boolean).join('\n\n'),
       contextUrl,

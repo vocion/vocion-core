@@ -217,6 +217,9 @@ describe('a run that stops to ask its expert', () => {
     const asked = runWaitAsk({ ...base, w: { kind: 'approval', text: 'Click “Submit application”', step: 'Click “Submit application”', shotUrl: shot, at: '2026-11-04T15:00:00Z' } });
 
     expect(asked.title).toBe('Dana Whitfield: approve “Submit application”?');
+    // The words after the control's name stay outside its quotes.
+    expect(runWaitAsk({ ...base, w: { kind: 'approval', text: 'x', step: 'Click “Submit application” on larkspur.example', at: '2026-11-04T15:00:00Z' } }).title).toBe('Dana Whitfield: approve “Submit application” on larkspur.example?');
+    expect(runWaitAsk({ ...base, w: { kind: 'approval', text: 'Save the form', at: '2026-11-04T15:00:00Z' } }).title).toBe('Dana Whitfield: approve “Save the form”?');
     expect(asked.contextMd).toContain(`![The page as it stopped](${shot})`);
     expect(asked.contextUrl).toBe('/dashboard/browser/318');
   });
