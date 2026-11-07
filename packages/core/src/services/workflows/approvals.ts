@@ -11,9 +11,11 @@
  * - A run resumed or cancelled anywhere else (the review queue, the API)
  *   closes its open Decision, so nothing is left to answer twice.
  */
+import type { DecisionFact } from '@/libs/decisions/decision';
 import type { Ask } from '@/services/AskService';
 import { and, eq, like } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { factsTable } from '@/libs/decisions/decision';
 import { askSchema } from '@/models/Schema';
 
 const PREFIX = 'workflow-run';
@@ -75,6 +77,38 @@ export function outputMarkdown(value: unknown, depth = 0): string {
     .join('\n');
 }
 
+const ARTIFACT_REF = /^artifact:(\d+)$/;
+
+/**
+ * What a step made, as the facts a person approves it on, when it made a list
+ * of items: one row per item, named by its first text field, the rest of its
+ * text on the row, and the row opening the first artifact the item names.
+ * Null when the output is not a list of items. Pure.
+ * @param output - The reviewed step's output.
+ */
+export function reviewedFacts(output: unknown): DecisionFact[] | null {
+  const lists = Array.isArray(output)
+    ? [output]
+    : output && typeof output === 'object' ? Object.values(output as Record<string, unknown>).filter(Array.isArray) : [];
+  const items = lists.length === 1 ? (lists[0] as unknown[]) : [];
+  if (items.length === 0 || !items.every(i => i && typeof i === 'object' && !Array.isArray(i))) {
+    return null;
+  }
+  const facts = (items as Array<Record<string, unknown>>).slice(0, 20).map((item) => {
+    const entries = Object.entries(item).filter(([, v]) => typeof v === 'string' || typeof v === 'number').map(([k, v]) => [k, String(v).trim()] as const).filter(([, v]) => v);
+    const artifact = entries.map(([, v]) => ARTIFACT_REF.exec(v)).find(Boolean);
+    const text = entries.filter(([, v]) => !ARTIFACT_REF.test(v) && !/^https?:\/\//.test(v));
+    const [first, ...rest] = text;
+    if (!first) {
+      return null;
+    }
+    // A bare number reads with its field's name ("provider count 4"); text reads as it is.
+    const value = rest.map(([k, v]) => (/^\d+(?:\.\d+)?$/.test(v) ? `${k.replace(/[_-]+/g, ' ')} ${v}` : v)).join(' · ') || '—';
+    return { label: first[1], value, ...(artifact ? { href: `/dashboard/artifacts/${artifact[1]}` } : {}) };
+  });
+  return facts.every(Boolean) ? facts as DecisionFact[] : null;
+}
+
 /**
  * File (or refresh) the Decision an approve step waits on. Idempotent on the
  * step: a replayed segment updates the same row.
@@ -122,7 +156,8 @@ export async function fileApprovalAsk(opts: {
   if (same && same.sourceRef !== sourceRef) {
     title = `#${opts.runId} · ${question}`;
   }
-  const reviewed = opts.reviewed ? outputMarkdown(opts.reviewed.output) : '';
+  const facts = opts.reviewed ? reviewedFacts(opts.reviewed.output) : null;
+  const reviewed = opts.reviewed && !facts ? outputMarkdown(opts.reviewed.output) : '';
   const runHref = `/dashboard/workflows/${encodeURIComponent(opts.workflow.slug)}/runs/${opts.runId}`;
   const { ask } = await upsertAsk({
     orgId: opts.orgId,
@@ -134,10 +169,13 @@ export async function fileApprovalAsk(opts: {
       sourceRef,
       agentSlug: opts.workflow.agent ?? null,
       contextUrl: runHref,
-      contextMd: [
-        reviewed ? `**${opts.reviewed!.label}**\n\n${reviewed}` : null,
-        `[The run, step by step](${runHref})`,
-      ].filter(Boolean).join('\n\n'),
+      // Facts are drawn as a list on the card; the run, step by step, is its Details.
+      contextMd: facts
+        ? factsTable(facts.map(f => ({ label: f.label, value: f.href ? `[${f.value}](${f.href})` : f.value })), opts.reviewed!.label)
+        : [
+            reviewed ? `**${opts.reviewed!.label}**\n\n${reviewed}` : null,
+            `[The run, step by step](${runHref})`,
+          ].filter(Boolean).join('\n\n'),
       outcomes: { onApprove: 'The run goes on to its next step.', onReject: 'The run stops here.' },
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
       ...(opts.ownerUserId ? { ownerUserId: opts.ownerUserId } : {}),

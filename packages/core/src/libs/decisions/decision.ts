@@ -130,8 +130,8 @@ export type DecisionView = {
 /** A picture on a Decision: an in-app image and what it shows. */
 export type DecisionPicture = { src: string; alt: string };
 
-/** One fact a Decision is decided on. */
-export type DecisionFact = { label: string; value: string };
+/** One fact a Decision is decided on; `href`, when it opens in the app. */
+export type DecisionFact = { label: string; value: string; href?: string };
 
 /** The option that runs it this once. */
 export const ALLOW_ONCE_ID = 'approve';
@@ -237,7 +237,13 @@ export function factsOf(md: string | null | undefined): { facts: DecisionFact[];
   if (!isTable) {
     return { facts: [], rest: text || null };
   }
-  const facts = rows.slice(2).filter(r => r[0] && r[1]).map(([label, value]) => ({ label: label!, value: value! }));
+  // A value written as one in-app link (`[text](/dashboard/…)`) opens it.
+  const fact = (label: string, value: string): DecisionFact => {
+    const link = /^\[([^\]]+)\]\((\S+)\)$/.exec(value);
+    const href = link ? inAppHref(link[2]) : null;
+    return href ? { label, value: link![1]!, href } : { label, value };
+  };
+  const facts = rows.slice(2).filter(r => r[0] && r[1]).map(([label, value]) => fact(label!, value!));
   const rest = lines.slice(end).join('\n').trim();
   return { facts, rest: rest || null };
 }
