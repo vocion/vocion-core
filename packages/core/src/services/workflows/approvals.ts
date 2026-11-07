@@ -108,17 +108,19 @@ export async function fileApprovalAsk(opts: {
   const { upsertAsk } = await import('@/services/AskService');
   const sourceRef = workflowAskRef(opts.runId, opts.step);
   const named = opts.runLabel?.trim() || `${opts.workflow.name} #${opts.runId}`;
-  let title = `${opts.label} · ${named}`;
+  // Asked as its author wrote it: the step's prompt is the question; the step and run are named under it.
+  const question = opts.prompt.trim() || opts.label;
+  let title = question;
   // An open Decision of the same kind and title IS that Decision to the ask
-  // store, so two runs that share a label would share one answer. The run's
-  // number keeps them apart.
+  // store, so two runs that ask the same thing would share one answer. The
+  // run's number keeps them apart.
   const [same] = await db
     .select({ sourceRef: askSchema.sourceRef })
     .from(askSchema)
     .where(and(eq(askSchema.orgId, opts.orgId), eq(askSchema.status, 'open'), eq(askSchema.kind, 'approval'), eq(askSchema.title, title)))
     .limit(1);
   if (same && same.sourceRef !== sourceRef) {
-    title = `${title} (#${opts.runId})`;
+    title = `#${opts.runId} · ${question}`;
   }
   const reviewed = opts.reviewed ? outputMarkdown(opts.reviewed.output) : '';
   const runHref = `/dashboard/workflows/${encodeURIComponent(opts.workflow.slug)}/runs/${opts.runId}`;
@@ -128,7 +130,7 @@ export async function fileApprovalAsk(opts: {
     ask: {
       kind: 'approval',
       title,
-      body: opts.prompt,
+      body: `${opts.label} · ${named}`,
       sourceRef,
       agentSlug: opts.workflow.agent ?? null,
       contextUrl: runHref,
