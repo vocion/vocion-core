@@ -14,12 +14,14 @@ vi.mock('@/services/routines/routineReads', async (orig) => {
   return { ...real, findRoutine: vi.fn(), getBatch: vi.fn() };
 });
 vi.mock('@/services/routines/RoutineService', () => ({ startRoutineBatch: vi.fn() }));
+vi.mock('@/services/chat/tellConversation', () => ({ tellConversation: vi.fn(async () => ({ said: true })) }));
 
 const { db } = await import('@/libs/DB');
 const { workflowRunSchema, workflowSchema } = await import('@/models/Schema');
 const { getWorkflowRun, resumeWorkflow, settleBatchStep, startWorkflow } = await import('@/services/WorkflowService');
 const reads = await import('@/services/routines/routineReads');
 const { startRoutineBatch } = await import('@/services/routines/RoutineService');
+const { tellConversation } = await import('@/services/chat/tellConversation');
 
 const ORG = 'proj_batchstep_cedar';
 
@@ -50,6 +52,7 @@ describe('a workflow step that waits for an automation batch', () => {
     await db.delete(workflowRunSchema).where(eq(workflowRunSchema.orgId, ORG));
     await db.delete(workflowSchema).where(eq(workflowSchema.orgId, ORG));
     vi.mocked(reads.getBatch).mockReset();
+    vi.mocked(tellConversation).mockClear();
   });
 
   it('pauses until the batch closes, then hands each row\'s read-back to the next step', async () => {
@@ -97,5 +100,28 @@ describe('a workflow step that waits for an automation batch', () => {
 
     expect(run.status).toBe('completed');
     expect(run.stepResults.check).toMatchObject({ output: { batchId: 42, rows: 1 } });
+  });
+
+  it('a run started from a conversation says there that it is done, or why it stopped', async () => {
+    vi.mocked(reads.findRoutine).mockResolvedValueOnce({ id: 7, name: 'Check a provider\'s license', expert: null } as never);
+    vi.mocked(startRoutineBatch).mockResolvedValue({ id: 43, total: 1 } as never);
+    await db.insert(workflowSchema).values({ orgId: ORG, slug: 'told', name: 'Enroll', status: 'active', trigger: { type: 'manual' }, steps: [{ ...STEPS[0], input: { routine: 'check-license', rows: '{{input.rows}}' } }], ownerAgentSlug: 'coordinator' });
+
+    const done = await startWorkflow({ orgId: ORG, slug: 'told', input: { rows: [{ npi: '1' }] }, triggerContext: { conversationId: 12 } });
+
+    expect(done.status).toBe('completed');
+    expect(vi.mocked(tellConversation)).toHaveBeenCalledWith(ORG, 12, expect.stringContaining('Enroll is done: every step finished.'), expect.objectContaining({ key: `workflow-run:${done.id}:completed` }));
+
+    vi.mocked(reads.findRoutine).mockResolvedValueOnce(null as never);
+    const failed = await startWorkflow({ orgId: ORG, slug: 'told', input: { rows: [{ npi: '1' }] }, triggerContext: { conversationId: 12 } });
+
+    expect(failed.status).toBe('failed');
+    expect(vi.mocked(tellConversation)).toHaveBeenLastCalledWith(ORG, 12, expect.stringMatching(/^Enroll stopped\. step .* failed: routine\.run: no routine "check-license"/), expect.objectContaining({ key: `workflow-run:${failed.id}:failed` }));
+
+    vi.mocked(tellConversation).mockClear();
+    vi.mocked(reads.findRoutine).mockResolvedValueOnce({ id: 7, name: 'Check a provider\'s license', expert: null } as never);
+    await startWorkflow({ orgId: ORG, slug: 'told', input: { rows: [{ npi: '1' }] } });
+
+    expect(vi.mocked(tellConversation)).not.toHaveBeenCalled();
   });
 });

@@ -327,9 +327,13 @@ export async function settleActionStep(runId: number, orgId: string, stepName: s
   const inGroup = where.inner !== undefined;
   if (outcome.kind === 'failed' && !inGroup) {
     stepResults[stepName] = { ...prev, status: 'failed', output: outcome.output, error: outcome.error, finishedAt };
-    await db.update(workflowRunSchema)
+    const [failed] = await db.update(workflowRunSchema)
       .set({ stepResults, status: 'failed', error: `step "${prev.label ?? stepName}" failed: ${outcome.error}`, completedAt: new Date(), pauseReason: null, pausedAt: null })
-      .where(and(eq(workflowRunSchema.id, runId), eq(workflowRunSchema.status, 'paused')));
+      .where(and(eq(workflowRunSchema.id, runId), eq(workflowRunSchema.status, 'paused')))
+      .returning();
+    if (failed && wf) {
+      await tellRunEnded(failed, wf);
+    }
     return;
   }
   stepResults[stepName] = outcome.kind === 'done'
@@ -643,6 +647,7 @@ export async function advanceWorkflowRun(runId: number): Promise<WorkflowRunSumm
         completedAt: new Date(),
       });
       const [failed] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
+      await tellRunEnded(failed!, workflow);
       return summarize(failed!);
     }
     cursor += 1;
@@ -659,7 +664,34 @@ export async function advanceWorkflowRun(runId: number): Promise<WorkflowRunSumm
     completedAt: new Date(),
   });
   const [done] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
+  await tellRunEnded(done!, workflow);
   return summarize(done!);
+}
+
+/**
+ * A run started from a conversation says there how it ended, the way an
+ * automation batch does: done, or stopped and why, with the run one link
+ * away. Nothing when no conversation started it. Never throws.
+ * @param row - The run as it ended.
+ * @param workflow - Its workflow.
+ * @param workflow.slug - Its slug.
+ * @param workflow.name - Its name.
+ */
+async function tellRunEnded(row: typeof workflowRunSchema.$inferSelect, workflow: { slug: string; name: string }): Promise<void> {
+  const conversationId = Number((row.triggerContext as Record<string, unknown> | null)?.conversationId) || null;
+  if (!conversationId || (row.status !== 'completed' && row.status !== 'failed')) {
+    return;
+  }
+  const input = (row.input as Record<string, unknown> | null) ?? {};
+  const named = typeof input[RUN_LABEL_INPUT_KEY] === 'string' && (input[RUN_LABEL_INPUT_KEY] as string).trim() ? input[RUN_LABEL_INPUT_KEY] as string : workflow.name;
+  const href = `/dashboard/workflows/${encodeURIComponent(workflow.slug)}/runs/${row.id}`;
+  const line = row.status === 'completed' ? `${named} is done: every step finished.` : `${named} stopped. ${row.error ?? 'A step failed.'}`;
+  try {
+    const { tellConversation } = await import('@/services/chat/tellConversation');
+    await tellConversation(row.orgId, conversationId, `${line}\n\n[Open the run](${href})`, { key: `workflow-run:${row.id}:${row.status}`, url: href });
+  } catch (err) {
+    console.warn('[workflow] could not tell the conversation how the run ended', { runId: row.id, message: (err as Error).message });
+  }
 }
 
 /**
