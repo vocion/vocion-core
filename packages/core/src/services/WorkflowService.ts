@@ -5,7 +5,7 @@ import { db } from '@/libs/DB';
 import { evaluateCondition, interpolateString, interpolateText, interpolateValue } from '@/libs/workflows/expressions';
 import { isSettled } from '@/libs/workflows/stepResult';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
-import { workflowRunSchema, workflowSchema } from '@/models/Schema';
+import { userSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
 
 /**
  * Workflow execution — a fixed procedure, the same structure on every run.
@@ -1120,6 +1120,11 @@ async function pauseForApproval(state: RunState, step: Extract<WorkflowStep, { t
   let askId: number | undefined;
   try {
     const { fileApprovalAsk } = await import('@/services/workflows/approvals');
+    // A run started from a conversation brings its Decision back there, waiting on whoever started it.
+    const conversationId = Number(state.scope.trigger?.conversationId) || null;
+    const [starter] = state.run.createdBy
+      ? await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.id, state.run.createdBy)).limit(1)
+      : [];
     askId = await fileApprovalAsk({
       orgId: state.run.orgId,
       runId: state.run.id,
@@ -1129,6 +1134,8 @@ async function pauseForApproval(state: RunState, step: Extract<WorkflowStep, { t
       label,
       prompt,
       reviewed,
+      conversationId,
+      ownerUserId: starter?.id ?? null,
     });
   } catch (err) {
     // The run still waits where the review queue shows it; the card is a

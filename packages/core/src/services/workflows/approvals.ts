@@ -48,13 +48,21 @@ export function outputMarkdown(value: unknown, depth = 0): string {
     return '';
   }
   if (typeof value === 'string') {
-    return cut(value, 1500);
+    // An artifact a step made (`artifact:<id>`) opens from the card.
+    const ref = /^artifact:(\d+)$/.exec(value.trim());
+    return ref ? `[Open](/dashboard/artifacts/${ref[1]})` : cut(value, 1500);
   }
   if (typeof value !== 'object') {
     return String(value);
   }
   if (depth > 0) {
-    return cut(Array.isArray(value) && value.every(v => typeof v !== 'object') ? value.join(', ') : JSON.stringify(value), 300);
+    // One item of a list: its fields on one line, each artifact it names a link.
+    if (!Array.isArray(value)) {
+      return Object.entries(value as Record<string, unknown>)
+        .map(([k, v]) => `${k}: ${typeof v === 'string' ? outputMarkdown(v.length > 300 ? cut(v, 300) : v) : cut(JSON.stringify(v) ?? '', 200)}`)
+        .join(' · ');
+    }
+    return cut(value.every(v => typeof v !== 'object') ? value.join(', ') : JSON.stringify(value), 300);
   }
   if (Array.isArray(value)) {
     return value.slice(0, 20).map(v => `- ${outputMarkdown(v, 1)}`).join('\n');
@@ -82,6 +90,8 @@ export function outputMarkdown(value: unknown, depth = 0): string {
  * @param opts.label - The step's label.
  * @param opts.prompt - The step's prompt, interpolated.
  * @param opts.reviewed - What it reviews: the step's label and output.
+ * @param opts.conversationId - The conversation the run was started from: the Decision docks there.
+ * @param opts.ownerUserId - The person who started the run: the Decision waits on them.
  */
 export async function fileApprovalAsk(opts: {
   orgId: string;
@@ -92,6 +102,8 @@ export async function fileApprovalAsk(opts: {
   label: string;
   prompt: string;
   reviewed?: { label: string; output: unknown } | null;
+  conversationId?: number | null;
+  ownerUserId?: string | null;
 }): Promise<number> {
   const { upsertAsk } = await import('@/services/AskService');
   const sourceRef = workflowAskRef(opts.runId, opts.step);
@@ -125,6 +137,8 @@ export async function fileApprovalAsk(opts: {
         `[The run, step by step](${runHref})`,
       ].filter(Boolean).join('\n\n'),
       outcomes: { onApprove: 'The run goes on to its next step.', onReject: 'The run stops here.' },
+      ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+      ...(opts.ownerUserId ? { ownerUserId: opts.ownerUserId } : {}),
     },
   });
   return ask.id;
