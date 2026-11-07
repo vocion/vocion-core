@@ -137,7 +137,11 @@ export async function routineSavings(orgId: string, opts: { routineId?: number; 
   const all = counted.map(c => c.run);
   const fromWeeks = Date.parse(`${weekOf(now, timeZone)}T00:00:00Z`) - (weeks - 1) * 7 * 86_400_000;
   const recentRuns = runsSince(all, fromWeeks);
-  const lastSample = counted.filter(c => c.sample && c.run.at).map(c => Date.parse(c.run.at!)).reduce<number | null>((m, t) => (m === null || t > m ? t : m), null);
+  // Where the workspace's sample history ends, across every automation, so each surface names the same day.
+  const sampleEnd = counted.some(c => c.sample)
+    ? await db.select({ last: sql<Date | string | null>`max(${routineBatchSchema.endedAt})` }).from(routineBatchSchema).where(and(eq(routineBatchSchema.orgId, orgId), eq(routineBatchSchema.sample, true))).then(r => r[0]?.last ?? null)
+    : null;
+  const lastSample = sampleEnd === null ? null : new Date(sampleEnd).getTime();
   const byRoutine = routines.map((r) => {
     const mine = counted.filter(c => c.routineId === r.id).map(c => c.run);
     return { id: r.id, slug: r.slug, name: r.name, savings: savingsOf(mine, rate), recent: savingsOf(runsSince(mine, fromWeeks), rate) };
