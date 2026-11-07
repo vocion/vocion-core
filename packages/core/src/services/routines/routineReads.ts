@@ -11,9 +11,11 @@ import type { RoutineBatchView, RoutineRunStatus, RoutineRunView, RoutineVersion
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { rulesAddedByVersion, rulesFollowedIn } from '@/libs/routines/ruleUse';
+import { savingsOf } from '@/libs/routines/savings';
 import { routineRunOpen, TAUGHT_AGAIN } from '@/libs/routines/types';
 import { browserRunSchema, routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema, userSchema } from '@/models/Schema';
 import { toView as browserView } from '@/services/browser/runReads';
+import { ledgerByRun, runCents, workspaceHourlyRate } from './savingsReads';
 
 type RoutineRow = typeof routineSchema.$inferSelect;
 type VersionRow = typeof routineVersionSchema.$inferSelect;
@@ -229,8 +231,11 @@ export async function batchesOf(orgId: string, routineId: number): Promise<Array
  * A run of an automation as its tile draws it.
  * @param r - The run.
  * @param b - Its browser run, when it has one.
+ * @param ledger - Its model calls in the spend ledger, when any.
+ * @param ledger.tokens
+ * @param ledger.microCents
  */
-function runView(r: RunRow, b: typeof browserRunSchema.$inferSelect | undefined): RoutineRunView {
+function runView(r: RunRow, b: typeof browserRunSchema.$inferSelect | undefined, ledger?: { tokens: number; microCents: number }): RoutineRunView {
   const bv = b ? browserView(b) : null;
   const last = bv ? [...bv.steps].reverse()[0] : undefined;
   return {
@@ -249,7 +254,9 @@ function runView(r: RunRow, b: typeof browserRunSchema.$inferSelect | undefined)
     summary: r.summary,
     error: r.error,
     humanMs: Number(r.humanMs ?? 0),
-    cents: bv?.cents ?? 0,
+    decisions: Number(r.decisions ?? 0),
+    cents: runCents(ledger, Number(b?.microCents ?? 0)),
+    tokens: ledger?.tokens ?? 0,
     startedAt: r.startedAt?.toISOString() ?? null,
     endedAt: r.endedAt?.toISOString() ?? null,
   };
@@ -280,10 +287,13 @@ export async function batchView(b: BatchRow): Promise<RoutineBatchView> {
   const browserIds = runs.map(r => r.browserRunId).filter((x): x is number => typeof x === 'number');
   const browsers = browserIds.length > 0 ? await db.select().from(browserRunSchema).where(inArray(browserRunSchema.id, browserIds)) : [];
   const byId = new Map(browsers.map(x => [x.id, x]));
-  const names = await namesOf([b.requestedBy, routine?.expertUserId]);
-  const views = runs.map(r => runView(r, r.browserRunId ? byId.get(r.browserRunId) : undefined));
+  const [names, ledger, rate] = await Promise.all([namesOf([b.requestedBy, routine?.expertUserId]), ledgerByRun(runs.map(r => r.id)), workspaceHourlyRate(b.orgId)]);
+  const views = runs.map(r => runView(r, r.browserRunId ? byId.get(r.browserRunId) : undefined, ledger.get(r.id)));
   const tiles = views.filter(v => v.n > 0);
   const cents = views.reduce((s, v) => s + v.cents, 0);
+  const manualMinutes = version?.spec.manualMinutes ?? null;
+  // The reconciliation (row 0) is work for the batch, not a row: its cost counts, nothing else.
+  const savings = savingsOf(views.map(v => ({ overhead: v.n === 0, status: v.status, manualMinutes: v.n > 0 ? manualMinutes : null, humanMs: v.humanMs, cents: v.cents, tokens: v.tokens, decisions: v.decisions, at: v.endedAt ?? v.startedAt })), rate);
   return {
     id: b.id,
     routine: { id: b.routineId, name: routine?.name ?? 'An automation', version: b.version, trust: routine?.trust ?? 'drafted', expert: routine?.expertUserId ? names.get(routine.expertUserId) ?? null : null },
@@ -294,7 +304,10 @@ export async function batchView(b: BatchRow): Promise<RoutineBatchView> {
     total: tiles.length,
     cents,
     humanMs: views.reduce((s, v) => s + v.humanMs, 0),
-    manualMinutes: version?.spec.manualMinutes ?? null,
+    manualMinutes,
+    tokens: views.reduce((s, v) => s + v.tokens, 0),
+    savings,
+    sample: b.sample,
     fields: {
       inputs: (version?.spec.inputs ?? []).filter(i => !i.secret && !i.shared).map(i => ({ name: i.name, key: Boolean(i.key) })),
       outputs: (version?.spec.outputs ?? []).map(o => ({ name: o.name, checks: o.checks ?? null })),

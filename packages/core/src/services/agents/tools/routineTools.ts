@@ -301,12 +301,44 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ),
     tool(
       async (raw: unknown) => {
-        const args = raw as { batch_id: number };
+        const args = raw as { batch_id?: number; automation?: string | number; dashboard?: boolean };
+        if (!args.batch_id) {
+          // What the automations saved over time: all of them, or one.
+          const { findRoutine } = await reads();
+          const one = args.automation !== undefined && args.automation !== '' ? await findRoutine(ctx.orgId, args.automation) : null;
+          if (args.automation !== undefined && args.automation !== '' && !one) {
+            return `No automation “${args.automation}” in this workspace. routine_list names them.`;
+          }
+          const { routineSavings } = await import('@/services/routines/savingsReads');
+          const { dayLabel, savingMethod, savingSentence } = await import('@/libs/routines/savings');
+          const report = await routineSavings(ctx.orgId, { ...(one ? { routineId: one.id } : {}) });
+          const brief = (s: typeof report.total) => ({ saved: savingSentence(s), runs: s.runs, finished: s.done, decisions: s.decisions, saved_hours: s.savedMinutes === null ? null : Math.round(s.savedMinutes / 6) / 10, worth: s.savedCents === null ? null : `$${(s.savedCents / 100).toFixed(2)}`, run_cost: `$${(s.costCents / 100).toFixed(2)}`, tokens: s.tokens });
+          let dashboard: { artifactId: number; url: string } | null = null;
+          if (args.dashboard && !one) {
+            const { fileSavingsDashboard, SAVINGS_DASHBOARD_TITLE } = await import('@/services/routines/savingsDashboard');
+            const filed = await fileSavingsDashboard(ctx.orgId, { kind: 'agent', id: ctx.agentSlug ?? null }, { conversationId: ctx.conversationId ?? null });
+            dashboard = { artifactId: filed.artifactId, url: `/dashboard/artifacts/${filed.artifactId}` };
+            ctx.emit({ type: 'record_created', record: await ref('artifact', filed.artifactId, SAVINGS_DASHBOARD_TITLE) });
+          }
+          return JSON.stringify({
+            automation: one ? one.name : 'every automation in this workspace',
+            this_month: brief(report.month),
+            last_8_weeks: brief(report.recent),
+            all_time: brief(report.total),
+            weekly: report.weeks.map(w => ({ week_of: w.label, runs: w.savings.runs, saved_hours: w.savings.savedMinutes === null ? null : Math.round(w.savings.savedMinutes / 6) / 10, run_cost: `$${(w.savings.costCents / 100).toFixed(2)}` })),
+            ...(one ? {} : { by_automation: report.byRoutine.map(r => ({ name: r.name, ...brief(r.savings) })) }),
+            how_it_is_worked_out: savingMethod(report.recent),
+            ...(report.sampleBefore ? { sample_history: `Runs before ${dayLabel(report.sampleBefore)} are sample history a demo seeded; say so when you quote them.` } : {}),
+            ...(report.rate ? {} : { no_hourly_rate: 'The workspace sets no hourly rate (defaults.hourlyRate), so the saving is in hours only.' }),
+            ...(dashboard ? { dashboard } : {}),
+            note: 'Answer with the conclusion first, in one or two sentences (the `saved` line for the period asked about). Give how it is worked out only if asked. An automation with no baseline has no saving: say what it ran and cost.',
+          });
+        }
         const { buildRoutineReport, RoutineError } = await svc();
         try {
           const rep = await buildRoutineReport(ctx.orgId, userId, args.batch_id);
           ctx.emit({ type: 'record_created', record: await ref('artifact', rep.artifactId, `${batchLabel(args.batch_id)} report`) });
-          return JSON.stringify({ artifactId: rep.artifactId, url: rep.url, report: rep.markdown.slice(0, 6_000), note: 'The report is beside the conversation. Give the person its headline in three or four sentences: results, time against the manual baseline, cost, and any finding with the question it asks. Do not paste the tables.' });
+          return JSON.stringify({ artifactId: rep.artifactId, url: rep.url, report: rep.markdown.slice(0, 6_000), note: 'The report is beside the conversation. Give the person its headline in three or four sentences: results, what it saved against the baseline and what it cost, and any finding with the question it asks. Do not paste the tables.' });
         } catch (e) {
           if (e instanceof RoutineError) {
             return `No report: ${e.message}`;
@@ -316,8 +348,8 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
       },
       {
         name: 'routine_report',
-        description: 'Write the summary report of an automation batch, by batch id: results verified by read-back, escalations and how they were answered, human minutes against the manual baseline, run cost, findings (records in the system that are not on the list), and the expert\'s rules its runs followed instead of asking. Filed as an artifact.',
-        schema: { type: 'object', properties: { batch_id: { type: 'integer', minimum: 1 } }, required: ['batch_id'] },
+        description: 'What automations saved, and what they cost. With batch_id: the report of one batch, filed as an artifact (results verified by read-back, escalations and their answers, time saved against the baseline, run cost and tokens, findings, and the expert\'s rules its runs followed instead of asking). Without batch_id: what has this saved us — time saved, its worth at the workspace\'s hourly rate, run cost and tokens from the spend ledger, decisions the expert made, this month, the last 8 weeks week by week, and all time; for one automation (automation: its id, slug or name) or all of them. dashboard: true (all automations) also files or refreshes the savings dashboard.',
+        schema: { type: 'object', properties: { batch_id: { type: 'integer', minimum: 1 }, automation: { type: 'string', description: 'One automation, by id, slug or name; omit for all.' }, dashboard: { type: 'boolean', description: 'File or refresh the savings dashboard (all automations).' } } },
       },
     ),
     tool(

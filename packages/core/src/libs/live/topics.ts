@@ -20,7 +20,7 @@
  * | `notification:<userId>` | a notification for that person (`publish()`); only that person may follow it |
  * | `browser:<id>` | a `browser_run` (`publish()`) |
  * | `routine:<id>` | a `routine`: teaching moved, a version drafted or approved, trust changed (`publish()`) |
- * | `routine-batch:<id>` | a `routine_batch`: any of its runs moved, a finding raised or answered (`publish()`) |
+ * | `routine-batch:<id>` | a `routine_batch`: any of its runs moved, a finding raised or answered (`publish()`); it joins `runs` too |
  *
  * The first eight are published by triggers (migration 0155); anything else
  * goes through `publish()` in `libs/live/publish.ts`.

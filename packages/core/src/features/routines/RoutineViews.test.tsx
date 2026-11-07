@@ -2,6 +2,7 @@ import type { RoutineBatchView as Batch, RoutineView as Routine, RoutineRunStatu
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { savingsOf } from '@/libs/routines/savings';
 import '@/styles/global.css';
 
 /** Where the look-at screenshots go: outside the tree. */
@@ -76,7 +77,9 @@ function run(n: number): RoutineRunView {
     summary: done ? `Added ${name} and enrolled them.` : null,
     error: status === 'failed' ? 'The console signed out mid-save; nothing was written.' : null,
     humanMs: 0,
+    decisions: 0,
     cents: 6,
+    tokens: 4_200,
     startedAt: status === 'queued' ? null : started,
     endedAt: done || status === 'failed' || status === 'skipped' ? new Date(Date.parse(started) + 95_000).toISOString() : null,
   };
@@ -96,6 +99,9 @@ const BATCH: Batch = {
   cents: 118,
   humanMs: 140_000,
   manualMinutes: 6,
+  tokens: 84_000,
+  savings: savingsOf(runs.map(r => ({ status: r.status, manualMinutes: 6, humanMs: r.humanMs, cents: r.cents, tokens: r.tokens, decisions: 0, at: r.endedAt })), { cents: 4500, of: 'specialist' }),
+  sample: false,
   fields: { inputs: [{ name: 'email', key: true }, { name: 'full_name', key: false }], outputs: [{ name: 'user_email', checks: 'email' }, { name: 'enrolled_in', checks: 'campaign' }] },
   startedAt: new Date(Date.now() - 310_000).toISOString(),
   endedAt: null,
@@ -167,6 +173,8 @@ describe('the batch queue', () => {
     expect(widths.size).toBe(1);
     expect(document.querySelectorAll('[data-tile-option]').length).toBe(5);
     expect(document.querySelector('[data-routine-finding="f1"]')).not.toBeNull();
+    // The conclusion leads: the done runs by hand, less people's time, at the rate, for what the runs cost.
+    expect(document.querySelector('[data-routine-saving]')?.textContent).toMatch(/^Saved .+ of specialist time, for \$1\.20 of runs\./);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);
 
     await shotTo('batch-desktop');

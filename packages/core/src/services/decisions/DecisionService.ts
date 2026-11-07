@@ -247,13 +247,13 @@ export const APP_HOME_DECISIONS_LIMIT = 8;
  * the agent hears it on the turn it starts). Oldest first.
  * @param orgId - The workspace.
  * @param userId - The person.
- * @param agentSlugs - The app's agents.
+ * @param agentSlugs - The app's agents; null for whoever asked (a page's Needs you block).
  */
-export async function decisionsFromAgents(orgId: string, userId: string, agentSlugs: readonly string[]): Promise<DecisionView[]> {
-  if (agentSlugs.length === 0) {
+export async function decisionsFromAgents(orgId: string, userId: string, agentSlugs: readonly string[] | null): Promise<DecisionView[]> {
+  if (agentSlugs !== null && agentSlugs.length === 0) {
     return [];
   }
-  const mine = new Set(agentSlugs);
+  const mine = agentSlugs === null ? null : new Set(agentSlugs);
   const [elsewhere, rows, clocks] = await Promise.all([
     waitingElsewhere(orgId, userId),
     db
@@ -263,7 +263,7 @@ export async function decisionsFromAgents(orgId: string, userId: string, agentSl
         eq(askSchema.orgId, orgId),
         eq(askSchema.status, 'open'),
         isNotNull(askSchema.conversationId),
-        inArray(askSchema.agentSlug, [...agentSlugs]),
+        ...(agentSlugs === null ? [] : [inArray(askSchema.agentSlug, [...agentSlugs])]),
         or(isNull(askSchema.ownerUserId), eq(askSchema.ownerUserId, userId)),
         sql`${askSchema.kind} <> 'credential'`,
       ))
@@ -273,7 +273,7 @@ export async function decisionsFromAgents(orgId: string, userId: string, agentSl
   ]);
   const asks = askViews(rows, clocks);
   const inConversations = await forViewer(orgId, userId, rows.map((r, i) => [r, asks[i]!]), []);
-  return oldestFirst([...elsewhere.filter(v => v.agentSlug !== null && mine.has(v.agentSlug)), ...inConversations]).slice(0, APP_HOME_DECISIONS_LIMIT);
+  return oldestFirst([...(mine === null ? elsewhere : elsewhere.filter(v => v.agentSlug !== null && mine.has(v.agentSlug))), ...inConversations]).slice(0, APP_HOME_DECISIONS_LIMIT);
 }
 
 /**

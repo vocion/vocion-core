@@ -10,6 +10,7 @@
  *              back to the site and the recorder, and what it finds as it finds it
  *              (in place of the spec)
  *   questions  what one example could not settle, each with an answer box
+ *   saved      what it saved this month, for what it cost, and the weeks as a trend
  *   run it     rows pasted as CSV, TSV or JSON → a batch, one browser run per row
  *   spec       the steps, rules, escalations, never-dos, inputs, outputs and writes,
  *              each linked to its moment on the recording
@@ -23,6 +24,7 @@
  */
 
 import type { RoutineBatchSummary } from '@/libs/routines/display';
+import type { RoutineSavingsView } from '@/libs/routines/savings';
 import type { RoutineView as Routine, RoutineInputSpec, RoutineQuestion, RoutineTrust, RoutineVersionView, RuleUse } from '@/libs/routines/types';
 import { Check, CircleDot, ExternalLink, FileCode2, KeyRound, LayoutGrid, Lock, Play, Video } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -43,6 +45,7 @@ import { isPracticeRoutine, PracticeRoutineButton } from './PracticeRoutineButto
 import { RecordingFindings } from './RecordingFindings';
 import { MomentLink, ToneChip, TrustChip } from './RoutineChips';
 import { Part } from './RoutineParts';
+import { SavingsOverTime } from './RoutineSavings';
 import { RoutineSpecView } from './RoutineSpecView';
 
 const DOT = { pass: 'pass', amber: 'amber', fail: 'fail', neutral: 'neutral', teal: 'neutral' } as const;
@@ -69,9 +72,10 @@ function useNow(active: boolean, ms = 1000): number {
   return now;
 }
 
-export function RoutineView({ initial, batches: initialBatches = [], compact = false }: { initial: Routine; batches?: RoutineBatchSummary[]; compact?: boolean }) {
+export function RoutineView({ initial, batches: initialBatches = [], savings: initialSavings = null, compact = false }: { initial: Routine; batches?: RoutineBatchSummary[]; savings?: RoutineSavingsView | null; compact?: boolean }) {
   const [routine, setRoutine] = useState<Routine>(initial);
   const [batches, setBatches] = useState<RoutineBatchSummary[]>(initialBatches);
+  const [savings, setSavings] = useState<RoutineSavingsView | null>(initialSavings);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const teaching = Boolean(routine.teaching) || routine.status === 'teaching';
@@ -82,6 +86,7 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
     if (res?.routine) {
       setRoutine(res.routine);
       setBatches(res.batches);
+      setSavings(res.savings);
     }
   }, [routine.id]);
 
@@ -188,6 +193,11 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
       {!teaching && open > 0 && (
         <Part compact={compact} eyebrow={`Open questions · ${open} of ${questions.length}`} testId="routine-questions">
           <Questions questions={questions} sourceUrl={source?.url ?? null} busy={busy} onAnswer={(questionId, answer) => act({ action: 'answer_question', questionId, answer })} />
+        </Part>
+      )}
+      {!teaching && savings && savings.total.runs > 0 && (
+        <Part compact={compact} eyebrow="What it saved" testId="routine-savings">
+          <SavingsOverTime view={savings} />
         </Part>
       )}
       {!teaching && routine.version && routine.status === 'live' && (

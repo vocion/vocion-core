@@ -3,7 +3,7 @@ import type { MonitorRow } from '@/services/workspace/monitors';
 import { and, count, eq, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { sourceNameOf } from '@/libs/sources/upsert';
-import { actionRunSchema, agentSchema, artifactSchema, conversationSchema, knowledgeSourceSchema, playbookSchema } from '@/models/Schema';
+import { actionRunSchema, agentSchema, artifactSchema, conversationSchema, knowledgeSourceSchema, playbookSchema, routineSchema } from '@/models/Schema';
 import { listTeams } from '@/services/TeamService';
 import { loadMonitors } from '@/services/workspace/monitors';
 import { monthStart, prettySlug } from './teamFlowFormat';
@@ -44,9 +44,21 @@ export type TeamBlockView = {
   monthLabel: string;
 };
 
+/** A step's taught automation: where it is, who it stops for, and its latest batch. */
+export type FlowRoutineView = {
+  id: number;
+  name: string;
+  version: number | null;
+  expert: string | null;
+  /** The cases its approved spec stops for the expert on. */
+  escalations: number;
+  batch: { id: number; total: number; done: number; waiting: number; trouble: number; running: number; open: boolean } | null;
+};
+
 export type FlowStepView = FlowStep & {
   agentName: string | null;
   monitor: MonitorRow | null;
+  routineView: FlowRoutineView | null;
   produced: Array<{ id: number; title: string }>;
 };
 
@@ -199,7 +211,8 @@ export async function loadFlowBlock(orgId: string, steps: FlowStep[], now: Date)
   const agentSlugs = [...new Set(steps.map(s => s.agent).filter((s): s is string => Boolean(s)))];
   const automationSlugs = [...new Set(steps.map(s => s.automation).filter((s): s is string => Boolean(s)))];
   const artifactIds = [...new Set(steps.flatMap(s => s.artifacts ?? []))];
-  const [agents, monitors, artifacts] = await Promise.all([
+  const routineSlugs = [...new Set(steps.map(s => s.routine).filter((s): s is string => Boolean(s)))];
+  const [agents, monitors, artifacts, routines] = await Promise.all([
     agentSlugs.length
       ? db.select({ slug: agentSchema.slug, name: agentSchema.name }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), inArray(agentSchema.slug, agentSlugs)))
       : Promise.resolve([]),
@@ -207,12 +220,45 @@ export async function loadFlowBlock(orgId: string, steps: FlowStep[], now: Date)
     artifactIds.length
       ? db.select({ id: artifactSchema.id, title: artifactSchema.title }).from(artifactSchema).where(and(eq(artifactSchema.orgId, orgId), inArray(artifactSchema.id, artifactIds)))
       : Promise.resolve([]),
+    routineSlugs.length ? loadFlowRoutines(orgId, routineSlugs) : Promise.resolve(new Map<string, FlowRoutineView>()),
   ]);
   return steps.map(s => ({
     ...s,
     agentName: s.agent ? (agents.find(a => a.slug === s.agent)?.name ?? null) : null,
     monitor: s.automation ? (monitors.find(m => m.slug === s.automation) ?? null) : null,
+    routineView: s.routine ? routines.get(s.routine) ?? null : null,
     // In the order authored; an id this workspace does not hold is left out.
     produced: (s.artifacts ?? []).map(id => artifacts.find(a => a.id === id)).filter((a): a is { id: number; title: string } => Boolean(a)),
   }));
+}
+
+/**
+ * The taught automations a flow names, each with its expert, how many cases it stops for them on,
+ * and its latest batch counted. A slug this workspace does not have is left out.
+ * @param orgId - The workspace.
+ * @param slugs - The automations.
+ */
+async function loadFlowRoutines(orgId: string, slugs: string[]): Promise<Map<string, FlowRoutineView>> {
+  const { getRoutine, batchesOf } = await import('@/services/routines/routineReads');
+  const rows = await db.select({ id: routineSchema.id, slug: routineSchema.slug }).from(routineSchema).where(and(eq(routineSchema.orgId, orgId), inArray(routineSchema.slug, slugs)));
+  const out = new Map<string, FlowRoutineView>();
+  await Promise.all(rows.map(async (row) => {
+    const [r, batches] = await Promise.all([getRoutine(orgId, row.id), batchesOf(orgId, row.id)]);
+    if (!r) {
+      return;
+    }
+    const b = batches[0];
+    const c = b?.counts ?? {};
+    out.set(row.slug, {
+      id: r.id,
+      name: r.name,
+      version: r.version?.n ?? null,
+      expert: r.expert?.name ?? null,
+      escalations: r.version?.spec.escalations.length ?? 0,
+      batch: b
+        ? { id: b.id, total: b.total, done: (c.done ?? 0) + (c.skipped ?? 0), waiting: (c.waiting ?? 0) + (c.escalated ?? 0), trouble: (c.failed ?? 0) + (c.unknown_outcome ?? 0), running: (c.running ?? 0) + (c.queued ?? 0), open: b.status === 'running' }
+        : null,
+    });
+  }));
+  return out;
 }
