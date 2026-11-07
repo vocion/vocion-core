@@ -18,7 +18,7 @@
 # what a conversion is worth, and who approves.
 slug: marketing
 name: Paid Marketing
-version: 1.0.0
+version: 1.0.1
 description: Paid search run by an agent and approved by you. A Marketing lead reads the Google Ads account every morning and sends a short update — spend against budget, what it bought, the searches that wasted money, ads Google limited — then proposes each change (negatives, keywords, budgets, ad text, a new campaign from a landing page) as a card you approve. Nothing that spends changes without you.
 depends: []
 # Installed into a workspace with no lead of its own (an app added on Vocion

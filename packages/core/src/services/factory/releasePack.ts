@@ -40,7 +40,7 @@ export function shippedPrs(meta: Record<string, unknown>): { shipped: string[]; 
       .filter(c => /^revert\b/i.test(c))
       .flatMap(c => [...c.matchAll(/#(\d+)/g)].map(m => m[1]!)),
   );
-  const number = (u: string) => /\/pull\/(\d+)$/.exec(u)?.[1] ?? '';
+  const number = (u: string) => /\/(?:pull|-\/merge_requests)\/(\d+)$/.exec(u)?.[1] ?? '';
   const unique = [...new Set(named)];
   return {
     shipped: unique.filter(u => !revertedNumbers.has(number(u))),

@@ -1289,5 +1289,30 @@
     "revision": "Revision {count}",
     "closeHistory": "Close history",
     "failed": "Could not load or save the portfolio. Reload and try again."
+  },
+  "CrmDashboard": {
+    "loadError": "CRM could not be loaded. Check workspace access and retry.",
+    "queueError": "Sync could not be queued. Retry.",
+    "queued": "Sync queued. It continues in the background; you can leave this page.",
+    "resume": "Sync stopped. Retry to resume.",
+    "syncing": "Syncing HubSpot…",
+    "sync": "Sync HubSpot",
+    "loadingPolicy": "Loading delivery policy…",
+    "dryRun": "Dry run · Vocion plans and drafts. Email delivery and enrollment are held.",
+    "workspace": "CRM workspace",
+    "incomplete": "No complete HubSpot sync yet. Counts may be incomplete.",
+    "funnel": "Your sales funnel",
+    "loading": "Loading CRM…",
+    "lifecycle": "Lead lifecycle",
+    "empty": "Sync HubSpot to see your leads here.",
+    "deals": "Deals by pipeline and stage",
+    "pipeline": "Pipeline",
+    "stage": "Stage",
+    "dealCount": "Deals",
+    "amount": "Amount",
+    "note": "Current stage counts across all active records. Amounts remain separated by currency. These are not historical conversion rates.",
+    "notRecorded": "Not recorded",
+    "source": "HubSpot remains the source for imported records.",
+    "lastSync": "Last complete sync: {date}"
   }
 }

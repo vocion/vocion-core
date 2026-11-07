@@ -144,6 +144,7 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // versioned, editable. Replaces Canvases, whose saved tile arrangements
   // nobody arranged twice (`/dashboard/canvases` 308s here).
   { url: '/dashboard/artifacts', title: 'Artifacts', group: 'Workspace', icon: FileStack, keywords: ['canvas', 'canvases', 'documents', 'tables', 'charts', 'versions', 'history'], pinnable: true },
+  { url: '/dashboard/lists', title: 'Lists', group: 'Workspace', icon: Database, keywords: ['leads', 'crm', 'follow-ups', 'plans', 'records', 'tables'], pinnable: true },
   // Review is no longer a place: the queue is the `proposal` kind of Review queue
   // (`/dashboard/review` 308s there). The row stays as a PALETTE alias so typing
   // "review" still lands where the work is, without a second sidebar door.

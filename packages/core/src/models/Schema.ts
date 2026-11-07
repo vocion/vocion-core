@@ -394,6 +394,7 @@ export const projectSchema = pgTable(
      * (plugin-owned tools, the capabilities note) and the collectors that
      * only run for a workspace that asked for them. Empty = no plugins.
      */
+    outboundDryRun: boolean('outbound_dry_run').default(false).notNull(),
     enabledPlugins: jsonb('enabled_plugins').$type<string[]>().default([]).notNull(),
     /** Processes that run as durable workflows in this workspace (workspace.yaml `durable:`, backlog 054). */
     enabledDurable: jsonb('enabled_durable').$type<string[]>().default([]).notNull(),
@@ -765,6 +766,56 @@ export const todoSchema = pgTable('todo', {
 /* ------------------------------------------------------------------ */
 
 /** Registry of object type definitions per org (e.g. Discovery Call, Deal, Account) */
+/** Runtime-authored Lists are isolated from the workspace-wide object index. */
+/** Durable HubSpot CRM sync cursor and lease; one per workspace. */
+export const crmSyncSchema = pgTable('crm_sync', {
+  projectId: text('project_id').primaryKey().references(() => projectSchema.id, { onDelete: 'cascade' }),
+  actorId: text('actor_id').notNull(),
+  status: text('status').notNull().default('idle'),
+  state: jsonb('state').$type<import('@/libs/crm/model').CrmState>(),
+  lastCompletedAt: timestamp('last_completed_at', { mode: 'date', withTimezone: true }),
+  error: text('error'),
+  lease: text('lease'),
+  leaseUntil: timestamp('lease_until', { mode: 'date', withTimezone: true }),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+});
+
+export const workspaceListSchema = pgTable('workspace_list', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+  ownerId: text('owner_id').notNull().references(() => userSchema.id),
+  scope: text('scope').notNull().default('personal'),
+  title: text('title').notNull(),
+  purpose: text('purpose').notNull().default(''),
+  fields: jsonb('fields').$type<import('@/libs/lists/spec').ListField[]>().notNull(),
+  views: jsonb('views').$type<import('@/libs/lists/spec').ListView[]>().notNull().default([]),
+  version: integer('version').notNull().default(1),
+  archived: boolean('archived').notNull().default(false),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  index('workspace_list_scope_idx').on(t.projectId, t.scope, t.ownerId),
+  check('workspace_list_scope_check', sql`${t.scope} in ('personal', 'workspace')`),
+]);
+
+export const listRecordSchema = pgTable('list_record', {
+  id: text('id').primaryKey(),
+  listId: text('list_id').notNull().references(() => workspaceListSchema.id, { onDelete: 'cascade' }),
+  values: jsonb('values').$type<Record<string, string | number | boolean | null>>().notNull(),
+  version: integer('version').notNull().default(1),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, t => [index('list_record_list_idx').on(t.listId, t.id)]);
+
+export const listRevisionSchema = pgTable('list_revision', {
+  id: serial('id').primaryKey(),
+  listId: text('list_id').notNull().references(() => workspaceListSchema.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+  actorId: text('actor_id').notNull(),
+  change: jsonb('change').$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, t => [uniqueIndex('list_revision_version_idx').on(t.listId, t.version)]);
+
 export const businessObjectTypeSchema = pgTable(
   'business_object_type',
   {

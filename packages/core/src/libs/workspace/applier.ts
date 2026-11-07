@@ -4,6 +4,7 @@ import type { KnownProcessorNames, SourceUpsertSpec } from '@/libs/sources/upser
 import { readFileSync } from 'node:fs';
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
+import { listWorkspaceSourceKinds } from '@/libs/connectors/families';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow, validateSourceSpec } from '@/libs/sources/upsert';
@@ -224,9 +225,16 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     await applyWorkspaceLeadConfig(orgId, loaded, mode, errors);
   }
 
+  // What an agent `requires` binds to: the sources this apply declares and
+  // the ones the workspace already has. An app installed on Vocion Cloud
+  // declares none (its manifest names only plugins), so without the
+  // workspace's own its agents bound nothing: a Marketing lead with a
+  // connected Google Ads account and no ads tools.
+  const workspaceSources = mode.offline || !orgId ? [] : await listWorkspaceSourceKinds(orgId);
+  const bindable = [...loaded.sources, ...workspaceSources.filter(s => !loaded.sources.some(d => d.slug === s.slug))];
   for (const agent of loaded.agents) {
     try {
-      const bound = { ...agent, connectorSources: boundConnectorSources(agent, loaded.sources) };
+      const bound = { ...agent, connectorSources: boundConnectorSources(agent, bindable) };
       const outcome = await upsertAgent(orgId, bound, defaults, mode, loaded.teams, warnings, track);
       bump(counts.agents, outcome);
       if (!dryRun) {
@@ -1274,6 +1282,7 @@ async function applyWorkspaceLeadConfig(
   // savings are stated in hours alone (`libs/routines/savings.ts`).
   const authoredRate = loaded.manifest.defaults?.hourlyRate;
   const hourlyRate = authoredRate ? { cents: Math.round(authoredRate.amount * 100), of: authoredRate.of ?? null } : null;
+  const outboundDryRun = loaded.manifest.defaults?.outboundDryRun ?? enabledPlugins.includes('native-crm');
   // voice.yaml, declarative like the rest: the whole file lands on the column
   // and deleting the file clears it, dropping the workspace back to core's
   // platform floor.
@@ -1304,6 +1313,7 @@ async function applyWorkspaceLeadConfig(
           operatingIntent: projectSchema.operatingIntent,
           hourlyRate: projectSchema.hourlyRate,
           timeZone: projectSchema.timeZone,
+          outboundDryRun: projectSchema.outboundDryRun,
           goal: projectSchema.goal,
           mailboxAddress: projectSchema.mailboxAddress,
           mailboxEnabled: projectSchema.mailboxEnabled,
@@ -1342,7 +1352,7 @@ async function applyWorkspaceLeadConfig(
     if (mode.offline) {
       return;
     }
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || jev !== null || orgReview !== null || voiceRules !== null || operatingIntent !== null || goal !== null || mailboxEnabled) {
+    if (outboundDryRun || lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || jev !== null || orgReview !== null || voiceRules !== null || operatingIntent !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -1387,6 +1397,7 @@ async function applyWorkspaceLeadConfig(
     && voiceUnchanged
     && operatingIntentUnchanged
     && (project.goal ?? null) === goal
+    && project.outboundDryRun === outboundDryRun
     && (project.timeZone ?? null) === timeZone
     && (project.hourlyRate?.cents ?? null) === (hourlyRate?.cents ?? null) && (project.hourlyRate?.of ?? null) === (hourlyRate?.of ?? null)
     && project.mailboxEnabled === mailboxEnabled
@@ -1397,7 +1408,7 @@ async function applyWorkspaceLeadConfig(
   if (!mode.dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, jev, orgReview, voiceRules, operatingIntent, goal, timeZone, hourlyRate, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, jev, orgReview, voiceRules, operatingIntent, goal, timeZone, hourlyRate, outboundDryRun, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }

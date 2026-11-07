@@ -166,6 +166,7 @@ test.describe('the platform selector decides which controls exist', () => {
       // failing assertion.
       'Apollo',
       'GitHub',
+      'GitLab',
       'Granola',
       'HubSpot',
       'Jira',

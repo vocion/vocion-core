@@ -52,7 +52,8 @@ const WATCHED_TASK_STATES = ['dispatched', 'running', 'awaiting_review', 'review
 
 /** Where a reconcile pass acts on the world, injected in tests. */
 export type ReconcileDeps = {
-  readPull: (orgId: string, url: string) => Promise<{ repo: string; pr: import('@/libs/github/events').GithubPullRequest; checkRuns: import('@/libs/github/events').GithubCheckRun[] }>;
+  /** The pull request and its head's checks, from its own host; `host` keys the events it earned as that host's. */
+  readPull: (orgId: string, url: string) => Promise<{ repo: string; pr: import('@/libs/github/events').GithubPullRequest; checkRuns: import('@/libs/github/events').GithubCheckRun[]; host?: 'github' | 'gitlab' }>;
   branchChecks: (orgId: string, repo: string, branch: string) => Promise<{ sha: string | null; complete: boolean; failing: string[] }>;
   updatePullBranch: (orgId: string, url: string, expectedHead?: string | null) => Promise<void>;
   emit: (orgId: string, event: GithubEvent) => Promise<{ deduped: boolean }>;
@@ -65,8 +66,17 @@ export type ReconcileDeps = {
 async function defaultDeps(): Promise<ReconcileDeps> {
   const gh = await import('./githubChecks');
   const { emitEvent } = await import('@/services/EventService');
+  const { pullAt } = await import('@/services/repo/provider');
   return {
-    readPull: gh.readPull,
+    // Whichever host the pull request is on: a GitLab merge request reads back
+    // through its provider, in the same shape, and its events keep GitLab's keys.
+    readPull: async (orgId, url) => {
+      const at = await pullAt(orgId, url);
+      if (!at) {
+        throw new Error(`${url} is not a pull request on a code host this workspace connected`);
+      }
+      return { ...(await at.provider.readPullState(orgId, at.ref)), host: at.provider.kind };
+    },
     branchChecks: gh.branchChecks,
     updatePullBranch: gh.updatePullBranch,
     emit: async (orgId, event) => {
@@ -107,14 +117,17 @@ async function note(orgId: string, requestId: number | null, line: string): Prom
  * @param repo - `owner/name`.
  * @param pr - The pull request as GitHub has it.
  * @param checkRuns - The check runs on its head.
+ * @param host - The code host, whose key prefix the events carry.
  */
-export async function earnedEvents(repo: string, pr: import('@/libs/github/events').GithubPullRequest, checkRuns: import('@/libs/github/events').GithubCheckRun[]): Promise<GithubEvent[]> {
+export async function earnedEvents(repo: string, pr: import('@/libs/github/events').GithubPullRequest, checkRuns: import('@/libs/github/events').GithubCheckRun[], host: 'github' | 'gitlab' = 'github'): Promise<GithubEvent[]> {
   const { checksCompletedEvent, pullRequestLifecycleEvents, PR_CLOSED, PR_MERGED } = await import('@/libs/github/events');
+  const { onGitlab } = await import('@/libs/gitlab/events');
+  const keyed = (events: GithubEvent[]) => (host === 'gitlab' ? events.map(e => onGitlab(e)) : events);
   if (pr.state !== 'open') {
-    return pullRequestLifecycleEvents(repo, pr, null).filter(e => e.type === PR_MERGED || e.type === PR_CLOSED);
+    return keyed(pullRequestLifecycleEvents(repo, pr, null).filter(e => e.type === PR_MERGED || e.type === PR_CLOSED));
   }
   const checks = checksCompletedEvent(repo, pr, checkRuns);
-  return checks ? [checks] : [];
+  return keyed(checks ? [checks] : []);
 }
 
 /**
@@ -161,13 +174,13 @@ export async function reconcileOpenPulls(orgId: string, now: Date, deps: Reconci
     const { attemptIsHistory } = await import('./supersededPulls');
     const history = await attemptIsHistory(orgId, { id: task.id, meta }).catch(() => null);
     const { PR_MERGED } = await import('@/libs/github/events');
-    for (const event of (await earnedEvents(read.repo, read.pr, read.checkRuns)).filter(e => !history || e.type === PR_MERGED)) {
+    for (const event of (await earnedEvents(read.repo, read.pr, read.checkRuns, read.host)).filter(e => !history || e.type === PR_MERGED)) {
       const res = await deps.emit(orgId, event).catch((err: Error) => {
         console.warn('factory reconcile: an event could not be raised', { orgId, url, type: event.type, message: err.message });
         return { deduped: true };
       });
       if (!res.deduped) {
-        const line = `GitHub's ${event.type.replace(/^pr\./, '').replace(/_/g, ' ')} for ${url} never reached Vocion; the reconciler read it back and raised it.`;
+        const line = `${read.host === 'gitlab' ? 'GitLab' : 'GitHub'}'s ${event.type.replace(/^pr\./, '').replace(/_/g, ' ')} for ${url} never reached Vocion; the reconciler read it back and raised it.`;
         await note(orgId, requestId, line);
         out.push({ requestId, did: `re-raised ${event.type}`, line });
       }
@@ -181,7 +194,7 @@ export async function reconcileOpenPulls(orgId: string, now: Date, deps: Reconci
     // engineer on its kept branch to merge the base in, once per head commit.
     const conflicting = state === 'open' && (read.pr.mergeable === false || read.pr.mergeable_state === 'dirty');
     if (conflicting && !history && requestId && str(meta.conflictSentFor) !== read.pr.head.sha) {
-      const why = `${url} conflicts with ${read.pr.base.ref}, so GitHub ran none of its checks`;
+      const why = `${url} conflicts with ${read.pr.base.ref}, so ${read.host === 'gitlab' ? 'GitLab' : 'GitHub'} ran none of its checks`;
       const { askRequestWorkflow } = await import('./requestWorkflowStart');
       const asked = await askRequestWorkflow(orgId, requestId, { by: 'system:factory-reconcile', byPerson: false, from: 'a conflict with the base branch', trigger: 'recovery', note: `${why}. Merge ${read.pr.base.ref} into the branch, resolve the conflicts so both changes stand, and push.`, planId: null }).catch((err: Error) => ({ line: `could not ask: ${err.message}` }));
       await stamp(orgId, task.id, { conflictSentFor: read.pr.head.sha });

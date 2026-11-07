@@ -38,7 +38,8 @@ another one's records.
 token, issued under Developers → API tokens. Calls made from a signed-in
 browser session are accepted too, which is how the dashboard itself uses these
 endpoints. When an \`Authorization\` header is present it is the credential: a
-bad token is a 401 and never falls back to a cookie.
+bad token is a 401 and never falls back to a cookie. Endpoints marked with
+browserSession require a signed-in person and reject tenant tokens.
 
 **Errors.** Every failure returns the same envelope, whatever the status:
 
@@ -89,6 +90,12 @@ export function buildOpenApiDocument(operations: RouteOperation[], version: stri
     tags: tagsOf(sorted),
     components: {
       securitySchemes: {
+        browserSession: {
+          type: 'apiKey',
+          in: 'cookie',
+          name: '__Secure-authjs.session-token',
+          description: 'Signed-in browser session. Local HTTP uses authjs.session-token; tenant tokens are not accepted.',
+        },
         bearerToken: {
           type: 'http',
           scheme: 'bearer',
@@ -140,7 +147,7 @@ function operationObject(operation: RouteOperation): Record<string, unknown> {
     operationId: operation.operationId,
     summary: operation.summary,
     tags: [operation.tag],
-    security: [{ bearerToken: [] }],
+    security: ['/api/v1/lists', '/api/v1/crm'].includes(operation.path) ? [{ browserSession: [] }] : [{ bearerToken: [] }],
     responses: responsesObject(operation),
   };
   const description = descriptionWithCapability(operation);

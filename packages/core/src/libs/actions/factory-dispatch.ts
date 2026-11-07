@@ -339,9 +339,10 @@ function repoNameSource(repo: Meta | null): { name: string; field: 'cloneUrl' | 
   }
   for (const key of ['cloneUrl', 'url'] as const) {
     const v = str(repo, key);
-    const m = v ? /^https:\/\/[A-Za-z0-9.-]+\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(v) : null;
+    // Any depth: a GitLab project nests in groups (`group/subgroup/project`); a web URL's `/-/…` tail is not the project.
+    const m = v ? /^https:\/\/[A-Za-z0-9.-]+\/((?:[\w.-]+\/)+[\w.-]+?)(?:\.git)?(?:\/-\/.*)?\/?$/.exec(v) : null;
     if (m) {
-      return { name: `${m[1]}/${m[2]}`, field: key };
+      return { name: m[1]!, field: key };
     }
   }
   const title = str(repo, 'title');

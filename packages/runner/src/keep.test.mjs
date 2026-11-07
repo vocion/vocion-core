@@ -356,7 +356,7 @@ describe('the plan\'s paths are scope, not a fence (2026-09-30)', () => {
     for (const f of ['packages/core/prisma/core.prisma', 'packages/core/src/routes/account.ts', 'apps/acme-web/src/lib/theme.ts', 'docs/x.md']) {
       assert.equal(humanOwned(f), false, f);
     }
-    for (const f of ['.env', 'apps/acme-api/.env.production', 'deploy.pem', '.git/config', '.github/workflows/ci.yml']) {
+    for (const f of ['.env', 'apps/acme-api/.env.production', 'deploy.pem', '.git/config', '.github/workflows/ci.yml', '.gitlab-ci.yml']) {
       assert.equal(humanOwned(f), true, f);
     }
     // The repository's own list (the contract's human_owned, from the repo record) adds to it.

@@ -61,6 +61,10 @@ test('repo name and slug come off the clone url', () => {
   assert.equal(repoName('https://github.com/example/northwind-portal.git'), 'example/northwind-portal');
   assert.equal(repoName('https://github.com/example/northwind-portal'), 'example/northwind-portal');
   assert.equal(repoSlug('https://github.com/example/northwind-portal.git'), 'northwind-portal');
+  // GitLab nests projects in groups: the name is the whole path, the slug its last segment.
+  assert.equal(repoName('https://gitlab.com/northwind/platform/api.git'), 'northwind/platform/api');
+  assert.equal(repoSlug('https://gitlab.com/northwind/platform/api.git'), 'api');
+  assert.equal(repoName('https://gitlab.com/onlyone'), 'https://gitlab.com/onlyone');
 });
 
 test('claim, completion and failure all write to the same key, under the type the run names', () => {

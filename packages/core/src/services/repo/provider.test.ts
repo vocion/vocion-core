@@ -8,6 +8,13 @@ import { describe, expect, it, vi } from 'vitest';
 const tokenForRepo = vi.fn(async (_orgId: string, repo: string) => (repo === 'Acme/northwind-core' ? 'ghs_token' : null));
 vi.mock('@/services/agents/tools/githubPullRead', () => ({ tokenForRepo, parsePullUrl: () => null }));
 vi.mock('@/services/factory/githubChecks', () => ({ call: vi.fn(), cancelWorkflowRuns: vi.fn(), ghFor: vi.fn(), parseRunUrl: () => null }));
+// The workspace's gitlab sources: one on a self-managed instance listing a nested project.
+vi.mock('@/services/repo/gitlabAccess', () => ({
+  gitlabHostConnected: vi.fn(async (_orgId: string, host: string) => host === 'gitlab.northwind.example'),
+  gitlabListsProject: vi.fn(async (_orgId: string, path: string) => path === 'northwind/platform/api'),
+  gitlabBaseUrlFor: vi.fn(async (_orgId: string, where: { host?: string | null; project?: string | null }) => (where.host === 'gitlab.com' ? 'https://gitlab.com' : 'https://gitlab.northwind.example')),
+  requireGitlabAccess: vi.fn(),
+}));
 
 const { allowedPathMatcher, hostOf, pathsInDiff, pathsOutsideAllowed, repoProviderFor } = await import('./provider');
 
@@ -24,10 +31,30 @@ describe('repoProviderFor', () => {
     await expect(repoProviderFor('org_1', 'Acme/unlisted')).rejects.toThrow(/not a repository this workspace connected/);
   });
 
+  it('a gitlab.com URL is GitLab\'s; a self-managed host is GitLab\'s when a gitlab source names it; a bare nested path is GitLab\'s when a gitlab source lists it', async () => {
+    const onCom = await repoProviderFor('org_1', 'https://gitlab.com/northwind/platform/api/-/merge_requests/9');
+
+    expect(onCom.kind).toBe('gitlab');
+    expect(onCom.parsePullRef('https://gitlab.com/northwind/platform/api/-/merge_requests/9/diffs')).toEqual({ repo: 'northwind/platform/api', number: 9, url: 'https://gitlab.com/northwind/platform/api/-/merge_requests/9' });
+
+    const selfManaged = await repoProviderFor('org_1', 'https://gitlab.northwind.example/northwind/platform/api/-/pipelines/123');
+
+    expect(selfManaged.kind).toBe('gitlab');
+    expect(selfManaged.pullUrl('northwind/platform/api', 9)).toBe('https://gitlab.northwind.example/northwind/platform/api/-/merge_requests/9');
+    expect(selfManaged.runUrl('northwind/platform/api', 123)).toBe('https://gitlab.northwind.example/northwind/platform/api/-/pipelines/123');
+
+    const bare = await repoProviderFor('org_1', 'northwind/platform/api');
+
+    expect(bare.kind).toBe('gitlab');
+    expect(bare.pullUrl('northwind/platform/api', 4)).toBe('https://gitlab.northwind.example/northwind/platform/api/-/merge_requests/4');
+    await expect(repoProviderFor('org_1', 'https://gitlab.contoso.example/a/b/-/merge_requests/1')).rejects.toThrow(/gitlab\.contoso\.example is not a code host this workspace connected/);
+  });
+
   it('another host is refused by its name, with what it would take', async () => {
     await expect(repoProviderFor('org_1', 'https://bitbucket.org/acme/api/pull-requests/4')).rejects.toThrow(/bitbucket\.org is not a code host this workspace connected.*Bitbucket/);
     expect(hostOf('https://www.github.com/a/b')).toBe('github.com');
     expect(hostOf('Acme/api')).toBeNull();
+    expect(hostOf('northwind/platform/api')).toBeNull();
   });
 });
 

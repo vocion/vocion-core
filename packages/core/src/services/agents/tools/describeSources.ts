@@ -38,6 +38,7 @@ const NOT_SCOPE = /token|secret|password|key|credential|auth|^_|schedule|enabled
 export function scopeLines(config: Record<string, unknown>): string[] {
   const named: Array<[string, string]> = [
     ['repos', 'Repositories'],
+    ['projects', 'Projects'],
     ['branchPrefix', 'Only branches starting with'],
     ['deployBranch', 'Deploy branch'],
     ['projectKeys', 'Jira projects'],
@@ -109,6 +110,44 @@ export function repositoryLines(listed: string[], granted: string[], live: boole
   return lines;
 }
 
+/** How many listed GitLab projects one answer asks about. */
+const GITLAB_REACH_MAX = 20;
+
+/**
+ * The GitLab projects a source lists, each asked of GitLab now with the
+ * source's own credential: reachable (its default branch and visibility) or
+ * not, with GitLab's reason. A login that is expiring is renewed and saved
+ * first, as a sync would.
+ * @param orgId - The workspace.
+ * @param sourceId - The source row.
+ * @param slug - The source slug.
+ * @param config - Its config.
+ */
+async function gitlabReachLines(orgId: string, sourceId: number, slug: string, config: Record<string, unknown>): Promise<string[]> {
+  const listed = Array.isArray(config.projects) ? (config.projects as unknown[]).filter((p): p is string => typeof p === 'string') : [];
+  if (listed.length === 0) {
+    return [];
+  }
+  const { resolveGitlabAccess } = await import('@/libs/gitlab/token');
+  const { createGitlabClient, projectId } = await import('@/libs/gitlab/client');
+  const credentials = await getCredentialsForSource(orgId, slug).catch(() => undefined);
+  const access = await resolveGitlabAccess(credentials, { kind: 'persist', orgId, sourceId, warn: () => undefined }, typeof config.baseUrl === 'string' ? config.baseUrl : null).catch(() => null);
+  if (!access) {
+    return [`  Projects (from the source's list; the credential could not be used to check them): ${listed.join(', ')}`];
+  }
+  const client = createGitlabClient({ token: access.token, baseUrl: access.baseUrl, maxRetries: 0 });
+  const asked = listed.slice(0, GITLAB_REACH_MAX);
+  const answers = await Promise.all(asked.map(async (path) => {
+    const res = await client.get<{ default_branch?: string | null; visibility?: string }>(`/projects/${projectId(path)}`);
+    return res.ok ? `    ${path}: reachable (default branch ${res.data.default_branch ?? '?'}, ${res.data.visibility ?? 'unknown'})` : `    ${path}: NOT reachable — ${res.message}`;
+  }));
+  const reached = answers.filter(a => a.includes(': reachable')).length;
+  return [
+    `  Projects the credential reaches on ${access.baseUrl} (asked of GitLab now): ${reached} of ${asked.length}${listed.length > asked.length ? ` (the first ${asked.length} of ${listed.length} listed)` : ''}`,
+    ...answers,
+  ];
+}
+
 export function describeSourcesTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -170,6 +209,8 @@ export function describeSourcesTool(ctx: RuntimeContext) {
             } else if (listed.length > 0) {
               lines.push(`  Repositories (from the source's list; the token's reach was not checked): ${listed.join(', ')}`);
             }
+          } else if (connector === 'gitlab') {
+            lines.push(...await gitlabReachLines(ctx.orgId, s.id, s.slug, s.config ?? {}));
           } else if (grant?.granted && grant.granted.items.length > 0) {
             lines.push(`  ${grant.granted.label} granted: ${grant.granted.items.join(', ')}`);
           }
@@ -195,7 +236,7 @@ export function describeSourcesTool(ctx: RuntimeContext) {
     },
     {
       name: 'describe_sources',
-      description: 'What this agent\'s connected sources actually reach: for each source, what it is scoped to (repositories, Jira projects, channels), whether a credential is stored and whose account it is on, what the vendor grants that account (asked of GitHub live for an app installation), the last sync and how many documents are indexed. Use this for "what repositories / projects / channels do you have access to", "is X connected", or when a search returns nothing and you need to know whether the source has read anything at all. Read-only.',
+      description: 'What this agent\'s connected sources actually reach: for each source, what it is scoped to (repositories, Jira projects, channels), whether a credential is stored and whose account it is on, what the vendor grants that account (asked of GitHub live for an app installation, and of GitLab live for each listed project), the last sync and how many documents are indexed. Use this for "what repositories / projects / channels do you have access to", "is X connected", or when a search returns nothing and you need to know whether the source has read anything at all. Read-only.',
       schema: z.object({ source: z.string().optional().describe('One source or connector slug to describe, e.g. "github". Omit for every source this agent can read.') }),
     },
   );

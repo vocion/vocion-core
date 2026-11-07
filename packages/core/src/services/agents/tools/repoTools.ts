@@ -47,7 +47,8 @@ export const READ_PIPELINE_RUNS_TOOL = 'repo_read_pipeline_runs';
 export const FORMER_CHECK_LOGS_TOOL = 'github_read_check_logs';
 export const FORMER_PIPELINE_RUNS_TOOL = 'github_read_workflow_runs';
 
-const REPO = z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'the repository as owner/name').describe('The repository, owner/name.');
+// A path of any depth: GitHub's owner/name, or a GitLab project nested in groups (group/subgroup/project).
+const REPO = z.string().regex(/^[\w.-]+(?:\/[\w.-]+)+$/, 'the repository as its path, owner/name or group/subgroup/project').describe('The repository, as its path: owner/name, or a GitLab project\'s group/subgroup/project.');
 
 /**
  * The repo family's tools for one turn: the three reads when a code-host
@@ -73,7 +74,7 @@ export function repoTools(ctx: RuntimeContext): StructuredToolInterface[] {
  * @param orgId - The workspace.
  * @param args - `url`, or `repo` + `number`.
  * @param args.url - The pull request's URL.
- * @param args.repo - The repository as `owner/name`.
+ * @param args.repo - The repository as its path.
  * @param args.number - The pull request number.
  */
 async function pullRefFrom(orgId: string, args: { url?: string; repo?: string; number?: number }) {
@@ -188,7 +189,7 @@ function readFileTool(ctx: RuntimeContext): StructuredToolInterface {
     },
     {
       name: READ_FILE_TOOL,
-      description: 'A file at a ref in a connected repository, read whole through the workspace\'s own credential — so a private repository answers, which fetch_url on the web cannot. Give the repository as owner/name, the path from its root and, when not the default branch, the ref (a branch, tag or commit). Read a file whole before proposing to change it.',
+      description: 'A file at a ref in a connected repository, read whole through the workspace\'s own credential — so a private repository answers, which fetch_url on the web cannot. Give the repository as its path (owner/name, or group/subgroup/project), the path from its root and, when not the default branch, the ref (a branch, tag or commit). Read a file whole before proposing to change it.',
       schema: z.object({
         repo: REPO,
         path: z.string().min(1).max(400).describe('The file, from the repository root, e.g. .github/workflows/ci.yml.'),
@@ -270,6 +271,10 @@ function pipelineRunsTool(ctx: RuntimeContext): StructuredToolInterface {
   return tool(
     async (args) => {
       try {
+        const { repoProviderFor } = await import('@/services/repo/provider');
+        if ((await repoProviderFor(ctx.orgId, args.repo).catch(() => null))?.kind === 'gitlab') {
+          return JSON.stringify({ ok: false, error: `${READ_PIPELINE_RUNS_TOOL} reads GitHub Actions runs; GitLab pipelines are not read by it yet. A merge request's pipeline jobs and their conclusions are in ${READ_PULL_TOOL} (checks), and run.failed / run.succeeded carry the deploy branch's pipelines.` });
+        }
         const gh = await import('@/services/factory/githubChecks');
         const runs = await gh.listWorkflowRuns(ctx.orgId, args.repo, { workflow: args.workflow ?? null, branch: args.branch ?? null, limit: args.limit ?? 5 });
         // Jobs for the newest few, so a failed deploy names its step without a second read.
@@ -296,6 +301,9 @@ function checkLogsTool(ctx: RuntimeContext): StructuredToolInterface {
   return tool(
     async (args) => {
       try {
+        if (/\/-\/(?:merge_requests|pipelines|jobs)\/\d+/.test(args.url)) {
+          return JSON.stringify({ ok: false, error: `${READ_CHECK_LOGS_TOOL} reads GitHub's check logs; a GitLab job's log is not read by it yet. The failing jobs of a merge request are named in ${READ_PULL_TOOL} (checks); open the job on GitLab for its log.` });
+        }
         const { readCheckLogs, branchChecks } = await import('@/services/factory/githubChecks');
         const logs = await readCheckLogs(ctx.orgId, args.url, { headSha: args.head_sha ?? null, maxChecks: 4 });
         const base = logs.baseBranch && logs.number !== null

@@ -9,7 +9,7 @@ path=$(printf '%s' "$input" | python3 -c 'import json,sys; d=json.load(sys.stdin
 case "$path" in
   *.env|*.env.*|*/.env|*.pem|*.key|*/.ssh/*|*/.aws/*|*/.netrc|*/.npmrc|*/.git-credentials|*/.claude.json)
     echo "BLOCKED: writing secrets, env files or credential stores is forbidden." >&2; exit 2 ;;
-  */.git/*|*/.github/workflows/*)
+  */.git/*|*/.github/workflows/*|*/.gitlab-ci.yml)
     echo "BLOCKED: .git and CI workflows are human-owned." >&2; exit 2 ;;
 esac
 # The repository's own list, before the scratch areas: a file a person owns is theirs wherever

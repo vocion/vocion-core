@@ -9,7 +9,7 @@ order: 3
 description: Move a deal forward. Prepare a meeting, draft a proposal, or get a follow-up ready for review.
 # Not `data-rooms`: Projects are a core workspace noun, in every app's sidebar
 # (2026-10-27), so turning projects on never installs GTM.
-plugins: [proposals, meeting-followup, growth-loop]
+plugins: [proposals, meeting-followup, growth-loop, native-crm]
 surfaces: [personalization, discovery, proposals]
 entry: /gtm/proposals
 nav: [GTM, Growth]

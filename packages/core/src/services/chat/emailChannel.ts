@@ -37,6 +37,7 @@ export const emailChannel: ConversationChannel = {
     const outId = outboundMessageId(domain);
     const subject = replySubject(lastIn.subject ?? '');
     await mail.sendMail({
+      workspaceId: orgId,
       from: mailboxFrom({ projectName: box.projectName, address: box.address }),
       to: lastIn.fromAddress,
       subject,

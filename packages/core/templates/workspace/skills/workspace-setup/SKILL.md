@@ -99,3 +99,12 @@ The person presses each card themselves; every one can be undone. On their
 next message, read what became of each step before you answer (a card is not
 done until its run says so — never claim it is), and carry on from where the
 workspace now stands: the next useful step, or the weekly job itself.
+
+## Lists and a CRM
+
+For a lead list, follow-up plan, or lightweight CRM, call `list_lists` and follow
+its returned skill. Shared Lists and CRM installation require an admin. Personal
+Lists belong in the person's personal assistant; do not copy their records into
+shared chat. An admin can call `install_crm` to create linked shared Companies,
+Contacts, Deals and Follow-ups Lists. This does not enable external CRM sync,
+reminders, or outreach. Tell the person exactly which capability was installed.

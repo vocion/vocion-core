@@ -260,6 +260,7 @@ export const githubRepoProvider: RepoProvider = {
     return run ? { repo: `${run.owner}/${run.repo}`, runId: run.runId, url: `https://github.com/${run.owner}/${run.repo}/actions/runs/${run.runId}` } : null;
   },
   pullUrl: (repo, number) => `https://github.com/${repo}/pull/${number}`,
+  runUrl: (repo, runId) => `https://github.com/${repo}/actions/runs/${runId}`,
   readPull,
   readPullDiff,
   readCompareDiff,
@@ -272,4 +273,35 @@ export const githubRepoProvider: RepoProvider = {
   cancelPipelineRun,
   rerunPipelineRun,
   findUserByEmail,
+  // The factory's loop: the functions it always called, behind the seam.
+  async readPullHead(orgId, ref) {
+    const { readPullHead } = await import('@/services/agents/tools/githubPullRead');
+    return readPullHead(orgId, ref.url);
+  },
+  async readPullState(orgId, ref) {
+    const { readPull: readPullWithChecks } = await import('@/services/factory/githubChecks');
+    return readPullWithChecks(orgId, ref.url);
+  },
+  async mergePull(orgId, ref, judgedSha) {
+    const { mergePull } = await import('@/services/factory/githubMerge');
+    const { mergedPullEvent } = await import('@/libs/github/events');
+    const res = await mergePull(orgId, ref.url, judgedSha);
+    return { sha: res.sha, already: res.already, event: res.pull ? mergedPullEvent(res.repo, res.pull) : null };
+  },
+  async closePull(orgId, ref, comment) {
+    const { closePull } = await import('@/services/factory/githubMerge');
+    return closePull(orgId, ref.url, comment);
+  },
+  async revertPull(orgId, ref) {
+    const { revertPull } = await import('@/services/factory/githubMerge');
+    return revertPull(orgId, ref.url);
+  },
+  async openChange(orgId, o) {
+    const { openChangePull } = await import('@/services/factory/githubChange');
+    return openChangePull(orgId, { ...o, base: o.base ?? null, branch: o.branch ?? null });
+  },
+  async discardChange(orgId, o) {
+    const { discardChange } = await import('@/services/factory/githubChange');
+    return discardChange(orgId, o);
+  },
 };

@@ -7,9 +7,10 @@
  * A `repo` is a code host: pull requests, checks, pipeline runs, reviews.
  * A `tracker` is an issue tracker: issues, status transitions, comments,
  * attachments. A `chat` is where people talk: channels, threads, messages,
- * reactions, files. GitHub, Jira and Slack are the first provider of each;
- * Bitbucket, Azure DevOps, GitLab, Linear and Teams are later providers of
- * the same families, and nothing an agent is told names a vendor: its tools
+ * reactions, files. GitHub, Jira and Slack are the first provider of each,
+ * and GitLab (gitlab.com or self-managed) is the code host's second;
+ * Bitbucket, Azure DevOps, Linear and Teams are later providers of the same
+ * families, and nothing an agent is told names a vendor: its tools
  * are `repo_read_pull`, `tracker_read_issue`, `chat_read_thread`, and the
  * source a workspace connected decides which provider answers.
  *
@@ -44,7 +45,7 @@ export type ConnectorFamily = 'repo' | 'tracker' | 'chat' | 'finance' | 'people'
  * `people_list` and `people_get`, with personal identifiers never returned.
  */
 export const FAMILY_KINDS: Record<ConnectorFamily, readonly string[]> = {
-  repo: ['github'],
+  repo: ['github', 'gitlab'],
   tracker: ['jira'],
   chat: ['slack'],
   finance: ['stripe', 'quickbooks', 'xero', 'netsuite', 'ramp', 'bill'],
@@ -170,6 +171,25 @@ export async function loadSourceKinds(orgId: string, slugs: readonly string[]): 
     out[row.slug] = typeof connector === 'string' && connector ? connector : row.kind;
   }
   return out;
+}
+
+/**
+ * The workspace's own sources, each with its connector kind: what a plugin
+ * agent's `requires` binds to (`libs/workspace/requiredSources.ts`). A source
+ * connected for one Project is that Project's, never bound workspace-wide.
+ * @param orgId - The workspace.
+ */
+export async function listWorkspaceSourceKinds(orgId: string): Promise<Array<{ slug: string; kind: string }>> {
+  const rows = await db
+    .select({ slug: knowledgeSourceSchema.slug, kind: knowledgeSourceSchema.kind, config: knowledgeSourceSchema.configJson, projectId: knowledgeSourceSchema.projectId })
+    .from(knowledgeSourceSchema)
+    .where(eq(knowledgeSourceSchema.orgId, orgId));
+  return rows
+    .filter(row => row.projectId === null)
+    .map((row) => {
+      const connector = (row.config as { _connector?: unknown } | null)?._connector;
+      return { slug: row.slug, kind: typeof connector === 'string' && connector ? connector : row.kind };
+    });
 }
 
 /**

@@ -29,6 +29,7 @@ export type WhereToIntent
     | 'open-routines'
     | 'open-connector'
     | 'browse-artifacts'
+    | 'browse-lists'
     | 'search-knowledge'
     | 'manage-agents'
     | 'manage-missions'
@@ -77,6 +78,7 @@ export const WHERE_TO: readonly WhereTo[] = [
   T('open-routines', 'Teach or run an automation', '/dashboard/automations', 'Every automation with its expert and trust level; Teach a task opens the site to record on, and an automation\'s page has Run it for many rows at once.', ['automation', 'automations', 'routine', 'routines', 'teach', 'recording', 'slate', 'repeatable', 'batch', 'process']),
   T('open-connector', 'Open one connector\'s detail', '/dashboard/connectors/{slug}', 'The connector\'s configuration (secrets redacted), its sync checkpoint and what it has ingested.', ['connector detail', 'checkpoint', 'configuration']),
   T('browse-artifacts', 'Find an artifact', '/dashboard/artifacts', 'Every document, table and chart an agent or a person made, with versions; open one to read, edit or export it.', ['artifact', 'document', 'table', 'chart', 'version', 'export', 'pdf']),
+  T('browse-lists', 'Build or open a List', '/dashboard/lists', 'Durable personal lead lists, follow-ups and plans. Admins can create shared Lists and install the CRM starter.', ['list', 'leads', 'crm', 'follow-ups', 'plan', 'records']),
   T('search-knowledge', 'Search the knowledge base', '/dashboard/search', 'Type a question or a name; results cite the connected system they came from.', ['search', 'find', 'knowledge', 'retrieval']),
   T('manage-agents', 'See the team and its agents', '/dashboard/agents', 'Each agent\'s prompt, skills and tools; edits are made in the workspace repo, applied here.', ['agent', 'agents', 'team', 'prompt', 'skills']),
   T('manage-missions', 'Open the missions', '/dashboard/missions', 'A mission is a standing goal; open one for its runs, notes and what it last did.', ['mission', 'goal', 'runs']),

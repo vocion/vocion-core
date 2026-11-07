@@ -59,6 +59,7 @@ const FAMILIES: Readonly<Record<string, Family>> = {
   hubspot: { connector: 'hubspot', system: 'HubSpot', provider: 'hubspot', reads: 'read this HubSpot' },
   personalization: { connector: 'hubspot', system: 'HubSpot', provider: 'hubspot', reads: 'read this HubSpot' },
   github: { connector: 'github', system: 'GitHub', provider: 'github', reads: 'read this GitHub' },
+  gitlab: { connector: 'gitlab', system: 'GitLab', provider: 'gitlab', reads: 'read this GitLab' },
   repo: { connector: 'github', system: 'GitHub', provider: 'github', reads: 'read this GitHub' },
   tracker: { connector: 'jira', system: 'Jira', provider: 'atlassian', reads: 'read this Jira' },
   notion: { connector: 'notion', system: 'Notion', provider: 'notion', reads: 'read this Notion' },
@@ -74,6 +75,7 @@ const NAMED: ReadonlyArray<{ test: RegExp; family: keyof typeof FAMILIES }> = [
   { test: /\bmissing_scope\b|\bnot_allowed_token_type\b/, family: 'slack' },
   { test: /\bhubspot\b|MISSING_SCOPES/i, family: 'hubspot' },
   { test: /\bgithub\b|Resource not accessible by integration/i, family: 'github' },
+  { test: /\bgitlab\b|insufficient_scope/i, family: 'gitlab' },
 ];
 
 /** Vendor phrasings for "this login is not allowed to do that". */

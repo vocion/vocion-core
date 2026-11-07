@@ -1,0 +1,10 @@
+slug: native-crm
+name: Native CRM
+version: 0.2.0
+description: Shared CRM Lists, a GTM funnel and resumable HubSpot imports. Outbound delivery defaults to dry run.
+nav:
+  section: GTM
+  order: 0
+recommend:
+  when:
+    - a workspace wants to migrate its CRM into Vocion

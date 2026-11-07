@@ -18,7 +18,7 @@ vi.mock('@/libs/outboundMcp/client', async importOriginal => ({
   },
 }));
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, knowledgeSourceSchema } = await import('@/models/Schema');
+const { projectSchema, tenantAccountSchema, actionRunSchema, knowledgeSourceSchema } = await import('@/models/Schema');
 const { proposeAction, executeAction, rejectAction } = await import('@/services/ActionService');
 const ORG = 'org_mcp';
 const principal: Principal = { kind: 'agent', id: 'agent:finance', grants: ['mcp_call'], autonomy: 5, scope: { orgId: ORG } };
@@ -26,6 +26,8 @@ const input = { sourceSlug: 'finance', tool: 'post_journal', input: { amount: '1
 const propose = () => proposeAction({ orgId: ORG, actionId: 'mcp.call', input, principal });
 
 beforeEach(async () => {
+  await db.insert(tenantAccountSchema).values({ id: 'delivery-test-account', name: 'Example', slug: 'delivery-test-account' }).onConflictDoNothing();
+  await db.insert(projectSchema).values({ id: ORG, accountId: 'delivery-test-account', name: 'Example', slug: ORG, outboundDryRun: false }).onConflictDoNothing();
   transport.calls = 0;
   transport.fail = false;
   await db.delete(actionRunSchema);

@@ -33,6 +33,7 @@ import { actionRunSchema, projectSchema } from '@/models/Schema';
 import { agentSlugFromPrincipal } from '@/services/adoption/attribution';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { withWorkProject, workProjectId } from '@/services/connect/connectionScope';
+import { assertOutboundAllowed } from '@/services/crm/outboundPolicy';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 import { assertWorkspaceRunning } from '@/services/workspacePause';
 
@@ -1183,6 +1184,7 @@ async function executeActionInScope(
   const credentials = credentialSource ? await getCredentialsForSource(orgId, credentialSource) : undefined;
 
   try {
+    await assertOutboundAllowed(orgId, action, run.input);
     const result = await action.execute({
       orgId,
       credentials,

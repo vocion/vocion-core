@@ -1348,6 +1348,8 @@ async function runSyncInScope(opts: {
     // becomes visible. The watch is lazy-imported and never fails the sync,
     // like the announcement above (ticket 055).
     if (connectorSlug === 'hubspot' && ((config.objectType as string | undefined) ?? 'contacts') === 'contacts') {
+      const { refreshInstalledCrm } = await import('@/services/crm/jobs');
+      await refreshInstalledCrm(opts.orgId).catch(() => log('error', 'CRM refresh could not be queued; resume it from GTM home', { orgId: opts.orgId }));
       const { watchForHandoffTriggers } = await import('@/services/HandoffTriggerService');
       await watchForHandoffTriggers(opts.orgId, log);
       // Enrollments sent through an inbox connected under another HubSpot

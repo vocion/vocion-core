@@ -3,7 +3,7 @@
   "info": {
     "title": "Vocion API",
     "version": "0.1.0",
-    "description": "The HTTP API behind Vocion's dashboard. Every endpoint is scoped to one\norganization — the credential decides which, and there is no way to ask for\nanother one's records.\n\n**Authenticating.** Send `Authorization: Bearer vcn_live_…` with a tenant API\ntoken, issued under Developers → API tokens. Calls made from a signed-in\nbrowser session are accepted too, which is how the dashboard itself uses these\nendpoints. When an `Authorization` header is present it is the credential: a\nbad token is a 401 and never falls back to a cookie.\n\n**Errors.** Every failure returns the same envelope, whatever the status:\n\n```json\n{ \"error\": { \"code\": \"VALIDATION_FAILED\", \"message\": \"workerId is required\", \"details\": null } }\n```\n\n**Paging.** List endpoints take `limit` (default 50, maximum 200) and\n`offset`. Out-of-range values fall back to the defaults rather than erroring.\n\n**How this document is made.** It is generated from the route handlers\nthemselves — their paths, their doc comments, the error codes they emit — by\n`npm run openapi:generate`, and a test fails when it falls out of step with\nthe code. Request and response bodies are documented by their field names and\nthe endpoint's prose; they are not yet described field-by-field as schemas."
+    "description": "The HTTP API behind Vocion's dashboard. Every endpoint is scoped to one\norganization — the credential decides which, and there is no way to ask for\nanother one's records.\n\n**Authenticating.** Send `Authorization: Bearer vcn_live_…` with a tenant API\ntoken, issued under Developers → API tokens. Calls made from a signed-in\nbrowser session are accepted too, which is how the dashboard itself uses these\nendpoints. When an `Authorization` header is present it is the credential: a\nbad token is a 401 and never falls back to a cookie. Endpoints marked with\nbrowserSession require a signed-in person and reject tenant tokens.\n\n**Errors.** Every failure returns the same envelope, whatever the status:\n\n```json\n{ \"error\": { \"code\": \"VALIDATION_FAILED\", \"message\": \"workerId is required\", \"details\": null } }\n```\n\n**Paging.** List endpoints take `limit` (default 50, maximum 200) and\n`offset`. Out-of-range values fall back to the defaults rather than erroring.\n\n**How this document is made.** It is generated from the route handlers\nthemselves — their paths, their doc comments, the error codes they emit — by\n`npm run openapi:generate`, and a test fails when it falls out of step with\nthe code. Request and response bodies are documented by their field names and\nthe endpoint's prose; they are not yet described field-by-field as schemas."
   },
   "servers": [
     {
@@ -49,6 +49,10 @@
       "description": "Endpoints under /api/v1/conversations."
     },
     {
+      "name": "crm",
+      "description": "Endpoints under /api/v1/crm."
+    },
+    {
       "name": "engine-runs",
       "description": "Endpoints under /api/v1/engine-runs."
     },
@@ -71,6 +75,10 @@
     {
       "name": "learnings",
       "description": "Endpoints under /api/v1/learnings."
+    },
+    {
+      "name": "lists",
+      "description": "Endpoints under /api/v1/lists."
     },
     {
       "name": "live",
@@ -183,6 +191,12 @@
   ],
   "components": {
     "securitySchemes": {
+      "browserSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Secure-authjs.session-token",
+        "description": "Signed-in browser session. Local HTTP uses authjs.session-token; tenant tokens are not accepted."
+      },
       "bearerToken": {
         "type": "http",
         "scheme": "bearer",
@@ -2034,6 +2048,140 @@
         ]
       }
     },
+    "/api/v1/crm": {
+      "get": {
+        "operationId": "get_crm",
+        "summary": "Read the workspace CRM funnel, source freshness and delivery hold.",
+        "tags": [
+          "crm"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record is in a state that does not allow this. Codes: `WORKSPACE_CHANGED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read the workspace CRM funnel, source freshness and delivery hold.\nRequires a browser session and matching workspace query parameter.",
+        "parameters": [
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_crm",
+        "summary": "Queue a resumable HubSpot import without sending email.",
+        "tags": [
+          "crm"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record is in a state that does not allow this. Codes: `WORKSPACE_CHANGED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Queue a resumable HubSpot import without sending email. Requires workspace admin.\nRequires a browser session and matching workspace query parameter.",
+        "parameters": [
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/engine-runs": {
       "get": {
         "operationId": "get_engine_runs",
@@ -3781,6 +3929,154 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/lists": {
+      "get": {
+        "operationId": "get_lists",
+        "summary": "List saved Lists or read one List with records and history.",
+        "tags": [
+          "lists"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "List saved Lists or read one List with records and history.\n\nRequires a signed-in person; tenant tokens are rejected. Personal Lists are\nowner-only. With no id, returns up to 50 Lists and nextOffset. With id, returns\nup to 50 records, total, schema, current version and the latest 20 revisions.",
+        "parameters": [
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_lists",
+        "summary": "Create or update a List, aggregate records, or install the CRM starter.",
+        "tags": [
+          "lists"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create or update a List, aggregate records, or install the CRM starter.\n\nRequires a signed-in person; tenant tokens are rejected. The action is create,\nwrite, configure, aggregate or crm. Writes and configuration require the latest\nexpectedVersion; conflicts return 409 without applying changes. Shared List\ndefinitions and CRM installation require admin; members may edit shared records.\nFollow-up rows do not send messages or schedule reminders.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "action": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/live": {

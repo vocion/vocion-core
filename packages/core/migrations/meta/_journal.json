@@ -1511,13 +1511,27 @@
       "idx": 234,
       "version": "7",
       "when": 1792300232002,
-      "tag": "0234_browser_run_video",
+      "tag": "0234_workspace_lists",
+      "breakpoints": true
+    },
+    {
+      "idx": 235,
+      "version": "7",
+      "when": 1793721346940,
+      "tag": "0235_crm_dry_run",
+      "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "7",
+      "when": 1793721346941,
+      "tag": "0236_browser_run_video",
       "breakpoints": true
     },
     {
       "idx": 237,
       "version": "7",
-      "when": 1792300232005,
+      "when": 1793721346942,
       "tag": "0237_automation_savings",
       "breakpoints": true
     }

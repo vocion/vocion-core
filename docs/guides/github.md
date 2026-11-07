@@ -330,10 +330,13 @@ refusal, and `tokenForRepo` / `sourceConfigForRepo` read through it.
 GitHub is the first provider of the **repo family** — the code host, named for
 its constructs (`src/services/repo/provider.ts`). An agent's tools and actions
 say "pull request", "check", "pipeline run" and "review", never "GitHub"; the
-URL's host, or the github source that lists an `owner/name`, picks the
-provider. Bitbucket, Azure DevOps and GitLab plug in as further
-`providers/<host>.ts` behind the same interface, and nothing an agent is told,
-no trust rule and no skill changes when they do.
+URL's host, or the source that lists a repository path, picks the provider.
+[GitLab](./gitlab.md) is the second, on gitlab.com or a self-managed instance:
+a merge request is a pull request there, a pipeline's jobs its checks, and a
+project path may be nested (`group/subgroup/project`), so every tool takes a
+repository as a path of any depth. Bitbucket and Azure DevOps plug in as
+further `providers/<host>.ts` behind the same interface, and nothing an agent
+is told, no trust rule and no skill changes when they do.
 
 Reads, through the workspace's own credential for the repository (so a
 private repository answers):

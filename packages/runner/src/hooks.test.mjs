@@ -17,6 +17,7 @@ test('a write anywhere in the repository passes; secrets, CI and outside the rep
   assert.equal(write(path.join(repo, 'apps/web/src/page.tsx')).status, 0);
   assert.equal(write(path.join(repo, '.env.production')).status, 2);
   assert.equal(write(path.join(repo, '.github/workflows/ci.yml')).status, 2);
+  assert.equal(write(path.join(repo, '.gitlab-ci.yml')).status, 2);
   assert.equal(write('/etc/hosts').status, 2);
   assert.equal(write('/workspace/scratch/notes.md').status, 0);
 });
@@ -34,5 +35,6 @@ test('git writes, deploys and secret reads are the worker\'s or a person\'s, nev
   assert.equal(bash('git push origin HEAD').status, 2);
   assert.equal(bash('cat .env').status, 2);
   assert.equal(bash('terraform apply').status, 2);
+  assert.equal(bash('echo $GITLAB_TOKEN').status, 2);
   assert.match(bash('git commit -m x').stderr, /BLOCKED by runner policy/);
 });
