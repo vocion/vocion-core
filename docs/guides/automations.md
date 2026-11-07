@@ -31,7 +31,7 @@ control surface for recurring schedules and event-trigger rules.
 | **Escalate** | A run that meets an escalation point stops and asks the expert. The question carries the page as evidence and its answers, the recommended one first. It is a Decision docked in the conversation the batch was asked from, and on Needs you. The answer goes back to the run, which carries on. | `escalate` tool in the loop |
 | **Receipt** | Each output the spec says must match an input is read back after the write and checked. A run that stopped after a write it cannot confirm is an **unknown outcome**: it is never replayed, and the expert checks it by hand. | `receiptFor` |
 | **Reconcile** | After the rows, when the automation adds records to a list, one read-only run lists the system's records. Records that are not among the rows become a finding: deactivate them, delete them, or leave them. The expert's answer runs as its own batch under the automation, and only that change is allowed. | `findingFromReconcile` |
-| **Report** | Results verified by read-back, escalations and how each was answered, human minutes against the manual baseline from the recording, run cost, and the findings. Filed as an artifact. | `routine_report` |
+| **Report** | Results verified by read-back, escalations and how each was answered, what the batch saved against its baseline and what it cost, and the findings. Filed as an artifact. Without a batch, what the automations saved over time (this month, the last 8 weeks week by week, all time); `dashboard: true` files or refreshes the savings dashboard. | `routine_report` |
 
 ## The queue
 
@@ -47,6 +47,34 @@ verified, failed, already done) and, once done, what it read back. Columns come
 from the version's spec (`RoutineBatchView.fields`, `libs/routines/batchTable.ts`);
 each line opens its browser run in the pane. It re-reads with the batch page
 (`useRoutineBatch`) while the batch runs, and stops once the batch ends.
+
+## What it saved
+
+Every surface that shows an automation says what it saved and what it cost, in one sentence
+("Saved 12 hours in the last 8 weeks, $551 of specialist time, for $64 of runs"), with how each
+number is worked out one click away (`libs/routines/savings.ts`, read by
+`services/routines/savingsReads.ts`):
+
+- **Time saved**: each finished run at its version's by-hand baseline (`manualMinutes` on the
+  spec, a person's estimate, never the teaching recording), less the time people spent on that
+  run's decisions (`humanMs`).
+- **Worth**: that time at the workspace's hourly rate, `defaults.hourlyRate: {amount: 45, of:
+  specialist}` in `workspace.yaml` (`project.hourly_rate`). No rate: hours only.
+- **Run cost and tokens**: every model call the run's browser made, from the spend ledger
+  (`model_call`, `run_kind = 'routine_run'`).
+- **Decisions**: each time the expert answered a run (`routine_run.decisions`).
+
+No baseline, no saving: the batch header and the automation page show the cost alone. The batch
+page leads with the batch's saving; the automation page shows this month and the weeks as a
+trend; `routine_report` answers "what has this saved us?"; the savings dashboard (a `dashboard`
+artifact, `services/routines/savingsDashboard.ts`) holds the weeks, each automation's share, and
+the rules the expert's answers became. Seeded history is marked (`routine_batch.sample`) and
+labelled "Sample history before <date>" wherever it is counted.
+
+A workspace page can hold the live parts beside it: page blocks `needsYou` (what waits on the
+person looking, decided in place), `flow` with `routine:` steps (each automation with how many
+cases it stops for its expert on and its latest batch), and `dashboard` (a dashboard artifact by
+title), with `live: {follow: [asks, runs]}`.
 
 ## Guarantees
 

@@ -6,7 +6,8 @@
  * (`compact`). Top to bottom:
  *
  *   header    the batch, the routine and its version; Build the report
- *   numbers   elapsed, what the runs cost, people's time, the same work by hand
+ *   saved     what the batch saved against its baseline, for what it cost (how: one click)
+ *   numbers   elapsed, what the runs cost and their tokens, people's time and decisions
  *   progress  one bar and a chip per status, needs-you first
  *   findings  what the batch found beyond its rows, each with its decision
  *   tiles     the browser as each run sees it, what it is doing and why, and what
@@ -21,7 +22,7 @@
  */
 
 import type { RoutineBatchView as RoutineBatch, RoutineFinding, RoutineReceipt, RoutineRunView } from '@/libs/routines/types';
-import { Check, CircleAlert, Clock, Coins, Eye, FileText, Globe, Inbox, Loader2, Timer, User, X } from 'lucide-react';
+import { Check, CircleAlert, Coins, Eye, FileText, Globe, Inbox, Loader2, Timer, User, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DetailMeta, DetailPage, Stat, StatRow, StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
@@ -29,11 +30,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { openPreview } from '@/features/preview/previewState';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
-import { batchProgress, countChips, elapsed, minutesLong, money, peopleTime, RUN_STATUS, span } from '@/libs/routines/display';
+import { batchProgress, countChips, elapsed, money, peopleTime, RUN_STATUS, span } from '@/libs/routines/display';
+import { tokensLabel } from '@/libs/routines/savings';
 import { batchLabel } from '@/libs/routines/types';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { cn } from '@/utils/Helpers';
 import { ToneChip, TrustChip } from './RoutineChips';
+import { SavingLine } from './RoutineSavings';
 import { useRoutineBatch } from './useRoutineBatch';
 
 const DOT = { pass: 'pass', amber: 'amber', fail: 'fail', neutral: 'neutral', teal: 'neutral' } as const;
@@ -177,6 +180,7 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
       items={[
         <StatusDot key="s" tone={running ? 'amber' : (batch.counts.failed ?? 0) > 0 ? 'fail' : 'pass'} pulse={running} label={<span className="text-foreground">{running ? 'Running' : 'Done'}</span>} />,
         <TrustChip key="t" trust={batch.routine.trust} />,
+        batch.sample && <ToneChip key="sample" tone="neutral">Sample history</ToneChip>,
         batch.routine.expert && `Expert: ${batch.routine.expert}`,
         !compact && batch.requestedBy && `Asked by ${batch.requestedBy}`,
         <Link key="r" href={`/dashboard/automations/${batch.routine.id}`} className="underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground">The automation</Link>,
@@ -186,6 +190,7 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
 
   const body = (
     <div className={cn('@container', compact ? 'mt-3 space-y-4' : 'mt-5 space-y-6')}>
+      <SavingLine savings={batch.savings} />
       <Numbers batch={batch} now={now} compact={compact} />
       <Progress batch={batch} />
       {error && <p className="rounded-lg border border-brand-fail/30 bg-brand-fail-bg px-3 py-2 text-[13px] text-brand-fail" role="alert">{error}</p>}
@@ -236,13 +241,11 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
 
 function Numbers({ batch, now, compact }: { batch: RoutineBatch; now: number; compact: boolean }) {
   const took = span(batch.startedAt, batch.endedAt, now) ?? 0;
-  const byHand = batch.manualMinutes ? batch.manualMinutes * batch.total : null;
   const items = [
-    { icon: Timer, label: batch.status === 'running' ? 'Elapsed' : 'Took', value: elapsed(took) },
-    { icon: Coins, label: 'Run cost', value: money(batch.cents) },
-    { icon: User, label: 'People’s time', value: peopleTime(batch.humanMs) },
-    byHand ? { icon: Clock, label: 'By hand', value: `≈ ${minutesLong(byHand)}` } : null,
-  ].filter(Boolean) as Array<{ icon: typeof Timer; label: string; value: string }>;
+    { icon: Timer, label: batch.status === 'running' ? 'Elapsed' : 'Took', value: elapsed(took), note: null },
+    { icon: Coins, label: 'Run cost', value: money(batch.cents), note: batch.tokens > 0 ? `${tokensLabel(batch.tokens)} tokens` : null },
+    { icon: User, label: 'People’s time', value: peopleTime(batch.humanMs), note: batch.savings.decisions > 0 ? `${batch.savings.decisions} ${batch.savings.decisions === 1 ? 'decision' : 'decisions'}` : null },
+  ];
   return (
     <StatRow className={cn(compact && 'gap-y-3 py-3')}>
       {items.map(i => (
@@ -255,6 +258,7 @@ function Numbers({ batch, now, compact }: { batch: RoutineBatch; now: number; co
             </span>
           )}
           value={i.value}
+          {...(i.note ? { note: i.note } : {})}
         />
       ))}
     </StatRow>

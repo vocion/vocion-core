@@ -1,6 +1,7 @@
 import type { RoutineBatchView as Batch, RoutineRunView } from '@/libs/routines/types';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
+import { savingsOf } from '@/libs/routines/savings';
 import '@/styles/global.css';
 
 /**
@@ -29,7 +30,7 @@ const { RoutineBatchTable } = await import('./RoutineBatchTable');
 
 function run(n: number, name: string, over: Partial<RoutineRunView>): RoutineRunView {
   const email = `${name.split(' ')[0]!.toLowerCase()}@northwind.example`;
-  return { id: 10 + n, batchId: 4, n, label: name, status: 'queued', input: { email, full_name: name, team: 'Ops' }, browserRunId: null, browser: null, waiting: null, receipt: null, summary: null, error: null, humanMs: 0, cents: 0, startedAt: null, endedAt: null, ...over };
+  return { id: 10 + n, batchId: 4, n, label: name, status: 'queued', input: { email, full_name: name, team: 'Ops' }, browserRunId: null, browser: null, waiting: null, receipt: null, summary: null, error: null, humanMs: 0, decisions: 0, cents: 0, tokens: 0, startedAt: null, endedAt: null, ...over };
 }
 
 const browser = (step: string) => ({ status: 'running', step, why: null, steps: 3, live: true, frameSeq: 1, url: null, finalShotUrl: null });
@@ -47,6 +48,9 @@ function batch(status: 'running' | 'done', runs: RoutineRunView[]): Batch {
     cents: 0,
     humanMs: 0,
     manualMinutes: null,
+    tokens: 0,
+    savings: savingsOf([], null),
+    sample: false,
     fields: { inputs: [{ name: 'email', key: true }, { name: 'full_name', key: false }], outputs: [{ name: 'user_email', checks: 'email' }] },
     startedAt: '2026-11-04T10:00:00Z',
     endedAt: status === 'done' ? '2026-11-04T10:05:00Z' : null,

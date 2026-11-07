@@ -2,6 +2,7 @@ import type { RoutineBatchView, RoutineSpec } from '@/libs/routines/types';
 import { describe, expect, it } from 'vitest';
 import { needsApproval } from '@/libs/browser/run';
 import { decisionViewOf } from '@/libs/decisions/decision';
+import { savingsOf } from '@/libs/routines/savings';
 import { clock, momentUrl } from '@/libs/routines/types';
 import { parseRows } from '@/services/agents/tools/routineTools';
 import { allowedWrite } from '@/services/browser/browserLoop';
@@ -132,7 +133,7 @@ describe('rows from chat', () => {
 });
 
 describe('the report', () => {
-  it('says results, time against the baseline, cost and findings', () => {
+  it('says results, what it saved against the baseline for what it cost, and findings', () => {
     const v: RoutineBatchView = {
       id: 7,
       routine: { id: 1, name: 'Add a user', version: 1, trust: 'approved', expert: 'Chris' },
@@ -144,12 +145,19 @@ describe('the report', () => {
       cents: 105,
       humanMs: 90_000,
       manualMinutes: 3,
+      tokens: 90_000,
+      savings: savingsOf([
+        { status: 'done', manualMinutes: 3, humanMs: 0, cents: 35, tokens: 30_000, decisions: 0, at: null },
+        { status: 'skipped', manualMinutes: 3, humanMs: 90_000, cents: 35, tokens: 30_000, decisions: 1, at: null },
+        { overhead: true, status: 'done', manualMinutes: null, humanMs: 0, cents: 35, tokens: 30_000, decisions: 0, at: null },
+      ], null),
+      sample: false,
       fields: { inputs: [], outputs: [] },
       startedAt: '2026-10-22T15:00:00Z',
       endedAt: '2026-10-22T15:03:00Z',
       runs: [
-        { id: 1, batchId: 7, n: 1, label: 'Aisha Karim', status: 'done', input: {}, browserRunId: 11, browser: null, waiting: null, receipt: null, summary: 'Added and enrolled.', error: null, humanMs: 0, cents: 35, startedAt: null, endedAt: null },
-        { id: 2, batchId: 7, n: 2, label: 'Tomás Ortega', status: 'skipped', input: {}, browserRunId: 12, browser: null, waiting: null, receipt: null, summary: 'The expert said to leave him.', error: null, humanMs: 90_000, cents: 35, startedAt: null, endedAt: null },
+        { id: 1, batchId: 7, n: 1, label: 'Aisha Karim', status: 'done', input: {}, browserRunId: 11, browser: null, waiting: null, receipt: null, summary: 'Added and enrolled.', error: null, humanMs: 0, decisions: 0, cents: 35, tokens: 30_000, startedAt: null, endedAt: null },
+        { id: 2, batchId: 7, n: 2, label: 'Tomás Ortega', status: 'skipped', input: {}, browserRunId: 12, browser: null, waiting: null, receipt: null, summary: 'The expert said to leave him.', error: null, humanMs: 90_000, decisions: 1, cents: 35, tokens: 30_000, startedAt: null, endedAt: null },
       ],
       followUp: null,
       findings: [{ id: 'f1', kind: 'not_on_list', title: '1 record in the account is not on the list', detail: 'Checked.', items: [{ name: 'QA Test', email: 'qa-test@x.example' }], askId: 3, options: [], state: 'open', answer: null, followUpBatchId: null }],
@@ -159,8 +167,8 @@ describe('the report', () => {
 
     expect(md).toContain('# Automation run 7 · Add a user');
     expect(md).toContain('**2** done and verified');
-    expect(md).toContain('about 6 min');
-    expect(md).toContain('$1.05 in total');
+    expect(md).toContain('**Saved 3 minutes, for $1.05 of runs.**');
+    expect(md).toContain('90k tokens');
     expect(md).toContain('[2](/dashboard/browser/12)');
     expect(md).toContain('Finding: 1 record in the account is not on the list');
     expect(md).toContain('| QA Test | qa-test@x.example |');

@@ -1270,6 +1270,10 @@ async function applyWorkspaceLeadConfig(
   // The workspace's zone, declarative like the rest: omitted clears the column
   // and the runs fall back to the server default (`workspaceTimeZone`).
   const timeZone = loaded.manifest.defaults?.timezone ?? null;
+  // What an hour of people's time is worth, for what automations save: omitted clears it, and
+  // savings are stated in hours alone (`libs/routines/savings.ts`).
+  const authoredRate = loaded.manifest.defaults?.hourlyRate;
+  const hourlyRate = authoredRate ? { cents: Math.round(authoredRate.amount * 100), of: authoredRate.of ?? null } : null;
   // voice.yaml, declarative like the rest: the whole file lands on the column
   // and deleting the file clears it, dropping the workspace back to core's
   // platform floor.
@@ -1298,6 +1302,7 @@ async function applyWorkspaceLeadConfig(
           orgReview: projectSchema.orgReview,
           voiceRules: projectSchema.voiceRules,
           operatingIntent: projectSchema.operatingIntent,
+          hourlyRate: projectSchema.hourlyRate,
           timeZone: projectSchema.timeZone,
           goal: projectSchema.goal,
           mailboxAddress: projectSchema.mailboxAddress,
@@ -1383,6 +1388,7 @@ async function applyWorkspaceLeadConfig(
     && operatingIntentUnchanged
     && (project.goal ?? null) === goal
     && (project.timeZone ?? null) === timeZone
+    && (project.hourlyRate?.cents ?? null) === (hourlyRate?.cents ?? null) && (project.hourlyRate?.of ?? null) === (hourlyRate?.of ?? null)
     && project.mailboxEnabled === mailboxEnabled
     && (project.mailboxAddress ?? null) === mailboxAddress
   ) {
@@ -1391,7 +1397,7 @@ async function applyWorkspaceLeadConfig(
   if (!mode.dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, jev, orgReview, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, jev, orgReview, voiceRules, operatingIntent, goal, timeZone, hourlyRate, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }

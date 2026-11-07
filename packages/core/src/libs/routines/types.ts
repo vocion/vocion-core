@@ -14,6 +14,8 @@
  * level, and runs pinned to an approved version.
  */
 
+import type { Savings } from './savings';
+
 /**
  * `teaching`: the analyst is reading the recording. `in_review`: a version is drafted and waits for
  * its expert. `live`: a version is approved and runs. `retired`: kept, never run again.
@@ -223,7 +225,12 @@ export type RoutineRunView = {
   error: string | null;
   /** Time people spent on it: approvals and escalations, from asked to answered. */
   humanMs: number;
+  /** How many times its expert answered it. */
+  decisions: number;
+  /** What its model calls cost, from the spend ledger. */
   cents: number;
+  /** Its model calls' tokens, from the spend ledger. */
+  tokens: number;
   startedAt: string | null;
   endedAt: string | null;
 };
@@ -240,6 +247,11 @@ export type RoutineBatchView = {
   humanMs: number;
   /** The automation's baseline, per run. */
   manualMinutes: number | null;
+  tokens: number;
+  /** What the batch saved against its baseline, and what it cost (`libs/routines/savings.ts`). */
+  savings: Savings;
+  /** Sample history a demo or template seeded, labelled as such. */
+  sample: boolean;
   /**
    * What a row is, from the version's spec: the inputs that differ row to row (never a secret or a
    * shared one), `key` when part of the dedupe key, and the outputs a run reads back, each with the

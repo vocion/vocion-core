@@ -195,4 +195,4 @@ export function CheckLogBlock({ title, rows, now, timeZone }: { title: string; r
 }
 
 /** The heading a block carries when the page names none. */
-export const BLOCK_TITLE: Record<PageBlock['kind'], string> = { monitors: 'What is watched', checkLog: 'Checks', team: 'The team', flow: 'How it runs' };
+export const BLOCK_TITLE: Record<PageBlock['kind'], string> = { monitors: 'What is watched', checkLog: 'Checks', team: 'The team', flow: 'How it runs', needsYou: 'Needs you', dashboard: 'Dashboard' };

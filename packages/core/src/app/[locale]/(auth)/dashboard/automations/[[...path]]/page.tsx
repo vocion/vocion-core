@@ -9,6 +9,7 @@ import { RoutineView } from '@/features/routines/RoutineView';
 import { TeachRoutineButton } from '@/features/routines/TeachRoutineButton';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { batchesOf, getBatch, getRoutine, listRoutines } from '@/services/routines/routineReads';
+import { routineSavingsView } from '@/services/routines/savingsReads';
 
 /** What a path under /dashboard/automations shows. */
 type Shown = { kind: 'list' } | { kind: 'routine'; id: number } | { kind: 'batch'; id: number } | { kind: 'batches' } | { kind: 'none' };
@@ -69,7 +70,8 @@ export default async function AutomationsPage(props: { params: Promise<{ locale:
     if (!routine) {
       notFound();
     }
-    return <RoutineView key={routine.id} initial={routine} batches={await batchesOf(orgId, s.id)} />;
+    const [batches, savings] = await Promise.all([batchesOf(orgId, s.id), routineSavingsView(orgId, s.id)]);
+    return <RoutineView key={routine.id} initial={routine} batches={batches} savings={savings} />;
   }
   if (s.kind === 'batch') {
     const batch = await getBatch(orgId, s.id);

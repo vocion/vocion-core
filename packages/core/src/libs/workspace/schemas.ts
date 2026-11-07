@@ -173,6 +173,12 @@ export const WorkspaceManifestSchema = z.object({
      */
     timezone: z.string().refine(v => isValidTimeZone(v), { message: 'timezone must be an IANA zone such as America/Los_Angeles' }).optional(),
     /**
+     * What an hour of the people whose work the automations take over is worth, in dollars, and
+     * whose time it is (`of: specialist` reads "$2,480 of specialist time"). The saved time of
+     * every automation is valued at it. Omitted: savings are stated in hours alone.
+     */
+    hourlyRate: z.object({ amount: z.number().positive().max(10_000), of: z.string().min(1).max(40).optional() }).optional(),
+    /**
      * Which vendor produces this workspace's embeddings, and which model.
      * Omitted keys fall back to `VOCION_EMBEDDING_PROVIDER` /
      * `VOCION_EMBEDDING_MODEL`, then to OpenAI.

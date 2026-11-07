@@ -41,6 +41,7 @@ import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
 import { asRootRun } from '@/libs/agents/rootRun';
 import { db } from '@/libs/DB';
 import { clipAtWord, factsTable } from '@/libs/decisions/decision';
+import { dollars, savingMethod, savingSentence, tokensLabel } from '@/libs/routines/savings';
 import { batchLabel, clock, ROUTINE_LIMITS, routineRunOpen, TRUST_LABEL } from '@/libs/routines/types';
 import { browserRunSchema, routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema } from '@/models/Schema';
 import { batchStatusLine, batchView, currentVersions, getBatch, getRoutine, namesOf } from './routineReads';
@@ -111,11 +112,12 @@ async function uniqueSlug(orgId: string, name: string): Promise<string> {
  * @param ids.batchId - The batch.
  */
 function pushLive(orgId: string, ids: { routineId?: number | null; batchId?: number | null }): void {
-  const topics = [ids.routineId ? `routine:${ids.routineId}` : null, ids.batchId ? `routine-batch:${ids.batchId}` : null].filter((t): t is string => Boolean(t));
+  // A batch moving is a run moving: it joins the workspace's `runs` feed, so a page made of runs (a flow, a home) follows it.
+  const topics = [ids.routineId ? `routine:${ids.routineId}` : null, ids.batchId ? `routine-batch:${ids.batchId}` : null, ids.batchId ? 'runs' : null].filter((t): t is string => Boolean(t));
   if (topics.length === 0) {
     return;
   }
-  void import('@/libs/live/publish').then(m => m.publish({ orgId, topics, ref: topics.at(-1)!, kind: 'changed' })).catch(() => {});
+  void import('@/libs/live/publish').then(m => m.publish({ orgId, topics, ref: ids.batchId ? `routine-batch:${ids.batchId}` : topics[0]!, kind: 'changed' })).catch(() => {});
 }
 
 async function seal(orgId: string, values: Record<string, string>) {
@@ -923,7 +925,7 @@ async function runCarriesOn(run: RunRow): Promise<void> {
       await supersedeAsk(run.orgId, run.askId, 'Answered in the run’s pane.').catch(() => {});
     }
   }
-  await db.update(routineRunSchema).set({ status: 'running', waiting: null, humanMs: Number(run.humanMs ?? 0) + (run.waiting ? waitedMs : 0), updatedAt: new Date() }).where(eq(routineRunSchema.id, run.id));
+  await db.update(routineRunSchema).set({ status: 'running', waiting: null, humanMs: Number(run.humanMs ?? 0) + (run.waiting ? waitedMs : 0), decisions: Number(run.decisions ?? 0) + (run.waiting ? 1 : 0), updatedAt: new Date() }).where(eq(routineRunSchema.id, run.id));
 }
 
 function norm(v: unknown): string {
@@ -992,7 +994,8 @@ async function runEnded(run: RunRow, e: Extract<RunEvent, { kind: 'ended' }>): P
     }
   }
   const waitedMs = decisionMs(run.waiting);
-  const base = { waiting: null, askId: null, endedAt: new Date(), updatedAt: new Date(), humanMs: Number(run.humanMs ?? 0) + waitedMs, summary: e.summary.slice(0, 1_000) };
+  // An answer that ended the run (a decline) is a decision too.
+  const base = { waiting: null, askId: null, endedAt: new Date(), updatedAt: new Date(), humanMs: Number(run.humanMs ?? 0) + waitedMs, decisions: Number(run.decisions ?? 0) + (run.waiting?.answer ? 1 : 0), summary: e.summary.slice(0, 1_000) };
   if (run.n === 0) {
     // The reconciliation: what it read becomes the batch's finding.
     await db.update(routineRunSchema).set({ ...base, status: e.status === 'done' ? 'done' : e.status === 'stopped' ? 'stopped' : 'failed', error: e.error }).where(eq(routineRunSchema.id, run.id));
@@ -1362,10 +1365,6 @@ async function applyFindingAnswer(orgId: string, batchId: number, findingId: str
 /* The report                                                          */
 /* ------------------------------------------------------------------ */
 
-function usd(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
 function mins(ms: number): string {
   const m = ms / 60_000;
   return m < 10 ? `${m.toFixed(1)} min` : `${Math.round(m)} min`;
@@ -1382,8 +1381,6 @@ export function reportMarkdown(v: RoutineBatchView, followUps: RoutineBatchView[
   const done = c.done ?? 0;
   const runLink = (x: { n: number; browserRunId: number | null }) => (x.browserRunId ? `[${x.n}](/dashboard/browser/${x.browserRunId})` : String(x.n));
   const wall = v.endedAt ? Date.parse(v.endedAt) - Date.parse(v.startedAt) : Date.now() - Date.parse(v.startedAt);
-  const byHand = v.manualMinutes ? v.manualMinutes * (done + (c.escalated ?? 0)) : null;
-  const human = v.humanMs;
   const escalated = v.runs.filter(x => x.receipt?.approvedBy && x.waiting === null && x.summary && /expert/i.test(x.summary)).length;
   const lines = [
     `# ${batchLabel(v.id)} · ${v.routine.name}`,
@@ -1394,13 +1391,10 @@ export function reportMarkdown(v: RoutineBatchView, followUps: RoutineBatchView[
     `- **${v.total}** rows: **${done}** done and verified by read-back, ${c.skipped ?? 0} skipped, ${(c.escalated ?? 0) + (c.waiting ?? 0)} still waiting on the expert, ${c.failed ?? 0} failed, ${c.unknown_outcome ?? 0} to check by hand.`,
     `- Wall clock: ${mins(wall)} for the whole batch, runs in parallel.`,
     '',
-    '## Time',
-    byHand !== null ? `- By hand: about ${Math.round(byHand)} min (${v.manualMinutes} min per run, from the recording, × ${done + (c.escalated ?? 0)} runs).` : '- By hand: no baseline on this automation yet.',
-    `- People spent about ${mins(human)} answering its escalations and held steps (each counted up to 2 min; the rest of a wait is time they were elsewhere).`,
-    byHand !== null ? `- Capacity recovered: about ${Math.max(0, Math.round(byHand - human / 60_000))} min.` : '',
-    '',
-    '## Cost',
-    `- Run cost ${usd(v.cents)} in total, ${v.total ? usd(Math.round(v.cents / v.total)) : '$0.00'} per run (model calls of each browser run).`,
+    '## What it saved',
+    ...(savingSentence(v.savings) ? [`**${savingSentence(v.savings)}**`, ''] : []),
+    ...savingMethod(v.savings).map(l => `- ${l}`),
+    `- ${v.total ? `${dollars(Math.round(v.savings.costCents / v.total))} and ${tokensLabel(Math.round(v.savings.tokens / v.total))} tokens per row` : 'No rows'}.`,
     '',
   ];
   const asked = v.runs.filter(x => /expert answered/i.test(x.summary ?? '') || x.status === 'skipped' || x.status === 'escalated' || x.status === 'unknown_outcome');

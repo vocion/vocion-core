@@ -46,6 +46,13 @@ describe('live', () => {
     expect(!md.success && md.error.issues[0]?.path).toEqual(['live']);
     expect(PageManifestSchema.safeParse({ slug: 'l', title: 'L', archetype: 'link', href: '/dashboard/x', live: { every: 30 } }).success).toBe(false);
   });
+
+  it('belongs to a page with blocks, which have something to re-read', () => {
+    const page = PageManifestSchema.safeParse({ slug: 'h', title: 'H', archetype: 'markdown', live: { follow: ['asks', 'runs'] }, blocks: [{ kind: 'needsYou' }, { kind: 'dashboard', dashboard: 'What the automations saved' }] });
+
+    expect(page.success).toBe(true);
+    expect(PageManifestSchema.safeParse({ slug: 'h', title: 'H', archetype: 'markdown', blocks: [{ kind: 'dashboard' }] }).success).toBe(false);
+  });
 });
 
 describe('the relative and progress formats', () => {

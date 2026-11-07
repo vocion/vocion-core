@@ -21,8 +21,9 @@ export const getRoutineRoute = os
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
     const { batchesOf, getRoutine } = await import('@/services/routines/routineReads');
+    const { routineSavingsView } = await import('@/services/routines/savingsReads');
     const routine = await getRoutine(orgId, input.id);
-    return { routine, batches: routine ? await batchesOf(orgId, input.id) : [] };
+    return { routine, batches: routine ? await batchesOf(orgId, input.id) : [], savings: routine ? await routineSavingsView(orgId, input.id) : null };
   });
 
 export const getRoutineBatchRoute = os
