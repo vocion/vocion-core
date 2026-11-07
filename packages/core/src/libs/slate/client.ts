@@ -45,7 +45,7 @@ export type SlateFailure = { ok: false; status: number | null; message: string; 
 export type SlateResult<T> = { ok: true; data: T } | SlateFailure;
 
 /** What a fetch looks like to this client, so a test can stand in for the network. */
-export type SlateFetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string | Uint8Array; signal: AbortSignal }) => Promise<{
+export type SlateFetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string | Uint8Array; signal: AbortSignal; redirect?: 'manual' | 'follow' }) => Promise<{
   ok: boolean;
   status: number;
   json: () => Promise<unknown>;

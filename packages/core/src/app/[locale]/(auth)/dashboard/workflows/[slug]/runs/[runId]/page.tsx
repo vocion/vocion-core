@@ -101,7 +101,7 @@ export default async function WorkflowRunDetailPage(props: Props) {
             {run.pauseReason && (
               <>
                 <span aria-hidden>·</span>
-                <span className="font-mono text-xs">{run.pauseReason}</span>
+                <span>{pauseLine(run.pauseReason)}</span>
               </>
             )}
             {run.workspaceSha && (
@@ -280,4 +280,17 @@ function formatRelative(d: Date | string | null): string {
     return '—';
   }
   return date.toLocaleString();
+}
+
+/**
+ * Why a paused run is waiting, in words: the step it waits on, not the engine's code.
+ * @param reason - `awaiting_<kind>:<step>`.
+ */
+function pauseLine(reason: string): string {
+  const m = /^awaiting_(\w+):(.+)$/.exec(reason);
+  if (!m) {
+    return 'paused';
+  }
+  const what: Record<string, string> = { approval: 'waiting on a decision', input: 'waiting on an answer', action: 'waiting on its card', batch: 'waiting on its automation batch' };
+  return `${what[m[1]!] ?? 'waiting'} at "${m[2]}"`;
 }

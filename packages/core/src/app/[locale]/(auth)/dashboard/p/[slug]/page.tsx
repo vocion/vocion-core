@@ -530,7 +530,7 @@ export default async function WorkspacePage(props: {
   const { locale, slug } = await props.params;
   const searchParams = await props.searchParams;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, userId } = await auth();
   if (!orgId) {
     // A valid session with no organization here — typically a cookie from a
     // sibling localhost app (shared AUTH_SECRET). A bare 404 hides the cause;
@@ -889,7 +889,7 @@ export default async function WorkspacePage(props: {
       {!rowsLead && pluginPanel}
 
       {content && manifest.archetype === 'markdown' && (
-        <article className="prose prose-sm max-w-3xl dark:prose-invert">
+        <article className="prose prose-sm mb-8 max-w-3xl dark:prose-invert">
           <ReactMarkdown remarkPlugins={[remarkGfm, remarkDropHtmlComments]}>{content}</ReactMarkdown>
         </article>
       )}
@@ -1008,7 +1008,7 @@ export default async function WorkspacePage(props: {
 
       <Widgets manifest={manifest} position="above" rows={windowed} stats={stats} />
       {/* What is watched, above the rows; what each check saw, below them. */}
-      <PageMonitorBlocks orgId={orgId} blocks={manifest.blocks} position="above" plugin={ownedBy} now={now} />
+      <PageMonitorBlocks orgId={orgId} userId={userId} blocks={manifest.blocks} position="above" plugin={ownedBy} now={now} />
       {manifest.rowsTitle && <h2 className="mb-2 text-sm font-semibold" data-testid="page-rows-title">{manifest.rowsTitle}</h2>}
 
       {manifest.archetype === 'report' && (
@@ -1145,7 +1145,7 @@ export default async function WorkspacePage(props: {
       )}
 
       <Widgets manifest={manifest} position="below" rows={windowed} stats={stats} />
-      <PageMonitorBlocks orgId={orgId} blocks={manifest.blocks} position="below" plugin={ownedBy} now={now} />
+      <PageMonitorBlocks orgId={orgId} userId={userId} blocks={manifest.blocks} position="below" plugin={ownedBy} now={now} />
 
       {rowsLead && pluginPanel}
       {rowsLead && about}

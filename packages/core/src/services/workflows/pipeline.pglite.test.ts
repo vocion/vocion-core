@@ -119,7 +119,7 @@ describe('an SEO page pipeline as a workflow', () => {
     // The gate is one Decision, about this run, carrying what it reviews.
     const ask = await getAskBySourceRef(ORG, `workflow-run:${paused.id}:signoff`);
 
-    expect(ask).toMatchObject({ kind: 'approval', status: 'open', title: 'Sign off the page · SB-512 · page 2 of 3', agentSlug: 'seo-strategist', body: 'Sign off "boiler repair" for Northwind Home Services.' });
+    expect(ask).toMatchObject({ kind: 'approval', status: 'open', title: 'Sign off "boiler repair" for Northwind Home Services.', agentSlug: 'seo-strategist', body: 'Sign off the page · SB-512 · page 2 of 3' });
     expect(ask!.contextMd).toContain('**verdict:** pass');
     expect(paused.stepResults.signoff).toMatchObject({ status: 'awaiting_approval', askId: ask!.id });
 
@@ -144,8 +144,8 @@ describe('an SEO page pipeline as a workflow', () => {
     const paused = await startWorkflow({ orgId: ORG, slug: 'seo-page', input: { page_id: 89, keyword: 'boiler service', target: 'squarespace' } });
     const ask = await getAskBySourceRef(ORG, `workflow-run:${paused.id}:signoff`);
 
-    // No run label: the workflow's name and the run's number keep the title apart.
-    expect(ask?.title).toBe(`Sign off the page · Write one SEO page #${paused.id}`);
+    // No run label: the workflow's name and the run's number name the run.
+    expect(ask?.body).toBe(`Sign off the page · Write one SEO page #${paused.id}`);
 
     await decideAsk({ orgId: ORG, id: ask!.id, decision: 'reject', note: 'Wrong service area.', decidedBy: PERSON, via: 'card' });
     const stopped = await until(paused.id, 'cancelled');

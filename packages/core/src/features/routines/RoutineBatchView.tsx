@@ -6,7 +6,8 @@
  * (`compact`). Top to bottom:
  *
  *   header    the batch, the routine and its version; Build the report
- *   numbers   elapsed, what the runs cost, people's time, the same work by hand
+ *   saved     what the batch saved against its baseline, for what it cost (how: one click)
+ *   numbers   elapsed, what the runs cost and their tokens, people's time and decisions
  *   progress  one bar and a chip per status, needs-you first
  *   findings  what the batch found beyond its rows, each with its decision
  *   tiles     the browser as each run sees it, what it is doing and why, and what
@@ -14,106 +15,37 @@
  *
  * A tile keeps its size whatever its run is doing: the lines under the picture
  * are fixed, and what a run waits on replaces what it is doing rather than
- * adding to it. Clicking a picture opens that run's own live view in a sheet
- * (`BrowserRunView`). Re-read every 1.5s while the batch runs and the tab is
- * shown (and at once on a live notice, `routine-batch:<id>`), every 10s after.
+ * adding to it. Clicking a picture opens that run's own live view in the preview
+ * pane, the same pane every record opens in. Re-read every 1.5s while the batch runs and the tab is
+ * shown (and at once on a live notice, `routine-batch:<id>`), every 10s after
+ * (`useRoutineBatch`, the read the chat's live table shares).
  */
 
-import type { BrowserRunView as BrowserRun } from '@/libs/browser/run';
 import type { RoutineBatchView as RoutineBatch, RoutineFinding, RoutineReceipt, RoutineRunView } from '@/libs/routines/types';
-import { Check, CircleAlert, Clock, Coins, Eye, FileText, Globe, Inbox, Loader2, Timer, User, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DetailMeta, DetailPage, FactList, Stat, StatRow, StatusDot } from '@/components/patterns';
+import { Check, CircleAlert, Coins, Eye, FileText, Globe, Inbox, Loader2, Timer, User, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { DetailMeta, DetailPage, Stat, StatRow, StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { BrowserRunView } from '@/features/browser/BrowserRunView';
-import { announceConversationAppended } from '@/features/dashboard/chat/conversationAppended';
 import { openPreview } from '@/features/preview/previewState';
-import { useLive } from '@/hooks/useLive';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
-import { batchProgress, countChips, elapsed, minutesLong, money, peopleTime, RUN_STATUS, span } from '@/libs/routines/display';
+import { batchProgress, countChips, elapsed, money, peopleTime, RUN_STATUS, span } from '@/libs/routines/display';
+import { tokensLabel } from '@/libs/routines/savings';
 import { batchLabel } from '@/libs/routines/types';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { cn } from '@/utils/Helpers';
 import { ToneChip, TrustChip } from './RoutineChips';
+import { SavingLine } from './RoutineSavings';
+import { useRoutineBatch } from './useRoutineBatch';
 
 const DOT = { pass: 'pass', amber: 'amber', fail: 'fail', neutral: 'neutral', teal: 'neutral' } as const;
-const FAST_MS = 1500;
-const SLOW_MS = 10_000;
 
 /* ── Reading the batch ─────────────────────────────────────────────────── */
 
 function useBatch(initial: RoutineBatch): [RoutineBatch, (b: RoutineBatch) => void] {
-  const [batch, setBatch] = useState(initial);
-  const running = useRef(initial.status === 'running');
-  running.current = batch.status === 'running';
-  const inflight = useRef(false);
-  const pull = useCallback(async () => {
-    if (inflight.current) {
-      return;
-    }
-    inflight.current = true;
-    try {
-      const res = await client.routines.batch({ id: initial.id });
-      if (res.batch) {
-        setBatch(res.batch);
-      }
-    } catch {
-      /* the next pull tries again */
-    } finally {
-      inflight.current = false;
-    }
-  }, [initial.id]);
-
-  useEffect(() => {
-    let stop = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const loop = async () => {
-      if (!document.hidden) {
-        await pull();
-      }
-      if (!stop) {
-        timer = setTimeout(loop, running.current ? FAST_MS : SLOW_MS);
-      }
-    };
-    timer = setTimeout(loop, FAST_MS);
-    const onShown = () => {
-      if (!document.hidden) {
-        clearTimeout(timer);
-        void loop();
-      }
-    };
-    document.addEventListener('visibilitychange', onShown);
-    return () => {
-      stop = true;
-      clearTimeout(timer);
-      document.removeEventListener('visibilitychange', onShown);
-    };
-  }, [pull]);
-
-  const soon = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useLive([`routine-batch:${initial.id}`], () => {
-    if (soon.current) {
-      return;
-    }
-    soon.current = setTimeout(() => {
-      soon.current = null;
-      void pull();
-    }, 200);
-  });
-  // A new question for the expert, a finding, or the batch's end is said in the conversation it was
-  // asked from (a docked Decision, a closing message): tell the open chat to read it again.
-  const said = useRef<string>('');
-  const ask = [batch.status, ...batch.runs.map(r => r.waiting?.askId ?? 0), ...batch.findings.map(f => `${f.id}:${f.state}`)].join(',');
-  useEffect(() => {
-    if (said.current && said.current !== ask && batch.conversationId) {
-      announceConversationAppended(batch.conversationId);
-    }
-    said.current = ask;
-  }, [ask, batch.conversationId]);
-  return [batch, setBatch];
+  const [batch, setBatch] = useRoutineBatch(initial.id, initial);
+  return [batch ?? initial, setBatch];
 }
 
 function useNow(active: boolean): number {
@@ -161,7 +93,6 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
   const now = useNow(running);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [watching, setWatching] = useState<RoutineRunView | null>(null);
 
   const answer = useCallback(async (run: RoutineRunView, action: 'approve' | 'deny' | 'answer', text?: string) => {
     setBusy(`run:${run.id}`);
@@ -249,6 +180,7 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
       items={[
         <StatusDot key="s" tone={running ? 'amber' : (batch.counts.failed ?? 0) > 0 ? 'fail' : 'pass'} pulse={running} label={<span className="text-foreground">{running ? 'Running' : 'Done'}</span>} />,
         <TrustChip key="t" trust={batch.routine.trust} />,
+        batch.sample && <ToneChip key="sample" tone="neutral">Sample history</ToneChip>,
         batch.routine.expert && `Expert: ${batch.routine.expert}`,
         !compact && batch.requestedBy && `Asked by ${batch.requestedBy}`,
         <Link key="r" href={`/dashboard/automations/${batch.routine.id}`} className="underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground">The automation</Link>,
@@ -258,6 +190,7 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
 
   const body = (
     <div className={cn('@container', compact ? 'mt-3 space-y-4' : 'mt-5 space-y-6')}>
+      <SavingLine savings={batch.savings} />
       <Numbers batch={batch} now={now} compact={compact} />
       <Progress batch={batch} />
       {error && <p className="rounded-lg border border-brand-fail/30 bg-brand-fail-bg px-3 py-2 text-[13px] text-brand-fail" role="alert">{error}</p>}
@@ -270,12 +203,11 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
         <ul className="grid grid-cols-2 gap-2.5 @xl:grid-cols-3 @3xl:grid-cols-4 @5xl:grid-cols-5 @[90rem]:grid-cols-6" data-routine-tiles={batch.runs.length}>
           {batch.runs.map(r => (
             <li key={r.id} className="min-w-0">
-              <RunTile run={r} expert={batch.routine.expert} now={now} busy={busy === `run:${r.id}`} onOpen={() => setWatching(r)} onAnswer={(action, text) => void answer(r, action, text)} />
+              <RunTile run={r} expert={batch.routine.expert} now={now} busy={busy === `run:${r.id}`} onOpen={() => r.browserRunId && openPreview({ type: 'browser_run', id: String(r.browserRunId) }, null)} onAnswer={(action, text) => void answer(r, action, text)} />
             </li>
           ))}
         </ul>
       </div>
-      <RunSheet run={watching ? (batch.runs.find(r => r.id === watching.id) ?? watching) : null} onClose={() => setWatching(null)} />
     </div>
   );
 
@@ -309,13 +241,11 @@ export function RoutineBatchView({ initial, compact = false }: { initial: Routin
 
 function Numbers({ batch, now, compact }: { batch: RoutineBatch; now: number; compact: boolean }) {
   const took = span(batch.startedAt, batch.endedAt, now) ?? 0;
-  const byHand = batch.manualMinutes ? batch.manualMinutes * batch.total : null;
   const items = [
-    { icon: Timer, label: batch.status === 'running' ? 'Elapsed' : 'Took', value: elapsed(took) },
-    { icon: Coins, label: 'Run cost', value: money(batch.cents) },
-    { icon: User, label: 'People’s time', value: peopleTime(batch.humanMs) },
-    byHand ? { icon: Clock, label: 'By hand', value: `≈ ${minutesLong(byHand)}` } : null,
-  ].filter(Boolean) as Array<{ icon: typeof Timer; label: string; value: string }>;
+    { icon: Timer, label: batch.status === 'running' ? 'Elapsed' : 'Took', value: elapsed(took), note: null },
+    { icon: Coins, label: 'Run cost', value: money(batch.cents), note: batch.tokens > 0 ? `${tokensLabel(batch.tokens)} tokens` : null },
+    { icon: User, label: 'People’s time', value: peopleTime(batch.humanMs), note: batch.savings.decisions > 0 ? `${batch.savings.decisions} ${batch.savings.decisions === 1 ? 'decision' : 'decisions'}` : null },
+  ];
   return (
     <StatRow className={cn(compact && 'gap-y-3 py-3')}>
       {items.map(i => (
@@ -328,6 +258,7 @@ function Numbers({ batch, now, compact }: { batch: RoutineBatch; now: number; co
             </span>
           )}
           value={i.value}
+          {...(i.note ? { note: i.note } : {})}
         />
       ))}
     </StatRow>
@@ -652,72 +583,5 @@ function Receipt({ receipt }: { receipt: RoutineReceipt }) {
         </p>
       )}
     </div>
-  );
-}
-
-/* ── Watching one run ──────────────────────────────────────────────────── */
-
-function RunSheet({ run, onClose }: { run: RoutineRunView | null; onClose: () => void }) {
-  const [browser, setBrowser] = useState<{ id: number; run: BrowserRun } | null>(null);
-  const browserRunId = run?.browserRunId ?? null;
-  useEffect(() => {
-    if (!browserRunId) {
-      return;
-    }
-    let stop = false;
-    void client.browser.get({ id: browserRunId })
-      .then((j) => {
-        if (!stop && j.run) {
-          setBrowser({ id: browserRunId, run: j.run });
-        }
-      })
-      .catch(() => {});
-    return () => {
-      stop = true;
-    };
-  }, [browserRunId]);
-  const shown = browser && browser.id === browserRunId ? browser.run : null;
-  const inputs = Object.entries(run?.input ?? {});
-  return (
-    <Sheet open={run !== null} onOpenChange={o => !o && onClose()}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
-        {run && (
-          <>
-            <SheetHeader>
-              <SheetTitle>{`#${run.n} · ${run.label}`}</SheetTitle>
-              <SheetDescription>{run.browserRunId ? `Browser run ${run.browserRunId}` : RUN_STATUS[run.status].word}</SheetDescription>
-            </SheetHeader>
-            <div className="space-y-5 px-4 pb-6">
-              {run.browserRunId
-                ? (shown
-                    ? <BrowserRunView key={shown.id} initial={shown} compact />
-                    : (
-                        <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
-                          <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                          Opening the run…
-                        </p>
-                      ))
-                : <p className="text-[13px] text-muted-foreground">{run.status === 'queued' ? 'It starts when a browser comes free.' : run.summary ?? 'This run had no browser of its own.'}</p>}
-              {run.receipt && (
-                <section className="rounded-lg border border-border p-3">
-                  <Receipt receipt={run.receipt} />
-                </section>
-              )}
-              {inputs.length > 0 && (
-                <section>
-                  <h3 className="mb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">This row</h3>
-                  <FactList
-                    facts={inputs.map(([k, v]) => ({ key: k, label: <span className="font-mono">{k}</span>, value: v }))}
-                  />
-                </section>
-              )}
-              {(run.cents > 0 || run.humanMs > 0) && (
-                <p className="text-[12px] text-muted-foreground">{`Run cost ${money(run.cents)} · people’s time ${peopleTime(run.humanMs)}`}</p>
-              )}
-            </div>
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
   );
 }

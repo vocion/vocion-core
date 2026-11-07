@@ -95,3 +95,18 @@ describe('ScriptedChatModel', () => {
     expect(resolved.list[0]).toContain('ScriptedChatModel');
   });
 });
+
+describe('live stand-in', () => {
+  it('answers an unscripted line with the live model and keeps scripted lines written', async () => {
+    const live = new ScriptedChatModel({ script: { turns: [{ match: 'anything', steps: [], reply: 'live answer' }], fallback: 'live answer' } });
+    const model = new ScriptedChatModel({
+      script: { turns: [{ match: 'draft rfi', steps: [], reply: 'scripted answer' }], fallback: 'none' },
+      live,
+    });
+    const scripted = await model._generate([new HumanMessage('Draft RFI-112')]);
+    const unscripted = await model._generate([new HumanMessage('what is the pour date?')]);
+
+    expect(scripted.generations[0]!.text).toBe('scripted answer');
+    expect(unscripted.generations[0]!.text).toMatch(/^live answer/);
+  });
+});

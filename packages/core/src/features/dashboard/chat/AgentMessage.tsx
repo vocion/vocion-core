@@ -17,6 +17,7 @@ import { BrowserRunResult } from '@/features/browser/BrowserRunResult';
 import { BriefAudioPlayer } from '@/features/dashboard/briefings/BriefAudioPlayer';
 import { RecordMicrocard } from '@/features/dashboard/factory/WorkStatus';
 import { openPreview } from '@/features/preview/previewState';
+import { RoutineBatchTable } from '@/features/routines/RoutineBatchTable';
 import { remarkDropHtmlComments } from '@/libs/cards/markdownDisplay';
 import { normalizeAnswerHtml, stripCardNotes } from '@/libs/chat/answerText';
 import { linkedArtifactIds, mergeArtifactChips } from '@/libs/chat/artifactRefs';
@@ -319,6 +320,10 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   const follow = useMemo(() => turnFollowups(message.runs as TurnToolStep[] | undefined, {
     exclude: [...(pageRecord ? [pageRecord] : []), ...(docked ?? []), ...chips.map(a => ({ type: 'artifact', id: String(a.id) })), ...microcards.map(r => ({ type: 'object', id: String(r.id) }))],
   }), [message.runs, chips, pageRecord, docked, microcards]);
+  // An automation batch the turn started or checked is drawn as its live table (`RoutineBatchTable`)
+  // in place of its chip: one shape per thing.
+  const batchTables = useMemo(() => follow.filter(f => f.ref.type === 'routine_batch').map(f => Number(f.ref.id)), [follow]);
+  const followChips = useMemo(() => follow.filter(f => f.ref.type !== 'routine_batch'), [follow]);
   // The browser runs this turn handed back done, with outputs for the run to draw (`BrowserRunResult`).
   const doneBrowserRuns = useMemo(() => browserRunsDone(message.runs as TurnToolStep[] | undefined), [message.runs]);
   // A failure is a failure whether it arrived as a legacy run or as a typed
@@ -696,13 +701,15 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               chip for a step still running would be a claim. */}
           {/* A browser run's outputs, drawn by the run itself under the answer that asked for them. */}
           {!streaming && doneBrowserRuns.map(id => <BrowserRunResult key={id} runId={id} />)}
+          {/* An automation batch's rows, each with where its run stands, live while it runs. */}
+          {!streaming && batchTables.map(id => <RoutineBatchTable key={id} batchId={id} />)}
           {microcards.length > 0 && (
             <div className="-mx-2 mt-3 space-y-0.5" data-testid="turn-record-microcards">
               {microcards.map(r => <RecordMicrocard key={r.id} record={r} />)}
             </div>
           )}
-          {(chips.length > 0 || (!streaming && follow.length > 0)) && (
-            <ArtifactChips artifacts={chips} follow={streaming ? [] : follow} onOpen={onOpenArtifact} onBuild={streaming ? undefined : onBuildCard} />
+          {(chips.length > 0 || (!streaming && followChips.length > 0)) && (
+            <ArtifactChips artifacts={chips} follow={streaming ? [] : followChips} onOpen={onOpenArtifact} onBuild={streaming ? undefined : onBuildCard} />
           )}
           {/* Still working after it made something: the line under the chips,
               so what it made never reads as the end of the turn. */}

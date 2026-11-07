@@ -472,7 +472,7 @@ const WidgetSchema = z.object({
  * can name a monitor another plugin ships. A closed set, like the configure
  * tabs: each is a read core owns, and a page only chooses which and where.
  */
-export const PAGE_BLOCK_KINDS = ['monitors', 'checkLog', 'team', 'flow'] as const;
+export const PAGE_BLOCK_KINDS = ['monitors', 'checkLog', 'team', 'flow', 'needsYou', 'dashboard'] as const;
 
 /**
  * One step of a `flow` block: who does it, when, and what it leaves behind.
@@ -488,6 +488,11 @@ export const FlowStepSchema = z.object({
   agent: SlugSchema.optional(),
   person: z.string().min(1).max(60).optional(),
   automation: SlugSchema.optional(),
+  /**
+   * A taught automation (a routine, by slug) that does the step: the step links to it, says how
+   * many cases it stops for its expert on, and shows its latest batch live, linked to its queue.
+   */
+  routine: SlugSchema.optional(),
   cadence: z.string().min(1).max(60).optional(),
   artifacts: z.array(z.number().int().positive()).max(4).optional(),
   links: z.array(z.object({ label: z.string().min(1).max(40), href: z.string().min(1) })).max(3).optional(),
@@ -495,6 +500,11 @@ export const FlowStepSchema = z.object({
 export type FlowStep = z.infer<typeof FlowStepSchema>;
 
 /*
+ *   needsYou   what waits on the person looking, decided in place on the one
+ *              decision card (the app home's Needs you); renders nothing when
+ *              nothing waits. Live on a page that follows `asks`.
+ *   dashboard  a dashboard artifact, drawn whole: `dashboard` names it by its
+ *              title (the newest of that title). Nothing when none is filed.
  *   team       a team drawn as a team: its lead, the agents that report to
  *              it, the person accountable, and for each agent what it owns,
  *              its skills, the systems it reads, and what it did this month.
@@ -519,7 +529,12 @@ export const PageBlockSchema = z.object({
   systems: z.record(z.string(), z.string().max(40)).optional(),
   /** flow: the steps, in order. */
   steps: z.array(FlowStepSchema).min(2).max(8).optional(),
+  /** dashboard: the dashboard's title, as filed. */
+  dashboard: z.string().min(1).max(120).optional(),
 }).superRefine((b, ctx) => {
+  if (b.kind === 'dashboard' && !b.dashboard) {
+    ctx.addIssue({ code: 'custom', path: ['dashboard'], message: 'a dashboard block names its dashboard by title' });
+  }
   if (b.kind === 'flow' && !b.steps) {
     ctx.addIssue({ code: 'custom', path: ['steps'], message: 'a flow block names its steps' });
   }
@@ -1041,7 +1056,7 @@ export const PageManifestSchema = z.object({
   // A wiki is a folder of markdown pages read as pages: the source names the folder, nothing else is declared.
   .refine(m => m.archetype !== 'dashboards' || m.source === undefined || m.source.kind === 'artifacts', { message: 'a dashboards page reads dashboards: source is {kind: artifacts, folder: <name>} or omitted', path: ['source'] })
   .refine(m => m.archetype !== 'wiki' || (m.source !== undefined && m.source.kind === 'artifacts' && typeof m.source.folder === 'string'), { message: 'a wiki page needs source: {kind: artifacts, folder: <name>} — the folder its pages live in', path: ['source'] })
-  .refine(m => m.live === undefined || m.archetype === 'list' || m.archetype === 'queue', { message: 'live is for list and queue pages — the ones with rows to re-read', path: ['live'] })
+  .refine(m => m.live === undefined || m.archetype === 'list' || m.archetype === 'queue' || m.blocks.length > 0, { message: 'live is for list and queue pages, and pages with blocks — the ones with something to re-read', path: ['live'] })
   .refine(m => m.layout === 'table' || m.archetype === 'list', { message: 'layout: block is for list pages, the ones with rows to draw', path: ['layout'] })
   .refine(m => m.groupsAs !== 'tabs' || !!m.groupBy, { message: 'groupsAs: tabs needs groupBy — tabs are the groups', path: ['groupsAs'] })
   .refine(m => m.groupOrder === undefined || !!m.groupBy, { message: 'groupOrder orders groupBy\'s groups — it needs groupBy', path: ['groupOrder'] })

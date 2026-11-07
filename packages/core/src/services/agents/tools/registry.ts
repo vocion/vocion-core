@@ -130,6 +130,7 @@ import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
 import { wikiTools } from './wiki';
 import { withdrawProposalTool } from './withdrawProposal';
+import { workflowStartTools } from './workflowStart';
 import { workspaceSourceTools } from './workspaceSource';
 import { zoomTools } from './zoomTranscript';
 
@@ -281,6 +282,8 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // The automations plugin (or `VOCION_ROUTINES`): teach an automation from a Slate recording, approve it,
     // run it for many rows at once, follow the batch, write its report.
     ...inFamily('Routines', routineTools(ctx)),
+    // A saved workflow started from chat, read by what it does (`workflowStart.ts`).
+    ...inFamily('Workflows', workflowStartTools(ctx)),
     ...inFamily('Product access', recordLiveCheckTools(ctx)),
     // Granted-only: production errors from the workspace's Sentry — issues by
     // project, environment, release and time, and one issue's latest event

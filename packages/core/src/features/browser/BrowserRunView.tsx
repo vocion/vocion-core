@@ -8,23 +8,33 @@
  *   browser  the page as the browser sees it now, several frames a second
  *            while it runs: the cursor gliding to what it clicks, the field it
  *            types into outlined (the engine draws them on the page)
- *   waiting  what it is holding for the person — a step that submits, with
- *            a picture of the page, Approve and Decline; or its question
+ *   waiting  what it is holding for the person — a step that submits, or its
+ *            question — as the one Decision card (`DockedDecision`)
  *   result   what it found, each output by name, a list of rows as a table
- *   steps    what it did, one line each, newest last
+ *   steps    what it did, one line each, newest last; a step with a picture
+ *            shows the page just after it in the browser above; a step where
+ *            a rule decided instead of asking links to the answer it came from
+ *   media    any picture opens full screen in the one media viewer
+ *            (`MediaLightbox`): live now, each step's page, the run's recording
  *   inputs   what it was given (a secret as ••••)
  *
  * Re-read about once a second while live (`browser.get` on the RPC route); the
  * picture is fetched as it moves (`/frame`), one request at a time.
  */
 
+import type { ReactNode } from 'react';
+import type { MediaSlide } from '@/features/dashboard/factory/MediaCarousel';
 import type { BrowserStep, BrowserRunView as Run } from '@/libs/browser/run';
-import { Check, Globe, Play, Square, X } from 'lucide-react';
+import { Globe, Maximize2, Play, Square } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FactList, StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { announceConversationAppended } from '@/features/dashboard/chat/conversationAppended';
+import { DockedDecision } from '@/features/dashboard/connect-systems/DockedDecision';
+import { MediaLightbox } from '@/features/dashboard/factory/MediaCarousel';
+import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { ruleSourceWords } from '@/libs/routines/ruleUse';
 import { cn } from '@/utils/Helpers';
 import { OutputValue } from './OutputValue';
 
@@ -113,15 +123,110 @@ function useFrame(run: Run): string | null {
   return src;
 }
 
-function StepRow({ step }: { step: BrowserStep }) {
+/**
+ * Re-reads the live picture when it moves, not on every re-render.
+ * @param run
+ */
+function frameSeqKey(run: Run): number {
+  return run.frameSeq;
+}
+
+/**
+ * Everything this run can show full screen, in order: each step's page, the page it ended on (or
+ * the page now, while it runs), then its recording.
+ * @param run - The run.
+ * @param live - It holds the browser now.
+ * @param seq - The live picture's frame, so "now" is fetched fresh.
+ */
+function mediaOf(run: Run, live: boolean, seq: number): MediaSlide[] {
+  const slides: MediaSlide[] = run.steps
+    .filter(st => st.shotUrl)
+    .map(st => ({ id: st.n, src: st.shotUrl!, label: `Step ${st.n}`, title: st.label, caption: st.why ? `${st.label} · ${st.why}` : st.label }));
+  if (live) {
+    slides.push({ id: -1, src: `/api/browser-runs/${run.id}/frame?t=${seq}`, label: 'Live', title: 'The browser now', caption: 'The browser now' });
+  } else if (run.finalShotUrl) {
+    slides.push({ id: -1, src: run.finalShotUrl, label: 'End', title: 'Where it ended', caption: run.summary?.slice(0, 200) ?? 'Where it ended' });
+  }
+  if (run.videoUrl && !live) {
+    slides.push({ id: -2, src: run.videoUrl, kind: 'video', type: 'video/webm', label: 'Recording', title: 'The whole run', caption: 'The whole run, recorded' });
+  }
+  return slides;
+}
+
+/**
+ * What a run's question offers: its typed choices, else the plain answers an older run gave.
+ * @param w - What it waits on.
+ */
+function waitingChoices(w: NonNullable<Run['waiting']>): Array<{ label: string; consequence?: string }> {
+  return w.choices ?? (w.options ?? []).map(label => ({ label }));
+}
+
+/**
+ * Under a run's question: the rule that sent it to the person, then what it found, each a fact.
+ * An older run's question carries its findings in its text instead.
+ * @param w - What it waits on.
+ */
+function waitingBody(w: NonNullable<Run['waiting']>): ReactNode {
+  if (!w.question) {
+    return w.text.includes('\n\n') ? w.text.split('\n\n').slice(1).join('\n\n') : undefined;
+  }
   return (
-    <li className="flex gap-2 py-1 text-[12px] leading-snug" data-browser-step={step.n}>
+    <div className="space-y-2">
+      {w.rule && <p>{w.rule}</p>}
+      {w.found && w.found.length > 0 && (
+        <FactList facts={w.found.map((f, i) => ({ key: `f${i}`, label: f.label, value: f.value }))} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The link a step that followed a rule carries to the decision the rule came from; nothing when it names none.
+ * @param root0
+ * @param root0.step
+ */
+function RuleSource({ step }: { step: BrowserStep }) {
+  const askId = step.rule?.from?.askId;
+  if (!askId) {
+    return null;
+  }
+  return (
+    <span className="block pl-8 text-[12px] text-muted-foreground">
+      {'From '}
+      <Link href={`/dashboard/inbox/${askId}`} className="underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground" data-browser-step-rule-source>
+        {ruleSourceWords(step.rule!.from) ?? 'the expert’s answer'}
+      </Link>
+    </span>
+  );
+}
+
+function StepRow({ step, shown, onShow }: { step: BrowserStep; shown: boolean; onShow: (step: BrowserStep) => void }) {
+  const body = (
+    <>
       <span className="w-5 shrink-0 text-right text-muted-foreground tabular-nums">{step.n}</span>
       <span className="min-w-0">
         <span className={cn('text-foreground', !step.ok && 'text-brand-fail')}>{step.label}</span>
         {step.why && <span className="text-muted-foreground">{` · ${step.why}`}</span>}
         {!step.ok && step.detail && <span className="block text-muted-foreground">{step.detail}</span>}
       </span>
+    </>
+  );
+  return (
+    <li className="text-[12px] leading-snug" data-browser-step={step.n} {...(step.rule ? { 'data-browser-step-rule': step.rule.n } : {})}>
+      {step.shotUrl
+        ? (
+            <button
+              type="button"
+              onClick={() => onShow(step)}
+              aria-pressed={shown}
+              className={cn('flex w-full gap-2 rounded px-1 py-1 text-left hover:bg-muted/50', shown && 'bg-muted')}
+              data-browser-step-shot
+            >
+              {body}
+            </button>
+          )
+        : <div className="flex gap-2 px-1 py-1">{body}</div>}
+      <RuleSource step={step} />
     </li>
   );
 }
@@ -130,9 +235,14 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
   const [run, setRun] = useState<Run>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reply, setReply] = useState('');
   const stepsEnd = useRef<HTMLLIElement | null>(null);
   const frame = useFrame(run);
+  // A step's own picture, chosen from the steps; or the run's recording, played back.
+  const [shown, setShown] = useState<BrowserStep | null>(null);
+  const showStep = useCallback((s: BrowserStep) => {
+    setShown(cur => (cur?.n === s.n ? null : s));
+  }, []);
+  const [viewing, setViewing] = useState<number | null>(null);
   const active = ACTIVE.has(run.status);
 
   useEffect(() => {
@@ -181,9 +291,6 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
       }
       if (res.run) {
         setRun(res.run);
-        if (!res.error) {
-          setReply('');
-        }
       }
     } catch {
       setError('That did not go through.');
@@ -195,11 +302,24 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
   const line = statusLine(run);
   const outputs = Object.entries(run.result ?? {});
   const inputs = Object.entries(run.inputs ?? {});
+  const live = ['running', 'waiting', 'queued'].includes(run.status);
+  const slides = mediaOf(run, live, frameSeqKey(run));
+  const openAt = (which: 'video' | 'now' | number) => {
+    const i = which === 'video'
+      ? slides.findIndex(x => x.kind === 'video')
+      : typeof which === 'number'
+        ? slides.findIndex(x => x.id === which)
+        : slides.length - 1 - (slides.at(-1)?.kind === 'video' ? 1 : 0);
+    if (i >= 0) {
+      setViewing(i);
+    }
+  };
+  const shownUrl = shown ? (shown.url ?? [...run.steps].reverse().find(x => x.n <= shown.n && x.url)?.url ?? null) : run.url;
   const host = (() => {
     try {
-      return run.url ? new URL(run.url).host + new URL(run.url).pathname : '';
+      return shownUrl ? new URL(shownUrl).host + new URL(shownUrl).pathname : '';
     } catch {
-      return run.url ?? '';
+      return shownUrl ?? '';
     }
   })();
 
@@ -235,17 +355,34 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
             <Globe className="size-3 shrink-0" aria-hidden />
             <span className="truncate" data-browser-url>{host || 'about:blank'}</span>
           </span>
-          {['running', 'waiting', 'queued'].includes(run.status) && (
+          {shown && (
+            <button type="button" onClick={() => setShown(null)} className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground" data-browser-step-shown={shown.n}>
+              {`Step ${shown.n} · back to ${ACTIVE.has(run.status) ? 'live' : 'the end'}`}
+            </button>
+          )}
+          {!shown && live && (
             <span className="flex items-center gap-1 text-[10px] font-semibold tracking-wide text-brand-fail uppercase">
               <span className="size-1.5 rounded-full bg-brand-fail motion-safe:animate-pulse" aria-hidden />
               Live
             </span>
           )}
+          {slides.length > 0 && (
+            <button type="button" onClick={() => openAt(shown ? shown.n : 'now')} aria-label="View full screen" title="View full screen" className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground" data-browser-fullscreen>
+              <Maximize2 className="size-3.5" aria-hidden />
+            </button>
+          )}
         </div>
         <div className="relative aspect-[16/10] w-full bg-muted/30">
-          {frame
-            // eslint-disable-next-line next/no-img-element -- a live blob, not an optimisable asset
-            ? <img src={frame} alt={`The browser on ${host || 'its page'}`} className="absolute inset-0 size-full object-contain object-top" data-browser-frame />
+          {(shown?.shotUrl ?? frame)
+            ? (
+                <button type="button" onClick={() => openAt(shown ? shown.n : 'now')} className="absolute inset-0 size-full cursor-zoom-in" aria-label="View full screen">
+                  {shown?.shotUrl
+                    // eslint-disable-next-line next/no-img-element -- a stored step picture, not an optimisable asset
+                    ? <img key={shown.n} src={shown.shotUrl} alt={`The page after step ${shown.n}: ${shown.label}`} className="size-full object-contain object-top" data-browser-step-frame={shown.n} />
+                    // eslint-disable-next-line next/no-img-element -- a live blob, not an optimisable asset
+                    : <img src={frame!} alt={`The browser on ${host || 'its page'}`} className="size-full object-contain object-top" data-browser-frame />}
+                </button>
+              )
             : (
                 <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-[12px] text-muted-foreground">
                   {run.status === 'proposed' ? 'The browser opens when you press Start.' : run.status === 'queued' ? 'Opening the browser…' : 'No picture of this run was kept.'}
@@ -253,6 +390,15 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
               )}
         </div>
       </figure>
+      {run.videoUrl && !ACTIVE.has(run.status) && (
+        <Button size="sm" variant="outline" className="-mt-2" onClick={() => openAt('video')} data-browser-watch>
+          <Play className="size-3.5" aria-hidden />
+          Watch the run
+        </Button>
+      )}
+      {viewing !== null && slides.length > 0 && (
+        <MediaLightbox slides={slides} start={Math.min(viewing, slides.length - 1)} onClose={() => setViewing(null)} />
+      )}
       {run.isolation && (
         <p className="-mt-2 text-[11px] text-muted-foreground" data-browser-isolation={run.isolation}>
           {ISOLATION[run.isolation] ?? run.isolation}
@@ -261,35 +407,47 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
       )}
 
       {run.waiting && (
-        <div className="rounded-lg bg-waiting-soft p-3" data-browser-waiting={run.waiting.kind}>
-          <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{run.waiting.kind === 'approval' ? 'Needs your approval' : 'Question for you'}</p>
-          <p className="mt-1 text-sm font-medium text-foreground">{run.waiting.text}</p>
+        <div data-browser-waiting={run.waiting.kind}>
           {run.waiting.kind === 'approval'
             ? (
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" disabled={busy} onClick={() => send({ action: 'approve' })} data-browser-approve>
-                    <Check className="size-3.5" aria-hidden />
-                    Approve
-                  </Button>
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => send({ action: 'deny' })} data-browser-deny>
-                    <X className="size-3.5" aria-hidden />
-                    Decline
-                  </Button>
-                </div>
-              )
-            : (
-                <form
-                  className="mt-3 flex gap-2"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (reply.trim()) {
-                      void send({ action: 'answer', text: reply.trim() });
+                <DockedDecision
+                  id={`browser-${run.id}-${run.waiting.at}`}
+                  eyebrow="Needs your approval"
+                  question={run.waiting.step ? `Approve “${run.waiting.step.replace(/^Click /, '')}”?` : run.waiting.text}
+                  body={run.waiting.step ? run.waiting.text : undefined}
+                  options={[{ id: 'approve', label: 'Approve', recommended: true }, { id: 'deny', label: 'Decline' }]}
+                  allowOther={false}
+                  skipLabel={null}
+                  busy={busy}
+                  error={error}
+                  takeFocus={false}
+                  onAnswer={(a) => {
+                    if (a.kind === 'option') {
+                      void send({ action: a.optionIds[0] === 'approve' ? 'approve' : 'deny' });
                     }
                   }}
-                >
-                  <input value={reply} onChange={e => setReply(e.target.value)} className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm" aria-label="Your answer" />
-                  <Button size="sm" type="submit" disabled={busy || !reply.trim()}>Send</Button>
-                </form>
+                />
+              )
+            : (
+                <DockedDecision
+                  id={`browser-${run.id}-${run.waiting.at}`}
+                  eyebrow="Question for you"
+                  question={run.waiting.question ?? run.waiting.text.split('\n\n')[0]!}
+                  body={waitingBody(run.waiting)}
+                  options={waitingChoices(run.waiting).map((c, i) => ({ id: `o${i + 1}`, label: c.label, ...(c.consequence ? { consequence: c.consequence } : {}), ...(i === 0 ? { recommended: true } : {}) }))}
+                  allowOther
+                  skipLabel={null}
+                  busy={busy}
+                  error={error}
+                  takeFocus={false}
+                  onAnswer={(a) => {
+                    const choices = run.waiting ? waitingChoices(run.waiting) : [];
+                    const text = a.kind === 'free_text' ? a.text : a.kind === 'option' ? choices[Number(a.optionIds[0]?.slice(1)) - 1]?.label : null;
+                    if (text?.trim()) {
+                      void send({ action: 'answer', text: text.trim() });
+                    }
+                  }}
+                />
               )}
         </div>
       )}
@@ -309,11 +467,17 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
       )}
       {run.error && run.status === 'failed' && !run.summary && <p className="text-sm text-brand-fail">{run.error}</p>}
 
+      {/* Where a rule decided instead of asking is what a reader checks first: shown even with the steps folded. */}
+      {compact && !active && run.steps.some(s => s.kind === 'rule') && (
+        <ol className="border-t border-border/60 pt-3" data-browser-rule-steps>
+          {run.steps.filter(s => s.kind === 'rule').map(s => <StepRow key={s.n} step={s} shown={shown?.n === s.n} onShow={showStep} />)}
+        </ol>
+      )}
       {run.steps.length > 0 && (
         <details open={active || !compact} className="border-t border-border/60 pt-3">
           <summary className="cursor-pointer list-none text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{`Steps · ${run.steps.length}`}</summary>
           <ol className="mt-2 max-h-72 overflow-y-auto">
-            {run.steps.map(s => <StepRow key={s.n} step={s} />)}
+            {run.steps.map(s => <StepRow key={s.n} step={s} shown={shown?.n === s.n} onShow={showStep} />)}
             <li ref={stepsEnd} aria-hidden />
           </ol>
         </details>

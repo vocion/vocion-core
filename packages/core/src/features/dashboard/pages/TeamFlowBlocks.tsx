@@ -1,6 +1,6 @@
-import type { FlowStepView, TeamBlockView, TeamMemberView } from '@/services/workspace/teamFlow';
+import type { FlowRoutineView, FlowStepView, TeamBlockView, TeamMemberView } from '@/services/workspace/teamFlow';
 import { FileText, UserCheck } from 'lucide-react';
-import { IntegrationLogo } from '@/components/patterns';
+import { IntegrationLogo, StatusDot } from '@/components/patterns';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { Link } from '@/libs/I18nNavigation';
 import { timeAgo } from '@/libs/timeAgo';
@@ -155,8 +155,25 @@ function stepWhen(s: FlowStepView, now: number, timeZone: string): string[] {
   return [cadence, status].filter((x): x is string => Boolean(x));
 }
 
+/**
+ * A batch in a line: "12 rows · 9 done · 2 waiting on Marcus · 1 running".
+ * @param b - The batch, counted.
+ * @param expert - Its expert's name.
+ */
+function batchLine(b: NonNullable<FlowRoutineView['batch']>, expert: string | null): string {
+  const who = expert?.split(/\s+/)[0] ?? 'the expert';
+  return [
+    `${b.total} ${b.total === 1 ? 'row' : 'rows'}`,
+    `${b.done} done`,
+    b.waiting > 0 ? `${b.waiting} waiting on ${who}` : null,
+    b.trouble > 0 ? `${b.trouble} need a look` : null,
+    b.open && b.running > 0 ? `${b.running} running` : null,
+  ].filter(Boolean).join(' · ');
+}
+
 function StepNode({ s, n, now, timeZone }: { s: FlowStepView; n: number; now: number; timeZone: string }) {
   const human = Boolean(s.person);
+  const r = s.routineView;
   return (
     <div
       data-testid={`flow-step-${n}`}
@@ -175,17 +192,30 @@ function StepNode({ s, n, now, timeZone }: { s: FlowStepView; n: number; now: nu
         >
           {n}
         </span>
-        <span className="text-sm leading-snug font-semibold">{s.title}</span>
+        {r
+          ? <Link href={`/dashboard/automations/${r.id}`} className="text-sm leading-snug font-semibold underline decoration-border underline-offset-2 hover:decoration-foreground" data-flow-routine={s.routine}>{s.title}</Link>
+          : <span className="text-sm leading-snug font-semibold">{s.title}</span>}
       </div>
       <div className="flex items-center gap-1.5 text-xs">
         {human
           ? <UserCheck className="size-3.5 text-muted-foreground" aria-hidden />
-          : <AgentDot name={s.agentName ?? s.agent ?? 'An agent'} size="xs" decorative />}
+          : <AgentDot name={s.agentName ?? s.agent ?? r?.name ?? 'An agent'} size="xs" decorative />}
         <span className="font-medium">
-          {human ? `${s.person} · approves` : (s.agentName ?? s.agent ?? 'An agent')}
+          {human ? `${s.person} · approves` : (s.agentName ?? s.agent ?? (r ? `Automation${r.version ? ` · version ${r.version}` : ''}` : 'An agent'))}
         </span>
       </div>
       {s.detail && <p className="text-xs text-muted-foreground">{s.detail}</p>}
+      {r && r.escalations > 0 && (
+        <p className="flex items-center gap-1.5 text-xs text-foreground" data-flow-stops>
+          <UserCheck className="size-3.5 shrink-0 text-waiting" aria-hidden />
+          {`Stops for ${r.expert ?? 'its expert'} in ${r.escalations} ${r.escalations === 1 ? 'case' : 'cases'}`}
+        </p>
+      )}
+      {r?.batch && (
+        <Link href={`/dashboard/automations/batches/${r.batch.id}`} className="mt-auto flex items-center gap-1.5 border-t border-border/70 pt-2 text-xs hover:underline" data-flow-batch={r.batch.open ? 'running' : 'done'}>
+          <StatusDot tone={r.batch.waiting > 0 ? 'amber' : r.batch.trouble > 0 ? 'fail' : r.batch.open ? 'amber' : 'pass'} pulse={r.batch.open && r.batch.running > 0} label={<span className="text-foreground">{batchLine(r.batch, r.expert)}</span>} />
+        </Link>
+      )}
       {stepWhen(s, now, timeZone).length > 0 && (
         <p className="text-[11px] text-muted-foreground tabular-nums">{stepWhen(s, now, timeZone).join(' · ')}</p>
       )}

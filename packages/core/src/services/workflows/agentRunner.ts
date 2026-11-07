@@ -19,6 +19,8 @@ export type AgentTurnRequest = {
   toolAllowlist?: string[];
   /** The step's earlier turn, for the corrective retry. */
   history?: HistoryTurn[];
+  /** The step this turn runs for: its task, and who started the run (`RuntimeContext.workflowStep`). */
+  workflowStep?: import('@/services/agents/types').WorkflowStepContext;
 };
 
 export type AgentTurnResult = {
@@ -57,6 +59,7 @@ export const runAgentTurn: AgentTurn = async (req) => {
     modelPrefs: { strength: 'balanced', effort: 'off', level: req.effort },
     ...(req.toolAllowlist?.length ? { toolAllowlist: req.toolAllowlist } : {}),
     ...(req.history?.length ? { conversationHistory: req.history } : {}),
+    ...(req.workflowStep ? { workflowStep: req.workflowStep } : {}),
     onEvent: (event) => {
       if (event.type === 'run_meta') {
         model = event.model;

@@ -268,7 +268,7 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
         </div>
       )}
       {open !== null && (
-        <Lightbox
+        <MediaLightbox
           slides={slides}
           start={open}
           onClose={(at) => {
@@ -302,16 +302,16 @@ function ArrowButton({ side, disabled, onClick }: { side: 'left' | 'right'; disa
 }
 
 /**
- * Full screen, one picture at a time. Swipe or arrow keys between them;
- * pinch (or tap, or a trackpad pinch) to zoom, drag to look around while
- * zoomed, tap again to fit. Escape or the one close button leaves,
- * landing the page's carousel on the picture you were looking at.
+ * Full screen, one picture or recording at a time: the one viewer for any media Vocion shows (a
+ * feature's evidence, a browser run's pages and its recording). Swipe or arrow keys between them;
+ * pinch (or tap, or a trackpad pinch) to zoom, drag to look around while zoomed, tap again to fit.
+ * Escape or the one close button leaves, landing the opener on the slide you were looking at.
  * @param props
- * @param props.slides - The pictures.
- * @param props.start - Which one opened.
- * @param props.onClose - Called with the index being viewed.
+ * @param props.slides - What to show, in order.
+ * @param props.start - The one to open on.
+ * @param props.onClose - Put it down, at the slide it was on.
  */
-function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: number; onClose: (at: number) => void }) {
+export function MediaLightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: number; onClose: (at: number) => void }) {
   const strip = useRef<HTMLDivElement>(null);
   const [idx, setIdx] = useState(start);
   const [zoomed, setZoomed] = useState(false);

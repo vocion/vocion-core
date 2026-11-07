@@ -4,9 +4,12 @@ import type { ReactNode } from 'react';
 import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import { ArrowUpRight, ChevronDown, ChevronUp, CornerDownLeft, Loader2, X } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { FactList } from '@/components/patterns/DetailPage';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { CLOSE_BUTTON } from '@/components/ui/buttonVariants';
 import { Surface, SURFACE_CLASS } from '@/components/ui/surface';
+import { ImageLightbox } from '@/features/dashboard/chat/ImageLightbox';
+import { classifyDashboardLink, isPlainClick, previewRefFor } from '@/features/dashboard/chat/links';
 import { openPreview } from '@/features/preview/previewState';
 import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
 import { decisionTitle, DENY_ID } from '@/libs/decisions/decision';
@@ -163,6 +166,9 @@ const TAP = 'max-md:min-h-11';
  * they must, and Skip and Submit never leave it. The desktop is unchanged.
  */
 export const DOCK_PHONE_MAX_HEIGHT_VH = 40;
+/** A Decision's picture on the card: a thumbnail, its top (where a page says what it is) in view. */
+const PICTURE_THUMB = 'max-h-40 w-auto max-w-full object-contain object-top max-md:max-h-24';
+
 const DOCK_PHONE_CLASS = 'max-md:flex max-md:max-h-[40vh] max-md:flex-col [@media(max-height:500px)]:flex [@media(max-height:500px)]:max-h-[40vh] [@media(max-height:500px)]:flex-col';
 
 export function DecisionCard({
@@ -433,6 +439,12 @@ export function DecisionCard({
   const queue = position && (position.total > 1 || (eyebrow !== undefined && position.total > 0)) ? `${position.index + 1} of ${position.total}` : null;
   // A sign-off is about an artifact: it opens beside the conversation, in place.
   const artifactRef = decision.refs?.find(r => r.type === 'artifact') ?? null;
+  // Details on a docked card opens in the preview pane beside the
+  // conversation, the way a link in an answer does (`previewRefFor`): a run
+  // that asked opens on its live view and the step it waits on, and the card
+  // stays where it is. ⌘-click navigates to the page.
+  const detailsLink = decision.href ? classifyDashboardLink(decision.href) : null;
+  const detailsPeek = variant === 'dock' && detailsLink ? previewRefFor(detailsLink) : null;
   // "Waiting on you · Revenue lead asks", or "Waiting on you" alone — never
   // "Waiting on you · A decision for you", which says the same thing twice.
   const asker = eyebrow ?? (context ? (agentName ? `${context} · ${agentName} asks` : context) : agentName ? `${agentName} asks` : 'A decision for you');
@@ -445,7 +457,7 @@ export function DecisionCard({
 
   // What folds behind "Details" on a phone: the why and the exact payload, on a docked card.
   const detailsId = `${uid}-d`;
-  const foldsDetails = decision.presentation !== 'review' && variant === 'dock' && !hasForm && Boolean(decision.body || bodyNode || decision.preview || lookOption?.look);
+  const foldsDetails = decision.presentation !== 'review' && variant === 'dock' && !hasForm && Boolean(decision.body || bodyNode || decision.preview || lookOption?.look || decision.facts?.length);
 
   const headActions = (
     <>
@@ -460,7 +472,17 @@ export function DecisionCard({
         </button>
       )}
       {decision.href && (
-        <Link href={decision.href} className="mt-0.5 shrink-0 text-[12px] text-muted-foreground hover:text-foreground hover:underline" data-testid="decision-details">
+        <Link
+          href={decision.href}
+          onClick={(e) => {
+            if (detailsPeek && isPlainClick(e)) {
+              e.preventDefault();
+              openPreview(detailsPeek, e.currentTarget);
+            }
+          }}
+          className="mt-0.5 shrink-0 text-[12px] text-muted-foreground hover:text-foreground hover:underline"
+          data-testid="decision-details"
+        >
           {decision.hrefLabel ?? 'Details'}
         </Link>
       )}
@@ -563,6 +585,30 @@ export function DecisionCard({
           </div>
           {headActions}
         </div>
+        {/* The evidence, never behind a fold: the picture the asker kept (the
+            page as a run stopped on it). Where Details opens beside the
+            conversation, the picture opens it too — the run's pane, with the
+            picture full size, its steps and the step it waits on; elsewhere
+            it opens full size in place (`ImageLightbox`). */}
+        {decision.picture && (
+          <div className="mt-2" data-testid="decision-picture">
+            {detailsPeek
+              ? (
+                  <button
+                    type="button"
+                    onClick={ev => openPreview(detailsPeek, ev.currentTarget)}
+                    className="block max-w-full cursor-pointer overflow-hidden rounded-lg border border-border transition hover:border-foreground/30"
+                    title={decision.picture.alt}
+                    aria-label={`${decision.picture.alt}: open it beside the conversation`}
+                    data-testid="decision-picture-thumb"
+                  >
+                    {/* A plain img: the route is authenticated and same-origin, not a static asset for next/image. */}
+                    <img src={decision.picture.src} alt={decision.picture.alt} className={PICTURE_THUMB} />
+                  </button>
+                )
+              : <ImageLightbox url={decision.picture.src} title={decision.picture.alt} testId="decision-picture-thumb" thumbClassName={PICTURE_THUMB} />}
+          </div>
+        )}
         {foldsDetails && (
           <button
             type="button"
@@ -580,6 +626,7 @@ export function DecisionCard({
           {bodyNode
             ? <div id={bodyId} className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{bodyNode}</div>
             : decision.body && <p id={bodyId} className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-muted-foreground">{decision.body}</p>}
+          {decision.facts && decision.facts.length > 0 && <FactList facts={decision.facts} className="mt-1" data-testid="decision-facts" />}
           {lookOption?.look && <DecisionLook look={lookOption.look} />}
           {decision.preview && (
             decision.preview.trimStart().startsWith('{')

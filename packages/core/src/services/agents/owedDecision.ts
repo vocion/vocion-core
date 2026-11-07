@@ -84,7 +84,8 @@ function proposalTitle(actionId: string, input: Record<string, unknown> | null, 
 /**
  * Did the person, in their own words on the page they are on, tell the agent
  * to take this decision? The one consent read every decide path uses: their
- * latest messages and the page's record, so "build this" means that record.
+ * latest messages, the agent's offer they replied to, and the page's record,
+ * so "build this" means that record and "yes, go" means what was offered.
  * @param ctx - The turn.
  * @param ctx.orgId - The workspace.
  * @param ctx.conversationId - The conversation.
@@ -95,7 +96,83 @@ function proposalTitle(actionId: string, input: Record<string, unknown> | null, 
 export async function personSaidToDecide(ctx: { orgId: string; conversationId?: number | null; turnMessage?: string; pageContext?: import('@/services/chat/pageContext').PageContext }, decision: string): Promise<{ said: boolean; quote: string | null }> {
   const { saidToDecide } = await import('./turnJudge');
   const page = ctx.pageContext?.record?.label ?? ctx.pageContext?.title ?? null;
-  return saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision, page });
+  const { messages, offer } = await personTurnWords(ctx);
+  return saidToDecide({ orgId: ctx.orgId, messages, decision, page, offer });
+}
+
+/** A conversation row, as the consent read takes it: who said it, and what. */
+export type SaidRow = { role: string; content: string };
+
+/**
+ * The person's words and the agent's offer they answer, from the newest rows
+ * of a conversation (newest first) and this turn's message. Pure.
+ *
+ * The person's words: this turn's message (`turnMessage`, else the newest
+ * person row), then the person row before it. The offer: the agent's message
+ * between those two — the one the latest replied to — or null when the agent
+ * said nothing in between.
+ * @param rows - The conversation's newest rows, newest first: person (`user`, `decision`) and agent (`assistant`).
+ * @param turnMessage - This turn's message, as typed, when the turn has one.
+ */
+export function wordsFromRows(rows: readonly SaidRow[], turnMessage?: string): { messages: string[]; offer: string | null } {
+  const isPerson = (r: SaidRow) => r.role === 'user' || r.role === 'decision';
+  let i = 0;
+  // The route stores the message before the agent runs, so the newest person
+  // row is usually this turn's; when it is, the offer comes after it.
+  const newestPerson = rows.findIndex(isPerson);
+  const stored = newestPerson >= 0 && turnMessage !== undefined && personWords(rows[newestPerson]!.content) === personWords(turnMessage);
+  if (turnMessage === undefined || stored) {
+    i = newestPerson >= 0 ? newestPerson + 1 : rows.length;
+  }
+  const latest = turnMessage ?? (newestPerson >= 0 ? rows[newestPerson]!.content : undefined);
+  let offer: string | null = null;
+  let previous: string | undefined;
+  for (; i < rows.length; i++) {
+    const r = rows[i]!;
+    if (isPerson(r)) {
+      previous = r.content;
+      break;
+    }
+    if (offer === null && r.role === 'assistant' && r.content.trim()) {
+      offer = r.content;
+    }
+  }
+  if (latest === undefined) {
+    return { messages: [], offer: null };
+  }
+  return { messages: [latest, ...(previous !== undefined ? [previous] : [])], offer };
+}
+
+/**
+ * The words a decision tool is gated on: the person's latest two messages
+ * and the agent's message the latest replied to (`wordsFromRows`). Never
+ * throws; empty when the turn has no conversation and no message.
+ * @param ctx - The turn.
+ * @param ctx.orgId - The workspace.
+ * @param ctx.conversationId - The conversation.
+ * @param ctx.turnMessage - This turn's message, as typed.
+ */
+export async function personTurnWords(ctx: { orgId: string; conversationId?: number | null; turnMessage?: string }): Promise<{ messages: string[]; offer: string | null }> {
+  let rows: SaidRow[] = [];
+  if (ctx.conversationId) {
+    try {
+      const { and, desc, eq, inArray } = await import('drizzle-orm');
+      const { db } = await import('@/libs/DB');
+      const { conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
+      rows = (await db
+        .select({ role: conversationMessageSchema.role, content: conversationMessageSchema.content })
+        .from(conversationMessageSchema)
+        .innerJoin(conversationSchema, eq(conversationSchema.id, conversationMessageSchema.conversationId))
+        // A Decision answered on its card is the person's word too: what they
+        // chose, as the typed record the row holds.
+        .where(and(eq(conversationSchema.orgId, ctx.orgId), eq(conversationMessageSchema.conversationId, ctx.conversationId), inArray(conversationMessageSchema.role, ['user', 'decision', 'assistant'])))
+        .orderBy(desc(conversationMessageSchema.id))
+        .limit(8)).map(r => ({ role: r.role, content: String(r.content ?? '') }));
+    } catch {
+      rows = [];
+    }
+  }
+  return wordsFromRows(rows, ctx.turnMessage);
 }
 
 /**
@@ -108,31 +185,5 @@ export async function personSaidToDecide(ctx: { orgId: string; conversationId?: 
  * @param ctx.turnMessage - This turn's message, as typed.
  */
 export async function personMessages(ctx: { orgId: string; conversationId?: number | null; turnMessage?: string }): Promise<string[]> {
-  let stored: string[] = [];
-  if (ctx.conversationId) {
-    try {
-      const { and, desc, eq, inArray } = await import('drizzle-orm');
-      const { db } = await import('@/libs/DB');
-      const { conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
-      const rows = await db
-        .select({ content: conversationMessageSchema.content })
-        .from(conversationMessageSchema)
-        .innerJoin(conversationSchema, eq(conversationSchema.id, conversationMessageSchema.conversationId))
-        // A Decision answered on its card is the person's word too: what they
-        // chose, as the typed record the row holds.
-        .where(and(eq(conversationSchema.orgId, ctx.orgId), eq(conversationMessageSchema.conversationId, ctx.conversationId), inArray(conversationMessageSchema.role, ['user', 'decision'])))
-        .orderBy(desc(conversationMessageSchema.id))
-        .limit(2);
-      stored = rows.map(r => String(r.content ?? ''));
-    } catch {
-      stored = [];
-    }
-  }
-  if (ctx.turnMessage === undefined) {
-    return stored;
-  }
-  // The route stores the message before the agent runs, so the newest stored
-  // row is this turn's; the one before it is the previous message.
-  const previous = stored[0] !== undefined && personWords(stored[0]) === personWords(ctx.turnMessage) ? stored[1] : stored[0];
-  return [ctx.turnMessage, ...(previous !== undefined ? [previous] : [])];
+  return (await personTurnWords(ctx)).messages;
 }
