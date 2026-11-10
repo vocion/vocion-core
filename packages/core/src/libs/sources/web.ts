@@ -42,7 +42,7 @@
 
 import type { CheerioAPI } from 'cheerio';
 import type { FetchFailureDetail } from './fetchFailure';
-import type { FirecrawlRun } from './firecrawlReader';
+import type { FirecrawlPage, FirecrawlRun } from './firecrawlReader';
 import type { PageLink, PageStructure } from './pageMetadata';
 import type { SourceConnector, SourceContext, SourceProgressEvent } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
@@ -533,25 +533,19 @@ async function fetchPage(
         report(both.message, both.detail);
         return null;
       }
-      return renderedPage(target, second.html, opts.read.ignore, {
+      return renderedPage(target, second, ctx, opts.read.ignore, {
         reader: 'firecrawl',
         blockedBy,
         ...(second.creditsUsed === undefined ? {} : { creditsUsed: second.creditsUsed }),
       });
     }
     const contentType = res.headers.get('content-type') ?? '';
-    const isHtml = contentType.includes('text/html');
-    // `+xml` covers `application/rss+xml` and `application/atom+xml`, which
-    // used to be skipped silently as an unsupported type, and an RSS feed is
-    // the only feed some venues publish.
-    const isPlain = contentType.startsWith('text/')
-      || contentType.includes('application/json')
-      || contentType.includes('application/xml')
-      || contentType.includes('+xml');
-    if (!isHtml && !isPlain) {
+    const readable = readableAs(contentType);
+    if (!readable) {
       ctx.onProgress?.({ kind: 'skipped', uri: target, message: `unsupported content-type: ${contentType}` });
       return null;
     }
+    const isHtml = readable === 'html';
     const raw = await res.text();
     const base = res.redirected && HTTP_URL_RE.test(res.url) ? sameSiteUrl(target, res.url) : target;
     const extracted = isHtml ? extractFromHtml(raw, target, opts.read.ignore) : { title: undefined, content: raw, structure: undefined };
@@ -575,21 +569,57 @@ async function fetchPage(
 }
 
 /**
- * A page the fallback reader rendered, as a fetched page. It carries no
- * validators, since the site's own headers never reached us.
+ * How a body of this content type is read: as a page, as text, or not at all.
+ * `+xml` covers `application/rss+xml` and `application/atom+xml`, which used
+ * to be skipped silently as an unsupported type, and an RSS feed is the only
+ * feed some venues publish.
+ * @param contentType - the `content-type` the body came with.
+ */
+function readableAs(contentType: string): 'html' | 'plain' | null {
+  if (contentType.includes('text/html')) {
+    return 'html';
+  }
+  const isPlain = contentType.startsWith('text/')
+    || contentType.includes('application/json')
+    || contentType.includes('application/xml')
+    || contentType.includes('+xml');
+  return isPlain ? 'plain' : null;
+}
+
+/**
+ * A page the fallback reader read, as a fetched page: typed by the content
+ * type Firecrawl reported (a feed stays a feed), its links resolved against
+ * where it landed, exactly as a direct fetch is. It carries no validators,
+ * since the site's own headers never reached us.
  * @param url - the URL requested.
- * @param html - the rendered DOM.
+ * @param page - what Firecrawl returned.
+ * @param ctx - the sync context, for a type the connector cannot read.
  * @param ignore - the source's `ignore` selectors.
  * @param readVia - who read it, and why.
  */
-function renderedPage(url: string, html: string, ignore: readonly string[], readVia: NonNullable<FetchedPage['readVia']>): FetchedPage {
-  const extracted = extractFromHtml(html, url, ignore);
+function renderedPage(
+  url: string,
+  page: FirecrawlPage,
+  ctx: SourceContext,
+  ignore: readonly string[],
+  readVia: NonNullable<FetchedPage['readVia']>,
+): FetchedPage | null {
+  // Firecrawl renders in a browser, so a page it typed nothing is a page.
+  const contentType = page.contentType ?? 'text/html';
+  const readable = readableAs(contentType);
+  if (!readable) {
+    ctx.onProgress?.({ kind: 'skipped', uri: url, message: `unsupported content-type: ${contentType}` });
+    return null;
+  }
+  const isHtml = readable === 'html';
+  const extracted = isHtml ? extractFromHtml(page.body, url, ignore) : { title: undefined, content: page.body, structure: undefined };
+  const landed = page.landedUrl;
   return {
     url,
-    base: url,
-    raw: html,
-    contentType: 'text/html',
-    isHtml: true,
+    base: landed !== undefined && HTTP_URL_RE.test(landed) && URL.canParse(landed) ? sameSiteUrl(url, landed) : url,
+    raw: page.body,
+    contentType,
+    isHtml,
     etag: null,
     lastModifiedAt: null,
     title: extracted.title,
@@ -629,7 +659,8 @@ function docsFromPage(page: FetchedPage, ctx: SourceContext): IngestDoc[] {
   const split = splitFeed(page);
   if (split) {
     ctx.onProgress?.(fetchedEvent(page));
-    return split;
+    const readVia = page.readVia?.reader;
+    return readVia ? split.map(doc => ({ ...doc, metadata: { ...doc.metadata, readVia } })) : split;
   }
   if (!page.content.trim()) {
     ctx.onProgress?.({ kind: 'skipped', uri: page.url, message: 'empty after extraction' });

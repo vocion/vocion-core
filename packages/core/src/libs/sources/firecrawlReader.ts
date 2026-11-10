@@ -4,7 +4,8 @@
  * The web connector calls this only for a source whose config asked for it
  * (`fallbackReader: 'firecrawl'`), only after the direct fetch was refused as a
  * bot (`blockSignal.ts`), and at most once per page. It returns the rendered
- * HTML, which the connector reads exactly as it reads a page it fetched itself.
+ * document with the type and landed URL Firecrawl reports, which the connector
+ * reads exactly as it reads a page it fetched itself.
  *
  * Every read costs the workspace a Firecrawl credit, so:
  * - the key is the workspace's stored Firecrawl key, else the server's
@@ -20,6 +21,7 @@
 
 import type { FallbackOutcome } from './fetchFailure';
 import process from 'node:process';
+import { load } from 'cheerio';
 import { z } from 'zod';
 import { resolveToolProviderKey } from '@/libs/tools/orgKey';
 import { oneLine } from './fetchFailure';
@@ -40,8 +42,14 @@ const ERROR_MAX_CHARS = 200;
 /** The Firecrawl reads one sync has spent. One per sync, created by the connector. */
 export type FirecrawlRun = { reads: number };
 
+/**
+ * A read that worked: the page's body, its content type and the URL it landed
+ * on after redirects, each as Firecrawl reported them (absent when it did not).
+ */
+export type FirecrawlPage = { body: string; contentType?: string; landedUrl?: string; creditsUsed?: number };
+
 export type FirecrawlRead
-  = | { ok: true; html: string; creditsUsed?: number }
+  = | ({ ok: true } & FirecrawlPage)
     | { ok: false; failure: FallbackOutcome };
 
 /** The parts of a v2 scrape answer this reads; anything else is ignored. */
@@ -54,6 +62,8 @@ const scrapeAnswerSchema = z.object({
     metadata: z.object({
       statusCode: z.number().optional(),
       creditsUsed: z.number().optional(),
+      contentType: z.string().optional(),
+      url: z.string().optional(),
     }).optional(),
   }).optional(),
 });
@@ -99,6 +109,35 @@ function errorText(answer: ScrapeAnswer): string {
 }
 
 /**
+ * The document a non-HTML answer carried. A browser shows a text or XML body
+ * wrapped in one `<pre>`, so a rendered copy may arrive that way; the wrapper
+ * is removed so a feed still reads as a feed. Any other body is kept as sent.
+ * @param body - the `rawHtml` Firecrawl returned.
+ */
+function unwrappedText(body: string): string {
+  const $ = load(body);
+  const only = $('body').children();
+  return only.length === 1 && only.is('pre') && $('body').text().trim() === only.text().trim() ? only.text() : body;
+}
+
+/**
+ * The page a successful answer carried, typed and landed as Firecrawl said.
+ * @param body - the rendered body, already known to be non-empty.
+ * @param metadata - the answer's metadata.
+ * @param credits - what the read cost, when Firecrawl said.
+ */
+function pageOf(body: string, metadata: NonNullable<ScrapeAnswer['data']>['metadata'], credits: Pick<FirecrawlPage, 'creditsUsed'>): FirecrawlPage {
+  const contentType = metadata?.contentType;
+  const isHtml = contentType === undefined || contentType.includes('text/html');
+  return {
+    body: isHtml ? body : unwrappedText(body),
+    ...(contentType === undefined ? {} : { contentType }),
+    ...(metadata?.url === undefined ? {} : { landedUrl: metadata.url }),
+    ...credits,
+  };
+}
+
+/**
  * Read one page through Firecrawl, rendered. Never throws.
  * @param url - the page the direct fetch was refused.
  * @param orgId - the workspace whose key is spent.
@@ -114,7 +153,7 @@ export async function readThroughFirecrawl(url: string, orgId: string, run: Fire
   } catch {
     // `resolveToolProviderKey` has logged the cause; spending the server's key
     // instead would bill the wrong party, so the read stops here.
-    return failed('the workspace\'s stored Firecrawl key could not be read');
+    return failed('the workspace\'s stored key could not be read');
   }
   if (!key) {
     return failed('not set up for this workspace');
@@ -151,9 +190,9 @@ export async function readThroughFirecrawl(url: string, orgId: string, run: Fire
     const outcome = statusCode === 403 || statusCode === 429 ? `still blocked (HTTP ${statusCode})` : `the rendered page answered HTTP ${statusCode}`;
     return failed(outcome, { status: statusCode, ...credits });
   }
-  const html = answer.data?.rawHtml ?? '';
-  if (!html.trim()) {
+  const body = answer.data?.rawHtml ?? '';
+  if (!body.trim()) {
     return failed('empty page', { ...(statusCode === undefined ? {} : { status: statusCode }), ...credits });
   }
-  return { ok: true, html, ...credits };
+  return { ok: true, ...pageOf(body, answer.data?.metadata, credits) };
 }

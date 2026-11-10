@@ -116,7 +116,7 @@ describe('the key a read spends', () => {
 
     const read = await readThroughFirecrawl(PAGE_URL, 'org_bellwater', fresh());
 
-    expect(read).toEqual({ ok: false, failure: { reader: 'firecrawl', outcome: 'the workspace\'s stored Firecrawl key could not be read' } });
+    expect(read).toEqual({ ok: false, failure: { reader: 'firecrawl', outcome: 'the workspace\'s stored key could not be read' } });
     expect(sent).toHaveLength(0);
   });
 });
@@ -127,7 +127,55 @@ describe('what a read asks Firecrawl for', () => {
 
     expect(sent[0]?.url).toBe('https://api.firecrawl.dev/v2/scrape');
     expect(sent[0]?.body).toEqual({ url: PAGE_URL, formats: ['rawHtml'], waitFor: 5000, maxAge: 0, timeout: 30000 });
-    expect(read).toEqual({ ok: true, html: RENDERED, creditsUsed: 1 });
+    expect(read).toEqual({ ok: true, body: RENDERED, creditsUsed: 1 });
+  });
+});
+
+describe('the page a read returns', () => {
+  /**
+   * A successful scrape with the metadata Firecrawl reports beside the body.
+   * @param rawHtml - the body.
+   * @param metadata - the type and landed URL Firecrawl reported.
+   * @param metadata.contentType - the page's own content type.
+   * @param metadata.url - where the page landed after redirects.
+   */
+  function described(rawHtml: string, metadata: { contentType: string; url: string }): Response {
+    return answer({ success: true, data: { rawHtml, metadata: { statusCode: 200, creditsUsed: 1, sourceURL: PAGE_URL, ...metadata } } });
+  }
+
+  it('carries the content type and the URL the page landed on after a redirect', async () => {
+    stubFirecrawl(() => described(RENDERED, { contentType: 'text/html; charset=UTF-8', url: 'https://bellwater.test/whats-on/' }));
+
+    const read = await readThroughFirecrawl(PAGE_URL, 'org_bellwater', fresh());
+
+    expect(read).toEqual({ ok: true, body: RENDERED, contentType: 'text/html; charset=UTF-8', landedUrl: 'https://bellwater.test/whats-on/', creditsUsed: 1 });
+  });
+
+  it('unwraps a feed the browser showed inside one <pre>, so it still reads as a feed', async () => {
+    const wrapped = '<html><head></head><body><pre style="word-wrap: break-word;">BEGIN:VCALENDAR\nSUMMARY:Quartet &amp; Friends\nEND:VCALENDAR</pre></body></html>';
+    stubFirecrawl(() => described(wrapped, { contentType: 'text/calendar; charset=utf-8', url: PAGE_URL }));
+
+    const read = await readThroughFirecrawl(PAGE_URL, 'org_bellwater', fresh());
+
+    expect(read).toMatchObject({ ok: true, body: 'BEGIN:VCALENDAR\nSUMMARY:Quartet & Friends\nEND:VCALENDAR', contentType: 'text/calendar; charset=utf-8' });
+  });
+
+  it('keeps a non-HTML body as sent when it is not a browser\'s wrapper', async () => {
+    const feed = '<?xml version="1.0"?><rss><channel><item><title>Quartet Night</title></item></channel></rss>';
+    stubFirecrawl(() => described(feed, { contentType: 'application/rss+xml', url: PAGE_URL }));
+
+    const read = await readThroughFirecrawl(PAGE_URL, 'org_bellwater', fresh());
+
+    expect(read).toMatchObject({ ok: true, body: feed });
+  });
+
+  it('never unwraps an HTML page, even one that is a single <pre>', async () => {
+    const page = '<html><body><pre>Quartet Night, Friday 8pm</pre></body></html>';
+    stubFirecrawl(() => described(page, { contentType: 'text/html', url: PAGE_URL }));
+
+    const read = await readThroughFirecrawl(PAGE_URL, 'org_bellwater', fresh());
+
+    expect(read).toMatchObject({ ok: true, body: page });
   });
 });
 
