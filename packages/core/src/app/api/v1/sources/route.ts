@@ -10,8 +10,11 @@ import { authApi, isErrorResponse, jsonError, readJsonBody, requireCapability, w
  * `run` carries `status`, `startedAt`, `completedAt`, `since`, `counts` and
  * `failures`, the last of which is how a processor failure is visible to a
  * tenant's own reporting without a database connection. A failure from an
- * HTTP fetch also carries `detail`: `{ status, headers, title?, snippet? }`,
- * the headers limited to an allowlist (server, CDN and WAF markers).
+ * HTTP fetch also carries `detail`: `{ status, headers, title?, snippet?, fallback? }`,
+ * the headers limited to an allowlist (server, CDN and WAF markers), and
+ * `fallback` (`{ reader, outcome, status?, creditsUsed? }`) set when a source's
+ * fallback reader also failed to read the page. `counts['readVia.firecrawl']`
+ * is the pages read through Firecrawl, present only when there was one.
  *
  * Requires the `manage_sources` capability.
  * Auth: tenant API token or dashboard session.

@@ -222,6 +222,35 @@ describe('GET /api/v1/sources', () => {
     ]);
   });
 
+  it('carries the pages read via Firecrawl in counts, and the Firecrawl outcome beside a direct failure', async () => {
+    const [source] = await db.insert(knowledgeSourceSchema).values({
+      orgId: ORG,
+      slug: 'larkfield-fallback',
+      kind: 'plugin',
+      configJson: { urls: ['https://bellwater.test/'], fallbackReader: 'firecrawl', _connector: 'web' },
+    }).returning({ id: knowledgeSourceSchema.id });
+    const message = 'HTTP 403 · cf-mitigated: challenge · firecrawl: not set up for this workspace';
+    const detail = {
+      status: 403,
+      headers: { 'cf-mitigated': 'challenge' },
+      fallback: { reader: 'firecrawl' as const, outcome: 'not set up for this workspace' },
+    };
+    await db.insert(sourceSyncCheckpointSchema).values({
+      orgId: ORG,
+      sourceId: source!.id,
+      status: 'completed',
+      startedAt: new Date('2026-09-14T06:00:00.000Z'),
+      counts: { 'created': 2, 'errors': 1, 'readVia.firecrawl': 2 },
+      failures: [{ scope: 'connector', message, uri: 'https://bellwater.test/shows', detail, at: '2026-09-14T06:01:00.000Z' }],
+    });
+    mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
+
+    const body = await (await GET(getRequest())).json() as { sources: Array<{ run: { counts: Record<string, number>; failures: unknown[] } }> };
+
+    expect(body.sources[0]!.run.counts).toEqual({ 'created': 2, 'errors': 1, 'readVia.firecrawl': 2 });
+    expect(body.sources[0]!.run.failures).toEqual([{ scope: 'connector', message, uri: 'https://bellwater.test/shows', detail }]);
+  });
+
   it('accepts a dashboard session with no bearer token', async () => {
     mockBearer.mockResolvedValue(null);
     mockSession.mockResolvedValue({ userId: 'u1', orgId: ORG, accountId: 'a1', projectId: ORG, role: 'admin', workspaceRole: 'admin' as const, has: () => true } as never);
