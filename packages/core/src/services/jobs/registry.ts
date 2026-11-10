@@ -110,6 +110,8 @@ const JOBS: Record<string, BuiltInJob> = {
   'seo-opportunities': async (orgId, input) => (await import('@/services/seo/cadence')).runSeoOpportunitiesJob(orgId, input),
   // The Workspace manager's morning check: raises the daily usage review only on a day the workspace was used (ADR 0008).
   'usage-review-check': async (orgId, input) => (await (await import('@/libs/usageReviewBridge')).usageReview()).runUsageReviewCheckJob(orgId, input),
+  // A connected system's updates (needs you, stopped, shipped) said once in the conversation that asked.
+  'mcp-updates': async (orgId, input) => (await import('./mcpUpdates')).runMcpUpdatesJob(orgId, input),
   // A workspace whose old automation still names these hears nothing from them: asker-follow says it.
   ...Object.fromEntries(RETIRED_FOLLOW_JOBS.map(name => [name, async () => ({ said: false, reason: `${name} is retired; asker-follow tells the asker` })])),
 };

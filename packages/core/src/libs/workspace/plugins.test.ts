@@ -74,7 +74,7 @@ describe('the shipped catalogue', () => {
   });
 
   it('refuses an unknown slug and names the catalogue', () => {
-    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: company, dashboards, data-rooms, finance, growth-loop, marketing, meeting-followup, native-crm, production-watch, proposals, red-team, routines, seo, software-factory, wiki/);
+    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: company, dashboards, data-rooms, factory-desk, finance, growth-loop, marketing, meeting-followup, native-crm, production-watch, proposals, red-team, routines, seo, software-factory, wiki/);
   });
 
   it('counts what the finance plugin ships: five roles, the jobs each owns as skills, and setup by family', () => {
@@ -753,6 +753,18 @@ describe('the meeting-followup plugin', () => {
       ['followup-awaiting', 'meeting.followup_awaiting'],
       ['followup-ready', 'meeting.followup_ready'],
     ]));
+  });
+});
+
+// Chris, 2026-11-10: ask in a Slack thread, the delivery factory builds, the thread hears back.
+describe('the factory-desk plugin', () => {
+  it('turns on with the desk, its two skills and the job that carries the factory\'s updates to the thread', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [factory-desk]\naccountableUser: ops@northwind.example\n'));
+    const desk = ws.agents.find(a => a.slug === 'factory-desk');
+
+    expect(ws.enabledPlugins).toEqual(['factory-desk']);
+    expect(desk).toMatchObject({ skills: ['take-a-request', 'unblock-a-ticket'], connectorSources: ['factory'] });
+    expect(ws.automations.find(a => a.slug === 'factory-updates')).toMatchObject({ when: { schedule: '*/2 * * * *' }, do: { job: 'mcp-updates' } });
   });
 });
 

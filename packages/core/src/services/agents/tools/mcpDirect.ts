@@ -137,8 +137,9 @@ export function mcpTools(ctx: RuntimeContext) {
         return JSON.stringify(await withMcp(credentials, async client => ({
           sourceSlug,
           ...(via ? { via } : {}),
-          tools: (await listMcpTools(client)).filter(remote => source.config.readTools.includes(remote.name) || source.config.writeTools.includes(remote.name)),
+          tools: (await listMcpTools(client)).filter(remote => source.config.readTools.includes(remote.name) || source.config.writeTools.includes(remote.name) || source.config.actTools.includes(remote.name)),
           writes: 'Propose declared writes with propose_action, action_id=mcp.call. Approval executes the exact submitted arguments.',
+          ...(source.config.actTools.length > 0 ? { acts: `Requests this source takes without a review card (${source.config.actTools.join(', ')}): propose_action, action_id=mcp.act, with sourceSlug, tool, input and a summary. On the person\'s word it runs at once and you get its answer back.`, actTools: source.config.actTools } : {}),
         })));
       } catch (error) {
         if (error instanceof SignInNeeded) {

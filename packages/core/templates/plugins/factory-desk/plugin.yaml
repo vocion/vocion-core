@@ -1,0 +1,33 @@
+# Factory desk: Vocion thinks, plans and talks; a delivery factory builds.
+#
+# The software-factory plugin runs the whole build inside Vocion. This one is
+# for a team whose building happens in a delivery factory of its own (tickets,
+# gates, cloud runs, releases) that is connected here as an MCP source. Vocion
+# is the desk in front of it: a person asks in a thread, the desk asks what it
+# needs to, files the ticket with the factory and posts its link, tells the
+# thread when the factory needs a person (answering itself when the thread
+# already settled it), and posts the release page when the work is live.
+#
+# Core ships the MECHANISM: `mcp.act` (a request of a connected system runs on
+# the person's word and carries the conversation it was asked in) and the
+# `mcp-updates` job (what the system says back is said once in that
+# conversation). This plugin ships the MEANING: the desk agent and its two
+# skills. The workspace ships the CONCRETION: the `factory` source (its
+# endpoint and token on Connectors, its tools in sources/factory.yaml), the
+# channel the desk answers in, and its trust rule for answering on its own.
+slug: factory-desk
+name: Factory desk
+version: 1.0.0
+description: Ask for software in a thread and watch it ship. The desk asks what it needs to, files the ticket with your delivery factory and posts its link, tells the thread when the factory needs a person, passes the answer on, and posts the release page when it is live.
+depends: []
+surfaces: []
+lead: factory-desk
+recommend:
+  when:
+    - the team builds software in a delivery factory that speaks MCP and wants to ask for work from Slack
+    - requests reach the factory by somebody retyping a thread into a ticket
+    - a person asks why nobody told them their request was blocked or shipped
+  connectors: [mcp, slack]
+
+starters:
+  - label: What is the factory waiting on from us?

@@ -35,6 +35,7 @@ import { hubspotCreateAction } from './hubspot-create';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { mcpCallAction } from './mcp';
+import { mcpActAction } from './mcp-act';
 import { meSetPhoneAction } from './me-set-phone';
 import { meetingFollowupAction } from './meeting-followup';
 import { membersInviteAction } from './members-invite';
@@ -134,6 +135,7 @@ registerAction(hubspotCreateAction);
 // not reversible, keyed per endpoint on the ladder (`rest.request.<source>.<action>`).
 registerAction(restRequestAction);
 registerAction(mcpCallAction);
+registerAction(mcpActAction);
 // A message to a Slack channel the workspace bound — external, Undo deletes
 // the post, the words editable on the card (`libs/actions/slack-post-message.ts`).
 registerAction(slackPostMessageAction);
