@@ -42,6 +42,19 @@ export type FetchFailureDetail = {
   title?: string;
   /** The start of the body's text, when there was no title to read. */
   snippet?: string;
+  /** What a second read through another reader made of the same page, when the source asked for one. */
+  fallback?: FallbackOutcome;
+};
+
+/** A second reader's failed attempt at a page the direct fetch was refused. */
+export type FallbackOutcome = {
+  reader: 'firecrawl';
+  /** One line, the same text the failure's message ends with. */
+  outcome: string;
+  /** The status the reader answered with, or the rendered page's own, when there was one. */
+  status?: number;
+  /** What the attempt cost, as the reader reported it. */
+  creditsUsed?: number;
 };
 
 /**
@@ -51,7 +64,7 @@ export type FetchFailureDetail = {
  * @param value - raw text.
  * @param max - the most code points kept.
  */
-function oneLine(value: string, max: number): string {
+export function oneLine(value: string, max: number): string {
   const visible = Array.from(value, (char) => {
     const code = char.charCodeAt(0);
     return code < 0x20 || code === 0x7F || code === 0xFFFD ? ' ' : char;
@@ -171,4 +184,23 @@ export async function describeHttpFailure(res: Response): Promise<{ message: str
   }
   const detail: FetchFailureDetail = { status: res.status, headers: keptHeaders(res.headers), ...text };
   return { message: messageOf(detail), detail };
+}
+
+/**
+ * A direct failure the fallback reader could not rescue: the direct message
+ * stays as it was, with ` · firecrawl: <outcome>` after it, and the detail
+ * gains `fallback`.
+ * @param direct - the direct fetch's failure.
+ * @param direct.message - its one-line message.
+ * @param direct.detail - its structured detail.
+ * @param fallback - what the fallback reader made of the page.
+ */
+export function withFallbackFailure(
+  direct: { message: string; detail: FetchFailureDetail },
+  fallback: FallbackOutcome,
+): { message: string; detail: FetchFailureDetail } {
+  return {
+    message: `${direct.message} · ${fallback.reader}: ${fallback.outcome}`,
+    detail: { ...direct.detail, fallback },
+  };
 }

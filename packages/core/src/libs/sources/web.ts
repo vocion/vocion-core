@@ -15,6 +15,10 @@
  *   - `ignore: string[]`, CSS selectors for the parts of a page that are not
  *     the page (a rotating sidebar, a script restamped on every request),
  *     removed before its text, JSON-LD and links are read
+ *   - `fallbackReader: 'firecrawl'`, read a page once more through Firecrawl
+ *     when the site refused us as a bot (`blockSignal.ts`); absent, a refusal
+ *     is reported as it always was. Never for a probe, never past robots.txt,
+ *     at most `FIRECRAWL_READS_PER_RUN` reads per sync (`firecrawlReader.ts`)
  *
  * With `crawl` and no `feedUrl`, the connector picks the SMALLEST complete
  * source it can find, per listing seed: a feed if the listing advertises one,
@@ -38,14 +42,17 @@
 
 import type { CheerioAPI } from 'cheerio';
 import type { FetchFailureDetail } from './fetchFailure';
+import type { FirecrawlRun } from './firecrawlReader';
 import type { PageLink, PageStructure } from './pageMetadata';
-import type { SourceConnector, SourceContext } from './types';
+import type { SourceConnector, SourceContext, SourceProgressEvent } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { createHash } from 'node:crypto';
 import { load } from 'cheerio';
 import { z } from 'zod';
 import { dayKey, dayPlus, instantInZone, isoInZone, isValidTimeZone } from '@/libs/time/zone';
-import { describeHttpFailure } from './fetchFailure';
+import { blockSignalOf } from './blockSignal';
+import { describeHttpFailure, withFallbackFailure } from './fetchFailure';
+import { readThroughFirecrawl } from './firecrawlReader';
 import { JSON_LD_BLOCK_CAP, pageMetadata } from './pageMetadata';
 import { politeTurn } from './robots';
 
@@ -119,12 +126,23 @@ const webConfigSchema = z.object({
   crawl: crawlSchema.optional(),
   /** CSS selectors for the parts of a page that are not the page, removed before anything is read. HTML pages only. */
   ignore: z.array(ignoreSelectorSchema).max(IGNORE_MAX_SELECTORS).optional(),
+  /** Who reads a page once more when the site refused us as a bot. Absent, nobody does. */
+  fallbackReader: z.enum(['firecrawl']).optional(),
 }).refine(c => c.urls?.length || c.urlsFrom || c.crawl, {
   message: 'Provide `urls`, `urlsFrom` or `crawl`.',
 });
 
 type CrawlConfig = z.infer<typeof crawlSchema>;
 type UrlsFromConfig = z.infer<typeof urlsFromSchema>;
+
+/**
+ * How this source reads every page of one sync: the selectors it ignores, and,
+ * when it asked for one, the fallback reader's read count for this sync alone.
+ */
+type PageReading = {
+  ignore: readonly string[];
+  firecrawl?: FirecrawlRun;
+};
 
 export const USER_AGENT = 'VocionBot/0.1 (+https://vocion.ai)';
 const PAGE_TIMEOUT_MS = 15_000;
@@ -148,7 +166,11 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
   configSchema: webConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = webConfigSchema.parse(ctx.config);
-    const ignore = cfg.ignore ?? [];
+    // One per sync: the Firecrawl ceiling counts this run's reads, never another's.
+    const read: PageReading = {
+      ignore: cfg.ignore ?? [],
+      ...(cfg.fallbackReader === 'firecrawl' ? { firecrawl: { reads: 0 } } : {}),
+    };
 
     const listed = [...(cfg.urls ?? [])];
     if (cfg.urlsFrom) {
@@ -167,7 +189,7 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
       }
       runNote(ctx, urls[0], `source: ${urls.length} listed URL${urls.length === 1 ? '' : 's'}`);
       for (const url of urls) {
-        yield* fetchDocs(url, ctx, ignore);
+        yield* fetchDocs(url, ctx, read);
       }
       return;
     }
@@ -177,7 +199,7 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
     if (cfg.feedUrl) {
       const url = httpUrl(cfg.feedUrl);
       runNote(ctx, url, 'source: configured feed');
-      yield* fetchDocs(url, ctx, ignore);
+      yield* fetchDocs(url, ctx, read);
       return;
     }
 
@@ -199,7 +221,7 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
     // seeds each allowed their own 60 pages is 300 requests, every run.
     const pages: PageBudget = { attempted: 0 };
     for (const seed of seeds) {
-      yield* smallestSource(seed, cfg.crawl, ctx, pages, ignore);
+      yield* smallestSource(seed, cfg.crawl, ctx, pages, read);
     }
   },
 };
@@ -231,7 +253,7 @@ type PageBudget = { attempted: number };
  * @param cfg - the crawl config, whose `startUrl` is only the default seed.
  * @param ctx - the sync context.
  * @param pages - the sync's shared page budget, spent across every seed.
- * @param ignore - the source's `ignore` selectors, applied to every page read.
+ * @param read - how the source reads every page: its `ignore` selectors and fallback reader.
  * @yields {IngestDoc} one document per page or per event, from whichever source won.
  */
 async function* smallestSource(
@@ -239,7 +261,7 @@ async function* smallestSource(
   cfg: CrawlConfig,
   ctx: SourceContext,
   pages: PageBudget,
-  ignore: readonly string[],
+  read: PageReading,
 ): AsyncIterable<IngestDoc> {
   if (pages.attempted >= cfg.maxPages) {
     runNote(ctx, seedUrl, `source: page budget spent (${cfg.maxPages} pages), seed not read`);
@@ -248,13 +270,13 @@ async function* smallestSource(
   // Counted before the fetch, and NOT counted again by `crawl`: the listing is
   // one request whoever ends up reading it.
   pages.attempted += 1;
-  const listing = await fetchPage(httpUrl(seedUrl), ctx, { ignore });
+  const listing = await fetchPage(httpUrl(seedUrl), ctx, { read });
   if (!listing) {
     return;
   }
 
   for (const candidate of discoverFeeds(listing, ctx)) {
-    const docs = await readFeed(candidate, ctx, ignore);
+    const docs = await readFeed(candidate, ctx, read);
     if (!docs) {
       continue;
     }
@@ -266,7 +288,7 @@ async function* smallestSource(
   const jsonLdNote = hasEventJsonLd(listing) ? '; listing carries Event JSON-LD' : '';
   runNote(ctx, listing.url, `source: listing + depth-${cfg.maxDepth} crawl${jsonLdNote}`);
   // The listing body is handed to the crawl so the seed is not fetched twice.
-  yield* crawl(cfg, ctx, listing, pages, ignore);
+  yield* crawl(cfg, ctx, listing, pages, read);
 }
 
 /**
@@ -275,10 +297,10 @@ async function* smallestSource(
  * site that never had a feed costs the run nothing.
  * @param candidate - the feed URL and the kind the page claimed it is.
  * @param ctx - the sync context.
- * @param ignore - the source's `ignore` selectors, for a feed that turns out to be a page.
+ * @param read - how the source reads pages, for a feed that turns out to be a page.
  */
-async function readFeed(candidate: FeedCandidate, ctx: SourceContext, ignore: readonly string[]): Promise<IngestDoc[] | null> {
-  const page = await fetchPage(candidate.url, ctx, { ignore, probe: true, timeoutMs: PROBE_TIMEOUT_MS });
+async function readFeed(candidate: FeedCandidate, ctx: SourceContext, read: PageReading): Promise<IngestDoc[] | null> {
+  const page = await fetchPage(candidate.url, ctx, { read, probe: true, timeoutMs: PROBE_TIMEOUT_MS });
   if (!page) {
     return null;
   }
@@ -448,6 +470,8 @@ type FetchedPage = {
   title?: string;
   content: string;
   structure?: PageStructure;
+  /** Set when the site refused us and the fallback reader read the page instead. */
+  readVia?: { reader: 'firecrawl'; blockedBy: string; creditsUsed?: number };
 };
 
 /**
@@ -458,17 +482,21 @@ type FetchedPage = {
  * error sets `connectorFailureCount`, which holds the watermark and
  * suppresses tombstoning for the WHOLE run, so a 404 from guessing at a feed
  * URL would quietly break deletion on an otherwise healthy source.
+ *
+ * A real (non-probe) fetch the site refused as a bot is read once more through
+ * the source's fallback reader, when it has one; the rendered page is then read
+ * exactly like a fetched one. Without one, the refusal is reported as before.
  * @param url - the URL to fetch; `webcal:` is rewritten to `https:` first.
  * @param ctx - the sync context.
- * @param opts - what this source ignores, and the discovery options.
- * @param opts.ignore - the source's `ignore` selectors, removed from an HTML body before it is read.
+ * @param opts - how this source reads pages, and the discovery options.
+ * @param opts.read - the source's `ignore` selectors and fallback reader.
  * @param opts.probe - report failures as `skipped` rather than `error`.
  * @param opts.timeoutMs - a shorter leash than the default page timeout.
  */
 async function fetchPage(
   url: string,
   ctx: SourceContext,
-  opts: { ignore: readonly string[]; probe?: boolean; timeoutMs?: number },
+  opts: { read: PageReading; probe?: boolean; timeoutMs?: number },
 ): Promise<FetchedPage | null> {
   const target = httpUrl(url);
   const report = (message: string, detail?: FetchFailureDetail): void => {
@@ -491,11 +519,25 @@ async function fetchPage(
       // read what the answer said about itself.
       if (opts.probe) {
         report(`HTTP ${res.status}`);
-      } else {
-        const failure = await describeHttpFailure(res);
-        report(failure.message, failure.detail);
+        return null;
       }
-      return null;
+      const failure = await describeHttpFailure(res);
+      const blockedBy = opts.read.firecrawl ? blockSignalOf(failure.detail) : null;
+      if (!opts.read.firecrawl || !blockedBy) {
+        report(failure.message, failure.detail);
+        return null;
+      }
+      const second = await readThroughFirecrawl(target, ctx.orgId, opts.read.firecrawl);
+      if (!second.ok) {
+        const both = withFallbackFailure(failure, second.failure);
+        report(both.message, both.detail);
+        return null;
+      }
+      return renderedPage(target, second.html, opts.read.ignore, {
+        reader: 'firecrawl',
+        blockedBy,
+        ...(second.creditsUsed === undefined ? {} : { creditsUsed: second.creditsUsed }),
+      });
     }
     const contentType = res.headers.get('content-type') ?? '';
     const isHtml = contentType.includes('text/html');
@@ -512,7 +554,7 @@ async function fetchPage(
     }
     const raw = await res.text();
     const base = res.redirected && HTTP_URL_RE.test(res.url) ? sameSiteUrl(target, res.url) : target;
-    const extracted = isHtml ? extractFromHtml(raw, target, opts.ignore) : { title: undefined, content: raw, structure: undefined };
+    const extracted = isHtml ? extractFromHtml(raw, target, opts.read.ignore) : { title: undefined, content: raw, structure: undefined };
     const lastModifiedHeader = res.headers.get('last-modified');
     return {
       url: target,
@@ -532,6 +574,43 @@ async function fetchPage(
   }
 }
 
+/**
+ * A page the fallback reader rendered, as a fetched page. It carries no
+ * validators, since the site's own headers never reached us.
+ * @param url - the URL requested.
+ * @param html - the rendered DOM.
+ * @param ignore - the source's `ignore` selectors.
+ * @param readVia - who read it, and why.
+ */
+function renderedPage(url: string, html: string, ignore: readonly string[], readVia: NonNullable<FetchedPage['readVia']>): FetchedPage {
+  const extracted = extractFromHtml(html, url, ignore);
+  return {
+    url,
+    base: url,
+    raw: html,
+    contentType: 'text/html',
+    isHtml: true,
+    etag: null,
+    lastModifiedAt: null,
+    title: extracted.title,
+    content: extracted.content,
+    structure: extracted.structure,
+    readVia,
+  };
+}
+
+/**
+ * The `fetched` event for a page, saying who read it when it was not us.
+ * @param page - the fetched page.
+ */
+function fetchedEvent(page: FetchedPage): SourceProgressEvent {
+  if (!page.readVia) {
+    return { kind: 'fetched', uri: page.url };
+  }
+  const { reader, blockedBy, creditsUsed } = page.readVia;
+  return { kind: 'fetched', uri: page.url, reader, blockedBy, ...(creditsUsed === undefined ? {} : { creditsUsed }) };
+}
+
 function sameSiteUrl(requestedUrl: string, landedUrl: string): string {
   const requested = new URL(requestedUrl);
   const landed = new URL(landedUrl);
@@ -549,14 +628,14 @@ function sameSiteUrl(requestedUrl: string, landedUrl: string): string {
 function docsFromPage(page: FetchedPage, ctx: SourceContext): IngestDoc[] {
   const split = splitFeed(page);
   if (split) {
-    ctx.onProgress?.({ kind: 'fetched', uri: page.url });
+    ctx.onProgress?.(fetchedEvent(page));
     return split;
   }
   if (!page.content.trim()) {
     ctx.onProgress?.({ kind: 'skipped', uri: page.url, message: 'empty after extraction' });
     return [];
   }
-  ctx.onProgress?.({ kind: 'fetched', uri: page.url });
+  ctx.onProgress?.(fetchedEvent(page));
   return [{
     externalId: page.url,
     uri: page.url,
@@ -564,7 +643,11 @@ function docsFromPage(page: FetchedPage, ctx: SourceContext): IngestDoc[] {
     content: page.content,
     etag: page.etag,
     lastModifiedAt: page.lastModifiedAt,
-    metadata: { contentType: page.contentType, ...pageMetadata(page.structure) },
+    metadata: {
+      contentType: page.contentType,
+      ...pageMetadata(page.structure),
+      ...(page.readVia ? { readVia: page.readVia.reader } : {}),
+    },
   }];
 }
 
@@ -572,11 +655,11 @@ function docsFromPage(page: FetchedPage, ctx: SourceContext): IngestDoc[] {
  * Fetch one URL and yield whatever it holds.
  * @param url - the URL to fetch.
  * @param ctx - the sync context.
- * @param ignore - the source's `ignore` selectors, applied when the body is a page.
+ * @param read - how the source reads pages.
  * @yields {IngestDoc} one document per page, or one per event when the body is a feed.
  */
-async function* fetchDocs(url: string, ctx: SourceContext, ignore: readonly string[]): AsyncIterable<IngestDoc> {
-  const page = await fetchPage(url, ctx, { ignore });
+async function* fetchDocs(url: string, ctx: SourceContext, read: PageReading): AsyncIterable<IngestDoc> {
+  const page = await fetchPage(url, ctx, { read });
   if (!page) {
     return;
   }
@@ -2541,7 +2624,7 @@ function collapse(text: string): string {
  * @param ctx - the sync context.
  * @param seed - the start page, already fetched (and already counted) by the caller.
  * @param pages - the sync's shared page budget.
- * @param ignore - the source's `ignore` selectors, applied to every page the crawl reads.
+ * @param read - how the source reads every page the crawl reaches.
  * @yields {IngestDoc} one document per page the crawl reaches.
  */
 async function* crawl(
@@ -2549,7 +2632,7 @@ async function* crawl(
   ctx: SourceContext,
   seed: FetchedPage,
   pages: PageBudget,
-  ignore: readonly string[],
+  read: PageReading,
 ): AsyncIterable<IngestDoc> {
   const startUrl = seed.url;
   const start = listingAsLanded(seed);
@@ -2568,7 +2651,7 @@ async function* crawl(
     if (!prefetched) {
       pages.attempted += 1;
     }
-    const page = prefetched ?? await fetchPage(url, ctx, { ignore });
+    const page = prefetched ?? await fetchPage(url, ctx, { read });
     if (page) {
       visited.add(page.base);
       for (const doc of docsFromPage(page, ctx)) {
@@ -2603,7 +2686,7 @@ async function* crawl(
     const ownPath: QueueEntry[] = [];
     const elsewhere: QueueEntry[] = [];
     const base = new URL(page.base).origin === startOrigin ? page.base : page.url;
-    for (const href of pageLinks(page, base, ignore)) {
+    for (const href of pageLinks(page, base, read.ignore)) {
       try {
         const next = new URL(href, base);
         // Strip fragments so #section links don't blow up the queue.

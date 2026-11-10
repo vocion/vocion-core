@@ -3,17 +3,20 @@
  * written to the log once: the checkpoint carries a failed fetch's `detail`
  * beside its message, and every error event becomes exactly one warn line
  * (with the source's slug, so a log search finds it). A clean run logs none.
+ * A page a fallback reader read is counted (`readVia.firecrawl`) and logged
+ * once at info; a run that read every page itself carries no such count.
  *
  * Style follows `SourceSyncService.events.test.ts`: PGlite, ingestion stubbed.
  */
 import type { FetchFailureDetail } from '@/libs/sources/fetchFailure';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const info = vi.fn();
 const warn = vi.fn();
 const error = vi.fn();
 
 vi.mock('@/libs/DB');
-vi.mock('@/libs/Logger', () => ({ logger: { warn, error } }));
+vi.mock('@/libs/Logger', () => ({ logger: { info, warn, error } }));
 vi.mock('@/services/WorkflowService', () => ({
   startWorkflow: vi.fn(async () => ({ id: 911 })),
 }));
@@ -76,6 +79,22 @@ registerConnector({
     ctx.onProgress?.({ kind: 'fetched', uri: 'https://bellwater.test/' });
     ctx.onProgress?.({ kind: 'skipped', uri: 'https://bellwater.test/feed.ics', message: 'HTTP 404' });
     yield { externalId: 'kept', uri: 'https://bellwater.test/', title: 'Kept', content: 'A show.' };
+  },
+});
+
+registerConnector({
+  slug: 'read-via-fixture',
+  name: 'Read via fixture',
+  description: 'test',
+  icon: 'File',
+  authKind: 'none',
+  configSchema: z.object({}).passthrough(),
+  async* sync(ctx) {
+    ctx.onProgress?.({ kind: 'fetched', uri: 'https://bellwater.test/shows', reader: 'firecrawl', blockedBy: 'HTTP 403', creditsUsed: 1 });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    ctx.onProgress?.({ kind: 'fetched', uri: 'https://bellwater.test/shows/quartet-night', reader: 'firecrawl', blockedBy: 'cf-mitigated: challenge', creditsUsed: 1 });
+    ctx.onProgress?.({ kind: 'fetched', uri: 'https://bellwater.test/about' });
+    yield { externalId: 'kept', uri: 'https://bellwater.test/shows', title: 'Shows', content: 'A show.' };
   },
 });
 
@@ -158,5 +177,38 @@ describe('a failure the run survives', () => {
     await settleLogs(0);
 
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('pages read via a fallback reader', () => {
+  it('counts the pages read via Firecrawl, and logs each once at info', async () => {
+    const sourceId = await seedSource('bellwater-blocked', 'read-via-fixture');
+
+    await runSync({ orgId: ORG, sourceId });
+    await vi.waitFor(() => expect(info.mock.calls.filter(([message]) => message === 'source page read via fallback reader')).toHaveLength(2), { timeout: 10_000 });
+
+    const [checkpoint] = await db.select().from(sourceSyncCheckpointSchema).where(eq(sourceSyncCheckpointSchema.sourceId, sourceId));
+
+    expect(checkpoint?.counts).toMatchObject({ 'readVia.firecrawl': 2 });
+    expect(info).toHaveBeenCalledWith('source page read via fallback reader', {
+      sourceId,
+      sourceSlug: 'bellwater-blocked',
+      orgId: ORG,
+      uri: 'https://bellwater.test/shows',
+      reader: 'firecrawl',
+      blockedBy: 'HTTP 403',
+      creditsUsed: 1,
+    });
+  });
+
+  it('carries no readVia count on a run that read every page itself', async () => {
+    const sourceId = await seedSource('bellwater-clean', 'failure-detail-clean-fixture');
+
+    await runSync({ orgId: ORG, sourceId });
+
+    const [checkpoint] = await db.select().from(sourceSyncCheckpointSchema).where(eq(sourceSyncCheckpointSchema.sourceId, sourceId));
+
+    expect(checkpoint?.counts).toBeDefined();
+    expect(Object.keys(checkpoint?.counts ?? {}).filter(key => key.startsWith('readVia.'))).toEqual([]);
   });
 });

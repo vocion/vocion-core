@@ -68,7 +68,7 @@ import { getCredentialsForConnector } from './SourceCredentialService';
  * @param message - What happened, in plain words.
  * @param properties - Identifiers and context worth keeping.
  */
-function log(level: 'warn' | 'error', message: string, properties: Record<string, unknown>): void {
+function log(level: 'info' | 'warn' | 'error', message: string, properties: Record<string, unknown>): void {
   import('@/libs/Logger')
     .then(({ logger }) => logger[level](message, properties))
     // Nothing useful left to do if logging itself is broken.
@@ -840,6 +840,11 @@ export async function runSync(opts: {
     }
   };
 
+  // Pages a fallback reader read because the site refused us, by reader:
+  // `readVia.firecrawl`. Empty, and so absent from the counts, on a run that
+  // read every page itself, which is every run of a source that never asked.
+  const readViaCounts: Record<string, number> = {};
+
   /** What this run managed to do, as stored on the checkpoint row. */
   const countsForCheckpoint = () => ({
     created: result.created,
@@ -852,6 +857,7 @@ export async function runSync(opts: {
     // `skipped` list is a capped sample of these; this is the whole number.
     skipped: skippedCount,
     ...processorCounts,
+    ...readViaCounts,
   });
 
   /**
@@ -920,6 +926,18 @@ export async function runSync(opts: {
       });
     } else if (event.kind === 'skipped' && event.uri) {
       recordSkip(event.message ?? 'no reason reported', event.uri);
+    } else if (event.kind === 'fetched' && event.reader) {
+      const key = `readVia.${event.reader}`;
+      readViaCounts[key] = (readViaCounts[key] ?? 0) + 1;
+      log('info', 'source page read via fallback reader', {
+        sourceId: opts.sourceId,
+        sourceSlug: row.slug,
+        orgId: opts.orgId,
+        uri: event.uri,
+        reader: event.reader,
+        blockedBy: event.blockedBy,
+        creditsUsed: event.creditsUsed,
+      });
     }
     try {
       opts.onProgress?.(event);
