@@ -8,6 +8,14 @@ export const mcpConfigSchema = z.object({
   providesFamilies: z.array(z.string().min(1)).default([]),
   readTools: z.array(z.string().min(1)).default([]),
   writeTools: z.array(z.string().min(1)).default([]),
+  // Requests rather than changes of record (file a ticket, answer a question
+  // the other system asked): run on the person's word, and for an agent on
+  // its own under the workspace's trust rule `mcp.act.<source>.<tool>`.
+  actTools: z.array(z.string().min(1)).default([]),
+  // A declared read that returns what the people who asked should hear now:
+  // `{updates: [{id, conversation, text, url?, asks?}]}`, acknowledged by
+  // calling it again with `{ack: [ids]}` (`services/jobs/mcpUpdates.ts`).
+  updatesTool: z.string().min(1).optional(),
   // `token`: one vaulted endpoint and bearer token for the whole workspace.
   // `person`: each person signs in to the server's own OAuth and every call
   // runs as the person in the turn (`services/outboundMcp/personSignIn.ts`).
@@ -16,6 +24,9 @@ export const mcpConfigSchema = z.object({
   url: z.string().url().refine(url => url.startsWith('https://'), 'The MCP endpoint must be HTTPS').optional(),
 })
   .refine(config => !config.readTools.some(name => config.writeTools.includes(name)), 'A tool cannot be both read and write')
+  .refine(config => !config.actTools.some(name => config.readTools.includes(name) || config.writeTools.includes(name)), 'An act tool cannot also be a read or a reviewed write')
+  .refine(config => !config.updatesTool || config.readTools.includes(config.updatesTool), 'The updates tool must be one of the declared reads')
+  .refine(config => config.auth !== 'person' || config.actTools.length === 0, 'A per-person MCP source cannot declare act tools')
   .refine(config => config.auth !== 'person' || config.url, 'A per-person MCP source names its endpoint in url')
   // A write runs when a reviewer approves it, not as the person who asked.
   .refine(config => config.auth !== 'person' || config.writeTools.length === 0, 'A per-person MCP source cannot declare writes');
@@ -32,6 +43,20 @@ export async function loadMcpSources(orgId: string, slugs: readonly string[]) {
   const rows = await db.select({ slug: knowledgeSourceSchema.slug, config: knowledgeSourceSchema.configJson })
     .from(knowledgeSourceSchema)
     .where(and(eq(knowledgeSourceSchema.orgId, orgId), inArray(knowledgeSourceSchema.slug, [...slugs]), sql`${knowledgeSourceSchema.configJson} ->> '_connector' = 'mcp'`));
+  return rows.flatMap((row) => {
+    const parsed = mcpConfigSchema.safeParse(row.config);
+    return parsed.success ? [{ slug: row.slug, name: typeof row.config._name === 'string' && row.config._name.trim() ? row.config._name : row.slug, config: parsed.data }] : [];
+  });
+}
+
+/**
+ * Every MCP source of a workspace, for work that serves no one agent (the updates job).
+ * @param orgId - The owning workspace.
+ */
+export async function listMcpSources(orgId: string) {
+  const rows = await db.select({ slug: knowledgeSourceSchema.slug, config: knowledgeSourceSchema.configJson })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), sql`${knowledgeSourceSchema.configJson} ->> '_connector' = 'mcp'`));
   return rows.flatMap((row) => {
     const parsed = mcpConfigSchema.safeParse(row.config);
     return parsed.success ? [{ slug: row.slug, name: typeof row.config._name === 'string' && row.config._name.trim() ? row.config._name : row.slug, config: parsed.data }] : [];

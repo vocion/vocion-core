@@ -57,4 +57,33 @@ The `input` object must contain every argument required by the discovered provid
 
 Core does not invent a provider's confirmation protocol, deduplication or read-back verification. Enable writes only once that contract is established. For financial writes, use a service that provides durable idempotency and verified receipts; freeze the idempotency key and expected record version in the proposal. Following a timeout, inspect the provider's receipt before retrying. A generic MCP success alone does not prove a business outcome.
 
+## Requests that run on the person's word (`actTools`, `mcp.act`)
+
+A write is a change of record in somebody else's system, and a person reads every one. A **request** is different: "file this with the factory", "tell it the answer is yes". Nothing of record changes until the other system does its own work behind its own gates. Declare those tools apart:
+
+```yaml
+slug: factory
+name: Factory
+kind: mcp
+config:
+  readTools: [ticket_status, ticket_updates]
+  actTools: [request_ticket, reply_ticket]
+  updatesTool: ticket_updates
+```
+
+An agent submits one with `propose_action`, action id `mcp.act`, and the same input shape as `mcp.call`. When the person in the turn asked for exactly that, it runs at once, as theirs, and the provider's answer comes back to the agent to tell them. When an agent decides it on its own, it follows the workspace's trust rule `mcp.act.<source>.<tool>` (a tool with no rule reads `mcp.act`'s), and is a card when there is none. A tool is a read, a reviewed write or an act tool, never two of them, and a per-person source declares no act tools.
+
+When the provider's tool takes an `origin` object, Vocion fills in `origin.conversation` (the conversation the request was made in) and `origin.request` (a stable id for the filing, so a retry files nothing twice). What the agent put in `origin` (who asked, a link to the message) is kept.
+
+## A source that reports back (`updatesTool`, the `mcp-updates` job)
+
+A system that was asked for something has things to say later: it needs an answer, it stopped, it shipped. Name one of the source's declared reads as its `updatesTool` and run the `mcp-updates` job on a schedule (the `factory-desk` plugin does, every two minutes):
+
+```yaml
+when: {schedule: '*/2 * * * *', timezone: UTC}
+do: {job: mcp-updates}
+```
+
+The tool returns `{updates: [{id, conversation, text, url?, asks?}]}` and takes `{ack: [ids]}`. Each update is said once in the conversation it names, in the app's chat and in its Slack thread, and acknowledged on the next call so the provider stops returning it. An update with `asks: true` goes to the conversation's agent first: it answers the provider itself when the thread already settled the question (through `mcp.act`, on the trust rule) and says what it answered, or asks the people in the thread. If the agent cannot run, the provider's own words are said, so a question is never dropped. The provider must mark the tool `readOnlyHint: true`.
+
 Native connector actions continue to use their native providers; adding an MCP source does not redirect them.

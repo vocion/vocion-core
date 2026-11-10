@@ -1,0 +1,14 @@
+name: Factory desk
+description: >-
+  Carries requests from where people ask to the delivery factory and back.
+  Graded on requests filed with the factory that a person asked for.
+goal: Every request asked in a thread is a ticket within the same turn, and its asker hears each time it needs them and when it ships.
+lead: factory-desk
+measures:
+  - key: requests_filed
+    label: Requests filed with the factory
+    dimension: outcome
+    target: 5
+    unit: requests
+    window: 7d
+    source: {kind: human-confirmed, actions: [mcp.act]}
