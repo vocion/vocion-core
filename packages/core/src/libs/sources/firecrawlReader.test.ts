@@ -212,6 +212,22 @@ describe('a read that fails', () => {
     expect(read).toEqual({ ok: false, failure: { reader: 'firecrawl', outcome: 'still blocked (HTTP 403)', status: 403, creditsUsed: 1 } });
   });
 
+  it('a challenge page rendered as a 200 is still a block, never content', async () => {
+    stubFirecrawl(() => answer({ success: true, data: { rawHtml: '<html><title>Just a moment...</title></html>', metadata: { statusCode: 200, creditsUsed: 1, title: 'Just a moment...' } } }));
+
+    const read = await readThroughFirecrawl(PAGE_URL, 'org_bellwater', fresh());
+
+    expect(read).toEqual({ ok: false, failure: { reader: 'firecrawl', outcome: 'still blocked (challenge page: Just a moment...)', status: 200, creditsUsed: 1 } });
+  });
+
+  it('a real page whose title only mentions a moment is read as a page', async () => {
+    stubFirecrawl(() => answer({ success: true, data: { rawHtml: RENDERED, metadata: { statusCode: 200, creditsUsed: 1, title: 'Bellwater Hall: a moment of music' } } }));
+
+    const read = await readThroughFirecrawl(PAGE_URL, 'org_bellwater', fresh());
+
+    expect(read.ok).toBe(true);
+  });
+
   it('a rendered page that is gone is a failure with its status', async () => {
     stubFirecrawl(() => rendered(404));
 

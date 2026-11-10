@@ -24,6 +24,7 @@ import process from 'node:process';
 import { load } from 'cheerio';
 import { z } from 'zod';
 import { resolveToolProviderKey } from '@/libs/tools/orgKey';
+import { isChallengeTitle } from './blockSignal';
 import { oneLine } from './fetchFailure';
 
 const SCRAPE_URL = 'https://api.firecrawl.dev/v2/scrape';
@@ -64,6 +65,7 @@ const scrapeAnswerSchema = z.object({
       creditsUsed: z.number().optional(),
       contentType: z.string().optional(),
       url: z.string().optional(),
+      title: z.string().optional(),
     }).optional(),
   }).optional(),
 });
@@ -189,6 +191,11 @@ export async function readThroughFirecrawl(url: string, orgId: string, run: Fire
   if (statusCode !== undefined && statusCode >= 400) {
     const outcome = statusCode === 403 || statusCode === 429 ? `still blocked (HTTP ${statusCode})` : `the rendered page answered HTTP ${statusCode}`;
     return failed(outcome, { status: statusCode, ...credits });
+  }
+  // A challenge Firecrawl could not get past can render as a 200; its title says so.
+  const title = answer.data?.metadata?.title;
+  if (isChallengeTitle(title)) {
+    return failed(`still blocked (challenge page: ${title?.trim()})`, { ...(statusCode === undefined ? {} : { status: statusCode }), ...credits });
   }
   const body = answer.data?.rawHtml ?? '';
   if (!body.trim()) {

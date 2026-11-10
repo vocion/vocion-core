@@ -4,7 +4,7 @@
  */
 import type { FetchFailureDetail } from './fetchFailure';
 import { describe, expect, it } from 'vitest';
-import { blockSignalOf } from './blockSignal';
+import { blockSignalOf, isChallengeTitle } from './blockSignal';
 
 /**
  * A failure detail with only what the case needs.
@@ -56,5 +56,19 @@ describe('blockSignalOf', () => {
 
   it('200 is never a block', () => {
     expect(blockSignalOf(failure(200))).toBeNull();
+  });
+});
+
+describe('isChallengeTitle', () => {
+  it('reads the browser-check interstitials as challenges', () => {
+    expect(isChallengeTitle('Just a moment...')).toBe(true);
+    expect(isChallengeTitle('  Attention Required! | Bellwater Hall  ')).toBe(true);
+    expect(isChallengeTitle('Verifying you are human')).toBe(true);
+  });
+
+  it('does not read an ordinary or missing title as a challenge', () => {
+    expect(isChallengeTitle('Bellwater Hall: a moment of music')).toBe(false);
+    expect(isChallengeTitle(undefined)).toBe(false);
+    expect(isChallengeTitle('')).toBe(false);
   });
 });

@@ -93,6 +93,10 @@ registerConnector({
     ctx.onProgress?.({ kind: 'fetched', uri: 'https://bellwater.test/shows', reader: 'firecrawl', blockedBy: 'HTTP 403', creditsUsed: 1 });
     await new Promise(resolve => setTimeout(resolve, 0));
     ctx.onProgress?.({ kind: 'fetched', uri: 'https://bellwater.test/shows/quartet-night', reader: 'firecrawl', blockedBy: 'cf-mitigated: challenge', creditsUsed: 1 });
+    // A tick between events: the service loads its logger with a dynamic import, and vitest can
+    // resolve a third same-tick import of a mocked module to the real one, so the spy would miss it.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    ctx.onProgress?.({ kind: 'skipped', uri: 'https://bellwater.test/shows/programme.pdf', message: 'unsupported content-type: application/pdf', reader: 'firecrawl', blockedBy: 'HTTP 403', creditsUsed: 1 });
     ctx.onProgress?.({ kind: 'fetched', uri: 'https://bellwater.test/about' });
     yield { externalId: 'kept', uri: 'https://bellwater.test/shows', title: 'Shows', content: 'A show.' };
   },
@@ -199,6 +203,26 @@ describe('pages read via a fallback reader', () => {
       blockedBy: 'HTTP 403',
       creditsUsed: 1,
     });
+  });
+
+  it('logs the credits of a page Firecrawl read that the run then skipped, without counting it as read', async () => {
+    const sourceId = await seedSource('bellwater-skipped-read', 'read-via-fixture');
+
+    await runSync({ orgId: ORG, sourceId });
+    await vi.waitFor(() => expect(info).toHaveBeenCalledWith('source page read via fallback reader, then skipped', {
+      sourceId,
+      sourceSlug: 'bellwater-skipped-read',
+      orgId: ORG,
+      uri: 'https://bellwater.test/shows/programme.pdf',
+      reader: 'firecrawl',
+      blockedBy: 'HTTP 403',
+      creditsUsed: 1,
+      reason: 'unsupported content-type: application/pdf',
+    }), { timeout: 10_000 });
+
+    const [checkpoint] = await db.select().from(sourceSyncCheckpointSchema).where(eq(sourceSyncCheckpointSchema.sourceId, sourceId));
+
+    expect(checkpoint?.counts).toMatchObject({ 'readVia.firecrawl': 2 });
   });
 
   it('carries no readVia count on a run that read every page itself', async () => {

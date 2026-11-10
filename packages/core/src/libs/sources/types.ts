@@ -27,9 +27,10 @@ export type SourceAuthKind = 'none' | 'apikey' | 'oauth';
  * fetch said about itself (status, allowlisted headers, title), set only on
  * such a failure; `message` already carries it as one line.
  *
- * `reader` is set on a `fetched` event only when the page was not read
- * directly: the site refused us (`blockedBy` says how) and the source's
- * fallback reader read it instead, at the `creditsUsed` it reported.
+ * `reader` is set only when the page was not read directly: the site refused
+ * us (`blockedBy` says how) and the source's fallback reader read it instead,
+ * at the `creditsUsed` it reported. It rides the `fetched` event, or the
+ * `skipped` one when the page it read was then unusable (credits still spent).
  */
 export type SourceProgressEvent = {
   kind: 'fetched' | 'skipped' | 'error';
