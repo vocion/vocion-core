@@ -58,6 +58,18 @@ function scraped(rawHtml: string, statusCode = 200): Response {
 }
 
 /**
+ * A Firecrawl v2 scrape answer carrying the type and landed URL it reported.
+ * @param rawHtml - the body Firecrawl returned.
+ * @param contentType - the page's own content type.
+ * @param url - where the page landed after redirects.
+ */
+function scrapedAs(rawHtml: string, contentType: string, url: string): Response {
+  return new Response(JSON.stringify({ success: true, data: { rawHtml, metadata: { statusCode: 200, creditsUsed: 1, contentType, url } } }), {
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+/**
  * Answer the site's URLs from `site` and Firecrawl's from `firecrawl`.
  * @param site - the site's answer for a URL, or undefined for an unexpected one.
  * @param firecrawl - Firecrawl's answer for the page it was asked to read.
@@ -215,6 +227,62 @@ describe('a blocked page with the setting on', () => {
 
     expect(firecrawlCalls()).toHaveLength(1);
     expect(errors(second.events)).toEqual([]);
+  });
+});
+
+describe('what Firecrawl returned is read as what it is', () => {
+  it('a blocked feed is still split into its events, each saying how it was read', async () => {
+    const feedUrl = 'https://bellwater.test/events.ics';
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      'UID:quartet-night@bellwater.test',
+      'SUMMARY:Quartet Night',
+      'DTSTART:20261204T200000Z',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:open-stage@bellwater.test',
+      'SUMMARY:Open Stage',
+      'DTSTART:20261211T200000Z',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    stubFetch(url => url === feedUrl ? blockPage() : undefined, () => scrapedAs(ics, 'text/calendar; charset=utf-8', feedUrl));
+
+    const { docs, events } = await run({ feedUrl, crawl: { startUrl: SHOWS }, fallbackReader: 'firecrawl' });
+
+    expect(errors(events)).toEqual([]);
+    expect(docs.map(doc => doc.title)).toEqual(['Quartet Night', 'Open Stage']);
+
+    for (const doc of docs) {
+      expect(doc.metadata).toMatchObject({ contentType: 'text/calendar; charset=utf-8', feedUrl, readVia: 'firecrawl' });
+    }
+  });
+
+  it('resolves the rendered page\'s links against where it landed after a redirect', async () => {
+    const listing = '<html><head><title>Shows</title></head><body><main><p>Quartet Night, Friday 8pm.</p><a href="quartet-night">Quartet Night</a></main></body></html>';
+    stubFetch((url) => {
+      if (url === SHOWS) {
+        return blockPage();
+      }
+      return url === DETAIL ? new Response(RENDERED_DETAIL, { headers: { 'content-type': 'text/html' } }) : undefined;
+    }, () => scrapedAs(listing, 'text/html; charset=UTF-8', `${SHOWS}/`));
+
+    const { docs } = await run({ crawl: { startUrl: SHOWS, maxDepth: 1 }, fallbackReader: 'firecrawl' });
+
+    // Against the requested `/shows` the link would be `/quartet-night`; it landed on `/shows/`.
+    expect(docs.map(doc => doc.externalId)).toEqual([SHOWS, DETAIL]);
+    expect(calls.map(call => call.url)).not.toContain('https://bellwater.test/quartet-night');
+  });
+
+  it('a type the connector cannot read is skipped as a direct fetch of it is', async () => {
+    stubFetch(url => url === SHOWS ? blockPage() : undefined, () => scrapedAs('%PDF-1.7', 'application/pdf', SHOWS));
+
+    const { docs, events } = await run({ urls: [SHOWS], fallbackReader: 'firecrawl' });
+
+    expect(docs).toEqual([]);
+    expect(errors(events)).toEqual([]);
+    expect(events).toContainEqual({ kind: 'skipped', uri: SHOWS, message: 'unsupported content-type: application/pdf' });
   });
 });
 
