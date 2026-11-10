@@ -25,21 +25,43 @@ export function trackLength(marks: RecordingMark[], durationSec: number | null |
 }
 
 /**
+ * The stretch of the recording the track shows. The whole recording when its marks are spread
+ * over it; when they sit in one part of it (an automation taught from the first minute of a
+ * ten-minute recording), that part with a little room either side, so the marks can be told apart.
+ * @param marks - The marks.
+ * @param durationSec - The recording's length, when known.
+ */
+export function trackWindow(marks: RecordingMark[], durationSec: number | null | undefined): { from: number; to: number } {
+  const length = trackLength(marks, durationSec);
+  const at = marks.map(m => m.at).filter(t => Number.isFinite(t) && t >= 0 && t <= length);
+  if (at.length < 2) {
+    return { from: 0, to: length };
+  }
+  const first = Math.min(...at);
+  const last = Math.max(...at);
+  if (last - first >= length / 2 || last === first) {
+    return { from: 0, to: length };
+  }
+  const room = Math.max(2, (last - first) * 0.06);
+  return { from: Math.max(0, Math.floor(first - room)), to: Math.min(length, Math.ceil(last + room)) };
+}
+
+/**
  * The lanes that have marks, in the order given, each mark with its place on the track as a
- * percentage from the left (0–100). A lane with no marks is left out: no empty rows.
+ * percentage from the left (0–100) of the stretch the track shows. A lane with no marks is left out: no empty rows.
  * @param marks - The marks.
  * @param lanes - Every kind of lane, in the order they are drawn.
  * @param durationSec - The recording's length, when known.
  */
 export function placeMarks(marks: RecordingMark[], lanes: RecordingLane[], durationSec: number | null | undefined): PlacedLane[] {
-  const length = trackLength(marks, durationSec);
+  const { from, to } = trackWindow(marks, durationSec);
   return lanes
     .map(lane => ({
       ...lane,
       marks: marks
         .filter(m => m.kind === lane.kind && Number.isFinite(m.at) && m.at >= 0)
         .sort((a, b) => a.at - b.at)
-        .map(m => ({ ...m, left: Math.min(100, Math.max(0, (m.at / length) * 100)) })),
+        .map(m => ({ ...m, left: Math.min(100, Math.max(0, ((m.at - from) / (to - from)) * 100)) })),
     }))
     .filter(lane => lane.marks.length > 0);
 }

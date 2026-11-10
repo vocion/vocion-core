@@ -48,7 +48,7 @@ export { PendingIcon } from './PendingIcon';
 export { RecordCode } from './RecordCode';
 export { RecordingTimeline } from './RecordingTimeline';
 
-export { placeMarks, type RecordingLane, type RecordingMark, trackLength } from './recordingTrack';
+export { placeMarks, type RecordingLane, type RecordingMark, trackLength, trackWindow } from './recordingTrack';
 export { Related, relatedFacts } from './Related';
 export { RowMenu, type RowMenuItem } from './RowMenu';
 

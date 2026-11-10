@@ -2,12 +2,13 @@
 
 import type { RecordingLane, RecordingMark } from './recordingTrack';
 import { cn } from '@/utils/Helpers';
-import { placeMarks, trackLength } from './recordingTrack';
+import { placeMarks, trackWindow } from './recordingTrack';
 
 /**
  * A RECORDING'S MOMENTS, ON ITS LENGTH — a horizontal track under a player,
  * one lane per kind of moment (only the kinds it has), each moment a mark at
- * its place in the recording. Choosing a mark hands it back (`onPick`): the
+ * its place in the recording (in the part of it the marks are in, when they
+ * sit in one part of a longer recording). Choosing a mark hands it back (`onPick`): the
  * page seeks its player there and points at what the mark is. Any recording with moments:
  * a taught automation's findings, a call's chapters, a run's steps.
  * @param props
@@ -32,8 +33,9 @@ export function RecordingTimeline(props: {
   if (placed.length === 0) {
     return null;
   }
-  const length = trackLength(props.marks, props.durationSec);
-  const head = props.playhead !== null && props.playhead !== undefined && Number.isFinite(props.playhead) ? Math.min(100, Math.max(0, (props.playhead / length) * 100)) : null;
+  // The track shows the part of the recording its marks are in; the playhead is drawn while it is in that part.
+  const { from, to } = trackWindow(props.marks, props.durationSec);
+  const head = props.playhead !== null && props.playhead !== undefined && Number.isFinite(props.playhead) && props.playhead >= from && props.playhead <= to ? ((props.playhead - from) / (to - from)) * 100 : null;
   return (
     <div className={cn('grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-[11px]', props.className)} data-recording-timeline>
       <div className="flex flex-col">
@@ -72,8 +74,8 @@ export function RecordingTimeline(props: {
           {head !== null && <span className="pointer-events-none absolute inset-y-0 w-px bg-foreground/50" style={{ left: `${head}%` }} aria-hidden data-recording-playhead />}
         </div>
         <div className="mt-1 flex justify-between font-mono text-muted-foreground tabular-nums">
-          <span>0:00</span>
-          <span>{clockOf(length)}</span>
+          <span>{clockOf(from)}</span>
+          <span>{clockOf(to)}</span>
         </div>
       </div>
     </div>
