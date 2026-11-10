@@ -6,22 +6,26 @@
  * expert works through it:
  *
  *   header     name, trust, where it stands, its expert, the version, the recording
- *   teaching   while Vocion waits for or reads the recording: where it is, and the
- *              way back to the site and the recorder (in place of the spec)
+ *   teaching   while Vocion waits for or reads the recording: where it is, the way
+ *              back to the site and the recorder, and what it finds as it finds it
+ *              (in place of the spec)
  *   questions  what one example could not settle, each with an answer box
+ *   saved      what it saved this month, for what it cost, and the weeks as a trend
  *   run it     rows pasted as CSV, TSV or JSON → a batch, one browser run per row
  *   spec       the steps, rules, escalations, never-dos, inputs, outputs and writes,
  *              each linked to its moment on the recording
  *   trust      the ladder, Drafted → Approved → Autonomous
  *   batches    the recent ones, each a door to its queue
- *   versions   and the workflow.yaml runs compile to
+ *   versions   each with the rules it added, where each came from and the runs
+ *              that followed it since; and the workflow.yaml runs compile to
  *
  * Re-read every 3s while teaching, and whenever the live stream says the
  * routine changed (`routine:<id>`).
  */
 
 import type { RoutineBatchSummary } from '@/libs/routines/display';
-import type { RoutineView as Routine, RoutineInputSpec, RoutineQuestion, RoutineTrust, RoutineVersionView } from '@/libs/routines/types';
+import type { RoutineSavingsView } from '@/libs/routines/savings';
+import type { RoutineView as Routine, RoutineInputSpec, RoutineQuestion, RoutineTrust, RoutineVersionView, RuleUse } from '@/libs/routines/types';
 import { Check, CircleDot, ExternalLink, FileCode2, KeyRound, LayoutGrid, Lock, Play, Video } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DetailMeta, DetailPage, StatusDot } from '@/components/patterns';
@@ -33,11 +37,15 @@ import { useLive } from '@/hooks/useLive';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { ago, batchProgress, exampleRows, needsYou, parseRows, routineStatusWord, TEACHING_WORD, TRUST_HINT } from '@/libs/routines/display';
+import { findingsOf } from '@/libs/routines/findings';
+import { ruleSourceWords } from '@/libs/routines/ruleUse';
 import { batchLabel, ROUTINE_TRUST, TRUST_LABEL } from '@/libs/routines/types';
 import { cn } from '@/utils/Helpers';
 import { isPracticeRoutine, PracticeRoutineButton } from './PracticeRoutineButton';
+import { RecordingFindings } from './RecordingFindings';
 import { MomentLink, ToneChip, TrustChip } from './RoutineChips';
 import { Part } from './RoutineParts';
+import { SavingsOverTime } from './RoutineSavings';
 import { RoutineSpecView } from './RoutineSpecView';
 
 const DOT = { pass: 'pass', amber: 'amber', fail: 'fail', neutral: 'neutral', teal: 'neutral' } as const;
@@ -64,9 +72,10 @@ function useNow(active: boolean, ms = 1000): number {
   return now;
 }
 
-export function RoutineView({ initial, batches: initialBatches = [], compact = false }: { initial: Routine; batches?: RoutineBatchSummary[]; compact?: boolean }) {
+export function RoutineView({ initial, batches: initialBatches = [], savings: initialSavings = null, compact = false }: { initial: Routine; batches?: RoutineBatchSummary[]; savings?: RoutineSavingsView | null; compact?: boolean }) {
   const [routine, setRoutine] = useState<Routine>(initial);
   const [batches, setBatches] = useState<RoutineBatchSummary[]>(initialBatches);
+  const [savings, setSavings] = useState<RoutineSavingsView | null>(initialSavings);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const teaching = Boolean(routine.teaching) || routine.status === 'teaching';
@@ -77,6 +86,7 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
     if (res?.routine) {
       setRoutine(res.routine);
       setBatches(res.batches);
+      setSavings(res.savings);
     }
   }, [routine.id]);
 
@@ -148,12 +158,19 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
         <StatusDot key="status" tone={DOT[word.tone]} pulse={word.pulse} label={<span className="text-foreground">{word.word}</span>} />,
         expert ? `Expert: ${expert}` : 'No expert yet',
         routine.version ? `Version ${routine.version.n}${pending && pending.n !== routine.version.n ? ` · v${pending.n} in review` : ''}` : null,
-        source && (
-          <a key="source" href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground" data-routine-source>
-            <Video className="size-3" aria-hidden />
-            {`Taught from ${source.title ?? 'the recording'}`}
-          </a>
-        ),
+        source && (teaching
+          ? (
+              <a key="source" href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground" data-routine-source>
+                <Video className="size-3" aria-hidden />
+                {`Taught from ${source.title ?? 'the recording'}`}
+              </a>
+            )
+          : (
+              <Link key="source" href={`/dashboard/automations/${routine.id}/recording`} className="inline-flex items-center gap-1 underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground" data-routine-source data-tour="automation-taught-from">
+                <Video className="size-3" aria-hidden />
+                {`Taught from ${source.title ?? 'the recording'}`}
+              </Link>
+            )),
       ]}
     />
   );
@@ -176,6 +193,11 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
       {!teaching && open > 0 && (
         <Part compact={compact} eyebrow={`Open questions · ${open} of ${questions.length}`} testId="routine-questions">
           <Questions questions={questions} sourceUrl={source?.url ?? null} busy={busy} onAnswer={(questionId, answer) => act({ action: 'answer_question', questionId, answer })} />
+        </Part>
+      )}
+      {!teaching && savings && savings.total.runs > 0 && (
+        <Part compact={compact} eyebrow="What it saved" testId="routine-savings">
+          <SavingsOverTime view={savings} />
         </Part>
       )}
       {!teaching && routine.version && routine.status === 'live' && (
@@ -220,13 +242,15 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
           <TrustControl trust={routine.trust} busy={busy} onPick={t => void act({ action: 'trust', trust: t })} />
         </Part>
       )}
-      {source && (
-        <Part compact={compact} eyebrow="Recordings" testId="automation-recordings">
-          <p className="mb-2 text-[12px] text-muted-foreground">The source demonstration used to teach this automation. Runs show what happened during execution.</p>
-          <a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-[13px] underline underline-offset-2">
-            <Video className="size-3.5" aria-hidden />
-            {source.title ?? 'Source recording'}
-          </a>
+      {source && !teaching && routine.versions.length > 0 && (
+        <Part compact={compact} eyebrow="Taught from" testId="automation-recordings">
+          <Link href={`/dashboard/automations/${routine.id}/recording`} className="-mx-2 flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-hover" data-routine-findings-link data-tour="automation-findings-link">
+            <Video className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium text-foreground">What Vocion found in the recording</span>
+              <span className="block truncate text-[12px] text-muted-foreground">{source.title ?? 'The recording'}</span>
+            </span>
+          </Link>
         </Part>
       )}
       <Part compact={compact} eyebrow={batches.length ? `Runs · ${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}` : 'Runs'} testId="routine-batches">
@@ -243,6 +267,7 @@ export function RoutineView({ initial, batches: initialBatches = [], compact = f
                 <span className="min-w-0 flex-1">
                   <span className="text-foreground">{v.change ?? 'First version, drafted from the recording.'}</span>
                   <span className="block text-[11px] text-muted-foreground">{new Date(v.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                  {v.rules && <RuleUses uses={v.rules} change={v.change} />}
                 </span>
                 <ToneChip tone={v.status === 'approved' ? 'pass' : v.status === 'draft' ? 'amber' : 'neutral'}>{v.status === 'superseded' ? 'Replaced' : v.status === 'approved' ? 'Approved' : 'Draft'}</ToneChip>
               </li>
@@ -347,6 +372,13 @@ function TeachingPanel({ routine, now, compact, busy, onAttach }: { routine: Rou
             </li>
           ))}
         </ol>
+      )}
+
+      {(state === 'reading' || state === 'drafting') && routine.source && (
+        <div className="mt-4 border-t border-rule pt-4" data-routine-teaching-found>
+          <p className="mb-3 text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">What Vocion found in the recording</p>
+          <RecordingFindings routineId={routine.id} source={routine.source} findings={findingsOf(t?.found)} live compact={compact} />
+        </div>
       )}
 
       {t && (
@@ -646,5 +678,50 @@ function Retire({ busy, onRetire }: { busy: boolean; onRetire: () => void }) {
       <Button size="sm" variant="destructive" disabled={busy} onClick={onRetire} data-routine-retire-confirm>Retire</Button>
       <Button size="sm" variant="ghost" onClick={() => setSure(false)}>Keep it</Button>
     </div>
+  );
+}
+
+/* ── Rules a version added, and the runs that followed them ───────────── */
+
+const LINK = 'underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground';
+
+/**
+ * Each rule a version added, where it came from, and how many runs have followed it since, the
+ * newest of them linked. A rule no run has followed yet shows no count; a rule the version's change
+ * line already quotes is not quoted again.
+ * @param props
+ * @param props.uses - The rules.
+ * @param props.change - The version's change line.
+ */
+function RuleUses({ uses, change }: { uses: RuleUse[]; change: string | null }) {
+  return (
+    <ul className="mt-1.5 space-y-1" data-routine-rule-uses>
+      {uses.map((u) => {
+        const who = ruleSourceWords(u.from);
+        return (
+          <li key={u.text} className="text-[12px] leading-snug" data-routine-rule-use={u.runs}>
+            {!change?.includes(u.text) && <span className="text-foreground">{`Rule: ${u.text}`}</span>}
+            {who && (
+              <span className="text-muted-foreground">
+                {change?.includes(u.text) ? 'From ' : ' · '}
+                {u.from?.askId ? <Link href={`/dashboard/inbox/${u.from.askId}`} className={LINK}>{who}</Link> : who}
+              </span>
+            )}
+            {u.runs > 0 && (
+              <span className="block text-muted-foreground">
+                {`Followed in ${u.runs} ${u.runs === 1 ? 'run' : 'runs'} since, without asking: `}
+                {u.recent.map((x, i) => (
+                  <span key={x.browserRunId}>
+                    {i > 0 && ', '}
+                    <Link href={`/dashboard/browser/${x.browserRunId}`} className={LINK} title={x.decided ?? undefined} data-routine-rule-run={x.browserRunId}>{x.label}</Link>
+                  </span>
+                ))}
+                {u.runs > u.recent.length && ` and ${u.runs - u.recent.length} more`}
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

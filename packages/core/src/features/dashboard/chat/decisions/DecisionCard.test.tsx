@@ -16,7 +16,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => <a href={href} {...rest}>{children}</a>,
 }));
 const openPreview = vi.fn();
-vi.mock('@/features/preview/previewState', () => ({ openPreview: (...a: unknown[]) => openPreview(...a) }));
+vi.mock('@/features/preview/previewState', async importOriginal => ({ ...(await importOriginal<object>()), openPreview: (...a: unknown[]) => openPreview(...a) }));
 
 const { DecisionCard } = await import('./DecisionCard');
 const { DecisionDock } = await import('./DecisionDock');
@@ -356,6 +356,62 @@ describe('phase two: every kind of Decision on the one card', () => {
     await renderCard({ subject: 'proposal', id: 6061, kind: 'approval', question: 'Move Northwind to Negotiation', href: '/dashboard/inbox/proposal-6061', hrefLabel: 'Details', options: [{ id: 'approve', label: 'Approve', consequence: 'Deal stage → Negotiation — as you, with Undo.', recommended: true }, { id: 'reject', label: 'Reject' }] });
 
     await expect.element(page.getByTestId('decision-details')).toHaveAttribute('href', '/dashboard/inbox/proposal-6061');
+  });
+
+  it('a run that stopped to ask shows the page as it stopped, unfolded, and opens it full size (2026-11-04)', async () => {
+    const shot = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22160%22 height=%22100%22/%3E';
+    await renderCard({ question: 'Dana Whitfield: the Kestrel license expires 11/30/2026…', picture: { src: shot, alt: 'The page as it stopped' } });
+
+    await expect.element(page.getByTestId('decision-picture')).toBeVisible();
+    await expect.element(page.getByRole('img', { name: 'The page as it stopped' })).toHaveAttribute('src', shot);
+
+    await page.getByTestId('decision-picture-thumb').click();
+
+    await expect.element(page.getByTestId('decision-picture-thumb-lightbox')).toBeVisible();
+  });
+
+  it('a run\'s picture opens that run in the preview pane, as Details does', async () => {
+    openPreview.mockClear();
+    const shot = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22160%22 height=%22100%22/%3E';
+    await renderCard({ href: '/dashboard/browser/318', picture: { src: shot, alt: 'The page as it stopped' } });
+
+    await page.getByTestId('decision-picture-thumb').click();
+
+    expect(openPreview).toHaveBeenCalledWith({ type: 'browser_run', id: '318' }, expect.anything());
+    expect(page.getByTestId('decision-picture-thumb-lightbox').elements()).toHaveLength(0);
+  });
+
+  it('draws what the asker found as facts, label and value, under the rule', async () => {
+    await renderCard({
+      question: 'Correct Owen Fitzgerald’s license number on the board to 149.021345?',
+      body: 'A license number that does not match the state lookup goes to the expert.',
+      facts: [{ label: 'Board says', value: 'IL LCSW 149.012345' }, { label: 'License lookup', value: 'No record for that number' }],
+      options: [{ id: 'o1', label: 'Correct it to 149.021345', consequence: 'Updates the board record, then reads it back.', recommended: true }, { id: 'o2', label: 'Leave it', consequence: 'Nothing is saved for this provider.' }],
+    });
+
+    const facts = page.getByTestId('decision-facts');
+
+    await expect.element(facts).toBeVisible();
+    await expect.element(facts).toHaveTextContent('Board saysIL LCSW 149.012345');
+    await expect.element(facts).toHaveTextContent('License lookupNo record for that number');
+    await expect.element(page.getByText('Updates the board record, then reads it back.')).toBeVisible();
+  });
+
+  it('draws no picture when the asker kept none', async () => {
+    await renderCard();
+
+    expect(page.getByTestId('decision-picture').elements()).toHaveLength(0);
+  });
+
+  it('Details on a run opens that run in the preview pane beside the conversation; ⌘-click still navigates', async () => {
+    openPreview.mockClear();
+    await renderCard({ href: '/dashboard/browser/318' });
+
+    await expect.element(page.getByTestId('decision-details')).toHaveAttribute('href', '/dashboard/browser/318');
+
+    await page.getByTestId('decision-details').click();
+
+    expect(openPreview).toHaveBeenCalledWith({ type: 'browser_run', id: '318' }, expect.anything());
   });
 
   it('a sign-off opens its artifact in place, and revising is said in their own words', async () => {

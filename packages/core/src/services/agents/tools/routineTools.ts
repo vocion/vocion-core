@@ -23,14 +23,21 @@ import type { RuntimeContext } from '../types';
 import type { RoutineView } from '@/libs/routines/types';
 import process from 'node:process';
 import { tool } from '@langchain/core/tools';
+import { ROUTINES_GRANT } from '@/libs/routines/describe';
 import { batchLabel, clock, TRUST_LABEL } from '@/libs/routines/types';
-
-const ROUTINES_GRANT = 'routines';
 
 /** How long `routine_teach` waits for the draft in this process. */
 const TEACH_WAIT_MS = 3 * 60_000;
 
-function enabled(ctx: RuntimeContext): boolean {
+/**
+ * Whether this turn's agent can run automations: it holds the routine tools.
+ * @param ctx - The turn.
+ */
+export function routinesEnabled(ctx: Pick<RuntimeContext, 'harnessConfig' | 'userId' | 'enabledPlugins'>): boolean {
+  return Boolean(ctx.userId) && enabled(ctx);
+}
+
+function enabled(ctx: Pick<RuntimeContext, 'harnessConfig' | 'userId' | 'enabledPlugins'>): boolean {
   if ((ctx.harnessConfig.grantTools ?? []).includes(ROUTINES_GRANT)) {
     return true;
   }
@@ -56,7 +63,7 @@ function specBrief(r: RoutineView): Record<string, unknown> {
     recording: r.source?.url ?? null,
     summary: v.spec.summary,
     steps: v.spec.steps.map(s => `${s.n}. ${s.text}${s.at !== null ? ` [${clock(s.at)}]` : ''}`),
-    rules: v.spec.rules.map(x => x.text),
+    rules: v.spec.rules.map(x => (x.from ? `${x.text} (added by ${x.from.by ?? 'the expert'}${x.from.askId ? ` from decision #${x.from.askId}` : ''}, version ${x.from.version})` : x.text)),
     escalations: v.spec.escalations.map(e => `${e.when} → ${e.ask}`),
     inputs: v.spec.inputs.map(i => `${i.name}${i.secret ? ' (secret)' : ''}${i.shared ? ' (same for every row)' : ''}${i.key ? ' (identifies the row)' : ''}${r.savedInputs.includes(i.name) ? ' (saved on the automation: do not ask for it)' : ''}: ${i.description}`),
     writes: v.spec.writes.map(w => w.button),
@@ -146,7 +153,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ),
     tool(
       async (raw: unknown) => {
-        const args = raw as { routine: string; answers?: Array<{ question_id: string; answer: string }>; rule?: string; approve?: boolean; trust?: 'drafted' | 'approved' | 'autonomous' };
+        const args = raw as { routine: string; answers?: Array<{ question_id: string; answer: string }>; rule?: string; from_decision?: number; approve?: boolean; trust?: 'drafted' | 'approved' | 'autonomous' };
         const r = await find(args.routine);
         if (!r) {
           return `No automation “${args.routine}” in this workspace.`;
@@ -159,8 +166,8 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
             done.push(`answered ${a.question_id}`);
           }
           if (args.rule) {
-            await s.addRoutineRule(ctx.orgId, userId, r.id, args.rule);
-            done.push('added the rule');
+            const added = await s.addRoutineRule(ctx.orgId, userId, r.id, args.rule, { askId: args.from_decision ?? null });
+            done.push(`added the rule to draft version ${added.version}${added.askId ? `, from decision #${added.askId}` : args.from_decision ? ` (no decision #${args.from_decision} in this workspace, so it names no decision)` : ''}`);
           }
           if (args.approve) {
             if (!(await said(`approve the automation "${r.name}" so it can run`))) {
@@ -204,6 +211,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
             routine: { type: 'string', description: 'The automation\'s id, slug or name.' },
             answers: { type: 'array', maxItems: 10, items: { type: 'object', properties: { question_id: { type: 'string' }, answer: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['question_id', 'answer'] } },
             rule: { type: 'string', maxLength: 600, description: 'A new rule, in the expert\'s words.' },
+            from_decision: { type: 'integer', minimum: 1, description: 'The decision the rule comes from, when the expert made a rule of their answer to one (an automation\'s question they answered: "[decision #12 answered]"). The rule links back to it.' },
             approve: { type: 'boolean' },
             trust: { type: 'string', enum: ['drafted', 'approved', 'autonomous'] },
           },
@@ -222,7 +230,9 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
         if (rows.length === 0) {
           return 'No rows: give the rows (or the CSV with its header line) to run it for.';
         }
-        if (!(await said(`run the automation "${r.name}" for ${rows.length} rows`))) {
+        // Judged as what it does: its purpose, sites, changes, trust and whose rows (`consentDecision.ts`).
+        const { routineConsentDecision } = await import('../consentDecision');
+        if (!(await said(routineConsentDecision(r, rows)))) {
           return `Not started: running “${r.name}” for ${rows.length} rows is the person's decision. Ask them to confirm.`;
         }
         const { startRoutineBatch, RoutineError } = await svc();
@@ -256,7 +266,7 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ),
     tool(
       async (raw: unknown) => {
-        const args = raw as { batch_id: number };
+        const args = raw as { batch_id: number; rows?: boolean };
         const v = await (await reads()).getBatch(ctx.orgId, args.batch_id);
         if (!v) {
           return `No ${batchLabel(args.batch_id)} in this workspace.`;
@@ -273,22 +283,62 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
           findings: v.findings.map(f => ({ title: f.title, state: f.state, answer: f.answer, records: f.items.length })),
           cost: `$${(v.cents / 100).toFixed(2)}`,
           report: v.report?.url ?? null,
+          // The rules runs followed instead of asking the expert: a rule paying off, worth saying.
+          ...((v.rulesFollowed ?? []).length > 0
+            ? { rules_followed: v.rulesFollowed!.map(f => ({ rule: f.text, from: f.from ? [f.from.by ? `${f.from.by}'s ${f.from.askId ? `answer to decision #${f.from.askId}` : 'rule'}` : null, f.from.version ? `version ${f.from.version}` : null].filter(Boolean).join(', ') : 'the approved spec', runs: f.runs.length, where: f.runs.map(x => `${x.label}${x.decided ? `: ${x.decided}` : ''}`), note: 'Followed without asking the expert.' })) }
+            : {}),
+          // Each row's inputs and what its run read back after the write: what a next step is built from.
+          ...(args.rows
+            ? { rows: v.runs.map(x => ({ row: x.n, label: x.label, status: x.status, input: x.input, read_back: x.receipt?.after ?? null, verified: x.receipt?.verified ?? null })) }
+            : {}),
         });
       },
       {
         name: 'routine_check',
-        description: 'Where an automation batch stands: how many rows are done and verified, what waits on the expert, what failed, and what it found.',
-        schema: { type: 'object', properties: { batch_id: { type: 'integer', minimum: 1 } }, required: ['batch_id'] },
+        description: 'Where an automation batch stands: how many rows are done and verified, what waits on the expert, what failed, what it found, and which of the expert\'s rules its runs followed instead of asking. With rows: true, each row\'s inputs and the outputs its run read back (an id the system issued, a saved status): what to build the next step\'s rows from.',
+        schema: { type: 'object', properties: { batch_id: { type: 'integer', minimum: 1 }, rows: { type: 'boolean', description: 'Include each row\'s inputs and read-back outputs.' } }, required: ['batch_id'] },
       },
     ),
     tool(
       async (raw: unknown) => {
-        const args = raw as { batch_id: number };
+        const args = raw as { batch_id?: number; automation?: string | number; dashboard?: boolean };
+        if (!args.batch_id) {
+          // What the automations saved over time: all of them, or one.
+          const { findRoutine } = await reads();
+          const one = args.automation !== undefined && args.automation !== '' ? await findRoutine(ctx.orgId, args.automation) : null;
+          if (args.automation !== undefined && args.automation !== '' && !one) {
+            return `No automation “${args.automation}” in this workspace. routine_list names them.`;
+          }
+          const { routineSavings } = await import('@/services/routines/savingsReads');
+          const { dayLabel, savingMethod, savingSentence } = await import('@/libs/routines/savings');
+          const report = await routineSavings(ctx.orgId, { ...(one ? { routineId: one.id } : {}) });
+          const brief = (s: typeof report.total) => ({ saved: savingSentence(s), runs: s.runs, finished: s.done, decisions: s.decisions, saved_hours: s.savedMinutes === null ? null : Math.round(s.savedMinutes / 6) / 10, worth: s.savedCents === null ? null : `$${(s.savedCents / 100).toFixed(2)}`, run_cost: `$${(s.costCents / 100).toFixed(2)}`, tokens: s.tokens });
+          let dashboard: { artifactId: number; url: string } | null = null;
+          if (args.dashboard && !one) {
+            const { fileSavingsDashboard, SAVINGS_DASHBOARD_TITLE } = await import('@/services/routines/savingsDashboard');
+            const filed = await fileSavingsDashboard(ctx.orgId, { kind: 'agent', id: ctx.agentSlug ?? null }, { conversationId: ctx.conversationId ?? null });
+            dashboard = { artifactId: filed.artifactId, url: `/dashboard/artifacts/${filed.artifactId}` };
+            ctx.emit({ type: 'record_created', record: await ref('artifact', filed.artifactId, SAVINGS_DASHBOARD_TITLE) });
+          }
+          return JSON.stringify({
+            automation: one ? one.name : 'every automation in this workspace',
+            this_month: brief(report.month),
+            last_8_weeks: brief(report.recent),
+            all_time: brief(report.total),
+            weekly: report.weeks.map(w => ({ week_of: w.label, runs: w.savings.runs, saved_hours: w.savings.savedMinutes === null ? null : Math.round(w.savings.savedMinutes / 6) / 10, run_cost: `$${(w.savings.costCents / 100).toFixed(2)}` })),
+            ...(one ? {} : { by_automation: report.byRoutine.map(r => ({ name: r.name, ...brief(r.savings) })) }),
+            how_it_is_worked_out: savingMethod(report.recent),
+            ...(report.sampleBefore ? { sample_history: `Runs before ${dayLabel(report.sampleBefore)} are sample history a demo seeded; say so when you quote them.` } : {}),
+            ...(report.rate ? {} : { no_hourly_rate: 'The workspace sets no hourly rate (defaults.hourlyRate), so the saving is in hours only.' }),
+            ...(dashboard ? { dashboard } : {}),
+            note: 'Answer with the conclusion first, in one or two sentences (the `saved` line for the period asked about). Give how it is worked out only if asked. An automation with no baseline has no saving: say what it ran and cost.',
+          });
+        }
         const { buildRoutineReport, RoutineError } = await svc();
         try {
           const rep = await buildRoutineReport(ctx.orgId, userId, args.batch_id);
           ctx.emit({ type: 'record_created', record: await ref('artifact', rep.artifactId, `${batchLabel(args.batch_id)} report`) });
-          return JSON.stringify({ artifactId: rep.artifactId, url: rep.url, report: rep.markdown.slice(0, 6_000), note: 'The report is beside the conversation. Give the person its headline in three or four sentences: results, time against the manual baseline, cost, and any finding with the question it asks. Do not paste the tables.' });
+          return JSON.stringify({ artifactId: rep.artifactId, url: rep.url, report: rep.markdown.slice(0, 6_000), note: 'The report is beside the conversation. Give the person its headline in three or four sentences: results, what it saved against the baseline and what it cost, and any finding with the question it asks. Do not paste the tables.' });
         } catch (e) {
           if (e instanceof RoutineError) {
             return `No report: ${e.message}`;
@@ -298,8 +348,8 @@ export function routineTools(ctx: RuntimeContext): StructuredToolInterface[] {
       },
       {
         name: 'routine_report',
-        description: 'Write the summary report of an automation batch, by batch id: results verified by read-back, escalations and how they were answered, human minutes against the manual baseline, run cost, and findings (records in the system that are not on the list). Filed as an artifact.',
-        schema: { type: 'object', properties: { batch_id: { type: 'integer', minimum: 1 } }, required: ['batch_id'] },
+        description: 'What automations saved, and what they cost. With batch_id: the report of one batch, filed as an artifact (results verified by read-back, escalations and their answers, time saved against the baseline, run cost and tokens, findings, and the expert\'s rules its runs followed instead of asking). Without batch_id: what has this saved us — time saved, its worth at the workspace\'s hourly rate, run cost and tokens from the spend ledger, decisions the expert made, this month, the last 8 weeks week by week, and all time; for one automation (automation: its id, slug or name) or all of them. dashboard: true (all automations) also files or refreshes the savings dashboard.',
+        schema: { type: 'object', properties: { batch_id: { type: 'integer', minimum: 1 }, automation: { type: 'string', description: 'One automation, by id, slug or name; omit for all.' }, dashboard: { type: 'boolean', description: 'File or refresh the savings dashboard (all automations).' } } },
       },
     ),
     tool(

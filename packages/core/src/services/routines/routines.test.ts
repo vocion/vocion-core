@@ -1,11 +1,13 @@
 import type { RoutineBatchView, RoutineSpec } from '@/libs/routines/types';
 import { describe, expect, it } from 'vitest';
 import { needsApproval } from '@/libs/browser/run';
+import { decisionViewOf } from '@/libs/decisions/decision';
+import { savingsOf } from '@/libs/routines/savings';
 import { clock, momentUrl } from '@/libs/routines/types';
 import { parseRows } from '@/services/agents/tools/routineTools';
 import { allowedWrite } from '@/services/browser/browserLoop';
 import { PRACTICE_ROUTINE_SPEC, practiceRoutineBatch } from './practice';
-import { checkValue, idemKeyOf, receiptFor, reportMarkdown } from './RoutineService';
+import { checkValue, idemKeyOf, pageShotMd, receiptFor, reportMarkdown, runDetailsUrl, runWaitAsk } from './RoutineService';
 import { compileTask, framesToRead, jsonIn, normalizeSpec, runOutputs, workflowYamlFor } from './teaching';
 
 describe('a read-back check', () => {
@@ -131,7 +133,7 @@ describe('rows from chat', () => {
 });
 
 describe('the report', () => {
-  it('says results, time against the baseline, cost and findings', () => {
+  it('says results, what it saved against the baseline for what it cost, and findings', () => {
     const v: RoutineBatchView = {
       id: 7,
       routine: { id: 1, name: 'Add a user', version: 1, trust: 'approved', expert: 'Chris' },
@@ -143,11 +145,19 @@ describe('the report', () => {
       cents: 105,
       humanMs: 90_000,
       manualMinutes: 3,
+      tokens: 90_000,
+      savings: savingsOf([
+        { status: 'done', manualMinutes: 3, humanMs: 0, cents: 35, tokens: 30_000, decisions: 0, at: null },
+        { status: 'skipped', manualMinutes: 3, humanMs: 90_000, cents: 35, tokens: 30_000, decisions: 1, at: null },
+        { overhead: true, status: 'done', manualMinutes: null, humanMs: 0, cents: 35, tokens: 30_000, decisions: 0, at: null },
+      ], null),
+      sample: false,
+      fields: { inputs: [], outputs: [] },
       startedAt: '2026-10-22T15:00:00Z',
       endedAt: '2026-10-22T15:03:00Z',
       runs: [
-        { id: 1, batchId: 7, n: 1, label: 'Aisha Karim', status: 'done', input: {}, browserRunId: 11, browser: null, waiting: null, receipt: null, summary: 'Added and enrolled.', error: null, humanMs: 0, cents: 35, startedAt: null, endedAt: null },
-        { id: 2, batchId: 7, n: 2, label: 'Tomás Ortega', status: 'skipped', input: {}, browserRunId: 12, browser: null, waiting: null, receipt: null, summary: 'The expert said to leave him.', error: null, humanMs: 90_000, cents: 35, startedAt: null, endedAt: null },
+        { id: 1, batchId: 7, n: 1, label: 'Aisha Karim', status: 'done', input: {}, browserRunId: 11, browser: null, waiting: null, receipt: null, summary: 'Added and enrolled.', error: null, humanMs: 0, decisions: 0, cents: 35, tokens: 30_000, startedAt: null, endedAt: null },
+        { id: 2, batchId: 7, n: 2, label: 'Tomás Ortega', status: 'skipped', input: {}, browserRunId: 12, browser: null, waiting: null, receipt: null, summary: 'The expert said to leave him.', error: null, humanMs: 90_000, decisions: 1, cents: 35, tokens: 30_000, startedAt: null, endedAt: null },
       ],
       followUp: null,
       findings: [{ id: 'f1', kind: 'not_on_list', title: '1 record in the account is not on the list', detail: 'Checked.', items: [{ name: 'QA Test', email: 'qa-test@x.example' }], askId: 3, options: [], state: 'open', answer: null, followUpBatchId: null }],
@@ -157,8 +167,8 @@ describe('the report', () => {
 
     expect(md).toContain('# Automation run 7 · Add a user');
     expect(md).toContain('**2** done and verified');
-    expect(md).toContain('about 6 min');
-    expect(md).toContain('$1.05 in total');
+    expect(md).toContain('**Saved 3 minutes, for $1.05 of runs.**');
+    expect(md).toContain('90k tokens');
     expect(md).toContain('[2](/dashboard/browser/12)');
     expect(md).toContain('Finding: 1 record in the account is not on the list');
     expect(md).toContain('| QA Test | qa-test@x.example |');
@@ -187,5 +197,72 @@ describe('where the work starts', () => {
 
     expect(answered.startUrl).toBe('https://staging.example.com/users');
     expect(answered.systems).toContain('staging.example.com');
+  });
+});
+
+describe('a run that stops to ask its expert', () => {
+  const shot = '/api/artifacts/org-larkfield-9c1e/org-larkfield-9c1e.jpg';
+  const base = { routineName: 'Enroll a provider', trustLabel: 'Approved', run: { n: 3, label: 'Dana Whitfield · Larkfield', browserRunId: 318 }, batchId: 12, batchName: 'Automation run 12' };
+
+  it('asks the question in whole words, with the page as it stopped, and Details on that run', () => {
+    const asked = runWaitAsk({ ...base, w: { kind: 'question', text: 'The Larkfield license on file expires 11/30/2026 — only renewals filed before then keep the enrollment active, so which date should I use?\n\nThe form shows two dates.', options: ['Use the renewal date', 'Leave it'], shotUrl: shot, at: '2026-11-04T15:00:00Z' } });
+
+    expect(asked.title).toBe('Dana Whitfield: The Larkfield license on file expires 11/30/2026 — only renewals filed before then keep…');
+    expect(asked.contextMd).toContain(`![The page as it stopped](${shot})`);
+    expect(asked.contextMd).toContain('> The form shows two dates.');
+    expect(asked.contextUrl).toBe('/dashboard/browser/318');
+  });
+
+  it('an approval hold carries the same picture and opens the same run', () => {
+    const asked = runWaitAsk({ ...base, w: { kind: 'approval', text: 'Click “Submit application”', step: 'Click “Submit application”', shotUrl: shot, at: '2026-11-04T15:00:00Z' } });
+
+    expect(asked.title).toBe('Dana Whitfield: approve “Submit application”?');
+    // The words after the control's name stay outside its quotes.
+    expect(runWaitAsk({ ...base, w: { kind: 'approval', text: 'x', step: 'Click “Submit application” on larkspur.example', at: '2026-11-04T15:00:00Z' } }).title).toBe('Dana Whitfield: approve “Submit application” on larkspur.example?');
+    expect(runWaitAsk({ ...base, w: { kind: 'approval', text: 'Save the form', at: '2026-11-04T15:00:00Z' } }).title).toBe('Dana Whitfield: approve “Save the form”?');
+    expect(asked.contextMd).toContain(`![The page as it stopped](${shot})`);
+    expect(asked.contextUrl).toBe('/dashboard/browser/318');
+  });
+
+  it('an escalation in parts: its question is the title as asked, the rule the why, the facts a table, each answer with what it does', () => {
+    const asked = runWaitAsk({ ...base, w: {
+      kind: 'question',
+      escalation: true,
+      text: 'composed for older surfaces',
+      question: 'Correct Owen Fitzgerald’s license number on the board to 149.021345?',
+      rule: 'A license number that does not match the state lookup goes to the expert.',
+      found: [{ label: 'Board says', value: 'IL LCSW 149.012345' }, { label: 'License lookup', value: 'No record for that number' }, { label: 'Name search', value: 'Owen J. Fitzgerald · LCSW 149.021345 · Active · expires 11/30/2027' }],
+      choices: [{ label: 'Correct it to 149.021345', consequence: 'Updates the board record, then reads it back.' }, { label: 'Leave it', consequence: 'Nothing is saved for this provider.' }],
+      options: ['Correct it to 149.021345', 'Leave it'],
+      shotUrl: shot,
+      at: '2026-11-04T15:00:00Z',
+    } });
+
+    expect(asked.title).toBe('Correct Owen Fitzgerald’s license number on the board to 149.021345?');
+    expect(asked.body).toBe('A license number that does not match the state lookup goes to the expert. (Enroll a provider, run 3)');
+    expect(asked.options).toEqual([
+      { id: 'o1', label: 'Correct it to 149.021345', description: 'Updates the board record, then reads it back.', recommended: true },
+      { id: 'o2', label: 'Leave it', description: 'Nothing is saved for this provider.' },
+    ]);
+    expect(asked.contextUrl).toBe('/dashboard/browser/318');
+
+    const view = decisionViewOf({ id: 1, kind: 'ruling', title: asked.title, body: asked.body, contextMd: asked.contextMd, options: asked.options, status: 'open' });
+
+    expect(view.facts).toEqual([{ label: 'Board says', value: 'IL LCSW 149.012345' }, { label: 'License lookup', value: 'No record for that number' }, { label: 'Name search', value: 'Owen J. Fitzgerald · LCSW 149.021345 · Active · expires 11/30/2027' }]);
+    expect(view.picture).toEqual({ src: shot, alt: 'The page as it stopped' });
+    expect(view.options[0]).toMatchObject({ label: 'Correct it to 149.021345', consequence: 'Updates the board record, then reads it back.', recommended: true });
+  });
+
+  it('an older wait with only text still asks, its options plain labels', () => {
+    const asked = runWaitAsk({ ...base, w: { kind: 'question', escalation: true, text: 'Two accounts match. Which one?', options: ['The first', 'Skip it'], at: '2026-11-04T15:00:00Z' } });
+
+    expect(asked.title).toBe('Dana Whitfield: Two accounts match.');
+    expect(asked.options).toEqual([{ id: 'o1', label: 'The first', recommended: true }, { id: 'o2', label: 'Skip it' }]);
+  });
+
+  it('a run with no browser yet opens its batch, and a wait with no screenshot carries no picture', () => {
+    expect(runDetailsUrl({ browserRunId: null }, 12)).toBe('/dashboard/automations/batches/12');
+    expect(pageShotMd(null)).toBe('');
+    expect(runWaitAsk({ ...base, w: { kind: 'question', text: 'Which date?', at: '2026-11-04T15:00:00Z' } }).contextMd).not.toContain('![');
   });
 });

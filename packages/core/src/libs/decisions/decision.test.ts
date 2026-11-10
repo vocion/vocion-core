@@ -5,7 +5,7 @@
 import type { AskLike } from './decision';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_DECIDER } from '@/libs/needsYou/deadlines';
-import { answerLine, answerProblem, decisionAnswerWire, decisionForModel, decisionKindOf, decisionOptionsOf, decisionStateOf, decisionTitle, decisionViewOf, plainText, previewText, readDecisionAnswerWire } from './decision';
+import { answerLine, answerProblem, clipAtWord, decisionAnswerWire, decisionForModel, decisionKindOf, decisionOptionsOf, decisionStateOf, decisionTitle, decisionViewOf, factsOf, factsTable, pictureOf, plainText, previewText, readDecisionAnswerWire } from './decision';
 
 const repo: AskLike = {
   id: 41,
@@ -182,6 +182,81 @@ describe('phase two: subjects, links, sign-off', () => {
   it('links a context URL only when it is an in-app path', () => {
     expect(decisionViewOf({ ...repo, contextUrl: '/dashboard/missions/pipeline/41' }).href).toBe('/dashboard/missions/pipeline/41');
     expect(decisionViewOf({ ...repo, contextUrl: 'https://github.example/pull/127' }).href).toBeUndefined();
+  });
+});
+
+describe('the picture an ask carries', () => {
+  const shot = '/api/artifacts/org-northwind-3f9a/org-northwind-3f9a.jpg';
+
+  it('reads an in-app image out of the long form as the card\'s picture, leaving the rest', () => {
+    expect(pictureOf(`Batch #12 · run 3 · Dana Whitfield\n\n![The page as it stopped](${shot})`)).toEqual({
+      picture: { src: shot, alt: 'The page as it stopped' },
+      rest: 'Batch #12 · run 3 · Dana Whitfield',
+    });
+    expect(pictureOf(`![](${shot} "hover")`)).toEqual({ picture: { src: shot, alt: 'Picture' }, rest: null });
+  });
+
+  it('loads only what the app serves: an outside image, or a link that is not an image, stays text', () => {
+    expect(pictureOf('![tracker](https://evil.example/p.gif)')).toEqual({ picture: null, rest: '![tracker](https://evil.example/p.gif)' });
+    expect(pictureOf(`[The page as it stopped](${shot})`).picture).toBeNull();
+    expect(pictureOf(null)).toEqual({ picture: null, rest: null });
+  });
+
+  it('is on every kind of Decision, and an approval\'s payload is the text without it', () => {
+    const md = `\`\`\`\nTo: ops@kestrel.example\n\`\`\`\n\n![The page as it stopped](${shot})`;
+
+    expect(decisionViewOf({ ...repo, contextMd: md }).picture).toEqual({ src: shot, alt: 'The page as it stopped' });
+
+    const approval = decisionViewOf({ id: 7, kind: 'approval', title: 'Send the renewal?', status: 'open', contextMd: md });
+
+    expect(approval.picture?.src).toBe(shot);
+    expect(approval.preview).toBe('To: ops@kestrel.example');
+    expect(decisionViewOf(repo).picture).toBeUndefined();
+  });
+});
+
+describe('the facts an ask is decided on', () => {
+  const facts = [{ label: 'Board says', value: 'IL LCSW 149.012345' }, { label: 'Name search', value: 'Owen J. Fitzgerald | LCSW 149.021345 | Active' }];
+
+  it('travel as the two-column table the long form opens with, and read back whole — a | in a value included', () => {
+    const md = `${factsTable(facts)}\n\nAutomation run 12 · run 3 · Owen Fitzgerald`;
+
+    expect(factsOf(md)).toEqual({ facts, rest: 'Automation run 12 · run 3 · Owen Fitzgerald' });
+  });
+
+  it('a table of another width is not facts, and stays in the text', () => {
+    const plan = '| Keyword | Type | Intent |\n| --- | --- | --- |\n| ledger export | head | buy |';
+
+    expect(factsOf(plan)).toEqual({ facts: [], rest: plan });
+    expect(factsOf('No table here.')).toEqual({ facts: [], rest: 'No table here.' });
+    expect(factsTable([])).toBe('');
+  });
+
+  it('are on the Decision beside its picture, and out of an approval\'s payload', () => {
+    const shot = '/api/artifacts/org-northwind-3f9a/org-northwind-3f9a.jpg';
+    const md = `${factsTable(facts)}\n\nAutomation run 12 · run 3\n\n![The page as it stopped](${shot})`;
+    const view = decisionViewOf({ ...repo, contextMd: md });
+
+    expect(view.facts).toEqual(facts);
+    expect(view.picture?.src).toBe(shot);
+    expect(decisionViewOf({ id: 8, kind: 'approval', title: 'Save it?', status: 'open', contextMd: md }).preview).toBe('Automation run 12 · run 3');
+    expect(decisionViewOf(repo).facts).toBeUndefined();
+  });
+});
+
+describe('a line cut to fit', () => {
+  it('ends on a whole word, never mid-word', () => {
+    const line = 'Dana Whitfield: the Kestrel license on file expires 11/30/2026 — only renewals filed before then keep the enrollment';
+    const cut = clipAtWord(line, 90);
+
+    expect(cut.length).toBeLessThanOrEqual(90);
+    expect(cut).toBe('Dana Whitfield: the Kestrel license on file expires 11/30/2026 — only renewals filed…');
+    expect(clipAtWord('Northwind renewal', 90)).toBe('Northwind renewal');
+  });
+
+  it('drops a dangling dash or comma before the ellipsis, and cuts a single overlong word where it must', () => {
+    expect(clipAtWord('Submit the application — then wait', 26)).toBe('Submit the application…');
+    expect(clipAtWord('x'.repeat(40), 10)).toBe(`${'x'.repeat(9)}…`);
   });
 });
 

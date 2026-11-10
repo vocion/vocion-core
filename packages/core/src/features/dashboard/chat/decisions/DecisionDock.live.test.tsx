@@ -24,7 +24,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
   useRouter: () => ({ push: () => {}, replace: () => {} }),
   usePathname: () => '/dashboard/chat',
 }));
-vi.mock('@/features/preview/previewState', () => ({ openPreview: vi.fn() }));
+vi.mock('@/features/preview/previewState', async importOriginal => ({ ...(await importOriginal<object>()), openPreview: vi.fn() }));
 vi.mock('@/libs/Orpc', () => ({ client: { connectSystems: { plan: vi.fn(async () => ({ candidates: [], connected: [], question: null, scope: null, refused: null })) } } }));
 
 const { ConversationDecisions } = await import('./DecisionDock');

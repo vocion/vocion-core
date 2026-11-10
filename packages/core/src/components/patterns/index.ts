@@ -45,8 +45,10 @@ export { useListUrlState } from './listUrlState';
 export { OpenInPreview } from './OpenInPreview';
 // Loading + pending
 export { PendingIcon } from './PendingIcon';
-
 export { RecordCode } from './RecordCode';
+export { RecordingTimeline } from './RecordingTimeline';
+
+export { placeMarks, type RecordingLane, type RecordingMark, trackLength, trackWindow } from './recordingTrack';
 export { Related, relatedFacts } from './Related';
 export { RowMenu, type RowMenuItem } from './RowMenu';
 

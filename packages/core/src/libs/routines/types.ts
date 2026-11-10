@@ -14,6 +14,8 @@
  * level, and runs pinned to an approved version.
  */
 
+import type { Savings } from './savings';
+
 /**
  * `teaching`: the analyst is reading the recording. `in_review`: a version is drafted and waits for
  * its expert. `live`: a version is approved and runs. `retired`: kept, never run again.
@@ -37,7 +39,8 @@ export const TRUST_LABEL: Record<RoutineTrust, string> = { drafted: 'Drafted', a
 export type Moment = number | null;
 
 /** One input a run of the automation takes. `key`: part of the dedupe key — two runs with the same key values are the same work. */
-export type RoutineInputSpec = { name: string; description: string; example?: string | null; secret?: boolean; key?: boolean; optional?: boolean; shared?: boolean };
+/** `file`: a document the work attaches (a roster, a form); its value is `artifact:<id>` or an https address (`services/browser/runFiles.ts`). */
+export type RoutineInputSpec = { name: string; description: string; example?: string | null; secret?: boolean; key?: boolean; optional?: boolean; shared?: boolean; file?: boolean };
 
 /**
  * One output a run owes. `checks`: the input this output must read back as, after the write — the
@@ -48,11 +51,30 @@ export type RoutineOutputSpec = { name: string; description: string; checks?: st
 /** One step of the work, with the moment on the recording it was taught at. */
 export type RoutineStep = { n: number; text: string; why?: string | null; at: Moment };
 
-/** A rule the specialist said, with the moment they said it. */
-export type RoutineRule = { text: string; at: Moment };
+/**
+ * Where a rule added after teaching came from: the expert's answer to a decision (an escalation
+ * they answered, `askId`) or their word in chat (no decision), who said it, when (`on`, ISO), and
+ * the version it entered. `by` is a user id as stored, their name as every view reads it.
+ */
+export type RuleOrigin = { askId: number | null; by: string | null; on: string; version: number };
+
+/** A rule the specialist said, with the moment they said it; one added later says where it came from. */
+export type RoutineRule = { text: string; at: Moment; from?: RuleOrigin | null };
+
+/**
+ * A rule and the runs that followed it instead of asking (a `rule` step on the run's browser run),
+ * newest first, at most a few of them.
+ */
+export type RuleUse = { text: string; from: RuleOrigin | null; runs: number; recent: Array<{ browserRunId: number; label: string; decided: string | null }> };
 
 /** Where the automation stops and asks its expert instead of guessing. */
 export type RoutineEscalation = { when: string; ask: string; at: Moment };
+
+/** A judgment point: where the specialist looked at something and decided, with the moment they did. */
+export type RoutineJudgment = { text: string; at: Moment };
+
+/** A system or site the work moved into, with the moment it came up on the recording. */
+export type RoutineSite = { name: string; url: string | null; at: Moment };
 
 /**
  * A consequential click the approved spec allows: at Approved trust it runs without waiting.
@@ -76,6 +98,10 @@ export type RoutineSpec = {
   steps: RoutineStep[];
   rules: RoutineRule[];
   escalations: RoutineEscalation[];
+  /** Where the specialist decided something on the recording. Evidence for the expert; absent on specs drafted before it was read. */
+  judgments?: RoutineJudgment[];
+  /** The systems and sites the work moved through, each with the moment it came up. Absent on older specs. */
+  sites?: RoutineSite[];
   /** What a run must never do, whatever a page or an input says. */
   prohibited: string[];
   /** What must be true when a run is done. */
@@ -108,7 +134,15 @@ export type RoutineTeaching = {
   /** Polls so far, and when it last looked. */
   checks: number;
   lastCheckedAt: string | null;
+  /** While drafting: what the analyst has found in the recording so far, as it writes it. */
+  found?: RoutineFound | null;
 };
+
+/** What the analyst has found in a recording: the parts of a spec that point at a moment. */
+export type RoutineFound = Pick<RoutineSpec, 'steps' | 'rules' | 'questions'> & Required<Pick<RoutineSpec, 'judgments' | 'sites'>>;
+
+/** The change line of a version drafted from a new recording (the first version's is null). */
+export const TAUGHT_AGAIN = 'Taught again from a new recording';
 
 /** Where the automation was taught from. */
 export type RoutineSource = {
@@ -150,7 +184,8 @@ export type RoutineView = {
   version: RoutineVersionView | null;
   /** A draft newer than the approved version, waiting on the expert. */
   draft: RoutineVersionView | null;
-  versions: Array<{ n: number; status: RoutineVersionStatus; change: string | null; createdAt: string }>;
+  /** `rules`: the rules each version added that came from the expert or that runs have followed since. */
+  versions: Array<{ n: number; status: RoutineVersionStatus; change: string | null; createdAt: string; rules?: RuleUse[] }>;
   stats: { runs: number; done: number; escalated: number; failed: number; lastBatchId: number | null };
   /**
    * Teaching in progress: launched from Vocion, the person records in Slate on the site they teach
@@ -222,7 +257,12 @@ export type RoutineRunView = {
   error: string | null;
   /** Time people spent on it: approvals and escalations, from asked to answered. */
   humanMs: number;
+  /** How many times its expert answered it. */
+  decisions: number;
+  /** What its model calls cost, from the spend ledger. */
   cents: number;
+  /** Its model calls' tokens, from the spend ledger. */
+  tokens: number;
   startedAt: string | null;
   endedAt: string | null;
 };
@@ -239,6 +279,17 @@ export type RoutineBatchView = {
   humanMs: number;
   /** The automation's baseline, per run. */
   manualMinutes: number | null;
+  tokens: number;
+  /** What the batch saved against its baseline, and what it cost (`libs/routines/savings.ts`). */
+  savings: Savings;
+  /** Sample history a demo or template seeded, labelled as such. */
+  sample: boolean;
+  /**
+   * What a row is, from the version's spec: the inputs that differ row to row (never a secret or a
+   * shared one), `key` when part of the dedupe key, and the outputs a run reads back, each with the
+   * input it is checked against. The chat's live table takes its columns from here.
+   */
+  fields: { inputs: Array<{ name: string; key: boolean }>; outputs: Array<{ name: string; checks: string | null }> };
   startedAt: string;
   endedAt: string | null;
   runs: RoutineRunView[];
@@ -250,7 +301,12 @@ export type RoutineBatchView = {
   /** A batch a finding's answer started: the batch it follows, and what the expert chose. */
   followUp: { parentBatchId: number; answer: string; approvedBy: string } | null;
   report: { artifactId: number; url: string } | null;
+  /** The automation's rules its runs followed instead of asking the expert, each with the runs and what it decided there. */
+  rulesFollowed?: RulesFollowed[];
 };
+
+/** One rule a batch's runs followed: its words, where it came from, and the runs (row, label, what it decided). */
+export type RulesFollowed = { text: string; from: { askId: number | null; by: string | null; version: number | null } | null; runs: Array<{ n: number; label: string; browserRunId: number | null; decided: string | null }> };
 
 export type RoutineFinding = {
   id: string;

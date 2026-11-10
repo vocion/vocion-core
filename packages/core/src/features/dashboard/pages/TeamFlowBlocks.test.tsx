@@ -61,7 +61,7 @@ describe('team block', () => {
   });
 });
 
-const step = (over: Partial<FlowStepView> & { title: string }): FlowStepView => ({ agentName: null, monitor: null, produced: [], ...over });
+const step = (over: Partial<FlowStepView> & { title: string }): FlowStepView => ({ agentName: null, monitor: null, routineView: null, produced: [], ...over });
 
 describe('flow block', () => {
   it('numbers the steps, names who does each, and marks a person\'s approval', async () => {
@@ -82,5 +82,24 @@ describe('flow block', () => {
     await expect.element(page.getByTestId('flow-step-2')).toHaveTextContent('Reconciliation · Sep 30');
     await expect.element(page.getByTestId('flow-step-3')).toHaveTextContent('The partners · approves');
     await expect.element(page.getByRole('link', { name: 'Reconciliation · Sep 30' })).toHaveAttribute('href', '/dashboard/artifacts/41');
+  });
+
+  it('opens a taught automation\'s step on the automation, says who it stops for, and shows its batch live', async () => {
+    render(
+      <FlowBlock
+        title="The job"
+        now={NOW}
+        timeZone="UTC"
+        steps={[
+          step({ title: 'Check licenses', routine: 'check-license', routineView: { id: 3, name: 'Check a license', version: 2, expert: 'Dana Reyes', escalations: 4, batch: { id: 9, total: 12, done: 9, waiting: 2, trouble: 0, running: 1, open: true } } }),
+          step({ title: 'Approve the rosters', person: 'Dana Reyes' }),
+        ]}
+      />,
+    );
+
+    await expect.element(page.getByRole('link', { name: 'Check licenses' })).toHaveAttribute('href', '/dashboard/automations/3');
+    await expect.element(page.getByTestId('flow-step-1')).toHaveTextContent('Automation · version 2');
+    await expect.element(page.getByTestId('flow-step-1')).toHaveTextContent('Stops for Dana Reyes in 4 cases');
+    await expect.element(page.getByRole('link', { name: /12 rows · 9 done · 2 waiting on Dana · 1 running/ })).toHaveAttribute('href', '/dashboard/automations/batches/9');
   });
 });

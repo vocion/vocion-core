@@ -172,6 +172,8 @@ describe('the parsers', () => {
       recordedBy: 'Dana Kestrel',
       pages: [{ at: 1.03, title: 'Northwind Portal', url: 'https://portal.northwind.example/' }],
       hasTranscript: true,
+      downloadUrl: null,
+      posterUrl: null,
       raw: VIDEO_TEXT,
     });
     expect(parseVideo('not json', LINK)).toMatchObject({ id: null, url: LINK, title: null, pages: [], hasTranscript: false, raw: 'not json' });

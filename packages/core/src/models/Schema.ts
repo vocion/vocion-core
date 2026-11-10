@@ -421,6 +421,13 @@ export const projectSchema = pgTable(
       model?: string;
     }>(),
     /**
+     * An hour of the people whose work this workspace's automations take over (migration 0237):
+     * what their saved time is worth (`libs/routines/savings.ts`). `of` names whose time it is
+     * ("specialist"). Authored as `defaults.hourlyRate` in workspace.yaml. Null: savings are
+     * stated in hours only.
+     */
+    hourlyRate: jsonb('hourly_rate').$type<{ cents: number; of: string | null }>(),
+    /**
      * Which workspace skill regenerates each review-item type's card, keyed
      * by action id (`personalization.enroll` → `regenerate-sequence-copy`).
      * Authored as `defaults.regenerateSkills` in workspace.yaml; read by the
@@ -5783,6 +5790,8 @@ export const browserRunSchema = pgTable(
     error: text('error'),
     /** The page as it stood when the run ended. */
     finalShotUrl: text('final_shot_url'),
+    /** A recording of the whole run (WebM), for an automation's run: what the expert checks afterwards. */
+    videoUrl: text('video_url'),
     /**
      * Where to pick up after a restart: the browser's cookies, site storage and page, the run's
      * notes and its secrets, sealed under the workspace's key (`libs/crypto/credentialVault.ts`).
@@ -5894,6 +5903,8 @@ export const routineBatchSchema = pgTable(
     /** A change a finding's answer asked for: its own task and writes, under the same routine. */
     followUp: jsonb('follow_up').$type<{ parentBatchId: number; findingId: string; task: string; writes: import('@/libs/routines/types').RoutineWrite[]; outputs: import('@/libs/routines/types').RoutineOutputSpec[]; approvedBy: string }>(),
     reportArtifactId: integer('report_artifact_id'),
+    /** Sample history a demo or a template seeded (migration 0237): counted like any batch, and labelled as sample wherever it is read. */
+    sample: boolean('sample').default(false).notNull(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     endedAt: timestamp('ended_at', { mode: 'date' }),
   },
@@ -5931,6 +5942,8 @@ export const routineRunSchema = pgTable(
     summary: text('summary'),
     error: text('error'),
     humanMs: bigint('human_ms', { mode: 'number' }).default(0).notNull(),
+    /** How many times its expert answered it — an escalation, a held step (migration 0237). */
+    decisions: integer('decisions').default(0).notNull(),
     startedAt: timestamp('started_at', { mode: 'date' }),
     endedAt: timestamp('ended_at', { mode: 'date' }),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),

@@ -32,7 +32,7 @@
  */
 
 import type { BrowserRunStatus, BrowserWaiting } from '@/libs/browser/run';
-import type { ReceiptCheck, RoutineBatchView, RoutineFinding, RoutineOutputSpec, RoutineReceipt, RoutineRunStatus, RoutineSpec, RoutineTrust, RoutineView, RoutineWrite } from '@/libs/routines/types';
+import type { ReceiptCheck, RoutineBatchView, RoutineFinding, RoutineFound, RoutineOutputSpec, RoutineReceipt, RoutineRunStatus, RoutineSpec, RoutineTrust, RoutineView, RoutineWrite, RuleOrigin } from '@/libs/routines/types';
 import type { Ask } from '@/services/AskService';
 import type { RoutineGuide } from '@/services/browser/browserLoop';
 import { Buffer } from 'node:buffer';
@@ -40,8 +40,11 @@ import process from 'node:process';
 import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
 import { asRootRun } from '@/libs/agents/rootRun';
 import { db } from '@/libs/DB';
-import { batchLabel, clock, ROUTINE_LIMITS, routineRunOpen, TRUST_LABEL } from '@/libs/routines/types';
-import { routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema } from '@/models/Schema';
+import { clipAtWord, factsTable } from '@/libs/decisions/decision';
+import { ruleSourceWords } from '@/libs/routines/ruleUse';
+import { dollars, savingMethod, savingSentence, tokensLabel } from '@/libs/routines/savings';
+import { batchLabel, clock, ROUTINE_LIMITS, routineRunOpen, TAUGHT_AGAIN, TRUST_LABEL } from '@/libs/routines/types';
+import { browserRunSchema, routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema } from '@/models/Schema';
 import { batchStatusLine, batchView, currentVersions, getBatch, getRoutine, namesOf } from './routineReads';
 import { compileTask, runOutputs, settleAnswers, workflowYamlFor } from './teaching';
 
@@ -110,11 +113,12 @@ async function uniqueSlug(orgId: string, name: string): Promise<string> {
  * @param ids.batchId - The batch.
  */
 function pushLive(orgId: string, ids: { routineId?: number | null; batchId?: number | null }): void {
-  const topics = [ids.routineId ? `routine:${ids.routineId}` : null, ids.batchId ? `routine-batch:${ids.batchId}` : null].filter((t): t is string => Boolean(t));
+  // A batch moving is a run moving: it joins the workspace's `runs` feed, so a page made of runs (a flow, a home) follows it.
+  const topics = [ids.routineId ? `routine:${ids.routineId}` : null, ids.batchId ? `routine-batch:${ids.batchId}` : null, ids.batchId ? 'runs' : null].filter((t): t is string => Boolean(t));
   if (topics.length === 0) {
     return;
   }
-  void import('@/libs/live/publish').then(m => m.publish({ orgId, topics, ref: topics.at(-1)!, kind: 'changed' })).catch(() => {});
+  void import('@/libs/live/publish').then(m => m.publish({ orgId, topics, ref: ids.batchId ? `routine-batch:${ids.batchId}` : topics[0]!, kind: 'changed' })).catch(() => {});
 }
 
 async function seal(orgId: string, values: Record<string, string>) {
@@ -301,14 +305,26 @@ async function teach(id: number): Promise<void> {
   pushLive(r.orgId, { routineId: id });
   const { draftSpec, framesToRead } = await import('./teaching');
   const frames = await slateFrames(creds.credentials, r.source.url, framesToRead(rec.data));
+  // What the analyst finds appears on the teaching panel as it writes: each finished finding is kept
+  // on the teaching session and every screen showing the automation is told. Writes go one after
+  // another, and all have landed before the draft is filed, so none can outlive the session.
+  let writes: Promise<void> = Promise.resolve();
+  const onFound = (found: RoutineFound) => {
+    writes = writes.then(async () => {
+      await touch(id, { teaching: r.teaching ? { ...r.teaching, state: 'drafting', found } : null });
+      pushLive(r.orgId, { routineId: id });
+    }).catch(() => {});
+  };
   let drafted;
   try {
     // An automation filed with no name of its own takes the one the analyst gives it.
-    drafted = await draftSpec(r.orgId, rec.data, frames.ok ? frames.data : [], { name: r.name === UNNAMED ? null : r.name, note: r.teaching?.note ?? null, startUrl: r.teaching?.targetUrl ?? null });
+    drafted = await draftSpec(r.orgId, rec.data, frames.ok ? frames.data : [], { name: r.name === UNNAMED ? null : r.name, note: r.teaching?.note ?? null, startUrl: r.teaching?.targetUrl ?? null }, onFound);
   } catch (e) {
+    await writes;
     await fail(`Vocion could not draft an automation from the recording: ${(e as Error).message}`);
     return;
   }
+  await writes;
   const named = r.name === UNNAMED ? { name: drafted.name, slug: await uniqueSlug(r.orgId, drafted.name) } : { name: r.name, slug: r.slug };
   if (r.name === UNNAMED) {
     await touch(id, named);
@@ -323,7 +339,7 @@ async function teach(id: number): Promise<void> {
     spec: drafted.spec,
     task: compileTask(named.name, drafted.spec),
     workflowYaml: workflowYamlFor(named.slug, named.name, n, drafted.spec),
-    change: n === 1 ? null : 'Taught again from a new recording',
+    change: n === 1 ? null : TAUGHT_AGAIN,
   });
   await touch(id, { status: 'in_review', description: drafted.description || null, teaching: null, error: null });
   pushLive(r.orgId, { routineId: id });
@@ -488,12 +504,16 @@ export async function retireRoutine(orgId: string, userId: string, id: number): 
 
 /**
  * A correction written as a new draft version: what the expert said, made a rule of the automation.
+ * The rule records where it came from: the decision it answered when there was one (an escalation
+ * of a run), who said it, when, and the version it enters.
  * @param orgId - The workspace.
  * @param userId - The expert.
  * @param id - The automation.
  * @param rule - The rule, in their words.
+ * @param source - Where it came from.
+ * @param source.askId - The decision the expert answered that this rule comes from.
  */
-export async function addRoutineRule(orgId: string, userId: string, id: number, rule: string): Promise<void> {
+export async function addRoutineRule(orgId: string, userId: string, id: number, rule: string, source: { askId?: number | null } = {}): Promise<{ version: number; askId: number | null }> {
   const r = await routineRow(orgId, id);
   await asExpert(r, userId);
   const versions = await versionsOf(id);
@@ -502,15 +522,36 @@ export async function addRoutineRule(orgId: string, userId: string, id: number, 
   if (!base) {
     throw new RoutineError('This automation has no version yet.');
   }
-  const spec: RoutineSpec = { ...base.spec, rules: [...base.spec.rules, { text: rule.trim(), at: null }] };
+  const n = base.status === 'draft' ? base.n : (versions[0]?.n ?? 0) + 1;
+  const from = await ruleOrigin(orgId, userId, n, source.askId ?? null);
+  const spec: RoutineSpec = { ...base.spec, rules: [...base.spec.rules, { text: rule.trim(), at: null, from }] };
   if (base.status === 'draft') {
     await db.update(routineVersionSchema).set({ spec, task: compileTask(r.name, spec), workflowYaml: workflowYamlFor(r.slug, r.name, base.n, spec), change: base.change ?? `The expert added a rule: ${rule.trim()}` }).where(eq(routineVersionSchema.id, base.id));
   } else {
-    const n = (versions[0]?.n ?? 0) + 1;
     await db.insert(routineVersionSchema).values({ orgId, routineId: id, n, status: 'draft', spec, task: compileTask(r.name, spec), workflowYaml: workflowYamlFor(r.slug, r.name, n, spec), change: `The expert added a rule: ${rule.trim()}` });
   }
   await touch(id);
   pushLive(orgId, { routineId: id });
+  return { version: n, askId: from.askId };
+}
+
+/**
+ * Where a rule comes from: the decision, when it is one of this workspace's and answered — its
+ * answer's person and time — else the expert's word now.
+ * @param orgId - The workspace.
+ * @param userId - The expert adding it.
+ * @param version - The version it enters.
+ * @param askId - The decision it came from, as the caller named it.
+ */
+async function ruleOrigin(orgId: string, userId: string, version: number, askId: number | null): Promise<RuleOrigin> {
+  const { getAsk } = await import('@/services/AskService');
+  const ask = askId ? await getAsk(orgId, askId) : null;
+  if (!ask) {
+    return { askId: null, by: userId, on: new Date().toISOString(), version };
+  }
+  // A person's answer names them; one the trust bar or an agent recorded is the expert's rule.
+  const person = ask.decidedBy && !ask.decidedBy.includes(':') && ask.decidedBy !== 'trust-ladder' && ask.decidedBy !== 'by-default' ? ask.decidedBy : userId;
+  return { askId: ask.id, by: person, on: (ask.decidedAt ?? new Date()).toISOString(), version };
 }
 
 /* ------------------------------------------------------------------ */
@@ -710,7 +751,7 @@ export async function guideForRun(orgId: string, routineRunId: number): Promise<
     return null;
   }
   const spec = version.spec;
-  const names = await namesOf([r.expertUserId]);
+  const names = await namesOf([r.expertUserId, ...spec.rules.map(x => x.from?.by)]);
   // The reconciliation only reads; a follow-up takes the writes its finding's answer approved.
   const reading = run.n === 0;
   const followUp = batch?.followUp ?? null;
@@ -719,6 +760,8 @@ export async function guideForRun(orgId: string, routineRunId: number): Promise<
     name: r.name,
     expert: r.expertUserId ? names.get(r.expertUserId) ?? null : null,
     rules: [...spec.rules.map(x => x.text), ...spec.questions.filter(q => q.answer).map(q => `${q.question} → ${q.answer}`)],
+    // Where each rule came from, by the same index: what a run records when it follows one.
+    ruleFrom: spec.rules.map(x => (x.from ? { askId: x.from.askId, by: x.from.by ? names.get(x.from.by) ?? null : null, version: x.from.version } : null)),
     escalations: reading ? [] : spec.escalations.map(e => ({ when: e.when, ask: e.ask })),
     prohibited: reading ? ['Change anything: this run only reads the list.', ...spec.prohibited] : followUp ? spec.prohibited.filter(p => !/deactivat|delet/i.test(p)) : spec.prohibited,
     postconditions: reading ? [] : followUp ? [] : spec.postconditions,
@@ -765,6 +808,81 @@ function firstSentence(t: string): string {
 type RunAnswer = { kind: 'approve' } | { kind: 'deny'; note?: string } | { kind: 'answer'; text: string };
 
 /**
+ * Where a Decision about one run of a batch opens: that run's browser — its live view, its steps
+ * and the step it waits on — or the batch, for a run that has no browser yet.
+ * @param run - The automation run.
+ * @param run.browserRunId - Its browser run, once it has one.
+ * @param batchId - Its batch.
+ */
+export function runDetailsUrl(run: { browserRunId: number | null }, batchId: number): string {
+  return run.browserRunId ? `/dashboard/browser/${run.browserRunId}` : `/dashboard/automations/batches/${batchId}`;
+}
+
+/**
+ * The picture of the page as a run stopped on it, as an ask carries one (`pictureOf` reads it back
+ * onto the Decision card).
+ * @param shotUrl - The screenshot the run kept, when it kept one.
+ */
+export function pageShotMd(shotUrl: string | null | undefined): string {
+  return shotUrl ? `![The page as it stopped](${shotUrl})` : '';
+}
+
+/**
+ * What a run that stopped for its expert is asked as: who it is about and the question in whole
+ * words; the why; the page as it stopped; Details on that run. Pure.
+ * @param input - The run and its wait.
+ * @param input.routineName - The automation's name.
+ * @param input.trustLabel - Its trust, in words.
+ * @param input.run - The run.
+ * @param input.batchId - Its batch.
+ * @param input.batchName - Its batch, in words.
+ * @param input.w - What it waits on.
+ */
+export function runWaitAsk(input: { routineName: string; trustLabel: string; run: Pick<RunRow, 'n' | 'label' | 'browserRunId'>; batchId: number; batchName: string; w: BrowserWaiting }): { title: string; body: string; contextMd: string; contextUrl: string; options: Array<{ id: string; label: string; description?: string; recommended?: boolean }> } {
+  const { routineName, trustLabel, run, batchId, batchName, w } = input;
+  const where = `${batchName} · run ${run.n} · ${run.label}`;
+  const contextUrl = runDetailsUrl(run, batchId);
+  const shot = pageShotMd(w.shotUrl);
+  const who = run.label.split(' · ')[0]!;
+  if (w.kind === 'approval') {
+    // The step names its control in quotes ("Click “Submit application” on larkspur…"): keep its
+    // quotes and the words after them; a step with no quoted name is quoted whole.
+    const step = (w.step ?? w.text).replace(/^Click /, '').trim();
+    const named = /^[“"]([^”"]+)[”"](.*)$/.exec(step);
+    const what = named ? `“${named[1]}”${named[2]!.trimEnd()}` : `“${step}”`;
+    return {
+      title: `${who}: approve ${clipAtWord(what, 80)}?`,
+      body: `${routineName}, run ${run.n} holds before this click: at ${trustLabel} trust it is outside what the approved spec takes on its own.`,
+      contextMd: [where, shot].filter(Boolean).join('\n\n'),
+      contextUrl,
+      options: [{ id: 'approve', label: 'Approve', recommended: true }, { id: 'decline', label: 'Decline' }],
+    };
+  }
+  const choices: NonNullable<BrowserWaiting['choices']> = w.choices && w.choices.length > 0 ? w.choices : (w.options ?? []).map(label => ({ label }));
+  const options = choices.map((c, i) => ({ id: `o${i + 1}`, label: c.label, ...(c.consequence ? { description: c.consequence } : {}), ...(i === 0 ? { recommended: true } : {}) }));
+  if (w.question) {
+    // An escalation in parts: the question is the title as the run asked it (it names the record),
+    // the rule is the why, the facts head the long form, where every surface draws them as facts.
+    return {
+      title: clipAtWord(w.question, 160),
+      body: clipAtWord(w.rule ? `${w.rule} (${routineName}, run ${run.n})` : `${routineName}, run ${run.n}.`, 390),
+      contextMd: [factsTable(w.found ?? []), where, shot].filter(Boolean).join('\n\n'),
+      contextUrl,
+      options,
+    };
+  }
+  // An older wait, in one block of text: its first sentence is the question, the rest evidence.
+  const [text, ...evidence] = w.text.split('\n\n');
+  return {
+    title: `${who}: ${clipAtWord(firstSentence(text!), 90)}`,
+    body: clipAtWord(`${routineName}, run ${run.n}: ${text!}`, 390),
+    contextMd: [where, evidence.length > 0 ? `> ${clipAtWord(evidence.join('\n\n'), 800)}` : '', shot].filter(Boolean).join('\n\n'),
+    contextUrl,
+    options,
+  };
+}
+
+/**
  * Hand an answer to the waiting run. A run between processes (a restart, a reload) takes it a
  * moment later; one that is not picked up in time keeps it on its row and takes it when it waits
  * again (`runWaits`), never asking twice.
@@ -805,26 +923,23 @@ async function runWaits(run: RunRow, w: BrowserWaiting): Promise<void> {
     return;
   }
   const kind = w.escalation ? 'escalation' : w.kind;
-  const options = w.kind === 'approval' ? ['Approve', 'Decline'] : (w.options ?? []);
   const { upsertAsk } = await import('@/services/AskService');
-  const [text, ...evidence] = w.text.split('\n\n');
-  // One card per question, docked where the batch was asked: who it is about, and the question.
-  const who = run.label.split(' · ')[0]!;
-  const title = w.kind === 'approval'
-    ? `${who}: approve “${(w.step ?? w.text).replace(/^Click /, '').slice(0, 60)}”?`
-    : `${who}: ${firstSentence(text!).slice(0, 90)}`;
+  // One card per question, docked where the batch was asked: who it is about, the question, and
+  // the page as it stopped; Details opens this run.
+  const asked = runWaitAsk({ routineName: r.name, trustLabel: TRUST_LABEL[r.trust], run, batchId: batch.id, batchName: batchLabel(batch.id), w });
+  const options = asked.options.map(o => o.label);
   const { ask } = await upsertAsk({
     orgId: run.orgId,
     createdBy: `routine:${r.slug}`,
     ask: {
       kind: w.kind === 'approval' ? 'approval' : 'ruling',
-      title,
-      body: (w.kind === 'approval' ? `${r.name}, run ${run.n} holds before this click: at ${TRUST_LABEL[r.trust]} trust it is outside what the approved spec takes on its own.` : `${r.name}, run ${run.n}: ${text!}`).slice(0, 390),
-      contextMd: [`${batchLabel(batch.id)} · run ${run.n} · ${run.label}`, evidence.length > 0 ? `> ${evidence.join('\n\n').slice(0, 800)}` : '', w.shotUrl ? `[The page as it stopped](${w.shotUrl})` : ''].filter(Boolean).join('\n\n'),
+      title: asked.title,
+      body: asked.body,
+      contextMd: asked.contextMd,
       sourceRef: `routine-run:${run.id}:${Date.parse(w.at) || Date.now()}`,
-      options: options.map((label, i) => ({ id: w.kind === 'approval' ? (i === 0 ? 'approve' : 'decline') : `o${i + 1}`, label, ...(i === 0 ? { recommended: true } : {}) })),
+      options: asked.options,
       allowOther: w.kind !== 'approval',
-      contextUrl: `/dashboard/automations/batches/${batch.id}`,
+      contextUrl: asked.contextUrl,
       conversationId: batch.conversationId,
       ownerUserId: r.expertUserId ?? batch.requestedBy,
       objectRefs: [],
@@ -855,7 +970,7 @@ async function runCarriesOn(run: RunRow): Promise<void> {
       await supersedeAsk(run.orgId, run.askId, 'Answered in the run’s pane.').catch(() => {});
     }
   }
-  await db.update(routineRunSchema).set({ status: 'running', waiting: null, humanMs: Number(run.humanMs ?? 0) + (run.waiting ? waitedMs : 0), updatedAt: new Date() }).where(eq(routineRunSchema.id, run.id));
+  await db.update(routineRunSchema).set({ status: 'running', waiting: null, humanMs: Number(run.humanMs ?? 0) + (run.waiting ? waitedMs : 0), decisions: Number(run.decisions ?? 0) + (run.waiting ? 1 : 0), updatedAt: new Date() }).where(eq(routineRunSchema.id, run.id));
 }
 
 function norm(v: unknown): string {
@@ -924,7 +1039,8 @@ async function runEnded(run: RunRow, e: Extract<RunEvent, { kind: 'ended' }>): P
     }
   }
   const waitedMs = decisionMs(run.waiting);
-  const base = { waiting: null, askId: null, endedAt: new Date(), updatedAt: new Date(), humanMs: Number(run.humanMs ?? 0) + waitedMs, summary: e.summary.slice(0, 1_000) };
+  // An answer that ended the run (a decline) is a decision too.
+  const base = { waiting: null, askId: null, endedAt: new Date(), updatedAt: new Date(), humanMs: Number(run.humanMs ?? 0) + waitedMs, decisions: Number(run.decisions ?? 0) + (run.waiting?.answer ? 1 : 0), summary: e.summary.slice(0, 1_000) };
   if (run.n === 0) {
     // The reconciliation: what it read becomes the batch's finding.
     await db.update(routineRunSchema).set({ ...base, status: e.status === 'done' ? 'done' : e.status === 'stopped' ? 'stopped' : 'failed', error: e.error }).where(eq(routineRunSchema.id, run.id));
@@ -965,6 +1081,8 @@ async function runEnded(run: RunRow, e: Extract<RunEvent, { kind: 'ended' }>): P
   await db.update(routineRunSchema).set({ ...base, status, receipt, error }).where(eq(routineRunSchema.id, run.id));
   if (status === 'unknown_outcome') {
     const { upsertAsk } = await import('@/services/AskService');
+    // The page as the run ended on it, kept on its browser run before the run said it ended.
+    const [shot] = run.browserRunId ? await db.select({ url: browserRunSchema.finalShotUrl }).from(browserRunSchema).where(and(eq(browserRunSchema.orgId, run.orgId), eq(browserRunSchema.id, run.browserRunId))).limit(1) : [];
     await upsertAsk({
       orgId: run.orgId,
       createdBy: `routine:${r.slug}`,
@@ -974,7 +1092,8 @@ async function runEnded(run: RunRow, e: Extract<RunEvent, { kind: 'ended' }>): P
         body: `Run ${run.n} of ${batchLabel(batch.id)} took a write and then stopped (${(e.error ?? e.summary).slice(0, 300)}). It is not run again on its own, so nothing is done twice. Check the record, then say what you found.`,
         sourceRef: `routine-check:${run.id}`,
         options: [{ id: 'right', label: 'Checked: it is right', recommended: true }, { id: 'fixed', label: 'I fixed it by hand' }, { id: 'again', label: 'Run it again' }],
-        contextUrl: `/dashboard/automations/batches/${batch.id}`,
+        ...(shot?.url ? { contextMd: pageShotMd(shot.url) } : {}),
+        contextUrl: runDetailsUrl(run, batch.id),
         conversationId: batch.conversationId,
         ownerUserId: r.expertUserId ?? batch.requestedBy,
         objectRefs: [],
@@ -1031,6 +1150,9 @@ async function closeBatch(batchId: number): Promise<void> {
     return;
   }
   pushLive(closed.orgId, { routineId: closed.routineId, batchId });
+  // A workflow step waiting on this batch moves on with its read-backs.
+  const { settleBatchStep } = await import('@/services/WorkflowService');
+  await settleBatchStep(closed.orgId, batchId).catch(err => console.error('[routines] workflow step after batch', batchId, (err as Error).message));
   if (closed.conversationId) {
     const view = await batchView(closed);
     const { tellConversation } = await import('@/services/chat/tellConversation');
@@ -1291,10 +1413,6 @@ async function applyFindingAnswer(orgId: string, batchId: number, findingId: str
 /* The report                                                          */
 /* ------------------------------------------------------------------ */
 
-function usd(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
 function mins(ms: number): string {
   const m = ms / 60_000;
   return m < 10 ? `${m.toFixed(1)} min` : `${Math.round(m)} min`;
@@ -1311,8 +1429,6 @@ export function reportMarkdown(v: RoutineBatchView, followUps: RoutineBatchView[
   const done = c.done ?? 0;
   const runLink = (x: { n: number; browserRunId: number | null }) => (x.browserRunId ? `[${x.n}](/dashboard/browser/${x.browserRunId})` : String(x.n));
   const wall = v.endedAt ? Date.parse(v.endedAt) - Date.parse(v.startedAt) : Date.now() - Date.parse(v.startedAt);
-  const byHand = v.manualMinutes ? v.manualMinutes * (done + (c.escalated ?? 0)) : null;
-  const human = v.humanMs;
   const escalated = v.runs.filter(x => x.receipt?.approvedBy && x.waiting === null && x.summary && /expert/i.test(x.summary)).length;
   const lines = [
     `# ${batchLabel(v.id)} · ${v.routine.name}`,
@@ -1323,15 +1439,22 @@ export function reportMarkdown(v: RoutineBatchView, followUps: RoutineBatchView[
     `- **${v.total}** rows: **${done}** done and verified by read-back, ${c.skipped ?? 0} skipped, ${(c.escalated ?? 0) + (c.waiting ?? 0)} still waiting on the expert, ${c.failed ?? 0} failed, ${c.unknown_outcome ?? 0} to check by hand.`,
     `- Wall clock: ${mins(wall)} for the whole batch, runs in parallel.`,
     '',
-    '## Time',
-    byHand !== null ? `- By hand: about ${Math.round(byHand)} min (${v.manualMinutes} min per run, from the recording, × ${done + (c.escalated ?? 0)} runs).` : '- By hand: no baseline on this automation yet.',
-    `- People spent about ${mins(human)} answering its escalations and held steps (each counted up to 2 min; the rest of a wait is time they were elsewhere).`,
-    byHand !== null ? `- Capacity recovered: about ${Math.max(0, Math.round(byHand - human / 60_000))} min.` : '',
-    '',
-    '## Cost',
-    `- Run cost ${usd(v.cents)} in total, ${v.total ? usd(Math.round(v.cents / v.total)) : '$0.00'} per run (model calls of each browser run).`,
+    '## What it saved',
+    ...(savingSentence(v.savings) ? [`**${savingSentence(v.savings)}**`, ''] : []),
+    ...savingMethod(v.savings).map(l => `- ${l}`),
+    `- ${v.total ? `${dollars(Math.round(v.savings.costCents / v.total))} and ${tokensLabel(Math.round(v.savings.tokens / v.total))} tokens per row` : 'No rows'}.`,
     '',
   ];
+  const followed = v.rulesFollowed ?? [];
+  if (followed.length > 0) {
+    const cell = (t: string) => t.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+    lines.push('## Rules it followed instead of asking', '| Rule | From | Runs |', '| --- | --- | --- |', ...followed.map((f) => {
+      const who = ruleSourceWords(f.from);
+      const source = [f.from?.askId ? `[${who ?? 'The expert’s answer'}](/dashboard/inbox/${f.from.askId})` : who, f.from?.version ? `v${f.from.version}` : null].filter(Boolean).join(', ');
+      const runs = f.runs.map(x => `${runLink(x)} ${x.label}${x.decided ? `: ${x.decided}` : ''}`).join('; ');
+      return `| ${cell(f.text)} | ${cell(source || 'The approved spec')} | ${cell(runs)} |`;
+    }), '');
+  }
   const asked = v.runs.filter(x => /expert answered/i.test(x.summary ?? '') || x.status === 'skipped' || x.status === 'escalated' || x.status === 'unknown_outcome');
   if (asked.length > 0) {
     lines.push('## Escalations and skips', '| Run | Row | What happened |', '| --- | --- | --- |', ...asked.map(x => `| ${runLink(x)} | ${x.label} | ${(x.summary ?? x.error ?? x.status).replace(/\|/g, '\\|').replace(/\n/g, ' ').slice(0, 300)} |`), '');

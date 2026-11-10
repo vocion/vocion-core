@@ -43,27 +43,32 @@ export function TrustChip(props: { trust: RoutineTrust; className?: string }) {
 }
 
 /**
- * A moment on the recording: "▶ 1:23", opening Slate at that second.
+ * A moment on the recording: "▶ 1:23", opening Slate at that second — or, beside a player
+ * (`onSeek`), moving the player there.
  * @param props
  * @param props.url - The recording's share link.
  * @param props.at - Seconds, or null when it was not shown.
+ * @param props.onSeek - Seek the player on this page instead of opening Slate.
  * @param props.className
  */
-export function MomentLink(props: { url: string | null | undefined; at: Moment; className?: string }) {
-  if (props.at === null || !props.url) {
+export function MomentLink(props: { url: string | null | undefined; at: Moment; onSeek?: ((at: number) => void) | null; className?: string }) {
+  if (props.at === null || (!props.url && !props.onSeek)) {
     return null;
   }
-  return (
-    <a
-      href={momentUrl(props.url, props.at)}
-      target="_blank"
-      rel="noopener noreferrer"
-      title="Watch this moment on the recording"
-      className={cn('inline-flex shrink-0 items-center gap-1 rounded-md bg-surface-soft px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground tabular-nums transition hover:bg-surface-hover hover:text-foreground', props.className)}
-      data-moment={props.at}
-    >
+  const cls = cn('inline-flex shrink-0 items-center gap-1 rounded-md bg-surface-soft px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground tabular-nums transition hover:bg-surface-hover hover:text-foreground', props.className);
+  const body = (
+    <>
       <Play className="size-2.5 fill-current" aria-hidden />
       {clock(props.at)}
+    </>
+  );
+  if (props.onSeek) {
+    const at = props.at;
+    return <button type="button" onClick={() => props.onSeek!(at)} title="Play this moment" className={cls} data-moment={at}>{body}</button>;
+  }
+  return (
+    <a href={momentUrl(props.url!, props.at)} target="_blank" rel="noopener noreferrer" title="Watch this moment on the recording" className={cls} data-moment={props.at}>
+      {body}
     </a>
   );
 }

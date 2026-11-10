@@ -36,7 +36,7 @@ export type BrowserInput = { value: string; secret?: boolean };
 export type BrowserStep = {
   n: number;
   at: string;
-  /** `open`, `click`, `type`, `press`, `scroll`, `wait`, `approval`, `ask`, `finish`, `note`. */
+  /** `open`, `click`, `type`, `press`, `scroll`, `wait`, `approval`, `ask`, `finish`, `note`, `rule`. */
   kind: string;
   /** In a person's words: "Clicked “Sign in”". */
   label: string;
@@ -45,7 +45,32 @@ export type BrowserStep = {
   url?: string;
   ok: boolean;
   detail?: string;
+  /** The page just after this step, kept so the run can be checked step by step afterwards. */
+  shotUrl?: string;
+  /** A rule of the automation settled this step, where the run would otherwise have asked its expert. */
+  rule?: StepRule;
 };
+
+/**
+ * A rule an automation's run followed instead of asking: its number in the run's brief, its words,
+ * and where it came from — the expert who said it (a name), the decision they answered, the
+ * version it entered — when it was added after teaching. Recorded by the run's `followed_rule`
+ * call, never read out of prose.
+ */
+export type StepRule = { n: number; text: string; from?: { askId: number | null; by: string | null; version: number | null } | null };
+
+/**
+ * A rule step as people read it: "Followed Marcus's rule (v3): LMFTs go through …", or, for a rule
+ * with no one named, "Followed the automation's rule: …". Pure.
+ * @param rule - The rule the run followed.
+ */
+export function ruleStepLabel(rule: Pick<StepRule, 'text' | 'from'>): string {
+  const by = rule.from?.by?.trim() ?? '';
+  const first = by.includes('@') ? by.split('@')[0]! : by.split(/\s+/)[0] ?? '';
+  const whose = first ? `${first}’s rule` : 'the automation’s rule';
+  const version = rule.from?.version ? ` (v${rule.from.version})` : '';
+  return `Followed ${whose}${version}: ${rule.text}`;
+}
 
 /** What the run is waiting on the person for. */
 export type BrowserWaiting = {
@@ -54,8 +79,21 @@ export type BrowserWaiting = {
   text: string;
   /** A routine's escalation: a rule sent it to the routine's expert. */
   escalation?: boolean;
-  /** For a question: the answers offered, recommended first. */
+  /** For a question: the answers offered, recommended first (their labels; `choices` adds what each does). */
   options?: string[];
+  /*
+   * AN ESCALATION'S PARTS, typed (2026-11-04: one 90-word paragraph mixed the finding, the rule
+   * and raw page text, and asked nothing). A run's `escalate` gives them; every surface draws them
+   * as parts. `text` stays, composed from them, for a surface that reads only it and for older rows.
+   */
+  /** The question, one short sentence ending in "?", naming the record it is about. */
+  question?: string;
+  /** What the run found, one to four facts: a short label and its value. */
+  found?: Array<{ label: string; value: string }>;
+  /** The automation's rule that sent it to the expert, in one line. */
+  rule?: string;
+  /** The answers offered with what each does, recommended first. `options` holds the same labels. */
+  choices?: Array<{ label: string; consequence?: string }>;
   /** For an approval: the step it will take when approved. */
   step?: string;
   /** A screenshot of the page as it stood when it stopped. */
@@ -84,6 +122,8 @@ export type BrowserRunView = {
   /** True while this process holds the browser, so the picture is live. */
   live: boolean;
   finalShotUrl: string | null;
+  /** The recording of the whole run, when one was kept (an automation's run). */
+  videoUrl: string | null;
   proposedBy: string;
   agentSlug: string | null;
   conversationId: number | null;

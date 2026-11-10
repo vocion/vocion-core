@@ -25,21 +25,58 @@ control surface for recurring schedules and event-trigger rules.
 |---|---|---|
 | **Teach** | Share a Slate link in chat ("Teach a task from this recording"), or press **Teach a task** on `/dashboard/automations`. The second opens the site in a new tab; record it with Slate (⌥⇧R on that tab), and Vocion picks up the finished recording on its own. | `routine_teach`, `routines.teach` |
 | **Draft** | The Automation analyst reads the transcript, what was on screen, and frames at the moments that matter. It drafts the steps (each linked to its moment), the rules, where to escalate, what is prohibited, the inputs (which every row shares, which identify a row), the outputs to read back, the buttons that save, and how to check the whole list. It ends with questions for the expert. | `services/routines/teaching.ts` |
+| **Found** | While the analyst writes, what it has found appears on the teaching panel as it finds it: the steps in order, the systems and sites the work moved into, the rules, the judgment calls the specialist made, and the questions one recording cannot answer, each at its moment and marked on a track under the recording's player (a mark seeks the player). Kept afterwards as **What Vocion found in the recording** (`/dashboard/automations/<id>/recording`, "Taught from" on the automation page): the evidence behind the version the analyst drafted. | `foundSoFar`, `RoutineTeaching.found`, `RecordingFindings`, `RecordingTimeline` |
 | **Approve** | The expert answers the open questions and approves the version. Runs are pinned to a version. A later correction is a new draft version, never an edit of the live one. | `routine_update`, the automation page |
 | **Trust** | **Drafted**: every consequential click waits for a person. **Approved**: the writes the spec names (for example "Add user", "Enroll") run unattended; anything else still waits. **Autonomous** is earned after 20 verified runs of the version. The engine enforces it, not a prompt. | `browserLoop` `hold` |
 | **Run** | Hand it a list. One browser run per row, up to 10 at once per workspace (`VOCION_ROUTINE_CONCURRENCY`), the rest queued. Shared inputs (the sign-in, the campaign) are given once. | `routine_run`, the automation page's **Run it** |
 | **Escalate** | A run that meets an escalation point stops and asks the expert. The question carries the page as evidence and its answers, the recommended one first. It is a Decision docked in the conversation the batch was asked from, and on Needs you. The answer goes back to the run, which carries on. | `escalate` tool in the loop |
+| **Learn** | An answer the expert wants to hold next time becomes a rule (`routine_update` with `rule`, and `from_decision` when it answered a run's question): a new draft version, the rule recording the decision it came from, who answered, when, and the version it entered. A later run whose rule settles what it would have asked calls `followed_rule` instead of escalating; the step reads "Followed Dana's rule (v3): …" in the run pane, linked to that decision. The automation's version history counts the runs that followed each rule since, and `routine_check` and the report say which rules runs followed. | `addRoutineRule`, `followed_rule` in the loop, `libs/routines/ruleUse.ts` |
 | **Receipt** | Each output the spec says must match an input is read back after the write and checked. A run that stopped after a write it cannot confirm is an **unknown outcome**: it is never replayed, and the expert checks it by hand. | `receiptFor` |
 | **Reconcile** | After the rows, when the automation adds records to a list, one read-only run lists the system's records. Records that are not among the rows become a finding: deactivate them, delete them, or leave them. The expert's answer runs as its own batch under the automation, and only that change is allowed. | `findingFromReconcile` |
-| **Report** | Results verified by read-back, escalations and how each was answered, human minutes against the manual baseline from the recording, run cost, and the findings. Filed as an artifact. | `routine_report` |
+| **Report** | Results verified by read-back, escalations and how each was answered, what the batch saved against its baseline and what it cost, and the findings. Filed as an artifact. Without a batch, what the automations saved over time (this month, the last 8 weeks week by week, all time); `dashboard: true` files or refreshes the savings dashboard. | `routine_report` |
 
 ## The queue
 
 `/dashboard/automations/batches/<id>` is a batch: a tile per run with its live
 picture, the step it is on and why, and what it waits on, with the answers as
 buttons. A done tile shows its receipt. The batch opens in the preview pane
-when it is started from chat, with a chip under the answer that says where it
-stands ("17 of 20 done · 2 escalated").
+when it is started from chat. Under the answer that started it (or checked it)
+the batch is a live table (`features/routines/RoutineBatchTable.tsx`): its
+header says where it stands ("17 of 20 done · 2 escalated") and opens it in the
+pane; one line per row with its label, the inputs that tell rows apart, its
+status (queued, working on a step, waiting on you, escalated, done and
+verified, failed, already done) and, once done, what it read back. Columns come
+from the version's spec (`RoutineBatchView.fields`, `libs/routines/batchTable.ts`);
+each line opens its browser run in the pane. It re-reads with the batch page
+(`useRoutineBatch`) while the batch runs, and stops once the batch ends.
+
+## What it saved
+
+Every surface that shows an automation says what it saved and what it cost, in one sentence
+("Saved 12 hours in the last 8 weeks, $551 of specialist time, for $64 of runs"), with how each
+number is worked out one click away (`libs/routines/savings.ts`, read by
+`services/routines/savingsReads.ts`):
+
+- **Time saved**: each finished run at its version's by-hand baseline (`manualMinutes` on the
+  spec, a person's estimate, never the teaching recording), less the time people spent on that
+  run's decisions (`humanMs`).
+- **Worth**: that time at the workspace's hourly rate, `defaults.hourlyRate: {amount: 45, of:
+  specialist}` in `workspace.yaml` (`project.hourly_rate`). No rate: hours only.
+- **Run cost and tokens**: every model call the run's browser made, from the spend ledger
+  (`model_call`, `run_kind = 'routine_run'`).
+- **Decisions**: each time the expert answered a run (`routine_run.decisions`).
+
+No baseline, no saving: the batch header and the automation page show the cost alone. The batch
+page leads with the batch's saving; the automation page shows this month and the weeks as a
+trend; `routine_report` answers "what has this saved us?"; the savings dashboard (a `dashboard`
+artifact, `services/routines/savingsDashboard.ts`) holds the weeks, each automation's share, and
+the rules the expert's answers became. Seeded history is marked (`routine_batch.sample`) and
+labelled "Sample history before <date>" wherever it is counted.
+
+A workspace page can hold the live parts beside it: page blocks `needsYou` (what waits on the
+person looking, decided in place), `flow` with `routine:` steps (each automation with how many
+cases it stops for its expert on and its latest batch), and `dashboard` (a dashboard artifact by
+title), with `live: {follow: [asks, runs]}`.
 
 ## Guarantees
 
@@ -78,7 +115,14 @@ three users who are not on the roster.
 - `libs/routines/types.ts`: the shapes every surface reads
 - `services/routines/RoutineService.ts`: teach, approve, trust, batches,
   escalations, receipts, reconciliation, report, the keeper
-- `services/routines/teaching.ts`: the Automation analyst
+- `services/routines/teaching.ts`: the Automation analyst (its reply streams;
+  `foundSoFar` reads the findings it has finished writing)
+- `libs/routines/findings.ts`: a spec, or what is found so far, as findings and
+  as marks on the recording's track
+- `components/patterns/RecordingTimeline.tsx`: the track under a player, for any
+  recording with moments
+- `app/api/automations/[id]/recording`: the taught recording, for the player
+  (redirects to the file Slate signs)
 - `services/routines/routineReads.ts`: the light reads pages use
 - `libs/slate/recording.ts`, `libs/slate/watch.ts`: reading a recording over
   Slate's MCP server, and finding a new one after a launch

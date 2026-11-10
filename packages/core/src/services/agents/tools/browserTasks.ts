@@ -8,10 +8,22 @@
  * status sits under the answer; the pane shows the browser as it works, the
  * steps, what it waits on and what it found.
  *
- * Whose word starts it. A person who asked for it in this turn: it starts at
- * once, as theirs (`saidToDecide`, a model reading their own words). An agent
- * that thought of it: it is filed as a suggestion with a Start button, and
- * nothing runs until the person presses it.
+ * Whose word starts it. A person who asked for the work in this turn: it
+ * starts at once, as theirs (`saidToDecide`, a model reading their own words
+ * against what the task does — the site, and whether it only reads or also
+ * changes things, `consentDecision.browserConsentDecision`; never against
+ * the words "use a browser"). An agent that thought of it: it is filed as a
+ * suggestion with a Start button, and nothing runs until the person presses it.
+ *
+ * Work a saved automation already does is not started here: the agent is
+ * told to run that automation instead (`turnJudge.readAutomationMatch`).
+ *
+ * In a workflow's `agent` step there is no person's turn. A run a person
+ * started carries their word for the browser work its step declares: the
+ * judge reads the step's task, as interpolated, against what the task does,
+ * so a read the step declares runs, in that person's browser and their
+ * conversation, and anything beyond it waits for their Start. A run nobody
+ * started carries no one's word. Writes stay held by the engine as always.
  *
  * The call waits a while for the run (inside the turn's deadline; on the
  * container, under the tool timeout) and hands back the result when it is
@@ -121,7 +133,7 @@ function noteFor(status: string): string {
 // that runs at its heap limit in CI, and the registry serves either (`registry.ts` inputSchema).
 const NAME = { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9_]{0,40}$' };
 
-type TaskArgs = { task: string; start_url?: string; inputs?: Array<{ name: string; value: string; secret?: boolean }>; outputs?: Array<{ name: string; description: string }>; continue_from_current_page?: boolean };
+type TaskArgs = { task: string; effect?: 'reads' | 'changes'; start_url?: string; inputs?: Array<{ name: string; value: string; secret?: boolean }>; outputs?: Array<{ name: string; description: string }>; continue_from_current_page?: boolean };
 type CheckArgs = { run_id: number; wait_seconds?: number; rows?: boolean };
 
 /**
@@ -131,6 +143,28 @@ type CheckArgs = { run_id: number; wait_seconds?: number; rows?: boolean };
 function browserStepNote(steps: readonly { n: number; label: string }[]): string {
   const s = steps[steps.length - 1];
   return s ? `step ${s.n} · ${s.label}` : '';
+}
+
+/**
+ * The saved automation whose own work this task is, when the agent can run
+ * automations and a model reads the task as one's (`turnJudge.readAutomationMatch`).
+ * Null otherwise, and on any failure.
+ * @param ctx - The turn.
+ * @param args - The task.
+ */
+async function sameWorkAs(ctx: RuntimeContext, args: TaskArgs): Promise<import('@/services/routines/savedAutomations').SavedAutomation | null> {
+  const { routinesEnabled } = await import('./routineTools');
+  if (!routinesEnabled(ctx)) {
+    return null;
+  }
+  const { savedAutomations } = await import('@/services/routines/savedAutomations');
+  const saved = await savedAutomations(ctx.orgId);
+  if (saved.length === 0) {
+    return null;
+  }
+  const { readAutomationMatch } = await import('../turnJudge');
+  const id = await readAutomationMatch({ orgId: ctx.orgId, task: args.task, startUrl: args.start_url ?? null, automations: saved.map(a => ({ id: a.id, name: a.name, purpose: a.purpose, sites: a.sites, changes: a.changes })) });
+  return saved.find(a => a.id === id) ?? null;
 }
 
 export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[] {
@@ -146,11 +180,36 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
         const args = raw as TaskArgs;
         const { createBrowserRun, waitForBrowserRun, BrowserRunBusyError } = await svc();
         // The person's word starts it; an agent's idea waits for their Start.
-        // The person's word: a tagged @browser, a token caller of their own, or a model reading their words.
-        let asked = Boolean(ctx.pageContext?.askedFor?.includes('browser')) || (userId.startsWith('token:') && !ctx.turnIntent);
-        if (!asked) {
-          const { personSaidToDecide } = await import('../owedDecision');
-          asked = (await personSaidToDecide(ctx, `use a browser to do this task: ${args.task}`)).said;
+        // The person's word: a tagged @browser, a token caller of their own, or a model reading their words
+        // against what the task does — the site, and whether it only reads or also changes things.
+        const tagged = Boolean(ctx.pageContext?.askedFor?.includes('browser'));
+        const effect = args.effect === 'reads' ? 'reads' : 'changes';
+        // In a workflow's agent step, the run's person is whose browser it is and whose Start it waits
+        // for; the work their starting the run declares is their word (`saidToDecide` `declared`).
+        const step = ctx.workflowStep;
+        const owner = step?.startedBy ?? userId;
+        const [asked, automation] = await Promise.all([
+          (async () => {
+            if (tagged || (userId.startsWith('token:') && !ctx.turnIntent)) {
+              return true;
+            }
+            const { browserConsentDecision } = await import('../consentDecision');
+            const decision = browserConsentDecision(args.task, args.start_url, effect);
+            if (step) {
+              if (!step.startedBy) {
+                return false;
+              }
+              const { saidToDecide } = await import('../turnJudge');
+              return (await saidToDecide({ orgId: ctx.orgId, messages: [], declared: step.task, decision })).said;
+            }
+            const { personSaidToDecide } = await import('../owedDecision');
+            return (await personSaidToDecide(ctx, decision)).said;
+          })(),
+          // Work a saved automation already does runs as that automation, under its expert's rules.
+          tagged ? Promise.resolve(null) : sameWorkAs(ctx, args),
+        ]);
+        if (automation) {
+          return `Not started: this is the work of the saved automation “${automation.name}”. Run it with routine_run for the rows (each row: ${automation.rowInputs.join(', ') || 'no inputs'}) instead of a browser task. A browser task is for reading what you need to know which rows to run it for.`;
         }
         const inputs = Object.fromEntries((args.inputs ?? []).map(i => [i.name, i.value]));
         const secretNames = (args.inputs ?? []).filter(i => i.secret).map(i => i.name);
@@ -158,8 +217,8 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
         try {
           view = await createBrowserRun({
             orgId: ctx.orgId,
-            userId,
-            conversationId: ctx.conversationId ?? null,
+            userId: owner,
+            conversationId: (step ? step.conversationId : ctx.conversationId) ?? null,
             agentSlug: ctx.agentSlug ?? null,
             task: args.task,
             startUrl: args.start_url ?? null,
@@ -192,7 +251,7 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
         name: 'browser_task',
         description: [
           'Hand a task to a web browser that works on its own, in the person\'s own browser session, while they watch it beside the conversation: open pages, sign in, click, fill forms, read tables, and bring back named outputs. For work on a site with no API or connector (a vendor or customer portal, a government site, a site that needs a sign-in), or when the person asks to "use the browser".',
-          'Prefer a connector or web_search when one can answer; a browser is slower. Steps that submit, send, pay, save or delete wait for the person\'s approval in the pane, so include them in the task when the task needs them.',
+          'Prefer a connector or web_search when one can answer; a browser is slower. Steps that submit, send, pay, save or delete wait for the person\'s approval in the pane, so include them in the task when the task needs them. Work a saved automation does runs with routine_run, not here.',
           'When the person tagged @browser, use this tool for their ask. One task per call, written as the person would brief an assistant. Give the inputs it needs (mark passwords and codes secret: the browser types them without the model reading them) and the outputs you want back, each named. When the person asked for it, it starts now; when it is your idea, it is filed for them to Start.',
           'One run at a time per person; the browser stays open between their runs, so continue_from_current_page carries on where the last one left off.',
         ].join(' '),
@@ -200,12 +259,13 @@ export function browserTaskTools(ctx: RuntimeContext): StructuredToolInterface[]
           type: 'object',
           properties: {
             task: { type: 'string', minLength: 10, maxLength: 2000, description: 'What to do, start to finish, as you would brief a person.' },
+            effect: { type: 'string', enum: ['reads', 'changes'], description: 'reads: it only reads pages and changes nothing on the site. changes: it fills in, saves, submits, sends, pays or deletes something.' },
             start_url: { type: 'string', maxLength: 2000, description: 'Where to start: a full address.' },
             inputs: { type: 'array', maxItems: 20, description: 'What it needs: account email, a password (secret: true), the new address…', items: { type: 'object', properties: { name: NAME, value: { type: 'string', maxLength: 2000 }, secret: { type: 'boolean' } }, required: ['name', 'value'] } },
             outputs: { type: 'array', maxItems: 12, description: 'What it brings back, each named.', items: { type: 'object', properties: { name: { ...NAME, description: 'A key, snake_case: unpaid_invoices.' }, description: { type: 'string', minLength: 3, maxLength: 200, description: 'What it holds, and its shape when it is a list: "each open invoice: number, due date, amount".' } }, required: ['name', 'description'] } },
             continue_from_current_page: { type: 'boolean', description: 'Carry on from the page the person\'s browser is on now, instead of start_url.' },
           },
-          required: ['task'],
+          required: ['task', 'effect'],
         },
       },
     ),

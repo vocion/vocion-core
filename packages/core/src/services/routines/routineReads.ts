@@ -6,12 +6,16 @@
  * an automation compiles this (the build budget, CI.yml "Build memory").
  */
 
+import type { RunSteps } from '@/libs/routines/ruleUse';
 import type { RoutineBatchView, RoutineRunStatus, RoutineRunView, RoutineVersionView, RoutineView } from '@/libs/routines/types';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { routineRunOpen } from '@/libs/routines/types';
+import { rulesAddedByVersion, rulesFollowedIn } from '@/libs/routines/ruleUse';
+import { savingsOf } from '@/libs/routines/savings';
+import { routineRunOpen, TAUGHT_AGAIN } from '@/libs/routines/types';
 import { browserRunSchema, routineBatchSchema, routineRunSchema, routineSchema, routineVersionSchema, userSchema } from '@/models/Schema';
 import { toView as browserView } from '@/services/browser/runReads';
+import { ledgerByRun, runCents, workspaceHourlyRate } from './savingsReads';
 
 type RoutineRow = typeof routineSchema.$inferSelect;
 type VersionRow = typeof routineVersionSchema.$inferSelect;
@@ -31,11 +35,20 @@ export async function namesOf(ids: Array<string | null | undefined>): Promise<Ma
   return new Map(rows.map(r => [r.id, r.name?.trim() || r.email]));
 }
 
+/**
+ * A spec's rules as people read them: who added one, by name.
+ * @param rules - The rules as stored.
+ * @param names - User ids → names.
+ */
+function rulesNamed(rules: RoutineVersionView['spec']['rules'], names: Map<string, string>): RoutineVersionView['spec']['rules'] {
+  return rules.map(r => (r.from?.by ? { ...r, from: { ...r.from, by: names.get(r.from.by) ?? r.from.by } } : r));
+}
+
 function versionView(v: VersionRow, names: Map<string, string>): RoutineVersionView {
   return {
     n: v.n,
     status: v.status,
-    spec: { ...v.spec, questions: v.spec.questions.map(q => ({ ...q, answeredBy: q.answeredBy ? names.get(q.answeredBy) ?? q.answeredBy : null })) },
+    spec: { ...v.spec, rules: rulesNamed(v.spec.rules, names), questions: v.spec.questions.map(q => ({ ...q, answeredBy: q.answeredBy ? names.get(q.answeredBy) ?? q.answeredBy : null })) },
     task: v.task,
     workflowYaml: v.workflowYaml,
     change: v.change,
@@ -65,9 +78,11 @@ async function routineViews(rows: RoutineRow[]): Promise<RoutineView[]> {
   const ids = rows.map(r => r.id);
   const versions = await db.select().from(routineVersionSchema).where(inArray(routineVersionSchema.routineId, ids)).orderBy(desc(routineVersionSchema.n));
   const runs = await db.select({ routineId: routineRunSchema.routineId, status: routineRunSchema.status, batchId: routineRunSchema.batchId, n: routineRunSchema.n }).from(routineRunSchema).where(inArray(routineRunSchema.routineId, ids));
-  const names = await namesOf([...rows.map(r => r.expertUserId), ...versions.map(v => v.approvedBy), ...versions.flatMap(v => v.spec.questions.map(q => q.answeredBy))]);
+  const names = await namesOf([...rows.map(r => r.expertUserId), ...versions.map(v => v.approvedBy), ...versions.flatMap(v => v.spec.questions.map(q => q.answeredBy)), ...versions.flatMap(v => v.spec.rules.map(x => x.from?.by))]);
+  const followed = await runsThatFollowedRules(ids);
   return rows.map((r) => {
     const mine = versions.filter(v => v.routineId === r.id);
+    const ruleUse = rulesAddedByVersion(mine.map(v => ({ n: v.n, rules: rulesNamed(v.spec.rules, names) })), followed.get(r.id) ?? []);
     const { current, draft } = currentVersions(mine);
     const rs = runs.filter(x => x.routineId === r.id && x.n > 0);
     const t = r.teaching;
@@ -82,7 +97,7 @@ async function routineViews(rows: RoutineRow[]): Promise<RoutineView[]> {
       source: r.source ?? null,
       version: current ? versionView(current, names) : null,
       draft: draft ? versionView(draft, names) : null,
-      versions: mine.map(v => ({ n: v.n, status: v.status, change: v.change, createdAt: v.createdAt.toISOString() })),
+      versions: mine.map(v => ({ n: v.n, status: v.status, change: v.change, createdAt: v.createdAt.toISOString(), ...(ruleUse.has(v.n) ? { rules: ruleUse.get(v.n) } : {}) })),
       stats: {
         runs: rs.length,
         done: rs.filter(x => x.status === 'done').length,
@@ -90,13 +105,33 @@ async function routineViews(rows: RoutineRow[]): Promise<RoutineView[]> {
         failed: rs.filter(x => x.status === 'failed' || x.status === 'unknown_outcome').length,
         lastBatchId: rs.reduce<number | null>((m, x) => (m === null || x.batchId > m ? x.batchId : m), null),
       },
-      teaching: t ? { state: t.state, startedAt: t.startedAt, targetUrl: t.targetUrl, recordUrl: t.recordUrl, instruction: t.instruction ?? null, checks: t.checks, lastCheckedAt: t.lastCheckedAt } : null,
+      teaching: t ? { state: t.state, startedAt: t.startedAt, targetUrl: t.targetUrl, recordUrl: t.recordUrl, instruction: t.instruction ?? null, checks: t.checks, lastCheckedAt: t.lastCheckedAt, found: t.found ?? null } : null,
       savedInputs: r.savedInputs?.names ?? [],
       error: r.error,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
     };
   });
+}
+
+/**
+ * The runs of these automations that followed a rule instead of asking (a `rule` step on their
+ * browser run), newest first, by automation.
+ * @param routineIds - The automations.
+ */
+async function runsThatFollowedRules(routineIds: number[]): Promise<Map<number, RunSteps[]>> {
+  const rows = await db
+    .select({ routineId: routineRunSchema.routineId, n: routineRunSchema.n, label: routineRunSchema.label, browserRunId: browserRunSchema.id, steps: browserRunSchema.steps })
+    .from(routineRunSchema)
+    .innerJoin(browserRunSchema, eq(browserRunSchema.id, routineRunSchema.browserRunId))
+    .where(and(inArray(routineRunSchema.routineId, routineIds), sql`${browserRunSchema.steps} @> '[{"kind":"rule"}]'::jsonb`))
+    .orderBy(desc(routineRunSchema.id))
+    .limit(1000);
+  const out = new Map<number, RunSteps[]>();
+  for (const x of rows) {
+    out.set(x.routineId, [...(out.get(x.routineId) ?? []), { n: x.n, label: x.label, browserRunId: x.browserRunId, steps: x.steps ?? [] }]);
+  }
+  return out;
 }
 
 /**
@@ -117,6 +152,38 @@ export async function listRoutines(orgId: string): Promise<RoutineView[]> {
 export async function getRoutine(orgId: string, id: number): Promise<RoutineView | null> {
   const rows = await db.select().from(routineSchema).where(and(eq(routineSchema.orgId, orgId), eq(routineSchema.id, id))).limit(1);
   return (await routineViews(rows))[0] ?? null;
+}
+
+/**
+ * What an automation was taught from, as the evidence behind it: the recording, and the version
+ * the analyst drafted from it (the first, or the newest taught again from a new recording) — its
+ * spec as the analyst wrote it, before the expert's answers moved it on. Null for an automation
+ * with no recording or not yet drafted.
+ * @param orgId - The workspace.
+ * @param id - The automation.
+ */
+export async function taughtFrom(orgId: string, id: number): Promise<{ routine: RoutineView; version: RoutineVersionView } | null> {
+  const routine = await getRoutine(orgId, id);
+  if (!routine?.source) {
+    return null;
+  }
+  const versions = await db.select().from(routineVersionSchema).where(eq(routineVersionSchema.routineId, id)).orderBy(desc(routineVersionSchema.n));
+  const drafted = versions.find(v => v.change === null || v.change === TAUGHT_AGAIN);
+  if (!drafted) {
+    return null;
+  }
+  return { routine, version: versionView(drafted, await namesOf(drafted.spec.questions.map(q => q.answeredBy))) };
+}
+
+/**
+ * An automation's id by its exact slug: a stable address for links a workspace writes
+ * (`/dashboard/automations/<slug>`), the same in every environment.
+ * @param orgId - The workspace.
+ * @param slug - The automation's slug.
+ */
+export async function routineIdBySlug(orgId: string, slug: string): Promise<number | null> {
+  const [row] = await db.select({ id: routineSchema.id }).from(routineSchema).where(and(eq(routineSchema.orgId, orgId), eq(routineSchema.slug, slug))).limit(1);
+  return row?.id ?? null;
 }
 
 /**
@@ -164,8 +231,11 @@ export async function batchesOf(orgId: string, routineId: number): Promise<Array
  * A run of an automation as its tile draws it.
  * @param r - The run.
  * @param b - Its browser run, when it has one.
+ * @param ledger - Its model calls in the spend ledger, when any.
+ * @param ledger.tokens
+ * @param ledger.microCents
  */
-function runView(r: RunRow, b: typeof browserRunSchema.$inferSelect | undefined): RoutineRunView {
+function runView(r: RunRow, b: typeof browserRunSchema.$inferSelect | undefined, ledger?: { tokens: number; microCents: number }): RoutineRunView {
   const bv = b ? browserView(b) : null;
   const last = bv ? [...bv.steps].reverse()[0] : undefined;
   return {
@@ -184,7 +254,9 @@ function runView(r: RunRow, b: typeof browserRunSchema.$inferSelect | undefined)
     summary: r.summary,
     error: r.error,
     humanMs: Number(r.humanMs ?? 0),
-    cents: bv?.cents ?? 0,
+    decisions: Number(r.decisions ?? 0),
+    cents: runCents(ledger, Number(b?.microCents ?? 0)),
+    tokens: ledger?.tokens ?? 0,
     startedAt: r.startedAt?.toISOString() ?? null,
     endedAt: r.endedAt?.toISOString() ?? null,
   };
@@ -215,10 +287,13 @@ export async function batchView(b: BatchRow): Promise<RoutineBatchView> {
   const browserIds = runs.map(r => r.browserRunId).filter((x): x is number => typeof x === 'number');
   const browsers = browserIds.length > 0 ? await db.select().from(browserRunSchema).where(inArray(browserRunSchema.id, browserIds)) : [];
   const byId = new Map(browsers.map(x => [x.id, x]));
-  const names = await namesOf([b.requestedBy, routine?.expertUserId]);
-  const views = runs.map(r => runView(r, r.browserRunId ? byId.get(r.browserRunId) : undefined));
+  const [names, ledger, rate] = await Promise.all([namesOf([b.requestedBy, routine?.expertUserId]), ledgerByRun(runs.map(r => r.id)), workspaceHourlyRate(b.orgId)]);
+  const views = runs.map(r => runView(r, r.browserRunId ? byId.get(r.browserRunId) : undefined, ledger.get(r.id)));
   const tiles = views.filter(v => v.n > 0);
   const cents = views.reduce((s, v) => s + v.cents, 0);
+  const manualMinutes = version?.spec.manualMinutes ?? null;
+  // The reconciliation (row 0) is work for the batch, not a row: its cost counts, nothing else.
+  const savings = savingsOf(views.map(v => ({ overhead: v.n === 0, status: v.status, manualMinutes: v.n > 0 ? manualMinutes : null, humanMs: v.humanMs, cents: v.cents, tokens: v.tokens, decisions: v.decisions, at: v.endedAt ?? v.startedAt })), rate);
   return {
     id: b.id,
     routine: { id: b.routineId, name: routine?.name ?? 'An automation', version: b.version, trust: routine?.trust ?? 'drafted', expert: routine?.expertUserId ? names.get(routine.expertUserId) ?? null : null },
@@ -229,13 +304,21 @@ export async function batchView(b: BatchRow): Promise<RoutineBatchView> {
     total: tiles.length,
     cents,
     humanMs: views.reduce((s, v) => s + v.humanMs, 0),
-    manualMinutes: version?.spec.manualMinutes ?? null,
+    manualMinutes,
+    tokens: views.reduce((s, v) => s + v.tokens, 0),
+    savings,
+    sample: b.sample,
+    fields: {
+      inputs: (version?.spec.inputs ?? []).filter(i => !i.secret && !i.shared).map(i => ({ name: i.name, key: Boolean(i.key) })),
+      outputs: (version?.spec.outputs ?? []).map(o => ({ name: o.name, checks: o.checks ?? null })),
+    },
     startedAt: b.createdAt.toISOString(),
     endedAt: b.endedAt?.toISOString() ?? null,
     runs: tiles,
     findings: b.findings ?? [],
     followUp: b.followUp ? { parentBatchId: b.followUp.parentBatchId, answer: /\u201C(.+?)\u201D/.exec(b.followUp.task)?.[1] ?? 'the expert\'s answer', approvedBy: b.followUp.approvedBy } : null,
     report: b.reportArtifactId ? { artifactId: b.reportArtifactId, url: `/dashboard/artifacts/${b.reportArtifactId}` } : null,
+    rulesFollowed: rulesFollowedIn(runs.filter(r => r.n > 0).map(r => ({ n: r.n, label: r.label, browserRunId: r.browserRunId, steps: (r.browserRunId ? byId.get(r.browserRunId)?.steps : null) ?? [] }))),
   };
 }
 

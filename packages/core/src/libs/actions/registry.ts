@@ -67,6 +67,7 @@ import { trackerTransitionIssueAction } from './tracker-transition-issue';
 import { trackerUpdateIssueAction } from './tracker-update-issue';
 import { viewSaveAction } from './view-save';
 import { wikiWritePageAction } from './wiki-write-page';
+import { workflowRunAction } from './workflow-run';
 import { workspaceWriteOperatingIntentAction } from './workspace-operating-intent';
 import { workspaceWriteMissionAction, workspaceWritePlaybookAction } from './workspace-source';
 
@@ -212,6 +213,8 @@ registerAction(financePostJournalEntryAction);
 // the outcome, nothing executes on the answer.
 registerAction(askFileAction);
 registerAction(askWithdrawAction);
+// One run of a saved workflow, started from chat on the person's word or their card (`workflow-run.ts`).
+registerAction(workflowRunAction);
 // Turn a workspace plugin on/off from chat — reversible, internal, done-for-you above the bar.
 registerAction(pluginEnableAction);
 // Setting a workspace up from chat (the workspace lead's `propose_setup`

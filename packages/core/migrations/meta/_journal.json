@@ -1520,6 +1520,20 @@
       "when": 1793721346940,
       "tag": "0235_crm_dry_run",
       "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "7",
+      "when": 1793721346941,
+      "tag": "0236_browser_run_video",
+      "breakpoints": true
+    },
+    {
+      "idx": 237,
+      "version": "7",
+      "when": 1793721346942,
+      "tag": "0237_automation_savings",
+      "breakpoints": true
     }
   ]
 }

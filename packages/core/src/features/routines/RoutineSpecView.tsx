@@ -1,7 +1,9 @@
-import type { RoutineSpec } from '@/libs/routines/types';
+import type { RoutineSpec, RuleOrigin } from '@/libs/routines/types';
 import { ArrowRight, Ban, CircleCheck, KeyRound, Lock, MousePointerClick } from 'lucide-react';
 import { FactList } from '@/components/patterns';
+import { Link } from '@/libs/I18nNavigation';
 import { minutesLong } from '@/libs/routines/display';
+import { ruleSourceWords } from '@/libs/routines/ruleUse';
 import { MomentLink } from './RoutineChips';
 import { SubHead } from './RoutineParts';
 
@@ -78,7 +80,7 @@ export function RoutineSpecView({ spec, sourceUrl, expert }: { spec: RoutineSpec
               <li key={r.text} className="flex items-start gap-2 text-[13px] text-foreground">
                 <span className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground/60" aria-hidden />
                 <span className="min-w-0 flex-1 leading-snug">{r.text}</span>
-                <MomentLink url={sourceUrl} at={r.at} />
+                {r.from ? <RuleFrom from={r.from} /> : <MomentLink url={sourceUrl} at={r.at} />}
               </li>
             ))}
           </ul>
@@ -220,4 +222,19 @@ export function RoutineSpecView({ spec, sourceUrl, expert }: { spec: RoutineSpec
       )}
     </div>
   );
+}
+
+/**
+ * Where a rule added after teaching came from, in place of its moment on the recording: the
+ * expert's answer (linked to the decision) and the version it entered.
+ * @param props
+ * @param props.from - Where it came from.
+ */
+function RuleFrom({ from }: { from: RuleOrigin }) {
+  const who = ruleSourceWords(from);
+  const words = [who, `v${from.version}`].filter(Boolean).join(' · ');
+  const cls = 'shrink-0 text-[11px] text-muted-foreground';
+  return from.askId
+    ? <Link href={`/dashboard/inbox/${from.askId}`} className={`${cls} underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground`} data-routine-rule-from>{words}</Link>
+    : <span className={cls} data-routine-rule-from>{words}</span>;
 }

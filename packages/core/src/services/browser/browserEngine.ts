@@ -34,6 +34,9 @@ import type { Buffer } from 'node:buffer';
 import type { Browser, BrowserContext, CDPSession, Locator, Page } from 'playwright';
 import type { SignInState } from '@/libs/browser/keptSignIn';
 import { Buffer as NodeBuffer } from 'node:buffer';
+import { readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import process from 'node:process';
 import { mergeSignIn } from '@/libs/browser/keptSignIn';
 import { BROWSER_RUN_LIMITS } from '@/libs/browser/run';
@@ -43,6 +46,8 @@ import { byRef, pageSnapshot } from './pageSnapshot';
 import { practiceResponse } from './practiceSite';
 
 const BROWSER_VIEWPORT = { width: 1280, height: 800 } as const;
+/** A recording at three-quarter size: plain to read, and light enough for ten runs at once. */
+const VIDEO_SIZE = { width: 960, height: 600 } as const;
 
 export type BrowserSession = {
   key: string;
@@ -57,6 +62,8 @@ export type BrowserSession = {
   blocked: string[];
   idle: ReturnType<typeof setTimeout> | null;
   busy: boolean;
+  /** Where its recording is written, when it is recorded (an automation's run). */
+  videoDir?: string;
 };
 
 /** What a session needs from outside, so a test can stand in for Chrome. */
@@ -165,8 +172,10 @@ function touch(s: BrowserSession): void {
  * @param key - `personKey(orgId, userId)`.
  * @param deps - Chrome.
  * @param restore - A saved browser to open from: its cookies, site storage and page.
+ * @param opts
+ * @param opts.record
  */
-export async function openBrowserSession(key: string, deps: Partial<EngineDeps> = {}, restore?: SavedBrowser | null): Promise<BrowserSession> {
+export async function openBrowserSession(key: string, deps: Partial<EngineDeps> = {}, restore?: SavedBrowser | null, opts: { record?: boolean } = {}): Promise<BrowserSession> {
   const existing = sessions.get(key);
   if (existing && !existing.page.isClosed()) {
     touch(existing);
@@ -174,9 +183,14 @@ export async function openBrowserSession(key: string, deps: Partial<EngineDeps> 
   }
   const d = { ...defaultDeps, ...deps };
   const browser = await d.browser();
-  const context = await browser.newContext({ viewport: BROWSER_VIEWPORT, deviceScaleFactor: 1, locale: 'en-US', timezoneId: 'America/Los_Angeles', acceptDownloads: false, ...(restore ? { storageState: restore.storageState } : {}) });
+  // An automation's run is recorded whole (Playwright's own encoder), so its expert can watch it
+  // afterwards; the file is handed back when the browser closes (`closeBrowserSession`).
+  const videoDir = opts.record && process.env.VOCION_BROWSER_RUN_VIDEO !== '0'
+    ? path.join(tmpdir(), 'vocion-browser-video', key.replace(/[^\w-]+/g, '_'))
+    : undefined;
+  const context = await browser.newContext({ viewport: BROWSER_VIEWPORT, deviceScaleFactor: 1, locale: 'en-US', timezoneId: 'America/Los_Angeles', acceptDownloads: false, ...(restore ? { storageState: restore.storageState } : {}), ...(videoDir ? { recordVideo: { dir: videoDir, size: VIDEO_SIZE } } : {}) });
   await context.addInitScript(DEMO_CHROME_SCRIPT);
-  const s: BrowserSession = { key, context, page: await context.newPage(), cdp: null, frame: null, frameSeq: 0, poll: null, blocked: [], idle: null, busy: false };
+  const s: BrowserSession = { key, context, page: await context.newPage(), cdp: null, frame: null, frameSeq: 0, poll: null, blocked: [], idle: null, busy: false, ...(videoDir ? { videoDir } : {}) };
   await context.route('**/*', async (route) => {
     const url = route.request().url();
     const practice = practiceResponse(url);
@@ -236,17 +250,37 @@ export async function openWithSignIn(key: string, kept: SignInState, deps: Parti
  * Close the person's browser now.
  * @param key - The person.
  */
-export async function closeBrowserSession(key: string): Promise<void> {
+export async function closeBrowserSession(key: string): Promise<{ video: Buffer | null }> {
   const s = sessions.get(key);
   if (!s) {
-    return;
+    return { video: null };
   }
   sessions.delete(key);
   touch(s);
   if (s.poll) {
     clearInterval(s.poll);
   }
+  // Every page the run used, in the order it opened them: a page's video is written when its context closes.
+  const videos = s.videoDir ? s.context.pages().map(p => p.video()).filter((v): v is NonNullable<typeof v> => Boolean(v)) : [];
   await s.context.close().catch(() => {});
+  if (!s.videoDir) {
+    return { video: null };
+  }
+  try {
+    // The first page carries the run; a page it opened later is rare and short. `saveAs` works for a
+    // browser on another host too, where `path()` would name a file on that host.
+    const first = videos[0];
+    if (!first) {
+      return { video: null };
+    }
+    const out = path.join(s.videoDir, 'run.webm');
+    await first.saveAs(out);
+    return { video: await readFile(out) };
+  } catch {
+    return { video: null };
+  } finally {
+    await rm(s.videoDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 /**
@@ -458,6 +492,9 @@ export type ActOutcome = { ok: boolean; detail: string };
  * @param s - The browser.
  * @param action - What to do.
  */
+/** A file a run attaches to a page: resolved from the run's inputs (`runFiles.ts`), never read off the page. */
+export type BrowserFile = { name: string; mimeType: string; buffer: Buffer };
+
 /** Past this many characters, text is filled in at once rather than typed key by key. */
 const LONG_TEXT_CHARS = 400;
 
@@ -466,6 +503,7 @@ export async function act(s: BrowserSession, action:
   | { kind: 'click'; ref: string }
   | { kind: 'type'; ref: string; text: string; submit?: boolean }
   | { kind: 'select'; ref: string; value: string }
+  | { kind: 'upload'; ref: string; file: BrowserFile }
   | { kind: 'press'; key: string }
   | { kind: 'scroll'; direction: 'up' | 'down' }
   | { kind: 'wait'; seconds: number }): Promise<ActOutcome> {
@@ -539,6 +577,29 @@ export async function act(s: BrowserSession, action:
         await loc.selectOption({ label: action.value }, { timeout: 5_000 }).catch(() => loc.selectOption(action.value, { timeout: 5_000 }));
         await chrome(page, 'spotlight', null);
         return { ok: true, detail: `chose ${action.value}` };
+      }
+      case 'upload': {
+        const loc = byRef(page, action.ref);
+        if (!loc) {
+          return { ok: false, detail: `"${action.ref}" is not a ref from the snapshot` };
+        }
+        const payload = { name: action.file.name, mimeType: action.file.mimeType, buffer: action.file.buffer };
+        const box = await pointAt(page, loc);
+        // A file field takes the file directly; anything else (a styled "Choose file" button) opens
+        // the file picker, which is answered with the file the way a person picks one.
+        const isFileField = await loc.evaluate(el => el instanceof HTMLInputElement && el.type === 'file').catch(() => false);
+        if (isFileField) {
+          await loc.setInputFiles(payload, { timeout: 10_000 });
+        } else {
+          if (box) {
+            await chrome(page, 'ripple', Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
+          }
+          const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 5_000 }), loc.click({ timeout: 5_000 })]);
+          await chooser.setFiles(payload);
+        }
+        await settle(page);
+        await chrome(page, 'spotlight', null);
+        return { ok: true, detail: `attached ${action.file.name}` };
       }
       case 'press': {
         await chrome(page, 'keycap', action.key);
