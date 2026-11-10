@@ -608,7 +608,7 @@ function renderedPage(
   const contentType = page.contentType ?? 'text/html';
   const readable = readableAs(contentType);
   if (!readable) {
-    ctx.onProgress?.({ kind: 'skipped', uri: url, message: `unsupported content-type: ${contentType}` });
+    ctx.onProgress?.({ kind: 'skipped', uri: url, message: `unsupported content-type: ${contentType}`, ...readerFields(readVia) });
     return null;
   }
   const isHtml = readable === 'html';
@@ -634,11 +634,20 @@ function renderedPage(
  * @param page - the fetched page.
  */
 function fetchedEvent(page: FetchedPage): SourceProgressEvent {
-  if (!page.readVia) {
-    return { kind: 'fetched', uri: page.url };
+  return { kind: 'fetched', uri: page.url, ...readerFields(page.readVia) };
+}
+
+/**
+ * Who read a page that we did not, and what it cost, for any event about it:
+ * a page the fallback reader read and the run then skipped still spent credits.
+ * @param readVia - the fallback read, when there was one.
+ */
+function readerFields(readVia: FetchedPage['readVia']): Pick<SourceProgressEvent, 'reader' | 'blockedBy' | 'creditsUsed'> {
+  if (!readVia) {
+    return {};
   }
-  const { reader, blockedBy, creditsUsed } = page.readVia;
-  return { kind: 'fetched', uri: page.url, reader, blockedBy, ...(creditsUsed === undefined ? {} : { creditsUsed }) };
+  const { reader, blockedBy, creditsUsed } = readVia;
+  return { reader, blockedBy, ...(creditsUsed === undefined ? {} : { creditsUsed }) };
 }
 
 function sameSiteUrl(requestedUrl: string, landedUrl: string): string {
@@ -663,7 +672,7 @@ function docsFromPage(page: FetchedPage, ctx: SourceContext): IngestDoc[] {
     return readVia ? split.map(doc => ({ ...doc, metadata: { ...doc.metadata, readVia } })) : split;
   }
   if (!page.content.trim()) {
-    ctx.onProgress?.({ kind: 'skipped', uri: page.url, message: 'empty after extraction' });
+    ctx.onProgress?.({ kind: 'skipped', uri: page.url, message: 'empty after extraction', ...readerFields(page.readVia) });
     return [];
   }
   ctx.onProgress?.(fetchedEvent(page));

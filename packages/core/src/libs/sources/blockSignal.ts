@@ -23,6 +23,15 @@ const WAF_CHALLENGE_ACTIONS = new Set(['challenge', 'captcha']);
 const CHALLENGE_TITLE_RE = /^just a moment|^attention required|checking your browser|verifying you are human/i;
 
 /**
+ * Whether a page title is one of those interstitials. A page that answered 200
+ * with such a title is still the block, not the page, whoever fetched it.
+ * @param title - the page's `<title>`, when it has one.
+ */
+export function isChallengeTitle(title: string | undefined): boolean {
+  return Boolean(title && CHALLENGE_TITLE_RE.test(title.trim()));
+}
+
+/**
  * Why this failure reads as a block, as one short line for the run's log, or
  * null when it does not.
  * @param detail - what the failed response said about itself.
@@ -39,7 +48,7 @@ export function blockSignalOf(detail: FetchFailureDetail): string | null {
   if (wafAction && WAF_CHALLENGE_ACTIONS.has(wafAction.toLowerCase())) {
     return `x-amzn-waf-action: ${wafAction}`;
   }
-  if (detail.status === 503 && detail.title && CHALLENGE_TITLE_RE.test(detail.title)) {
+  if (detail.status === 503 && isChallengeTitle(detail.title)) {
     return `HTTP 503 · title: ${detail.title}`;
   }
   return null;

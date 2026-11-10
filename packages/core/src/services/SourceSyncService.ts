@@ -926,6 +926,19 @@ export async function runSync(opts: {
       });
     } else if (event.kind === 'skipped' && event.uri) {
       recordSkip(event.message ?? 'no reason reported', event.uri);
+      if (event.reader) {
+        // Read and paid for, then unusable: not a page "read via" it, but the spend is logged.
+        log('info', 'source page read via fallback reader, then skipped', {
+          sourceId: opts.sourceId,
+          sourceSlug: row.slug,
+          orgId: opts.orgId,
+          uri: event.uri,
+          reader: event.reader,
+          blockedBy: event.blockedBy,
+          creditsUsed: event.creditsUsed,
+          reason: event.message,
+        });
+      }
     } else if (event.kind === 'fetched' && event.reader) {
       const key = `readVia.${event.reader}`;
       readViaCounts[key] = (readViaCounts[key] ?? 0) + 1;

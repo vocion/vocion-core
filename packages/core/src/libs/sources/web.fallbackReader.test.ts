@@ -282,7 +282,7 @@ describe('what Firecrawl returned is read as what it is', () => {
 
     expect(docs).toEqual([]);
     expect(errors(events)).toEqual([]);
-    expect(events).toContainEqual({ kind: 'skipped', uri: SHOWS, message: 'unsupported content-type: application/pdf' });
+    expect(events).toContainEqual({ kind: 'skipped', uri: SHOWS, message: 'unsupported content-type: application/pdf', reader: 'firecrawl', blockedBy: 'HTTP 403', creditsUsed: 1 });
   });
 });
 
