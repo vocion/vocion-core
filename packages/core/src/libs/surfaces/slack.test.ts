@@ -192,6 +192,7 @@ describe('postSlackReply', () => {
       channel: 'C1',
       thread_ts: '100.1',
       text: 'hello',
+      unfurl_links: true,
       blocks: [{ type: 'markdown', text: 'hello' }],
       username: 'Sterling Banks',
       icon_url: 'https://www.vocion.ai/personas/sterling.png',
@@ -202,16 +203,16 @@ describe('postSlackReply', () => {
     const body = await post({ channelId: 'C1', threadRef: '100.1' });
 
     // No `username`/`icon_url` keys at all — an empty username posts blank in Slack.
-    expect(body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }] });
+    expect(body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'hello', unfurl_links: true, blocks: [{ type: 'markdown', text: 'hello' }] });
   });
 
   it('posts to the channel with no thread_ts when the target has no thread', async () => {
-    expect(await post({ channelId: 'C1' })).toEqual({ channel: 'C1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }] });
+    expect(await post({ channelId: 'C1' })).toEqual({ channel: 'C1', text: 'hello', unfurl_links: true, blocks: [{ type: 'markdown', text: 'hello' }] });
   });
 
   it('carries whichever half of the persona is set', async () => {
-    expect(await post({ channelId: 'C1', threadRef: '1', displayName: 'Keel Marsden' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }], username: 'Keel Marsden' });
-    expect(await post({ channelId: 'C1', threadRef: '1', iconUrl: 'https://www.vocion.ai/personas/keel.png' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }], icon_url: 'https://www.vocion.ai/personas/keel.png' });
+    expect(await post({ channelId: 'C1', threadRef: '1', displayName: 'Keel Marsden' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', unfurl_links: true, blocks: [{ type: 'markdown', text: 'hello' }], username: 'Keel Marsden' });
+    expect(await post({ channelId: 'C1', threadRef: '1', iconUrl: 'https://www.vocion.ai/personas/keel.png' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', unfurl_links: true, blocks: [{ type: 'markdown', text: 'hello' }], icon_url: 'https://www.vocion.ai/personas/keel.png' });
   });
 });
 
@@ -233,7 +234,7 @@ describe('how an answer reads in Slack', () => {
     expect(slackMrkdwn('no links [here] (or here)')).toBe('no links [here] (or here)');
   });
 
-  it('posts the converted text, and tells every agent on the surface to be short, link what it names and skip the how-to', async () => {
+  it('posts markdown as written in a markdown block, asks for link previews, and converts only beside a picture', async () => {
     const { postSlackReply, slackSurface } = await import('./slack');
     const sent: Record<string, unknown>[] = [];
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -241,11 +242,17 @@ describe('how an answer reads in Slack', () => {
 
       return new Response(JSON.stringify({ ok: true, ts: '1.2', channel: 'C1' }));
     }) as unknown as typeof fetch;
-    await postSlackReply({ channelId: 'C1', threadRef: '1.1' }, 'Filed [SL-16](https://factory.example/t/SL-16).', 'xoxb-test', undefined, { fetchImpl });
+    const words = 'Filed **[SL-16](https://factory.example/t/SL-16)**.';
+    await postSlackReply({ channelId: 'C1', threadRef: '1.1' }, words, 'xoxb-test', undefined, { fetchImpl });
 
-    expect(sent[0]?.text).toBe('Filed <https://factory.example/t/SL-16|SL-16>.');
+    // Slack's markdown block renders standard markdown: bold stays bold and the link keeps its label.
+    expect(sent[0]?.blocks).toEqual([{ type: 'markdown', text: words }]);
     // The page behind a link is previewed: an app's own posts do not unfurl text links unless they ask.
-    expect(sent[0]).toMatchObject({ unfurl_links: true, unfurl_media: true });
+    expect(sent[0]).toMatchObject({ unfurl_links: true });
+
+    await postSlackReply({ channelId: 'C1' }, { text: words, images: [{ url: 'https://factory.example/shot.png', caption: 'After' }] }, 'xoxb-test', undefined, { fetchImpl, scopes: new Set() });
+
+    expect((sent.at(-1)?.blocks as Array<{ text?: { text?: string } }>)[0]?.text?.text).toBe('Filed *<https://factory.example/t/SL-16|SL-16>*.');
     expect(slackSurface.answerStyle).toMatch(/at most five short lines/);
     expect(slackSurface.answerStyle).toMatch(/Never explain how to reply/);
     expect(slackSurface.answerStyle).toMatch(/markdown link with a short label/);

@@ -159,7 +159,7 @@ describe('postSlackReply media ladder', () => {
     const ref = await postSlackReply({ channelId: 'C1', threadRef: '100.1' }, 'plain reply', 'xoxb-test', BASE, { scopes: new Set(['chat:write']), fetchImpl: impl });
 
     expect(ref?.media).toBe('none');
-    expect(calls[0]!.body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'plain reply', blocks: [{ type: 'markdown', text: 'plain reply' }] });
+    expect(calls[0]!.body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'plain reply', unfurl_links: true, blocks: [{ type: 'markdown', text: 'plain reply' }] });
   });
 });
 

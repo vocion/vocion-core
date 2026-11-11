@@ -234,7 +234,9 @@ export type SlackMedia = 'none' | 'uploaded' | 'blocks' | 'unreachable';
  * @param url
  */
 /**
- * Markdown as Slack shows it. Agents write the markdown the app's chat renders; Slack's own
+ * Markdown as Slack's `mrkdwn` shows it, for the places that are not a `markdown` block (the
+ * section beside a picture). A `markdown` block renders standard markdown itself and is sent
+ * the words as written. Agents write the markdown the app's chat renders; Slack's own
  * format differs in three places a reader sees: a link is `<url|label>` (a markdown link
  * arrives as its raw brackets and address), bold is one asterisk, and there are no headings.
  * Presentation only: no word is added, dropped or moved.
@@ -456,7 +458,7 @@ export async function postSlackReply(
   const msg = asMessage(message);
   const images = msg.images ?? [];
   let media: SlackMedia = 'none';
-  let text = slackMrkdwn(msg.text);
+  let text = msg.text;
   let renderable: ChatImage[] = [];
 
   if (images.length > 0) {
@@ -492,7 +494,7 @@ export async function postSlackReply(
 
   // A link an agent names shows its preview (title, description, picture): Slack leaves text links
   // from an app's own posts bare unless asked. One preview says more than a paragraph about the page.
-  const payload: Record<string, unknown> = { channel: target.channelId, text, unfurl_links: true, unfurl_media: true };
+  const payload: Record<string, unknown> = { channel: target.channelId, text, unfurl_links: true };
   if (target.threadRef) {
     payload.thread_ts = target.threadRef;
   }
@@ -503,7 +505,8 @@ export async function postSlackReply(
     payload.icon_url = target.iconUrl;
   }
   if (renderable.length > 0) {
-    payload.blocks = slackBlocks(text, renderable);
+    // Section blocks beside pictures take Slack's own format, so markdown is converted for them.
+    payload.blocks = slackBlocks(slackMrkdwn(text), renderable);
   } else if (text.length <= SLACK_MARKDOWN_MAX) {
     // Agents write standard Markdown; Slack's `markdown` block renders it as written (bold, lists,
     // links), where plain `text` shows the asterisks. The words are not touched; `text` stays as
