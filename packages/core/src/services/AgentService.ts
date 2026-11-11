@@ -841,9 +841,11 @@ async function runAgentDeepInScope(opts: {
     effortMod.inferEffort({ orgId: opts.orgId, message: opts.message, ...(previous ? { previous } : {}) }),
     leadsTeammates(),
     aboutConnection(),
-  ]).then(([read, leads, connection]) => effortMod.connectionFloor(effortMod.answerFloor(effortMod.synthesisLevel(read, { leadsTeammates: leads }), opts.answeredRecords), connection));
+    // What the turn sits in (`contextFloor`): the last turn's failed tool calls, and how much there is to read.
+    import('./agents/priorTurn').then(m => m.priorTurnErrors(opts.orgId, opts.conversationId)).catch(() => 0),
+  ]).then(([read, leads, connection, priorErrors]) => effortMod.contextFloor(effortMod.connectionFloor(effortMod.answerFloor(effortMod.synthesisLevel(read, { leadsTeammates: leads }), opts.answeredRecords), connection), { chars: opts.message.length, priorErrors }));
   const autoEffort = effortApplies && personEffort === 'auto'
-    ? readRequest([...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'assistant')?.content)
+    ? import('./agents/priorTurn').then(m => readRequest(m.recentExchange(opts.conversationHistory)))
     : null;
   // Phase 7 — pre-flight budget check. Refuse the run if the agent
   // is over its hard cap; otherwise proceed.

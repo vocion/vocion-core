@@ -113,7 +113,8 @@ export const INFER_SYSTEM = [
   'A short message that turns the conversation to new work ("no, I want to work on the renewals instead") is a new request: judge it by the work it asks for, not by its length or by the earlier exchange.',
   'Also say seven facts about the request: "drafts" is true when it asks to write, revise or soften something a person will send or read (an email, a note, a reply, a draft already proposed); "systems" is how many distinct systems or sources it needs checked (Gmail and HubSpot is 2; "confirm with the company knowledge base" after an earlier answer adds one); "changes" is how many records it asks to change, decide, dismiss, approve or delete (0 for a question; "approve this one" is 1; "clear out everything older than a week" or "decline all of these" is many, so say 10 or more); "teams" is how many different teams\' or functions\' work the answer has to bring together (a status across pipeline, pitches and referrals is 3; how my go-to-market is going, across founder outreach and pipeline, is 2; one team\'s queue, one deal or one person is 1); "owed" is true when it asks what is owed, open, pending or left to do on a client, account, person, deal or project ("what do I owe on Kestrel", "where are we with Dana", "anything open for the Northwind deal"); "analysis" is "chart" when it asks for a chart, graph or visual, or an analysis to look at (a forecast, a breakdown, a bridge), "multi" when that analysis spans more than one statement or scenario (the P&L and the balance sheet; low, base and high cases; actuals against the year\'s forecast), and "none" otherwise; "outward" is true when it asks to publish, send, post, merge or otherwise change something outside this workspace (publish these pages to the site, send the email, post it to Slack, open the pull request, update the CRM), and false for a question or for work that stays here.',
   'One more fact: "connects" is true when it asks whether a system is connected or can be used for something, asks to connect, sign in to or set one up, or says one is now connected ("it connected", "done, I signed in") — including a question about whether work can be published or sent through it, which "outward" leaves false ("are we connected to GitHub?", "can we publish to their site?", "hook up HubSpot") — and false otherwise.',
-  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>, "changes": <number>, "teams": <number>, "owed": true | false, "analysis": "none" | "chart" | "multi", "outward": true | false, "connects": true | false}.',
+  'A last fact: "resumes" is true when the message asks to retry, continue, finish or go ahead with work from earlier in the conversation ("try again", "go ahead", "do it", "yes, file it", "keep going"). Then the request IS that earlier work: give the level and every other fact for the work being resumed, never for the few words that resume it.',
+  'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>", "drafts": true | false, "systems": <number>, "changes": <number>, "teams": <number>, "owed": true | false, "analysis": "none" | "chart" | "multi", "outward": true | false, "connects": true | false, "resumes": true | false}.',
 ].join(' ');
 
 /** Test seam: one small-model call returning its text. */
@@ -192,8 +193,11 @@ function keepFloor(read: AutoRead, floor: { level: EffortLevel; reason: string }
  * @param facts.analysis - It asks for a chart or an analysis (`chart`), across more than one statement or scenario (`multi`).
  * @param facts.outward - It asks to publish, send or change something outside the workspace.
  * @param facts.connects - It asks whether a system is connected, or to connect one, or whether work can be published or sent through it.
+ * @param facts.resumes - It retries, continues or goes ahead with work from earlier in the conversation. On 2026-11-10
+ *   "try again", after a filing that had failed, ran Quick: the fast model, a 40-second ceiling, and a reply that was
+ *   the model's own next step. Two words that resume work are as big as the work.
  */
-export function autoFloor(facts: { drafts: boolean; systems: number; changes?: number; owed?: boolean; analysis?: Analysis; outward?: boolean; connects?: boolean }): { level: EffortLevel; reason: string } | null {
+export function autoFloor(facts: { drafts: boolean; systems: number; changes?: number; owed?: boolean; analysis?: Analysis; outward?: boolean; connects?: boolean; resumes?: boolean }): { level: EffortLevel; reason: string } | null {
   if (facts.analysis === 'multi') {
     return { level: 'deep', reason: 'analysis across statements or scenarios' };
   }
@@ -217,6 +221,9 @@ export function autoFloor(facts: { drafts: boolean; systems: number; changes?: n
   }
   if (facts.connects) {
     return { level: 'standard', reason: 'checking a connection' };
+  }
+  if (facts.resumes) {
+    return { level: 'standard', reason: 'continuing earlier work' };
   }
   return null;
 }
@@ -274,6 +281,42 @@ export function connectionFloor(read: AutoRead, aboutConnection: boolean): AutoR
   return keepFloor({ ...read, level: 'standard', reason: 'checking a connection' }, floorOf(read));
 }
 
+/** A turn handed at least this much to read (its message with the thread or page it sits in) is never Quick. */
+export const LONG_CONTEXT_CHARS = 6_000;
+
+/**
+ * What the turn sits in sets a floor the request's words cannot. Two typed
+ * facts, read off the record and never off anybody's words:
+ *
+ *   - **The last turn here hit errors.** A follow-up to a turn whose tools
+ *     failed is the retry of that work, whatever it says ("try again", "?",
+ *     "still broken"), and Quick's fast model and 40-second ceiling are how
+ *     the first attempt ran out of road.
+ *   - **There is a lot to read.** A mention at the bottom of a long thread, or
+ *     a question on a long page, has to read it before answering; Quick's
+ *     ceiling does not cover the reading.
+ *
+ * Size is only a floor: a long thread that ends in a deep question still
+ * reads Deep, and a short one is still judged by the work it asks for.
+ * Raises, never lowers.
+ * @param read - What Auto read from the request.
+ * @param context - The turn's surroundings.
+ * @param context.chars - How much the turn was handed to read.
+ * @param context.priorErrors - How many tool calls failed in the previous turn of this conversation.
+ */
+export function contextFloor(read: AutoRead, context: { chars: number; priorErrors: number }): AutoRead {
+  if (read.level !== 'quick') {
+    return read;
+  }
+  if (context.priorErrors > 0) {
+    return keepFloor({ ...read, level: 'standard', reason: 'retrying after errors' }, floorOf(read));
+  }
+  if (context.chars >= LONG_CONTEXT_CHARS) {
+    return keepFloor({ ...read, level: 'standard', reason: 'a long thread to read' }, floorOf(read));
+  }
+  return read;
+}
+
 /** Jev's effort (ADR 0006) as a turn level. */
 const JEV_LEVELS = { low: 'quick', medium: 'standard', high: 'deep' } as const satisfies Record<'high' | 'low' | 'medium', EffortLevel>;
 
@@ -313,9 +356,9 @@ export function parseEffort(raw: string): AutoRead | null {
       return null;
     }
     const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 80) : '';
-    const facts = parsed as { drafts?: unknown; systems?: unknown; changes?: unknown; teams?: unknown; owed?: unknown; analysis?: unknown; outward?: unknown; connects?: unknown };
+    const facts = parsed as { drafts?: unknown; systems?: unknown; changes?: unknown; teams?: unknown; owed?: unknown; analysis?: unknown; outward?: unknown; connects?: unknown; resumes?: unknown };
     const analysis: Analysis = facts.analysis === 'chart' || facts.analysis === 'multi' ? facts.analysis : 'none';
-    const floor = autoFloor({ drafts: facts.drafts === true, systems: typeof facts.systems === 'number' ? facts.systems : 1, changes: typeof facts.changes === 'number' ? facts.changes : 0, owed: facts.owed === true, analysis, outward: facts.outward === true, connects: facts.connects === true });
+    const floor = autoFloor({ drafts: facts.drafts === true, systems: typeof facts.systems === 'number' ? facts.systems : 1, changes: typeof facts.changes === 'number' ? facts.changes : 0, owed: facts.owed === true, analysis, outward: facts.outward === true, connects: facts.connects === true, resumes: facts.resumes === true });
     const teams = typeof facts.teams === 'number' && Number.isFinite(facts.teams) ? { teams: Math.max(0, Math.round(facts.teams)) } : {};
     if (floor && EFFORT_LEVELS.indexOf(parsed.level as EffortLevel) < EFFORT_LEVELS.indexOf(floor.level)) {
       return keepFloor({ level: floor.level, reason: floor.reason, ...teams }, floor);
@@ -336,14 +379,14 @@ const INFER_TIMEOUT_MS = 2_500;
  * @param opts - The request.
  * @param opts.orgId - Whose key pays, and whose budget it lands on.
  * @param opts.message - The person's message.
- * @param opts.previous - The last exchange, when the message only makes sense with it ("and the other one?").
+ * @param opts.previous - The last exchanges (what was asked and what was answered), so a message that only makes sense with them ("and the other one?", "try again") is read as the work it continues.
  * @param opts.model - Test seam.
  */
 export async function inferEffort(opts: { orgId: string; message: string; previous?: string; model?: EffortModel }): Promise<AutoRead> {
   try {
     const model = opts.model ?? await defaultModel(opts.orgId);
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const user = `${opts.previous ? `Earlier in the conversation: ${opts.previous.slice(0, 600)}\n\n` : ''}Request: ${opts.message.slice(0, 2_000)}`;
+    const user = `${opts.previous ? `Earlier in the conversation:\n${opts.previous.slice(-1_800)}\n\n` : ''}Request: ${opts.message.slice(0, 2_000)}`;
     const reply = await Promise.race([
       model(INFER_SYSTEM, user),
       new Promise<never>((_, reject) => {
