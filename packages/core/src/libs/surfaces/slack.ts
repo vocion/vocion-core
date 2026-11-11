@@ -490,7 +490,9 @@ export async function postSlackReply(
     }
   }
 
-  const payload: Record<string, unknown> = { channel: target.channelId, text };
+  // A link an agent names shows its preview (title, description, picture): Slack leaves text links
+  // from an app's own posts bare unless asked. One preview says more than a paragraph about the page.
+  const payload: Record<string, unknown> = { channel: target.channelId, text, unfurl_links: true, unfurl_media: true };
   if (target.threadRef) {
     payload.thread_ts = target.threadRef;
   }

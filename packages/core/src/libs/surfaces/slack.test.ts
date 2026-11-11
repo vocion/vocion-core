@@ -244,6 +244,8 @@ describe('how an answer reads in Slack', () => {
     await postSlackReply({ channelId: 'C1', threadRef: '1.1' }, 'Filed [SL-16](https://factory.example/t/SL-16).', 'xoxb-test', undefined, { fetchImpl });
 
     expect(sent[0]?.text).toBe('Filed <https://factory.example/t/SL-16|SL-16>.');
+    // The page behind a link is previewed: an app's own posts do not unfurl text links unless they ask.
+    expect(sent[0]).toMatchObject({ unfurl_links: true, unfurl_media: true });
     expect(slackSurface.answerStyle).toMatch(/at most five short lines/);
     expect(slackSurface.answerStyle).toMatch(/Never explain how to reply/);
     expect(slackSurface.answerStyle).toMatch(/markdown link with a short label/);
