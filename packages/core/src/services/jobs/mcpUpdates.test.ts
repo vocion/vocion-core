@@ -10,7 +10,9 @@ function deps(over: Partial<McpUpdatesDeps> & { updates?: McpUpdate[] } = {}) {
   const answer = vi.fn<McpUpdatesDeps['answer']>(over.answer ?? (async () => null));
   const sources: McpUpdatesDeps['sources'] = over.sources ?? (async () => [{ slug: 'factory', name: 'Factory', updatesTool: 'ticket_updates' }]);
 
-  return { sources, read, tell, answer };
+  const watch = vi.fn<McpUpdatesDeps['watch']>(over.watch ?? (async () => undefined));
+
+  return { sources, read, tell, answer, watch };
 }
 
 describe('updatesOf', () => {
@@ -71,5 +73,27 @@ describe('mcp-updates', () => {
     });
 
     expect(await runMcpUpdatesJob('org_1', {}, d)).toEqual({ sources: 2, told: 1, waiting: 0, failed: ['broken: MCP request failed.'] });
+  });
+
+  it('the sweep renews where the provider pings; a ping-driven read touches only its source and registers nothing', async () => {
+    const sources = async () => [{ slug: 'factory', name: 'Factory', updatesTool: 'ticket_updates', watchTool: 'watch_updates' }, { slug: 'other', name: 'Other', updatesTool: 'u' }];
+    const sweep = deps({ sources });
+
+    expect(await runMcpUpdatesJob('org_1', {}, sweep)).toMatchObject({ sources: 2 });
+    expect(sweep.watch.mock.calls).toEqual([['org_1', 'factory', 'watch_updates']]);
+
+    const pinged = deps({ sources });
+
+    expect(await runMcpUpdatesJob('org_1', { source: 'factory' }, pinged)).toMatchObject({ sources: 1 });
+    expect(pinged.watch).not.toHaveBeenCalled();
+    expect(pinged.read.mock.calls.every(c => c[1] === 'factory')).toBe(true);
+  });
+
+  it('a provider that refuses the registration is named, and its updates are still read', async () => {
+    const d = deps({ sources: async () => [{ slug: 'factory', name: 'Factory', updatesTool: 'ticket_updates', watchTool: 'watch_updates' }], watch: vi.fn(async () => {
+      throw new Error('the address must be https');
+    }) });
+
+    expect(await runMcpUpdatesJob('org_1', {}, d)).toEqual({ sources: 1, told: 1, waiting: 0, failed: ['factory: could not register for pings (the address must be https)'] });
   });
 });

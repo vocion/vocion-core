@@ -8,7 +8,7 @@ everything between the two.
 | Asked | a person, in a thread or the app's chat | mention the desk |
 | Clarified | the desk | at most one round of questions, only for what the ticket cannot start without |
 | Filed | the desk | `mcp.act` → the factory's filing tool; the ticket link is posted in the thread |
-| Needs a person | the factory | `mcp-updates` reads it; the desk answers from the thread when the thread settled it, else asks the thread |
+| Needs a person | the factory | it pings the workspace, which reads its updates then; the desk answers from the thread when the thread settled it, else asks the thread |
 | Answered | a person, in the thread | the desk passes it on with `mcp.act` → the factory's reply tool, in their name |
 | Shipped | the factory | the release page is posted in the thread |
 
@@ -22,8 +22,9 @@ everything between the two.
    kind: mcp
    config:
      readTools: [ticket_status, ticket_updates, list_tickets, list_blockers, release_get]
-     actTools: [request_ticket, reply_ticket]
+     actTools: [request_ticket, reply_ticket, watch_updates]
      updatesTool: ticket_updates
+     updatesWatchTool: watch_updates
    ```
 
    The tool names are the factory's own; these are the Metacto Factory's. A factory fits when it has a tool that
