@@ -112,7 +112,7 @@ export async function agentScope(orgId: string, row: AgentContextRow, workspace?
     loadFilingTypes(orgId, row.objectTypeSlugs ?? []).catch(() => []),
     loadRestSources(orgId, row.connectorSources ?? []).catch(() => []),
     loadMcpSources(orgId, row.connectorSources ?? [])
-      .then(rows => rows.map(r => ({ slug: r.slug, name: r.name, readTools: r.config.readTools, perPerson: r.config.auth === 'person', ...(r.config.url ? { url: r.config.url } : {}) })))
+      .then(rows => rows.map(r => ({ slug: r.slug, name: r.name, readTools: r.config.readTools, ...(r.config.actTools.length > 0 ? { actTools: r.config.actTools } : {}), perPerson: r.config.auth === 'person', ...(r.config.url ? { url: r.config.url } : {}) })))
       .catch(() => []),
     loadSourceKinds(orgId, row.connectorSources ?? []).catch(() => ({})),
   ]);

@@ -67,7 +67,7 @@ export function askBrief(sourceName: string, sourceSlug: string, update: McpUpda
     '',
     update.text,
     '',
-    `Read what it waits on first (mcp_read on ${sourceSlug}). If what was already said in this conversation, or what you can read, settles it, answer it now with propose_action mcp.act and say in two lines what was asked and what you answered. If it is a person's decision (a yes to spend, an approval, a choice nobody made yet) or you are not sure, do not answer for them: say what is needed, from whom, and that a reply here mentioning you will be passed on. Keep the link.`,
+    `Read what it waits on first (mcp_read on ${sourceSlug}). If what was already said in this conversation, or what you can read, settles it, answer it now with mcp_act and say in two lines what was asked and what you answered. If it is a person's decision (a yes to spend, an approval, a choice nobody made yet) or you are not sure, do not answer for them: say what is needed, from whom, and that a reply here mentioning you will be passed on. Keep the link.`,
   ].join('\n');
 }
 

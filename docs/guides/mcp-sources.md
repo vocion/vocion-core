@@ -71,7 +71,7 @@ config:
   updatesTool: ticket_updates
 ```
 
-An agent submits one with `propose_action`, action id `mcp.act`, and the same input shape as `mcp.call`. When the person in the turn asked for exactly that, it runs at once, as theirs, and the provider's answer comes back to the agent to tell them. When an agent decides it on its own, it follows the workspace's trust rule `mcp.act.<source>.<tool>` (a tool with no rule reads `mcp.act`'s), and is a card when there is none. A tool is a read, a reviewed write or an act tool, never two of them, and a per-person source declares no act tools.
+An agent makes one with the `mcp_act` tool, which takes the same arguments as `mcp_read` plus a one-line `summary` (`sourceSlug`, `name`, `input`, `summary`). Underneath it is the action `mcp.act`. When the person in the turn asked for exactly that, it runs at once, as theirs, and the provider's answer comes back to the agent to tell them. When an agent decides it on its own, it follows the workspace's trust rule `mcp.act.<source>.<tool>` (a tool with no rule reads `mcp.act`'s), and is a card when there is none. A tool is a read, a reviewed write or an act tool, never two of them, and a per-person source declares no act tools.
 
 When the provider's tool takes an `origin` object, Vocion fills in `origin.conversation` (the conversation the request was made in) and `origin.request` (a stable id for the filing, so a retry files nothing twice). What the agent put in `origin` (who asked, a link to the message) is kept.
 

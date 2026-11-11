@@ -567,7 +567,7 @@ export type RuntimeContext = {
    * read, resolved once per graph build like `restSources`, so the MCP tools
    * can name what each server covers before the agent has to discover it.
    */
-  mcpSources?: Array<{ slug: string; name: string; readTools: string[]; perPerson: boolean; url?: string }>;
+  mcpSources?: Array<{ slug: string; name: string; readTools: string[]; actTools?: string[]; perPerson: boolean; url?: string }>;
   /**
    * The person's own `auth: person` MCP servers that join THIS turn although
    * the agent is not assigned them: declared anywhere in the Org, read as the

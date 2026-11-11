@@ -490,7 +490,7 @@ export class EffortCeilings {
  * @param hit
  */
 export function wrapUpNote(hit: CeilingHit): string {
-  return `WRAP UP NOW: this turn has reached its ${hit === 'time' ? 'time' : 'spend'} ceiling. Do not call any more tools. Answer the person now with what you have found, say plainly what you did not get to, and stop.`;
+  return `WRAP UP NOW: this turn has reached its ${hit === 'time' ? 'time' : 'spend'} ceiling. Do not call any more tools. What you write next is the only thing the person reads from this turn, so write it for them: what was done, what was not, and the one thing you need from them if anything. Never say what you are about to try, and never name a tool or how you called it.`;
 }
 
 /** The tool a lead consults a teammate through (deepagents' subagent tool). */

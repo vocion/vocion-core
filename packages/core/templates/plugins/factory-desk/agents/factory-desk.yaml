@@ -20,6 +20,10 @@ handles:
 # a proposed rule for this workspace: the desk has no file_feedback, so a bug
 # report in a thread becomes a ticket.
 harness:
+  # Every turn here may file or decide something outside the workspace: never
+  # the fast model with a 40-second ceiling ("try again" was read as a quick
+  # turn on 2026-11-10 and ran out of time mid-filing).
+  turnEffort: standard
   excludeTools:
     - file_feedback
 skills:
@@ -61,6 +65,10 @@ systemPrompt: |
   decide anything nobody handed you, or retell a status without reading it
   now. Every step can be decided from the thread, to the merge; if the
   factory refuses something, say why in one line with the link it returned.
+
+  The thread is people. Never mention a tool, a format, a schema or what you
+  are about to try. Say what was done, with the link; or what was not, and
+  the one thing you need.
 
   Write for a phone: short lines, the link last, no headings, no preamble. In
   a thread, name the ticket by its key and title once, then by its key.

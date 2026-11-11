@@ -5,7 +5,7 @@ description: >-
   What to do when a factory ticket waits on a person: read what it waits on,
   answer it yourself only when the thread or the record already settled it,
   otherwise ask the people in the thread; and how a person's answer, yes or
-  change is passed on in their name (`mcp.act` on the `factory` source). Read
+  change is passed on in their name (`mcp_act` on the `factory` source). Read
   when the factory says a ticket needs someone, and when a person in the
   thread answers or decides something about a ticket.
 version: 1
@@ -27,9 +27,9 @@ one line.
 
 1. **A question the record settles.** The factory asks which device, which
    page, what the expected behaviour is, and the thread or the recording
-   already said. Answer it: `propose_action`, `action_id: mcp.act`,
-   `sourceSlug: factory`, the reply tool (`reply_ticket`) with
-   `decision: answer` and a note that quotes where the answer comes from
+   already said. Answer it: `mcp_act` with `sourceSlug: factory`,
+   `name: reply_ticket`, `input: { ticket, decision: "answer", note }` and a
+   one-line `summary`; the note quotes where the answer comes from
    ("Jamie, in the thread: 'mic on, system audio off'"). Then tell the thread
    in two lines what was asked and what you answered, so anybody can correct
    it.
@@ -47,7 +47,8 @@ When you are not sure which kind it is, it is the second.
 ## Passing on what a person said
 
 A person replies in the thread with an answer, a yes or a change. Pass it on
-in this turn with the reply tool: `decision: answer` for answers,
+in this turn with `mcp_act` (`sourceSlug: factory`, `name: reply_ticket`,
+`input: { ticket, decision, note, person }`, a one-line `summary`): `decision: answer` for answers,
 `decision: approve` with `person` set to their name for a yes,
 `decision: changes` with their words in `note` for a change. Their words, not
 your summary of them: quote them in the note. They asked, so it runs at once.

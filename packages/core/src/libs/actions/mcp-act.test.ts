@@ -64,3 +64,25 @@ describe('mcp.act', () => {
     expect(out.advice).toBe('Factory answered: {"ticket":"ACME-4","url":"https://factory.example/t/ACME-4"}');
   });
 });
+
+describe('mcp_act, the tool', () => {
+  it('is offered only when a source takes requests, and files the same proposal propose_action would', async () => {
+    const proposed: unknown[] = [];
+    vi.doMock('@/services/agents/tools/proposeAction', () => ({ runProposal: async (_ctx: unknown, req: unknown, opts: unknown) => {
+      proposed.push([req, opts]);
+
+      return 'done';
+    } }));
+    const { mcpTools } = await import('@/services/agents/tools/mcpDirect');
+    const ctx = (actTools?: string[]) => ({ orgId: 'org', connectorSources: ['factory'], sourceKinds: { factory: 'mcp' }, mcpSources: [{ slug: 'factory', name: 'Factory', readTools: ['ticket_status'], perPerson: false, ...(actTools ? { actTools } : {}) }] }) as never;
+
+    expect(mcpTools(ctx()).map(t => t.name)).toEqual(['mcp_list_tools', 'mcp_read']);
+
+    const tools = mcpTools(ctx(['request_ticket']));
+    const act = tools.find(t => t.name === 'mcp_act')!;
+
+    expect(await act.invoke({ sourceSlug: 'factory', name: 'request_ticket', input: { title: 'Mic audio' }, summary: 'File the mic audio bug' })).toBe('done');
+    expect(proposed).toEqual([[{ actionId: 'mcp.act', input: { sourceSlug: 'factory', tool: 'request_ticket', input: { title: 'Mic audio' }, summary: 'File the mic audio bug' }, confidence: 0.9, rationale: 'File the mic audio bug', suggestedDecision: 'approve', suggestedDecisionReason: 'File the mic audio bug' }, { tool: 'mcp_act' }]]);
+    expect(await act.invoke({ sourceSlug: 'ledger', name: 'post', input: {}, summary: 's' })).toMatch(/takes no requests here/);
+  });
+});
