@@ -63,11 +63,21 @@ export function updatesOf(result: Record<string, unknown>): McpUpdate[] {
  */
 export function askBrief(sourceName: string, sourceSlug: string, update: McpUpdate): string {
   return [
-    `${sourceName} sent this about a request made in this conversation. Nobody here has seen it yet; your reply is what the thread will read.`,
+    `${sourceName} sent this about a request made in this conversation. Nobody here has seen it yet; your reply is what the thread reads, on a phone, between other things.`,
     '',
     update.text,
     '',
-    `Read what it waits on first (mcp_read on ${sourceSlug}). If what was already said in this conversation, or what you can read, settles it, answer it now with mcp_act and say in two lines what was asked and what you answered. If it is a person's decision (a yes to spend, an approval, a choice nobody made yet) or you are not sure, do not answer for them: say what is needed, from whom, and that a reply here mentioning you will be passed on. Keep the link.`,
+    `Read what it waits on first (mcp_read on ${sourceSlug}). If what was already said in this conversation, or what you can read, settles it, answer it now with mcp_act and say in two lines what was asked and what you answered.`,
+    '',
+    // A first live ask ran to 230 words: the page retold, the reviewer's findings, the cost. Nobody could
+    // answer it from a phone (Chris, 2026-11-10: "too long for a human to scan and give a meaningful response").
+    'Otherwise ask for the decision so a busy person can answer in ten seconds. Your whole reply is at most five short lines and about 60 words:',
+    '1. The key of what is waiting, who is needed, and the decision, in one line.',
+    '2. Your recommendation and the single reason that matters most.',
+    '3. Only if somebody else has to answer something first: that one question, to them by name.',
+    '4. How to answer: mention you with "approve", with the change, or with "answer it for me".',
+    '5. The link.',
+    'Leave everything else where it is: no summary of the page, no list of findings, no cost unless the decision is about cost. They can ask you for more.',
   ].join('\n');
 }
 
