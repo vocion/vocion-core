@@ -258,3 +258,32 @@ describe('how an answer reads in Slack', () => {
     expect(slackSurface.answerStyle).toMatch(/markdown link with a short label/);
   });
 });
+
+// Chris, 2026-11-10: "I want to see the og preview unfurl in slack for the brief." Slack previews no
+// link in an app's own post, so the page is drawn as a card of ours.
+describe('the page a message is about, as a card', () => {
+  it('is a section with the linked title, the opening lines and the picture as a small accessory', async () => {
+    const { postSlackReply, slackPreviewBlock } = await import('./slack');
+    const preview = { title: 'SL-16 · Brief ready for approval: Mic audio', url: 'https://factory.example/r/ticket/ts_x', description: 'Jamie recorded on the phone app and the recording has no voice.', imageUrl: 'https://cdn.example/poster.jpg' };
+
+    expect(slackPreviewBlock(preview)).toEqual({
+      type: 'section',
+      text: { type: 'mrkdwn', text: '*<https://factory.example/r/ticket/ts_x|SL-16 · Brief ready for approval: Mic audio>*\nJamie recorded on the phone app and the recording has no voice.' },
+      accessory: { type: 'image', image_url: 'https://cdn.example/poster.jpg', alt_text: 'SL-16 · Brief ready for approval: Mic audio' },
+    });
+    // A picture Slack cannot fetch is left off; the card still stands.
+    expect(slackPreviewBlock({ ...preview, imageUrl: '/api/artifacts/9' })).not.toHaveProperty('accessory');
+
+    const sent: Record<string, unknown>[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init?.body)));
+
+      return new Response(JSON.stringify({ ok: true, ts: '1.2', channel: 'C1' }));
+    }) as unknown as typeof fetch;
+    await postSlackReply({ channelId: 'C1', threadRef: '1.1' }, { text: '🟠 **[SL-16](https://factory.example/t/SL-16)** Brief ready for approval', preview }, 'xoxb-test', undefined, { fetchImpl });
+    const blocks = sent[0]?.blocks as Array<{ type: string }>;
+
+    expect(blocks.map(b => b.type)).toEqual(['markdown', 'section']);
+    expect(sent[0]?.text).toContain('SL-16 · Brief ready for approval: Mic audio: https://factory.example/r/ticket/ts_x');
+  });
+});

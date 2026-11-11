@@ -144,4 +144,18 @@ describe('what the thread reads is built from parts', () => {
 
     expect(u).toMatchObject({ headline: 'two lines', note: 'n', links: [{ label: 'Brief', url: 'https://a.example' }], images: [{ url: 'https://img.example/a.png', caption: 'c' }] });
   });
+
+  it('carries the provider\'s card to the thread: the page as a preview, never as a second link', async () => {
+    const card = { title: 'ACME-4 · Brief ready for approval: Mic audio', url: 'https://factory.example/r/ticket/ts_x', description: 'The recording has no voice.', image: 'https://cdn.example/poster.jpg' };
+    const [parsed] = updatesOf({ structuredContent: { updates: [{ id: 'A', conversation: 41, text: 't', headline: 'h', preview: card }, { id: 'B', conversation: 41, text: 't', preview: { title: 'x', url: 'http://plain.example' } }] } });
+
+    expect(parsed?.preview).toEqual({ title: card.title, url: card.url, description: card.description, imageUrl: card.image });
+    expect(updatesOf({ structuredContent: { updates: [{ id: 'B', conversation: 41, text: 't', preview: { title: 'x', url: 'http://plain.example' } }] } })[0]?.preview).toBeUndefined();
+
+    const d = deps({ updates: [parsed!] });
+    await runMcpUpdatesJob('org_1', {}, d);
+
+    expect(d.tell.mock.calls[0]?.[2]).toBe('h');
+    expect(d.tell.mock.calls[0]?.[3]).toMatchObject({ preview: { title: card.title, url: card.url, imageUrl: card.image } });
+  });
 });

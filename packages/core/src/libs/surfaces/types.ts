@@ -93,9 +93,17 @@ export type ChatImage = {
  * A message to post. A bare string is still accepted everywhere a message is
  * taken; the object form is how images travel.
  */
+/** The page a message is about, drawn as a card under the words: its title (the link), its opening lines and a picture. */
+export type ChatPreview = { title: string; url: string; description?: string; imageUrl?: string };
+
 export type ChatMessage = {
   text: string;
   images?: ChatImage[];
+  /**
+   * The page the message is about, as a card. A surface that can draw one does (Slack makes no link
+   * previews for an app's own posts, so it is drawn here); one that cannot shows the title as a link.
+   */
+  preview?: ChatPreview;
   /** One button under the words that opens a page, such as "Connect this channel". Surfaces without buttons show the URL in the text. */
   link?: { label: string; url: string };
 };

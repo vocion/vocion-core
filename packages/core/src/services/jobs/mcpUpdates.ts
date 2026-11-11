@@ -43,6 +43,8 @@ export type McpUpdate = {
   links?: Array<{ label: string; url: string }>;
   /** Public pictures to show under it. */
   images?: Array<{ url: string; caption: string }>;
+  /** The page it is about, drawn as a card: the title is the link. */
+  preview?: { title: string; url: string; description?: string; imageUrl?: string };
 };
 
 /** The longest line an agent may add to a provider's message: its recommendation and the reason. */
@@ -81,18 +83,19 @@ export function oneLine(words: string | null | undefined): string | null {
  * @param agent.words - Its words.
  * @param agent.acted - It answered the provider in this turn, so the ask no longer stands.
  */
-export function composeUpdate(update: McpUpdate, agent: { words: string; acted: boolean } | null): { text: string; files: Array<{ url: string; caption: string }> } {
+export function composeUpdate(update: McpUpdate, agent: { words: string; acted: boolean } | null): { text: string; files: Array<{ url: string; caption: string }>; preview?: McpUpdate['preview'] } {
   const files = (update.images ?? []).slice(0, 3);
+  const preview = update.preview ? { preview: update.preview } : {};
   if (!update.headline) {
-    return { text: agent?.words ?? update.text, files };
+    return { text: agent?.words ?? update.text, files, ...preview };
   }
   const links = (update.links ?? []).map(l => `[${l.label}](${l.url})`).join(' · ');
   const line = oneLine(agent?.words);
   // It answered the provider itself: what it did is the news, not a request that no longer stands.
   if (agent?.acted && line) {
-    return { text: [line, links].filter(Boolean).join('\n'), files };
+    return { text: [line, links].filter(Boolean).join('\n'), files, ...preview };
   }
-  return { text: [update.headline, update.asks ? line : null, update.note, links].filter(Boolean).join('\n'), files };
+  return { text: [update.headline, update.asks ? line : null, update.note, links].filter(Boolean).join('\n'), files, ...preview };
 }
 
 /**
@@ -112,7 +115,7 @@ export function updatesOf(result: Record<string, unknown>): McpUpdate[] {
   }
   const list = body && typeof body === 'object' && Array.isArray((body as { updates?: unknown }).updates) ? (body as { updates: unknown[] }).updates : [];
   return list.flatMap((raw) => {
-    const u = raw as { id?: unknown; conversation?: unknown; text?: unknown; url?: unknown; asks?: unknown; headline?: unknown; note?: unknown; links?: unknown; images?: unknown };
+    const u = raw as { id?: unknown; conversation?: unknown; text?: unknown; url?: unknown; asks?: unknown; headline?: unknown; note?: unknown; links?: unknown; images?: unknown; preview?: { title?: unknown; url?: unknown; description?: unknown; image?: unknown } };
     const conversation = Number(u?.conversation);
     if (typeof u?.id !== 'string' || !u.id || !Number.isInteger(conversation) || conversation <= 0 || typeof u.text !== 'string' || !u.text.trim()) {
       return [];
@@ -121,9 +124,10 @@ export function updatesOf(result: Record<string, unknown>): McpUpdate[] {
     const line = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.replace(/\s*\n\s*/g, ' ').trim().slice(0, max) : undefined);
     const links = Array.isArray(u.links) ? u.links.flatMap((l: { label?: unknown; url?: unknown }) => (https(l?.url) && typeof l.label === 'string' && l.label.trim() ? [{ label: l.label.trim().slice(0, 40), url: l.url }] : [])).slice(0, 5) : [];
     const images = Array.isArray(u.images) ? u.images.flatMap((i: { url?: unknown; caption?: unknown }) => (https(i?.url) ? [{ url: i.url, caption: typeof i.caption === 'string' ? i.caption.slice(0, 200) : '' }] : [])).slice(0, 3) : [];
+    const card = u.preview && https(u.preview.url) && line(u.preview.title, 200) ? { title: line(u.preview.title, 200)!, url: u.preview.url, ...(line(u.preview.description, 400) ? { description: line(u.preview.description, 400)! } : {}), ...(https(u.preview.image) ? { imageUrl: u.preview.image } : {}) } : null;
     const headline = line(u.headline, 300);
     const note = line(u.note, 300);
-    return [{ id: u.id.slice(0, 300), conversation, text: u.text.trim().slice(0, 4000), url: https(u.url) ? u.url : null, asks: u.asks === true, ...(headline ? { headline } : {}), ...(note ? { note } : {}), ...(links.length > 0 ? { links } : {}), ...(images.length > 0 ? { images } : {}) }];
+    return [{ id: u.id.slice(0, 300), conversation, text: u.text.trim().slice(0, 4000), url: https(u.url) ? u.url : null, asks: u.asks === true, ...(headline ? { headline } : {}), ...(note ? { note } : {}), ...(links.length > 0 ? { links } : {}), ...(images.length > 0 ? { images } : {}), ...(card ? { preview: card } : {}) }];
   });
 }
 
@@ -155,7 +159,7 @@ export type McpUpdatesDeps = {
   watch: (orgId: string, sourceSlug: string, tool: string) => Promise<void>;
   /** Call the source's updates tool with the ids told last time; the updates it returns now. */
   read: (orgId: string, sourceSlug: string, tool: string, ack: string[]) => Promise<McpUpdate[]>;
-  tell: (orgId: string, conversationId: number, text: string, opts: { key: string; url?: string | null; files?: Array<{ url: string; caption: string }> }) => Promise<TellResult>;
+  tell: (orgId: string, conversationId: number, text: string, opts: { key: string; url?: string | null; files?: Array<{ url: string; caption: string }>; preview?: McpUpdate['preview'] }) => Promise<TellResult>;
   /** The conversation's agent reads an update that asks: its words, and whether it answered the provider itself in that turn. Null when it could not run. */
   answer: (orgId: string, conversationId: number, brief: string, sourceSlug: string) => Promise<{ words: string; acted: boolean } | null>;
 };
@@ -248,7 +252,7 @@ export async function runMcpUpdatesJob(orgId: string, input: Record<string, unkn
         // The agent adds its one line when the update asks and it could run; the provider's parts stand without it.
         const agent = update.asks ? await deps.answer(orgId, update.conversation, askBrief(source.name, source.slug, update), source.slug).catch(() => null) : null;
         const message = composeUpdate(update, agent);
-        const said = await deps.tell(orgId, update.conversation, message.text, { key, url: update.url, ...(message.files.length > 0 ? { files: message.files } : {}) });
+        const said = await deps.tell(orgId, update.conversation, message.text, { key, url: update.url, ...(message.files.length > 0 ? { files: message.files } : {}), ...(message.preview ? { preview: message.preview } : {}) });
         // Told, told before, or nobody left to tell: the provider can stop returning it.
         if (said.said || said.reason === 'already said here' || said.reason === 'the conversation is gone') {
           done.push(update.id);

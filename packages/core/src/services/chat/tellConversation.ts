@@ -99,9 +99,10 @@ const defaultDeps: TellDeps = {
  * @param opts.files - Pictures or recordings uploaded under the words in Slack.
  * @param opts.threadOnly - Say it only when the conversation is a Slack thread.
  * @param opts.url - What the line is about, kept on the Slack post.
+ * @param opts.preview - The page the line is about, drawn as a card where the medium can.
  * @param deps - Seams for tests.
  */
-export async function tellConversation(orgId: string, conversationId: number, text: string, opts: { key: string; files?: readonly TellFile[]; threadOnly?: boolean; url?: string | null }, deps: TellDeps = defaultDeps): Promise<TellResult> {
+export async function tellConversation(orgId: string, conversationId: number, text: string, opts: { key: string; files?: readonly TellFile[]; threadOnly?: boolean; url?: string | null; preview?: import('@/libs/surfaces/types').ChatPreview }, deps: TellDeps = defaultDeps): Promise<TellResult> {
   try {
     const conversation = await deps.conversation(orgId, conversationId);
     if (!conversation) {
@@ -115,16 +116,20 @@ export async function tellConversation(orgId: string, conversationId: number, te
       // An MCP client's conversation is the client's; nobody reads it in the app.
       return { said: false, reason: 'the conversation came over MCP, where nobody reads it' };
     }
+    // The page the line is about (`opts.preview`) is a card where the medium draws one, and its title as a
+    // link in the words everywhere else: the app's chat, an email, a text.
+    const linked = opts.preview ? `${text}\n[${opts.preview.title}](${opts.preview.url})` : text;
+    const draws = Boolean(opts.preview && channel?.drawsPreview);
     // Words that leave the app carry absolute links; the app's chat renders its own.
-    const out = channel ? absoluteAppLinks(text) : text;
+    const out = channel ? absoluteAppLinks(draws ? text : linked) : text;
     if (channel ? await channel.alreadySaid(orgId, conversation, opts.key, out) : await deps.saidInApp(conversation.id, text)) {
       return { said: false, reason: 'already said here' };
     }
-    await deps.append(orgId, conversationId, text, conversation.agentSlug);
+    await deps.append(orgId, conversationId, linked, conversation.agentSlug);
     if (!channel) {
       return { said: true, channel: 'chat' };
     }
-    const reached = await channel.say(orgId, conversation, out, { key: opts.key, files: opts.files ?? [], url: opts.url ?? null }).catch(() => false);
+    const reached = await channel.say(orgId, conversation, out, { key: opts.key, files: opts.files ?? [], url: opts.url ?? null, ...(draws ? { preview: opts.preview } : {}) }).catch(() => false);
     return { said: true, channel: reached ? channel.surface : 'chat' };
   } catch (err) {
     return { said: false, reason: `not said: ${(err as Error).message}` };
