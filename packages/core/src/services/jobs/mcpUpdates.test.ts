@@ -1,6 +1,6 @@
 import type { McpUpdate, McpUpdatesDeps } from './mcpUpdates';
 import { describe, expect, it, vi } from 'vitest';
-import { askBrief, runMcpUpdatesJob, updatesOf } from './mcpUpdates';
+import { askBrief, composeUpdate, LINE_MAX, oneLine, runMcpUpdatesJob, updatesOf } from './mcpUpdates';
 
 const update = (over: Partial<McpUpdate> = {}): McpUpdate => ({ id: 'ACME-4|live:2.1.0', conversation: 41, text: 'Shipped: ACME-4 is live.', url: 'https://factory.example/r/release/rs_x', asks: false, ...over });
 
@@ -37,11 +37,12 @@ describe('mcp-updates', () => {
     expect(d.answer).not.toHaveBeenCalled();
   });
 
-  it('an update that asks goes to the agent first, and the thread hears the agent', async () => {
-    const d = deps({ updates: [update({ id: 'ACME-4|wait:brief:t1', text: 'ACME-4 needs you.', asks: true })], answer: vi.fn(async () => 'The factory asked which plan; the thread said Pro, so I answered Pro.') });
+  it('an update that asks goes to the agent first; a provider with no parts is posted in the agent\'s words', async () => {
+    const asks = update({ id: 'ACME-4|wait:brief:t1', text: 'ACME-4 needs you.', asks: true });
+    const d = deps({ updates: [asks], answer: vi.fn(async () => ({ words: 'The factory asked which plan; the thread said Pro, so I answered Pro.', acted: true })) });
     await runMcpUpdatesJob('org_1', {}, d);
 
-    expect(d.answer).toHaveBeenCalledWith('org_1', 41, askBrief('Factory', 'factory', update({ id: 'ACME-4|wait:brief:t1', text: 'ACME-4 needs you.', asks: true })));
+    expect(d.answer).toHaveBeenCalledWith('org_1', 41, askBrief('Factory', 'factory', asks), 'factory');
     expect(d.tell.mock.calls[0]?.[2]).toBe('The factory asked which plan; the thread said Pro, so I answered Pro.');
   });
 
@@ -95,5 +96,52 @@ describe('mcp-updates', () => {
     }) });
 
     expect(await runMcpUpdatesJob('org_1', {}, d)).toEqual({ sources: 1, told: 1, waiting: 0, failed: ['factory: could not register for pings (the address must be https)'] });
+  });
+});
+
+// Chris, 2026-11-10, reading a thread on his phone: nine long messages, bare links, how-to lines.
+describe('what the thread reads is built from parts', () => {
+  const parts = { headline: '🟠 **[ACME-4](https://factory.example/t/ACME-4)** Brief ready for approval · _Mic audio_', links: [{ label: 'Brief', url: 'https://factory.example/t/ACME-4' }, { label: 'Recording', url: 'https://video.example/v/abc' }] };
+
+  it('an ask is the headline, the agent\'s one line and the links: three lines whatever the agent wrote', () => {
+    const long = `Chris: I'd approve. It now covers the phone app.\n\nWhat the Brief covers:\n- a\n- b\nThe cost is $17.\nMention me with approve.`;
+    const out = composeUpdate(update({ asks: true, ...parts }), { words: long, acted: false });
+
+    expect(out.text).toBe(`${parts.headline}\nChris: I'd approve. It now covers the phone app.\n[Brief](https://factory.example/t/ACME-4) · [Recording](https://video.example/v/abc)`);
+    expect(out.text.split('\n')).toHaveLength(3);
+  });
+
+  it('news is the headline, its note and its links, with the picture; no agent is asked', async () => {
+    const live = update({ headline: '✅ **[ACME-4](https://factory.example/t/ACME-4)** shipped in 2.1.0 · _Mic audio_', note: '📱 Not checked by the factory, needs a person: record on an iPhone', links: [{ label: 'What shipped', url: 'https://factory.example/r/release/rs_x' }], images: [{ url: 'https://factory.example/r/release/rs_x/shot/ACME-4/0', caption: 'Mic audio' }] });
+    const d = deps({ updates: [live] });
+    await runMcpUpdatesJob('org_1', {}, d);
+
+    expect(d.answer).not.toHaveBeenCalled();
+    expect(d.tell.mock.calls[0]?.[2]).toBe(`${live.headline}\n${live.note}\n[What shipped](https://factory.example/r/release/rs_x)`);
+    expect(d.tell.mock.calls[0]?.[3]).toMatchObject({ files: [{ url: 'https://factory.example/r/release/rs_x/shot/ACME-4/0', caption: 'Mic audio' }] });
+  });
+
+  it('when the agent answered the provider itself, its line is the news and the stale ask is not posted', () => {
+    const out = composeUpdate(update({ asks: true, ...parts }), { words: 'The factory asked which app; the recording is from the phone, so I answered the phone app.', acted: true });
+
+    expect(out.text).toBe('The factory asked which app; the recording is from the phone, so I answered the phone app.\n[Brief](https://factory.example/t/ACME-4) · [Recording](https://video.example/v/abc)');
+  });
+
+  it('the agent\'s line is its first line, whole: a long one keeps the sentences that fit, or is left out', () => {
+    expect(oneLine('  \n- one\ntwo')).toBe('- one');
+    expect(oneLine(null)).toBeNull();
+
+    const fits = `Chris: I'd approve. ${'It covers the phone app. '.repeat(20)}`;
+
+    expect(oneLine(fits)!.length).toBeLessThanOrEqual(LINE_MAX);
+    expect(oneLine(fits)).toMatch(/^Chris: I'd approve\. It covers the phone app\./);
+    expect(oneLine('x'.repeat(LINE_MAX + 50))).toBeNull();
+    expect(composeUpdate(update({ asks: true, ...parts }), { words: 'x'.repeat(400), acted: false }).text.split('\n')).toHaveLength(2);
+  });
+
+  it('keeps only well-formed parts: https links and pictures, one-line headline and note', () => {
+    const [u] = updatesOf({ structuredContent: { updates: [{ id: 'A', conversation: 3, text: 't', headline: 'two\nlines', note: '  n  ', links: [{ label: 'Brief', url: 'https://a.example' }, { label: 'x', url: 'http://plain.example' }, { url: 'https://nolabel.example' }], images: [{ url: 'https://img.example/a.png', caption: 'c' }, { url: '/relative.png' }] }] } });
+
+    expect(u).toMatchObject({ headline: 'two lines', note: 'n', links: [{ label: 'Brief', url: 'https://a.example' }], images: [{ url: 'https://img.example/a.png', caption: 'c' }] });
   });
 });

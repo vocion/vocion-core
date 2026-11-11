@@ -646,6 +646,7 @@ export function resetSlackScopeCache(): void {
 export const slackSurface: ChatSurfaceAdapter = {
   id: 'slack',
   answerStyle: SLACK_ANSWER_STYLE,
+  answerMaxChars: 600,
   verify: (rawBody, headers) => verifySlackSignature(rawBody, headers, process.env.SLACK_SIGNING_SECRET),
   parse: payload => parseSlackPayload(payload, process.env.SLACK_BOT_USER_ID),
   reply: (target, message, opts) => postSlackReply(target, message, process.env.SLACK_BOT_TOKEN, SLACK_API_BASE, opts?.fetchImage ? { fetchImage: opts.fetchImage } : {}),

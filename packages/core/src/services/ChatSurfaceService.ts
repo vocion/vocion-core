@@ -623,6 +623,23 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     // Slack shows no trace, so it gets the answer after the turn's last tool call; the steps
     // before it ("I'll check the rollup first") stay on the run in Vocion (`lastAnswerOf`).
     let text = (result.lastAnswer ?? result.response).trim() || '(no reply)';
+    // TOO LONG FOR WHERE IT IS READ (Chris, 2026-11-10, a thread on his phone: "too long to read and
+    // answer"). The style note asks for a short answer; when one comes back long anyway it is asked
+    // for again, once, by the agent that wrote it. The words stay the agent's: nothing is cut here.
+    if (adapter.answerMaxChars && text.length > adapter.answerMaxChars) {
+      const shorter = await deps.runAgent({
+        orgId,
+        agentSlug,
+        message: `Your reply below is ${text.length} characters, too long for where it is read. Say it again in at most five short lines and about 60 words: what is true now, what you did, what you need. Keep the links, with short labels. Add nothing new, call no tools, and do not say how to reply.\n\n--- your reply ---\n${text}`,
+        userId: createdBy,
+        conversationId,
+        conversationHistory: history,
+        signal: stopper.signal,
+      }).then(r => (r.lastAnswer ?? r.response).trim()).catch(() => '');
+      if (shorter && shorter.length < text.length) {
+        text = shorter;
+      }
+    }
 
     // Something was missing, and the channel has not been told yet. The
     // sentence names the scope and what it would have bought — the whole
