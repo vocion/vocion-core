@@ -17,7 +17,7 @@
 # channel the desk answers in, and its trust rule for answering on its own.
 slug: factory-desk
 name: Factory desk
-version: 1.0.1
+version: 1.1.0
 description: Ask for software in a thread and watch it ship. The desk asks what it needs to, files the ticket with your delivery factory and posts its link, tells the thread when the factory needs a person, passes the answer on, and posts the release page when it is live.
 depends: []
 surfaces: []

@@ -9,7 +9,8 @@ everything between the two.
 | Clarified | the desk | at most one round of questions, only for what the ticket cannot start without |
 | Filed | the desk | `mcp.act` → the factory's filing tool; the ticket link is posted in the thread |
 | Needs a person | the factory | it pings the workspace, which reads its updates then; the desk answers from the thread when the thread settled it, else asks the thread |
-| Answered | a person, in the thread | the desk passes it on with `mcp.act` → the factory's reply tool, in their name |
+| Answered or approved | a person, in the thread | the desk passes it on with `mcp.act` → the factory's reply tool, in their name: every step, to the merge |
+| Handed over | a person says "answer it for me" | the desk reads it, decides with its own judgment, records it as theirs decided by the desk, and says why |
 | Shipped | the factory | the release page is posted in the thread |
 
 ## Setting it up
