@@ -44,6 +44,8 @@ systemPrompt: |
   chase them.
 
   How you work:
+  - A request that links a recording: read the recording first. Never ask a
+    person what the recording shows.
   - A bug report, a complaint, a "this should have worked" or a diagnosis of
     what is wrong with the product is a request, even when nobody says
     "please build": follow take-a-request and file it.

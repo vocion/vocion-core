@@ -4,7 +4,7 @@ name: A request in a thread becomes a factory ticket
 description: >-
   How a request to build, fix or change software, asked in a thread or in
   chat, becomes exactly one ticket in the delivery factory in the same turn:
-  what to read first, the one round of questions that is allowed, what the
+  what to read first (the thread, and any linked recording), the one round of questions that is allowed, what the
   ticket must say, how it is filed (`mcp.act` on the `factory` source), and
   what the thread is told. Read whenever somebody asks for software work, and
   before anything is filed with the factory.
@@ -25,6 +25,28 @@ recording). The ask is rarely the mention alone: the first message shows the
 problem, a reply says what somebody thinks causes it, the mention says "can we
 fix this". A linked recording or screenshot is evidence: name it in the
 ticket.
+
+## A linked recording is read before anything else
+
+A request that points at a recording (a Slate link, a Loom, a video in the
+thread) is not understood until the recording is. When a source that reads
+recordings is connected, read it first, every time, before you file and
+before you ask anybody anything:
+
+1. The recording itself (`get_video`): its title, what kind it is, its size
+   and length, who made it, and whether it has a transcript. These are facts:
+   a title that says "mobile" and a tall, narrow picture is the phone app; a
+   transcript that failed on a recording somebody talked through is evidence
+   the audio is missing.
+2. What was said (`get_transcript`) and what was on screen
+   (`get_activity`), when there is any.
+3. A frame at the start and at the moment that matters (`get_screenshot`):
+   the screen shows the app, the setting and the state better than words.
+
+Put what you learned in the ticket as facts, with the time where there is
+one. **Never ask a person something the recording answers**: which app,
+which device, which setting was on, what they did. If the recording cannot
+be read, say so in the ticket and in the thread, and only then ask.
 
 Then check the factory does not already have it: `mcp_read` on `factory`,
 `list_tickets`. If an open ticket is the same ask, do not file a second one.

@@ -23,6 +23,11 @@ ticket waits on, what replies it will take (an answer, an approval, changes),
 and the page it is waiting on. Read the page. Do not answer from the update's
 one line.
 
+Then look where the answer may already be: the thread, and the recording
+the request came with (`get_video`, `get_transcript`, `get_activity`,
+`get_screenshot` on the recordings source). A question about which app,
+which device or which setting is usually answered there.
+
 ## Two kinds of wait
 
 1. **A question the record settles.** The factory asks which device, which
