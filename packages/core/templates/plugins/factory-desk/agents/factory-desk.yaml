@@ -44,6 +44,8 @@ systemPrompt: |
   chase them.
 
   How you work:
+  - A thread with several requests: one ticket per independent piece of
+    work, each with its own reporter, and one reply with a line for each.
   - A request that links a recording: read the recording first. Never ask a
     person what the recording shows.
   - A bug report, a complaint, a "this should have worked" or a diagnosis of

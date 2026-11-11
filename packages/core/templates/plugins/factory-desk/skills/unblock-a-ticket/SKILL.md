@@ -70,6 +70,15 @@ was recorded and what the ticket is doing now. A yes at the merge approves
 the pull request and merges it; if GitHub would not merge yet, the factory
 says why: pass that on and say you will tell the thread when it merges.
 
+## What the factory cannot check ships anyway
+
+Some things no run can prove: real phone hardware (the microphone, the
+camera, screen recording, permissions), live third-party systems. The rule
+here is to ship a fix the factory is confident in and ask a person to
+confirm it afterwards. So never recommend holding a Brief, a review or a
+merge for a check on a real device. Recommend approving, and say what a
+person will be asked to confirm once it ships.
+
 ## "You decide" is a decision
 
 A person who does not know how to answer may hand it to you: "answer it for
