@@ -350,19 +350,55 @@ describe('handleInbound', () => {
     expect(adapter.replies.map(r => r.text)).toEqual(['The share page shows views by viewer.']);
   });
 
-  it('lets a reply decide a card waiting in the thread, answering with the decision and running no turn (backlog 057)', async () => {
+  it('lets a reply decide a card waiting in the thread, then gives the message its turn, told what was settled (backlog 057; 2026-11-11)', async () => {
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
     const adapter = fakeAdapter();
-    const runAgent = vi.fn();
-    const approval = vi.fn(async () => ({ decided: true as const, verb: 'approve' as const, runId: 7049, reply: 'Approved by Chris: "Merge it". It ran; Undo is in Vocion.' }));
+    const runAgent = vi.fn(async () => ({ response: 'Merged. On the import ticket, the design now covers the API.', traceId: 't', toolCalls: [] }));
+    const approval = vi.fn(async () => ({ decided: true as const, verb: 'approve' as const, runId: 7049, title: 'Merge it', reply: 'Approved by Chris: "Merge it". It ran; Undo is in Vocion.' }));
 
-    const out = await svc.handleInbound(adapter, { ...inbound, text: 'ship it' }, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), approval });
+    const out = await svc.handleInbound(adapter, { ...inbound, text: 'ship it, and make sure the import design covers the API' }, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), approval });
 
-    expect(out).toMatchObject({ outcome: 'replied', text: 'Approved by Chris: "Merge it". It ran; Undo is in Vocion.' });
-    expect(runAgent).not.toHaveBeenCalled();
-    expect(adapter.replies[0]!.text).toContain('Approved by Chris');
-    // The reply is read against the agent's last message in the thread (none yet here).
-    expect(approval).toHaveBeenCalledWith(ORG, expect.objectContaining({ text: 'ship it' }), expect.any(Number), null);
+    // The reply is the agent's own, not a canned line, and the rest of the message was heard.
+    expect(out).toMatchObject({ outcome: 'replied', text: 'Merged. On the import ticket, the design now covers the API.' });
+    expect(adapter.replies.map(r => r.text)).toEqual(['Merged. On the import ticket, the design now covers the API.']);
+    expect(runAgent).toHaveBeenCalledTimes(1);
+
+    const message = (runAgent.mock.calls[0] as unknown as [{ message: string }])[0].message;
+
+    expect(message).toContain('ship it, and make sure the import design covers the API');
+    expect(message).toContain('proposal #7049, "Merge it"');
+    expect(message).toContain('Do not run it, propose it or ask about it again');
+    // The reply is read against the agent's last message in the thread (none yet here), and the thread so far.
+    expect(approval).toHaveBeenCalledWith(ORG, expect.objectContaining({ text: 'ship it, and make sure the import design covers the API' }), expect.any(Number), null, []);
+  });
+
+  it('hands the approval read the thread so far, so only the agent\'s latest ask can be settled', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const runAgent = vi.fn(async () => ({ response: 'Reply yes to pass it on.', traceId: 't', toolCalls: [] }));
+    const approval = vi.fn(async () => null);
+    await svc.handleInbound(adapter, inbound, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), approval });
+    await svc.handleInbound(adapter, { ...inbound, messageRef: '100.2', text: 'yes' }, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), approval });
+
+    const said = (approval.mock.calls[1] as unknown as unknown[])[4] as Array<{ role: string; createdAt: Date }>;
+
+    expect(said.map(m => m.role)).toEqual(['user', 'assistant']);
+    expect(said[0]!.createdAt).toBeInstanceOf(Date);
+  });
+
+  it('records where a thread\'s conversation is read, and puts right one that began before that was recorded', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const runAgent = vi.fn(async () => ({ response: 'ok', traceId: 't', toolCalls: [] }));
+    const first = await svc.handleInbound(adapter, inbound, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+    const id = (first as { conversationId: number }).conversationId;
+
+    expect((await db.select().from(conversationSchema).where(eq(conversationSchema.id, id)))[0]!.surface).toBe('slack');
+
+    await db.update(conversationSchema).set({ surface: 'app' }).where(eq(conversationSchema.id, id));
+    await svc.handleInbound(adapter, { ...inbound, messageRef: '100.2', text: 'and last quarter?' }, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+
+    expect((await db.select().from(conversationSchema).where(eq(conversationSchema.id, id)))[0]!.surface).toBe('slack');
   });
 
   it('stores the reply as a finished turn, so a Slack answer is not a row nobody can read (#114)', async () => {

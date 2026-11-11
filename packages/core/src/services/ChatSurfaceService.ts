@@ -1,7 +1,7 @@
 import type { ChatImageFetcher, ChatInbound, ChatInboundFile, ChatJoin, ChatMessage, ChatPostRef, ChatReplyTarget, ChatStop, ChatSurfaceAdapter } from '@/libs/surfaces/types';
 import type { LoadedAttachment } from '@/services/chat/attachments';
 import type { OwnAssistantRoute } from '@/services/chat/ownAssistant';
-import type { ThreadApproval } from '@/services/chat/slackApproval';
+import type { ThreadApproval, ThreadTurn } from '@/services/chat/slackApproval';
 import type { SlackThreadContext } from '@/services/chat/slackThread';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
@@ -12,7 +12,7 @@ import { absoluteAppLinks } from '@/libs/links';
 import { fetchSlackFile } from '@/libs/surfaces/slack';
 import { chatPermalink, conversationReplies } from '@/libs/surfaces/slackRead';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
-import { agentSchema, chatChannelBindingSchema, projectSchema } from '@/models/Schema';
+import { agentSchema, chatChannelBindingSchema, conversationSchema, projectSchema } from '@/models/Schema';
 import { budgetRefusalMessage } from '@/services/agents/budgetStop';
 import { TurnStopped } from '@/services/agents/turnGate';
 import { runAgentDeep } from '@/services/AgentService';
@@ -23,8 +23,8 @@ import { acceptUpload, loadedFromArtifact, MAX_IMAGE_BYTES, uploadSpec } from '@
 import { classifyFeedback, feedbackNote } from '@/services/chat/feedbackSignal';
 import { routesBySender, routeToOwnAssistant } from '@/services/chat/ownAssistant';
 import { withPageContext } from '@/services/chat/pageContext';
-import { approvalFromThread, defaultThreadApprovalDeps } from '@/services/chat/slackApproval';
-import { ourPostsInThread, recordSlackPost, threadAlreadyNoticed, tsOf } from '@/services/chat/slackPosts';
+import { approvalFromThread, defaultThreadApprovalDeps, settledNote } from '@/services/chat/slackApproval';
+import { ourPostsInThread, recordSlackPost, threadAlreadyNoticed } from '@/services/chat/slackPosts';
 import { buildSlackThreadContext, scopeGapSentence, threadPageContext } from '@/services/chat/slackThread';
 import { tellImages } from '@/services/chat/tellConversation';
 import { followTurn } from '@/services/chat/workingLine';
@@ -327,8 +327,8 @@ export type ChatHandlerDeps = {
   permalink: (opts: { channelId: string; messageTs: string }) => Promise<string | null>;
   /** The bytes of a picture on the message, behind the bot's token. Null when it cannot be read. */
   fetchFile: (url: string) => Promise<{ bytes: Uint8Array; contentType: string } | null>;
-  /** A reply that decides a card waiting in this thread (`slackApproval.ts`), or null to answer as a turn. */
-  approval: (orgId: string, inbound: ChatInbound, conversationId: number, asked?: string | null) => Promise<ThreadApproval>;
+  /** A reply that decides the card the agent last asked about in this thread (`slackApproval.ts`); the turn that follows is told what it settled. */
+  approval: (orgId: string, inbound: ChatInbound, conversationId: number, asked?: string | null, said?: readonly ThreadTurn[]) => Promise<ThreadApproval>;
   /** The pictures people posted earlier in the thread, for a mention that brought none. */
   threadPictures: (inbound: ChatInbound) => Promise<ChatInboundFile[]>;
   /** Whether Vocion has posted in this thread (the parent or a reply), so a reply with no mention is for it. */
@@ -371,7 +371,7 @@ const defaultDeps: ChatHandlerDeps = {
   buildThreadContext: buildSlackThreadContext,
   permalink: opts => chatPermalink(opts, process.env.SLACK_BOT_TOKEN),
   fetchFile: url => fetchSlackFile(url, process.env.SLACK_BOT_TOKEN),
-  approval: (orgId, inbound, conversationId, asked) => approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps, asked),
+  approval: (orgId, inbound, conversationId, asked, said) => approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps, asked, said),
   threadPictures: inbound => slackThreadPictures(inbound, process.env.SLACK_BOT_TOKEN),
   inThread: async (channelId, threadRef) => (await ourPostsInThread(channelId, threadRef)).length > 0,
   cardsWaiting: (orgId, conversationId) => defaultThreadApprovalDeps.pending(orgId, conversationId),
@@ -548,10 +548,16 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const createdBy = `${inbound.surface}:${inbound.externalUserId}`;
   let conversation = await latestConversationForScope({ orgId, scopeRef, createdBy });
   if (!conversation) {
-    conversation = await createConversation({ orgId, agentSlug, createdBy, scopeRef, initialTitle: inbound.text.slice(0, 80) });
+    conversation = await createConversation({ orgId, agentSlug, createdBy, scopeRef, initialTitle: inbound.text.slice(0, 80), surface: inbound.surface });
+  } else if (conversation.surface !== inbound.surface) {
+    // WHERE IT IS READ IS ON THE ROW (2026-11-11): a thread's conversation was created without its
+    // surface, so it read as the app's and tools told the agent a card was docked above a composer
+    // no thread has (`decisionHolder.inTheApp`). Threads that began before this are put right here.
+    await db.update(conversationSchema).set({ surface: inbound.surface }).where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversation.id)));
   }
   const conversationId = conversation.id;
-  const history = toHistoryTurns(await listMessages({ orgId, conversationId }));
+  const said = await listMessages({ orgId, conversationId });
+  const history = toHistoryTurns(said);
   // The cards already waiting here, so the reply carries pictures only for a card this turn put up.
   const cardsBefore = new Set((await deps.cardsWaiting(orgId, conversationId).catch(() => [])).map(c => c.runId));
   // The thread's pictures join the turn only the first time Vocion is called into it; later turns
@@ -562,21 +568,15 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     await claimAttachments({ orgId, artifactIds: pictures.attachments.map(a => a.id), conversationId, messageId: userMsg.id }).catch(() => {});
   }
 
-  // A REPLY THAT DECIDES (backlog 057): a card waiting on this thread, and
-  // words a model reads as the decision, from a Slack user Vocion knows as a
-  // member — decided here, said back, no agent turn. Anything else is a turn.
-  // A thread shows no card: the ask was the agent's last message, so a short reply is read against it.
+  // A REPLY THAT DECIDES (backlog 057): a card waiting on this thread, and words a model reads as
+  // the decision, from a sender Vocion knows as a member, is decided here as theirs. A thread shows
+  // no card: the ask was the agent's last message, so only the card that message asked about can be
+  // settled, and an older one is withdrawn (`slackApproval.ts`).
+  // THE MESSAGE STILL GETS ITS TURN (2026-11-11): one reply said "approve" and two other things;
+  // a canned line answered and the rest was dropped. The turn is told what was settled and answers
+  // in the agent's own words, doing whatever else was asked.
   const asked = [...history].reverse().find(t => t.role === 'assistant')?.content ?? null;
-  const approval = await deps.approval(orgId, inbound, conversationId, asked).catch(() => null);
-  if (approval) {
-    await appendMessage({ orgId, conversationId, role: 'assistant', content: approval.reply, status: 'complete' });
-    await doneWorking();
-    const posted = await adapter.reply(target, absoluteAppLinks(approval.reply));
-    if (inbound.surface === 'slack') {
-      await recordSlackPost({ orgId, teamId: inbound.teamId, channelId: inbound.channelId, ts: tsOf(posted), threadTs: inbound.threadRef, kind: 'reply', agentSlug, text: approval.reply, createdBy: approval.decided ? `decision:${approval.verb}:${approval.runId}` : 'system:slack-approval' }).catch(() => {});
-    }
-    return { outcome: 'replied', orgId, agentSlug, conversationId, text: approval.reply };
-  }
+  const approval = await deps.approval(orgId, inbound, conversationId, asked, said).catch(() => null);
 
   // Where the person is, on this surface: the channel, the post they replied
   // to, who else is in the thread, and the workspace we answer for. Built
@@ -603,6 +603,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     withPageContext(inbound.text, pageContext),
     filesFeedback ? feedbackNote(signal) : '',
     permalink ? `\n\nPermalink to this message, for anything you file: ${permalink}` : '',
+    settledNote(approval),
     pictures.unread.length > 0 ? `\n\nA picture was attached that could not be read (${pictures.unread.join(', ')}); say so if it matters to the ask.` : '',
     adapter.answerStyle ? `\n\n--- how I am reaching you ---\n${adapter.answerStyle}` : '',
   ].filter(Boolean).join('');
@@ -663,8 +664,8 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     const out = absoluteAppLinks(text);
     // A card this turn put up for the person goes up with its request's mockups (Chris, 2026-10-06:
     // "put mocks in Slack when asking for review").
-    const asked = (await deps.cardsWaiting(orgId, conversationId).catch(() => [])).find(c => !cardsBefore.has(c.runId));
-    const mockups = asked ? await deps.cardPictures(orgId, asked.input).catch(() => []) : [];
+    const put = (await deps.cardsWaiting(orgId, conversationId).catch(() => [])).find(c => !cardsBefore.has(c.runId));
+    const mockups = put ? await deps.cardPictures(orgId, put.input).catch(() => []) : [];
     const pictured = mockups.length > 0 ? tellImages(orgId, mockups) : null;
     const posted = await adapter.reply(target, pictured ? { text: out, images: pictured.images } : out, pictured ? { fetchImage: pictured.fetchImage } : undefined);
     // Slack's own record of what was said (thread follow-ups, the once-only rules); other media keep the conversation.
