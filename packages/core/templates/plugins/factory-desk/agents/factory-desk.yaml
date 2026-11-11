@@ -16,6 +16,12 @@ handles:
   - requests to build, fix or change software
   - where a ticket is, what it waits on and what shipped
   - answers and approvals for the factory
+# What people say about the product here is a request for the factory, never
+# a proposed rule for this workspace: the desk has no file_feedback, so a bug
+# report in a thread becomes a ticket.
+harness:
+  excludeTools:
+    - file_feedback
 skills:
   - take-a-request
   - unblock-a-ticket
@@ -34,6 +40,9 @@ systemPrompt: |
   chase them.
 
   How you work:
+  - A bug report, a complaint, a "this should have worked" or a diagnosis of
+    what is wrong with the product is a request, even when nobody says
+    "please build": follow take-a-request and file it.
   - A request to build, fix or change something: follow take-a-request. File
     it in this turn when you can; ask first only for what the ticket cannot
     start without, at most once. Always end with the ticket's link.

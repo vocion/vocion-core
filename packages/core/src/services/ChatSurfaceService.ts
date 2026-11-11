@@ -162,6 +162,22 @@ export async function agentPersona(orgId: string, agentSlug: string): Promise<Ch
 }
 
 /**
+ * Whether the answering agent's own seat withholds a tool (`harness.excludeTools`).
+ * A note that tells an agent to call a tool is only said to an agent that has it.
+ * @param orgId - Tenant.
+ * @param agentSlug - The answering agent.
+ * @param tool - The tool's name.
+ */
+export async function agentWithholds(orgId: string, agentSlug: string, tool: string): Promise<boolean> {
+  const [row] = await db.select({ harnessConfig: agentSchema.harnessConfig })
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agentSlug)))
+    .limit(1);
+  const held = (row?.harnessConfig as { excludeTools?: unknown } | null)?.excludeTools;
+  return Array.isArray(held) && held.includes(tool);
+}
+
+/**
  * Remove a binding. Org-scoped.
  * @param orgId - Tenant.
  * @param id - Binding id.
@@ -578,9 +594,12 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   // the message rather than as prompt wording, so the rule holds for every
   // agent that answers on this surface.
   const signal = classifyFeedback(inbound.text);
+  // An agent whose seat withholds `file_feedback` takes what people say another way (a desk
+  // that files requests with a connected system): the note would send it to a tool it lacks.
+  const filesFeedback = !(await agentWithholds(orgId, agentSlug, 'file_feedback').catch(() => false));
   const message = [
     withPageContext(inbound.text, pageContext),
-    feedbackNote(signal),
+    filesFeedback ? feedbackNote(signal) : '',
     permalink ? `\n\nPermalink to this message, for anything you file: ${permalink}` : '',
     pictures.unread.length > 0 ? `\n\nA picture was attached that could not be read (${pictures.unread.join(', ')}); say so if it matters to the ask.` : '',
     adapter.answerStyle ? `\n\n--- how I am reaching you ---\n${adapter.answerStyle}` : '',
