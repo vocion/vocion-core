@@ -7,8 +7,8 @@
 # `updatesWatchTool`) and says anything a lost ping left behind. A job, not an
 # agent: a sweep with nothing to say costs one read and no model.
 slug: factory-updates
-name: Sweep for anything the factory said that a ping missed
-label: Swept the factory
+name: Check the factory hourly for anything the thread has not heard
+label: Checked the factory
 doing: Checking the factory
 description: >-
   The factory tells this workspace the moment a request made here needs a
