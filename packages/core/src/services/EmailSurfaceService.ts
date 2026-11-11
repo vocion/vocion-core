@@ -1,6 +1,6 @@
 import type { EmailInboundMeta, ReceivedEmail } from '@/libs/surfaces/email';
 import type { ChatInbound } from '@/libs/surfaces/types';
-import type { ThreadApproval } from '@/services/chat/slackApproval';
+import type { ThreadApproval, ThreadTurn } from '@/services/chat/slackApproval';
 import { randomUUID } from 'node:crypto';
 import process from 'node:process';
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm';
@@ -164,7 +164,7 @@ export type EmailHandlerDeps = {
   fetchEmail: (id: string) => Promise<ReceivedEmail>;
   send: typeof sendMail;
   /** A reply that decides a card waiting on this thread (`chat/slackApproval.ts`), or null to answer as a turn. */
-  approval: (orgId: string, inbound: ChatInbound, conversationId: number) => Promise<ThreadApproval>;
+  approval: (orgId: string, inbound: ChatInbound, conversationId: number, said?: readonly ThreadTurn[]) => Promise<ThreadApproval>;
 };
 
 function defaultDeps(): EmailHandlerDeps {
@@ -173,9 +173,9 @@ function defaultDeps(): EmailHandlerDeps {
     preflight: preflightCheck,
     fetchEmail: id => fetchReceivedEmail(id, process.env.RESEND_API_KEY?.trim() ?? ''),
     send: sendMail,
-    approval: async (orgId, inbound, conversationId) => {
+    approval: async (orgId, inbound, conversationId, said) => {
       const { approvalFromThread, defaultThreadApprovalDeps } = await import('@/services/chat/slackApproval');
-      return approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps);
+      return approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps, null, said);
     },
   };
 }
@@ -309,14 +309,18 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
     ? `\n\n[Attachments (not read): ${meta.attachments.map(a => `${a.filename} (${a.contentType})`).join(', ')}]`
     : '';
   const messageText = `${body || '(empty message)'}${attachmentNote}`;
-  const history = toHistoryTurns(await listMessages({ orgId, conversationId }));
+  const said = await listMessages({ orgId, conversationId });
+  const history = toHistoryTurns(said);
   await appendMessage({ orgId, conversationId, role: 'user', content: messageText, userId: `email:${meta.from}` });
 
   // A REPLY THAT DECIDES, BY MAIL (Chris, 2026-10-06: "answers via message … extendable to email"):
   // a card waiting on this thread, and words a model reads as the decision, from an address Vocion
   // knows as a member, are decided here and said back, the same read as a Slack reply.
-  const decided = await deps.approval(orgId, { surface: 'email', teamId: null, channelId: box.address, threadRef: inboundMessageId, messageRef: inboundMessageId, externalUserId: meta.from, text: body, isDirect: false }, conversationId).catch(() => null);
-  if (decided) {
+  const decided = await deps.approval(orgId, { surface: 'email', teamId: null, channelId: box.address, threadRef: inboundMessageId, messageRef: inboundMessageId, externalUserId: meta.from, text: body, isDirect: false }, conversationId, said).catch(() => null);
+  // Only the ask in the agent's latest mail is settled; an older proposal is withdrawn and the turn is told.
+  const { settledNote } = await import('@/services/chat/slackApproval');
+  const staleNote = decided && decided.reply === null ? settledNote(decided) : '';
+  if (decided && decided.reply !== null) {
     await appendMessage({ orgId, conversationId, role: 'assistant', content: decided.reply, status: 'complete' });
     let mailId: string | null = null;
     if (mailEnabled()) {
@@ -334,7 +338,7 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
     const { cost, result } = await withRunCost({ conversationId }, async scope => ({ cost: scope, result: await deps.runAgent({
       orgId,
       agentSlug,
-      message: `${messageText}\n\n--- how I am reaching you ---\nThis arrived by email at ${box.address} from ${meta.fromRaw}${meta.subject ? ` with the subject "${meta.subject}"` : ''}. Answer as an email reply: plain prose, no markdown tables, links written out in full.`,
+      message: `${messageText}\n\n--- how I am reaching you ---\nThis arrived by email at ${box.address} from ${meta.fromRaw}${meta.subject ? ` with the subject "${meta.subject}"` : ''}. Answer as an email reply: plain prose, no markdown tables, links written out in full.${staleNote}`,
       userId: `email:${meta.from}`,
       conversationId,
       conversationHistory: history,

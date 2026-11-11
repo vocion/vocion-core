@@ -128,7 +128,7 @@ describe('a shared number', () => {
     const adapter = smsAdapter();
     const decide = vi.fn(async () => ({ ok: true, what: 'Sent.' }));
     const pending = vi.fn(async () => [{ runId: 41, actionId: 'mail.send', input: {}, title: 'Send the Kestrel Capital follow-up' }]);
-    const runAgent = vi.fn();
+    const runAgent = vi.fn(async () => ({ response: 'Sent the Kestrel Capital follow-up.', traceId: 't', toolCalls: [] }));
     const approval = (orgId: string, inbound: ChatInbound, conversationId: number) => approvalFromThread(orgId, inbound, conversationId, {
       pending,
       decisionSentence: async () => 'approve sending the follow-up',
@@ -137,6 +137,7 @@ describe('a shared number', () => {
       member: async (o, id, surface) => channelBySurface(surface)!.memberOf(o, id),
       signInHint: () => 'a number',
       decide,
+      withdraw: async () => false,
     });
 
     const out = await svc.handleInbound(adapter, text(RILEY_PHONE, SHARED, 'yes send it'), { runAgent: runAgent as never, preflight: ok, approval });
@@ -144,8 +145,9 @@ describe('a shared number', () => {
     expect(out).toMatchObject({ outcome: 'replied', orgId: rileyPersonal });
     expect(pending).toHaveBeenCalledWith(rileyPersonal, expect.any(Number));
     expect(decide).toHaveBeenCalledWith(rileyPersonal, 41, 'approve', RILEY, 'yes send it');
-    expect(runAgent).not.toHaveBeenCalled();
-    expect(adapter.replies.at(-1)!.text).toBe('Approved by Riley: "Send the Kestrel Capital follow-up". Sent.');
+    // The message still gets its turn, told what was settled; the reply is the assistant's own.
+    expect(runAgent).toHaveBeenCalledWith(expect.objectContaining({ orgId: rileyPersonal, message: expect.stringContaining('proposal #41, "Send the Kestrel Capital follow-up"') }));
+    expect(adapter.replies.at(-1)!.text).toBe('Sent the Kestrel Capital follow-up.');
   });
 });
 

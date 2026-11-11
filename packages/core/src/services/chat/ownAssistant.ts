@@ -19,7 +19,7 @@
  *
  * Everything after the route is the ordinary chat-surface path: the thread is
  * `<surface>:<number>:<their number>`, a reply that decides a card waiting in
- * it is read as a decision (`approvalFromThread`), anything else is a turn.
+ * it is read as a decision (`approvalFromThread`), and the message then gets its turn.
  */
 
 import type { RoutedWorkspace } from './workspaceRoute';
