@@ -220,3 +220,32 @@ describe('stripMentions', () => {
     expect(stripMentions('<@U1|bot> ping <@U2>  now')).toBe('ping now');
   });
 });
+
+// Chris, 2026-11-10, reading a thread on his phone: "Too long to read and answer. Links? ... I
+// don't need instructions on how to use chat in every message."
+describe('how an answer reads in Slack', () => {
+  it('turns markdown into what Slack shows: a labelled link, one-asterisk bold, no heading marks', async () => {
+    const { slackMrkdwn } = await import('./slack');
+
+    expect(slackMrkdwn('[SL-16](https://factory.example/#/t/acme/k/SL-16) needs **Chris**.')).toBe('<https://factory.example/#/t/acme/k/SL-16|SL-16> needs *Chris*.');
+    expect(slackMrkdwn('## What shipped\nSee <https://a.example|this> and https://b.example/x')).toBe('*What shipped*\nSee <https://a.example|this> and https://b.example/x');
+    expect(slackMrkdwn('[a|b](https://c.example)')).toBe('<https://c.example|a b>');
+    expect(slackMrkdwn('no links [here] (or here)')).toBe('no links [here] (or here)');
+  });
+
+  it('posts the converted text, and tells every agent on the surface to be short, link what it names and skip the how-to', async () => {
+    const { postSlackReply, slackSurface } = await import('./slack');
+    const sent: Record<string, unknown>[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init?.body)));
+
+      return new Response(JSON.stringify({ ok: true, ts: '1.2', channel: 'C1' }));
+    }) as unknown as typeof fetch;
+    await postSlackReply({ channelId: 'C1', threadRef: '1.1' }, 'Filed [SL-16](https://factory.example/t/SL-16).', 'xoxb-test', undefined, { fetchImpl });
+
+    expect(sent[0]?.text).toBe('Filed <https://factory.example/t/SL-16|SL-16>.');
+    expect(slackSurface.answerStyle).toMatch(/at most five short lines/);
+    expect(slackSurface.answerStyle).toMatch(/Never explain how to reply/);
+    expect(slackSurface.answerStyle).toMatch(/markdown link with a short label/);
+  });
+});

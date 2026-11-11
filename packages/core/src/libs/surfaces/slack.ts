@@ -233,6 +233,32 @@ export type SlackMedia = 'none' | 'uploaded' | 'blocks' | 'unreachable';
  * Slack rejects an `image` block whose URL it cannot fetch itself.
  * @param url
  */
+/**
+ * Markdown as Slack shows it. Agents write the markdown the app's chat renders; Slack's own
+ * format differs in three places a reader sees: a link is `<url|label>` (a markdown link
+ * arrives as its raw brackets and address), bold is one asterisk, and there are no headings.
+ * Presentation only: no word is added, dropped or moved.
+ * @param text - The message as the agent wrote it.
+ */
+export function slackMrkdwn(text: string): string {
+  return text
+    .replace(/\[([^\]\n]{1,200})\]\((https?:\/\/[^\s)]+)\)/g, (_m, label: string, url: string) => `<${url}|${label.replace(/[<>|]/g, ' ').trim()}>`)
+    .replace(/\*\*([^*\n]+)\*\*/g, '*$1*')
+    .replace(/^#{1,6} +(\S.*)$/gm, '*$1*');
+}
+
+/**
+ * How an answer reads in a Slack thread: on a phone, between other things, by people who
+ * know how a thread works (Chris, 2026-11-10: "too long to read and answer", "I don't need
+ * instructions on how to use chat in every message").
+ */
+export const SLACK_ANSWER_STYLE = [
+  'This is a Slack thread, read on a phone between other things.',
+  'Answer in at most five short lines and about 60 words: what is true now, what you did, what you need. One idea a line. No headings, no preamble, no recap of what they already said.',
+  'Link what you name the first time you name it, as a markdown link with a short label ([SL-16](https://…), [the recording](https://…)): never a bare address on its own line.',
+  'Never explain how to reply, how to mention you or what they can say next: a reply in this thread reaches you, and they know. They will ask if they want more.',
+].join(' ');
+
 export function isPubliclyFetchable(url: string): boolean {
   return /^https:\/\//i.test(url) && !url.includes('/api/artifacts/');
 }
@@ -430,7 +456,7 @@ export async function postSlackReply(
   const msg = asMessage(message);
   const images = msg.images ?? [];
   let media: SlackMedia = 'none';
-  let text = msg.text;
+  let text = slackMrkdwn(msg.text);
   let renderable: ChatImage[] = [];
 
   if (images.length > 0) {
@@ -619,6 +645,7 @@ export function resetSlackScopeCache(): void {
 
 export const slackSurface: ChatSurfaceAdapter = {
   id: 'slack',
+  answerStyle: SLACK_ANSWER_STYLE,
   verify: (rawBody, headers) => verifySlackSignature(rawBody, headers, process.env.SLACK_SIGNING_SECRET),
   parse: payload => parseSlackPayload(payload, process.env.SLACK_BOT_USER_ID),
   reply: (target, message, opts) => postSlackReply(target, message, process.env.SLACK_BOT_TOKEN, SLACK_API_BASE, opts?.fetchImage ? { fetchImage: opts.fetchImage } : {}),

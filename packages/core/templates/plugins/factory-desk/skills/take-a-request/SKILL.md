@@ -101,9 +101,9 @@ ticket exists and waits on them.
 
 ## Tell the thread
 
-Two or three lines: the ticket's key and title, what happens next (the
-factory writes a Brief; you will say here when it needs anyone), and the link
-last. Do not restate the request back to the person who made it.
+Two lines: the ticket as a link on its key with its title, and what happens
+next in a few words. Nothing else: do not restate the request, and do not
+say how to reply.
 
 If you could not file it, say so in one plain line and what you need. Never
 describe tools, formats or what you are about to try: the thread is people.

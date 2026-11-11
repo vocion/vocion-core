@@ -71,13 +71,11 @@ export function askBrief(sourceName: string, sourceSlug: string, update: McpUpda
     '',
     // A first live ask ran to 230 words: the page retold, the reviewer's findings, the cost. Nobody could
     // answer it from a phone (Chris, 2026-11-10: "too long for a human to scan and give a meaningful response").
-    'Otherwise ask for the decision so a busy person can answer in ten seconds. Your whole reply is at most five short lines and about 60 words:',
-    '1. The key of what is waiting, who is needed, and the decision, in one line.',
+    'Otherwise ask for the decision so a busy person can answer in ten seconds. Your whole reply is at most four short lines and about 50 words:',
+    '1. What is waiting (its key as a markdown link, [KEY](address)), who is needed, and the decision, in one line.',
     '2. Your recommendation and the single reason that matters most.',
     '3. Only if somebody else has to answer something first: that one question, to them by name.',
-    '4. How to answer: mention you with "approve", with the change, or with "answer it for me".',
-    '5. The link.',
-    'Leave everything else where it is: no summary of the page, no list of findings, no cost unless the decision is about cost. They can ask you for more.',
+    'Leave everything else where it is: no summary of the page, no list of findings, no cost unless the decision is about cost, and never how to reply or what they can say: they know, and a reply in the thread reaches you.',
   ].join('\n');
 }
 

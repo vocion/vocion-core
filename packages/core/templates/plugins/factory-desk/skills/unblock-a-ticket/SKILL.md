@@ -41,19 +41,18 @@ which device or which setting is usually answered there.
 2. **A person's decision.** A yes to spend, an approval of a Brief, a
    Design, the finished work or the merge, a choice between options nobody
    chose. Not yours to make unasked. Ask for it so a busy person can answer
-   from a phone in ten seconds: at most five short lines, about 60 words.
+   from a phone in ten seconds: at most four short lines, about 50 words.
 
-   - The ticket key, who is needed and the decision, in one line.
+   - The ticket key as a link, who is needed and the decision, in one line.
    - Your recommendation and the single reason that matters most
      ("I'd ask for a change: the checks never open the shared link").
    - Only if somebody else must answer something first: that one question,
      to them by name.
-   - How to answer: mention you with "approve", the change, or "answer it
-     for me". Then the link.
 
    Everything else stays on the ticket: do not retell the page, list the
    reviewer's findings or quote the cost unless the decision is about cost.
-   If they want more they will ask, and then you give it.
+   Never say how to reply or what they can say: they know, and a reply in
+   the thread reaches you. If they want more they will ask.
 
 When you are not sure which kind it is, it is the second.
 
