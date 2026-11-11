@@ -6,6 +6,7 @@ import { slackThreadOfScope, tellImages } from './tellConversation';
 /** A Slack thread: posted as the agent's persona, files uploaded under the words, every post recorded. */
 export const slackChannel: ConversationChannel = {
   surface: 'slack',
+  drawsPreview: true,
   owns: c => slackThreadOfScope(c.scopeRef) !== null,
   async say(orgId, c, text, opts) {
     const thread = slackThreadOfScope(c.scopeRef)!;
@@ -22,7 +23,7 @@ export const slackChannel: ConversationChannel = {
     const { images, fetchImage } = tellImages(orgId, opts.files);
     const posted = await adapter.reply(
       { channelId: thread.channelId, threadRef: thread.threadTs, ...(persona?.displayName ? { displayName: persona.displayName } : {}), ...(persona?.iconUrl ? { iconUrl: persona.iconUrl } : {}) },
-      { text, ...(images.length > 0 ? { images } : {}) },
+      { text, ...(images.length > 0 ? { images } : {}), ...(opts.preview ? { preview: opts.preview } : {}) },
       images.length > 0 ? { fetchImage } : undefined,
     );
     await recordSlackPost({ orgId, channelId: thread.channelId, ts: posted?.ts ?? '', threadTs: thread.threadTs, kind: 'reply', agentSlug: c.agentSlug, text, announcedLabel: opts.key, announcedUrl: opts.url, createdBy: 'system:tell-conversation' });

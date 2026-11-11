@@ -261,6 +261,21 @@ export const SLACK_ANSWER_STYLE = [
   'Never explain how to reply, how to mention you or what they can say next: a reply in this thread reaches you, and they know. They will ask if they want more.',
 ].join(' ');
 
+/**
+ * A page as a card: a section whose text is the linked title over the opening lines, with the
+ * picture as its small accessory when Slack can fetch it.
+ * @param preview - The page.
+ */
+export function slackPreviewBlock(preview: import('./types').ChatPreview): Record<string, unknown> {
+  const clean = (v: string, max: number) => v.replace(/[<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  const lines = [`*<${preview.url}|${clean(preview.title, 150)}>*`, preview.description ? clean(preview.description, 300) : ''].filter(Boolean).join('\n');
+  return {
+    type: 'section',
+    text: { type: 'mrkdwn', text: lines },
+    ...(preview.imageUrl && isPubliclyFetchable(preview.imageUrl) ? { accessory: { type: 'image', image_url: preview.imageUrl, alt_text: clean(preview.title, 150) } } : {}),
+  };
+}
+
 export function isPubliclyFetchable(url: string): boolean {
   return /^https:\/\//i.test(url) && !url.includes('/api/artifacts/');
 }
@@ -512,6 +527,16 @@ export async function postSlackReply(
     // links), where plain `text` shows the asterisks. The words are not touched; `text` stays as
     // the notification fallback.
     payload.blocks = [{ type: 'markdown', text }];
+  }
+  if (msg.preview) {
+    // THE PAGE IT IS ABOUT, AS A CARD: the title as the link, the opening lines, a small picture beside
+    // them. Slack previews no link in an app's own post, so the card is a block of ours. The link also
+    // rides in `text` for a client that drops blocks.
+    payload.text = `${text}\n${msg.preview.title}: ${msg.preview.url}`;
+    payload.blocks = [
+      ...((payload.blocks as unknown[] | undefined) ?? [{ type: 'markdown', text }]),
+      slackPreviewBlock(msg.preview),
+    ];
   }
   if (msg.link) {
     // A link button opens its page and needs no interactivity endpoint; the URL also rides in

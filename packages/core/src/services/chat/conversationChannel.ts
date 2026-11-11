@@ -24,7 +24,9 @@ export type ConversationChannel = {
   /** Whether this conversation is one of this channel's threads. */
   owns: (c: ChannelConversation) => boolean;
   /** Say one line in the conversation's thread, with its files. True when the medium took it. */
-  say: (orgId: string, c: ChannelConversation, text: string, opts: { key: string; files: readonly TellFile[]; url: string | null }) => Promise<boolean>;
+  say: (orgId: string, c: ChannelConversation, text: string, opts: { key: string; files: readonly TellFile[]; url: string | null; preview?: import('@/libs/surfaces/types').ChatPreview }) => Promise<boolean>;
+  /** Draws a page as a card (`opts.preview`). A channel that does not is given the page's title as a link in the words. */
+  drawsPreview?: boolean;
   /** Whether this key, or these words, were already said in the thread. */
   alreadySaid: (orgId: string, c: ChannelConversation, key: string, text: string) => Promise<boolean>;
   /** The Vocion member behind a sender's id on this medium. */
