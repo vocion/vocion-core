@@ -18,6 +18,13 @@ vi.mock('@/services/ActionService', async importOriginal => ({
   proposeAction: vi.fn(async () => ({ runId: 77, status: 'pending', outcome: 'created' })),
 }));
 
+// Where the conversation is read: the app (a card docks) or a thread on a chat surface (words only).
+const surface = { app: true };
+vi.mock('../decisionHolder', async importOriginal => ({
+  ...(await importOriginal<typeof import('../decisionHolder')>()),
+  inTheApp: vi.fn(async () => surface.app),
+}));
+
 const { proposeAction } = await import('@/services/ActionService');
 const { runProposal } = await import('./proposeAction');
 
@@ -37,6 +44,19 @@ function ctxWith(events: AgentEvent[], conversationId?: number): RuntimeContext 
 describe('a proposal that waits on a person', () => {
   beforeEach(() => {
     vi.mocked(proposeAction).mockClear();
+    surface.app = true;
+  });
+
+  it('in a thread on a chat surface, tells the agent nothing is in front of them and the ask is its own line', async () => {
+    surface.app = false;
+
+    const out = await runProposal(ctxWith([], 42), filing, { tool: 'file_repo' });
+
+    expect(out).not.toContain('docked above their composer');
+    expect(out).toContain('no card or button is in front of them');
+    expect(out).toContain('Ask them in your reply, in one line');
+    expect(out).toContain('Their reply in this thread that approves it runs it');
+    expect(out).toContain('has NOT run');
   });
 
   it('is a card in the conversation it was filed from: the run, Approve, and the agent\'s reasons', async () => {

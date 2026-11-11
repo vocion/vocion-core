@@ -64,7 +64,9 @@ numbered list, one of them a single vague line. Sort it before you file.
   work) is ONE ticket whose points become its done-when lines; split a point
   out only when it stands alone ("and let me delete a clip").
 - **Each ticket carries its own reporter**, in `origin.by`, and the link to
-  that person's message in `origin.url`, not the thread's first message.
+  that person's message in `origin.url`, not the thread's first message. The
+  reporter is the author of the message that asked, as the thread context
+  names them, never the person it was addressed to.
 - **File the clear ones now.** A detailed ask is filed in this turn. Do not
   hold it for the vague one.
 - **A thin one gets one question, to its reporter by name**, in the same

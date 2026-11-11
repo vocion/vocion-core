@@ -141,6 +141,19 @@ describe('a question is answered, and nothing is written (CHAT-423)', () => {
     expect(await db.select().from(actionRunSchema)).toHaveLength(0);
   });
 
+  it('a reply to the agent\'s own question is not a question: the turn may write', async () => {
+    judge.intent = { replies_to_agent: true, summary: 'it was the phone app' };
+    const seen: boolean[] = [];
+    passes(async () => {
+      seen.push(writesRefused());
+      return [say('Passed on.')];
+    });
+
+    await run('the phone app', PAGE, PERSON);
+
+    expect(seen).toEqual([false]);
+  });
+
   it('a failed read changes nothing: the turn is not read-only', async () => {
     judge.intent = { unread: true };
     const seen: boolean[] = [];

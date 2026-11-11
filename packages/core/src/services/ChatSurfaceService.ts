@@ -328,7 +328,7 @@ export type ChatHandlerDeps = {
   /** The bytes of a picture on the message, behind the bot's token. Null when it cannot be read. */
   fetchFile: (url: string) => Promise<{ bytes: Uint8Array; contentType: string } | null>;
   /** A reply that decides a card waiting in this thread (`slackApproval.ts`), or null to answer as a turn. */
-  approval: (orgId: string, inbound: ChatInbound, conversationId: number) => Promise<ThreadApproval>;
+  approval: (orgId: string, inbound: ChatInbound, conversationId: number, asked?: string | null) => Promise<ThreadApproval>;
   /** The pictures people posted earlier in the thread, for a mention that brought none. */
   threadPictures: (inbound: ChatInbound) => Promise<ChatInboundFile[]>;
   /** Whether Vocion has posted in this thread (the parent or a reply), so a reply with no mention is for it. */
@@ -371,7 +371,7 @@ const defaultDeps: ChatHandlerDeps = {
   buildThreadContext: buildSlackThreadContext,
   permalink: opts => chatPermalink(opts, process.env.SLACK_BOT_TOKEN),
   fetchFile: url => fetchSlackFile(url, process.env.SLACK_BOT_TOKEN),
-  approval: (orgId, inbound, conversationId) => approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps),
+  approval: (orgId, inbound, conversationId, asked) => approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps, asked),
   threadPictures: inbound => slackThreadPictures(inbound, process.env.SLACK_BOT_TOKEN),
   inThread: async (channelId, threadRef) => (await ourPostsInThread(channelId, threadRef)).length > 0,
   cardsWaiting: (orgId, conversationId) => defaultThreadApprovalDeps.pending(orgId, conversationId),
@@ -565,7 +565,9 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   // A REPLY THAT DECIDES (backlog 057): a card waiting on this thread, and
   // words a model reads as the decision, from a Slack user Vocion knows as a
   // member — decided here, said back, no agent turn. Anything else is a turn.
-  const approval = await deps.approval(orgId, inbound, conversationId).catch(() => null);
+  // A thread shows no card: the ask was the agent's last message, so a short reply is read against it.
+  const asked = [...history].reverse().find(t => t.role === 'assistant')?.content ?? null;
+  const approval = await deps.approval(orgId, inbound, conversationId, asked).catch(() => null);
   if (approval) {
     await appendMessage({ orgId, conversationId, role: 'assistant', content: approval.reply, status: 'complete' });
     await doneWorking();

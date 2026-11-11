@@ -179,6 +179,9 @@ describe('buildSlackThreadContext', () => {
     // The message being answered is not echoed back as a reply.
     expect(ctx.replies?.map(r => r.text)).toEqual(['nice one']);
     expect(ctx.posters?.map(p => p.name)).toContain('A Teammate');
+    // Who wrote the message being answered is said outright, not left to be inferred from the thread.
+    expect(ctx.sender).toEqual({ id: inbound.externalUserId, name: 'A Teammate' });
+    expect(describeThread(ctx)).toContain('The message you are answering now was written by A Teammate.');
     expect(ctx.gaps ?? []).toHaveLength(0);
     expect(scopeGapSentence(ctx)).toBe('');
     expect(ctx.mediaMode).toBe('upload');

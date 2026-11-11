@@ -30,7 +30,7 @@ export type ThreadApprovalDeps = {
   /** The card's decision as one sentence, for the consent read. */
   decisionSentence: (orgId: string, card: PendingCard, verb: 'approve' | 'reject') => Promise<string>;
   /** The model's reading of the person's words against that sentence. */
-  consent: (orgId: string, words: string, decision: string) => Promise<{ said: boolean; quote: string | null }>;
+  consent: (orgId: string, words: string, decision: string, asked?: string | null) => Promise<{ said: boolean; quote: string | null }>;
   /** The Vocion member behind the sender, as the medium knows them (`conversationChannel.ts`). */
   member: (orgId: string, externalUserId: string, surface: string) => Promise<{ userId: string; name: string; email: string } | { userId: null; email: string | null }>;
   /** How a sender on this medium becomes someone Vocion knows. */
@@ -51,8 +51,9 @@ export type ThreadApproval
  * @param inbound - The reply.
  * @param conversationId - The thread's conversation.
  * @param deps - Seams.
+ * @param asked - The agent's last message in the thread: the ask a short reply ("yes") answers. A thread shows no card, so the ask is those words.
  */
-export async function approvalFromThread(orgId: string, inbound: ChatInbound, conversationId: number, deps: ThreadApprovalDeps): Promise<ThreadApproval> {
+export async function approvalFromThread(orgId: string, inbound: ChatInbound, conversationId: number, deps: ThreadApprovalDeps, asked?: string | null): Promise<ThreadApproval> {
   const cards = (await deps.pending(orgId, conversationId)).slice(0, 3);
   if (cards.length === 0) {
     return null;
@@ -60,7 +61,7 @@ export async function approvalFromThread(orgId: string, inbound: ChatInbound, co
   for (const card of cards) {
     for (const verb of ['approve', 'reject'] as const) {
       const decision = await deps.decisionSentence(orgId, card, verb);
-      const read = await deps.consent(orgId, inbound.text, decision);
+      const read = await deps.consent(orgId, inbound.text, decision, asked);
       if (!read.said) {
         continue;
       }
@@ -101,9 +102,9 @@ export const defaultThreadApprovalDeps: ThreadApprovalDeps = {
     const { consentDecision } = await import('@/services/agents/consentDecision');
     return `${verb} proposal #${card.runId}: ${await consentDecision(orgId, card.actionId, card.input, card.title)}`;
   },
-  async consent(orgId, words, decision) {
+  async consent(orgId, words, decision, asked) {
     const { saidToDecide } = await import('@/services/agents/turnJudge');
-    return saidToDecide({ orgId, messages: [words], decision });
+    return saidToDecide({ orgId, messages: [words], decision, ...(asked ? { asked } : {}) });
   },
   async member(orgId, externalUserId, surface) {
     const channel = channelBySurface(surface);

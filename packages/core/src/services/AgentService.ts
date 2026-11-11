@@ -43,7 +43,7 @@ import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, isToolInternalModelEvent, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 import { HeadStartDropped, TurnGateCallback, TurnStopped } from './agents/turnGate';
-import { asksForAct, NO_INTENT, readIntent, readUnableClaim } from './agents/turnJudge';
+import { asksForAct, asksOnlyToKnow, NO_INTENT, readIntent, readUnableClaim } from './agents/turnJudge';
 import { TurnRefusedError } from './agents/turnRefusal';
 import { inTurn } from './agents/turnScope';
 import { writeLanded } from './agents/writeClaim';
@@ -1264,7 +1264,7 @@ async function runAgentDeepInScope(opts: {
     }
     if (!intentSettled) {
       const intent = await intentP;
-      turn.readOnly = personTurn && intent.asks === 'answer' && !('unread' in intent);
+      turn.readOnly = personTurn && asksOnlyToKnow(intent);
       intentSettled = true;
     }
   };

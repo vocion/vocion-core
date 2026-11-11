@@ -30,8 +30,12 @@ export type TurnScope = {
 
 const storage = new AsyncLocalStorage<TurnScope>();
 
-/** What a write in a read-only turn answers, for the agent to act on. */
-export const READ_ONLY_RECEIPT = 'Not written: they asked a question. Answer it from what you read; offer the change in one line if it would help.';
+/**
+ * What a write in a read-only turn answers, for the agent to act on. It names
+ * who refused (2026-11-11: an agent relaying to an outside system told the
+ * thread "the factory refused the note", when the note never left).
+ */
+export const READ_ONLY_RECEIPT = 'Not written: they asked a question. Answer it from what you read; offer the change in one line if it would help. This is Vocion\'s own check on this turn, made before anything was sent: no outside system saw the write or refused it, so never tell the person one did.';
 
 /**
  * Run `fn` inside a turn's scope.

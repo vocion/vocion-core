@@ -173,6 +173,7 @@ export async function buildSlackThreadContext(
   if (posters.length > 0) {
     ctx.posters = posters;
   }
+  ctx.sender = { id: inbound.externalUserId, name: names.get(inbound.externalUserId) ?? inbound.externalUserId };
   for (const post of ctx.replies ?? []) {
     if (post.authorId && names.has(post.authorId)) {
       post.author = names.get(post.authorId)!;

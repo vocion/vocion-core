@@ -38,7 +38,41 @@ describe('what the person meant, read by a model', () => {
   });
 });
 
+describe('a reply to the agent\'s own question is not a question', () => {
+  it('hands the judge the agent\'s previous message, and a reply to it does not make the turn read-only', async () => {
+    const { asksOnlyToKnow } = await import('./turnJudge');
+    const seen: unknown[] = [];
+    const intent = await readIntent(
+      { orgId: 'org_judge', message: 'the phone app', previous: { person: 'the recording will not start', agent: 'Was it the phone app or the desktop app?' } },
+      modelSaying({ asks: 'answer', changed_record_type: null, record_type: null, summary: 'it was the phone app', replies_to_agent: true }, seen),
+    );
+
+    expect(JSON.stringify(seen[1])).toContain('The agent\'s previous message, which theirs may be a reply to: Was it the phone app or the desktop app?');
+    expect(intent.replies_to_agent).toBe(true);
+    expect(asksOnlyToKnow(intent)).toBe(false);
+  });
+
+  it('a question stays read-only, and a failed read never is', async () => {
+    const { asksOnlyToKnow } = await import('./turnJudge');
+
+    expect(asksOnlyToKnow({ asks: 'answer', changed_record_type: null, record_type: null, summary: 'what changed?' })).toBe(true);
+    expect(asksOnlyToKnow({ asks: 'answer', changed_record_type: null, record_type: null, summary: 'what changed?', replies_to_agent: false })).toBe(true);
+    expect(asksOnlyToKnow({ asks: 'change', changed_record_type: 'request', record_type: null, summary: 'widen it' })).toBe(false);
+    expect(asksOnlyToKnow(NO_INTENT)).toBe(false);
+  });
+});
+
 describe('consent to a decision, read by a model', () => {
+  it('reads a short reply against what the agent asked, where the ask was words in a thread', async () => {
+    const { saidToDecide } = await import('./turnJudge');
+    const seen: unknown[] = [];
+    await saidToDecide({ orgId: 'org_judge', messages: ['yes'], decision: 'approve proposal #41: start the build', asked: 'One more hold: the cost check. Reply build it to start.' }, modelSaying({ said: true, quote: 'yes' }, seen));
+    const human = JSON.stringify(seen[1]);
+
+    expect(human).toContain('It is not the person\'s word');
+    expect(human).toContain('Reply build it to start.');
+  });
+
   it('reads "this" as the record on the page the person is on', async () => {
     const { saidToDecide } = await import('./turnJudge');
     const seen: unknown[] = [];
