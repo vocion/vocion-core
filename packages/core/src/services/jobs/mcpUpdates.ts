@@ -4,9 +4,11 @@
  * A request made of a connected system through `mcp.act` carries the
  * conversation it was asked in (`libs/actions/mcp-act.ts`, `origin`). The
  * system then has things to say to that conversation over days: it needs an
- * answer, it stopped, it shipped. It cannot call in (no inbound credential,
- * nothing to sign), so the workspace asks: a source that declares an
- * `updatesTool` is read on a schedule, each update is said once in the
+ * answer, it stopped, it shipped. It says so the moment it happens: the
+ * provider pings the workspace (`services/outboundMcp/updatesPing.ts`, a
+ * signed "check now" at the address this job registered with the source's
+ * `updatesWatchTool`) and the source's `updatesTool` is read then. A slow
+ * sweep on a schedule is only the net under a lost ping. Each update is said once in the
  * conversation it names, in the app's chat and in its Slack thread
  * (`tellConversation`), and the ids told are acknowledged on the same call
  * next time, so the provider stops returning them.
@@ -65,12 +67,14 @@ export function askBrief(sourceName: string, sourceSlug: string, update: McpUpda
     '',
     update.text,
     '',
-    `Read what it waits on first (mcp_read on ${sourceSlug}). If what was already said in this conversation, or what you can read, settles it, answer it now with propose_action mcp.act and say in two lines what was asked and what you answered. If it is a person's decision (a yes to spend, an approval, a choice nobody made yet) or you are not sure, do not answer for them: say what is needed, from whom, and that a reply here mentioning you will be passed on. Keep the link.`,
+    `Read what it waits on first (mcp_read on ${sourceSlug}). If what was already said in this conversation, or what you can read, settles it, answer it now with mcp_act and say in two lines what was asked and what you answered. If it is a person's decision (a yes to spend, an approval, a choice nobody made yet) or you are not sure, do not answer for them: say what is needed, from whom, and that a reply here mentioning you will be passed on. Keep the link.`,
   ].join('\n');
 }
 
 export type McpUpdatesDeps = {
-  sources: (orgId: string) => Promise<Array<{ slug: string; name: string; updatesTool: string }>>;
+  sources: (orgId: string) => Promise<Array<{ slug: string; name: string; updatesTool: string; watchTool?: string }>>;
+  /** Give the provider the address to ping when it has an update. Idempotent on the provider's side. */
+  watch: (orgId: string, sourceSlug: string, tool: string) => Promise<void>;
   /** Call the source's updates tool with the ids told last time; the updates it returns now. */
   read: (orgId: string, sourceSlug: string, tool: string, ack: string[]) => Promise<McpUpdate[]>;
   tell: (orgId: string, conversationId: number, text: string, opts: { key: string; url?: string | null }) => Promise<TellResult>;
@@ -81,7 +85,7 @@ export type McpUpdatesDeps = {
 const defaultDeps: McpUpdatesDeps = {
   async sources(orgId) {
     const { listMcpSources } = await import('@/libs/outboundMcp/sources');
-    return (await listMcpSources(orgId)).flatMap(s => (s.config.updatesTool && s.config.auth === 'token' ? [{ slug: s.slug, name: s.name, updatesTool: s.config.updatesTool }] : []));
+    return (await listMcpSources(orgId)).flatMap(s => (s.config.updatesTool && s.config.auth === 'token' ? [{ slug: s.slug, name: s.name, updatesTool: s.config.updatesTool, ...(s.config.updatesWatchTool ? { watchTool: s.config.updatesWatchTool } : {}) }] : []));
   },
   async read(orgId, sourceSlug, tool, ack) {
     const { callMcpTool, listMcpTools, mcpCredentialsOf, withMcp } = await import('@/libs/outboundMcp/client');
@@ -94,6 +98,22 @@ const defaultDeps: McpUpdatesDeps = {
         throw new Error(`${tool} is not a read-only tool on ${sourceSlug}`);
       }
       return updatesOf(await callMcpTool(client, remote, ack.length > 0 ? { ack } : {}) as Record<string, unknown>);
+    });
+  },
+  async watch(orgId, sourceSlug, tool) {
+    const { updatesHookUrl } = await import('@/services/outboundMcp/updatesPing');
+    const url = updatesHookUrl(orgId, sourceSlug);
+    if (!url) {
+      return;
+    }
+    const { callMcpTool, listMcpTools, mcpCredentialsOf, withMcp } = await import('@/libs/outboundMcp/client');
+    const { getCredentialsForSource } = await import('@/services/SourceCredentialService');
+    const credentials = mcpCredentialsOf(await getCredentialsForSource(orgId, sourceSlug, 'any'));
+    await withMcp(credentials, async (client) => {
+      const remote = (await listMcpTools(client)).find(t => t.name === tool);
+      if (remote) {
+        await callMcpTool(client, remote, { url });
+      }
     });
   },
   async tell(orgId, conversationId, text, opts) {
@@ -118,13 +138,20 @@ const defaultDeps: McpUpdatesDeps = {
 /**
  * Read every source that reports updates, tell each conversation once, acknowledge what was told.
  * @param orgId - The workspace.
- * @param _input - Unused: the schedule hands nothing over.
+ * @param input - `source` when one source pinged (only it is read); nothing on the sweep, which reads every source and renews each one's ping address.
  * @param deps - Seams for tests.
  */
-export async function runMcpUpdatesJob(orgId: string, _input: Record<string, unknown> = {}, deps: McpUpdatesDeps = defaultDeps): Promise<{ sources: number; told: number; waiting: number; failed: string[] }> {
+export async function runMcpUpdatesJob(orgId: string, input: Record<string, unknown> = {}, deps: McpUpdatesDeps = defaultDeps): Promise<{ sources: number; told: number; waiting: number; failed: string[] }> {
   const out = { sources: 0, told: 0, waiting: 0, failed: [] as string[] };
-  for (const source of await deps.sources(orgId)) {
+  const only = typeof input.source === 'string' && input.source ? input.source : null;
+  for (const source of (await deps.sources(orgId)).filter(s => !only || s.slug === only)) {
     out.sources++;
+    // The sweep is also where the provider learns (again) where to ping; a ping-driven read does not repeat it.
+    if (!only && source.watchTool) {
+      await deps.watch(orgId, source.slug, source.watchTool).catch((error) => {
+        out.failed.push(`${source.slug}: could not register for pings (${error instanceof Error ? error.message : 'failed'})`);
+      });
+    }
     try {
       const updates = await deps.read(orgId, source.slug, source.updatesTool, []);
       const done: string[] = [];

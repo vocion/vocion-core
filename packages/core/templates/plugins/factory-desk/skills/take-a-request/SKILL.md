@@ -61,11 +61,17 @@ point in the ticket as a question for the Brief.
 
 ## File it
 
-`mcp_list_tools` on `factory` once to read the filing tool's schema, then
-`propose_action` with `action_id: mcp.act`, `sourceSlug: factory`, the filing
-tool (`request_ticket`), the input above and a one-line summary. A person
-asked for it, so it runs at once and the factory's answer comes back with the
-ticket's key and link.
+Call `mcp_act` once, with exactly these four arguments:
+
+- `sourceSlug`: `factory`
+- `name`: the filing tool, `request_ticket`
+- `input`: `{ "title": …, "description": …, "origin": { "by": …, "url": … } }`
+- `summary`: one line, what is being filed
+
+A person asked for it, so it runs at once and the factory's answer comes back
+with the ticket's key and link. Do not look the schema up first unless the
+call is refused; if it is, the refusal names the field: fix that field and
+call once more.
 
 If the factory answers that it needs answers before it can start, ask the
 thread those questions, word for word where they are clear, and say the
@@ -76,3 +82,6 @@ ticket exists and waits on them.
 Two or three lines: the ticket's key and title, what happens next (the
 factory writes a Brief; you will say here when it needs anyone), and the link
 last. Do not restate the request back to the person who made it.
+
+If you could not file it, say so in one plain line and what you need. Never
+describe tools, formats or what you are about to try: the thread is people.

@@ -105,8 +105,10 @@ export function mcpTools(ctx: RuntimeContext) {
   // the agent knows a server covers ad reports or invoices before it has to
   // discover it, and never takes a missing native connector for a missing source.
   const servers = (ctx.mcpSources ?? []).filter(s => slugs.includes(s.slug));
+  // The sources that take requests (`actTools`): the act tool is offered only when there is one.
+  const actSources = servers.filter(s => (s.actTools?.length ?? 0) > 0).map(s => s.slug);
   const assigned = servers.length > 0
-    ? ` Assigned servers: ${servers.map(s => `${s.slug} (${s.name}${s.perPerson ? ', read as the person asking' : ''}) reads ${s.readTools.join(', ')}`).join('; ')}.`
+    ? ` Assigned servers: ${servers.map(s => `${s.slug} (${s.name}${s.perPerson ? ', read as the person asking' : ''}) reads ${s.readTools.join(', ')}${s.actTools?.length ? `, takes requests (mcp_act) ${s.actTools.join(', ')}` : ''}`).join('; ')}.`
     : '';
   const yours = following.size > 0
     ? ` The person's own connections, which join this turn because they started it (read as them, with their own sign-in): ${[...following.values()].map(f => `${f.slug} (${f.name}, your connection, from ${f.fromWorkspace}) reads ${f.readTools.join(', ')}`).join('; ')}. When the person names one loosely ("the company KB", "@company knowledge"), it is this; say its answers came from their own connection.`
@@ -137,9 +139,9 @@ export function mcpTools(ctx: RuntimeContext) {
         return JSON.stringify(await withMcp(credentials, async client => ({
           sourceSlug,
           ...(via ? { via } : {}),
-          tools: (await listMcpTools(client)).filter(remote => source.config.readTools.includes(remote.name) || source.config.writeTools.includes(remote.name) || source.config.actTools.includes(remote.name)),
+          tools: (await listMcpTools(client)).filter(remote => source.config.readTools.includes(remote.name) || source.config.writeTools.includes(remote.name) || (source.config.actTools ?? []).includes(remote.name)),
           writes: 'Propose declared writes with propose_action, action_id=mcp.call. Approval executes the exact submitted arguments.',
-          ...(source.config.actTools.length > 0 ? { acts: `Requests this source takes without a review card (${source.config.actTools.join(', ')}): propose_action, action_id=mcp.act, with sourceSlug, tool, input and a summary. On the person\'s word it runs at once and you get its answer back.`, actTools: source.config.actTools } : {}),
+          ...((source.config.actTools ?? []).length > 0 ? { acts: `Requests this source takes (${(source.config.actTools ?? []).join(', ')}): call mcp_act with sourceSlug, name, input and a one-line summary, the same shape as mcp_read. On the person\'s word it runs at once and you get its answer back.`, actTools: source.config.actTools ?? [] } : {}),
         })));
       } catch (error) {
         if (error instanceof SignInNeeded) {
@@ -157,6 +159,9 @@ export function mcpTools(ctx: RuntimeContext) {
       try {
         const source = await sourceFor(sourceSlug);
         if (!source.config.readTools.includes(name)) {
+          if ((source.config.actTools ?? []).includes(name)) {
+            return JSON.stringify({ isError: true, error: `${name} is a request this source takes, not a read: call mcp_act with the same sourceSlug, name and input, plus a one-line summary. No tool was called.` });
+          }
           return JSON.stringify({
             isError: true,
             error: 'Only explicitly declared reads may execute here. Choose an availableReadTools name and discover its schema with mcp_list_tools; propose declared writes through mcp.call. No tool was called.',
@@ -194,5 +199,26 @@ export function mcpTools(ctx: RuntimeContext) {
         return JSON.stringify({ isError: true, error: 'MCP read failed. No write tool was invoked. Check that the source is assigned, permitted and connected; retry a valid read or report that it is unavailable.' });
       }
     }, { name: 'mcp_read', description: `Execute an explicitly declared read-only MCP tool. Writes are unavailable here.${covers}`, metadata: { alwaysLoaded: true }, schema: z.object({ sourceSlug: z.string(), name: z.string(), input: z.record(z.string(), z.unknown()) }) }),
+    // A REQUEST OF THE SOURCE, IN THE SHAPE OF A READ (2026-11-10). The first desk to file a
+    // ticket had to nest sourceSlug, tool, input and summary inside propose_action's
+    // action_input; it sent them flat five times and then tried mcp_read. One tool with the
+    // read's own arguments is the one obvious path; it is the same proposal underneath
+    // (`mcp.act`: the person's word runs, an agent's own follows the trust rule).
+    ...(actSources.length > 0
+      ? [tool(async ({ sourceSlug, name, input, summary }) => {
+          if (!actSources.includes(sourceSlug)) {
+            return `${sourceSlug} takes no requests here. Sources that do: ${actSources.join(', ')}. Nothing was sent.`;
+          }
+          const { runProposal } = await import('./proposeAction');
+          return runProposal(ctx, {
+            actionId: 'mcp.act',
+            input: { sourceSlug, tool: name, input, summary },
+            confidence: 0.9,
+            rationale: summary,
+            suggestedDecision: 'approve',
+            suggestedDecisionReason: summary,
+          }, { tool: 'mcp_act' });
+        }, { name: 'mcp_act', description: `Make a request of a connected system through one of its declared act tools (file a ticket, answer a question it asked): sourceSlug, the tool's name, its input, and a one-line summary of what is asked. When the person asked for it, it runs at once and returns the system's answer; say what happened from that answer.${covers}`, metadata: { alwaysLoaded: true }, schema: z.object({ sourceSlug: z.string(), name: z.string(), input: z.record(z.string(), z.unknown()), summary: z.string().min(1).max(1000) }) })]
+      : []),
   ];
 }

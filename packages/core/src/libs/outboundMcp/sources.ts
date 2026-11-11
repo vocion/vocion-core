@@ -16,6 +16,10 @@ export const mcpConfigSchema = z.object({
   // `{updates: [{id, conversation, text, url?, asks?}]}`, acknowledged by
   // calling it again with `{ack: [ids]}` (`services/jobs/mcpUpdates.ts`).
   updatesTool: z.string().min(1).optional(),
+  // The provider's tool that takes `{url}`: where it should say "check now"
+  // the moment it has an update (`services/outboundMcp/updatesPing.ts`).
+  // With it the source is event-driven and the schedule is only a sweep.
+  updatesWatchTool: z.string().min(1).optional(),
   // `token`: one vaulted endpoint and bearer token for the whole workspace.
   // `person`: each person signs in to the server's own OAuth and every call
   // runs as the person in the turn (`services/outboundMcp/personSignIn.ts`).
@@ -26,6 +30,7 @@ export const mcpConfigSchema = z.object({
   .refine(config => !config.readTools.some(name => config.writeTools.includes(name)), 'A tool cannot be both read and write')
   .refine(config => !config.actTools.some(name => config.readTools.includes(name) || config.writeTools.includes(name)), 'An act tool cannot also be a read or a reviewed write')
   .refine(config => !config.updatesTool || config.readTools.includes(config.updatesTool), 'The updates tool must be one of the declared reads')
+  .refine(config => !config.updatesWatchTool || (Boolean(config.updatesTool) && config.actTools.includes(config.updatesWatchTool)), 'The updates watch tool must be one of the declared act tools, on a source that names an updates tool')
   .refine(config => config.auth !== 'person' || config.actTools.length === 0, 'A per-person MCP source cannot declare act tools')
   .refine(config => config.auth !== 'person' || config.url, 'A per-person MCP source names its endpoint in url')
   // A write runs when a reviewer approves it, not as the person who asked.

@@ -1,21 +1,22 @@
-# WHAT THE FACTORY SAYS BACK REACHES THE THREAD THAT ASKED. Every two minutes
-# the `mcp-updates` job reads each connected source that reports updates and
-# says each one once in the conversation it names: the factory needs a person,
-# a run stopped, the work merged, the release is live with its page. A job, not
-# an agent: a tick with nothing to say costs one read and no model. An update
-# that asks goes to the desk first, which answers it from the thread when the
-# thread settled it and asks the people in it when it did not.
+# WHAT THE FACTORY SAYS BACK REACHES THE THREAD THAT ASKED, WHEN IT HAPPENS.
+# The factory pings this workspace the moment a ticket has something to say
+# (it needs a person, a run stopped, the work merged, the release is live),
+# and the source's updates are read then (`/api/webhooks/mcp/…`, core's
+# `mcp-updates` job). Nothing is polled. This hourly run is only the sweep
+# under that: it renews the address the factory pings (the source's
+# `updatesWatchTool`) and says anything a lost ping left behind. A job, not an
+# agent: a sweep with nothing to say costs one read and no model.
 slug: factory-updates
-name: Tell the thread what the factory needs and what shipped
-label: Told the thread
+name: Check the factory hourly for anything the thread has not heard
+label: Checked the factory
 doing: Checking the factory
 description: >-
-  Every two minutes, anything the factory has to say about a request made
-  here (it needs a person, it stopped, it shipped) is said once in the
-  conversation that asked, in the app's chat and in its Slack thread.
+  The factory tells this workspace the moment a request made here needs a
+  person, stopped or shipped, and the thread that asked hears it then. Once
+  an hour this renews that link and says anything a lost ping left behind.
 status: active
 when:
-  schedule: '*/2 * * * *'
+  schedule: '7 * * * *'
   timezone: UTC
 do:
   job: mcp-updates

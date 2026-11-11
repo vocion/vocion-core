@@ -490,7 +490,9 @@ async function proposeActionInTurn(input: {
     parsed = action.inputSchema.parse(input.internal ? input.input : withoutInternalInput(action, input.input));
   } catch (error) {
     if (error instanceof ZodError) {
-      throw new ActionError('VALIDATION_FAILED', error.issues.map(issue => issue.message).join('; '));
+      // Each problem names its field: "expected string, received undefined" four times over told an agent
+      // nothing it could fix, and it sent the same wrong shape five times (2026-11-10).
+      throw new ActionError('VALIDATION_FAILED', error.issues.map(issue => (issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message)).join('; '));
     }
     throw error;
   }
