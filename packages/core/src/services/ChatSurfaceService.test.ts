@@ -172,6 +172,27 @@ describe('handleInbound', () => {
     expect(await handed('desk', '200.2')).not.toContain('file_feedback');
   });
 
+  it('an answer too long for the surface is asked for again, once, and the shorter one is what the thread reads', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const long = 'The Brief covers a great many things. '.repeat(30);
+    const runAgent = vi.fn()
+      .mockResolvedValueOnce({ response: long, traceId: 't', toolCalls: [] })
+      .mockResolvedValueOnce({ response: 'Brief is ready. I would approve.', traceId: 't', toolCalls: [] });
+    const adapter = { ...fakeAdapter(), answerMaxChars: 600 };
+
+    await svc.handleInbound(adapter, { ...inbound, threadRef: '300.1', messageRef: '300.1' }, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+
+    expect(runAgent).toHaveBeenCalledTimes(2);
+    expect(runAgent.mock.calls[1]![0].message).toContain('too long for where it is read');
+    expect(adapter.replies.at(-1)?.text).toBe('Brief is ready. I would approve.');
+
+    // A short answer is posted as written, with no second turn.
+    const once = vi.fn(async () => ({ response: 'Up 12%.', traceId: 't', toolCalls: [] }));
+    await svc.handleInbound(adapter, { ...inbound, threadRef: '300.2', messageRef: '300.2' }, { runAgent: once as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+
+    expect(once).toHaveBeenCalledTimes(1);
+  });
+
   it('binds → runs the agent → replies in the thread, and keeps one conversation per thread', async () => {
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
     const adapter = fakeAdapter();

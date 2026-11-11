@@ -17,17 +17,83 @@
  * provider marks read-only, it returns `{updates: [{id, conversation, text,
  * url?, asks?}]}`, and it takes `{ack: [ids]}`. Nothing here names a product.
  *
- * AN UPDATE THAT ASKS goes to the agent first. The agent that holds the
- * conversation reads the question with the thread's history: when the record
- * settles it, it answers the system itself (through `mcp.act`, on the
- * workspace's trust rule) and says what it answered; when it is a person's
- * call, it asks the people in the thread in its own words. Either way the
- * thread hears one message. If the agent cannot run, the provider's own
- * words are said instead, so a question is never dropped.
+ * THE MESSAGE IS BUILT FROM PARTS (`composeUpdate`). A provider sends a
+ * headline, at most one note, links and pictures, and they are posted as
+ * sent. AN UPDATE THAT ASKS goes to the agent first: it reads the question
+ * with the thread's history and the linked recording, answers the provider
+ * itself when the record settles it (through `mcp.act`, on the trust rule),
+ * and adds ONE line: what it answered, or its recommendation to the person
+ * who decides. The length is set in code. If the agent cannot run, the
+ * provider's parts are posted without its line, so a question is never dropped.
  */
 import type { TellResult } from '@/services/chat/tellConversation';
 
-export type McpUpdate = { id: string; conversation: number; text: string; url: string | null; asks: boolean };
+export type McpUpdate = {
+  id: string;
+  conversation: number;
+  /** The update in plain words, with the detail the agent reads before it recommends. Posted only when there is no headline. */
+  text: string;
+  url: string | null;
+  asks: boolean;
+  /** The one line to show, as the provider wrote it (markdown). With it the message is built from parts, not prose. */
+  headline?: string;
+  /** At most one more line of fact. */
+  note?: string;
+  /** What helps the reader act, each a short label. */
+  links?: Array<{ label: string; url: string }>;
+  /** Public pictures to show under it. */
+  images?: Array<{ url: string; caption: string }>;
+};
+
+/** The longest line an agent may add to a provider's message: its recommendation and the reason. */
+export const LINE_MAX = 240;
+
+/**
+ * The one line an agent adds: its first line, whole. A line that runs long keeps the sentences
+ * that fit; when not even one fits, nothing is added (a recommendation cut mid-thought misleads).
+ * @param words - What the agent wrote.
+ */
+export function oneLine(words: string | null | undefined): string | null {
+  const first = (words ?? '').split('\n').map(l => l.trim()).find(Boolean);
+  if (!first) {
+    return null;
+  }
+  if (first.length <= LINE_MAX) {
+    return first;
+  }
+  let kept = '';
+  for (const sentence of first.match(/[^.!?]+[.!?]+(?=\s|$)/g) ?? []) {
+    if ((kept + sentence).length > LINE_MAX) {
+      break;
+    }
+    kept += sentence;
+  }
+  return kept.trim() || null;
+}
+
+/**
+ * What the thread reads. A provider that sends parts gets them posted as sent, in this order:
+ * its headline, the agent's one line (only when a person has to decide), its note, its links.
+ * So the length is set here, not by how a model felt that day (Chris, 2026-11-10: nine long
+ * messages in one thread). A provider that sends only text is posted as before.
+ * @param update - The provider's update.
+ * @param agent - What the conversation's agent wrote, and whether it answered the provider itself.
+ * @param agent.words - Its words.
+ * @param agent.acted - It answered the provider in this turn, so the ask no longer stands.
+ */
+export function composeUpdate(update: McpUpdate, agent: { words: string; acted: boolean } | null): { text: string; files: Array<{ url: string; caption: string }> } {
+  const files = (update.images ?? []).slice(0, 3);
+  if (!update.headline) {
+    return { text: agent?.words ?? update.text, files };
+  }
+  const links = (update.links ?? []).map(l => `[${l.label}](${l.url})`).join(' · ');
+  const line = oneLine(agent?.words);
+  // It answered the provider itself: what it did is the news, not a request that no longer stands.
+  if (agent?.acted && line) {
+    return { text: [line, links].filter(Boolean).join('\n'), files };
+  }
+  return { text: [update.headline, update.asks ? line : null, update.note, links].filter(Boolean).join('\n'), files };
+}
 
 /**
  * The updates in a tool result, kept only when well formed: an id, a
@@ -46,12 +112,18 @@ export function updatesOf(result: Record<string, unknown>): McpUpdate[] {
   }
   const list = body && typeof body === 'object' && Array.isArray((body as { updates?: unknown }).updates) ? (body as { updates: unknown[] }).updates : [];
   return list.flatMap((raw) => {
-    const u = raw as { id?: unknown; conversation?: unknown; text?: unknown; url?: unknown; asks?: unknown };
+    const u = raw as { id?: unknown; conversation?: unknown; text?: unknown; url?: unknown; asks?: unknown; headline?: unknown; note?: unknown; links?: unknown; images?: unknown };
     const conversation = Number(u?.conversation);
     if (typeof u?.id !== 'string' || !u.id || !Number.isInteger(conversation) || conversation <= 0 || typeof u.text !== 'string' || !u.text.trim()) {
       return [];
     }
-    return [{ id: u.id.slice(0, 300), conversation, text: u.text.trim().slice(0, 4000), url: typeof u.url === 'string' && u.url.startsWith('https://') ? u.url : null, asks: u.asks === true }];
+    const https = (v: unknown): v is string => typeof v === 'string' && v.startsWith('https://');
+    const line = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.replace(/\s*\n\s*/g, ' ').trim().slice(0, max) : undefined);
+    const links = Array.isArray(u.links) ? u.links.flatMap((l: { label?: unknown; url?: unknown }) => (https(l?.url) && typeof l.label === 'string' && l.label.trim() ? [{ label: l.label.trim().slice(0, 40), url: l.url }] : [])).slice(0, 5) : [];
+    const images = Array.isArray(u.images) ? u.images.flatMap((i: { url?: unknown; caption?: unknown }) => (https(i?.url) ? [{ url: i.url, caption: typeof i.caption === 'string' ? i.caption.slice(0, 200) : '' }] : [])).slice(0, 3) : [];
+    const headline = line(u.headline, 300);
+    const note = line(u.note, 300);
+    return [{ id: u.id.slice(0, 300), conversation, text: u.text.trim().slice(0, 4000), url: https(u.url) ? u.url : null, asks: u.asks === true, ...(headline ? { headline } : {}), ...(note ? { note } : {}), ...(links.length > 0 ? { links } : {}), ...(images.length > 0 ? { images } : {}) }];
   });
 }
 
@@ -63,11 +135,17 @@ export function updatesOf(result: Record<string, unknown>): McpUpdate[] {
  */
 export function askBrief(sourceName: string, sourceSlug: string, update: McpUpdate): string {
   return [
-    `${sourceName} sent this about a request made in this conversation. Nobody here has seen it yet; your reply is what the thread will read.`,
+    `${sourceName} says a request made in this conversation is waiting on a person. The thread has not seen it yet.`,
     '',
     update.text,
     '',
-    `Read what it waits on first (mcp_read on ${sourceSlug}). If what was already said in this conversation, or what you can read, settles it, answer it now with mcp_act and say in two lines what was asked and what you answered. If it is a person's decision (a yes to spend, an approval, a choice nobody made yet) or you are not sure, do not answer for them: say what is needed, from whom, and that a reply here mentioning you will be passed on. Keep the link.`,
+    `Read what it waits on first (mcp_read on ${sourceSlug}), and the recording the request came with if a recordings source is connected. If what was already said here, or what you can read, settles it, answer it now with mcp_act.`,
+    '',
+    // The message is built from the provider's parts; this turn adds one line to it (`composeUpdate`).
+    'Then reply with ONE line and nothing else, at most 25 words. No links, no key, no greeting, nothing about how to reply:',
+    '- if you answered it yourself: what was asked and what you answered;',
+    '- if a person has to decide: their name, your recommendation and the single reason that matters most ("Chris: I\'d approve. It now covers the phone app.");',
+    '- if somebody has to answer one thing first: that one question, to them by name.',
   ].join('\n');
 }
 
@@ -77,9 +155,9 @@ export type McpUpdatesDeps = {
   watch: (orgId: string, sourceSlug: string, tool: string) => Promise<void>;
   /** Call the source's updates tool with the ids told last time; the updates it returns now. */
   read: (orgId: string, sourceSlug: string, tool: string, ack: string[]) => Promise<McpUpdate[]>;
-  tell: (orgId: string, conversationId: number, text: string, opts: { key: string; url?: string | null }) => Promise<TellResult>;
-  /** The conversation's agent reads an update that asks and writes what the thread hears; null when it could not. */
-  answer: (orgId: string, conversationId: number, brief: string) => Promise<string | null>;
+  tell: (orgId: string, conversationId: number, text: string, opts: { key: string; url?: string | null; files?: Array<{ url: string; caption: string }> }) => Promise<TellResult>;
+  /** The conversation's agent reads an update that asks: its words, and whether it answered the provider itself in that turn. Null when it could not run. */
+  answer: (orgId: string, conversationId: number, brief: string, sourceSlug: string) => Promise<{ words: string; acted: boolean } | null>;
 };
 
 const defaultDeps: McpUpdatesDeps = {
@@ -120,7 +198,7 @@ const defaultDeps: McpUpdatesDeps = {
     const { tellConversation } = await import('@/services/chat/tellConversation');
     return tellConversation(orgId, conversationId, text, opts);
   },
-  async answer(orgId, conversationId, brief) {
+  async answer(orgId, conversationId, brief, sourceSlug) {
     const { getConversation, listMessages, toHistoryTurns } = await import('@/services/ConversationService');
     const conversation = await getConversation({ orgId, id: conversationId });
     if (!conversation?.agentSlug) {
@@ -131,7 +209,17 @@ const defaultDeps: McpUpdatesDeps = {
     const history = toHistoryTurns(await listMessages({ orgId, conversationId }));
     const { result } = await withRunCost({ conversationId }, async () => ({ result: await runAgentDeep({ orgId, agentSlug: conversation.agentSlug!, message: brief, conversationId, conversationHistory: history }) }));
     const text = (result.lastAnswer ?? result.response ?? '').trim();
-    return text || null;
+    if (!text) {
+      return null;
+    }
+    // Whether it answered the provider itself, read off the turn's own tool calls, never off its words.
+    // "is DONE" is our own proposal tool's line for an action that ran (`proposeAction.ts`), not a model's.
+    const acted = (result.toolCalls ?? []).some((c) => {
+      const args = JSON.stringify(c.input ?? {});
+      const ran = typeof c.output === 'string' && c.output.includes('mcp.act is DONE');
+      return ran && args.includes(`"${sourceSlug}"`) && (c.tool === 'mcp_act' || (c.tool === 'propose_action' && args.includes('"mcp.act"')));
+    });
+    return { words: text, acted };
   },
 };
 
@@ -157,9 +245,10 @@ export async function runMcpUpdatesJob(orgId: string, input: Record<string, unkn
       const done: string[] = [];
       for (const update of updates) {
         const key = `mcp:${source.slug}:${update.id}`;
-        // The agent's words when the update asks and it could write them; the provider's otherwise.
-        const words = update.asks ? await deps.answer(orgId, update.conversation, askBrief(source.name, source.slug, update)).catch(() => null) : null;
-        const said = await deps.tell(orgId, update.conversation, words ?? update.text, { key, url: update.url });
+        // The agent adds its one line when the update asks and it could run; the provider's parts stand without it.
+        const agent = update.asks ? await deps.answer(orgId, update.conversation, askBrief(source.name, source.slug, update), source.slug).catch(() => null) : null;
+        const message = composeUpdate(update, agent);
+        const said = await deps.tell(orgId, update.conversation, message.text, { key, url: update.url, ...(message.files.length > 0 ? { files: message.files } : {}) });
         // Told, told before, or nobody left to tell: the provider can stop returning it.
         if (said.said || said.reason === 'already said here' || said.reason === 'the conversation is gone') {
           done.push(update.id);
