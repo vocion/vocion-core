@@ -764,6 +764,8 @@ describe('the factory-desk plugin', () => {
 
     expect(ws.enabledPlugins).toEqual(['factory-desk']);
     expect(desk).toMatchObject({ skills: ['take-a-request', 'unblock-a-ticket'], connectorSources: ['factory'] });
+    // A bug report in a thread is a ticket for the factory, not a proposed rule (2026-11-10: the first real mention was filed as feedback).
+    expect(desk?.harness?.excludeTools).toContain('file_feedback');
     expect(ws.automations.find(a => a.slug === 'factory-updates')).toMatchObject({ when: { schedule: '*/2 * * * *' }, do: { job: 'mcp-updates' } });
   });
 });

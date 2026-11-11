@@ -152,6 +152,26 @@ describe('handleInbound', () => {
     }
   });
 
+  // 2026-11-10: the first mention of a factory desk was a bug report. The note sent it to
+  // file_feedback, and the report became a proposed rule instead of a ticket.
+  it('tells an agent to file feedback only when its seat has file_feedback', async () => {
+    const report = 'this is wrong: the recording should have captured the mic audio';
+    const handed = async (slug: string, threadRef: string): Promise<string> => {
+      await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: `C-${slug}`, agentSlug: slug });
+      const runAgent = vi.fn(async (_opts: { message: string }) => ({ response: 'ok', traceId: 't', toolCalls: [] }));
+      await svc.handleInbound(fakeAdapter(), { ...inbound, channelId: `C-${slug}`, threadRef, messageRef: threadRef, text: report }, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+
+      return runAgent.mock.calls[0]![0].message;
+    };
+    await db.insert(agentSchema).values({ orgId: ORG, slug: 'lead', name: 'lead', systemPrompt: 'you are a test' });
+    await db.insert(agentSchema).values({ orgId: ORG, slug: 'desk', name: 'desk', systemPrompt: 'you are a test', harnessConfig: { excludeTools: ['file_feedback'] } as never });
+
+    expect(await svc.agentWithholds(ORG, 'desk', 'file_feedback')).toBe(true);
+    expect(await svc.agentWithholds(ORG, 'lead', 'file_feedback')).toBe(false);
+    expect(await handed('lead', '200.1')).toContain('file_feedback');
+    expect(await handed('desk', '200.2')).not.toContain('file_feedback');
+  });
+
   it('binds → runs the agent → replies in the thread, and keeps one conversation per thread', async () => {
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
     const adapter = fakeAdapter();
