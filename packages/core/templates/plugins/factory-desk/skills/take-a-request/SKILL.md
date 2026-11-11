@@ -3,7 +3,7 @@ slug: take-a-request
 name: A request in a thread becomes a factory ticket
 description: >-
   How a request to build, fix or change software, asked in a thread or in
-  chat, becomes exactly one ticket in the delivery factory in the same turn:
+  chat, becomes a ticket in the delivery factory in the same turn (one per independent piece of work when a thread holds several):
   what to read first (the thread, and any linked recording), the one round of questions that is allowed, what the
   ticket must say, how it is filed (`mcp.act` on the `factory` source), and
   what the thread is told. Read whenever somebody asks for software work, and
@@ -51,6 +51,32 @@ be read, say so in the ticket and in the thread, and only then ask.
 Then check the factory does not already have it: `mcp_read` on `factory`,
 `list_tickets`. If an open ticket is the same ask, do not file a second one.
 Say so with its link and what it waits on.
+
+## A thread with several requests
+
+People pile things into one thread: two people, three asks, one of them a
+numbered list, one of them a single vague line. Sort it before you file.
+
+- **One ticket per independent piece of work.** Two things are independent
+  when one could ship without the other: a different product (the Mac app,
+  the video editor), a different person's problem, a different part of the
+  screen. A numbered list about one behaviour (how trimming a clip should
+  work) is ONE ticket whose points become its done-when lines; split a point
+  out only when it stands alone ("and let me delete a clip").
+- **Each ticket carries its own reporter**, in `origin.by`, and the link to
+  that person's message in `origin.url`, not the thread's first message.
+- **File the clear ones now.** A detailed ask is filed in this turn. Do not
+  hold it for the vague one.
+- **A thin one gets one question, to its reporter by name**, in the same
+  reply, and is filed when they answer. If the factory can start without the
+  answer, file it and put the question in the ticket instead.
+- **Say what you did in one reply, one line per request**: the ticket as a
+  link and five or six words, or the question with the person's name. Three
+  requests are three lines, not three messages.
+- **Later, a reply names its ticket.** When more than one ticket from a
+  thread waits on a person and a reply does not say which ("approve",
+  "yes"), read which message it answers and who wrote it. If that settles
+  it, act; if it does not, ask "SL-17 or SL-18?" and nothing else.
 
 ## Answer what you can
 

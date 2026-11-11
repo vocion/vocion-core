@@ -9,7 +9,7 @@ everything between the two.
 | Clarified | the desk | at most one round of questions, only for what the ticket cannot start without |
 | Filed | the desk | `mcp_act` → the factory's filing tool; the ticket link is posted in the thread |
 | Needs a person | the factory | it pings the workspace, which reads its updates then; the desk answers from the thread when the thread settled it, else asks the thread |
-| Answered or approved | a person, in the thread | the desk passes it on with `mcp_act` → the factory's reply tool, in their name: every step, to the merge |
+| Answered or approved | a person, in the thread | the desk passes it on with `mcp_act` → the factory's `decide_ticket`, in their name: every step, to the merge |
 | Handed over | a person says "answer it for me" | the desk reads it, decides with its own judgment, records it as theirs decided by the desk, and says why |
 | Shipped | the factory | the release page is posted in the thread |
 
@@ -23,7 +23,7 @@ everything between the two.
    kind: mcp
    config:
      readTools: [ticket_status, ticket_updates, list_tickets, list_blockers, release_get]
-     actTools: [request_ticket, reply_ticket, watch_updates]
+     actTools: [request_ticket, answer_ticket, decide_ticket, watch_updates]
      updatesTool: ticket_updates
      updatesWatchTool: watch_updates
    ```
@@ -38,12 +38,13 @@ everything between the two.
    workspace's `trust.yaml`:
 
    ```yaml
-   - action: mcp.act.factory.reply_ticket
+   - action: mcp.act.factory.answer_ticket
      autoApproveAbove: 0.85
      enabled: true
      rung: execute-within-bounds
      risk: low
    ```
 
-   Without it the desk's own answer is a card for a person. What a person says in the thread is passed on
+   That rule covers facts only. A decision (`decide_ticket`) never gets a rule: it runs on a person's word, and
+   the desk's own is always a card. Without the rule the desk's own answer is a card too. What a person says in the thread is passed on
    either way: their word runs.
