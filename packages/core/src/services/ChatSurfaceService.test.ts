@@ -361,6 +361,8 @@ describe('handleInbound', () => {
     expect(out).toMatchObject({ outcome: 'replied', text: 'Approved by Chris: "Merge it". It ran; Undo is in Vocion.' });
     expect(runAgent).not.toHaveBeenCalled();
     expect(adapter.replies[0]!.text).toContain('Approved by Chris');
+    // The reply is read against the agent's last message in the thread (none yet here).
+    expect(approval).toHaveBeenCalledWith(ORG, expect.objectContaining({ text: 'ship it' }), expect.any(Number), null);
   });
 
   it('stores the reply as a finished turn, so a Slack answer is not a row nobody can read (#114)', async () => {

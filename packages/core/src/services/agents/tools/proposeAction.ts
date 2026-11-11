@@ -348,6 +348,14 @@ async function runProposalInner(
             ...(suggested_decision ? { suggestedDecision: suggested_decision, ...(reason ? { suggestedDecisionReason: reason } : {}) } : {}),
           },
         });
+        // WHERE THEY READ DECIDES WHAT IS TRUE (2026-11-11, a thread on a chat surface: the agent
+        // was told the decision was "docked above their composer", so its reply asked nothing and
+        // the work sat). A thread shows words only: the ask is the agent's line, and the reply
+        // that approves settles this same run (`services/chat/slackApproval.ts`).
+        const { inTheApp } = await import('../decisionHolder');
+        if (!(await inTheApp(ctx))) {
+          return withAdvice(`Proposed ${action_id} → ${nounCode('action', res.runId)} is waiting on the person's approval and has NOT run (confidence ${confidence}). They are reading a chat thread, which shows words only: no card or button is in front of them, so they do not know it waits unless your reply says so. Ask them in your reply, in one line: what would run, and the short reply that approves it. Their reply in this thread that approves it runs it as theirs. Do NOT claim the change was made, and do not send them to the review queue.`);
+        }
         return withAdvice(`Proposed ${action_id} → ${nounCode('action', res.runId)} is waiting on the person's approval, as a decision docked above their composer (confidence ${confidence}). Do NOT claim the change was made, and do not tell them to open the review queue: the decision is in front of them, and their answer comes back to you. Say in one line what it is.`);
       }
       return withAdvice(`Proposed ${action_id} → ${nounCode('action', res.runId)} is PENDING human approval in the review queue (confidence ${confidence}). Do NOT claim the change was made — say it has been queued for approval.`);

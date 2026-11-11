@@ -31,6 +31,7 @@ export const TurnIntentSchema = z.object({
   changed_record_type: z.string().max(60).nullable().describe('With change: the type of the record they want changed, as one lower-case slug (e.g. request); null otherwise.'),
   record_type: z.string().max(60).nullable().describe('With file: its type as one lower-case slug from the types named below (e.g. request, bug); null otherwise.'),
   summary: z.string().max(200).describe('What they want, in one short line.'),
+  replies_to_agent: z.boolean().optional().describe('True when the agent\'s previous message asked the person something, or asked them for something, and this message is their reply to it: the fact, value, choice or go-ahead it asked for, however short. They are telling, not asking. False when the agent asked nothing, or when this message asks something of its own.'),
 });
 export type TurnIntent = z.infer<typeof TurnIntentSchema>;
 
@@ -57,6 +58,18 @@ export function answeredIntent(summary: string): TurnIntent {
  */
 export function asksForAct(intent: Pick<TurnIntent, 'asks'>): boolean {
   return intent.asks !== 'answer';
+}
+
+/**
+ * The person asked a question, so the turn writes nothing (`turnScope.ts`).
+ * A reply to what the agent itself asked is not a question, whatever `asks`
+ * came back as: the agent asked so it could act on the answer (2026-11-11, a
+ * one-word answer to the agent's own question made the turn read-only, and
+ * passing the answer on was refused). A failed read is never read-only.
+ * @param intent - The turn's reading.
+ */
+export function asksOnlyToKnow(intent: TurnIntent & { unread?: true }): boolean {
+  return intent.asks === 'answer' && intent.replies_to_agent !== true && !('unread' in intent);
 }
 
 type Model = Pick<BaseChatModel, 'bindTools'>;
@@ -99,7 +112,7 @@ export async function readIntent(input: { orgId: string; message: string; previo
       input.waiting ? `Waiting on them here:\n${input.waiting}` : '',
       input.recordTypes && input.recordTypes.length > 0 ? `Record types this agent can file: ${input.recordTypes.join(', ')}` : '',
       input.previous?.person ? `They said just before: ${input.previous.person.slice(0, 1_500)}` : '',
-      input.previous?.agent ? `The agent answered: ${input.previous.agent.slice(-1_500)}` : '',
+      input.previous?.agent ? `The agent's previous message, which theirs may be a reply to: ${input.previous.agent.slice(-1_500)}` : '',
       `Their message now: ${input.message.slice(0, 4_000)}`,
     ].filter(Boolean).join('\n\n'));
     return out ?? NO_INTENT;
@@ -126,9 +139,10 @@ export const SaidToDecideSchema = z.object({
  * @param input.messages - The person's recent messages, newest first (the latest, then the one before).
  * @param input.decision - The decision, as a sentence ("approve proposal #5201: Build vanity links").
  * @param input.page - The record the person is on, so "build this" reads as that record (2026-10-02: "Plan this again and build it" on FE-224 read as no consent without it).
+ * @param input.asked - The agent's message their latest one replies to, where the person reads only words (a thread): what a bare "yes" is a yes to. Context for their words, never consent itself.
  * @param model - Injected in tests.
  */
-export async function saidToDecide(input: { orgId: string; messages: string[]; decision: string; page?: string | null }, model?: Model): Promise<{ said: boolean; quote: string | null }> {
+export async function saidToDecide(input: { orgId: string; messages: string[]; decision: string; page?: string | null; asked?: string | null }, model?: Model): Promise<{ said: boolean; quote: string | null }> {
   if (input.messages.length === 0) {
     return { said: false, quote: null };
   }
@@ -136,6 +150,7 @@ export async function saidToDecide(input: { orgId: string; messages: string[]; d
     const out = await ask(input.orgId, model ?? await classifier(input.orgId), SaidToDecideSchema, 'report_consent', 'Report whether the person said to take this decision.', 'An agent is about to take a decision on a person\'s behalf. You decide from the person\'s own words only whether they told it to take exactly this decision: this action, on this target, with this effect. A question about it, a maybe, a different decision, or a decision about something else is not consent. Consent to one action is never consent to another on the same work: a person who asked to defer, close, file or change a record has not asked for a revert, a merge, a deploy, a delete or any other change to production unless they named that action themselves. Answer only through the tool.', [
       input.page ? `The person is on the page of ${input.page}; "this" or "it" in their words means that record.` : '',
       `The decision: ${input.decision}`,
+      input.asked ? `The agent's message just before theirs, which their words may be a reply to. It is not the person's word; when it asked them for exactly this decision, a reply that agrees is their word for it, and when it asked for anything else, it is not: ${input.asked.slice(-1_500)}` : '',
       `The person, latest message: ${input.messages[0]!.slice(0, 2_000)}`,
       input.messages[1] ? `The person, message before: ${input.messages[1].slice(0, 2_000)}` : '',
     ].filter(Boolean).join('\n\n'));

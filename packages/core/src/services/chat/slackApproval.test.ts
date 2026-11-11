@@ -27,6 +27,13 @@ describe('a reply in the Slack thread decides the card waiting there (backlog 05
     expect(d.decide).toHaveBeenCalledWith('org_n', 7049, 'approve', 'usr-1', 'ship it');
   });
 
+  it('reads a short reply against the agent\'s ask, which in a thread was its last message', async () => {
+    const d = deps();
+    await approvalFromThread('org_n', { ...inbound, text: 'yes' }, 474, d, 'One more hold: the cost check. Reply build it to start.');
+
+    expect(d.consent).toHaveBeenCalledWith('org_n', 'yes', 'approve proposal #7049: Merge Keyboard shortcuts in the library', 'One more hold: the cost check. Reply build it to start.');
+  });
+
   it('decides nothing for a Slack user Vocion does not know, and says what to do', async () => {
     const d = deps({ member: vi.fn(async () => ({ userId: null, email: 'someone@elsewhere.example' })) });
     const out = await approvalFromThread('org_n', inbound, 474, d);

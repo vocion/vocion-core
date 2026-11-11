@@ -155,6 +155,8 @@ export type ThreadContext = {
   replies?: ThreadPost[];
   /** Everyone who has posted in the thread, resolved where possible. */
   posters?: { id: string; name: string }[];
+  /** Who wrote the message this turn answers: the one person whose words it is. */
+  sender?: { id: string; name: string };
   /** Scopes this install does not hold, and what each would have added. */
   gaps?: ContextGap[];
   /**
@@ -522,6 +524,11 @@ export function describeThread(t: ThreadContext): string {
   }
   if (t.posters && t.posters.length > 0) {
     lines.push(`People in this thread: ${t.posters.map(p => p.name).join(', ')}.`);
+  }
+  if (t.sender) {
+    // Said outright: with several people in a thread, the model otherwise picks the author from
+    // who a question was addressed to (2026-11-11: an answer was filed under the wrong name).
+    lines.push(`The message you are answering now was written by ${t.sender.name}. Its words are theirs and nobody else's: speak to them as "you", and anything passed on from it is passed on in their name.`);
   }
   if (t.mediaMode === 'blocks') {
     lines.push('To show an image here I render it as an inline image block, which Slack fetches itself — so only a PUBLICLY reachable URL works. `find_screenshots` says which of its results qualify; one that does not can still be linked, but say it needs a sign-in.');
