@@ -78,6 +78,13 @@ trailing `<aside>` of at most 4,000 characters — refuses the write with a
 sentence naming it (`libs/decks/slides.ts` `checkSlide`). Self-closed
 `<x-icon …/>` is accepted and stored opened.
 
+A slide's `<section>` may name how it comes in when presented:
+`data-transition` takes reveal.js's names (`none fade slide convex concave
+zoom`, or an `-in` / `-out` pair such as `slide-in fade-out`) and
+`data-transition-speed` takes `default fast slow`. A slide that names none, or
+a name reveal.js does not know, fades. Only Present reads them; the render
+page, the PDF and the PPTX export ignore them.
+
 **Speaker notes** are plain text in one `<aside>`, the section's last child, up
 to 4,000 characters. In Metacto's house style the notes carry provenance: who
 said it, on which call, what is synthetic, and which figures are drafts.
@@ -302,8 +309,12 @@ blocker), and the existing version menu. The header carries **Present** and
 - **Reorder** by dragging a thumbnail, or Alt+↑/↓ on it; **Add slide**
   duplicates the selected page as a starting point; **Delete** removes it
   (undo as above). No slide library in core.
-- **Present** (decks): full screen, arrows/space/Page Up/Down, Home/End,
-  Escape; "Open notes" writes a second window that shows the current slide's
+- **Present** (decks): full screen on reveal.js (5.2.1, loaded only when
+  Present opens, core CSS only), arrows/space/Page Up/Down, Home/End, a swipe,
+  Escape; each slide comes in with its `data-transition` (fade by default, none
+  under reduced motion), and every slide is still the pane's own sandboxed
+  page frame, so `asset:` images and Vocion's elements render exactly as in
+  the pane; "Open notes" writes a second window that shows the current slide's
   notes and the next slide, kept in step over `BroadcastChannel`
   `vocion-present:<id>` (`presenterNotes.ts`); it can move the deck too. A
   click on the slide moves on; a click on its left third goes back.

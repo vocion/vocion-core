@@ -59,6 +59,23 @@ export function pageSize(kind: DeliverableKind): { width: number; height: number
   return kind === 'deck' ? { width: SLIDE_WIDTH, height: SLIDE_HEIGHT } : { width: SHEET_WIDTH, height: SHEET_HEIGHT_GUESS };
 }
 
+/** reveal.js's transitions; anything else a slide names falls back to the deck's default (present mode's fade). */
+const TRANSITION = /^(?:none|fade|slide|convex|concave|zoom)(?:-in)?(?: (?:none|fade|slide|convex|concave|zoom)-out)?$/;
+const SPEED = new Set(['default', 'fast', 'slow']);
+
+/**
+ * The transition a slide's `<section>` asks for (`data-transition`, plus
+ * `data-transition-speed`), when it is one reveal.js knows.
+ * @param html - The slide as stored.
+ */
+export function slideTransition(html: string): { transition?: string; speed?: string } {
+  const open = /^\s*<section\b[^>]*>/i.exec(html)?.[0] ?? '';
+  const attr = (name: string) => new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(open)?.slice(1).find(v => v !== undefined)?.trim().toLowerCase();
+  const transition = attr('data-transition');
+  const speed = attr('data-transition-speed');
+  return { ...(transition && TRANSITION.test(transition) ? { transition } : {}), ...(speed && SPEED.has(speed) ? { speed } : {}) };
+}
+
 /**
  * The pages, in order.
  * @param kind - Deck or document.

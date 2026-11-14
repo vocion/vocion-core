@@ -4,8 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { planEdit } from './ops';
-import { deliverablePages } from './pages';
+import { deliverablePages, slideTransition } from './pages';
 import { freshSlideId, replaceElementText, withSectionId } from './textEdit';
+import '@/styles/global.css';
 
 /**
  * The deliverable pane, in a real browser: pages down the side, the page
@@ -246,6 +247,59 @@ describe('the deliverable pane', () => {
       exit.mockRestore();
       fullscreen.mockRestore();
     }
+  });
+
+  it('presents on reveal.js: every slide a section, the transition each one names, its own frame', async () => {
+    const spec = deckSpec();
+    spec.slides.plan = spec.slides.plan.replace('<section id="plan"', '<section id="plan" data-transition="zoom"');
+    renderPane({ presenting: true, onPresentingChange: vi.fn(), spec });
+
+    // reveal.js loads on first present; a cold CI run takes seconds.
+    await vi.waitFor(() => expect(document.querySelector('[data-present-reveal="ready"]')).not.toBeNull(), { timeout: 15_000 });
+    const sections = [...document.querySelectorAll<HTMLElement>('[data-present-reveal] .slides > section')];
+
+    expect(sections.map(s => s.dataset.presentSlide)).toEqual(['cover', 'plan', 'team']);
+    expect(sections.map(s => s.dataset.transition ?? null)).toEqual([null, 'zoom', null]);
+    expect(document.querySelector('[data-present-reveal]')!.classList.contains('fade')).toBe(true);
+    expect(sections[0]!.classList.contains('present')).toBe(true);
+
+    // The slide is the pane's frame: Vocion's render page, not reveal's reading of the markup.
+    await vi.waitFor(() => expect(sections[0]!.querySelector('iframe')?.getAttribute('srcdoc') ?? '').toContain('One record'));
+  });
+
+  it('moves with the arrows, tells the pane where it is, and asks for full screen once', async () => {
+    const request = vi.spyOn(HTMLElement.prototype, 'requestFullscreen').mockResolvedValue(undefined);
+    try {
+      renderPane({ presenting: true, onPresentingChange: vi.fn() });
+
+      // reveal.js loads on first present; a cold CI run takes seconds.
+      await vi.waitFor(() => expect(document.querySelector('[data-present-reveal="ready"]')).not.toBeNull(), { timeout: 15_000 });
+      await userEvent.keyboard('{ArrowRight}');
+
+      await expect.element(page.getByText('2 / 3')).toBeVisible();
+
+      await vi.waitFor(() => expect(document.querySelector('[data-present-slide="plan"]')!.classList.contains('present')).toBe(true));
+
+      await expect.element(page.getByRole('button', { name: 'Slide 2: The plan' })).toHaveAttribute('aria-current', 'page');
+
+      await userEvent.keyboard('{ArrowLeft}');
+
+      await expect.element(page.getByText('1 / 3')).toBeVisible();
+      await expect.element(page.getByRole('button', { name: 'Slide 1: One record' })).toHaveAttribute('aria-current', 'page');
+
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      request.mockRestore();
+    }
+  });
+});
+
+describe('slide transitions', () => {
+  it('reads the transition a slide names, and only one reveal.js knows', () => {
+    expect(slideTransition('<section id="a" data-transition="fade"><h1>x</h1></section>')).toEqual({ transition: 'fade' });
+    expect(slideTransition(`<section data-transition='slide-in fade-out' data-transition-speed="fast" id="a"></section>`)).toEqual({ transition: 'slide-in fade-out', speed: 'fast' });
+    expect(slideTransition('<section id="a"><p data-transition="zoom">x</p></section>')).toEqual({});
+    expect(slideTransition('<section id="a" data-transition="explode"></section>')).toEqual({});
   });
 });
 
