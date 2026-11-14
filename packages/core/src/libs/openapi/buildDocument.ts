@@ -147,7 +147,7 @@ function operationObject(operation: RouteOperation): Record<string, unknown> {
     operationId: operation.operationId,
     summary: operation.summary,
     tags: [operation.tag],
-    security: ['/api/v1/lists', '/api/v1/crm'].includes(operation.path) ? [{ browserSession: [] }] : [{ bearerToken: [] }],
+    security: ['/api/v1/lists', '/api/v1/crm', '/api/v1/crm/campaigns'].includes(operation.path) ? [{ browserSession: [] }] : [{ bearerToken: [] }],
     responses: responsesObject(operation),
   };
   const description = descriptionWithCapability(operation);
