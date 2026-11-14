@@ -60,6 +60,32 @@ export function hubspotDirect(): Promise<typeof import('@/services/agents/tools/
   return import('@/services/agents/tools/hubspotDirect');
 }
 
+/**
+ * Plain names for standard HubSpot properties, as a person says them, to the internal name HubSpot
+ * takes. None of them is a property on any HubSpot object, so mapping one never redirects a write
+ * that would have landed. A teammate's walk (2026-10-30): "probability 90%" was written as
+ * `probability`, HubSpot refused the whole update with a 400, and nothing changed.
+ */
+const PLAIN_PROPERTY_NAMES: Record<string, string> = {
+  probability: 'hs_deal_stage_probability',
+  deal_probability: 'hs_deal_stage_probability',
+  win_probability: 'hs_deal_stage_probability',
+  deal_stage_probability: 'hs_deal_stage_probability',
+  stage: 'dealstage',
+  deal_stage: 'dealstage',
+  close_date: 'closedate',
+  next_step: 'hs_next_step',
+  deal_name: 'dealname',
+};
+
+/**
+ * The properties by the names HubSpot takes; a name it already takes is left as written.
+ * @param props - The properties as proposed.
+ */
+function asInternalNames<V>(props: Record<string, V>): Record<string, V> {
+  return Object.fromEntries(Object.entries(props).map(([k, v]) => [PLAIN_PROPERTY_NAMES[k.trim().toLowerCase().replace(/[\s-]+/g, '_')] ?? k, v]));
+}
+
 const hubspotUpdateInput = z.object({
   objectType: z.enum(['contacts', 'deals', 'companies']),
   /**
@@ -71,8 +97,12 @@ const hubspotUpdateInput = z.object({
    * colon is what goes here.
    */
   objectId: z.string().regex(/^\d+$/, 'objectId must be the numeric HubSpot record id (the number after the colon in a mirror ref like deals:4812), not a name or slug'),
-  /** Properties to set, e.g. `{ dealstage: 'presentationscheduled', hs_next_step: '…' }`. */
-  properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+  /**
+   * Properties to set by their HubSpot internal names, e.g. `{ dealstage: 'presentationscheduled',
+   * hs_deal_stage_probability: 0.9, hs_next_step: '…' }`. The plain names people say for a few
+   * standard deal properties ("probability", "stage", "close_date", "next_step") are taken as those.
+   */
+  properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).transform(asInternalNames),
   baseUrl: z.string().url().default('https://api.hubapi.com'),
 });
 
