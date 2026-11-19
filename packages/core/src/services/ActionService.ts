@@ -25,6 +25,7 @@ import { isManualAction } from '@/libs/actions/manual';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { policyKeyForRun } from '@/libs/actions/policyKey';
 import { getAction } from '@/libs/actions/registry';
+import { carryReopenRecord } from '@/libs/actions/reopen';
 import { db } from '@/libs/DB';
 import { actionRunSchema, projectSchema } from '@/models/Schema';
 import { agentSlugFromPrincipal } from '@/services/adoption/attribution';
@@ -545,7 +546,9 @@ async function proposeActionInTurn(input: {
       if (!existing) {
         return null;
       }
-      const stored = storedOnRefresh(action, existing, parsed as Record<string, unknown>, storedProposal);
+      const refreshedRun = storedOnRefresh(action, existing, parsed as Record<string, unknown>, storedProposal);
+      // A run a person reopened keeps the record of that through a re-proposal.
+      const stored = { ...refreshedRun, proposal: carryReopenRecord(existing.proposal as Record<string, unknown> | null, refreshedRun.proposal) };
       await tx
         .update(actionRunSchema)
         .set({

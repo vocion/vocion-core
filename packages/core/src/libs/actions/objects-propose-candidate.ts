@@ -847,6 +847,26 @@ async function decideCandidateObject(
   return updated?.id ?? null;
 }
 
+/**
+ * Move a rejected candidate's record back to `candidate`. A row in any other
+ * status is left alone.
+ * @param orgId - Org that owns it.
+ * @param runId - The reopened action_run.
+ */
+async function reopenCandidateObject(orgId: string, runId: number): Promise<void> {
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  await db
+    .update(businessObjectSchema)
+    .set({ status: CANDIDATE_STATUS.proposed })
+    .where(and(
+      eq(businessObjectSchema.orgId, orgId),
+      eq(businessObjectSchema.reviewActionRunId, runId),
+      eq(businessObjectSchema.status, CANDIDATE_STATUS.rejected),
+    ));
+}
+
 /** One candidate that shares this one's identity prefix. */
 export type SimilarCandidate = {
   /** The `action_run` id, so a caller can name it in a label. */
@@ -1164,6 +1184,13 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
   // the extractor got wrong, and the training signal for fixing it.
   async onRejected(ctx, _input, runId) {
     await decideCandidateObject(ctx, runId, CANDIDATE_STATUS.rejected);
+  },
+
+  // A reopened rejection puts the record back to `candidate`, payload intact.
+  // Only a row still `rejected` moves: anything since (approved elsewhere,
+  // archived) is not this hook's to undo.
+  async onReopened(ctx, _input, runId) {
+    await reopenCandidateObject(ctx.orgId, runId);
   },
 
   /**
