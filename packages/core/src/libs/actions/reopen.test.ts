@@ -26,6 +26,12 @@ describe('which rejections can be reopened', () => {
     }
   });
 
+  it('refuses a rejection with no decider on record, which cannot be shown to be a person\'s', () => {
+    for (const decidedBy of [null, '', '  ']) {
+      expect(reopenRefusal(7, rejected({ decidedBy }), REVERSIBLE, NOW)?.code).toBe('NOT_REOPENABLE');
+    }
+  });
+
   it('refuses a run that executed before it was rejected, which pending would offer to run again', () => {
     expect(reopenRefusal(7, rejected({ result: { sent: true } }), REVERSIBLE, NOW)?.code).toBe('NOT_REOPENABLE');
   });
