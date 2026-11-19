@@ -180,7 +180,8 @@ within rules, 4 manage a goal, 5 improve itself) —
 
 Everything gated lands in one review queue, readable and decidable over HTTP:
 `GET /api/v1/reviews` and `POST /api/v1/reviews/decide`
-(`packages/core/src/app/api/v1/reviews/`).
+(`packages/core/src/app/api/v1/reviews/`). A person's rejection of an action can be taken back
+with `POST /api/v1/reviews/reopen`, which returns the run to pending.
 
 ## Verify: lint, types, tests
 

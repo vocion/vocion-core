@@ -17,6 +17,7 @@
 
 import type { FetchFailureDetail } from '@/libs/sources/fetchFailure';
 import type { Principal } from '@/services/authz';
+import type { ReopenOutcome } from '@/services/review/reopen';
 import type { PendingPage, ReviewDetail, ReviewInclude, ReviewItem, ReviewKind } from '@/services/ReviewService';
 import type { SourceSyncState } from '@/services/SourceSyncService';
 import { parseSuggestedDecision, parseSuggestedDecisionReason, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
@@ -24,6 +25,7 @@ import { ActionError } from '@/services/ActionService';
 import { authenticateBearer } from '@/services/ApiTokenService';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { emitEvent } from '@/services/EventService';
+import { reopenAction } from '@/services/review/reopen';
 import * as ReviewService from '@/services/ReviewService';
 import { REVIEW_INCLUDES } from '@/services/ReviewService';
 
@@ -333,6 +335,49 @@ export async function apiDecideReview(
 
   const reviews = await ReviewService.listPending(caller.orgId);
   return { ok: true, reviews };
+}
+
+export type ReopenInput = { kind: ReviewKind; id: number };
+
+/** HTTP status for each reason a reopen is refused. */
+const REOPEN_ERROR_STATUS: Record<string, number> = {
+  NOT_FOUND: 404,
+  INVALID_STATE: 409,
+  NOT_REOPENABLE: 409,
+  SUPERSEDED: 409,
+  REOPEN_FAILED: 500,
+};
+
+/**
+ * Reopen a rejected action run: back to pending, in the queue, decidable
+ * again. Additive beside decide and authorised exactly like it. Returns what
+ * moved plus the refreshed queue.
+ * @param caller - Who is reopening; stamped on the run's reopen record.
+ * @param input - The queue item: `kind` must be `action`.
+ */
+export async function apiReopenReview(
+  caller: ApiCaller,
+  input: ReopenInput,
+): Promise<{ ok: true; reopened: ReopenOutcome & { kind: 'action' }; reviews: ReviewItem[] }> {
+  assertKind(input.kind);
+  assertId(input.id);
+  if (input.kind !== 'action') {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'only an action can be reopened — a rejected workflow or mission run is cancelled for good');
+  }
+  enforceQueueCapability(caller, 'reopen reviews');
+
+  let reopened: ReopenOutcome;
+  try {
+    reopened = await reopenAction(input.id, caller.orgId, { by: caller.actorId });
+  } catch (error) {
+    if (error instanceof ActionError && REOPEN_ERROR_STATUS[error.code]) {
+      throw new WriteApiError(REOPEN_ERROR_STATUS[error.code]!, error.code, error.message);
+    }
+    throw error;
+  }
+
+  const reviews = await ReviewService.listPending(caller.orgId);
+  return { ok: true, reopened: { kind: 'action', ...reopened }, reviews };
 }
 
 export type AssignInput = { kind: ReviewKind; id: number; assignedTo: string | null; note?: string };

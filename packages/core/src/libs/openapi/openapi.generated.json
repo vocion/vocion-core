@@ -6548,6 +6548,73 @@
         }
       }
     },
+    "/api/v1/reviews/reopen": {
+      "post": {
+        "operationId": "post_reviews_reopen",
+        "summary": "Take back a person's rejection of a queued action: the run returns to `pending` and is decidable again through `/reviews/decide`.",
+        "tags": [
+          "reviews"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Take back a person's rejection of a queued action: the run returns to\n`pending` and is decidable again through `/reviews/decide`. Body:\n`{ kind: \"action\", id }`.\n\nOnly a run that is `rejected` now, by a person, that never executed, and\nwhose action can put its own record back reopens. Anything else is a 409:\n`INVALID_STATE` (not rejected — including a second reopen),\n`NOT_REOPENABLE` (rejected by a machine, executed, or expired) or\n`SUPERSEDED` (the same record was proposed again and that run is open).\nAnother workspace's run is a 404. Who reopened it and when is kept on the\nrun's proposal envelope (`proposal.reopened`).\n\nRequires the `approve` capability, as deciding does. Returns\n`{ ok, reopened: { kind, id, status, reopenedBy, reopenedAt }, reviews }`.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "id": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "kind": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reviews/rewrite": {
       "post": {
         "operationId": "post_reviews_rewrite",

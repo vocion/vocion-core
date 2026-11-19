@@ -609,6 +609,14 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    */
   onRejected?: (ctx: ActionContext, input: z.infer<S>, runId: number, reason?: string) => Promise<void>;
   /**
+   * The inverse of `onRejected`: called when a person reopens a rejected run
+   * (`POST /api/v1/reviews/reopen`), to put the domain record back in the lane
+   * it held while pending. An action that declares `onRejected` and not this
+   * cannot be reopened, because its rejection changed something only it knows
+   * how to put back. Must be idempotent.
+   */
+  onReopened?: (ctx: ActionContext, input: z.infer<S>, runId: number) => Promise<void>;
+  /**
    * Re-run the work behind a pending run, guided by the reviewer's feedback.
    * The action owns what "regenerate" means for its domain (e.g. send the
    * lead's brief back to be researched and drafted again), the same way
