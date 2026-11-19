@@ -18,7 +18,8 @@ const { db } = await import('@/libs/DB');
 const { actionRunSchema, businessObjectSchema, businessObjectTypeSchema, decisionAlignmentSchema, reviewAssignmentSchema } = await import('@/models/Schema');
 const { authenticateBearer } = await import('@/services/ApiTokenService');
 const { clerkAuth } = await import('@/libs/Auth');
-const { forgetCachedObjectTypes } = await import('@/libs/actions/objects-propose-candidate');
+const { forgetCachedObjectTypes, objectProposeCandidateAction } = await import('@/libs/actions/objects-propose-candidate');
+const { decide } = await import('@/services/ReviewService');
 const { POST: REOPEN } = await import('./route');
 const { POST: DECIDE } = await import('../decide/route');
 const { POST: PROPOSE } = await import('../propose/route');
@@ -68,6 +69,8 @@ async function propose(title: string): Promise<number> {
   return (await res.json()).runId;
 }
 
+// The dashboard's reject: its note lands on the item's queue assignment.
+const rejectWithNote = (id: number, note: string) => decide({ kind: 'action', id }, 'reject', ORG, { note, reviewedBy: 'user_reviewer', learn: false });
 const reject = (id: number) => DECIDE(post('/api/v1/reviews/decide', { kind: 'action', id, action: 'reject', reason: 'bulk reject', learn: false }));
 const reopen = (id: number, kind = 'action') => REOPEN(post('/api/v1/reviews/reopen', { kind, id }));
 const objectFor = async (runId: number) => (await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.reviewActionRunId, runId)))[0];
@@ -82,6 +85,7 @@ async function clean() {
 }
 
 beforeEach(async () => {
+  vi.restoreAllMocks();
   vi.clearAllMocks();
   vi.mocked(clerkAuth).mockResolvedValue({ userId: null, orgId: null, accountId: null, projectId: null, role: null, has: () => false } as never);
   vi.mocked(authenticateBearer).mockResolvedValue(tokenPrincipal(ORG) as never);
@@ -213,5 +217,76 @@ describe('reopening a rejected review', () => {
   it('reopens actions only: a workflow or mission kind is a 400', async () => {
     expect((await reopen(1, 'workflow')).status).toBe(400);
     expect((await reopen(1, 'mission')).status).toBe(400);
+  });
+
+  it('refuses a rejection with no decider on record with NOT_REOPENABLE, and leaves it rejected', async () => {
+    const runId = await propose('Quilt Show');
+    await db.update(actionRunSchema).set({ status: 'rejected', decidedBy: null, decidedAt: new Date() }).where(eq(actionRunSchema.id, runId));
+
+    const res = await reopen(runId);
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe('NOT_REOPENABLE');
+    expect((await runOf(runId)).status).toBe('rejected');
+  });
+
+  it('moves a run once when two reopens race on the same stale read', async () => {
+    const runId = await propose('Torchlight Ski Parade');
+    await reject(runId);
+    const hook = vi.spyOn(objectProposeCandidateAction, 'onReopened');
+
+    const statuses = (await Promise.all([reopen(runId), reopen(runId)])).map(r => r.status).sort();
+
+    expect(statuses).toEqual([200, 409]);
+    expect(hook).toHaveBeenCalledTimes(1);
+    expect((await runOf(runId)).proposal).toMatchObject({ reopened: [expect.any(Object)] });
+  });
+
+  it('answers 500 REOPEN_FAILED when the action cannot put its record back, and leaves the run exactly as rejected', async () => {
+    const runId = await propose('Wassail Night');
+    await rejectWithNote(runId, 'duplicate of the Grange listing');
+    const before = await runOf(runId);
+    vi.spyOn(objectProposeCandidateAction, 'onReopened').mockRejectedValueOnce(new Error('object store unavailable'));
+
+    const res = await reopen(runId);
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.code).toBe('REOPEN_FAILED');
+
+    const after = await runOf(runId);
+
+    expect(after).toMatchObject({ status: 'rejected', error: before.error, decidedBy: before.decidedBy, decidedAt: before.decidedAt, approvedByAgent: before.approvedByAgent });
+    expect(after.proposal).toEqual(before.proposal);
+    expect((await db.select().from(reviewAssignmentSchema).where(eq(reviewAssignmentSchema.runId, runId)))[0]?.note).toBe('duplicate of the Grange listing');
+    expect((await objectFor(runId))?.status).toBe('rejected');
+  });
+
+  it('keeps a decision that landed while the failed reopen was in flight', async () => {
+    const runId = await propose('Solstice Bonfire');
+    await reject(runId);
+    vi.spyOn(objectProposeCandidateAction, 'onReopened').mockImplementationOnce(async () => {
+      await db.update(actionRunSchema).set({ status: 'done', decidedBy: 'token:t2', decidedAt: new Date() }).where(eq(actionRunSchema.id, runId));
+      throw new Error('object store unavailable');
+    });
+
+    const res = await reopen(runId);
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.code).toBe('REOPEN_FAILED');
+    expect(await runOf(runId)).toMatchObject({ status: 'done', decidedBy: 'token:t2' });
+  });
+
+  it('takes the reject\'s note off the reopened item and keeps it on the reopen record', async () => {
+    const runId = await propose('Harvest Contra Dance');
+    await rejectWithNote(runId, 'venue closed for winter');
+
+    expect((await db.select().from(reviewAssignmentSchema).where(eq(reviewAssignmentSchema.runId, runId)))[0]?.note).toBe('venue closed for winter');
+    expect((await reopen(runId)).status).toBe(200);
+
+    const items = (await (await LIST(get('/api/v1/reviews?kind=action'))).json()).items;
+
+    expect(items).toMatchObject([{ id: runId, status: 'pending' }]);
+    expect(items[0].note ?? null).toBeNull();
+    expect((await runOf(runId)).proposal).toMatchObject({ reopened: [expect.objectContaining({ priorNote: 'venue closed for winter' })] });
   });
 });

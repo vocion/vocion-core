@@ -50,6 +50,12 @@ export function reopenRefusal(runId: number, run: ReopenSubject, action: ReopenH
   if (run.status !== 'rejected') {
     return { code: 'INVALID_STATE', message: `action_run ${runId} is ${run.status} — only a rejected run can be reopened` };
   }
+  // Only a person's rejection is theirs to take back. An unstamped one (an
+  // older run, a caller that named nobody) cannot be shown to be a person's,
+  // so it is refused rather than assumed.
+  if (!run.decidedBy?.trim()) {
+    return { code: 'NOT_REOPENABLE', message: `action_run ${runId} was rejected by no one on record — it cannot be reopened` };
+  }
   // A machine's rejection (a budget retiring a card, a gate returning it, a
   // sweep, a deadline default) is not a person's decision to take back, and
   // reopening it would walk past the rule that made it.
@@ -81,6 +87,8 @@ export type ReopenRecord = {
   rejectedBy: string | null;
   rejectedAt: string | null;
   rejectedReason: string | null;
+  /** The note the item carried in the queue when it was reopened, taken off it so it does not read as current. */
+  priorNote?: string;
 };
 
 /**
