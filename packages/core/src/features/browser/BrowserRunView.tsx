@@ -248,7 +248,7 @@ export function BrowserRunView({ initial, compact = false }: { initial: Run; com
             ? <img src={frame} alt={`The browser on ${host || 'its page'}`} className="absolute inset-0 size-full object-contain object-top" data-browser-frame />
             : (
                 <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-[12px] text-muted-foreground">
-                  {run.status === 'proposed' ? 'The browser opens when you press Start.' : run.status === 'queued' ? 'Opening the browser…' : 'No picture of this run was kept.'}
+                  {run.status === 'proposed' ? 'The browser opens when you press Start.' : run.resuming ? 'Picking the browser up again after a restart…' : active ? 'Connecting to the browser…' : 'No picture of this run was kept.'}
                 </div>
               )}
         </div>
