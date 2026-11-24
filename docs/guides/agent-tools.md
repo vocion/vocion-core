@@ -159,7 +159,45 @@ See [trust](../entities/trust.md#the-agents-own-writes).
 
 ## Over MCP
 
-The same tools are served by the MCP server (`/api/mcp`), running **as an agent**: the default is
+### Where MCP sits
+
+`/api/mcp` is a standard MCP server, and the standard splits the work in two. The server lists its
+tools, each with a name, a description and a JSON schema for its arguments (`tools/list`), and runs
+the one a caller names (`tools/call`). The server never chooses which MCP tool to run: the
+`tools/call` request names it. Choosing a tool from a person's words is the job of the model on the
+caller's side, such as Claude Code or Claude Desktop. A tool can still use a model once it runs:
+`ask_workspace` routes the message to an agent, and that agent's model then picks from its own
+tools to answer it.
+
+Three things follow from that, and each one surprises people:
+
+- **A caller does not need a model.** A backend can call a tool by name with one JSON-RPC POST and
+  no handshake first, because the server is stateless. The `Accept` header has to list both
+  `application/json` and `text/event-stream`, or the transport answers 406.
+- **Agents Vocion runs itself don't reach their tools through `/api/mcp`.** Inside a turn, the agent's
+  model picks from the internal registry (`services/agents/tools/registry.ts`). In-process the tool
+  runs directly; on `agentcore-container` the call posts back to `/api/internal/agent-tools`
+  ([Where an agent turn runs](../agent-execution.md)). `/api/mcp` is the door for outside callers,
+  which includes an `external-worker` agent such as Claude Code: by design it reaches
+  `propose_action` and `add_learning` by adding the Vocion MCP server
+  ([ADR 0004](../adr/0004-external-worker-provider.md)).
+- **Calling someone else's MCP server is a separate path.** An agent's tool call reaches another
+  system's MCP server through a `kind: mcp` source ([MCP sources](./mcp-sources.md)), where Vocion
+  is the client. The Slate integration (`libs/slate/recording.ts`) also calls Slate's MCP server
+  from core code directly.
+
+```bash
+curl -s https://your-install/api/mcp \
+  -H "Authorization: Bearer $VOCION_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"ask_workspace","arguments":{"message":"Where is the Q3 pricing deck?"}}}'
+```
+
+### Running as an agent
+
+The agent tools in this guide are served by the MCP server (`/api/mcp`), running **as an agent**: the default is
 the workspace's lead or `VOCION_MCP_AGENT_SLUG`, and every tool takes `agent_slug` to run as another
 one, re-gated at call time. `file_ask` and `withdraw_ask` are present for every agent;
 `update_object` only for one with object types, and only for those types. The MCP credential never
