@@ -37,6 +37,9 @@ export default antfu(
       '**/playwright-report/**',
       // Agent skill docs (Claude Code skills) — markdown for agents, not shipped code.
       '.claude/**/*',
+      // Generated TypeScript (e.g. the /api/v1 route table, #1598): its
+      // generator's test compares it byte for byte, so lint must not rewrite it.
+      '**/*.generated.ts',
     ],
   },
   // --- Accessibility Rules ---

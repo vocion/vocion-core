@@ -52,7 +52,7 @@ describe('voice parity: the page, chat, MCP and the API set the same thing', () 
   it('has the setting on each surface', async () => {
     const root = resolve(__dirname, '../../..');
 
-    expect(existsSync(resolve(root, 'src/app/api/v1/agents/[slug]/voice/route.ts'))).toBe(true);
+    expect(existsSync(resolve(root, 'src/app/api/v1/_routes/agents/[slug]/voice/route.ts'))).toBe(true);
     expect(existsSync(resolve(root, 'src/interfaces/mcp/tools/voice-tools.ts'))).toBe(true);
     expect(existsSync(resolve(root, 'src/services/agents/tools/setVoice.ts'))).toBe(true);
 

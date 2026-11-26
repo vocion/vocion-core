@@ -49,10 +49,11 @@ describe('the route module graph', () => {
     expect(pathBetween(moduleGraph(src), 'libs/Auth.ts', 'services/Bus.ts')).toBeNull();
   });
 
-  it('counts every page, route and layout under app/, plus the proxy', () => {
+  it('counts every page, route and layout under app/, plus the proxy, but nothing in a private _folder', () => {
     const src = tree({
       'app/[locale]/page.tsx': 'export default 1;',
       'app/api/x/route.ts': 'export const GET = 1;',
+      'app/api/v1/_routes/y/route.ts': 'export const GET = 1;',
       'app/[locale]/layout.tsx': 'export default 1;',
       'app/[locale]/Widget.tsx': 'export default 1;',
       'proxy.ts': 'export default 1;',

@@ -26,7 +26,7 @@ import { parseRouteModule, routeFileToApiPath } from '../libs/openapi/parseRoute
 import { fromRepoRoot } from '../libs/repo-root';
 
 /** Where the documented endpoints live. */
-export const V1_ROUTES_DIRECTORY = fromRepoRoot('packages/core/src/app/api/v1');
+export const V1_ROUTES_DIRECTORY = fromRepoRoot('packages/core/src/app/api/v1/_routes');
 
 /** Where the generated document is committed. */
 export const GENERATED_SPEC_PATH = fromRepoRoot('packages/core/src/libs/openapi/openapi.generated.json');

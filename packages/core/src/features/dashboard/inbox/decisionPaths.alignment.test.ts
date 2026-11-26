@@ -35,7 +35,7 @@ vi.mock('next/server', async () => {
 const ORG = 'org_decision_paths';
 const CALLER = { orgId: ORG, actorId: 'usr_chris', userId: 'usr_chris', role: 'org:admin', kind: 'session' };
 
-vi.mock('@/app/api/v1/_shared', () => ({
+vi.mock('@/app/api/v1/_routes/_shared', () => ({
   authApi: vi.fn(async () => CALLER),
   isErrorResponse: (v: unknown) => v instanceof Response,
   requireCapability: () => null,
@@ -50,7 +50,7 @@ const { registerAction } = await import('@/libs/actions/registry');
 const { guardAuth } = await import('@/routers/AuthGuards');
 const { decideActionRoute } = await import('@/routers/Review');
 const { upsertAsk } = await import('@/services/AskService');
-const { POST: decideAskRoute } = await import('@/app/api/v1/asks/[id]/decide/route');
+const { POST: decideAskRoute } = await import('@/app/api/v1/_routes/asks/[id]/decide/route');
 const { eq } = await import('drizzle-orm');
 
 registerAction({

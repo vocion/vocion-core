@@ -88,10 +88,10 @@ describe('the review queue over MCP', () => {
  * the others fails here.
  */
 const PARITY = [
-  { verb: 'list the queue', api: 'src/app/api/v1/reviews/route.ts', mcp: 'review_list', chat: null },
-  { verb: 'read one item', api: 'src/app/api/v1/reviews/[kind]/[id]/route.ts', mcp: 'review_get', chat: null },
-  { verb: 'approve or reject a proposal', api: 'src/app/api/v1/reviews/decide/route.ts', mcp: 'review_decide', chat: 'decide_proposal' },
-  { verb: 'answer an ask', api: 'src/app/api/v1/asks/[id]/decide/route.ts', mcp: 'ask_decide', chat: 'decide_ask' },
+  { verb: 'list the queue', api: 'src/app/api/v1/_routes/reviews/route.ts', mcp: 'review_list', chat: null },
+  { verb: 'read one item', api: 'src/app/api/v1/_routes/reviews/[kind]/[id]/route.ts', mcp: 'review_get', chat: null },
+  { verb: 'approve or reject a proposal', api: 'src/app/api/v1/_routes/reviews/decide/route.ts', mcp: 'review_decide', chat: 'decide_proposal' },
+  { verb: 'answer an ask', api: 'src/app/api/v1/_routes/asks/[id]/decide/route.ts', mcp: 'ask_decide', chat: 'decide_ask' },
 ];
 
 describe('review parity: the page, chat, MCP and the API decide the same things', () => {

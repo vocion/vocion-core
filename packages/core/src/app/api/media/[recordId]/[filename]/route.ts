@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
-import { authApi } from '@/app/api/v1/_shared';
+import { authApi } from '@/app/api/v1/_routes/_shared';
 import { db } from '@/libs/DB';
 import { canOpenArtifact } from '@/libs/share/audience';
 import { locateMedia, mediaUrl } from '@/libs/tools/artifacts/media';

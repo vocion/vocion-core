@@ -8,7 +8,7 @@ import { expect, test } from '@playwright/test';
  *
  * Real HTTP against a real running app: real database, real bearer-token auth,
  * no mocks. Unit coverage for the route lives next to it
- * (`app/api/v1/evals/[slug]/refresh/route.test.ts`); this spec is the proof
+ * (`app/api/v1/_routes/evals/[slug]/refresh/route.test.ts`); this spec is the proof
  * that the same behaviour holds once an outside caller reaches the real
  * server.
  *

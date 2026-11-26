@@ -35,7 +35,7 @@ const { publishTargetScopeRefusal } = await import('@/services/publish/sitePubli
 const { squarespaceConnectionFor } = await import('@/services/publish/squarespaceSignIn');
 const { runtimeContextFromScope, workScopeFor } = await import('@/services/agents/runtimeContext');
 const { withCallContext } = await import('@/services/spend/callContext');
-const { patchProject } = await import('@/app/api/v1/projects/[id]/handlers');
+const { patchProject } = await import('@/app/api/v1/_routes/projects/[id]/handlers');
 
 const ORG = 'proj_scoped_connections';
 const REPO = 'example-org/northwind-site';

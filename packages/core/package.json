@@ -36,6 +36,7 @@
     "check:route-graph": "tsx src/scripts/check-route-graph.ts",
     "check:symlinks": "tsx src/scripts/check-tracked-symlinks.ts",
     "openapi:generate": "tsx src/scripts/generate-openapi.ts",
+    "v1-routes:generate": "tsx src/scripts/generate-v1-route-table.ts",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "e2e:chat-incomplete": "VOCION_LLM_PROVIDER=scripted VOCION_LLM_SCRIPT=e2e/chat-incomplete/scripts/mid-stream-failure.json WORKSPACE_PATH=templates/workspaces/client-documents VOCION_DISABLE_RUNTIME=1 playwright test --project=chat-incomplete --workers=1",

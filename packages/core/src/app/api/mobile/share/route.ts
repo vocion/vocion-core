@@ -2,7 +2,7 @@ import type { Conversion } from '@/services/chat/convert';
 import type { SharedItem } from '@/services/share/intake';
 import { Buffer } from 'node:buffer';
 import { NextResponse } from 'next/server';
-import { jsonError } from '@/app/api/v1/_shared';
+import { jsonError } from '@/app/api/v1/_routes/_shared';
 import { auth } from '@/libs/Auth';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { createArtifact } from '@/services/ArtifactService';

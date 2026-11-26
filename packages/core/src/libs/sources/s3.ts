@@ -7,7 +7,7 @@
  * the *file* is the record and the text is thin: every document gets a short
  * synthetic `content` (path, parsed fields, size, capture time) so search and
  * agents can find it, plus `metadata.image_url` — an in-app URL that 302s to
- * a presigned GET (see `app/api/v1/s3/object/route.ts`) — so cards, pages and
+ * a presigned GET (see `app/api/v1/_routes/s3/object/route.ts`) — so cards, pages and
  * object detail can render the picture without the bucket being public.
  *
  * Config:

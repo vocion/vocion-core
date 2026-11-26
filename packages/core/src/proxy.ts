@@ -76,7 +76,7 @@ export default async function proxy(request: NextRequest) {
   // All /api/* routes own their own routing — no locale prefixes, no
   // redirects. Letting next-intl touch them rewrites `/api/v1/foo` to
   // `/en/api/v1/foo`, which doesn't match the route file at
-  // `app/api/v1/foo/route.ts` and 404s. Auth, v1 API, webhooks, signup
+  // `app/api/v1/[...path]/route.ts` and 404s. Auth, v1 API, webhooks, signup
   // all live under /api/ and need to be handled by Next's own route
   // matcher unchanged.
   if (path.startsWith('/api/')) {
