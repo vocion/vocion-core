@@ -17,6 +17,7 @@ import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
 import { getZendeskToken, zendeskCredentialsFrom, ZendeskError, zendeskRequest } from '@/libs/zendesk/client';
 import { zendeskHelpCenterSettingsSchema } from '@/libs/zendesk/helpCenterSettings';
+import { zendeskTicketSettingsSchema } from '@/libs/zendesk/ticketSettings';
 import { InspectInputError } from './inspect';
 
 /**
@@ -27,6 +28,8 @@ import { InspectInputError } from './inspect';
  */
 export const zendeskConfigSchema = z.object({
   helpCenter: zendeskHelpCenterSettingsSchema.optional(),
+  /** How a hand-off ticket is tagged and titled (`libs/zendesk/ticketSettings.ts`). Without it, `zendesk.create_ticket` refuses to run. */
+  tickets: zendeskTicketSettingsSchema.optional(),
 });
 
 /** What Test connection asks for: enough to read which user the client acts as. */

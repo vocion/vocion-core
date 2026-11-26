@@ -65,6 +65,12 @@ export type ZendeskRequest = {
   scopes: readonly ZendeskScope[];
   method?: 'GET' | 'POST' | 'PUT';
   body?: string;
+  /**
+   * Sent as `Idempotency-Key`. Zendesk keeps a key for two hours and answers a
+   * repeat with the first response; the same key with a different body is
+   * refused with a 400 (developer.zendesk.com/api-reference/ticketing/introduction/#idempotency).
+   */
+  idempotencyKey?: string;
 };
 
 type CachedToken = {
@@ -397,6 +403,9 @@ function sendWithToken(url: string, request: ZendeskRequest, accessToken: string
   const headers: Record<string, string> = { authorization: `Bearer ${accessToken}`, accept: 'application/json' };
   if (request.body !== undefined) {
     headers['content-type'] = 'application/json';
+  }
+  if (request.idempotencyKey !== undefined) {
+    headers['idempotency-key'] = request.idempotencyKey;
   }
   return sendToZendesk(url, {
     method: request.method ?? 'GET',

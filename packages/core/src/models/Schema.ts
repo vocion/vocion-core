@@ -6254,3 +6254,49 @@ export const workforcePortfolioEventSchema = pgTable('workforce_portfolio_event'
   data: jsonb('data').$type<import('@/services/workforce/portfolioContract').PortfolioCommand>().notNull(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 }, t => [uniqueIndex('workforce_portfolio_event_key_idx').on(t.orgId, t.eventKey), uniqueIndex('workforce_portfolio_event_version_idx').on(t.workflowId, t.version)]);
+
+/**
+ * One hand-off of a conversation to a person through a support ticket (today
+ * a Zendesk ticket, `services/handoff/ticketHandoff.ts`). A conversation has at
+ * most one open row (`ticket_handoff_open_conversation_uq`), so two taps on two
+ * cards can't open two tickets, and it keeps its closed rows as history. The
+ * ticket id is indexed so a staff reply that arrives on the ticket finds its
+ * conversation, and the conversation finds its open ticket by the unique index.
+ *
+ * The exact request body is stored before the ticket is created, with the
+ * Idempotency-Key it is sent with: a retry sends that same body with that same
+ * key, so it can only ever get the same ticket back.
+ */
+export const ticketHandoffSchema = pgTable(
+  'ticket_handoff',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    conversationId: integer('conversation_id')
+      .notNull()
+      .references(() => conversationSchema.id, { onDelete: 'cascade' }),
+    /** The ticketing source the ticket lives in, by slug. */
+    sourceSlug: text('source_slug').notNull(),
+    /** `open` until its ticket is solved, closed or gone, or its create was refused for good; then `closed`. */
+    status: text('status').default('open').notNull(),
+    /** The end user who tapped the card, by the caller app's own id. The ticket's requester. */
+    callerId: text('caller_id').notNull(),
+    /** Sent as the Idempotency-Key, and part of the ticket's external id. */
+    idempotencyKey: text('idempotency_key').notNull(),
+    /** The exact JSON body of the create call, stored before it is first sent. Null until the requester is found. */
+    requestBody: text('request_body'),
+    /** The ticket's id once it exists. */
+    ticketId: bigint('ticket_id', { mode: 'number' }),
+    /** The ticket's status as last read. */
+    ticketStatus: text('ticket_status'),
+    /** Why the last attempt failed, when it did. Cleared on success. */
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+    closedAt: timestamp('closed_at', { mode: 'date' }),
+  },
+  table => [
+    uniqueIndex('ticket_handoff_open_conversation_uq').on(table.orgId, table.conversationId).where(sql`${table.status} = 'open'`),
+    index('ticket_handoff_ticket_idx').on(table.orgId, table.sourceSlug, table.ticketId),
+  ],
+);

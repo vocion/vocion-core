@@ -70,6 +70,7 @@ import { viewSaveAction } from './view-save';
 import { wikiWritePageAction } from './wiki-write-page';
 import { workspaceWriteOperatingIntentAction } from './workspace-operating-intent';
 import { workspaceWriteMissionAction, workspaceWritePlaybookAction } from './workspace-source';
+import { zendeskCreateTicketAction } from './zendesk-create-ticket';
 
 const registry = new Map<string, Action>();
 /** A former id → the id it is registered under now (`Action.aliases`). */
@@ -264,6 +265,9 @@ registerAction(sitePublishLiveAction);
 // Pause or resume a campaign or ad set on the connected ad platform — the ads
 // family's one write; Undo puts it back (`libs/actions/ads-set-status.ts`).
 registerAction(adsSetStatusAction);
+// Hand a conversation to a person: one Zendesk ticket per conversation, opened
+// for the end user who tapped the card (`./zendesk-create-ticket.ts`).
+registerAction(zendeskCreateTicketAction);
 // Google Ads beyond pause/resume: budgets, negatives, keywords, ad text and a
 // whole search campaign, each a proposal a person approves (`./google-ads.ts`).
 for (const action of GOOGLE_ADS_ACTIONS) {
