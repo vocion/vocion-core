@@ -1,0 +1,90 @@
+# TEMPORARY (#1598): measures a cold image build's memory at #670's merge and
+# at v8.47.2, on 4 CPUs and on 2. Lives only on the throwaway branch
+# qa/1598-build-memory, which is deleted after the runs.
+#
+# Same build as #670's measurement (`docker build` of packages/core/Dockerfile
+# on ubuntu-latest, 4 CPUs and 16 GB), sampled every second instead of every
+# two, with the build's own processes and cgroup read as well as the runner's
+# used memory. 2-CPU runs take CPUs offline so nproc, os.cpus() and
+# Turbopack's thread pool all see a 2-vCPU box, like an r6i.large. A bigger
+# swap file lets an over-memory build finish so its peak can be read;
+# swap in use is counted as memory the build needed.
+name: QA 1598 build memory (temporary)
+
+on:
+  push:
+    branches: [qa/1598-build-memory]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  image:
+    name: ${{ matrix.target.label }}, ${{ matrix.cpus }} CPU
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        cpus: [4, 2]
+        target:
+          - {label: 670 merge f60c95c46, sha: f60c95c464eda0070ad642666d84a965c682da72, fs_cache: '1'}
+          - {label: v8.47.2, sha: e2e65a37097deeafe31b61607aee2cc0dea71904, fs_cache: '1'}
+          - {label: v8.47.2 no build cache, sha: e2e65a37097deeafe31b61607aee2cc0dea71904, fs_cache: '0'}
+          - {label: 'Next 16.4.6 (#1597)', sha: 62db5c20ef86b848a09efe8bc53cf97555b5133d, fs_cache: '1'}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: qa
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.target.sha }}
+          path: src
+
+      - name: Runner as a ${{ matrix.cpus }}-CPU box with room to swap
+        run: |
+          all=$(nproc --all)
+          for cpu in $(seq "${{ matrix.cpus }}" $(( all - 1 ))); do
+            echo 0 | sudo tee "/sys/devices/system/cpu/cpu${cpu}/online" > /dev/null
+          done
+          echo "nproc $(nproc) of ${all}, cpuinfo $(grep -c ^processor /proc/cpuinfo)"
+          test "$(nproc)" = "${{ matrix.cpus }}"
+          sudo swapoff -a
+          sudo rm -f /mnt/swapfile
+          sudo fallocate -l 24G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile > /dev/null
+          sudo swapon /mnt/swapfile
+          free -m; df -h / /mnt | tail -2
+          docker version --format 'docker {{.Server.Version}}'; docker buildx version
+          node -e "console.log('host os.cpus', require('os').cpus().length, 'availableParallelism', require('os').availableParallelism())"
+
+      - name: Cold image build
+        run: |
+          set +e
+          chmod +x qa/.github/qa-1598/sample.sh
+          timeout 6 qa/.github/qa-1598/sample.sh baseline.txt
+          qa/.github/qa-1598/sample.sh samples.txt &
+          sampler=$!
+          docker build --progress=plain -t vocion-app:qa -f src/packages/core/Dockerfile \
+            --build-arg VOCION_BUILD_FS_CACHE=${{ matrix.target.fs_cache }} src 2>&1 \
+            | perl -MTime::HiRes=time -ne 'BEGIN { $| = 1 } printf "%.1f %s", time, $_' > build.log
+          status=${PIPESTATUS[0]}
+          kill "${sampler}"
+          grep -E "Next.js 16|Compiled|filesystem cache|TypeScript|Collecting page data|Generating static|Killed|ERROR|exit code" build.log | cut -c1-200 | tail -15
+          python3 qa/.github/qa-1598/summarize.py "${{ matrix.target.label }}, ${{ matrix.cpus }} CPU" baseline.txt samples.txt build.log | tee summary.json
+          echo "build exit ${status}"
+          exit "${status}"
+
+      - name: Keep the samples
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-1598-${{ strategy.job-index }}
+          path: |
+            baseline.txt
+            samples.txt
+            build.log
+            summary.json
+          retention-days: 7
