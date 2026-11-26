@@ -5,8 +5,8 @@
 # (45855819227): main across the weeks since #670. This run takes main with
 # Next 16.4.6 (#1597) apart: noise, the V8 heap cap, the React Compiler, and
 # pages or API routes left out, and counts which packages fill the server
-# chunks. Run 4 splits the API routes: api/v1 gone, or its 114 routes
-# behind one entry. Every build uses CI's settings (CI=1 in the builder stage: no
+# chunks. Run 4 splits the API routes: api/v1's route files gone (its
+# helpers stay for other importers), or its 114 routes behind one entry. Every build uses CI's settings (CI=1 in the builder stage: no
 # Turbopack build cache write, no type check) with server source maps off.
 # A bigger swap file lets an over-memory build finish; swap in use counts as
 # memory the build needed.
@@ -55,8 +55,11 @@ jobs:
                        grep -q "reactCompiler: false" "${core}/next.config.ts" ;;
             no-api) rm -rf "${core}/src/app/api" ;;
             no-pages) rm -rf "${core}/src/app/[locale]" ;;
-            no-api-v1) rm -rf "${core}/src/app/api/v1" ;;
+            no-api-v1) find "${core}/src/app/api/v1" -name 'route.ts' -delete
+                       echo "v1 route files left: $(find "${core}/src/app/api/v1" -name 'route.ts' | wc -l)" ;;
             api-v1-one-entry) python3 qa/.github/qa-1598/v1-catch-all.py "${core}/src/app"
+                       grep -rl "@/app/api/v1/" "${core}/src" | xargs sed -i 's#@/app/api/v1/#@/app/_v1routes/v1/#g'
+                       echo "old alias left: $(grep -rl '@/app/api/v1/' "${core}/src" | wc -l)"
                        head -3 "${core}/src/app/api/v1/[...path]/route.ts" ;;
           esac
           grep -n -A1 " AS builder" src/packages/core/Dockerfile
