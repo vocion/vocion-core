@@ -2,7 +2,7 @@
 # infra/aws/pull-app-image.sh — put a CI-built app image on this box.
 #
 # Building packages/core/Dockerfile on the box that serves the app competes
-# with the running stack for memory: a first build needs about 7.9 GB, and an
+# with the running stack for memory: a first build needs about 9.2 GB, and an
 # out-of-memory kill can take Postgres or Langfuse instead of the build
 # (#670). So CI builds the image (push-app-image.sh), and a deploy only pulls
 # it. This pulls one image and tags it `vocion-app:latest`, the name

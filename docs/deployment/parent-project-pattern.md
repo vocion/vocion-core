@@ -188,11 +188,11 @@ would do.
 hands that image name to the box, which pulls it and restarts. The box never
 compiles anything.
 
-**Why.** A first build of `packages/core/Dockerfile` peaks at about 7.9 GB of
-memory (#670). The box that serves the app is also running Postgres, Langfuse
-and the app itself. On a 16 GB box that leaves under 1 GB spare, and when
-memory runs out Linux kills whichever process it picks, which can be Postgres
-rather than the build. A CI runner has its own memory, so a build that fails
+**Why.** A first build of `packages/core/Dockerfile` peaks at about 9.2 GB of
+memory (#1598, `infra/aws/README.md`, Sizing). The box that serves the app is
+also running Postgres, Langfuse and the app itself, and when memory runs out
+Linux kills whichever process it picks, which can be Postgres rather than the
+build. A CI runner has its own memory, so a build that fails
 there never touches the running site.
 
 **How a deploy goes:**

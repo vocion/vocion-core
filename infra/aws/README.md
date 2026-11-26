@@ -33,10 +33,17 @@ pgvector HNSW + Postgres FTS in the app DB itself, served by
 | `r6i.xlarge` | 4 / 32 GB | ~$0.25 | Multiple agents, larger contexts. |
 
 The image builds on the box, beside the running stack. A box's first build
-starts with an empty build cache and needs about 7.9 GB; every build after it
-reuses the cache and needs about 4.4 GB (measured on a 16 GB GitHub runner,
-#670). So a `t3.large` can't run its own first build, even with the stack
-stopped: a build limited to 2 CPUs and 6.8 GB ran out of memory. On a
+starts with an empty build cache and, by default, also writes Turbopack's
+build cache for the next build; it peaks at about 9.2 GB. The same build
+without that write (`VOCION_BUILD_FS_CACHE=0`, which is how CI builds) peaks
+at about 7.0 GB. Before #1598 these were about 12.8 GB and 8.9 GB. (Cold
+image builds of v8.48.0 on a GitHub runner, Next 16.4.6, one run each except
+7.0 GB, which is two runs at 6,987 and 7,081 MB; the figure is the build's
+anonymous memory plus swap above the idle runner, sampled every second,
+#1598.) A build that reuses the cache needs about 4.4 GB (measured before
+#1598, #670). So a `t3.large` can't run its own first build, even with the
+stack stopped: 7.0 GB leaves under 1 GB of its 8 GB for everything else, and
+a build limited to 2 CPUs and 6.8 GB ran out of memory (#670). On a
 `t3.large`, get the image onto the box some other way, or start on a bigger
 instance.
 
@@ -91,8 +98,8 @@ The script gets the app image, applies any new migrations, then
 rolling-restarts only `app` + `worker` (Postgres + Caddy stay untouched).
 
 **Pull a CI-built image rather than building here.** A first build needs
-about 7.9 GB of memory, and on this box it competes with Postgres and
-Langfuse (#670). Build in CI with `push-app-image.sh` and pass the image in:
+about 9.2 GB of memory (see the sizing notes above), and on this box it
+competes with Postgres and Langfuse (#670). Build in CI with `push-app-image.sh` and pass the image in:
 
 ```bash
 sudo VOCION_APP_IMAGE=<registry>/<repository>:<commit> bash /opt/vocion/infra/aws/update.sh <git-ref>

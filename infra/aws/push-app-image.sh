@@ -2,7 +2,7 @@
 # infra/aws/push-app-image.sh — build the app image in CI and push it.
 #
 # The box that serves the app should never compile it: a first build of
-# packages/core/Dockerfile needs about 7.9 GB, and on the box it competes
+# packages/core/Dockerfile needs about 9.2 GB, and on the box it competes
 # with the running stack for memory (#670). A parent project's CI runs this
 # instead, then its deploy pulls the image with pull-app-image.sh.
 #

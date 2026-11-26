@@ -132,7 +132,7 @@ approval gate:
 | CLI scripts behind every `npm run …` | `packages/core/src/scripts/` |
 | MCP server (stdio) | `packages/core/src/interfaces/mcp/` |
 | MCP over HTTP | `packages/core/src/app/api/mcp/route.ts` |
-| Write API (reviews, runs, agents, …) | `packages/core/src/app/api/v1/` |
+| Write API (reviews, runs, agents, …) | `packages/core/src/app/api/v1/_routes/` (served through one route, see `api/v1/README.md`) |
 | Agent services, tools, tenant claims | `packages/core/src/services/agents/` |
 | Source connectors | `packages/core/src/libs/sources/` |
 | Base pack shipped inside core | `packages/core/templates/base/` (`pack.yaml`, `agents/`, `skills/`, `playbooks/`) |
@@ -180,7 +180,7 @@ within rules, 4 manage a goal, 5 improve itself) —
 
 Everything gated lands in one review queue, readable and decidable over HTTP:
 `GET /api/v1/reviews` and `POST /api/v1/reviews/decide`
-(`packages/core/src/app/api/v1/reviews/`).
+(`packages/core/src/app/api/v1/_routes/reviews/`).
 
 ## Verify: lint, types, tests
 

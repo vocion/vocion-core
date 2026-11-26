@@ -41,7 +41,7 @@ who holds the link.
   reader gets sign-in with a `callbackUrl` that round-trips the `/w/…` URL.
 - **One helper** `libs/links.ts` — `workspaceUrl(slug, path, { absolute })` — builds
   every outbound link: the daily team report (`services/reports/dailyTeamReport.ts`),
-  and `ask.url` on every `/api/v1/asks` response (`app/api/v1/asks/_lib.ts`).
+  and `ask.url` on every `/api/v1/asks` response (`app/api/v1/_routes/asks/_lib.ts`).
 - **Switcher** (`features/dashboard/WorkspaceMenu.tsx`) navigates through
   `/w/<slug>/<current page>` instead of writing the cookie itself — one mechanism.
   The top bar shows the active slug as a chip linking to `/w/<slug>`
