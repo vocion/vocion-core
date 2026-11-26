@@ -30,30 +30,35 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - {label: I 16.4.6 input source maps off, patch: flags, flags: 'turbopackInputSourceMaps: false,'}
-          - {label: J 16.4.6 scope hoisting off, patch: flags, flags: 'turbopackScopeHoisting: false,'}
-          - {label: K 16.4.6 minify off, patch: flags, flags: 'turbopackMinify: false,'}
-          - {label: L 16.4.6 Turbopack GC on, patch: flags, flags: 'turbopackGc: true,'}
-          - {label: M 16.4.6 all four flags, patch: flags, flags: 'turbopackInputSourceMaps: false, turbopackScopeHoisting: false, turbopackMinify: false, turbopackGc: true,'}
+          - {label: N main CI settings, ref: 55b044edf1270173a2ad5bd6967872d515ba16d9, settings: ci}
+          - {label: O fix CI settings, ref: 7ba8df928d2c82d409e006f049b1102958f4ea62, settings: ci}
+          - {label: P main box default, ref: 55b044edf1270173a2ad5bd6967872d515ba16d9, settings: box}
+          - {label: Q fix box default, ref: 7ba8df928d2c82d409e006f049b1102958f4ea62, settings: box}
+          - {label: R fix CI settings again, ref: 7ba8df928d2c82d409e006f049b1102958f4ea62, settings: ci}
     steps:
       - uses: actions/checkout@v6
         with:
           path: qa
       - uses: actions/checkout@v6
         with:
-          ref: 62db5c20ef86b848a09efe8bc53cf97555b5133d
+          ref: ${{ matrix.target.ref }}
+          fetch-depth: 0
           path: src
 
       - name: Same build settings for every commit
         env:
+          SETTINGS: ${{ matrix.target.settings }}
           PATCH: ${{ matrix.target.patch }}
           FLAGS: ${{ matrix.target.flags }}
         run: |
           set -euo pipefail
-          sed -i '/ AS builder$/a ENV CI=1' src/packages/core/Dockerfile
-          sed -i '0,/^  experimental: {$/s//  experimental: {\n    turbopackSourceMaps: false,/' src/packages/core/next.config.ts
+          git -C src log --oneline -1
+          if [ "${SETTINGS}" = ci ]; then
+            sed -i '/ AS builder$/a ENV CI=1' src/packages/core/Dockerfile
+            sed -i '0,/^  experimental: {$/s//  experimental: {\n    turbopackSourceMaps: false,/' src/packages/core/next.config.ts
+          fi
           core=src/packages/core
-          case "${PATCH}" in
+          case "${PATCH:-none}" in
             heap-3072) sed -i 's/--max-old-space-size=6144/--max-old-space-size=3072/' "${core}/Dockerfile"
                        grep -q "max-old-space-size=3072" "${core}/Dockerfile" ;;
             no-react-compiler) sed -i "s/reactCompiler: process.env.NODE_ENV === 'production'/reactCompiler: false/" "${core}/next.config.ts"
@@ -107,7 +112,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-1598-run3-${{ strategy.job-index }}
+          name: qa-1598-run6-${{ strategy.job-index }}
           path: |
             baseline.txt
             samples.txt
