@@ -26,7 +26,7 @@ and stores every score in Postgres so history and trend lines belong to us.
 | Run execution and LLM judge | `packages/core/src/services/EvalService.ts` — `runDataset` at `:119`, `scoreOne` at `:276` |
 | Model-upgrade comparison | `packages/core/src/services/evals/modelUpgradeTest.ts` |
 | Dashboard pages | `packages/core/src/app/[locale]/(auth)/dashboard/evals/` — list, `[slug]`, `[slug]/runs/[runId]`, `[slug]/compare` |
-| Kick-off route | `packages/core/src/app/api/v1/evals/[slug]/runs/route.ts` |
+| Kick-off route | `packages/core/src/app/api/v1/_routes/evals/[slug]/runs/route.ts` |
 | YAML dataset authoring | `packages/core/src/libs/workspace/schemas.ts:875` (`EvalDatasetManifestSchema`) |
 | Dataset apply | `packages/core/src/libs/workspace/applier.ts:990` (`upsertEvalDataset`) |
 | Alignment numbers | `packages/core/src/services/adoption/AdoptionService.ts:489,498,567` (`agreementRate`) |
@@ -48,7 +48,7 @@ caller and was wrong.
 | Caller | Behaviour |
 |---|---|
 | `routers/Evals.ts:34` | oRPC procedure |
-| `app/api/v1/evals/[slug]/runs/route.ts:34` | HTTP route, awaits the whole run |
+| `app/api/v1/_routes/evals/[slug]/runs/route.ts:34` | HTTP route, awaits the whole run |
 | `scripts/run-evals.ts:164` | CLI, `eval:run` |
 | `services/LearningCandidateService.ts:399` | **automatic** — fires after every learning-candidate rule adoption, stores `evalRunId` on the candidate |
 | `services/evals/modelUpgradeTest.ts:324,333` | twice per comparison, baseline and candidate |
