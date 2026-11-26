@@ -61,6 +61,9 @@ together at 9,038 MiB
 ([45861167136](https://github.com/vocion/vocion-core/actions/runs/45861167136)).
 Two runs with none of them changed peaked at 8,931 and 9,140 MiB
 ([45857991270](https://github.com/vocion/vocion-core/actions/runs/45857991270)).
+The GC result tells nothing: Next's docs say `turbopackGc` has no effect
+when the build cache is off (`turbopackGc.md` in `next/dist/docs`), and
+these were CI settings builds, so it is untested with the cache on.
 
 ## How a request reaches its handler
 
