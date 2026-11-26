@@ -175,3 +175,71 @@ Reverting the commits of PR #1601 undoes all of it. By hand:
 
 Expect the build's peak memory to go back up by about 1.8 to 1.9 GiB with CI
 settings and about 3.5 GiB with the image's defaults.
+
+## Other ways to lower build memory
+
+What else was looked at during #1598, so a next attempt can start here.
+Anything marked as an estimate or unknown hasn't been measured.
+
+Tried, with no clear saving:
+
+- **Turbopack settings**: input source maps, scope hoisting and minify off
+  (see "Why" above). `turbopackGc` is still untested with the build cache on.
+- **React Compiler off** peaked at 8,774 MiB, and **a 3 GB V8 heap cap** at
+  9,228 MiB, against 8,931 and 9,140 MiB with neither (Next 16.4.6, before
+  this change, CI settings, one build each,
+  [45857991270](https://github.com/vocion/vocion-core/actions/runs/45857991270)).
+- **Cutting `_shared.ts`'s imports** raised peak memory by 1 GB on
+  2026-10-09. Turbopack shares chunks between routes that reach the whole
+  server, and a route left with only part of it gets its own
+  (`src/scripts/check-route-graph.ts`, header comment).
+- **`await import()`** doesn't take a module out of a route: Turbopack
+  compiles its target into the route too (same header comment).
+- Server source maps and the type check are already off in the image
+  (`NEXT_PUBLIC_SENTRY_DISABLED=1` and `VOCION_TYPES_CHECKED=1` in
+  `packages/core/Dockerfile`).
+
+Not tried yet:
+
+- **More catch-alls.** 22 API routes outside `/api/v1`, and 10 routes under
+  `[locale]/rpc/` besides `rpc/[[...rest]]`, each reach 1,300 or more modules,
+  close to the whole server (counted with `reachOf`). Serving them through
+  catch-alls like this one is an estimated 0.5 GiB: 32 routes at this
+  change's saving of about 17 MiB per route, and Turbopack's chunk sharing can
+  make it less. Webhooks that read the raw body and streaming routes need
+  care.
+- **Fewer page entries.** Deleting every page (`src/app/[locale]`) took the
+  peak from 8,931 and 9,140 to 5,747 MiB (same run as above), so pages are
+  the larger share. Serving groups of dashboard pages through catch-alls, as
+  `dashboard/automations/[[...path]]` already does, could cut part of that.
+  How much is unknown, and those pages would share one entry's code
+  splitting, loading and error boundaries.
+- **Not bundling heavy server packages**, such as the LangChain packages,
+  `openai` and `@anthropic-ai/sdk`, by adding them to `serverExternalPackages`
+  in `next.config.ts`. The saving is unknown, and each one must still load at
+  runtime from the standalone output.
+- **`turbopackGc` with the build cache on**, for the image's default build.
+  The saving is unknown.
+
+Not supported, or not worth it now:
+
+- **Building only some routes.** `next build --debug-build-paths` builds a
+  subset, but Next documents it for debugging (`next.md` in
+  `next/dist/docs`), and separate builds can't be merged into one app.
+- **Separate apps under one domain**
+  ([multi-zones](https://nextjs.org/docs/app/guides/multi-zones)). Each app
+  builds on its own, but it needs routing in front of the apps, moving
+  between apps is a full page load, and an app whose routes reach the shared
+  server code still compiles all of it.
+- **Seeding Turbopack's build cache for a first build.** A warm cache compiled
+  at about 3.3 GB against 6.6 GB cold (#670), but restoring it on a fresh
+  2-CPU runner compiled slower, 11.3 min against 4.5 (`next.config.ts`). Docker
+  also doesn't export `type=cache` mounts with `--cache-to`
+  ([moby/buildkit#1512](https://github.com/moby/buildkit/issues/1512)).
+- **Removing unused code.** Files nothing imports cost the build nothing. A
+  search during #1598 found no imported page or route that is provably
+  unused.
+
+What already works on a machine too small to build: build the image once
+where there's enough memory and pull it ("Pull a CI-built image" in
+`infra/aws/README.md`).
