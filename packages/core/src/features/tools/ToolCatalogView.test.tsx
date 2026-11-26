@@ -172,6 +172,26 @@ describe('ToolCatalogView', () => {
     expect(document.querySelector('[data-testid="tool-family-rest:acme-delivery"] [data-testid^="family-"]')).toBeNull();
   });
 
+  it('names invalid helpCenter settings, not a missing credential, when the settings are the cause', async () => {
+    const zendesk: OrgToolCatalog['families'][number] = {
+      id: 'zendesk',
+      kind: 'zendesk',
+      label: 'Zendesk',
+      description: 'Help Center reads.',
+      sources: [{ id: 9, slug: 'zendesk', name: 'zendesk' }],
+      readiness: { ready: false, keyStateUnknown: false, notReadyCause: 'settings' },
+      actions: [],
+      tools: [{ name: 'zendesk_list_help_center_articles', title: 'List', description: 'List.', familyId: 'zendesk', agents: ['delivery-lead'], inputSchema: {} }],
+    };
+    await render(<ToolCatalogView catalog={{ ...CATALOG, families: [...CATALOG.families, zendesk] }} />);
+
+    const family = document.querySelector('[data-testid="tool-family-zendesk"]')!;
+
+    expect(family.querySelector('[data-testid="family-bad-settings"]')?.textContent).toContain('workspace admin must fix');
+    expect(family.querySelector('[data-testid="family-needs-credential"]')).toBeNull();
+    expect(family.textContent).toContain('Fix settings');
+  });
+
   it('counts what agents can reach, what is ready and what needs a key', async () => {
     await render(<ToolCatalogView catalog={CATALOG} />);
 
@@ -182,5 +202,35 @@ describe('ToolCatalogView', () => {
     expect(text).toMatch(/8\s*Tools agents can reach/);
     expect(text).toMatch(/2\s*Ready/);
     expect(text).toMatch(/3\s*Need a key/);
+  });
+
+  it('counts a family with invalid settings under "Need settings fixed", not "Need a key"', async () => {
+    const zendesk: OrgToolCatalog['families'][number] = {
+      id: 'zendesk',
+      kind: 'zendesk',
+      label: 'Zendesk',
+      description: 'Help Center reads.',
+      sources: [{ id: 9, slug: 'zendesk', name: 'zendesk' }],
+      readiness: { ready: false, keyStateUnknown: false, notReadyCause: 'settings' },
+      actions: [],
+      tools: [{ name: 'zendesk_list_help_center_articles', title: 'List', description: 'List.', familyId: 'zendesk', agents: ['delivery-lead'], inputSchema: {} }],
+    };
+    await render(<ToolCatalogView catalog={{ ...CATALOG, families: [...CATALOG.families, zendesk] }} />);
+
+    const text = document.body.textContent ?? '';
+
+    // Same 3 as without the family: a credential would not fix it.
+    expect(text).toMatch(/3\s*Need a key/);
+    expect(text).toMatch(/1\s*Need settings fixed/);
+    // The fourth count gets its own column instead of wrapping to a new row.
+    expect(document.querySelector('[class*="sm:grid-cols-4"]')).not.toBeNull();
+  });
+
+  it('shows no "Need settings fixed" count when no family has invalid settings', async () => {
+    await render(<ToolCatalogView catalog={CATALOG} />);
+
+    expect(document.body.textContent).not.toContain('Need settings fixed');
+    expect(document.querySelector('[class*="sm:grid-cols-3"]')).not.toBeNull();
+    expect(document.querySelector('[class*="sm:grid-cols-4"]')).toBeNull();
   });
 });

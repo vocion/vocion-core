@@ -25,6 +25,7 @@ import type { CapabilityStatus } from '@/libs/tools/types';
 import type { AgentContextRow } from '@/services/agents/runtimeContext';
 import type { ToolCatalogEntry } from '@/services/agents/tools/registry';
 import { eq } from 'drizzle-orm';
+import { connectorKindOf } from '@/libs/connectors/families';
 import { db } from '@/libs/DB';
 import { loadMcpSources } from '@/libs/outboundMcp/sources';
 import { platformForToolProvider } from '@/libs/platforms/registry';
@@ -32,6 +33,7 @@ import { loadRestSources } from '@/libs/rest/sources';
 import { endpointDescription, REST_LIST_ACTIONS_TOOL, restToolName, toolPrefixFor } from '@/libs/rest/spec';
 import { getConnector, listConnectors } from '@/libs/sources/registry';
 import { sourceNameOf } from '@/libs/sources/upsert';
+import { helpCenterSettingsFrom } from '@/libs/zendesk/helpCenterSettings';
 import { agentSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { agentScope, runtimeContextFromScope, workspaceScope } from '@/services/agents/runtimeContext';
 import { buildToolCatalog } from '@/services/agents/tools/registry';
@@ -39,13 +41,20 @@ import { credentialStatusForOrg } from '@/services/SourceCredentialService';
 import { BUILTIN_TOOLS, capabilityStatuses } from './catalog';
 
 /** Where a tool comes from. */
-export type ToolFamilyKind = 'builtin' | 'records' | 'hubspot' | 'apollo' | 'gmail' | 'calendar' | 'zoom' | 'posthog' | 'rest' | 'mcp' | 'workspace';
+export type ToolFamilyKind = 'builtin' | 'records' | 'hubspot' | 'apollo' | 'gmail' | 'calendar' | 'zoom' | 'posthog' | 'zendesk' | 'rest' | 'mcp' | 'workspace';
 
 /** Whether the tools of a family (or one paid built-in) can run right now. */
 export type ToolReadiness = {
   ready: boolean;
   /** The credential store could not say what the workspace holds — say so, never "needs key". */
   keyStateUnknown: boolean;
+  /**
+   * Why a not-ready family is not ready, when it is not the usual missing
+   * credential. `settings` means the zendesk source's `helpCenter` settings
+   * are invalid, so connecting a credential would not help and a workspace
+   * admin must fix those settings. Absent means no credential is connected.
+   */
+  notReadyCause?: 'settings';
 };
 
 /** One agent, as the catalog names it. */
@@ -147,6 +156,7 @@ const SOURCE_FAMILIES: SourceFamilyRule[] = [
   { kind: 'calendar', label: 'Calendar', description: 'Events on the connected Google Calendar.', connectorSlug: 'google-calendar', source: /^google-calendar(?:$|-)/, tool: /^calendar_/ },
   { kind: 'zoom', label: 'Zoom', description: 'Recordings and transcripts of the workspace\'s Zoom calls.', connectorSlug: 'zoom', source: /^zoom(?:$|-)/, tool: /^(?:get_zoom_|find_zoom_)/ },
   { kind: 'posthog', label: 'PostHog', description: 'Daily event counts from the PostHog mirror.', connectorSlug: 'posthog', source: /^posthog(?:$|-)/, tool: /^posthog_/ },
+  { kind: 'zendesk', label: 'Zendesk', description: 'Live reads of the public Help Center articles, for agents holding a Zendesk source.', connectorSlug: 'zendesk', source: /^zendesk(?:$|-)/, tool: /^zendesk_/ },
 ];
 
 /**
@@ -246,6 +256,56 @@ function familyReadiness(sources: CatalogSource[], connections: Map<number, bool
 }
 
 /**
+ * Whether the Help Center tools would serve a zendesk source: its `helpCenter`
+ * settings pass the tools' own check (`helpCenterSettingsFrom`, so a bad host
+ * or locale is refused here exactly as `help_center_bad_settings` refuses it
+ * on every call), and the tools have an origin to read, either the source's
+ * own host or the credential's subdomain. The tools read public articles
+ * anonymously, so a valid host needs no credential. Reusing the tools' check
+ * keeps the page from showing Ready for a source every call would refuse.
+ * @param source - A source row.
+ * @param source.configJson - Its config.
+ * @param credentialConnected - Whether the source's Zendesk credential is connected, or undefined when unknown.
+ */
+function helpCenterSourceServed(source: { configJson: Record<string, unknown> | null }, credentialConnected: boolean | undefined): boolean {
+  const settings = helpCenterSettingsFrom(source.configJson);
+  if (!settings.ok) {
+    return false;
+  }
+  return settings.settings.host !== undefined || credentialConnected === true;
+}
+
+/**
+ * Readiness of the Zendesk family, judged on one source: the lowest-id zendesk
+ * source in the workspace. The Tools page is workspace-wide, not per agent, so
+ * it cannot know which sources an agent may use; the tools themselves
+ * (`helpCenterTargetFor`) read the lowest-id zendesk source that the calling
+ * agent holds and that is in scope. For a workspace with one zendesk source
+ * (the usual case) the two agree. With several, an agent that does not hold the
+ * lowest-id source reads another one, which this page does not judge.
+ *
+ * Ready when that source would be served (`helpCenterSourceServed`). Not ready
+ * with `notReadyCause: 'settings'` when its `helpCenter` settings are unusable,
+ * whatever the credential says. When the connection state is unknown, a source
+ * with usable settings and no host leaves the answer unknown, not not ready.
+ * @param matching - The family's source rows, in id order.
+ * @param connections - Per-source connection, or null when unknown.
+ */
+function zendeskReadiness(matching: Array<{ id: number; configJson: Record<string, unknown> | null }>, connections: Map<number, boolean> | null): ToolReadiness {
+  const [judged] = matching;
+  if (judged === undefined) {
+    return { ready: false, keyStateUnknown: false };
+  }
+  if (!helpCenterSettingsFrom(judged.configJson).ok) {
+    return { ready: false, keyStateUnknown: false, notReadyCause: 'settings' };
+  }
+  if (helpCenterSourceServed(judged, connections?.get(judged.id))) {
+    return { ready: true, keyStateUnknown: false };
+  }
+  return { ready: false, keyStateUnknown: connections === null };
+}
+
+/**
  * A REST source as a family: its declared reads (held or not), the
  * `list_actions` catalog tool, and its writes.
  * @param spec - The source.
@@ -330,7 +390,7 @@ export async function toolCatalogForOrg(orgId: string, opts: { withStatuses?: bo
     toolUnion(orgId, agentRows),
     loadRestSources(orgId).catch(() => [] as RestSourceSpec[]),
     db
-      .select({ id: knowledgeSourceSchema.id, slug: knowledgeSourceSchema.slug, configJson: knowledgeSourceSchema.configJson })
+      .select({ id: knowledgeSourceSchema.id, slug: knowledgeSourceSchema.slug, kind: knowledgeSourceSchema.kind, configJson: knowledgeSourceSchema.configJson })
       .from(knowledgeSourceSchema)
       .where(eq(knowledgeSourceSchema.orgId, orgId))
       .orderBy(knowledgeSourceSchema.id),
@@ -388,9 +448,13 @@ export async function toolCatalogForOrg(orgId: string, opts: { withStatuses?: bo
   // an agent holds such a tool (a source added by hand under another slug).
   const sourceFamilies: ToolFamily[] = [];
   for (const rule of SOURCE_FAMILIES) {
-    const sources = sourceRows
-      .filter(s => rule.source.test(s.slug) || s.configJson?._connector === rule.connectorSlug)
-      .map(s => ({ id: s.id, slug: s.slug, name: sourceNameOf(s.configJson ?? undefined, s.slug) }));
+    // Zendesk is matched by connector kind, the way its tools pick a source
+    // (`zendeskSourceSlugs`): its readiness judges one source, and a slug match
+    // could judge a local-files source that happens to hold the slug `zendesk`.
+    const matching = rule.kind === 'zendesk'
+      ? sourceRows.filter(s => connectorKindOf(s.kind, s.configJson) === 'zendesk')
+      : sourceRows.filter(s => rule.source.test(s.slug) || s.configJson?._connector === rule.connectorSlug);
+    const sources = matching.map(s => ({ id: s.id, slug: s.slug, name: sourceNameOf(s.configJson ?? undefined, s.slug) }));
     const tools = [...union.values()].filter(u => rule.tool.test(u.entry.name)).map(u => toolOf(u.entry.name, rule.kind, u));
     if (sources.length === 0 && tools.length === 0) {
       continue;
@@ -402,7 +466,7 @@ export async function toolCatalogForOrg(orgId: string, opts: { withStatuses?: bo
       ...brandOf(rule.connectorSlug),
       description: rule.description,
       sources,
-      readiness: familyReadiness(sources, connections),
+      readiness: rule.kind === 'zendesk' ? zendeskReadiness(matching, connections) : familyReadiness(sources, connections),
       tools,
       actions: [],
     });

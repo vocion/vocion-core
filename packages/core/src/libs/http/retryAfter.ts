@@ -12,7 +12,7 @@
  */
 
 /** Longest wait a server can ask us for. Anything above is clamped to it. */
-const MAX_RETRY_AFTER_MS = 60_000;
+export const MAX_RETRY_AFTER_MS = 60_000;
 
 /**
  * The wait this response asked for, in milliseconds, or null if it asked for

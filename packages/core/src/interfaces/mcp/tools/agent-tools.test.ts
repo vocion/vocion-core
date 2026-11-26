@@ -94,6 +94,16 @@ beforeEach(async () => {
     },
     {
       orgId: ORG,
+      slug: 'support-agent',
+      name: 'Support',
+      systemPrompt: 'You answer from the Help Center.',
+      skillSlugs: [],
+      connectorSources: ['zendesk'],
+      objectTypeSlugs: [],
+      harnessConfig: {},
+    },
+    {
+      orgId: ORG,
       slug: 'product-agent',
       name: 'Product',
       systemPrompt: 'You rank requests.',
@@ -243,6 +253,20 @@ describe('agent-tools bridge — the Apollo surface', () => {
       expect(names.filter(name => name.startsWith('apollo_'))).toEqual([]);
     } finally {
       await server.close();
+    }
+  });
+});
+
+describe('agent-tools bridge — the Zendesk Help Center surface', () => {
+  it('serves both Help Center reads to an agent with a zendesk source, and to no other', async () => {
+    const withSource = await setupClientServer(configFor('support-agent'));
+    const withoutSource = await setupClientServer(configFor('crm-agent'));
+    try {
+      expect(await listToolNames(withSource.client)).toEqual(expect.arrayContaining(['zendesk_list_help_center_articles', 'zendesk_get_help_center_articles']));
+      expect((await listToolNames(withoutSource.client)).filter(name => name.startsWith('zendesk_'))).toEqual([]);
+    } finally {
+      await withSource.server.close();
+      await withoutSource.server.close();
     }
   });
 });

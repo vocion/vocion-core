@@ -124,7 +124,22 @@ function FamilyNotice({ family }: { family: ToolFamily }) {
   }
   return (
     <div className="mb-3 flex flex-col gap-2">
-      {noCredential && (
+      {noCredential && family.readiness?.notReadyCause === 'settings' && (
+        <Notice tone="warn" data-testid="family-bad-settings">
+          {family.label}
+          {' '}
+          is set up as a source, but its
+          {' '}
+          <code className="font-mono">helpCenter</code>
+          {' '}
+          settings are invalid, so these tools would refuse every call. A workspace admin must fix the
+          {' '}
+          <code className="font-mono">helpCenter</code>
+          {' '}
+          settings (host or locale) on the zendesk source; connecting a credential will not help.
+        </Notice>
+      )}
+      {noCredential && family.readiness?.notReadyCause !== 'settings' && (
         <Notice tone="warn" data-testid="family-needs-credential">
           {family.label}
           {' '}
@@ -173,7 +188,7 @@ function FamilySection({ family, signIn }: { family: ToolFamily; signIn?: McpSig
           <span className="w-3 shrink-0 text-xs text-muted-foreground transition group-open:rotate-90">▸</span>
           <IntegrationLogo brand={family.brand} name={family.label} size="xs" markOnly />
           <h2 className="truncate text-sm font-medium">{family.label}</h2>
-          {family.readiness && <ReadinessBadge ready={family.readiness.ready} keyStateUnknown={family.readiness.keyStateUnknown} />}
+          {family.readiness && <ReadinessBadge ready={family.readiness.ready} keyStateUnknown={family.readiness.keyStateUnknown} notReadyCause={family.readiness.notReadyCause} />}
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
             {count}
             {' '}
@@ -252,6 +267,25 @@ function Stat({ label, value }: { label: string; value: number }) {
 }
 
 /**
+ * Whether a family is not ready because its credential is missing: the
+ * "Needs key" badge. A family whose settings are invalid is not one, since
+ * connecting a credential would not help it.
+ * @param family - The tool family.
+ */
+function isMissingKeyFamily(family: ToolFamily): boolean {
+  return family.readiness !== null && !family.readiness.ready && !family.readiness.keyStateUnknown && family.readiness.notReadyCause !== 'settings';
+}
+
+/**
+ * Whether a family is not ready because its source settings are invalid: the
+ * "Fix settings" badge.
+ * @param family - The tool family.
+ */
+function isBadSettingsFamily(family: ToolFamily): boolean {
+  return family.readiness !== null && !family.readiness.ready && !family.readiness.keyStateUnknown && family.readiness.notReadyCause === 'settings';
+}
+
+/**
  * The Tools page's body: the workspace's tool catalog grouped by family —
  * built-ins first, then the records tools, then each connected source (a
  * REST source shows its reads and, beneath them, its writes), the
@@ -265,13 +299,15 @@ export function ToolCatalogView({ catalog, signIns = {} }: { catalog: OrgToolCat
   const workspace = catalog.families.find(f => f.kind === 'workspace');
   const toolCount = catalog.families.reduce((n, f) => n + f.tools.length, 0);
   const ready = catalog.statuses.filter(s => s.ready).length + families.filter(f => f.readiness?.ready).length;
-  const needKey = catalog.statuses.filter(s => !s.ready && s.keySource !== 'unknown').length + families.filter(f => f.readiness && !f.readiness.ready && !f.readiness.keyStateUnknown).length;
+  const needKey = catalog.statuses.filter(s => !s.ready && s.keySource !== 'unknown').length + families.filter(isMissingKeyFamily).length;
+  const needSettings = families.filter(isBadSettingsFamily).length;
   return (
     <>
-      <div className="mb-4 flex flex-wrap gap-x-4 gap-y-1 sm:mb-6 sm:grid sm:grid-cols-3 sm:gap-3">
+      <div className={`mb-4 flex flex-wrap gap-x-4 gap-y-1 sm:mb-6 sm:grid sm:gap-3 ${needSettings > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
         <Stat label="Tools agents can reach" value={toolCount} />
         <Stat label="Ready" value={ready} />
         <Stat label="Need a key" value={needKey} />
+        {needSettings > 0 && <Stat label="Need settings fixed" value={needSettings} />}
       </div>
 
       <div className="flex flex-col">

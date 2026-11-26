@@ -39,4 +39,11 @@ describe('readiness badge', () => {
     await expect.element(page.getByText('Can\'t check')).toBeVisible();
     expect(page.getByText('Ready').elements()).toHaveLength(0);
   });
+
+  it('says the settings need fixing, not that a key is needed, when the cause is invalid settings', async () => {
+    render(<ReadinessBadge ready={false} keyStateUnknown={false} notReadyCause="settings" />);
+
+    await expect.element(page.getByText('Fix settings')).toBeVisible();
+    expect(page.getByText('Needs key').elements()).toHaveLength(0);
+  });
 });

@@ -943,7 +943,11 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
     },
   ],
   'ahrefs': [],
-  // The account is named by the credential; nothing to set on the source.
+  // The account is named by the credential; nothing to set on the source form.
+  // The optional `helpCenter.host` and `helpCenter.locale` are set in the
+  // workspace source file (`docs/guides/zendesk.md`): the host has to be a bare
+  // https origin, which a generic url input cannot promise, and almost every
+  // account reads the default `{subdomain}.zendesk.com`.
   'zendesk': [],
 
   // Product analytics is read live and syncs nothing.

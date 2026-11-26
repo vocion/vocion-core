@@ -131,6 +131,7 @@ import { whereToTool } from './whereTo';
 import { wikiTools } from './wiki';
 import { withdrawProposalTool } from './withdrawProposal';
 import { workspaceSourceTools } from './workspaceSource';
+import { zendeskHelpCenterTools } from './zendeskHelpCenter';
 import { zoomTools } from './zoomTranscript';
 
 /**
@@ -393,6 +394,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ...inFamily('HubSpot', hubspotDirectTools(ctx), true),
     // Source-gated — empty unless an Apollo source is in the agent's scope.
     ...inFamily('Apollo', apolloTools(ctx), true),
+    // Source-gated — the Help Center's public articles, listed and read live
+    // and anonymously. Empty without a zendesk source in scope.
+    ...inFamily('Zendesk Help Center', zendeskHelpCenterTools(ctx), true),
     // Source-gated — the live reads every `rest` source in scope declares,
     // plus its action catalog. Empty without one (`ctx.restSources`).
     ...inFamily('REST sources', restTools(ctx), true),

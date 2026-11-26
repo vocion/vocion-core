@@ -18,12 +18,18 @@ import { cn } from '@/utils/Helpers';
  *
  * So that state says it cannot check, and says nothing about readiness either
  * way.
+ *
+ * A fourth wording covers a family that is not ready for a reason other than a
+ * missing key: `notReadyCause="settings"` (the zendesk source's `helpCenter`
+ * settings are invalid) says "Fix settings", so an admin with a connected
+ * credential is not sent to store one.
  * @param props
  * @param props.ready - Whether the capability can run right now.
  * @param props.keyStateUnknown - Whether the credential store refused to say
  * what this workspace holds, which overrides `ready` entirely.
+ * @param props.notReadyCause - Why a not-ready family is not ready, when it is not a missing key.
  */
-export function ReadinessBadge(props: { ready: boolean; keyStateUnknown: boolean }) {
+export function ReadinessBadge(props: { ready: boolean; keyStateUnknown: boolean; notReadyCause?: 'settings' }) {
   if (props.keyStateUnknown) {
     return (
       <Badge className={cn('text-[10px]', TONE.neutral.bg, TONE.neutral.fg)}>
@@ -43,7 +49,7 @@ export function ReadinessBadge(props: { ready: boolean; keyStateUnknown: boolean
   return (
     <Badge className={cn('text-[10px]', TONE.amber.bg, TONE.amber.fg)}>
       <TriangleAlert className="size-3" />
-      Needs key
+      {props.notReadyCause === 'settings' ? 'Fix settings' : 'Needs key'}
     </Badge>
   );
 }

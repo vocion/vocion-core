@@ -200,7 +200,7 @@ export function ToolDetailView({ tool, family, agents }: { tool: CatalogTool; fa
             <div>
               <div>{tool.title}</div>
               <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm font-normal">
-                {family.readiness && <ReadinessBadge ready={family.readiness.ready} keyStateUnknown={family.readiness.keyStateUnknown} />}
+                {family.readiness && <ReadinessBadge ready={family.readiness.ready} keyStateUnknown={family.readiness.keyStateUnknown} notReadyCause={family.readiness.notReadyCause} />}
                 <span className="font-mono text-xs text-muted-foreground">{tool.name}</span>
                 <Badge variant="outline" className="text-[10px]">{family.label}</Badge>
               </div>
@@ -210,7 +210,19 @@ export function ToolDetailView({ tool, family, agents }: { tool: CatalogTool; fa
         description={tool.description || 'No description declared.'}
       />
 
-      {family.readiness && !family.readiness.ready && !family.readiness.keyStateUnknown && (
+      {family.readiness && !family.readiness.ready && !family.readiness.keyStateUnknown && family.readiness.notReadyCause === 'settings' && (
+        <Notice tone="warn" className="mb-6" data-testid="bad-settings">
+          {family.label}
+          {' '}
+          has invalid
+          {' '}
+          <code className="font-mono">helpCenter</code>
+          {' '}
+          settings, so this tool would refuse every call. A workspace admin must fix them (host or locale) on the zendesk source; connecting a credential will not help.
+        </Notice>
+      )}
+
+      {family.readiness && !family.readiness.ready && !family.readiness.keyStateUnknown && family.readiness.notReadyCause !== 'settings' && (
         <Notice tone="warn" className="mb-6" data-testid="needs-credential">
           {family.label}
           {' '}

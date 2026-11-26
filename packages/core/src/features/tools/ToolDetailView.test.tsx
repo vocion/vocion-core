@@ -107,6 +107,17 @@ describe('ToolDetailView', () => {
     expect(notice.querySelector('a')?.getAttribute('href')).toContain('/dashboard/connectors');
     expect(document.body.textContent).toContain('Needs key');
   });
+
+  it('sends an admin to the source\'s helpCenter settings, not the Connectors page, when the settings are the cause', async () => {
+    await render(<ToolDetailView tool={LIST_PROJECTS} family={{ ...FAMILY, readiness: { ready: false, keyStateUnknown: false, notReadyCause: 'settings' } }} agents={AGENTS} />);
+
+    const notice = document.querySelector('[data-testid="bad-settings"]')!;
+
+    expect(notice.textContent).toContain('workspace admin must fix');
+    expect(notice.querySelector('a')).toBeNull();
+    expect(document.querySelector('[data-testid="needs-credential"]')).toBeNull();
+    expect(document.body.textContent).toContain('Fix settings');
+  });
 });
 
 describe('HoldingAgents', () => {

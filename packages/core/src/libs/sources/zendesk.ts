@@ -1,10 +1,13 @@
 /**
  * Zendesk connector — a Zendesk account, reached live through an OAuth client.
  *
- * Syncless: nothing is copied into Vocion. Today it carries the credential and
+ * Syncless: nothing is copied into Vocion. It carries the credential and
  * Test connection; the tools that read and write the account build on its
  * client (`libs/zendesk/client.ts`), each asking for only the OAuth scopes it
- * uses. Auth: the `zendesk` platform's subdomain, client ID and client secret.
+ * uses. The Help Center tools are different: they read public articles
+ * anonymously and use only this source's `helpCenter` settings (and the
+ * credential's subdomain as the default host). Auth: the `zendesk` platform's
+ * subdomain, client ID and client secret.
  */
 
 import type { ConnectorCheck, ConnectorInspection } from './inspect';
@@ -13,10 +16,18 @@ import type { ZendeskCredentials, ZendeskDeps, ZendeskScope } from '@/libs/zende
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
 import { getZendeskToken, zendeskCredentialsFrom, ZendeskError, zendeskRequest } from '@/libs/zendesk/client';
+import { zendeskHelpCenterSettingsSchema } from '@/libs/zendesk/helpCenterSettings';
 import { InspectInputError } from './inspect';
 
-/** Nothing to set yet: the account is named by the credential. */
-export const zendeskConfigSchema = z.object({});
+/**
+ * The account is named by the credential, so nothing here is required. The
+ * optional `helpCenter` block says where the public Help Center is read from
+ * (`libs/zendesk/helpCenterSettings.ts`); a source saved without it (`{}`)
+ * still validates and reads `https://{subdomain}.zendesk.com`, `en-us`.
+ */
+export const zendeskConfigSchema = z.object({
+  helpCenter: zendeskHelpCenterSettingsSchema.optional(),
+});
 
 /** What Test connection asks for: enough to read which user the client acts as. */
 const INSPECT_SCOPES: readonly ZendeskScope[] = ['users:read'];

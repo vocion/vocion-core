@@ -147,6 +147,20 @@ export type FamilySource = {
 };
 
 /**
+ * The connector kind of one source row: the `_connector` its config names, or
+ * the row's own `kind` when it names none. The one rule for "what kind is this
+ * source", shared by the agent tools (`loadSourceKinds`) and the Tools page,
+ * so both pick the same sources. A slug says nothing: a local-files source
+ * can hold the slug `zendesk`.
+ * @param kind - The row's `kind` column.
+ * @param configJson - The row's config.
+ */
+export function connectorKindOf(kind: string, configJson: unknown): string {
+  const connector = (configJson as { _connector?: unknown } | null)?._connector;
+  return typeof connector === 'string' && connector ? connector : kind;
+}
+
+/**
  * The connector kind of each source slug, read once at graph build so the
  * synchronous tool builder can tell a family's sources from the rest
  * (`RuntimeContext.sourceKinds`). Empty when nothing is asked.
@@ -167,8 +181,7 @@ export async function loadSourceKinds(orgId: string, slugs: readonly string[]): 
     if (!wanted.has(row.slug)) {
       continue;
     }
-    const connector = (row.config as { _connector?: unknown } | null)?._connector;
-    out[row.slug] = typeof connector === 'string' && connector ? connector : row.kind;
+    out[row.slug] = connectorKindOf(row.kind, row.config);
   }
   return out;
 }
