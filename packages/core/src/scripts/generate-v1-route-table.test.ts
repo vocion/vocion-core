@@ -106,4 +106,27 @@ describe('handler folders the catch-all cannot serve the way Next did', () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  it('refuses two folders that would share an import name, instead of writing a table that does not compile', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'v1-routes-'));
+    const outputPath = join(directory, 'routeTable.generated.ts');
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      // `a-b` and `a_b` both become `route_a_b`.
+      for (const folder of ['a-b', 'a_b']) {
+        mkdirSync(join(directory, folder), { recursive: true });
+        writeFileSync(join(directory, folder, 'route.ts'), 'export async function GET() {}');
+      }
+
+      const exitCode = runGenerate(directory, outputPath);
+      const printed = stderr.mock.calls.map(call => String(call[0])).join('');
+
+      expect(exitCode).toBe(1);
+      expect(printed).toContain('Two v1 handlers would share the import name route_a_b');
+      expect(existsSync(outputPath)).toBe(false);
+    } finally {
+      stderr.mockRestore();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
