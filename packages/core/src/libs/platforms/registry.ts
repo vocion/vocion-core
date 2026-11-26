@@ -61,6 +61,7 @@ export type CredentialPlatformId
     | 'sentry'
     | 'slate'
     | 'strapi'
+    | 'zendesk'
   // A business's numbers: the warehouse, product analytics and ad platform
   // families (`libs/connectors/families.ts`). One live credential each, so no
   // migration touches `api_token_org_platform_live_idx`; sources narrow by
@@ -2041,6 +2042,54 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         label: 'Password',
         pattern: null,
         shapeHint: 'is any non-empty password',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'zendesk',
+    label: 'Zendesk',
+    brand: 'zendesk',
+    keySource: 'supplied',
+    // `one-live`, for the reason Sentry and Apollo are: widening the cap means
+    // rebuilding `api_token_org_platform_live_idx`, and one OAuth client
+    // covers the whole Zendesk account.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['zendesk'],
+    howToConnect: {
+      paste: {
+        credential: 'OAuth client (Confidential)',
+        access: ['users:read'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Zendesk subdomain plus an OAuth client\'s ID and secret',
+    helpText: 'A Confidential OAuth client, made by a Zendesk admin in Admin Center → Apps and integrations → APIs → OAuth clients. Copy the secret when it is shown: Zendesk shows it in full only once. The client\'s tokens act as the admin who made it. Test connection asks for users:read only.',
+    fields: [
+      {
+        name: 'subdomain',
+        label: 'Subdomain',
+        pattern: /^(?:https?:\/\/)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.zendesk\.com)?\/?$/i,
+        shapeHint: 'is the part of your Zendesk address before .zendesk.com, like acme or acme.zendesk.com',
+        // Names the account rather than authenticating it, so it is shown in
+        // full and tells two Zendesk credentials apart.
+        secret: false,
+      },
+      {
+        name: 'clientId',
+        label: 'Client ID',
+        pattern: null,
+        shapeHint: 'is the Identifier on the OAuth client\'s page',
+        secret: false,
+      },
+      {
+        name: 'clientSecret',
+        label: 'Client secret',
+        pattern: null,
+        shapeHint: 'is the secret Zendesk showed once, after the client was saved',
         secret: true,
       },
     ],

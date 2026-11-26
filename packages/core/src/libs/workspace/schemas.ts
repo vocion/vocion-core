@@ -2627,11 +2627,9 @@ export const SourceManifestSchema = z.object({
   description: z.string().optional().describe('One-line summary for the catalog UI.'),
   /**
    * Connector kind — must match a registered connector in
-   * `libs/sources/registry`. Built-ins: `web`, `local-files`. Authored
-   * sources can use a *labelled* kind (e.g. `zendesk`) that routes
-   * through a built-in connector at the registry level when no live
-   * implementation is wired yet — see the support-reply demo's
-   * `sources/zendesk.yaml` for the Stripe-style test-mode pattern.
+   * `libs/sources/registry`. Built-ins: `web`, `local-files`. Sample data
+   * for a system that is not connected yet (a demo's support tickets, say)
+   * ships as files under `local-files`, not under that system's kind.
    */
   kind: z.string().describe('Connector kind. Maps to a SourceConnector slug.'),
   /** Resolved per-connector config (validated against the connector\'s configSchema at apply time). */

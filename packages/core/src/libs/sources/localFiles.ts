@@ -3,10 +3,9 @@
  * files as documents. Zero auth.
  *
  * Use cases:
- *   - Demos that ship sample data (e.g. support-reply ships 8 ticket
- *     markdown files; the demo's `sources/zendesk.yaml` declares
- *     `kind: local-files` so the data arrives via the same pipeline a
- *     real Zendesk OAuth connector would use).
+ *   - Demos that ship sample data (e.g. a set of support tickets as
+ *     markdown files), so the data arrives through the same ingestion
+ *     pipeline a live connector's would.
  *   - One-shot imports of a corpus dump (legal contracts, RFC docs)
  *     before a real upstream is wired.
  *   - Air-gapped deployments where the upstream is a filesystem mount.

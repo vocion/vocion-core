@@ -505,6 +505,24 @@ describe('connector platforms', () => {
       .toThrow(/numeric project id/);
   });
 
+  it('keeps the Zendesk subdomain and client ID in full, the client secret hidden, and refuses another host', () => {
+    // The subdomain and client ID name the account and the OAuth client; only
+    // the secret authenticates.
+    const secrecy = Object.fromEntries(getPlatform('zendesk').fields.map(f => [f.name, f.secret]));
+
+    expect(secrecy).toEqual({ subdomain: false, clientId: false, clientSecret: true });
+    expect(getPlatform('zendesk').connectorSlugs).toEqual(['zendesk']);
+    expect(credentialsAreShareable('zendesk')).toBe(true);
+    expect(holdsManyCredentials('zendesk')).toBe(false);
+    expect(validatePlatformCredential('zendesk', { subdomain: 'https://acme.zendesk.com/', clientId: 'vocion', clientSecret: 'fixture-secret-0001' }))
+      .toEqual({ subdomain: 'https://acme.zendesk.com/', clientId: 'vocion', clientSecret: 'fixture-secret-0001' });
+
+    for (const subdomain of ['evil.com', 'acme.zendesk.com.evil.com', 'https://acme.zendesk.com/agent']) {
+      expect(() => validatePlatformCredential('zendesk', { subdomain, clientId: 'vocion', clientSecret: 'fixture-secret-0001' }), subdomain)
+        .toThrow(/before \.zendesk\.com/);
+    }
+  });
+
   it('keeps the Sentry host and organization with the token, shown in full, and refuses a DSN', () => {
     // A token is spent against one region and one organization; both are
     // identifiers, and the token is the only secret.

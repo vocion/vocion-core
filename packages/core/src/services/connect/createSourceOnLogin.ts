@@ -10,7 +10,7 @@
 
 import type { FirstSync } from './newSourceSync';
 import type { DbTransaction } from '@/libs/DbTransaction';
-import { and, asc, desc, eq, gt, isNull, like, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { loginIsEnough, platformForConnectorSlug } from '@/libs/platforms/registry';
@@ -18,7 +18,7 @@ import { isDeclaredInWorkspaceFile } from '@/libs/sources/manifestDir';
 import { getConnector } from '@/libs/sources/registry';
 import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { linkSourceToStoredCredential } from '@/services/SourceCredentialService';
-import { addSource, supersedeRunningSync } from '@/services/SourceSyncService';
+import { addSource, supersedeRunningSync, uniqueSourceSlug } from '@/services/SourceSyncService';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
 import { sourceIsOfConnector } from './connectorSources';
 import { startSourceSyncing } from './newSourceSync';
@@ -170,25 +170,6 @@ function safeHost(url: string): string | null {
 }
 
 /**
- * The first slug for the connector that no source in the workspace holds:
- * the usual slug, then `-2`, `-3` and so on.
- * @param orgId - The workspace.
- * @param base - The usual slug for this pick.
- */
-async function uniqueSlug(orgId: string, base: string): Promise<string> {
-  const rows = await db
-    .select({ slug: knowledgeSourceSchema.slug })
-    .from(knowledgeSourceSchema)
-    .where(and(eq(knowledgeSourceSchema.orgId, orgId), like(knowledgeSourceSchema.slug, `${base}%`)));
-  const taken = new Set(rows.map(row => row.slug));
-  let slug = base;
-  for (let suffix = 2; taken.has(slug); suffix += 1) {
-    slug = `${base.slice(0, 56)}-${suffix}`;
-  }
-  return slug;
-}
-
-/**
  * Decide which source the pick is for, never by guessing. A named source must
  * be one of this connector's in this workspace. Unnamed, the candidates are the
  * connector's sources on the same site (or all of them, when the pick names no
@@ -212,7 +193,7 @@ export async function resolveTarget(input: CreateSourceInput): Promise<Target> {
   const site = typeof input.config.baseUrl === 'string' ? safeHost(input.config.baseUrl) : null;
   if (input.createNew) {
     const created = site ? `${input.connector}-${site.replace(/\W+/g, '-')}`.slice(0, 60) : input.connector;
-    return { kind: 'create', slug: await uniqueSlug(input.orgId, created) };
+    return { kind: 'create', slug: await uniqueSourceSlug(db, input.orgId, created) };
   }
   const pickChangesConfig = Object.keys(input.config).length > 0;
   if (input.sourceSlug) {
@@ -235,7 +216,7 @@ export async function resolveTarget(input: CreateSourceInput): Promise<Target> {
     return { kind: 'merge', slug: candidates[0].slug, existing: { ...candidates[0].configJson } };
   }
   // Unique, because a source this pick may not join (one from the workspace file) can hold the usual slug.
-  return { kind: 'create', slug: await uniqueSlug(input.orgId, site ? `${input.connector}-${site.replace(/\W+/g, '-')}`.slice(0, 60) : input.connector) };
+  return { kind: 'create', slug: await uniqueSourceSlug(db, input.orgId, site ? `${input.connector}-${site.replace(/\W+/g, '-')}`.slice(0, 60) : input.connector) };
 }
 
 /**

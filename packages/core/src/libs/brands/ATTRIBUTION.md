@@ -55,6 +55,7 @@ about a mark is altered.
 | `stripe` | Stripe | simple-icons, from https://stripe.com/newsroom/information | CC0-1.0 (drawing) | — |
 | `webflow` | Webflow | simple-icons, from https://brand-at.webflow.io/resources#logos | CC0-1.0 (drawing) | https://brand-at.webflow.io |
 | `xero` | Xero | simple-icons, from https://www.xero.com/uk/about/media/downloads | CC0-1.0 (drawing) | — |
+| `zendesk` | Zendesk | simple-icons, from https://brandland.zendesk.com | CC0-1.0 (drawing) | https://brandland.zendesk.com |
 | `zoom` | Zoom | simple-icons, from https://brand.zoom.us/media-library/ | CC0-1.0 (drawing) | https://brand.zoom.us/usage-legal/ |
 
 ## Brands drawn without a logo

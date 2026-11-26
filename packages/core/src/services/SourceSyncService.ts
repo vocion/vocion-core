@@ -36,7 +36,7 @@ import type { SyncBudget, SyncBudgetLimits } from '@/libs/processors/budget';
 import type { RegisteredProcessor } from '@/libs/processors/registry';
 import type { ProcessorRunsOn, ProcessorSyncContext } from '@/libs/processors/types';
 import type { SourceSyncCompletedPayload } from '@/services/EventService';
-import { and, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, like, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { createSyncBudget } from '@/libs/processors/budget';
 import { getProcessor, listProcessorSlugs } from '@/libs/processors/registry';
@@ -46,6 +46,7 @@ import { getConnector } from '@/libs/sources/registry';
 import { crawlPoliteness } from '@/libs/sources/robots';
 import { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
 import { BudgetExceededError } from '@/services/BudgetService';
+import { sourceIsOfConnector } from './connect/connectorSources';
 import {
   deleteDocumentsGoneFromSource,
   ensureSource,
@@ -84,6 +85,104 @@ export type AddSourceInput = {
   tx?: DbTransaction;
 };
 
+/**
+ * The first slug `taken` does not hold: the base itself, then `-2`, `-3` and so
+ * on. The suffix goes on the first 56 characters, so it fits a slug column
+ * that a longer base would otherwise overflow.
+ * @param taken - Slugs already held in the workspace.
+ * @param base - The usual slug for this source.
+ */
+function firstFreeSlug(taken: ReadonlySet<string>, base: string): string {
+  let slug = base;
+  for (let suffix = 2; taken.has(slug); suffix += 1) {
+    slug = `${base.slice(0, 56)}-${suffix}`;
+  }
+  return slug;
+}
+
+/**
+ * Where a slug sits in the series `firstFreeSlug` walks for this base: 1 for
+ * the base itself, N for `<first 56 of base>-N` (N of 2 or more, written
+ * without leading zeros), null for any other slug.
+ * @param slug - A slug held in the workspace.
+ * @param base - The slug the series starts from.
+ */
+function slugSeriesPosition(slug: string, base: string): number | null {
+  if (slug === base) {
+    return 1;
+  }
+  const stem = `${base.slice(0, 56)}-`;
+  if (!slug.startsWith(stem)) {
+    return null;
+  }
+  const suffix = slug.slice(stem.length);
+  const position = Number(suffix);
+  return Number.isInteger(position) && position >= 2 && String(position) === suffix ? position : null;
+}
+
+/**
+ * The earliest slug in the base's series that a source of this connector
+ * holds, or null when it holds none of them.
+ * @param rows - Sources whose slug starts with the base's first 56 characters.
+ * @param base - The slug the series starts from.
+ */
+function earliestOwnSlugInSeries(rows: ReadonlyArray<{ slug: string; sameConnector: boolean }>, base: string): string | null {
+  let earliest: { slug: string; position: number } | null = null;
+  for (const row of rows) {
+    const position = row.sameConnector ? slugSeriesPosition(row.slug, base) : null;
+    if (position !== null && (earliest === null || position < earliest.position)) {
+      earliest = { slug: row.slug, position };
+    }
+  }
+  return earliest?.slug ?? null;
+}
+
+/**
+ * The first slug in the workspace that no source holds: the slug itself, then
+ * `-2`, `-3` and so on.
+ * @param conn - The caller's transaction, or the database.
+ * @param orgId - The workspace.
+ * @param base - The usual slug for this source.
+ */
+export async function uniqueSourceSlug(conn: DbTransaction | typeof db, orgId: string, base: string): Promise<string> {
+  const rows = await conn
+    .select({ slug: knowledgeSourceSchema.slug })
+    .from(knowledgeSourceSchema)
+    // The trimmed prefix, so a `-2` cut from a slug longer than 56 is seen too.
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), like(knowledgeSourceSchema.slug, `${base.slice(0, 56)}%`)));
+  return firstFreeSlug(new Set(rows.map(row => row.slug)), base);
+}
+
+/**
+ * The slug a new source of this connector lands on. `ensureSource` hands back
+ * whichever row already holds a slug, so a slug held by ANOTHER connector's
+ * source (sample data under `local-files` named `zendesk`, say) would give the
+ * caller that row, with its config and its connector, and report success.
+ *
+ * A source of the same connector is still reused, which keeps adding a source
+ * safe to repeat and lets a workspace file adopt a source added by hand. That
+ * is the one holding the slug, or, when another connector holds it, this
+ * connector's earliest source in the `-2`, `-3` series, so adding it again
+ * after a move finds the moved source instead of adding a third. With neither,
+ * the new source takes the first free slug in that series.
+ * @param conn - The caller's transaction, or the database.
+ * @param orgId - The workspace.
+ * @param wanted - The slug the caller named, or the connector's usual one.
+ * @param connectorSlug - The connector the new source runs.
+ */
+async function slugForNewSource(conn: DbTransaction | typeof db, orgId: string, wanted: string, connectorSlug: string): Promise<string> {
+  const rows = await conn
+    .select({ slug: knowledgeSourceSchema.slug, sameConnector: sql<boolean>`${sourceIsOfConnector(connectorSlug)}` })
+    .from(knowledgeSourceSchema)
+    // The trimmed prefix, so a `-2` cut from a slug longer than 56 is seen too.
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), like(knowledgeSourceSchema.slug, `${wanted.slice(0, 56)}%`)));
+  const holder = rows.find(row => row.slug === wanted);
+  if (!holder || holder.sameConnector) {
+    return wanted;
+  }
+  return earliestOwnSlugInSeries(rows, wanted) ?? firstFreeSlug(new Set(rows.map(row => row.slug)), wanted);
+}
+
 export async function addSource(input: AddSourceInput): Promise<{ id: number; slug: string }> {
   const connector = getConnector(input.kind);
   if (!connector) {
@@ -98,7 +197,8 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
   // `upsertSource` matches on (orgId, slug): a workspace manifest declaring
   // `slug: apollo` would then create a SECOND row rather than adopt the one
   // added by hand here.
-  const slug = input.slug ?? (connector.syncless ? input.kind : generateSlug(input.kind, input.configJson));
+  const wanted = input.slug ?? (connector.syncless ? input.kind : generateSlug(input.kind, input.configJson));
+  const slug = await slugForNewSource(input.tx ?? db, input.orgId, wanted, input.kind);
   const ref = await ensureSource({
     orgId: input.orgId,
     slug,

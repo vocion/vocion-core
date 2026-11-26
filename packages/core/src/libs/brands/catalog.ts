@@ -58,6 +58,7 @@ import {
   siStripe,
   siWebflow,
   siXero,
+  siZendesk,
   siZoom,
 } from 'simple-icons';
 import { markFills } from './contrast';
@@ -114,6 +115,7 @@ const BRANDS = {
   // simple-icons draws Webflow from a relative moveto; written absolute (then a relative lineto, the same shape) as every other mark is.
   webflow: { icon: { ...siWebflow, path: siWebflow.path.replace(/^m24 4\.515/, 'M24 4.515l') } },
   xero: { icon: siXero },
+  zendesk: { icon: siZendesk },
   zoom: { icon: siZoom },
 
   amazonredshift: { title: 'Amazon Redshift', fallback: 'AWS\'s trademark guidelines allow a plain-text reference only, no logos (aws.amazon.com/trademark-guidelines); simple-icons dropped AWS marks in v15.' },

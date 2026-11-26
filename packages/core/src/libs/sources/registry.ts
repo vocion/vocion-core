@@ -53,6 +53,7 @@ import { webConnector } from './web';
 import { webflowConnector } from './webflow';
 import { workdayConnector } from './workday';
 import { xeroConnector } from './xero';
+import { zendeskConnector } from './zendesk';
 import { zoomConnector } from './zoom';
 
 const registry = new Map<string, SourceConnector>();
@@ -128,3 +129,5 @@ registerConnector(webflowConnector);
 // The repo family's second code host (`services/repo/providers/gitlab.ts`):
 // GitLab merge requests and pipelines as the same events GitHub's raise.
 registerConnector(gitlabConnector);
+// A Zendesk account through an OAuth client, read live (`docs/guides/zendesk.md`).
+registerConnector(zendeskConnector);

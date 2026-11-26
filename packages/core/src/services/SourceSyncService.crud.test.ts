@@ -66,6 +66,19 @@ async function makeSource(configJson: Record<string, unknown>): Promise<number> 
 }
 
 /**
+ * Insert one source under a chosen slug, as a workspace file or an older release would.
+ * @param slug - The slug it holds.
+ * @param configJson - Config to store, including the internal `_connector` key when there is one.
+ */
+async function insertSource(slug: string, configJson: Record<string, unknown>): Promise<number> {
+  const [row] = await db
+    .insert(knowledgeSourceSchema)
+    .values({ orgId: ORG, slug, kind: 'plugin', configJson })
+    .returning({ id: knowledgeSourceSchema.id });
+  return row!.id;
+}
+
+/**
  * Read one source's stored config back.
  * @param sourceId - Source to read.
  */
@@ -297,6 +310,86 @@ describe('addSource', () => {
     const added = await addSource({ orgId: ORG, kind: 'syncless-fixture', slug: 'apollo-eu', configJson: {} });
 
     expect(added.slug).toBe('apollo-eu');
+  });
+
+  it('never hands back another connector\'s source that holds the slug; the new one takes the first free slug', async () => {
+    const sample = await insertSource('syncless-fixture', { _connector: 'local-files', dir: 'samples' });
+    await insertSource('syncless-fixture-2', { _connector: 'local-files', dir: 'more-samples' });
+
+    const added = await addSource({ orgId: ORG, kind: 'syncless-fixture', configJson: {} });
+
+    expect(added.slug).toBe('syncless-fixture-3');
+    expect(added.id).not.toBe(sample);
+    expect(await readConfig(added.id)).toEqual({ _connector: 'syncless-fixture' });
+    expect(await readConfig(sample)).toEqual({ _connector: 'local-files', dir: 'samples' });
+  });
+
+  it('moves a slug the caller named off another connector\'s source too', async () => {
+    await insertSource('apollo-eu', { _connector: 'crud-fixture', baseUrl: 'https://cms.example' });
+
+    const added = await addSource({ orgId: ORG, kind: 'syncless-fixture', slug: 'apollo-eu', configJson: {} });
+
+    expect(added.slug).toBe('apollo-eu-2');
+  });
+
+  it('finds the free slug for a long one too, where the suffix replaces the end of the slug', async () => {
+    // 60 characters: a suffix goes on the first 56, so `-2` is not `wanted + '-2'`.
+    const wanted = `long-${'a'.repeat(55)}`;
+    await insertSource(wanted, { _connector: 'local-files' });
+    await insertSource(`${wanted.slice(0, 56)}-2`, { _connector: 'local-files' });
+
+    const added = await addSource({ orgId: ORG, kind: 'syncless-fixture', slug: wanted, configJson: {} });
+
+    expect(added.slug).toBe(`${wanted.slice(0, 56)}-3`);
+  });
+
+  it('reuses a source of the same connector, so adding it twice leaves one row', async () => {
+    const first = await addSource({ orgId: ORG, kind: 'syncless-fixture', configJson: {} });
+    const second = await addSource({ orgId: ORG, kind: 'syncless-fixture', configJson: {} });
+
+    expect(second).toEqual(first);
+  });
+
+  it('finds the moved source when the same connector is added again, rather than adding a third', async () => {
+    await insertSource('syncless-fixture', { _connector: 'local-files' });
+
+    const first = await addSource({ orgId: ORG, kind: 'syncless-fixture', configJson: {} });
+    const second = await addSource({ orgId: ORG, kind: 'syncless-fixture', configJson: {} });
+
+    expect(first.slug).toBe('syncless-fixture-2');
+    expect(second).toEqual(first);
+  });
+
+  it('reuses this connector\'s earliest source in the series, even past a free slug', async () => {
+    await insertSource('syncless-fixture', { _connector: 'local-files' });
+    // -3 sits in the middle both by insert order and by text order (-20, -3, -4),
+    // so only comparing the numbers picks it.
+    await insertSource('syncless-fixture-4', { _connector: 'syncless-fixture' });
+    const earliest = await insertSource('syncless-fixture-3', { _connector: 'syncless-fixture' });
+    await insertSource('syncless-fixture-20', { _connector: 'syncless-fixture' });
+
+    const added = await addSource({ orgId: ORG, kind: 'syncless-fixture', configJson: {} });
+
+    expect(added).toEqual({ id: earliest, slug: 'syncless-fixture-3' });
+  });
+
+  it('does not count a slug outside the series as the moved source', async () => {
+    await insertSource('syncless-fixture', { _connector: 'local-files' });
+    const outside = await insertSource('syncless-fixture-old', { _connector: 'syncless-fixture' });
+    const padded = await insertSource('syncless-fixture-02', { _connector: 'syncless-fixture' });
+
+    const added = await addSource({ orgId: ORG, kind: 'syncless-fixture', configJson: {} });
+
+    expect(added.slug).toBe('syncless-fixture-2');
+    expect([outside, padded]).not.toContain(added.id);
+  });
+
+  it('counts an older row with no connector stamp as the connector its slug names', async () => {
+    const older = await insertSource('syncless-fixture', {});
+
+    const added = await addSource({ orgId: ORG, kind: 'syncless-fixture', configJson: {} });
+
+    expect(added).toEqual({ id: older, slug: 'syncless-fixture' });
   });
 
   it('leaves a syncing connector on its derived slug', async () => {

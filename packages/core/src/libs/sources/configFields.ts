@@ -943,6 +943,8 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
     },
   ],
   'ahrefs': [],
+  // The account is named by the credential; nothing to set on the source.
+  'zendesk': [],
 
   // Product analytics is read live and syncs nothing.
   'mixpanel': [
