@@ -24,7 +24,7 @@ agents that hold each tool, so what the page says an agent has is what the agent
 | Tool | Action it proposes | What it changes | Present for | Default on the ladder |
 |---|---|---|---|---|
 | `propose_action` | any registered id — `hubspot.update`, `gmail.send`, `objects.propose_candidate`, … | The outside world: a CRM record, an email, a candidate for a person to judge. | every agent | per action: `hubspot.update` done for you at 0.8; a send or a candidate always asks |
-| `recommend_action` | none on emit — the card files `propose_action` when tapped | Nothing until a person taps. | every agent (not over MCP) | — |
+| `recommend_action` | none on emit — the card files `propose_action` when tapped | Nothing until a person taps. | every agent in a turn, `ask_workspace` included; not a tool you call over MCP. Over `ask_workspace` its card is filed to Review, or, with `end_user_cards: true`, returned in `cards` for the calling app's user to tap ([below](#running-a-card-an-end-user-tapped)) | — |
 | `file_ask` | `ask.file` | Puts one question on Needs you ([ask](../entities/ask.md)): a ruling, an approval, an input, a credential, a merge, a recommendation, a gate. Owned by the agent, bound to its run, about the records it names. | every agent | low, reversible → done for you at 0.8; Undo withdraws it while open |
 | `withdraw_ask` | `ask.withdraw` | Closes an open question **this agent** filed, as superseded with the reason. | every agent | low, reversible → done for you at 0.8; Undo reopens it |
 | `wait_for_answers` | — parks the run on a resume gate | Stops this mission run (or the scheduled automation whose check this is) spending until the asks it names are answered; files one gate ask. | inside a mission run | — nothing is executed; answering resumes it |
@@ -216,11 +216,104 @@ agent `handles`, its description and its suggestions, a tie goes to the higher `
 nothing convincing means the workspace's lead. The result carries the whole `reply` (no stream),
 `agentSlug` and `agentName`, `routing` — the candidates considered, the chosen slug, `defaulted`,
 one sentence of reason — `conversationId` to continue with, `turnId`, `traceId`, `actions` (anything
-the agent filed for a person, with ids, statuses and inbox links) and `url`. Pass `agent_slug` to
-skip the router, `conversation_id` to continue a thread (its agent answers, no routing), `title` to
-name a new one. A turn longer than `VOCION_CHAT_TURN_LIMIT_MS` (120s) returns what was said so far
-with `truncated: true`; the rest lands in the conversation when the turn finishes. `list_agents` is
+the agent filed for a person, with ids, statuses and inbox links), `url`, and, only when you asked
+for them, `cards`. Pass `agent_slug` to skip the router, `conversation_id` to continue a thread (its
+agent answers, no routing), `title` to name a new one, and `end_user_cards: true` if your app has
+end users who tap buttons (default `false`: every card the agent puts up is filed to Review for a
+person, and the result has no `cards` key). A turn longer than `VOCION_CHAT_TURN_LIMIT_MS` (120s) returns what was said so far
+with `truncated: true`; the rest lands in the conversation when the turn finishes. With
+`end_user_cards: true`, `cards` holds the cards put up before the cut; a card the agent puts up
+after it has no reply left to ride on, so it is filed to Review as without cards. `list_agents` is
 the roster the router chooses from — slug, name, `handles`, `initiative`, suggestions, `lead`.
+
+### Running a card an end user tapped
+
+A support chat in your own app can show the user the buttons an agent puts up, and run one when they
+tap it. Ask with `ask_workspace` and `end_user_cards: true`; `cards` then lists each card the turn
+put up for an action that opted in, as `{ id, label, actionId, actionLabel?, input, rationale?,
+draft? }`. The agent writes its `label`, `rationale` and `input`, so show them as untrusted text; so is `draft.prompt`, which embeds the agent-written label, and your app sends it back as the user's words. A card whose input is not whole carries `draft.prompt`: send that back through
+`ask_workspace` so the agent drafts it, because the card cannot run until then. Every other card
+(an action that did not opt in) is filed to Review, as it always was. A card for an action that did
+opt in but that the workspace turned off, or whose input names a `caller`, is marked unfiled: it is
+never returned and never filed to Review. A card put up after the time limit has cut the reply is
+filed to Review, whichever action it is for.
+
+`run_workspace_card` runs one when the user taps it. It takes:
+
+- `conversation_id`: the `conversationId` from the `ask_workspace` reply.
+- `card_id`: the card's `id`.
+- `caller`: `{ id, name, email }`, the end user as **your app** knows them.
+
+The caller comes from your app and from nowhere else. It is never read from the model or from a
+card's input (a card whose input carries a `caller` key is refused), and the action receives it as
+`ctx.caller`. The tap goes through the same `proposeAction` as any other: the token's grant, the
+gates and the audit row all apply.
+
+A card is bound to the `caller.id` of its first tap, whatever that tap came to: a tap by a different
+`caller.id` is refused with `CARD_NOT_AVAILABLE`, so each end user needs their own conversation.
+
+**A tap is not a workspace person's approval.** The card was written by an agent that may have read
+untrusted text (a Help Center article, the user's own message), and your end user is not a member of
+the workspace. So the tap is proposed as the card's agent proposing it, never as a person's own word:
+the action's declared gates and holds apply, and the workspace's autonomy ladder decides. At the
+`execute-with-approval` rung the run **waits for a workspace person in Review**, the tap returns
+`status: 'pending'`, and the action has not run (tell your user their request was received and is
+waiting for review, not that it was done). The action runs at once on the tap only where the ladder
+lets an agent's proposal run on its own: a kind set to `execute-within-bounds` or `autonomous` with
+the agent's confidence in the card at or above the rung's floor, or a kind the ladder says nothing
+about that can be undone and is low-risk, with the agent's confidence at or above the platform's default bar (0.8, or a per-kind bar; the platform's done-for-you default). A declared gate's
+hold, or a card the agent gave no confidence for, keeps it waiting at any rung. When a person
+approves the waiting run, the action still gets the user who tapped as `ctx.caller`.
+
+It returns `{ conversationId, cardId, actionId, runId, status, outcome, result, error?, underway? }`.
+`result` is what the action returned when this tap ran it, and `null` otherwise, including on
+`already_decided`. `underway` is `{ line }`: the action's link to its run stays in the workspace.
+Branch on `outcome` as well as `status`:
+
+| `outcome` | Meaning |
+|---|---|
+| `created` | This tap made the run. It ran if `status` is `done` or `failed`; it is waiting for a person if `pending`. |
+| `refreshed` | The card's earlier run was `pending` or had `failed`. It was updated in place and is `pending` for a person; this tap ran nothing. |
+| `already_decided` | The card's earlier run, in any other status, is returned unchanged; this tap ran nothing. |
+| `already_underway` | What was asked is already happening, or another tap on this card is running it right now; this tap ran nothing, so show `underway.line` even when `status` reads `done` or `pending`. |
+
+`status` is `pending` (waiting for a workspace person in Review; the action has not run), `done` (it
+ran), `failed` (the action did not complete and the run is recorded; `error` is fixed text, never the action's own message, which stays on the run for the workspace's people. It says a later tap puts the same request back in front of a workspace person in Review and does not run it again; tell your user it did not go through), `awaiting_execution` (a person approved it and
+the work is waiting to be done), `rejected` or `undone`, and `executing` for an earlier tap's run
+still going.
+
+**One card, one run.** A second tap, or two at once, never starts a second run. If the earlier run is
+`done`, `rejected`, `undone`, `executing` or `awaiting_execution`, the later call gets it back
+unchanged (`already_decided`). If it is `pending`, or `failed`, the tap refreshes that same run and
+it is `pending` for a person (`refreshed`); a tap never re-executes a failed run, a workspace person
+decides it in Review. Only a card minted for an end user on a turn that asked for `end_user_cards` can be run: a card filed to Review, deferred,
+expired or never put up is refused, and so is any card the dashboard chat drew.
+
+A refusal carries a typed code and nothing ran: `CONVERSATION_NOT_FOUND`, `CARD_NOT_FOUND`,
+`CARD_NOT_AVAILABLE` (the card can no longer be run; the message says why), `CARD_NOT_RUNNABLE` (the
+action behind a card that was put up is gone or is no longer card-runnable; tell your user it cannot
+be done from the card), `WORKSPACE_PAUSED` (a workspace person has paused the workspace and the tap
+would have run at once; nothing ran and the card's run is left `pending`. The message is fixed text (the card did not run, your request is kept) and never carries the pause note or who paused it and when. A tap after the workspace is
+resumed refreshes that same run (`refreshed`, `pending`) and does not run it: a workspace person approves
+it in Review. The paused tap itself leaves the card with no `runId` and no `lastAttempt` (the pause throws after the run exists, before the card is written); the next tap refreshes the run and stamps the card. Tell your user the request was received and cannot run right now), `ACTION_DISABLED`,
+`CARD_NEEDS_DRAFT`, `CARD_INPUT_INVALID`, `CALLER_INVALID` (the tool's input
+schema refuses a malformed caller; this is an action's own stricter rule), `FORBIDDEN` (the token
+lacks the action's grant), `VALIDATION_FAILED`, `RETURNED_FOR_REVISION` (the workspace's own check sent the request back before it ran, so nothing ran; the message is fixed text, never the check's note to the agent; tell your user it could not be done as asked and was not carried out) and `UNKNOWN_ACTION`.
+`INTERNAL_ERROR` is different: a server error the code did not expect, after which whether the card ran
+is not known. Its message is fixed text and the real error is only in the server log; a repeat tap
+never runs the card twice and says what happened.
+
+**Opting an action in.** Set `cardRunnable: { callerSchema }` on the registered action
+(`libs/actions/types.ts`); `callerSchema` is required, `CardCallerSchema` is the standard one to pass, and an action that
+needs a real address can pass a stricter one. Nothing else changes: it is one field on the existing registry entry.
+Three things the action writes reach the app's end user word for word, so keep them end-user safe (no
+internal ids, links into the workspace, other people's data or a downstream system's error text): what
+`execute` returns (`result`), the `line` from `underway`, and a `precheck` refusal's reason (sent as
+`VALIDATION_FAILED: <reason>`). Errors `execute` throws never leave: a failed run answers fixed text. It cannot be
+combined with `ownsDedupKey`: such an action is treated as not card-runnable (its cards are not shown, they are filed
+to Review without the end-user marker, and a tap on one is `CARD_NOT_FOUND`), because its own key would beat the per-card key and a refresh could execute it. **Turning it off
+per workspace** uses the autonomy ladder: put the action below `execute-with-approval` (`observe`,
+`recommend` or `assist` in `trust.yaml`) and its cards are not shown and a tap does not run.
 
 ### Deciding what waits on a person
 

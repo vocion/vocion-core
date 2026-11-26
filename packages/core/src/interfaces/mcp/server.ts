@@ -23,8 +23,9 @@ import { workspaceTools } from './tools/workspace-tools';
  *   - context_* : list/get/write/delete/apply/diff/version_history
  *   - objects_* / object_types_* / search_* : read data + hybrid retrieval
  *   - teams_* : the F1 org chart (workspace lead + teams with provenance)
- *   - list_agents / ask_workspace : the roster, and one routed turn with the
- *     workspace (`tools/chat-tools.ts`)
+ *   - list_agents / ask_workspace / run_workspace_card : the roster, one routed
+ *     turn with the workspace, and the run of a card an end user tapped
+ *     (`tools/chat-tools.ts`)
  *
  * Writes auto-commit + auto-apply by default; override per-call with
  * `autoApply: false` / `autoCommit: false`.

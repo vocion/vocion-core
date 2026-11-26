@@ -49,8 +49,21 @@ export type ConversationRun
      * card it is being asked to approve — "approve filing it" bound to a
      * lookup result three times on 2026-09-24 because the card lived only
      * in the browser.
+     *
+     * `endUser` marks a card minted for the end user of a calling app on an
+     * `ask_workspace` turn that asked for them (`end_user_cards`); only such a
+     * card can be run by `run_workspace_card`. Additive and optional: it lives
+     * in `runs_json`, so older rows simply lack it.
+     *
+     * `confidence` is the agent's own 0-1 confidence in an end-user card, kept so a
+     * later tap proposes it with the confidence the agent wrote (the autonomy
+     * ladder reads it); absent when the agent gave none.
+     *
+     * `tappedBy` is the calling app's id for the end user whose tap first reached
+     * the card (`run_workspace_card`). A later tap by a different id is refused, so
+     * one end user's card can never be re-proposed under another's identity.
      */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; actionLabel?: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; brand?: string; decision?: { action: string; at: string; by?: string; option?: string }; draft?: { prompt: string; missing: string } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; actionLabel?: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; brand?: string; decision?: { action: string; at: string; by?: string; option?: string }; draft?: { prompt: string; missing: string }; endUser?: true; confidence?: number; tappedBy?: string }
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string }
     /** A Decision this turn put in front of the person (`libs/decisions/decision.ts`), by id. */
     | { type: 'decision'; id: number; question: string; state?: string }
@@ -810,6 +823,8 @@ export type CardRunPatch = {
   /** How a person decided it — and, on a card whose options are typed (A/B/C/D), WHICH option. */
   decision: { action: string; at: string; by?: string; option?: string };
   lastAttempt: { at: string; reason: string; summary: string };
+  /** The end user (the calling app's id) the card is bound to: whoever tapped it first. */
+  tappedBy: string;
   /** The line under the title, rewritten when a card's own walk-through finishes ("Connect your systems" writes its summary here). */
   body: string;
 };
@@ -824,6 +839,38 @@ type CardRunEntry = Extract<ConversationRun, { type: 'card' }>;
  */
 function cardRunState(run: CardRunEntry): string {
   return run.state ?? (run.runId !== undefined ? 'filed' : 'proposed');
+}
+
+/**
+ * One card a conversation's turn put up, read back by its id.
+ *
+ * The same lookup `markCardRun` makes (the newest assistant message whose
+ * `runs` hold that card id), scoped to the org AND the conversation: a card id
+ * from another conversation or another workspace is not found, however well
+ * the id was guessed. Read-only; the caller that runs the card patches it
+ * afterwards with `markCardRun`.
+ * @param input
+ * @param input.orgId - The workspace that owns the conversation.
+ * @param input.conversationId - The conversation the card is in.
+ * @param input.cardId - The card's id.
+ * @returns The stored card, or null when this conversation has no card by that id.
+ */
+export async function readCardRun(input: { orgId: string; conversationId: number; cardId: string }): Promise<Extract<ConversationRun, { type: 'card' }> | null> {
+  const holdsCard = JSON.stringify([{ type: 'card', id: input.cardId }]);
+  const [message] = await db
+    .select({ runs: conversationMessageSchema.runsJson })
+    .from(conversationMessageSchema)
+    .innerJoin(conversationSchema, eq(conversationSchema.id, conversationMessageSchema.conversationId))
+    .where(and(
+      eq(conversationSchema.orgId, input.orgId),
+      eq(conversationMessageSchema.conversationId, input.conversationId),
+      eq(conversationMessageSchema.role, 'assistant'),
+      sql`${conversationMessageSchema.runsJson} @> ${holdsCard}::jsonb`,
+    ))
+    .orderBy(desc(conversationMessageSchema.id))
+    .limit(1);
+  const run = message?.runs?.find(entry => entry.type === 'card' && entry.id === input.cardId);
+  return run?.type === 'card' ? run : null;
 }
 
 /**

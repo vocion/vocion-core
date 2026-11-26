@@ -192,3 +192,16 @@ describe('the follow-ups a turn ended with', () => {
     ]);
   });
 });
+
+describe('two cards with the same label and action in one turn', () => {
+  it('keeps only the first, and one verdict covers both: a card is told apart by label and action, not by id', () => {
+    const c = new RunCollector();
+    c.onCard({ id: 'card_first', label: 'Create a ticket', actionId: 'support.create_ticket', input: { topic: 'refund' }, endUser: true });
+    c.onCard({ id: 'card_second', label: 'Create a ticket', actionId: 'support.create_ticket', input: { topic: 'a different topic' }, endUser: true });
+    c.onCardDraft('Create a ticket', 'support.create_ticket', { prompt: 'Draft it.', missing: 'summary' });
+
+    expect(c.finalise().runs).toEqual([
+      { type: 'card', id: 'card_first', label: 'Create a ticket', actionId: 'support.create_ticket', input: { topic: 'refund' }, runId: undefined, draft: { prompt: 'Draft it.', missing: 'summary' }, endUser: true },
+    ]);
+  });
+});

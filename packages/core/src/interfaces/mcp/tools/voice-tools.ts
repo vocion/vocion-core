@@ -5,7 +5,7 @@
 import type { McpConfig } from '../config';
 import type { Principal } from '@/services/authz';
 import { z } from 'zod';
-import { mcpCaller } from './review-tools';
+import { mcpCaller } from './mcpCaller';
 
 type ToolModule = {
   name: string;

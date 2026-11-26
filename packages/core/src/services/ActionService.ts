@@ -15,7 +15,7 @@
  */
 
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
-import type { Action, ActionContext } from '@/libs/actions/types';
+import type { Action, ActionCaller, ActionContext } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
 import type { StaleView } from '@/services/proposals/staleness';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
@@ -210,7 +210,17 @@ function proposalForStorage<T extends { suggestedDecision?: SuggestedDecision | 
 }
 
 /** Where a proposal was made — see `proposeAction`'s `origin`. */
-export type ActionOrigin = { conversationId?: number | null; userId?: string | null; byPerson?: boolean };
+export type ActionOrigin = {
+  conversationId?: number | null;
+  userId?: string | null;
+  byPerson?: boolean;
+  /**
+   * The end user whose tap on a card started this run (`run_workspace_card`),
+   * handed to the action as `ctx.caller`. Set by that call alone: it is not
+   * part of any input, so a model's card cannot carry it.
+   */
+  caller?: ActionCaller;
+};
 
 /**
  * The stored envelope with the proposal's origin on it, when it has one.
@@ -1187,6 +1197,10 @@ async function executeActionInScope(
 
   try {
     await assertOutboundAllowed(orgId, action, run.input);
+    // The end user (`origin.caller`) reaches `execute` on ONE channel, `ctx.caller`;
+    // `ctx.origin` is only where the proposal was made, so it never also carries them.
+    const { caller: cardCaller, ...originWithoutCaller } = ((run.proposal ?? {}) as { origin?: ActionOrigin }).origin ?? {};
+    const origin = Object.keys(originWithoutCaller).length > 0 ? originWithoutCaller : undefined;
     const result = await action.execute({
       orgId,
       credentials,
@@ -1194,7 +1208,8 @@ async function executeActionInScope(
       reviewedBy: opts?.reviewedBy,
       runId,
       externalRef: opts?.externalRef,
-      origin: ((run.proposal ?? {}) as { origin?: ActionOrigin }).origin,
+      origin,
+      ...(cardCaller ? { caller: cardCaller } : {}),
       ...(proceededPast ? { proceededPast } : {}),
       ...(onPersonsWord ? { onPersonsWord: true } : {}),
     }, run.input);

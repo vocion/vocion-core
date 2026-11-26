@@ -13,12 +13,32 @@
 
 import type { z } from 'zod';
 
+/**
+ * WHO TAPPED A CARD, as the app that drew it knows them: an end user of that
+ * app, not a member of the workspace. Supplied by the calling app on
+ * `run_workspace_card` and by nothing else — never by a model, never read from
+ * a card's input (`libs/actions/cardRunnable.ts` holds the decision).
+ */
+export type ActionCaller = {
+  /** The caller app's own id for the person. */
+  id: string;
+  name: string;
+  email: string;
+};
+
 export type ActionContext = {
   orgId: string;
   /** Decrypted credentials for `action.sourceSlug`, resolved from the vault. */
   credentials?: Record<string, unknown>;
   /** `agent:<slug>` / `token:<id>` / user id — for provider audit fields. */
   invokedBy?: string;
+  /**
+   * The end user whose tap on a card ran this, when `run_workspace_card` ran
+   * it (`Action.cardRunnable`). Present on `execute` only, and only for a run
+   * a card started; an action that needs it fails loudly when it is absent
+   * rather than guessing a person. Never part of the action's input.
+   */
+  caller?: ActionCaller;
   /**
    * WHOSE DECISION THIS IS, by the principal proposing it: `agent:<slug>` for
    * an agent's own proposal — even one filed in a person's turn, where
@@ -482,6 +502,73 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   connects?: readonly string[];
   /** Validates the action input at propose-time. */
   inputSchema: S;
+  /**
+   * THIS ACTION CAN BE RUN BY AN END USER'S TAP ON A CARD, over MCP
+   * (`ask_workspace` returns the card, `run_workspace_card` runs it).
+   *
+   * Opting in is the whole contract, and it is one field on the existing
+   * registry entry rather than a second registry:
+   *   - the card an agent writes for it is returned to the calling app (only
+   *     cards for a `cardRunnable` action are; every other card keeps going to
+   *     Review);
+   *   - the call supplies `{ id, name, email }` for the person, `callerSchema`
+   *     checks it (tighten it here: an action that mails the person can demand
+   *     a real address), and the action reads it as `ctx.caller` in `execute`,
+   *     the ONE channel it arrives on (`ctx.origin` does not repeat it). The
+   *     identity is never part of the action's `inputSchema`, so the model that
+   *     writes the card cannot see the field in the input hints and cannot
+   *     forge it;
+   *   - a workspace turns it off for its end users by putting the action
+   *     below `execute-with-approval` on its autonomy ladder (`trust.yaml`
+   *     `rung: observe`): the card is not shown and a tap does not run.
+   *
+   * A TAP IS NOT A WORKSPACE PERSON'S APPROVAL. The card's input was written
+   * by an agent that may have read untrusted text, and the end user is not a
+   * workspace member, so the tap is proposed as the card's agent proposing it
+   * (`origin.byPerson: false`), and the declared gates, holds and the autonomy
+   * ladder apply as they do to any agent's proposal. At the
+   * `execute-with-approval` rung (the default for a kind, with or without a `trust.yaml` row)
+   * the run WAITS in Review for a workspace person and the tap returns
+   * `pending` without calling `execute`. A tap runs the action at once only
+   * where the ladder lets an agent's proposal run on its own: a rung that
+   * automates (`execute-within-bounds` or `autonomous`) with the agent's
+   * confidence in the card at or above the rung's floor, or a kind the ladder
+   * says nothing about that is undoable and low-risk, with the agent's confidence
+   * at or above the default bar (`DEFAULT_AUTO_ACCEPT_CONFIDENCE`, or the kind's own bar) (the
+   * platform's done-for-you default). A declared gate's hold, or a card the agent gave no
+   * confidence for, keeps it waiting at any rung. `execute` therefore runs
+   * either at once on the tap or later when a person approves, and in both
+   * cases `ctx.caller` is the end user who tapped.
+   *
+   * ONE CARD, ONE RUN. `run_workspace_card` proposes under a key built from
+   * the conversation and the card id (`CARD_DEDUP_PREFIX`), so a second tap or
+   * an app's retry never starts a second run. A tap on a card whose earlier
+   * run is `done`, `rejected`, `undone`, `executing` or `awaiting_execution`
+   * gets that run back unchanged (`outcome: already_decided`). A tap while the
+   * run is `pending`, or after it `failed`, refreshes that same run in place
+   * and it is `pending` for a person again (`outcome: refreshed`): a tap never
+   * re-executes a failed run, a workspace person decides it in Review. The
+   * action need not dedupe for that, but still says in its docstring what its
+   * `execute` does when a person approves a run that failed before.
+   *
+   * CANNOT BE COMBINED WITH `ownsDedupKey`: the action's own key would win over
+   * the card's key and its refresh path could execute, so "one card, one run"
+   * would not hold. An action that sets both is treated as not card-runnable
+   * (`cardRunnableOf` in `cardRunnable.ts`): its cards are not handed to the
+   * app, they are filed to Review as the agent's own proposals, and they carry
+   * no end-user marker, so a tap on one is `CARD_NOT_FOUND`. (`CARD_NOT_RUNNABLE`
+   * is only for a card stored while the action was card-runnable whose action
+   * has since been removed or changed.)
+   *
+   * WHAT LEAVES THE WORKSPACE: a tap answers an outside app, so three things
+   * the action writes reach that app's end user word for word: what `execute`
+   * returns (`result`), the `line` from `underway`, and a `precheck` refusal's
+   * reason (as `VALIDATION_FAILED: <reason>`). Keep all three end-user safe:
+   * no internal ids, links into the workspace, other people's data or error
+   * text from a downstream system. The action's thrown errors do not leave: a
+   * failed run answers fixed text.
+   */
+  cardRunnable?: { callerSchema: z.ZodType<ActionCaller> };
   /** authz action grant required to run it, e.g. `send_email`. */
   grant: string;
   /** Touches the outside world → the autonomy gate can require approval. */

@@ -47,6 +47,8 @@ function cardRunOf(card: CardRunInput): ConversationRun {
     ...(card.brand ? { brand: card.brand } : {}),
     ...(card.decision ? { decision: card.decision } : {}),
     ...(card.draft ? { draft: card.draft } : {}),
+    ...(card.endUser ? { endUser: true as const } : {}),
+    ...(typeof card.confidence === 'number' ? { confidence: card.confidence } : {}),
   };
 }
 
@@ -207,6 +209,19 @@ export class RunCollector {
     this.runs.push({ type: 'suggestions', items });
   }
 
+  /**
+   * Put a card on the ledger.
+   *
+   * A card is identified by its label AND its action id, not by its card id:
+   * the dashboard route sees the same card twice (when it is first seen and
+   * when its auto-filed copy is streamed), and only those two fields are the
+   * same on both sightings. The cost: a SECOND card with the same label and
+   * action in one turn is dropped, FIRST CARD WINS (its id, its input), even
+   * when its input differs, and `onCardDraft` / `onCardUnfiled` below match the
+   * same way, so one verdict covers every card that shares the pair. An agent
+   * that wants two buttons for one action must label them differently.
+   * @param card - The card as surfaced.
+   */
   onCard(card: CardRunInput): void {
     // Written once: the route tees a card when it is first seen AND again
     // when the auto-filed copy is written to the stream (finding 18).
@@ -263,6 +278,23 @@ export class RunCollector {
       if (r.type === 'card' && r.label === label && r.actionId === actionId && r.runId === undefined) {
         r.state = 'unfiled';
         r.reason = why.slice(0, 300);
+      }
+    }
+  }
+
+  /**
+   * A card the person cannot press yet: its action's input is not whole, so
+   * its one button asks the agent to draft it (`cardBackstop.draftPrompt`).
+   * @param label - The card's label.
+   * @param actionId - Its action.
+   * @param draft - The prompt the button sends and what was missing.
+   * @param draft.prompt
+   * @param draft.missing
+   */
+  onCardDraft(label: string, actionId: string, draft: { prompt: string; missing: string }): void {
+    for (const r of this.runs) {
+      if (r.type === 'card' && r.label === label && r.actionId === actionId && r.runId === undefined) {
+        r.draft = draft;
       }
     }
   }

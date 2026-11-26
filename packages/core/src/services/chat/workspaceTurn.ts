@@ -28,9 +28,13 @@ import type { RoutingDecision } from '@/services/agents/router';
 import type { AgentEvent } from '@/services/agents/types';
 import type { RunCostScope } from '@/services/budget/runCost';
 import type { CollectedDoc } from '@/services/chat/runCollector';
+import type { WorkspaceCard } from '@/services/chat/workspaceCards';
 import type { WorkspaceAddress } from '@/services/ProjectService';
 import process from 'node:process';
 import { and, eq, inArray } from 'drizzle-orm';
+import { cardRunnableOf } from '@/libs/actions/cardRunnable';
+import { getAction } from '@/libs/actions/registry';
+import { newCardId } from '@/libs/cards/card';
 import { db } from '@/libs/DB';
 import { appBaseUrl, workspaceUrl } from '@/libs/links';
 import { readModelPrefs } from '@/libs/llm/modelPrefs';
@@ -45,6 +49,7 @@ import { preflightCheck } from '@/services/BudgetService';
 import { autoProposeRecommendationDetailed } from '@/services/chat/autoPropose';
 import { scheduleConversationTitle } from '@/services/chat/conversationTitle';
 import { RunCollector } from '@/services/chat/runCollector';
+import { judgeCard, workspaceCardsOf } from '@/services/chat/workspaceCards';
 import { appendMessage, createConversation, getConversation, listMessages, toHistoryTurns } from '@/services/ConversationService';
 import { workspaceAddressById } from '@/services/ProjectService';
 import { allowedSourceSlugsForUser } from '@/services/SourceAccessService';
@@ -155,6 +160,15 @@ export type AskWorkspaceInput = {
   /** The conversation this one is asked from, in the asker's own workspace (`conversation.parent_conversation_id`). */
   parentConversationId?: number;
   /**
+   * Hand the caller the cards an end user taps (`cards` in the result; run one
+   * with `run_workspace_card`). Default false, and then the turn is exactly what
+   * it was: every card the agent puts up is filed to Review, the agent is told
+   * no cards come back, and the result has no `cards` key. Only a calling app
+   * that has end users and will call `run_workspace_card` turns it on, because
+   * it takes a card out of Review's hands. Honoured on the `mcp` surface only.
+   */
+  endUserCards?: boolean;
+  /**
    * The note under the message telling the agent how it is being reached.
    * Absent, the MCP note: there is no screen beside the reply.
    */
@@ -182,6 +196,14 @@ export type AskWorkspaceResult = {
   /** The observability trace for the turn; null when it was cut off before one was reported. */
   traceId: string | null;
   actions: TurnAction[];
+  /**
+   * The cards the turn put up that the caller may tap: only those whose action
+   * is registered as card-runnable, on for this workspace, and with input that
+   * passes its schema (else a "Draft needed" card). Run one with
+   * `run_workspace_card` (`services/chat/workspaceCards.ts`). Present only when
+   * the caller asked for them (`endUserCards`); empty then when the turn put up none.
+   */
+  cards?: WorkspaceCard[];
   /** The conversation in the dashboard, workspace-aware. */
   url: string;
 };
@@ -206,9 +228,13 @@ type FiledRun = { runId: number; tool: string; outcome: string | null };
  * its reply writes the whole answer into the reply and does not point at a
  * pane the caller cannot see.
  * @param actorId - Who is asking.
+ * @param endUserCards - Whether this turn hands the caller cards to tap (`end_user_cards`).
  */
-function surfaceNote(actorId: string): string {
-  return `\n\n--- how I am reaching you ---\nThis message arrived over MCP (caller: ${actorId}). There is no screen beside this reply — no pane, no cards to tap — so put the whole answer in the text, cite what you read inline, and if you filed a proposal or a question say so in words. The conversation is saved and a person can open it in the dashboard later.`;
+function surfaceNote(actorId: string, endUserCards: boolean): string {
+  const screen = endUserCards
+    ? 'There is no screen beside this reply — no pane — so put the whole answer in the text, cite what you read inline, and if you filed a proposal or a question say so in words. A card you put up with recommend_action for an action the person can run themselves comes back to the caller as a button under your reply; say in words what it does, and never rely on the button alone.'
+    : 'There is no screen beside this reply — no pane, no cards to tap — so put the whole answer in the text, cite what you read inline, and if you filed a proposal or a question say so in words.';
+  return `\n\n--- how I am reaching you ---\nThis message arrived over MCP (caller: ${actorId}). ${screen} The conversation is saved and a person can open it in the dashboard later.`;
 }
 
 /**
@@ -309,6 +335,19 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   const collector = new RunCollector();
   const filed: FiledRun[] = [];
   const pending: Promise<void>[] = [];
+  // The cards an end user may tap: their ids, and the checks that decide each one.
+  // Only a caller app over MCP that asked for them (`end_user_cards`) has end
+  // users to hand a card to; every other turn, a person's own assistant
+  // (`surface: 'assistant'`) included, keeps filing every card as before.
+  const endUserCardsOn = input.endUserCards === true && (input.surface ?? 'mcp') === 'mcp';
+  const cardIds = new Set<string>();
+  const cardVerdicts: Promise<void>[] = [];
+  // Set the moment the time limit cuts the reply short. The caller has its
+  // answer by then and the stored message is written once, so a card the agent
+  // recommends after this point has nobody to be handed to: it is filed to
+  // Review, as it was before end user cards existed, and the continuation waits
+  // on that filing.
+  const replyCut = { happened: false };
   let traceId: string | null = null;
   const record = (event: AgentEvent): void => {
     switch (event.type) {
@@ -338,7 +377,21 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
           collector.onArtifact(event.artifact.id);
         }
         break;
-      case 'recommended_action':
+      case 'recommended_action': {
+        // A CARD AN END USER TAPS (`services/chat/workspaceCards.ts`): written onto
+        // the message with an id the caller taps by, and NOT filed — it runs on the
+        // tap, as the caller's user, not now as the agent. Whether it is shown is
+        // settled below, before the turn is stored. After the time limit has cut
+        // the reply (`replyCut`) there is no reply left to attach it to, so it
+        // falls through to the Review filing below.
+        const offered = event.recommendation;
+        if (endUserCardsOn && !replyCut.happened && offered.actionId && cardRunnableOf(getAction(offered.actionId))) {
+          const id = newCardId();
+          cardIds.add(id);
+          collector.onCard({ id, endUser: true, label: offered.label, actionId: offered.actionId, input: offered.input, ...(offered.rationale ? { rationale: offered.rationale } : {}), ...(typeof offered.confidence === 'number' ? { confidence: offered.confidence } : {}), ...(offered.draft ? { draft: offered.draft } : {}) });
+          cardVerdicts.push(settleCardVerdict(orgId, collector, offered));
+          break;
+        }
         // The card goes on the ledger here too (backlog 025): an MCP turn's
         // cards used to live nowhere — the person opening the conversation in
         // the app after asking from Claude saw none of them.
@@ -358,6 +411,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
           }));
         }
         break;
+      }
       case 'done':
         traceId = event.traceId ?? null;
         break;
@@ -383,7 +437,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
     return deps.runAgent({
       orgId,
       agentSlug,
-      message: `${message}${input.note ?? surfaceNote(actorId)}`,
+      message: `${message}${input.note ?? surfaceNote(actorId, endUserCardsOn)}`,
       userId: actorId,
       allowedSourceSlugs,
       conversationId,
@@ -397,7 +451,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   const limit = input.timeLimitMs ?? turnTimeLimitMs();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<'timeout'>((resolve) => {
-    timer = setTimeout(() => resolve('timeout'), limit);
+    timer = setTimeout(() => cutReply(replyCut, resolve), limit);
   });
   let outcome: 'timeout' | Awaited<ReturnType<typeof runAgentDeep>>;
   try {
@@ -415,6 +469,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   const base = { agentSlug, agentName: agent.name, routing, conversationId, url };
 
   if (outcome === 'timeout') {
+    await Promise.allSettled(cardVerdicts);
     const partial = collector.finalise();
     const seconds = Math.round(limit / 1000);
     const cutNote = `_(cut off at the ${seconds}-second limit for this surface; the rest of the answer lands in this conversation when the turn finishes.)_`;
@@ -445,10 +500,10 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
           console.warn('ask_workspace: could not write the turn-failed-after-the-cut row', { conversationId }, error);
         });
       });
-    return { ...base, reply: partial.text, truncated: true, turnId: turn.id, traceId, actions: await actionsFor(orgId, workspace, filed) };
+    return { ...base, reply: partial.text, truncated: true, turnId: turn.id, traceId, actions: await actionsFor(orgId, workspace, filed), ...(endUserCardsOn ? { cards: workspaceCardsOf(partial.runs, cardIds) } : {}) };
   }
 
-  await Promise.allSettled(pending);
+  await Promise.allSettled([...pending, ...cardVerdicts]);
   const { text, runs, documents, trace } = collector.finalise();
   const reply = text || outcome.response;
   // A TURN THAT DID WORK AND NEVER ANSWERED IS NOT COMPLETE.
@@ -475,7 +530,51 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   if (!stalled && reply.trim()) {
     scheduleConversationTitle({ orgId, conversationId });
   }
-  return { ...base, reply, truncated: false, turnId: turn.id, traceId: outcome.traceId || traceId, actions: await actionsFor(orgId, workspace, filed) };
+  return { ...base, reply, truncated: false, turnId: turn.id, traceId: outcome.traceId || traceId, actions: await actionsFor(orgId, workspace, filed), ...(endUserCardsOn ? { cards: workspaceCardsOf(runs, cardIds) } : {}) };
+}
+
+/**
+ * The time limit has cut the reply short: remember it, so a card the agent puts
+ * up after this point is filed to Review (no reply is left to carry it), and
+ * let the race resolve as `timeout`.
+ * @param replyCut - The turn's flag; `happened` is read when a card arrives.
+ * @param replyCut.happened - Set to true here.
+ * @param resolve - Resolves the turn's time-limit promise.
+ */
+function cutReply(replyCut: { happened: boolean }, resolve: (outcome: 'timeout') => void): void {
+  replyCut.happened = true;
+  resolve('timeout');
+}
+
+/**
+ * The reason stored on a card whose check threw. Fixed text: a later tap hands
+ * the stored reason to the calling app, and the thrown error's own message is
+ * internal. The detail stays in the server log.
+ */
+const CARD_CHECK_FAILED_REASON = 'it could not be checked';
+
+/**
+ * Settle one end-user card on the collector: a card the workspace has turned
+ * off, or whose input carries the reserved caller key, is marked unfiled (and
+ * never returned); one whose input is not whole becomes "Draft needed". A check
+ * that cannot be made leaves the card unfiled too: a card nobody could verify is
+ * not put in front of a user.
+ * @param orgId - The workspace.
+ * @param collector - The turn's collector, which holds the card.
+ * @param offered - The recommendation the card was written from.
+ */
+async function settleCardVerdict(orgId: string, collector: RunCollector, offered: Extract<AgentEvent, { type: 'recommended_action' }>['recommendation']): Promise<void> {
+  try {
+    const verdict = await judgeCard(orgId, { actionId: offered.actionId, label: offered.label, input: offered.input, ...(offered.draft ? { draft: offered.draft } : {}) });
+    if (verdict.kind === 'refused') {
+      collector.onCardUnfiled(offered.label, offered.actionId, verdict.why);
+    } else if (verdict.kind === 'card' && verdict.draft) {
+      collector.onCardDraft(offered.label, offered.actionId, verdict.draft);
+    }
+  } catch (error) {
+    console.warn('ask_workspace: a card could not be checked and was not put up', { actionId: offered.actionId }, error);
+    collector.onCardUnfiled(offered.label, offered.actionId, CARD_CHECK_FAILED_REASON);
+  }
 }
 
 /**
