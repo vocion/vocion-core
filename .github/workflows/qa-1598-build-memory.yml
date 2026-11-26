@@ -1,14 +1,14 @@
-# TEMPORARY (#1598): measures a cold image build's memory at #670's merge and
-# at v8.47.2, on 4 CPUs and on 2. Lives only on the throwaway branch
-# qa/1598-build-memory, which is deleted after the runs.
+# TEMPORARY (#1598): measures a cold image build's memory across main since
+# #670. Lives only on the throwaway branch qa/1598-build-memory, which is
+# deleted after the runs.
 #
-# Same build as #670's measurement (`docker build` of packages/core/Dockerfile
-# on ubuntu-latest, 4 CPUs and 16 GB), sampled every second instead of every
-# two, with the build's own processes and cgroup read as well as the runner's
-# used memory. 2-CPU runs take CPUs offline so nproc, os.cpus() and
-# Turbopack's thread pool all see a 2-vCPU box, like an r6i.large. A bigger
-# swap file lets an over-memory build finish so its peak can be read;
-# swap in use is counted as memory the build needed.
+# Run 1 (45851517871) measured #670's merge and v8.47.2 on 4 and 2 CPUs; the
+# CPU count changed the peak by 3% at most, so this run uses the runner's 4.
+# Every build here runs with today's build settings so only the app differs:
+# CI=1 in the builder stage (no Turbopack build cache write, no type check,
+# as CI's own build) and server source maps off. A bigger swap file lets an
+# over-memory build finish so its peak can be read; swap in use counts as
+# memory the build needed.
 name: QA 1598 build memory (temporary)
 
 on:
@@ -21,18 +21,29 @@ defaults:
 
 jobs:
   image:
-    name: ${{ matrix.target.label }}, ${{ matrix.cpus }} CPU
+    name: ${{ matrix.target.label }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        cpus: [4, 2]
         target:
-          - {label: 670 merge f60c95c46, sha: f60c95c464eda0070ad642666d84a965c682da72, fs_cache: '1'}
-          - {label: v8.47.2, sha: e2e65a37097deeafe31b61607aee2cc0dea71904, fs_cache: '1'}
-          - {label: v8.47.2 no build cache, sha: e2e65a37097deeafe31b61607aee2cc0dea71904, fs_cache: '0'}
-          - {label: 'Next 16.4.6 (#1597)', sha: 62db5c20ef86b848a09efe8bc53cf97555b5133d, fs_cache: '1'}
+          - {label: '1 #670 merge 09-29', sha: f60c95c464eda0070ad642666d84a965c682da72, patch: ci}
+          - {label: 2 main 09-29 end, sha: 1bb1cfb66c2ab23b0b175e79c05cfcb1816df3be, patch: ci}
+          - {label: 3 main 09-30, sha: 8f57871afd3aedd63980cc6b83a10e36fc3affb9, patch: ci}
+          - {label: 4 main 10-01, sha: 0040bc220b3054019eed21280db65d4b159c3b2f, patch: ci}
+          - {label: 5 main 10-02, sha: c5550cb9b3183fa8aafb2fd3cee8fd92644e077a, patch: ci}
+          - {label: 6 main 10-03, sha: d268f98b12002271fdc3d51c4efd80018539e092, patch: ci}
+          - {label: 7 main 10-04, sha: b9b767c5502da4569436195de56166e005b62972, patch: ci}
+          - {label: 8 main 10-06, sha: 40f44e902d6dbe2b48b36bdfc28ac2aabbf2b4d5, patch: ci}
+          - {label: 9 main 10-08, sha: 2770d1edc352cb0031009842d2d7d17b4689705a, patch: ci}
+          - {label: 10 main 10-09, sha: 9e8dfa625be3d7886352e7025753abdbdad58924, patch: ci}
+          - {label: 11 main 10-15, sha: 70f571e0bff4106776f8422dbd40328d2526a35e, patch: ci}
+          - {label: 12 main 10-23, sha: ba278d7f2b0249ca43dfe7db1c44882b6ec5f1c6, patch: ci}
+          - {label: 13 main 10-28, sha: 03a2965af859362901ce7b589c20627f82bcb664, patch: ci}
+          - {label: 14 v8.47.2 11-11, sha: e2e65a37097deeafe31b61607aee2cc0dea71904, patch: ci}
+          - {label: 15 v8.47.2 React Compiler off, sha: e2e65a37097deeafe31b61607aee2cc0dea71904, patch: ci-no-react-compiler}
+          - {label: '16 Next 16.4.6 (#1597)', sha: 62db5c20ef86b848a09efe8bc53cf97555b5133d, patch: ci}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -42,38 +53,44 @@ jobs:
           ref: ${{ matrix.target.sha }}
           path: src
 
-      - name: Runner as a ${{ matrix.cpus }}-CPU box with room to swap
+      - name: Same build settings for every commit
+        env:
+          PATCH: ${{ matrix.target.patch }}
         run: |
-          all=$(nproc --all)
-          for cpu in $(seq "${{ matrix.cpus }}" $(( all - 1 ))); do
-            echo 0 | sudo tee "/sys/devices/system/cpu/cpu${cpu}/online" > /dev/null
-          done
-          echo "nproc $(nproc) of ${all}, cpuinfo $(grep -c ^processor /proc/cpuinfo)"
-          test "$(nproc)" = "${{ matrix.cpus }}"
+          set -euo pipefail
+          sed -i '/ AS builder$/a ENV CI=1' src/packages/core/Dockerfile
+          sed -i '0,/^  experimental: {$/s//  experimental: {\n    turbopackSourceMaps: false,/' src/packages/core/next.config.ts
+          if [ "${PATCH}" = ci-no-react-compiler ]; then
+            sed -i "s/reactCompiler: process.env.NODE_ENV === 'production'/reactCompiler: false/" src/packages/core/next.config.ts
+            grep -q "reactCompiler: false" src/packages/core/next.config.ts
+          fi
+          grep -n -A1 " AS builder" src/packages/core/Dockerfile
+          grep -n -E "turbopackSourceMaps: false|reactCompiler:" src/packages/core/next.config.ts
+
+      - name: Room to swap
+        run: |
           sudo swapoff -a
           sudo rm -f /mnt/swapfile
           sudo fallocate -l 24G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile > /dev/null
           sudo swapon /mnt/swapfile
-          free -m; df -h / /mnt | tail -2
-          docker version --format 'docker {{.Server.Version}}'; docker buildx version
-          node -e "console.log('host os.cpus', require('os').cpus().length, 'availableParallelism', require('os').availableParallelism())"
+          echo "nproc $(nproc)"; free -m; df -h / /mnt | tail -2
 
       - name: Cold image build
+        env:
+          LABEL: ${{ matrix.target.label }}
         run: |
           set +e
-          chmod +x qa/.github/qa-1598/sample.sh
-          timeout 6 qa/.github/qa-1598/sample.sh baseline.txt
-          qa/.github/qa-1598/sample.sh samples.txt &
+          python3 qa/.github/qa-1598/sample.py baseline.txt 6
+          python3 qa/.github/qa-1598/sample.py samples.txt &
           sampler=$!
-          docker build --progress=plain -t vocion-app:qa -f src/packages/core/Dockerfile \
-            --build-arg VOCION_BUILD_FS_CACHE=${{ matrix.target.fs_cache }} src 2>&1 \
+          docker build --progress=plain -t vocion-app:qa -f src/packages/core/Dockerfile src 2>&1 \
             | perl -MTime::HiRes=time -ne 'BEGIN { $| = 1 } printf "%.1f %s", time, $_' > build.log
           status=${PIPESTATUS[0]}
           kill "${sampler}"
-          grep -E "Next.js 16|Compiled|filesystem cache|TypeScript|Collecting page data|Generating static|Killed|ERROR|exit code" build.log | cut -c1-200 | tail -15
-          python3 qa/.github/qa-1598/summarize.py "${{ matrix.target.label }}, ${{ matrix.cpus }} CPU" baseline.txt samples.txt build.log | tee summary.json
+          grep -E "Next.js 16|Compiled|filesystem cache|TypeScript|Collecting page data|Generating static|Killed|ERROR|exit code" build.log | cut -c1-200 | tail -12
+          python3 qa/.github/qa-1598/summarize.py "${LABEL}" baseline.txt samples.txt build.log | tee summary.json
           echo "build exit ${status}"
           exit "${status}"
 
@@ -81,7 +98,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-1598-${{ strategy.job-index }}
+          name: qa-1598-run2-${{ strategy.job-index }}
           path: |
             baseline.txt
             samples.txt

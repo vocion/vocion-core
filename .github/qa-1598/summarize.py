@@ -1,10 +1,9 @@
-"""TEMPORARY (#1598): turns sample.sh's samples into peak figures.
+"""TEMPORARY (#1598): turns sample.py's samples into peak figures.
 
 Usage: summarize.py <label> <baseline.txt> <samples.txt> <build.log>
 
 The build log lines carry the epoch second they were printed at, so each peak
-can be placed in the build: before or after Turbopack's compile finished, and
-next to the last line the build printed before it.
+can be placed next to the last line the build printed before it.
 """
 
 import json
@@ -12,8 +11,7 @@ import re
 import statistics
 import sys
 
-COLUMNS = ["epoch", "host_used", "host_anon", "swap_used", "nb_max", "nb_sum", "nb_count", "node_rss", "cg_peak", "cg_anon"]
-COMPILE_DONE = re.compile(r"Compiled successfully|Compiled with warnings|Compiled in ")
+COMPILE_DONE = re.compile(r"Compiled successfully|Compiled with warnings")
 
 
 def read_samples(path):
@@ -21,8 +19,13 @@ def read_samples(path):
     with open(path) as handle:
         for line in handle:
             parts = line.split()
-            if len(parts) == len(COLUMNS):
-                rows.append(dict(zip(COLUMNS, map(int, parts))))
+            if len(parts) != 7:
+                continue
+            rows.append({
+                "epoch": int(parts[0]), "used": int(parts[1]), "anon": int(parts[2]),
+                "swap": int(parts[3]), "top_anon": int(parts[4]), "top_name": parts[5],
+                "top_cg_peak": int(parts[6]),
+            })
     return rows
 
 
@@ -38,47 +41,43 @@ def read_log(path):
     return lines
 
 
-def peak(rows, key, extra=None):
-    if not rows:
-        return {"value": 0, "epoch": 0}
-    best = max(rows, key=lambda row: row[key] + (row[extra] if extra else 0))
-    return {"value": best[key] + (best[extra] if extra else 0), "epoch": best["epoch"]}
-
-
 def last_line_before(log, epoch):
     candidates = [text for stamp, text in log if stamp <= epoch + 0.5 and text.strip()]
     return candidates[-1][:160] if candidates else ""
+
+
+def anon_with_swap(row):
+    return row["anon"] + row["swap"]
+
+
+def used_with_swap(row):
+    return row["used"] + row["swap"]
+
+
+def top_anon(row):
+    return row["top_anon"]
 
 
 def main(label, baseline_path, samples_path, log_path):
     baseline = read_samples(baseline_path)
     samples = read_samples(samples_path)
     log = read_log(log_path)
-    base_used = statistics.median(row["host_used"] + row["swap_used"] for row in baseline)
-    base_anon = statistics.median(row["host_anon"] + row["swap_used"] for row in baseline)
-
+    base_anon = statistics.median(anon_with_swap(row) for row in baseline)
+    base_used = statistics.median(used_with_swap(row) for row in baseline)
     compile_done = next((stamp for stamp, text in log if COMPILE_DONE.search(text)), None)
-    compile_rows = [row for row in samples if compile_done is None or row["epoch"] <= compile_done]
-    after_rows = [row for row in samples if compile_done is not None and row["epoch"] > compile_done]
-
-    used = peak(samples, "host_used", "swap_used")
-    anon = peak(samples, "host_anon", "swap_used")
-    nb = peak(samples, "nb_max")
+    peak_anon = max(samples, key=anon_with_swap)
+    peak_top = max(samples, key=top_anon)
     result = {
         "label": label,
-        "build_used_mb": round(used["value"] - base_used),
-        "build_anon_mb": round(anon["value"] - base_anon),
-        "next_build_anon_mb": nb["value"],
-        "next_build_anon_compile_mb": peak(compile_rows, "nb_max")["value"],
-        "next_build_anon_after_compile_mb": peak(after_rows, "nb_max")["value"],
-        "cgroup_peak_mb": max((row["cg_peak"] for row in samples), default=0),
-        "cgroup_anon_mb": max((row["cg_anon"] for row in samples), default=0),
-        "swap_peak_mb": max((row["swap_used"] for row in samples), default=0),
-        "baseline_used_mb": round(base_used),
-        "peak_used_during": last_line_before(log, used["epoch"]),
-        "peak_next_build_during": last_line_before(log, nb["epoch"]),
+        "build_anon_mb": round(anon_with_swap(peak_anon) - base_anon),
+        "build_used_mb": round(max(used_with_swap(row) for row in samples) - base_used),
+        "top_process_mb": peak_top["top_anon"],
+        "top_process_name": peak_top["top_name"],
+        "top_cgroup_peak_mb": max(row["top_cg_peak"] for row in samples),
+        "swap_peak_mb": max(row["swap"] for row in samples),
+        "peak_during": last_line_before(log, peak_anon["epoch"]),
         "build_seconds": round(log[-1][0] - log[0][0]) if log else 0,
-        "compile_seconds": round(compile_done - log[0][0]) if compile_done and log else None,
+        "compiled_after_seconds": round(compile_done - log[0][0]) if compile_done and log else None,
     }
     print(json.dumps(result, indent=2))
 
