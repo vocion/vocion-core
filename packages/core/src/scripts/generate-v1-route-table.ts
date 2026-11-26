@@ -2,7 +2,7 @@
  * Generate the table that serves `/api/v1` through one route entry (#1598).
  *
  * Every v1 handler reaches about 1,300 modules through `_routes/_shared.ts`,
- * and building the handlers as 114 route entries cost about 1.9 to 3.5 GiB
+ * and building the handlers as 114 route entries cost about 1.8 to 3.5 GiB
  * more peak build memory than one entry (`src/app/api/v1/README.md` has the
  * measurements). The handlers therefore
  * live under the private folder `src/app/api/v1/_routes/`, which Next does not
@@ -55,6 +55,14 @@ export const SEGMENT_CONFIG_EXPORTS: ReadonlySet<string> = new Set([
   'experimental_ppr',
   'generateStaticParams',
 ]);
+
+/**
+ * The handler folders can't be served through the catch-all the way Next
+ * would serve them. The message names each file and what to change.
+ */
+export class RouteTableError extends Error {
+  override name = 'RouteTableError';
+}
 
 /** A static folder name the catch-all can match literally. */
 const STATIC_SEGMENT = /^[\w.-]+$/;
@@ -174,7 +182,7 @@ export function renderRouteTable(routeFiles: readonly V1RouteFile[]): string {
   const names = routeFiles.map(route => importNameFor(route.segments));
   const duplicate = names.find((name, index) => names.indexOf(name) !== index);
   if (duplicate !== undefined) {
-    throw new Error(`Two v1 handlers would share the import name ${duplicate}; rename one of their folders.`);
+    throw new RouteTableError(`Two v1 handlers would share the import name ${duplicate}; rename one of their folders.`);
   }
   const imports = routeFiles.map((route, index) =>
     `import * as ${names[index]} from '../_routes/${route.file.replace(/\.ts$/, '')}';`);
@@ -212,19 +220,33 @@ export function generateRouteTable(directory: string = V1_ROUTES_DIRECTORY): str
   }));
   const problems = routeTableProblems(routeFiles);
   if (problems.length > 0) {
-    throw new Error(`The /api/v1 route table cannot be generated:\n- ${problems.join('\n- ')}`);
+    throw new RouteTableError(`The /api/v1 route table cannot be generated:\n- ${problems.join('\n- ')}`);
   }
   return renderRouteTable(routeFiles);
 }
 
 /**
- * CLI entrypoint: write the table and say what it covers.
+ * CLI entrypoint: write the table and say what it covers. When the handler
+ * folders can't be served (a {@link RouteTableError}), it prints what to fix,
+ * writes nothing and returns 1, so the person sees the reason, not a stack
+ * trace. Any other error still throws.
+ * @param directory - Where the handlers live, normally {@link V1_ROUTES_DIRECTORY}.
+ * @param outputPath - Where the table goes, normally {@link ROUTE_TABLE_PATH}.
  */
-export function runGenerate(): number {
-  const table = generateRouteTable();
-  writeFileSync(ROUTE_TABLE_PATH, table, 'utf-8');
-  const count = listRouteFiles(V1_ROUTES_DIRECTORY).length;
-  process.stdout.write(`v1-routes:generate — ${count} handler(s) written to ${relative(fromRepoRoot('.'), ROUTE_TABLE_PATH)}\n`);
+export function runGenerate(directory: string = V1_ROUTES_DIRECTORY, outputPath: string = ROUTE_TABLE_PATH): number {
+  let table: string;
+  try {
+    table = generateRouteTable(directory);
+  } catch (error) {
+    if (!(error instanceof RouteTableError)) {
+      throw error;
+    }
+    process.stderr.write(`v1-routes:generate — nothing written. ${error.message}\n`);
+    return 1;
+  }
+  writeFileSync(outputPath, table, 'utf-8');
+  const count = listRouteFiles(directory).length;
+  process.stdout.write(`v1-routes:generate — ${count} handler(s) written to ${relative(fromRepoRoot('.'), outputPath)}\n`);
   return 0;
 }
 

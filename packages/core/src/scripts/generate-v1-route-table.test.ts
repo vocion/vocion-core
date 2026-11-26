@@ -1,11 +1,11 @@
 import type { V1Route } from '../app/api/v1/[...path]/dispatch';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { matchV1Route } from '../app/api/v1/[...path]/dispatch';
 import { listRouteFiles, V1_ROUTES_DIRECTORY } from './generate-openapi';
-import { generateRouteTable, ROUTE_TABLE_PATH, routeTableProblems, segmentsOf } from './generate-v1-route-table';
+import { generateRouteTable, ROUTE_TABLE_PATH, routeTableProblems, runGenerate, segmentsOf } from './generate-v1-route-table';
 
 /**
  * `/api/v1` is served by one catch-all route from a committed table (#1598).
@@ -25,7 +25,10 @@ function handlerFile(file: string, source = 'export async function GET() {}'): {
 
 describe('the committed /api/v1 route table', () => {
   it('is what the handler folders generate today', () => {
-    expect(readFileSync(ROUTE_TABLE_PATH, 'utf-8')).toBe(generateRouteTable());
+    expect(
+      readFileSync(ROUTE_TABLE_PATH, 'utf-8'),
+      'routeTable.generated.ts is out of date: run `npm run v1-routes:generate` and commit the result',
+    ).toBe(generateRouteTable());
   });
 
   it('routes every handler\'s own URL back to that handler', () => {
@@ -79,6 +82,27 @@ describe('handler folders the catch-all cannot serve the way Next did', () => {
 
       expect(() => generateRouteTable(directory)).toThrow(/cannot be generated:\n- things\/\[\.\.\.rest\]\/route\.ts: "\[\.\.\.rest\]" is a catch-all/);
     } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('tells the person running the generator what to fix, exits 1 and writes nothing', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'v1-routes-'));
+    const outputPath = join(directory, 'routeTable.generated.ts');
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      mkdirSync(join(directory, 'things', '[...rest]'), { recursive: true });
+      writeFileSync(join(directory, 'things', '[...rest]', 'route.ts'), 'export async function GET() {}');
+
+      const exitCode = runGenerate(directory, outputPath);
+      const printed = stderr.mock.calls.map(call => String(call[0])).join('');
+
+      expect(exitCode).toBe(1);
+      expect(printed).toContain('nothing written');
+      expect(printed).toContain('things/[...rest]/route.ts: "[...rest]" is a catch-all');
+      expect(existsSync(outputPath)).toBe(false);
+    } finally {
+      stderr.mockRestore();
       rmSync(directory, { recursive: true, force: true });
     }
   });
