@@ -196,9 +196,12 @@ Linux kills whichever process it picks, which can be Postgres rather than the
 build. A CI runner has its own memory, so a build that fails
 there never touches the running site.
 
-A private repo's standard GitHub-hosted runner has 2 CPUs and 8 GB
-([GitHub's runner specs](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)),
-less than the default build's peak, and nobody has run the build on one yet.
+A private repo's standard GitHub-hosted runner has 2 CPUs, 8 GB of memory
+and 14 GB of disk
+([GitHub's runner specs](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)).
+That is less memory than the default build's peak, and too little disk for
+the 16 GB swap file #1598 tried there. Nobody has run the build on one since
+#1598's change.
 `push-app-image.sh` passes its arguments to `docker buildx build`, so
 `--build-arg VOCION_BUILD_FS_CACHE=0` skips the build cache write there; if
 the build still runs out of memory, use a larger runner.

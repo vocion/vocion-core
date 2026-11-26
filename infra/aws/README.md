@@ -47,9 +47,10 @@ anonymous memory plus swap above the idle runner, sampled every second; the
 method and runs are in `packages/core/src/app/api/v1/README.md`.
 
 A build that reuses the cache needed about 4.4 GB in #670, and hasn't been
-measured since the build grew. #670 didn't record how it measured: its
-first-build figure, 7.9 GB, comes out at 6.7 GiB (6,845 MiB) measured the way
-above.
+measured since the build grew. #670 measured the runner's used memory above
+idle, sampled every 2 seconds, and found about 7.9 GB for a first build.
+Measured that way, the #670 commit's first build peaks at 7,156 MiB (7.5 GB,
+run 45851517871), and at 6,845 MiB measured the way above.
 
 So a `t3.large` (8 GiB) can't run its own first build with the defaults.
 Without the cache write it might, with the stack stopped, but that hasn't

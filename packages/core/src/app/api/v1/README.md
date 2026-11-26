@@ -32,8 +32,14 @@ How it was measured: while `docker build --target builder` ran
 figure is the peak of anonymous memory (`AnonPages`) plus swap in use
 (`SwapTotal` minus `SwapFree`), minus the median of six samples taken on the
 idle runner just before the build (280 to 295 MiB in this run). The workflow added a 24 GB
-swap file; only the 12,801 MiB build touched it, 96 MiB at most. 1 MiB is
-1,048,576 bytes.
+swap file; only the 12,801 MiB build touched it, 96 MiB at most. Measured
+instead as the whole runner's used memory above idle (`MemTotal` minus
+`MemAvailable`, the way #670 measured), each build comes out within 125 MiB
+of its figure in the table. 1 MiB is 1,048,576 bytes.
+
+The builds of this change ran at commit 7ba8df928. The change's later commits
+touched only comments, docs, and the route table generator and its test,
+which no route imports.
 
 Each cell is one build except the two CI settings builds of this change. Two
 identical builds of the same commit, in another run, peaked 209 MiB apart
@@ -142,7 +148,9 @@ Reverting the commits of PR #1601 undoes all of it. By hand:
 3. Point `V1_ROUTES_DIRECTORY` in `src/scripts/generate-openapi.ts` back at
    `api/v1`. Delete `src/scripts/generate-v1-route-table.ts`, its test, and
    the `v1-routes:generate` scripts in the root `package.json` and
-   `packages/core/package.json`.
+   `packages/core/package.json`. The `_` folder skip in `routeEntries`
+   (`src/scripts/check-route-graph.ts`) and the `**/*.generated.ts` ignore in
+   the root `eslint.config.mjs` can stay or go; nothing else depends on them.
 4. Change every `@/app/api/v1/_routes/` import back to `@/app/api/v1/`. Six
    files outside `api/v1` import `_routes/_shared`:
    `app/api/artifacts/[id]/_serve.ts`, `app/api/chat/attachments/route.ts`,
