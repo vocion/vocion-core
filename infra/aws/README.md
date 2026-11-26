@@ -40,11 +40,14 @@ runs), measured with `CI=1` set in the build. `--build-arg
 VOCION_BUILD_FS_CACHE=0` turns off the same write
 (`packages/core/next.config.ts`). It wasn't measured on this version, but on
 v8.47.2 it peaked at 11,349 MiB against 11,425 MiB with `CI=1`, in separate
-runs. Before #1598 the two figures were about 12.5 GiB and 8.7 GiB. These
-are cold image builds of v8.48.0 (Next 16.4.6), each on a GitHub-hosted
-`ubuntu-latest` runner with 4 CPUs and 16 GB, and each figure is the build's
-anonymous memory plus swap above the idle runner, sampled every second; the
-method and runs are in `packages/core/src/app/api/v1/README.md`.
+runs. Before #1598 the two figures were about 12.5 GiB and 8.7 GiB. The
+9.0 and 6.9 GiB figures are builds of #1598's change (commit 7ba8df928, on
+top of v8.48.0) and the 12.5 and 8.7 GiB figures are builds of plain v8.48.0
+(Next 16.4.6), all cold builds of the image's `builder` stage in one workflow
+run, each on a GitHub-hosted `ubuntu-latest` runner with 4 CPUs and 16 GB.
+Each figure is the build's anonymous memory plus swap above the idle runner,
+sampled every second; the method and runs are in
+`packages/core/src/app/api/v1/README.md`.
 
 A build that reuses the cache needed about 4.4 GB in #670, and hasn't been
 measured since the build grew. #670 measured the runner's used memory above

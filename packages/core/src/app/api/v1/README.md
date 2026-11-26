@@ -31,11 +31,17 @@ How it was measured: while `docker build --target builder` ran
 `packages/core/Dockerfile`, a script read `/proc/meminfo` every second. Each
 figure is the peak of anonymous memory (`AnonPages`) plus swap in use
 (`SwapTotal` minus `SwapFree`), minus the median of six samples taken on the
-idle runner just before the build (280 to 295 MiB in this run). The workflow added a 24 GB
-swap file; only the 12,801 MiB build touched it, 96 MiB at most. Measured
-instead as the whole runner's used memory above idle (`MemTotal` minus
-`MemAvailable`, the way #670 measured), each build comes out within 125 MiB
-of its figure in the table. 1 MiB is 1,048,576 bytes.
+idle runner just before the build (280 to 295 MiB in this run). The
+workflow added a 24 GB swap file; only the 12,801 MiB build touched it,
+96 MiB at most. Measured instead as the whole runner's used memory above
+idle (`MemTotal` minus `MemAvailable`, the way #670 measured), each build
+comes out within 125 MiB of its figure in the table. 1 MiB is 1,048,576
+bytes.
+
+For the CI settings builds the workflow also added `turbopackSourceMaps:
+false` at the top of `experimental` in `next.config.ts`. That changes
+nothing on these commits: the file's own `turbopackSourceMaps` comes later
+in the same object, so it wins.
 
 The builds of this change ran at commit 7ba8df928. The change's later commits
 touched only comments, docs, and the route table generator and its test,
