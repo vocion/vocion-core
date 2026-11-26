@@ -1,13 +1,13 @@
-# TEMPORARY (#1598): measures a cold image build's memory across main since
-# #670. Lives only on the throwaway branch qa/1598-build-memory, which is
-# deleted after the runs.
+# TEMPORARY (#1598): measures a cold image build's memory. Lives only on the
+# throwaway branch qa/1598-build-memory, which is deleted after the runs.
 #
-# Run 1 (45851517871) measured #670's merge and v8.47.2 on 4 and 2 CPUs; the
-# CPU count changed the peak by 3% at most, so this run uses the runner's 4.
-# Every build here runs with today's build settings so only the app differs:
-# CI=1 in the builder stage (no Turbopack build cache write, no type check,
-# as CI's own build) and server source maps off. A bigger swap file lets an
-# over-memory build finish so its peak can be read; swap in use counts as
+# Run 1 (45851517871): #670's merge and v8.47.2 on 4 and 2 CPUs. Run 2
+# (45855819227): main across the weeks since #670. This run takes main with
+# Next 16.4.6 (#1597) apart: noise, the V8 heap cap, the React Compiler, and
+# pages or API routes left out, and counts which packages fill the server
+# chunks. Every build uses CI's settings (CI=1 in the builder stage: no
+# Turbopack build cache write, no type check) with server source maps off.
+# A bigger swap file lets an over-memory build finish; swap in use counts as
 # memory the build needed.
 name: QA 1598 build memory (temporary)
 
@@ -28,29 +28,19 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - {label: '1 #670 merge 09-29', sha: f60c95c464eda0070ad642666d84a965c682da72, patch: ci}
-          - {label: 2 main 09-29 end, sha: 1bb1cfb66c2ab23b0b175e79c05cfcb1816df3be, patch: ci}
-          - {label: 3 main 09-30, sha: 8f57871afd3aedd63980cc6b83a10e36fc3affb9, patch: ci}
-          - {label: 4 main 10-01, sha: 0040bc220b3054019eed21280db65d4b159c3b2f, patch: ci}
-          - {label: 5 main 10-02, sha: c5550cb9b3183fa8aafb2fd3cee8fd92644e077a, patch: ci}
-          - {label: 6 main 10-03, sha: d268f98b12002271fdc3d51c4efd80018539e092, patch: ci}
-          - {label: 7 main 10-04, sha: b9b767c5502da4569436195de56166e005b62972, patch: ci}
-          - {label: 8 main 10-06, sha: 40f44e902d6dbe2b48b36bdfc28ac2aabbf2b4d5, patch: ci}
-          - {label: 9 main 10-08, sha: 2770d1edc352cb0031009842d2d7d17b4689705a, patch: ci}
-          - {label: 10 main 10-09, sha: 9e8dfa625be3d7886352e7025753abdbdad58924, patch: ci}
-          - {label: 11 main 10-15, sha: 70f571e0bff4106776f8422dbd40328d2526a35e, patch: ci}
-          - {label: 12 main 10-23, sha: ba278d7f2b0249ca43dfe7db1c44882b6ec5f1c6, patch: ci}
-          - {label: 13 main 10-28, sha: 03a2965af859362901ce7b589c20627f82bcb664, patch: ci}
-          - {label: 14 v8.47.2 11-11, sha: e2e65a37097deeafe31b61607aee2cc0dea71904, patch: ci}
-          - {label: 15 v8.47.2 React Compiler off, sha: e2e65a37097deeafe31b61607aee2cc0dea71904, patch: ci-no-react-compiler}
-          - {label: '16 Next 16.4.6 (#1597)', sha: 62db5c20ef86b848a09efe8bc53cf97555b5133d, patch: ci}
+          - {label: A 16.4.6 base, patch: base}
+          - {label: B 16.4.6 base again, patch: base-again}
+          - {label: C 16.4.6 heap 3 GB, patch: heap-3072}
+          - {label: D 16.4.6 React Compiler off, patch: no-react-compiler}
+          - {label: E 16.4.6 no API routes, patch: no-api}
+          - {label: F 16.4.6 no pages, patch: no-pages}
     steps:
       - uses: actions/checkout@v6
         with:
           path: qa
       - uses: actions/checkout@v6
         with:
-          ref: ${{ matrix.target.sha }}
+          ref: 62db5c20ef86b848a09efe8bc53cf97555b5133d
           path: src
 
       - name: Same build settings for every commit
@@ -60,10 +50,15 @@ jobs:
           set -euo pipefail
           sed -i '/ AS builder$/a ENV CI=1' src/packages/core/Dockerfile
           sed -i '0,/^  experimental: {$/s//  experimental: {\n    turbopackSourceMaps: false,/' src/packages/core/next.config.ts
-          if [ "${PATCH}" = ci-no-react-compiler ]; then
-            sed -i "s/reactCompiler: process.env.NODE_ENV === 'production'/reactCompiler: false/" src/packages/core/next.config.ts
-            grep -q "reactCompiler: false" src/packages/core/next.config.ts
-          fi
+          core=src/packages/core
+          case "${PATCH}" in
+            heap-3072) sed -i 's/--max-old-space-size=6144/--max-old-space-size=3072/' "${core}/Dockerfile"
+                       grep -q "max-old-space-size=3072" "${core}/Dockerfile" ;;
+            no-react-compiler) sed -i "s/reactCompiler: process.env.NODE_ENV === 'production'/reactCompiler: false/" "${core}/next.config.ts"
+                       grep -q "reactCompiler: false" "${core}/next.config.ts" ;;
+            no-api) rm -rf "${core}/src/app/api" ;;
+            no-pages) rm -rf "${core}/src/app/[locale]" ;;
+          esac
           grep -n -A1 " AS builder" src/packages/core/Dockerfile
           grep -n -E "turbopackSourceMaps: false|reactCompiler:" src/packages/core/next.config.ts
 
@@ -85,23 +80,28 @@ jobs:
           python3 qa/.github/qa-1598/sample.py baseline.txt 6
           python3 qa/.github/qa-1598/sample.py samples.txt &
           sampler=$!
-          docker build --progress=plain -t vocion-app:qa -f src/packages/core/Dockerfile src 2>&1 \
+          docker build --progress=plain --target builder -t vocion-builder:qa -f src/packages/core/Dockerfile src 2>&1 \
             | perl -MTime::HiRes=time -ne 'BEGIN { $| = 1 } printf "%.1f %s", time, $_' > build.log
           status=${PIPESTATUS[0]}
           kill "${sampler}"
           grep -E "Next.js 16|Compiled|filesystem cache|TypeScript|Collecting page data|Generating static|Killed|ERROR|exit code" build.log | cut -c1-200 | tail -12
           python3 qa/.github/qa-1598/summarize.py "${LABEL}" baseline.txt samples.txt build.log | tee summary.json
           echo "build exit ${status}"
+          if [ "${status}" = 0 ]; then
+            docker run --rm --entrypoint tar vocion-builder:qa c -C /app/packages/core/.next server | tar x
+            python3 qa/.github/qa-1598/analyze-chunks.py server | tee chunks.txt
+          fi
           exit "${status}"
 
       - name: Keep the samples
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-1598-run2-${{ strategy.job-index }}
+          name: qa-1598-run3-${{ strategy.job-index }}
           path: |
             baseline.txt
             samples.txt
             build.log
             summary.json
+            chunks.txt
           retention-days: 7
