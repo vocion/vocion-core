@@ -28,27 +28,37 @@ pgvector HNSW + Postgres FTS in the app DB itself, served by
 
 | Instance | vCPU / RAM | $/hour (us-east-1) | Notes |
 |---|---|---|---|
-| `t3.large` | 2 / 8 GB | ~$0.08 | Demo / pilot. Embedding throughput limited. Can't build the app image itself (below). |
+| `t3.large` | 2 / 8 GB | ~$0.08 | Demo / pilot. Embedding throughput limited. Can't build the app image itself with the defaults (below). |
 | `r6i.large` | 2 / 16 GB | ~$0.13 | Comfortable for small org corpora. |
 | `r6i.xlarge` | 4 / 32 GB | ~$0.25 | Multiple agents, larger contexts. |
 
 The image builds on the box, beside the running stack. A box's first build
 starts with an empty build cache and, by default, also writes Turbopack's
-build cache for the next build; it peaks at about 9.0 GiB. The same build
-without that write peaks at about 6.9 GiB. That was measured with `CI=1` set
-in the build; `--build-arg VOCION_BUILD_FS_CACHE=0` turns off the same write
-(`packages/core/next.config.ts`) but wasn't measured on its own. Before #1598
-these were about 12.5 GiB and 8.7 GiB. (Cold image builds of v8.48.0, Next
-16.4.6, on a GitHub-hosted `ubuntu-latest` runner, one run each except the
-6.9 GiB figure, which is two runs at 6,987 and 7,081 MiB; each figure is the
-build's anonymous memory plus swap above the idle runner, sampled every
-second, `packages/core/src/app/api/v1/README.md`.) A build that reuses the
-cache needs about 4.4 GB (measured before #1598, #670). So a `t3.large`
-can't run its own first build, even with the stack stopped: of its 8 GiB, a
-6.9 GiB build leaves about 1.1 GiB for the system and everything else, and a
-build limited to 2 CPUs and 6.8 GB ran out of memory (#670). On a
-`t3.large`, get the image onto the box some other way, or start on a bigger
-instance.
+build cache for the next build; it peaks at about 9.0 GiB (9,241 MiB, one
+run). Without that write it peaks at about 6.9 GiB (6,987 and 7,081 MiB, two
+runs), measured with `CI=1` set in the build. `--build-arg
+VOCION_BUILD_FS_CACHE=0` turns off the same write
+(`packages/core/next.config.ts`). It wasn't measured on this version, but on
+v8.47.2 it peaked at 11,349 MiB against 11,425 MiB with `CI=1`, in separate
+runs. Before #1598 the two figures were about 12.5 GiB and 8.7 GiB. These
+are cold image builds of v8.48.0 (Next 16.4.6), each on a GitHub-hosted
+`ubuntu-latest` runner with 4 CPUs and 16 GB, and each figure is the build's
+anonymous memory plus swap above the idle runner, sampled every second; the
+method and runs are in `packages/core/src/app/api/v1/README.md`.
+
+A build that reuses the cache needed about 4.4 GB in #670, and hasn't been
+measured since the build grew. #670 didn't record how it measured: its
+first-build figure, 7.9 GB, comes out at 6.7 GiB (6,845 MiB) measured the way
+above.
+
+So a `t3.large` (8 GiB) can't run its own first build with the defaults.
+Without the cache write it might, with the stack stopped, but that hasn't
+been tried: during the two 6.9 GiB builds the whole runner's memory in use
+(`MemTotal` minus `MemAvailable`, which includes about 1.1 GiB the idle
+runner already used) peaked at 8,156 and 8,288 MiB, and in #670, when the
+build was smaller, a build limited to 2 CPUs and 6.8 GB ran out of memory.
+On a `t3.large`, get the image onto the box some other way, or start on a
+bigger instance.
 
 Plus one **100 GB gp3 EBS** volume attached at `/opt/vocion-data` for
 Postgres + Langfuse persistence. `bootstrap.sh` moves Docker's

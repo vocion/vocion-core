@@ -7,7 +7,7 @@ import { V1_ROUTES } from './routeTable.generated';
  *
  * The 114 handlers live in `../_routes/`, a private folder Next does not route,
  * and this hands each request to the one Next would have picked
- * (`dispatch.ts`). One entry instead of 114 cut about 1.9 to 3.5 GiB of peak
+ * (`dispatch.ts`). One entry instead of 114 cut about 1.8 to 3.5 GiB of peak
  * build memory; `../README.md` explains the pattern and how to add a handler.
  */
 

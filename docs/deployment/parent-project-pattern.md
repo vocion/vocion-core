@@ -196,6 +196,13 @@ Linux kills whichever process it picks, which can be Postgres rather than the
 build. A CI runner has its own memory, so a build that fails
 there never touches the running site.
 
+A private repo's standard GitHub-hosted runner has 2 CPUs and 8 GB
+([GitHub's runner specs](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)),
+less than the default build's peak, and nobody has run the build on one yet.
+`push-app-image.sh` passes its arguments to `docker buildx build`, so
+`--build-arg VOCION_BUILD_FS_CACHE=0` skips the build cache write there; if
+the build still runs out of memory, use a larger runner.
+
 **How a deploy goes:**
 
 1. CI runs `push-app-image.sh`. It builds the image, tags it with the commit,
