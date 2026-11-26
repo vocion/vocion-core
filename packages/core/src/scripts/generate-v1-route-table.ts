@@ -1,10 +1,10 @@
 /**
  * Generate the table that serves `/api/v1` through one route entry (#1598).
  *
- * Turbopack plans the chunks of each route entry on its own, and every v1
- * handler reaches about 1,300 modules through `_routes/_shared.ts`, so 114
- * route entries cost about 2.1 GB of peak build memory that one entry does not
- * (`src/app/api/v1/README.md` has the measurements). The handlers therefore
+ * Every v1 handler reaches about 1,300 modules through `_routes/_shared.ts`,
+ * and building the handlers as 114 route entries cost about 1.9 to 3.5 GiB
+ * more peak build memory than one entry (`src/app/api/v1/README.md` has the
+ * measurements). The handlers therefore
  * live under the private folder `src/app/api/v1/_routes/`, which Next does not
  * route, and the one real route, `src/app/api/v1/[...path]/route.ts`, imports
  * this table and hands each request to the handler Next would have picked
@@ -21,7 +21,7 @@
  * and committed. `generate-v1-route-table.test.ts` regenerates it and fails
  * when the committed copy is stale, so a new handler cannot ship unrouted.
  *
- * Run: `npm run v1-routes:generate --workspace @vocion/core`
+ * Run: `npm run v1-routes:generate`, from the repo root or `packages/core`.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';

@@ -188,8 +188,9 @@ would do.
 hands that image name to the box, which pulls it and restarts. The box never
 compiles anything.
 
-**Why.** A first build of `packages/core/Dockerfile` peaks at about 9.2 GB of
-memory (#1598, `infra/aws/README.md`, Sizing). The box that serves the app is
+**Why.** A first build of `packages/core/Dockerfile` peaks at about 9.0 GiB of
+memory by default, or about 6.9 GiB without writing Turbopack's build cache
+(#1598, `infra/aws/README.md`, Sizing). The box that serves the app is
 also running Postgres, Langfuse and the app itself, and when memory runs out
 Linux kills whichever process it picks, which can be Postgres rather than the
 build. A CI runner has its own memory, so a build that fails

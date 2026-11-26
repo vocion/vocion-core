@@ -4,10 +4,10 @@ import type { NextRequest } from 'next/server';
  * Serves every `/api/v1` request from one route entry, the way Next served it
  * from 114 (#1598).
  *
- * Why one entry: Turbopack plans the chunks of each route entry on its own, and
- * every v1 handler reaches about 1,300 modules through `_routes/_shared.ts`.
- * With 114 entries the image build peaked near 9 GB; the same handlers behind
- * one entry peaked at 6.9 GB (README.md in the parent folder has the runs).
+ * Why one entry: every v1 handler reaches about 1,300 modules through
+ * `_routes/_shared.ts`, and building the handlers as one route entry instead
+ * of 114 cut a cold image build's peak memory with CI settings from 8,937 MiB
+ * to 6,987 and 7,081 MiB (`../README.md` has the runs).
  * The handlers did not change: they still live in `route.ts` files, under the
  * private folder `../_routes/`, which Next does not route.
  *

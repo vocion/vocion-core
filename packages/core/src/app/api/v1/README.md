@@ -12,20 +12,30 @@ here, what stays the same, and what changed.
 ## Why
 
 Each v1 handler imports `_shared.ts`, which reaches about 1,300 modules
-(1,324, counted with `reachOf` in `src/scripts/check-route-graph.ts`). Building the 114 handlers as one route entry
-instead of 114 cut the build's peak memory by about 2 to 3.5 GB, measured on
-cold image builds of v8.48.0 (Next 16.4.6) on a GitHub runner (#1598):
+(1,324, counted with `reachOf` in `src/scripts/check-route-graph.ts`).
+Building the 114 handlers as one route entry instead of 114 cut the build's
+peak memory by about 1.9 GiB with CI settings and about 3.5 GiB with the
+image's defaults. These are cold image builds of v8.48.0 (Next 16.4.6) on a
+GitHub-hosted `ubuntu-latest` runner, all in one workflow run
+([45866594160](https://github.com/vocion/vocion-core/actions/runs/45866594160),
+#1598):
 
 | Build | 114 v1 route entries (before) | One v1 route entry (this) |
 |---|---|---|
-| CI settings, no build cache written | 8,937 MB | 6,987 MB and 7,081 MB |
-| Image default, build cache written | 12,801 MB | 9,241 MB |
+| CI settings: `CI=1`, so no Turbopack build cache is written | 8,937 MiB | 6,987 and 7,081 MiB |
+| Image default: `VOCION_BUILD_FS_CACHE=1`, build cache written | 12,801 MiB | 9,241 MiB |
 
 Each figure is the build's anonymous memory plus swap above the idle runner,
-sampled every second.
+sampled every second (1 MiB is 1,048,576 bytes).
 
-Turning Turbopack's scope hoisting, minify or input source maps off, or its
-GC on, didn't move the peak beyond run-to-run noise (#1598).
+Changing Turbopack's own settings instead didn't lower the peak beyond
+run-to-run noise. On the Next 16.4.6 build before this change (114 entries,
+CI settings), turning off input source maps, scope hoisting or minify, or
+turning on its GC, peaked at 8,911, 9,003, 9,159 and 8,964 MiB, and all four
+together at 9,038 MiB
+([45861167136](https://github.com/vocion/vocion-core/actions/runs/45861167136)).
+Two runs with none of them changed peaked at 8,931 and 9,140 MiB
+([45857991270](https://github.com/vocion/vocion-core/actions/runs/45857991270)).
 
 ## How a request reaches its handler
 
@@ -99,11 +109,38 @@ The URLs, the OpenAPI document and the `/api-docs` page don't change.
 - **`dynamic = 'force-dynamic'`** now applies to every v1 handler, where only
   `live` set it. Every v1 handler was already dynamic (`ƒ` in the build
   output), so nothing that was cached stops being cached.
+- **All 114 handlers load together.** The route table imports every handler
+  module, so the first `/api/v1` request after the server starts loads all of
+  them, and a handler module that throws while it loads fails every
+  `/api/v1` request, not only its own path. Before, each handler was its own
+  route with its own module.
+- **A percent-encoded folder name matches.** The catch-all gets its path
+  segments already decoded, so `/api/v1/%61gents` reaches the `agents`
+  handler. Next's own route matcher, run on the same path, doesn't match it
+  to `agents`.
 
 ## Undoing it
 
-Move `_routes/*` back up into `api/v1/`, delete `[...path]/`, put
-`dynamic = 'force-dynamic'` back on `live/route.ts` and `maxDuration = 120` on
-`objects/[id]/analyze/route.ts`, and point `V1_ROUTES_DIRECTORY` in
-`src/scripts/generate-openapi.ts` back at `api/v1`. Expect the build's peak
-memory to go back up by about 2 GB.
+Reverting the commits of PR #1601 undoes all of it. By hand:
+
+1. Move `_routes/*` back up into `api/v1/` and delete `[...path]/`.
+2. Put `dynamic = 'force-dynamic'` back on `live/route.ts` and
+   `maxDuration = 120` on `objects/[id]/analyze/route.ts`.
+3. Point `V1_ROUTES_DIRECTORY` in `src/scripts/generate-openapi.ts` back at
+   `api/v1`. Delete `src/scripts/generate-v1-route-table.ts`, its test, and
+   the `v1-routes:generate` scripts in the root `package.json` and
+   `packages/core/package.json`.
+4. Change every `@/app/api/v1/_routes/` import back to `@/app/api/v1/`. Six
+   files outside `api/v1` import `_routes/_shared`:
+   `app/api/artifacts/[id]/_serve.ts`, `app/api/chat/attachments/route.ts`,
+   `app/api/deliverables/[artifactId]/_shared.ts`,
+   `app/api/media/[recordId]/[filename]/route.ts`,
+   `app/api/mobile/share/route.ts` and `app/api/mobile/workspaces/route.ts`.
+   Some tests import handlers directly too.
+5. Search the repo for `api/v1/_routes` and `api/v1/[...path]` and change
+   what is left (paths in tests, comments and docs, such as the comment in
+   `src/proxy.ts` and the `api/v1/README.md` pointer in `AGENTS.md`). Delete
+   this README.
+
+Expect the build's peak memory to go back up by about 1.9 GiB with CI
+settings and about 3.5 GiB with the image's defaults.

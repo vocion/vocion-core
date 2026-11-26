@@ -14,7 +14,7 @@
 #
 # Prerequisites BEFORE running:
 #   1. EC2 instance type ≥ t3.large (8 GB RAM); 32 GB recommended for embedding throughput.
-#      The first image build needs about 9.2 GB, more than a t3.large has
+#      The first image build needs about 9.0 GiB, more than a t3.large has
 #      (infra/aws/README.md, Sizing).
 #   2. EBS volume mounted at /opt/vocion-data (100 GB gp3 recommended).
 #   3. .env.production placed at /opt/vocion/infra/aws/.env.production
@@ -187,7 +187,7 @@ docker network inspect corecontext >/dev/null 2>&1 \
 
 # ----- 6. Get the Vocion app image -----
 # VOCION_APP_IMAGE names an image CI built with push-app-image.sh, so this
-# box compiles nothing (#670): a first build needs about 9.2 GB and competes
+# box compiles nothing (#670): a first build needs about 9.0 GiB and competes
 # with the running stack for memory. Left unset, the image builds here.
 if [ -n "${VOCION_APP_IMAGE:-}" ]; then
   log "pulling prebuilt image ${VOCION_APP_IMAGE}"
