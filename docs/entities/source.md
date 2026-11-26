@@ -32,9 +32,9 @@ go in the runtime's encrypted vault, attached to the source after apply.
 Each connector owns its `config` shape (see `packages/core/src/libs/sources/`), so two object types from
 the same system are two source files. An unknown config key is dropped rather than rejected.
 
-A `kind` may be a *labelled* connector — e.g. `zendesk` — that routes through a
-built-in connector at the registry level while no live implementation is wired
-yet. That is the pattern behind the demo sources.
+Sample data for a system that is not connected yet ships as files under
+`kind: local-files`, not under that system's own kind. That is the pattern
+behind the demo sources.
 
 ## Example
 
