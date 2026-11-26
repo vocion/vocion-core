@@ -5,7 +5,8 @@
 # (45855819227): main across the weeks since #670. This run takes main with
 # Next 16.4.6 (#1597) apart: noise, the V8 heap cap, the React Compiler, and
 # pages or API routes left out, and counts which packages fill the server
-# chunks. Every build uses CI's settings (CI=1 in the builder stage: no
+# chunks. Run 4 splits the API routes: api/v1 gone, or its 114 routes
+# behind one entry. Every build uses CI's settings (CI=1 in the builder stage: no
 # Turbopack build cache write, no type check) with server source maps off.
 # A bigger swap file lets an over-memory build finish; swap in use counts as
 # memory the build needed.
@@ -28,12 +29,8 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - {label: A 16.4.6 base, patch: base}
-          - {label: B 16.4.6 base again, patch: base-again}
-          - {label: C 16.4.6 heap 3 GB, patch: heap-3072}
-          - {label: D 16.4.6 React Compiler off, patch: no-react-compiler}
-          - {label: E 16.4.6 no API routes, patch: no-api}
-          - {label: F 16.4.6 no pages, patch: no-pages}
+          - {label: G 16.4.6 no api/v1, patch: no-api-v1}
+          - {label: H 16.4.6 api/v1 as one entry, patch: api-v1-one-entry}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -58,6 +55,9 @@ jobs:
                        grep -q "reactCompiler: false" "${core}/next.config.ts" ;;
             no-api) rm -rf "${core}/src/app/api" ;;
             no-pages) rm -rf "${core}/src/app/[locale]" ;;
+            no-api-v1) rm -rf "${core}/src/app/api/v1" ;;
+            api-v1-one-entry) python3 qa/.github/qa-1598/v1-catch-all.py "${core}/src/app"
+                       head -3 "${core}/src/app/api/v1/[...path]/route.ts" ;;
           esac
           grep -n -A1 " AS builder" src/packages/core/Dockerfile
           grep -n -E "turbopackSourceMaps: false|reactCompiler:" src/packages/core/next.config.ts
