@@ -6,7 +6,8 @@
 # Next 16.4.6 (#1597) apart: noise, the V8 heap cap, the React Compiler, and
 # pages or API routes left out, and counts which packages fill the server
 # chunks. Run 4 splits the API routes: api/v1's route files gone (its
-# helpers stay for other importers), or its 114 routes behind one entry. Every build uses CI's settings (CI=1 in the builder stage: no
+# helpers stay for other importers), or its 114 routes behind one entry. Run 5 tries Turbopack flags Next 16.4.6 has.
+# Every build uses CI's settings (CI=1 in the builder stage: no
 # Turbopack build cache write, no type check) with server source maps off.
 # A bigger swap file lets an over-memory build finish; swap in use counts as
 # memory the build needed.
@@ -29,8 +30,11 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - {label: G 16.4.6 no api/v1, patch: no-api-v1}
-          - {label: H 16.4.6 api/v1 as one entry, patch: api-v1-one-entry}
+          - {label: I 16.4.6 input source maps off, patch: flags, flags: 'turbopackInputSourceMaps: false,'}
+          - {label: J 16.4.6 scope hoisting off, patch: flags, flags: 'turbopackScopeHoisting: false,'}
+          - {label: K 16.4.6 minify off, patch: flags, flags: 'turbopackMinify: false,'}
+          - {label: L 16.4.6 Turbopack GC on, patch: flags, flags: 'turbopackGc: true,'}
+          - {label: M 16.4.6 all four flags, patch: flags, flags: 'turbopackInputSourceMaps: false, turbopackScopeHoisting: false, turbopackMinify: false, turbopackGc: true,'}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -43,6 +47,7 @@ jobs:
       - name: Same build settings for every commit
         env:
           PATCH: ${{ matrix.target.patch }}
+          FLAGS: ${{ matrix.target.flags }}
         run: |
           set -euo pipefail
           sed -i '/ AS builder$/a ENV CI=1' src/packages/core/Dockerfile
@@ -55,6 +60,8 @@ jobs:
                        grep -q "reactCompiler: false" "${core}/next.config.ts" ;;
             no-api) rm -rf "${core}/src/app/api" ;;
             no-pages) rm -rf "${core}/src/app/[locale]" ;;
+            flags) sed -i "s/^    turbopackSourceMaps: false,$/&\n    ${FLAGS}/" "${core}/next.config.ts"
+                       grep -n -F "${FLAGS}" "${core}/next.config.ts" ;;
             no-api-v1) find "${core}/src/app/api/v1" -name 'route.ts' -delete
                        echo "v1 route files left: $(find "${core}/src/app/api/v1" -name 'route.ts' | wc -l)" ;;
             api-v1-one-entry) python3 qa/.github/qa-1598/v1-catch-all.py "${core}/src/app"
