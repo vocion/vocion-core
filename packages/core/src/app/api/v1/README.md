@@ -141,8 +141,12 @@ The URLs, the OpenAPI document and the `/api-docs` page don't change.
   module, so the first `/api/v1` request after the server starts loads all of
   them, and a handler module that throws while it loads fails every
   `/api/v1` request, not only its own path. Before, each handler was its own
-  route with its own module. How long that first request takes, and how much
-  server memory the loaded handlers use, weren't measured.
+  route with its own module. `[...path]/handlersLoad.test.ts` loads each
+  handler module on its own in the unit tests, so a handler that throws while
+  it loads fails CI under its own name. That test stubs `@/libs/Auth` and the
+  database, so a failure inside those, or one that only happens with
+  production settings, isn't caught there. How long that first request takes,
+  and how much server memory the loaded handlers use, weren't measured.
 - **A percent-encoded folder name matches.** The catch-all gets its path
   segments already decoded, so `/api/v1/%61gents` reaches the `agents`
   handler. Next's own route matcher, run on the same path, doesn't match it
