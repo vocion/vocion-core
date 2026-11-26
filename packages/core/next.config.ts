@@ -97,9 +97,10 @@ const baseConfig: NextConfig = {
     // Turbopack's build cache (on by default since Next 16.3) lets a repeat
     // build recompile only what changed: the compile peaked at ~3.3 GB warm
     // against 6.6 GB cold (#670). A CI runner starts empty and never reuses
-    // it, and writing it costs a cold build ~3s and raised a cold image
-    // build's peak memory by 2.1 to 3.8 GiB at v8.48.0, with and without
-    // #1598's change (infra/aws/README.md, Sizing), so CI skips it.
+    // it, and writing it costs a cold build ~3s. At v8.48.0 a cold image
+    // build with the defaults peaked 2.1 to 3.8 GiB above one with `CI=1`
+    // set, with and without #1598's change (infra/aws/README.md, Sizing),
+    // so CI skips it.
     // The Docker image keeps it between builds with a cache mount — on a
     // machine that builds again, like the box's local fallback. A deploy
     // runner is wiped after every build, so there the write is pure cost:
