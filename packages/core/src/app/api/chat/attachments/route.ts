@@ -1,7 +1,7 @@
 import type { Conversion } from '@/services/chat/convert';
 import { Buffer } from 'node:buffer';
 import { NextResponse } from 'next/server';
-import { jsonError } from '@/app/api/v1/_shared';
+import { jsonError } from '@/app/api/v1/_routes/_shared';
 import { clerkAuth } from '@/libs/Auth';
 import { clientIp } from '@/libs/http/clientIp';
 import { firstRefusal, hit, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';

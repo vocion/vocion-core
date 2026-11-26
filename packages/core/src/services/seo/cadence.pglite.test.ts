@@ -37,7 +37,7 @@ const { installPluginBundles } = await import('@/services/plugins/installBundle'
 const { createDataRoom, getDataRoom } = await import('@/services/DataRoomService');
 const { seoTools } = await import('@/services/agents/tools/seo');
 const { objectsUpdateMetaAction } = await import('@/libs/actions/objects-update-meta');
-const { patchProject } = await import('@/app/api/v1/projects/[id]/handlers');
+const { patchProject } = await import('@/app/api/v1/_routes/projects/[id]/handlers');
 const { runSeoOpportunitiesJob } = await import('./cadence');
 const { listProjectSeoPages } = await import('./records');
 

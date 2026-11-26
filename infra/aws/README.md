@@ -28,17 +28,47 @@ pgvector HNSW + Postgres FTS in the app DB itself, served by
 
 | Instance | vCPU / RAM | $/hour (us-east-1) | Notes |
 |---|---|---|---|
-| `t3.large` | 2 / 8 GB | ~$0.08 | Demo / pilot. Embedding throughput limited. Can't build the app image itself (below). |
+| `t3.large` | 2 / 8 GB | ~$0.08 | Demo / pilot. Embedding throughput limited. Can't build the app image itself with the defaults (below). |
 | `r6i.large` | 2 / 16 GB | ~$0.13 | Comfortable for small org corpora. |
 | `r6i.xlarge` | 4 / 32 GB | ~$0.25 | Multiple agents, larger contexts. |
 
 The image builds on the box, beside the running stack. A box's first build
-starts with an empty build cache and needs about 7.9 GB; every build after it
-reuses the cache and needs about 4.4 GB (measured on a 16 GB GitHub runner,
-#670). So a `t3.large` can't run its own first build, even with the stack
-stopped: a build limited to 2 CPUs and 6.8 GB ran out of memory. On a
-`t3.large`, get the image onto the box some other way, or start on a bigger
-instance.
+starts with an empty build cache and, by default, also writes Turbopack's
+build cache for the next build; it peaks at about 9.0 GiB (9,241 MiB, one
+run). Without that write it peaks at about 6.9 GiB (6,987 and 7,081 MiB, two
+runs), measured with `CI=1` set in the build. `--build-arg
+VOCION_BUILD_FS_CACHE=0` turns off the same write
+(`packages/core/next.config.ts`). It wasn't measured on this version, but on
+v8.47.2 it peaked at 11,349 MiB (run 45851517871) against 11,425 MiB with
+`CI=1` (run 45855819227, attempt 2), in separate runs, both whole-image
+builds. Before #1598 the two figures were about 12.5 GiB and 8.7 GiB. The
+9.0 and 6.9 GiB figures are builds of #1598's change (commit 7ba8df928, on
+top of v8.48.0) and the 12.5 and 8.7 GiB figures are builds of plain v8.48.0
+(Next 16.4.6), all cold builds of the image's `builder` stage in one workflow
+run, each on a GitHub-hosted `ubuntu-latest` runner with 4 CPUs and 16 GB.
+Each figure is the build's anonymous memory plus swap above the idle runner,
+sampled every second; the method and runs are in
+`packages/core/src/app/api/v1/README.md`.
+
+A build that reuses the cache needed about 4.4 GB in #670, and hasn't been
+measured since the build grew. #670 measured the runner's used memory above
+idle, sampled every 2 seconds, and found about 7.9 GB for a first build.
+Measured that way, the #670 commit's first build peaks at 7,156 MiB (7.5 GB,
+run 45851517871), and at 6,845 MiB measured the way above.
+
+So a `t3.large` (8 GiB) can't run its own first build with the defaults.
+Whether it can without the cache write, with the stack stopped, hasn't been
+shown: during the two 6.9 GiB builds the whole runner's memory in use
+(`MemTotal` minus `MemAvailable`, which includes about 1.1 GiB the idle
+runner already used) peaked at 8,156 and 8,288 MiB, and in #670, when the
+build was smaller, a build limited to 2 CPUs and 6.8 GB ran out of memory.
+On a `t3.large`, get the image onto the box some other way, or start on a
+bigger instance.
+
+An `r6i.large` (16 GiB) has room for the build only if the running stack
+leaves enough free. In #670 the stack left about 8.8 GiB free on one without
+swap, less than the default first build's 9.0 GiB. That hasn't been measured
+again since, so pull a CI-built image there too (below).
 
 Plus one **100 GB gp3 EBS** volume attached at `/opt/vocion-data` for
 Postgres + Langfuse persistence. `bootstrap.sh` moves Docker's
@@ -90,9 +120,11 @@ sudo bash /opt/vocion/infra/aws/update.sh main      # back to main
 The script gets the app image, applies any new migrations, then
 rolling-restarts only `app` + `worker` (Postgres + Caddy stay untouched).
 
-**Pull a CI-built image rather than building here.** A first build needs
-about 7.9 GB of memory, and on this box it competes with Postgres and
-Langfuse (#670). Build in CI with `push-app-image.sh` and pass the image in:
+**Pull a CI-built image rather than building here.** A first build peaks at
+about 9.0 GiB of memory, or about 6.9 GiB without writing Turbopack's build
+cache (see the sizing notes above), and on this box it competes with
+Postgres and Langfuse (#670). Build in CI with `push-app-image.sh` and pass
+the image in:
 
 ```bash
 sudo VOCION_APP_IMAGE=<registry>/<repository>:<commit> bash /opt/vocion/infra/aws/update.sh <git-ref>

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { jsonError } from '@/app/api/v1/_shared';
+import { jsonError } from '@/app/api/v1/_routes/_shared';
 import { auth } from '@/libs/Auth';
 import { accountsForUser, listProjectsForUser } from '@/services/ProjectService';
 

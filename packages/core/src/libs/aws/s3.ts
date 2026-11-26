@@ -121,7 +121,7 @@ export function guessContentType(key: string): string {
 /**
  * The in-app URL that serves an S3 object to a signed-in member — a 302 to a
  * short-lived presigned URL, issued only for buckets one of the org's `s3`
- * sources declares (see `app/api/v1/s3/object/route.ts`).
+ * sources declares (see `app/api/v1/_routes/s3/object/route.ts`).
  * @param bucket
  * @param key
  */

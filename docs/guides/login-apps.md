@@ -108,8 +108,8 @@ jq -n '{clientId: env.CLIENT_ID, clientSecret: env.CLIENT_SECRET}' \
 ```
 
 The routes are in
-[`app/api/v1/login-apps`](../../packages/core/src/app/api/v1/login-apps/route.ts)
-([`:provider`](../../packages/core/src/app/api/v1/login-apps/%5Bprovider%5D/route.ts)),
+[`app/api/v1/login-apps`](../../packages/core/src/app/api/v1/_routes/login-apps/route.ts)
+([`:provider`](../../packages/core/src/app/api/v1/_routes/login-apps/%5Bprovider%5D/route.ts)),
 over [`services/connect/loginApps.ts`](../../packages/core/src/services/connect/loginApps.ts).
 A save from the API or from the Developers form goes through the same
 `saveLoginApp`, which uses `storePlatformKey` to validate, encrypt, and replace
@@ -413,7 +413,7 @@ sets once, never a field a person fills in.
 | The login starts on the chosen app | [start route](../../packages/core/src/app/api/connect/%5Bprovider%5D/start/route.ts) |
 | The code is traded on the app the start chose (its client ID rides in the signed [state](../../packages/core/src/libs/connect/state.ts)), and that client ID is stored with the login | [callback route](../../packages/core/src/app/api/connect/%5Bprovider%5D/callback/route.ts) |
 | Refresh on the login's own app | [`refreshAndSave` in `loginGrant.ts`](../../packages/core/src/libs/connect/loginGrant.ts), [`googleAuth.ts`](../../packages/core/src/libs/sources/googleAuth.ts), [`jira.ts`](../../packages/core/src/libs/sources/jira.ts) |
-| Saving, listing and revoking by API | [`/api/v1/login-apps`](../../packages/core/src/app/api/v1/login-apps/route.ts), [`loginApps.ts`](../../packages/core/src/services/connect/loginApps.ts), [tests](../../packages/core/src/app/api/v1/login-apps/route.test.ts) |
+| Saving, listing and revoking by API | [`/api/v1/login-apps`](../../packages/core/src/app/api/v1/_routes/login-apps/route.ts), [`loginApps.ts`](../../packages/core/src/services/connect/loginApps.ts), [tests](../../packages/core/src/app/api/v1/_routes/login-apps/route.test.ts) |
 | The redirect URL the Developers form shows | [`listPlatformsRoute`](../../packages/core/src/routers/ApiTokens.ts), [`ApiTokensPanel`](../../packages/core/src/features/api-tokens/ApiTokensPanel.tsx) |
 | Tests | [`loginClient.test.ts`](../../packages/core/src/libs/connect/loginClient.test.ts), [every provider](../../packages/core/src/libs/connect/providers/loginApps.test.ts), [refresh](../../packages/core/src/libs/connect/loginGrant.test.ts), [Google](../../packages/core/src/libs/sources/googleAuth.test.ts), [end to end](../../packages/core/e2e/connect/connect.spec.ts) |
 

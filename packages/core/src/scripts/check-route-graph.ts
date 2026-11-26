@@ -19,7 +19,7 @@
  *
  * The SUM over every route of the modules it reaches is printed, and is no
  * longer a budget: it does not track the build's memory. Cutting
- * `app/api/v1/_shared.ts` from the write API took 17,000 off it (193,569 to
+ * `app/api/v1/_routes/_shared.ts` from the write API took 17,000 off it (193,569 to
  * 176,586) and RAISED peak memory by 1 GB and compile work by 18% (2026-10-09):
  * Turbopack shares the server's chunks between routes that reach all of it,
  * and every route left with a different part of it gets its own. The build's
@@ -178,7 +178,9 @@ export function reachOf(graph: ModuleGraph, from: string): number {
 }
 
 /**
- * Every route entry Next compiles, `src`-relative.
+ * Every route entry Next compiles, `src`-relative. A folder whose name starts
+ * with `_` is private: Next routes nothing inside it, so its files are not
+ * entries (the `/api/v1` handlers live in `app/api/v1/_routes/` for that reason).
  * @param srcDir - Absolute path of `packages/core/src`.
  */
 export function routeEntries(srcDir: string): string[] {
@@ -187,7 +189,9 @@ export function routeEntries(srcDir: string): string[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) {
-        walk(path);
+        if (!entry.name.startsWith('_')) {
+          walk(path);
+        }
       } else if (ENTRY_FILE.test(entry.name)) {
         out.push(relative(srcDir, path));
       }

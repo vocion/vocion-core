@@ -22,7 +22,7 @@ import { test } from '@playwright/test';
  *   1. Register the source with `POST /api/v1/sources`, `kind: 'local-files'`,
  *      pointed at a fixture directory of event pages, declaring
  *      `processor: { slug: 'candidate-extractor', config: … }`. The token needs
- *      `manage_sources` (see `app/api/v1/_shared.ts`).
+ *      `manage_sources` (see `app/api/v1/_routes/_shared.ts`).
  *   2. Drive the sync. `POST /api/v1/sources/:slug/sync` is asynchronous, so
  *      either poll `GET /api/v1/sources` until `run.status === 'completed'` or
  *      run `src/scripts/sync-source.ts` synchronously by `execFileSync`, the

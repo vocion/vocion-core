@@ -1,6 +1,6 @@
 import type { ArtifactRow, Author } from '@/services/ArtifactService';
 import { NextResponse } from 'next/server';
-import { authApi } from '@/app/api/v1/_shared';
+import { authApi } from '@/app/api/v1/_routes/_shared';
 import { canOpenArtifact } from '@/libs/share/audience';
 import { getArtifact } from '@/services/ArtifactService';
 

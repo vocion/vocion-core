@@ -28,9 +28,9 @@ So the document is read out of the code. Nothing here is a list to maintain.
 |---|---|
 | `packages/core/src/libs/openapi/parseRouteModule.ts` | Reads one route file. Pure — takes source text, returns operations. |
 | `packages/core/src/libs/openapi/buildDocument.ts` | Assembles the OpenAPI 3.0.3 document. |
-| `packages/core/src/scripts/generate-openapi.ts` | Walks `src/app/api/v1`, writes the document. |
+| `packages/core/src/scripts/generate-openapi.ts` | Walks `src/app/api/v1/_routes`, writes the document. |
 | `packages/core/src/libs/openapi/openapi.generated.json` | The committed document. |
-| `packages/core/src/app/api/v1/openapi/route.ts` | Serves it as JSON, behind the usual auth. |
+| `packages/core/src/app/api/v1/_routes/openapi/route.ts` | Serves it as JSON, behind the usual auth. |
 | `packages/core/src/features/api-docs/ApiReference.tsx` | Swagger UI, loaded in the browser only. |
 | `packages/core/src/app/[locale]/(auth)/api-docs/page.tsx` | The page's route, `/api-docs`. |
 
