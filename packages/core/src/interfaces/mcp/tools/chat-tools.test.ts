@@ -144,11 +144,12 @@ describe('list_agents', () => {
 
 describe('ask_workspace', () => {
   it('routes a wiki question to the researcher, says why, and persists the turn with the decision', async () => {
-    // Pinned, so a developer's own .env.local base URL can't change the link this test reads.
-    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.northwind.example');
     scriptedTurn('The house voice is on /wiki/voice.md.');
     const { client, server } = await setup();
     try {
+      // Pinned inside the try, so a developer's own .env.local base URL can't change
+      // the link this test reads, and the finally always takes the pin back off.
+      vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.northwind.example');
       readRoute.mockResolvedValueOnce({ chosen: 'wiki-researcher', confidence: 0.9, reason: 'A question about what the wiki says; the researcher answers from the wiki.' });
       const out = parse<Reply>(await client.callTool({ name: 'ask_workspace', arguments: { message: 'What does the wiki say about our house voice?' } }) as ToolResult);
 
