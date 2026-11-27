@@ -38,6 +38,7 @@ import type { Principal } from '@/services/authz';
 import { z } from 'zod';
 import { CardCallerSchema } from '@/libs/actions/cardRunnable';
 import { logger } from '@/libs/Logger';
+import { failureForLog, talkToAPerson } from '@/services/chat/talkToAPerson';
 import { runWorkspaceCard, WorkspaceCardError } from '@/services/chat/workspaceCards';
 import { askWorkspace, listAgentRoster, MAX_MESSAGE_CHARS, WorkspaceTurnError } from '@/services/chat/workspaceTurn';
 import { WorkspacePausedError } from '@/services/workspacePause';
@@ -115,6 +116,23 @@ export function chatTools(config: McpConfig, identity?: { userId: string; princi
       },
       handler: input => handleRunWorkspaceCard(input, { orgId: config.orgId, actorId, principal }),
     },
+    {
+      name: 'talk_to_a_person',
+      title: 'Hand a conversation to a person, with no card',
+      description: [
+        'For your app\'s own "Talk to a person" button: hand the conversation to the workspace\'s people when your user asks for a person and no card for it is on screen (with a card, use run_workspace_card instead).',
+        'Takes the conversation_id (one your app started through ask_workspace with this same token; any other is CONVERSATION_NOT_FOUND), the action_id the button runs (one an end user may run, such as `zendesk.create_ticket`), and `caller`: the user\'s { id, name, email } as YOUR app knows them, never from the agent.',
+        'Vocion writes the action\'s input from the conversation (for a ticket: its subject, summary and topic), trying once more if the first write is not usable, then proposes it exactly as a card tap is proposed: as the conversation\'s agent, so the action\'s grant, gates and the workspace\'s autonomy ladder apply, and `pending` means it waits for a workspace person in Review and has NOT run. ONE RUN PER CONVERSATION AND CALLER: a later tap by the same caller returns that same run with the words already written (no new write); it never starts a second run, and it follows run_workspace_card\'s rules for `refreshed`, `already_decided` and TRY AGAIN after a `retryable` failure. A different caller in the same conversation gets their own run, written at their tap. Most taps answer in seconds, but a slow one can take a few minutes: the write alone can take up to about 40 seconds (two tries of 20 seconds), and when the ladder runs the action at once its own outside calls come on top (zendesk.create_ticket makes several Zendesk calls, each allowed 15 seconds a try). Wait for the answer and show your user it is working; if your app gives up first, a later tap never runs the action twice. While another tap in the conversation is still being handled, a tap returns outcome `already_underway` with an `underway.line` to show: it made no run, so runId is 0 and status reads `pending` even though nothing may have been opened yet. Branch on outcome before status, show the line, and tap again in a moment for the result.',
+        'Returns { conversationId, actionId, runId, status, outcome, result, error?, retryable?, underway? }, read exactly as run_workspace_card\'s answer. `retryable: true` comes only with status `failed`: offer your user Try again, which is another tap of the button.',
+        'Refused with a code and nothing run: REQUEST_NOT_WRITTEN (Vocion could not write the request from the conversation, even on the second try, so nothing was opened: offer your user Try again), CONVERSATION_NOT_FOUND, ACTION_NOT_RUNNABLE (the action is not one an end user can run), ACTION_DISABLED, CALLER_INVALID, WORKSPACE_PAUSED, FORBIDDEN (the token lacks the action\'s grant), VALIDATION_FAILED, RETURNED_FOR_REVISION, UNKNOWN_ACTION. INTERNAL_ERROR is a server error after which whether it ran is not known; a repeat tap never runs it twice.',
+      ].join(' '),
+      inputSchema: {
+        conversation_id: z.number().int().positive().describe('The conversation your user is in (ask_workspace `conversationId`).'),
+        action_id: z.string().min(1).max(200).describe('The action the button runs, such as `zendesk.create_ticket`.'),
+        caller: CardCallerSchema.describe('Who tapped, from your app: { id (your app\'s id for them), name, email }.'),
+      },
+      handler: input => handleTalkToAPerson(input, { orgId: config.orgId, actorId, principal }),
+    },
   ];
 }
 
@@ -125,6 +143,9 @@ export function chatTools(config: McpConfig, identity?: { userId: string; princi
  * app and its end users.
  */
 const PAUSED_CARD_TAP_MESSAGE = 'the card did not run, and your request is kept. Tell your user it was received and cannot run right now. Tapping again after the workspace is resumed refreshes the same request, and a workspace person approves it in Review.';
+
+/** The same answer for a Talk to a person tap, which has no card. */
+export const PAUSED_TALK_MESSAGE = 'the request did not run, and it is kept. Tell your user it was received and cannot run right now. Tapping Talk to a person again after the workspace is resumed refreshes the same request, and a workspace person approves it in Review.';
 
 /**
  * A typed refusal as the Error the MCP server sends: it turns a thrown Error
@@ -148,6 +169,12 @@ function withCode(error: unknown): unknown {
  * repeat tap never runs the card twice and reports what happened.
  */
 export const CARD_INTERNAL_ERROR_MESSAGE = 'The card hit an error on the server, so whether it ran is not known. Tap it again in a moment: a repeat tap never runs it twice and says what happened.';
+
+/**
+ * What the app gets when a Talk to a person tap fails in a way nothing above
+ * names: {@link CARD_INTERNAL_ERROR_MESSAGE}, worded for a button with no card.
+ */
+export const TALK_INTERNAL_ERROR_MESSAGE = 'The request hit an error on the server, so whether it was opened is not known. Tap the button again in a moment: a repeat tap never runs it twice and says what happened.';
 
 /**
  * The `run_workspace_card` call: read the tool's input, run the card, and turn
@@ -174,5 +201,32 @@ async function handleRunWorkspaceCard(input: unknown, who: { orgId: string; acto
     // real error stays in the server log.
     logger.error('run_workspace_card failed unexpectedly', { orgId: who.orgId, conversationId: conversation_id, cardId: card_id, error: error instanceof Error ? error.message : String(error) });
     throw new Error(`INTERNAL_ERROR: ${CARD_INTERNAL_ERROR_MESSAGE}`);
+  }
+}
+
+/**
+ * The `talk_to_a_person` call: the tap, with the same error handling as a card tap.
+ * @param input - The tool's input, already checked by its schema.
+ * @param who - The workspace and the token that called.
+ * @param who.orgId - The workspace.
+ * @param who.actorId - The token's actor, for the audit trail.
+ * @param who.principal - The token's principal.
+ */
+async function handleTalkToAPerson(input: unknown, who: { orgId: string; actorId: string; principal: Principal }): Promise<unknown> {
+  const { conversation_id, action_id, caller } = input as { conversation_id: number; action_id: string; caller: unknown };
+  try {
+    return await talkToAPerson({ ...who, conversationId: conversation_id, actionId: action_id, caller });
+  } catch (error) {
+    if (error instanceof WorkspacePausedError) {
+      throw new Error(`${error.code}: ${PAUSED_TALK_MESSAGE}`);
+    }
+    if (error instanceof WorkspaceCardError) {
+      throw withCode(error);
+    }
+    // Its message can carry the written request or the end user's name and
+    // email (a database error quotes what it was writing), so only its kind,
+    // code and stack frames are logged.
+    logger.error('talk_to_a_person failed unexpectedly', { orgId: who.orgId, conversationId: conversation_id, actionId: action_id, ...failureForLog(error) });
+    throw new Error(`INTERNAL_ERROR: ${TALK_INTERNAL_ERROR_MESSAGE}`);
   }
 }

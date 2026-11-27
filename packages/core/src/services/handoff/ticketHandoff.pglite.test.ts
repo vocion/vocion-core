@@ -9,11 +9,11 @@ import type { ZendeskCredentials } from '@/libs/zendesk/client';
 import type { Answer } from '@/libs/zendesk/fakeZendesk';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
-import { zendeskCreateTicketAction } from '@/libs/actions/zendesk-create-ticket';
+import { zendeskCreateTicketAction, zendeskTopicGuide } from '@/libs/actions/zendesk-create-ticket';
 import { db } from '@/libs/DB';
 import { depsFor, FakeZendesk, tokenAnswer } from '@/libs/zendesk/fakeZendesk';
 import { zendeskTicketSettingsSchema } from '@/libs/zendesk/ticketSettings';
-import { ticketHandoffSchema } from '@/models/Schema';
+import { knowledgeSourceSchema, ticketHandoffSchema } from '@/models/Schema';
 import { createConversation } from '@/services/ConversationService';
 import { conversationForTicket, handoffBusyMessage, handOffToTicket, openHandoffFor, TicketHandoffError } from './ticketHandoff';
 
@@ -323,5 +323,28 @@ describe('conversationForTicket', () => {
 
     expect(await conversationForTicket(ORG, 'zendesk', 77)).toBe(conversationId);
     expect(await conversationForTicket(ORG, 'zendesk', 78)).toBeNull();
+  });
+});
+
+describe('zendeskTopicGuide', () => {
+  it('names every topic the workspace routes, so a Talk to a person write can pick one that reaches its queue', async () => {
+    await db.insert(knowledgeSourceSchema).values({ orgId: 'org_topics_named', slug: 'zendesk', configJson: { tickets: { topicTags: { 'billing': 'billing_queue', 'tee times': 'tee_queue' }, fallbackTopicTag: 'else' } } });
+
+    const guide = await zendeskTopicGuide('org_topics_named');
+
+    expect(guide).toContain('exactly one of "billing", "tee times"');
+    expect(guide).toContain('fallback topic tag');
+  });
+
+  it('gives no guide when the workspace routes no topics, so the writer is not told to pick from an empty list', async () => {
+    await db.insert(knowledgeSourceSchema).values({ orgId: 'org_topics_none', slug: 'zendesk', configJson: { tickets: { fallbackTopicTag: 'else' } } });
+
+    expect(await zendeskTopicGuide('org_topics_none')).toBeNull();
+  });
+
+  it('never reads another workspace\'s topics', async () => {
+    await db.insert(knowledgeSourceSchema).values({ orgId: 'org_topics_other', slug: 'zendesk', configJson: { tickets: { topicTags: { refunds: 'refund_queue' }, fallbackTopicTag: 'else' } } });
+
+    expect(await zendeskTopicGuide('org_topics_missing')).toBeNull();
   });
 });

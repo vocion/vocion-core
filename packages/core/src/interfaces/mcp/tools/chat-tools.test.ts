@@ -39,6 +39,18 @@ vi.mock('@/services/chat/workspaceCards', async (importOriginal) => {
     runWorkspaceCard: (...args: Parameters<typeof actual.runWorkspaceCard>) => failingCardRun() ?? actual.runWorkspaceCard(...args),
   };
 });
+// The Talk to a person writer's model, scripted per test; unscripted, the real one is built.
+const requestWriterModel = vi.fn();
+vi.mock('@/libs/llm', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/llm')>();
+  return { ...actual, buildChatModelForOrg: (...args: Parameters<typeof actual.buildChatModelForOrg>) => requestWriterModel() ?? actual.buildChatModelForOrg(...args) };
+});
+// The Talk to a person tap, real unless a test makes it throw something unexpected.
+const failingTalk = vi.fn();
+vi.mock('@/services/chat/talkToAPerson', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/chat/talkToAPerson')>();
+  return { ...actual, talkToAPerson: (...args: Parameters<typeof actual.talkToAPerson>) => failingTalk() ?? actual.talkToAPerson(...args) };
+});
 vi.mock('@/services/BudgetService', () => ({
   preflightCheck: vi.fn(async () => ({ ok: true })),
   chargeUsage: vi.fn(async () => {}),
@@ -50,8 +62,10 @@ const { CardCallerSchema } = await import('@/libs/actions/cardRunnable');
 const { registerAction } = await import('@/libs/actions/registry');
 const { actionRunSchema, agentSchema, autonomyPolicySchema, conversationMessageSchema, conversationSchema, projectSchema, tenantAccountSchema, trustRuleSchema } = await import('@/models/Schema');
 const { askWorkspace } = await import('@/services/chat/workspaceTurn');
+const { appendMessage, createConversation } = await import('@/services/ConversationService');
+const { REQUEST_NOT_WRITTEN_MESSAGE } = await import('@/services/chat/talkToAPerson');
 const { buildServer } = await import('../server');
-const { CARD_INTERNAL_ERROR_MESSAGE } = await import('./chat-tools');
+const { CARD_INTERNAL_ERROR_MESSAGE, PAUSED_TALK_MESSAGE, TALK_INTERNAL_ERROR_MESSAGE } = await import('./chat-tools');
 const { logger } = await import('@/libs/Logger');
 
 const ORG = 'org_mcp_chat';
@@ -153,6 +167,8 @@ function scriptedTurn(reply: string) {
 beforeEach(async () => {
   failingCardCheck.mockReset();
   failingCardRun.mockReset();
+  requestWriterModel.mockReset();
+  failingTalk.mockReset();
   runAgentDeep.mockReset();
   readRoute.mockReset();
   readRoute.mockRejectedValue(new Error('no model in this test'));
@@ -835,6 +851,122 @@ describe('run_workspace_card', () => {
       expect(out.isError).toBe(true);
       expect(text(out)).toMatch(/^FORBIDDEN/);
       expect(cardActionRuns).toHaveLength(0);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+/**
+ * A conversation in the test workspace with the end user's message in it.
+ * @param content - What the end user said.
+ */
+async function conversationWith(content: string): Promise<number> {
+  const conversation = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: 'token:t1', surface: 'mcp' });
+  await appendMessage({ orgId: ORG, conversationId: conversation.id, role: 'user', content });
+  return conversation.id;
+}
+
+/**
+ * Script the writer's model to answer every write with these tool arguments.
+ * @param args - The `write_request` arguments.
+ */
+function scriptWriter(args: Record<string, unknown>) {
+  const invoke = vi.fn().mockResolvedValue({ tool_calls: [{ name: 'write_request', args }] });
+  requestWriterModel.mockReturnValue({ bindTools: () => ({ invoke }) });
+  return invoke;
+}
+
+describe('talk_to_a_person', () => {
+  it('writes the request from the conversation and runs it as the caller the app supplied, where the workspace lets an agent act on its own', async () => {
+    await db.insert(trustRuleSchema).values({ orgId: ORG, actionId: CARD_ACTION_ID, threshold: 0.5, enabled: 'true' });
+    await db.insert(autonomyPolicySchema).values({ orgId: ORG, actionId: CARD_ACTION_ID, rung: 'execute-within-bounds', riskTier: 'low', minConfidence: 0.5, source: 'trust.yaml' });
+    const conversationId = await conversationWith('My order arrived damaged and I want a refund.');
+    const invoke = scriptWriter(completeInput);
+    const { client, server } = await setup();
+    try {
+      const tapped = parse<{ status: string; actionId: string; runId: number; result: { ticketFor: string } }>(await client.callTool({ name: 'talk_to_a_person', arguments: { conversation_id: conversationId, action_id: CARD_ACTION_ID, caller: tapper } }) as ToolResult);
+
+      expect(tapped).toMatchObject({ status: 'done', actionId: CARD_ACTION_ID, result: { ticketFor: 'dana@example.com' } });
+      expect(cardActionRuns).toEqual([{ input: completeInput, caller: tapper }]);
+      // The writer was shown what the end user said.
+      expect(JSON.stringify(invoke.mock.calls[0])).toContain('arrived damaged');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('refuses with REQUEST_NOT_WRITTEN and opens nothing when neither write is usable', async () => {
+    const conversationId = await conversationWith('I need help.');
+    const invoke = scriptWriter({ topic: 'refund' });
+    const { client, server } = await setup();
+    try {
+      const out = (await client.callTool({ name: 'talk_to_a_person', arguments: { conversation_id: conversationId, action_id: CARD_ACTION_ID, caller: tapper } })) as ToolResult;
+
+      expect(out.isError).toBe(true);
+      expect(text(out)).toBe(`REQUEST_NOT_WRITTEN: ${REQUEST_NOT_WRITTEN_MESSAGE}`);
+      expect(invoke).toHaveBeenCalledTimes(2);
+      expect(await db.select().from(actionRunSchema)).toHaveLength(0);
+      expect(cardActionRuns).toHaveLength(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('refuses an action no end user may run with ACTION_NOT_RUNNABLE, before writing anything', async () => {
+    const conversationId = await conversationWith('I need help.');
+    const invoke = scriptWriter(completeInput);
+    const { client, server } = await setup();
+    try {
+      const out = (await client.callTool({ name: 'talk_to_a_person', arguments: { conversation_id: conversationId, action_id: OWNS_KEY_ACTION_ID, caller: tapper } })) as ToolResult;
+
+      expect(out.isError).toBe(true);
+      expect(text(out)).toMatch(/^ACTION_NOT_RUNNABLE/);
+      expect(invoke).not.toHaveBeenCalled();
+      expect(cardActionRuns).toHaveLength(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('refuses a tap that would run at once on a paused workspace with WORKSPACE_PAUSED, keeps the request waiting, and runs nothing', async () => {
+    await db.insert(trustRuleSchema).values({ orgId: ORG, actionId: CARD_ACTION_ID, threshold: 0.5, enabled: 'true' });
+    await db.insert(autonomyPolicySchema).values({ orgId: ORG, actionId: CARD_ACTION_ID, rung: 'execute-within-bounds', riskTier: 'low', minConfidence: 0.5, source: 'trust.yaml' });
+    const conversationId = await conversationWith('My order arrived damaged and I want a refund.');
+    scriptWriter(completeInput);
+    await db.update(projectSchema).set({ pausedAt: new Date(), pausedBy: 'token:t9', pausedNote: 'billing review' }).where(eq(projectSchema.id, ORG));
+    const { client, server } = await setup();
+    try {
+      const out = (await client.callTool({ name: 'talk_to_a_person', arguments: { conversation_id: conversationId, action_id: CARD_ACTION_ID, caller: tapper } })) as ToolResult;
+      const rows = await db.select().from(actionRunSchema);
+
+      expect(out.isError).toBe(true);
+      expect(text(out)).toBe(`WORKSPACE_PAUSED: ${PAUSED_TALK_MESSAGE}`);
+      expect(text(out)).not.toContain('billing review');
+      expect(cardActionRuns).toHaveLength(0);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: 'pending', executedAt: null });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('answers an unexpected failure with fixed text, and logs where it failed without its message, which can quote the end user', async () => {
+    const loggedErrors: unknown[][] = [];
+    const logSpy = vi.spyOn(logger, 'error').mockImplementation((...args: unknown[]) => loggedErrors.push(args));
+    onTestFinished(() => logSpy.mockRestore());
+    const conversationId = await conversationWith('I need help.');
+    failingTalk.mockRejectedValueOnce(new Error('insert into "action_run" values ($1) - params: {"email":"jo@example.com"} - duplicate key'));
+    const { client, server } = await setup();
+    try {
+      const out = (await client.callTool({ name: 'talk_to_a_person', arguments: { conversation_id: conversationId, action_id: CARD_ACTION_ID, caller: tapper } })) as ToolResult;
+
+      expect(out.isError).toBe(true);
+      expect(text(out)).toBe(`INTERNAL_ERROR: ${TALK_INTERNAL_ERROR_MESSAGE}`);
+      expect(text(out)).not.toMatch(/action_run|jo@example\.com/);
+      expect(loggedErrors).toContainEqual(['talk_to_a_person failed unexpectedly', expect.objectContaining({ conversationId, kind: 'Error', frames: expect.stringContaining('at ') })]);
+      // The message quotes what was being written, so it never reaches the log either.
+      expect(JSON.stringify(loggedErrors)).not.toMatch(/jo@example\.com|duplicate key/);
     } finally {
       await server.close();
     }

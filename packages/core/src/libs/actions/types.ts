@@ -14,10 +14,11 @@
 import type { z } from 'zod';
 
 /**
- * WHO TAPPED A CARD, as the app that drew it knows them: an end user of that
- * app, not a member of the workspace. Supplied by the calling app on
- * `run_workspace_card` and by nothing else — never by a model, never read from
- * a card's input (`libs/actions/cardRunnable.ts` holds the decision).
+ * WHO TAPPED A CARD (or the app's Talk to a person button), as the app that
+ * drew it knows them: an end user of that app, not a member of the workspace.
+ * Supplied by the calling app on `run_workspace_card` or `talk_to_a_person`
+ * and by nothing else — never by a model, never read from a card's or a
+ * written request's input (`libs/actions/cardRunnable.ts` holds the decision).
  */
 export type ActionCaller = {
   /** The caller app's own id for the person. */
@@ -33,10 +34,11 @@ export type ActionContext = {
   /** `agent:<slug>` / `token:<id>` / user id — for provider audit fields. */
   invokedBy?: string;
   /**
-   * The end user whose tap on a card ran this, when `run_workspace_card` ran
-   * it (`Action.cardRunnable`). Present on `execute` only, and only for a run
-   * a card started; an action that needs it fails loudly when it is absent
-   * rather than guessing a person. Never part of the action's input.
+   * The end user whose tap ran this, when `run_workspace_card` or
+   * `talk_to_a_person` ran it (`Action.cardRunnable`). Present on `execute`
+   * only, and only for a run such a tap started; an action that needs it fails
+   * loudly when it is absent rather than guessing a person. Never part of the
+   * action's input.
    */
   caller?: ActionCaller;
   /**
@@ -571,7 +573,16 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * text from a downstream system. The action's thrown errors do not leave: a
    * failed run answers fixed text.
    */
-  cardRunnable?: { callerSchema: z.ZodType<ActionCaller> };
+  cardRunnable?: {
+    callerSchema: z.ZodType<ActionCaller>;
+    /**
+     * What a model writing this action's input from a conversation, with no
+     * card (`talk_to_a_person`), must know about this workspace that the input
+     * schema cannot say, such as the names a field has to be one of. Read per
+     * workspace at the tap; null when there is nothing to add.
+     */
+    inputGuide?: (orgId: string) => Promise<string | null>;
+  };
   /**
    * Whether a failed run's stored error (`action_run.error`, the message
    * `execute` threw) is one that is safe to run again at once with the same

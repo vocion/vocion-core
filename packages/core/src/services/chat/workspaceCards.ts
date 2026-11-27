@@ -295,12 +295,13 @@ function cardUnavailableReason(state: string, card: { reason?: string }): string
 }
 
 /**
- * Run `work` while holding this card's lock, waiting a short while when another
- * tap holds it. Null when the lock stayed taken for the whole wait.
- * @param lockName - The card's lock name.
- * @param work - What one tap on the card does.
+ * Run `work` while holding this tap's lock (one card's, or one conversation's
+ * Talk to a person taps), waiting a short while when another tap holds it.
+ * Null when the lock stayed taken for the whole wait.
+ * @param lockName - The lock name.
+ * @param work - What one tap does.
  */
-async function withCardLock<T>(lockName: string, work: () => Promise<T>): Promise<{ value: T } | null> {
+export async function withCardLock<T>(lockName: string, work: () => Promise<T>): Promise<{ value: T } | null> {
   for (let attempt = 0; attempt < CARD_LOCK_WAIT_ATTEMPTS; attempt++) {
     const locked = await withAdvisoryLock(lockName, work);
     if (locked.ran) {
@@ -337,25 +338,31 @@ export const CARD_RETURNED_MESSAGE = 'the workspace\'s own check sent this reque
 /** Why a tap waits for a person when the card's agent gave no confidence in it (see `proposeCardTap`). */
 const CARD_WITHOUT_CONFIDENCE_HOLD = 'the agent gave no confidence in this card, so a person decides';
 
-/** Everything one tap hands to `proposeAction`, gathered so the lock's work is a plain function. */
-type CardTap = {
+/**
+ * Everything one end user's tap hands to `proposeAction`, gathered so the
+ * lock's work is a plain function. A card tap and a Talk to a person tap
+ * (`talkToAPerson.ts`) both build one.
+ */
+export type EndUserProposal = {
   orgId: string;
   actionId: string;
-  /** The agent that put the card up: the tap is proposed as this agent's own proposal. */
+  /** The conversation's agent: the tap is proposed as this agent's own proposal. */
   agentSlug: string;
   rationale?: string;
-  /** The agent's confidence in the card, as it wrote it; absent when it gave none. */
+  /** How sure the proposal is, 0 to 1; absent when the agent gave none, and then a person decides. */
   confidence?: number;
   conversationId: number;
-  cardId: string;
   dedupKey: string;
   /** The token that called, for the audit trail. */
   actorId: string;
   tokenPrincipal: Principal;
-  /** The card's input, already checked against the action's schema. */
+  /** The action's input, already checked against its schema. */
   input: Record<string, unknown>;
   caller: ActionCaller;
 };
+
+/** One tap on a card: the proposal plus the card it was made from. */
+type CardTap = EndUserProposal & { cardId: string };
 
 /**
  * The principal a tap is proposed as: the card's agent, holding exactly the
@@ -379,8 +386,20 @@ export function cardTapPrincipal(tokenPrincipal: Principal, agentSlug: string): 
 /**
  * Propose the card's action for one tap, then record the tap on the card.
  * Runs under the card's lock.
+ * @param tap - The tap and its card.
+ */
+async function proposeCardTap(tap: CardTap): Promise<ProposeResult> {
+  const ran = await proposeEndUserRun(tap);
+  await recordCardTap({ orgId: tap.orgId, conversationId: tap.conversationId, cardId: tap.cardId, caller: tap.caller, ran });
+  return ran;
+}
+
+/**
+ * Propose an action for an end user's tap. Run it under the tap's lock
+ * ({@link withCardLock}).
  *
- * The proposal is the agent's, with the confidence it wrote on the card
+ * The proposal is the agent's, with the confidence the tap carries: the one
+ * the agent wrote on the card, or 1 for a Talk to a person tap
  * (`origin.byPerson` is false: nobody in the workspace has said yes). So the
  * action's declared gates and holds apply, and the autonomy ladder decides: at
  * `execute-with-approval` the run waits in Review for a workspace person and
@@ -390,9 +409,9 @@ export function cardTapPrincipal(tokenPrincipal: Principal, agentSlug: string): 
  * agent gave no confidence for is held for a person at every rung. The end user
  * rides along as `origin.caller`, so the action still gets them as
  * `ctx.caller` when a person approves the run later.
- * @param tap - The tap and its card.
+ * @param tap - The proposal.
  */
-async function proposeCardTap(tap: CardTap): Promise<ProposeResult> {
+export async function proposeEndUserRun(tap: EndUserProposal): Promise<ProposeResult> {
   let ran;
   try {
     ran = await proposeAction({
@@ -421,7 +440,6 @@ async function proposeCardTap(tap: CardTap): Promise<ProposeResult> {
     }
     throw error;
   }
-  await recordCardTap({ orgId: tap.orgId, conversationId: tap.conversationId, cardId: tap.cardId, caller: tap.caller, ran });
   return ran;
 }
 
@@ -474,6 +492,19 @@ async function bindCardToCaller(tap: CardTap): Promise<void> {
 async function tapUnderLock(tap: CardTap): Promise<ProposeResult> {
   await bindCardToCaller(tap);
   return proposeCardTap(tap);
+}
+
+/**
+ * The end user as the action's own caller rules read them, or CALLER_INVALID.
+ * @param cardRunnable - The action's end-user settings.
+ * @param caller - The caller as the app sent it.
+ */
+export function endUserCaller(cardRunnable: NonNullable<ReturnType<typeof cardRunnableOf>>, caller: unknown): ActionCaller {
+  const callerCheck = cardRunnable.callerSchema.safeParse(caller);
+  if (!callerCheck.success) {
+    throw new WorkspaceCardError('CALLER_INVALID', `caller: ${callerCheck.error.issues.map(issue => `${issue.path.join('.') || 'caller'}: ${issue.message}`).join('; ')}`);
+  }
+  return callerCheck.data;
 }
 
 /**
@@ -535,11 +566,7 @@ export async function runWorkspaceCard(input: RunWorkspaceCardInput): Promise<Ru
   if (!checked.ok) {
     throw new WorkspaceCardError('CARD_INPUT_INVALID', `Card ${cardId} cannot run: ${checked.problem}.`);
   }
-  const callerCheck = cardRunnable.callerSchema.safeParse(input.caller);
-  if (!callerCheck.success) {
-    throw new WorkspaceCardError('CALLER_INVALID', `caller: ${callerCheck.error.issues.map(issue => `${issue.path.join('.') || 'caller'}: ${issue.message}`).join('; ')}`);
-  }
-  const caller: ActionCaller = callerCheck.data;
+  const caller = endUserCaller(cardRunnable, input.caller);
 
   const dedupKey = workspaceCardDedupKey(action.id, conversationId, cardId);
   const tap: CardTap = { orgId, actionId: action.id, agentSlug: conversation.agentSlug, rationale: card.rationale, confidence: card.confidence, conversationId, cardId, dedupKey, actorId: input.actorId, tokenPrincipal: input.principal, input: checked.input, caller };
@@ -559,17 +586,24 @@ export async function runWorkspaceCard(input: RunWorkspaceCardInput): Promise<Ru
   };
 }
 
+/** The fixed text a failed tap answers with: one for a failure, one for a failure that is safe to repeat. */
+export type TapFailureWording = { failed: string; retryable: string };
+
+/** A card tap's failure text. */
+const CARD_FAILURE_WORDING: TapFailureWording = { failed: CARD_RUN_FAILED_MESSAGE, retryable: CARD_RUN_RETRYABLE_MESSAGE };
+
 /**
  * The fixed text, and the Try again flag, for a tap whose run failed; nothing when it did not.
  * Whether Try again runs it again is the action service's call (`canTryAgain`),
  * so the card never offers a retry the next tap would refuse.
  * @param ran - What the action service answered. Its `error` is read here and never passed on.
+ * @param wording - The text to answer with: a card's by default; a tap with no card names the button instead.
  */
-function failureAnswer(ran: Pick<ProposeResult, 'error' | 'canTryAgain'>): Pick<RunWorkspaceCardResult, 'error' | 'retryable'> {
+export function failureAnswer(ran: Pick<ProposeResult, 'error' | 'canTryAgain'>, wording: TapFailureWording = CARD_FAILURE_WORDING): Pick<RunWorkspaceCardResult, 'error' | 'retryable'> {
   if (!ran.error) {
     return {};
   }
-  return ran.canTryAgain ? { error: CARD_RUN_RETRYABLE_MESSAGE, retryable: true } : { error: CARD_RUN_FAILED_MESSAGE };
+  return ran.canTryAgain ? { error: wording.retryable, retryable: true } : { error: wording.failed };
 }
 
 /**

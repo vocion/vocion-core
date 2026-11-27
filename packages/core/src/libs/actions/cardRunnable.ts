@@ -15,7 +15,8 @@ import { z } from 'zod';
  *    entry. Only those cards are handed to a calling app, because only those
  *    can be run by it.
  * 3. THE CALLER IS NOT INPUT. Who tapped is supplied by the calling app on
- *    `run_workspace_card` and reaches the action as `ctx.caller`. A card's
+ *    `run_workspace_card` (or `talk_to_a_person`, the tap with no card) and
+ *    reaches the action as `ctx.caller`. A card's
  *    stored input is the model's words, so a `caller` key in it is refused
  *    ({@link CARD_CALLER_KEY}): the card is not shown and a tap does not run.
  *    Refused, not stripped, so a model that tries it is visible in the logs
@@ -41,7 +42,7 @@ export const CardCallerSchema: z.ZodType<ActionCaller> = z.object({
  *
  * WHY the `ownsDedupKey` refusal. An action that owns its dedup key keys its
  * runs on its own record, which wins over the per-card key `run_workspace_card`
- * proposes under, and the action service's refresh path can execute on a
+ * (and `talk_to_a_person`) proposes under, and the action service's refresh path can execute on a
  * refresh (`outcome: 'refreshed'`). That would break "one card, one run", so
  * such an action is not card-runnable even when it declares `cardRunnable`.
  * (A card action's refresh executes only for Try again: the SAME run, after a

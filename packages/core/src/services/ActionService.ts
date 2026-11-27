@@ -225,9 +225,10 @@ export type ActionOrigin = {
   userId?: string | null;
   byPerson?: boolean;
   /**
-   * The end user whose tap on a card started this run (`run_workspace_card`),
-   * handed to the action as `ctx.caller`. Set by that call alone: it is not
-   * part of any input, so a model's card cannot carry it.
+   * The end user whose tap started this run (`run_workspace_card` or
+   * `talk_to_a_person`), handed to the action as `ctx.caller`. Set by those
+   * calls alone: it is not part of any input, so a model's card or written
+   * request cannot carry it.
    */
   caller?: ActionCaller;
 };

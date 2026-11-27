@@ -324,6 +324,68 @@ to Review without the end-user marker, and a tap on one is `CARD_NOT_FOUND`), be
 per workspace** uses the autonomy ladder: put the action below `execute-with-approval` (`observe`,
 `recommend` or `assist` in `trust.yaml`) and its cards are not shown and a tap does not run.
 
+### Talk to a person, with no card
+
+A card only exists when the agent put one up. Your app's own "Talk to a person" button is the safety
+net that works whatever the model did: `talk_to_a_person` hands the conversation to the workspace's
+people with no card on screen. It takes:
+
+- `conversation_id`: the `conversationId` from the `ask_workspace` reply. Only a conversation your app
+  started over MCP with the same token that taps is accepted; any other (a member's dashboard chat, a
+  Slack or email thread, or a conversation another token started) is refused with
+  `CONVERSATION_NOT_FOUND`, so its text never goes into a request your app asked for.
+- `action_id`: the action the button runs, one that opted in with `cardRunnable` (such as
+  `zendesk.create_ticket`).
+- `caller`: `{ id, name, email }`, the end user as **your app** knows them, exactly as for a card.
+
+Vocion writes the action's input from the conversation (for a ticket: its subject, summary and topic)
+with one forced tool call on the classifier model built for the workspace (`buildChatModelForOrg`),
+reading the latest 12 messages from the end user and the agent, each cut at 3,000 characters
+(`services/chat/talkToAPerson.ts`). An action can add what its fields must follow in this workspace
+(`cardRunnable.inputGuide`): `zendesk.create_ticket` lists the topic names the source's
+`tickets.topicTags` routes on, so the ticket gets its topic's tag rather than the fallback one. A write
+that is not usable (no call, a field the action's schema refuses, a `caller` key, an error or a 20
+second timeout) is tried once more, with the problem fed back when it was the model's to fix. When the
+second write fails too, nothing is proposed and the tap is refused with `REQUEST_NOT_WRITTEN`: offer
+your user Try again, which is another tap of the button and writes again. A failed write stores
+nothing, so each Try again costs up to two more classifier calls.
+
+Most taps answer in seconds, but a slow one can take a few minutes. The write alone can take up to
+about 40 seconds (two tries of 20 seconds), and when the ladder runs the action at once its own outside
+calls come on top: `zendesk.create_ticket` makes several Zendesk calls, each allowed 15 seconds a try
+(`libs/zendesk/client.ts`). Wait for the answer and show your user it is working. If your app gives up
+first, a later tap never runs the action twice.
+
+The written input is then proposed exactly as a card tap is (`proposeEndUserRun` in
+`services/chat/workspaceCards.ts`): as the conversation's agent, never a workspace person, so the
+token's grant, the action's gates, the autonomy ladder and Try again after a `retryable` failure all
+apply the same way. The agent's confidence is 1, because the end user chose the action by tapping; the
+model wrote only its words. At `execute-with-approval` the run waits in Review (`status: 'pending'`).
+
+**One run per conversation and end user.** The dedup key is
+`card:<actionId>:c<conversationId>:person:<caller.id>` on the card prefix, so a second tap behaves as a
+second tap on one card: it gets the same run back (`already_decided`, or `refreshed` while it is
+`pending` or `failed`). A different `caller.id` in the same conversation gets a separate run and never
+touches the first one's.
+
+**One write per conversation and end user.** The written input is stored on the end user's run, so their
+later taps reuse it with no new write; it is found by the run's exact dedup key. A different end user in
+the same conversation gets words of their own, written at their tap. Taps on one action in one
+conversation take one lock, so two quick taps never pay for two writes: a tap that waits more than about
+5 seconds for an earlier one returns outcome `already_underway` with its `underway.line`. That tap made
+no run, so `runId` is 0 and `status` reads `pending` even though nothing may have been opened yet:
+branch on `outcome` before `status`, show the line, and a tap a moment later gets the result.
+
+It returns `{ conversationId, actionId, runId, status, outcome, result, error?, retryable?, underway? }`,
+read exactly as `run_workspace_card`'s answer. Refusals carry a typed code and nothing ran:
+`REQUEST_NOT_WRITTEN`, `CONVERSATION_NOT_FOUND`, `ACTION_NOT_RUNNABLE` (the action is not registered as
+one an end user may run), `CALLER_INVALID`, `FORBIDDEN` (the token does not hold the action's grant;
+checked before the write, so it costs no model call), `ACTION_DISABLED` (checked before the write when
+the action's rung does not depend on its input), `WORKSPACE_PAUSED`, `VALIDATION_FAILED`,
+`RETURNED_FOR_REVISION` and `UNKNOWN_ACTION`. `INTERNAL_ERROR` is fixed text; the server log keeps the
+error's kind, code and stack frames, never its message, which can quote the written request or the end
+user's details.
+
 ### Deciding what waits on a person
 
 The Review queue is decided the same way on every surface: the Review page, chat (`decide_proposal`,
