@@ -144,6 +144,8 @@ describe('list_agents', () => {
 
 describe('ask_workspace', () => {
   it('routes a wiki question to the researcher, says why, and persists the turn with the decision', async () => {
+    // Pinned, so a developer's own .env.local base URL can't change the link this test reads.
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.northwind.example');
     scriptedTurn('The house voice is on /wiki/voice.md.');
     const { client, server } = await setup();
     try {
@@ -155,8 +157,8 @@ describe('ask_workspace', () => {
       expect(out.routing!.reason).toMatch(/researcher answers from the wiki/);
       // The inactive agent handled "wiki" too and was never on the roster the model read.
       expect((readRoute.mock.calls[0]![0] as { agents: Array<{ slug: string }> }).agents.map(a => a.slug)).toEqual(['revenue-lead', 'wiki-researcher']);
-      // Named with its account, for a reader in two accounts (vocion-core#128).
-      expect(out.url).toBe(`/w/northwind/dashboard/chat/${out.conversationId}?org=northwind`);
+      // A full link the MCP client can open, named with its account for a reader in two accounts (vocion-core#128).
+      expect(out.url).toBe(`https://app.northwind.example/w/northwind/dashboard/chat/${out.conversationId}?org=northwind`);
 
       // The turn ran as the researcher, as the token, with the surface note under the message.
       expect(runAgentDeep).toHaveBeenCalledTimes(1);
@@ -179,6 +181,7 @@ describe('ask_workspace', () => {
       expect(msgs[0]!.routingJson).toMatchObject({ chosen: 'wiki-researcher', surface: 'mcp' });
       expect(msgs[1]!.id).toBe(out.turnId);
     } finally {
+      vi.unstubAllEnvs();
       await server.close();
     }
   });
