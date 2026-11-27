@@ -265,7 +265,9 @@ about that can be undone and is low-risk, with the agent's confidence at or abov
 hold, or a card the agent gave no confidence for, keeps it waiting at any rung. When a person
 approves the waiting run, the action still gets the user who tapped as `ctx.caller`.
 
-It returns `{ conversationId, cardId, actionId, runId, status, outcome, result, error?, underway? }`.
+It returns `{ conversationId, cardId, actionId, runId, status, outcome, result, error?, retryable?, underway? }`.
+`retryable: true` comes only with status `failed`: offer your user Try again, which is a tap on the
+same card. Without it, do not offer Try again.
 `result` is what the action returned when this tap ran it, and `null` otherwise, including on
 `already_decided`. `underway` is `{ line }`: the action's link to its run stays in the workspace.
 Branch on `outcome` as well as `status`:
@@ -273,20 +275,23 @@ Branch on `outcome` as well as `status`:
 | `outcome` | Meaning |
 |---|---|
 | `created` | This tap made the run. It ran if `status` is `done` or `failed`; it is waiting for a person if `pending`. |
-| `refreshed` | The card's earlier run was `pending` or had `failed`. It was updated in place and is `pending` for a person; this tap ran nothing. |
+| `refreshed` | The card's earlier run was `pending` or had `failed`. It was updated in place and is `pending` for a person; this tap ran nothing. After a `retryable` failure (Try again) it ran again now if `status` is `done` or `failed`, and still waits for a person if `pending`. |
 | `already_decided` | The card's earlier run, in any other status, is returned unchanged; this tap ran nothing. |
 | `already_underway` | What was asked is already happening, or another tap on this card is running it right now; this tap ran nothing, so show `underway.line` even when `status` reads `done` or `pending`. |
 
 `status` is `pending` (waiting for a workspace person in Review; the action has not run), `done` (it
-ran), `failed` (the action did not complete and the run is recorded; `error` is fixed text, never the action's own message, which stays on the run for the workspace's people. It says a later tap puts the same request back in front of a workspace person in Review and does not run it again; tell your user it did not go through), `awaiting_execution` (a person approved it and
+ran), `failed` (the action did not complete and the run is recorded; `error` is fixed text, never the action's own message, which stays on the run for the workspace's people. Without `retryable`, it says a later tap puts the same request back in front of a workspace person in Review and does not run it again: tell your user it did not go through. With `retryable: true`, a service the action needs was busy or unreachable, so it may or may not have gone through: tell your user that, and that Try again cannot do it twice), `awaiting_execution` (a person approved it and
 the work is waiting to be done), `rejected` or `undone`, and `executing` for an earlier tap's run
 still going.
 
 **One card, one run.** A second tap, or two at once, never starts a second run. If the earlier run is
 `done`, `rejected`, `undone`, `executing` or `awaiting_execution`, the later call gets it back
 unchanged (`already_decided`). If it is `pending`, or `failed`, the tap refreshes that same run and
-it is `pending` for a person (`refreshed`); a tap never re-executes a failed run, a workspace person
-decides it in Review. Only a card minted for an end user on a turn that asked for `end_user_cards` can be run: a card filed to Review, deferred,
+it is `pending` for a person (`refreshed`), except TRY AGAIN: after a failure that came back with
+`retryable: true`, the next tap is judged by the autonomy ladder again like the first and runs that
+same run at once, or leaves it waiting in Review. A run stops coming back `retryable` after
+`MAX_AUTOMATIC_ATTEMPTS` (3) failed tries, counting the first (`libs/actions/failureRecovery.ts`); any
+other failed run goes to a workspace person in Review. Only a card minted for an end user on a turn that asked for `end_user_cards` can be run: a card filed to Review, deferred,
 expired or never put up is refused, and so is any card the dashboard chat drew.
 
 A refusal carries a typed code and nothing ran: `CONVERSATION_NOT_FOUND`, `CARD_NOT_FOUND`,
@@ -309,7 +314,11 @@ needs a real address can pass a stricter one. Nothing else changes: it is one fi
 Three things the action writes reach the app's end user word for word, so keep them end-user safe (no
 internal ids, links into the workspace, other people's data or a downstream system's error text): what
 `execute` returns (`result`), the `line` from `underway`, and a `precheck` refusal's reason (sent as
-`VALIDATION_FAILED: <reason>`). Errors `execute` throws never leave: a failed run answers fixed text. It cannot be
+`VALIDATION_FAILED: <reason>`). Errors `execute` throws never leave: a failed run answers fixed text. To offer Try again, also set
+`retryableFailure(error)`: it reads the run's stored error and says yes only for a failure that is safe
+to run again at once with the same input (nothing was written, or a repeat lands on the same record, as
+`zendesk.create_ticket` does with its Idempotency-Key and external id). Such a failure answers
+`retryable: true` with `CARD_RUN_RETRYABLE_MESSAGE`. It cannot be
 combined with `ownsDedupKey`: such an action is treated as not card-runnable (its cards are not shown, they are filed
 to Review without the end-user marker, and a tap on one is `CARD_NOT_FOUND`), because its own key would beat the per-card key and a refresh could execute it. **Turning it off
 per workspace** uses the autonomy ladder: put the action below `execute-with-approval` (`observe`,

@@ -84,6 +84,29 @@ export type TicketHandoffErrorCode
   /** The caller matched a Zendesk agent or admin, so no ticket is filed for them. Not retryable. */
     | 'REQUESTER_NOT_END_USER';
 
+/**
+ * How each retryable hand-off failure's message starts. The action service
+ * keeps only a failed run's message (`action_run.error`), so this is how a
+ * stored failure is read back as retryable ({@link isRetryableHandoffFailure}).
+ */
+const RETRYABLE_MESSAGE_STARTS = {
+  HANDOFF_BUSY: 'Another hand-off for this conversation is still underway',
+  ZENDESK_UNAVAILABLE: 'Zendesk could not be reached or was busy, so the ticket may not be open yet',
+} as const satisfies Partial<Record<TicketHandoffErrorCode, string>>;
+
+/**
+ * Whether a failed run's stored error is a hand-off failure that is safe to run
+ * again at once: another tap held the conversation's lock, or Zendesk timed out,
+ * answered 5xx or rate limited. A create that timed out may still have opened
+ * the ticket, but a repeat looks the ticket up by its external id first and
+ * replays the stored body with the same Idempotency-Key, so it can only reach
+ * that one ticket.
+ * @param error - The run's stored error (`action_run.error`).
+ */
+export function isRetryableHandoffFailure(error: string): boolean {
+  return Object.values(RETRYABLE_MESSAGE_STARTS).some(start => error.startsWith(start));
+}
+
 export class TicketHandoffError extends Error {
   readonly code: TicketHandoffErrorCode;
   readonly retryable: boolean;
@@ -91,7 +114,7 @@ export class TicketHandoffError extends Error {
     super(message);
     this.name = 'TicketHandoffError';
     this.code = code;
-    this.retryable = code === 'HANDOFF_BUSY' || code === 'ZENDESK_UNAVAILABLE';
+    this.retryable = code in RETRYABLE_MESSAGE_STARTS;
   }
 }
 
@@ -111,7 +134,17 @@ export async function handOffToTicket(input: TicketHandoffInput): Promise<Ticket
     }
     await new Promise(resolve => setTimeout(resolve, HANDOFF_LOCK_WAIT_MS));
   }
-  throw new TicketHandoffError('HANDOFF_BUSY', `Another hand-off for conversation ${input.conversationId} is still underway. Try again in a moment.`);
+  throw new TicketHandoffError('HANDOFF_BUSY', handoffBusyMessage(input.conversationId));
+}
+
+/**
+ * What a hand-off that waited out the lock says. Its own function so a test can
+ * prove the stored message still reads back as retryable without waiting ~10s
+ * for the lock.
+ * @param conversationId - The conversation another hand-off is holding.
+ */
+export function handoffBusyMessage(conversationId: number): string {
+  return `${RETRYABLE_MESSAGE_STARTS.HANDOFF_BUSY} (conversation ${conversationId}). Try again in a moment.`;
 }
 
 /**
@@ -297,7 +330,7 @@ async function zendeskCall<T>(row: HandoffRow, closeOnRefusal: boolean, call: ()
     const retryable = error instanceof ZendeskError && (error.status === null || error.status === 429 || error.status >= 500);
     if (retryable) {
       await updateHandoff(row.id, { lastError: error.message });
-      throw new TicketHandoffError('ZENDESK_UNAVAILABLE', `Zendesk could not be reached or was busy, so no ticket was opened yet: ${error.message}`);
+      throw new TicketHandoffError('ZENDESK_UNAVAILABLE', `${RETRYABLE_MESSAGE_STARTS.ZENDESK_UNAVAILABLE}: ${error.message}`);
     }
     await updateHandoff(row.id, closeOnRefusal ? { status: 'closed', lastError: error.message, closedAt: new Date() } : { lastError: error.message });
     if (error instanceof RequesterNotEndUserError) {

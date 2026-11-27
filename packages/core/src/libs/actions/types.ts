@@ -546,8 +546,11 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * run is `done`, `rejected`, `undone`, `executing` or `awaiting_execution`
    * gets that run back unchanged (`outcome: already_decided`). A tap while the
    * run is `pending`, or after it `failed`, refreshes that same run in place
-   * and it is `pending` for a person again (`outcome: refreshed`): a tap never
-   * re-executes a failed run, a workspace person decides it in Review. The
+   * and it is `pending` for a person again (`outcome: refreshed`): a workspace
+   * person decides it in Review. The one exception is TRY AGAIN
+   * (`retryableFailure` below): after a failure the action calls safe to
+   * repeat, the next tap is judged by the autonomy ladder again and can run
+   * the same run at once, up to `MAX_AUTOMATIC_ATTEMPTS` failures. The
    * action need not dedupe for that, but still says in its docstring what its
    * `execute` does when a person approves a run that failed before.
    *
@@ -569,6 +572,25 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * failed run answers fixed text.
    */
   cardRunnable?: { callerSchema: z.ZodType<ActionCaller> };
+  /**
+   * Whether a failed run's stored error (`action_run.error`, the message
+   * `execute` threw) is one that is safe to run again at once with the same
+   * input: nothing was written, or the action makes a repeat land on the same
+   * record (an idempotency key, a lookup before the create). Leave it out
+   * unless that is true of the failure it names.
+   *
+   * What it changes: an agent's proposal that refreshes a failed run of this
+   * action (a card tapped again, `run_workspace_card`) is judged by the
+   * autonomy ladder again, as the first proposal was, so it can run now
+   * instead of always waiting for a person in Review, up to
+   * `MAX_AUTOMATIC_ATTEMPTS` failures (`mayTryAgainAutomatically`). Every
+   * other failed run still goes back to Review. A card's answer also tells the
+   * app it may offer Try again (`retryable` on `run_workspace_card`).
+   *
+   * Not `failureRecovery()`, which says whether a person may edit and approve
+   * a failed run again: this says whether it may repeat with nobody looking.
+   */
+  retryableFailure?: (error: string) => boolean;
   /** authz action grant required to run it, e.g. `send_email`. */
   grant: string;
   /** Touches the outside world → the autonomy gate can require approval. */

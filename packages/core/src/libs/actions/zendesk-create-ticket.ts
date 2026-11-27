@@ -21,7 +21,7 @@ import { z } from 'zod';
 import { zendeskCredentialsFrom } from '@/libs/zendesk/client';
 import { helpCenterSettingsFrom, resolveHelpCenterTarget } from '@/libs/zendesk/helpCenterSettings';
 import { zendeskTicketSettingsSchema } from '@/libs/zendesk/ticketSettings';
-import { handOffToTicket, sourceConfigFor } from '@/services/handoff/ticketHandoff';
+import { handOffToTicket, isRetryableHandoffFailure, sourceConfigFor } from '@/services/handoff/ticketHandoff';
 import { CardCallerSchema } from './cardRunnable';
 
 /** The slug of the source whose credential and settings this action uses. */
@@ -42,6 +42,9 @@ export const zendeskCreateTicketAction: Action<typeof zendeskCreateTicketInput> 
   description: 'Hand the conversation to a person: open one Zendesk ticket for the end user who tapped the card, with a subject, a summary for the person who picks it up, and a topic. A conversation gets one open ticket: tapping again while it is unsolved returns the same ticket. Runs only from a card an end user taps.',
   inputSchema: zendeskCreateTicketInput,
   cardRunnable: { callerSchema: CardCallerSchema },
+  // Busy or unreachable Zendesk: the ticket may or may not exist, but a repeat
+  // sends the same Idempotency-Key and external_id, so it can only reach that one ticket.
+  retryableFailure: isRetryableHandoffFailure,
   grant: 'create_ticket',
   external: true,
   sourceSlug: ZENDESK_TICKET_SOURCE_SLUG,

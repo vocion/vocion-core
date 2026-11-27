@@ -22,7 +22,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { decideExecution } from '@/libs/actions/autoAccept';
 import { decidedByMachine } from '@/libs/actions/decider';
-import { failedAttemptsOf, failureRecovery, withFailedAttempt } from '@/libs/actions/failureRecovery';
+import { failedAttemptsOf, failureRecovery, mayTryAgainAutomatically, withFailedAttempt } from '@/libs/actions/failureRecovery';
 import { isManualAction } from '@/libs/actions/manual';
 import { isNeverAuto, personDecidesEveryRun } from '@/libs/actions/neverAuto';
 import { policyKeyForRun } from '@/libs/actions/policyKey';
@@ -67,6 +67,14 @@ export type ActionRunResult = {
   /** What went wrong, set only when `status` is `failed`. */
   error?: string;
   /**
+   * Set only when `status` is `failed`: the action calls this failure safe to
+   * repeat and the run has attempts left (`mayTryAgainAutomatically`), so
+   * proposing the same run again lets the ladder run it again (TRY AGAIN).
+   * Not `failureRecovery().retryable`, which says a person may edit and
+   * approve it again.
+   */
+  canTryAgain?: true;
+  /**
    * What changed since it was proposed, when that kept it from running: on
    * `stale` (a person's approval, which they may repeat with
    * `overrideStale`), or on `pending` (an agent's or a clock's approval,
@@ -78,7 +86,9 @@ export type ActionRunResult = {
 /**
  * What a proposal did, so a caller can say it out loud:
  * - `created` — a new run is in the queue (or ran, if the gate let it).
- * - `refreshed` — a pending run already existed and now carries this payload.
+ * - `refreshed` — an open run (pending, or failed) already existed and now
+ *   carries this payload. When the refresh also ran it (the action's own key,
+ *   a person's word, or Try again), `status` says how that went.
  * - `already_decided` — a person judged this exact record before; nothing was
  *   written, and `runId` / `status` / `decidedAt` describe that earlier run.
  *
@@ -622,7 +632,7 @@ async function proposeActionInTurn(input: {
   if (dedupKey && keyIdentifiesOneRecord) {
     const refreshed = await db.transaction(async (tx) => {
       const lookup = tx
-        .select({ id: actionRunSchema.id, input: actionRunSchema.input, proposal: actionRunSchema.proposal })
+        .select({ id: actionRunSchema.id, input: actionRunSchema.input, proposal: actionRunSchema.proposal, status: actionRunSchema.status, error: actionRunSchema.error, result: actionRunSchema.result, executedAt: actionRunSchema.executedAt })
         .from(actionRunSchema)
         .where(and(
           eq(actionRunSchema.orgId, input.orgId),
@@ -639,11 +649,16 @@ async function proposeActionInTurn(input: {
         return null;
       }
       const stored = withFreshBasis(storedOnRefresh(action, existing, parsed as Record<string, unknown>, storedProposal), storedProposal);
+      // A failed run coming back keeps the failure it is leaving behind, in
+      // `result.failedAttempts`, the way an edit of a failed run does below:
+      // clearing `error` alone would erase that it ever failed.
+      const failed = existing.status === 'failed';
       await tx
         .update(actionRunSchema)
         .set({
           status: 'pending',
           error: null,
+          ...(failed ? { result: withFailedAttempt(existing.result, existing.error, existing.executedAt) } : {}),
           input: stored.input,
           proposal: stored.proposal as never,
           expiresAt: input.expiresAt ?? null,
@@ -668,7 +683,10 @@ async function proposeActionInTurn(input: {
           decidedAt: null,
         })
         .where(eq(actionRunSchema.id, existing.id));
-      return { id: existing.id, input: stored.input, proposal: stored.proposal };
+      // Read before the write above cleared the error. The failures so far are
+      // the ones already set aside plus the one on the run now.
+      const failedSafeToRetry = failed && mayTryAgainAutomatically(action, existing.error, failedAttemptsOf(existing.result).length + 1);
+      return { id: existing.id, input: stored.input, proposal: stored.proposal, failedSafeToRetry };
     });
     if (refreshed) {
       // Keep the action's own domain row in step with the refreshed payload.
@@ -684,7 +702,13 @@ async function proposeActionInTurn(input: {
       // action's own, the proposal that just merged in would have been its
       // own run a moment ago, and the ladder would have judged it: it still
       // is, so merging never costs a proposal the done-for-you it earned.
-      if (action.ownsDedupKey && input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number' && gateHold === null) {
+      // TRY AGAIN. The same holds for a run that failed in a way the action
+      // says is safe to repeat (`retryableFailure`), while it has attempts
+      // left (`MAX_AUTOMATIC_ATTEMPTS`): the ladder that let the first
+      // proposal run judges this one too, rather than the failure always
+      // sending it to a person. With no confidence, a gate hold, or a ladder
+      // that says wait, it stays pending in Review like any refresh.
+      if ((action.ownsDedupKey || refreshed.failedSafeToRetry) && input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number' && gateHold === null) {
         const verdict = await ladderVerdict(input.orgId, action, refreshed.input as Record<string, unknown>, input.proposal, input.conversationAutonomy);
         if (verdict.mode === 'execute') {
           await stampAutoApproval(refreshed.id, (refreshed.proposal ?? null) as Record<string, unknown> | null, verdict, input.invokedBy ?? input.principal.id, input.proposal?.agentSlug);
@@ -1245,7 +1269,8 @@ async function executeActionInScope(
     tellWorkflow(orgId, runId, run.proposal);
     // The error rides the return so the surface that clicked Approve can SAY
     // the execution failed — a silent failed row cost three days once.
-    return { runId, status: 'failed', result: null, error: message };
+    const canTryAgain = mayTryAgainAutomatically(action, message, earlierFailures.length + 1);
+    return { runId, status: 'failed', result: null, error: message, ...(canTryAgain ? { canTryAgain } : {}) };
   }
 }
 

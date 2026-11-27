@@ -32,12 +32,13 @@ vi.mock('@/services/gates/actionGateRun', async (importOriginal) => {
 
 const { db } = await import('@/libs/DB');
 const { CardCallerSchema } = await import('@/libs/actions/cardRunnable');
+const { failedAttemptsOf, MAX_AUTOMATIC_ATTEMPTS } = await import('@/libs/actions/failureRecovery');
 const { registerAction } = await import('@/libs/actions/registry');
 const { actionRunSchema, agentSchema, autonomyPolicySchema, conversationMessageSchema, conversationSchema, projectSchema, tenantAccountSchema, trustRuleSchema } = await import('@/models/Schema');
 const { executeAction } = await import('@/services/ActionService');
 const { appendMessage, createConversation, getConversation, markCardRun } = await import('@/services/ConversationService');
 const { withAdvisoryLock } = await import('@/libs/advisoryLock');
-const { CARD_RETURNED_MESSAGE, CARD_RUN_FAILED_MESSAGE, cardTapPrincipal, judgeCard, runWorkspaceCard, WorkspaceCardError, workspaceCardDedupKey, workspaceCardsOf } = await import('./workspaceCards');
+const { CARD_RETURNED_MESSAGE, CARD_RUN_FAILED_MESSAGE, CARD_RUN_RETRYABLE_MESSAGE, cardTapPrincipal, judgeCard, runWorkspaceCard, WorkspaceCardError, workspaceCardDedupKey, workspaceCardsOf } = await import('./workspaceCards');
 
 const ORG = 'org_cards';
 const OTHER_ORG = 'org_cards_other';
@@ -50,6 +51,9 @@ const executed: Array<{ input: unknown; caller: unknown }> = [];
 /** The `ctx.origin` each run saw: where the proposal was made, never who tapped. */
 const originsSeen: unknown[] = [];
 let failNextRun = false;
+/** The next run fails the way the action says is safe to repeat (`retryableFailure`). */
+let busyNextRun = false;
+const BUSY_ERROR = 'the downstream system was busy, so nothing was written';
 /** What the action's `underway` hook says next; null means nothing is underway. */
 let underwayNext: { line: string; href?: string | null } | null = null;
 
@@ -61,6 +65,7 @@ registerAction({
   grant: 'test_card',
   external: false,
   cardRunnable: { callerSchema: CardCallerSchema },
+  retryableFailure: error => error === BUSY_ERROR,
   underway: async () => {
     const said = underwayNext;
     underwayNext = null;
@@ -70,6 +75,10 @@ registerAction({
     if (failNextRun) {
       failNextRun = false;
       throw new Error('the downstream system said no');
+    }
+    if (busyNextRun) {
+      busyNextRun = false;
+      throw new Error(BUSY_ERROR);
     }
     executed.push({ input, caller: ctx.caller });
     originsSeen.push(ctx.origin);
@@ -154,6 +163,7 @@ beforeEach(async () => {
   executed.length = 0;
   originsSeen.length = 0;
   failNextRun = false;
+  busyNextRun = false;
   await db.insert(tenantAccountSchema).values({ id: 'acct_cards', name: 'Northwind', slug: 'northwind-cards' }).onConflictDoNothing();
   await db.insert(projectSchema).values([
     { id: ORG, accountId: 'acct_cards', slug: 'northwind-cards', name: 'Northwind', leadAgentSlug: 'support-lead' },
@@ -258,6 +268,7 @@ describe('runWorkspaceCard', () => {
     const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, out.runId));
 
     expect(out).toMatchObject({ status: 'failed', error: CARD_RUN_FAILED_MESSAGE, result: null });
+    expect(out).not.toHaveProperty('retryable');
     expect(JSON.stringify(out)).not.toContain('downstream');
     expect(out.runId).toBeGreaterThan(0);
     // The workspace's people still see why it failed.
@@ -322,6 +333,88 @@ describe('runWorkspaceCard', () => {
     expect(again).toMatchObject({ status: 'pending', outcome: 'refreshed', runId: failed.runId });
     expect(executed).toHaveLength(0);
     expect(await db.select().from(actionRunSchema)).toHaveLength(1);
+  });
+
+  it('offers Try again after a failure the action says is safe to repeat, and the next tap runs the same run again at once', async () => {
+    const conversationId = await seedCard({ id: 'card_1' });
+    const tap = { orgId: ORG, actorId: 'token:t1', principal: member, conversationId, cardId: 'card_1', caller };
+    busyNextRun = true;
+    const busy = await runWorkspaceCard(tap);
+
+    expect(busy).toMatchObject({ status: 'failed', retryable: true, error: CARD_RUN_RETRYABLE_MESSAGE, result: null });
+    expect(JSON.stringify(busy)).not.toContain('downstream');
+
+    const again = await runWorkspaceCard(tap);
+
+    expect(again).toMatchObject({ status: 'done', outcome: 'refreshed', runId: busy.runId, result: { noteFor: 'dana@example.com' } });
+    expect(again).not.toHaveProperty('retryable');
+    expect(executed).toEqual([{ input: goodInput, caller }]);
+
+    // Still one card, one run: Try again ran the same row again, and the row still says it failed once.
+    const rows = await db.select().from(actionRunSchema);
+
+    expect(rows).toHaveLength(1);
+    expect(failedAttemptsOf(rows[0]!.result).map(attempt => attempt.error)).toEqual([BUSY_ERROR]);
+  });
+
+  it('offers Try again again when the retry fails the same way, on the same run', async () => {
+    const conversationId = await seedCard({ id: 'card_1' });
+    const tap = { orgId: ORG, actorId: 'token:t1', principal: member, conversationId, cardId: 'card_1', caller };
+    busyNextRun = true;
+    const first = await runWorkspaceCard(tap);
+    busyNextRun = true;
+    const second = await runWorkspaceCard(tap);
+
+    expect(second).toMatchObject({ status: 'failed', outcome: 'refreshed', retryable: true, runId: first.runId });
+    expect(executed).toHaveLength(0);
+    expect(await db.select().from(actionRunSchema)).toHaveLength(1);
+  });
+
+  it('stops offering Try again once the run has failed the most times allowed, and the next tap waits for a person', async () => {
+    const conversationId = await seedCard({ id: 'card_1' });
+    const tap = { orgId: ORG, actorId: 'token:t1', principal: member, conversationId, cardId: 'card_1', caller };
+    const answers: Array<Awaited<ReturnType<typeof runWorkspaceCard>>> = [];
+    for (let attempt = 0; attempt < MAX_AUTOMATIC_ATTEMPTS; attempt++) {
+      busyNextRun = true;
+      answers.push(await runWorkspaceCard(tap));
+    }
+    const afterLast = await runWorkspaceCard(tap);
+
+    expect(answers.map(answer => answer.status)).toEqual(Array.from({ length: MAX_AUTOMATIC_ATTEMPTS }, () => 'failed'));
+    expect(answers.slice(0, -1).every(answer => answer.retryable === true)).toBe(true);
+    expect(answers.at(-1)).toMatchObject({ error: CARD_RUN_FAILED_MESSAGE });
+    expect(answers.at(-1)).not.toHaveProperty('retryable');
+    expect(afterLast).toMatchObject({ status: 'pending', outcome: 'refreshed', runId: answers[0]!.runId });
+    expect(executed).toHaveLength(0);
+
+    const [run] = await db.select().from(actionRunSchema);
+
+    expect(failedAttemptsOf(run!.result)).toHaveLength(MAX_AUTOMATIC_ATTEMPTS);
+  });
+
+  it('runs Try again once when the card is tapped twice at the same instant', async () => {
+    const conversationId = await seedCard({ id: 'card_1' });
+    const tap = { orgId: ORG, actorId: 'token:t1', principal: member, conversationId, cardId: 'card_1', caller };
+    busyNextRun = true;
+    await runWorkspaceCard(tap);
+    const both = await Promise.all([runWorkspaceCard(tap), runWorkspaceCard(tap)]);
+
+    expect(executed).toHaveLength(1);
+    expect(both.map(answer => answer.outcome)).toContain('refreshed');
+    expect(both.filter(answer => answer.outcome === 'refreshed' && answer.status === 'done')).toHaveLength(1);
+    expect(await db.select().from(actionRunSchema)).toHaveLength(1);
+  });
+
+  it('does not run a tap after the action\'s own run is done, even when an earlier failure was safe to repeat', async () => {
+    const conversationId = await seedCard({ id: 'card_1' });
+    const tap = { orgId: ORG, actorId: 'token:t1', principal: member, conversationId, cardId: 'card_1', caller };
+    busyNextRun = true;
+    await runWorkspaceCard(tap);
+    await runWorkspaceCard(tap);
+    const third = await runWorkspaceCard(tap);
+
+    expect(third).toMatchObject({ status: 'done', outcome: 'already_decided', result: null });
+    expect(executed).toHaveLength(1);
   });
 
   it('does not let one end user\'s run block another conversation\'s identical card', async () => {
@@ -560,6 +653,46 @@ describe('what a tap does at each rung', () => {
 
     expect(await runWorkspaceCard(tapOf(unsure))).toMatchObject({ status: 'pending' });
     expect(await runWorkspaceCard(tapOf(silent))).toMatchObject({ status: 'pending' });
+    expect(executed).toHaveLength(0);
+  });
+
+  it('sends Try again to a person when the workspace no longer lets the card run on its own', async () => {
+    await setRung('execute-within-bounds');
+    const conversationId = await seedCard({ id: 'card_1' });
+    busyNextRun = true;
+    const busy = await runWorkspaceCard(tapOf(conversationId));
+    await setRung('execute-with-approval');
+    const again = await runWorkspaceCard(tapOf(conversationId));
+
+    expect(busy).toMatchObject({ status: 'failed', retryable: true });
+    expect(again).toMatchObject({ status: 'pending', outcome: 'refreshed', runId: busy.runId });
+    expect(executed).toHaveLength(0);
+  });
+
+  it('sends Try again to a person when a declared gate holds it', async () => {
+    await setRung('execute-within-bounds');
+    const conversationId = await seedCard({ id: 'card_1' });
+    busyNextRun = true;
+    const busy = await runWorkspaceCard(tapOf(conversationId));
+    gateAnswer.hold = 'Red team found a claim the wiki does not support.';
+    const again = await runWorkspaceCard(tapOf(conversationId));
+
+    expect(busy).toMatchObject({ status: 'failed', retryable: true });
+    expect(again).toMatchObject({ status: 'pending', outcome: 'refreshed', runId: busy.runId });
+    expect(executed).toHaveLength(0);
+  });
+
+  it('sends Try again to a person when the card carried no confidence, after a person\'s approval failed', async () => {
+    await setRung('execute-with-approval');
+    const conversationId = await seedCard({ id: 'card_1', confidence: undefined });
+    const waiting = await runWorkspaceCard(tapOf(conversationId));
+    busyNextRun = true;
+    const failed = await executeAction(waiting.runId, ORG, { reviewedBy: 'usr-lili' });
+    await setRung('execute-within-bounds');
+    const again = await runWorkspaceCard(tapOf(conversationId));
+
+    expect(failed).toMatchObject({ status: 'failed', canTryAgain: true });
+    expect(again).toMatchObject({ status: 'pending', outcome: 'refreshed', runId: waiting.runId });
     expect(executed).toHaveLength(0);
   });
 

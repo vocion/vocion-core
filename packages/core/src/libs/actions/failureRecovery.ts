@@ -51,6 +51,31 @@ export function failureRecovery(actionId: string, error: string | null | undefin
   };
 }
 
+/**
+ * How many times one run may be tried without a person, counting the first
+ * try. Try again on a card re-runs a run whose failure the action calls safe
+ * to repeat; past this many failures the next tap goes to a person in Review
+ * instead, so a service that stays down is not hit on every tap.
+ */
+export const MAX_AUTOMATIC_ATTEMPTS = 3;
+
+/**
+ * Whether proposing a failed run again may run it again under the ladder
+ * (TRY AGAIN), rather than always putting it in front of a person.
+ *
+ * Not the same question as {@link failureRecovery}: that one asks whether a
+ * person may edit and approve a failed run again. This one asks whether the
+ * run may repeat with nobody looking, so only the action itself can say yes
+ * (`Action.retryableFailure`), and only a few times.
+ * @param action - The run's action.
+ * @param action.retryableFailure - Its own word on which failures are safe to repeat.
+ * @param error - What the run recorded (`action_run.error`).
+ * @param failuresSoFar - Every failed attempt on the run, this one included.
+ */
+export function mayTryAgainAutomatically(action: { retryableFailure?: (error: string) => boolean }, error: string | null | undefined, failuresSoFar: number): boolean {
+  return Boolean(error) && action.retryableFailure?.(error ?? '') === true && failuresSoFar < MAX_AUTOMATIC_ATTEMPTS;
+}
+
 /** One earlier attempt at a run that failed, kept when the run is tried again. */
 export type FailedAttempt = { at: string; error: string };
 

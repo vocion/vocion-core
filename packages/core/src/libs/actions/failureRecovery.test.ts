@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { failedAttemptsOf, failureRecovery, withFailedAttempt } from './failureRecovery';
+import { failedAttemptsOf, failureRecovery, MAX_AUTOMATIC_ATTEMPTS, mayTryAgainAutomatically, withFailedAttempt } from './failureRecovery';
 
 const SCOPE_403 = 'Gmail draft failed: 403 { "error": { "code": 403, "message": "Request had insufficient authentication scopes.", "status": "PERMISSION_DENIED", "details": [ { "reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT" } ] } }';
 
@@ -43,5 +43,21 @@ describe('withFailedAttempt', () => {
     expect(withFailedAttempt(null, null, null)).toBeNull();
     expect(withFailedAttempt({ a: 1 }, '', null)).toEqual({ a: 1 });
     expect(failedAttemptsOf({ failedAttempts: 'garbage' })).toEqual([]);
+  });
+});
+
+describe('mayTryAgainAutomatically', () => {
+  const busyIsSafe = { retryableFailure: (error: string) => error.startsWith('busy') };
+
+  it('lets a failure the action calls safe to repeat run again, until the run has failed the most times allowed', () => {
+    expect(mayTryAgainAutomatically(busyIsSafe, 'busy: 503', 1)).toBe(true);
+    expect(mayTryAgainAutomatically(busyIsSafe, 'busy: 503', MAX_AUTOMATIC_ATTEMPTS - 1)).toBe(true);
+    expect(mayTryAgainAutomatically(busyIsSafe, 'busy: 503', MAX_AUTOMATIC_ATTEMPTS)).toBe(false);
+  });
+
+  it('never repeats a failure the action did not call safe, or an action that says nothing about it', () => {
+    expect(mayTryAgainAutomatically(busyIsSafe, 'refused: 422', 1)).toBe(false);
+    expect(mayTryAgainAutomatically({}, 'busy: 503', 1)).toBe(false);
+    expect(mayTryAgainAutomatically(busyIsSafe, null, 1)).toBe(false);
   });
 });

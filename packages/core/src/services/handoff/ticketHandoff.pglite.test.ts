@@ -9,12 +9,13 @@ import type { ZendeskCredentials } from '@/libs/zendesk/client';
 import type { Answer } from '@/libs/zendesk/fakeZendesk';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
+import { zendeskCreateTicketAction } from '@/libs/actions/zendesk-create-ticket';
 import { db } from '@/libs/DB';
 import { depsFor, FakeZendesk, tokenAnswer } from '@/libs/zendesk/fakeZendesk';
 import { zendeskTicketSettingsSchema } from '@/libs/zendesk/ticketSettings';
 import { ticketHandoffSchema } from '@/models/Schema';
 import { createConversation } from '@/services/ConversationService';
-import { conversationForTicket, handOffToTicket, openHandoffFor, TicketHandoffError } from './ticketHandoff';
+import { conversationForTicket, handoffBusyMessage, handOffToTicket, openHandoffFor, TicketHandoffError } from './ticketHandoff';
 
 vi.mock('@/libs/DB');
 
@@ -213,6 +214,8 @@ describe('handOffToTicket', () => {
     const failed = await handOffToTicket(tap(conversationId, fake, credentials)).catch((error: unknown) => error);
 
     expect(failed).toMatchObject({ code: 'ZENDESK_REFUSED', retryable: false });
+    // A failed run keeps only its message (`action_run.error`): the action's Try again reads it back from there.
+    expect(zendeskCreateTicketAction.retryableFailure?.((failed as Error).message)).toBe(false);
     expect(await openHandoffFor(ORG, conversationId)).toBeNull();
   });
 
@@ -227,6 +230,7 @@ describe('handOffToTicket', () => {
     const failed = await handOffToTicket(tap(conversationId, fake, credentials)).catch((error: unknown) => error);
 
     expect(failed).toMatchObject({ code: 'REQUESTER_NOT_END_USER', retryable: false });
+    expect(zendeskCreateTicketAction.retryableFailure?.((failed as Error).message)).toBe(false);
     expect(creates(fake)).toHaveLength(0);
     expect(fake.sentTo(USERS)).toHaveLength(0);
     expect(new Set(fake.calls.filter(call => !call.url.includes(TOKENS)).map(call => call.init.method ?? 'GET'))).toEqual(new Set(['GET']));
@@ -245,6 +249,7 @@ describe('handOffToTicket', () => {
     const failed = await handOffToTicket(tap(conversationId, fake, credentials)).catch((error: unknown) => error);
 
     expect(failed).toMatchObject({ code: 'ZENDESK_UNAVAILABLE', retryable: true });
+    expect(zendeskCreateTicketAction.retryableFailure?.((failed as Error).message)).toBe(true);
 
     const open = await openHandoffFor(ORG, conversationId);
 
@@ -269,6 +274,7 @@ describe('handOffToTicket', () => {
     const failed = await handOffToTicket(tap(conversationId, fake, credentials)).catch((error: unknown) => error);
 
     expect(failed).toMatchObject({ code: 'ZENDESK_REFUSED', retryable: false });
+    expect(zendeskCreateTicketAction.retryableFailure?.((failed as Error).message)).toBe(false);
     expect(creates(fake)).toHaveLength(0);
     expect(await openHandoffFor(ORG, conversationId)).toBeNull();
   });
@@ -283,6 +289,13 @@ describe('handOffToTicket', () => {
     expect(failed).toMatchObject({ code: 'ZENDESK_REFUSED' });
     expect((await openHandoffFor(ORG, conversationId))?.requestBody).toBeTruthy();
     expect(creates(fake)).toHaveLength(0);
+  });
+
+  it('reads a hand-off that waited out another tap\'s lock as safe to try again', () => {
+    const busy = new TicketHandoffError('HANDOFF_BUSY', handoffBusyMessage(7));
+
+    expect(busy.retryable).toBe(true);
+    expect(zendeskCreateTicketAction.retryableFailure?.(busy.message)).toBe(true);
   });
 
   it('refuses a different end user\'s tap on a conversation whose ticket is still open', async () => {

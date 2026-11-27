@@ -44,6 +44,8 @@ export const CardCallerSchema: z.ZodType<ActionCaller> = z.object({
  * proposes under, and the action service's refresh path can execute on a
  * refresh (`outcome: 'refreshed'`). That would break "one card, one run", so
  * such an action is not card-runnable even when it declares `cardRunnable`.
+ * (A card action's refresh executes only for Try again: the SAME run, after a
+ * failure the action itself says is safe to repeat, `retryableFailure`.)
  * The registry has no validation step for action definitions, so the check
  * sits where every caller decides whether a card is runnable.
  * @param action - A registered action, or undefined for an id that is not registered.

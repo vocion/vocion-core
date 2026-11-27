@@ -39,9 +39,12 @@
  * `done`, `rejected`, `undone`, `executing` or `awaiting_execution` is returned
  * as it is (`already_decided`, nothing ran); a run that is still `pending` or
  * has `failed` is refreshed in place and goes (back) to `pending` for a person,
- * on the same run id (`refreshed`). `ActionService` checks then writes without
- * a lock, so two taps at the same instant are serialised here by an advisory
- * lock on the same key.
+ * on the same run id (`refreshed`). TRY AGAIN is the one exception: a run that
+ * failed in a way its action says is safe to repeat (`retryableFailure`), with
+ * attempts left (`MAX_AUTOMATIC_ATTEMPTS`), is judged by the ladder again on
+ * the next tap, so it can run again at once, still on the same run id.
+ * `ActionService` checks then writes without a lock, so two taps at the same
+ * instant are serialised here by an advisory lock on the same key.
  *
  * ONE CARD, ONE END USER. The first tap binds the card to its `caller.id` (`tappedBy` on
  * the stored card); a tap by a different id is `CARD_NOT_AVAILABLE`, because a refresh
@@ -213,7 +216,8 @@ export type RunWorkspaceCardResult = {
   /**
    * `created` (this tap made the run: it ran if `status` is `done` or `failed`, and is waiting
    * for a person if `pending`), `refreshed` (the card's earlier run was still `pending` or had
-   * `failed`: it was updated in place and is `pending` for a person, nothing ran now),
+   * `failed`: it was updated in place and is `pending` for a person, nothing ran now; or, after
+   * a failure the action says is safe to repeat, it ran again now if `status` is `done` or `failed`),
    * `already_decided` (an earlier tap's run in any other status is returned; nothing ran now) or `already_underway`
    * (the action says what was asked is already happening, or another tap on this card is
    * running it right now; nothing ran now).
@@ -225,8 +229,19 @@ export type RunWorkspaceCardResult = {
    * Sent to the app as the action returned it, so a card-runnable action keeps it end-user safe.
    */
   result: Record<string, unknown> | null;
-  /** Fixed text (`CARD_RUN_FAILED_MESSAGE`), never the action's own error, when `status` is `failed`. */
+  /**
+   * Fixed text, never the action's own error, when `status` is `failed`:
+   * `CARD_RUN_RETRYABLE_MESSAGE` when `retryable`, else `CARD_RUN_FAILED_MESSAGE`.
+   */
   error?: string;
+  /**
+   * Set (true) when `status` is `failed`, the action says this failure is safe to repeat, and
+   * the run has attempts left (`ActionRunResult.canTryAgain`), so the app may offer Try again:
+   * the next tap is judged again and can run at once, or wait in Review if the ladder says so.
+   * Absent means do not offer Try again. Not `failureRecovery().retryable`, which is about a
+   * person editing and approving a failed run.
+   */
+  retryable?: true;
   /**
    * The action's own line about what is already happening (`already_underway`). Its link is left
    * out: it points at the workspace's run, which the app's user cannot open.
@@ -304,6 +319,13 @@ async function withCardLock<T>(lockName: string, work: () => Promise<T>): Promis
  * `action_run` row and on the card for the workspace's people.
  */
 export const CARD_RUN_FAILED_MESSAGE = 'the action did not complete. Tell your user it did not go through. Tapping the card again does not run it again: it puts the same request back in front of a workspace person in Review.';
+
+/**
+ * What `run_workspace_card` tells the app when the action failed in a way it
+ * says is safe to repeat (`retryableFailure`). Fixed text for the same reason
+ * as {@link CARD_RUN_FAILED_MESSAGE}.
+ */
+export const CARD_RUN_RETRYABLE_MESSAGE = 'the action could not finish because a service it needs was busy or could not be reached, so it may or may not have gone through. Tell your user that, and that tapping the card again tries again without doing it twice, or puts it in front of a workspace person if it cannot run on its own now.';
 
 /**
  * What `run_workspace_card` tells the app when the workspace's own check sent
@@ -532,9 +554,22 @@ export async function runWorkspaceCard(input: RunWorkspaceCardInput): Promise<Ru
     status: ran.status,
     outcome: ran.outcome,
     result: ran.result ?? null,
-    ...(ran.error ? { error: CARD_RUN_FAILED_MESSAGE } : {}),
+    ...failureAnswer(ran),
     ...(ran.underway ? { underway: { line: ran.underway.line } } : {}),
   };
+}
+
+/**
+ * The fixed text, and the Try again flag, for a tap whose run failed; nothing when it did not.
+ * Whether Try again runs it again is the action service's call (`canTryAgain`),
+ * so the card never offers a retry the next tap would refuse.
+ * @param ran - What the action service answered. Its `error` is read here and never passed on.
+ */
+function failureAnswer(ran: Pick<ProposeResult, 'error' | 'canTryAgain'>): Pick<RunWorkspaceCardResult, 'error' | 'retryable'> {
+  if (!ran.error) {
+    return {};
+  }
+  return ran.canTryAgain ? { error: CARD_RUN_RETRYABLE_MESSAGE, retryable: true } : { error: CARD_RUN_FAILED_MESSAGE };
 }
 
 /**
